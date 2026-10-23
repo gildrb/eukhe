@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -31,5 +31,5 @@ def w2.fit_full(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat, +h: {Nat.is_l
   %Equal.sym(Nat, Nat.min(b, Nat.sub(mm, a)), Nat.sub(mm, a), LA.w2.min_r(b, Nat.sub(mm, a), LA.pf.le_trans(Nat.sub(mm, a), mm, b, LA.pf.sub_le(mm, a), h))) : {Fx.Fit{mm, _} == Fx.Fit{mm, Nat.sub(mm, a)} : Fx.Fit}
   {==}
 
-def Laws.facts_fit_saturated_budget(base, mm, b1, b2, a, h1, h2):
+def Facts.facts_fit_saturated_budget(base, mm, b1, b2, a, h1, h2):
   Equal.trans(Fx.Fit, Fx.fit(base, mm, b1, a), Fx.Fit{mm, Nat.sub(mm, a)}, Fx.fit(base, mm, b2, a), w2.fit_full(base, mm, b1, a, h1), Equal.sym(Fx.Fit, Fx.fit(base, mm, b2, a), Fx.Fit{mm, Nat.sub(mm, a)}, w2.fit_full(base, mm, b2, a, h2)))

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/supervise.bend as Su
-import ../../LAWS.bend as Laws
+import ../../laws/supervise.bend as Supervise
 import ../base.bend as L
 
 # a is at most a + b
@@ -41,5 +41,5 @@ def ps.timeouts_ordered(+t: Su.Tm) -> {Su.Tm.ordered(t) == True{} : Bool}:
             L.supervisor.ps.and_t(Nat.is_le(Su.Tm.qanswer(t), Su.Tm.quiesce_hold(t)), window, ps.le_add(Su.Tm.qanswer(t), Su.Tm.stop_grace(t)),
               L.supervisor.ps.le_add_l(Su.Tm.loop_step(t), Nat.mul(Su.Tm.k(t), Su.Tm.loop_step(t)))))))))
 
-def Laws.timeouts_ordered(t):
+def Supervise.timeouts_ordered(t):
   ps.timeouts_ordered(t)

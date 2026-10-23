@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 # s is at most s + x
@@ -22,5 +22,5 @@ def ps.pace_never_back(+min: Nat, +k: Nat, +p: Sc.Pace, e: Sc.PEv) -> {Nat.is_le
         case Sc.Frame{}:
           ps.le_add_self(s, Sc.reveal(min, k, Nat.sub(r, s)))
 
-def Laws.pace_never_back(min, k, p, e):
+def Screen.pace_never_back(min, k, p, e):
   ps.pace_never_back(min, k, p, e)

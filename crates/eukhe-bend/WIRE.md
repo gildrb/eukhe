@@ -4,8 +4,8 @@ Every entry of the compiled Bend core (`bend/core.bend`, called from Rust
 through `eukhe_bend::call` or a `eukhe_bend::Stepper`) reads its input and
 writes its reply as text in this format. `bend/wire.bend` is the Bend side
 (an encoder `put_x` and a total decoder `get_x` per primitive);
-`src/wire.rs` is the Rust side (`Writer`, `Reader`). LAWS.bend section
-`wire` pins the Bend side: for every value `x` and every `rest`,
+`src/wire.rs` is the Rust side (`Writer`, `Reader`). `laws/wire.bend`
+pins the Bend side: for every value `x` and every `rest`,
 `get_x(put_x(x, rest)) == Got{x, rest}`, and `get_x(s) == Got{x, rest}`
 only when `s == put_x(x, rest)`: every other input decodes to `Bad{}`.
 One Rust test feeds Rust-encoded values through the real `call` and checks
@@ -78,7 +78,7 @@ tag is `W.put_nat(<index>n, ...)`; a decoder of a type with several
 constructors reads the tag with `W.get_nat` and matches it (an unknown tag
 is `W.Bad{}`). `W.put_list` / `W.get_list` are templates over the item's
 codec: `W.put_list(~Nat, ~W.put_nat, xs, rest)`. An area's codec proves its
-own round trip (LAWS.bend, the area's section) from the `wire` laws.
+own round trip (`laws/<area>.bend`) from the `wire` laws.
 
 An entry: `def ffi(input: String) -> String`: decode the request; on
 `W.Bad{}` or input left over answer `W.err("<what>")`, never a default;

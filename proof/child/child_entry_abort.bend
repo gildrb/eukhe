@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_child.bend as FCh
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/child.bend as Child
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -26,7 +26,7 @@ def pw6.report(k: Ch.Report, +rest: String) -> {Wr.Got{k, rest} == FCh.get_repor
       %L.pw6.nat(4n, rest, {==}) : {Wr.Got{Ch.Unreachable{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
       {==}
 
-def pw6.ph(p: Ch.Ph, +rest: String, +h: {Laws.wire_ph_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FCh.get_ph(FCh.put_ph(p, rest)) : Wr.Dec<Ch.Ph>}:
+def pw6.ph(p: Ch.Ph, +rest: String, +h: {Child.wire_ph_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FCh.get_ph(FCh.put_ph(p, rest)) : Wr.Dec<Ch.Ph>}:
   match p:
     case Ch.Watching{+w}:
       %L.pw6.nat(0n, FCh.put_w(w, rest), {==}) : {Wr.Got{Ch.Watching{w}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
@@ -41,7 +41,7 @@ def pw6.ph(p: Ch.Ph, +rest: String, +h: {Laws.wire_ph_fits(p) == True{} : Bool})
       %L.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Ended{}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
       {==}
 
-def Laws.child_entry_abort(p, d, hp):
+def Child.child_entry_abort(p, d, hp):
   +R = FCh.put_ph(Ch.cut.ph(p, d), "")
   %L.pw6.nat(2n, FCh.put_ph(p, Wr.put_bool(d, "")), {==}) : {FCh.run(_) == R : String}
   %pw6.ph(p, Wr.put_bool(d, ""), hp) : {FCh.abort.ph(_) == R : String}

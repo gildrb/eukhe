@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 import ./base.bend as LA
 
 def ps.contig_at(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +c: Nat, e: {Nat.add(s, k) == c : Nat}) -> {List.append(&2, Nat, Sr.page(ps, s, k), List.append(&2, Nat, Sr.page(ps, c, k), List.drop(&2, Nat, List.drop(&2, Nat, ps, c), k))) == List.drop(&2, Nat, ps, s) : List<&2, Nat>}:
@@ -13,5 +13,5 @@ def ps.contig_at(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +c: Nat, e: {Nat.add(s, k
 def ps.contiguous(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +c: Nat, h: {Sr.next(ps, s, k) == Some{c} : Maybe<&2, Nat>}) -> &rest: List<&2, Nat> -> {List.append(&2, Nat, Sr.page(ps, s, k), List.append(&2, Nat, Sr.page(ps, c, k), rest)) == List.drop(&2, Nat, ps, s) : List<&2, Nat>}:
   (List.drop(&2, Nat, List.drop(&2, Nat, ps, c), k), ps.contig_at(ps, s, k, c, LA.ps.next_c(ps, s, k, c, h)))
 
-def Laws.continuation_contiguous(ps, s, k, c, h):
+def DocSearch.continuation_contiguous(ps, s, k, c, h):
   ps.contiguous(ps, s, k, c, h)

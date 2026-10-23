@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW retry_wait_uncapped
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.retry_wait_uncapped(jitter, s):
+def Retry.retry_wait_uncapped(jitter, s):
   {==}

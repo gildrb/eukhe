@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 
 def pc.or_t(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
   match a:
@@ -28,5 +28,5 @@ def pc.all_or_nothing(+pre: List<&2, Cm.Doc>, +k: Cm.Op, +x: Cm.Fault, +post: Li
   %Equal.sym(Bool, Cm.conflict(fs), True{}, pc.conflict_at(pre, k, x, post)) : {Cm.landed.pick(_, fs) == Nil{} : List<&2, Nat>}
   {==}
 
-def Laws.edit_all_or_nothing_on_conflict(pre, k, x, post):
+def DocCommit.edit_all_or_nothing_on_conflict(pre, k, x, post):
   pc.all_or_nothing(pre, k, x, post)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 
 # Move
 # ----
@@ -14,5 +14,5 @@ def pc.move_taken(+s: Nat, +t: Nat, +es: List<&2, Cm.Entry>, taken: {Cm.has(t, e
 
 # (F5) A move
 
-def Laws.move_never_overwrites(s, t, es, taken):
+def DocCommit.move_never_overwrites(s, t, es, taken):
   pc.move_taken(s, t, es, taken)

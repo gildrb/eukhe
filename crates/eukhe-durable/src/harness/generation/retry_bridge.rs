@@ -1,5 +1,5 @@
 //! The bridge between the idle deadline's decisions and its Bend model
-//! (`bend/retry.bend` §6, whose laws `LAWS.bend` section `retry` states
+//! (`bend/retry.bend` §6, whose laws `laws/retry.bend` states
 //! and `PROOF.bend` proves): both run the same scenarios and must print
 //! the same transcript, byte for byte. `bend/bridge_retry.bend` documents
 //! the scenario format (its `i` lines). The deferred job (§4) has no

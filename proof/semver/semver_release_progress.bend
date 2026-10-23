@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -39,5 +39,5 @@ def ps.progress(c: String, +a: Nat, +b: Nat, +tags: List<&2, String>, parsed: {S
   %ps.newest_only(tags, Sv.Ver{a, b, 0n}, Nil{}, only) : {Sv.Rel.guard(_, Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
   {==}
 
-def Laws.semver_release_progress(c, a, b, tags, parsed, only):
+def Semver.semver_release_progress(c, a, b, tags, parsed, only):
   ps.progress(c, a, b, tags, parsed, only)

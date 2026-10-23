@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -48,5 +48,5 @@ def tui_effort_ramp_ordered(+lo: TC.Px, +hi: TC.Px, +n: Nat) -> {TC.ordered(lo, 
     case TC.Px{lr, lg, lb} TC.Px{hr, hg, hb} 1n+m:
       pu.ordered_go(m, 1n, lr, lg, lb, hr, hg, hb, 1n+m, L.pu.le_zero(m))
 
-def Laws.tui_effort_ramp_ordered(lo, hi, n):
+def TuiColor.tui_effort_ramp_ordered(lo, hi, n):
   tui_effort_ramp_ordered(lo, hi, n)

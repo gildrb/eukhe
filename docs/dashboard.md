@@ -30,7 +30,7 @@ One source for every presentation value: `ui/src/tokens.stylex.ts` (colors, leng
 - Never repeat a value. Lint rule `eukhe/token-literals` (`ui/lint/tokens.mjs`) fails `vp check` (file, line) on a literal under `ui/src`: color, non-zero length, duration, easing, or a number for z-index, font weight, opacity, line height, Radix offset.
 - `global.css` (document root, selection, scroll bars) uses `page` variables (`--page-*`); `src/tokens.test.ts` fails on a literal there.
 - `index.html`, `public/manifest.webmanifest`, `public/theme.js` cannot read CSS and repeat the theme color; `src/tokens.test.ts` checks it equals the palette's `bg`.
-- `bend/tokens.bend` holds the same tables. `LAWS.bend` section `dashboard_tokens` (T2):
+- `bend/tokens.bend` holds the same tables. `laws/tokens.bend` (T2):
   - each color token has a light and a dark value;
   - both modes: text color vs ground meets minimum contrast (4.5:1 text, 3:1 captions on fills);
   - layers strictly ordered;
@@ -111,7 +111,7 @@ Open the printed `Poros URL` plus the `#token=…` part of the dashboard link. p
 - `--allow-host` only for a forwarder you control that keeps `Host` (`tailscale serve` does).
 - `tailscale serve`, never `tailscale funnel` (public internet).
 - The socket refuses bridge and daemon-internal commands ([Protocol](#protocol)).
-- `LAWS.bend` section `dashboard_auth`: pairing gate rules; `PROOF.bend` proves them on `bend/dash.bend`. Bridge test `pairing::tests::the_gate_pairs_as_its_model` runs real server and model on the same events.
+- `laws/dash.bend`: pairing gate rules; `PROOF.bend` proves them on `bend/dash.bend`. Bridge test `pairing::tests::the_gate_pairs_as_its_model` runs real server and model on the same events.
 
 ## Caching
 

@@ -8,7 +8,7 @@
 //! of a prefix is a snapshot.
 //!
 //! The rule (which record the tree takes, what a delete removes, what a
-//! rewind does) is the Bend model `bend/tree.bend`: `LAWS.bend` section
+//! rewind does) is the Bend model `bend/tree.bend`: `laws/tree.bend`
 //! (S1) states its laws and `PROOF.bend` proves them. The journal runs
 //! that rule as a stepper of the compiled Bend core (`bend/ffi_tree.bend`,
 //! through `eukhe-bend`) whose state is the live tree and the journal, so

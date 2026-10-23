@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 # a walk that goes above its root, from the names at, is None
@@ -26,5 +26,5 @@ def pl.esc(segs: List<&2, Tl.Seg>, at: List<&2, Nat>, h: {Tl.stays(segs, LA.pl.l
 def pl.path_rejects_escape(+segs: List<&2, Tl.Seg>, out: {Tl.stays(segs, 0n) == False{} : Bool}) -> {Tl.resolve(segs) == None{} : Maybe<&2, List<&2, Nat>>}:
   pl.esc(segs, Nil{}, out)
 
-def Laws.path_rejects_escape(segs, out):
+def Tools.path_rejects_escape(segs, out):
   pl.path_rejects_escape(segs, out)

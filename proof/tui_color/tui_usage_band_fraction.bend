@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 import ./base.bend as LA
 
 def pu.add_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
@@ -88,5 +88,5 @@ def pu.band_scale(+fs: List<&2, TC.Frac>, +k: Nat, +t: Nat, +w: Nat) -> {TC.band
 def tui_usage_band_fraction(+k: Nat, +t: Nat, +w: Nat) -> {TC.band(Nat.mul(1n+k, t), Nat.mul(1n+k, w)) == TC.band(t, w) : Nat}:
   pu.band_scale(TC.bands(), k, t, w)
 
-def Laws.tui_usage_band_fraction(k, t, w):
+def TuiColor.tui_usage_band_fraction(k, t, w):
   tui_usage_band_fraction(k, t, w)

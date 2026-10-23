@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 import ./base.bend as LA
 
 # the law temp_sweep_removes_free
@@ -11,5 +11,5 @@ def pc.sweep_removes_free(+pre: List<&2, Cm.Temp>, +i: Nat, +post: List<&2, Cm.T
   %LA.pc.sweep_app(pre, n <> post) : {_ == List.append(&2, Cm.Temp, Cm.sweep(pre), n <> Cm.sweep(post)) : List<&2, Cm.Temp>}
   {==}
 
-def Laws.temp_sweep_removes_free(pre, i, post):
+def DocCommit.temp_sweep_removes_free(pre, i, post):
   pc.sweep_removes_free(pre, i, post)

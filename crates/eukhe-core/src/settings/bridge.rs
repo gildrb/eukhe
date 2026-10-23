@@ -1,5 +1,5 @@
 //! The bridge between the config code and its Bend model
-//! (`bend/config.bend`, whose laws `LAWS.bend` section `config` states and
+//! (`bend/config.bend`, whose laws `laws/config.bend` states and
 //! `PROOF.bend` proves): the Rust test builds each scenario's documents in
 //! a temp dir, runs the real code over them, and prints what it did; the
 //! model prints the same from the scenario. `bend/bridge_config.bend`

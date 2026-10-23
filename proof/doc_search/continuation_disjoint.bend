@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 import ./base.bend as LA
 
 # ==== search ====
@@ -149,5 +149,5 @@ def ps.disjoint(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +c: Nat, +x: Nat, h: {Sr.n
   %LA.ps.next_c(ps, s, k, c, h) : {Bool.and(Sr.mem(x, Sr.page(ps, s, k)), Sr.mem(x, Sr.page(ps, _, k))) == False{} : Bool}
   ps.disj_at(ps, s, k, x, nd)
 
-def Laws.continuation_disjoint(ps, s, k, c, x, h, nd):
+def DocSearch.continuation_disjoint(ps, s, k, c, x, h, nd):
   ps.disjoint(ps, s, k, c, x, h, nd)

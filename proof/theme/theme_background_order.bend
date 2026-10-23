@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_background_order
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_background_order(cols, pg):
+def Theme.theme_background_order(cols, pg):
   {==}

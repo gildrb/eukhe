@@ -1,10 +1,10 @@
 # eukhe: the proof of LAW need_progress
 
 import Base
+import ../../bend/compactor.bend as C
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -216,5 +216,5 @@ def pc.need_progress(+cfg: O.Cfg, +evs: List<&2, O.Ev>, +room: {Nat.is_lt(List.l
   +busy = O.St.busy(s)
   pc.scan(O.St.view(s), Nat.sub(jobs, List.length(&2, O.Node, busy)), O.St.info(s), busy, jobs, 0n, 0n, S.total.of(cfg, evs), LA.view_covers(cfg, evs), idle, pc.sub_pos(List.length(&2, O.Node, busy), jobs, room), pc.under0(jobs, busy, room))
 
-def Laws.need_progress(cfg, evs, room, idle):
+def Optchat.need_progress(cfg, evs, room, idle):
   pc.need_progress(cfg, evs, room, idle)

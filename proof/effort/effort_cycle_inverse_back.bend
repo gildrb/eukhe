@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 import ./base.bend as LA
 
 def pe.app_snoc(xs: List<&2, Ef.Lv>, +a: Ef.Lv, +ys: List<&2, Ef.Lv>) -> {List.append(&2, Ef.Lv, List.append(&2, Ef.Lv, xs, [a]), ys) == List.append(&2, Ef.Lv, xs, a <> ys) : List<&2, Ef.Lv>}:
@@ -61,5 +61,5 @@ def pe.fb_any(+lad: List<&2, Ef.Lv>, +l: Ef.Lv, h: {Ef.asc(lad) == True{} : Bool
 def pe.effort_cycle_inverse_back(+m: Ef.Mdl, +l: Ef.Lv, in: {Ef.has(Ef.offered(m), l) == True{} : Bool}) -> {Ef.turn(m, Ef.turn(m, l, Ef.Backward{}), Ef.Forward{}) == l : Ef.Lv}:
   pe.fb_any(Ef.offered(m), l, LA.pe.effort_offered_asc(m), in)
 
-def Laws.effort_cycle_inverse_back(m, l, in):
+def Effort.effort_cycle_inverse_back(m, l, in):
   pe.effort_cycle_inverse_back(m, l, in)

@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_child.bend as FCh
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/child.bend as Child
 import ../base.bend as L
 
 def pw6.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(FCh.put_fate(f, rest)) : Wr.Dec<Ch.Fate>}:
@@ -29,7 +29,7 @@ def pw6.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == FCh.g
       %pw6.fate(x, rest) : {Wr.Got{Some{x}, rest} == FCh.get_mfate.some(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
       {==}
 
-def Laws.child_entry_move(f, n, hn):
+def Child.child_entry_move(f, n, hn):
   +R = FCh.put_move(Ch.owe.next(f, n), "")
   %L.pw6.nat(1n, FCh.put_mfate(f, Wr.put_nat(n, "")), {==}) : {FCh.run(_) == R : String}
   %pw6.mfate(f, Wr.put_nat(n, "")) : {FCh.move.f(_) == R : String}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 
 # Grep: a notice for each class left out
 # --------------------------------------
@@ -396,5 +396,5 @@ def ps.notes_every_gap(os: List<&2, Sr.Out>, +n: Sr.Note) -> {Sr.noted(n, os) ==
           +last = Equal.cong(Nat, Bool, y => Bool.not(Nat.is_eq(y, 0n)), ps.bump(b, x), after, Equal.sym(Nat, after, ps.bump(b, x), ps.count_step(acc, pa, c, n)))
           Equal.trans(Bool, Bool.or(b, Sr.noted(n, rest)), Bool.or(b, Bool.not(Nat.is_eq(x, 0n))), Bool.not(Nat.is_eq(after, 0n)), ih, Equal.trans(Bool, Bool.or(b, Bool.not(Nat.is_eq(x, 0n))), Bool.not(Nat.is_eq(ps.bump(b, x), 0n)), Bool.not(Nat.is_eq(after, 0n)), ps.or_bump(b, x), last))
 
-def Laws.grep_notes_every_gap(os, t):
+def DocSearch.grep_notes_every_gap(os, t):
   ps.notes_every_gap(os, t)

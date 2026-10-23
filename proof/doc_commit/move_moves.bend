@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 import ./base.bend as LA
 
 def pc.eq_true(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
@@ -90,5 +90,5 @@ def pc.move_moves(+s: Nat, +t: Nat, +es: List<&2, Cm.Entry>, +free: {Cm.has(t, e
   %Equal.sym(Bool, Cm.has(t, es), False{}, free) : {Cm.Mv.ok(Cm.move.go(s, t, _, es)) == True{} : Bool} & {Cm.has(s, Cm.Mv.es(Cm.move.go(s, t, _, es))) == False{} : Bool} & {Cm.get(t, Cm.Mv.es(Cm.move.go(s, t, _, es))) == Cm.get(s, es) : Maybe<&2, Nat>}
   ({==}, (pc.gone(s, t, es, pc.ne.go(t, s, es, Nat.is_eq(t, s), {==}, free, from)), pc.lands(s, t, es, free)))
 
-def Laws.move_moves(s, t, es, free, from):
+def DocCommit.move_moves(s, t, es, free, from):
   pc.move_moves(s, t, es, free, from)

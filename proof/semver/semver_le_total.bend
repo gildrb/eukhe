@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 
 def ps.num_total(a: Nat, b: Nat) -> {Bool.or(Sv.Num.le(a, b), Sv.Num.le(b, a)) == True{} : Bool}:
   match a b:
@@ -40,5 +40,5 @@ def ps.le_total(u: Sv.Ver, v: Sv.Ver) -> {Bool.or(Sv.Ver.le(u, v), Sv.Ver.le(v, 
     case Sv.Ver{a1, b1, c1} Sv.Ver{a2, b2, c2}:
       ps.le3_total(a1, a2, b1, b2, c1, c2)
 
-def Laws.semver_le_total(u, v):
+def Semver.semver_le_total(u, v):
   ps.le_total(u, v)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW retry_jitter_zero_step
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.retry_jitter_zero_step(draw):
+def Retry.retry_jitter_zero_step(draw):
   {==}

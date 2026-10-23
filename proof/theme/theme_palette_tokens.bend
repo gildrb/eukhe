@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_palette_tokens
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_palette_tokens(nm, cols, pg, cd, io):
+def Theme.theme_palette_tokens(nm, cols, pg, cd, io):
   {==}

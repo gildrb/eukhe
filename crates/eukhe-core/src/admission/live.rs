@@ -1,5 +1,5 @@
 //! The admission rule of one provider runs as its Bend model: the live
-//! controller of `bend/admission.bend` (`Live.step`, which `LAWS.bend`
+//! controller of `bend/admission.bend` (`Live.step`, which `laws/admission.bend`
 //! `admission_live_step` pins to the model of rule H3), kept in the Bend
 //! heap by a [`Stepper`] of `bend/ffi_admission.bend`. Each op crosses the
 //! wire; the reply is the controller's new state, which [`Live`] mirrors:

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ./base.bend as LA
 
 def pf.fit_at_max(+m: Nat, +b: Nat, +a: Nat, c: Bool) -> {Fx.Fit.max(Fx.fit.at(c, m, b, a)) == m : Nat}:
@@ -26,5 +26,5 @@ def pf.facts_fit_ceiling_under_model(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +
   %Equal.sym(Nat, Fx.Fit.max(Fx.fit.at(c, m, b, a)), m, pf.fit_at_max(m, b, a, c)) : {Nat.is_le(_, mm) == True{} : Bool}
   pf.cap_le(base, mm, b)
 
-def Laws.facts_fit_ceiling_under_model(base, mm, b, a):
+def Facts.facts_fit_ceiling_under_model(base, mm, b, a):
   pf.facts_fit_ceiling_under_model(base, mm, b, a)

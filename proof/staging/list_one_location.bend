@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
+import ../../laws/staging.bend as Staging
 import ./base.bend as LA
 
 # Listing
@@ -94,5 +94,5 @@ def pg.one_go(+es: List<&2, Sg.Ent>, +n: Nat, b1: Bool, e1: {Sg.mem(n, Sg.durabl
 def pg.one_location(+es: List<&2, Sg.Ent>, +n: Nat) -> {Bool.and(Sg.mem(n, Sg.durables(es)), Sg.mem(n, Sg.legacies(es, es))) == False{} : Bool}:
   pg.one_go(es, n, Sg.mem(n, Sg.durables(es)), {==}, Sg.mem(n, Sg.legacies(es, es)), {==})
 
-def Laws.list_one_location(es, n):
+def Staging.list_one_location(es, n):
   pg.one_location(es, n)

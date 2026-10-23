@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW path_ancestor_guarded
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
+import ../../laws/path_policy.bend as PathPolicy
 import ./base.bend as LA
 
 def pp.pick_guarded(sec: Bool, ins: Bool) -> {Pp.Cls.guarded(Pp.cls.pick(sec, True{}, ins)) == True{} : Bool}:
@@ -37,5 +37,5 @@ def pp.anc_res(+pol: Pp.Pol, r: Pp.Res, anc: {Pp.any_ancestor(List.append(&2, Li
 def pp.path_ancestor_guarded(+pol: Pp.Pol, +ls: List<&2, Pp.Link>, +segs: List<&2, Tl.Seg>, anc: {Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(Pp.Pol.rules(pol)), Pp.Pol.secret(pol)), Pp.Res.at(Pp.real(ls, segs))) == True{} : Bool}) -> {Pp.Cls.guarded(Pp.class(pol, ls, segs)) == True{} : Bool}:
   pp.anc_res(pol, Pp.real(ls, segs), anc)
 
-def Laws.path_ancestor_guarded(pol, ls, segs, anc):
+def PathPolicy.path_ancestor_guarded(pol, ls, segs, anc):
   pp.path_ancestor_guarded(pol, ls, segs, anc)

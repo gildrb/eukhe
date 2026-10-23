@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/fsmode.bend as Fs
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 
 # ---- fsmode ----
 
@@ -59,5 +59,5 @@ def owned(d: Fs.Seen, used: {Fs.socket_dir(d) == Fs.Use{} : Fs.Verdict}) -> {Fs.
 
 # File modes, the socket dir and the working dir
 
-def Laws.socket_dir_owned(d, used):
+def Fsmode.socket_dir_owned(d, used):
   owned(d, used)

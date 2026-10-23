@@ -69,7 +69,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    - Built in: `cat`, `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`, `touch`, `cp`, `mv`; `grep` on the ripgrep engine (`grep-regex`, `grep-searcher`). All other commands, and these with options the shell does not know, run as external processes.
    - Each external process gets its own process group and this environment: the daemon worker's environment, plus the session values (`EUKHE_CODING_AGENT_DIR`; `EUKHE_CHAT_MEMORY` in a chat-memory session), minus each credential (`kernel::manager::local_env` over `durable::rlm::session_env`).
    - A credential is a provider credential the provider code reads (`eukhe_ai::env_api_keys::credential_env_vars`, any case), or a name whose upper case contains `API_KEY`, `APIKEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `PRIVATE_KEY` or `ACCESS_KEY`.
-   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Runs as the compiled model `bend/child_env.bend` (`kernel::manager::child_env` calls entry `bend/ffi_child_env.bend`). Laws (G3): `LAWS.bend` sections `child_env`, `child_env_entry`.
+   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Runs as the compiled model `bend/child_env.bend` (`kernel::manager::child_env` calls entry `bend/ffi_child_env.bend`). Laws (G3): `laws/child_env.bend`.
    - Pipeline commands run at the same time, joined by OS pipes; the kernel pipe buffer limits each pipe. When a command stops, its input pipe closes, and the writer to that pipe stops too: an external process gets SIGPIPE, a shell command stops with status 141. Thus `yes | head -n 3` stops.
    - A script with other syntax (control flow, functions, subshells, command substitution, here-documents, background jobs) is one `exec` step; `bash -c` runs it.
    - The tool obeys the S2 limits. Output goes through the call's `Truncation` as the steps write it: the result keeps output within the cap; the `output_bounded` diagnostic counts each dropped byte. With the opt-out, the result keeps all output.
@@ -154,7 +154,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    7. Typed rejections: `host` (unknown host, no connection, host key unknown or changed), `auth` (the host refused each key), `not_found`, `is_directory`, `permission_denied`, `binary` (not UTF-8 text, or a NUL byte), `timeout`, `io` (no `ssh` on `PATH`, or another failure).
    8. The read is of one whole file, as text: no `[path#TAG]` header, no selector, lines are not edit anchors.
 
-Model: `bend/tools.bend`. Laws: `LAWS.bend` section (S7). Proofs:
+Model: `bend/tools.bend`. Laws: `laws/tools.bend` (S7). Proofs:
 `proof/tools/`. Every input is free: any tools that join and
 quit, any schemas, any paths, any scripts, any auto set, any answers of
 the user.
@@ -264,7 +264,7 @@ requests) share it, so they cannot judge a path differently.
 
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
 links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
-`run` and `guarded`). Laws: `LAWS.bend` section `path_policy`.
+`run` and `guarded`). Laws: `laws/path_policy.bend`.
 Proofs: `proof/path_policy/`. Every input is free: any
 symlinks (loops too), any policy, any paths, any auto set, any answers.
 
@@ -292,8 +292,7 @@ A step's effects: every effect of every part (S7 item 8); auto set rules: S7 ite
 
 Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 `within`, `join`, `Part{own, secret}`, `part.effs`, `parts.effs`,
-`parts.secret`, `exec`). Laws: `LAWS.bend` section
-`shell_classification`. Proofs: `proof/tools/`.
+`parts.secret`, `exec`). Laws: `laws/tools.bend`. Proofs: `proof/tools/`.
 
 | Law | Says |
 | --- | --- |
@@ -324,7 +323,7 @@ ungated one.
 
 Model: `bend/runners.bend` (`registry`, the tools a default session
 installs, in install order; `cell`, the gate of one call). Laws:
-`LAWS.bend` section `runners`. Proofs: `proof/runners/`.
+`laws/runners.bend`. Proofs: `proof/runners/`.
 
 | Law | Says |
 | --- | --- |
@@ -369,7 +368,7 @@ that asks up to its root: no client, clients that leave, clients that
 answer, the gateway alone, clients that leave while the gateway stays;
 `fate`, what becomes of a step with given effects; `default_auto`;
 `gate`, the auto set before the route). Laws:
-`LAWS.bend` section `approvals`. Proofs: `proof/approvals/`.
+`laws/approvals.bend`, `laws/tools.bend`. Proofs: `proof/approvals/`.
 
 | Law | Says |
 | --- | --- |
@@ -456,7 +455,7 @@ functions `read()`, `write()`, `edit()`, `grep()`, `glob()` (crate
 
 Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 `bend/doc_lines.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
-`LAWS.bend` section `documents`. Proofs: `proof/doc_seen/`, `proof/doc_search/`, `proof/doc_commit/`, `proof/doc_tags/` and `proof/doc_lines/`.
+`laws/doc_seen.bend`, `laws/doc_search.bend`, `laws/doc_commit.bend`, `laws/doc_tags.bend`, `laws/doc_lines.bend`. Proofs: `proof/doc_seen/`, `proof/doc_search/`, `proof/doc_commit/`, `proof/doc_tags/` and `proof/doc_lines/`.
 
 | Law | Says |
 | --- | --- |

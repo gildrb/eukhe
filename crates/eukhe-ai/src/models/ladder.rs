@@ -201,7 +201,7 @@ fn read_rung(reader: &mut Reader<'_>) -> Result<usize, WireError> {
 }
 
 /// The rungs a model offers, in ladder order (the module docs, rule 2;
-/// LAWS.bend `quirk_ladder_offered_exact`, `quirk_ladder_plain_exact`,
+/// `laws/effort.bend`, `laws/infer.bend` `quirk_ladder_offered_exact`, `quirk_ladder_plain_exact`,
 /// `quirk_ladder_reasons`).
 fn offered(facts: &LadderFacts) -> Vec<usize> {
     ladder_call(
@@ -214,7 +214,7 @@ fn offered(facts: &LadderFacts) -> Vec<usize> {
 
 /// The offered rung closest to `rung`: `rung` itself, else the next
 /// offered rung up the ladder, else the next one down; rung 0 (`off`)
-/// when the model offers none (LAWS.bend S10 `effort_clamp_*`).
+/// when the model offers none (`laws/effort.bend` S10 `effort_clamp_*`).
 fn clamp(facts: &LadderFacts, rung: usize) -> usize {
     ladder_call(
         1,
@@ -229,7 +229,7 @@ fn clamp(facts: &LadderFacts, rung: usize) -> usize {
 /// The rung one cycle step moves to (TS `cycleThinkingLevel`): from the
 /// clamp of `rung`, the next offered rung `Forward` or the previous one
 /// `Backward`, wrapping at the ends; `None` when fewer than two rungs are
-/// offered (LAWS.bend S10 `effort_cycle_*`).
+/// offered (`laws/effort.bend` S10 `effort_cycle_*`).
 fn cycle(facts: &LadderFacts, rung: usize, direction: CycleDirection) -> Option<usize> {
     ladder_call(
         2,

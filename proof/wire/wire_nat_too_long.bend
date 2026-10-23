@@ -2,7 +2,8 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 
 def wn_absurd2(-G: Type, e: {True{} == False{} : Bool}) -> G:
@@ -59,18 +60,18 @@ def wn_f2(t: List<&2, Nat>, +d: Nat, +x: String, +c: {L.wn_okc(t, d) == True{} :
         L.wn_and_l(L.wn_lt10(d), L.wn_okc(u, e2), c), L.wn_and_r(L.wn_lt10(d), L.wn_okc(u, e2), c), h,
         wn_f2(u, e2, SCon{Wr.dchar(d), x}, L.wn_and_r(L.wn_lt10(d), L.wn_okc(u, e2), c)))
 
-def wn_tl(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == False{} : Bool}) -> {L.wo_get_nat(Wr.put_nat(n, rest)) == Wr.Bad{} : Wr.Dec<Nat>}:
+def wn_tl(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == False{} : Bool}) -> {L.wo_get_nat(Wr.put_nat(n, rest)) == Wr.Bad{} : Wr.Dec<Nat>}:
   match n:
     case 0n:
       wn_absurd2({L.wo_get_nat(Wr.put_nat(0n, rest)) == Wr.Bad{} : Wr.Dec<Nat>}, h)
     case 1n+p:
-      +hl = Equal.trans(Bool, Nat.is_le(List.length(&2, Nat, L.wn_full(1n+p)), 14n), Nat.is_le(Laws.wire_digits(1n+p), 14n), False{},
-        Equal.cong(Nat, Bool, x => Nat.is_le(x, 14n), List.length(&2, Nat, L.wn_full(1n+p)), Laws.wire_digits(1n+p),
-          Equal.sym(Nat, Laws.wire_digits(1n+p), List.length(&2, Nat, L.wn_full(1n+p)), L.wn_wl(1n+p))), h)
+      +hl = Equal.trans(Bool, Nat.is_le(List.length(&2, Nat, L.wn_full(1n+p)), 14n), Nat.is_le(LawsBase.wire_digits(1n+p), 14n), False{},
+        Equal.cong(Nat, Bool, x => Nat.is_le(x, 14n), List.length(&2, Nat, L.wn_full(1n+p)), LawsBase.wire_digits(1n+p),
+          Equal.sym(Nat, LawsBase.wire_digits(1n+p), List.length(&2, Nat, L.wn_full(1n+p)), L.wn_wl(1n+p))), h)
       %Equal.sym(String, Wr.put_nat(1n+p, rest), L.wn_emit(L.wn_full(1n+p), SCon{',', rest}), L.wn_put_emit(1n+p, rest)) : {L.wo_get_nat(_) == Wr.Bad{} : Wr.Dec<Nat>}
       wn_f2(L.wn_L(1n+p, Nat.div(1n+p, 10n)), Nat.mod(1n+p, 10n), SCon{',', rest}, L.wn_cf(p))(hl)
 
-def Laws.wire_nat_too_long(n, rest, h):
+def Wire.wire_nat_too_long(n, rest, h):
   +r = rest
   Equal.trans(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, r)), L.wo_get_nat(Wr.put_nat(n, r)), Wr.Bad{},
     L.wn_eqv(Wr.put_nat(n, r)), wn_tl(n, r, h))

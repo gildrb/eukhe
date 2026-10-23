@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 
 def px.len_add(g: Bool, +f: Sb.Frame, h: Sb.Host) -> {Nat.add(Sb.one(g), List.length(&2, Sb.Frame, Sb.Host.ran(h))) == List.length(&2, Sb.Frame, Sb.Host.ran(Sb.host.add(g, f, h))) : Nat}:
   match g:
@@ -24,5 +24,5 @@ def px.proto_runs_every_accepted(+fs: List<&2, Sb.Frame>, +max: Nat, +allowed: L
       %px.proto_runs_every_accepted(rest, max, allowed) : {Nat.add(Sb.one(Sb.accepts(max, allowed, f)), List.length(&2, Sb.Frame, Sb.Host.ran(Sb.serve(rest, max, allowed)))) == Nat.add(Sb.one(Sb.accepts(max, allowed, f)), _) : Nat}
       {==}
 
-def Laws.proto_runs_every_accepted(fs, max, allowed):
+def Sandbox.proto_runs_every_accepted(fs, max, allowed):
   px.proto_runs_every_accepted(fs, max, allowed)

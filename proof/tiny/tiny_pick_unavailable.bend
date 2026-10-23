@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../LAWS.bend as Laws
+import ../../laws/tiny.bend as Tiny
 import ./base.bend as LA
 
 def pn.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -25,5 +25,5 @@ def pn.go_un(chain: List<&2, Nat>, +up: List<&2, Nat>, hit: Bool, eh: {Tn.up.at(
 def pn.tiny_pick_unavailable(+chain: List<&2, Nat>, +up: List<&2, Nat>, none: {Tn.none_up(chain, up) == True{} : Bool}) -> {Tn.pick(chain, up) == Tn.Unavailable{} : Tn.Pick}:
   pn.go_un(chain, up, Tn.up.at(chain, up), {==}, none)
 
-def Laws.tiny_pick_unavailable(chain, up, none):
+def Tiny.tiny_pick_unavailable(chain, up, none):
   pn.tiny_pick_unavailable(chain, up, none)

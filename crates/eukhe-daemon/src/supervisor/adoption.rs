@@ -22,7 +22,7 @@ fn recorded_process_alive(
 }
 
 /// Whether a supervisor keeps a live worker it finds (law
-/// `adopt_same_build`, LAWS.bend D1; the model in bend/launcher.bend).
+/// `adopt_same_build`, `laws/launcher.bend` D1; the model in bend/launcher.bend).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Adoption {
     /// The worker runs this supervisor's build: it is adopted.

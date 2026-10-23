@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 
 # Edit
 # ----
@@ -65,5 +65,5 @@ def pc.reports_what_landed(+fs: List<&2, Cm.Doc>) -> {Cm.reported(Cm.reply(fs)) 
 
 # (F1, F9) An edit of many files
 
-def Laws.edit_reports_what_landed(fs):
+def DocCommit.edit_reports_what_landed(fs):
   pc.reports_what_landed(fs)

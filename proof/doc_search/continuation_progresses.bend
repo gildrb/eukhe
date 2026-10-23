@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 import ./base.bend as LA
 
 # the page of a continuation is not empty
@@ -25,5 +25,5 @@ def ps.progresses(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +c: Nat, h: {Sr.next(ps,
 
 # (F7) Continuations
 
-def Laws.continuation_progresses(ps, s, k, c, h):
+def DocSearch.continuation_progresses(ps, s, k, c, h):
   ps.progresses(ps, s, k, c, h)

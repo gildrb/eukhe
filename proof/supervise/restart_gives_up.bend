@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/supervise.bend as Su
-import ../../LAWS.bend as Laws
+import ../../laws/supervise.bend as Supervise
 import ../base.bend as L
 
 def ps.le_lt(a: Nat, b: Nat, c: Nat, ab: {Nat.is_le(a, b) == True{} : Bool}, bc: {Nat.is_lt(b, c) == True{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
@@ -193,5 +193,5 @@ def ps.restart_gives_up(+c: Su.Cfg, +pre: List<&2, Nat>, +g: Nat, +gs: List<&2, 
 
 # (D1) Supervisor
 
-def Laws.restart_gives_up(c, pre, g, gs, many, fast):
+def Supervise.restart_gives_up(c, pre, g, gs, many, fast):
   ps.restart_gives_up(c, pre, g, gs, many, fast)

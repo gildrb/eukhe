@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -32,5 +32,5 @@ def pcf.untrusted_changes_nothing_guarded(+g: List<&2, Cf.Entry>, items: List<&2
             case Cf.Credential{}:
               pcf.untrusted_changes_nothing_guarded(g, rest, k, h)
 
-def Laws.untrusted_changes_nothing_guarded(g, items, k, h):
+def Config.untrusted_changes_nothing_guarded(g, items, k, h):
   pcf.untrusted_changes_nothing_guarded(g, items, k, h)

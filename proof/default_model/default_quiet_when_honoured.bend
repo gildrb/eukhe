@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/default_model.bend as Dm
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
 # ---- default_model ----
 
@@ -70,5 +70,5 @@ def pdm.default_quiet_when_honoured(x: Dm.In, h: {Dm.on_saved(Dm.Session.run(Dm.
 def pcf.default_quiet_when_honoured(x: Dm.In, h: {Dm.on_saved(Dm.Session.run(Dm.open(Dm.resolve(x)))) == True{} : Bool}) -> {Dm.none(Dm.Session.notes(Dm.open(Dm.resolve(x)))) == True{} : Bool}:
   pdm.default_quiet_when_honoured(x, h)
 
-def Laws.default_quiet_when_honoured(x, h):
+def DefaultModel.default_quiet_when_honoured(x, h):
   pcf.default_quiet_when_honoured(x, h)

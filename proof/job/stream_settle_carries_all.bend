@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -35,5 +35,5 @@ def pj.carry(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat, h: {Jb.c.ends(es) 
 def pj.stream_settle_carries_all(+es: List<&2, Jb.CEv>, ended: {Jb.c.ends(es) == True{} : Bool}) -> {Jb.carried(Jb.journal(es)) == Some{Jb.Tally{Jb.c.bytes(es), Jb.c.warns(es), Jb.c.usage(es)}} : Maybe<&2, Jb.Tally>}:
   pj.carry(es, 0n, 0n, 0n, ended)
 
-def Laws.stream_settle_carries_all(es, ended):
+def Job.stream_settle_carries_all(es, ended):
   pj.stream_settle_carries_all(es, ended)

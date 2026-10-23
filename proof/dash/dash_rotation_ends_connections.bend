@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
+import ../../laws/dash.bend as Dash
 import ./base.bend as LA
 
 def pa.and_l(a: Bool, +b: Bool, +h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -152,5 +152,5 @@ def pa.rotate_stale(+s: Da.St, +c: Nat, +h: {pa.inv(Da.St.cur(s), Da.St.conns(s)
 def pa.rotation_ends_connections(+hist: List<&2, Da.Ev>, +c: Nat, +evs: List<&2, Da.Ev>, +again: {Da.any_opens(c, evs) == False{} : Bool}) -> {Da.any_ran(c, Da.run(Da.Rotate{} <> evs, Da.state(hist, Da.init()))) == False{} : Bool}:
   LA.pa.quiet(evs, Da.next(Da.state(hist, Da.init()), Da.Rotate{}), c, pa.rotate_stale(Da.state(hist, Da.init()), c, pa.inv_state(hist, Da.init(), {==})), again)
 
-def Laws.dash_rotation_ends_connections(hist, c, evs, again):
+def Dash.dash_rotation_ends_connections(hist, c, evs, again):
   pa.rotation_ends_connections(hist, c, evs, again)

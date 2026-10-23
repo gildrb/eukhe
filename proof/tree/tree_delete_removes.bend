@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -57,5 +57,5 @@ def delete_removes(+t: List<&2, Tr.Ent>, +good: {Tr.sound(t) == True{} : Bool}, 
     case 1n+y:
       pt.removes_nz(t, 1n+y)
 
-def Laws.tree_delete_removes(t, L.good, x):
+def Tree.tree_delete_removes(t, L.good, x):
   delete_removes(t, L.good, x)

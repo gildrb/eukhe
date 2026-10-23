@@ -1,10 +1,11 @@
 # eukhe: the proof of LAW retry_ffi_request_exact
 
 import Base
+import ../../bend/ffi_retry.bend as Fr
 import ../../bend/retry.bend as R
 import ../../bend/wire.bend as Wr
-import ../../bend/ffi_retry.bend as Fr
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
+import ../../laws/wire.bend as Wire
 import ./base.bend as LA
 import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_bool_exact.bend as PWireBoolExact
@@ -58,10 +59,10 @@ def rw.got_r(-A: Data, -a: A, -b: A, -s: String, -r: String, e: {Wr.Got{a, s} ==
 # ---------
 
 def rw.nex(+s: String, +n: Nat, +rest: String, h: {Wr.get_nat(s) == Wr.Got{n, rest} : Wr.Dec<Nat>}) -> {Wr.put_nat(n, rest) == s : String}:
-  Equal.sym(String, s, Wr.put_nat(n, rest), Laws.wire_nat_exact(s, n, rest, h))
+  Equal.sym(String, s, Wr.put_nat(n, rest), Wire.wire_nat_exact(s, n, rest, h))
 
 def rw.bex(+s: String, +b: Bool, +rest: String, h: {Wr.get_bool(s) == Wr.Got{b, rest} : Wr.Dec<Bool>}) -> {Wr.put_bool(b, rest) == s : String}:
-  Equal.sym(String, s, Wr.put_bool(b, rest), Laws.wire_bool_exact(s, b, rest, h))
+  Equal.sym(String, s, Wr.put_bool(b, rest), Wire.wire_bool_exact(s, b, rest, h))
 
 # Maybe<Nat>
 
@@ -82,9 +83,9 @@ def rw.mnex_tag(d: Wr.Dec<Nat>, +s: String, +w: Maybe<&2, Nat>, +rest: String, e
         case 0n:
           %rw.got_v(Maybe<&2, Nat>, None{}, w, s1, rest, h) : {s == Fr.put_mnat(_, rest) : String}
           %rw.got_r(Maybe<&2, Nat>, None{}, w, s1, rest, h) : {s == Fr.put_mnat(None{}, _) : String}
-          Laws.wire_nat_exact(s, 0n, s1, ed)
+          Wire.wire_nat_exact(s, 0n, s1, ed)
         case 1n:
-          Equal.trans(String, s, Wr.put_nat(1n, s1), Fr.put_mnat(w, rest), Laws.wire_nat_exact(s, 1n, s1, ed), rw.mnex_some(Wr.get_nat(s1), s1, w, rest, {==}, h))
+          Equal.trans(String, s, Wr.put_nat(1n, s1), Fr.put_mnat(w, rest), Wire.wire_nat_exact(s, 1n, s1, ed), rw.mnex_some(Wr.get_nat(s1), s1, w, rest, {==}, h))
         case 2n+k:
           rw.bad_got(Maybe<&2, Nat>, {s == Fr.put_mnat(w, rest) : String}, w, rest, h)
     case Wr.Bad{}:
@@ -182,9 +183,9 @@ def rw.mcex_tag(d: Wr.Dec<Nat>, +s: String, +m: Maybe<&2, R.Cause>, +rest: Strin
         case 0n:
           %rw.got_v(Maybe<&2, R.Cause>, None{}, m, s1, rest, h) : {s == Fr.put_mcause(_, rest) : String}
           %rw.got_r(Maybe<&2, R.Cause>, None{}, m, s1, rest, h) : {s == Fr.put_mcause(None{}, _) : String}
-          Laws.wire_nat_exact(s, 0n, s1, ed)
+          Wire.wire_nat_exact(s, 0n, s1, ed)
         case 1n:
-          Equal.trans(String, s, Wr.put_nat(1n, s1), Fr.put_mcause(m, rest), Laws.wire_nat_exact(s, 1n, s1, ed), rw.mcex_some(Wr.get_nat(s1), s1, m, rest, {==}, h))
+          Equal.trans(String, s, Wr.put_nat(1n, s1), Fr.put_mcause(m, rest), Wire.wire_nat_exact(s, 1n, s1, ed), rw.mcex_some(Wr.get_nat(s1), s1, m, rest, {==}, h))
         case 2n+k:
           rw.bad_got(Maybe<&2, R.Cause>, {s == Fr.put_mcause(m, rest) : String}, m, rest, h)
     case Wr.Bad{}:
@@ -255,7 +256,7 @@ def rw.tex_wait(+at: Nat, dw: Wr.Dec<Maybe<&2, Nat>>, +s1: String, +t: R.Tried, 
 def rw.tex_at(d: Wr.Dec<Nat>, +s: String, +t: R.Tried, +rest: String, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}, +h: {Fr.get_tried.at(d) == Wr.Got{t, rest} : Wr.Dec<R.Tried>}) -> {s == Fr.put_tried(t, rest) : String}:
   match d:
     case Wr.Got{+at, +s1}:
-      Equal.trans(String, s, Wr.put_nat(at, s1), Fr.put_tried(t, rest), Laws.wire_nat_exact(s, at, s1, ed), rw.tex_wait(at, Fr.get_mnat(s1), s1, t, rest, {==}, h))
+      Equal.trans(String, s, Wr.put_nat(at, s1), Fr.put_tried(t, rest), Wire.wire_nat_exact(s, at, s1, ed), rw.tex_wait(at, Fr.get_mnat(s1), s1, t, rest, {==}, h))
     case Wr.Bad{}:
       rw.bad_got(R.Tried, {s == Fr.put_tried(t, rest) : String}, t, rest, h)
 
@@ -310,9 +311,9 @@ def rw.lex_start(d: Wr.Dec<Nat>, +s: String, +ts: List<&2, R.Tried>, +rest: Stri
         case 0n:
           %rw.got_v(List<&2, R.Tried>, Nil{}, ts, s1, rest, h) : {s == Wr.put_list(~R.Tried, ~Fr.put_tried, _, rest) : String}
           %rw.got_r(List<&2, R.Tried>, Nil{}, ts, s1, rest, h) : {s == Wr.put_list(~R.Tried, ~Fr.put_tried, Nil{}, _) : String}
-          Laws.wire_nat_exact(s, 0n, s1, ed)
+          Wire.wire_nat_exact(s, 0n, s1, ed)
         case 1n++m:
-          rw.lex_fin(s, m, s1, ts, rest, Laws.wire_nat_exact(s, 1n+m, s1, ed), rw.lex_go(m, Fr.get_tried(s1), s1, ts, rest, {==}, h))
+          rw.lex_fin(s, m, s1, ts, rest, Wire.wire_nat_exact(s, 1n+m, s1, ed), rw.lex_go(m, Fr.get_tried(s1), s1, ts, rest, {==}, h))
     case Wr.Bad{}:
       rw.bad_got(List<&2, R.Tried>, {s == Wr.put_list(~R.Tried, ~Fr.put_tried, ts, rest) : String}, ts, rest, h)
 
@@ -450,9 +451,9 @@ def rw.qx_tag(t: Nat, +s1: String, +q: Fr.Req, +rest: String, +h: {Fr.get_req.ta
 def rw.qx_start(d: Wr.Dec<Nat>, +s: String, +q: Fr.Req, +rest: String, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}, +h: {Fr.get_req.start(d) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}) -> {s == Fr.put_req(q, rest) : String}:
   match d:
     case Wr.Got{+t, +s1}:
-      Equal.trans(String, s, Wr.put_nat(t, s1), Fr.put_req(q, rest), Laws.wire_nat_exact(s, t, s1, ed), rw.qx_tag(t, s1, q, rest, h))
+      Equal.trans(String, s, Wr.put_nat(t, s1), Fr.put_req(q, rest), Wire.wire_nat_exact(s, t, s1, ed), rw.qx_tag(t, s1, q, rest, h))
     case Wr.Bad{}:
       rw.bad_got(Fr.Req, {s == Fr.put_req(q, rest) : String}, q, rest, h)
 
-def Laws.retry_ffi_request_exact(s, q, rest, h):
+def Retry.retry_ffi_request_exact(s, q, rest, h):
   rw.qx_start(Wr.get_nat(s), s, q, rest, {==}, h)

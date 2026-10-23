@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 
 # The overlay over the base
 # -------------------------
@@ -18,5 +18,5 @@ def pce.app_in_l(xs: List<&2, Env.Var>, +ys: List<&2, Env.Var>, +v: Env.Var, i: 
         case Inr{it}:
           Inr{pce.app_in_l(t, ys, v, it)}
 
-def Laws.env_overlay_in_merge(base, over, v, i):
+def ChildEnv.env_overlay_in_merge(base, over, v, i):
   pce.app_in_l(over, Env.under(base, over), v, i)

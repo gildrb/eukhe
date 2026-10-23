@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -79,5 +79,5 @@ def pj.settle(es: List<&2, Jb.JEv>, +b: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: 
 def pj.call_settles_with_job(+cap: Maybe<&2, Nat>, +b: Nat, +es: List<&2, Jb.JEv>, +x: Jb.End, settled: {Jb.wait(es, b) == Some{Jb.Settled{x}} : Maybe<&2, Jb.Wait>}) -> {Jb.ends(cap, es) == [x] : List<&2, Jb.End>}:
   pj.settle(es, b, cap, 0n, 0n, x, settled)
 
-def Laws.call_settles_with_job(cap, b, es, x, settled):
+def Job.call_settles_with_job(cap, b, es, x, settled):
   pj.call_settles_with_job(cap, b, es, x, settled)

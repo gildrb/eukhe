@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dmw_res_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
-def Laws.dmw_res_example():
+def DefaultModel.dmw_res_example():
   ({==}, {==})

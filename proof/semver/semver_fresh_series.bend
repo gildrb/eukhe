@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -25,5 +25,5 @@ def ps.fresh(+a: Nat, +b: Nat, +c: Nat, +tags: List<&2, String>, none: {Sv.Rel.n
   %ps.top_none(Sv.Ver{a, b, c}, tags, none) : {Sv.Ver{a, b, Sv.Rel.after(_)} == Sv.Ver{a, b, 0n} : Sv.Ver}
   {==}
 
-def Laws.semver_fresh_series(a, b, c, tags, none):
+def Semver.semver_fresh_series(a, b, c, tags, none):
   ps.fresh(a, b, c, tags, none)

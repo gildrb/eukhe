@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/log.bend as Lg
-import ../../LAWS.bend as Laws
+import ../../laws/log.bend as Log
 import ./base.bend as LA
 
 def pl.take0(-A: Data, xs: List<&2, A>) -> {Nil{} == List.take(&2, A, xs, 0n) : List<&2, A>}:
@@ -150,5 +150,5 @@ def pl.only(d: Lg.Disk, e: Lg.Epoch) -> &n: Nat -> {Lg.Disk.log(Lg.after(d, e)) 
               +m = Lg.first(cs, q, Lg.St{True{}, True{}, r, None{}, Nil{}})
               pl.oc_lift(r, cs, LA.pl.fin(k, m), Lg.Disk.log(Lg.crash(k, drop, m)), pl.f1(cs, q, k, True{}, r), LA.pl.surv(k, drop, m, LA.pl.ft(drop, cs, q, r)))
 
-def Laws.log_only_commits(d, e):
+def Log.log_only_commits(d, e):
   pl.only(d, e)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
+import ../../laws/dash.bend as Dash
 import ./base.bend as LA
 
 # The gate
@@ -31,5 +31,5 @@ def pa.frame_runs_only_current(+s: Da.St, +c: Nat, +ran: {Da.ran(c, Da.out(s, Da
 
 # (D1) The dashboard's pairing gate
 
-def Laws.dash_frame_runs_only_current(s, c, ran):
+def Dash.dash_frame_runs_only_current(s, c, ran):
   pa.frame_runs_only_current(s, c, ran)

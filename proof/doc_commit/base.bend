@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
 
 # ---- documents ----
 

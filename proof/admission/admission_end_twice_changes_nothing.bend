@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 # ending an ended ticket again changes nothing
@@ -27,5 +27,5 @@ def end_twice_changes_nothing(s: Ad.St, +k: Nat, e: {Ad.ended(Ad.status(s, k)) =
     case Ad.St{+l, +q, +ts}:
       ad.twice(Ad.get(ts, k), l, q, ts, k, {==}, e)
 
-def Laws.admission_end_twice_changes_nothing(s, k, e):
+def Admission.admission_end_twice_changes_nothing(s, k, e):
   end_twice_changes_nothing(s, k, e)

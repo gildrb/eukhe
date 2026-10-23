@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
+import ../../laws/staging.bend as Staging
 import ./base.bend as LA
 
 def pg.sweep_reaches(+pre: List<&2, Sg.Node>, +i: Nat, +k: Sg.Sort, +post: List<&2, Sg.Node>, sw: {Sg.Sort.swept(k) == True{} : Bool}) -> {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, k, False{}, True{}, True{}} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.Node{i, k, False{}, True{}, True{}} <> Sg.sweep(post)) : List<&2, Sg.Node>}:
@@ -11,5 +11,5 @@ def pg.sweep_reaches(+pre: List<&2, Sg.Node>, +i: Nat, +k: Sg.Sort, +post: List<
   %Equal.sym(Bool, Sg.Sort.swept(k), True{}, sw) : {List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep.put(n, Sg.sweep(post), _)) == List.append(&2, Sg.Node, Sg.sweep(pre), n <> Sg.sweep(post)) : List<&2, Sg.Node>}
   {==}
 
-def Laws.sweep_reaches_every_depth(pre, i, k, post, sw):
+def Staging.sweep_reaches_every_depth(pre, i, k, post, sw):
   pg.sweep_reaches(pre, i, k, post, sw)

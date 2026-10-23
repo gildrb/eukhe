@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -50,7 +50,7 @@ def w2.some_go(+ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.
           %Equal.sym(Bool, If.elem(If.ids(rest), i), True{}, hr) : {Bool.and(True{}, Bool.or(Nat.is_eq(a, i), _)) == True{} : Bool}
           w2.or_t(Nat.is_eq(a, i))
 
-def Laws.plan_refusal_names_a_needed_loose_tool(cap, ts, need, i, o):
+def Infer.plan_refusal_names_a_needed_loose_tool(cap, ts, need, i, o):
   +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
   +M = If.needs.go(L, need, If.needs.at(L, need))
   %LA.w2.ids(L) : {Bool.and(If.elem(need, i), If.elem(_, i)) == True{} : Bool}

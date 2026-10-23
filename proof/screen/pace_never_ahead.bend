@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -34,5 +34,5 @@ def ps.run_ahead(es: List<&2, Sc.PEv>, +min: Nat, +k: Nat, +p: Sc.Pace, h: {Nat.
 def ps.pace_never_ahead(es: List<&2, Sc.PEv>, +min: Nat, +k: Nat) -> {Nat.is_le(Sc.Pace.shown(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n})), Sc.Pace.recv(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n}))) == True{} : Bool}:
   ps.run_ahead(es, min, k, Sc.Pace{0n, 0n}, {==})
 
-def Laws.pace_never_ahead(es, min, k):
+def Screen.pace_never_ahead(es, min, k):
   ps.pace_never_ahead(es, min, k)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW core_infer_req_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
-def Laws.core_infer_req_example():
+def Infer.core_infer_req_example():
   ({==}, {==})

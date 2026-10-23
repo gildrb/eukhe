@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 
 # The usage bands
 # ---------------
@@ -10,5 +10,5 @@ import ../../LAWS.bend as Laws
 def tui_usage_bands_ascend() -> {TC.ascend(TC.bands()) == True{} : Bool}:
   {==}
 
-def Laws.tui_usage_bands_ascend():
+def TuiColor.tui_usage_bands_ascend():
   tui_usage_bands_ascend()

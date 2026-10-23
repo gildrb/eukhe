@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -43,5 +43,5 @@ def pj.final(pre: List<&2, Jb.JEv>, post: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>
 def pj.job_end_is_final(+cap: Maybe<&2, Nat>, +pre: List<&2, Jb.JEv>, post: List<&2, Jb.JEv>, ended: {Jb.has_end(pre) == True{} : Bool}) -> {Jb.run(cap, List.append(&2, Jb.JEv, pre, post)) == Jb.run(cap, pre) : Jb.J}:
   pj.final(pre, post, cap, Jb.Live{0n, 0n}, ended)
 
-def Laws.job_end_is_final(cap, pre, post, ended):
+def Job.job_end_is_final(cap, pre, post, ended):
   pj.job_end_is_final(cap, pre, post, ended)

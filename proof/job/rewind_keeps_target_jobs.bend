@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 def pj.beq_refl(r: Bool) -> {True{} == Jb.b.eq(r, r) : Bool}:
@@ -43,5 +43,5 @@ def pj.keeps(js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb.kept(Jb.rewind(
 def pj.rewind_keeps_target_jobs(+js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}:
   pj.keeps(js, keep)
 
-def Laws.rewind_keeps_target_jobs(js, keep):
+def Job.rewind_keeps_target_jobs(js, keep):
   pj.rewind_keeps_target_jobs(js, keep)

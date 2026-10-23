@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/gateway_width.bend as Gw
-import ../../LAWS.bend as Laws
+import ../../laws/gateway_width.bend as GatewayWidth
 
 # ASCII
 # -----
@@ -64,5 +64,5 @@ def gw.table_ascii(rs: List<&2, List<&2, List<&2, Nat>>>, +k: Nat, +rows: List<&
 def ascii_unchanged(+rows: List<&2, List<&2, List<&2, Nat>>>, +ones: Gw.Ones.rows(rows)) -> {Gw.table(Gw.Display{}, rows) == Gw.table(Gw.Chars{}, rows) : List<&2, List<&2, Nat>>}:
   gw.table_ascii(rows, Nat.sub(Gw.cols(rows), 1n), rows, ones, ones)
 
-def Laws.ascii_unchanged(rows, ones):
+def GatewayWidth.ascii_unchanged(rows, ones):
   ascii_unchanged(rows, ones)

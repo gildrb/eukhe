@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 def rk.att(+attempt: Nat, +notes: Nat, +e: {Nat.is_le(1n+notes, attempt) == True{} : Bool}) -> {attempt == 1n+Nat.add(Nat.sub(Nat.sub(attempt, 1n), notes), notes) : Nat}:
@@ -21,7 +21,7 @@ def rk.c(+compacted: Bool) -> {compacted == Nat.is_eq(Rn.c.of(compacted), 0n) : 
     case False{}:
       {==}
 
-def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Laws.rust.within(l, t) == True{} : Bool}) -> {Laws.rust.back(l, Rn.At.a(l, t), Rn.At.n(l, t), Rn.At.p(l, t), Rn.At.c(t)) == t : Rn.At}:
+def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Run.rust.within(l, t) == True{} : Bool}) -> {Run.rust.back(l, Rn.At.a(l, t), Rn.At.n(l, t), Rn.At.p(l, t), Rn.At.c(t)) == t : Rn.At}:
   match l:
     case Rn.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -44,5 +44,5 @@ def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Laws.rust.within(l, t) ==
           %rk.att(attempt, notes, w2) : {Rn.At{_, notes, waited, compacted} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
           {==}
 
-def Laws.run_counts_lossless(l, t, w):
+def Run.run_counts_lossless(l, t, w):
   rk.run_counts_lossless(l, t, w)

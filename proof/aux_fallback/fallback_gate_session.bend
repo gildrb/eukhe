@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW fallback_gate_session
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 
-def Laws.fallback_gate_session(p, ok):
+def AuxFallback.fallback_gate_session(p, ok):
   {==}

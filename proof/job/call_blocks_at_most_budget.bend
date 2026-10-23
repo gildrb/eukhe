@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 
 # Blocking calls
@@ -46,5 +46,5 @@ def pj.blocks(es: List<&2, Jb.JEv>, +b: Nat, long: {Nat.is_le(b, Jb.ticks(es)) =
 def pj.call_blocks_at_most_budget(+b: Nat, +es: List<&2, Jb.JEv>, long: {Nat.is_le(b, Jb.ticks(es)) == True{} : Bool}) -> {Maybe.is_some(&2, Jb.Wait, Jb.wait(es, b)) == True{} : Bool}:
   pj.blocks(es, b, long)
 
-def Laws.call_blocks_at_most_budget(b, es, long):
+def Job.call_blocks_at_most_budget(b, es, long):
   pj.call_blocks_at_most_budget(b, es, long)

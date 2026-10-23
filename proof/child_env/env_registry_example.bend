@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW env_registry_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 
-def Laws.env_registry_example():
+def ChildEnv.env_registry_example():
   {==}

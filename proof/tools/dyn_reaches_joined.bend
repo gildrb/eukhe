@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 def pl.elem_cons(d: List<&2, Nat>, +t: Nat) -> {Tl.elem(t <> d, t) == True{} : Bool}:
@@ -14,5 +14,5 @@ def pl.dyn_reaches_joined(+s: Tl.Sess, +t: Nat) -> {Tl.dyn_call(Tl.step(s, Tl.Jo
     case Tl.Sess{r, d, x}:
       pl.elem_cons(d, t)
 
-def Laws.dyn_reaches_joined(s, t):
+def Tools.dyn_reaches_joined(s, t):
   pl.dyn_reaches_joined(s, t)

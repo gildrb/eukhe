@@ -13,7 +13,7 @@
 //! at once; it returns to a provider it left only after the failover
 //! backoff and the server's wait of that provider's failure. The walk runs
 //! as the compiled Bend model `bend/retry.bend` (`eukhe_bend::rules::retry`);
-//! `LAWS.bend` section `retry` states its laws.
+//! `laws/retry.bend` states its laws.
 
 use eukhe_bend::rules::retry::{self as rules, Policy, Switch, Tried};
 use eukhe_bend::{expect_core, Entry};

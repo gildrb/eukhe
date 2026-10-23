@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -16,5 +16,5 @@ def pt.put_at_other(+t: List<&2, Tr.Ent>, +k: Nat, +p: Nat, +v: Nat, +x: Nat, b:
 def put_keeps_others(+t: List<&2, Tr.Ent>, good: {Tr.sound(t) == True{} : Bool}, +k: Nat, +p: Nat, +v: Nat, +x: Nat, other: {Nat.is_eq(x, k) == False{} : Bool}) -> {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), x) == Tr.get(t, x) : Maybe<&2, Tr.Ent>}:
   pt.put_at_other(t, k, p, v, x, Tr.ok(t, k, p), L.pt.ne_comm(x, k, other))
 
-def Laws.tree_put_keeps_others(t, L.good, k, p, v, x, other):
+def Tree.tree_put_keeps_others(t, L.good, k, p, v, x, other):
   put_keeps_others(t, L.good, k, p, v, x, other)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 import ../base.bend as L
 
 # a notice of c's key comes with its substitution
@@ -46,5 +46,5 @@ def ppr.quiet_go(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>, +k: Af.Key) -> {A
 def ppr.fallback_quiet_when_routed(ps: List<&2, Af.Pass>, +k: Af.Key, h: {Af.listed(Af.notes(Af.run(ps)), k) == True{} : Bool}) -> {Af.listed(Af.subs(Af.run(ps)), k) == True{} : Bool}:
   ppr.quiet_go(ps, Nil{}, k)(h)
 
-def Laws.fallback_quiet_when_routed(ps, k, h):
+def AuxFallback.fallback_quiet_when_routed(ps, k, h):
   ppr.fallback_quiet_when_routed(ps, k, h)

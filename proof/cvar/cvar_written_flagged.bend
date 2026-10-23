@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 # Written sets
@@ -27,5 +27,5 @@ def pv.wf_top(+ss: List<&2, Cv.Bind>, +ds: List<&2, Cv.Decl>, +f: Cv.Flag) -> {C
 def pv.cvar_written_flagged(ss: List<&2, Cv.Bind>, +ds: List<&2, Cv.Decl>, +f: Cv.Flag) -> {Cv.all_flag(Cv.written(ss, ds, f), ds, f) == True{} : Bool}:
   pv.wf_top(ss, ds, f)
 
-def Laws.cvar_written_flagged(ss, ds, f):
+def Cvar.cvar_written_flagged(ss, ds, f):
   pv.cvar_written_flagged(ss, ds, f)

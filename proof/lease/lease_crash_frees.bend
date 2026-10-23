@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/lease.bend as Ls
-import ../../LAWS.bend as Laws
+import ../../laws/lease.bend as Lease
 
 # A crash frees its origin
 # ------------------------
@@ -65,5 +65,5 @@ def lease_crash_frees(+s: Ls.L, +p: Nat) -> Ls.Freed(p, Ls.step(s, Ls.Crash{p}))
     case Ls.L{+n, h, +q}:
       pl.settle_freed(p, n, Ls.crash.holder(p, h), Ls.drop(Ls.Crash{p}, q), pl.crash_holder(p, h), pl.none_drop(p, q))
 
-def Laws.lease_crash_frees(s, p):
+def Lease.lease_crash_frees(s, p):
   lease_crash_frees(s, p)

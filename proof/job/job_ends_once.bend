@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 # a live job reports one end iff its events hold one
@@ -27,5 +27,5 @@ def pj.once(es: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat) -> {Li
 def pj.job_ends_once(+cap: Maybe<&2, Nat>, +es: List<&2, Jb.JEv>) -> {List.length(&2, Jb.End, Jb.ends(cap, es)) == Jb.once(Jb.has_end(es)) : Nat}:
   pj.once(es, cap, 0n, 0n)
 
-def Laws.job_ends_once(cap, es):
+def Job.job_ends_once(cap, es):
   pj.job_ends_once(cap, es)

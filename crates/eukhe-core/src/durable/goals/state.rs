@@ -270,7 +270,7 @@ pub(crate) enum Stall {
 }
 
 /// The progress check (`judge` in `bend/progress.bend`, run by the
-/// compiled Bend core; LAWS.bend section progress): the first check (no
+/// compiled Bend core; `laws/progress.bend`): the first check (no
 /// `prior`) starts the count; new work (the count grew) clears it; else it
 /// grows by one, and at `cap` the goal stops. The counts saturate at the
 /// wire's [`NAT_MAX`], below which the core holds the count of stalls

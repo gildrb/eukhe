@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW dir_encode_sound
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ./base.bend as LA
 
-def Laws.dir_encode_sound(s):
+def Tree.dir_encode_sound(s):
   LA.pd.dir_encode_sound(s)

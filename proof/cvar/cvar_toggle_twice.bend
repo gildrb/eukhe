@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 def pv.not_not(b: Bool) -> {Bool.not(Bool.not(b)) == b : Bool}:
@@ -113,5 +113,5 @@ def pv.cvar_toggle_twice(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: 
     case Cv.Ag{p, ss}:
       pv.tog_m(Cv.find(ds, x), ds, cfg, fam, p, ss, x, {==})
 
-def Laws.cvar_toggle_twice(ds, cfg, fam, a, x):
+def Cvar.cvar_toggle_twice(ds, cfg, fam, a, x):
   pv.cvar_toggle_twice(ds, cfg, fam, a, x)

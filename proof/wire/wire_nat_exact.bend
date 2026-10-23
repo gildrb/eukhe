@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -290,7 +290,7 @@ def wn_exh(tk: Wr.Tok, +c: Char, +x: String, -n: Nat, -rest: String,
     case Wr.Other{}:
       LA.wn_bad_got({SCon{c, x} == Wr.put_nat(n, rest) : String}, n, rest, h)
 
-def Laws.wire_nat_exact(s, n, rest, h):
+def Wire.wire_nat_exact(s, n, rest, h):
   match s:
     case SNil{}:
       LA.wn_bad_got({SNil{} == Wr.put_nat(n, rest) : String}, n, rest, h)

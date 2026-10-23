@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_hex_digits
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/color.bend as Color
 
-def Laws.theme_hex_digits():
+def Color.theme_hex_digits():
   {==}

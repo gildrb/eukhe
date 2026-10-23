@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/director.bend as Dr
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 import ../base.bend as L
 
 # The loop
@@ -70,5 +70,5 @@ def pd.lt_len(+n: Nat, +k: Nat, e: {k == 1n+n : Nat}) -> {Nat.is_lt(n, k) == Tru
 def pd.dir_loop_ends(+n: Nat, +s: List<&2, Dr.Layer>, +vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}) -> {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}:
   pd.ends_go(vss, cap, Dr.Loop{n, s, None{}}, pd.lt_len(n, List.length(&2, List<&2, Dr.Verdict>, vss), long))
 
-def Laws.dir_loop_ends(n, s, vss, cap, long):
+def Director.dir_loop_ends(n, s, vss, cap, long):
   pd.dir_loop_ends(n, s, vss, cap, long)

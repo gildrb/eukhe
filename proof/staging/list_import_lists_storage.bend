@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
+import ../../laws/staging.bend as Staging
 import ./base.bend as LA
 
 def pg.or_t(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
@@ -20,5 +20,5 @@ def pg.import_lists(+es: List<&2, Sg.Ent>, +s: Nat) -> {Sg.mem(s, Sg.durables(Sg
   %Equal.sym(Bool, Nat.is_eq(s, s), True{}, LA.pg.eq_refl(s)) : {Bool.or(Sg.mem(s, Sg.durables(es)), Bool.or(_, False{})) == True{} : Bool}
   pg.or_t(Sg.mem(s, Sg.durables(es)))
 
-def Laws.list_import_lists_storage(es, s):
+def Staging.list_import_lists_storage(es, s):
   pg.import_lists(es, s)

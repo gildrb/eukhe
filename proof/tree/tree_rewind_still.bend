@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -36,5 +36,5 @@ def rewind_still(+a: List<&2, Tr.Ent>, ga: {Tr.sorted(a) == True{} : Bool}) -> {
   %Equal.sym(List<&2, Tr.Op>, Tr.dels(a, a), Nil{}, pt.dels_nil(a, a, Tr.held.at(a, a), {==}, LA.pt.allhas_self(a))) : {List.append(&2, Tr.Op, _, Tr.puts(a, a)) == Nil{} : List<&2, Tr.Op>}
   pt.puts_nil(a, a, Tr.kept.at(a, a), {==}, LA.pt.within_self(a, ga))
 
-def Laws.tree_rewind_still(a, ga):
+def Tree.tree_rewind_still(a, ga):
   rewind_still(a, ga)

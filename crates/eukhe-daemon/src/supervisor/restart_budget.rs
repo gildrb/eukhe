@@ -8,7 +8,7 @@
 //! of the failures in the window, in ms, newest first, relative to the
 //! last failure, and the gap in ms since it. The laws
 //! `restart_decide_window`, `restart_decide_verdict` and
-//! `restart_gives_up` (LAWS.bend, D1) pin the decision. The budget keeps
+//! `restart_gives_up` (`laws/supervise.bend`, D1) pin the decision. The budget keeps
 //! the clock: it measures every failure in whole ms from its first one, so
 //! the gaps telescope and the ages carry no rounding drift.
 

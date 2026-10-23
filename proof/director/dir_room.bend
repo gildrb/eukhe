@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dir_room
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 
-def Laws.dir_room(s, vs, cap, stay):
+def Director.dir_room(s, vs, cap, stay):
   {==}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
 def theme_shipped_status_distinct(s: T.Shipped) -> {T.status_distinct(T.table(s)) == True{} : Bool}:
   match s:
@@ -13,5 +13,5 @@ def theme_shipped_status_distinct(s: T.Shipped) -> {T.status_distinct(T.table(s)
     case T.Light{}:
       {==}
 
-def Laws.theme_shipped_status_distinct(s):
+def Theme.theme_shipped_status_distinct(s):
   theme_shipped_status_distinct(s)

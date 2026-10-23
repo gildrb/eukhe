@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 def ps.le_assoc(y: Nat, +h: Nat, +s: Nat, rows: Nat, f: {Nat.is_le(Nat.add(y, Nat.add(h, s)), rows) == True{} : Bool}) -> {Nat.is_le(Nat.add(Nat.add(y, h), s), rows) == True{} : Bool}:
@@ -58,5 +58,5 @@ def ps.layout_whole_when_room(+hs: List<&2, Nat>, +y: Nat, +rows: Nat, fits: {Na
       +hl = ps.le_sub(y, h, rows, ps.le_addl(Nat.add(y, h), Sc.sum(rest), rows, f2))
       ps.ncons(Nat.min(h, Nat.sub(rows, y)), h, Sc.heights(Sc.vstack(rest, Nat.add(y, h), rows)), rest, ps.min_of_le(h, Nat.sub(rows, y), hl), ps.layout_whole_when_room(rest, Nat.add(y, h), rows, f2))
 
-def Laws.layout_whole_when_room(hs, y, rows, fits):
+def Screen.layout_whole_when_room(hs, y, rows, fits):
   ps.layout_whole_when_room(hs, y, rows, fits)

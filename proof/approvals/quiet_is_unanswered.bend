@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
+import ../../laws/approvals.bend as Approvals
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -23,5 +23,5 @@ def pa.quiet_none(+ds: List<&2, Am.Desk>, quiet: {Am.quiet(ds) == True{} : Bool}
         case Am.PhoneLeft{}:
           L.approvals.pa.absurdF({Am.Out.end(Am.route(Am.PhoneLeft{} <> rest)) == Am.Unanswered{} : Am.End}, quiet)
 
-def Laws.quiet_is_unanswered(ds, quiet):
+def Approvals.quiet_is_unanswered(ds, quiet):
   pa.quiet_none(ds, quiet)

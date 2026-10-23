@@ -1,20 +1,32 @@
 #!/usr/bin/env python3
-"""Lay out the proofs as the Bend Bank does (Victor Taelin, bend skill
-examples/bank), one folder per area:
+"""Lay out the laws and the proofs as the Bend Bank does (Victor Taelin,
+bend skill examples/bank), one area per bend/ module:
 
+  LAWS.bend                imports only
+  laws/base.bend           spec helpers the laws of two or more areas use
+  laws/<area>.bend         the laws of one area and the helpers only they use
   PROOF.bend               imports only
   proof/base.bend          lemmas the proofs of two or more areas use
   proof/<area>/base.bend   lemmas two or more laws of one area use
   proof/<area>/<law>.bend  the fill of one law and the lemmas only it uses
 
-The script reads every proof block (a def or a type, with the comment
-lines above it) of PROOF.bend and of every proof/ file PROOF.bend imports,
-follows each block's references (by name; a name bound inside the block is
-a local, not a reference), and places each block:
+The area of a law is the laws/<area>.bend file that holds it; a law still
+in LAWS.bend gets the area of the bend/ module its claim calls
+(`Laws.area_of_claims`) and moves to that file.
 
-- a fill (`def <LawsAlias>.<law>`) goes to its law's file; the area of a law
-  is the laws/<area>.bend file that declares it, or, while the laws live in
-  LAWS.bend, the bend/ module its claim calls (`area_of_claim`);
+Laws: each block (a law, a helper, with its comment) keeps its text; a
+helper the laws of one area use goes to that area, any other to
+laws/base.bend. A section comment (from a `# ---- x ----` line, or any
+comment paragraph between two blocks) goes before the first block it
+covers in each file that receives one of its laws (copied when they are
+in several areas).
+
+Proofs: the script reads every block (a def or a type, with the comment
+lines above it) of the proof/ files PROOF.bend imports, follows each
+block's references (by name; a name bound inside the block is a local,
+not a reference), and places each block:
+
+- a fill (`def <Area>.<law>`) goes to its law's file;
 - a lemma that only one law reaches goes to that law's file, one that laws
   of one area reach to the area's base, any other (several areas, or no
   law) to proof/base.bend;
@@ -26,13 +38,13 @@ a local, not a reference), and places each block:
 Each file keeps the blocks in their order of the sources (Bend refuses a
 call to a def written below it). References are rewritten with the
 alias of the file that now holds the name; nothing else in a block
-changes. Rerun it after a change to re-place the lemmas (a lemma a second
-law starts using moves to a base); a run on its own output changes
-nothing.
+changes. Rerun it after a change to re-place helpers and lemmas (one a
+second area or law starts using moves to a base); a run on its own output
+changes nothing.
 
-  python3 scripts/split_proofs.py           write the files, print the report
-  python3 scripts/split_proofs.py --check   exit 1 if a file would change
-  python3 scripts/split_proofs.py --dry-run print the report only
+  python3 scripts/bank_layout.py           write the files, print the report
+  python3 scripts/bank_layout.py --check   exit 1 if a file would change
+  python3 scripts/bank_layout.py --dry-run print the report only
 """
 import os
 import re
@@ -42,8 +54,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# the headers of these sources describe the old layout: dropped
-OBSOLETE_HEADERS = {"PROOF.bend", "proof/wire.bend"}
+# the headers of these sources describe an old layout: dropped
+OBSOLETE_HEADERS = {"PROOF.bend", "LAWS.bend"}
+
+# the names Base (Bend 2.0.38, `bend base`) declares: no area alias
+BASE_NAMES = set("""
+ALeaf ANode App Array Audio Bool Chan Char Chr Close Cmp Con Done EQ Either
+Emit Empty Equal Event Exists Exit F32 Fail False File GT Halt IO Image Inl
+Inr Key LT List Listener Look MLeaf MNode MTip Map Maybe Mouse Move Nat Nil
+None Or Pair Pix Poll Process Qua Ready Result SCon SNil Scroll Set Sigma
+Socket Some String Succ TCP Text True Tuple U32 UDP Unit WCon WNil Wait
+Window Word Zero
+""".split())
 
 TOK = re.compile(r"(?<![A-Za-z0-9_.'])([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)")
 STR = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'')
@@ -52,11 +74,21 @@ START = re.compile(r"^(def|type|law) ([A-Za-z_][A-Za-z0-9_.]*)")
 CTOR = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{")
 
 PROOF_HEADER = [
-    "# eukhe: the proofs. Each law of LAWS.bend is proven in proof/<area>/<law>.bend",
-    "# from the lemmas of its area (proof/<area>/base.bend) and of every area",
-    "# (proof/base.bend). `bend PROOF.bend --verdict` checks them all.",
+    "# eukhe: the proofs. Each law of laws/<area>.bend is proven in",
+    "# proof/<area>/<law>.bend from the lemmas of its area (proof/<area>/base.bend)",
+    "# and of every area (proof/base.bend). `bend PROOF.bend --verdict` checks them all.",
 ]
 GLOBAL_HEADER = ["# eukhe: lemmas the proofs of two or more areas share"]
+LAWS_HEADER = [
+    "# eukhe: the laws. laws/<area>.bend holds the laws of one area (the bend/",
+    "# module they call) and the spec helpers only they use; laws/base.bend the",
+    "# spec helpers of two or more areas. PROOF.bend proves them all.",
+]
+LAWS_BASE_HEADER = ["# eukhe: the spec helpers the laws of two or more areas use"]
+
+
+def laws_header(area):
+    return [f"# eukhe: the laws of area {area}"]
 
 
 def area_header(area):
@@ -186,7 +218,7 @@ class Laws:
     def __init__(self):
         self.index = (ROOT / "LAWS.bend").resolve()
         self.law_mod = {}  # law -> module path
-        self.helper_mod = {}  # (module path, helper) -> True
+        self.helper_mod = {}  # helper -> module path
         self.order = {}  # law -> position
         self.area = {}  # law -> area
         self.modules = {}  # path -> Src
@@ -194,16 +226,18 @@ class Laws:
         self.witness = {}  # law -> law it takes its area from
         idx = Src(self.index)
         self.modules[self.index] = idx
-        for p in idx.aliases.values():
+        self.alias = {self.index: "Laws"}  # module path -> its alias
+        for a, p in idx.aliases.items():
             if p.parent == (ROOT / "laws").resolve():
                 self.modules[p] = Src(p)
+                self.alias[p] = a
         for path, src in self.modules.items():
             for b in src.blocks:
                 if b.kind == "law":
                     self.order[b.name] = len(self.order)
                     self.law_mod[b.name] = path
                 else:
-                    self.helper_mod[(path, b.name)] = b
+                    self.helper_mod[b.name] = path
         for law, path in self.law_mod.items():
             if path != self.index:
                 self.area[law] = path.stem
@@ -285,6 +319,211 @@ class Laws:
             best = min(cands, key=lambda n: abs(self.order[n] - self.order[law]))
             self.area[law] = self.area[best]
             self.witness[law] = best
+
+
+# ---------------------------------------------------------------- laws out
+
+
+def trim(lines):
+    lines = list(lines)
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+    return lines
+
+
+def split_pre(b):
+    """a block's leading lines: (paragraphs that end the block above,
+    section comment, its own comment). The section comment starts at a
+    `# ---- ` line; without one, every detached paragraph is section."""
+    pre = b.lines[: b.start]
+    k = len(pre)
+    while k > 0 and pre[k - 1].startswith("#"):
+        k -= 1
+    detached = pre[:k]
+    head = next((i for i, l in enumerate(detached) if l.startswith("# ---- ")), None)
+    if head is None:
+        return [], trim(detached), pre[k:]
+    return trim(detached[:head]), trim(detached[head:]), pre[k:]
+
+
+def proof_aliases():
+    """the aliases the proof files give bend/ modules"""
+    out = set()
+    for f in [ROOT / "PROOF.bend"] + sorted((ROOT / "proof").rglob("*.bend")):
+        for a, q in Src(f.resolve()).aliases.items():
+            if (ROOT / "proof") not in q.parents and (ROOT / "laws") not in q.parents and q.name != "LAWS.bend":
+                out.add(a)
+    return out
+
+
+def layout_laws(laws):
+    """the text of LAWS.bend and of every laws/ file, and the report"""
+    srcs = list(laws.modules.values())
+    lawdir = (ROOT / "laws").resolve()
+    owner, by_src = {}, defaultdict(set)
+    for s in srcs:
+        for b in s.blocks:
+            for n in dict.fromkeys([b.name] + b.ctors):
+                if n in owner:
+                    raise SystemExit(f"{n}: defined in {owner[n].src.rel} and {s.rel}")
+                owner[n] = b
+                by_src[s.path].add(n)
+    mod_alias = {}
+    for s in srcs:
+        for alias, q in s.aliases.items():
+            if q in laws.modules:
+                continue
+            if mod_alias.get(alias, q) != q:
+                raise SystemExit(f"{s.rel}: alias {alias} is {q}, elsewhere {mod_alias[alias]}")
+            mod_alias[alias] = q
+        for b in s.blocks:
+            code = [mask(l) for l in b.lines]
+            local = binders(code)
+            for i, c in enumerate(code):
+                for m in TOK.finditer(c):
+                    t = m.group(1)
+                    if i == b.start and m.start() == len(b.kind) + 1:
+                        continue
+                    head, _, rest = t.partition(".")
+                    if rest and head in s.aliases:
+                        q = s.aliases[head]
+                        if q in laws.modules:
+                            if rest not in by_src[q]:
+                                raise SystemExit(f"{s.rel}:{b.name}: {t} is not in {q.name}")
+                            b.occ.append((i, m.start(), m.end(), ("lsym", rest)))
+                        else:
+                            b.occ.append((i, m.start(), m.end(), ("mod", head)))
+                    elif t in by_src[s.path] and t not in local:
+                        b.occ.append((i, m.start(), m.end(), ("lsym", t)))
+    blocks = [b for s in srcs for b in s.blocks]
+    dep = {id(b): [owner[sym[1]] for *_, sym in b.occ if sym[0] == "lsym" and owner[sym[1]] is not b] for b in blocks}
+    users = defaultdict(set)  # helper -> areas whose laws reach it
+    for b in blocks:
+        if b.kind != "law":
+            continue
+        stack, seen = [b], {id(b)}
+        while stack:
+            for d in dep[id(stack.pop())]:
+                if d.kind == "law":
+                    raise SystemExit(f"{b.name}: uses law {d.name}")
+                if id(d) not in seen:
+                    seen.add(id(d))
+                    users[id(d)].add(laws.area[b.name])
+                    stack.append(d)
+    home, unreached = {}, []
+    for b in blocks:
+        if b.kind == "law":
+            home[id(b)] = laws.area[b.name]
+        elif len(users[id(b)]) == 1:
+            home[id(b)] = next(iter(users[id(b)]))
+        else:
+            if not users[id(b)]:
+                unreached.append(b)
+            # a helper no law uses stays where it is
+            keep = b.src.path.parent == lawdir and not users[id(b)]
+            home[id(b)] = b.src.path.stem if keep else "base"
+    changed = True
+    while changed:
+        changed = False
+        for b in blocks:
+            for d in dep[id(b)]:
+                if home[id(d)] not in (home[id(b)], "base"):
+                    home[id(d)] = "base"
+                    changed = True
+
+    # aliases: the area in CamelCase; Laws appended on a clash
+    taken = set(mod_alias) | proof_aliases() | BASE_NAMES | {"Laws", "LawsBase", "L", "LA", "Base"}
+    taken |= {"P" + camel(law) for law in laws.law_mod}
+    areas = list(dict.fromkeys(laws.area[law] for law in sorted(laws.law_mod, key=laws.order.get)))
+    alias, suffixed = {"base": "LawsBase"}, []
+    for a in areas:
+        name = camel(a)
+        if name in taken:
+            name += "Laws"
+            suffixed.append((a, name))
+        if name in taken or name in alias.values():
+            raise SystemExit(f"alias {name} of area {a} is taken")
+        alias[a] = name
+
+    # section comments: each covers the blocks up to the next one
+    run_of, runs = {}, []
+    for s in srcs:
+        cur = None
+        for b in s.blocks:
+            orphan, section, own = split_pre(b)
+            b.orphan, b.own = orphan, own
+            if section or cur is None:
+                cur = len(runs)
+                runs.append((section, []))
+            runs[cur][1].append(b)
+            run_of[id(b)] = cur
+    run_files = []
+    for section, covered in runs:
+        law_areas = list(dict.fromkeys(home[id(b)] for b in covered if b.kind == "law"))
+        run_files.append(law_areas or list(dict.fromkeys(home[id(b)] for b in covered)))
+    copied = [(sec[0], files) for (sec, _), files in zip(runs, run_files) if sec and len(files) > 1]
+
+    outputs = {}
+    files = ["base"] + areas
+    for f in files:
+        mine = [b for b in blocks if home[id(b)] == f]
+        if not mine:
+            continue
+        path = lawdir / f"{f}.bend"
+        out, used, uses_base, done = [], set(), False, set()
+        for k, b in enumerate(mine):
+            r = run_of[id(b)]
+            if f in run_files[r] and r not in done and runs[r][0]:
+                done.add(r)
+                out += [""] + runs[r][0]
+            lines = list(b.lines)
+            for i, st, en, sym in sorted(b.occ, key=lambda o: (o[0], -o[1])):
+                if sym[0] == "mod":
+                    used.add(sym[1])
+                    continue
+                h = home[id(owner[sym[1]])]
+                if h == f:
+                    text = sym[1]
+                else:
+                    uses_base = True
+                    text = f"LawsBase.{sym[1]}"
+                lines[i] = lines[i][:st] + text + lines[i][en:]
+            out += [""] + b.own + lines[b.start :]
+            # paragraphs that ended this block in its source
+            nxt = b.src.blocks.index(b) + 1
+            if nxt < len(b.src.blocks) and b.src.blocks[nxt].orphan:
+                out += [""] + b.src.blocks[nxt].orphan
+        head = LAWS_BASE_HEADER if f == "base" else laws_header(f)
+        extra = [] if laws.modules.get(path) is None else trim(
+            laws.modules[path].header[1:] if laws.modules[path].header and GENERATED_FIRST.match(laws.modules[path].header[0]) else laws.modules[path].header
+        )
+        imps = ["import Base"]
+        for a in sorted(used, key=lambda a: (mod_alias[a].as_posix(), a)):
+            imps.append(f"import ../{mod_alias[a].relative_to(ROOT).as_posix()} as {a}")
+        if uses_base:
+            imps.append("import ./base.bend as LawsBase")
+        text = "\n".join(head + (["#"] + extra if extra else []) + [""] + imps + out)
+        outputs[path] = re.sub(r"\n{3,}", "\n\n", text) + "\n"
+    index = LAWS_HEADER + ["", "import Base"]
+    for f in files:
+        if (lawdir / f"{f}.bend") in outputs:
+            index.append(f"import ./laws/{f}.bend as {alias[f]}")
+    outputs[laws.index] = "\n".join(index) + "\n"
+
+    rep = []
+    counts = Counter(laws.area.values())
+    rep.append("law areas (laws): " + ", ".join(f"{a} {counts[a]}" for a in areas))
+    nbase = sum(1 for b in blocks if home[id(b)] == "base")
+    rep.append(f"laws/base.bend: {nbase} helpers")
+    for a, name in suffixed:
+        rep.append(f"area {a}: alias {name} ({camel(a)} is taken)")
+    for first, fs in copied:
+        rep.append(f"section comment copied into {', '.join(fs)}: {first}")
+    for b in unreached:
+        rep.append(f"helper no law uses: {b.name} (in laws/{home[id(b)]}.bend)")
+    return outputs, rep
 
 
 # ---------------------------------------------------------------- places
@@ -393,16 +632,11 @@ def resolve(srcs, laws):
                     if rest and head in s.aliases:
                         p = s.aliases[head]
                         if p in lawmods:
-                            if laws.law_mod.get(rest) == p or (p == laws.index and rest in laws.law_mod):
+                            # by name: a law or helper may have moved
+                            if rest in laws.law_mod:
                                 sym = ("law", rest)
-                            elif (p, rest) in laws.helper_mod:
-                                sym = ("helper", p, rest)
-                            elif p == laws.index:
-                                hit = [q for (q, h) in laws.helper_mod if h == rest]
-                                if not hit:
-                                    errors.append(f"{s.rel}:{b.name}: {t} is no law nor helper")
-                                    continue
-                                sym = ("helper", hit[0], rest)
+                            elif rest in laws.helper_mod:
+                                sym = ("helper", rest)
                             else:
                                 errors.append(f"{s.rel}:{b.name}: {t} is no law nor helper")
                                 continue
@@ -427,14 +661,24 @@ def resolve(srcs, laws):
 
 def main():
     check = "--check" in sys.argv
-    laws = Laws()
+    dry = "--dry-run" in sys.argv
+    first = laws = Laws()
+    laws_out, laws_rep = layout_laws(laws)
+    laws_stale = [m for m in laws.modules if m not in laws_out]
+    laws_differs = [q for q, t in laws_out.items() if not q.exists() or q.read_text() != t] + laws_stale
+    if not check and not dry:
+        for q in laws_stale:
+            q.unlink()
+        for q, t in laws_out.items():
+            q.parent.mkdir(parents=True, exist_ok=True)
+            q.write_text(t)
+        laws = Laws()
     srcs = sources(laws)
     owner, mod_alias, errors = resolve(srcs, laws)
     if errors:
         print("\n".join(errors))
         sys.exit(1)
     blocks = [b for s in srcs for b in s.blocks]
-    pos = {id(b): k for k, b in enumerate(blocks)}
     fills = {b.fill: b for b in blocks if b.fill}
     missing = sorted(set(laws.law_mod) - set(fills), key=laws.order.get)
     if missing:
@@ -540,14 +784,9 @@ def main():
                 raise SystemExit(f"import cycle: {place_path(pl)} and {place_path(q)}")
 
     # ------------------------------------------------------------ write
-    # bend/ modules in the order LAWS.bend imports them, then by name
-    index_mods = list(laws.modules[laws.index].aliases.values())
-    module_order = sorted(
-        mod_alias,
-        key=lambda a: (index_mods.index(mod_alias[a]) if mod_alias[a] in index_mods else len(index_mods), mod_alias[a].name, a),
-    )
+    module_order = sorted(mod_alias, key=lambda a: (mod_alias[a].as_posix(), a))
     law_alias = {}
-    taken = set(mod_alias) | {"Laws", "L", "LA", "Base"}
+    taken = set(mod_alias) | set(laws.alias.values()) | {"L", "LA", "Base"}
     for law in laws.law_mod:
         a = "P" + camel(law)
         if a in taken:
@@ -584,7 +823,7 @@ def main():
     for pl in order_places:
         path = place_path(pl)
         mine = [b for b in blocks if place[id(b)] == pl]
-        body, used_mods, used_places, used_laws = [], [], set(), False
+        body, used_mods, used_places, used_laws = [], [], set(), set()
         for b in mine:
             lines = list(b.lines)
             for i, st, en, sym in sorted(b.occ, key=lambda o: (o[0], -o[1])):
@@ -594,15 +833,17 @@ def main():
                     if q != pl:
                         used_places.add(q)
                 elif sym[0] == "law":
-                    used_laws = True
-                    text = f"Laws.{sym[1]}"
+                    mod = laws.law_mod[sym[1]]
+                    used_laws.add(mod)
+                    text = f"{laws.alias[mod]}.{sym[1]}"
                     if not (i == b.start and st == len(b.kind) + 1) and sym[1] != b.fill:
                         q = place[id(fills[sym[1]])]
                         if q != pl:
                             used_places.add(q)
                 elif sym[0] == "helper":
-                    used_laws = True
-                    text = f"Laws.{sym[2]}"
+                    mod = laws.helper_mod[sym[1]]
+                    used_laws.add(mod)
+                    text = f"{laws.alias[mod]}.{sym[1]}"
                 else:
                     if sym[1] not in used_mods:
                         used_mods.append(sym[1])
@@ -617,7 +858,8 @@ def main():
         for a in module_order:
             if a in used_mods:
                 imps.append(f"import {rel}/{mod_alias[a].relative_to(ROOT).as_posix()} as {a}")
-        imps.append(f"import {rel}/LAWS.bend as Laws")
+        for mod in sorted(used_laws, key=lambda m: (m != laws.index, laws.alias[m])):
+            imps.append(f"import {rel}/{mod.relative_to(ROOT).as_posix()} as {laws.alias[mod]}")
         for q in sorted(used_places, key=lambda q: (len(chain(q)), index_key(q, laws))):
             target = os.path.relpath(place_path(q), path.parent)
             if not target.startswith("."):
@@ -645,9 +887,9 @@ def main():
 
     old = {s.path for s in srcs}
     stale = sorted(p for p in old if p not in outputs)
-    differs = [p for p, t in outputs.items() if not p.exists() or p.read_text() != t] + stale
-    if "--dry-run" in sys.argv:
-        report(laws, blocks, place, users, unreached, moved, outputs)
+    differs = laws_differs + [p for p, t in outputs.items() if not p.exists() or p.read_text() != t] + stale
+    if dry:
+        report(first, laws_rep, blocks, place, unreached, moved, outputs)
         return
     if check:
         for p in differs:
@@ -661,7 +903,7 @@ def main():
     for d in sorted((ROOT / "proof").glob("*/"), reverse=True):
         if d.is_dir() and not any(d.iterdir()):
             d.rmdir()
-    report(laws, blocks, place, users, unreached, moved, outputs)
+    report(first, laws_rep, blocks, place, unreached, moved, outputs)
 
 
 def index_key(q, laws):
@@ -675,7 +917,8 @@ def index_key(q, laws):
     return (first, 1, laws.order[q[2]])
 
 
-def report(laws, blocks, place, users, unreached, moved, outputs):
+def report(laws, laws_rep, blocks, place, unreached, moved, outputs):
+    print("\n".join(laws_rep))
     files = [p for p in outputs if p.name != "PROOF.bend"]
     areas = Counter(laws.area[l] for l in laws.law_mod)
     print(f"files: {len(files)} under proof/ (+ PROOF.bend)")

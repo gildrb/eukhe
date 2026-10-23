@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 
 def wr_lt_eq(-G: Type, e: {LT{} == EQ{} : Cmp}) -> G:
@@ -101,6 +101,6 @@ def wr_bool_spec(s: String) -> wr_pb(s, Wr.get_bool(s)):
         case Chr{+x}:
           wr_bool_pick(x, t, U32.is_eq(x, 84), {==}, U32.is_eq(x, 70), {==})
 
-def Laws.wire_bool_exact(s, b, rest, h):
+def Wire.wire_bool_exact(s, b, rest, h):
   %h : wr_pb(s, _)
   wr_bool_spec(s)

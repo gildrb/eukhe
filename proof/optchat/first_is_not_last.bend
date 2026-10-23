@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 
 # Unit when the view's first line is at level 3, Empty otherwise
 def push.disc(v: List<&2, O.Node>) -> Type:
@@ -32,5 +32,5 @@ def first_is_not_last() -> {O.fit.view(O.First{}, S.ten(), 3n, 0n, O.All{1n}, S.
     %e : push.disc(_)
     Unit{}
 
-def Laws.first_is_not_last():
+def Optchat.first_is_not_last():
   first_is_not_last()

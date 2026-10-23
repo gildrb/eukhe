@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../LAWS.bend as Laws
+import ../../laws/workflow.bend as Workflow
 
-def Laws.wfw_sts_round_trip(s, rest):
+def Workflow.wfw_sts_round_trip(s, rest):
   match s:
     case W.Queued{}:
       {==}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -63,5 +63,5 @@ def rp.late_go(gots: List<&2, R.Got>, +fails: Nat, +budget: Nat, +job: R.Job, +s
 def bounded_in_time(+fails: Nat, +budget: Nat, gots: List<&2, R.Got>) -> {R.Tally.late(R.run(fails, budget, gots)) == 0n : Nat}:
   rp.late_go(gots, fails, budget, R.NoJob{}, 0n, 0n)
 
-def Laws.deferred_bounded_in_time(fails, budget, gots):
+def Retry.deferred_bounded_in_time(fails, budget, gots):
   bounded_in_time(fails, budget, gots)

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW default_auto_is_grantable
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
+import ../../laws/tools.bend as Tools
 
 # The auto set
 # ------------
@@ -29,5 +29,5 @@ def pa.default_auto(+c: Nat) -> {Tl.elem(Am.default_auto(), c) == Tl.grantable(c
 
 # (G5) The default auto set; the never-auto effects
 
-def Laws.default_auto_is_grantable(c):
+def Tools.default_auto_is_grantable(c):
   pa.default_auto(c)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 def pj.two(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat) -> {Nat.is_le(List.length(&2, Jb.CRec, Jb.c.go(es, Jb.Open{b, w, u})), 1n) == True{} : Bool}:
@@ -27,5 +27,5 @@ def pj.two(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat) -> {Nat.is_le(List.l
 def pj.stream_journals_two(es: List<&2, Jb.CEv>) -> {Nat.is_le(List.length(&2, Jb.CRec, Jb.journal(es)), 2n) == True{} : Bool}:
   pj.two(es, 0n, 0n, 0n)
 
-def Laws.stream_journals_two(es):
+def Job.stream_journals_two(es):
   pj.stream_journals_two(es)

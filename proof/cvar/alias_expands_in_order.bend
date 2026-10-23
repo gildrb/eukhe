@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 
 # reversing a concatenation: the second, reversed onto the first reversed
 def pv.rev_app(z: List<&2, Cv.Cmd>, +y: List<&2, Cv.Cmd>, +p: List<&2, Cv.Cmd>) -> {Cv.rev(List.append(&2, Cv.Cmd, z, y), p) == Cv.rev(y, Cv.rev(z, p)) : List<&2, Cv.Cmd>}:
@@ -277,7 +277,7 @@ def pv.go_shift(d: Nat, xs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, a: Cv.Exp
                   {==}
 
 # fin of the rest's expansion with the first's commands under it
-def pv.fin_shift(m: Cv.Exp, +y: List<&2, Cv.Cmd>) -> {Cv.fin(pv.shift(m, y)) == Laws.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(m)) : Cv.Exp}:
+def pv.fin_shift(m: Cv.Exp, +y: List<&2, Cv.Cmd>) -> {Cv.fin(pv.shift(m, y)) == Cvar.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(m)) : Cv.Exp}:
   match m:
     case Cv.Flat{+z}:
       %Equal.sym(List<&2, Cv.Cmd>, Cv.rev(List.append(&2, Cv.Cmd, z, y), Nil{}), Cv.rev(y, Cv.rev(z, Nil{})), pv.rev_app(z, y, Nil{})) : {Cv.Flat{_} == Cv.Flat{List.append(&2, Cv.Cmd, Cv.rev(y, Nil{}), Cv.rev(z, Nil{}))} : Cv.Exp}
@@ -288,10 +288,10 @@ def pv.fin_shift(m: Cv.Exp, +y: List<&2, Cv.Cmd>) -> {Cv.fin(pv.shift(m, y)) == 
       {==}
 
 # the expansion of the rest after the first's, put in order
-def pv.in_order(c: Cv.Exp, +d: Nat, +more: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.fin(Cv.expand.go(d, more, as, c)) == Laws.cvar_cat(Cv.fin(c), Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}:
+def pv.in_order(c: Cv.Exp, +d: Nat, +more: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.fin(Cv.expand.go(d, more, as, c)) == Cvar.cvar_cat(Cv.fin(c), Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}:
   match c:
     case Cv.Flat{+y}:
-      %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, pv.shift(Cv.Flat{Nil{}}, y)), pv.shift(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}), y), pv.go_shift(d, more, as, Cv.Flat{Nil{}}, y)) : {Cv.fin(_) == Laws.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}
+      %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, pv.shift(Cv.Flat{Nil{}}, y)), pv.shift(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}), y), pv.go_shift(d, more, as, Cv.Flat{Nil{}}, y)) : {Cv.fin(_) == Cvar.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}
       pv.fin_shift(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}), y)
     case Cv.Cycle{+m}:
       %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(d, more, as, m)) : {Cv.fin(_) == Cv.Cycle{m} : Cv.Exp}
@@ -300,7 +300,7 @@ def pv.in_order(c: Cv.Exp, +d: Nat, +more: List<&2, Cv.Cmd>, +as: List<&2, Cv.Al
       %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(d, more, as, m)) : {Cv.fin(_) == Cv.Unknown{m} : Cv.Exp}
       {==}
 
-def Laws.alias_expands_in_order(cs, more, as):
+def Cvar.alias_expands_in_order(cs, more, as):
   +d = {1n+List.length(&2, Cv.Alias, as) : Nat}
-  %Equal.sym(Cv.Exp, Cv.expand.go(d, List.append(&2, Cv.Cmd, cs, more), as, Cv.Flat{Nil{}}), Cv.expand.go(d, more, as, Cv.expand.go(d, cs, as, Cv.Flat{Nil{}})), pv.go_app(d, cs, more, as, Cv.Flat{Nil{}})) : {Cv.fin(_) == Laws.cvar_cat(Cv.expand(cs, as), Cv.expand(more, as)) : Cv.Exp}
+  %Equal.sym(Cv.Exp, Cv.expand.go(d, List.append(&2, Cv.Cmd, cs, more), as, Cv.Flat{Nil{}}), Cv.expand.go(d, more, as, Cv.expand.go(d, cs, as, Cv.Flat{Nil{}})), pv.go_app(d, cs, more, as, Cv.Flat{Nil{}})) : {Cv.fin(_) == Cvar.cvar_cat(Cv.expand(cs, as), Cv.expand(more, as)) : Cv.Exp}
   pv.in_order(Cv.expand.go(d, cs, as, Cv.Flat{Nil{}}), d, more, as)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 import ../base.bend as L
 
 # from the clock spend(r, tok, 1 + q), failed polls ds, more than q of
@@ -35,5 +35,5 @@ def pc.unreachable_in_time(+cfg: Ch.Cfg, +w: Ch.W, +d: Nat, +ds: List<&2, Nat>, 
             case 1n+u:
               pc.miss(ds, cfg, Nat.sub(l, 1n+d), tok, u, long)
 
-def Laws.child_unreachable_in_time(cfg, w, d, ds, long):
+def Child.child_unreachable_in_time(cfg, w, d, ds, long):
   pc.unreachable_in_time(cfg, w, d, ds, long)

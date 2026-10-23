@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ./base.bend as LA
 
 def ps.tag_new.go(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, e: {Sv.Tag.of(Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) == t : String}) -> Empty:
@@ -15,5 +15,5 @@ def ps.tag_new.go(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, S
 def ps.tag_new(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>) -> {Sv.Tag.of(Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) != t : String}:
   e => ps.tag_new.go(s, xs, t, ys, e)
 
-def Laws.semver_next_tag_new(s, xs, t, ys):
+def Semver.semver_next_tag_new(s, xs, t, ys):
   ps.tag_new(s, xs, t, ys)

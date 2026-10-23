@@ -50,7 +50,7 @@ cargo test -p eukhe-core --lib memory::compactor::bridge
 | --- | --- |
 | `bend/optchat.bend` | Model: nodes, view, due, push, fit, sawtooth, compaction view, work queue. |
 | `bend/spec.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
-| `LAWS.bend` | Every eukhe law as open claims, one section per area. |
+| `LAWS.bend` | Imports only; `laws/<area>.bend` one area's laws as open claims, `laws/base.bend` shared spec helpers. |
 | `PROOF.bend` | Imports only; `proof/<area>/<law>.bend` one law's proof, `proof/<area>/base.bend` and `proof/base.bend` shared lemmas. |
 | `bend/bridge.bend` | Runs the model on a scenario file; built with `bend bend/bridge.bend -o <binary>`. |
 | `memory/chat/bridge.rs` | Bridge test. |

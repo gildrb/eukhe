@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -27,5 +27,5 @@ def pl.ins(segs: List<&2, Tl.Seg>, at: List<&2, Nat>, h: {Tl.stays(segs, LA.pl.l
 def pl.path_resolves_inside(+segs: List<&2, Tl.Seg>, inside: {Tl.stays(segs, 0n) == True{} : Bool}) -> {Maybe.is_some(&2, List<&2, Nat>, Tl.resolve(segs)) == True{} : Bool}:
   pl.ins(segs, Nil{}, inside)
 
-def Laws.path_resolves_inside(segs, inside):
+def Tools.path_resolves_inside(segs, inside):
   pl.path_resolves_inside(segs, inside)

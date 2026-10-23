@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 def pp.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:

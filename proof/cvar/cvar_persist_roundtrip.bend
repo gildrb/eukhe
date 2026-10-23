@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -53,5 +53,5 @@ def pv.pr_m(m: Maybe<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bin
 def pv.cvar_persist_roundtrip(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +ss: List<&2, Cv.Bind>, +x: Nat, keeps: {Cv.flag.at(Cv.find(ds, x), Cv.Persist{}) == True{} : Bool}) -> {Cv.value(ds, cfg, [Cv.Ag{Cv.written(ss, ds, Cv.Persist{}), Nil{}}], x) == Cv.value(ds, cfg, [Cv.Ag{Nil{}, ss}], x) : Maybe<&2, Cv.Val>}:
   pv.pr_m(Cv.find(ds, x), ds, cfg, ss, x, keeps)
 
-def Laws.cvar_persist_roundtrip(ds, cfg, ss, x, keeps):
+def Cvar.cvar_persist_roundtrip(ds, cfg, ss, x, keeps):
   pv.cvar_persist_roundtrip(ds, cfg, ss, x, keeps)

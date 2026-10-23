@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -45,5 +45,5 @@ def semver.ps.le_trans(u: Sv.Ver, v: Sv.Ver, w: Sv.Ver, h1: {Sv.Ver.le(u, v) == 
     case Sv.Ver{a1, b1, c1} Sv.Ver{a2, b2, c2} Sv.Ver{a3, b3, c3}:
       ps.le3_trans(a1, a2, a3, b1, b2, b3, c1, c2, c3, h1, h2)
 
-def Laws.semver_le_trans(u, v, w, uv, vw):
+def Semver.semver_le_trans(u, v, w, uv, vw):
   semver.ps.le_trans(u, v, w, uv, vw)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 def pk.sweep_removes_dead(ls: List<&2, KL.Left>) -> {KL.lefts.dead(KL.sweep(ls)) == 0n : Nat}:
   match ls:
@@ -23,5 +23,5 @@ def pk.sweep_removes_dead(ls: List<&2, KL.Left>) -> {KL.lefts.dead(KL.sweep(ls))
         case KL.Foreign{} KL.Dead{}:
           pk.sweep_removes_dead(rest)
 
-def Laws.kernel_lock_sweep_removes_dead(ls):
+def KernelLocal.kernel_lock_sweep_removes_dead(ls):
   pk.sweep_removes_dead(ls)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -28,5 +28,5 @@ def pp.judge_is_check(+t: Nat, +cap: Nat, +s: Nat, +w: Nat, +work: Nat, below: {
   %L.pj.min_of_le(s, Nat.sub(t, 1n), pp.lt_pred(s, t, below)) : {Pr.check(cap, _, Nat.is_lt(w, work)) == Pr.check(cap, s, Nat.is_lt(w, work)) : Pr.Goal}
   {==}
 
-def Laws.goal_judge_is_check(t, cap, s, w, work, below):
+def Progress.goal_judge_is_check(t, cap, s, w, work, below):
   pp.judge_is_check(t, cap, s, w, work, below)

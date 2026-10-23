@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW facts_rulebook_decides
 
 import Base
-import ../../bend/infer.bend as If
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../bend/infer.bend as If
+import ../../laws/infer.bend as Infer
 import ./base.bend as LA
 
 # Decisions from the rulebook
@@ -19,5 +19,5 @@ def pf.facts_rulebook_decides(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +r
 # (S6.10) Model and provider facts are data
 # ------------------------------------------
 
-def Laws.facts_rulebook_decides(known, pre, r, post, q, dflt, ok, hit, top):
+def Infer.facts_rulebook_decides(known, pre, r, post, q, dflt, ok, hit, top):
   pf.facts_rulebook_decides(known, pre, r, post, q, dflt, ok, hit, top)

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 
 # A compaction's view
 # -------------------
@@ -25,5 +25,5 @@ def pf.ctx_pre(v: List<&2, O.Node>, +info: O.Info, +bound: List<&2, Bool>) -> S.
 def context_is_prefix(+s: O.St, +n: O.Node) -> S.Prefix(O.ctx(s, n), O.St.cview(s)):
   pf.ctx_pre(O.St.cview(s), O.St.info(s), O.ctx.bound(n))
 
-def Laws.context_is_prefix(s, n):
+def Optchat.context_is_prefix(s, n):
   context_is_prefix(s, n)

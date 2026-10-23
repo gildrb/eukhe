@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ./base.bend as LA
 
 def pi.or_l(a: Bool, +b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
@@ -36,5 +36,5 @@ def pi.keep_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat, hit: 
 def pi.guard_keeps_others(+xs: List<&2, Nat>, +k: Nat, calm: {If.loops(xs, k) == False{} : Bool}) -> {If.guard(xs, k) == If.Whole{} : If.Cut}:
   pi.keep_go(xs, k, Nil{}, 0n, If.fire.at(xs, k, Nil{}), {==}, calm)
 
-def Laws.guard_keeps_others(xs, k, calm):
+def Infer.guard_keeps_others(xs, k, calm):
   pi.guard_keeps_others(xs, k, calm)

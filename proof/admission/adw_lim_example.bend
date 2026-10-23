@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW adw_lim_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.adw_lim_example():
+def Admission.adw_lim_example():
   ({==}, {==})

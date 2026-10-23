@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 # a part that names a secret path makes some part of the step name one
@@ -18,5 +18,5 @@ def ps.secret_path_gives_secret(+pre: List<&2, Tl.Part>, +p: Tl.Part, +post: Lis
   +all = List.append(&2, Tl.Part, pre, p <> post)
   Equal.trans(Bool, Tl.elem(Tl.join(Tl.parts.effs(all)), 6n), Tl.parts.secret(all), True{}, LA.ps.secret_iff(all), ps.some_secret(pre, p, post, named))
 
-def Laws.secret_path_gives_secret(pre, p, post, named):
+def Tools.secret_path_gives_secret(pre, p, post, named):
   ps.secret_path_gives_secret(pre, p, post, named)

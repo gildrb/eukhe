@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../LAWS.bend as Laws
+import ../../laws/color.bend as Color
 
-def Laws.theme_hex_value(a1, a2, a3, a4, a5, a6, x1, x2, x3, x4, x5, x6, h1, h2, h3, h4, h5, h6):
+def Color.theme_hex_value(a1, a2, a3, a4, a5, a6, x1, x2, x3, x4, x5, x6, h1, h2, h3, h4, h5, h6):
   +want = {Some{Co.Rgb{(x1 * 16 + x2 : U32), (x3 * 16 + x4 : U32), (x5 * 16 + x6 : U32)}} : Maybe<&2, Co.Rgb>}
   %Equal.sym(Maybe<&2, U32>, Co.hexd(a1), Some{x1}, h1) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, _, Co.hexd(a2)), Co.join(16, Co.hexd(a3), Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
   %Equal.sym(Maybe<&2, U32>, Co.hexd(a2), Some{x2}, h2) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, _), Co.join(16, Co.hexd(a3), Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}

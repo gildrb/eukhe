@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -92,5 +92,5 @@ def pp.goal_stops(+cap: Nat, +s: Nat, +hist: List<&2, Nat>, +seg: List<&2, Nat>,
   +l = List.length(&2, List<&2, Nat>, segs)
   pp.stops(segs, seg, cap, s, hist, r, L.child.pc.le_trans(cap, 1n+l, Nat.add(1n+s, l), long, L.child.pc.le_add(s, l)))
 
-def Laws.goal_stops_without_progress(cap, s, hist, seg, segs, repeats, long):
+def Progress.goal_stops_without_progress(cap, s, hist, seg, segs, repeats, long):
   pp.goal_stops(cap, s, hist, seg, segs, repeats, long)

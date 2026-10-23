@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 def pl.ver(v: Nat) -> {Nat.is_le(1n, Nat.max(v, 1n)) == True{} : Bool}:
@@ -17,5 +17,5 @@ def pl.schema_versioned(s: Tl.Schema) -> {Nat.is_le(1n, Tl.Schema.version(Tl.bui
     case Tl.Schema{ps, v}:
       pl.ver(v)
 
-def Laws.schema_versioned(s):
+def Tools.schema_versioned(s):
   pl.schema_versioned(s)

@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/lease.bend as Ls
-import ../../LAWS.bend as Laws
 
 # ---- lease ----
 

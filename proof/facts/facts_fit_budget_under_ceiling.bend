@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -29,5 +29,5 @@ def pf.facts_fit_budget_under_ceiling(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, 
   +m = Fx.fit.cap(base, mm, b)
   pf.fit_at_le(m, b, a, Nat.is_le(m, b), {==})
 
-def Laws.facts_fit_budget_under_ceiling(base, mm, b, a):
+def Facts.facts_fit_budget_under_ceiling(base, mm, b, a):
   pf.facts_fit_budget_under_ceiling(base, mm, b, a)

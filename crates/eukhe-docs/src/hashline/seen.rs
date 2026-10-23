@@ -1,5 +1,5 @@
-//! The seen-line guard (model `bend/doc_seen.bend`, laws in `LAWS.bend`
-//! section `documents`, F11): an edit's anchors against the lines a tagged
+//! The seen-line guard (model `bend/doc_seen.bend`, laws in
+//! `laws/doc_seen.bend`, F11): an edit's anchors against the lines a tagged
 //! read displayed. [`check`] is the whole decision, one call of the
 //! compiled Bend core (`bend/ffi_doc_seen.bend`); the store lookups, the
 //! line widths it reads and the message it renders stay in

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 # the set of x to v hits x when it is valid
@@ -28,5 +28,5 @@ def pv.sw_m(m: Maybe<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bin
 def pv.cvar_set_wins(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>, +p: List<&2, Cv.Bind>, +ss: List<&2, Cv.Bind>, +x: Nat, +v: Cv.Val, ok: {Cv.valid(ds, Cv.Agent{}, Cv.Bind{x, v}) == True{} : Bool}) -> {Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.Ag{p, List.append(&2, Cv.Bind, ss, [Cv.Bind{x, v}])}]), x) == Some{v} : Maybe<&2, Cv.Val>}:
   pv.sw_m(Cv.find(ds, x), ds, cfg, fam, p, ss, x, v, {==}, ok)
 
-def Laws.cvar_set_wins(ds, cfg, fam, p, ss, x, v, ok):
+def Cvar.cvar_set_wins(ds, cfg, fam, p, ss, x, v, ok):
   pv.cvar_set_wins(ds, cfg, fam, p, ss, x, v, ok)

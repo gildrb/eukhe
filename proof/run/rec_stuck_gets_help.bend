@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
 # A stuck reply always gets help
 # ------------------------------
@@ -56,5 +56,5 @@ def stuck_gets_help(+rc: Rn.RCfg, o: Rn.Out, r: Rn.Rec) -> {Bool.or(Bool.not(Rn.
     case Rn.Rec{k, row, same, last}:
       help_out(rc, o, k, row, same, last)
 
-def Laws.rec_stuck_gets_help(rc, o, r):
+def Run.rec_stuck_gets_help(rc, o, r):
   stuck_gets_help(rc, o, r)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/log.bend as Lg
-import ../../LAWS.bend as Laws
+import ../../laws/log.bend as Log
 import ./base.bend as LA
 
 # Parsing
@@ -25,5 +25,5 @@ def pl.reads_lines(+ls: List<&2, List<&2, Nat>>, +t: List<&2, Nat>) -> {Lg.recov
 
 # (D2) Storage and cron
 
-def Laws.log_reads_lines(ls, t):
+def Log.log_reads_lines(ls, t):
   pl.reads_lines(ls, t)

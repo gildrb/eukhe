@@ -1,10 +1,10 @@
 # eukhe: the proof of LAW tui_roles_resolve
 
 import Base
-import ../../bend/theme.bend as T
 import ../../bend/color.bend as Co
+import ../../bend/theme.bend as T
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -71,5 +71,5 @@ def tui_roles_resolve(+f: T.Th, +v: {T.valid(f) == True{} : Bool}) -> {TC.resolv
       +hl = {%Equal.sym(Nat, List.length(&2, Maybe<&2, T.Val>, p), List.length(&2, U32, T.toks()), pu.fill_len(cols, bg, T.toks())) : {pu.all_lt(TC.roles(), _) == True{} : Bool}; {==} : {pu.all_lt(TC.roles(), List.length(&2, Maybe<&2, T.Val>, p)) == True{} : Bool}}
       pu.resolves_go(p, TC.roles(), hc, hl)
 
-def Laws.tui_roles_resolve(f, v):
+def Theme.tui_roles_resolve(f, v):
   tui_roles_resolve(f, v)

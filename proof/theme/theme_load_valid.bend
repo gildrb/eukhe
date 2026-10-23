@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -120,5 +120,5 @@ def theme_load_valid(r: T.RFile, -f: T.Th, loaded: {T.load(r) == Some{f} : Maybe
       +ix = T.index(vars)
       pt.load_cols(name, ix, T.ents(ix, cols), page, card, info, f, loaded)
 
-def Laws.theme_load_valid(r, f, loaded):
+def Theme.theme_load_valid(r, f, loaded):
   theme_load_valid(r, f, loaded)

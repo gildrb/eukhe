@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 # Grants within a class go oldest first
@@ -347,5 +347,5 @@ def ad.run_fifo(os: List<&2, Ad.Op>, +s: Ad.St, e: {Ad.fifo.both(Ad.St.ts(s)) ==
 def fifo_per_class(+l: Ad.Lim, +q: Nat, +os: List<&2, Ad.Op>) -> {Ad.fifo.both(Ad.St.ts(Ad.run(os, Ad.St.new(l, q)))) == True{} : Bool}:
   ad.run_fifo(os, Ad.St.new(l, q), {==})
 
-def Laws.admission_fifo(l, q, os):
+def Admission.admission_fifo(l, q, os):
   fifo_per_class(l, q, os)

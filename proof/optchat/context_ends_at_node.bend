@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 import ../base.bend as L
 
 def pf.ctx_bef.keep(k: Bool, +info: O.Info, +bound: List<&2, Bool>, +h: O.Node, -rec: List<&2, O.Node>, +e: {k == O.ctx.ok(info, bound, h) : Bool}, ih: S.Before(info, bound, rec))
@@ -26,5 +26,5 @@ def context_ends_at_node(+s: O.St, +n: O.Node) -> S.Before(O.St.info(s), O.ctx.b
 
 # (g) A compaction's view
 
-def Laws.context_ends_at_node(s, n):
+def Optchat.context_ends_at_node(s, n):
   context_ends_at_node(s, n)

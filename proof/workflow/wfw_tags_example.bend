@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW wfw_tags_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/workflow.bend as Workflow
 
-def Laws.wfw_tags_example():
+def Workflow.wfw_tags_example():
   ({==}, {==})

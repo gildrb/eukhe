@@ -1,4 +1,4 @@
-//! The path policy of a session (docs/tools.md S7, LAWS.bend (G1)) and
+//! The path policy of a session (docs/tools.md S7, `laws/path_policy.bend` (G1)) and
 //! the gate the document tools pass every path access through.
 //!
 //! [`session_policy`] builds the one [`PathPolicy`] the `bash` tool and

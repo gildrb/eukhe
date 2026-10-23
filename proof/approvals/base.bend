@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # Outcomes

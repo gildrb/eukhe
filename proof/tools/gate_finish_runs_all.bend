@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -41,5 +41,5 @@ def pl.fin_go(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, free: Bool, +ans: Lis
 def pl.gate_finish_runs_all(+ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, +ans: List<&2, Bool>, fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}) -> {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}:
   pl.fin_go(ss, auto, Tl.free.at(ss, auto), ans, fin)
 
-def Laws.gate_finish_runs_all(ss, auto, ans, fin):
+def Tools.gate_finish_runs_all(ss, auto, ans, fin):
   pl.gate_finish_runs_all(ss, auto, ans, fin)

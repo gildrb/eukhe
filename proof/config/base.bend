@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # ---- config ----

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -105,5 +105,5 @@ def pp.loop_stalls(+cfg: Ch.Cfg, +w: Ch.W, +hist: List<&2, Nat>, p: Pr.Peek, +ps
       %Equal.sym(Ch.Next, Pr.watch(q <> ps, cfg, hist, Ch.Watch{w}), Ch.hush(pp.sames(q <> ps), cfg, Ch.Watch{w}), pp.watch_hush(q <> ps, cfg, hist, Ch.Watch{w}, l, tok)) : {Ch.Next.watching(_) == False{} : Bool}
       L.pc.stalls_in_time(cfg, w, Ch.Same{dt}, pp.sames(ps), pp.long_sames(w, ps, long))
 
-def Laws.child_loop_is_a_stall(cfg, w, hist, p, ps, loops, tok, long):
+def Progress.child_loop_is_a_stall(cfg, w, hist, p, ps, loops, tok, long):
   pp.loop_stalls(cfg, w, hist, p, ps, loops, tok, long)

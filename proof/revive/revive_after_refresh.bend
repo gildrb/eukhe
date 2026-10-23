@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/revive.bend as Rv
-import ../../LAWS.bend as Laws
+import ../../laws/revive.bend as Revive
 import ../base.bend as L
 
 # adding b on the right keeps the order
@@ -67,5 +67,5 @@ def ps.revive_after_refresh(+h: Nat, +pos: {Nat.is_lt(0n, h) == True{} : Bool}, 
   +al = ps.lt_le(a, h, ps.since_lt(c, h, 0n, pos, pos))
   L.supervisor.ps.le_trans(Nat.add(a, d), Nat.add(a, b), Nat.add(h, b), L.ps.le_mono(a, d, b, soon), ps.le_mono_r(a, h, b, al))
 
-def Laws.revive_after_refresh(h, L.pos, b, c, d, soon):
+def Revive.revive_after_refresh(h, L.pos, b, c, d, soon):
   ps.revive_after_refresh(h, L.pos, b, c, d, soon)

@@ -4,10 +4,10 @@ import Base
 import ../../bend/default_model.bend as Dm
 import ../../bend/ffi_default_model.bend as FDm
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 import ./base.bend as LA
 
-def Laws.dmw_sub_round_trip(s, rest, h):
+def DefaultModel.dmw_sub_round_trip(s, rest, h):
   match s:
     case Dm.Kept{}:
       {==}

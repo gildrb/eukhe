@@ -4,7 +4,7 @@
 //! 0010). A job counts its output
 //! under the session's output cap, reports exactly one end, and has a kill.
 //!
-//! The Bend model `bend/job.bend` is the specification. `LAWS.bend` section
+//! The Bend model `bend/job.bend` is the specification. `laws/job.bend`
 //! (S2) states its laws and `proof/job/` proves them.
 //! [`JobState::step`] runs the model's `feed` as the compiled Bend core. The
 //! bridge test (`bridge.rs`, with `bend/bridge_job.bend`) runs the jobs and
@@ -115,7 +115,7 @@ impl JobState {
     };
 
     /// The state after `event`, and the end the event reported: `feed`
-    /// and `ends.of` in `bend/job.bend` (LAWS.bend section S2), run by the
+    /// and `ends.of` in `bend/job.bend` (`laws/job.bend` S2), run by the
     /// compiled Bend core. Under the cap `Some(c)` a job keeps at most `c`
     /// bytes and counts the rest as dropped; `None` (the opt-out) keeps
     /// all; the bytes kept plus dropped saturate at the wire's

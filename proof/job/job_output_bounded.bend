@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 
 # a kept count under the cap stays under it after any output
@@ -48,5 +48,5 @@ def pj.job_output_bounded(+c: Nat, es: List<&2, Jb.JEv>) -> {Nat.is_le(Jb.J.kept
 
 # (S2) Jobs and limits
 
-def Laws.job_output_bounded(c, es):
+def Job.job_output_bounded(c, es):
   pj.job_output_bounded(c, es)

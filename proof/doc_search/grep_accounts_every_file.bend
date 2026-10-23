@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 
 def ps.add_sr(a: Nat, +b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
   match a:
@@ -85,5 +85,5 @@ def ps.accounts_every_file(+es: List<&2, Sr.Ent>, +p: Nat, +s: Nat, +k: Nat, +re
 
 # (F6) What grep searched
 
-def Laws.grep_accounts_every_file(es, p, s, k, rem, n):
+def DocSearch.grep_accounts_every_file(es, p, s, k, rem, n):
   ps.accounts_every_file(es, p, s, k, rem, n)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 def pce.not_both(-G: Type, -base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, p: (Env.In(v, base) & {Env.named(Env.Var.name(v), over) == False{} : Bool}), hit: {Env.named(Env.Var.name(v), over) == True{} : Bool}) -> G:
@@ -16,6 +16,6 @@ def pce.over_of(+base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var,
     case Inr{b}:
       pce.not_both(Env.In(v, over), base, over, v, LA.pce.under_out(base, over, v, b), hit)
 
-def Laws.env_merge_named_from_overlay(base, over, v, i, hit):
+def ChildEnv.env_merge_named_from_overlay(base, over, v, i, hit):
   +n = Env.Var.name(v)
-  pce.over_of(base, over, v, LA.pce.app_in(over, Env.under(base, over), v, i), Equal.trans(Bool, Env.named(n, over), Laws.env_named(n, over), True{}, Equal.sym(Bool, Laws.env_named(n, over), Env.named(n, over), LA.pce.named_eq(n, over)), hit))
+  pce.over_of(base, over, v, LA.pce.app_in(over, Env.under(base, over), v, i), Equal.trans(Bool, Env.named(n, over), ChildEnv.env_named(n, over), True{}, Equal.sym(Bool, ChildEnv.env_named(n, over), Env.named(n, over), LA.pce.named_eq(n, over)), hit))

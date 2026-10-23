@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -36,5 +36,5 @@ def pcf.rmw_keeps_others(+d: List<&2, Cf.Entry>, +e: Cf.Edit, +j: Nat, +h: {Cf.t
     case Cf.Del{+k}:
       pcf.del_keeps(d, k, j, h)
 
-def Laws.rmw_keeps_others(d, e, j, h):
+def Config.rmw_keeps_others(d, e, j, h):
   pcf.rmw_keeps_others(d, e, j, h)

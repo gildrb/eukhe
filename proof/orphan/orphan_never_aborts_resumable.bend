@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/orphan.bend as Or
-import ../../LAWS.bend as Laws
+import ../../laws/orphan.bend as Orphan
 
 # (D1) orphan_never_aborts_resumable
 # ----------------------------------
@@ -43,5 +43,5 @@ def ps.go_sound(+window: Nat, evs: List<&2, Or.Ev>, +s: Or.St, ok: Or.Sound(s)) 
 def ps.orphan_never_aborts_resumable(+window: Nat, +evs: List<&2, Or.Ev>) -> Or.Sound(Or.run(window, evs)):
   ps.go_sound(window, evs, Or.Live{Or.W.empty()}, Unit{})
 
-def Laws.orphan_never_aborts_resumable(window, evs):
+def Orphan.orphan_never_aborts_resumable(window, evs):
   ps.orphan_never_aborts_resumable(window, evs)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/lease.bend as Ls
-import ../../LAWS.bend as Laws
+import ../../laws/lease.bend as Lease
 import ./base.bend as LA
 
 def pl.MD(m: Maybe<&2, Ls.Lease>, A: Type) -> Type:
@@ -149,5 +149,5 @@ def pl.keeps(+s: Ls.L, +e: Ls.Ev, +k: Nat, +o: Nat, i: Ls.In(Ls.Waiter{k, o, Tru
 def lease_keeps_waiters(+s: Ls.L, +e: Ls.Ev, +k: Nat, +o: Nat, waits: Ls.In(Ls.Waiter{k, o, True{}}, Ls.L.queue(s)), other: {Ls.hits(e, Ls.Waiter{k, o, True{}}) == False{} : Bool}) -> Ls.Kept(k, o, Ls.step(s, e)):
   pl.keeps(s, e, k, o, waits, other)
 
-def Laws.lease_keeps_waiters(s, e, k, o, waits, other):
+def Lease.lease_keeps_waiters(s, e, k, o, waits, other):
   lease_keeps_waiters(s, e, k, o, waits, other)

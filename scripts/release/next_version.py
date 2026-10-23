@@ -22,7 +22,7 @@ The rule:
 - The release must be newer than every version tag, of any series (a tag
   of a newer series means Cargo.toml went back): else it fails.
 
-LAWS.bend section release (section R1) states the rule's laws; test_next_version.py runs
+laws/semver.bend (R1) states the rule's laws; test_next_version.py runs
 this script and the Bend model on the same cases.
 """
 

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/replace.bend as Rp
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -58,5 +58,5 @@ def pr.replace_never_downgrades(ss: List<&2, Rp.Start>) -> {Rp.never_back(Rp.dae
         case Rp.Start{+c, k}:
           pr.rising(rest, c, Nil{}, {==})
 
-def Laws.replace_never_downgrades(ss):
+def Replace.replace_never_downgrades(ss):
   pr.replace_never_downgrades(ss)

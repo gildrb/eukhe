@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 # Global cvars
@@ -51,5 +51,5 @@ def pv.gu(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>
 def pv.cvar_global_uniform(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>, +x: Nat, +d: Cv.Decl, found: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}, global: {Cv.Decl.local(d) == False{} : Bool}) -> {Cv.value(ds, cfg, fam, x) == Some{Cv.root.val(ds, cfg, x, d)} : Maybe<&2, Cv.Val>}:
   pv.gu(ds, cfg, fam, x, d, found, global)
 
-def Laws.cvar_global_uniform(ds, cfg, fam, x, d, found, global):
+def Cvar.cvar_global_uniform(ds, cfg, fam, x, d, found, global):
   pv.cvar_global_uniform(ds, cfg, fam, x, d, found, global)

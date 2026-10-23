@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/director.bend as Dr
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 import ./base.bend as LA
 
 # the stack a step that ends keeps is within cap too
@@ -44,5 +44,5 @@ def pd.dir_loop_stack_bounded(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, +l
     case +vs <> rest:
       pd.dir_loop_stack_bounded(rest, cap, Dr.tick(cap, l, vs), pd.tick_bounded(cap, l, vs, fits))
 
-def Laws.dir_loop_stack_bounded(vss, cap, l, fits):
+def Director.dir_loop_stack_bounded(vss, cap, l, fits):
   pd.dir_loop_stack_bounded(vss, cap, l, fits)

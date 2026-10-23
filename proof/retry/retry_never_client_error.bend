@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def rp.or_ff(a: Bool, b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
@@ -28,5 +28,5 @@ def never_client_error(parked: Bool, limit: Bool, kind: Maybe<&2, R.Cause>, text
     case False{} False{}:
       rp.client(Nat.is_lt(s, 500n), s, below, n408, n409, n429)
 
-def Laws.retry_never_client_error(parked, limit, kind, text, s, below, not408, not409, not429):
+def Retry.retry_never_client_error(parked, limit, kind, text, s, below, not408, not409, not429):
   never_client_error(parked, limit, kind, text, s, below, not408, not409, not429)

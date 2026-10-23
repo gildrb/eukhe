@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 import ./base.bend as LA
 
 def pc.lands_put(x: Cm.Fault, k: Cm.Op, -rest: List<&2, Cm.Doc>, +n: Nat, ok: {Bool.or(Cm.Fault.fails(x), Cm.failing(rest)) == False{} : Bool}, ih: {Cm.failing(rest) == False{} : Bool} -> {Cm.landed.go(rest, 1n+n) == Cm.ids(rest, 1n+n) : List<&2, Nat>}) -> {Cm.landed.put(n, Cm.landed.go(rest, 1n+n), Cm.publish.go(x, k)) == n <> Cm.ids(rest, 1n+n) : List<&2, Nat>}:
@@ -39,5 +39,5 @@ def pc.lands_every_file(+fs: List<&2, Cm.Doc>, same: {Cm.conflict(fs) == False{}
   %Equal.sym(Bool, Cm.conflict(fs), False{}, same) : {Cm.landed.pick(_, fs) == Cm.ids(fs, 0n) : List<&2, Nat>}
   pc.lands_go(fs, 0n, sound)
 
-def Laws.edit_lands_every_file(fs, same, sound):
+def DocCommit.edit_lands_every_file(fs, same, sound):
   pc.lands_every_file(fs, same, sound)

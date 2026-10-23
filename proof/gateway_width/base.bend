@@ -1,7 +1,6 @@
 # eukhe: lemmas the proofs of area gateway_width share
 
 import Base
-import ../../LAWS.bend as Laws
 
 def gw.sub_zero(a: Nat) -> {Nat.sub(a, 0n) == a : Nat}:
   match a:

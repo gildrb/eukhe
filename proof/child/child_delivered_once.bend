@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -318,5 +318,5 @@ def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: C
 def pc.delivered_once(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, ow: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}, +m: Nat, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}) -> {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}:
   pc.delivered(cfg, Ch.run(evs, cfg, Ch.St.init(cfg)), d1, o1, d2, o2, d3, o3, m, LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}), ow, em)
 
-def Laws.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):
+def Child.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):
   pc.delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits)

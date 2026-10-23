@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 
 # Resolution
@@ -24,5 +24,5 @@ def theme_resolve_missing(+src: List<&2, T.Cand>, +n: String, ne: {String.is_emp
   %Equal.sym(Bool, String.is_empty(n), False{}, ne) : {T.resolve.name.pick(_, src, n) == T.Res{T.dflt(), True{}} : T.Res}
   pt.find_miss(src, n, miss)
 
-def Laws.theme_resolve_missing(src, n, ne, miss):
+def Theme.theme_resolve_missing(src, n, ne, miss):
   theme_resolve_missing(src, n, ne, miss)

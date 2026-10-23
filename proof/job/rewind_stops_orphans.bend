@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 def pj.ok_run(h: Bool, +i: Nat, r: Bool) -> {True{} == Bool.or(Bool.not(Jb.Slot.running(Jb.stop.at(h, Jb.Slot{i, r}))), h) : Bool}:
@@ -31,5 +31,5 @@ def pj.stops(js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb.running_in(Jb.r
 def pj.rewind_stops_orphans(+js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb.running_in(Jb.rewind(js, keep), keep) == True{} : Bool}:
   pj.stops(js, keep)
 
-def Laws.rewind_stops_orphans(js, keep):
+def Job.rewind_stops_orphans(js, keep):
   pj.rewind_stops_orphans(js, keep)

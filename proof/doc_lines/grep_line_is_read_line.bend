@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_lines.bend as Dl
-import ../../LAWS.bend as Laws
+import ../../laws/doc_lines.bend as DocLines
 import ./base.bend as LA
 
 # Rows of read and grep
@@ -342,5 +342,5 @@ def pdl.grep_is_read(+b: Dl.B, +bs: List<&2, Dl.B>) -> {Dl.grep_rows(b <> bs) ==
   %pdl.norm_lines(b <> bs, False{}) : {Dl.lastrow(_) == Dl.read_rows(b <> bs) : List<&2, List<&2, Dl.B>>}
   pdl.rows_same(Dl.norm(b <> bs), pdl.nm_ne(bs, b, False{}))
 
-def Laws.grep_line_is_read_line(b, bs):
+def DocLines.grep_line_is_read_line(b, bs):
   pdl.grep_is_read(b, bs)

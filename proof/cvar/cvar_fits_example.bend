@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW cvar_fits_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 
-def Laws.cvar_fits_example():
+def Cvar.cvar_fits_example():
   {==}

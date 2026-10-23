@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
+import ../../laws/approvals.bend as Approvals
 import ../base.bend as L
 
 # a step fares the same whichever session's end it is seen from
@@ -44,5 +44,5 @@ def pa.subagent(+below: List<&2, Am.Desk>, quiet: {Am.quiet(below) == True{} : B
         case Am.PhoneLeft{}:
           L.approvals.pa.absurdF({Am.fate(es, Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.PhoneLeft{} <> rest, Am.Phone{} <> above)))) == Am.fate(es, Am.Out.end(Am.route([Am.Phone{}]))) : Am.Fate}, quiet)
 
-def Laws.gateway_rules_a_subagent(below, quiet, es, above):
+def Approvals.gateway_rules_a_subagent(below, quiet, es, above):
   pa.subagent(below, quiet, es, above)

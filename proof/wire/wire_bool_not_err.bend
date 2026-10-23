@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW wire_bool_not_err
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 
-def Laws.wire_bool_not_err(b, rest):
+def Wire.wire_bool_not_err(b, rest):
   match b:
     case True{}:
       {==}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 # The laws' conclusions
@@ -31,5 +31,5 @@ def rounds_of(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: LA.InvS(cfg, s, k)) -> Or({Rn
 def rounds_capped(+cfg: Rn.Cfg, +evs: List<&2, Rn.Ev>) -> Or({Rn.failed(Rn.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(Rn.rounds(cfg, evs), Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool}):
   rounds_of(cfg, Rn.run(cfg, evs), Rn.rounds(cfg, evs), LA.inv_run(evs, cfg, Rn.init(cfg), 0n, LA.inv_init(cfg)))
 
-def Laws.run_rounds_capped(cfg, evs):
+def Run.run_rounds_capped(cfg, evs):
   rounds_capped(cfg, evs)

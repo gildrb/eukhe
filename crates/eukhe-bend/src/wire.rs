@@ -1,6 +1,6 @@
 //! The wire format of the compiled Bend core, Rust side: `Writer` encodes
 //! a request, `Reader` decodes a reply. It mirrors `bend/wire.bend` (the
-//! grammar is `crates/eukhe-bend/WIRE.md`; LAWS.bend section `wire` pins
+//! grammar is `crates/eukhe-bend/WIRE.md`; `laws/wire.bend` pins
 //! the Bend side). Decoding is total: every input that is not an encoding
 //! is a `WireError`, never a default.
 

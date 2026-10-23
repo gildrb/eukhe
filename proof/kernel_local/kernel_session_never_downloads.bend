@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 # The setup
 # ---------
@@ -18,5 +18,5 @@ def pk.session_never_downloads(f: KL.Found) -> {KL.acts.fetching(KL.plan(f, KL.L
 
 # (K1) The kernel environment is local
 
-def Laws.kernel_session_never_downloads(f):
+def KernelLocal.kernel_session_never_downloads(f):
   pk.session_never_downloads(f)

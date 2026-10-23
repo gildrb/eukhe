@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../LAWS.bend as Laws
+import ../../laws/color.bend as Color
 import ../base.bend as L
 
 def pt.sharp_some(+b: Bool, +m: Maybe<&2, Co.Rgb>, -c: Co.Rgb, h: {Co.hex.sharp(b, m) == Some{c} : Maybe<&2, Co.Rgb>}) -> {b == True{} : Bool}:
@@ -12,7 +12,7 @@ def pt.sharp_some(+b: Bool, +m: Maybe<&2, Co.Rgb>, -c: Co.Rgb, h: {Co.hex.sharp(
     case False{}:
       L.themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
 
-def Laws.theme_hex_shape(s, c, h):
+def Color.theme_hex_shape(s, c, h):
   match s:
     case SNil{}:
       L.themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)

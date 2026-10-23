@@ -1,9 +1,8 @@
 # eukhe: lemmas the proofs of area compactor share
 
 import Base
-import ../../bend/optchat.bend as O
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../bend/optchat.bend as O
 import ../base.bend as L
 
 def pc.lt_succ_of_le(a: Nat, b: Nat, e: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_lt(a, 1n+b) == True{} : Bool}:

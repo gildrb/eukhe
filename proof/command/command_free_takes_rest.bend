@@ -10,19 +10,19 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../LAWS.bend as Laws
+import ../../laws/command.bend as Command
 import ../base.bend as L
 import ./base.bend as LA
 
-def Laws.command_free_takes_rest(t, q, w, more, ok, on, open, word, after, miss):
+def Command.command_free_takes_rest(t, q, w, more, ok, on, open, word, after, miss):
   match q:
     case Nil{}:
-      L.cb_absurd({Cmd.resolve(t, Laws.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, w <> more))) == Cmd.Runs{Nil{}, Laws.cmd_render(w <> more)} : Cmd.Res}, on)
+      L.cb_absurd({Cmd.resolve(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, w <> more))) == Cmd.Runs{Nil{}, Command.cmd_render(w <> more)} : Cmd.Res}, on)
     case Con{+x, +rest}:
       +qq = {x <> rest : List<&2, List<&2, Nat>>}
       +wm = {w <> more : List<&2, List<&2, Nat>>}
-      %LA.cb_join(wm) : {Cmd.resolve(t, Laws.cmd_render(List.append(&2, List<&2, Nat>, qq, wm))) == Cmd.Runs{qq, _} : Cmd.Res}
-      %Equal.sym(Cmd.St, Cmd.walk(Cmd.words(Laws.cmd_render(List.append(&2, List<&2, Nat>, qq, wm))), t, Cmd.Top{}), Cmd.walk(more, t, LA.cb_miss(t, qq, w)), LA.cb_line_miss(t, qq, w, more, ok, on, word, after, miss)) : {Cmd.finish(_, t) == Cmd.Runs{qq, Cmd.join(wm)} : Cmd.Res}
-      %Equal.sym(Bool, Laws.cmd_free(t, qq), True{}, open) : {Cmd.finish(Cmd.walk(more, t, Cmd.step.miss(_, qq, w)), t) == Cmd.Runs{qq, Cmd.join(wm)} : Cmd.Res}
+      %LA.cb_join(wm) : {Cmd.resolve(t, Command.cmd_render(List.append(&2, List<&2, Nat>, qq, wm))) == Cmd.Runs{qq, _} : Cmd.Res}
+      %Equal.sym(Cmd.St, Cmd.walk(Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, qq, wm))), t, Cmd.Top{}), Cmd.walk(more, t, LA.cb_miss(t, qq, w)), LA.cb_line_miss(t, qq, w, more, ok, on, word, after, miss)) : {Cmd.finish(_, t) == Cmd.Runs{qq, Cmd.join(wm)} : Cmd.Res}
+      %Equal.sym(Bool, Command.cmd_free(t, qq), True{}, open) : {Cmd.finish(Cmd.walk(more, t, Cmd.step.miss(_, qq, w)), t) == Cmd.Runs{qq, Cmd.join(wm)} : Cmd.Res}
       %Equal.sym(Cmd.St, Cmd.walk(more, t, Cmd.Rest{qq, [w]}), Cmd.Rest{qq, wm}, LA.cb_walk_rest(more, t, qq, [w])) : {Cmd.finish(_, t) == Cmd.Runs{qq, Cmd.join(wm)} : Cmd.Res}
       {==}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 
 def pl.or_tr(a: Bool, +b: Bool, hb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
@@ -23,5 +23,5 @@ def pl.schema_keeps_params(+s: Tl.Schema, +x: Nat, has: {Tl.elem(Tl.Schema.param
     case Tl.Schema{+ps, v}:
       tools.pl.keep(Tl.elem(ps, Tl.intent()), ps, x, has)
 
-def Laws.schema_keeps_params(s, x, has):
+def Tools.schema_keeps_params(s, x, has):
   pl.schema_keeps_params(s, x, has)

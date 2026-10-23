@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
 def pi.snd_next(-t: If.Try, p: List<&2, If.Try> & If.Forced) -> {Pair.snd(List<&2, If.Try>, If.Forced, p) == Pair.snd(List<&2, If.Try>, If.Forced, If.force.next(t, p)) : If.Forced}:
   (ts, o) = p
@@ -31,5 +31,5 @@ def pi.reports_go(+replies: List<&2, Bool>, +r: Nat, +flag: Bool, +sup: Bool) ->
 def pi.force_reports(+r: Nat, +replies: List<&2, Bool>, +sup: Bool, +free: Bool) -> {If.Forced.called(Pair.snd(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))) == If.called_within(1n+r, replies) : Bool}:
   pi.reports_go(replies, r, Bool.and(sup, free), sup)
 
-def Laws.force_reports(r, replies, sup, free):
+def Infer.force_reports(r, replies, sup, free):
   pi.force_reports(r, replies, sup, free)

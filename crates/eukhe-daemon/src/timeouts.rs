@@ -1,6 +1,6 @@
 //! The supervisor's timeouts. Each one derives from the timeouts it must
 //! exceed, so an edit of one cannot reorder them: the law
-//! `timeouts_ordered` (LAWS.bend, D1; the model in bend/supervise.bend)
+//! `timeouts_ordered` (`laws/supervise.bend`, D1; the model in bend/supervise.bend)
 //! proves the order of the derivation, and the bridge test
 //! (`crate::supervision_bridge`) checks that these values are the
 //! derivation.

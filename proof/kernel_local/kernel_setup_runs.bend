@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 def pk.setup_runs(f: KL.Found, s: KL.Setup) -> {KL.acts.runs(KL.plan(f, s)) == True{} : Bool}:
   match f s:
@@ -19,5 +19,5 @@ def pk.setup_runs(f: KL.Found, s: KL.Setup) -> {KL.acts.runs(KL.plan(f, s)) == T
     case KL.Stale{} KL.Install{}:
       {==}
 
-def Laws.kernel_setup_runs(f, s):
+def KernelLocal.kernel_setup_runs(f, s):
   pk.setup_runs(f, s)

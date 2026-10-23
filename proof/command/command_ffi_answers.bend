@@ -5,10 +5,10 @@
 # rest ""), so the entry finds its input whole and runs the model on it.
 
 import Base
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_command.bend as FCmd
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/command.bend as Command
 import ./command_ffi_round_trip.bend as PCommandFfiRoundTrip
 
-def Laws.command_ffi_answers(r, h):
-  Equal.cong(Wr.Dec<FCmd.Req>, String, d => FCmd.ffi.go(d), FCmd.get_req(FCmd.put_req(r, "")), Wr.Got{r, ""}, Laws.command_ffi_round_trip(r, "", h))
+def Command.command_ffi_answers(r, h):
+  Equal.cong(Wr.Dec<FCmd.Req>, String, d => FCmd.ffi.go(d), FCmd.get_req(FCmd.put_req(r, "")), Wr.Got{r, ""}, Command.command_ffi_round_trip(r, "", h))

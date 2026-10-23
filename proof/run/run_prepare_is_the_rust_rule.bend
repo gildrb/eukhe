@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
-def rk.run_prepare_is_the_rust_rule(+compacted: Bool, +th: Rn.Th) -> {Rn.decide.prepare(compacted, th) == Laws.rust.before_request(compacted, th) : Rn.Prepared}:
+def rk.run_prepare_is_the_rust_rule(+compacted: Bool, +th: Rn.Th) -> {Rn.decide.prepare(compacted, th) == Run.rust.before_request(compacted, th) : Rn.Prepared}:
   match compacted th:
     case True{} Rn.Under{}:
       {==}
@@ -19,5 +19,5 @@ def rk.run_prepare_is_the_rust_rule(+compacted: Bool, +th: Rn.Th) -> {Rn.decide.
     case False{} Rn.Blocking{}:
       {==}
 
-def Laws.run_prepare_is_the_rust_rule(compacted, th):
+def Run.run_prepare_is_the_rust_rule(compacted, th):
   rk.run_prepare_is_the_rust_rule(compacted, th)

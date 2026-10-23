@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW reveal_bounds
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/doc_seen.bend as DocSeen
 
-def Laws.reveal_bounds():
+def DocSeen.reveal_bounds():
   ({==}, {==})

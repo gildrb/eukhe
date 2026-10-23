@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def rp.within_of(-m: Maybe<&2, R.Switch>, -len: Nat, -ts: List<&2, R.Tried>, -p: R.Policy, g: L.rp.Good(m, len, ts, p)) -> {R.Switch.within(m, ts, p) == True{} : Bool}:
@@ -15,5 +15,5 @@ def rp.within_of(-m: Maybe<&2, R.Switch>, -len: Nat, -ts: List<&2, R.Tried>, -p:
 def bounded(+len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> {R.Switch.within(R.next(len, ts, p), ts, p) == True{} : Bool}:
   rp.within_of(R.next(len, ts, p), len, ts, p, L.good(len, ts, p))
 
-def Laws.failover_bounded(len, ts, p):
+def Retry.failover_bounded(len, ts, p):
   bounded(len, ts, p)

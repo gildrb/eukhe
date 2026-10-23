@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
+import ../../laws/path_policy.bend as PathPolicy
 import ./base.bend as LA
 
 def pp.gate_secret_read_needs_yes(c: Pp.Cls, a: Pp.Acc, +auto: List<&2, Nat>, +ans: Pp.Ans, s: {Pp.secret_read(c, a) == True{} : Bool}, ran: {Pp.runs(c, a, auto, ans) == True{} : Bool}) -> {Pp.Ans.yes(ans) == True{} : Bool}:
@@ -64,5 +64,5 @@ def pp.gate_secret_read_needs_yes(c: Pp.Cls, a: Pp.Acc, +auto: List<&2, Nat>, +a
         case Pp.Wr{}:
           LA.pp.absurdF({Pp.Ans.yes(ans) == True{} : Bool}, s)
 
-def Laws.gate_secret_read_needs_yes(c, a, auto, ans, s, ran):
+def PathPolicy.gate_secret_read_needs_yes(c, a, auto, ans, s, ran):
   pp.gate_secret_read_needs_yes(c, a, auto, ans, s, ran)

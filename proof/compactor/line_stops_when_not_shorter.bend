@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 
 def pc.le_not_lt(a: Nat, b: Nat, e: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_lt(b, a) == False{} : Bool}:
@@ -53,5 +53,5 @@ def pc.line_stops_when_not_shorter(+t: Nat, +node: Nat, +input: List<&2, C.W>, +
         case +u <> +v:
           pc.stop_next(Nat.is_le(C.Text.len(x <> y), node), Nat.is_le(C.Text.len(u <> v), node), Nat.is_lt(C.Text.len(u <> v), C.Text.len(x <> y)), x <> y, u <> v, node, input, C.line.go(t, node, Some{u <> v}, C.Text.len(u <> v), rest, input), L.pc.lt_not_le(node, C.Text.len(x <> y), over), L.pc.lt_not_le(node, C.Text.len(u <> v), pc.lt_le_trans(node, C.Text.len(x <> y), C.Text.len(u <> v), over, longer)), pc.le_not_lt(C.Text.len(x <> y), C.Text.len(u <> v), longer))
 
-def Laws.line_stops_when_not_shorter(t, node, input, a, b, rest, over, longer):
+def Compactor.line_stops_when_not_shorter(t, node, input, a, b, rest, over, longer):
   pc.line_stops_when_not_shorter(t, node, input, a, b, rest, over, longer)

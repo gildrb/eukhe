@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
+import ../../laws/dash.bend as Dash
 import ./base.bend as LA
 
 # The current token only grows
@@ -35,5 +35,5 @@ def pa.rotation_rejects_old_tokens(+hist: List<&2, Da.Ev>, +more: List<&2, Da.Ev
   %Equal.sym(Bool, Nat.is_eq(t, Da.St.cur(Da.state(more, Da.next(Da.state(hist, Da.init()), Da.Rotate{})))), False{}, LA.pa.lt_ne(t, Da.St.cur(Da.state(more, Da.next(Da.state(hist, Da.init()), Da.Rotate{}))), pa.lt_state(more, Da.next(Da.state(hist, Da.init()), Da.Rotate{}), t, pa.lt_rotate(Da.state(hist, Da.init()), t, old)))) : {Da.open.out(c, _) == Da.Rejected{c} : Da.Out}
   {==}
 
-def Laws.dash_rotation_rejects_old_tokens(hist, more, c, t, old):
+def Dash.dash_rotation_rejects_old_tokens(hist, more, c, t, old):
   pa.rotation_rejects_old_tokens(hist, more, c, t, old)

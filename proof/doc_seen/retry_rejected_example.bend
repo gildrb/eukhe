@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW retry_rejected_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/doc_seen.bend as DocSeen
 
-def Laws.retry_rejected_example():
+def DocSeen.retry_rejected_example():
   {==}

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 # with the opt-out, nothing is dropped
@@ -27,5 +27,5 @@ def pj.optout(es: List<&2, Jb.JEv>, +k: Nat) -> {Jb.J.dropped(Jb.go(es, None{}, 
 def pj.job_optout_keeps_all(es: List<&2, Jb.JEv>) -> {Jb.J.dropped(Jb.run(None{}, es)) == 0n : Nat}:
   pj.optout(es, 0n)
 
-def Laws.job_optout_keeps_all(es):
+def Job.job_optout_keeps_all(es):
   pj.job_optout_keeps_all(es)

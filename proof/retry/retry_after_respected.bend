@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
 # (R2) The wait
 # -------------
@@ -17,5 +17,5 @@ def rp.after(over: Bool, +jitter: Nat, +s: Nat, +cap: Nat) -> {R.Delay.respects(
 def after_respected(+jitter: Nat, +s: Nat, +cap: Nat) -> {R.Delay.respects(R.wait(jitter, Some{s}, cap), s) == True{} : Bool}:
   rp.after(Bool.and(Nat.is_gt(cap, 0n), Nat.is_gt(s, cap)), jitter, s, cap)
 
-def Laws.retry_after_respected(jitter, s, cap):
+def Retry.retry_after_respected(jitter, s, cap):
   after_respected(jitter, s, cap)

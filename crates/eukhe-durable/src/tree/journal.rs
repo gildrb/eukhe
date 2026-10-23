@@ -77,7 +77,7 @@ pub struct Journal<V> {
     tree: SessionTree<V>,
     values: Values<V>,
     /// A question (a rewind plan, a snapshot) leaves the core as it was
-    /// (LAWS.bend `tree_core_plan_keeps`, `tree_core_snap_keeps`), so the
+    /// (`laws/tree.bend` `tree_core_plan_keeps`, `tree_core_snap_keeps`), so the
     /// journal asks it through `&self`. A poisoned lock still holds a
     /// core in step with the journal: a question that panicked left the
     /// core as it was, and a record steps it through `&mut self`.

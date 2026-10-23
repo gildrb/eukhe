@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW retry_ffi_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.retry_ffi_example():
+def Retry.retry_ffi_example():
   {==}

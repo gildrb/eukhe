@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
 def pq.and_swap(a: Bool, b: Bool, +c: Bool) -> {Bool.and(a, Bool.and(b, c)) == Bool.and(b, Bool.and(a, c)) : Bool}:
   match a b:
@@ -91,5 +91,5 @@ def pq.quirk_compile_order_free(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, 
   %pq.amb_swap(pre, a, b, post) : {Bool.and(If.known_all(L1, known), Bool.not(If.ambiguous(L1))) == Bool.and(If.known_all(L1, known), Bool.not(_)) : Bool}
   {==}
 
-def Laws.quirk_compile_order_free(known, pre, a, b, post):
+def Infer.quirk_compile_order_free(known, pre, a, b, post):
   pq.quirk_compile_order_free(known, pre, a, b, post)

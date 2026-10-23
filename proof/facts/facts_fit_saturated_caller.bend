@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -22,6 +22,6 @@ def w2.cap_above(+x: Nat, +mm: Nat, +b: Nat, h: {Nat.is_le(mm, x) == True{} : Bo
   %Equal.sym(Bool, Nat.is_lt(b, 0n), False{}, LA.w2.lt_zero(b)) : {Fx.fit.cap.add(_, x, mm, b) == mm : Nat}
   {==}
 
-def Laws.facts_fit_saturated_caller(x, mm, b, a, above):
+def Facts.facts_fit_saturated_caller(x, mm, b, a, above):
   %w2.cap_above(x, mm, b, above) : {Fx.fit(Some{x}, mm, b, a) == Fx.fit.at(Nat.is_le(_, b), _, b, a) : Fx.Fit}
   {==}

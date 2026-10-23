@@ -270,7 +270,7 @@ mod tests {
             .collect()
     }
 
-    /// The laws of `force` (`LAWS.bend` section S6, model
+    /// The laws of `force` (`laws/infer.bend` S6, model
     /// `bend/infer.bend`) over small inputs.
     #[test]
     fn the_force_laws_hold() {

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -28,5 +28,5 @@ def delete_within(+t: List<&2, Tr.Ent>, +good: {Tr.sound(t) == True{} : Bool}, +
     case 1n+y:
       pt.within_prune_go(t, [1n+y], Tr.gone.at(t, [1n+y]), t, LA.pt.within_self(t, L.tree.pt.and_l(Tr.sorted(t), Tr.rooted(t), good)))
 
-def Laws.tree_delete_within(t, L.good, x):
+def Tree.tree_delete_within(t, L.good, x):
   delete_within(t, L.good, x)

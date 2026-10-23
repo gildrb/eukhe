@@ -10,7 +10,7 @@
 //! session that loops (the same calls with the same results, retries,
 //! answers that only say it waits) does not, however many events it
 //! streams. `bend/progress.bend` models the count (`work`),
-//! `LAWS.bend` section `progress` states what it guarantees, and the bridge test
+//! `laws/progress.bend` states what it guarantees, and the bridge test
 //! (`goals/hooks/bridge.rs`) runs both on the same scenarios.
 
 use std::collections::{HashMap, HashSet};

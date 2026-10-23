@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 # a kept name that is no provider name passes
@@ -25,5 +25,5 @@ def pce.env_keeps_listed(+reg: List<&2, String>, +keep: List<&2, String>, base: 
   +n = Env.Var.name(v)
   LA.pce.in_keep(reg, keep, Env.merge(base, over), v, i, LA.pce.of_spec(reg, keep, n, pce.kept(Bool.not(Env.cred(reg, n)), Env.listed(keep, n), Env.registered(reg, n), k, r)))
 
-def Laws.env_keeps_listed(reg, keep, base, over, v, i, k, r):
+def ChildEnv.env_keeps_listed(reg, keep, base, over, v, i, k, r):
   pce.env_keeps_listed(reg, keep, base, over, v, i, k, r)

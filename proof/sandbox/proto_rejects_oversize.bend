@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 import ./base.bend as LA
 
 # b below a: a is not at most b
@@ -21,5 +21,5 @@ def px.proto_rejects_oversize(+i: Nat, +l: Nat, +k: Nat, +max: Nat, +allowed: Li
   %px.lt_nle(l, max, over) : {Sb.host.add(Bool.and(_, Sb.elem(allowed, k)), Sb.Frame{i, l, k}, Sb.Host{Nil{}, Nil{}}) == Sb.Host{[Sb.Err{i}], Nil{}} : Sb.Host}
   {==}
 
-def Laws.proto_rejects_oversize(i, l, k, max, allowed, over):
+def Sandbox.proto_rejects_oversize(i, l, k, max, allowed, over):
   px.proto_rejects_oversize(i, l, k, max, allowed, over)

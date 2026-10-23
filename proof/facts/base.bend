@@ -2,9 +2,10 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_facts.bend as FFx
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/facts.bend as Facts
+import ../../laws/base.bend as LawsBase
 import ../base.bend as L
 
 # ---- facts ----
@@ -123,7 +124,7 @@ def w2.cap_sum(+x: Nat, +mm: Nat, +b: Nat) -> {Fx.fit.cap(Some{x}, mm, b) == Nat
       %w2.cap_sum(p, q, b) : {Fx.fit.cap.add(Nat.is_lt(b, Nat.sub(q, p)), 1n+p, 1n+q, b) == 1n+_ : Nat}
       w2.cap_succ(Nat.is_lt(b, Nat.sub(q, p)), p, q, b)
 
-def w2.fit_at(c: Bool, +m: Nat, +b: Nat, +a: Nat) -> {Fx.fit.at(c, m, b, a) == Laws.budgets.fit.at(c, m, b, a) : Fx.Fit}:
+def w2.fit_at(c: Bool, +m: Nat, +b: Nat, +a: Nat) -> {Fx.fit.at(c, m, b, a) == Facts.budgets.fit.at(c, m, b, a) : Fx.Fit}:
   match c:
     case True{}:
       {==}
@@ -159,7 +160,7 @@ def pf.ord_mh(+b: Fx.Budgets, +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
       +mh = L.pq.and_r(Nat.is_le(lo, me), Nat.is_le(me, hi), rest)
       pf.le_trans(mi, lo, hi, ml, pf.le_trans(lo, me, hi, lm, mh))
 
-def pc.f_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {Laws.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mnat(FFx.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+def pc.f_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {LawsBase.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mnat(FFx.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
   match m:
     case None{}:
       {==}
@@ -207,53 +208,53 @@ def pc.f_lv(+x: Fx.Lv, +rest: String) -> {Wr.Got{x, rest} == FFx.get_lv(FFx.put_
       {==}
 
 # the user's budgets that fit read back
-def pc.f_customs(+c: Fx.Customs, +rest: String, h: {Laws.core_customs_fit(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FFx.get_customs(FFx.put_customs(c, rest)) : Wr.Dec<Fx.Customs>}:
+def pc.f_customs(+c: Fx.Customs, +rest: String, h: {Facts.core_customs_fit(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FFx.get_customs(FFx.put_customs(c, rest)) : Wr.Dec<Fx.Customs>}:
   match c:
     case Fx.Customs{+mi, +lo, +me, +hi}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_mfits(mi), Bool.and(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi))), hhh)
-      +hh1 = L.wr_and_r(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi)), hh0)
-      +hh2 = L.wr_and_r(Laws.core_mfits(me), Laws.core_mfits(hi), hh1)
+      +hh0 = L.wr_and_r(LawsBase.core_mfits(mi), Bool.and(LawsBase.core_mfits(lo), Bool.and(LawsBase.core_mfits(me), LawsBase.core_mfits(hi))), hhh)
+      +hh1 = L.wr_and_r(LawsBase.core_mfits(lo), Bool.and(LawsBase.core_mfits(me), LawsBase.core_mfits(hi)), hh0)
+      +hh2 = L.wr_and_r(LawsBase.core_mfits(me), LawsBase.core_mfits(hi), hh1)
       +r3 = FFx.put_mnat(hi, rest)
       +r2 = FFx.put_mnat(me, r3)
       +r1 = FFx.put_mnat(lo, r2)
       +r0 = FFx.put_mnat(mi, r1)
       +d0 = FFx.get_mnat(r0)
-      +e0 = pc.f_mnat(mi, r1, L.wr_and_l(Laws.core_mfits(mi), Bool.and(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi))), hhh))
+      +e0 = pc.f_mnat(mi, r1, L.wr_and_l(LawsBase.core_mfits(mi), Bool.and(LawsBase.core_mfits(lo), Bool.and(LawsBase.core_mfits(me), LawsBase.core_mfits(hi))), hhh))
       +d1 = FFx.seq(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d0)
-      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, mi, r1, lo, r2, d0, e0, pc.f_mnat(lo, r2, L.wr_and_l(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi)), hh0)))
+      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, mi, r1, lo, r2, d0, e0, pc.f_mnat(lo, r2, L.wr_and_l(LawsBase.core_mfits(lo), Bool.and(LawsBase.core_mfits(me), LawsBase.core_mfits(hi)), hh0)))
       +d2 = FFx.seq(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d1)
-      +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, pc.f_mnat(me, r3, L.wr_and_l(Laws.core_mfits(me), Laws.core_mfits(hi), hh1)))
+      +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, pc.f_mnat(me, r3, L.wr_and_l(LawsBase.core_mfits(me), LawsBase.core_mfits(hi), hh1)))
       +d3 = FFx.seq(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d2)
       +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.P2{FFx.P2{mi, lo}, me}, r3, hi, rest, d2, e2, pc.f_mnat(hi, rest, hh2))
       %e3 : {Wr.Got{Fx.Customs{mi, lo, me, hi}, rest} == FFx.get_customs.of(_) : Wr.Dec<Fx.Customs>}
       {==}
 
 # a budget table that fits reads back
-def pc.f_budgets(+b: Fx.Budgets, +rest: String, h: {Laws.core_budgets_fit(b) == True{} : Bool}) -> {Wr.Got{b, rest} == FFx.get_budgets(FFx.put_budgets(b, rest)) : Wr.Dec<Fx.Budgets>}:
+def pc.f_budgets(+b: Fx.Budgets, +rest: String, h: {Facts.core_budgets_fit(b) == True{} : Bool}) -> {Wr.Got{b, rest} == FFx.get_budgets(FFx.put_budgets(b, rest)) : Wr.Dec<Fx.Budgets>}:
   match b:
     case Fx.Budgets{+mi, +lo, +me, +hi}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.wire_fits(mi), Bool.and(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi))), hhh)
-      +hh1 = L.wr_and_r(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi)), hh0)
-      +hh2 = L.wr_and_r(Laws.wire_fits(me), Laws.wire_fits(hi), hh1)
+      +hh0 = L.wr_and_r(LawsBase.wire_fits(mi), Bool.and(LawsBase.wire_fits(lo), Bool.and(LawsBase.wire_fits(me), LawsBase.wire_fits(hi))), hhh)
+      +hh1 = L.wr_and_r(LawsBase.wire_fits(lo), Bool.and(LawsBase.wire_fits(me), LawsBase.wire_fits(hi)), hh0)
+      +hh2 = L.wr_and_r(LawsBase.wire_fits(me), LawsBase.wire_fits(hi), hh1)
       +r3 = Wr.put_nat(hi, rest)
       +r2 = Wr.put_nat(me, r3)
       +r1 = Wr.put_nat(lo, r2)
       +r0 = Wr.put_nat(mi, r1)
       +d0 = Wr.get_nat(r0)
-      +e0 = L.pc.nat(mi, r1, L.wr_and_l(Laws.wire_fits(mi), Bool.and(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi))), hhh))
+      +e0 = L.pc.nat(mi, r1, L.wr_and_l(LawsBase.wire_fits(mi), Bool.and(LawsBase.wire_fits(lo), Bool.and(LawsBase.wire_fits(me), LawsBase.wire_fits(hi))), hhh))
       +d1 = FFx.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
-      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, mi, r1, lo, r2, d0, e0, L.pc.nat(lo, r2, L.wr_and_l(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi)), hh0)))
+      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, mi, r1, lo, r2, d0, e0, L.pc.nat(lo, r2, L.wr_and_l(LawsBase.wire_fits(lo), Bool.and(LawsBase.wire_fits(me), LawsBase.wire_fits(hi)), hh0)))
       +d2 = FFx.seq(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, d1)
-      +e2 = pc.seqFFx(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, L.pc.nat(me, r3, L.wr_and_l(Laws.wire_fits(me), Laws.wire_fits(hi), hh1)))
+      +e2 = pc.seqFFx(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, L.pc.nat(me, r3, L.wr_and_l(LawsBase.wire_fits(me), LawsBase.wire_fits(hi), hh1)))
       +d3 = FFx.seq(~FFx.P2<FFx.P2<Nat, Nat>, Nat>, ~Nat, ~Wr.get_nat, d2)
       +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Nat, Nat>, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{mi, lo}, me}, r3, hi, rest, d2, e2, L.pc.nat(hi, rest, hh2))
       %e3 : {Wr.Got{Fx.Budgets{mi, lo, me, hi}, rest} == FFx.get_budgets.of(_) : Wr.Dec<Fx.Budgets>}
       {==}
 
 # a Maybe<Budgets> that fits reads back
-def pc.f_mbudgets(+m: Maybe<&2, Fx.Budgets>, +rest: String, h: {Laws.core_mbudgets_fit(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mbudgets(FFx.put_mbudgets(m, rest)) : Wr.Dec<Maybe<&2, Fx.Budgets>>}:
+def pc.f_mbudgets(+m: Maybe<&2, Fx.Budgets>, +rest: String, h: {Facts.core_mbudgets_fit(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mbudgets(FFx.put_mbudgets(m, rest)) : Wr.Dec<Maybe<&2, Fx.Budgets>>}:
   match m:
     case None{}:
       {==}
@@ -262,43 +263,43 @@ def pc.f_mbudgets(+m: Maybe<&2, Fx.Budgets>, +rest: String, h: {Laws.core_mbudge
       {==}
 
 # a budget request that fits reads back
-def pc.f_req(+q: FFx.Req, +rest: String, h: {Laws.core_facts_req_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FFx.get_req(FFx.put_req(q, rest)) : Wr.Dec<FFx.Req>}:
+def pc.f_req(+q: FFx.Req, +rest: String, h: {Facts.core_facts_req_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FFx.get_req(FFx.put_req(q, rest)) : Wr.Dec<FFx.Req>}:
   match q:
     case FFx.Level{+l, +c, +d}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_customs_fit(c), Laws.core_budgets_fit(d), hhh)
+      +hh0 = L.wr_and_r(Facts.core_customs_fit(c), Facts.core_budgets_fit(d), hhh)
       +r2 = FFx.put_budgets(d, rest)
       +r1 = FFx.put_customs(c, r2)
       +r0 = FFx.put_elv(l, r1)
       +d0 = FFx.get_elv(r0)
       +e0 = pc.f_elv(l, r1)
       +d1 = FFx.seq(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, d0)
-      +e1 = pc.seqFFx(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, l, r1, c, r2, d0, e0, pc.f_customs(c, r2, L.wr_and_l(Laws.core_customs_fit(c), Laws.core_budgets_fit(d), hhh)))
+      +e1 = pc.seqFFx(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, l, r1, c, r2, d0, e0, pc.f_customs(c, r2, L.wr_and_l(Facts.core_customs_fit(c), Facts.core_budgets_fit(d), hhh)))
       +d2 = FFx.seq(~FFx.P2<Fx.ELv, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, d1)
       +e2 = pc.seqFFx(~FFx.P2<Fx.ELv, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.P2{l, c}, r2, d, rest, d1, e1, pc.f_budgets(d, rest, hh0))
       %e2 : {Wr.Got{FFx.Level{l, c, d}, rest} == FFx.get_level.of(_) : Wr.Dec<FFx.Req>}
       {==}
     case FFx.Room{+b, +m, +a}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.wire_fits(b), Bool.and(Laws.wire_fits(m), Laws.wire_fits(a)), hhh)
-      +hh1 = L.wr_and_r(Laws.wire_fits(m), Laws.wire_fits(a), hh0)
+      +hh0 = L.wr_and_r(LawsBase.wire_fits(b), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(a)), hhh)
+      +hh1 = L.wr_and_r(LawsBase.wire_fits(m), LawsBase.wire_fits(a), hh0)
       +r2 = Wr.put_nat(a, rest)
       +r1 = Wr.put_nat(m, r2)
       +r0 = Wr.put_nat(b, r1)
       +d0 = Wr.get_nat(r0)
-      +e0 = L.pc.nat(b, r1, L.wr_and_l(Laws.wire_fits(b), Bool.and(Laws.wire_fits(m), Laws.wire_fits(a)), hhh))
+      +e0 = L.pc.nat(b, r1, L.wr_and_l(LawsBase.wire_fits(b), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(a)), hhh))
       +d1 = FFx.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
-      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, b, r1, m, r2, d0, e0, L.pc.nat(m, r2, L.wr_and_l(Laws.wire_fits(m), Laws.wire_fits(a), hh0)))
+      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, b, r1, m, r2, d0, e0, L.pc.nat(m, r2, L.wr_and_l(LawsBase.wire_fits(m), LawsBase.wire_fits(a), hh0)))
       +d2 = FFx.seq(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, d1)
       +e2 = pc.seqFFx(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{b, m}, r2, a, rest, d1, e1, L.pc.nat(a, rest, hh1))
       %e2 : {Wr.Got{FFx.Room{b, m, a}, rest} == FFx.get_room.of(_) : Wr.Dec<FFx.Req>}
       {==}
     case FFx.Adjust{+base, +mm, +l, +c, +d, +a}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_mfits(base), Bool.and(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)))), hhh)
-      +hh1 = L.wr_and_r(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a))), hh0)
-      +hh2 = L.wr_and_r(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)), hh1)
-      +hh3 = L.wr_and_r(Laws.core_budgets_fit(d), Laws.wire_fits(a), hh2)
+      +hh0 = L.wr_and_r(LawsBase.core_mfits(base), Bool.and(LawsBase.wire_fits(mm), Bool.and(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a)))), hhh)
+      +hh1 = L.wr_and_r(LawsBase.wire_fits(mm), Bool.and(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a))), hh0)
+      +hh2 = L.wr_and_r(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a)), hh1)
+      +hh3 = L.wr_and_r(Facts.core_budgets_fit(d), LawsBase.wire_fits(a), hh2)
       +r5 = Wr.put_nat(a, rest)
       +r4 = FFx.put_budgets(d, r5)
       +r3 = FFx.put_customs(c, r4)
@@ -306,27 +307,27 @@ def pc.f_req(+q: FFx.Req, +rest: String, h: {Laws.core_facts_req_fits(q) == True
       +r1 = Wr.put_nat(mm, r2)
       +r0 = FFx.put_mnat(base, r1)
       +d0 = FFx.get_mnat(r0)
-      +e0 = pc.f_mnat(base, r1, L.wr_and_l(Laws.core_mfits(base), Bool.and(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)))), hhh))
+      +e0 = pc.f_mnat(base, r1, L.wr_and_l(LawsBase.core_mfits(base), Bool.and(LawsBase.wire_fits(mm), Bool.and(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a)))), hhh))
       +d1 = FFx.seq(~Maybe<&2, Nat>, ~Nat, ~Wr.get_nat, d0)
-      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Nat, ~Wr.get_nat, base, r1, mm, r2, d0, e0, L.pc.nat(mm, r2, L.wr_and_l(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a))), hh0)))
+      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Nat, ~Wr.get_nat, base, r1, mm, r2, d0, e0, L.pc.nat(mm, r2, L.wr_and_l(LawsBase.wire_fits(mm), Bool.and(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a))), hh0)))
       +d2 = FFx.seq(~FFx.P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~FFx.get_elv, d1)
       +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~FFx.get_elv, FFx.P2{base, mm}, r2, l, r3, d1, e1, pc.f_elv(l, r3))
       +d3 = FFx.seq(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~FFx.get_customs, d2)
-      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~FFx.get_customs, FFx.P2{FFx.P2{base, mm}, l}, r3, c, r4, d2, e2, pc.f_customs(c, r4, L.wr_and_l(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)), hh1)))
+      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~FFx.get_customs, FFx.P2{FFx.P2{base, mm}, l}, r3, c, r4, d2, e2, pc.f_customs(c, r4, L.wr_and_l(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), LawsBase.wire_fits(a)), hh1)))
       +d4 = FFx.seq(~FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, d3)
-      +e4 = pc.seqFFx(~FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.P2{FFx.P2{FFx.P2{base, mm}, l}, c}, r4, d, r5, d3, e3, pc.f_budgets(d, r5, L.wr_and_l(Laws.core_budgets_fit(d), Laws.wire_fits(a), hh2)))
+      +e4 = pc.seqFFx(~FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.P2{FFx.P2{FFx.P2{base, mm}, l}, c}, r4, d, r5, d3, e3, pc.f_budgets(d, r5, L.wr_and_l(Facts.core_budgets_fit(d), LawsBase.wire_fits(a), hh2)))
       +d5 = FFx.seq(~FFx.P2<FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~Wr.get_nat, d4)
       +e5 = pc.seqFFx(~FFx.P2<FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{FFx.P2{FFx.P2{base, mm}, l}, c}, d}, r5, a, rest, d4, e4, L.pc.nat(a, rest, hh3))
       %e5 : {Wr.Got{FFx.Adjust{base, mm, l, c, d, a}, rest} == FFx.get_adjust.of(_) : Wr.Dec<FFx.Req>}
       {==}
     case FFx.Google{+rule, +c, +l}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_mbudgets_fit(rule), Laws.core_customs_fit(c), hhh)
+      +hh0 = L.wr_and_r(Facts.core_mbudgets_fit(rule), Facts.core_customs_fit(c), hhh)
       +r2 = FFx.put_lv(l, rest)
       +r1 = FFx.put_customs(c, r2)
       +r0 = FFx.put_mbudgets(rule, r1)
       +d0 = FFx.get_mbudgets(r0)
-      +e0 = pc.f_mbudgets(rule, r1, L.wr_and_l(Laws.core_mbudgets_fit(rule), Laws.core_customs_fit(c), hhh))
+      +e0 = pc.f_mbudgets(rule, r1, L.wr_and_l(Facts.core_mbudgets_fit(rule), Facts.core_customs_fit(c), hhh))
       +d1 = FFx.seq(~Maybe<&2, Fx.Budgets>, ~Fx.Customs, ~FFx.get_customs, d0)
       +e1 = pc.seqFFx(~Maybe<&2, Fx.Budgets>, ~Fx.Customs, ~FFx.get_customs, rule, r1, c, r2, d0, e0, pc.f_customs(c, r2, hh0))
       +d2 = FFx.seq(~FFx.P2<Maybe<&2, Fx.Budgets>, Fx.Customs>, ~Fx.Lv, ~FFx.get_lv, d1)
@@ -335,19 +336,19 @@ def pc.f_req(+q: FFx.Req, +rest: String, h: {Laws.core_facts_req_fits(q) == True
       {==}
     case FFx.Aux{+c, +d, +a, +top}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top))), hhh)
-      +hh1 = L.wr_and_r(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top)), hh0)
-      +hh2 = L.wr_and_r(Laws.wire_fits(a), Laws.wire_fits(top), hh1)
+      +hh0 = L.wr_and_r(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top))), hhh)
+      +hh1 = L.wr_and_r(Facts.core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top)), hh0)
+      +hh2 = L.wr_and_r(LawsBase.wire_fits(a), LawsBase.wire_fits(top), hh1)
       +r3 = Wr.put_nat(top, rest)
       +r2 = Wr.put_nat(a, r3)
       +r1 = FFx.put_budgets(d, r2)
       +r0 = FFx.put_customs(c, r1)
       +d0 = FFx.get_customs(r0)
-      +e0 = pc.f_customs(c, r1, L.wr_and_l(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top))), hhh))
+      +e0 = pc.f_customs(c, r1, L.wr_and_l(Facts.core_customs_fit(c), Bool.and(Facts.core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top))), hhh))
       +d1 = FFx.seq(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, d0)
-      +e1 = pc.seqFFx(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, c, r1, d, r2, d0, e0, pc.f_budgets(d, r2, L.wr_and_l(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top)), hh0)))
+      +e1 = pc.seqFFx(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, c, r1, d, r2, d0, e0, pc.f_budgets(d, r2, L.wr_and_l(Facts.core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top)), hh0)))
       +d2 = FFx.seq(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, d1)
-      +e2 = pc.seqFFx(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.P2{c, d}, r2, a, r3, d1, e1, L.pc.nat(a, r3, L.wr_and_l(Laws.wire_fits(a), Laws.wire_fits(top), hh1)))
+      +e2 = pc.seqFFx(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.P2{c, d}, r2, a, r3, d1, e1, L.pc.nat(a, r3, L.wr_and_l(LawsBase.wire_fits(a), LawsBase.wire_fits(top), hh1)))
       +d3 = FFx.seq(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, d2)
       +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{c, d}, a}, r3, top, rest, d2, e2, L.pc.nat(top, rest, hh2))
       %e3 : {Wr.Got{FFx.Aux{c, d, a, top}, rest} == FFx.get_aux.of(_) : Wr.Dec<FFx.Req>}

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW run_ffi_malformed_witness
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
-def Laws.run_ffi_malformed_witness():
+def Run.run_ffi_malformed_witness():
   ("", {==})

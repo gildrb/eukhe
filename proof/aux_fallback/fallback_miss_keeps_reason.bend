@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW fallback_miss_keeps_reason
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 
-def Laws.fallback_miss_keeps_reason(p, s, r, need):
+def AuxFallback.fallback_miss_keeps_reason(p, s, r, need):
   {==}

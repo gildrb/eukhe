@@ -2,12 +2,12 @@
 
 import Base
 import ../../bend/director.bend as Dr
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 import ../base.bend as L
 import ./base.bend as LA
 
 # a Lead that stays is a Defer, whatever the decision does with leads
-def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, True{}) == Dr.decide.go(s, Laws.dir_leads(vs, Dr.Defer{}), r, x) : Dr.Dec}:
+def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, True{}) == Dr.decide.go(s, Director.dir_leads(vs, Dr.Defer{}), r, x) : Dr.Dec}:
   match s:
     case Nil{}:
       {==}
@@ -18,7 +18,7 @@ def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: B
         case v <> +vr:
           match v:
             case Dr.Defer{}:
-              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Laws.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Director.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
             case Dr.Again{}:
               {==}
             case Dr.Yield{}:
@@ -30,7 +30,7 @@ def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: B
             case Dr.Abort{}:
               {==}
             case Dr.Lead{}:
-              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Laws.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Director.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
 
 def pd.out_under(+l: Dr.Layer, d: Dr.Dec) -> {Dr.Dec.out(Dr.under(l, d)) == Dr.Dec.out(d) : Dr.Out}:
   match d:
@@ -118,13 +118,13 @@ def pd.ends_eq(-d1: Dr.Dec, -d2: Dr.Dec, e: {d1 == d2 : Dr.Dec}, +n: Nat, +s: Li
   %Equal.sym(Dr.Dec, d1, d2, e) : {Dr.ended(Dr.settle(_, n, s, vs, cap)) == True{} : Bool}
   h
 
-def Laws.dir_lead_stays_when_the_loop_ends(cap, l, vs, L.ends):
+def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, L.ends):
   match l:
     case Dr.Loop{+n, +s, e}:
       match e:
         case None{}:
-          +L = Laws.dir_leads(vs, Dr.Leave{})
-          +Df = Laws.dir_leads(vs, Dr.Defer{})
+          +L = Director.dir_leads(vs, Dr.Leave{})
+          +Df = Director.dir_leads(vs, Dr.Defer{})
           +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
           +D = Dr.decide.go(s, vs, r, False{})
           +E = Dr.decide.go(s, vs, r, True{})

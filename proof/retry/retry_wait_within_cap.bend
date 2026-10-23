@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -28,5 +28,5 @@ def rx.not_over(over: Bool, +jitter: Nat, +s: Nat, +cap: Nat, e: {over == False{
 def wait_within_cap(+jitter: Nat, +s: Nat, +cap: Nat, within: {Nat.is_le(s, cap) == True{} : Bool}) -> {R.wait(jitter, Some{s}, cap) == R.After{Nat.max(jitter, s)} : R.Delay}:
   rx.not_over(Bool.and(Nat.is_gt(cap, 0n), Nat.is_gt(s, cap)), jitter, s, cap, LA.rx.and_f(Nat.is_gt(cap, 0n), Nat.is_gt(s, cap), rx.not_gt_of_le(Nat.cmp(s, cap), within)))
 
-def Laws.retry_wait_within_cap(jitter, s, cap, within):
+def Retry.retry_wait_within_cap(jitter, s, cap, within):
   wait_within_cap(jitter, s, cap, within)

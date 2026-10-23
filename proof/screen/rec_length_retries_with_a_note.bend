@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 
 # The one-step laws
 # -----------------
@@ -13,5 +13,5 @@ def length_retries_with_a_note(+rc: Rn.RCfg, +k: Rn.Rk, +row: Nat, +same: Nat, +
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 
-def Laws.rec_length_retries_with_a_note(rc, k, row, same, last, under):
+def Screen.rec_length_retries_with_a_note(rc, k, row, same, last, under):
   length_retries_with_a_note(rc, k, row, same, last, under)

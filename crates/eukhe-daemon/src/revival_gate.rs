@@ -33,7 +33,7 @@
 //!    already ended, and a timestamp dated beyond
 //!    [`REVIVAL_CLOCK_SKEW_MS`] into the future is not freshness proof
 //!    either (clock rollback must not zero the age) — uncertainty
-//!    never revives. The law `revive_after_refresh` (LAWS.bend, D1)
+//!    never revives. The law `revive_after_refresh` (`laws/revive.bend`, D1)
 //!    proves that a boot within [`crate::timeouts::REVIVAL_BOOT_WINDOW_MS`]
 //!    of a busy worker's crash revives it, however long its run took.
 

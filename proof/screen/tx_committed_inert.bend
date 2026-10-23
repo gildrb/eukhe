@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 # Committed blocks are inert
@@ -30,7 +30,7 @@ def ps.edit_comm(+i: Nat, +l: Nat, L: List<&2, Sc.Blk>, +x: Nat, +g: Maybe<&2, N
     case Some{n} False{}:
       {==}
 
-def ps.edit_inert(cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +x: Nat, +g: Maybe<&2, Nat>, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.edit.go(List.append(&2, Sc.Blk, cs, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, cs, bs), x)) == List.append(&2, Sc.Blk, cs, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}:
+def ps.edit_inert(cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +x: Nat, +g: Maybe<&2, Nat>, comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.edit.go(List.append(&2, Sc.Blk, cs, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, cs, bs), x)) == List.append(&2, Sc.Blk, cs, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}:
   match cs:
     case Nil{}:
       {==}
@@ -47,7 +47,7 @@ def ps.edit_inert(cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +x: Nat, +g: Mayb
             case Sc.Active{}:
               L.screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
 
-def ps.flush_inert(cs: List<&2, Sc.Blk>, -bs: List<&2, Sc.Blk>, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.flush(List.append(&2, Sc.Blk, cs, bs)) == List.append(&2, Sc.Blk, cs, Sc.flush(bs)) : List<&2, Sc.Blk>}:
+def ps.flush_inert(cs: List<&2, Sc.Blk>, -bs: List<&2, Sc.Blk>, comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.flush(List.append(&2, Sc.Blk, cs, bs)) == List.append(&2, Sc.Blk, cs, Sc.flush(bs)) : List<&2, Sc.Blk>}:
   match cs:
     case Nil{}:
       {==}
@@ -66,7 +66,7 @@ def ps.tx_eq(-a: List<&2, Sc.Blk>, -b: List<&2, Sc.Blk>, -n: Nat, -w: Nat, e: {a
   %e : {Sc.Tx{a, n, w} == Sc.Tx{_, n, w} : Sc.Tx}
   {==}
 
-def ps.step_inert(+cs: List<&2, Sc.Blk>, t: Sc.Tx, e: Sc.Ev, +comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.step(Laws.under(cs, t), e) == Laws.under(cs, Sc.step(t, e)) : Sc.Tx}:
+def ps.step_inert(+cs: List<&2, Sc.Blk>, t: Sc.Tx, e: Sc.Ev, +comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.step(Screen.under(cs, t), e) == Screen.under(cs, Sc.step(t, e)) : Sc.Tx}:
   match t:
     case Sc.Tx{+bs, +n, +w}:
       match e:
@@ -81,16 +81,16 @@ def ps.step_inert(+cs: List<&2, Sc.Blk>, t: Sc.Tx, e: Sc.Ev, +comm: {Laws.all_co
         case Sc.Resize{v}:
           {==}
 
-def ps.run_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +t: Sc.Tx, +comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Laws.under(cs, t)) == Laws.under(cs, Sc.run(es, t)) : Sc.Tx}:
+def ps.run_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +t: Sc.Tx, +comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Screen.under(cs, t)) == Screen.under(cs, Sc.run(es, t)) : Sc.Tx}:
   match es:
     case Nil{}:
       {==}
     case +e <> rest:
-      %Equal.sym(Sc.Tx, Sc.step(Laws.under(cs, t), e), Laws.under(cs, Sc.step(t, e)), ps.step_inert(cs, t, e, comm)) : {Sc.run(rest, _) == Laws.under(cs, Sc.run(rest, Sc.step(t, e))) : Sc.Tx}
+      %Equal.sym(Sc.Tx, Sc.step(Screen.under(cs, t), e), Screen.under(cs, Sc.step(t, e)), ps.step_inert(cs, t, e, comm)) : {Sc.run(rest, _) == Screen.under(cs, Sc.run(rest, Sc.step(t, e))) : Sc.Tx}
       ps.run_inert(rest, cs, Sc.step(t, e), comm)
 
-def ps.tx_committed_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +n: Nat, +w: Nat, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}) == Laws.under(cs, Sc.run(es, Sc.Tx{bs, n, w})) : Sc.Tx}:
+def ps.tx_committed_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +n: Nat, +w: Nat, comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}) == Screen.under(cs, Sc.run(es, Sc.Tx{bs, n, w})) : Sc.Tx}:
   ps.run_inert(es, cs, Sc.Tx{bs, n, w}, comm)
 
-def Laws.tx_committed_inert(es, cs, bs, n, w, comm):
+def Screen.tx_committed_inert(es, cs, bs, n, w, comm):
   ps.tx_committed_inert(es, cs, bs, n, w, comm)

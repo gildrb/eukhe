@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -54,5 +54,5 @@ def pl.deny_go(pre: List<&2, Tl.Step>, +s: Tl.Step, +post: List<&2, Tl.Step>, +a
 def pl.gate_deny_stops(+pre: List<&2, Tl.Step>, +s: Tl.Step, +post: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>, free: {Tl.gated(pre, auto) == 0n : Nat}, held: {Tl.auto.at(auto, s) == False{} : Bool}) -> {Tl.exec(List.append(&2, Tl.Step, pre, s <> post), auto, False{} <> ans) == Tl.Ran{pre, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}:
   pl.deny_go(pre, s, post, auto, ans, Tl.free.at(List.append(&2, Tl.Step, pre, s <> post), auto), {==}, free, held)
 
-def Laws.gate_deny_stops(pre, s, post, auto, ans, free, held):
+def Tools.gate_deny_stops(pre, s, post, auto, ans, free, held):
   pl.gate_deny_stops(pre, s, post, auto, ans, free, held)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/replace.bend as Rp
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 import ../base.bend as L
 
 # a text no longer than n is its first 1 + n chars
@@ -43,5 +43,5 @@ def fr.cut_at(b: Bool, +s: String, +eb: {Nat.is_le(String.length(s), 64n) == b :
       %Equal.sym(Bool, Nat.is_le(String.length(String.take(s, 65n)), 64n), False{}, fr.take_long(s, 64n, eb)) : {Rp.rank.cap(_, String.take(s, 65n)) == Rp.rank.cap(False{}, s) : List<&2, Nat>}
       {==}
 
-def Laws.replace_rank_cut(s):
+def Replace.replace_rank_cut(s):
   fr.cut_at(Nat.is_le(String.length(s), 64n), s, {==})

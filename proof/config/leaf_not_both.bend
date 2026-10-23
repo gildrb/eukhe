@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # an applied path is the path of a leaf
@@ -87,5 +87,5 @@ def pcf.leaf_not_both(ls: List<&2, Cf.Leaf>, +n: Nat, +d: {Cf.distinct(ls) == Tr
               +dp = L.ppr.not_t(Cf.listed(Cf.paths(rest), p), L.ppr.and_l(nd, Cf.distinct(rest), d))
               pcf.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, pcf.leaf_not_both(rest, n, L.ppr.and_r(nd, Cf.distinct(rest), d)))
 
-def Laws.leaf_not_both(ls, n, d):
+def Config.leaf_not_both(ls, n, d):
   pcf.leaf_not_both(ls, n, d)

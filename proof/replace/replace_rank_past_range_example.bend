@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW replace_rank_past_range_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 
-def Laws.replace_rank_past_range_example():
+def Replace.replace_rank_past_range_example():
   {==}

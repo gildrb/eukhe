@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ../base.bend as L
 
 def abort_now(+cfg: Rn.Cfg, s: Rn.St, nd: {Rn.done(s) == False{} : Bool}) -> {Rn.St.ph(Rn.step(cfg, s, Rn.Abort{})) == Rn.Aborted{} : Rn.Ph}:
@@ -24,5 +24,5 @@ def abort_now(+cfg: Rn.Cfg, s: Rn.St, nd: {Rn.done(s) == False{} : Bool}) -> {Rn
         case Rn.Failed{why}:
           L.absurd({Rn.St.ph(Rn.step(cfg, Rn.St{Rn.Failed{why}, r, c, a, n, p}, Rn.Abort{})) == Rn.Aborted{} : Rn.Ph}, Equal.sym(Bool, True{}, False{}, nd))
 
-def Laws.run_abort_ends_now(cfg, s, live):
+def Run.run_abort_ends_now(cfg, s, live):
   abort_now(cfg, s, live)

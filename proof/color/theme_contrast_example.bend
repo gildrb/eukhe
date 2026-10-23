@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_contrast_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/color.bend as Color
 
-def Laws.theme_contrast_example():
+def Color.theme_contrast_example():
   {==}

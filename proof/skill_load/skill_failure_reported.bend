@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/skill_load.bend as Sk
-import ../../LAWS.bend as Laws
+import ../../laws/skill_load.bend as SkillLoad
 import ../base.bend as L
 
 # the candidate x is loaded or reported
@@ -51,5 +51,5 @@ def ppr.skill_failure_reported(cs: List<&2, Sk.Cand>, +c: Sk.Cand, i: Sk.In(c, c
         case Inr{it}:
           ppr.skill_cons(x, rest, Sk.Cand.path(c), ppr.skill_failure_reported(rest, c, it))
 
-def Laws.skill_failure_reported(cs, c, i):
+def SkillLoad.skill_failure_reported(cs, c, i):
   ppr.skill_failure_reported(cs, c, i)

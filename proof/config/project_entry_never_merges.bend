@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # Named entries
@@ -26,5 +26,5 @@ def pcf.project_entry_never_merges(+g: List<&2, Cf.Named>, p: List<&2, Cf.Named>
         case Cf.Named{+m, +fs}:
           pcf.merge_at(Nat.is_eq(m, n), fs, Cf.find(Cf.merge(g, rest), n), Cf.find(rest, n), Cf.has(rest, n), h, hr => pcf.project_entry_never_merges(g, rest, n, hr))
 
-def Laws.project_entry_never_merges(g, p, n, h):
+def Config.project_entry_never_merges(g, p, n, h):
   pcf.project_entry_never_merges(g, p, n, h)

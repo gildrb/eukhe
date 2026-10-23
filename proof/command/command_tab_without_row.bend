@@ -8,7 +8,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../LAWS.bend as Laws
+import ../../laws/command.bend as Command
 
 # at any walk state, Tab with no row keeps the line and opens the menu
 def ktwr.at(s: Cmd.St, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: List<&2, Nat>) -> {Cmd.key.at(s, t, line, p, Cmd.NoRow{}, Cmd.Tab{}) == Cmd.Out{line, True{}, False{}} : Cmd.Out}:
@@ -30,5 +30,5 @@ def ktwr.cut(c: List<&2, List<&2, Nat>> & List<&2, Nat>, +t: List<&2, Cmd.Ent>, 
     case (d, p):
       ktwr.at(Cmd.walk(d, t, Cmd.Top{}), t, line, p)
 
-def Laws.command_tab_without_row(t, line):
+def Command.command_tab_without_row(t, line):
   ktwr.cut(Cmd.cut(Cmd.words(line)), t, line)

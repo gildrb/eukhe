@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 import ./base.bend as LA
 import ./wire_nat_exact.bend as PWireNatExact
 
@@ -46,5 +46,5 @@ def wu_fit_inv(+r: Wr.Dec<Nat>, -x: U32, -rest: String, h: {Wr.get_u32.fit(r) ==
       Unit{}
 
 # LAW wire_u32_exact
-def Laws.wire_u32_exact(s, x, rest, h):
-  Laws.wire_nat_exact(s, U32.to_nat(x), rest, wu_fit_inv(Wr.get_nat(s), x, rest, h))
+def Wire.wire_u32_exact(s, x, rest, h):
+  Wire.wire_nat_exact(s, U32.to_nat(x), rest, wu_fit_inv(Wr.get_nat(s), x, rest, h))

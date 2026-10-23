@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -62,5 +62,5 @@ def pt.puts_changed(+a: List<&2, Tr.Ent>, s: List<&2, Tr.Ent>, +b: List<&2, Tr.E
 def rewind_minimal(+a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, ga: {Tr.sorted(a) == True{} : Bool}, gb: {Tr.sorted(b) == True{} : Bool}) -> {Tr.changed(a, b, Tr.diff(a, b)) == True{} : Bool}:
   pt.changed_app(Tr.dels(a, b), Tr.puts(a, b), a, b, pt.dels_changed(a, a, b, Tr.held.at(a, b), {==}, LA.pt.allhas_self(a)), pt.puts_changed(a, b, b, Tr.kept.at(a, b), {==}, LA.pt.within_self(b, gb)))
 
-def Laws.tree_rewind_minimal(a, b, ga, gb):
+def Tree.tree_rewind_minimal(a, b, ga, gb):
   rewind_minimal(a, b, ga, gb)

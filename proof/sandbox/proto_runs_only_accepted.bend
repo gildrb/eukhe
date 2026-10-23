@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 
 def px.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
   %Equal.sym(Bool, a, True{}, ha) : {Bool.and(_, b) == True{} : Bool}
@@ -27,5 +27,5 @@ def px.proto_runs_only_accepted(+fs: List<&2, Sb.Frame>, +max: Nat, +allowed: Li
     case f <> rest:
       px.ok_add(Sb.accepts(max, allowed, f), f, Sb.serve(rest, max, allowed), max, allowed, {==}, px.proto_runs_only_accepted(rest, max, allowed))
 
-def Laws.proto_runs_only_accepted(fs, max, allowed):
+def Sandbox.proto_runs_only_accepted(fs, max, allowed):
   px.proto_runs_only_accepted(fs, max, allowed)

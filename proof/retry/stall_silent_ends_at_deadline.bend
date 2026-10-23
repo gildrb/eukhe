@@ -2,10 +2,10 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
 def silent_at_deadline(+d: Nat) -> {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}:
   {==}
 
-def Laws.stall_silent_ends_at_deadline(d):
+def Retry.stall_silent_ends_at_deadline(d):
   silent_at_deadline(d)

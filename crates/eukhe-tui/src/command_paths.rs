@@ -2,7 +2,7 @@
 //! the path a typed line names, the menu below its last word, and what Tab
 //! and Enter do to the line. The rules run as the Bend model
 //! `bend/command.bend`, one call of the compiled core each
-//! (`bend/ffi_command.bend`; LAWS.bend section `commands`). This module
+//! (`bend/ffi_command.bend`; `laws/command.bend`). This module
 //! builds the table the model reads (the registry's commands and
 //! subcommands, the interface's argument lists) and reads its answers.
 //!

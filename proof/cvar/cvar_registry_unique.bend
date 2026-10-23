@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -105,5 +105,5 @@ def pv.cvar_registry_unique(xs: List<&2, Cv.Decl>) -> {Cv.unique(Cv.registry(xs)
 
 # (S4) Settings as console variables
 
-def Laws.cvar_registry_unique(xs):
+def Cvar.cvar_registry_unique(xs):
   pv.cvar_registry_unique(xs)

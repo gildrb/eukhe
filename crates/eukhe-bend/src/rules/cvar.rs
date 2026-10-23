@@ -214,7 +214,7 @@ mod tests {
     }
 
     /// The glue the laws do not see: names and commands map to the model's
-    /// numbers and back (the rule itself is pinned by LAWS.bend S4).
+    /// numbers and back (the rule itself is pinned by `laws/cvar.bend` S4).
     #[test]
     fn names_and_commands_cross_the_core_and_back() {
         let mut aliases = Aliases::default();

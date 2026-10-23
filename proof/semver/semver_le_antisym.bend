@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ../base.bend as L
 
 def ps.num_anti(a: Nat, b: Nat, h1: {Sv.Num.le(a, b) == True{} : Bool}, h2: {Sv.Num.le(b, a) == True{} : Bool}) -> {a == b : Nat}:
@@ -53,5 +53,5 @@ def ps.le_anti(u: Sv.Ver, v: Sv.Ver, h1: {Sv.Ver.le(u, v) == True{} : Bool}, h2:
     case Sv.Ver{a1, b1, c1} Sv.Ver{a2, b2, c2}:
       ps.le3_anti(a1, a2, b1, b2, c1, c2, h1, h2)
 
-def Laws.semver_le_antisym(u, v, uv, vu):
+def Semver.semver_le_antisym(u, v, uv, vu):
   ps.le_anti(u, v, uv, vu)

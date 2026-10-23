@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/catalog_union.bend as CU
-import ../../LAWS.bend as Laws
+import ../../laws/catalog_union.bend as CatalogUnion
 import ./base.bend as LA
 
 # The laws
@@ -21,5 +21,5 @@ def pcu.hides_nothing(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +k: Nat) -> 
 
 # (C1) The catalog union
 
-def Laws.union_hides_nothing(bs, cs, k):
+def CatalogUnion.union_hides_nothing(bs, cs, k):
   pcu.hides_nothing(bs, cs, k)

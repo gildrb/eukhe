@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/optchat.bend as O
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -1163,5 +1163,5 @@ def pa.agree(n: Nat, +ds: List<&2, Bool>) -> {O.agree.go(n, O.Last{}, pa.nb(pa.B
 def push_agrees_always(n: Nat) -> {O.agree(O.Last{}, n) == True{} : Bool}:
   pa.agree(n, Nil{})
 
-def Laws.push_agrees_always(n):
+def Optchat.push_agrees_always(n):
   push_agrees_always(n)

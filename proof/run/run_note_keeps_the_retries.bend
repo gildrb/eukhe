@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
 def rk.na(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +n: Nat) -> {a == Rn.St.a(Rn.note(cfg, r, c, a, n, p)) : Nat}:
   match n:
@@ -22,7 +22,7 @@ def rk.s1(+x: Nat, +y: Nat) -> {Nat.sub(Nat.sub(x, 1n), y) == Nat.sub(Nat.sub(1n
         case 1n+v:
           {==}
 
-def rk.run_note_keeps_the_retries(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.note(Rn.Lim.cfg(l), r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Laws.rust.noted_next(t)) : Nat}:
+def rk.run_note_keeps_the_retries(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.note(Rn.Lim.cfg(l), r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Run.rust.noted_next(t)) : Nat}:
   match l:
     case Rn.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -33,5 +33,5 @@ def rk.run_note_keeps_the_retries(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: N
           %rk.s1(attempt, notes) : {a == Nat.sub(retries, _) : Nat}
           {==}
 
-def Laws.run_note_keeps_the_retries(l, t, r, c, p):
+def Run.run_note_keeps_the_retries(l, t, r, c, p):
   rk.run_note_keeps_the_retries(l, t, r, c, p)

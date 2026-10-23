@@ -1,6 +1,6 @@
 //! The bridges between the kernel setup, the session's tools while the
 //! kernel is missing, the bootstrap lock, and their Bend model
-//! (`bend/kernel_local.bend`, whose laws `LAWS.bend` section `kernel_local` and
+//! (`bend/kernel_local.bend`, whose laws `laws/kernel_local.bend` and
 //! `PROOF.bend` prove): both run the same scenarios and must print the
 //! same transcript, byte for byte. `bend/bridge_kernel_local.bend`
 //! documents the scenario format.

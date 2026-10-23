@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/director.bend as Dr
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 import ./base.bend as LA
 
 def pd.settle_failed(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(d) == Dr.Failed{} : Dr.Out}) -> {Dr.settle(d, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Failed{}}} : Dr.Loop}:
@@ -16,5 +16,5 @@ def pd.settle_failed(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs: List<&2, D
         case Dr.Failed{}:
           {==}
 
-def Laws.dir_tick_fails(cap, n, s, vs, f):
+def Director.dir_tick_fails(cap, n, s, vs, f):
   pd.settle_failed(Dr.decide(s, vs, cap), n, s, vs, cap, f)

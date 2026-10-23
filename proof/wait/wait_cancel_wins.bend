@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wait.bend as Wt
-import ../../LAWS.bend as Laws
+import ../../laws/wait.bend as WaitLaws
 import ./base.bend as LA
 
 def pw.cancel(pre: List<&2, Wt.Sig>, +post: List<&2, Wt.Sig>, +l: Maybe<&2, Nat>, calm: {Wt.exits(LA.pw.up(l), pre) == False{} : Bool}) -> {Wt.go(List.append(&2, Wt.Sig, pre, Wt.Cancel{} <> post), Wt.Open{l}) == [Wt.Cancelled{}] : List<&2, Wt.End>}:
@@ -38,5 +38,5 @@ def wait_cancel_wins(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Sig>, +post: List<&2
         case 1n+m:
           pw.cancel(pre, post, Some{m}, calm)
 
-def Laws.wait_cancel_wins(dl, pre, post, calm):
+def WaitLaws.wait_cancel_wins(dl, pre, post, calm):
   wait_cancel_wins(dl, pre, post, calm)

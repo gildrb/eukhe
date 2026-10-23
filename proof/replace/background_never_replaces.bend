@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/replace.bend as Rp
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 
 # (D1) background_never_replaces
 # ------------------------------
@@ -21,5 +21,5 @@ def pr.bg(r: Rp.Rel, -c: Rp.Build, -d: Rp.Build) -> {Rp.after.put(Rp.verdict.put
 def pr.background_never_replaces(+c: Rp.Build, +d: Rp.Build) -> {Rp.after(Rp.Start{c, Rp.Background{}}, Some{d}) == d : Rp.Build}:
   pr.bg(Rp.relation(c, d), c, d)
 
-def Laws.background_never_replaces(c, d):
+def Replace.background_never_replaces(c, d):
   pr.background_never_replaces(c, d)

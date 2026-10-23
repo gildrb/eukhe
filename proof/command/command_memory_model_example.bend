@@ -3,7 +3,7 @@
 # PROOF of LAW command_memory_model_example: a closed computation over the example table.
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/command.bend as Command
 
-def Laws.command_memory_model_example():
+def Command.command_memory_model_example():
   {==}

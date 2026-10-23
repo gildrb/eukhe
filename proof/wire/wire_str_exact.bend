@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ./wire_nat_exact.bend as PWireNatExact
 
@@ -61,10 +61,10 @@ def wr_str_top(+s: String, r: Wr.Dec<Nat>, er: {Wr.get_nat(s) == r : Wr.Dec<Nat>
   match r:
     case Wr.Got{+n, +s2}:
       %Equal.sym(Wr.Dec<String>, Wr.take(n, s2), L.wo_take(n, s2), L.wr_take_eq(n, s2)) : wr_ps(s, _)
-      wr_str_conv(s, s2, n, Laws.wire_nat_exact(s, n, s2, er), L.wo_take(n, s2), wr_take_spec(n, s2))
+      wr_str_conv(s, s2, n, Wire.wire_nat_exact(s, n, s2, er), L.wo_take(n, s2), wr_take_spec(n, s2))
     case Wr.Bad{}:
       Unit{}
 
-def Laws.wire_str_exact(s, a, rest, h):
+def Wire.wire_str_exact(s, a, rest, h):
   %h : wr_ps(s, _)
   wr_str_top(s, Wr.get_nat(s), {==})

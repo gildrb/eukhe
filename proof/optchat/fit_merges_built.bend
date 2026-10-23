@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 import ./base.bend as LA
 
 def pf.fst_cons(-n: O.Node, r: List<&2, O.Node> & List<&2, O.Node>) -> {n <> Pair.fst(List<&2, O.Node>, List<&2, O.Node>, r) == Pair.fst(List<&2, O.Node>, List<&2, O.Node>, O.fit.cons(n, r)) : List<&2, O.Node>}:
@@ -32,5 +32,5 @@ def fit_merges_built(+m: O.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +inf
   -> S.Built(info, Pair.fst(List<&2, O.Node>, List<&2, O.Node>, O.fit(m, t, budget, ph, info, v))):
   pf.fit_built(List.length(&2, O.Node, v), O.choose(m, t, budget, ph, info, v), m, t, budget, ph, info, v, LA.pf.choose_sound(m, t, budget, ph, info, v))
 
-def Laws.fit_merges_built(m, t, budget, ph, info, v):
+def Optchat.fit_merges_built(m, t, budget, ph, info, v):
   fit_merges_built(m, t, budget, ph, info, v)

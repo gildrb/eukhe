@@ -3,7 +3,6 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # ---- cover ----

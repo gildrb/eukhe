@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 # The session's tools
 # -------------------
@@ -10,5 +10,5 @@ import ../../LAWS.bend as Laws
 def pk.missing_spares_tools(n: Nat, f: KL.Found, ok: Bool) -> {KL.answer(KL.Other{n}, KL.start(f, ok)) == KL.Ran{} : KL.Answer}:
   {==}
 
-def Laws.kernel_missing_spares_tools(n, f, ok):
+def KernelLocal.kernel_missing_spares_tools(n, f, ok):
   pk.missing_spares_tools(n, f, ok)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 import ./base.bend as LA
 
 # The merge of one path
@@ -21,5 +21,5 @@ def px.cow_keeps_parent(+ks: List<&2, Nat>, +par: List<&2, Sb.Doc>, +base: List<
   %px.keep_body(Sb.read(par, k), Sb.read(base, k), Sb.read(child, k), calm) : {_ == Sb.read(par, k) : Maybe<&2, Nat>}
   {==}
 
-def Laws.cow_keeps_parent(ks, par, base, child, k, listed, calm):
+def Sandbox.cow_keeps_parent(ks, par, base, child, k, listed, calm):
   px.cow_keeps_parent(ks, par, base, child, k, listed, calm)

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW path_secret_wins
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
+import ../../laws/path_policy.bend as PathPolicy
 
 # 2. The class
 # ------------
@@ -17,5 +17,5 @@ def pp.secret_res(+pol: Pp.Pol, r: Pp.Res, hit: {Pp.any_under(Pp.Pol.secret(pol)
 def pp.path_secret_wins(+pol: Pp.Pol, +ls: List<&2, Pp.Link>, +segs: List<&2, Tl.Seg>, hit: {Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(Pp.real(ls, segs))) == True{} : Bool}) -> {Pp.class(pol, ls, segs) == Pp.Secret{} : Pp.Cls}:
   pp.secret_res(pol, Pp.real(ls, segs), hit)
 
-def Laws.path_secret_wins(pol, ls, segs, hit):
+def PathPolicy.path_secret_wins(pol, ls, segs, hit):
   pp.path_secret_wins(pol, ls, segs, hit)

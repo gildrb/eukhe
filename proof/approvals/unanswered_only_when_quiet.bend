@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
+import ../../laws/approvals.bend as Approvals
 import ./base.bend as LA
 
 # Unanswered{} is A, an answer or a ruling is Unit
@@ -50,5 +50,5 @@ def pa.only_quiet(+ds: List<&2, Am.Desk>, none: {Am.Out.end(Am.route(ds)) == Am.
         case Am.PhoneLeft{}:
           pa.absurdR({Am.quiet(Am.PhoneLeft{} <> rest) == True{} : Bool}, 0n, none)
 
-def Laws.unanswered_only_when_quiet(ds, none):
+def Approvals.unanswered_only_when_quiet(ds, none):
   pa.only_quiet(ds, none)

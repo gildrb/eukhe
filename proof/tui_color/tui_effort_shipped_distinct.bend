@@ -3,7 +3,7 @@
 import Base
 import ../../bend/theme.bend as T
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -22,5 +22,5 @@ def tui_effort_shipped_distinct(+s: T.Shipped, +n: Nat, +fits: {Nat.is_le(n, TC.
   +hi = TC.shipped.hi(s)
   LA.tui_effort_ramp_distinct(lo, hi, n, L.pu.le_trans(n, TC.ladder.max(), TC.span(lo, hi), fits, pu.shipped_wide(s)))
 
-def Laws.tui_effort_shipped_distinct(s, n, fits):
+def TuiColor.tui_effort_shipped_distinct(s, n, fits):
   tui_effort_shipped_distinct(s, n, fits)

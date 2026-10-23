@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 import ./base.bend as LA
 
 def px.take_body(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>, moved: {Sb.m.eq(c, b) == False{} : Bool}, still: {Sb.m.eq(p, b) == True{} : Bool}) -> {c == Sb.One.body(Sb.merge1(p, b, c)) : Maybe<&2, Nat>}:
@@ -16,5 +16,5 @@ def px.cow_takes_child(+ks: List<&2, Nat>, +par: List<&2, Sb.Doc>, +base: List<&
   %px.take_body(Sb.read(par, k), Sb.read(base, k), Sb.read(child, k), moved, still) : {_ == Sb.read(child, k) : Maybe<&2, Nat>}
   {==}
 
-def Laws.cow_takes_child(ks, par, base, child, k, listed, moved, still):
+def Sandbox.cow_takes_child(ks, par, base, child, k, listed, moved, still):
   px.cow_takes_child(ks, par, base, child, k, listed, moved, still)

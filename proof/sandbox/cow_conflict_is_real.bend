@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 import ./base.bend as LA
 
 def px.and_r(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
@@ -32,5 +32,5 @@ def px.cow_conflict_is_real(+ks: List<&2, Nat>, +par: List<&2, Sb.Doc>, +base: L
   +both = Equal.trans(Bool, Bool.and(Sb.elem(ks, k), Sb.One.clash(M)), Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k), True{}, LA.px.cl_back(ks, par, base, child, k), clash)
   px.real(Sb.read(par, k), Sb.read(base, k), Sb.read(child, k), px.and_r(Sb.elem(ks, k), Sb.One.clash(M), both))
 
-def Laws.cow_conflict_is_real(ks, par, base, child, k, clash):
+def Sandbox.cow_conflict_is_real(ks, par, base, child, k, clash):
   px.cow_conflict_is_real(ks, par, base, child, k, clash)

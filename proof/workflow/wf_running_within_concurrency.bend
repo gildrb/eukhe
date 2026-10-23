@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/workflow.bend as W
-import ../../LAWS.bend as Laws
+import ../../laws/workflow.bend as Workflow
 import ./base.bend as LA
 
 def pw.give_size(p: W.Pool) -> {W.size(W.give(p)) == W.size(p) : Nat}:
@@ -30,5 +30,5 @@ def pw.run_size(es: List<&2, W.Ev>, +p: W.Pool) -> {W.size(W.run(es, p)) == W.si
 
 # (WF) Dynamic workflows
 
-def Laws.wf_running_within_concurrency(cap, es):
+def Workflow.wf_running_within_concurrency(cap, es):
   pw.run_size(es, W.pool(cap))

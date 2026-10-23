@@ -3,7 +3,7 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -27,5 +27,5 @@ def pp.new_work_moves(+cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +seen: List<&2, Nat>, +se
   +b = Pr.work(List.append(&2, Nat, seen, seg))
   L.pc.progress_is_not_a_stall(cfg, w, e, b, pp.news(w, Pr.work(seen), b, tok, LA.pp.new_work(seen, seg, x, fresh, i)))
 
-def Laws.child_new_work_is_progress(cfg, w, e, seen, seg, x, fresh, news, tok):
+def Progress.child_new_work_is_progress(cfg, w, e, seen, seg, x, fresh, news, tok):
   pp.new_work_moves(cfg, w, e, seen, seg, x, fresh, news, tok)

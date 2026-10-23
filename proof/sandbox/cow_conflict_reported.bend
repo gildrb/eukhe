@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 import ./base.bend as LA
 
 def px.meq_refl(m: Maybe<&2, Nat>) -> {True{} == Sb.m.eq(m, m) : Bool}:
@@ -26,5 +26,5 @@ def px.cow_conflict_reported(+ks: List<&2, Nat>, +par: List<&2, Sb.Doc>, +base: 
   %px.meq_refl(Sb.read(par, k)) : {Bool.and(_, True{}) == True{} : Bool}
   {==}
 
-def Laws.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apart):
+def Sandbox.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apart):
   px.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apart)

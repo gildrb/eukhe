@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -78,5 +78,5 @@ def w2.held_lo(+x: Nat, +lo: Nat, +hi: Nat, c: Bool, ec: {Nat.is_lt(x, lo) == c 
 def w2.clamp_held(+x: Nat, +lo: Nat, +hi: Nat, lohi: {Nat.is_le(lo, hi) == True{} : Bool}) -> {Fx.clamp(x, lo, hi) == Nat.max(lo, Nat.min(x, hi)) : Nat}:
   w2.held_lo(x, lo, hi, Nat.is_lt(x, lo), {==}, lohi)
 
-def Laws.facts_google_budget_held(b, c, l, ordered):
+def Facts.facts_google_budget_held(b, c, l, ordered):
   w2.clamp_held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b), LA.pf.ord_mh(b, ordered))

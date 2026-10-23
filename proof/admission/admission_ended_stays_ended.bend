@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 # Every ticket ends exactly once
@@ -137,5 +137,5 @@ def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Ad.ended(Ad.status(s, k))
         case Ad.Limit{+l2, q2}:
           LA.ad.end_grant_k(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, k, e)
 
-def Laws.admission_ended_stays_ended(s, o, k, e):
+def Admission.admission_ended_stays_ended(s, o, k, e):
   ended_stays_ended(s, o, k, e)

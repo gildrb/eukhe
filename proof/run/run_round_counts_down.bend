@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 def rk.rpred_t(+cfg: Rn.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.r(Rn.round(cfg, True{}, Nat.sub(m, x), c, a, n, p)) == Nat.sub(m, 1n+x) : Nat}:
@@ -32,5 +32,5 @@ def rk.run_round_counts_down(+l: Rn.Lim, +count: Nat, +reset: Bool, +c: Nat, +a:
         case False{}:
           rk.rpred_f(Rn.Cfg{rounds, wait, retries, most}, c, a, n, p, Nat.sub(rounds, 1n), count)
 
-def Laws.run_round_counts_down(l, count, reset, c, a, n, p):
+def Run.run_round_counts_down(l, count, reset, c, a, n, p):
   rk.run_round_counts_down(l, count, reset, c, a, n, p)

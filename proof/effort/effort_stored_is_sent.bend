@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 import ./base.bend as LA
 
 def pe.fix_sent(t: Ef.Sess, f: LA.pe.Fixed(t)) -> {Ef.Sess.stored(t) == Some{Ef.sent(t)} : Maybe<&2, Ef.Lv>}:
@@ -17,5 +17,5 @@ def pe.fix_sent(t: Ef.Sess, f: LA.pe.Fixed(t)) -> {Ef.Sess.stored(t) == Some{Ef.
 def pe.effort_stored_is_sent(+s: Ef.Sess, +dflt: Ef.Lv, +acts: List<&2, Ef.Act>) -> {Ef.Sess.stored(Ef.run(acts, Ef.open(s, dflt))) == Some{Ef.sent(Ef.run(acts, Ef.open(s, dflt)))} : Maybe<&2, Ef.Lv>}:
   pe.fix_sent(Ef.run(acts, Ef.open(s, dflt)), LA.pe.run_fix(acts, Ef.open(s, dflt), LA.pe.open_fix(s, dflt)))
 
-def Laws.effort_stored_is_sent(s, dflt, acts):
+def Effort.effort_stored_is_sent(s, dflt, acts):
   pe.effort_stored_is_sent(s, dflt, acts)

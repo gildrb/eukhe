@@ -2,7 +2,7 @@
 //! finds, and whether it may download. A session (every path but `eukhe
 //! kernel install`) uses only local files; `eukhe kernel install` is the
 //! only path that downloads. The model is `bend/kernel_local.bend`; its
-//! laws (`LAWS.bend` section `kernel_local`) are proven in `PROOF.bend`.
+//! laws (`laws/kernel_local.bend`) are proven in `PROOF.bend`.
 
 /// What the kernel setup may fetch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

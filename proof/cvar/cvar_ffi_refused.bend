@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW cvar_ffi_refused
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 
-def Laws.cvar_ffi_refused(s):
+def Cvar.cvar_ffi_refused(s):
   {==}

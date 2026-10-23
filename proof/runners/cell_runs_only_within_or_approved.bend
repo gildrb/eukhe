@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/runners.bend as Ru
-import ../../LAWS.bend as Laws
+import ../../laws/runners.bend as Runners
 import ./base.bend as LA
 
 # The cell gate
@@ -28,5 +28,5 @@ def pr.go_only(free: Bool, a: Ru.Asker, ran: {Ru.ran(Ru.cell.go(free, a)) == Tru
 def pr.only(+caps: List<&2, Nat>, +auto: List<&2, Nat>, +a: Ru.Asker, ran: {Ru.ran(Ru.cell(caps, auto, a)) == True{} : Bool}) -> {Bool.or(Ru.within(caps, auto), Ru.Asker.yes(a)) == True{} : Bool}:
   pr.go_only(Ru.within(caps, auto), a, ran)
 
-def Laws.cell_runs_only_within_or_approved(caps, auto, a, ran):
+def Runners.cell_runs_only_within_or_approved(caps, auto, a, ran):
   pr.only(caps, auto, a, ran)

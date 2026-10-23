@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ./base.bend as LA
 
 # the bound after one more event, given the bound of the events after it
@@ -27,5 +27,5 @@ def detection_bounded(gs: List<&2, Nat>, +d: Nat) -> {Nat.is_le(R.Idle.at(R.idle
     case +g <> +rest:
       rp.idle_next(Nat.is_gt(g, d), g, rest, d, 0n, rp.idle_go(rest, d, g))
 
-def Laws.stall_detection_bounded(gs, d):
+def Retry.stall_detection_bounded(gs, d):
   detection_bounded(gs, d)

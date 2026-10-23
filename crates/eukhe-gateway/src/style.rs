@@ -159,7 +159,7 @@ pub(crate) fn render(markdown: &str) -> Vec<StyledText> {
 
 /// Where a table's cells go: the width of every column (the rule row) and,
 /// per row, the spaces after each cell but the last column's
-/// (`layout` in `bend/gateway_width.bend`, `LAWS.bend` section `gateway_width`).
+/// (`layout` in `bend/gateway_width.bend`, `laws/gateway_width.bend`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Layout {
     widths: Vec<usize>,

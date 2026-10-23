@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cron.bend as Cr
-import ../../LAWS.bend as Laws
+import ../../laws/cron.bend as Cron
 import ./base.bend as LA
 
 def cron_step.pc.eq_of(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
@@ -303,5 +303,5 @@ def pc.claim_owned(s: Cr.S, +e: Cr.Ev, +i: Nat, +x: Nat, +o: Nat, nc: {Cr.Ev.is_
 def pc.cron_claim_owned(+s: Cr.S, +e: Cr.Ev, +i: Nat, +x: Nat, +o: Nat) -> {Cr.Ev.is_corrupt(e) == False{} : Bool} -> {Cr.claim_of(i, Cr.S.recs(s)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>} -> Or({Cr.claim_of(i, Cr.S.recs(Cr.step(s, e))) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}, Or({Cr.Ev.by(e) == Some{o} : Maybe<&2, Nat>}, {Cr.has(o, Cr.S.dead(s)) == True{} : Bool})):
   nc => h => pc.claim_owned(s, e, i, x, o, nc, h)
 
-def Laws.cron_claim_owned(s, e, i, x, o):
+def Cron.cron_claim_owned(s, e, i, x, o):
   pc.cron_claim_owned(s, e, i, x, o)

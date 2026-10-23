@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -179,5 +179,5 @@ def fit_reaches_budget(+m: O.Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +i
 
 # (e) A batch
 
-def Laws.fit_reaches_budget(m, t, budget, ph, info, v):
+def Optchat.fit_reaches_budget(m, t, budget, ph, info, v):
   fit_reaches_budget(m, t, budget, ph, info, v)

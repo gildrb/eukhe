@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW theme_chase_rule
 
 import Base
-import ../../bend/theme.bend as T
 import ../../bend/color.bend as Co
-import ../../LAWS.bend as Laws
+import ../../bend/theme.bend as T
+import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 
 # Values
@@ -11,7 +11,7 @@ import ./base.bend as LA
 # The model and the rule take the same steps: the seen check of a leaf
 # is the membership, the variable lookup of a leaf the list lookup.
 
-def pt.has_mem(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> {T.seen.has(xs, i, hit) == Bool.or(hit, Laws.th.mem(xs, i)) : Bool}:
+def pt.has_mem(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> {T.seen.has(xs, i, hit) == Bool.or(hit, Theme.th.mem(xs, i)) : Bool}:
   match xs:
     case Nil{}:
       match hit:
@@ -26,7 +26,7 @@ def pt.has_mem(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> {T.seen.has(xs, i, hit)
         case False{}:
           pt.has_mem(rest, i, Nat.is_eq(x, i))
 
-def pt.var_val(xs: List<&2, T.Var>, n: Nat) -> {T.var.val(xs, n) == Laws.th.var(xs, n) : Maybe<&2, T.Json>}:
+def pt.var_val(xs: List<&2, T.Var>, n: Nat) -> {T.var.val(xs, n) == Theme.th.var(xs, n) : Maybe<&2, T.Json>}:
   match xs n:
     case Nil{} q:
       {==}
@@ -35,14 +35,14 @@ def pt.var_val(xs: List<&2, T.Var>, n: Nat) -> {T.var.val(xs, n) == Laws.th.var(
     case Con{x, rest} 1n+p:
       pt.var_val(rest, p)
 
-def pt.hexgot(m: Maybe<&2, Co.Rgb>, s: String) -> {T.hex.got(m, s) == Laws.th.hex(m, s) : T.Got}:
+def pt.hexgot(m: Maybe<&2, Co.Rgb>, s: String) -> {T.hex.got(m, s) == Theme.th.hex(m, s) : T.Got}:
   match m:
     case None{}:
       {==}
     case Some{c}:
       {==}
 
-def pt.numgot(m: Maybe<&2, U32>, s: String) -> {T.num.got(m, s) == Laws.th.num(m, s) : T.Got}:
+def pt.numgot(m: Maybe<&2, U32>, s: String) -> {T.num.got(m, s) == Theme.th.num(m, s) : T.Got}:
   match m:
     case None{}:
       {==}
@@ -246,8 +246,8 @@ def pt.ins_h(t: T.ST, c: Bool, +k: Nat) -> {T.st.h(T.st.ins(t, c, k)) == T.st.h(
 def pt.st_add(t: T.ST, +k: Nat, +i: Nat) -> {T.st.mem(T.st.add(t, k), i) == Bool.or(Nat.is_eq(k, i), T.st.mem(t, i)) : Bool}:
   match t:
     case T.SL{+xs}:
-      %Equal.sym(Bool, T.seen.has(xs, i, Nat.is_eq(k, i)), Bool.or(Nat.is_eq(k, i), Laws.th.mem(xs, i)), pt.has_mem(xs, i, Nat.is_eq(k, i))) : {_ == Bool.or(Nat.is_eq(k, i), T.seen.has(xs, i, False{})) : Bool}
-      %Equal.sym(Bool, T.seen.has(xs, i, False{}), Bool.or(False{}, Laws.th.mem(xs, i)), pt.has_mem(xs, i, False{})) : {Bool.or(Nat.is_eq(k, i), Laws.th.mem(xs, i)) == Bool.or(Nat.is_eq(k, i), _) : Bool}
+      %Equal.sym(Bool, T.seen.has(xs, i, Nat.is_eq(k, i)), Bool.or(Nat.is_eq(k, i), Theme.th.mem(xs, i)), pt.has_mem(xs, i, Nat.is_eq(k, i))) : {_ == Bool.or(Nat.is_eq(k, i), T.seen.has(xs, i, False{})) : Bool}
+      %Equal.sym(Bool, T.seen.has(xs, i, False{}), Bool.or(False{}, Theme.th.mem(xs, i)), pt.has_mem(xs, i, False{})) : {Bool.or(Nat.is_eq(k, i), Theme.th.mem(xs, i)) == Bool.or(Nat.is_eq(k, i), _) : Bool}
       {==}
     case T.SN{+h, +lo, +hi}:
       +sn = {T.SN{h, lo, hi} : T.ST}
@@ -264,22 +264,22 @@ def pt.sset(+t: T.VT, xs: List<&2, Nat>) -> T.ST:
       T.st.add(pt.sset(t, rest), k)
 
 # the seen tree has met exactly the variables of the list
-def pt.st_sset(+t: T.VT, seen: List<&2, Nat>, +i: Nat) -> {T.st.mem(pt.sset(t, seen), i) == Laws.th.mem(seen, i) : Bool}:
+def pt.st_sset(+t: T.VT, seen: List<&2, Nat>, +i: Nat) -> {T.st.mem(pt.sset(t, seen), i) == Theme.th.mem(seen, i) : Bool}:
   match seen:
     case Nil{}:
       pt.st_empty(t, i)
     case Con{+k, +rest}:
       +r = pt.sset(t, rest)
-      %Equal.sym(Bool, T.st.mem(T.st.add(r, k), i), Bool.or(Nat.is_eq(k, i), T.st.mem(r, i)), pt.st_add(r, k, i)) : {_ == Bool.or(Nat.is_eq(k, i), Laws.th.mem(rest, i)) : Bool}
-      %Equal.sym(Bool, T.st.mem(r, i), Laws.th.mem(rest, i), pt.st_sset(t, rest, i)) : {Bool.or(Nat.is_eq(k, i), _) == Bool.or(Nat.is_eq(k, i), Laws.th.mem(rest, i)) : Bool}
+      %Equal.sym(Bool, T.st.mem(T.st.add(r, k), i), Bool.or(Nat.is_eq(k, i), T.st.mem(r, i)), pt.st_add(r, k, i)) : {_ == Bool.or(Nat.is_eq(k, i), Theme.th.mem(rest, i)) : Bool}
+      %Equal.sym(Bool, T.st.mem(r, i), Theme.th.mem(rest, i), pt.st_sset(t, rest, i)) : {Bool.or(Nat.is_eq(k, i), _) == Bool.or(Nat.is_eq(k, i), Theme.th.mem(rest, i)) : Bool}
       {==}
 
 # the variable tree of a file and the steps over the trees
 def pt.vt(+vars: List<&2, T.Var>, +n: Nat) -> T.VT:
   T.vt.build(n, Nat.is_le(n, 1n), vars, n)
 
-def pt.vt_at(+vars: List<&2, T.Var>, +n: Nat, +i: Nat) -> {T.vt.at(pt.vt(vars, n), i) == Laws.th.var(vars, i) : Maybe<&2, T.Json>}:
-  Equal.trans(Maybe<&2, T.Json>, T.vt.at(pt.vt(vars, n), i), T.var.val(vars, i), Laws.th.var(vars, i), pt.vt_build(n, Nat.is_le(n, 1n), vars, n, i), pt.var_val(vars, i))
+def pt.vt_at(+vars: List<&2, T.Var>, +n: Nat, +i: Nat) -> {T.vt.at(pt.vt(vars, n), i) == Theme.th.var(vars, i) : Maybe<&2, T.Json>}:
+  Equal.trans(Maybe<&2, T.Json>, T.vt.at(pt.vt(vars, n), i), T.var.val(vars, i), Theme.th.var(vars, i), pt.vt_build(n, Nat.is_le(n, 1n), vars, n, i), pt.var_val(vars, i))
 
 # a rule's step as a step over the trees
 def pt.conv(+t: T.VT, s: T.Step) -> T.FStep:
@@ -289,39 +289,39 @@ def pt.conv(+t: T.VT, s: T.Step) -> T.FStep:
     case T.Go{seen, j}:
       T.FGo{pt.sset(t, seen), j}
 
-def pt.look_next(+t: T.VT, m: Maybe<&2, T.Json>, +seen: List<&2, Nat>, s: String, +i: Nat) -> {T.look.next(m, T.st.add(pt.sset(t, seen), i), s) == pt.conv(t, Laws.th.ref(False{}, m, seen, s, i)) : T.FStep}:
+def pt.look_next(+t: T.VT, m: Maybe<&2, T.Json>, +seen: List<&2, Nat>, s: String, +i: Nat) -> {T.look.next(m, T.st.add(pt.sset(t, seen), i), s) == pt.conv(t, Theme.th.ref(False{}, m, seen, s, i)) : T.FStep}:
   match m:
     case None{}:
       {==}
     case Some{j}:
       {==}
 
-def pt.look_var(b: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, +i: Nat) -> {T.look.var(b, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, i) == pt.conv(pt.vt(vars, n), Laws.th.ref(b, Laws.th.var(vars, i), seen, s, i)) : T.FStep}:
+def pt.look_var(b: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, +i: Nat) -> {T.look.var(b, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, i) == pt.conv(pt.vt(vars, n), Theme.th.ref(b, Theme.th.var(vars, i), seen, s, i)) : T.FStep}:
   match b:
     case True{}:
       {==}
     case False{}:
       +V = pt.vt(vars, n)
-      %Equal.sym(Maybe<&2, T.Json>, T.vt.at(V, i), Laws.th.var(vars, i), pt.vt_at(vars, n, i)) : {T.look.next(_, T.st.add(pt.sset(V, seen), i), s) == pt.conv(V, Laws.th.ref(False{}, Laws.th.var(vars, i), seen, s, i)) : T.FStep}
-      pt.look_next(V, Laws.th.var(vars, i), seen, s, i)
+      %Equal.sym(Maybe<&2, T.Json>, T.vt.at(V, i), Theme.th.var(vars, i), pt.vt_at(vars, n, i)) : {T.look.next(_, T.st.add(pt.sset(V, seen), i), s) == pt.conv(V, Theme.th.ref(False{}, Theme.th.var(vars, i), seen, s, i)) : T.FStep}
+      pt.look_next(V, Theme.th.var(vars, i), seen, s, i)
 
-def pt.look_ref(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.ref(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.name(vars, seen, s, at)) : T.FStep}:
+def pt.look_ref(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.ref(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Theme.th.name(vars, seen, s, at)) : T.FStep}:
   match at:
     case None{}:
       {==}
     case Some{+i}:
       +V = pt.vt(vars, n)
-      %Equal.sym(Bool, T.st.mem(pt.sset(V, seen), i), Laws.th.mem(seen, i), pt.st_sset(V, seen, i)) : {T.look.var(_, V, pt.sset(V, seen), s, i) == pt.conv(V, Laws.th.ref(Laws.th.mem(seen, i), Laws.th.var(vars, i), seen, s, i)) : T.FStep}
-      pt.look_var(Laws.th.mem(seen, i), vars, n, seen, s, i)
+      %Equal.sym(Bool, T.st.mem(pt.sset(V, seen), i), Theme.th.mem(seen, i), pt.st_sset(V, seen, i)) : {T.look.var(_, V, pt.sset(V, seen), s, i) == pt.conv(V, Theme.th.ref(Theme.th.mem(seen, i), Theme.th.var(vars, i), seen, s, i)) : T.FStep}
+      pt.look_var(Theme.th.mem(seen, i), vars, n, seen, s, i)
 
-def pt.look_sym(sharp: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.sym(sharp, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.text.c(sharp, vars, seen, s, at)) : T.FStep}:
+def pt.look_sym(sharp: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.sym(sharp, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Theme.th.text.c(sharp, vars, seen, s, at)) : T.FStep}:
   match sharp:
     case True{}:
-      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.hex.got(Co.hex(s), s), Laws.th.hex(Co.hex(s), s), pt.hexgot(Co.hex(s), s))
+      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.hex.got(Co.hex(s), s), Theme.th.hex(Co.hex(s), s), pt.hexgot(Co.hex(s), s))
     case False{}:
       pt.look_ref(vars, n, seen, s, at)
 
-def pt.look_str(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> {T.look.str(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.text(vars, seen, s, at)) : T.FStep}:
+def pt.look_str(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> {T.look.str(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Theme.th.text(vars, seen, s, at)) : T.FStep}:
   match s:
     case SNil{}:
       {==}
@@ -329,17 +329,17 @@ def pt.look_str(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, s: String
       pt.look_sym(Char.is_eq(c, '#'), vars, n, seen, SCon{c, rest}, at)
 
 # a step over the trees is the rule's step
-def pt.look_step(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, j: T.Json) -> {T.look.step(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), j) == pt.conv(pt.vt(vars, n), Laws.th.next(vars, seen, j)) : T.FStep}:
+def pt.look_step(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, j: T.Json) -> {T.look.step(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), j) == pt.conv(pt.vt(vars, n), Theme.th.next(vars, seen, j)) : T.FStep}:
   match j:
     case T.JStr{s, at}:
       pt.look_str(vars, n, seen, s, at)
     case T.JNum{+t}:
-      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.num.got(Co.num(t), t), Laws.th.num(Co.num(t), t), pt.numgot(Co.num(t), t))
+      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.num.got(Co.num(t), t), Theme.th.num(Co.num(t), t), pt.numgot(Co.num(t), t))
     case T.JOther{t}:
       {==}
 
 # the walk over the trees is the rule's walk, for any fuel
-def pt.look_walk(fuel: Nat, +vars: List<&2, T.Var>, +n: Nat, st: T.Step) -> {T.look.walk(fuel, pt.vt(vars, n), pt.conv(pt.vt(vars, n), st)) == Laws.th.follow(fuel, vars, st) : T.Got}:
+def pt.look_walk(fuel: Nat, +vars: List<&2, T.Var>, +n: Nat, st: T.Step) -> {T.look.walk(fuel, pt.vt(vars, n), pt.conv(pt.vt(vars, n), st)) == Theme.th.follow(fuel, vars, st) : T.Got}:
   match fuel:
     case 0n:
       match st:
@@ -353,8 +353,8 @@ def pt.look_walk(fuel: Nat, +vars: List<&2, T.Var>, +n: Nat, st: T.Step) -> {T.l
           {==}
         case T.Go{+seen, +j}:
           +V = pt.vt(vars, n)
-          %Equal.sym(T.FStep, T.look.step(V, pt.sset(V, seen), j), pt.conv(V, Laws.th.next(vars, seen, j)), pt.look_step(vars, n, seen, j)) : {T.look.walk(f, V, _) == Laws.th.follow(f, vars, Laws.th.next(vars, seen, j)) : T.Got}
-          pt.look_walk(f, vars, n, Laws.th.next(vars, seen, j))
+          %Equal.sym(T.FStep, T.look.step(V, pt.sset(V, seen), j), pt.conv(V, Theme.th.next(vars, seen, j)), pt.look_step(vars, n, seen, j)) : {T.look.walk(f, V, _) == Theme.th.follow(f, vars, Theme.th.next(vars, seen, j)) : T.Got}
+          pt.look_walk(f, vars, n, Theme.th.next(vars, seen, j))
 
-def Laws.theme_chase_rule(vars, j):
+def Theme.theme_chase_rule(vars, j):
   pt.look_walk(1n+List.length(&2, T.Var, vars), vars, List.length(&2, T.Var, vars), T.Go{Nil{}, j})

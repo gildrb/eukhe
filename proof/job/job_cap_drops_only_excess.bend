@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -47,5 +47,5 @@ def pj.fit(es: List<&2, Jb.JEv>, +c: Nat, +k: Nat, +h: {Nat.is_le(Jb.produced(es
 def pj.job_cap_drops_only_excess(+c: Nat, +es: List<&2, Jb.JEv>, fits: {Nat.is_le(Jb.produced(es), c) == True{} : Bool}) -> {Jb.J.dropped(Jb.run(Some{c}, es)) == 0n : Nat}:
   pj.fit(es, c, 0n, pj.room0(c, es, fits))
 
-def Laws.job_cap_drops_only_excess(c, es, fits):
+def Job.job_cap_drops_only_excess(c, es, fits):
   pj.job_cap_drops_only_excess(c, es, fits)

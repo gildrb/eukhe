@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW layout_widths
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/gateway_width.bend as GatewayWidth
 
-def Laws.layout_widths(rows):
+def GatewayWidth.layout_widths(rows):
   {==}

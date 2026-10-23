@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wait.bend as Wt
-import ../../LAWS.bend as Laws
+import ../../laws/wait.bend as WaitLaws
 import ./base.bend as LA
 
 # The first exit wins
@@ -41,5 +41,5 @@ def wait_arrival_wins(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Sig>, +post: List<&
         case 1n+m:
           pw.arrive(pre, post, Some{m}, calm)
 
-def Laws.wait_arrival_wins(dl, pre, post, calm):
+def WaitLaws.wait_arrival_wins(dl, pre, post, calm):
   wait_arrival_wins(dl, pre, post, calm)

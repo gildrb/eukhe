@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -109,5 +109,5 @@ def pi.compact_go(+xs: List<&2, Nat>, +m: Nat, +lim: Nat, +prev: Nat, +i: Nat, h
 def pi.compact_starts_early(+xs: List<&2, Nat>, +m: Nat, +lim: Nat, small: {Nat.is_le(m, lim) == True{} : Bool}, steps: {If.steps_le(xs, m, 0n) == True{} : Bool}) -> {If.m.lt(If.first_at(xs, Nat.sub(lim, m), 0n), If.first_at(xs, 1n+lim, 0n)) == True{} : Bool}:
   pi.compact_go(xs, m, lim, 0n, 0n, If.reach.at(xs, Nat.sub(lim, m)), {==}, small, steps)
 
-def Laws.compact_starts_early(xs, m, lim, small, steps):
+def Infer.compact_starts_early(xs, m, lim, small, steps):
   pi.compact_starts_early(xs, m, lim, small, steps)

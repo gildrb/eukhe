@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/catalog_union.bend as CU
-import ../../LAWS.bend as Laws
+import ../../laws/catalog_union.bend as CatalogUnion
 import ./base.bend as LA
 
 # The fast union
@@ -409,5 +409,5 @@ def pcu.fast(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> {CU.fast(bs, cs) =
   %Equal.sym(List<&2, CU.Ent>, CU.bundled.t(bs, ct), CU.bundled(bs, cs), pcu.bundled_t(bs, cs)) : {List.append(&2, CU.Ent, _, CU.extra(cs, bs)) == CU.union(bs, cs) : List<&2, CU.Ent>}
   {==}
 
-def Laws.union_fast(bs, cs):
+def CatalogUnion.union_fast(bs, cs):
   pcu.fast(bs, cs)

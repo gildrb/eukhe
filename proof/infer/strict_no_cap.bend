@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW strict_no_cap
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
-def Laws.strict_no_cap(ts):
+def Infer.strict_no_cap(ts):
   {==}

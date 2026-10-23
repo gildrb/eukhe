@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
 def rk.run_prepare_compacted_reads_no_threshold(+th: Rn.Th) -> {Rn.decide.prepare(True{}, th) == Rn.decide.prepare(True{}, Rn.Under{}) : Rn.Prepared}:
   match th:
@@ -13,5 +13,5 @@ def rk.run_prepare_compacted_reads_no_threshold(+th: Rn.Th) -> {Rn.decide.prepar
     case Rn.Blocking{}:
       {==}
 
-def Laws.run_prepare_compacted_reads_no_threshold(th):
+def Run.run_prepare_compacted_reads_no_threshold(th):
   rk.run_prepare_compacted_reads_no_threshold(th)

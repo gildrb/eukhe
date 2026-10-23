@@ -1,7 +1,6 @@
 # eukhe: lemmas the proofs of area screen share
 
 import Base
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 def screen.ps.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:

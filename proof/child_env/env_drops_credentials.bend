@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 def pce.or_false(a: Bool, h: {Bool.or(a, False{}) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -21,5 +21,5 @@ def pce.env_drops_credentials(+reg: List<&2, String>, base: List<&2, Env.Var>, o
 
 # (G3) No credential reaches a child
 
-def Laws.env_drops_credentials(reg, base, over, v, i):
+def ChildEnv.env_drops_credentials(reg, base, over, v, i):
   pce.env_drops_credentials(reg, base, over, v, i)

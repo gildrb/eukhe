@@ -1,10 +1,12 @@
 # eukhe: lemmas the proofs of area infer share
 
 import Base
+import ../../bend/ffi_infer.bend as FIn
 import ../../bend/infer.bend as If
 import ../../bend/wire.bend as Wr
-import ../../bend/ffi_infer.bend as FIn
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 
 def pi.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -460,7 +462,7 @@ def w2.over(p: If.Plan) -> Bool:
     case If.Over{i}:
       True{}
 
-def w2.ids(+ts: List<&2, If.Tool>) -> {If.ids(ts) == Laws.strict.ids(ts) : List<&2, Nat>}:
+def w2.ids(+ts: List<&2, If.Tool>) -> {If.ids(ts) == Infer.strict.ids(ts) : List<&2, Nat>}:
   match ts:
     case Nil{}:
       {==}
@@ -485,13 +487,13 @@ def w2.elem_at(+need: List<&2, Nat>, +a: Nat, +i: Nat, ai: {a == i : Nat}, n: {I
   n
 
 # a list of Nats that fits reads back (Laws.wire_list_round_trip, turned around)
-def pc.nats(+xs: List<&2, Nat>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Nat, xs)), Laws.wire_nats_fit(xs)) == True{} : Bool}) ->
+def pc.nats(+xs: List<&2, Nat>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, xs)), LawsBase.wire_nats_fit(xs)) == True{} : Bool}) ->
   {Wr.Got{xs, rest} == Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)) : Wr.Dec<List<&2, Nat>>}:
-  Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)), Wr.Got{xs, rest}, Laws.wire_list_round_trip(xs, rest, h))
+  Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)), Wr.Got{xs, rest}, Wire.wire_list_round_trip(xs, rest, h))
 
 # a Maybe<Nat> that fits reads back (the same codec in ffi_infer and ffi_facts)
 
-def pc.i_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {Laws.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FIn.get_mnat(FIn.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+def pc.i_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {LawsBase.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FIn.get_mnat(FIn.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
   match m:
     case None{}:
       {==}
@@ -511,15 +513,15 @@ def pc.seqFIn(~A: Data, ~B: Data, ~get: String -> Wr.Dec<B>, +a: A, +r: String, 
   {==}
 
 # a tool that fits reads back
-def pc.i_tool(+t: If.Tool, +rest: String, h: {Laws.core_tool_fits(t) == True{} : Bool}) -> {Wr.Got{t, rest} == FIn.get_tool(FIn.put_tool(t, rest)) : Wr.Dec<If.Tool>}:
+def pc.i_tool(+t: If.Tool, +rest: String, h: {Infer.core_tool_fits(t) == True{} : Bool}) -> {Wr.Got{t, rest} == FIn.get_tool(FIn.put_tool(t, rest)) : Wr.Dec<If.Tool>}:
   match t:
     case If.Tool{+i, +p}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.wire_fits(i), Laws.wire_fits(p), hhh)
+      +hh0 = L.wr_and_r(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh)
       +r1 = Wr.put_nat(p, rest)
       +r0 = Wr.put_nat(i, r1)
       +d0 = Wr.get_nat(r0)
-      +e0 = L.pc.nat(i, r1, L.wr_and_l(Laws.wire_fits(i), Laws.wire_fits(p), hhh))
+      +e0 = L.pc.nat(i, r1, L.wr_and_l(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh))
       +d1 = FIn.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
       +e1 = pc.seqFIn(~Nat, ~Nat, ~Wr.get_nat, i, r1, p, rest, d0, e0, L.pc.nat(p, rest, hh0))
       %e1 : {Wr.Got{If.Tool{i, p}, rest} == FIn.get_tool.of(_) : Wr.Dec<If.Tool>}
@@ -550,45 +552,45 @@ def pc.i_tool_put(+xs: List<&2, If.Tool>, -rest: String) ->
 
 # the item loop reads back x then t
 def pc.i_tool_go_rt(+t: List<&2, If.Tool>, +x: If.Tool, +rest: String,
-  +hf: {Laws.core_tools_fit(x <> t) == True{} : Bool}) ->
+  +hf: {Infer.core_tools_fit(x <> t) == True{} : Bool}) ->
   {Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, If.Tool>>}:
   match t:
     case Nil{}:
-      %pc.i_tool(x, rest, L.wr_and_l(Laws.core_tool_fits(x), True{}, hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, If.Tool>>}
+      %pc.i_tool(x, rest, L.wr_and_l(Infer.core_tool_fits(x), True{}, hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, If.Tool>>}
       {==}
     case Con{+y, +u}:
-      %pc.i_tool(x, FIn.put_tool(y, pc.i_tool_items(u, rest)), L.wr_and_l(Laws.core_tool_fits(x), Laws.core_tools_fit(y <> u), hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 1n+List.length(&2, If.Tool, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
-      %Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, u), FIn.get_tool(FIn.put_tool(y, pc.i_tool_items(u, rest)))), Wr.Got{y <> u, rest}, pc.i_tool_go_rt(u, y, rest, L.wr_and_r(Laws.core_tool_fits(x), Laws.core_tools_fit(y <> u), hf))) : {Wr.get_list.cons(If.Tool, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      %pc.i_tool(x, FIn.put_tool(y, pc.i_tool_items(u, rest)), L.wr_and_l(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 1n+List.length(&2, If.Tool, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      %Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, u), FIn.get_tool(FIn.put_tool(y, pc.i_tool_items(u, rest)))), Wr.Got{y <> u, rest}, pc.i_tool_go_rt(u, y, rest, L.wr_and_r(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf))) : {Wr.get_list.cons(If.Tool, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
       {==}
 
 # a list that fits, of a length that fits, reads back
-def pc.i_tools(+xs: List<&2, If.Tool>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, If.Tool, xs)), Laws.core_tools_fit(xs)) == True{} : Bool}) ->
+def pc.i_tools(+xs: List<&2, If.Tool>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, xs)), Infer.core_tools_fit(xs)) == True{} : Bool}) ->
   {Wr.Got{xs, rest} == Wr.get_list(~If.Tool, ~FIn.get_tool, Wr.put_list(~If.Tool, ~FIn.put_tool, xs, rest)) : Wr.Dec<List<&2, If.Tool>>}:
   match xs:
     case Nil{}:
-      %L.pc.nat(0n, rest, L.wr_and_l(Laws.wire_fits(0n), True{}, h)) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      %L.pc.nat(0n, rest, L.wr_and_l(LawsBase.wire_fits(0n), True{}, h)) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~If.Tool, ~FIn.put_tool, x <> t, r), Wr.put_nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r)), pc.i_tool_put(x <> t, r)) : {Wr.Got{x <> t, r} == Wr.get_list(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
-      %L.pc.nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r), L.wr_and_l(Laws.wire_fits(List.length(&2, If.Tool, x <> t)), Laws.core_tools_fit(x <> t), hh)) : {Wr.Got{x <> t, r} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
-      Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, r)))), Wr.Got{x <> t, r}, pc.i_tool_go_rt(t, x, r, L.wr_and_r(Laws.wire_fits(List.length(&2, If.Tool, x <> t)), Laws.core_tools_fit(x <> t), hh)))
+      %L.pc.nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r), L.wr_and_l(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)) : {Wr.Got{x <> t, r} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, r)))), Wr.Got{x <> t, r}, pc.i_tool_go_rt(t, x, r, L.wr_and_r(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)))
 
 # a strict plan request that fits reads back
-def pc.i_req(+q: FIn.Req, +rest: String, h: {Laws.core_infer_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FIn.get_req(FIn.put_req(q, rest)) : Wr.Dec<FIn.Req>}:
+def pc.i_req(+q: FIn.Req, +rest: String, h: {Infer.core_infer_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FIn.get_req(FIn.put_req(q, rest)) : Wr.Dec<FIn.Req>}:
   match q:
     case FIn.Req{+cap, +ts, +need}:
       +hhh = h
-      +hh0 = L.wr_and_r(Laws.core_mfits(cap), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need))), hhh)
-      +hh1 = L.wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need)), hh0)
+      +hh0 = L.wr_and_r(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh)
+      +hh1 = L.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)
       +r2 = Wr.put_list(~Nat, ~Wr.put_nat, need, rest)
       +r1 = Wr.put_list(~If.Tool, ~FIn.put_tool, ts, r2)
       +r0 = FIn.put_mnat(cap, r1)
       +d0 = FIn.get_mnat(r0)
-      +e0 = pc.i_mnat(cap, r1, L.wr_and_l(Laws.core_mfits(cap), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need))), hhh))
+      +e0 = pc.i_mnat(cap, r1, L.wr_and_l(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh))
       +d1 = FIn.seq(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, d0)
-      +e1 = pc.seqFIn(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, cap, r1, ts, r2, d0, e0, pc.i_tools(ts, r2, L.wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need)), hh0)))
+      +e1 = pc.seqFIn(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, cap, r1, ts, r2, d0, e0, pc.i_tools(ts, r2, L.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)))
       +d2 = FIn.seq(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, d1)
       +e2 = pc.seqFIn(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, FIn.P2{cap, ts}, r2, need, rest, d1, e1, pc.nats(need, rest, hh1))
       %e2 : {Wr.Got{FIn.Req{cap, ts, need}, rest} == FIn.get_req.of(_) : Wr.Dec<FIn.Req>}

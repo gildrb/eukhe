@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ../base.bend as L
 
 # The polls
@@ -215,5 +215,5 @@ def polls_of(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: PInv(cfg, s, k)) -> Or({Rn.pol
 def polls_need_defers(+cfg: Rn.Cfg, +evs: List<&2, Rn.Ev>) -> Or({Rn.polled(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.defers(cfg, evs) == 1n+Rn.Cfg.polls(cfg) : Nat}):
   polls_of(cfg, Rn.run(cfg, evs), Rn.defers(cfg, evs), pinv_run(evs, cfg, Rn.init(cfg), 0n, Unit{}))
 
-def Laws.run_polls_need_defers(cfg, evs):
+def Run.run_polls_need_defers(cfg, evs):
   polls_need_defers(cfg, evs)

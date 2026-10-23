@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW need_first_running
 
 import Base
-import ../../bend/optchat.bend as O
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../bend/optchat.bend as O
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -37,5 +37,5 @@ def pc.need_first_running(+cfg: O.Cfg, +s: O.St) -> {C.needed(O.St.info(s), O.St
       +w = {O.St{t, info, view, shrink, cview, ready, O.busy.need(info, view, busy)} : O.St}
       pc.needed_app(info, view, O.busy.need(info, view, busy), O.cands.need(cfg, w), pc.busy_need(info, view, busy), LA.pc.need_first(cfg, w))
 
-def Laws.need_first_running(cfg, s):
+def Compactor.need_first_running(cfg, s):
   pc.need_first_running(cfg, s)

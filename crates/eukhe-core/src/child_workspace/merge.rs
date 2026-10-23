@@ -1,5 +1,5 @@
 //! The plan of one path of the hand-back: `plan` in `bend/sandbox.bend`
-//! (LAWS.bend section S3, `cow_plan`, `cow_plan_is_merge`), run by the
+//! (`laws/sandbox.bend` S3, `cow_plan`, `cow_plan_is_merge`), run by the
 //! compiled Bend core (`bend/ffi_sandbox.bend`). The plan compares the
 //! parent's, the base's and the child's contents only for equality, so the
 //! request carries each content as the index of the first equal one

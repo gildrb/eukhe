@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 
 # 1. The protocol
 # ---------------
@@ -29,5 +29,5 @@ def px.proto_one_reply_each(+fs: List<&2, Sb.Frame>, +max: Nat, +allowed: List<&
 
 # (S3) The host and the sandbox
 
-def Laws.proto_one_reply_each(fs, max, allowed):
+def Sandbox.proto_one_reply_each(fs, max, allowed):
   px.proto_one_reply_each(fs, max, allowed)

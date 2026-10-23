@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW wire_list_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 
-def Laws.wire_list_example():
+def Wire.wire_list_example():
   {==}

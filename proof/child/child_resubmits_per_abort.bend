@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -198,5 +198,5 @@ def pc.pot_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, +k: {LA.pc.K(s) ==
 def pc.resubmits_per_abort(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>) -> {Nat.is_le(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), Nat.add(Ch.cuts(evs), 1n)) == True{} : Bool}:
   L.child.pc.le_trans(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), pc.pot(Ch.run(evs, cfg, Ch.St.init(cfg))), Nat.add(Ch.cuts(evs), 1n), pc.len_le(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg))), LA.pc.Kin_of(Ch.run(evs, cfg, Ch.St.init(cfg)), LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}))), pc.pot_run(evs, cfg, Ch.St.init(cfg), {==}))
 
-def Laws.child_resubmits_per_abort(cfg, evs):
+def Child.child_resubmits_per_abort(cfg, evs):
   pc.resubmits_per_abort(cfg, evs)

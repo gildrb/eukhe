@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 def pu.absurd_tf(-A: Type, +e: {True{} == False{} : Bool}) -> A:

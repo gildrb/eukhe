@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ../base.bend as L
 
 # min(1 + u, u) == u
@@ -21,5 +21,5 @@ def pp.judge_top_stops(+u: Nat, +cap: Nat, +w: Nat, +work: Nat, fits: {Nat.is_le
   %Equal.sym(Bool, Nat.is_le(cap, 1n+u), True{}, fits) : {Pr.strike.put(_, 1n+u) == Pr.Stop{1n+u} : Pr.Goal}
   {==}
 
-def Laws.goal_judge_top_stops(u, cap, w, work, fits, same):
+def Progress.goal_judge_top_stops(u, cap, w, work, fits, same):
   pp.judge_top_stops(u, cap, w, work, fits, same)

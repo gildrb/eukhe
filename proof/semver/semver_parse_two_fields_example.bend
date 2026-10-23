@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW semver_parse_two_fields_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 
-def Laws.semver_parse_two_fields_example():
+def Semver.semver_parse_two_fields_example():
   {==}

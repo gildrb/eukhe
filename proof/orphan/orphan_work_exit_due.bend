@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW orphan_work_exit_due
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/orphan.bend as Orphan
 import ../base.bend as L
 
 # with n <= p: p <= m - n exactly when n + p <= m (m - n saturates at 0)
@@ -23,5 +23,5 @@ def ps.or_le_sub(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(n, p) == True{} : Bool})
     case 1n+(+np) 1n+mp:
       ps.or_le_sub(np, p, mp, L.screen.ps.le_trans(np, 1n+np, p, L.screen.ps.le_succ(np), h))
 
-def Laws.orphan_work_exit_due(window, absent):
+def Orphan.orphan_work_exit_due(window, absent):
   ps.or_le_sub(window, window, absent, L.screen.ps.le_refl(window))

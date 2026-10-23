@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 
 def pq.or_and_f(c: Bool, -y: Bool, -z: Bool, h: {Bool.or(Bool.and(c, y), z) == True{} : Bool}, nc: {c == False{} : Bool}) -> {z == True{} : Bool}:
@@ -54,5 +54,5 @@ def pq.found_k(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +b: Maybe<&2, If.Be
 def pq.quirk_known_when_some(+rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, some: {If.any_at(rs, q, d, 0n) == True{} : Bool}) -> {If.is_known(If.lookup(rs, q, d)) == True{} : Bool}:
   pq.found_k(rs, q, d, None{}, If.use.at(rs, q, d), {==}, some)
 
-def Laws.quirk_known_when_some(rs, q, d, some):
+def Infer.quirk_known_when_some(rs, q, d, some):
   pq.quirk_known_when_some(rs, q, d, some)

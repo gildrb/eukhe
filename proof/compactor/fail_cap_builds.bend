@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 
 # a built line stays built
@@ -40,5 +40,5 @@ def pc.fail_cap_builds(os: List<&2, C.Outcome>, n: Nat, many: {Nat.is_le(1n+n, C
         case C.Stopped{}:
           pc.fail_cap_builds(rest, n, many)
 
-def Laws.fail_cap_builds(n, os, many):
+def Compactor.fail_cap_builds(n, os, many):
   pc.fail_cap_builds(os, n, many)

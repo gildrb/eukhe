@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 
 # The laws
 # --------
@@ -12,5 +12,5 @@ def pe.effort_offered_plain(+map: Ef.LvMap) -> {Ef.offered(Ef.Mdl{False{}, map})
 
 # (S10) Reasoning depth
 
-def Laws.effort_offered_plain(map):
+def Effort.effort_offered_plain(map):
   pe.effort_offered_plain(map)

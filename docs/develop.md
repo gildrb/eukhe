@@ -62,4 +62,4 @@ GitHub runs one workflow: the release.
 - Tag `eukhe-v<version>`, title `Eukhe v<version>`, marked latest, pinned for the flake in `nix/release.json`.
 - New series: set the workspace version to the next `X.Y.0` (e.g. `0.11.0`, `1.0.0`).
 - Stops the release: a workspace version not `X.Y.0`, or a tag of a newer series.
-- `scripts/release/next_version.py` computes it; rule = model `bend/semver.bend`; laws `LAWS.bend` section `release` (R1), proved in `PROOF.bend`; `scripts/release/test_next_version.py` runs script and model on the same cases.
+- `scripts/release/next_version.py` computes it; rule = model `bend/semver.bend`; laws `laws/semver.bend` (R1), proved in `PROOF.bend`; `scripts/release/test_next_version.py` runs script and model on the same cases.

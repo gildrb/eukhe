@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cron.bend as Cr
-import ../../LAWS.bend as Laws
+import ../../laws/cron.bend as Cron
 import ./base.bend as LA
 
 def pc.g_ends(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j)) -> Cr.Ends(j):
@@ -36,5 +36,5 @@ def pc.ends_of(s: Cr.S, inv: LA.pc.Inv(s)) -> Cr.EndsAll(Cr.S.recs(s)):
 def pc.cron_once_finished_after_end(+evs: List<&2, Cr.Ev>) -> Cr.EndsAll(Cr.S.recs(Cr.run(evs))):
   pc.ends_of(Cr.run(evs), LA.pc.inv_run(evs))
 
-def Laws.cron_once_finished_after_end(evs):
+def Cron.cron_once_finished_after_end(evs):
   pc.cron_once_finished_after_end(evs)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW core_effort_malformed_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 
-def Laws.core_effort_malformed_example():
+def Effort.core_effort_malformed_example():
   ({==}, {==})

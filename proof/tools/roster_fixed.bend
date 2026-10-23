@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 
 # 1. The roster
 # -------------
@@ -27,5 +27,5 @@ def pl.roster_fixed(es: List<&2, Tl.Ev>, +s: Tl.Sess) -> {Tl.Sess.roster(Tl.run(
 
 # (S7) The tool surface
 
-def Laws.roster_fixed(es, s):
+def Tools.roster_fixed(es, s):
   pl.roster_fixed(es, s)

@@ -64,7 +64,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
 
     Family `except` regex excludes matches (families stay disjoint). Bedrock effort = model's thinking-level map (native `xhigh`: `xhigh: "xhigh"`), else Bedrock default.
 
-Model `bend/infer.bend`. Laws: `LAWS.bend` section (S6), section `ladder` (S6.9). Proofs: `proof/infer/` and `proof/effort/`. Free inputs: rulebook, query, directive, model replies, provider support, tools, stream, context sizes.
+Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/infer.bend` and `laws/effort.bend` (S6.9). Proofs: `proof/infer/` and `proof/effort/`. Free inputs: rulebook, query, directive, model replies, provider support, tools, stream, context sizes.
 
 | Law | Says |
 | --- | --- |
@@ -154,7 +154,7 @@ git diff scripts/release/catalog-pin.json   # review, then commit
 
 No code touches `~/.eukhe/models/provider-model-catalog.v1.json` (older builds' fetched catalog).
 
-Laws: `LAWS.bend` section `catalog_union` (C1; model `bend/catalog_union.bend`; proofs `proof/catalog_union/`).
+Laws: `laws/catalog_union.bend` (C1; model `bend/catalog_union.bend`; proofs `proof/catalog_union/`).
 Code: `eukhe-models/src/effective.rs` (`effective_catalog`), `chain.rs` (`ModelCatalog::models`), `bundled.rs` (`load_bundled_models`), `pinning.rs`.
 Union runs as the compiled model (`fast`, pinned to `union` by law `union_fast`; entry `bend/ffi_catalog_union.bend`, request laws `catalog_union_ffi_*`): `effective_catalog` projects both sources (key and api interned, each field = place of its source entry), calls it, assembles the models back.
 Tests: `chain::tests::a_bundle_without_a_compiled_model_keeps_it`; `eukhe-daemon` `tests/model_catalog_e2e.rs` (`a_bundle_without_a_compiled_model_still_lists_it`: pinned snapshot as bundle, Anthropic login → Claude Haiku 5.5 listed).
@@ -247,7 +247,7 @@ No `cpal`: `alsa-sys` links `libasound` via `pkg-config` at build time; CI (`ubu
 Code: `eukhe-tui/src/dictation.rs` (`Recorder`, `Transcriber`, `SubprocessRecorder`, `run_take`, `wav_bytes`), `session_ui/dictation.rs` (`handle_dictation_key`, `apply_dictation_update`), `status_line.rs`; `eukhe-cli/src/tiny_command.rs` (`RoleTranscriber`, `transcribe_file`).
 Tests: `eukhe-tui` `dictation::tests` (fake recorder/transcriber: toggle, hold release, recorder failure, abort stops recorder and removes file; `/bin/sh` subprocess recorders: first found, stderr, no audio, no program), `keybindings::tests::dictation_actions_bind_only_through_binds_cfg`, `status_line::tests::the_dictation_phase_leads_the_line`, `tests/dictation_headless.rs` (TUI on mock daemon: toggle, push-to-talk, Esc, failure, `stt.enabled` off).
 
-Model `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs: `proof/tiny/`. Free inputs: chain, available set, needs of any processes and tags, worker exits, any order.
+Model `bend/tiny.bend`. Laws: `laws/tiny.bend` (S9). Proofs: `proof/tiny/`. Free inputs: chain, available set, needs of any processes and tags, worker exits, any order.
 
 | Law | Says |
 | --- | --- |
@@ -307,7 +307,7 @@ Session (main conversation stores its level; may be unset):
 3. Sent: stored level, else `off`; each provider clamps before sending.
 4. Shown (daemon summary, connection state `thinkingLevel`): stored clamped to the model (unclamped without catalog model) = sent. Unset shows `default`, never `off`.
 
-Model `bend/effort.bend`. Laws: `LAWS.bend` section (S10). Proofs: `proof/effort/`. Free inputs: model with or without reasoning, any map (entries missing, `null`, wire string); level; stored level and default; switches, sets, cycle steps in any order.
+Model `bend/effort.bend`. Laws: `laws/effort.bend` (S10). Proofs: `proof/effort/`. Free inputs: model with or without reasoning, any map (entries missing, `null`, wire string); level; stored level and default; switches, sets, cycle steps in any order.
 
 | Law | Says |
 | --- | --- |

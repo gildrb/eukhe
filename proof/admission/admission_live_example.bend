@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW admission_live_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.admission_live_example():
+def Admission.admission_live_example():
   {==}

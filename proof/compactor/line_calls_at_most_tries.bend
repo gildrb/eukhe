@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 
 # (H1) A line
@@ -45,5 +45,5 @@ def pc.line_calls_at_most_tries(+tries: Nat, +node: Nat, +input: List<&2, C.W>, 
 
 # (H1) A compactor call always ends with a line that fits
 
-def Laws.line_calls_at_most_tries(tries, node, input, rs):
+def Compactor.line_calls_at_most_tries(tries, node, input, rs):
   pc.line_calls_at_most_tries(tries, node, input, rs)

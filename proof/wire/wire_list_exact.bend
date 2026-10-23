@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ./wire_nat_exact.bend as PWireNatExact
 
@@ -30,11 +30,11 @@ def wr_list_spec(m: Nat, cur: Wr.Dec<Nat>, +s: String, er: {Wr.get_nat(s) == cur
   wr_pl(s, m, Wr.get_list.go(~Nat, ~Wr.get_nat, m, cur)):
   match m cur:
     case 0n Wr.Got{+x, +s3}:
-      (Laws.wire_nat_exact(s, x, s3, er), {==})
+      (Wire.wire_nat_exact(s, x, s3, er), {==})
     case 0n Wr.Bad{}:
       Unit{}
     case 1n++k Wr.Got{+x, +s3}:
-      wr_list_step(s, x, s3, k, Laws.wire_nat_exact(s, x, s3, er),
+      wr_list_step(s, x, s3, k, Wire.wire_nat_exact(s, x, s3, er),
         Wr.get_list.go(~Nat, ~Wr.get_nat, k, Wr.get_nat(s3)), wr_list_spec(k, Wr.get_nat(s3), s3, {==}))
     case 1n++k Wr.Bad{}:
       Unit{}
@@ -72,10 +72,10 @@ def wr_list_top(+s: String, r: Wr.Dec<Nat>, er: {Wr.get_nat(s) == r : Wr.Dec<Nat
   wr_pls(s, Wr.get_list.start(~Nat, ~Wr.get_nat, r)):
   match r:
     case Wr.Got{+n, +s2}:
-      wr_list_nat(s, n, s2, Laws.wire_nat_exact(s, n, s2, er))
+      wr_list_nat(s, n, s2, Wire.wire_nat_exact(s, n, s2, er))
     case Wr.Bad{}:
       Unit{}
 
-def Laws.wire_list_exact(s, xs, rest, h):
+def Wire.wire_list_exact(s, xs, rest, h):
   %h : wr_pls(s, _)
   wr_list_top(s, Wr.get_nat(s), {==})

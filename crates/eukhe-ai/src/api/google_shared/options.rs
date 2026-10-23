@@ -195,7 +195,7 @@ pub(crate) fn pi_headers(
 /// # Errors
 ///
 /// A budget rule that is not ordered (`minimal <= low <= medium <= high`)
-/// has no range to hold a budget in (LAWS.bend
+/// has no range to hold a budget in (`laws/facts.bend`
 /// `facts_google_unordered_refused`; the rulebook compiler refuses such a
 /// rule, so a shipped or loaded rulebook never has one).
 pub fn google_thinking_budget(

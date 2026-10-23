@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # Numbers

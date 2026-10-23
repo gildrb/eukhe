@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cron.bend as Cr
-import ../../LAWS.bend as Laws
+import ../../laws/cron.bend as Cron
 import ./base.bend as LA
 
 # What the invariant gives
@@ -55,5 +55,5 @@ def pc.cron_fires_once(+evs: List<&2, Cr.Ev>) -> Cr.FiresAll(Cr.S.recs(Cr.run(ev
 
 # Cron
 
-def Laws.cron_fires_once(evs):
+def Cron.cron_fires_once(evs):
   pc.cron_fires_once(evs)

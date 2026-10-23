@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tokens.bend as Tk
-import ../../LAWS.bend as Laws
+import ../../laws/tokens.bend as Tokens
 
 # The palette
 # -----------
@@ -90,5 +90,5 @@ def tokens_paired(t: Tk.Tone, m: Tk.Mode) -> {Maybe.is_some(&2, Tk.Col, Tk.find(
 
 # (T2) Dashboard tokens
 
-def Laws.tokens_paired(t, m):
+def Tokens.tokens_paired(t, m):
   tokens_paired(t, m)

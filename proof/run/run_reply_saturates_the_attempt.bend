@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 def rk.min_le(+a: Nat, +c: Nat, +r: Nat, +e: {Nat.is_le(r, c) == True{} : Bool}) -> {Nat.is_lt(a, r) == Nat.is_lt(Nat.min(a, c), r) : Bool}:
@@ -60,7 +60,7 @@ def rk.lt_le1(+c: Nat, +x: Nat, +e: {Nat.is_lt(x, c) == True{} : Bool}) -> {Nat.
     case 1n+d:
       Equal.trans(Bool, Nat.is_le(x, d), Nat.is_lt(x, 1n+d), True{}, LA.rk.lt_s(d, x), e)
 
-def rk.sat_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Laws.rust.after_reply(l, Laws.rust.sat_attempt(t, cap), reply) == Laws.rust.after_reply(l, t, reply) : Rn.Then}:
+def rk.sat_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Run.rust.after_reply(l, Run.rust.sat_attempt(t, cap), reply) == Run.rust.after_reply(l, t, reply) : Rn.Then}:
   match l:
     case Rn.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -78,18 +78,18 @@ def rk.sat_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.
                   {==}
                 case True{} False{}:
                   +m = Nat.min(attempt, cap)
-                  %rk.ss(m, notes) : {Laws.rust.retry(Nat.is_lt(_, retries)) == Laws.rust.retry(Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)) : Rn.Then}
-                  %rk.ss(attempt, notes) : {Laws.rust.retry(Nat.is_lt(Nat.sub(m, 1n+notes), retries)) == Laws.rust.retry(Nat.is_lt(_, retries)) : Rn.Then}
-                  %rk.min_sub(1n+notes, attempt, cap, retries, rk.lt_le1(cap, Nat.add(notes, retries), e)) : {Laws.rust.retry(_) == Laws.rust.retry(Nat.is_lt(Nat.sub(attempt, 1n+notes), retries)) : Rn.Then}
+                  %rk.ss(m, notes) : {Run.rust.retry(Nat.is_lt(_, retries)) == Run.rust.retry(Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)) : Rn.Then}
+                  %rk.ss(attempt, notes) : {Run.rust.retry(Nat.is_lt(Nat.sub(m, 1n+notes), retries)) == Run.rust.retry(Nat.is_lt(_, retries)) : Rn.Then}
+                  %rk.min_sub(1n+notes, attempt, cap, retries, rk.lt_le1(cap, Nat.add(notes, retries), e)) : {Run.rust.retry(_) == Run.rust.retry(Nat.is_lt(Nat.sub(attempt, 1n+notes), retries)) : Rn.Then}
                   {==}
                 case False{} False{}:
                   {==}
             case Rn.Overflow{cut}:
               {==}
 
-def rk.run_reply_saturates_the_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Rn.decide.reply(l, Laws.rust.sat_attempt(t, cap), reply) == Rn.decide.reply(l, t, reply) : Rn.Then}:
-  +t2 = Laws.rust.sat_attempt(t, cap)
-  Equal.trans(Rn.Then, Rn.decide.reply(l, t2, reply), Laws.rust.after_reply(l, t2, reply), Rn.decide.reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t2, reply), Equal.trans(Rn.Then, Laws.rust.after_reply(l, t2, reply), Laws.rust.after_reply(l, t, reply), Rn.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(Rn.Then, Rn.decide.reply(l, t, reply), Laws.rust.after_reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t, reply))))
+def rk.run_reply_saturates_the_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Rn.decide.reply(l, Run.rust.sat_attempt(t, cap), reply) == Rn.decide.reply(l, t, reply) : Rn.Then}:
+  +t2 = Run.rust.sat_attempt(t, cap)
+  Equal.trans(Rn.Then, Rn.decide.reply(l, t2, reply), Run.rust.after_reply(l, t2, reply), Rn.decide.reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t2, reply), Equal.trans(Rn.Then, Run.rust.after_reply(l, t2, reply), Run.rust.after_reply(l, t, reply), Rn.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(Rn.Then, Rn.decide.reply(l, t, reply), Run.rust.after_reply(l, t, reply), LA.rk.run_reply_is_the_rust_rule(l, t, reply))))
 
-def Laws.run_reply_saturates_the_attempt(l, t, reply, cap, e):
+def Run.run_reply_saturates_the_attempt(l, t, reply, cap, e):
   rk.run_reply_saturates_the_attempt(l, t, reply, cap, e)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dir_decide_goes_on
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 
-def Laws.dir_decide_goes_on(s, vs, cap):
+def Director.dir_decide_goes_on(s, vs, cap):
   {==}

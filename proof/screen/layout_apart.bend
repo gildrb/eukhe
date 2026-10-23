@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -25,5 +25,5 @@ def ps.apart_go(hs: List<&2, Nat>, +y: Nat, +rows: Nat, +z: Nat, hz: {Nat.is_le(
 def ps.layout_apart(hs: List<&2, Nat>, +y: Nat, +rows: Nat) -> {Sc.apart(Sc.vstack(hs, y, rows), y) == True{} : Bool}:
   ps.apart_go(hs, y, rows, y, L.screen.ps.le_refl(y))
 
-def Laws.layout_apart(hs, y, rows):
+def Screen.layout_apart(hs, y, rows):
   ps.layout_apart(hs, y, rows)

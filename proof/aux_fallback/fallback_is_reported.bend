@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/aux_fallback.bend as Af
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 import ../base.bend as L
 
 # Fallbacks
@@ -75,5 +75,5 @@ def ppr.rep_go(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>, +k: Af.Key) -> {Af.
 def ppr.fallback_is_reported(ps: List<&2, Af.Pass>, +k: Af.Key, h: {Af.listed(Af.subs(Af.run(ps)), k) == True{} : Bool}) -> {Af.listed(Af.notes(Af.run(ps)), k) == True{} : Bool}:
   ppr.rep_go(ps, Nil{}, k)(h)
 
-def Laws.fallback_is_reported(ps, k, h):
+def AuxFallback.fallback_is_reported(ps, k, h):
   ppr.fallback_is_reported(ps, k, h)

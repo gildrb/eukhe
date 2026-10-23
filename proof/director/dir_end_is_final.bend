@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/director.bend as Dr
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 import ../base.bend as L
 
 def pd.dir_end_is_final(+cap: Nat, +l: Dr.Loop, done: {Dr.ended(l) == True{} : Bool}, vs: List<&2, Dr.Verdict>) -> {Dr.tick(cap, l, vs) == l : Dr.Loop}:
@@ -14,5 +14,5 @@ def pd.dir_end_is_final(+cap: Nat, +l: Dr.Loop, done: {Dr.ended(l) == True{} : B
         case Some{x}:
           {==}
 
-def Laws.dir_end_is_final(cap, l, done, vs):
+def Director.dir_end_is_final(cap, l, done, vs):
   pd.dir_end_is_final(cap, l, done, vs)

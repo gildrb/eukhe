@@ -1,6 +1,6 @@
 //! The bridge between the refresh flights ([`Leg::advance`],
 //! [`FlightBook::advance`]) and their Bend model (`bend/auth_flight.bend`,
-//! whose laws `LAWS.bend` section `auth_flight` states and `PROOF.bend` proves): both
+//! whose laws `laws/auth_flight.bend` states and `PROOF.bend` proves): both
 //! run the same interleavings and must print the same transcript, byte for
 //! byte.
 //!

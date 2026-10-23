@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 def auth_flight.pf.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:

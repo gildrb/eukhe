@@ -1,7 +1,6 @@
 # eukhe: lemmas the proofs of area runners share
 
 import Base
-import ../../LAWS.bend as Laws
 
 # ---- runners ----
 

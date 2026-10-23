@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # Leaves
@@ -48,5 +48,5 @@ def pcf.leaf_applied_or_reported(ls: List<&2, Cf.Leaf>, +l: Cf.Leaf, i: Cf.In(l,
         case Inr{it}:
           pcf.leaf_cons(x, rest, Cf.Leaf.path(l), pcf.leaf_applied_or_reported(rest, l, it))
 
-def Laws.leaf_applied_or_reported(ls, l, i):
+def Config.leaf_applied_or_reported(ls, l, i):
   pcf.leaf_applied_or_reported(ls, l, i)

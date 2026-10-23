@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wait.bend as Wt
-import ../../LAWS.bend as Laws
+import ../../laws/wait.bend as WaitLaws
 import ./base.bend as LA
 
 # No later than the deadline or the cancel
@@ -50,5 +50,5 @@ def wait_end_is_final(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Sig>, +post: List<&
         case 1n+m:
           pw.bound(pre, post, Some{m}, stop)
 
-def Laws.wait_end_is_final(dl, pre, post, stop):
+def WaitLaws.wait_end_is_final(dl, pre, post, stop):
   wait_end_is_final(dl, pre, post, stop)

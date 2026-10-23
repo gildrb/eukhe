@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/ffi_retry.bend as Fr
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.retry_ffi_fits_exists():
+def Retry.retry_ffi_fits_exists():
   (Fr.QStall{0n}, {==})

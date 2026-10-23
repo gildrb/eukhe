@@ -115,7 +115,7 @@ pub fn call(entry: Entry, input: &str) -> Result<String, CallError> {
 /// A caller that encodes its own request (every number in range: it
 /// saturates or validates first) can meet a [`CallError`] or a
 /// [`WireError`] only from an inconsistent build: the Bend decoders are
-/// proven on the wire round trip (LAWS.bend section `wire`), the Rust
+/// proven on the wire round trip (`laws/wire.bend`), the Rust
 /// codec is tested through the FFI against them, and `make
 /// bend-core-check` keeps `c/core.c` in step with `bend/`. A caller that
 /// already returns a `Result` propagates the [`Error`] instead.

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW path_real_has_no_link
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
+import ../../laws/path_policy.bend as PathPolicy
 import ./base.bend as LA
 
 # 1. The real path
@@ -88,5 +88,5 @@ def pp.path_real_has_no_link(+ls: List<&2, Pp.Link>, +segs: List<&2, Tl.Seg>) ->
 
 # (G1) Path policy
 
-def Laws.path_real_has_no_link(ls, segs):
+def PathPolicy.path_real_has_no_link(ls, segs):
   pp.path_real_has_no_link(ls, segs)

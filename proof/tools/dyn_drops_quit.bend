@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 
 # a drop leaves no copy of t; hit is the head test
 def pl.drop_go(xs: List<&2, Nat>, +t: Nat, hit: Bool, e: {Tl.is.at(xs, t) == hit : Bool}) -> {Tl.elem(Tl.drop.go(xs, t, hit), t) == False{} : Bool}:
@@ -22,5 +22,5 @@ def pl.dyn_drops_quit(+s: Tl.Sess, +t: Nat) -> {Tl.dyn_call(Tl.step(s, Tl.Quit{t
     case Tl.Sess{r, +d, x}:
       pl.drop_go(d, t, Tl.is.at(d, t), {==})
 
-def Laws.dyn_drops_quit(s, t):
+def Tools.dyn_drops_quit(s, t):
   pl.dyn_drops_quit(s, t)

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW line_fits
 
 import Base
-import ../../bend/optchat.bend as O
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../bend/optchat.bend as O
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -125,5 +125,5 @@ def pc.fits_go(tries: Nat, +k: Nat, +best: Maybe<&2, List<&2, C.W>>, +bl: Nat, n
 def pc.line_fits(+tries: Nat, +k: Nat, +c: C.W, +rest: List<&2, C.W>, +rs: List<&2, C.Reply>) -> {C.line.fits(4n+k, C.Line.line(C.line(tries, 4n+k, c <> rest, rs))) == True{} : Bool}:
   pc.fits_go(tries, k, None{}, 0n, Unit{}, rs, c, rest)
 
-def Laws.line_fits(tries, k, c, rest, rs):
+def Compactor.line_fits(tries, k, c, rest, rs):
   pc.line_fits(tries, k, c, rest, rs)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/fsmode.bend as Fs
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 import ./base.bend as LA
 
 def pf.dir_progress(mine: Bool, loose: Bool, safe: {Bool.and(mine, Bool.not(loose)) == True{} : Bool}) -> {Fs.socket_dir.dir(mine, loose) == Fs.Use{} : Fs.Verdict}:
@@ -27,5 +27,5 @@ def progress(d: Fs.Seen, safe: {Fs.Seen.safe(d) == True{} : Bool}) -> {Fs.socket
         case Fs.Other{}:
           LA.fsmode.pf.absurdF({Fs.socket_dir(Fs.Seen{Fs.Other{}, mine, loose}) == Fs.Use{} : Fs.Verdict}, safe)
 
-def Laws.socket_dir_progress(d, safe):
+def Fsmode.socket_dir_progress(d, safe):
   progress(d, safe)

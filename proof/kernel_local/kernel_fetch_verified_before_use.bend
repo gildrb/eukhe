@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 def pk.fetch_verified_before_use(f: KL.Found, s: KL.Setup) -> {KL.acts.verified(KL.plan(f, s), True{}) == True{} : Bool}:
   match f s:
@@ -19,5 +19,5 @@ def pk.fetch_verified_before_use(f: KL.Found, s: KL.Setup) -> {KL.acts.verified(
     case KL.Stale{} KL.Install{}:
       {==}
 
-def Laws.kernel_fetch_verified_before_use(f, s):
+def KernelLocal.kernel_fetch_verified_before_use(f, s):
   pk.fetch_verified_before_use(f, s)

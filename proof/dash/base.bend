@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
 
 # ---- dashboard_auth ----
 

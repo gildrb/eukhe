@@ -474,7 +474,7 @@ pub enum Raced<T> {
 /// two are ready together, the event wins, then the cancel. A deadline
 /// already passed or a signal already aborted ends the wait at its first
 /// poll unless the event is ready by then. The model and its laws:
-/// `bend/wait.bend`, `wait_*` in `LAWS.bend`.
+/// `bend/wait.bend`, `wait_*` in `laws/wait.bend`.
 pub async fn race<F: Future>(work: F, exits: Exits) -> Raced<F::Output> {
     let deadline = async {
         match exits.deadline {

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 
 # Oracles
@@ -41,5 +41,5 @@ def pf.facts_bedrock_effort_oracle(native: Bool, +m: Fx.EMap, +l: Fx.ELv, ok: {F
         case Fx.EXhigh{}:
           pf.xhigh(m, ok)
 
-def Laws.facts_bedrock_effort_oracle(native, m, l, ok):
+def Facts.facts_bedrock_effort_oracle(native, m, l, ok):
   pf.facts_bedrock_effort_oracle(native, m, l, ok)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW alias_expand_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 
-def Laws.alias_expand_example():
+def Cvar.alias_expand_example():
   {==}

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW wait_keeps_needed
 
 import Base
-import ../../bend/optchat.bend as O
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../bend/optchat.bend as O
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -46,5 +46,5 @@ def pc.wait_keeps_needed(+s: O.St) -> {C.kept(O.St.info(s), O.St.view(s), O.St.b
     case O.St{t, +info, +view, shrink, cview, ready, +busy}:
       pc.kept_need(info, view, busy)
 
-def Laws.wait_keeps_needed(s):
+def Compactor.wait_keeps_needed(s):
   pc.wait_keeps_needed(s)

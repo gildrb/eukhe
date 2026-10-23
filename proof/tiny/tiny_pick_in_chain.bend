@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../LAWS.bend as Laws
+import ../../laws/tiny.bend as Tiny
 import ./base.bend as LA
 
 def tiny.pn.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
@@ -65,5 +65,5 @@ def pn.tiny_pick_in_chain(+chain: List<&2, Nat>, +up: List<&2, Nat>, +m: Nat, us
 
 # (S9) Local tiny models
 
-def Laws.tiny_pick_in_chain(chain, up, m, used):
+def Tiny.tiny_pick_in_chain(chain, up, m, used):
   pn.tiny_pick_in_chain(chain, up, m, used)

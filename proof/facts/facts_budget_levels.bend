@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW facts_budget_levels
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 
-def Laws.facts_budget_levels():
+def Facts.facts_budget_levels():
   {==}

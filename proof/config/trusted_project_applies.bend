@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # LAW trusted_project_applies
@@ -10,5 +10,5 @@ def pcf.trusted_project_applies(g: List<&2, Cf.Entry>, +k: Nat, kind: Cf.Class, 
   %Equal.sym(Bool, Nat.is_eq(k, k), True{}, L.ppr.nat_eq_refl(k)) : {Cf.pick(_, v, Cf.lookup(Cf.effective(Cf.Trusted{}, g, items), k)) == Some{v} : Maybe<&2, Nat>}
   {==}
 
-def Laws.trusted_project_applies(g, k, kind, v, items):
+def Config.trusted_project_applies(g, k, kind, v, items):
   pcf.trusted_project_applies(g, k, kind, v, items)

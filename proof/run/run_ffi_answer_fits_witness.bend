@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
-def Laws.run_ffi_answer_fits_witness():
+def Run.run_ffi_answer_fits_witness():
   (Rn.EndStop{}, (Rn.Runs{}, {==}))

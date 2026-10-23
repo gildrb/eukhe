@@ -8,7 +8,7 @@
 //! for more than the cap, no retry goes out early: the failure surfaces at
 //! once with the server's time, as the HTTP layer
 //! ([`super::provider_retry`]) reports it. The Bend model `bend/retry.bend`
-//! makes the same decisions; `LAWS.bend` section `retry` states their laws.
+//! makes the same decisions; `laws/retry.bend` states their laws.
 
 use std::sync::LazyLock;
 
@@ -187,7 +187,7 @@ impl RetryWait {
 
 /// The wait before retry `attempt` (1-indexed) of the failed `message`
 /// (omp2 `TransportRetryLayer`), decided by the compiled Bend core
-/// (`bend/retry.bend` `retry_wait`, LAWS.bend section `retry`): a
+/// (`bend/retry.bend` `retry_wait`, `laws/retry.bend`): a
 /// full-jitter draw under the step, where the step is `base_delay_ms *
 /// 2^(attempt-1)` capped at `max_agent_delay_ms`, so agents that hit the
 /// same limit together do not retry together; never shorter than the
@@ -322,7 +322,7 @@ impl FailureFacts {
     }
 
     /// Whether a retry may cure the failure, decided by the compiled Bend
-    /// core (`bend/retry.bend` `retryable`, LAWS.bend section `retry`):
+    /// core (`bend/retry.bend` `retryable`, `laws/retry.bend`):
     /// never a parked failure or a limit; else by its recorded status
     /// (408, 409, 429, 500 and above); else by its typed kind; else by its
     /// text.

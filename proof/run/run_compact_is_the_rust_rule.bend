@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
-def rk.run_compact_is_the_rust_rule(+over: Bool, +got: Rn.Got) -> {Rn.decide.compact(over, got) == Laws.rust.after_compaction(over, got) : Bool}:
+def rk.run_compact_is_the_rust_rule(+over: Bool, +got: Rn.Got) -> {Rn.decide.compact(over, got) == Run.rust.after_compaction(over, got) : Bool}:
   match over got:
     case True{} Rn.Built{}:
       {==}
@@ -19,5 +19,5 @@ def rk.run_compact_is_the_rust_rule(+over: Bool, +got: Rn.Got) -> {Rn.decide.com
     case False{} Rn.Broke{}:
       {==}
 
-def Laws.run_compact_is_the_rust_rule(over, got):
+def Run.run_compact_is_the_rust_rule(over, got):
   rk.run_compact_is_the_rust_rule(over, got)

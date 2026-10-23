@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../LAWS.bend as Laws
+import ../../laws/tiny.bend as Tiny
 
 def pn.tiny_every_need_served(+es: List<&2, Tn.Ev>, +w: Tn.W) -> {List.length(&2, Tn.Got, Tn.gots(es, w)) == Tn.needs(es) : Nat}:
   match es:
@@ -24,5 +24,5 @@ def pn.tiny_every_need_served(+es: List<&2, Tn.Ev>, +w: Tn.W) -> {List.length(&2
               +s = Tn.need.w(Nat.is_eq(t, tag), p, tag, Tn.Worker{o, t})
               Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Tn.Got, Tn.gots(rest, s)), Tn.needs(rest), pn.tiny_every_need_served(rest, s))
 
-def Laws.tiny_every_need_served(es, w):
+def Tiny.tiny_every_need_served(es, w):
   pn.tiny_every_need_served(es, w)

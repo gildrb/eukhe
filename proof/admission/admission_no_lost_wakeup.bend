@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 def ad.not_t(x: Bool, e: {Bool.not(x) == True{} : Bool}) -> {x == False{} : Bool}:
@@ -21,5 +21,5 @@ def ad.okS_quiet(s: Ad.St, h: {LA.ad.okS(s) == True{} : Bool}) -> {Ad.grantable(
 def no_lost_wakeup(+l: Ad.Lim, +q: Nat, +os: List<&2, Ad.Op>) -> {Ad.grantable(Ad.run(os, Ad.St.new(l, q))) == False{} : Bool}:
   ad.okS_quiet(Ad.run(os, Ad.St.new(l, q)), LA.ad.run_ok(os, Ad.St.new(l, q), LA.ad.new_ok(l, q)))
 
-def Laws.admission_no_lost_wakeup(l, q, os):
+def Admission.admission_no_lost_wakeup(l, q, os):
   no_lost_wakeup(l, q, os)

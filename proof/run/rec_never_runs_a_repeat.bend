@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ../base.bend as L
 
 # ---- recover ----
@@ -157,5 +157,5 @@ def same_go(os: List<&2, Rn.Out>, +rc: Rn.RCfg, +r: Rn.Rec, ok: {Rn.below(Rn.Rec
 def never_runs_a_repeat(+rc: Rn.RCfg, +os: List<&2, Rn.Out>) -> {Rn.below(Rn.Rec.same(Rn.Rec.run(rc, os)), Nat.max(Rn.RCfg.repeat(rc), 1n)) == True{} : Bool}:
   same_go(os, rc, Rn.Rec.init(), zero_below_max(Rn.RCfg.repeat(rc)))
 
-def Laws.rec_never_runs_a_repeat(rc, os):
+def Run.rec_never_runs_a_repeat(rc, os):
   never_runs_a_repeat(rc, os)

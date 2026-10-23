@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 
 # The step the Rust jobs run (`feed`): below t it is the step; any output
@@ -12,7 +12,7 @@ def pj.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
   %e : L.pj.BD(_, Unit, A)
   Unit{}
 
-def pj.job_feed_no_output(+t: Nat, +cap: Maybe<&2, Nat>, j: Jb.J, e: Jb.JEv, quiet: {Laws.JobWrites(e) == False{} : Bool}) -> {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}:
+def pj.job_feed_no_output(+t: Nat, +cap: Maybe<&2, Nat>, j: Jb.J, e: Jb.JEv, quiet: {Job.JobWrites(e) == False{} : Bool}) -> {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}:
   match j:
     case Jb.Live{k, d}:
       match e:
@@ -35,5 +35,5 @@ def pj.job_feed_no_output(+t: Nat, +cap: Maybe<&2, Nat>, j: Jb.J, e: Jb.JEv, qui
         case Jb.Tick{}:
           {==}
 
-def Laws.job_feed_no_output(t, cap, j, e, quiet):
+def Job.job_feed_no_output(t, cap, j, e, quiet):
   pj.job_feed_no_output(t, cap, j, e, quiet)

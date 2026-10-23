@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_chase_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_chase_example():
+def Theme.theme_chase_example():
   {==}

@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/catalog_union.bend as CU
-import ../../LAWS.bend as Laws
 
 # ---- catalog_union ----
 

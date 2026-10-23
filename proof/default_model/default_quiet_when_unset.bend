@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/default_model.bend as Dm
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
 # LAW default_quiet_when_unset: with no saved default the session has no
 # notice
@@ -16,5 +16,5 @@ def pdm.default_quiet_when_unset(cat: Bool, key: Bool, out: Bool, next: Dm.Next)
 def pcf.default_quiet_when_unset(cat: Bool, key: Bool, out: Bool, next: Dm.Next) -> {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.NoDefault{}, cat, key, out, next}))) == Nil{} : List<&2, Dm.Key>}:
   pdm.default_quiet_when_unset(cat, key, out, next)
 
-def Laws.default_quiet_when_unset(cat, key, out, next):
+def DefaultModel.default_quiet_when_unset(cat, key, out, next):
   pcf.default_quiet_when_unset(cat, key, out, next)

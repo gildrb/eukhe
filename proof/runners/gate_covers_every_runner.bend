@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/runners.bend as Ru
-import ../../LAWS.bend as Laws
+import ../../laws/runners.bend as Runners
 import ./base.bend as LA
 
 def pr.MD(m: Maybe<&2, Ru.Tool>, n: Type, s: Type) -> Type:
@@ -61,5 +61,5 @@ def pr.covers(chat: Bool, i: Nat, +t: Ru.Tool, at: {List.get(&2, Ru.Tool, Ru.reg
 
 # (G4) Every runner of code goes through the gate
 
-def Laws.gate_covers_every_runner(chat, i, t, at, runs):
+def Runners.gate_covers_every_runner(chat, i, t, at, runs):
   pr.covers(chat, i, t, at, runs)

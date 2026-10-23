@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/doc_lines.bend as Dl
-import ../../LAWS.bend as Laws
 
 # ---- doc_lines ----
 

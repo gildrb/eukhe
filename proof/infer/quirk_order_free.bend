@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -157,5 +157,5 @@ def pq.quirk_order_free(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +a: If.R
   +sw = pq.swap_go(pre, a, b, post, q, d, None{}, If.use.at(L1, q, d), If.use.at(L2, q, d), {==}, {==}, nc)
   Equal.cong(Maybe<&2, If.Best>, If.Ans, m => If.ans(m), If.look.go(L1, q, d, None{}, If.use.at(L1, q, d)), If.look.go(L2, q, d, None{}, If.use.at(L2, q, d)), sw)
 
-def Laws.quirk_order_free(known, pre, a, b, post, q, d, ok):
+def Infer.quirk_order_free(known, pre, a, b, post, q, d, ok):
   pq.quirk_order_free(known, pre, a, b, post, q, d, ok)

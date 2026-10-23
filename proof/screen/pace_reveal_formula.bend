@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 # The share's guard: when k >= b the quotient b / (1 + k) is 0
@@ -26,5 +26,5 @@ def ps.reveal_at(+min: Nat, +k: Nat, +b: Nat, lt: Bool, e: {Nat.is_lt(k, b) == l
 def ps.pace_reveal_formula(+min: Nat, +k: Nat, +b: Nat) -> {Sc.reveal(min, k, b) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}:
   ps.reveal_at(min, k, b, Nat.is_lt(k, b), {==})
 
-def Laws.pace_reveal_formula(min, k, b):
+def Screen.pace_reveal_formula(min, k, b):
   ps.pace_reveal_formula(min, k, b)

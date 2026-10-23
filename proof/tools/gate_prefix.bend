@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 def pl.step_refl(s: Tl.Step) -> {Tl.step.eq(s, s) == True{} : Bool}:
@@ -42,5 +42,5 @@ def pl.prefix_go(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, free: Bool, +ans: 
 def pl.gate_prefix(+ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>) -> {Tl.prefix(Tl.Ran.steps(Tl.exec(ss, auto, ans)), ss) == True{} : Bool}:
   pl.prefix_go(ss, auto, Tl.free.at(ss, auto), ans)
 
-def Laws.gate_prefix(ss, auto, ans):
+def Tools.gate_prefix(ss, auto, ans):
   pl.gate_prefix(ss, auto, ans)

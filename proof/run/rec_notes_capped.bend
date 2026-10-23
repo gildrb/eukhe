@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
 # Every recovery stops at its cap
 # -------------------------------
@@ -68,5 +68,5 @@ def cap_go(os: List<&2, Rn.Out>, +rc: Rn.RCfg, +r: Rn.Rec, ok: {Rn.Rec.capped(rc
 def notes_capped(+rc: Rn.RCfg, +os: List<&2, Rn.Out>) -> {Rn.Rec.capped(rc, Rn.Rec.run(rc, os)) == True{} : Bool}:
   cap_go(os, rc, Rn.Rec.init(), {==})
 
-def Laws.rec_notes_capped(rc, os):
+def Run.rec_notes_capped(rc, os):
   notes_capped(rc, os)

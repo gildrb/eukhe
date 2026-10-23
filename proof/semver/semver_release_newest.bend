@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ../base.bend as L
 
 def semver.ps.MD(m: Maybe<&2, Sv.Ver>, t: Type, f: Type) -> Type:
@@ -62,5 +62,5 @@ def ps.release_newest(m: Maybe<&2, Sv.Ver>, +xs: List<&2, String>, +t: String, +
 def ps.release_newest_of(c: String, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, -r: Sv.Ver, rel: {Sv.Rel.release(c, List.append(&2, String, xs, t <> ys)) == Some{r} : Maybe<&2, Sv.Ver>}, +v: Sv.Ver, parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}) -> {Sv.Ver.lt(v, r) == True{} : Bool}:
   ps.release_newest(Sv.Ver.parse(c), xs, t, ys, r, rel, v, parsed)
 
-def Laws.semver_release_newest(c, xs, t, ys, r, rel, v, parsed):
+def Semver.semver_release_newest(c, xs, t, ys, r, rel, v, parsed):
   ps.release_newest_of(c, xs, t, ys, r, rel, v, parsed)

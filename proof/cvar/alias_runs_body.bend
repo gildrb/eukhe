@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 # Lists
@@ -52,7 +52,7 @@ def pv.flat(b: List<&2, Cv.Cmd>, k: Nat, +as: List<&2, Cv.Alias>, +out: List<&2,
         case Cv.CGone{n}:
           LA.pv.absurdF({Cv.expand.go(k, Cv.CGone{n} <> rest, as, Cv.Flat{out}) == Cv.Flat{Cv.rev(Cv.CGone{n} <> rest, out)} : Cv.Exp}, h)
 
-def Laws.alias_runs_body(n, b, as, flat):
+def Cvar.alias_runs_body(n, b, as, flat):
   +t = {Cv.Alias{n, b} <> as : List<&2, Cv.Alias>}
   +k = List.length(&2, Cv.Alias, t)
   %Equal.sym(List<&2, Cv.Cmd>, Cv.body(t, n), b, LA.pv.body_head(n, b, as)) : {Cv.fin(Cv.expand.go(k, _, t, Cv.Flat{Nil{}})) == Cv.Flat{b} : Cv.Exp}

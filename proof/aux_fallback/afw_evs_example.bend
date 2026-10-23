@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW afw_evs_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 
-def Laws.afw_evs_example():
+def AuxFallback.afw_evs_example():
   ({==}, {==})

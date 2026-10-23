@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/default_model.bend as Dm
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
 # the one notice of the key K{m, r} names K{m, r}
 def pdm.listed_self(m: Nat, r: Dm.Reason) -> {Dm.listed([Dm.K{m, r}], Dm.K{m, r}) == True{} : Bool}:
@@ -59,5 +59,5 @@ def pdm.default_honoured_or_reported(x: Dm.In) -> {Dm.reported(x, Dm.open(Dm.res
 def pcf.default_honoured_or_reported(x: Dm.In) -> {Dm.reported(x, Dm.open(Dm.resolve(x))) == True{} : Bool}:
   pdm.default_honoured_or_reported(x)
 
-def Laws.default_honoured_or_reported(x):
+def DefaultModel.default_honoured_or_reported(x):
   pcf.default_honoured_or_reported(x)

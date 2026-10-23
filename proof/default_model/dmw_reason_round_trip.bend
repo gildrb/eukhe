@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/default_model.bend as Dm
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
-def Laws.dmw_reason_round_trip(r, rest):
+def DefaultModel.dmw_reason_round_trip(r, rest):
   match r:
     case Dm.NotInCatalog{}:
       {==}

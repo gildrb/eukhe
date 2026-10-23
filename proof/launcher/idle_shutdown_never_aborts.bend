@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/launcher.bend as La
-import ../../LAWS.bend as Laws
+import ../../laws/launcher.bend as Launcher
 import ../base.bend as L
 
 # (D1) idle_shutdown_never_aborts
@@ -214,5 +214,5 @@ def ps.aborted_zero(s: La.St, g: ps.Good(s)) -> {La.St.aborted(s) == 0n : Nat}:
 def ps.idle_shutdown_never_aborts(+bs: List<&2, Bool>, +ops: List<&2, La.Op>) -> {La.St.aborted(La.run(bs, ops)) == 0n : Nat}:
   ps.aborted_zero(La.run(bs, ops), ps.go_good(ops, La.St{La.open(bs), 0n, False{}}, ({==}, ps.open_inv(bs))))
 
-def Laws.idle_shutdown_never_aborts(bs, ops):
+def Launcher.idle_shutdown_never_aborts(bs, ops):
   ps.idle_shutdown_never_aborts(bs, ops)

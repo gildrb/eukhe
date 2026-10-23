@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW seen_wire_fits_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/doc_seen.bend as DocSeen
 
-def Laws.seen_wire_fits_example():
+def DocSeen.seen_wire_fits_example():
   {==}

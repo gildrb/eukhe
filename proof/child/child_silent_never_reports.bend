@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 
 def pc.silent(x: Ch.Next) -> {Ch.Call.reports(Ch.call.of(x, Ch.Silent{})) == False{} : Bool}:
   match x:
@@ -13,5 +13,5 @@ def pc.silent(x: Ch.Next) -> {Ch.Call.reports(Ch.call.of(x, Ch.Silent{})) == Fal
     case Ch.Quiet{}:
       {==}
 
-def Laws.child_silent_never_reports(cfg, w, e, o):
+def Child.child_silent_never_reports(cfg, w, e, o):
   pc.silent(Ch.look(cfg, w, e, o))

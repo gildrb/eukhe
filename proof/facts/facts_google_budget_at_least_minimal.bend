@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ./base.bend as LA
 
 def pf.hi_ge(+x: Nat, +lo: Nat, +hi: Nat, g: Bool, lohi: {Nat.is_le(lo, hi) == True{} : Bool}, lox: {Nat.is_le(lo, x) == True{} : Bool}) -> {Nat.is_le(lo, Fx.clamp.hi(g, x, hi)) == True{} : Bool}:
@@ -25,5 +25,5 @@ def pf.clamp_ge(+x: Nat, +lo: Nat, +hi: Nat, lohi: {Nat.is_le(lo, hi) == True{} 
 def pf.facts_google_budget_at_least_minimal(+b: Fx.Budgets, c: Fx.Customs, +l: Fx.Lv, +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}) -> {Nat.is_le(Fx.Budgets.minimal(b), Fx.gtokens(b, c, l)) == True{} : Bool}:
   pf.clamp_ge(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b), LA.pf.ord_mh(b, ordered))
 
-def Laws.facts_google_budget_at_least_minimal(b, c, l, ordered):
+def Facts.facts_google_budget_at_least_minimal(b, c, l, ordered):
   pf.facts_google_budget_at_least_minimal(b, c, l, ordered)

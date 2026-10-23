@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cron.bend as Cr
-import ../../LAWS.bend as Laws
+import ../../laws/cron.bend as Cron
 import ./base.bend as LA
 
 def cron.pc.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
@@ -364,5 +364,5 @@ def pc.later_ge(nx: Maybe<&2, Nat>, +u: Nat) -> {Nat.is_le(u, Cr.later(nx, u)) =
 def pc.cron_backoff_bounded(+evs: List<&2, Cr.Ev>, +s: Cr.S, +e: Cr.Ev, +i: Nat, +k: Nat, +c: Nat, +nx: Maybe<&2, Nat>) -> (Cr.StopsAll(Cr.S.recs(Cr.run(evs))) & (({Cr.Ev.is_user(e) == False{} : Bool} -> Cr.StaysPaused(i, s, Cr.step(s, e))) & ({Nat.is_le(Cr.delay(k), Cr.delay(1n+k)) == True{} : Bool} & {Nat.is_le(Nat.add(c, Cr.delay(k)), Cr.later(nx, Nat.add(c, Cr.delay(k)))) == True{} : Bool}))):
   (pc.stops_of(Cr.run(evs), LA.pc.inv_run(evs)), (nu => h => pc.stays(s, e, i, nu, h), (pc.delay_mono(k), pc.later_ge(nx, Nat.add(c, Cr.delay(k))))))
 
-def Laws.cron_backoff_bounded(evs, s, e, i, k, c, nx):
+def Cron.cron_backoff_bounded(evs, s, e, i, k, c, nx):
   pc.cron_backoff_bounded(evs, s, e, i, k, c, nx)

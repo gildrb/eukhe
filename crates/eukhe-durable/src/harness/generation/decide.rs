@@ -8,7 +8,7 @@
 //! call over plain data (the counters that bound a run); the phases in
 //! `generation.rs` and `round.rs` do the IO around it and act on what it
 //! returns.
-//! The Bend model `bend/run.bend` makes the same decisions; `LAWS.bend`
+//! The Bend model `bend/run.bend` makes the same decisions; `laws/run.bend`
 //! (H4) proves that every run ends under them, that a retry never
 //! resends a request it cut and that every recovery stops at its cap, and
 //! the bridge test (`bridge.rs`) runs both on the same scenarios.

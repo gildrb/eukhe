@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 def pce.app_in_r(xs: List<&2, Env.Var>, +ys: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, ys)) -> Env.In(v, List.append(&2, Env.Var, xs, ys)):
@@ -33,6 +33,6 @@ def pce.under_in(base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var,
         case Inr{it}:
           pce.under_put_in(Env.named(Env.Var.name(h), over), h, Env.under(t, over), v, pce.under_in(t, over, v, it, free))
 
-def Laws.env_base_in_merge(base, over, v, i, free):
+def ChildEnv.env_base_in_merge(base, over, v, i, free):
   +n = Env.Var.name(v)
-  pce.app_in_r(over, Env.under(base, over), v, pce.under_in(base, over, v, i, Equal.trans(Bool, Env.named(n, over), Laws.env_named(n, over), False{}, Equal.sym(Bool, Laws.env_named(n, over), Env.named(n, over), LA.pce.named_eq(n, over)), free)))
+  pce.app_in_r(over, Env.under(base, over), v, pce.under_in(base, over, v, i, Equal.trans(Bool, Env.named(n, over), ChildEnv.env_named(n, over), False{}, Equal.sym(Bool, ChildEnv.env_named(n, over), Env.named(n, over), LA.pce.named_eq(n, over)), free)))

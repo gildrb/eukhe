@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW fallback_known_needs_no_lookup
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 
-def Laws.fallback_known_needs_no_lookup(r, look, need):
+def AuxFallback.fallback_known_needs_no_lookup(r, look, need):
   {==}

@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 def pj.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/catalog_union.bend as CU
-import ../../LAWS.bend as Laws
+import ../../laws/catalog_union.bend as CatalogUnion
 import ./base.bend as LA
 
 def pcu.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -123,5 +123,5 @@ def pcu.lists_once(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +k: Nat, ub: {N
   %Equal.sym(Nat, CU.count(CU.extra(cs, bs), k), pcu.gate_n(CU.has(bs, k), CU.count(cs, k)), pcu.count_extra(cs, bs, k)) : {Nat.is_le(Nat.add(CU.count(bs, k), _), 1n) == True{} : Bool}
   pcu.once.go(CU.has(bs, k), bs, cs, k, {==}, ub, uc)
 
-def Laws.union_lists_each_model_once(bs, cs, k, ub, uc):
+def CatalogUnion.union_lists_each_model_once(bs, cs, k, ub, uc):
   pcu.lists_once(bs, cs, k, ub, uc)

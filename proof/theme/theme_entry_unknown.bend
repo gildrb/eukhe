@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_entry_unknown
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
 # Reading a file
 # --------------
@@ -9,5 +9,5 @@ import ../../LAWS.bend as Laws
 # file; every entry reads, so the entries are their colors; the missing
 # list is the rule's absent list; then the export backgrounds decide.
 
-def Laws.theme_entry_unknown(vars, k, j):
+def Theme.theme_entry_unknown(vars, k, j):
   {==}

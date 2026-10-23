@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 def pj.sett(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat) -> {Jb.settles(Jb.c.go(es, Jb.Open{b, w, u})) == Jb.once(Jb.c.ends(es)) : Nat}:
@@ -27,5 +27,5 @@ def pj.sett(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat) -> {Jb.settles(Jb.c
 def pj.stream_settles_once(+es: List<&2, Jb.CEv>) -> {Jb.settles(Jb.journal(es)) == Jb.once(Jb.c.ends(es)) : Nat}:
   pj.sett(es, 0n, 0n, 0n)
 
-def Laws.stream_settles_once(es):
+def Job.stream_settles_once(es):
   pj.stream_settles_once(es)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW adw_malformed_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.adw_malformed_example():
+def Admission.adw_malformed_example():
   ({==}, {==})

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 
-def Laws.tree_ffi_fits_exists():
+def Tree.tree_ffi_fits_exists():
   (Tr.Plan{0n}, (Nil{}, {==}))

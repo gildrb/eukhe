@@ -2,12 +2,12 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
+import ../../laws/sandbox.bend as Sandbox
 
 # The plan of one path, for any three equalities of its contents: the
 # copy-on-write rule, and the merge it carries out.
 
-def px.plan(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> {Sb.plan.at(calm, still, same, c) == Laws.CowPlan.go(calm, still, same, c) : Sb.Plan}:
+def px.plan(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> {Sb.plan.at(calm, still, same, c) == Sandbox.CowPlan.go(calm, still, same, c) : Sb.Plan}:
   match calm:
     case True{}:
       {==}
@@ -26,5 +26,5 @@ def px.plan(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> {Sb.plan.
             case False{}:
               {==}
 
-def Laws.cow_plan(p, b, c):
+def Sandbox.cow_plan(p, b, c):
   px.plan(Sb.m.eq(c, b), Sb.m.eq(p, b), Sb.m.eq(p, c), c)

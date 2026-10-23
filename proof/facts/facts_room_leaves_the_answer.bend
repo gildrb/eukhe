@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -57,5 +57,5 @@ def pf.facts_room_leaves_the_answer(+b: Nat, +m: Nat, +a: Nat, fits: {Nat.is_le(
   %pf.sub_add(m, a, fits) : {Nat.is_le(Nat.add(R, a), _) == True{} : Bool}
   pf.le_add_mono(R, Nat.sub(m, a), a, LA.pf.min_le_r(b, Nat.sub(m, a)))
 
-def Laws.facts_room_leaves_the_answer(b, m, a, fits):
+def Facts.facts_room_leaves_the_answer(b, m, a, fits):
   pf.facts_room_leaves_the_answer(b, m, a, fits)

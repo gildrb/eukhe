@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/gateway_width.bend as Gw
-import ../../LAWS.bend as Laws
+import ../../laws/gateway_width.bend as GatewayWidth
 import ./base.bend as LA
 
 # ---- gateway_width ----
@@ -126,5 +126,5 @@ def table_aligned(+pre: List<&2, List<&2, List<&2, Nat>>>, +row: List<&2, List<&
 
 # (G) The Signal gateway's tables
 
-def Laws.table_aligned(pre, row, post):
+def GatewayWidth.table_aligned(pre, row, post):
   table_aligned(pre, row, post)

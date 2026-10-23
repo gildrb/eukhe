@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 def rk.apred(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.a(Rn.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p)) == Nat.sub(m, 1n+x) : Nat}:
@@ -30,7 +30,7 @@ def rk.ra(+retries: Nat, +b: Nat, +notes: Nat, +e: {Nat.is_le(notes, b) == True{
   %rk.sub_succ(b, notes, e) : {Nat.sub(retries, 1n+Nat.sub(b, notes)) == Nat.sub(retries, _) : Nat}
   {==}
 
-def rk.run_retry_counts_down(+l: Rn.Lim, +t: Rn.At, +e: {Nat.is_le(1n+Rn.At.notes(t), Rn.At.attempt(t)) == True{} : Bool}, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.retry(Rn.Lim.cfg(l), True{}, r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Laws.rust.retried_next(t)) : Nat}:
+def rk.run_retry_counts_down(+l: Rn.Lim, +t: Rn.At, +e: {Nat.is_le(1n+Rn.At.notes(t), Rn.At.attempt(t)) == True{} : Bool}, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.retry(Rn.Lim.cfg(l), True{}, r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Run.rust.retried_next(t)) : Nat}:
   match l:
     case Rn.Lim{+rounds, +wait, +retries, +most}:
       match t:
@@ -41,5 +41,5 @@ def rk.run_retry_counts_down(+l: Rn.Lim, +t: Rn.At, +e: {Nat.is_le(1n+Rn.At.note
             case 1n++b:
               Equal.trans(Nat, Rn.St.a(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(most, notes), p)), Nat.sub(retries, 1n+Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(retries, Nat.sub(Nat.sub(2n+b, 1n), notes)), rk.apred(Rn.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(most, notes), p, retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), rk.ra(retries, b, notes, e))
 
-def Laws.run_retry_counts_down(l, t, e, r, c, p):
+def Run.run_retry_counts_down(l, t, e, r, c, p):
   rk.run_retry_counts_down(l, t, e, r, c, p)

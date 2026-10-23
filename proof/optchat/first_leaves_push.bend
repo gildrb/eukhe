@@ -2,10 +2,10 @@
 
 import Base
 import ../../bend/optchat.bend as O
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 
 def first_leaves_push() -> {O.agree(O.First{}, 11n) == False{} : Bool}:
   {==}
 
-def Laws.first_leaves_push():
+def Optchat.first_leaves_push():
   first_leaves_push()

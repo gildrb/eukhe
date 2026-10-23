@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 def ad.add_one(n: Nat) -> {1n+n == Nat.add(n, 1n) : Nat}:
@@ -315,5 +315,5 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
         case Ad.Limit{+l2, q2}:
           ad.cap_after(l2, ts, ts, 0n, LA.ad.add_zero(Ad.held(ts)))
 
-def Laws.admission_capacity(s, o):
+def Admission.admission_capacity(s, o):
   capacity(s, o)

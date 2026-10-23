@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW theme_tokens_complete
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 
-def Laws.theme_tokens_complete(f, v):
+def Theme.theme_tokens_complete(f, v):
   LA.theme_tokens_complete(f, v)

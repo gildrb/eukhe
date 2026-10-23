@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
+import ../../laws/doc_search.bend as DocSearch
 
 def documents.ps.eq_refl(+a: Nat) -> {Nat.is_eq(a, a) == True{} : Bool}:
   match a:
@@ -49,5 +49,5 @@ def ps.notes_every_cut(pre: List<&2, Sr.Out>, +i: Nat, +pa: Bool, +post: List<&2
         case Sr.Out{+i2, c, t, pa2}:
           ps.cut_keep(i, i2, c, t, Sr.cuts(List.append(&2, Sr.Out, rest, Sr.Out{i, Sr.Shown{}, True{}, pa} <> post)), ps.notes_every_cut(rest, i, pa, post))
 
-def Laws.grep_notes_every_cut(pre, i, pa, post):
+def DocSearch.grep_notes_every_cut(pre, i, pa, post):
   ps.notes_every_cut(pre, i, pa, post)

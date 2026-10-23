@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../LAWS.bend as Laws
+import ../../laws/tiny.bend as Tiny
 import ./base.bend as LA
 
 def pn.eq_true(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
@@ -53,5 +53,5 @@ def pn.cur(es: List<&2, Tn.Ev>, +w: Tn.W) -> {Tn.W.tag(Tn.run(es, w)) == Tn.last
 def pn.tiny_worker_current(+es: List<&2, Tn.Ev>) -> {Tn.W.tag(Tn.run(es, Tn.NoWorker{})) == Tn.last_tag(es, None{}) : Maybe<&2, Nat>}:
   pn.cur(es, Tn.NoWorker{})
 
-def Laws.tiny_worker_current(es):
+def Tiny.tiny_worker_current(es):
   pn.tiny_worker_current(es)

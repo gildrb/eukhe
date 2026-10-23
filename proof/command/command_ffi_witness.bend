@@ -6,7 +6,7 @@
 
 import Base
 import ../../bend/ffi_command.bend as FCmd
-import ../../LAWS.bend as Laws
+import ../../laws/command.bend as Command
 
-def Laws.command_ffi_witness():
+def Command.command_ffi_witness():
   (FCmd.Req{[], FCmd.QResolve{""}}, ("", ("x", {==})))

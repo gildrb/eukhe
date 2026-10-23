@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 # a name that is not a credential passes
@@ -17,5 +17,5 @@ def pce.env_keeps_the_rest(+reg: List<&2, String>, +keep: List<&2, String>, base
   +n = Env.Var.name(v)
   LA.pce.in_keep(reg, keep, Env.merge(base, over), v, i, LA.pce.of_spec(reg, keep, n, pce.rest(Env.cred(reg, n), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n))), c)))
 
-def Laws.env_keeps_the_rest(reg, keep, base, over, v, i, c):
+def ChildEnv.env_keeps_the_rest(reg, keep, base, over, v, i, c):
   pce.env_keeps_the_rest(reg, keep, base, over, v, i, c)

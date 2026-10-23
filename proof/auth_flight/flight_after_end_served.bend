@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../LAWS.bend as Laws
+import ../../laws/auth_flight.bend as AuthFlight
 import ./base.bend as LA
 
 def pf.after_of.load(+c2: Nat, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, +cs: List<&2, F.Leg>, +ok: Bool) -> {List.get(&2, F.Leg, F.St.cs(F.step.at(List.get(&2, F.Leg, List.append(&2, F.Leg, cs, [F.Load{}]), List.length(&2, F.Leg, cs)), List.length(&2, F.Leg, cs), ok, F.W{F.Sto{c2, True{}}, fl, ld, n}, List.append(&2, F.Leg, cs, [F.Load{}]))), List.length(&2, F.Leg, cs)) == Some{F.Served{None{}, F.Ok{c2}}} : Maybe<&2, F.Leg>}:
@@ -26,5 +26,5 @@ def pf.after_of(+c: Nat, s: F.St, +ok: Bool, fresh: {F.Sto.fresh(F.W.sto(F.St.w(
 def pf.flight_after_end_served(+evs: List<&2, F.Ev>, +k: Nat, +f: Nat, +c: Nat, lands: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Land{f, F.Ok{c}}} : Maybe<&2, F.Leg>}, +ok: Bool, +ok2: Bool, fresh: {F.Sto.fresh(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok})))) == True{} : Bool}) -> F.After(c, F.step(F.run(evs), F.Step{k, ok}), ok2):
   pf.after_of(c, F.step(F.run(evs), F.Step{k, ok}), ok2, fresh, LA.pf.stored(F.run(evs), LA.pf.inv_run(evs), k, f, c, lands, ok))
 
-def Laws.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh):
+def AuthFlight.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh):
   pf.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW path_judge_holds
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/path_policy.bend as PathPolicy
 
-def Laws.path_judge_holds(pol, r):
+def PathPolicy.path_judge_holds(pol, r):
   {==}

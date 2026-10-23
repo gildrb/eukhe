@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW screen_ffi_paint
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 
-def Laws.screen_ffi_paint(k, ok1, ok2, ok3):
+def Screen.screen_ffi_paint(k, ok1, ok2, ok3):
   match k:
     case 0n:
       match ok1:

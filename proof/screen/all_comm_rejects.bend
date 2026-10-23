@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW all_comm_rejects
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 
-def Laws.all_comm_rejects():
+def Screen.all_comm_rejects():
   {==}

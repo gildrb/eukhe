@@ -1,23 +1,26 @@
 # eukhe: lemmas the proofs of two or more areas share
 
 import Base
-import ../bend/optchat.bend as O
 import ../bend/child.bend as Ch
-import ../bend/run.bend as Rn
-import ../bend/tree.bend as Tr
+import ../bend/command.bend as Cmd
 import ../bend/director.bend as Dr
-import ../bend/infer.bend as If
 import ../bend/effort.bend as Ef
-import ../bend/semver.bend as Sv
+import ../bend/fsmode.bend as Fs
+import ../bend/infer.bend as If
+import ../bend/optchat.bend as O
+import ../bend/path_policy.bend as Pp
 import ../bend/progress.bend as Pr
 import ../bend/replace.bend as Rp
-import ../bend/fsmode.bend as Fs
-import ../bend/path_policy.bend as Pp
 import ../bend/retry.bend as R
+import ../bend/run.bend as Rn
+import ../bend/semver.bend as Sv
+import ../bend/tree.bend as Tr
 import ../bend/wire.bend as Wr
 import ../bend/wire_flat.bend as Fl
-import ../bend/command.bend as Cmd
-import ../LAWS.bend as Laws
+import ../laws/command.bend as Command
+import ../laws/base.bend as LawsBase
+import ../laws/replace.bend as Replace
+import ../laws/wire.bend as Wire
 
 # The proofs of LAWS.bend section wire (bend/wire.bend): the Nat codec
 # (lemmas wn_), the U32 codec (wu_), and the Bool, String and List codecs
@@ -495,7 +498,7 @@ def wn_Lzero(g: Nat) -> {wn_L(g, 0n) == Nil{} : List<&2, Nat>}:
     case 1n+f:
       {==}
 
-def wn_lenL(g: Nat, +q: Nat) -> {List.length(&2, Nat, wn_L(g, q)) == Laws.wire_digits.go(g, q) : Nat}:
+def wn_lenL(g: Nat, +q: Nat) -> {List.length(&2, Nat, wn_L(g, q)) == LawsBase.wire_digits.go(g, q) : Nat}:
   match g:
     case 0n:
       {==}
@@ -505,12 +508,12 @@ def wn_lenL(g: Nat, +q: Nat) -> {List.length(&2, Nat, wn_L(g, q)) == Laws.wire_d
           {==}
         case 1n+p:
           Equal.cong(Nat, Nat, k => 1n+k, List.length(&2, Nat, wn_L(f, Nat.div(1n+p, 10n))),
-            Laws.wire_digits.go(f, Nat.div(1n+p, 10n)), wn_lenL(f, Nat.div(1n+p, 10n)))
+            LawsBase.wire_digits.go(f, Nat.div(1n+p, 10n)), wn_lenL(f, Nat.div(1n+p, 10n)))
 
 # wire_digits(n) counts the digits of n
-def wn_wl(+n: Nat) -> {Laws.wire_digits(n) == List.length(&2, Nat, wn_full(n)) : Nat}:
-  Equal.cong(Nat, Nat, k => 1n+k, Laws.wire_digits.go(n, Nat.div(n, 10n)), List.length(&2, Nat, wn_L(n, Nat.div(n, 10n))),
-    Equal.sym(Nat, List.length(&2, Nat, wn_L(n, Nat.div(n, 10n))), Laws.wire_digits.go(n, Nat.div(n, 10n)), wn_lenL(n, Nat.div(n, 10n))))
+def wn_wl(+n: Nat) -> {LawsBase.wire_digits(n) == List.length(&2, Nat, wn_full(n)) : Nat}:
+  Equal.cong(Nat, Nat, k => 1n+k, LawsBase.wire_digits.go(n, Nat.div(n, 10n)), List.length(&2, Nat, wn_L(n, Nat.div(n, 10n))),
+    Equal.sym(Nat, List.length(&2, Nat, wn_L(n, Nat.div(n, 10n))), LawsBase.wire_digits.go(n, Nat.div(n, 10n)), wn_lenL(n, Nat.div(n, 10n))))
 
 def wn_vl(+g: Nat, +q: Nat, h: {Nat.is_le(q, g) == True{} : Bool}) -> {wo_value(wn_L(g, q)) == q : Nat}:
   match g q:
@@ -667,14 +670,14 @@ def wn_f1(t: List<&2, Nat>, +d: Nat, +x: String, +k: Nat, +c: {wn_okc(t, d) == T
       %Equal.sym(Wr.Tok, Wr.tok(Wr.dchar(d)), Wr.Dig{d}, wn_tok_dig(d, hd)) : {wo_go(1n+k, (_, x), e2 <> u) == wo_go(k, wo_peek(x), d <> (e2 <> u)) : Wr.Dec<Nat>}
       {==}
 
-def wn_rt(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {wo_get_nat(Wr.put_nat(n, rest)) == Wr.Got{n, rest} : Wr.Dec<Nat>}:
+def wn_rt(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {wo_get_nat(Wr.put_nat(n, rest)) == Wr.Got{n, rest} : Wr.Dec<Nat>}:
   match n:
     case 0n:
       {==}
     case 1n+p:
-      +hl = Equal.trans(Bool, Nat.is_le(List.length(&2, Nat, wn_full(1n+p)), 14n), Nat.is_le(Laws.wire_digits(1n+p), 14n), True{},
-        Equal.cong(Nat, Bool, x => Nat.is_le(x, 14n), List.length(&2, Nat, wn_full(1n+p)), Laws.wire_digits(1n+p),
-          Equal.sym(Nat, Laws.wire_digits(1n+p), List.length(&2, Nat, wn_full(1n+p)), wn_wl(1n+p))), h)
+      +hl = Equal.trans(Bool, Nat.is_le(List.length(&2, Nat, wn_full(1n+p)), 14n), Nat.is_le(LawsBase.wire_digits(1n+p), 14n), True{},
+        Equal.cong(Nat, Bool, x => Nat.is_le(x, 14n), List.length(&2, Nat, wn_full(1n+p)), LawsBase.wire_digits(1n+p),
+          Equal.sym(Nat, LawsBase.wire_digits(1n+p), List.length(&2, Nat, wn_full(1n+p)), wn_wl(1n+p))), h)
       +k = wn_sub(14n, List.length(&2, Nat, wn_full(1n+p)))
       +f1 = wn_f1(wn_L(1n+p, Nat.div(1n+p, 10n)), Nat.mod(1n+p, 10n), SCon{',', rest}, k, wn_cf(p),
         wn_le_k(List.length(&2, Nat, wn_full(1n+p)), 14n, hl))
@@ -684,7 +687,7 @@ def wn_rt(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {w
       %wn_vf(1n+p) : {Wr.Got{wo_value(wn_full(1n+p)), rest} == Wr.Got{_, rest} : Wr.Dec<Nat>}
       {==}
 
-def Laws.wire_nat_round_trip(n, rest, h):
+def Wire.wire_nat_round_trip(n, rest, h):
   +r = rest
   Equal.trans(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, r)), wo_get_nat(Wr.put_nat(n, r)), Wr.Got{n, r},
     wn_eqv(Wr.put_nat(n, r)), wn_rt(n, r, h))
@@ -835,10 +838,10 @@ def wr_take_rt(+a: String, -rest: String) ->
       {==}
 
 # Nat laws used as lemmas (proved in the Nat slice)
-def Laws.wire_str_round_trip(a, rest, h):
+def Wire.wire_str_round_trip(a, rest, h):
   +r = rest
   %Equal.sym(String, Wr.put_str(a, r), Wr.put_nat(String.length(a), wr_app(a, r)), wr_put_str(a, r)) : {Wr.get_str(_) == Wr.Got{a, r} : Wr.Dec<String>}
-  %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(String.length(a), wr_app(a, r))), Wr.Got{String.length(a), wr_app(a, r)}, Laws.wire_nat_round_trip(String.length(a), wr_app(a, r), h)) : {Wr.get_str.go(_) == Wr.Got{a, r} : Wr.Dec<String>}
+  %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(String.length(a), wr_app(a, r))), Wr.Got{String.length(a), wr_app(a, r)}, Wire.wire_nat_round_trip(String.length(a), wr_app(a, r), h)) : {Wr.get_str.go(_) == Wr.Got{a, r} : Wr.Dec<String>}
   Equal.trans(Wr.Dec<String>, Wr.take(String.length(a), wr_app(a, r)), wo_take(String.length(a), wr_app(a, r)), Wr.Got{a, r},
     wr_take_eq(String.length(a), wr_app(a, r)), wr_take_rt(a, r))
 
@@ -870,28 +873,28 @@ def wr_put_list(+xs: List<&2, Nat>, -rest: String) ->
 
 # the item loop reads back x then t
 def wr_list_go_rt(+t: List<&2, Nat>, +x: Nat, +rest: String,
-  +hf: {Laws.wire_nats_fit(x <> t) == True{} : Bool}) ->
+  +hf: {LawsBase.wire_nats_fit(x <> t) == True{} : Bool}) ->
   {Wr.get_list.go(~Nat, ~Wr.get_nat, List.length(&2, Nat, t), Wr.get_nat(Wr.put_nat(x, wr_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Nat>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, rest)), Wr.Got{x, rest}, Laws.wire_nat_round_trip(x, rest, wr_and_l(Laws.wire_fits(x), True{}, hf))) : {Wr.get_list.go(~Nat, ~Wr.get_nat, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Nat>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, rest)), Wr.Got{x, rest}, Wire.wire_nat_round_trip(x, rest, wr_and_l(LawsBase.wire_fits(x), True{}, hf))) : {Wr.get_list.go(~Nat, ~Wr.get_nat, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Nat>>}
       {==}
     case Con{+y, +u}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, Wr.put_nat(y, wr_items(u, rest)))), Wr.Got{x, Wr.put_nat(y, wr_items(u, rest))}, Laws.wire_nat_round_trip(x, Wr.put_nat(y, wr_items(u, rest)), wr_and_l(Laws.wire_fits(x), Laws.wire_nats_fit(y <> u), hf))) : {Wr.get_list.go(~Nat, ~Wr.get_nat, 1n+List.length(&2, Nat, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Nat>>}
-      %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list.go(~Nat, ~Wr.get_nat, List.length(&2, Nat, u), Wr.get_nat(Wr.put_nat(y, wr_items(u, rest)))), Wr.Got{y <> u, rest}, wr_list_go_rt(u, y, rest, wr_and_r(Laws.wire_fits(x), Laws.wire_nats_fit(y <> u), hf))) : {Wr.get_list.cons(Nat, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Nat>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, Wr.put_nat(y, wr_items(u, rest)))), Wr.Got{x, Wr.put_nat(y, wr_items(u, rest))}, Wire.wire_nat_round_trip(x, Wr.put_nat(y, wr_items(u, rest)), wr_and_l(LawsBase.wire_fits(x), LawsBase.wire_nats_fit(y <> u), hf))) : {Wr.get_list.go(~Nat, ~Wr.get_nat, 1n+List.length(&2, Nat, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Nat>>}
+      %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list.go(~Nat, ~Wr.get_nat, List.length(&2, Nat, u), Wr.get_nat(Wr.put_nat(y, wr_items(u, rest)))), Wr.Got{y <> u, rest}, wr_list_go_rt(u, y, rest, wr_and_r(LawsBase.wire_fits(x), LawsBase.wire_nats_fit(y <> u), hf))) : {Wr.get_list.cons(Nat, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Nat>>}
       {==}
 
-def Laws.wire_list_round_trip(xs, rest, h):
+def Wire.wire_list_round_trip(xs, rest, h):
   match xs:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Nat, ~Wr.get_nat, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Nat>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Nat, ~Wr.get_nat, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Nat>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~Nat, ~Wr.put_nat, x <> t, r), Wr.put_nat(List.length(&2, Nat, x <> t), wr_items(x <> t, r)), wr_put_list(x <> t, r)) : {Wr.get_list(~Nat, ~Wr.get_nat, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Nat>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Nat, x <> t), wr_items(x <> t, r))), Wr.Got{List.length(&2, Nat, x <> t), wr_items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Nat, x <> t), wr_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Nat, x <> t)), Laws.wire_nats_fit(x <> t), hh))) : {Wr.get_list.start(~Nat, ~Wr.get_nat, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Nat>>}
-      wr_list_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Nat, x <> t)), Laws.wire_nats_fit(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Nat, x <> t), wr_items(x <> t, r))), Wr.Got{List.length(&2, Nat, x <> t), wr_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Nat, x <> t), wr_items(x <> t, r), wr_and_l(LawsBase.wire_fits(List.length(&2, Nat, x <> t)), LawsBase.wire_nats_fit(x <> t), hh))) : {Wr.get_list.start(~Nat, ~Wr.get_nat, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Nat>>}
+      wr_list_go_rt(t, x, r, wr_and_r(LawsBase.wire_fits(List.length(&2, Nat, x <> t)), LawsBase.wire_nats_fit(x <> t), hh))
 
 # Logic
 # -----
@@ -958,7 +961,7 @@ def cb_and_intro(-a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} 
   eb
 
 # cmd_eq true: the names are equal
-def cb_eq(+a: List<&2, Nat>, +b: List<&2, Nat>, +e: {Laws.cmd_eq(a, b) == True{} : Bool}) -> {a == b : List<&2, Nat>}:
+def cb_eq(+a: List<&2, Nat>, +b: List<&2, Nat>, +e: {Command.cmd_eq(a, b) == True{} : Bool}) -> {a == b : List<&2, Nat>}:
   match a b:
     case Nil{} Nil{}:
       {==}
@@ -967,19 +970,19 @@ def cb_eq(+a: List<&2, Nat>, +b: List<&2, Nat>, +e: {Laws.cmd_eq(a, b) == True{}
     case Con{x, xs} Nil{}:
       cb_absurd({x <> xs == Nil{} : List<&2, Nat>}, e)
     case Con{+x, +xs} Con{+y, +ys}:
-      %cb_nat_eq(x, y, cb_and_l(Nat.is_eq(x, y), Laws.cmd_eq(xs, ys), e)) : {x <> xs == _ <> ys : List<&2, Nat>}
-      %cb_eq(xs, ys, cb_and_r(Nat.is_eq(x, y), Laws.cmd_eq(xs, ys), e)) : {x <> xs == x <> _ : List<&2, Nat>}
+      %cb_nat_eq(x, y, cb_and_l(Nat.is_eq(x, y), Command.cmd_eq(xs, ys), e)) : {x <> xs == _ <> ys : List<&2, Nat>}
+      %cb_eq(xs, ys, cb_and_r(Nat.is_eq(x, y), Command.cmd_eq(xs, ys), e)) : {x <> xs == x <> _ : List<&2, Nat>}
       {==}
 
-def cb_eq_refl(a: List<&2, Nat>) -> {Laws.cmd_eq(a, a) == True{} : Bool}:
+def cb_eq_refl(a: List<&2, Nat>) -> {Command.cmd_eq(a, a) == True{} : Bool}:
   match a:
     case Nil{}:
       {==}
     case Con{+x, +xs}:
-      cb_and_intro(Nat.is_eq(x, x), Laws.cmd_eq(xs, xs), cb_nat_refl(x), cb_eq_refl(xs))
+      cb_and_intro(Nat.is_eq(x, x), Command.cmd_eq(xs, xs), cb_nat_refl(x), cb_eq_refl(xs))
 
 # the model's same is cmd_eq
-def cb_same(a: List<&2, Nat>, b: List<&2, Nat>) -> {Cmd.same(a, b) == Laws.cmd_eq(a, b) : Bool}:
+def cb_same(a: List<&2, Nat>, b: List<&2, Nat>) -> {Cmd.same(a, b) == Command.cmd_eq(a, b) : Bool}:
   match a b:
     case Nil{} Nil{}:
       {==}
@@ -992,10 +995,10 @@ def cb_same(a: List<&2, Nat>, b: List<&2, Nat>) -> {Cmd.same(a, b) == Laws.cmd_e
       {==}
 
 def cb_same_eq(+a: List<&2, Nat>, +b: List<&2, Nat>, e: {Cmd.same(a, b) == True{} : Bool}) -> {a == b : List<&2, Nat>}:
-  cb_eq(a, b, Equal.trans(Bool, Laws.cmd_eq(a, b), Cmd.same(a, b), True{}, Equal.sym(Bool, Cmd.same(a, b), Laws.cmd_eq(a, b), cb_same(a, b)), e))
+  cb_eq(a, b, Equal.trans(Bool, Command.cmd_eq(a, b), Cmd.same(a, b), True{}, Equal.sym(Bool, Cmd.same(a, b), Command.cmd_eq(a, b), cb_same(a, b)), e))
 
 # cmd_path_eq true: the paths are equal
-def cb_path_eq(+a: List<&2, List<&2, Nat>>, +b: List<&2, List<&2, Nat>>, +e: {Laws.cmd_path_eq(a, b) == True{} : Bool}) -> {a == b : List<&2, List<&2, Nat>>}:
+def cb_path_eq(+a: List<&2, List<&2, Nat>>, +b: List<&2, List<&2, Nat>>, +e: {Command.cmd_path_eq(a, b) == True{} : Bool}) -> {a == b : List<&2, List<&2, Nat>>}:
   match a b:
     case Nil{} Nil{}:
       {==}
@@ -1004,19 +1007,19 @@ def cb_path_eq(+a: List<&2, List<&2, Nat>>, +b: List<&2, List<&2, Nat>>, +e: {La
     case Con{x, xs} Nil{}:
       cb_absurd({x <> xs == Nil{} : List<&2, List<&2, Nat>>}, e)
     case Con{+x, +xs} Con{+y, +ys}:
-      %cb_eq(x, y, cb_and_l(Laws.cmd_eq(x, y), Laws.cmd_path_eq(xs, ys), e)) : {x <> xs == _ <> ys : List<&2, List<&2, Nat>>}
-      %cb_path_eq(xs, ys, cb_and_r(Laws.cmd_eq(x, y), Laws.cmd_path_eq(xs, ys), e)) : {x <> xs == x <> _ : List<&2, List<&2, Nat>>}
+      %cb_eq(x, y, cb_and_l(Command.cmd_eq(x, y), Command.cmd_path_eq(xs, ys), e)) : {x <> xs == _ <> ys : List<&2, List<&2, Nat>>}
+      %cb_path_eq(xs, ys, cb_and_r(Command.cmd_eq(x, y), Command.cmd_path_eq(xs, ys), e)) : {x <> xs == x <> _ : List<&2, List<&2, Nat>>}
       {==}
 
-def cb_path_refl(a: List<&2, List<&2, Nat>>) -> {Laws.cmd_path_eq(a, a) == True{} : Bool}:
+def cb_path_refl(a: List<&2, List<&2, Nat>>) -> {Command.cmd_path_eq(a, a) == True{} : Bool}:
   match a:
     case Nil{}:
       {==}
     case Con{+x, +xs}:
-      cb_and_intro(Laws.cmd_eq(x, x), Laws.cmd_path_eq(xs, xs), cb_eq_refl(x), cb_path_refl(xs))
+      cb_and_intro(Command.cmd_eq(x, x), Command.cmd_path_eq(xs, xs), cb_eq_refl(x), cb_path_refl(xs))
 
 # the model's same_path is cmd_path_eq
-def cb_same_path(a: List<&2, List<&2, Nat>>, b: List<&2, List<&2, Nat>>) -> {Cmd.same_path(a, b) == Laws.cmd_path_eq(a, b) : Bool}:
+def cb_same_path(a: List<&2, List<&2, Nat>>, b: List<&2, List<&2, Nat>>) -> {Cmd.same_path(a, b) == Command.cmd_path_eq(a, b) : Bool}:
   match a b:
     case Nil{} Nil{}:
       {==}
@@ -1025,36 +1028,36 @@ def cb_same_path(a: List<&2, List<&2, Nat>>, b: List<&2, List<&2, Nat>>) -> {Cmd
     case Con{x, xs} Nil{}:
       {==}
     case Con{+x, +xs} Con{+y, +ys}:
-      %cb_same(x, y) : {Bool.and(Cmd.same(x, y), Cmd.same_path(xs, ys)) == Bool.and(_, Laws.cmd_path_eq(xs, ys)) : Bool}
+      %cb_same(x, y) : {Bool.and(Cmd.same(x, y), Cmd.same_path(xs, ys)) == Bool.and(_, Command.cmd_path_eq(xs, ys)) : Bool}
       %cb_same_path(xs, ys) : {Bool.and(Cmd.same(x, y), Cmd.same_path(xs, ys)) == Bool.and(Cmd.same(x, y), _) : Bool}
       {==}
 
 def cb_same_path_eq(+a: List<&2, List<&2, Nat>>, +b: List<&2, List<&2, Nat>>, e: {Cmd.same_path(a, b) == True{} : Bool}) -> {a == b : List<&2, List<&2, Nat>>}:
-  cb_path_eq(a, b, Equal.trans(Bool, Laws.cmd_path_eq(a, b), Cmd.same_path(a, b), True{}, Equal.sym(Bool, Cmd.same_path(a, b), Laws.cmd_path_eq(a, b), cb_same_path(a, b)), e))
+  cb_path_eq(a, b, Equal.trans(Bool, Command.cmd_path_eq(a, b), Cmd.same_path(a, b), True{}, Equal.sym(Bool, Cmd.same_path(a, b), Command.cmd_path_eq(a, b), cb_same_path(a, b)), e))
 
-def cb_names_app_l(a: List<&2, List<&2, Nat>>, -b: List<&2, List<&2, Nat>>, +h: {Laws.cmd_names_ok(List.append(&2, List<&2, Nat>, a, b)) == True{} : Bool}) -> {Laws.cmd_names_ok(a) == True{} : Bool}:
+def cb_names_app_l(a: List<&2, List<&2, Nat>>, -b: List<&2, List<&2, Nat>>, +h: {Command.cmd_names_ok(List.append(&2, List<&2, Nat>, a, b)) == True{} : Bool}) -> {Command.cmd_names_ok(a) == True{} : Bool}:
   match a:
     case Nil{}:
       {==}
     case Con{+w, +r}:
-      cb_and_intro(Laws.cmd_name_ok(w), Laws.cmd_names_ok(r), cb_and_l(Laws.cmd_name_ok(w), Laws.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h), cb_names_app_l(r, b, cb_and_r(Laws.cmd_name_ok(w), Laws.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h)))
+      cb_and_intro(Command.cmd_name_ok(w), Command.cmd_names_ok(r), cb_and_l(Command.cmd_name_ok(w), Command.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h), cb_names_app_l(r, b, cb_and_r(Command.cmd_name_ok(w), Command.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h)))
 
 # from q, the names of x <> more walked one by one are declared: so is
 # q and all of them
-def cb_walks_decl(more: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +h: {Laws.cmd_walks.go(x <> more, t, q) == True{} : Bool}) -> {Laws.cmd_declared(t, List.append(&2, List<&2, Nat>, q, x <> more)) == True{} : Bool}:
+def cb_walks_decl(more: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +h: {Command.cmd_walks.go(x <> more, t, q) == True{} : Bool}) -> {Command.cmd_declared(t, List.append(&2, List<&2, Nat>, q, x <> more)) == True{} : Bool}:
   match more:
     case Nil{}:
-      cb_and_l(Laws.cmd_declared(t, List.append(&2, List<&2, Nat>, q, [x])), True{}, h)
+      cb_and_l(Command.cmd_declared(t, List.append(&2, List<&2, Nat>, q, [x])), True{}, h)
     case Con{+y, +m2}:
       +qx = List.append(&2, List<&2, Nat>, q, [x])
-      %cb_app_assoc(List<&2, Nat>, q, [x], y <> m2) : {Laws.cmd_declared(t, _) == True{} : Bool}
-      cb_walks_decl(m2, y, t, qx, cb_and_r(Laws.cmd_declared(t, qx), Laws.cmd_walks.go(y <> m2, t, qx), h))
+      %cb_app_assoc(List<&2, Nat>, q, [x], y <> m2) : {Command.cmd_declared(t, _) == True{} : Bool}
+      cb_walks_decl(m2, y, t, qx, cb_and_r(Command.cmd_declared(t, qx), Command.cmd_walks.go(y <> m2, t, qx), h))
 
 # a path of the table is declared
-def cb_path_decl(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, h: {Laws.cmd_path(t, q) == True{} : Bool}) -> {Laws.cmd_declared(t, q) == True{} : Bool}:
+def cb_path_decl(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, h: {Command.cmd_path(t, q) == True{} : Bool}) -> {Command.cmd_declared(t, q) == True{} : Bool}:
   match q:
     case Nil{}:
-      cb_absurd({Laws.cmd_declared(t, Nil{}) == True{} : Bool}, h)
+      cb_absurd({Command.cmd_declared(t, Nil{}) == True{} : Bool}, h)
     case Con{+x, +rest}:
       cb_walks_decl(rest, x, t, Nil{}, h)
 
@@ -4012,7 +4015,7 @@ def rk.guard(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
     case None{}:
       None{}
     case Some{+x}:
-      rk.keepm(Laws.rank_spec.short(x), x)
+      rk.keepm(LawsBase.rank_spec.short(x), x)
 
 def rk.fp(L: Bool, +ds: List<&2, Sv.Dig>) -> {Rp.field.put(Bool.and(L, True{}), ds) == rk.keepm(L, Sv.Num.val(ds)) : Maybe<&2, Nat>}:
   match L:
@@ -4074,7 +4077,7 @@ def rk.t2(p: Bool, q: Bool, -x: Nat, -y: Nat, -t: Nat) -> {Rp.rank.of3(rk.keepm(
     case False{} False{}:
       {==}
 
-def rk.t3(p: Bool, q: Bool, r: Bool, -x: Nat, -y: Nat, -z: Nat, -t: Nat) -> {Rp.rank.of3(rk.keepm(p, x), rk.keepm(q, y), rk.keepm(r, z), t) == Laws.rank_spec.keep(Bool.and(p, Bool.and(q, r)), x, y, t, z) : List<&2, Nat>}:
+def rk.t3(p: Bool, q: Bool, r: Bool, -x: Nat, -y: Nat, -z: Nat, -t: Nat) -> {Rp.rank.of3(rk.keepm(p, x), rk.keepm(q, y), rk.keepm(r, z), t) == Replace.rank_spec.keep(Bool.and(p, Bool.and(q, r)), x, y, t, z) : List<&2, Nat>}:
   match p q r:
     case True{} True{} True{}:
       {==}
@@ -4093,18 +4096,18 @@ def rk.t3(p: Bool, q: Bool, r: Bool, -x: Nat, -y: Nat, -z: Nat, -t: Nat) -> {Rp.
     case False{} False{} False{}:
       {==}
 
-def rk.three(ra: Maybe<&2, Nat>, rb: Maybe<&2, Nat>, rc: Maybe<&2, Nat>, +t: Nat) -> {Rp.rank.of3(rk.guard(ra), rk.guard(rb), rk.guard(rc), t) == Laws.rank_spec.of(Sv.Ver.of3(ra, rb, rc), t) : List<&2, Nat>}:
+def rk.three(ra: Maybe<&2, Nat>, rb: Maybe<&2, Nat>, rc: Maybe<&2, Nat>, +t: Nat) -> {Rp.rank.of3(rk.guard(ra), rk.guard(rb), rk.guard(rc), t) == Replace.rank_spec.of(Sv.Ver.of3(ra, rb, rc), t) : List<&2, Nat>}:
   match ra rb rc:
     case None{} _ _:
       {==}
     case Some{+x} None{} _:
-      rk.t1(Laws.rank_spec.short(x), x, rk.guard(rc), t)
+      rk.t1(LawsBase.rank_spec.short(x), x, rk.guard(rc), t)
     case Some{+x} Some{+y} None{}:
-      rk.t2(Laws.rank_spec.short(x), Laws.rank_spec.short(y), x, y, t)
+      rk.t2(LawsBase.rank_spec.short(x), LawsBase.rank_spec.short(y), x, y, t)
     case Some{+x} Some{+y} Some{+z}:
-      rk.t3(Laws.rank_spec.short(x), Laws.rank_spec.short(y), Laws.rank_spec.short(z), x, y, z, t)
+      rk.t3(LawsBase.rank_spec.short(x), LawsBase.rank_spec.short(y), LawsBase.rank_spec.short(z), x, y, z, t)
 
-def rk.fields(m: Maybe<&2, List<&2, List<&2, Sv.Dig>>>, +t: Nat) -> {Rp.rank.fields(m, t) == Laws.rank_spec.of(Sv.Ver.of_fields(m), t) : List<&2, Nat>}:
+def rk.fields(m: Maybe<&2, List<&2, List<&2, Sv.Dig>>>, +t: Nat) -> {Rp.rank.fields(m, t) == Replace.rank_spec.of(Sv.Ver.of_fields(m), t) : List<&2, Nat>}:
   match m:
     case None{}:
       {==}
@@ -4117,56 +4120,56 @@ def rk.fields(m: Maybe<&2, List<&2, List<&2, Sv.Dig>>>, +t: Nat) -> {Rp.rank.fie
         case c <> b <> Nil{}:
           {==}
         case +c <> +b <> +a <> Nil{}:
-          %Equal.sym(Maybe<&2, Nat>, Rp.field(a), rk.guard(Sv.Num.read(a)), rk.field(a)) : {Rp.rank.of3(_, Rp.field(b), Rp.field(c), t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
-          %Equal.sym(Maybe<&2, Nat>, Rp.field(b), rk.guard(Sv.Num.read(b)), rk.field(b)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), _, Rp.field(c), t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
-          %Equal.sym(Maybe<&2, Nat>, Rp.field(c), rk.guard(Sv.Num.read(c)), rk.field(c)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), rk.guard(Sv.Num.read(b)), _, t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(a), rk.guard(Sv.Num.read(a)), rk.field(a)) : {Rp.rank.of3(_, Rp.field(b), Rp.field(c), t) == Replace.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(b), rk.guard(Sv.Num.read(b)), rk.field(b)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), _, Rp.field(c), t) == Replace.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(c), rk.guard(Sv.Num.read(c)), rk.field(c)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), rk.guard(Sv.Num.read(b)), _, t) == Replace.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
           rk.three(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c), t)
         case c <> b <> a <> d <> more:
           {==}
 
-def rk.core_at(b: Bool, -c: Char, -rest: String) -> {Rp.core.at(b, c, rest) == Laws.rank_spec.core.at(b, c, rest) : String}:
+def rk.core_at(b: Bool, -c: Char, -rest: String) -> {Rp.core.at(b, c, rest) == Replace.rank_spec.core.at(b, c, rest) : String}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def rk.core_eq(s: String) -> {Rp.core(s) == Laws.rank_spec.core(s) : String}:
+def rk.core_eq(s: String) -> {Rp.core(s) == Replace.rank_spec.core(s) : String}:
   match s:
     case SNil{}:
       {==}
     case SCon{+c, +r}:
-      %rk.core_eq(r) : {Rp.core.at(Char.is_eq(c, '-'), c, Rp.core(r)) == Laws.rank_spec.core.at(Char.is_eq(c, '-'), c, _) : String}
+      %rk.core_eq(r) : {Rp.core.at(Char.is_eq(c, '-'), c, Rp.core(r)) == Replace.rank_spec.core.at(Char.is_eq(c, '-'), c, _) : String}
       rk.core_at(Char.is_eq(c, '-'), c, Rp.core(r))
 
-def rk.tier_at(b: Bool, -rest: Nat) -> {Rp.tier.at(b, rest) == Laws.rank_spec.tier.at(b, rest) : Nat}:
+def rk.tier_at(b: Bool, -rest: Nat) -> {Rp.tier.at(b, rest) == Replace.rank_spec.tier.at(b, rest) : Nat}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def rk.tier_eq(s: String) -> {Rp.tier(s) == Laws.rank_spec.tier(s) : Nat}:
+def rk.tier_eq(s: String) -> {Rp.tier(s) == Replace.rank_spec.tier(s) : Nat}:
   match s:
     case SNil{}:
       {==}
     case SCon{c, +r}:
-      %rk.tier_eq(r) : {Rp.tier.at(Char.is_eq(c, '-'), Rp.tier(r)) == Laws.rank_spec.tier.at(Char.is_eq(c, '-'), _) : Nat}
+      %rk.tier_eq(r) : {Rp.tier.at(Char.is_eq(c, '-'), Rp.tier(r)) == Replace.rank_spec.tier.at(Char.is_eq(c, '-'), _) : Nat}
       rk.tier_at(Char.is_eq(c, '-'), Rp.tier(r))
 
-def rk.rank_read(+s: String) -> {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Laws.rank_spec.of(Sv.Ver.parse(Laws.rank_spec.core(s)), Laws.rank_spec.tier(s)) : List<&2, Nat>}:
-  %rk.core_eq(s) : {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Laws.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(_), Nil{}, Nil{})), Laws.rank_spec.tier(s)) : List<&2, Nat>}
-  %rk.tier_eq(s) : {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Laws.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{})), _) : List<&2, Nat>}
+def rk.rank_read(+s: String) -> {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Replace.rank_spec.of(Sv.Ver.parse(Replace.rank_spec.core(s)), Replace.rank_spec.tier(s)) : List<&2, Nat>}:
+  %rk.core_eq(s) : {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Replace.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(_), Nil{}, Nil{})), Replace.rank_spec.tier(s)) : List<&2, Nat>}
+  %rk.tier_eq(s) : {Rp.rank.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s)) == Replace.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{})), _) : List<&2, Nat>}
   rk.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s))
 
-def rk.rank_cap(short: Bool, +s: String) -> {Rp.rank.cap(short, s) == Laws.rank_spec.cap(short, s) : List<&2, Nat>}:
+def rk.rank_cap(short: Bool, +s: String) -> {Rp.rank.cap(short, s) == Replace.rank_spec.cap(short, s) : List<&2, Nat>}:
   match short:
     case True{}:
       rk.rank_read(s)
     case False{}:
       {==}
 
-def rk.rank(+s: String) -> {Rp.rank(s) == Laws.rank_spec(s) : List<&2, Nat>}:
+def rk.rank(+s: String) -> {Rp.rank(s) == Replace.rank_spec(s) : List<&2, Nat>}:
   rk.rank_cap(Nat.is_le(String.length(s), 64n), s)
 
 # ---- tui_color ----
@@ -4813,8 +4816,8 @@ def documents.ps.and_f(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
 # what its encoder wrote (pw6.*, from the wire laws), so the entry runs
 # the model on the request's values.
 
-def pw6.nat(+n: Nat, +rest: String, +h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
-  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+def pw6.nat(+n: Nat, +rest: String, +h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, h))
 
 # ---- core entries ----
 
@@ -4824,16 +4827,16 @@ def pw6.nat(+n: Nat, +rest: String, +h: {Laws.wire_fits(n) == True{} : Bool}) ->
 # encoding into its value.
 
 # a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
-def pc.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
-  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+def pc.nat(+n: Nat, +rest: String, h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, h))
 
 # (D1) the orphan and restart-budget entries of the compiled core (they
 # follow the wire section: they build on its laws)
 
 # the wire round trips, turned to rewrite a decode of an encoding into
 # its value
-def ps.ffi_nat(+n: Nat, +r: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, r} == Wr.get_nat(Wr.put_nat(n, r)) : Wr.Dec<Nat>}:
-  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, r)), Wr.Got{n, r}, Laws.wire_nat_round_trip(n, r, h))
+def ps.ffi_nat(+n: Nat, +r: String, h: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, r} == Wr.get_nat(Wr.put_nat(n, r)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, r)), Wr.Got{n, r}, Wire.wire_nat_round_trip(n, r, h))
 
 # ---- ffi_edges ----
 

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW config_needs_yes
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/path_policy.bend as Pp
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
+import ../../laws/path_policy.bend as PathPolicy
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -120,5 +120,5 @@ def pp.config_needs_yes(es: List<&2, Pp.Put>, +pol: Pp.Pol, +ls: List<&2, Pp.Lin
           +next = Pp.step(pol, ls, auto, cs, Pp.Put{segs, v, ans})
           Equal.trans(List<&2, Pp.Cell>, Pp.guarded(Pp.run(rest, pol, ls, auto, next), pol), Pp.guarded(next, pol), Pp.guarded(cs, pol), pp.config_needs_yes(rest, pol, ls, auto, next, nr), pp.put_keep(Pp.runs(Pp.class(pol, ls, segs), Pp.Wr{}, auto, ans), pol, ls, auto, cs, segs, v, ans, {==}, na))
 
-def Laws.config_needs_yes(es, pol, ls, auto, cs, no):
+def PathPolicy.config_needs_yes(es, pol, ls, auto, cs, no):
   pp.config_needs_yes(es, pol, ls, auto, cs, no)

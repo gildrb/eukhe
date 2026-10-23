@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def jitter_exact(step: Nat, +draw: Nat, positive: {Nat.is_gt(step, 0n) == True{} : Bool}) -> {R.jitter.draw(step, draw) == Nat.mod(draw, step) : Nat}:
@@ -12,5 +12,5 @@ def jitter_exact(step: Nat, +draw: Nat, positive: {Nat.is_gt(step, 0n) == True{}
     case 1n+p:
       {==}
 
-def Laws.retry_jitter_exact(step, draw, positive):
+def Retry.retry_jitter_exact(step, draw, positive):
   jitter_exact(step, draw, positive)

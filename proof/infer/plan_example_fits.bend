@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW plan_example_fits
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
-def Laws.plan_example_fits():
+def Infer.plan_example_fits():
   {==}

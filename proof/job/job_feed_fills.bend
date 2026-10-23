@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -50,5 +50,5 @@ def pj.job_feed_fills(+t: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, +n: Nat, 
   %LA.pj.add_sub(a, t, below) : {_ == t : Nat}
   {==}
 
-def Laws.job_feed_fills(t, cap, k, d, n, below, over):
+def Job.job_feed_fills(t, cap, k, d, n, below, over):
   pj.job_feed_fills(t, cap, k, d, n, below, over)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the next-release rule (next_version.py) and its bridge to the
-Bend model (bend/semver.bend, LAWS.bend section R1).
+Bend model (bend/semver.bend, laws/semver.bend, R1).
 
 The bridge builds bend/bridge_semver.bend into a native binary (needs
 `bend` 2.0.38, from $BEND or PATH, and clang), runs it on generated cases

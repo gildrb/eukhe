@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
 # Shipped themes
 # --------------
@@ -16,5 +16,5 @@ def theme_shipped_legible(s: T.Shipped) -> {T.legible(T.table(s)) == True{} : Bo
     case T.Light{}:
       {==}
 
-def Laws.theme_shipped_legible(s):
+def Theme.theme_shipped_legible(s):
   theme_shipped_legible(s)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/optchat.bend as O
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 
 # Push agrees, in chunks
 # ----------------------
@@ -327,5 +327,5 @@ def push_agrees() -> {O.agree(O.Last{}, 20001n) == True{} : Bool}:
 
 # (d) Taelin's push
 
-def Laws.push_agrees():
+def Optchat.push_agrees():
   push_agrees()

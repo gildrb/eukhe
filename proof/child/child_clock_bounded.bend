@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -52,5 +52,5 @@ def pc.look_within(o: Ch.Obs, +cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +full: {Ch.within
 def pc.clock_bounded(+cfg: Ch.Cfg, +w: Ch.W, +e: Nat, o: Ch.Obs, full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}) -> {Ch.within(cfg, Ch.look(cfg, w, e, o)) == True{} : Bool}:
   pc.look_within(o, cfg, w, e, full)
 
-def Laws.child_clock_bounded(cfg, w, e, o, full):
+def Child.child_clock_bounded(cfg, w, e, o, full):
   pc.clock_bounded(cfg, w, e, o, full)

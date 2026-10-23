@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_fill_md
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_fill_md(cols, bg):
+def Theme.theme_fill_md(cols, bg):
   {==}

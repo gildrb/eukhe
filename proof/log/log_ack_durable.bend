@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/log.bend as Lg
-import ../../LAWS.bend as Laws
+import ../../laws/log.bend as Log
 import ./base.bend as LA
 
 # The acknowledged commits are kept
@@ -107,5 +107,5 @@ def pl.ack(d: Lg.Disk, e: Lg.Epoch) -> &x: List<&2, List<&2, Nat>> -> {Lg.Disk.l
               +m = Lg.first(cs, q, Lg.St{True{}, True{}, r, None{}, Nil{}})
               pl.ad_lift(r, Lg.St.acked(m), LA.pl.fin(k, m), Lg.Disk.log(Lg.crash(k, drop, m)), pl.fa(cs, q, k, True{}, r), LA.pl.surv(k, drop, m, LA.pl.ft(drop, cs, q, r)))
 
-def Laws.log_ack_durable(d, e):
+def Log.log_ack_durable(d, e):
   pl.ack(d, e)

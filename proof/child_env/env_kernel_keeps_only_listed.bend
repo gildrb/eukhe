@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child_env.bend as Env
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 import ./base.bend as LA
 
 # The test
@@ -20,5 +20,5 @@ def pce.env_kernel_keeps_only_listed(+reg: List<&2, String>, +keep: List<&2, Str
   +n = Env.Var.name(v)
   pce.only(Env.cred(reg, n), Env.listed(keep, n), Env.registered(reg, n), c, LA.pce.spec_of(reg, keep, n, LA.pce.child_passes(reg, keep, Env.merge(base, over), v, i)))
 
-def Laws.env_kernel_keeps_only_listed(reg, keep, base, over, v, i, c):
+def ChildEnv.env_kernel_keeps_only_listed(reg, keep, base, over, v, i, c):
   pce.env_kernel_keeps_only_listed(reg, keep, base, over, v, i, c)

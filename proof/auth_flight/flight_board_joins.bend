@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../LAWS.bend as Laws
+import ../../laws/auth_flight.bend as AuthFlight
 import ./base.bend as LA
 
 # the flight a caller leads is the flight in flight
@@ -54,5 +54,5 @@ def pf.joins(s: F.St, inv: LA.auth_flight.pf.Inv(s), +j: Nat, +lj: F.Leg, +f: Na
 def pf.flight_board_joins(+evs: List<&2, F.Ev>, +j: Nat, +lj: F.Leg, +f: Nat, leads: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), j) == Some{lj} : Maybe<&2, F.Leg>}, flight: {F.led(lj) == Some{f} : Maybe<&2, Nat>}, +k: Nat, +ok: Bool, boards: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(F.run(evs), F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}:
   pf.joins(F.run(evs), LA.pf.inv_run(evs), j, lj, f, leads, flight, k, ok, boards)
 
-def Laws.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards):
+def AuthFlight.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards):
   pf.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards)

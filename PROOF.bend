@@ -1,6 +1,6 @@
-# eukhe: the proofs. Each law of LAWS.bend is proven in proof/<area>/<law>.bend
-# from the lemmas of its area (proof/<area>/base.bend) and of every area
-# (proof/base.bend). `bend PROOF.bend --verdict` checks them all.
+# eukhe: the proofs. Each law of laws/<area>.bend is proven in
+# proof/<area>/<law>.bend from the lemmas of its area (proof/<area>/base.bend)
+# and of every area (proof/base.bend). `bend PROOF.bend --verdict` checks them all.
 
 import Base
 import ./LAWS.bend as Laws

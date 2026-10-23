@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 
 # 3. Off-screen verification
 # --------------------------
@@ -18,5 +18,5 @@ def ps.verify_only_checked(f: Nat, g: Nat, +ok1: Bool, +ok2: Bool) -> {Sc.checke
         case False{}:
           {==}
 
-def Laws.verify_only_checked(f, g, ok1, ok2):
+def Screen.verify_only_checked(f, g, ok1, ok2):
   ps.verify_only_checked(f, g, ok1, ok2)

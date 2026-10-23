@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW semver_next_newer
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ./base.bend as LA
 
-def Laws.semver_next_newer(s, xs, t, ys, v, parsed, ins):
+def Semver.semver_next_newer(s, xs, t, ys, v, parsed, ins):
   LA.ps.next_newer(s, xs, t, ys, v, parsed, ins)

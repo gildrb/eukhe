@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -35,5 +35,5 @@ def pj.job_feed_bounded(+t: Nat, +cap: Maybe<&2, Nat>, +j: Jb.J, e: Jb.JEv, belo
     case Jb.Ended{k, d, x}:
       below
 
-def Laws.job_feed_bounded(t, cap, j, e, below):
+def Job.job_feed_bounded(t, cap, j, e, below):
   pj.job_feed_bounded(t, cap, j, e, below)

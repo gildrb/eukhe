@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW failover_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.failover_example():
+def Retry.failover_example():
   {==}

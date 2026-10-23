@@ -2,7 +2,8 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -134,20 +135,20 @@ def wu_nines(e: Nat) -> Nat:
       wu_t10(wu_nines(d))
 
 # a higher part q below 10^e adds at most e digits (whatever the fuel)
-def wu_go_le(f: Nat, +q: Nat, +e: Nat, h: {Nat.is_le(q, wu_nines(e)) == True{} : Bool}) -> {Nat.is_le(Laws.wire_digits.go(f, q), e) == True{} : Bool}:
+def wu_go_le(f: Nat, +q: Nat, +e: Nat, h: {Nat.is_le(q, wu_nines(e)) == True{} : Bool}) -> {Nat.is_le(LawsBase.wire_digits.go(f, q), e) == True{} : Bool}:
   match f q e:
     case 0n q e:
       wu_le_zero(e)
     case 1n+g 0n e:
       wu_le_zero(e)
     case 1n+g 1n+p 0n:
-      LA.wu_absurd({Nat.is_le(Laws.wire_digits.go(1n+g, 1n+p), 0n) == True{} : Bool}, h)
+      LA.wu_absurd({Nat.is_le(LawsBase.wire_digits.go(1n+g, 1n+p), 0n) == True{} : Bool}, h)
     case 1n+g 1n+p 1n+d:
       +n = wu_nines(d)
       wu_go_le(g, Nat.div(1n+p, 10n), d, wu_le_rw(Nat.div(1n+p, 10n), Nat.div(wu_t10(n), 10n), n, wu_div_mono(1n+p, wu_t10(n), h), wu_div_t10(n)))
 
 # a Nat at most 10^(1+e) - 1 has at most 1+e digits
-def wu_digits_le(+n: Nat, +e: Nat, h: {Nat.is_le(n, wu_nines(1n+e)) == True{} : Bool}) -> {Nat.is_le(Laws.wire_digits(n), 1n+e) == True{} : Bool}:
+def wu_digits_le(+n: Nat, +e: Nat, h: {Nat.is_le(n, wu_nines(1n+e)) == True{} : Bool}) -> {Nat.is_le(LawsBase.wire_digits(n), 1n+e) == True{} : Bool}:
   +m = wu_nines(e)
   wu_go_le(n, Nat.div(n, 10n), e, wu_le_rw(Nat.div(n, 10n), Nat.div(wu_t10(m), 10n), m, wu_div_mono(n, wu_t10(m), h), wu_div_t10(m)))
 
@@ -216,9 +217,9 @@ def wu_word_le(+k: Nat, +w: Word(k)) -> {Nat.is_le(Word.to_nat(k, w), wu_nines(1
           wu_le_trans(Word.to_nat(3n+j, WCon{b0, WCon{b1, WCon{b2, t}}}), z0, wu_t10(n), s0, wu_87(n))
 
 # every 32-bit word fits the wire (at most 11 digits), with no 2^32 computed
-def wu_u32_fits(+w: Word(32n)) -> {Laws.wire_fits(Word.to_nat(32n, w)) == True{} : Bool}:
+def wu_u32_fits(+w: Word(32n)) -> {LawsBase.wire_fits(Word.to_nat(32n, w)) == True{} : Bool}:
   +n = Word.to_nat(32n, w)
-  wu_le_trans(Laws.wire_digits(n), 1n+wu_bd(32n), 14n, wu_digits_le(n, wu_bd(32n), wu_word_le(32n, w)), {==})
+  wu_le_trans(LawsBase.wire_digits(n), 1n+wu_bd(32n), 14n, wu_digits_le(n, wu_bd(32n), wu_word_le(32n, w)), {==})
 
 # U32.from_nat inverts U32.to_nat
 
@@ -277,11 +278,11 @@ def wu_from_to(+w: Word(32n)) -> {U32.from_nat(Word.to_nat(32n, w)) == U32{w} : 
   {==}
 
 # laws of the other slices used here (filled by their provers)
-def Laws.wire_u32_round_trip(x, rest):
+def Wire.wire_u32_round_trip(x, rest):
   match x:
     case U32{w}:
       +n = Word.to_nat(32n, w)
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, wu_u32_fits(w))) : {Wr.get_u32.fit(_) == Wr.Got{U32{w}, rest} : Wr.Dec<U32>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, wu_u32_fits(w))) : {Wr.get_u32.fit(_) == Wr.Got{U32{w}, rest} : Wr.Dec<U32>}
       %Equal.sym(U32, U32.from_nat(n), U32{w}, wu_from_to(w)) : {Wr.get_u32.in(Nat.is_eq(U32.to_nat(_), n), _, rest) == Wr.Got{U32{w}, rest} : Wr.Dec<U32>}
       %Equal.sym(Bool, Nat.is_eq(n, n), True{}, wu_nat_eq_refl(n)) : {Wr.get_u32.in(_, U32{w}, rest) == Wr.Got{U32{w}, rest} : Wr.Dec<U32>}
       {==}

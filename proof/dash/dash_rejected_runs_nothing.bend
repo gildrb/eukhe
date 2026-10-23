@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
+import ../../laws/dash.bend as Dash
 import ./base.bend as LA
 
 def pa.rejected_no(c: Nat, b: Bool, +h: {Da.is_paired(Da.open.out(c, b)) == False{} : Bool}) -> {b == False{} : Bool}:
@@ -29,5 +29,5 @@ def pa.rejected_runs_nothing(+s: Da.St, +c: Nat, +shown: Maybe<&2, Nat>, +evs: L
   %Equal.sym(Bool, Da.ran(c, Da.out(s, Da.Open{c, shown})), False{}, LA.pa.open_not_ran(c, c, Da.admit(Da.St.cur(s), shown))) : {Bool.or(_, Da.any_ran(c, Da.run(evs, Da.next(s, Da.Open{c, shown})))) == False{} : Bool}
   LA.pa.quiet(evs, Da.next(s, Da.Open{c, shown}), c, pa.rejected_stale(s, c, shown, rejected), again)
 
-def Laws.dash_rejected_runs_nothing(s, c, shown, evs, rejected, again):
+def Dash.dash_rejected_runs_nothing(s, c, shown, evs, rejected, again):
   pa.rejected_runs_nothing(s, c, shown, evs, rejected, again)

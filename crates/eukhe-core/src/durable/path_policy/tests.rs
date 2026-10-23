@@ -71,7 +71,7 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
 
 /// Regression (G1 bridge): `ws/a/../x` where the link `a` loops resolves
 /// to `ws/x` with no link left, but its links looped, so its class is
-/// Outside (`LAWS.bend` section `path_policy`, `Pp.class`). The gate judged a second
+/// Outside (`laws/path_policy.bend`, `Pp.class`). The gate judged a second
 /// resolution of `ws/x`, which lost the loop: the write ran unasked as
 /// Inside.
 #[test]

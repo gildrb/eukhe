@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def rp.lt_add_succ(k: Nat, +j: Nat) -> {Nat.is_lt(k, Nat.add(k, 1n+j)) == True{} : Bool}:
@@ -22,5 +22,5 @@ def stall_extends(+idle: Nat, positive: {Nat.is_gt(idle, 0n) == True{} : Bool}) 
     case 1n+k:
       rp.lt_add_succ(k, k)
 
-def Laws.stall_retry_extends(idle, positive):
+def Retry.stall_retry_extends(idle, positive):
   stall_extends(idle, positive)

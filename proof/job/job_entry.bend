@@ -1,20 +1,22 @@
 # eukhe: the proof of LAW job_entry
 
 import Base
+import ../../bend/ffi_job.bend as FJb
 import ../../bend/job.bend as Jb
 import ../../bend/wire.bend as Wr
-import ../../bend/ffi_job.bend as FJb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ../wire/wire_u32_round_trip.bend as PWireU32RoundTrip
 
 def pw6.u32(+x: U32, +rest: String) -> {Wr.Got{x, rest} == Wr.get_u32(Wr.put_u32(x, rest)) : Wr.Dec<U32>}:
-  Equal.sym(Wr.Dec<U32>, Wr.get_u32(Wr.put_u32(x, rest)), Wr.Got{x, rest}, Laws.wire_u32_round_trip(x, rest))
+  Equal.sym(Wr.Dec<U32>, Wr.get_u32(Wr.put_u32(x, rest)), Wr.Got{x, rest}, Wire.wire_u32_round_trip(x, rest))
 
 # Job
 # ---
 
-def pw6.cap(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FJb.get_cap(FJb.put_cap(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+def pw6.cap(m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FJb.get_cap(FJb.put_cap(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
   match m:
     case None{}:
       %L.pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FJb.get_cap.go(_) : Wr.Dec<Maybe<&2, Nat>>}
@@ -41,21 +43,21 @@ def pw6.end(e: Jb.End, +rest: String) -> {Wr.Got{e, rest} == FJb.get_end(FJb.put
       %L.pw6.nat(1n, rest, {==}) : {Wr.Got{Jb.Killed{}, rest} == FJb.get_end.go(_) : Wr.Dec<Jb.End>}
       {==}
 
-def pw6.job(j: Jb.J, +rest: String, +h: {Laws.wire_job_fits(j) == True{} : Bool}) -> {Wr.Got{j, rest} == FJb.get_job(FJb.put_job(j, rest)) : Wr.Dec<Jb.J>}:
+def pw6.job(j: Jb.J, +rest: String, +h: {Job.wire_job_fits(j) == True{} : Bool}) -> {Wr.Got{j, rest} == FJb.get_job(FJb.put_job(j, rest)) : Wr.Dec<Jb.J>}:
   match j:
     case Jb.Live{+k, +d}:
       %L.pw6.nat(0n, Wr.put_nat(k, Wr.put_nat(d, rest)), {==}) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
-      %L.pw6.nat(k, Wr.put_nat(d, rest), L.wr_and_l(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.k(_) : Wr.Dec<Jb.J>}
-      %L.pw6.nat(d, rest, L.wr_and_r(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.d(k, _) : Wr.Dec<Jb.J>}
+      %L.pw6.nat(k, Wr.put_nat(d, rest), L.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.k(_) : Wr.Dec<Jb.J>}
+      %L.pw6.nat(d, rest, L.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.d(k, _) : Wr.Dec<Jb.J>}
       {==}
     case Jb.Ended{+k, +d, +x}:
       %L.pw6.nat(1n, Wr.put_nat(k, Wr.put_nat(d, FJb.put_end(x, rest))), {==}) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
-      %L.pw6.nat(k, Wr.put_nat(d, FJb.put_end(x, rest)), L.wr_and_l(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ek(_) : Wr.Dec<Jb.J>}
-      %L.pw6.nat(d, FJb.put_end(x, rest), L.wr_and_r(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ed(k, _) : Wr.Dec<Jb.J>}
+      %L.pw6.nat(k, Wr.put_nat(d, FJb.put_end(x, rest)), L.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ek(_) : Wr.Dec<Jb.J>}
+      %L.pw6.nat(d, FJb.put_end(x, rest), L.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ed(k, _) : Wr.Dec<Jb.J>}
       %pw6.end(x, rest) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.e(k, d, _) : Wr.Dec<Jb.J>}
       {==}
 
-def pw6.ev(e: Jb.JEv, +rest: String, +h: {Laws.wire_ev_fits(e) == True{} : Bool}) -> {Wr.Got{e, rest} == FJb.get_ev(FJb.put_ev(e, rest)) : Wr.Dec<Jb.JEv>}:
+def pw6.ev(e: Jb.JEv, +rest: String, +h: {Job.wire_ev_fits(e) == True{} : Bool}) -> {Wr.Got{e, rest} == FJb.get_ev(FJb.put_ev(e, rest)) : Wr.Dec<Jb.JEv>}:
   match e:
     case Jb.Out{+n}:
       %L.pw6.nat(0n, Wr.put_nat(n, rest), {==}) : {Wr.Got{Jb.Out{n}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
@@ -72,7 +74,7 @@ def pw6.ev(e: Jb.JEv, +rest: String, +h: {Laws.wire_ev_fits(e) == True{} : Bool}
       %L.pw6.nat(3n, rest, {==}) : {Wr.Got{Jb.Tick{}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
       {==}
 
-def Laws.job_entry(t, cap, j, e, ht, hc, hj, he):
+def Job.job_entry(t, cap, j, e, ht, hc, hj, he):
   +R = FJb.put_reply(Jb.feed(t, cap, j, e), Jb.ends.of(j, e))
   %L.pw6.nat(t, FJb.put_cap(cap, FJb.put_job(j, FJb.put_ev(e, ""))), ht) : {FJb.run.t(_) == R : String}
   %pw6.cap(cap, FJb.put_job(j, FJb.put_ev(e, "")), hc) : {FJb.run.cap(t, _) == R : String}

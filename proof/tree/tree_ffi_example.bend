@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW tree_ffi_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 
-def Laws.tree_ffi_example():
+def Tree.tree_ffi_example():
   {==}

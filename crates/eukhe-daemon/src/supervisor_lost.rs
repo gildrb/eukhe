@@ -14,7 +14,7 @@
 //! [`WORKER_LOST_EXIT_DEFAULT_MS`]; [`orphan_decision`], the compiled Bend
 //! model `bend/ffi_orphan.bend`, gives work in flight one
 //! more window), the worker exits. The exit never aborts work that can
-//! resume (the law `orphan_never_aborts_resumable`, LAWS.bend):
+//! resume (the law `orphan_never_aborts_resumable`, `laws/orphan.bend`):
 //!
 //! - Without work ([`OrphanExit::Close`]), the worker closes its session
 //!   and records it idle.

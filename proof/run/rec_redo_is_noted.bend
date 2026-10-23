@@ -2,10 +2,10 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
 def redo_is_noted(-pass: Rn.Reply) -> {Rn.Act.reply(Rn.Redo{}, pass) == Rn.Error{False{}, True{}} : Rn.Reply}:
   {==}
 
-def Laws.rec_redo_is_noted(pass):
+def Run.rec_redo_is_noted(pass):
   redo_is_noted(pass)

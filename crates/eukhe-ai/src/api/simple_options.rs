@@ -139,7 +139,7 @@ pub fn clamp_reasoning(effort: Option<ThinkingLevel>) -> Option<ThinkingLevel> {
 /// A budget, cap or size on the wire of the compiled budget rules: held at
 /// the wire's largest Nat ([`NAT_MAX`], 10^14 - 1). Holding a budget or a
 /// caller's cap there changes no fit while the model's cap is below it
-/// (LAWS.bend `facts_fit_saturated_budget`, `facts_fit_saturated_caller`).
+/// (`laws/facts.bend` `facts_fit_saturated_budget`, `facts_fit_saturated_caller`).
 fn saturated(n: u64) -> u64 {
     n.min(NAT_MAX)
 }
@@ -200,7 +200,7 @@ fn read_nat(reader: &mut Reader<'_>) -> Result<u64, WireError> {
 
 /// Token budget of a thinking level: the custom budget of the level, else
 /// the quirks rulebook's default budget (`thinking_defaults.budgets`).
-/// `xhigh` and `max` take the `high` budget (model `Fx.budget`, LAWS.bend
+/// `xhigh` and `max` take the `high` budget (model `Fx.budget`, `laws/facts.bend`
 /// `facts_budget_*`).
 #[must_use]
 pub fn thinking_budget_for_level(
@@ -221,7 +221,7 @@ pub fn thinking_budget_for_level(
 }
 
 /// Cap a thinking budget so at least [`MIN_ANSWER_TOKENS`] remain under a
-/// shared response ceiling (model `Fx.room`, LAWS.bend
+/// shared response ceiling (model `Fx.room`, `laws/facts.bend`
 /// `facts_room_leaves_the_answer`).
 #[must_use]
 pub fn clamp_thinking_budget_to_answer_room(thinking_budget: u64, ceiling: u64) -> u64 {
@@ -246,7 +246,7 @@ pub struct ThinkingTokens {
 }
 
 /// Fit a thinking budget inside the response ceiling (model `Fx.adjust`,
-/// LAWS.bend `facts_fit_*`). `base_max_tokens` `None` means no explicit
+/// `laws/facts.bend` `facts_fit_*`). `base_max_tokens` `None` means no explicit
 /// caller cap: use the model cap and fit thinking inside it.
 #[must_use]
 pub fn adjust_max_tokens_for_thinking(
@@ -283,7 +283,7 @@ pub fn adjust_max_tokens_for_thinking(
 /// The output cap of an auxiliary call (the compactor's): the `high`
 /// thinking budget (the user's, else the rulebook's default) plus
 /// [`MIN_ANSWER_TOKENS`] for the answer, so the cap minus the budget is
-/// always the answer's room (model `Fx.aux`, LAWS.bend
+/// always the answer's room (model `Fx.aux`, `laws/facts.bend`
 /// `facts_aux_cap_within`, `facts_aux_cap_answer_room`; held at
 /// [`NAT_MAX`]).
 #[must_use]

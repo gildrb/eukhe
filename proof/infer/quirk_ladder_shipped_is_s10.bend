@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW quirk_ladder_shipped_is_s10
 
 import Base
-import ../../bend/infer.bend as If
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../bend/infer.bend as If
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 
 # with the shipped default ladder, the ladder rule keeps what S10 keeps
@@ -49,5 +49,5 @@ def pq.quirk_ladder_shipped_is_s10(r: Bool, +map: Ef.LvMap) -> {If.lad.offered.o
     case False{}:
       {==}
 
-def Laws.quirk_ladder_shipped_is_s10(r, map):
+def Infer.quirk_ladder_shipped_is_s10(r, map):
   pq.quirk_ladder_shipped_is_s10(r, map)

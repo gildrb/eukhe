@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_tags.bend as Dt
-import ../../LAWS.bend as Laws
+import ../../laws/doc_tags.bend as DocTags
 
 # ==== tags ====
 # proof_doc_tags: the tag law of LAWS.bend section documents (F3): the tag of a
@@ -80,5 +80,5 @@ def pdt.tag_names(+t: List<&2, Nat>, op: Dt.Op) -> {Dt.Shown.tag(Dt.show(t, op))
 
 # (F3) Tags
 
-def Laws.tag_names_shown_text(t, op):
+def DocTags.tag_names_shown_text(t, op):
   pdt.tag_names(t, op)

@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW theme_mode_background
 
 import Base
-import ../../bend/theme.bend as T
 import ../../bend/color.bend as Co
-import ../../LAWS.bend as Laws
+import ../../bend/theme.bend as T
+import ../../laws/theme.bend as Theme
 
 # Modes and names
 # ---------------
@@ -20,5 +20,5 @@ def theme_mode_background(f: T.Th, g: T.Th, same: {T.bg(f) == T.bg(g) : Co.Rgb})
   %Equal.sym(Bool, T.light(g), Co.light(T.bg(g)), lg) : {Co.light(T.bg(f)) == _ : Bool}
   Equal.cong(Co.Rgb, Bool, c => Co.light(c), T.bg(f), T.bg(g), same)
 
-def Laws.theme_mode_background(f, g, same):
+def Theme.theme_mode_background(f, g, same):
   theme_mode_background(f, g, same)

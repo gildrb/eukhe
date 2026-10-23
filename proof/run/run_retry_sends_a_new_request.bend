@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ../base.bend as L
 
 def eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
@@ -364,5 +364,5 @@ def retry_sends_a_new_request(+cfg: Rn.Cfg, +evs: List<&2, Rn.Ev>) -> {Rn.fresh(
 
 # (H4.7) A retry never resends a request it cut
 
-def Laws.run_retry_sends_a_new_request(cfg, evs):
+def Run.run_retry_sends_a_new_request(cfg, evs):
   retry_sends_a_new_request(cfg, evs)

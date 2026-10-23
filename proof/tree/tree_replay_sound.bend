@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW tree_replay_sound
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ./base.bend as LA
 
-def Laws.tree_replay_sound(rs):
+def Tree.tree_replay_sound(rs):
   LA.replay_sound(rs)

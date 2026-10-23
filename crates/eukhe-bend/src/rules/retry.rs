@@ -1,5 +1,5 @@
 //! The retry decisions (`bend/retry.bend`, entry `bend/ffi_retry.bend`;
-//! LAWS.bend section `retry`): the classifier of a failed request, the
+//! `laws/retry.bend`): the classifier of a failed request, the
 //! wait before a retry, the failover walk over a provider chain, and the
 //! idle deadline after a stall. Each function encodes its input, calls
 //! [`Entry::Retry`] and decodes the reply; every number is saturated at the

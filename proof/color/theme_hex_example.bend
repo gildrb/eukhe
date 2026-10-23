@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_hex_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/color.bend as Color
 
 # Color text
 # ----------
@@ -9,5 +9,5 @@ import ../../LAWS.bend as Laws
 # them. A text Co.hex reads has the seven characters of #rrggbb: any
 # other length falls through to None.
 
-def Laws.theme_hex_example():
+def Color.theme_hex_example():
   {==}

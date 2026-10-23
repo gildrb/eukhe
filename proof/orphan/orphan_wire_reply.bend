@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/orphan.bend as Or
-import ../../LAWS.bend as Laws
+import ../../laws/orphan.bend as Orphan
 
-def Laws.orphan_wire_reply(d, e, rest):
+def Orphan.orphan_wire_reply(d, e, rest):
   match d e:
     case True{} Or.Shut{}:
       {==}

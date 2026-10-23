@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dir_go_yield
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 
-def Laws.dir_go_yield(l, rest, vs, room, stay):
+def Director.dir_go_yield(l, rest, vs, room, stay):
   {==}

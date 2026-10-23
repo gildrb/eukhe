@@ -2,11 +2,11 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
 # Completion
 # ----------
 
-def Laws.theme_parse_rejected(f, x, h):
+def Theme.theme_parse_rejected(f, x, h):
   %Equal.sym(T.Read, T.read(f), T.Failed{x}, h) : {T.parse.of(_) == T.Rejected{x} : T.Parsed}
   {==}

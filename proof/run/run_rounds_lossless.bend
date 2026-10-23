@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ./base.bend as LA
 
 def rk.lt_le(+m: Nat, +x: Nat, +e: {Nat.is_lt(x, m) == True{} : Bool}) -> {Nat.is_le(x, Nat.sub(m, 1n)) == True{} : Bool}:
@@ -22,5 +22,5 @@ def rk.run_rounds_lossless(+l: Rn.Lim, +count: Nat, +w: {Nat.is_lt(count, Rn.Lim
     case Rn.Lim{+rounds, +wait, +retries, +most}:
       Equal.sym(Nat, count, Nat.sub(Nat.sub(rounds, 1n), Nat.sub(Nat.sub(rounds, 1n), count)), LA.rk.subsub(Nat.sub(rounds, 1n), count, rk.lt_le(rounds, count, w)))
 
-def Laws.run_rounds_lossless(l, count, w):
+def Run.run_rounds_lossless(l, count, w):
   rk.run_rounds_lossless(l, count, w)

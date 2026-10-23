@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/runners.bend as Ru
-import ../../LAWS.bend as Laws
+import ../../laws/runners.bend as Runners
 import ./base.bend as LA
 
 def pr.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -26,5 +26,5 @@ def pr.stops(+caps: List<&2, Nat>, +auto: List<&2, Nat>, +a: Ru.Asker, held: {Ru
   %Equal.sym(Bool, Ru.within(caps, auto), False{}, held) : {Ru.ran(Ru.cell.go(_, a)) == False{} : Bool}
   pr.no_yes(a, no)
 
-def Laws.cell_no_yes_stops(caps, auto, a, held, no):
+def Runners.cell_no_yes_stops(caps, auto, a, held, no):
   pr.stops(caps, auto, a, held, no)

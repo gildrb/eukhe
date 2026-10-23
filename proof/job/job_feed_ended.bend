@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW job_feed_ended
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 
-def Laws.job_feed_ended(t, cap, k, d, x, e):
+def Job.job_feed_ended(t, cap, k, d, x, e):
   {==}

@@ -1,7 +1,7 @@
 //! Local access: only this uid reaches eukhe's own state. The private
 //! modes every file and directory eukhe creates under its home gets, the
 //! uid of this process, and the peer rule of the daemon sockets (Bend
-//! model: `bend/fsmode.bend`, laws `LAWS.bend` section `fsmode`).
+//! model: `bend/fsmode.bend`, laws `laws/fsmode.bend`).
 
 /// The mode of a file eukhe creates under its home: owner read and write.
 pub const PRIVATE_FILE_MODE: u32 = 0o600;

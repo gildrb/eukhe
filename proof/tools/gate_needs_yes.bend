@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 # every gated step that ran used one approval; free is the head test
@@ -34,5 +34,5 @@ def pl.yes_go(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, free: Bool, +ans: Lis
 def pl.gate_needs_yes(+ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, +ans: List<&2, Bool>) -> {Nat.is_le(Tl.gated(Tl.Ran.steps(Tl.exec(ss, auto, ans)), auto), Tl.yeses(ans)) == True{} : Bool}:
   pl.yes_go(ss, auto, Tl.free.at(ss, auto), ans, {==})
 
-def Laws.gate_needs_yes(ss, auto, ans):
+def Tools.gate_needs_yes(ss, auto, ans):
   pl.gate_needs_yes(ss, auto, ans)

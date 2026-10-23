@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW orphan_capped_window_never_expires
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/orphan.bend as Orphan
 
-def Laws.orphan_capped_window_never_expires(absent, work):
+def Orphan.orphan_capped_window_never_expires(absent, work):
   {==}

@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/sandbox.bend as Sb
-import ../../LAWS.bend as Laws
 
 # ---- sandbox ----
 

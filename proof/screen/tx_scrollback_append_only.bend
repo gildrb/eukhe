@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -165,5 +165,5 @@ def ps.tx_scrollback_append_only(+pre: List<&2, Sc.Ev>, post: List<&2, Sc.Ev>, +
   %ps.run_app(pre, post, Sc.Tx{Nil{}, 0n, w}) : {Sc.pre(X, Sc.scroll(Sc.Tx.blocks(_))) == True{} : Bool}
   ps.srun(post, t, X, ps.pre_refl(X))
 
-def Laws.tx_scrollback_append_only(pre, post, w):
+def Screen.tx_scrollback_append_only(pre, post, w):
   ps.tx_scrollback_append_only(pre, post, w)

@@ -1,5 +1,5 @@
 //! The bridge between the routing of approval questions and its Bend
-//! model (`bend/approvals.bend`, laws `LAWS.bend` section `approvals`, G5, proved in
+//! model (`bend/approvals.bend`, laws `laws/approvals.bend`, G5, proved in
 //! `PROOF.bend`): both run the same chains of sessions and must print the
 //! same transcript, byte for byte (`bend/bridge_approvals.bend` documents
 //! the format). A chain is real [`ShellApprovals`], one per session, from

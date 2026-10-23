@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 import ./base.bend as LA
 
 # a tag of another series changes nothing
@@ -20,5 +20,5 @@ def ps.other(s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>
       %ps.top_skip(Sv.Ver{a, b, c}, xs, t, ys, h) : {Sv.Ver{a, b, Sv.Rel.after(_)} == Sv.Ver{a, b, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, ys)))} : Sv.Ver}
       {==}
 
-def Laws.semver_other_series(s, xs, t, ys, other):
+def Semver.semver_other_series(s, xs, t, ys, other):
   ps.other(s, xs, t, ys, other)

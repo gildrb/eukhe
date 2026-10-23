@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../LAWS.bend as Laws
+import ../../laws/cvar.bend as Cvar
 import ./base.bend as LA
 
 def pv.MD(m: Maybe<&2, Cv.Decl>, n: Type, s: Type) -> Type:
@@ -126,5 +126,5 @@ def pv.vt_m(m: Maybe<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bin
 def pv.cvar_value_typed(+xs: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>, +x: Nat) -> {Cv.typed.at(Cv.find(Cv.registry(xs), x), Cv.value(Cv.registry(xs), cfg, fam, x)) == True{} : Bool}:
   pv.vt_m(Cv.find(Cv.registry(xs), x), Cv.registry(xs), cfg, fam, x, {==}, LA.pv.cvar_registry_typed(xs))
 
-def Laws.cvar_value_typed(xs, cfg, fam, x):
+def Cvar.cvar_value_typed(xs, cfg, fam, x):
   pv.cvar_value_typed(xs, cfg, fam, x)

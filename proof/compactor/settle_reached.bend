@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/compactor.bend as Compactor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -51,5 +51,5 @@ def pc.zero_settled(ps: List<&2, C.Pend>, e: {C.measure(ps) == 0n : Nat}) -> {C.
 def pc.settle_reached(+es: List<&2, C.End>, +ps: List<&2, C.Pend>, enough: {Nat.is_le(C.measure(ps), C.hits(es, ps)) == True{} : Bool}) -> {C.settled(C.run(es, ps)) == True{} : Bool}:
   pc.zero_settled(C.run(es, ps), pc.rest_zero(C.hits(es, ps), C.measure(C.run(es, ps)), C.measure(ps), LA.pc.settle_bounded(es, ps), enough))
 
-def Laws.settle_reached(es, ps, enough):
+def Compactor.settle_reached(es, ps, enough):
   pc.settle_reached(es, ps, enough)

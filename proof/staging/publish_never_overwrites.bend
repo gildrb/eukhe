@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
+import ../../laws/staging.bend as Staging
 
 # Publish
 # -------
@@ -11,5 +11,5 @@ def pg.publish_taken(+s: Nat, +t: Nat, +es: List<&2, Sg.Entry>, taken: {Sg.has(t
   %Equal.sym(Bool, Sg.has(t, es), True{}, taken) : {Sg.publish.go(s, t, _, es) == Sg.Pub{False{}, es} : Sg.Pub}
   {==}
 
-def Laws.publish_never_overwrites(s, t, es, taken):
+def Staging.publish_never_overwrites(s, t, es, taken):
   pg.publish_taken(s, t, es, taken)

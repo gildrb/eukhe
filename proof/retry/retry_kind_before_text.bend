@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def rp.known(k: R.Cause, known: {R.Cause.known(k) == True{} : Bool}, t1: Bool, t2: Bool) -> {R.by_class(R.Cause.class(k), t1) == R.by_class(R.Cause.class(k), t2) : Bool}:
@@ -45,5 +45,5 @@ def kind_before_text(parked: Bool, limit: Bool, k: R.Cause, known: {R.Cause.know
     case False{} False{}:
       rp.known(k, known, t1, t2)
 
-def Laws.retry_kind_before_text(parked, limit, k, known, t1, t2):
+def Retry.retry_kind_before_text(parked, limit, k, known, t1, t2):
   kind_before_text(parked, limit, k, known, t1, t2)

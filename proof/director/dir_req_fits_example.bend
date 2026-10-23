@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dir_req_fits_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 
-def Laws.dir_req_fits_example():
+def Director.dir_req_fits_example():
   {==}

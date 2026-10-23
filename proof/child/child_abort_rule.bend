@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 
-def Laws.child_abort_rule(ph, del):
+def Child.child_abort_rule(ph, del):
   match ph:
     case Ch.Watching{w}:
       match del:

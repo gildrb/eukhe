@@ -17,7 +17,7 @@
 //! order: the bundled entries in bundled order, then the compiled models
 //! the bundle lacks, in compiled order. Each model's fields depend only on
 //! its entry in each source, so the result does not depend on the order
-//! the sources are read. `LAWS.bend` section `catalog_union` states these
+//! the sources are read. `laws/catalog_union.bend` states these
 //! rules over `bend/catalog_union.bend`; the rule is one pure call
 //! ([`union`]) over the sources projected to [`Ent`]s, and the models are
 //! assembled back from what it answers.
@@ -178,7 +178,7 @@ fn assemble(bundled: Vec<Model>, compiled: &[Model]) -> Result<Vec<Model>, Error
             None => owned.get_mut(ent.data).and_then(Option::take),
         };
         // The union answers each entry of its sources once, at its place
-        // (LAWS.bend section catalog_union).
+        // (laws/catalog_union.bend).
         let Some(mut model) = model else {
             return Err(Error::Wire(WireError::Malformed {
                 at: 0,

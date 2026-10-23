@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -53,5 +53,5 @@ def ps.layout_inside(hs: List<&2, Nat>, +y: Nat, +rows: Nat) -> {Sc.inside(Sc.vs
       +m = Nat.min(h, Nat.sub(rows, y))
       LA.screen.ps.and_t(Bool.or(Nat.is_eq(m, 0n), Nat.is_le(Nat.add(y, m), rows)), Sc.inside(Sc.vstack(rest, Nat.add(y, h), rows), rows), ps.inside_one(y, rows, h), ps.layout_inside(rest, Nat.add(y, h), rows))
 
-def Laws.layout_inside(hs, y, rows):
+def Screen.layout_inside(hs, y, rows):
   ps.layout_inside(hs, y, rows)

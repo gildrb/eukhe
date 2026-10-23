@@ -29,7 +29,7 @@ Wire: one-shot read, opt-in subscription.
 3. Frames can repeat reply records. Client skips a frame with `cursor` <= its own; else applies records from its own cursor. `from` > client cursor = loss: subscribe again.
 4. `unsubscribe_state_tree` or a closed connection ends it. Non-subscribers never get the frame. The frame is not a session event: no event sequence, so other clients' replay cursors are unchanged. A direct session client of the worker never gets it.
 
-Model: `bend/tree.bend`. Laws: `LAWS.bend` section (S1). Proofs: `proof/tree/`. All laws universal: any record (any put, valid or not, any delete, any rewind ops).
+Model: `bend/tree.bend`. Laws: `laws/tree.bend` (S1). Proofs: `proof/tree/`. All laws universal: any record (any put, valid or not, any delete, any rewind ops).
 
 | Law | Says |
 | --- | --- |
@@ -80,7 +80,7 @@ A new storage (legacy import, fork) builds in a staging directory beside its pla
 
 Listing shows storage directories (not hidden, with `main.jsonl` and a readable cwd) and legacy files `<stem>.jsonl`. A legacy file lists under its stem (the storage name every open imports it into), only while no directory has that name. So a session lists once, before and after import.
 
-Models: `bend/log.bend`, `bend/staging.bend`. Laws: `LAWS.bend` section `storage`. Proofs: `proof/log/` and `proof/staging/`.
+Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/log.bend`, `laws/staging.bend`. Proofs: `proof/log/` and `proof/staging/`.
 
 | Law | Says |
 | --- | --- |
@@ -112,7 +112,7 @@ All processes of an agent directory share the cron jobs file (`cron-jobs.json`, 
 3. Nothing dropped. Unparseable job or claim records, and unknown top-level keys, stay as they are. A file that exists but cannot be read or parsed is never overwritten: the next update moves it to `<name>.corrupt-<ms>-<id>` and starts empty. Only a missing file reads as empty.
 4. A failing job stops. Each failure delays the next run by 2, 4, 8, 16, 32, then 60 minutes (never before schedule); the pause never shrinks in a streak. After `FAILURE_STOP_AFTER` (8) failures in a row: paused with its error; cron list shows `paused`, `failures=8`, the error. Only a user action restarts it (resume sets the count to 0). A good run sets the count to 0. Failure 8 comes about three hours after failure 1; the last two pauses are one hour each: a cause that lasts this long is not a short outage.
 
-Model: `bend/cron.bend`. Laws: `LAWS.bend` section `cron` (`cron_fires_once`, `cron_once_finished_after_end`, `cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`). Proofs: `proof/cron/`.
+Model: `bend/cron.bend`. Laws: `laws/cron.bend` (`cron_fires_once`, `cron_once_finished_after_end`, `cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`). Proofs: `proof/cron/`.
 
 Bridge: `cron::store::bridge::the_rust_cron_store_equals_the_bend_model`: 3 simulated processes (own store, owner identity, liveness seam, fake clock), one file, byte-equal to `bend/bridge_cron.bend`. Not modelled: cron expressions (model: one-shot, interval); freshness merge of whole-list writes (bridge steps one at a time).
 

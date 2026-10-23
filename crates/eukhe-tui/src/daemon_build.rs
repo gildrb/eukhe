@@ -16,8 +16,8 @@
 //! lower rank. Thus a client never replaces a newer daemon, a background
 //! client never replaces a daemon, and two builds cannot replace each other
 //! in turn. The rule runs as its Bend model, `bend/replace.bend`, through
-//! the compiled core's entry `bend/ffi_replace.bend`; `LAWS.bend` section
-//! `supervisor` states `replace_never_downgrades`, `replacement_terminates`,
+//! the compiled core's entry `bend/ffi_replace.bend`; `laws/replace.bend`
+//! states `replace_never_downgrades`, `replacement_terminates`,
 //! `background_never_replaces`, and pins the reading of a version
 //! (`replace_rank_reads_semver`) and the entry (`replace_ffi_relation`,
 //! `replace_ffi_verdict`).

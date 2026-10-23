@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 import ./base.bend as LA
 
 # backward undoes forward on an ascending pre ++ [l] ++ post
@@ -31,5 +31,5 @@ def pe.bf_any(+lad: List<&2, Ef.Lv>, +l: Ef.Lv, h: {Ef.asc(lad) == True{} : Bool
 def pe.effort_cycle_inverse(+m: Ef.Mdl, +l: Ef.Lv, in: {Ef.has(Ef.offered(m), l) == True{} : Bool}) -> {Ef.turn(m, Ef.turn(m, l, Ef.Forward{}), Ef.Backward{}) == l : Ef.Lv}:
   pe.bf_any(Ef.offered(m), l, LA.pe.effort_offered_asc(m), in)
 
-def Laws.effort_cycle_inverse(m, l, in):
+def Effort.effort_cycle_inverse(m, l, in):
   pe.effort_cycle_inverse(m, l, in)

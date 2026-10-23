@@ -1,7 +1,7 @@
 //! The client-side and worker-side timing of a lost supervisor. The client
 //! (`eukhe-tui`) and the worker (`eukhe-daemon`) both read these values, so
 //! they live here. Each value derives from the values it must exceed; the
-//! law `timeouts_ordered` (LAWS.bend, D1) proves the order of the
+//! law `timeouts_ordered` (`laws/supervise.bend`, D1) proves the order of the
 //! derivation and the `eukhe-daemon` bridge test checks that these values
 //! are the derivation.
 

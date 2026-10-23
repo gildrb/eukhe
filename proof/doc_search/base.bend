@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/doc_search.bend as Sr
-import ../../LAWS.bend as Laws
 
 def documents.ps.MD(m: Maybe<&2, Nat>, t: Type) -> Type:
   match m:

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/replace.bend as Rp
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 import ../base.bend as L
 
 # x cannot be True and False
@@ -129,7 +129,7 @@ def rk.lex_cmp(c: Cmp, -t: Bool) -> {Rp.lex.put(c, t) == Bool.or(Cmp.is_lt(c), B
     case GT{}:
       {==}
 
-def rk.lt_spec(xs: List<&2, Nat>, ys: List<&2, Nat>) -> {Rp.lt(xs, ys) == Laws.rank_below(xs, ys) : Bool}:
+def rk.lt_spec(xs: List<&2, Nat>, ys: List<&2, Nat>) -> {Rp.lt(xs, ys) == Replace.rank_below(xs, ys) : Bool}:
   match xs ys:
     case Nil{} Nil{}:
       {==}
@@ -141,7 +141,7 @@ def rk.lt_spec(xs: List<&2, Nat>, ys: List<&2, Nat>) -> {Rp.lt(xs, ys) == Laws.r
       %rk.lt_spec(xr, yr) : {Rp.lex(x, y, Rp.lt(xr, yr)) == Bool.or(Nat.is_lt(x, y), Bool.and(Nat.is_eq(x, y), _)) : Bool}
       rk.lex_cmp(Nat.cmp(x, y), Rp.lt(xr, yr))
 
-def rk.rel_pick(same: Bool, older: Bool, newer: Bool) -> {Rp.rel.put(same, older, newer) == Laws.rel_spec.pick(same, older, newer) : Rp.Rel}:
+def rk.rel_pick(same: Bool, older: Bool, newer: Bool) -> {Rp.rel.put(same, older, newer) == Replace.rel_spec.pick(same, older, newer) : Rp.Rel}:
   match same older newer:
     case True{} _ _:
       {==}
@@ -152,9 +152,9 @@ def rk.rel_pick(same: Bool, older: Bool, newer: Bool) -> {Rp.rel.put(same, older
     case False{} False{} False{}:
       {==}
 
-def rk.relation_exact(+c: Rp.Build, +d: Rp.Build) -> {Rp.relation(c, d) == Laws.rel_spec(c, d) : Rp.Rel}:
+def rk.relation_exact(+c: Rp.Build, +d: Rp.Build) -> {Rp.relation(c, d) == Replace.rel_spec(c, d) : Rp.Rel}:
   match c d:
     case Rp.Build{+rc, +ic} Rp.Build{+rd, +id}:
-      %rk.lt_spec(rd, rc) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Laws.rel_spec.pick(String.eq(ic, id), _, Laws.rank_below(rc, rd)) : Rp.Rel}
-      %rk.lt_spec(rc, rd) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Laws.rel_spec.pick(String.eq(ic, id), Rp.lt(rd, rc), _) : Rp.Rel}
+      %rk.lt_spec(rd, rc) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), _, Replace.rank_below(rc, rd)) : Rp.Rel}
+      %rk.lt_spec(rc, rd) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), Rp.lt(rd, rc), _) : Rp.Rel}
       rk.rel_pick(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd))

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -29,5 +29,5 @@ def pi.bounded_go(+replies: List<&2, Bool>, +r: Nat, +flag: Bool, +sup: Bool) ->
 def pi.force_bounded(+r: Nat, +replies: List<&2, Bool>, +sup: Bool, +free: Bool) -> {Nat.is_le(List.length(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))), 1n+r) == True{} : Bool}:
   pi.bounded_go(replies, r, Bool.and(sup, free), sup)
 
-def Laws.force_bounded(r, replies, sup, free):
+def Infer.force_bounded(r, replies, sup, free):
   pi.force_bounded(r, replies, sup, free)

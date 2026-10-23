@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 
-def Laws.child_report_move(f, n):
+def Child.child_report_move(f, n):
   match f:
     case None{}:
       {==}

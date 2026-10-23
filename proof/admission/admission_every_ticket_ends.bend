@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 # ending a ticket ends it
@@ -50,5 +50,5 @@ def every_ticket_ends(s: Ad.St, +k: Nat, live: {Maybe.is_some(&2, Ad.Tk, Ad.stat
     case Ad.St{+l, +q, +ts}:
       ad.ends(Ad.get(ts, k), l, q, ts, k, {==}, live)
 
-def Laws.admission_every_ticket_ends(s, k, live):
+def Admission.admission_every_ticket_ends(s, k, live):
   every_ticket_ends(s, k, live)

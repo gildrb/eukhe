@@ -3,7 +3,7 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../../LAWS.bend as Laws
+import ../../laws/optchat.bend as Optchat
 
 # ---- push ----
 
@@ -18,5 +18,5 @@ def last_merges_8_9() -> {O.fit.view(O.Last{}, S.ten(), 3n, 0n, O.All{1n}, S.vie
 
 # (f) First is not last
 
-def Laws.last_merges_8_9():
+def Optchat.last_merges_8_9():
   last_merges_8_9()

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -53,5 +53,5 @@ def pf.facts_google_rule_is_the_table(+b: Fx.Budgets, +l: Fx.Lv, +ordered: {Fx.B
       +rest = L.pq.and_r(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered)
       pf.table_at(mi, lo, me, hi, l, L.pq.and_l(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered), L.pq.and_l(Nat.is_le(lo, me), Nat.is_le(me, hi), rest), L.pq.and_r(Nat.is_le(lo, me), Nat.is_le(me, hi), rest))
 
-def Laws.facts_google_rule_is_the_table(b, l, ordered):
+def Facts.facts_google_rule_is_the_table(b, l, ordered):
   pf.facts_google_rule_is_the_table(b, l, ordered)

@@ -4,7 +4,7 @@
 //! resolver ([`ThemeSources`]) of the terminal UI and the HTML export, and
 //! the color math both use (WCAG luminance and contrast, the ANSI-256
 //! palette and quantization). `bend/theme.bend` and `bend/color.bend` model
-//! it; `LAWS.bend` section `themes` states its laws (docs/interface.md, Themes).
+//! it; `laws/theme.bend` states its laws (docs/interface.md, Themes).
 
 mod color;
 mod palette;

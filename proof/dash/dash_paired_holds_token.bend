@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/dash.bend as Da
-import ../../LAWS.bend as Laws
+import ../../laws/dash.bend as Dash
 import ./base.bend as LA
 
 def pa.paired_holds_token(+s: Da.St, +c: Nat) -> {Da.held(c, Da.St.conns(Da.next(s, Da.Open{c, Some{Da.St.cur(s)}}))) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}:
@@ -12,5 +12,5 @@ def pa.paired_holds_token(+s: Da.St, +c: Nat) -> {Da.held(c, Da.St.conns(Da.next
       %LA.pa.eq_refl(c) : {Da.held.put(cur, Da.held(c, Da.drop(c, cs)), _) == Some{cur} : Maybe<&2, Nat>}
       {==}
 
-def Laws.dash_paired_holds_token(s, c):
+def Dash.dash_paired_holds_token(s, c):
   pa.paired_holds_token(s, c)

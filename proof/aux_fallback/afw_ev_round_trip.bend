@@ -4,10 +4,10 @@ import Base
 import ../../bend/aux_fallback.bend as Af
 import ../../bend/ffi_aux_fallback.bend as FAf
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/aux_fallback.bend as AuxFallback
 import ./base.bend as LA
 
-def Laws.afw_ev_round_trip(e, rest, h):
+def AuxFallback.afw_ev_round_trip(e, rest, h):
   match e:
     case Af.Stay{}:
       {==}

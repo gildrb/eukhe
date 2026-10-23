@@ -1,6 +1,6 @@
 //! The separators an edited file persists with (model `bend/doc_lines.bend`
 //! `plan`, laws `persist_plan_refines` and `persist_weaves_carry` in
-//! `LAWS.bend` section `documents`, F4): after each line but the last, the
+//! `laws/doc_lines.bend`, F4): after each line but the last, the
 //! ending of the file line it came from, else the separator written before
 //! it. [`plan`] is the whole decision over runs, one call of the compiled
 //! Bend core (`bend/ffi_doc_lines.bend`); `FileRead::persist`

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/launcher.bend as La
-import ../../LAWS.bend as Laws
+import ../../laws/launcher.bend as Launcher
 import ../base.bend as L
 
 # (D1) adopt_same_build
@@ -33,5 +33,5 @@ def ps.adopt_same_build(+sup: Nat, w: Maybe<&2, Nat>, adopted: {La.adoption(sup,
     case Some{+b}:
       ps.adopt_put(Nat.is_eq(b, sup), b, sup, {==}, adopted)
 
-def Laws.adopt_same_build(sup, w, adopted):
+def Launcher.adopt_same_build(sup, w, adopted):
   ps.adopt_same_build(sup, w, adopted)

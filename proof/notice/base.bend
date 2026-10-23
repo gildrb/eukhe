@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/notice.bend as No
-import ../../LAWS.bend as Laws
 
 # ---- notice ----
 

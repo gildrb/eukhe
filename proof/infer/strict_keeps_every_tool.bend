@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 
 # a count, with one more when b
 def pi.cnt(b: Bool, n: Nat) -> Nat:
@@ -251,5 +251,5 @@ def pi.strict_keeps_every_tool(+cap: Nat, +ts: List<&2, If.Tool>, +i: Nat) -> {N
   +R = If.rank(ts)
   Equal.trans(Nat, Nat.add(If.count(List.take(&2, If.Tool, R, cap), i), If.count(List.drop(&2, If.Tool, R, cap), i)), If.count(R, i), If.count(ts, i), pi.count_split(R, cap, i), Equal.sym(Nat, If.count(ts, i), If.count(R, i), pi.count_rank(ts, i)))
 
-def Laws.strict_keeps_every_tool(cap, ts, i):
+def Infer.strict_keeps_every_tool(cap, ts, i):
   pi.strict_keeps_every_tool(cap, ts, i)

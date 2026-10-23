@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -45,5 +45,5 @@ def run_ends(+cfg: Rn.Cfg, +xs: List<&2, Rn.Ev>, h: {List.length(&2, Rn.Ev, xs) 
 
 # (H4) Every run ends
 
-def Laws.run_ends(cfg, evs, long, more):
+def Run.run_ends(cfg, evs, long, more):
   run_ends(cfg, evs, long, more)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ./base.bend as LA
 
 # Compiling
@@ -23,5 +23,5 @@ def pq.quirk_unknown_rejected(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +r
 
 # (S6) The inference layer
 
-def Laws.quirk_unknown_rejected(known, pre, r, post, bad):
+def Infer.quirk_unknown_rejected(known, pre, r, post, bad):
   pq.quirk_unknown_rejected(known, pre, r, post, bad)

@@ -5,12 +5,12 @@
 # is not empty, so the entry answers the left-over error.
 
 import Base
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_command.bend as FCmd
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/command.bend as Command
 import ./command_ffi_round_trip.bend as PCommandFfiRoundTrip
 
-def Laws.command_ffi_left_over(r, rest, h, more):
-  %Equal.sym(Wr.Dec<FCmd.Req>, FCmd.get_req(FCmd.put_req(r, rest)), Wr.Got{r, rest}, Laws.command_ffi_round_trip(r, rest, h)) : {FCmd.ffi.go(_) == Wr.err("command: input left over") : String}
+def Command.command_ffi_left_over(r, rest, h, more):
+  %Equal.sym(Wr.Dec<FCmd.Req>, FCmd.get_req(FCmd.put_req(r, rest)), Wr.Got{r, rest}, Command.command_ffi_round_trip(r, rest, h)) : {FCmd.ffi.go(_) == Wr.err("command: input left over") : String}
   %Equal.sym(Bool, String.is_empty(rest), False{}, more) : {FCmd.ffi.whole(r, _) == Wr.err("command: input left over") : String}
   {==}

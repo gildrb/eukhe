@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../LAWS.bend as Laws
+import ../../laws/auth_flight.bend as AuthFlight
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -81,5 +81,5 @@ def pf.flight_one_fetch(+evs: List<&2, F.Ev>) -> {F.le(F.fetching(F.St.cs(F.run(
 
 # (A1) One refresh flight per provider
 
-def Laws.flight_one_fetch(evs):
+def AuthFlight.flight_one_fetch(evs):
   pf.flight_one_fetch(evs)

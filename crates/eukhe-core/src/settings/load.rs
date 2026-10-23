@@ -1,5 +1,5 @@
 //! The load of one settings document: each leaf applies or is named by a
-//! diagnostic (`LAWS.bend` section `config` `leaf_applied_or_reported`,
+//! diagnostic (`laws/config.bend` `leaf_applied_or_reported`,
 //! `leaf_not_both`).
 //!
 //! A leaf is a value that is not an object, or the whole value of a cvar.

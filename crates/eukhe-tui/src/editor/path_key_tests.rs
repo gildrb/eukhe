@@ -1,5 +1,5 @@
-//! The command paths at the keys (`command_paths`; LAWS.bend section
-//! `commands`): a typed path runs itself, Tab and Enter on a menu row
+//! The command paths at the keys (`command_paths`;
+//! `laws/command.bend`): a typed path runs itself, Tab and Enter on a menu row
 //! descend into its children, Enter submits only a complete path.
 
 use super::{Editor, EditorEvent};

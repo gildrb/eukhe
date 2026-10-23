@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ./base.bend as LA
 
 def pi.nxx(f: Bool) -> {True{} == Bool.not(Bool.xor(f, f)) : Bool}:
@@ -70,5 +70,5 @@ def pi.retry_go(+replies: List<&2, Bool>, +r: Nat, +flag: Bool, +sup: Bool) -> {
 def pi.force_retry_flag(+r: Nat, +replies: List<&2, Bool>, +sup: Bool, +free: Bool) -> {If.flags(List.drop(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free)), 1n), sup) == True{} : Bool}:
   pi.retry_go(replies, r, Bool.and(sup, free), sup)
 
-def Laws.force_retry_flag(r, replies, sup, free):
+def Infer.force_retry_flag(r, replies, sup, free):
   pi.force_retry_flag(r, replies, sup, free)

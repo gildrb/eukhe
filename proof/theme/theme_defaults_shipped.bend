@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_defaults_shipped
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_defaults_shipped():
+def Theme.theme_defaults_shipped():
   {==}

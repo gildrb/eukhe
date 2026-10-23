@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 # ---- kernel_local ----
 
@@ -39,5 +39,5 @@ def pk.missing_names_install(f: KL.Found, failed: {KL.start(f, False{}) == KL.Mi
     case KL.Stale{}:
       {==}
 
-def Laws.kernel_missing_names_install(f, failed):
+def KernelLocal.kernel_missing_names_install(f, failed):
   pk.missing_names_install(f, failed)

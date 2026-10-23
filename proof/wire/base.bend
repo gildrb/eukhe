@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # ---- Nat: zero, mul, order ----

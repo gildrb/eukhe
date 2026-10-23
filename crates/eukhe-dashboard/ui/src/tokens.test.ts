@@ -1,6 +1,6 @@
 // The token source against its Bend model and the files that cannot read
 // it: bend/bridge_tokens.bend must print the tables of tokens.stylex.ts
-// (LAWS.bend section dashboard_tokens states their rules), the browser's theme
+// (laws/tokens.bend states their rules), the browser's theme
 // color in index.html, the manifest and theme.js must be the palette's
 // `bg`, and global.css must hold no literal (the lint rule
 // eukhe/token-literals covers the scripts).

@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW edit_seen_applies
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/doc_seen.bend as DocSeen
 import ./base.bend as LA
 
-def Laws.edit_seen_applies(seen, ats, all):
+def DocSeen.edit_seen_applies(seen, ats, all):
   LA.pv.edit_seen_applies(seen, ats, all)

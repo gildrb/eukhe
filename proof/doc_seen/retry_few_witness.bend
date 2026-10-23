@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_seen.bend as Ds
-import ../../LAWS.bend as Laws
+import ../../laws/doc_seen.bend as DocSeen
 
-def Laws.retry_few_witness():
+def DocSeen.retry_few_witness():
   ([Ds.At{1n, Some{3n}}], {==})

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 # The bootstrap lock
 # ------------------
@@ -16,5 +16,5 @@ def pk.attempt_leaves_none(l: KL.Lock) -> {KL.own_left(KL.attempt(l)) == 0n : Na
     case KL.Gone{}:
       {==}
 
-def Laws.kernel_lock_attempt_leaves_none(l):
+def KernelLocal.kernel_lock_attempt_leaves_none(l):
   pk.attempt_leaves_none(l)

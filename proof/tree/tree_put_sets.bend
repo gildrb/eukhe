@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -13,5 +13,5 @@ def put_sets(+t: List<&2, Tr.Ent>, good: {Tr.sound(t) == True{} : Bool}, +k: Nat
   %Equal.sym(Bool, Tr.ok(t, k, p), True{}, fits) : {Tr.get(Tr.put.at(_, t, Tr.Ent{k, p, v}), k) == Some{Tr.Ent{k, p, v}} : Maybe<&2, Tr.Ent>}
   LA.pt.get_set_same(t, Tr.Ent{k, p, v})
 
-def Laws.tree_put_sets(t, L.good, k, p, v, fits):
+def Tree.tree_put_sets(t, L.good, k, p, v, fits):
   put_sets(t, L.good, k, p, v, fits)

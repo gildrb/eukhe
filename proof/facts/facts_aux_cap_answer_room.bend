@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 
 def pf.sub_zero(+a: Nat) -> {Nat.sub(a, 0n) == a : Nat}:
   match a:
@@ -21,5 +21,5 @@ def pf.add_sub(+b: Nat, +a: Nat) -> {Nat.sub(Nat.add(b, a), b) == a : Nat}:
 def pf.facts_aux_cap_answer_room(+b: Nat, +a: Nat) -> {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}:
   pf.add_sub(b, a)
 
-def Laws.facts_aux_cap_answer_room(b, a):
+def Facts.facts_aux_cap_answer_room(b, a):
   pf.facts_aux_cap_answer_room(b, a)

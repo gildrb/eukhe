@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run.bend as Rn
-import ../../LAWS.bend as Laws
+import ../../laws/run.bend as Run
 
-def Laws.run_rounds_within_witness():
+def Run.run_rounds_within_witness():
   (Rn.Lim{1n, 0n, 0n, 0n}, (0n, {==}))

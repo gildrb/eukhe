@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -45,7 +45,7 @@ def w2.none_go(+ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.
           +a = If.Tool.id(t)
           w2.or_f(Nat.is_eq(a, i), If.elem(If.ids(rest), i), w2.ne_of(a, i, need, eh, n, Nat.is_eq(a, i), {==}), w2.none_go(rest, need, If.needs.at(rest, need), {==}, z, i, n))
 
-def Laws.plan_never_loosens_a_needed_tool(cap, ts, need, ls, i, f, n):
+def Infer.plan_never_loosens_a_needed_tool(cap, ts, need, ls, i, f, n):
   +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
   +M = If.needs.go(L, need, If.needs.at(L, need))
   %Equal.sym(List<&2, Nat>, ls, If.ids(L), LA.w2.of_fits(M, L, ls, f)) : {If.elem(_, i) == False{} : Bool}

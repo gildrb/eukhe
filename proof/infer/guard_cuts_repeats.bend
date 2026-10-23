@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -149,5 +149,5 @@ def pi.rep_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, c: Bool, +ec: {
 def pi.guard_cuts_repeats(+xs: List<&2, Nat>, +k: Nat, rep: {If.repeats(xs, k) == True{} : Bool}) -> {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}:
   LA.pi.cut_go(xs, k, Nil{}, 0n, If.fire.at(xs, k, Nil{}), {==}, pi.rep_go(xs, k, Nil{}, pi.rhead(xs, k), {==}, rep))
 
-def Laws.guard_cuts_repeats(xs, k, rep):
+def Infer.guard_cuts_repeats(xs, k, rep):
   pi.guard_cuts_repeats(xs, k, rep)

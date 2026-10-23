@@ -11,7 +11,7 @@
 //! same: the question reaches the nearest session up the chain with a
 //! client, and its frame names the subagent that asks. When no session up
 //! to the root answers, the step is unanswered, which the tool treats as a
-//! denial (LAWS.bend section approvals, G5).
+//! denial (`laws/approvals.bend`, G5).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};

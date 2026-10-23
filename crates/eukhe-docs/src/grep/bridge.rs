@@ -1,7 +1,7 @@
 //! Two bridges from grep to the documents models.
 //!
 //! Rows (`bend/doc_lines.bend`, law `grep_line_is_read_line` of
-//! `LAWS.bend` section `documents`): generated bodies of content bytes, `\r`, `\n`
+//! `laws/doc_search.bend`): generated bodies of content bytes, `\r`, `\n`
 //! and `\r\n` (not empty), with or without a BOM, are read with
 //! [`Documents::read`] and searched with the pattern `^`, and
 //! `bend/bridge_doc_rows.bend` must print the same rows. A scenario line is

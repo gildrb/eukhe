@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 def aw.le0(a: Nat, e: {Ad.le(a, 0n) == True{} : Bool}) -> {a == 0n : Nat}:
@@ -102,5 +102,5 @@ def aw.trace(os: List<&2, Ad.Op>, +s: Ad.St, +w: Nat, +inv: {LA.ad.okS(s) == Tru
 def interactive_bound(+l: Ad.Lim, +q: Nat, +pre: List<&2, Ad.Op>, +os: List<&2, Ad.Op>, +w: Nat, e: {Ad.waits.thru(os, Ad.run(pre, Ad.St.new(l, q)), w) == True{} : Bool}) -> {Ad.le(1n+Ad.frees.run(os, Ad.run(pre, Ad.St.new(l, q))), Ad.ahead(Ad.run(pre, Ad.St.new(l, q)), w)) == True{} : Bool}:
   aw.trace(os, Ad.run(pre, Ad.St.new(l, q)), w, LA.ad.run_ok(pre, Ad.St.new(l, q), LA.ad.new_ok(l, q)), e)
 
-def Laws.admission_interactive_bound(l, q, pre, os, w, waits):
+def Admission.admission_interactive_bound(l, q, pre, os, w, waits):
   interactive_bound(l, q, pre, os, w, waits)

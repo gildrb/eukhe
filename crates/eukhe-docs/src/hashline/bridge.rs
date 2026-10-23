@@ -1,6 +1,6 @@
 //! The bridge from a real read and hashline edit to the line model
 //! (`bend/doc_lines.bend`, laws `load_persist_roundtrip` and
-//! `edit_keeps_untouched_bytes` of `LAWS.bend` section `documents`): generated files
+//! `edit_keeps_untouched_bytes` of `laws/doc_lines.bend`): generated files
 //! of content bytes, `\r`, `\n` and `\r\n`, with or without a BOM, get one
 //! generated edit through [`Documents::read`] and [`Documents::edit`], and
 //! `bend/bridge_doc_lines.bend` must print the bytes the edit wrote, byte

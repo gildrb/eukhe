@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/notice.bend as No
-import ../../LAWS.bend as Laws
+import ../../laws/notice.bend as Notice
 import ./base.bend as LA
 
 # Numbers
@@ -107,5 +107,5 @@ def pn.notice_per_restore(+evs: List<&2, No.Ev>) -> {No.total(No.run(List.append
   %Equal.sym(Nat, No.total(No.rebuild(g)), List.length(&2, No.N, g), pn.full(g, LA.pn.ok_go(evs, Nil{}, {==}))) : {_ == No.restores(evs) : Nat}
   Equal.trans(Nat, List.length(&2, No.N, g), Nat.add(No.restores(evs), 0n), No.restores(evs), pn.len_go(evs, Nil{}), pn.add_zero(No.restores(evs)))
 
-def Laws.notice_per_restore(evs):
+def Notice.notice_per_restore(evs):
   pn.notice_per_restore(evs)

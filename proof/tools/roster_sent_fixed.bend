@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 def pl.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
@@ -29,5 +29,5 @@ def pl.sent_go(es: List<&2, Tl.Ev>, +r: List<&2, Nat>, +d: List<&2, Nat>, +x: Li
 def pl.roster_sent_fixed(es: List<&2, Tl.Ev>, +r: List<&2, Nat>, d: List<&2, Nat>) -> {Tl.all_eq(Tl.Sess.sent(Tl.run(es, Tl.Sess{r, d, Nil{}})), r) == True{} : Bool}:
   pl.sent_go(es, r, d, Nil{}, {==})
 
-def Laws.roster_sent_fixed(es, r, d):
+def Tools.roster_sent_fixed(es, r, d):
   pl.roster_sent_fixed(es, r, d)

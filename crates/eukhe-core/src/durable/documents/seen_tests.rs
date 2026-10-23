@@ -1,7 +1,7 @@
 //! The seen lines of a bounded read, end to end: the wire `read`
 //! ([`perform`], then [`bounded`], which marks seen only the rows outside
 //! the cut) and then `edit`. The guard's decision is the compiled model of
-//! `bend/doc_seen.bend` (its laws are in `LAWS.bend` section documents);
+//! `bend/doc_seen.bend` (its laws are in `laws/doc_seen.bend`);
 //! these tests pin the glue around it: which rows a cut read marks, and that
 //! the store keeps a reveal for the retry.
 

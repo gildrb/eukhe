@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 # Laws (a)-(c)
@@ -17,5 +17,5 @@ def preempts(s: Ad.St) -> {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(s, Ad.
 
 # (H3) A user's request never waits behind background work
 
-def Laws.admission_preempts(s):
+def Admission.admission_preempts(s):
   preempts(s)

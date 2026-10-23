@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 def pk.BD(b: Bool, t: Type, f: Type) -> Type:
   match b:
@@ -30,5 +30,5 @@ def pk.download_only_on_install(f: KL.Found, s: KL.Setup, fetches: {KL.acts.fetc
     case KL.Stale{} KL.Install{}:
       {==}
 
-def Laws.kernel_download_only_on_install(f, s, fetches):
+def KernelLocal.kernel_download_only_on_install(f, s, fetches):
   pk.download_only_on_install(f, s, fetches)

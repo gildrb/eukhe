@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_pick_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_pick_example():
+def Theme.theme_pick_example():
   {==}

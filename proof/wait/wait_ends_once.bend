@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/wait.bend as Wt
-import ../../LAWS.bend as Laws
+import ../../laws/wait.bend as WaitLaws
 import ./base.bend as LA
 
 # Exactly once
@@ -55,5 +55,5 @@ def wait_ends_once(+dl: Maybe<&2, Nat>, +xs: List<&2, Wt.Sig>) -> {List.length(&
 
 # (H6) Every other wait has an exit
 
-def Laws.wait_ends_once(dl, xs):
+def WaitLaws.wait_ends_once(dl, xs):
   wait_ends_once(dl, xs)

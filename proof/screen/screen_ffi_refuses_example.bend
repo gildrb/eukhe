@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW screen_ffi_refuses_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 
-def Laws.screen_ffi_refuses_example():
+def Screen.screen_ffi_refuses_example():
   {==}

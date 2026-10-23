@@ -1,7 +1,6 @@
 # eukhe: lemmas the proofs of area fsmode share
 
 import Base
-import ../../LAWS.bend as Laws
 
 def fsmode.pf.BD(b: Bool, A: Type) -> Type:
   match b:

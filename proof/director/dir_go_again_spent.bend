@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW dir_go_again_spent
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/director.bend as Director
 
-def Laws.dir_go_again_spent(k, rest, vs, room, stay):
+def Director.dir_go_again_spent(k, rest, vs, room, stay):
   {==}

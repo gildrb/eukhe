@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW semver_title
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/semver.bend as Semver
 
-def Laws.semver_title(v):
+def Semver.semver_title(v):
   {==}

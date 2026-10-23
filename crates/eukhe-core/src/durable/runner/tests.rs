@@ -1,5 +1,5 @@
 //! The runners of code against their Bend model (`bend/runners.bend`, the
-//! (G4) laws of `LAWS.bend` section `runners`). The registry bridge dumps every tool
+//! (G4) laws of `laws/runners.bend`). The registry bridge dumps every tool
 //! a session installs (its name, caps and gate) and the gate bridge runs
 //! one `ipython` call on each scenario (an auto set, an asker): both print
 //! what `bend/bridge_runners.bend` prints, byte for byte.

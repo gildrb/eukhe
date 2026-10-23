@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/lease.bend as Ls
-import ../../LAWS.bend as Laws
+import ../../laws/lease.bend as Lease
 
 # Busy: the lease is never free while a live waiter waits
 # -------------------------------------------------------
@@ -84,5 +84,5 @@ def pl.busy_go(evs: List<&2, Ls.Ev>, +s: Ls.L, b: Ls.Busy(s)) -> Ls.Busy(Ls.go(e
 def lease_never_idle(+evs: List<&2, Ls.Ev>) -> Ls.Busy(Ls.run(evs)):
   pl.busy_go(evs, Ls.L.empty(), Unit{})
 
-def Laws.lease_never_idle(evs):
+def Lease.lease_never_idle(evs):
   lease_never_idle(evs)

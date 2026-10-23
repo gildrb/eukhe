@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW default_unscoped_refused
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
-def Laws.default_unscoped_refused(m):
+def DefaultModel.default_unscoped_refused(m):
   {==}

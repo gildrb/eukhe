@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # Admission limits
@@ -29,5 +29,5 @@ def pcf.limit_malformed_fails_closed(s: Cf.InFlight, +p: Nat, h: {Cf.malformed_a
     case Cf.NotMap{}:
       {==}
 
-def Laws.limit_malformed_fails_closed(s, p, h):
+def Config.limit_malformed_fails_closed(s, p, h):
   pcf.limit_malformed_fails_closed(s, p, h)

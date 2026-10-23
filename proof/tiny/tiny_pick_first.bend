@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../LAWS.bend as Laws
+import ../../laws/tiny.bend as Tiny
 import ./base.bend as LA
 
 # a scan past models that are not available reaches the next one
@@ -19,5 +19,5 @@ def pn.first(pre: List<&2, Nat>, +m: Nat, +post: List<&2, Nat>, +up: List<&2, Na
 def pn.tiny_pick_first(+pre: List<&2, Nat>, +m: Nat, +post: List<&2, Nat>, +up: List<&2, Nat>, before: {Tn.none_up(pre, up) == True{} : Bool}, here: {Tn.elem(up, m) == True{} : Bool}) -> {Tn.pick(List.append(&2, Nat, pre, m <> post), up) == Tn.Use{m} : Tn.Pick}:
   pn.first(pre, m, post, up, before, here)
 
-def Laws.tiny_pick_first(pre, m, post, up, before, here):
+def Tiny.tiny_pick_first(pre, m, post, up, before, here):
   pn.tiny_pick_first(pre, m, post, up, before, here)

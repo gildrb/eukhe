@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../LAWS.bend as Laws
+import ../../laws/child.bend as Child
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -44,5 +44,5 @@ def pc.live_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool}
 def pc.one_live(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>) -> {Nat.is_le(Ch.live(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), 1n) == True{} : Bool}:
   pc.live_le(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg))), LA.pc.Kin_of(Ch.run(evs, cfg, Ch.St.init(cfg)), LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==})))
 
-def Laws.child_one_live(cfg, evs):
+def Child.child_one_live(cfg, evs):
   pc.one_live(cfg, evs)

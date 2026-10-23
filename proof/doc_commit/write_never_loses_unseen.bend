@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 
 # Write
 # -----
@@ -14,5 +14,5 @@ def pc.write_refused(+d: Maybe<&2, Nat>, +s: List<&2, Nat>, +c: Nat, lost: {Cm.u
 
 # (F2) The write tool
 
-def Laws.write_never_loses_unseen(d, s, c, lost):
+def DocCommit.write_never_loses_unseen(d, s, c, lost):
   pc.write_refused(d, s, c, lost)

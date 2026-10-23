@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
 
 # ---- staging ----
 

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/runners.bend as Ru
-import ../../LAWS.bend as Laws
+import ../../laws/runners.bend as Runners
 import ./base.bend as LA
 
 def pr.and_f(a: Bool, +b: Bool, h: {b == False{} : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
@@ -33,5 +33,5 @@ def pr.exec_asks(caps: List<&2, Nat>, +auto: List<&2, Nat>, has: {Ru.elem(caps, 
                 case 1n+r:
                   pr.and_f(Bool.and(Ru.grantable(3n+r), Ru.elem(auto, 3n+r)), Ru.within(rest, auto), pr.exec_asks(rest, auto, has, lacks))
 
-def Laws.cell_exec_asks(caps, auto, has, lacks):
+def Runners.cell_exec_asks(caps, auto, has, lacks):
   pr.exec_asks(caps, auto, has, lacks)

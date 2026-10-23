@@ -8,11 +8,11 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../LAWS.bend as Laws
+import ../../laws/command.bend as Command
 import ./base.bend as LA
 
 # key.enter is cmd_enter_bare on every resolution
-def kewr_enter(r: Cmd.Res, line: List<&2, Nat>) -> {Cmd.key.enter(r, line) == Laws.cmd_enter_bare(r, line) : Cmd.Out}:
+def kewr_enter(r: Cmd.Res, line: List<&2, Nat>) -> {Cmd.key.enter(r, line) == Command.cmd_enter_bare(r, line) : Cmd.Out}:
   match r:
     case Cmd.Runs{q, a}:
       {==}
@@ -44,6 +44,6 @@ def kewr_cut(c: List<&2, List<&2, Nat>> & List<&2, Nat>, +t: List<&2, Cmd.Ent>, 
     case (d, p):
       kewr_at(Cmd.walk(d, t, Cmd.Top{}), t, line, p)
 
-def Laws.command_enter_without_row(t, line):
-  %Equal.sym(Cmd.Out, Cmd.key.cut(Cmd.cut(Cmd.words(line)), t, line, Cmd.NoRow{}, Cmd.Enter{}), Cmd.key.enter(Cmd.resolve(t, line), line), kewr_cut(Cmd.cut(Cmd.words(line)), t, line)) : {_ == Laws.cmd_enter_bare(Cmd.resolve(t, line), line) : Cmd.Out}
+def Command.command_enter_without_row(t, line):
+  %Equal.sym(Cmd.Out, Cmd.key.cut(Cmd.cut(Cmd.words(line)), t, line, Cmd.NoRow{}, Cmd.Enter{}), Cmd.key.enter(Cmd.resolve(t, line), line), kewr_cut(Cmd.cut(Cmd.words(line)), t, line)) : {_ == Command.cmd_enter_bare(Cmd.resolve(t, line), line) : Cmd.Out}
   kewr_enter(Cmd.resolve(t, line), line)

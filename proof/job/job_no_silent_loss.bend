@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../../LAWS.bend as Laws
+import ../../laws/job.bend as Job
 import ./base.bend as LA
 
 # the bytes kept plus dropped grow by every byte written before the end
@@ -34,5 +34,5 @@ def pj.loss(es: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat) -> {Na
 def pj.job_no_silent_loss(+cap: Maybe<&2, Nat>, +es: List<&2, Jb.JEv>) -> {Nat.add(Jb.J.kept(Jb.run(cap, es)), Jb.J.dropped(Jb.run(cap, es))) == Jb.produced(es) : Nat}:
   Equal.sym(Nat, Jb.produced(es), Nat.add(Jb.J.kept(Jb.run(cap, es)), Jb.J.dropped(Jb.run(cap, es))), pj.loss(es, cap, 0n, 0n))
 
-def Laws.job_no_silent_loss(cap, es):
+def Job.job_no_silent_loss(cap, es):
   pj.job_no_silent_loss(cap, es)

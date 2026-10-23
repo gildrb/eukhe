@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/fsmode.bend as Fs
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 import ./base.bend as LA
 
 def pf.PD(v: Fs.Peer, A: Type) -> Type:
@@ -40,5 +40,5 @@ def pf.peer_at(b: Bool, +p: Nat, +own: Nat, eb: {Nat.is_eq(p, own) == b : Bool},
 def peer_same(+p: Nat, +own: Nat, ok: {Fs.peer(p, own) == Fs.Accept{} : Fs.Peer}) -> {p == own : Nat}:
   pf.peer_at(Nat.is_eq(p, own), p, own, {==}, ok)
 
-def Laws.peer_same_uid(p, own, ok):
+def Fsmode.peer_same_uid(p, own, ok):
   peer_same(p, own, ok)

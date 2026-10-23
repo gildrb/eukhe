@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -17,6 +17,6 @@ def w2.aux_sum(+b: Nat, +a: Nat, +top: Nat) -> {Fx.fit.cap.add(Nat.is_lt(b, Nat.
   %L.pa.add_comm(a, b) : {Fx.fit.cap.add(Nat.is_lt(b, Nat.sub(top, a)), a, top, b) == Nat.min(_, top) : Nat}
   LA.w2.cap_sum(a, top, b)
 
-def Laws.facts_aux_cap_within(b, a, top):
+def Facts.facts_aux_cap_within(b, a, top):
   +C = Nat.is_lt(b, Nat.sub(top, a))
   Equal.trans(Nat, Fx.aux_cap.add(C, b, a, top), Fx.fit.cap.add(C, a, top, b), Nat.min(Nat.add(b, a), top), w2.aux_cap(C, b, a, top), w2.aux_sum(b, a, top))

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 import ./base.bend as LA
 
 def ad.okS_calm(s: Ad.St, h: {LA.ad.okS(s) == True{} : Bool}) -> {Ad.calm(Ad.St.ts(s)) == True{} : Bool}:
@@ -13,5 +13,5 @@ def ad.okS_calm(s: Ad.St, h: {LA.ad.okS(s) == True{} : Bool}) -> {Ad.calm(Ad.St.
 def background_yields(+l: Ad.Lim, +q: Nat, +os: List<&2, Ad.Op>) -> {Ad.calm(Ad.St.ts(Ad.run(os, Ad.St.new(l, q)))) == True{} : Bool}:
   ad.okS_calm(Ad.run(os, Ad.St.new(l, q)), LA.ad.run_ok(os, Ad.St.new(l, q), LA.ad.new_ok(l, q)))
 
-def Laws.admission_background_yields(l, q, os):
+def Admission.admission_background_yields(l, q, os):
   background_yields(l, q, os)

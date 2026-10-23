@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_lines.bend as Dl
-import ../../LAWS.bend as Laws
+import ../../laws/doc_lines.bend as DocLines
 import ./base.bend as LA
 
 # the law load_persist_roundtrip
@@ -15,5 +15,5 @@ def pdl.roundtrip(+f: Dl.Doc) -> {Dl.persist(Dl.load(f)) == f : Dl.Doc}:
 
 # (F4) Lines and their endings
 
-def Laws.load_persist_roundtrip(f):
+def DocLines.load_persist_roundtrip(f):
   pdl.roundtrip(f)

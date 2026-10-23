@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 # b <= k: k is not below b
@@ -31,5 +31,5 @@ def ps.pace_lag_at_cap(+min: Nat, +k: Nat, +b: Nat, capped: {Nat.is_le(b, k) == 
   %Equal.sym(Nat, Nat.max(min, 0n), min, ps.max_zero(min)) : {Nat.min(b, _) == Nat.min(b, min) : Nat}
   {==}
 
-def Laws.pace_lag_at_cap(min, k, b, capped):
+def Screen.pace_lag_at_cap(min, k, b, capped):
   ps.pace_lag_at_cap(min, k, b, capped)

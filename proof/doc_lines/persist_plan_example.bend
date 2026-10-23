@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW persist_plan_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/doc_lines.bend as DocLines
 
-def Laws.persist_plan_example():
+def DocLines.persist_plan_example():
   {==}

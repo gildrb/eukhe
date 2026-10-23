@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW wf_first_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/workflow.bend as Workflow
 
-def Laws.wf_first_example():
+def Workflow.wf_first_example():
   {==}

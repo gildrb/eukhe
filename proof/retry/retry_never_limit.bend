@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
 def never_limit(parked: Bool, status: Maybe<&2, Nat>, kind: Maybe<&2, R.Cause>, text: Bool) -> {R.retryable(R.Facts{parked, True{}, status, kind, text}) == False{} : Bool}:
   match parked:
@@ -11,5 +11,5 @@ def never_limit(parked: Bool, status: Maybe<&2, Nat>, kind: Maybe<&2, R.Cause>, 
     case False{}:
       {==}
 
-def Laws.retry_never_limit(parked, status, kind, text):
+def Retry.retry_never_limit(parked, status, kind, text):
   never_limit(parked, status, kind, text)

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW adw_shut_refuses
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.adw_shut_refuses(s):
+def Admission.adw_shut_refuses(s):
   {==}

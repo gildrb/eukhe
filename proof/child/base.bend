@@ -2,9 +2,11 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ../../bend/wire.bend as Wr
 import ../../bend/ffi_child.bend as FCh
-import ../../LAWS.bend as Laws
+import ../../bend/wire.bend as Wr
+import ../../laws/child.bend as Child
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
@@ -341,12 +343,12 @@ def pc.K_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, k: {pc.K(s) == True{
       pc.K_run(t, cfg, Ch.step(cfg, s, e), pc.K_step(cfg, s, e, k))
 
 def pw6.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
-  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest))
+  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Wire.wire_bool_round_trip(b, rest))
 
 # Child
 # -----
 
-def pw6.mnat(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FCh.get_maybe_nat(FCh.put_maybe_nat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+def pw6.mnat(m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FCh.get_maybe_nat(FCh.put_maybe_nat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
   match m:
     case None{}:
       %L.pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FCh.get_maybe_nat.go(_) : Wr.Dec<Maybe<&2, Nat>>}
@@ -356,11 +358,11 @@ def pw6.mnat(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{}
       %L.pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FCh.get_maybe_nat.some(_) : Wr.Dec<Maybe<&2, Nat>>}
       {==}
 
-def pw6.w(w: Ch.W, +rest: String, +h: {Laws.wire_w_fits(w) == True{} : Bool}) -> {Wr.Got{w, rest} == FCh.get_w(FCh.put_w(w, rest)) : Wr.Dec<Ch.W>}:
+def pw6.w(w: Ch.W, +rest: String, +h: {Child.wire_w_fits(w) == True{} : Bool}) -> {Wr.Got{w, rest} == FCh.get_w(FCh.put_w(w, rest)) : Wr.Dec<Ch.W>}:
   match w:
     case Ch.W{+t, +l, +n}:
-      +ln = L.wr_and_r(Laws.wire_mfits(t), Bool.and(Laws.wire_fits(l), Laws.wire_fits(n)), h)
-      %pw6.mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)), L.wr_and_l(Laws.wire_mfits(t), Bool.and(Laws.wire_fits(l), Laws.wire_fits(n)), h)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
-      %L.pw6.nat(l, Wr.put_nat(n, rest), L.wr_and_l(Laws.wire_fits(l), Laws.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
-      %L.pw6.nat(n, rest, L.wr_and_r(Laws.wire_fits(l), Laws.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
+      +ln = L.wr_and_r(LawsBase.wire_mfits(t), Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(n)), h)
+      %pw6.mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)), L.wr_and_l(LawsBase.wire_mfits(t), Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(n)), h)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %L.pw6.nat(l, Wr.put_nat(n, rest), L.wr_and_l(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      %L.pw6.nat(n, rest, L.wr_and_r(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
       {==}

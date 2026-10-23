@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -76,5 +76,5 @@ def ps.drains_go(+n: Nat, +min: Nat, +k: Nat, +p: Sc.Pace, +one: {Nat.is_le(1n, 
 def ps.pace_drains(+min: Nat, +k: Nat, +p: Sc.Pace, +n: Nat, one: {Nat.is_le(1n, min) == True{} : Bool}, behind: {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.recv(p)) == True{} : Bool}, enough: {Nat.is_le(Nat.sub(Sc.Pace.recv(p), Sc.Pace.shown(p)), n) == True{} : Bool}) -> {Sc.Pace.shown(Sc.pace.run(Sc.frames(n), min, k, p)) == Sc.Pace.recv(p) : Nat}:
   ps.drains_go(n, min, k, p, one, behind, enough)
 
-def Laws.pace_drains(min, k, p, n, one, behind, enough):
+def Screen.pace_drains(min, k, p, n, one, behind, enough):
   ps.pace_drains(min, k, p, n, one, behind, enough)

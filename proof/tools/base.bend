@@ -1,9 +1,8 @@
 # eukhe: lemmas the proofs of area tools share
 
 import Base
-import ../../bend/tools.bend as Tl
 import ../../bend/approvals.bend as Am
-import ../../LAWS.bend as Laws
+import ../../bend/tools.bend as Tl
 import ../base.bend as L
 
 def tools.pl.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:

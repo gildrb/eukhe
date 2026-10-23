@@ -3,7 +3,7 @@
 import Base
 import ../../bend/theme.bend as T
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 
 def tui_roles_shipped(s: T.Shipped) -> {TC.paints(T.table(s), TC.roles()) == True{} : Bool}:
   match s:
@@ -14,5 +14,5 @@ def tui_roles_shipped(s: T.Shipped) -> {TC.paints(T.table(s), TC.roles()) == Tru
     case T.Light{}:
       {==}
 
-def Laws.tui_roles_shipped(s):
+def TuiColor.tui_roles_shipped(s):
   tui_roles_shipped(s)

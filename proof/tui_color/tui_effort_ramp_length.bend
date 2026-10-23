@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 
 def pu.length_go(+left: Nat, +done: Nat, +lo: TC.Px, +hi: TC.Px, +n: Nat) -> {List.length(&2, TC.Px, TC.ramp.go(left, done, lo, hi, n)) == left : Nat}:
   match left:
@@ -17,5 +17,5 @@ def tui_effort_ramp_length(+lo: TC.Px, +hi: TC.Px, +n: Nat) -> {List.length(&2, 
 
 # (T3) Terminal colors
 
-def Laws.tui_effort_ramp_length(lo, hi, n):
+def TuiColor.tui_effort_ramp_length(lo, hi, n):
   tui_effort_ramp_length(lo, hi, n)

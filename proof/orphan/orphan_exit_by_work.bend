@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/orphan.bend as Or
-import ../../LAWS.bend as Laws
+import ../../laws/orphan.bend as Orphan
 
-def Laws.orphan_exit_by_work(work):
+def Orphan.orphan_exit_by_work(work):
   match work:
     case Or.Idle{}:
       {==}

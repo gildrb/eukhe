@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../LAWS.bend as Laws
+import ../../laws/compactor.bend as Compactor
 
 def pc.text_eq_refl(t: List<&2, C.W>) -> {C.Text.eq(t, t) == True{} : Bool}:
   match t:
@@ -57,5 +57,5 @@ def pc.first_go(tries: Nat, +node: Nat, +best: Maybe<&2, List<&2, C.W>>, +bl: Na
 def pc.line_takes_first_fit(+tries: Nat, +node: Nat, +input: List<&2, C.W>, +rs: List<&2, C.Reply>) -> {C.line.first(C.first_fit(node, C.read(C.Line.calls(C.line(tries, node, input, rs)), rs)), C.Line.line(C.line(tries, node, input, rs))) == True{} : Bool}:
   pc.first_go(tries, node, None{}, 0n, rs, input)
 
-def Laws.line_takes_first_fit(tries, node, input, rs):
+def Compactor.line_takes_first_fit(tries, node, input, rs):
   pc.line_takes_first_fit(tries, node, input, rs)

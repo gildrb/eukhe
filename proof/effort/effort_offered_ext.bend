@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/effort.bend as Ef
-import ../../LAWS.bend as Laws
+import ../../laws/effort.bend as Effort
 import ./base.bend as LA
 
 def pe.not_t(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
@@ -50,5 +50,5 @@ def pe.effort_offered_ext(r: Bool, +map: Ef.LvMap, +l: Ef.Lv, x: {Ef.ext(l) == T
       +same = Equal.cong(Ef.Lv, Bool, v => Ef.ext(v), Ef.Off{}, l, LA.pe.lv_true(Ef.Off{}, l, pe.or_false_t(Ef.Lv.eq(Ef.Off{}, l), in)))
       LA.pe.absurdF({Ef.entry(l, map) == Ef.Wire{} : Ef.Ent}, Equal.trans(Bool, False{}, Ef.ext(l), True{}, same, x))
 
-def Laws.effort_offered_ext(r, map, l, x, in):
+def Effort.effort_offered_ext(r, map, l, x, in):
   pe.effort_offered_ext(r, map, l, x, in)

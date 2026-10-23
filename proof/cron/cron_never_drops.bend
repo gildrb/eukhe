@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cron.bend as Cr
-import ../../LAWS.bend as Laws
+import ../../laws/cron.bend as Cron
 import ./base.bend as LA
 
 def cron.pc.or_l(a: Bool, b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
@@ -188,5 +188,5 @@ def pc.never_drops(s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat, nc: {Cr.Ev.is_corrupt(e
 def pc.cron_never_drops(+s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat) -> {Cr.Ev.is_corrupt(e) == False{} : Bool} -> Cr.Keeps(t, i, s, Cr.step(s, e)):
   nc => pc.never_drops(s, e, t, i, nc)
 
-def Laws.cron_never_drops(s, e, t, i):
+def Cron.cron_never_drops(s, e, t, i):
   pc.cron_never_drops(s, e, t, i)

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -43,5 +43,5 @@ def pu.band_mono(+fs: List<&2, TC.Frac>, +t: Nat, +e: Nat, +w: Nat) -> {Nat.is_l
 def tui_usage_band_monotone(+t: Nat, +e: Nat, +w: Nat) -> {Nat.is_le(TC.band(t, w), TC.band(Nat.add(t, e), w)) == True{} : Bool}:
   pu.band_mono(TC.bands(), t, e, w)
 
-def Laws.tui_usage_band_monotone(t, e, w):
+def TuiColor.tui_usage_band_monotone(t, e, w):
   tui_usage_band_monotone(t, e, w)

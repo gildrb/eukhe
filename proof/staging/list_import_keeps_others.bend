@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/staging.bend as Sg
-import ../../LAWS.bend as Laws
+import ../../laws/staging.bend as Staging
 import ./base.bend as LA
 
 def pg.or_f(a: Bool) -> {a == Bool.or(a, False{}) : Bool}:
@@ -106,5 +106,5 @@ def pg.import_keeps(+es: List<&2, Sg.Ent>, +s: Nat, +n: Nat, +ne: {Nat.is_eq(s, 
   %Equal.sym(Bool, Sg.mem(n, Sg.legacies(all, es)), Sg.mem(n, Sg.legacies(es, es)), pg.leg_other(es, s, n, es, ne)) : {Bool.or(Sg.mem(n, Sg.durables(es)), _) == Sg.mem(n, Sg.listing(es)) : Bool}
   LA.pg.mem_app(n, Sg.durables(es), Sg.legacies(es, es))
 
-def Laws.list_import_keeps_others(es, s, n, ne):
+def Staging.list_import_keeps_others(es, s, n, ne):
   pg.import_keeps(es, s, n, ne)

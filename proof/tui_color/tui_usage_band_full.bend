@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tui_color.bend as TC
-import ../../LAWS.bend as Laws
+import ../../laws/tui_color.bend as TuiColor
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -16,7 +16,7 @@ def pu.reach_full(+num: Nat, +den: Nat, +t: Nat, +w: Nat, +hnd: {Nat.is_le(num, 
   %Equal.sym(Bool, Nat.is_le(wn, Nat.mul(w, den)), True{}, a) : {Bool.and(Nat.is_lt(0n, w), True{}) == Bool.and(Nat.is_lt(0n, w), _) : Bool}
   {==}
 
-def Laws.tui_usage_band_full(t, w, past):
+def TuiColor.tui_usage_band_full(t, w, past):
   +f1 = {TC.Frac{1n, 2n} : TC.Frac}
   +f2 = {TC.Frac{7n, 10n} : TC.Frac}
   +f3 = {TC.Frac{9n, 10n} : TC.Frac}

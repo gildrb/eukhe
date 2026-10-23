@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.adw_sts_round_trip(s, rest):
+def Admission.adw_sts_round_trip(s, rest):
   match s:
     case Ad.Queued{}:
       {==}

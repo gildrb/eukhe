@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/log.bend as Lg
-import ../../LAWS.bend as Laws
 
 # ---- log ----
 

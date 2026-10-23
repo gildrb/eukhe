@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/skill_load.bend as Sk
-import ../../LAWS.bend as Laws
+import ../../laws/skill_load.bend as SkillLoad
 import ../base.bend as L
 
 # a loaded path is the path of a candidate
@@ -96,5 +96,5 @@ def ppr.skill_loaded_not_failed(cs: List<&2, Sk.Cand>, +n: Nat, +d: {Sk.distinct
               +dp = L.ppr.not_t(Sk.listed(Sk.paths(rest), p), L.ppr.and_l(nd, Sk.distinct(rest), d))
               ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, L.ppr.and_r(nd, Sk.distinct(rest), d)))
 
-def Laws.skill_loaded_not_failed(cs, n, d):
+def SkillLoad.skill_loaded_not_failed(cs, n, d):
   ppr.skill_loaded_not_failed(cs, n, d)

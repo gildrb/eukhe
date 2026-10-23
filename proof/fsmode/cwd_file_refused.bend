@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW cwd_file_refused
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 
-def Laws.cwd_file_refused(p):
+def Fsmode.cwd_file_refused(p):
   {==}

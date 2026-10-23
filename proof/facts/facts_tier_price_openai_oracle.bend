@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/facts.bend as Fx
-import ../../LAWS.bend as Laws
+import ../../laws/facts.bend as Facts
 
 def pf.facts_tier_price_openai_oracle(m: Nat, t: Nat) -> {Maybe.default(&2, Nat, Fx.price(Fx.prices.openai(), m, t), 100n) == Fx.price.old.openai(m, t) : Nat}:
   match m t:
@@ -39,5 +39,5 @@ def pf.facts_tier_price_openai_oracle(m: Nat, t: Nat) -> {Maybe.default(&2, Nat,
                 case 1n+d:
                   {==}
 
-def Laws.facts_tier_price_openai_oracle(m, t):
+def Facts.facts_tier_price_openai_oracle(m, t):
   pf.facts_tier_price_openai_oracle(m, t)

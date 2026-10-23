@@ -47,7 +47,7 @@ pub(crate) fn local_env(overlay: &HashMap<String, String>) -> HashMap<String, St
 /// `overlay` over it, less every credential name that `kept` does not hold;
 /// a provider credential (a name of [`credential_env_vars`], in any case)
 /// never stays, even when kept. The rule is `bend/child_env.bend` `child`
-/// (laws (G3), `LAWS.bend` sections `child_env` and `child_env_entry`), run
+/// (laws (G3), `laws/child_env.bend`), run
 /// as the compiled core: a name of `base` that comes twice keeps its last
 /// value (an environment holds one value per name), the variables cross in
 /// name order, and the values cross as their numbers (the model never reads

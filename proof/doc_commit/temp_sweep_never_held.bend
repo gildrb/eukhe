@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
-import ../../LAWS.bend as Laws
+import ../../laws/doc_commit.bend as DocCommit
 import ./base.bend as LA
 
 def pc.no_held(+i: Nat, k: Cm.Sort) -> {False{} == Cm.removes(Cm.Temp{i, k, True{}}) : Bool}:
@@ -20,5 +20,5 @@ def pc.sweep_never_held(+pre: List<&2, Cm.Temp>, +i: Nat, +k: Cm.Sort, +post: Li
 
 # (F10) Temporary files
 
-def Laws.temp_sweep_never_held(pre, i, k, post):
+def DocCommit.temp_sweep_never_held(pre, i, k, post):
   pc.sweep_never_held(pre, i, k, post)

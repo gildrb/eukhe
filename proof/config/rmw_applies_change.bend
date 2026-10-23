@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 import ../base.bend as L
 
 # LAW rmw_applies_change
@@ -10,5 +10,5 @@ def pcf.rmw_applies_change(+d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.kept
   %Equal.sym(Bool, Nat.is_eq(k, k), True{}, L.ppr.nat_eq_refl(k)) : {Cf.pick(_, v, Cf.lookup(Cf.del(d, k), k)) == Some{v} : Maybe<&2, Nat>}
   {==}
 
-def Laws.rmw_applies_change(d, k, v):
+def Config.rmw_applies_change(d, k, v):
   pcf.rmw_applies_change(d, k, v)

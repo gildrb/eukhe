@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
-import ../../LAWS.bend as Laws
+import ../../laws/tools.bend as Tools
 import ./base.bend as LA
 
 def pl.max0(p: Nat) -> {Nat.max(p, 0n) == Nat.max(Nat.max(p, 0n), 0n) : Nat}:
@@ -27,5 +27,5 @@ def pl.schema_build_idempotent(+s: Tl.Schema) -> {Tl.build(Tl.build(s)) == Tl.bu
       %pl.max1(v) : {Tl.Schema{Tl.add_intent(True{}, p), _} == Tl.Schema{p, Nat.max(v, 1n)} : Tl.Schema}
       {==}
 
-def Laws.schema_build_idempotent(s):
+def Tools.schema_build_idempotent(s):
   pl.schema_build_idempotent(s)

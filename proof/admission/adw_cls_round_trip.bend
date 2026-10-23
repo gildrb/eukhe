@@ -2,9 +2,9 @@
 
 import Base
 import ../../bend/admission.bend as Ad
-import ../../LAWS.bend as Laws
+import ../../laws/admission.bend as Admission
 
-def Laws.adw_cls_round_trip(c, rest):
+def Admission.adw_cls_round_trip(c, rest):
   match c:
     case Ad.Ia{}:
       {==}

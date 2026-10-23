@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/theme.bend as T
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 
 # a scan whose candidates before c do not resolve n finds c
@@ -22,5 +22,5 @@ def theme_resolve_first(+pre: List<&2, T.Cand>, +nm: String, +id: U32, +post: Li
   %Equal.sym(Bool, String.is_empty(n), False{}, ne) : {T.resolve.name.pick(_, List.append(&2, T.Cand, pre, T.Cand{nm, True{}, id} <> post), n) == T.Res{id, False{}} : T.Res}
   pt.find_first(pre, nm, id, post, n, miss, same)
 
-def Laws.theme_resolve_first(pre, nm, id, post, n, ne, miss, same):
+def Theme.theme_resolve_first(pre, nm, id, post, n, ne, miss, same):
   theme_resolve_first(pre, nm, id, post, n, ne, miss, same)

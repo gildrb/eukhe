@@ -2,7 +2,8 @@
 
 import Base
 import ../../bend/wire.bend as Wr
-import ../../LAWS.bend as Laws
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
 import ../base.bend as L
 
 # emit adds one char per digit to acc
@@ -15,9 +16,9 @@ def wn_len_emit(+ds: List<&2, Nat>, +acc: String)
       %L.wn_add_succ_r(List.length(&2, Nat, t), String.length(acc)) : {String.length(L.wn_emit(t, SCon{Wr.dchar(d), acc})) == _ : Nat}
       wn_len_emit(t, SCon{Wr.dchar(d), acc})
 
-def Laws.wire_digits_spells(n):
+def Wire.wire_digits_spells(n):
   +l = List.length(&2, Nat, L.wn_full(n))
-  %Equal.sym(Nat, Laws.wire_digits(n), l, L.wn_wl(n)) : {String.length(Wr.put_nat(n, "")) == 1n+_ : Nat}
+  %Equal.sym(Nat, LawsBase.wire_digits(n), l, L.wn_wl(n)) : {String.length(Wr.put_nat(n, "")) == 1n+_ : Nat}
   %Equal.sym(String, Wr.put_nat(n, ""), L.wn_emit(L.wn_full(n), ","), L.wn_put_emit(n, "")) : {String.length(_) == 1n+l : Nat}
   %Equal.sym(Nat, String.length(L.wn_emit(L.wn_full(n), ",")), Nat.add(l, 1n), wn_len_emit(L.wn_full(n), ",")) : {_ == 1n+l : Nat}
   %Equal.sym(Nat, Nat.add(l, 1n), 1n+Nat.add(l, 0n), L.wn_add_succ_r(l, 0n)) : {_ == 1n+l : Nat}

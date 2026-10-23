@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW union_fields_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/catalog_union.bend as CatalogUnion
 
-def Laws.union_fields_example():
+def CatalogUnion.union_fields_example():
   {==}

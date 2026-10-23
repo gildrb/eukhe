@@ -482,7 +482,7 @@ pub struct StrictCandidate {
 /// # Errors
 ///
 /// The index of a loose candidate that is `required` (the first, highest
-/// priority first), when there is one (LAWS.bend `plan_*`).
+/// priority first), when there is one (`laws/infer.bend` `plan_*`).
 pub fn strict_plan(candidates: &[StrictCandidate], cap: Option<u32>) -> Result<Vec<bool>, usize> {
     let answer = || -> Result<Result<Vec<bool>, usize>, eukhe_bend::Error> {
         let mut writer = Writer::new();

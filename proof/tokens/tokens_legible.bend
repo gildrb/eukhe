@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tokens.bend as Tk
-import ../../LAWS.bend as Laws
+import ../../laws/tokens.bend as Tokens
 
 # ---- tokens ----
 
@@ -72,5 +72,5 @@ def tokens_legible(m: Tk.Mode, +pre: List<&2, Tk.Ink>, p: Tk.Ink, +post: List<&2
   +p1 = p
   tokens.pt.pick(m1, pre, p1, post, pt.whole(m1, pre, p1, post, split))
 
-def Laws.tokens_legible(m, pre, p, post, split):
+def Tokens.tokens_legible(m, pre, p, post, split):
   tokens_legible(m, pre, p, post, split)

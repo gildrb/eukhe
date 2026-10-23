@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../../LAWS.bend as Laws
+import ../../laws/config.bend as Config
 
 # LAW rmw_refuses_broken
 def pcf.rmw_refuses_broken(e: Cf.Edit) -> {Cf.rmw(Cf.Broken{}, e) == Cf.Refused{} : Cf.Write}:
@@ -10,5 +10,5 @@ def pcf.rmw_refuses_broken(e: Cf.Edit) -> {Cf.rmw(Cf.Broken{}, e) == Cf.Refused{
 
 # (H1-H4, M3, M7) Config documents, trust and the saved default model
 
-def Laws.rmw_refuses_broken(e):
+def Config.rmw_refuses_broken(e):
   pcf.rmw_refuses_broken(e)

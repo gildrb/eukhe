@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
 import ../base.bend as L
 
 # ---- progress ----

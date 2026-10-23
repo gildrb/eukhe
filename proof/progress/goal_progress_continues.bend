@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../../LAWS.bend as Laws
+import ../../laws/progress.bend as Progress
 import ./base.bend as LA
 
 # new work clears the count
@@ -10,5 +10,5 @@ def pp.grew_yes(+cap: Nat, +s: Nat, +hist: List<&2, Nat>, +seg: List<&2, Nat>, +
   %Equal.sym(Bool, Pr.grew(hist, seg), True{}, LA.pp.new_work(hist, seg, x, fresh, i)) : {Pr.check(cap, s, _) == Pr.Go{0n} : Pr.Goal}
   {==}
 
-def Laws.goal_progress_continues(cap, s, hist, seg, x, fresh, news):
+def Progress.goal_progress_continues(cap, s, hist, seg, x, fresh, news):
   pp.grew_yes(cap, s, hist, seg, x, fresh, news)

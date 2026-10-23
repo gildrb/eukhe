@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/kernel_local.bend as KL
-import ../../LAWS.bend as Laws
+import ../../laws/kernel_local.bend as KernelLocal
 
 def pk.sweep_keeps_live(ls: List<&2, KL.Left>) -> {KL.lefts.live(KL.sweep(ls)) == KL.lefts.live(ls) : Nat}:
   match ls:
@@ -27,5 +27,5 @@ def pk.sweep_keeps_live(ls: List<&2, KL.Left>) -> {KL.lefts.live(KL.sweep(ls)) =
           %pk.sweep_keeps_live(rest) : {1n+KL.lefts.live(KL.sweep(rest)) == 1n+_ : Nat}
           {==}
 
-def Laws.kernel_lock_sweep_keeps_live(ls):
+def KernelLocal.kernel_lock_sweep_keeps_live(ls):
   pk.sweep_keeps_live(ls)

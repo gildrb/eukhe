@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/wait.bend as Wt
-import ../../LAWS.bend as Laws
 
 # ---- wait ----
 

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/notice.bend as No
-import ../../LAWS.bend as Laws
+import ../../laws/notice.bend as Notice
 import ./base.bend as LA
 
 # notice_shown_once
@@ -35,5 +35,5 @@ def pn.once_of_ok(ns: List<&2, No.N>, +h: {LA.pn.all_ok(ns) == True{} : Bool}) -
 def pn.notice_shown_once(+evs: List<&2, No.Ev>) -> {No.once(No.run(evs)) == True{} : Bool}:
   pn.once_of_ok(No.run(evs), LA.pn.ok_go(evs, Nil{}, {==}))
 
-def Laws.notice_shown_once(evs):
+def Notice.notice_shown_once(evs):
   pn.notice_shown_once(evs)

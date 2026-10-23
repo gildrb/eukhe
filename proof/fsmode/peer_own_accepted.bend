@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/fsmode.bend as Fs
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 
 # Numbers
 # -------
@@ -18,5 +18,5 @@ def peer_own(+own: Nat) -> {Fs.peer(own, own) == Fs.Accept{} : Fs.Peer}:
   %pf.eq_refl(own) : {Fs.peer.at(_) == Fs.Accept{} : Fs.Peer}
   {==}
 
-def Laws.peer_own_accepted(own):
+def Fsmode.peer_own_accepted(own):
   peer_own(own)

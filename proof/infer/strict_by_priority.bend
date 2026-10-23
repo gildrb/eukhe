@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/infer.bend as If
-import ../../LAWS.bend as Laws
+import ../../laws/infer.bend as Infer
 import ./base.bend as LA
 
 def pi.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
@@ -225,5 +225,5 @@ def pi.dom_split(+xs: List<&2, If.Tool>, +n: Nat, +s: {pi.sorted(xs) == True{} :
 def pi.strict_by_priority(+cap: Nat, +ts: List<&2, If.Tool>) -> {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))) == True{} : Bool}:
   pi.dom_split(If.rank(ts), cap, pi.sorted_rank(ts))
 
-def Laws.strict_by_priority(cap, ts):
+def Infer.strict_by_priority(cap, ts):
   pi.strict_by_priority(cap, ts)

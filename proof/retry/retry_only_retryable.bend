@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/retry.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 import ../base.bend as L
 
 def rp.cmp_ge(c: Cmp, e: {Cmp.is_lt(c) == False{} : Bool}) -> {Cmp.is_ge(c) == True{} : Bool}:
@@ -33,5 +33,5 @@ def only_retryable(parked: Bool, limit: Bool, kind: Maybe<&2, R.Cause>, text: Bo
     case False{} False{}:
       rp.only(Nat.is_lt(s, 500n), s, {==}, retried)
 
-def Laws.retry_only_retryable(parked, limit, kind, text, s, retried):
+def Retry.retry_only_retryable(parked, limit, kind, text, s, retried):
   only_retryable(parked, limit, kind, text, s, retried)

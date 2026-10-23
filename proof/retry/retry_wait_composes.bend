@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW retry_wait_composes
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/retry.bend as Retry
 
-def Laws.retry_wait_composes(base, attempt, cap, draw, server):
+def Retry.retry_wait_composes(base, attempt, cap, draw, server):
   {==}

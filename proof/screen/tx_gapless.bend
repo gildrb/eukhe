@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/screen.bend as Sc
-import ../../LAWS.bend as Laws
+import ../../laws/screen.bend as Screen
 import ../base.bend as L
 
 # a new active block at the end changes no gap
@@ -127,5 +127,5 @@ def ps.tx_gapless(es: List<&2, Sc.Ev>, +w: Nat) -> {Sc.gapless(Sc.Tx.blocks(Sc.r
 
 # (S8) The interface
 
-def Laws.tx_gapless(es, w):
+def Screen.tx_gapless(es, w):
   ps.tx_gapless(es, w)

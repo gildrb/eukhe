@@ -2,10 +2,10 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../LAWS.bend as Laws
+import ../../laws/tree.bend as Tree
 import ./base.bend as LA
 
-def Laws.tree_core_snap(hs, rs, n):
+def Tree.tree_core_snap(hs, rs, n):
   +M = Tr.KMap.go(rs, hs, Tr.KNil{})
   +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
   +T = Tr.St.at(L, hs, n)

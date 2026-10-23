@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/fsmode.bend as Fs
-import ../../LAWS.bend as Laws
+import ../../laws/fsmode.bend as Fsmode
 
 # What eukhe creates
 # ------------------
@@ -14,5 +14,5 @@ def private(k: Fs.Made) -> {Fs.Mode.loose(Fs.made_mode(k)) == False{} : Bool}:
     case Fs.FileMade{}:
       {==}
 
-def Laws.private_on_create(k):
+def Fsmode.private_on_create(k):
   private(k)

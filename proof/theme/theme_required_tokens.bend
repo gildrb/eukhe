@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_required_tokens
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/theme.bend as Theme
 
-def Laws.theme_required_tokens():
+def Theme.theme_required_tokens():
   {==}

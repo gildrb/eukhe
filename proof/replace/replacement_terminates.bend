@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/replace.bend as Rp
-import ../../LAWS.bend as Laws
+import ../../laws/replace.bend as Replace
 import ../base.bend as L
 import ./base.bend as LA
 
@@ -198,5 +198,5 @@ def pr.replacement_terminates(+bs: List<&2, Rp.Build>, ss: List<&2, Rp.Start>, +
         case Rp.Start{+c, k}:
           pr.le_pred(Rp.replaced.go(rest, Some{c}), List.length(&2, Rp.Build, bs), L.supervisor.ps.le_trans(1n+Rp.replaced.go(rest, Some{c}), 1n+pr.above(bs, Rp.Build.rank(c)), List.length(&2, Rp.Build, bs), pr.count_le(rest, bs, c, replace.pr.and_r(Rp.has(bs, c), Rp.covers(bs, rest), cover)), pr.above_member(bs, c, replace.pr.and_l(Rp.has(bs, c), Rp.covers(bs, rest), cover))))
 
-def Laws.replacement_terminates(bs, ss, cover):
+def Replace.replacement_terminates(bs, ss, cover):
   pr.replacement_terminates(bs, ss, cover)

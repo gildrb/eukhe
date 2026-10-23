@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW default_unset_runs_pick
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/default_model.bend as DefaultModel
 
-def Laws.default_unset_runs_pick(cat, key, out, n):
+def DefaultModel.default_unset_runs_pick(cat, key, out, n):
   {==}

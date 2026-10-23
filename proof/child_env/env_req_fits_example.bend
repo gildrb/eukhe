@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW env_req_fits_example
 
 import Base
-import ../../LAWS.bend as Laws
+import ../../laws/child_env.bend as ChildEnv
 
-def Laws.env_req_fits_example():
+def ChildEnv.env_req_fits_example():
   {==}

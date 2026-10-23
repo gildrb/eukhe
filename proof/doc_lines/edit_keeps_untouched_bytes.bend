@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/doc_lines.bend as Dl
-import ../../LAWS.bend as Laws
+import ../../laws/doc_lines.bend as DocLines
 import ./base.bend as LA
 
 def pdl.app_assoc(-A: Data, xs: List<&2, A>, +ys: List<&2, A>, +zs: List<&2, A>) -> {List.append(&2, A, List.append(&2, A, xs, ys), zs) == List.append(&2, A, xs, List.append(&2, A, ys, zs)) : List<&2, A>}:
@@ -384,5 +384,5 @@ def pdl.edit_keeps(+bom: Bool, +bs: List<&2, Dl.B>, +s: Nat, +k: Nat, +xs: List<
   +hs = pdl.le_add(s, k, pdl.count(Dl.split(bs)), hj)
   (pdl.pre(Dl.fresh(xs), pdl.carry(List.take(&2, Dl.Piece, Dl.pieces(Dl.split(bs)), s), Dl.first(Dl.split(bs))), Nil{}), pdl.edit_eq(bom, bs, s, k, xs, hs, hj))
 
-def Laws.edit_keeps_untouched_bytes(bom, bs, s, k, xs, fits):
+def DocLines.edit_keeps_untouched_bytes(bom, bs, s, k, xs, fits):
   pdl.edit_keeps(bom, bs, s, k, xs, fits)

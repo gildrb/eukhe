@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/lease.bend as Ls
-import ../../LAWS.bend as Laws
+import ../../laws/lease.bend as Lease
 import ./base.bend as LA
 
 def pl.void(-A: Type, e: Empty) -> A:
@@ -261,5 +261,5 @@ def lease_stop_never_holds(+evs: List<&2, Ls.Ev>, +k: Nat, +o: Nat, +rest: List<
   +s = Ls.step(Ls.run(evs), Ls.Stop{k})
   pl.gone_held(k, Ls.go(rest, s), pl.gone_go(k, rest, s, pl.gone_start(Ls.run(evs), k, o, LA.pl.inv_run(evs), waits)))
 
-def Laws.lease_stop_never_holds(evs, k, o, rest, waits):
+def Lease.lease_stop_never_holds(evs, k, o, rest, waits):
   lease_stop_never_holds(evs, k, o, rest, waits)
