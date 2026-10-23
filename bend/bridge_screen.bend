@@ -24,6 +24,10 @@
 #   v            the verify decision (`present`); each line `F G A B`
 #                (A, B the two checks, 1 or 0) prints `d F 0` (Drawn{F,
 #                False}), `d G 1` (Drawn{G, True}) or `e F` (Error{F})
+#   r            the decision after it (`resync` of `present`); each line
+#                `F G H A B C` (C the fresh redraw's check) prints `d F 0`
+#                (Put{F, False}), `d G 1` (Put{G, True}), `f H` (Fresh{H})
+#                or `k F` (Kept{F})
 #   s            the layout (`vstack`); each line `Y ROWS H1 H2 ...`
 #                prints the rects ` Y:H` of the children, after `s`
 
@@ -181,6 +185,27 @@ def verify.go(ls: List<&2, String>) -> String:
       +ws = String.split(l, ' ')
       String.append(shown.show(Sc.present(arg(ws, 0n), arg(ws, 1n), Nat.is_eq(arg(ws, 2n), 1n), Nat.is_eq(arg(ws, 3n), 1n))), verify.go(rest))
 
+# The decision after present
+# --------------------------
+
+def paint.show(p: Sc.Paint) -> String:
+  match p:
+    case Sc.Put{f, full}:
+      String.concat(["d ", Nat.show(f), " ", bit(full), "\n"])
+    case Sc.Fresh{h}:
+      String.concat(["f ", Nat.show(h), "\n"])
+    case Sc.Kept{f}:
+      String.concat(["k ", Nat.show(f), "\n"])
+
+def resync.go(ls: List<&2, String>) -> String:
+  match ls:
+    case Nil{}:
+      ""
+    case l <> rest:
+      +ws = String.split(l, ' ')
+      +shown = Sc.present(arg(ws, 0n), arg(ws, 1n), Nat.is_eq(arg(ws, 3n), 1n), Nat.is_eq(arg(ws, 4n), 1n))
+      String.append(paint.show(Sc.resync(shown, arg(ws, 2n), Nat.is_eq(arg(ws, 5n), 1n))), resync.go(rest))
+
 # The layout
 # ----------
 
@@ -223,7 +248,7 @@ def layout.go(ls: List<&2, String>) -> String:
 # Running
 # -------
 
-def run.part(tx: Bool, pace: Bool, verify: Bool, +ws: List<&2, String>, +rest: List<&2, String>) -> String:
+def run.part(tx: Bool, pace: Bool, verify: Bool, after: Bool, +ws: List<&2, String>, +rest: List<&2, String>) -> String:
   match tx:
     case True{}:
       tx.go(rest, Sc.Tx{Nil{}, 0n, 0n})
@@ -236,10 +261,14 @@ def run.part(tx: Bool, pace: Bool, verify: Bool, +ws: List<&2, String>, +rest: L
             case True{}:
               verify.go(rest)
             case False{}:
-              layout.go(rest)
+              match after:
+                case True{}:
+                  resync.go(rest)
+                case False{}:
+                  layout.go(rest)
 
 def run.kind(+c: Char, +ws: List<&2, String>, +rest: List<&2, String>) -> String:
-  run.part(Char.is_eq(c, 't'), Char.is_eq(c, 'p'), Char.is_eq(c, 'v'), ws, rest)
+  run.part(Char.is_eq(c, 't'), Char.is_eq(c, 'p'), Char.is_eq(c, 'v'), Char.is_eq(c, 'r'), ws, rest)
 
 def run(ls: List<&2, String>) -> String:
   match ls:

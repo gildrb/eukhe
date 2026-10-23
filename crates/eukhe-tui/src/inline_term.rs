@@ -24,12 +24,18 @@
 //! changes.
 //!
 //! Every frame is checked off screen before it is written (the model's
-//! `present`, bend/screen.bend): its bytes run on a copy of a shadow
-//! screen ([`crate::vt::Vt`]) and must leave the history rows right above
-//! the live area, every live row as it reads written fresh, and the
-//! cursor where the writer tracks it. A frame that fails is drawn again
-//! whole and checked again; a frame that fails both is not written and
-//! is reported ([`take_rejection`]).
+//! `present` and `resync`, bend/screen.bend): its bytes run on a copy of
+//! a shadow screen ([`crate::vt::Vt`]) and must leave the history rows
+//! right above the live area, every live row as it reads written fresh,
+//! and the cursor where the writer tracks it. A frame that fails is drawn
+//! again whole and checked again; a frame that fails both is drawn on a
+//! blank screen (the old screen goes into scrollback) and checked a third
+//! time; a frame that fails all three is not written and is reported
+//! ([`take_rejection`]). A check never ends the surface.
+//!
+//! Row text keeps only what prints cells or styles them ([`cells_only`]):
+//! a control character or an escape sequence that moves the cursor would
+//! put every later row off by its move.
 //!
 //! A resize keeps scrollback as the terminal reflowed it: the writer
 //! never clears scrollback or writes a history row again. It estimates
@@ -59,58 +65,33 @@ static REJECTION: Mutex<Option<Rejection>> = Mutex::new(None);
 type RejectionLog = Box<dyn Fn(&str) + Send>;
 static REJECTION_LOG: Mutex<Option<RejectionLog>> = Mutex::new(None);
 
-/// The frames in a row the checks may reject before the writer gives
-/// up: the next paint fails with [`ScreenCheckFailed`] and the surface
-/// ends (its exit restores the terminal) instead of freezing.
-pub(crate) const REJECTED_FRAMES_LIMIT: usize = 3;
-
 /// Log every rejected frame (and history a release leaves unwritten)
 /// with `log` from now on.
 pub(crate) fn log_rejections_with(log: RejectionLog) {
     *REJECTION_LOG.lock().unwrap_or_else(PoisonError::into_inner) = Some(log);
 }
 
-/// Record a rejection: log it and keep it for [`take_rejection`].
-fn report(rejection: &Rejection) {
+/// Write `message` to the rejection log, if one is set.
+fn log_rejection(message: &str) {
     if let Some(log) = REJECTION_LOG
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .as_ref()
     {
-        log(&rejection.message);
+        log(message);
     }
+}
+
+/// Keep `rejection` for [`take_rejection`].
+fn keep_rejection(rejection: &Rejection) {
     *REJECTION.lock().unwrap_or_else(PoisonError::into_inner) = Some(rejection.clone());
 }
 
-/// The checks rejected [`REJECTED_FRAMES_LIMIT`] frames in a row: the
-/// writer stopped. The error a paint fails with then.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScreenCheckFailed {
-    /// The frames rejected in a row.
-    pub frames: usize,
-    /// The last rejection.
-    pub last: Rejection,
+/// Record a rejection: log it and keep it for [`take_rejection`].
+fn report(rejection: &Rejection) {
+    log_rejection(&rejection.message);
+    keep_rejection(rejection);
 }
-
-impl std::fmt::Display for ScreenCheckFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "the screen stopped: the off-screen check rejected {} frames in a row (last: {})",
-            self.frames, self.last.message
-        )?;
-        match eukhe_types::platform::agent_dir() {
-            Some(dir) => write!(
-                f,
-                "; each rejection is in the agent log, {}",
-                dir.join("logs").join("agent.jsonl").display()
-            ),
-            None => write!(f, "; each rejection is in the agent log"),
-        }
-    }
-}
-
-impl std::error::Error for ScreenCheckFailed {}
 
 /// Move the cursor to the line below the live area last painted, if one
 /// is still on screen. The best-effort exit restore runs this when the
@@ -199,8 +180,11 @@ pub enum Painted {
     /// The frame's own update failed its check (or the width changed):
     /// a full redraw of the live area passed its check and was written.
     Redrawn,
-    /// Both checks failed: nothing was written. The frame's history rows
-    /// go out with the next frame.
+    /// Both checks failed; the screen was scrolled into scrollback and
+    /// the frame redrawn on the blank screen, and that check passed.
+    Resynced,
+    /// All three checks failed: nothing was written and the surface goes
+    /// on. The frame's history rows go out with the next frame.
     Rejected(Rejection),
 }
 
@@ -259,6 +243,34 @@ pub(crate) fn present<F>(frame: F, first: Check, full: impl FnOnce() -> (F, Chec
                     redraw: Redraw::Full,
                 },
                 Check::Fail => Shown::Error { frame },
+            }
+        }
+    }
+}
+
+/// What reaches the terminal after [`present`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Painting<F> {
+    /// [`present`] drew `frame`.
+    Shown { frame: F, redraw: Redraw },
+    /// Both checks failed; the fresh redraw `frame` on a blank screen
+    /// passed its check.
+    Fresh { frame: F },
+    /// Every check failed: nothing was drawn. `frame` is the first one.
+    Kept { frame: F },
+}
+
+/// Finish the decision (the model's `resync`): what `present` drew;
+/// else the fresh redraw `fresh` builds, when its check passed; else
+/// nothing. `fresh` runs only when both checks of `present` failed.
+pub(crate) fn resync<F>(shown: Shown<F>, fresh: impl FnOnce() -> (F, Check)) -> Painting<F> {
+    match shown {
+        Shown::Drawn { frame, redraw } => Painting::Shown { frame, redraw },
+        Shown::Error { frame } => {
+            let (redrawn, third) = fresh();
+            match third {
+                Check::Pass => Painting::Fresh { frame: redrawn },
+                Check::Fail => Painting::Kept { frame },
             }
         }
     }
@@ -422,20 +434,22 @@ impl InlineTerminal {
     /// not rewritten.
     ///
     /// The frame is checked off screen first. When the check fails, the
-    /// whole live area is drawn again and checked again; when that fails
-    /// too, nothing is written, the frame comes back as
-    /// [`Painted::Rejected`] (logged, and kept for [`take_rejection`]),
-    /// and its history rows go out with the next frame.
+    /// whole live area is drawn again and checked again. When that fails
+    /// too, the screen goes into scrollback and the frame is drawn on the
+    /// blank screen, checked a third time: this resyncs a shadow screen
+    /// that no longer matches what the writer tracks. When all three
+    /// fail, nothing is written, the frame comes back as
+    /// [`Painted::Rejected`] (kept for [`take_rejection`]; logged at the
+    /// 1st, 2nd, 4th, 8th ... rejection in a row), its history rows go
+    /// out with the next frame, and the surface goes on: a check never
+    /// ends it.
     ///
     /// A live area taller than the screen keeps its bottom rows; the
     /// clipped top rows are not shown and do not enter scrollback.
     ///
     /// # Errors
     ///
-    /// Propagates the write error of `out`. Fails with
-    /// [`ScreenCheckFailed`] when this is the
-    /// [`REJECTED_FRAMES_LIMIT`]th frame in a row the checks reject: the
-    /// surface ends instead of freezing on a screen it cannot update.
+    /// Propagates the write error of `out`, and only that.
     pub fn paint(&mut self, out: &mut impl Write, frame: InlineFrame<'_>) -> io::Result<Painted> {
         let skip = frame.live.len().saturating_sub(self.height);
         let live = &frame.live[skip..];
@@ -492,44 +506,88 @@ impl InlineTerminal {
             let check = full.check();
             (full, check)
         });
-        match shown {
-            Shown::Drawn { frame, redraw } => {
-                self.shadow = frame.screen;
-                let dropped = self.shadow.scrollback_len();
-                self.shadow.forget_scrollback();
-                self.top = (self.top + history.len()).saturating_sub(dropped);
-                self.shown_cursor = cursor;
-                self.rejected_in_a_row = 0;
-                self.layout = Layout::Written;
-                self.publish_rows_below_cursor();
-                out.write_all(frame.bytes.as_bytes())?;
-                out.flush()?;
+        let mut fresh_failure = String::new();
+        let painting = resync(shown, || {
+            let encoded = std::mem::take(&mut self.live);
+            let shadow = std::mem::replace(&mut self.shadow, Vt::new(self.width, self.height));
+            let top = std::mem::replace(&mut self.top, 0);
+            self.cursor_row = 0;
+            let bytes = self.frame_bytes(Redraw::Full, &[], &history, encoded, cursor);
+            let mut fresh = self.check(bytes, &[], &history, cursor);
+            match &fresh.failure {
+                None => {
+                    // On the terminal: the screen's rows scroll into
+                    // scrollback (nothing is lost) and the cursor goes
+                    // home, which leaves the blank screen checked.
+                    let body = &fresh.bytes[PAINT_BEGIN.len()..];
+                    fresh.bytes = format!(
+                        "{PAINT_BEGIN}\x1b[{};1H{}\x1b[H{body}",
+                        self.height,
+                        "\n".repeat(self.height)
+                    );
+                }
+                Some(failure) => {
+                    fresh_failure.clone_from(failure);
+                    self.shadow = shadow;
+                    self.top = top;
+                }
+            }
+            let check = fresh.check();
+            (fresh, check)
+        });
+        match painting {
+            Painting::Shown { frame, redraw } => {
+                self.show(out, frame, history.len(), cursor)?;
                 Ok(match redraw {
                     Redraw::Diff => Painted::Drawn,
                     Redraw::Full => Painted::Redrawn,
                 })
             }
-            Shown::Error { frame } => {
+            Painting::Fresh { frame } => {
+                self.show(out, frame, history.len(), cursor)?;
+                Ok(Painted::Resynced)
+            }
+            Painting::Kept { frame } => {
                 self.live = old_live;
                 self.cursor_row = old_cursor_row;
                 self.pending_history = history_lines.into_owned();
+                self.rejected_in_a_row += 1;
                 let rejection = Rejection {
                     message: format!(
-                        "frame not shown: {}; full redraw: {full_failure}",
+                        "frame not shown: {}; full redraw: {full_failure}; fresh redraw: {fresh_failure}",
                         frame.failure.unwrap_or_default()
                     ),
                 };
-                report(&rejection);
-                self.rejected_in_a_row += 1;
-                if self.rejected_in_a_row >= REJECTED_FRAMES_LIMIT {
-                    return Err(io::Error::other(ScreenCheckFailed {
-                        frames: self.rejected_in_a_row,
-                        last: rejection,
-                    }));
+                if self.rejected_in_a_row.is_power_of_two() {
+                    log_rejection(&format!(
+                        "{} ({} in a row)",
+                        rejection.message, self.rejected_in_a_row
+                    ));
                 }
+                keep_rejection(&rejection);
                 Ok(Painted::Rejected(rejection))
             }
         }
+    }
+
+    /// Write a frame whose check passed and track the screen it leaves.
+    fn show(
+        &mut self,
+        out: &mut impl Write,
+        frame: Candidate,
+        history_rows: usize,
+        cursor: Option<LiveCursor>,
+    ) -> io::Result<()> {
+        self.shadow = frame.screen;
+        let dropped = self.shadow.scrollback_len();
+        self.shadow.forget_scrollback();
+        self.top = (self.top + history_rows).saturating_sub(dropped);
+        self.shown_cursor = cursor;
+        self.rejected_in_a_row = 0;
+        self.layout = Layout::Written;
+        self.publish_rows_below_cursor();
+        out.write_all(frame.bytes.as_bytes())?;
+        out.flush()
     }
 
     /// Build a frame's bytes and track the live area they leave. `Diff`
@@ -897,30 +955,68 @@ fn push_fresh_rows(buf: &mut String, rows: &[Row]) {
 /// style closed at the row end so nothing leaks into the next row or
 /// into scrollback. A hyperlink still open at the row end is closed and
 /// reopened on the next row by the composer's rows themselves. Text goes
-/// through TS `applyLineResets` (tabs to three spaces, Thai/Lao AM
-/// decomposed) so the terminal's cells match the measured widths.
+/// through [`cells_only`] and then TS `applyLineResets` (tabs to three
+/// spaces, Thai/Lao AM decomposed) so the terminal's cells match the
+/// measured widths.
 fn encode_row(row: &[crate::Span]) -> String {
     let raw: String = row.iter().map(|span| span.content.as_str()).collect();
     if crate::terminal_image::is_image_line(&raw) {
         return raw;
     }
-    let mut out = match crate::width::normalize_terminal_output(&raw) {
-        std::borrow::Cow::Borrowed(_) => crate::ansi::line_to_ansi(row),
-        std::borrow::Cow::Owned(_) => crate::ansi::line_to_ansi(
-            &row.iter()
-                .map(|span| {
-                    crate::Span::styled(
-                        crate::width::normalize_terminal_output(&span.content),
-                        span.style,
-                    )
-                })
-                .collect::<Vec<_>>(),
-        ),
+    let clean = matches!(cells_only(&raw), std::borrow::Cow::Borrowed(_))
+        && matches!(
+            crate::width::normalize_terminal_output(&raw),
+            std::borrow::Cow::Borrowed(_)
+        );
+    let (mut out, raw) = if clean {
+        (crate::ansi::line_to_ansi(row), raw)
+    } else {
+        let row: Vec<crate::Span> = row
+            .iter()
+            .map(|span| {
+                let text = cells_only(&span.content);
+                let text = crate::width::normalize_terminal_output(&text).into_owned();
+                crate::Span::styled(text, span.style)
+            })
+            .collect();
+        let raw = row.iter().map(|span| span.content.as_str()).collect();
+        (crate::ansi::line_to_ansi(&row), raw)
     };
     if link_left_open(&raw) {
         out.push_str(OSC8_CLOSE);
     }
     out
+}
+
+/// `text` with only the bytes that print cells or set cell attributes:
+/// SGR sequences (`CSI ... m`), OSC 8 hyperlinks, tabs (expanded later)
+/// and printable characters. Every other escape sequence and every
+/// other control character moves the cursor or edits the screen, which
+/// the width measure (zero columns) and the row-per-line layout do not
+/// model, so it is dropped.
+fn cells_only(text: &str) -> std::borrow::Cow<'_, str> {
+    let keeps = |c: char| c == '\t' || !c.is_control();
+    if text.chars().all(keeps) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        if let Some(len) = crate::width::escape_len(rest) {
+            let sequence = &rest[..len];
+            let sgr = sequence.starts_with("\x1b[") && sequence.ends_with('m');
+            if sgr || sequence.starts_with(OSC8_OPEN_PREFIX) {
+                out.push_str(sequence);
+            }
+            rest = &rest[len..];
+            continue;
+        }
+        if keeps(c) {
+            out.push(c);
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// Whether the last OSC 8 sequence in `text` opens a link (a non-empty
@@ -1436,25 +1532,22 @@ mod tests {
                 },
             )
             .unwrap();
-        let rejection = Rejection {
-            message: "frame not shown: live row 0 shows \"> |\", expected \"\"; \
-                      full redraw: live row 0 shows \"> |\", expected \"\""
-                .to_string(),
+        let Painted::Rejected(rejection) = painted else {
+            panic!("the frame was shown: {painted:?}");
         };
-        assert_eq!(painted, Painted::Rejected(rejection.clone()));
         assert_eq!(take_rejection(), Some(rejection));
         assert!(out.is_empty());
         paint(&mut term, &mut screen, &["kept 2"], &["> |"]);
         assert_eq!(screen.all(), ["kept 1", "kept 2", "> |"]);
     }
 
-    /// Rejections are logged as they happen; a release with history
-    /// still pending reports it instead of dropping it; and the
-    /// `REJECTED_FRAMES_LIMIT`th rejection in a row fails the paint with
-    /// `ScreenCheckFailed`, so the surface ends instead of freezing. A
-    /// frame shown in between starts the count again.
+    /// Rejections never end the surface: a release with history still
+    /// pending reports it instead of dropping it; ten frames in a row
+    /// that fail all three checks each come back as
+    /// `Painted::Rejected`, the log holds the 1st, 2nd, 4th and 8th of
+    /// them, and the next good frame is shown.
     #[test]
-    fn rejections_in_a_row_end_the_surface_and_are_logged() {
+    fn rejections_in_a_row_never_end_the_surface() {
         let _global = live_area_lock();
         let _stale = take_rejection();
         let logged = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1464,9 +1557,9 @@ mod tests {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(message.to_string());
         }));
-        let mut term = InlineTerminal::new(40, 6);
-        let mut screen = Vt::new(40, 6);
-        paint(&mut term, &mut screen, &[], &["> |"]);
+        // The image row moves the cursor up two rows: on any screen with
+        // rows above the live area it writes over them, so every check
+        // (the fresh redraw with its history rows too) fails.
         let image = "\x1b[2A\x1b_Ga=T;QUJD\x1b\\";
         let bad = rows(&[image, "> |"]);
         let reject = |term: &mut InlineTerminal, history: &[&str]| {
@@ -1479,57 +1572,56 @@ mod tests {
                 },
             )
         };
-        let message = "frame not shown: live row 0 shows \"> |\", expected \"\"; \
-                       full redraw: live row 0 shows \"> |\", expected \"\""
-            .to_string();
-        let rejection = Rejection {
-            message: message.clone(),
-        };
-        assert_eq!(
-            reject(&mut term, &["kept"]).unwrap(),
-            Painted::Rejected(rejection.clone())
-        );
+        let mut term = InlineTerminal::new(40, 6);
+        let mut screen = Vt::new(40, 6);
+        paint(&mut term, &mut screen, &[], &["> |"]);
+        assert!(matches!(
+            reject(&mut term, &["k1", "k2", "k3"]).unwrap(),
+            Painted::Rejected(_)
+        ));
+        logged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         term.release(&mut Vec::new()).unwrap();
         assert_eq!(
             take_rejection(),
             Some(Rejection {
-                message: "1 history rows of rejected frames are not on screen yet; \
+                message: "3 history rows of rejected frames are not on screen yet; \
                           the next frame writes them"
                     .to_string()
             })
         );
         let mut term = InlineTerminal::new(40, 6);
         let mut screen = Vt::new(40, 6);
-        paint(&mut term, &mut screen, &["above"], &["> |"]);
+        paint(&mut term, &mut screen, &["a1", "a2", "a3"], &["> |"]);
+        logged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        let mut shown: Vec<String> = ["a1", "a2", "a3"].map(String::from).to_vec();
+        for frame in 0..10 {
+            let rows: Vec<String> = (1..=3).map(|at| format!("h{frame}.{at}")).collect();
+            let rows_ref: Vec<&str> = rows.iter().map(String::as_str).collect();
+            assert!(matches!(
+                reject(&mut term, &rows_ref).unwrap(),
+                Painted::Rejected(_)
+            ));
+            shown.extend(rows);
+        }
+        let counts: Vec<String> = logged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(|line| line.rsplit_once(" (").map(|(_, count)| count.to_string()))
+            .collect();
         assert_eq!(
-            reject(&mut term, &[]).unwrap(),
-            Painted::Rejected(rejection.clone())
+            counts,
+            ["1 in a row)", "2 in a row)", "4 in a row)", "8 in a row)"]
         );
         paint(&mut term, &mut screen, &[], &["> a"]);
-        for _ in 1..REJECTED_FRAMES_LIMIT {
-            assert_eq!(
-                reject(&mut term, &[]).unwrap(),
-                Painted::Rejected(rejection.clone())
-            );
-        }
-        let error = reject(&mut term, &[]).unwrap_err();
-        assert_eq!(
-            error
-                .get_ref()
-                .and_then(|inner| inner.downcast_ref::<ScreenCheckFailed>()),
-            Some(&ScreenCheckFailed {
-                frames: REJECTED_FRAMES_LIMIT,
-                last: rejection,
-            })
-        );
-        let release_report = "1 history rows of rejected frames are not on screen yet; \
-                              the next frame writes them";
-        let mut expected = vec![message.clone(), release_report.to_string()];
-        expected.extend(std::iter::repeat_n(message, REJECTED_FRAMES_LIMIT + 1));
-        assert_eq!(
-            *logged.lock().unwrap_or_else(PoisonError::into_inner),
-            expected
-        );
+        shown.push("> a".to_string());
+        assert_eq!(screen.all(), shown);
         *REJECTION_LOG.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
@@ -1676,5 +1768,148 @@ mod tests {
         );
         println!("300 frames, mean/max us: paint with check {:.1}/{:.1}, check {:.1}/{:.1}, paint without check {:.1}/{:.1}",
             with.0, with.1, check.0, check.1, without.0, without.1);
+    }
+
+    /// Control characters in row text never move the cursor: `\r`, `\n`,
+    /// backspace, BEL, NEL and cursor or erase sequences are dropped (the
+    /// width measure counts them zero), and the text after an escape the
+    /// measure does not know (`ESC 7`) prints as the measure counts it. So
+    /// every row stays on its own line and the frame's own update passes
+    /// its check.
+    #[test]
+    fn control_characters_in_rows_never_move_the_cursor() {
+        let _global = live_area_lock();
+        let mut term = InlineTerminal::new(40, 6);
+        let mut screen = Vt::new(40, 6);
+        paint(&mut term, &mut screen, &[], &["> |"]);
+        paint(
+            &mut term,
+            &mut screen,
+            &["h\r\ni\u{85}"],
+            &["a\rb\nc", "t\u{8}u\u{7}v", "z\x1b[2Kq\x1b[1A\x1b7w", "> |"],
+        );
+        assert_eq!(screen.all(), ["hi", "abc", "tuv", "zq7w", "> |"]);
+    }
+
+    /// Frames that keep the writer's contract (rows fitted to the width,
+    /// a block never inside another) are drawn by their own update or
+    /// their full redraw: never resynced, never rejected. This holds across
+    /// resizes, releases and clears, with history rows, soft-wrapped
+    /// blocks and wide, combining, emoji, control-character, hyperlink and
+    /// styled rows.
+    #[test]
+    fn frames_that_keep_the_contract_are_always_drawn() {
+        use crate::soft_wrap::{content, row_wrap, RowWrap};
+        use crate::testing::Rng;
+        let _global = live_area_lock();
+        let bg = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+            .bg_style(crate::theme::ThemeBg::UserMessageBg);
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        for case in 0..200 {
+            let (mut w, mut h) = (rng.range(20, 49) as u16, rng.range(3, 42) as u16);
+            let mut term = InlineTerminal::new(w, h);
+            let mut log = Vec::new();
+            for step in 0..60 {
+                match rng.below(20) {
+                    0 => {
+                        w = rng.range(20, 49) as u16;
+                        term.set_width(w);
+                        log.push(format!("width {w}"));
+                    }
+                    1 | 2 => {
+                        h = rng.range(3, 42) as u16;
+                        term.set_height(h);
+                        log.push(format!("height {h}"));
+                    }
+                    3 => {
+                        term.release(&mut Vec::new()).unwrap();
+                        log.push("release".to_string());
+                    }
+                    4 => {
+                        term.clear_live(&mut Vec::new()).unwrap();
+                        log.push("clear".to_string());
+                    }
+                    _ => {}
+                }
+                let width = usize::from(w);
+                let text = |rng: &mut Rng, i: u64, cols: usize| {
+                    let text = match rng.below(12) {
+                        0 => String::new(),
+                        1 => "x".repeat(width + 7),
+                        2 => format!("中文{i}字宽"),
+                        3 => format!("e😀{i}"),
+                        4 => format!("a\rb\n{i}"),
+                        5 => format!("c\u{301}d\u{200d}e\u{fe0f}{i}"),
+                        6 => format!("t\tu\u{8}v\u{7}\u{85}{i}"),
+                        7 => format!("{}中", "y".repeat(width - 1)),
+                        8 => format!("z\x1b[2Kq\x1b[1A\x1b7\x1b[{i}"),
+                        9 => format!("\x1b]8;;http://a\x1b\\link{i}"),
+                        k => format!("l{k}.{i}"),
+                    };
+                    crate::width::truncate_to_width(&text, cols, "")
+                };
+                let mut history: Vec<Line> = (0..rng.below(4))
+                    .map(|i| vec![Span::raw(text(&mut rng, i, width))])
+                    .collect();
+                if rng.below(4) == 0 {
+                    let at = rng.below(history.len() as u64 + 1) as usize;
+                    history.splice(at..at, block_then(LINK, width, &[]));
+                }
+                let n = rng.below(u64::from(h) + 6);
+                let mut live: Vec<Line> = (0..n)
+                    .map(|i| {
+                        if rng.below(3) == 0 {
+                            let t = text(&mut rng, i, width - 5);
+                            vec![Span::styled(format!(" {t} "), bg), Span::styled("   ", bg)]
+                        } else {
+                            vec![Span::raw(text(&mut rng, i, width))]
+                        }
+                    })
+                    .collect();
+                for _ in 0..rng.below(3) {
+                    // A block goes between blocks, never inside one.
+                    let starts: Vec<usize> = (0..=live.len())
+                        .filter(|&at| {
+                            live.get(at)
+                                .is_none_or(|row| row_wrap(row) != RowWrap::Continuation)
+                        })
+                        .collect();
+                    let at = starts[rng.below(starts.len() as u64) as usize];
+                    live.splice(at..at, block_then(LINK, width, &[]));
+                }
+                let cursor = (n > 0 && rng.below(2) == 0).then(|| LiveCursor {
+                    row: live.len() - 1,
+                    col: 2,
+                });
+                log.push(format!(
+                    "{w}x{h} history {:?} live {:?} cursor {cursor:?}",
+                    history
+                        .iter()
+                        .map(|row| encode_row(row))
+                        .collect::<Vec<_>>(),
+                    live.iter()
+                        .map(|row| (row_wrap(row), encode_row(content(row))))
+                        .collect::<Vec<_>>()
+                ));
+                let painted = term
+                    .paint(
+                        &mut Vec::new(),
+                        InlineFrame {
+                            history: &history,
+                            live: &live,
+                            cursor,
+                        },
+                    )
+                    .unwrap();
+                assert!(
+                    matches!(
+                        painted,
+                        Painted::Unchanged | Painted::Drawn | Painted::Redrawn
+                    ),
+                    "case {case} step {step}: {painted:?}\n{}",
+                    log.join("\n")
+                );
+            }
+        }
     }
 }

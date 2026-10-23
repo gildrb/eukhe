@@ -16986,6 +16986,21 @@ def ps.verify_only_checked(f: Nat, g: Nat, +ok1: Bool, +ok2: Bool) -> {Sc.checke
         case False{}:
           {==}
 
+def ps.paint_first_passing_check(+f: Nat, +g: Nat, +h: Nat, +ok1: Bool, +ok2: Bool, +ok3: Bool) -> {Sc.resync(Sc.present(f, g, ok1, ok2), h, ok3) == Laws.screen_paint_spec(f, g, h, ok1, ok2, ok3) : Sc.Paint}:
+  match ok1:
+    case True{}:
+      {==}
+    case False{}:
+      match ok2:
+        case True{}:
+          {==}
+        case False{}:
+          match ok3:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+
 # 4. Layout
 # ---------
 
@@ -32648,6 +32663,9 @@ def Laws.pace_drains(min, k, p, n, one, behind, enough):
 
 def Laws.verify_only_checked(f, g, ok1, ok2):
   ps.verify_only_checked(f, g, ok1, ok2)
+
+def Laws.paint_first_passing_check(f, g, h, ok1, ok2, ok3):
+  ps.paint_first_passing_check(f, g, h, ok1, ok2, ok3)
 
 def Laws.layout_inside(hs, y, rows):
   ps.layout_inside(hs, y, rows)

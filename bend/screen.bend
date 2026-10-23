@@ -298,6 +298,27 @@ def checked(s: Shown, ok1: Bool, ok2: Bool) -> Bool:
     case Error{f}:
       Bool.not(Bool.or(ok1, ok2))
 
+# what reaches the terminal after present
+type Paint is Data:
+  Put{frame: Nat, full: Bool}  # present drew frame (full: redrawn in full)
+  Fresh{frame: Nat}            # both checks failed; frame, the fresh redraw on
+                               # a blank screen, passed the third check
+  Kept{frame: Nat}             # all three failed: nothing drawn; the surface
+                               # goes on
+
+# present's decision s, then the fresh redraw h with the third check's
+# result ok3
+def resync(s: Shown, h: Nat, ok3: Bool) -> Paint:
+  match s:
+    case Drawn{f, full}:
+      Put{f, full}
+    case Error{f}:
+      match ok3:
+        case True{}:
+          Fresh{h}
+        case False{}:
+          Kept{f}
+
 # 4. Layout
 # ---------
 

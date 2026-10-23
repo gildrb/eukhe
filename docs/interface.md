@@ -130,17 +130,27 @@ writer left it. Each frame runs on a copy of it first:
    written on a blank screen. The rows below the live area are blank. The
    cursor is where the writer tracks it.
 2. A frame that fails is drawn again in full (the whole live area) and
-   checked again. A frame that fails both checks is not written. The
-   agent log (`<agent dir>/logs/agent.jsonl`, component `tui-render`)
-   records it, and a toast shows it. Its history rows go out before the
-   history of the next frame.
-3. When three frames in a row fail both checks
-   (`REJECTED_FRAMES_LIMIT`), the paint fails with `ScreenCheckFailed`.
-   The surface ends, the terminal is restored, and the error names the
-   failure and the log. The screen does not freeze.
-4. A release (exit, suspend, a child process) with history rows still
+   checked again.
+3. A frame that fails both checks is drawn on a blank screen and checked
+   a third time. On the terminal, the rows on screen scroll into
+   scrollback first, so no text is lost. This resyncs a shadow screen
+   that no longer matches the rows the writer tracks.
+4. A frame that fails all three checks is not written. A toast shows it.
+   The agent log (`<agent dir>/logs/agent.jsonl`, component `tui-render`)
+   records the 1st, 2nd, 4th, 8th (and so on) rejection in a row. Its
+   history rows go out before the history of the next frame.
+5. A check never ends the surface. The surface ends only when the user
+   quits or a write to the terminal fails.
+6. A release (exit, suspend, a child process) with history rows still
    pending does not write them unchecked. It reports them, and the next
    frame writes them.
+
+Row text. The writer keeps only the text that prints cells or styles
+them: printable characters, tabs (three spaces), SGR sequences and OSC 8
+hyperlinks. It drops every other control character (`\r`, `\n`,
+backspace, BEL, NEL) and every other escape sequence (cursor moves,
+erases). The width measure counts these as zero columns, so a row that
+kept one would move the cursor and put every later row off by one.
 
 The cost of the check, for a 40-row live area at 120 x 50 under 5,000
 history rows (`verify_cost_on_a_large_transcript`): in release, a
@@ -178,6 +188,7 @@ any check results; any child heights.
 | `pace_never_back` | The screen never shows less than before (pacing). |
 | `pace_drains` | With a minimum of at least 1, a backlog of b characters all shows after b frames (pacing). |
 | `verify_only_checked` | Only a frame that passed its check reaches the terminal; a frame that failed both checks is reported (check 2). |
+| `paint_first_passing_check` | The first check that passes picks what reaches the terminal: the frame, its full redraw or its fresh redraw. When all three fail, nothing is drawn and the surface goes on (checks 3 to 5). |
 | `layout_inside` | No child is drawn outside the viewport (layout). |
 | `layout_apart` | No two children overlap (layout). |
 | `layout_whole_when_room` | Children that fit are drawn whole (layout). |
@@ -190,8 +201,8 @@ Code: `eukhe-tui/src/view/ledger.rs` `Ledger` (`open`, `grow`, `finish`,
 `reveal`; `view/streaming.rs` `advance_paces`, `paced_message`;
 `view.rs` `mark_entry_stale`, `clear_chat`, `note_resize`, `is_pacing`;
 `inline_term.rs` `InlineTerminal::paint` (the check), `present`,
-`Check`, `Shown`, `Painted`, `Rejection`, `ScreenCheckFailed`,
-`REJECTED_FRAMES_LIMIT`, `set_width` (the live redraw after a reflow),
+`resync`, `Check`, `Shown`, `Painting`, `Painted`, `Rejection`,
+`cells_only`, `set_width` (the live redraw after a reflow),
 `release`; `vt.rs` `Vt`; `element.rs`
 `Element`, `Panel`, `render`; `tool_card/*` (the cards as elements);
 `app.rs` `draw`, `draw_fullscreen`, `show_rejection`;
@@ -200,10 +211,11 @@ Code: `eukhe-tui/src/view/ledger.rs` `Ledger` (`open`, `grow`, `finish`,
 
 Tie: the bridge test
 `view::bridge::the_rust_interface_equals_the_bend_model` runs `Ledger`,
-`Pace`, `present` and `vstack` against `bend/bridge_screen.bend` on 600
-generated scenarios (opens, growths, finishes, flushes and resizes on
-blocks that exist and that do not; chunks of zero and minimums of zero;
-all four check pairs; children that fit and that do not) and compares
+`Pace`, `present`, `resync` and `vstack` against
+`bend/bridge_screen.bend` on 750 generated scenarios (opens, growths,
+finishes, flushes and resizes on blocks that exist and that do not;
+chunks of zero and minimums of zero; all four check pairs and all eight
+check triples; children that fit and that do not) and compares
 the transcripts byte for byte. eukhe-tui may not depend on
 eukhe-durable, so `src/testing.rs` holds a copy of the bridge runner.
 Regression tests: `view::screen_tests` (committed rows are written once
@@ -215,7 +227,9 @@ live stack keeps the newest rows above the dock); `inline_term::tests`
 (`a_resize_keeps_scrollback_and_redraws_only_the_live_area`,
 `a_desynced_live_area_is_redrawn_whole`,
 `a_frame_both_checks_reject_is_not_written_and_its_history_waits`,
-`rejections_in_a_row_end_the_surface_and_are_logged`,
+`rejections_in_a_row_never_end_the_surface`,
+`control_characters_in_rows_never_move_the_cursor`,
+`frames_that_keep_the_contract_are_always_drawn`,
 `present_follows_the_model_table`,
 `a_full_width_last_row_keeps_its_last_cell_below_history`); `vt::tests`;
 `pace::tests`; `view::ledger::tests`; `view::stack::tests`;

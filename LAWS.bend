@@ -1428,6 +1428,40 @@ law verify_only_checked:
   for +ok2: Bool
   {Sc.checked(Sc.present(f, g, ok1, ok2), ok1, ok2) == True{} : Bool}
 
+# spec: the first of the three checks that passes picks the frame drawn
+# (the frame f, its full redraw g, its fresh redraw h on a blank screen);
+# when none passes nothing is drawn and the first frame is kept
+def screen_paint_spec(f: Nat, g: Nat, h: Nat, ok1: Bool, ok2: Bool, ok3: Bool) -> Sc.Paint:
+  match ok1:
+    case True{}:
+      Sc.Put{f, False{}}
+    case False{}:
+      match ok2:
+        case True{}:
+          Sc.Put{g, True{}}
+        case False{}:
+          match ok3:
+            case True{}:
+              Sc.Fresh{h}
+            case False{}:
+              Sc.Kept{f}
+
+# LAW: the screen never stops: the first check that passes picks what
+# reaches the terminal (the frame, its full redraw, its fresh redraw on a
+# blank screen); when all three fail nothing is drawn, the first frame is
+# kept, and the surface goes on
+# EXCLUDES: a frame drawn after its check failed; a passing redraw left
+# unused; a fresh redraw before both checks failed; an end of the surface
+# (or any outcome but Kept) after three failed checks
+law paint_first_passing_check:
+  for +f: Nat
+  for +g: Nat
+  for +h: Nat
+  for +ok1: Bool
+  for +ok2: Bool
+  for +ok3: Bool
+  {Sc.resync(Sc.present(f, g, ok1, ok2), h, ok3) == screen_paint_spec(f, g, h, ok1, ok2, ok3) : Sc.Paint}
+
 # LAW: no child is drawn outside the viewport
 law layout_inside:
   for hs: List<&2, Nat>
