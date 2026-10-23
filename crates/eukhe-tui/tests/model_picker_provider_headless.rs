@@ -1,5 +1,5 @@
-//! Headless e2e for the `/model` picker's current-model resolution across
-//! providers (the operator's onboarding report): a mock supervisor serves
+//! Headless e2e for the `/model` hub's chat picker: current-model
+//! resolution across providers (the operator's onboarding report): a mock supervisor serves
 //! one attached session whose state reports
 //! `prime-inference/z-ai/glm-5.3` — while the catalog lists the SAME id
 //! under openrouter too, openrouter's entry first.
@@ -334,13 +334,13 @@ fn run_plan(steps: Vec<HeadlessStep>) -> Vec<String> {
 
 /// The operator's duplicate-id repro: the session runs
 /// `prime-inference/z-ai/glm-5.3`, the catalog lists the same id under
-/// openrouter FIRST, and `/model` opens — the prime-inference row must
-/// carry the `current` marker AND the selection band, and the openrouter
-/// row must carry neither.
+/// openrouter FIRST, and `/model chat` opens the hub at the chat role's
+/// models -- the prime-inference row must carry the `current` marker AND
+/// the selection band, and the openrouter row must carry neither.
 #[test]
 fn the_picker_marks_the_sessions_own_provider_current() {
     let frames = run_plan(vec![
-        HeadlessStep::Submit("/model".to_string()),
+        HeadlessStep::Submit("/model chat".to_string()),
         HeadlessStep::WaitRender {
             needle: "GLM 5.3 Prime".to_string(),
             timeout_ms: 30_000,

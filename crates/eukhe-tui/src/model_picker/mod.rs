@@ -1,4 +1,4 @@
-//! The `/model` and `/memory-model` inline selector: the TS `ModelSelectorComponent` inline
+//! The `/model` hub's inline model selector: the TS `ModelSelectorComponent` inline
 //! panel -- a bordered "Search models" field over `>`-marker rows that carry
 //! effort squares and a right-aligned `current * provider` trailing, a
 //! price-detail block for the selection, and the model/effort key hint.
@@ -41,13 +41,6 @@ pub enum ModelPickerAction {
     Cancel,
     /// Navigation, filtering, or effort editing only.
     None,
-}
-
-/// The outcome of dispatching a model-picker command with an optional search.
-#[derive(Debug)]
-pub(crate) enum ModelCommandOutcome {
-    /// Open the picker over the catalog.
-    Open(Box<ModelPicker>),
 }
 
 /// The catalog snapshot plus the client state the picker needs (TS
@@ -849,18 +842,6 @@ impl ModelPicker {
 }
 
 impl ModelPicker {
-    /// Dispatch a model-picker command with `current` checked and `search`
-    /// prefilled. TS `handleModelCommand` always opens the menu -- an empty
-    /// catalog renders the empty panel (the no-match row), never a note.
-    pub(crate) fn open(options: ModelPickerOptions, search: &str) -> ModelCommandOutcome {
-        let mut picker = ModelPicker::new(options);
-        let search = search.trim();
-        if !search.is_empty() {
-            picker.set_query(search);
-        }
-        ModelCommandOutcome::Open(Box::new(picker))
-    }
-
     /// A bracketed paste into the search field (TS `Input.handleInput`
     /// paste branch: newlines stripped, tabs expanded).
     pub fn paste(&mut self, text: &str) {

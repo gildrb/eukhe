@@ -10,6 +10,7 @@ use super::{
 };
 use crate::glyphs::WARN;
 use crate::workflow_size_picker;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::workflow::WorkflowSize;
 
 impl SessionUi {
@@ -205,28 +206,24 @@ impl SessionUi {
                     }
                 }
             }
-            // `/model` opens the model picker (menu-only: the TS
-            // `handleModelCommand` inline-arg form -- an exact match applies
-            // directly, anything else prefills the search -- is deliberately
-            // removed; a partial + Tab opens the picker filtered instead,
-            // and a submitted argument is the usage error).
+            // `/model` opens the role hub; `/model <role>` opens it at
+            // that role's models; anything else is the usage error.
             "model" => {
-                if !resolved.args.trim().is_empty() {
+                let role = resolved.args.trim();
+                if role.is_empty() {
+                    self.open_model_hub(view, None).await?;
+                } else if let Some(role) = ModelRole::from_id(role) {
+                    self.open_model_hub(view, Some(role)).await?;
+                } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
-                    self.error_row("Usage: /model (Tab filters the picker)", view);
+                    let roles: Vec<&str> = ModelRole::ALL.iter().map(|role| role.id()).collect();
+                    self.error_row(&format!("Usage: /model [{}]", roles.join("|")), view);
                     return Ok(());
                 }
-                self.open_model_picker(view, "").await?;
             }
             "memory-model" => {
-                if !resolved.args.trim().is_empty() {
-                    view.editor
-                        .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
-                    self.error_row("Usage: /memory-model (Tab filters the picker)", view);
-                    return Ok(());
-                }
-                self.open_memory_model_picker(view, "").await?;
+                self.open_model_hub(view, Some(ModelRole::Memory)).await?;
             }
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model

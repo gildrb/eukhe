@@ -79,7 +79,7 @@ Optional, global only (`~/.eukhe/settings.json`); project settings cannot set `g
 |`allow`|`[]`|Numbers or ACIs allowed to send; Note to Self always accepted|
 |`cliPath`|`signal-cli` on `PATH`|signal-cli executable|
 |`cwd`|`$HOME`|Folder of a new session|
-|`model`|The session model|Model for Signal messages (`provider/model-id`, see `eukhe model list`)|
+|`model`|The session model|Model for Signal messages (`provider/model-id`, see `eukhe model list`); `/model gateway` sets or clears it ([settings.md](settings.md#model-roles))|
 
 `--daemon-socket <path>`: daemon on another socket.
 
@@ -88,7 +88,7 @@ Optional, global only (`~/.eukhe/settings.json`); project settings cannot set `g
 `model` runs Signal messages on one model, e.g. a local one.
 
 - Before each Signal message, the gateway switches the session to `model` if different; the shared CLI then uses it too.
-- The switch also makes `model` the default, as CLI `/model` does.
+- The switch also makes `model` the default, as the `chat` role of CLI `/model` does.
 - Switch fails (unknown model, provider not signed in): message not sent; Signal gets `Error: ...`.
 - `/status` shows the session's model.
 

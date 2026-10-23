@@ -188,8 +188,8 @@ impl SessionUi {
         // The `/model` picker owns the frame while open: every key goes to
         // it, before the editor, the viewport keys, or Ctrl+C (which
         // cancels the picker instead of aborting a turn).
-        if view.model_picker.is_some() {
-            return self.handle_model_picker_key(key, view).await;
+        if view.model_hub.is_some() {
+            return self.handle_model_hub_key(key, view).await;
         }
         // The `/effort` picker owns the frame the same way.
         if view.effort_picker.is_some() {
@@ -570,20 +570,15 @@ impl SessionUi {
             return Ok(());
         }
         // TS `app.model.select` (default ctrl+l, `showModelSelector`):
-        // the same surface `/model` opens (TS registers it between the
-        // suspend and the detail actions).
+        // the hub `/model` opens (TS registers it between the suspend and
+        // the detail actions). The hub never touches the editor, so a
+        // draft stays.
         if view.editor.keybindings().matches(&id, "app.model.select") {
-            // The picker takes the frame: a completion request parked by
+            // The hub takes the frame: a completion request parked by
             // this same press must not materialize a dropdown over the
-            // picker on the next idle tick (the Tab path's cancel; TS's
-            // selector mounts without the editor's dropdown).
+            // hub on the next idle tick.
             view.editor.cancel_autocomplete();
-            self.open_model_picker(view, "").await?;
-            // The key opens the picker over the user's own text (a draft
-            // or a browsed queued message), so the picker's apply must
-            // keep it -- the Tab path's flag truth, not a typed-command
-            // partial (TS's selector never touches the editor).
-            self.picker_restored_draft = true;
+            self.open_model_hub(view, None).await?;
             self.dirty = true;
             return Ok(());
         }
@@ -827,11 +822,10 @@ impl SessionUi {
             return Ok(());
         }
         // Tab in a picker-command argument context opens that command's
-        // menu prefilled with the typed partial: `/model <partial>` Tab
-        // opens the model picker filtered to the match, `/mcp <partial>`
-        // Tab the connections view filtered. The menu-only commands have
-        // no typed-arg execution, so the partial's only destination is the
-        // picker's filter. An open completion dropdown keeps its own Tab
+        // menu prefilled with the typed partial: `/mcp <partial>` Tab the
+        // connections view filtered. The menu-only command has no
+        // typed-arg execution, so the partial's only destination is the
+        // menu's filter. An open completion dropdown keeps its own Tab
         // (apply the selection); the interception is the no-menu path.
         if view.editor.keybindings().matches(&id, "tui.input.tab")
             && !view.editor.is_showing_autocomplete()
@@ -850,7 +844,7 @@ impl SessionUi {
                 // other leave-browse path (Esc, an applied queue edit), so
                 // the editor never strands the browsed message's text and
                 // a failed menu open loses nothing: the draft returns.
-                if matches!(command.as_str(), "model" | "memory-model" | "mcp") {
+                if command == "mcp" {
                     if self.queue_selection.has_draft() {
                         let draft = self.queue_selection.reset();
                         view.editor.set_text(&draft);
@@ -859,42 +853,17 @@ impl SessionUi {
                         self.queue_selection.reset();
                     }
                     self.sync_queue_selection(view);
-                }
-                match command.as_str() {
-                    "model" => {
-                        self.open_model_picker(view, partial.trim()).await?;
-                        // The flag belongs to the mounted picker: the
-                        // model picker always mounts here, so a guard is
-                        // belt-and-braces, but the failed-open contract
-                        // stays symmetric with the mcp arm.
-                        if view.model_picker.is_none() {
-                            self.picker_restored_draft = false;
-                        }
-                        self.dirty = true;
-                        return Ok(());
+                    self.open_mcp_view("/mcp", view, partial.trim()).await?;
+                    // A failed roster load leaves no view mounted: the
+                    // editor keeps the restored draft (nothing lost), but
+                    // the flag must not leak into the NEXT picker -- its
+                    // clear-on-apply semantics belong to the typed
+                    // partial, not this draft.
+                    if view.mcp_view.is_none() {
+                        self.picker_restored_draft = false;
                     }
-                    "memory-model" => {
-                        self.open_memory_model_picker(view, partial.trim()).await?;
-                        if view.model_picker.is_none() {
-                            self.picker_restored_draft = false;
-                        }
-                        self.dirty = true;
-                        return Ok(());
-                    }
-                    "mcp" => {
-                        self.open_mcp_view("/mcp", view, partial.trim()).await?;
-                        // A failed roster load leaves no view mounted:
-                        // the editor keeps the restored draft (nothing
-                        // lost), but the flag must not leak into the NEXT
-                        // picker -- its clear-on-apply semantics belong to
-                        // the typed partial, not this draft.
-                        if view.mcp_view.is_none() {
-                            self.picker_restored_draft = false;
-                        }
-                        self.dirty = true;
-                        return Ok(());
-                    }
-                    _ => {}
+                    self.dirty = true;
+                    return Ok(());
                 }
             }
         }

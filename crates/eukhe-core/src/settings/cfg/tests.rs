@@ -326,3 +326,75 @@ fn a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse() {
     assert!(manager.set_theme("light".to_string()).is_err());
     assert_eq!(std::fs::read_to_string(&path).expect("read"), broken);
 }
+
+/// The scope that sets a cvar: the global config.cfg over the global
+/// settings.json, the project settings.json for a Local key it holds,
+/// nothing for an unset key.
+#[test]
+fn config_scope_names_the_file_that_sets_the_cvar() {
+    use crate::settings::cvar::table;
+    let store = storage(
+        r#"{ "memory": { "model": "a/b" }, "auxiliaryModel": "g/h" }"#,
+        &[(
+            SettingsScope::Global,
+            "config.cfg",
+            "set memory.model c/d\n",
+        )],
+    );
+    store
+        .with_lock(SettingsScope::Project, &mut |_| {
+            Some(r#"{ "modelRoles": { "tiny": "local/lfm2.5-230m" } }"#.to_string())
+        })
+        .expect("project settings.json");
+    let manager = SettingsManager::from_storage(store);
+    assert_eq!(
+        [
+            &table::MEMORY_MODEL,
+            &table::AUXILIARY_MODEL,
+            &table::MODEL_ROLE_TINY,
+            &table::IMAGE_MODEL,
+        ]
+        .map(|decl| manager.config_scope(decl)),
+        [
+            Some(SettingsScope::Global),
+            Some(SettingsScope::Global),
+            Some(SettingsScope::Project),
+            None,
+        ]
+    );
+}
+
+/// Clearing a global cvar takes its key out of the global settings.json
+/// and its sets out of the global config.cfg (a line's other commands
+/// stay); the default applies at once.
+#[test]
+fn clear_global_unsets_the_cvar_in_both_global_files() {
+    use crate::settings::cvar::table;
+    let store = storage(
+        r#"{ "memory": { "model": "a/b", "thinking": "high" } }"#,
+        &[(
+            SettingsScope::Global,
+            "config.cfg",
+            "# mine\nset memory.model c/d; set theme dark\n",
+        )],
+    );
+    let mut manager = SettingsManager::from_storage(Arc::clone(&store));
+    assert_eq!(manager.get_memory_model().as_deref(), Some("c/d"));
+    manager
+        .clear_global(&[&table::MEMORY_MODEL])
+        .expect("clear");
+    assert_eq!(
+        (
+            manager.get_memory_model(),
+            manager.config_scope(&table::MEMORY_MODEL),
+            store
+                .read_cfg(SettingsScope::Global, "config.cfg")
+                .expect("read"),
+        ),
+        (None, None, Some("# mine\nset theme dark\n".to_string()))
+    );
+    assert_eq!(
+        manager.get_memory_thinking(),
+        crate::settings::ThinkingLevelSetting::High
+    );
+}

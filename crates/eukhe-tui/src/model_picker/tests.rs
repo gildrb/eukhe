@@ -569,17 +569,10 @@ fn the_sorted_order_matches_the_ts_chain() {
 fn an_empty_catalog_opens_the_empty_panel() {
     // TS `handleModelCommand` opens the menu regardless: an empty
     // catalog renders the bordered field and the no-match row.
-    let ModelCommandOutcome::Open(mut picker) = ModelPicker::open(picker_options(Vec::new()), "");
+    let mut picker = ModelPicker::new(picker_options(Vec::new()));
     let rows = frame_text(&mut picker);
     assert_eq!(rows[1], " >  Search models");
     assert!(rows.iter().any(|row| row == "  No matching models"));
-}
-
-#[test]
-fn dispatch_opens_the_picker_with_the_prefilled_search() {
-    let ModelCommandOutcome::Open(picker) =
-        ModelPicker::open(picker_options(battery_catalog()), " haiku ");
-    assert_eq!(picker.query(), "haiku");
 }
 
 #[test]

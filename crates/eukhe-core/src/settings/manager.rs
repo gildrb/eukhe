@@ -9,12 +9,12 @@ use eukhe_types::cvar::{Aliases, Binds, Command};
 use serde_json::{Map, Value};
 
 use super::cfg::{
-    cfg_error, config_layer, global_list, replace_sets, run_script, ConfigBounds, CONFIG_CFG,
-    SETTINGS_JSON,
+    cfg_error, config_layer, global_list, remove_sets, replace_sets, run_script, ConfigBounds,
+    CONFIG_CFG, SETTINGS_JSON,
 };
 use super::cvar::{
-    document_sets, registry, table, value_text, AgentLayer, CvarError, CvarWriteError, Cvars, Decl,
-    LayerKind, Sets, Target,
+    document_sets, registry, table, value_text, AgentLayer, CvarError, CvarScope, CvarWriteError,
+    Cvars, Decl, LayerKind, Sets, Target,
 };
 use super::load::load_document;
 use super::merge::{deep_merge, migrate};
@@ -344,6 +344,73 @@ impl SettingsManager {
         Ok(())
     }
 
+    /// The scope whose file sets cvar `decl` last in the config layer:
+    /// the project `config.cfg`, the global `config.cfg`, or a
+    /// `settings.json` (the project's when it holds the key of a Local
+    /// cvar, else the global one); `None` when no file sets it (the
+    /// default applies).
+    #[must_use]
+    pub fn config_scope(&self, decl: &Decl) -> Option<SettingsScope> {
+        let at = self
+            .cvars
+            .config()
+            .0
+            .iter()
+            .rposition(|set| set.id == decl.id)?;
+        if at >= self.bounds.global_cfg {
+            return Some(SettingsScope::Project);
+        }
+        if at >= self.bounds.document {
+            return Some(SettingsScope::Global);
+        }
+        let in_project = match decl.scope {
+            CvarScope::Global => false,
+            CvarScope::Local => serde_json::to_value(&self.project)
+                .ok()
+                .as_ref()
+                .and_then(|project| {
+                    decl.id
+                        .split('.')
+                        .try_fold(project, |node, key| node.get(key))
+                })
+                .is_some_and(|value| !value.is_null()),
+        };
+        Some(if in_project {
+            SettingsScope::Project
+        } else {
+            SettingsScope::Global
+        })
+    }
+
+    /// Unset cvars `decls` in the global layer: their keys leave the
+    /// global `settings.json` and their sets and toggles leave the global
+    /// `config.cfg` (each file under its lock); then the config layer is
+    /// rebuilt, so a project's value or the default applies.
+    ///
+    /// # Errors
+    ///
+    /// A file cannot be locked, read, parsed or written.
+    pub fn clear_global(&mut self, decls: &[&Decl]) -> Result<()> {
+        self.write_scope(SettingsScope::Global, &mut |document| {
+            let mut changed = false;
+            for decl in decls {
+                let path: Vec<&str> = decl.id.split('.').collect();
+                changed |= edit_path(document, &path, KeyEdit::Remove)?.is_some();
+            }
+            Ok(changed)
+        })?;
+        let ids: Vec<&str> = decls.iter().map(|decl| decl.id).collect();
+        self.storage
+            .with_cfg_lock(SettingsScope::Global, CONFIG_CFG, &mut |current| {
+                let text = current?;
+                let kept = remove_sets(&text, &ids);
+                (kept != text).then_some(kept)
+            })
+            .map_err(|error| anyhow!("Global config.cfg not saved: {error:#}"))?;
+        self.rebuild_cvars();
+        Ok(())
+    }
+
     /// Write `sets` into agent `name`'s profile (`agents/<name>.cfg` in
     /// the global scope): each replaces the line of its cvar, every other
     /// line stays. The read and the write hold the file's lock.
@@ -603,49 +670,6 @@ impl SettingsManager {
         Ok(self.persisted(&[
             (&table::DEFAULT_PROVIDER, &Value::from(provider)),
             (&table::DEFAULT_MODEL, &Value::from(model)),
-        ]))
-    }
-
-    /// Persist `memory.model` globally as an exact `provider/model-id`
-    /// selector; the compactor's other memory settings stay.
-    ///
-    /// # Errors
-    ///
-    /// The global settings file cannot be read, parsed or written.
-    pub fn set_memory_model(&mut self, provider: &str, model_id: &str) -> Result<Persisted> {
-        self.set_global_cvar(
-            &table::MEMORY_MODEL,
-            &Value::from(format!("{provider}/{model_id}")),
-        )
-    }
-
-    /// Persist `memory.model` and `memory.thinking` (the compactor's
-    /// reasoning effort) globally in one write; the compactor's other
-    /// memory settings stay.
-    ///
-    /// # Errors
-    ///
-    /// The global settings file cannot be read, parsed or written.
-    pub fn set_memory_model_with_thinking(
-        &mut self,
-        provider: &str,
-        model_id: &str,
-        thinking: ThinkingLevelSetting,
-    ) -> Result<Persisted> {
-        let model = Value::from(format!("{provider}/{model_id}"));
-        let thinking = Value::from(thinking.model_level().wire_name());
-        self.write_scope(SettingsScope::Global, &mut |document| {
-            edit_path(document, &["memory", "model"], KeyEdit::Set(model.clone()))?;
-            edit_path(
-                document,
-                &["memory", "thinking"],
-                KeyEdit::Set(thinking.clone()),
-            )?;
-            Ok(true)
-        })?;
-        Ok(self.persisted(&[
-            (&table::MEMORY_MODEL, &model),
-            (&table::MEMORY_THINKING, &thinking),
         ]))
     }
 

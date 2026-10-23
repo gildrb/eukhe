@@ -6,6 +6,50 @@
 //! persists the global scope (TS `markModified` + `save`).
 
 use anyhow::Result;
+use eukhe_types::model_roles::ModelRole;
+
+/// Where a model role's value comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelRoleSource {
+    /// No file sets it: the role's fallback applies.
+    Unset,
+    /// The global settings (`settings.json` or `config.cfg`).
+    Global,
+    /// The project's settings (they win over the global ones).
+    Project,
+}
+
+/// A model role's value as the settings resolve it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRoleValue {
+    /// The selector that is set (`provider/id`, `local/<id>`); `None`
+    /// when unset.
+    pub selector: Option<String>,
+    pub source: ModelRoleSource,
+    /// What runs while the role is unset (`session model`, the model a
+    /// local role's chain picks, ...).
+    pub fallback: String,
+    /// The reasoning effort of a role that keeps one (`memory`).
+    pub thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
+}
+
+/// A local catalog model that serves a role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalRoleModel {
+    /// The id after `local/` in the selector.
+    pub id: String,
+    pub title: String,
+    /// Its files are downloaded (`eukhe tiny-models download`).
+    pub installed: bool,
+}
+
+/// What a local role accepts: its catalog models, and whether a provider
+/// (text) model serves it too.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalRoleChoices {
+    pub models: Vec<LocalRoleModel>,
+    pub takes_remote: bool,
+}
 
 pub trait ClientSettings: Send + Sync {
     /// `theme` (TS `getTheme`/`setTheme`).
@@ -100,38 +144,43 @@ pub trait ClientSettings: Send + Sync {
     /// unset by default). Read-only for the paste-time hint that names the
     /// setting when the session model lacks image input.
     fn image_model(&self) -> Option<String>;
-    /// `memory.model` (global compaction-model selector), as
-    /// `"provider/model-id"` or unset.
-    fn memory_model(&self) -> Option<String> {
+    /// The value of model role `role` as the settings resolve it;
+    /// `session_model` (`provider/id`, empty: none) is the session's model
+    /// the role's fallback may name. `None` without a settings store.
+    fn model_role(&self, _role: ModelRole, _session_model: &str) -> Option<ModelRoleValue> {
         None
     }
-    /// Persists the compaction model globally as exact provider/id parts.
+    /// Persists `selector` (`provider/id`, or `local/<id>` for a local
+    /// role) as model role `role` globally (the `/set --global` path),
+    /// with `thinking` for a role that takes a reasoning effort. The
+    /// `chat` role switches through the session, never here.
     ///
     /// # Errors
     ///
-    /// Returns `Err` when opening or persisting the settings store fails.
-    fn set_memory_model(&self, _provider: &str, _model_id: &str) -> Result<()> {
-        anyhow::bail!("Memory model settings are unavailable")
-    }
-    /// `memory.thinking`: the compactor's reasoning effort as the settings
-    /// resolve it (their default when unset); `None` without a settings
-    /// store.
-    fn memory_thinking(&self) -> Option<eukhe_types::ai::ModelThinkingLevel> {
-        None
-    }
-    /// Persists the compaction model and its reasoning effort globally in
-    /// one write.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` when opening or persisting the settings store fails.
-    fn set_memory_model_with_thinking(
+    /// Returns `Err` for the `chat` role, a role that takes no thinking
+    /// given one, or when opening or persisting the settings store fails.
+    fn set_model_role(
         &self,
-        _provider: &str,
-        _model_id: &str,
-        _thinking: eukhe_types::ai::ModelThinkingLevel,
+        _role: ModelRole,
+        _selector: &str,
+        _thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
     ) -> Result<()> {
-        anyhow::bail!("Memory model settings are unavailable")
+        anyhow::bail!("Model role settings are unavailable")
+    }
+    /// Unsets model role `role` in the global settings: the role falls
+    /// back to its default chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` for the `chat` role (the session always holds a
+    /// model), or when opening or persisting the settings store fails.
+    fn clear_model_role(&self, _role: ModelRole) -> Result<()> {
+        anyhow::bail!("Model role settings are unavailable")
+    }
+    /// What local role `role` accepts (nothing for a role outside the
+    /// local group).
+    fn local_role_choices(&self, _role: ModelRole) -> LocalRoleChoices {
+        LocalRoleChoices::default()
     }
     /// `enableSkillCommands` (TS default true).
     fn enable_skill_commands(&self) -> bool;

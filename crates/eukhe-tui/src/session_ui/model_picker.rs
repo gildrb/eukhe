@@ -1,12 +1,15 @@
-//! The model-picker concern: the `/model` catalog's TTL-gated refresh
-//! and landed-catalog fold, the picker's open/key handling, and the
-//! model/thinking-level application paths.
+//! The model concern: the `/model` hub's open/key handling and its role
+//! writes, the model catalog's TTL-gated refresh and landed-catalog fold,
+//! and the model/thinking-level application paths.
 use super::{
     key_event_to_id, streaming_tray_hint, AgentView, ChatEntry, CurrentModel, CycleDirection,
-    DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerAction, ModelPickerOptions,
-    ModelSelectionApplied, Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
+    DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerOptions, ModelSelectionApplied,
+    Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::WARN;
+use crate::model_hub::{local_choice_items, ModelHub, ModelHubAction, RoleRow};
+use eukhe_types::ai::{CatalogModel, ModelInput, ModelThinkingLevel};
+use eukhe_types::model_roles::{ModelRole, ModelRoleGroup};
 use serde_json::Value;
 
 /// How long a fetched model catalog stays fresh (TS
@@ -20,12 +23,6 @@ const MODEL_CATALOG_REFRESH_TTL: std::time::Duration = std::time::Duration::from
 pub(crate) struct ModelCatalogUpdate {
     pub models: Vec<eukhe_types::ai::CatalogModel>,
     pub configured_providers: std::collections::HashSet<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ModelPickerTarget {
-    ChatModel,
-    MemoryModel,
 }
 
 impl SessionUi {
@@ -44,65 +41,120 @@ impl SessionUi {
         )
     }
 
-    /// Open the `/model` picker over the cached catalog, its search
-    /// prefilled with `search` (the Tab-intercepted partial; empty for the
-    /// bare command). A refresh fires in the background when the snapshot
-    /// is stale (forced when a search rides the open) and lands into the
-    /// open picker.
-    pub(super) async fn open_model_picker(
+    /// Open the `/model` hub (TS `showModelSelector` -> the model hub) on
+    /// its roles, or at `role`'s model step. A stale catalog refreshes in
+    /// the background and lands in the open hub.
+    pub(crate) async fn open_model_hub(
         &mut self,
         view: &mut AgentView,
-        search: &str,
+        role: Option<ModelRole>,
     ) -> Result<()> {
-        self.open_model_picker_for(ModelPickerTarget::ChatModel, view, search)
-            .await
+        let rows = self.model_role_rows(view);
+        view.model_hub = Some(ModelHub::new(
+            rows,
+            picker_viewport_rows(view.terminal_rows()),
+        ));
+        if let Some(role) = role {
+            self.open_role_models(role, view).await;
+        }
+        if self.model_refresh_due(false) {
+            self.spawn_model_catalog_refresh();
+        }
+        self.dirty = true;
+        Ok(())
     }
 
-    pub(super) async fn open_memory_model_picker(
-        &mut self,
-        view: &mut AgentView,
-        search: &str,
-    ) -> Result<()> {
-        self.open_model_picker_for(ModelPickerTarget::MemoryModel, view, search)
-            .await
+    /// The session's model as a `provider/id` selector (empty: none).
+    fn session_model_selector(view: &AgentView) -> String {
+        match (
+            view.chrome.model_provider.as_deref(),
+            view.chrome.model_id.as_deref(),
+        ) {
+            (Some(provider), Some(model_id)) => format!("{provider}/{model_id}"),
+            (None, Some(model_id)) => model_id.to_owned(),
+            (Some(_) | None, None) => String::new(),
+        }
     }
 
-    async fn open_model_picker_for(
-        &mut self,
-        target: ModelPickerTarget,
-        view: &mut AgentView,
-        search: &str,
-    ) -> Result<()> {
-        let current = match target {
-            ModelPickerTarget::ChatModel => self.current_model(view),
-            ModelPickerTarget::MemoryModel => self
-                .client_settings
-                .as_ref()
-                .and_then(|settings| settings.memory_model())
-                .and_then(|selector| current_model_from_selector(&selector)),
-        };
-        self.model_picker_target = Some(target);
-        // The memory picker always shows the full catalog and seeds its
-        // effort from `memory.thinking`, so it needs neither the session's
-        // scope nor its thinking state.
-        let state = if target == ModelPickerTarget::ChatModel {
-            self.connection_state(view).await
-        } else {
-            None
-        };
-        let thinking_level = match target {
-            ModelPickerTarget::ChatModel => {
-                self.picker_initial_thinking_level(current.as_ref(), state.as_ref())
+    /// The hub's rows: the live session model for `chat`, every other
+    /// role as the settings resolve it.
+    fn model_role_rows(&self, view: &AgentView) -> Vec<RoleRow> {
+        let session = Self::session_model_selector(view);
+        ModelRole::ALL
+            .into_iter()
+            .map(|role| {
+                if role == ModelRole::Chat {
+                    return RoleRow::chat((!session.is_empty()).then(|| session.clone()));
+                }
+                match self
+                    .client_settings
+                    .as_ref()
+                    .and_then(|settings| settings.model_role(role, &session))
+                {
+                    Some(value) => RoleRow::from_value(role, &value),
+                    None => RoleRow {
+                        role,
+                        value: "settings unavailable".to_owned(),
+                        source: "",
+                        set: false,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// Open `role`'s model step in the hub: the model picker over the
+    /// models a chat-group role accepts, the choice list of a local role.
+    async fn open_role_models(&mut self, role: ModelRole, view: &mut AgentView) {
+        match role.group() {
+            ModelRoleGroup::Chat => {
+                let picker = self.role_picker(role, view).await;
+                if let Some(hub) = view.model_hub.as_mut() {
+                    hub.open_models(role, picker);
+                }
             }
-            ModelPickerTarget::MemoryModel => self
-                .client_settings
-                .as_ref()
-                .and_then(|settings| settings.memory_thinking()),
-        };
-        // TS `getScopedModelState`: the session's scoped list as `provider/id` keys;
-        // the picker resolves them against its loaded catalog.
-        let scoped_models: Vec<String> = if target == ModelPickerTarget::ChatModel {
-            state
+            ModelRoleGroup::Local => {
+                let Some(settings) = self.client_settings.clone() else {
+                    self.error_row("Settings are not available in this client", view);
+                    return;
+                };
+                let remote: Vec<(String, String)> = self
+                    .model_catalog
+                    .iter()
+                    .filter(|entry| {
+                        self.model_configured_providers
+                            .contains(&entry.model.provider)
+                    })
+                    .map(|entry| (entry.model.provider.clone(), entry.model.id.clone()))
+                    .collect();
+                let items = local_choice_items(&settings.local_role_choices(role), &remote);
+                let current = settings
+                    .model_role(role, "")
+                    .and_then(|value| value.selector);
+                if let Some(hub) = view.model_hub.as_mut() {
+                    hub.open_choices(role, items, current.as_deref());
+                }
+            }
+        }
+    }
+
+    /// The model picker of a chat-group role. `chat` opens over the
+    /// session (its model current, its scoped list, its effort); every
+    /// other role over the models it accepts, its setting current.
+    async fn role_picker(&mut self, role: ModelRole, view: &mut AgentView) -> ModelPicker {
+        // One row of the viewport carries the hub's title.
+        let viewport_rows = picker_viewport_rows(view.terminal_rows())
+            .saturating_sub(1)
+            .max(1);
+        if role == ModelRole::Chat {
+            let current = self.current_model(view);
+            let state = self.connection_state(view).await;
+            let thinking_level =
+                self.picker_initial_thinking_level(current.as_ref(), state.as_ref());
+            // TS `getScopedModelState`: the session's scoped list as
+            // `provider/id` keys; the picker resolves them against its
+            // loaded catalog.
+            let scoped_models: Vec<String> = state
                 .as_ref()
                 .and_then(|state| state.get("scopedModels"))
                 .and_then(Value::as_array)
@@ -118,30 +170,33 @@ impl SessionUi {
                         })
                         .collect()
                 })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let options = ModelPickerOptions {
-            models: self.model_catalog.clone(),
-            current,
+                .unwrap_or_default();
+            return ModelPicker::new(ModelPickerOptions {
+                models: self.model_catalog.clone(),
+                current,
+                configured_providers: self.model_configured_providers.clone(),
+                recent_models: self.model_recent_models.clone(),
+                thinking_level,
+                scoped_models,
+                viewport_rows,
+            });
+        }
+        let value = self
+            .client_settings
+            .as_ref()
+            .and_then(|settings| settings.model_role(role, &Self::session_model_selector(view)));
+        ModelPicker::new(ModelPickerOptions {
+            models: role_catalog(role, &self.model_catalog),
+            current: value
+                .as_ref()
+                .and_then(|value| value.selector.as_deref())
+                .and_then(current_model_from_selector),
             configured_providers: self.model_configured_providers.clone(),
             recent_models: self.model_recent_models.clone(),
-            thinking_level,
-            scoped_models,
-            viewport_rows: picker_viewport_rows(view.terminal_rows()),
-        };
-        // TS `handleModelCommand` always opens the menu (an empty catalog
-        // renders the empty panel).
-        let outcome = ModelPicker::open(options, search);
-        let crate::model_picker::ModelCommandOutcome::Open(picker) = outcome;
-        view.model_picker = Some(*picker);
-        // TS `refreshModels(initialModelSearch !== undefined)`.
-        let force = !search.trim().is_empty();
-        if self.model_refresh_due(force) {
-            self.spawn_model_catalog_refresh();
-        }
-        Ok(())
+            thinking_level: value.and_then(|value| value.thinking),
+            scoped_models: Vec::new(),
+            viewport_rows,
+        })
     }
 
     /// The tray override label (TS `getTrayOverrideLabel`): the Ctrl+C
@@ -166,9 +221,8 @@ impl SessionUi {
         )
     }
 
-    /// One key press while the `/model` picker is open: Esc/Ctrl+C close
-    /// it without applying; Enter applies the selection.
-    pub(super) async fn handle_model_picker_key(
+    /// One key press while the `/model` hub is open.
+    pub(super) async fn handle_model_hub_key(
         &mut self,
         key: KeyEvent,
         view: &mut AgentView,
@@ -176,75 +230,74 @@ impl SessionUi {
         let Some(id) = key_event_to_id(&key) else {
             return Ok(());
         };
-        // The picker consumes Ctrl+C (close, not exit): report the handled
-        // press so the force-quit guard can disarm once the whole pair was
-        // consumed with TS semantics.
+        // The hub consumes Ctrl+C (back or close, not exit): report the
+        // handled press so the force-quit guard can disarm once the whole
+        // pair was consumed with TS semantics.
         if id == "ctrl+c" {
             self.exit_guard.note_ctrl_c_handled();
         }
-        let action = view
-            .model_picker
-            .as_mut()
-            .map(|picker| picker.handle_key(&id, view.editor.keybindings()));
-        match action {
-            Some(ModelPickerAction::None) | None => {}
-            Some(ModelPickerAction::Cancel) => {
-                view.model_picker = None;
-                self.model_picker_target = None;
-                self.picker_restored_draft = false;
-                self.dirty = true;
-            }
-            Some(ModelPickerAction::Apply(applied)) => {
-                view.model_picker = None;
-                let target = self
-                    .model_picker_target
-                    .take()
-                    .unwrap_or(ModelPickerTarget::ChatModel);
-                // The Tab path leaves the typed command behind in the editor;
-                // applying fulfills it. A restored queue draft belongs to
-                // the user and remains untouched.
-                if self.picker_restored_draft {
-                    self.picker_restored_draft = false;
-                } else {
-                    view.editor.set_text("");
-                }
-                match target {
-                    ModelPickerTarget::MemoryModel => {
-                        self.apply_memory_model(&applied, view);
-                    }
-                    ModelPickerTarget::ChatModel => {
-                        // The daemon is the source of truth: the switch
-                        // routes an unauthenticated provider to the existing
-                        // sign-in flow.
-                        match self
-                            .try_set_model(&applied.provider, &applied.model_id, view)
-                            .await
-                        {
-                            SetModelOutcome::Switched => {
-                                if let Some(level) = &applied.effort {
-                                    self.apply_thinking_level(level, view).await;
-                                }
-                            }
-                            SetModelOutcome::NeedsSignIn => {
-                                self.begin_model_sign_in(&applied, view).await;
-                            }
-                            SetModelOutcome::Failed => {}
-                        }
-                    }
-                }
+        let Some(hub) = view.model_hub.as_mut() else {
+            return Ok(());
+        };
+        match hub.handle_key(&id, view.editor.keybindings()) {
+            ModelHubAction::None => {}
+            ModelHubAction::Close => view.model_hub = None,
+            ModelHubAction::Choose(role) => self.open_role_models(role, view).await,
+            ModelHubAction::Clear(role) => self.clear_model_role(role, view),
+            ModelHubAction::Assign { role, selection } => {
+                self.assign_model_role(role, &selection, view).await;
             }
         }
         self.update_model_eligibility_filters(view);
+        self.dirty = true;
         Ok(())
     }
 
-    /// Save a picked memory model (`memory.model`) and, when the user moved
-    /// its effort, that effort (`memory.thinking`) in the same write; an
-    /// untouched effort keeps the saved one.
-    fn apply_memory_model(&mut self, applied: &ModelSelectionApplied, view: &mut AgentView) {
+    /// Assign a picked model to `role`, then show the roles again. `chat`
+    /// switches the live session (the daemon saves it as the default; an
+    /// unauthenticated provider routes to the sign-in flow); every other
+    /// role is saved globally.
+    async fn assign_model_role(
+        &mut self,
+        role: ModelRole,
+        applied: &ModelSelectionApplied,
+        view: &mut AgentView,
+    ) {
+        if role == ModelRole::Chat {
+            match self
+                .try_set_model(&applied.provider, &applied.model_id, view)
+                .await
+            {
+                SetModelOutcome::Switched => {
+                    if let Some(level) = &applied.effort {
+                        self.apply_thinking_level(level, view).await;
+                    }
+                }
+                SetModelOutcome::NeedsSignIn => {
+                    view.model_hub = None;
+                    self.begin_model_sign_in(applied, view).await;
+                    return;
+                }
+                SetModelOutcome::Failed => {}
+            }
+        } else {
+            self.save_model_role(role, applied, view);
+        }
+        self.show_model_roles(view);
+    }
+
+    /// Save a picked model as `role` globally, with the effort the user
+    /// moved (an untouched effort keeps the saved one).
+    fn save_model_role(
+        &mut self,
+        role: ModelRole,
+        applied: &ModelSelectionApplied,
+        view: &mut AgentView,
+    ) {
+        let label = role.label();
         let Some(settings) = self.client_settings.clone() else {
             self.error_row(
-                "Could not save memory model: Settings are unavailable",
+                &format!("Could not save the {label} model: Settings are unavailable"),
                 view,
             );
             return;
@@ -252,9 +305,9 @@ impl SessionUi {
         let effort = match applied.effort.as_deref() {
             None => None,
             Some(name) => {
-                let Some(level) = eukhe_types::ai::ModelThinkingLevel::parse(name) else {
+                let Some(level) = ModelThinkingLevel::parse(name) else {
                     self.error_row(
-                        &format!("Could not save memory model: unknown effort {name}"),
+                        &format!("Could not save the {label} model: unknown effort {name}"),
                         view,
                     );
                     return;
@@ -262,25 +315,55 @@ impl SessionUi {
                 Some(level)
             }
         };
-        let (provider, model_id) = (&applied.provider, &applied.model_id);
-        let saved = match effort {
-            Some(level) => settings.set_memory_model_with_thinking(provider, model_id, level),
-            None => settings.set_memory_model(provider, model_id),
-        };
-        match (saved, effort) {
-            (Err(error), _) => {
-                self.error_row(&format!("Could not save memory model: {error}"), view);
-            }
-            (Ok(()), Some(level)) => self.note(
-                &format!(
-                    "Memory model set to {provider}/{model_id} ({} effort)",
-                    level.wire_name()
-                ),
+        let selector = format!("{}/{}", applied.provider, applied.model_id);
+        if let Err(error) = settings.set_model_role(role, &selector, effort) {
+            self.error_row(
+                &format!("Could not save the {label} model: {error:#}"),
                 view,
-            ),
-            (Ok(()), None) => {
-                self.note(&format!("Memory model set to {provider}/{model_id}"), view);
+            );
+            return;
+        }
+        let effort = effort
+            .map(|level| format!(" ({} effort)", level.wire_name()))
+            .unwrap_or_default();
+        self.note(
+            &format!("{label}: {selector}{effort}, saved globally"),
+            view,
+        );
+    }
+
+    /// Unset `role` globally: it falls back to its default chain.
+    fn clear_model_role(&mut self, role: ModelRole, view: &mut AgentView) {
+        let label = role.label();
+        let Some(settings) = self.client_settings.clone() else {
+            self.error_row(
+                &format!("Could not clear {label}: Settings are unavailable"),
+                view,
+            );
+            return;
+        };
+        if let Err(error) = settings.clear_model_role(role) {
+            self.error_row(&format!("Could not clear {label}: {error:#}"), view);
+        } else {
+            let fallback = settings
+                .model_role(role, &Self::session_model_selector(view))
+                .map(|value| value.fallback);
+            match fallback {
+                Some(fallback) => {
+                    self.note(&format!("{label}: cleared, runs on {fallback}"), view);
+                }
+                None => self.note(&format!("{label}: cleared"), view),
             }
+        }
+        self.show_model_roles(view);
+    }
+
+    /// Re-read the hub's rows and show the roles.
+    fn show_model_roles(&mut self, view: &mut AgentView) {
+        let rows = self.model_role_rows(view);
+        if let Some(hub) = view.model_hub.as_mut() {
+            hub.set_rows(rows);
+            hub.back_to_roles();
         }
     }
 
@@ -353,26 +436,34 @@ impl SessionUi {
             }
     }
 
-    /// Fold a landed catalog refresh into the session and any open picker
-    /// (TS `applyConnectionModelCatalog` + the menu's `updateModels`).
+    /// Fold a landed catalog refresh into the session and an open hub's
+    /// model picker (TS `applyConnectionModelCatalog` + the menu's
+    /// `updateModels`).
     pub(crate) fn apply_model_catalog(&mut self, update: ModelCatalogUpdate, view: &mut AgentView) {
         self.model_catalog = update.models;
         self.model_configured_providers = update.configured_providers;
         self.models_fetched_at = Some(std::time::Instant::now());
-        let current = match self.model_picker_target {
-            Some(ModelPickerTarget::MemoryModel) => self
-                .client_settings
-                .as_ref()
-                .and_then(|settings| settings.memory_model())
-                .and_then(|selector| current_model_from_selector(&selector)),
-            _ => self.current_model(view),
-        };
-        if let Some(picker) = view.model_picker.as_mut() {
-            picker.update_state(
-                current,
-                self.model_catalog.clone(),
-                self.model_configured_providers.clone(),
-            );
+        let role = view
+            .model_hub
+            .as_ref()
+            .and_then(ModelHub::step_role)
+            .filter(|role| role.group() == ModelRoleGroup::Chat);
+        if let Some(role) = role {
+            let current = if role == ModelRole::Chat {
+                self.current_model(view)
+            } else {
+                self.client_settings
+                    .as_ref()
+                    .and_then(|settings| {
+                        settings.model_role(role, &Self::session_model_selector(view))
+                    })
+                    .and_then(|value| value.selector)
+                    .and_then(|selector| current_model_from_selector(&selector))
+            };
+            let models = role_catalog(role, &self.model_catalog);
+            if let Some((_, picker)) = view.model_hub.as_mut().and_then(ModelHub::picker_mut) {
+                picker.update_state(current, models, self.model_configured_providers.clone());
+            }
         }
         self.update_model_eligibility_filters(view);
         self.dirty = true;
@@ -690,6 +781,36 @@ impl SessionUi {
         }
         self.dirty = true;
     }
+}
+
+/// The catalog models `role` (a chat-group role) accepts: an image-input
+/// model for `image`; the levels a model offers only where the role keeps
+/// a reasoning effort (`chat`, `memory`), so no other role shows the
+/// thinking strip.
+fn role_catalog(role: ModelRole, catalog: &[CatalogModel]) -> Vec<CatalogModel> {
+    let takes_thinking = match role {
+        ModelRole::Chat | ModelRole::Memory => true,
+        ModelRole::Auxiliary
+        | ModelRole::Image
+        | ModelRole::Subagent
+        | ModelRole::Gateway
+        | ModelRole::Titles
+        | ModelRole::Judge
+        | ModelRole::Translate
+        | ModelRole::Speech
+        | ModelRole::Dictation => false,
+    };
+    catalog
+        .iter()
+        .filter(|entry| role != ModelRole::Image || entry.model.input.contains(&ModelInput::Image))
+        .map(|entry| {
+            let mut entry = entry.clone();
+            if !takes_thinking {
+                entry.thinking_levels.clear();
+            }
+            entry
+        })
+        .collect()
 }
 
 /// The picker's viewport row budget (TS `showConfigurationMenu` passes

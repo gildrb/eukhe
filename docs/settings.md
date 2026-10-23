@@ -60,6 +60,29 @@ More settings:
 |`terminal.pinnedAgents`|`collapsed`|Agents block above the composer while a subagent or job runs: `off`, `collapsed` (three rows + `... N more`), `full`. Dock focused (Alt+A): Space expands/collapses; Enter (or Alt+A) opens the agents view|
 |`terminal.stuckAfterSecs`|`60`|Seconds without activity (event, token, tool output) before a running subagent's row shows `no activity for ...` in warning color; `0` off|
 
+## Model roles
+
+`/model` opens the role hub; `/model <role>` opens it at that role's models. Every pick is written to `~/.eukhe/config.cfg` (the `/set --global` path); `chat` instead switches the session (`set_model`), which saves `defaultProvider`/`defaultModel`.
+
+|Role|Key|Accepts|Unset falls back to|
+|---|---|---|---|
+|`chat`|`defaultProvider`/`defaultModel`|catalog models; thinking strip|built-in default model|
+|`memory`|`memory.model`, `memory.thinking`|catalog models; thinking strip|`auxiliaryModel`, then the session model|
+|`auxiliary`|`auxiliaryModel`|catalog models|session model|
+|`image`|`imageModel`|catalog models with image input|session model|
+|`subagent`|`subagentDefaultModel`|catalog models|parent's model|
+|`gateway`|`gateway.signal.model`|catalog models|gateway session's model|
+|`titles`|`modelRoles.tiny`|local models of the role; signed-in provider models|first available of its chain|
+|`judge`|`modelRoles.judge`|same as `titles`|same|
+|`translate`|`modelRoles.translate`|same as `titles`|same|
+|`speech`|`modelRoles.speech`|local models of the role|same|
+|`dictation`|`modelRoles.dictation`|local models of the role|same|
+
+- Row: role, source (`session`, `global`, `project`, `default`), model; unset shows `auto: <fallback>`.
+- Local role fallback: its chain without the primary ([local-models.md](local-models.md)), `pick` of `bend/tiny.bend`.
+- Keys: Up/Down move; typing searches; Enter opens the role's models, Enter there assigns; Left/Right on a model sets thinking (`chat`, `memory`); Backspace or `x` (empty search) clears the role from the global `settings.json` and `config.cfg`; Esc clears the search, goes back, then closes. `chat` cannot be cleared.
+- A project `config.cfg` setting the key still wins (source `project`).
+
 ## Agents and providers
 
 |Key|Default|Effect|

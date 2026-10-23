@@ -28,7 +28,7 @@ A role uses the first available of its model, then its fallbacks (local: install
 
 |Key|Default|Effect|
 |---|---|---|
-|`modelRoles.<role>`|none|Role model: `local/<id>` or `provider/model`|
+|`modelRoles.<role>`|none|Role model: `local/<id>` or `provider/model`. `/model` hub roles `titles`, `judge`, `translate`, `speech`, `dictation` set it globally ([settings.md](settings.md#model-roles)); clearing there falls back to the default order|
 |`retry.fallbackChains.<role>`|default order|Models after `modelRoles.<role>`; `[]` = only `modelRoles.<role>`|
 |`tts.localVoice`|`af_heart`|`eukhe say` voice; `--voice` overrides|
 |`stt.enabled`|`false`|Dictation into the editor via `dictation`|

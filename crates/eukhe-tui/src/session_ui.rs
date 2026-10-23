@@ -86,9 +86,7 @@ use crate::info_commands;
 use crate::info_panel::{InfoContent, InfoPanelAction};
 use crate::interactive::{InteractiveOptions, ModelSelection, SessionSelection};
 use crate::keys::key_event_to_id;
-use crate::model_picker::{
-    CurrentModel, ModelPicker, ModelPickerAction, ModelPickerOptions, ModelSelectionApplied,
-};
+use crate::model_picker::{CurrentModel, ModelPicker, ModelPickerOptions, ModelSelectionApplied};
 use crate::prompt_stash::PromptStash;
 use crate::provider_auth::{AuthSelectorAction, AuthSelectorKind};
 use crate::queued::{QueueBrowseDirection, QueueLane};
@@ -182,9 +180,6 @@ pub(crate) struct SessionUi {
     /// Providers with configured auth (the daemon catalog's
     /// `configuredProviders`); the picker marks the rest "require sign in".
     model_configured_providers: std::collections::HashSet<String>,
-    /// Whether the shared model picker changes the chat model or only
-    /// the persistent compaction model.
-    model_picker_target: Option<model_picker::ModelPickerTarget>,
     /// The settings recent-model list (`provider/id` keys, newest first).
     model_recent_models: Vec<String>,
     /// The settings default thinking level (TS `getDefaultThinkingLevel`)

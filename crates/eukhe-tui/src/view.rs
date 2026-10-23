@@ -79,9 +79,9 @@ pub struct AgentView {
     /// The first-run onboarding pane (TS `runStartupOnboarding`): while
     /// set, it owns the whole frame.
     pub onboarding: Option<crate::onboarding::OnboardingScreen>,
-    /// The `/model` inline picker (TS `ModelSelectorComponent` seam):
-    /// while set, it owns the whole frame like the onboarding pane.
-    pub model_picker: Option<crate::model_picker::ModelPicker>,
+    /// The `/model` hub (the roles, then a role's models): while set, it
+    /// owns the whole frame like the onboarding pane.
+    pub model_hub: Option<crate::model_hub::ModelHub>,
     /// The `/tree` selector (owns the frame while open).
     pub tree_selector: Option<crate::tree_selector::TreeSelector>,
     /// A pending confirm: the Yes/No selector over the editor dock.
@@ -261,8 +261,8 @@ impl AgentView {
     /// it, and the bare dock's editor takes it when nothing is open.
     /// Returns whether an overlay took or consumed the paste.
     pub fn route_paste(&mut self, text: &str) -> bool {
-        if let Some(picker) = self.model_picker.as_mut() {
-            picker.paste(text);
+        if let Some(hub) = self.model_hub.as_mut() {
+            hub.paste(text);
             return true;
         }
         if let Some(picker) = self.effort_picker.as_mut() {
@@ -338,7 +338,7 @@ impl AgentView {
             pinned_agents: crate::agents_panel::PinnedAgents::default(),
             stuck_after_secs: crate::agents_panel::DEFAULT_STUCK_AFTER_SECS,
             onboarding: None,
-            model_picker: None,
+            model_hub: None,
             tree_selector: None,
             confirm: None,
             provider_auth: None,

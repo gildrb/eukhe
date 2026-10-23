@@ -42,6 +42,7 @@ Settings: [settings.md](settings.md#agents-and-providers).
 
 - `eukhe provider caps [provider]`: non-chat capabilities (count tokens, list models, embeddings, images, usage, web search, compaction); sends no request.
 - `eukhe provider models <provider>`: asks the provider: ID, name, context, max output.
+- `/model`: model role hub (chat, memory, auxiliary, image, subagent, gateway, titles, judge, translate, speech, dictation), each with model and source; `/model <role>` opens one role's models. Picks save globally; `chat` also switches the session. [settings.md](settings.md#model-roles).
 
 ## Session state
 

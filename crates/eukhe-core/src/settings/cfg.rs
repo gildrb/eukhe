@@ -337,3 +337,30 @@ pub(super) fn replace_sets(content: &str, sets: &Sets) -> String {
     }
     out
 }
+
+/// `content` (a cfg script) without the sets and toggles of `ids`: a line
+/// of several commands keeps the others. Lines that do not parse,
+/// comments, and every other command stay as they are.
+pub(super) fn remove_sets(content: &str, ids: &[&str]) -> String {
+    let mut out = String::new();
+    for line in content.lines() {
+        let (commands, parse_errors) = parse_script(line);
+        let hit = commands
+            .iter()
+            .any(|command| ids.iter().any(|id| writes(command, id)));
+        if !parse_errors.is_empty() || !hit {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let kept: Vec<Command> = commands
+            .into_iter()
+            .filter(|command| !ids.iter().any(|id| writes(command, id)))
+            .collect();
+        if !kept.is_empty() {
+            // Writing to a String cannot fail.
+            let _ = writeln!(out, "{}", render_list(&kept));
+        }
+    }
+    out
+}
