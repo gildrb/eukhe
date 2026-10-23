@@ -65,16 +65,19 @@ Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `pr
 | `cvar_persist_roundtrip` | Written cfg read back as profile gives each persisting cvar's value (S4.6). |
 | `cvar_toggle_twice` | Two toggles restore the value. |
 | `alias_expands_fully` | Expansion leaves no alias, or reports cycle or unknown alias (S4.4). |
-| `alias_self_cycle` | Self-running alias is a cycle (S4.4). |
-| `alias_unknown_reported` | Run of a missing alias is reported (S4.4). |
+| `alias_self_cycle` | Self-running alias is a cycle; the cycle names the alias (S4.4). |
+| `alias_unknown_reported` | Run of a missing alias is reported with its name (S4.4). |
 | `alias_runs_body` | Alias of plain commands runs exactly them (S4.4). |
+| `alias_expands_in_order` | A list expands command by command, in order: two lists expand to the first's commands then the second's; the first error, left to right, is the outcome (S4.4). |
+| `alias_expand_example` | Anchor: the Rust test's table (chain of two aliases, cycle of two, run of a missing alias) (S4.4). |
 | `bind_press_plain` | Key press runs only plain commands (S4.5). |
 | `bind_unbound_runs_nothing` | Unbound key runs nothing (S4.5). |
 | `bind_first_wins` | Key press runs the key's first bind (S4.5). |
 
 Code:
 
-- `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `expand`, `Binds::press`.
+- `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `Binds`, `ExpandError`.
+- `eukhe-bend/src/rules/cvar.rs`: `expand`, `Presses`: expansion and key presses run as the compiled model (entry `bend/ffi_cvar.bend`, laws `LAWS.bend` section `cvar_entry`); a press table lives in the core, so a press sends only its key.
 - `eukhe-core/src/settings/cvar.rs`: `Registry`, `Cvars::value`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
 - `settings/cfg.rs`: config layer (`settings.json`, then `config.cfg` files under trust rules).
 - `settings/manager.rs`, `settings/getters.rs`: getters, all through `Cvars`.
@@ -84,7 +87,7 @@ Code:
 - Spawn carries parent family in create config (`cvarFamily`).
 - `eukhe-tui/src/session_ui/cvar.rs`: TUI sends `/set`, `/toggle`, `/alias`, `/cvar` as `cvar` lines.
 
-Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bend/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`); expansions (cycles, unknown aliases); key presses.
+Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bend/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`). Expansion and presses: no bridge, they run as the model; `rules::cvar::tests` checks the glue (names and commands to the model's numbers and back).
 
 Regression tests:
 
@@ -136,15 +139,16 @@ After each final answer the agent loop asks a stack of Directors what to do. Dir
    - `Defer`: next layer down decides; layer stays.
    - `Again`: loop continues; costs 1 budget; no budget = yield.
    - `Yield`: loop stops; control to user.
-   - `Stack{l}`: push `l` on top of itself, loop continues; costs 1 budget; no budget = yield. Needs room: layers above (including deferred or left ones) + the layer + layers below < cap. No room: loop fails.
+   - `Stack{l}`: push `l` on top of itself, loop continues; costs 1 budget; no budget = yield. Needs room: layers above (including deferred, left or led ones) + the layer + layers below < cap. No room: loop fails.
    - `Leave`: layer removes itself; next layer down decides.
    - `Abort`: loop stops with failure.
+   - `Lead`: layer leads the step's continuation: loop goes on → it leaves with it; step ends the loop (no lower layer continues, or no step left) → it stays. Either way the next layer down decides.
 2. No layer decides: control to user.
 3. Each run's loop has a global step budget; each continuation costs 1; none left: continuation yields.
 4. Verdict per kind, from session state:
    - Goal: active = `Again`, unless the progress check stops it (8). Paused, budget-limited, complete or failed = yield. Cleared = leave. Empty reply never reaches the goal: harness fails it as a model error ([harness.md](harness.md) H4.7); goal fails with it.
    - Autonomous: defers while a goal drives continuations (goal keeps priority). Disabled = leave. Else gates and limits give `Again` or `Yield`.
-   - Reminder: its text leads the step's continuation, then it leaves. Step not continuing (no lower layer continues, or no step left): defers, stays until a continuation comes. Never makes its own continuation; waits for goal or autonomous run.
+   - Reminder: its text goes first in the step's continuation and it leads it (`Lead`): leaves with it; step not continuing → stays until a continuation comes. Never makes its own continuation; waits for goal or autonomous run.
    - Forced tool call: each request forces its tool (`stream.forceTool`, S6) until a response calls it; layer leaves at the next final answer. Each forced response without the call = miss. Miss after `tries` retries fails the generation with `ForcedToolError::NotCalled` (S6.3), real request count; that miss removes the layer and appends a display row with the error (`eukhe.director`, not in model context) in one commit, so the next request is unforced. Run ending before any forced request: layer continues (`Again`) while budget lasts; continuation only names the forced call, the forced request's soft prompt asks for it. No budget: aborts with `ForcedToolError::NotCalled` and the same row.
 5. Step evaluates from the top until one decides. Autonomous gates run before the step commit. One commit: stack, goal and autonomous changes, goal context row, decision. Rerun of the same generation repeats the decision.
 6. Run with a new first input = new loop: global budget (`directors.maxSteps`, default 200) restored; goal layer gets it; autonomous layer gets remaining continuations (`autonomous.maxContinuations` minus used). Goal and autonomous run join the stack (goal above autonomous) when driving continuations without a layer, below pushed layers (reminders, forced calls), so pushed layers decide first. `directors.stackCap` (default 8) caps pushed layers only; 2 extra places (goal, autonomous) always have room: max `directors.stackCap + 2` layers, each decision gets that cap. Push past cap: refused with error. No layer: final answer writes nothing.
@@ -162,17 +166,21 @@ Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs: `PROOF.bend
 | `dir_encode_sound` | Stored stack is a sound tree (S5.8). |
 | `dir_resume_restores` | Resume reads back the stored stack exactly (S5.8). |
 | `dir_rewind_restores` | Rewinding a sound tree to a stack's tree restores that stack exactly (S5.8). |
+| `dir_go_*` (`empty`, `unjudged`, `defer`, `leave`, `lead_stays`, `lead_leaves`, `yield`, `abort`, `again`, `again_spent`, `push`, `push_full`, `push_spent`) | One decision per verdict: its effect on stack and outcome (S5.1); together they give every decision exactly. |
+| `dir_room`, `dir_decide_goes_on` | A push has room when the whole stack holds fewer than cap layers; a loop decision is the one where a leading layer leaves (S5.1). |
+| `dir_tick_goes_on`, `dir_tick_out_of_steps`, `dir_tick_hands_back`, `dir_tick_fails` | One loop step by outcome: goes on with one step fewer, or ends with leading layers staying (S5.1, S5.3). |
+| `dir_lead_leaves_with_the_continuation`, `dir_lead_stays_when_the_loop_ends`, `dir_lead_goes_example`, `dir_lead_stays_example` | A step that goes on = the step with every `Lead` read as `Leave`; a step that ends = every `Lead` read as `Defer` (S5.4, reminder). |
 
 Code:
 
-- `eukhe-core/src/durable/directors/stack.rs`: `decide`, `Loop::tick`, `Layer`, `LayerKind`, `Verdict`.
+- `eukhe-core/src/durable/directors/stack.rs`: `Loop::tick` (one step, run as the compiled model: entry `bend/ffi_director.bend`, laws `LAWS.bend` section `director_entry`; kinds cross as numbers, counts saturate at the wire's largest Nat), `Layer`, `LayerKind`, `Verdict`.
 - `directors/mod.rs`: `DIRECTORS_DOC`, `DirectorState`, `DirectorLimits` (`bound`), `push_director`, `DIRECTOR_NOTICE_CUSTOM_TYPE`.
 - `durable/goals/hooks.rs`: `on_yield` step (`begin`, `judge`, `commit_step`); forced tool of `before_request`; call or miss of `after_response`, `mark_forced_response`.
 - `durable/goals/host.rs` (`directors.push`); `durable/session_commands.rs` (`/remind`, `/force`); `skills/goal/src/goal/__init__.py` (`remind`, `force_tool`).
 - `eukhe-durable/src/harness/generation.rs`: `before_request` hooks may set a request's forced tool (`RequestMessages::force_tool`).
 - `eukhe-core/src/settings` `directors`.
 
-Tie: `durable::directors::bridge::the_rust_director_stack_equals_the_bend_model` runs `decide`, `Loop::tick` and the persisted `eukhe.directors` value vs `bend/bridge_director.bend`, 300 generated scenarios (stacks, per-step verdict lists, caps, global budgets; model `decide`, `tick`, `run`, `encode`, `decode`), byte for byte. Scenarios reach every model rule: push with room, push fitting only the layers below, full stack, no budget, leave, all defer, no step left, tick after end.
+Tie: the step is the model itself (no bridge).
 
 Regression tests:
 
@@ -180,7 +188,7 @@ Regression tests:
 - `durable::session_commands::tests`: `/remind`, `/force` on the stack; `/force` failing once.
 - `durable::goals::tests`.
 
-Not modelled (tied by tests): session state → verdict map (S5.4), `begin` (S5.6), reminder deferring without a following continuation, layer kind data (model keeps a number).
+Not modelled (tied by tests): session state → verdict map (S5.4), `begin` (S5.6), layer kind data (model keeps a number).
 
 #### S5.8. A goal without progress stops
 
@@ -191,8 +199,8 @@ Not modelled (tied by tests): session state → verdict map (S5.4), `begin` (S5.
 
    Default 3: continuation 1 may only state a plan, 2 carries the note asking for one concrete step, 3 shows the model did not act. Without the check, an active goal with no token budget got up to `directors.maxSteps` (200) answer-only continuations (e.g. "waiting for the build"), each a full-context request. Reply with no text and no tool call = model error (H4.7); the check counts work, not replies.
 
-Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws (`LAWS.bend` section `progress`): `goal_stops_without_progress` (cap-many consecutive continuations with only previously seen acts stop the goal from any count), `goal_progress_continues` (a continuation with a never-seen act clears the count). Proofs: `PROOF.bend` section `progress`.
+Model: `bend/progress.bend` (`work`, `check`, `goal`, `judge`). Laws (`LAWS.bend` section `progress`): `goal_stops_without_progress` (cap-many consecutive continuations with only previously seen acts stop the goal from any count), `goal_progress_continues` (a continuation with a never-seen act clears the count); laws of `judge` (the check the Rust loop runs on the ledger's counts): `goal_first_check_starts`, `goal_judge_is_check`, `goal_judge_counts_work` (count grew exactly when the session did new work), `goal_judge_held`, `goal_judge_top_stops` (count held within the wire's largest Nat; a count there stops a goal with no new work); `goal_entry` (section `core_w6`: the core's entry answers the encoded `judge` on the request Rust writes). Proofs: `PROOF.bend` section `progress`.
 
-Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`), `durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs` (`goal_check`, work read in `on_yield`, pause and row in `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
+Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`), `durable/goals/state.rs` (`stall_check`: `judge`, run as the compiled Bend core, `bend/ffi_progress.bend`), `durable/goals/hooks.rs` (`goal_check`, work read in `on_yield`, pause and row in `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
 
 Tie: `durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model` runs the ledger over real transcripts and `goal_check` vs `bend/bridge_progress.bend`. Regression: `durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.

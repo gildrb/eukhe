@@ -25,7 +25,8 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Collapse `if` statements (clippy::collapsible_if).
 - Method references over closures (clippy::redundant_closure_for_method_calls).
 - Exhaustive `match`; no wildcard arms.
-- No `unsafe` in eukhe code, tests included; every crate inherits `unsafe_code = "forbid"` (`[lints] workspace = true`).
+- No `unsafe` in eukhe code, tests included; every crate inherits `unsafe_code = "forbid"` (`[lints] workspace = true`). One exception: `crates/eukhe-bend/src/ffi.rs`, the C boundary to the compiled Bend core (crate lints = workspace's with `unsafe_code = "deny"`; `ffi.rs` carries the one `allow` with its reason).
+- A core call on input eukhe encoded itself goes through `eukhe_bend::expect_core`, the one place eukhe panics on a compiled-core failure (only an inconsistent build); a caller already returning `Result` propagates `eukhe_bend::Error`.
 - New traits need doc comments: role, expected implementation behavior.
 - No opaque positional `bool`/`Option` parameters: use enums, named methods or newtypes; if unavoidable, an exact `/*param_name*/` comment.
 - Native RPITIT trait methods with explicit `Send` bounds (`fn foo(&self) -> impl Future<Output = T> + Send;`), not `#[async_trait]`.
@@ -45,7 +46,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Bug fix: a regression test that fails without the fix.
 - Wait for observable readiness; no fixed sleeps or retry loops. Give a reason at any disabled test. Isolated ports and temp paths; restore shared state.
 - Clean environment (inherited `EUKHE_*` makes test daemons write into real `~/.eukhe`): `env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace`.
-- Laws are the first tests. Laws: root `LAWS.bend`, one section per area (`# ---- <area> ----` and its requirement table). Proofs and lemmas: root `PROOF.bend`, one section per area, each law proven as `def Laws.<law>`. Models: `bend/<area>.bend`. Bridges: `bend/bridge_<area>.bend` plus a Rust bridge test, required for a law about Rust code. No `laws/` directory, no law or proof elsewhere: `scripts/check_laws_wired.py` fails on either.
+- Laws are the first tests. Laws: root `LAWS.bend`, one section per area (`# ---- <area> ----` and its requirement table). Proofs and lemmas: root `PROOF.bend`, one section per area, each law proven as `def Laws.<law>`. Models: `bend/<area>.bend`. A rule with a Bend model runs as the compiled model: entry `bend/ffi_<area>.bend` (wire format of `bend/wire.bend`, `crates/eukhe-bend/WIRE.md`), called through `eukhe-bend` (`eukhe_bend::call` or a `Stepper`); no Rust copy of the rule, no bridge for it. `make bend-core` regenerates `bend/core.bend`, `crates/eukhe-bend/c/core.c`, `src/entries.rs` (never hand-edit; `make bend-core-check` fails when stale). Bridges (`bend/bridge_<area>.bend` plus a Rust bridge test) remain only for a model abstracting Rust code with no function to replace (a protocol, a concurrency schedule). No `laws/` directory, no law or proof elsewhere: `scripts/check_laws_wired.py` fails on either.
 
 ## Lints
 
@@ -79,20 +80,21 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |Crate|Purpose|Direct workspace dependencies|
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
+|`eukhe-bend`|Compiled Bend core: every rule with a Bend model, compiled by Bend into `c/core.c` (generated, committed), called through one C entry (`c/shim.c`, `src/ffi.rs`: the only `unsafe`); wire format (`src/wire.rs`, `WIRE.md`); typed rule wrappers over shared vocabulary (`src/rules/`; may depend on `eukhe-types` only)|`eukhe-types`|
 |`eukhe-theme`|Single theme source and resolver (TUI, HTML export): theme files, validation, name resolution, color math|none|
 |`eukhe-build-info`|This build's identity (`build.rs`): version (the release, or `<series>-dev`) and source (commit, `.dirty.<hash>`, or `src.<hash>`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
-|`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
-|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
-|`eukhe-models`|Built-in model catalog (bundled snapshot ∪ compiled catalog), transport pinning|`eukhe-types`, `eukhe-ai`|
-|`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
-|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`|
-|`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, shared worker per model and its election, worker client, role-based model selection|`eukhe-build-info`|
+|`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`|
+|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-ai`|
+|`eukhe-models`|Built-in model catalog (bundled snapshot ∪ compiled catalog), transport pinning|`eukhe-types`, `eukhe-bend`, `eukhe-ai`|
+|`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|`eukhe-types`, `eukhe-bend`|
+|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`, `eukhe-bend`|
+|`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, shared worker per model and its election, worker client, role-based model selection|`eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tiny-onnx`|Tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
-|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-theme`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
-|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
-|`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`|
-|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|
+|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
+|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
+|`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`|
+|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-tui`|
 |`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (all of `web/` via `build.rs`; `web/` = committed `make dashboard-ui` output of Vite+ `vp build` from `ui/` (Preact, Radix, StyleX)), daemon-wire client|`eukhe-types`, `eukhe-build-info`, `eukhe-tui`|
 |`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 

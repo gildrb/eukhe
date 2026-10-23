@@ -44,12 +44,23 @@ Model: `bend/tree.bend`. Laws: `LAWS.bend` section (S1). Proofs: `PROOF.bend` se
 | `tree_delete_within` | Delete changes no kept node (S1.1). |
 | `tree_put_sets` | Put under root or a node sets it (S1.1). |
 | `tree_put_keeps_others` | Put changes no other node (S1.1). |
+| `tree_core_tree` | Compiled core's tree after any journal (key map, splits halve the key range) = the journal's tree (S1.3). |
+| `tree_core_answer` | After any journal, the core answers each record as the model decides: taken or kept; a delete cuts exactly the nodes it removes (S1.1, S1.2). |
+| `tree_core_note` | A record steps the core to the core of the journal with that record appended, so core laws hold for the live core (S1.3). |
+| `tree_core_plan` | Core's rewind plan to the tree after the first n records = what the live→that-tree diff does to each node's work (S1.4). |
+| `tree_core_snap` | Core's snapshot after the first n records = their replay (S1.3). |
+| `tree_core_plan_keeps`, `tree_core_snap_keeps` | Rewind plan and snapshot leave the core unchanged. |
+| `tree_ffi_ask_round_trip` | Every record and question the Rust journal writes reads back in the core's entry (`bend/ffi_tree.bend`). |
+| `tree_ffi_step` | An entry step answers the core's answer, keeps the core's next state. |
+| `tree_ffi_open` | The entry opens the empty core with the halves the journal sends. |
+| `tree_ffi_malformed`, `tree_ffi_trailing`, `tree_ffi_refused`, `tree_ffi_open_malformed`, `tree_ffi_open_trailing` | Any other input answers the wire's error form, never a default; a step keeps the core. |
+| `tree_ffi_example` | Tags and field order Rust writes and reads. |
 
-Code: `eukhe-durable/src/tree/mod.rs` `SessionTree::apply`, `TreeRecord`, `TreeOp`; `tree/journal.rs` `Journal` (`push`, `replay`, `snapshot_at`); `tree/diff.rs` `diff`, `rewind_to`, `rewind_effects`; `tree/state.rs` `StateTree` (`record`, `from_history`, `record_writes`, `records_since`, `snapshot_at`, `rewind_plan`); `storage/jsonl/storage.rs` `CommitHistory`, `JsonlStorage::take_history`; `eukhe-core/src/durable/state_tree.rs` `LiveStateTree`; `eukhe-daemon/src/worker/state_tree.rs` (`get_state_tree`, `subscribe_state_tree`, `get_state_rewind_plan`, `state_tree_update`); `supervisor/clients.rs` (subscription, `state_tree_subscribers`); `supervisor/supervision.rs` (frame routing); `peer.rs` `ConnectionRole::streams`; `eukhe-cli/src/daemon_command.rs` `run_state` (`eukhe state`, `--follow`, `rewind-plan`).
+Code: `eukhe-durable/src/tree/mod.rs` `SessionTree`, `TreeRecord`, `TreeOp`; `tree/journal.rs` `Journal` (`push`, `snapshot_at`, `rewind_plan`: shell over a stepper of the compiled Bend core, `bend/ffi_tree.bend` through `eukhe-bend`; equal values share one value index); `tree/state.rs` `StateTree` (`record`, `from_history`, `record_writes`, `records_since`, `snapshot_at`, `rewind_plan`); `storage/jsonl/storage.rs` `CommitHistory`, `JsonlStorage::take_history`; `eukhe-core/src/durable/state_tree.rs` `LiveStateTree`; `eukhe-daemon/src/worker/state_tree.rs` (`get_state_tree`, `subscribe_state_tree`, `get_state_rewind_plan`, `state_tree_update`); `supervisor/clients.rs` (subscription, `state_tree_subscribers`); `supervisor/supervision.rs` (frame routing); `peer.rs` `ConnectionRole::streams`; `eukhe-cli/src/daemon_command.rs` `run_state` (`eukhe state`, `--follow`, `rewind-plan`).
 
-Bridge: `tree::bridge::the_rust_tree_equals_the_bend_model`: `Journal` vs `bend/bridge_tree.bend`, 300 generated scenarios (checked puts, deletes, saves, rewinds to a save, raw rewinds, replays), byte-equal transcripts, every model rule reached.
+Tie: the journal decides every record, rewind plan and snapshot by one step of its stepper (the compiled model), whose state is the live tree and the journal; a record costs its change and a lookup (a delete walks only its node and nodes with a parent of its key or more), not the tree.
 
-Tests: `tree::state::tests::commits_build_the_tree_with_parents_first`, `storage_writes_build_the_same_journal_as_publications`, `a_rewind_plan_stops_starts_and_restores`, `a_history_gives_every_node_its_conversation`, `an_unknown_parent_or_node_is_an_error`; `jsonl_storage::keeps_the_replayed_and_later_commits_until_the_history_is_taken`; `durable::open::tests::the_state_tree_follows_the_history_and_the_live_commits`; daemon `get_state_tree_answers_the_sessions_tree`, `subscribe_state_tree_streams_records_to_its_connection_only`; `peer::tests::peer_session_attach_gates_event_stream`.
+Tests (glue around the core): `tree::journal::tests::the_live_tree_follows_the_core`, `tree::state::tests::commits_build_the_tree_with_parents_first`, `storage_writes_build_the_same_journal_as_publications`, `a_rewind_plan_stops_starts_and_restores`, `a_history_gives_every_node_its_conversation`, `an_unknown_parent_or_node_is_an_error`; `jsonl_storage::keeps_the_replayed_and_later_commits_until_the_history_is_taken`; `durable::open::tests::the_state_tree_follows_the_history_and_the_live_commits`; daemon `get_state_tree_answers_the_sessions_tree`, `subscribe_state_tree_streams_records_to_its_connection_only`; `peer::tests::peer_session_attach_gates_event_stream`.
 
 Not modelled: commit→record map (S1, second list); tested.
 

@@ -69,7 +69,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    - Built in: `cat`, `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`, `touch`, `cp`, `mv`; `grep` on the ripgrep engine (`grep-regex`, `grep-searcher`). All other commands, and these with options the shell does not know, run as external processes.
    - Each external process gets its own process group and this environment: the daemon worker's environment, plus the session values (`EUKHE_CODING_AGENT_DIR`; `EUKHE_CHAT_MEMORY` in a chat-memory session), minus each credential (`kernel::manager::local_env` over `durable::rlm::session_env`).
    - A credential is a provider credential the provider code reads (`eukhe_ai::env_api_keys::credential_env_vars`, any case), or a name whose upper case contains `API_KEY`, `APIKEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `PRIVATE_KEY` or `ACCESS_KEY`.
-   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Laws (G3): `LAWS.bend` section `child_env`.
+   - A local kernel gets the same environment, but keeps the credentials the user's MCP config reads (a `bearerTokenEnvVar`, a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that names a variable). It never keeps a provider credential. Runs as the compiled model `bend/child_env.bend` (`kernel::manager::child_env` calls entry `bend/ffi_child_env.bend`). Laws (G3): `LAWS.bend` sections `child_env`, `child_env_entry`.
    - Pipeline commands run at the same time, joined by OS pipes; the kernel pipe buffer limits each pipe. When a command stops, its input pipe closes, and the writer to that pipe stops too: an external process gets SIGPIPE, a shell command stops with status 141. Thus `yes | head -n 3` stops.
    - A script with other syntax (control flow, functions, subshells, command substitution, here-documents, background jobs) is one `exec` step; `bash -c` runs it.
    - The tool obeys the S2 limits. Output goes through the call's `Truncation` as the steps write it: the result keeps output within the cap; the `output_bounded` diagnostic counts each dropped byte. With the opt-out, the result keeps all output.
@@ -180,7 +180,7 @@ Code: `eukhe-durable/src/harness/registry.rs` (`Registry::fix_roster`, `RosterFi
 
 Ties:
 - `durable::tool_surface::bridge::the_rust_tool_surface_equals_the_bend_model` vs `bend/bridge_tools.bend` (`run`, `step`, `dyn_call`, `build`): real registry with fixed roster, `ToolSurface`, `tool_contract::build`; tools join (registry also asked to install) and quit (registry also asked to drop roster); requests resolved as the Harness does; schemas built twice.
-- `bend/bridge_paths.bend`: `Url::names` vs model `resolve`, `stays`; `Url::remote` uses the same `walk`.
+- `Url::names` and `Url::remote` walk a path with model `resolve`, run as the compiled core (entry `bend/ffi_tools.bend`, request laws `tools_ffi_*`; a name crosses as its segment's index).
 - `bend/bridge_shell.bend`: `eukhe-shell` gate (`run::tests::the_gate_runs_as_its_model`) vs model `join`, `exec` (G2).
 
 Tests: `harness::tests::registry::a_fixed_roster_rejects_every_change_of_the_tools_the_model_sees`; `durable::tool_surface::tests` (two turns, same roster each request; late tool listed and run via `dyn`; `report_issue` row stored; install, `configure` rejected); daemon `dyn_tool_e2e` (stdio MCP tool listed and called via `dyn`; one tool loadout in transcript); `url::tests::an_ssh_url_*` (host, path rules); `durable::documents::ssh::tests` (fake `ssh` records args, plays hosts; shell-syntax path reads that file, runs nothing; each failure typed; cap counts dropped bytes; budget kills `ssh`).
@@ -280,11 +280,7 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
 | `config_needs_yes` | no agent write sequence without a yes changes a protected or secret location (G1.6, G1.7) |
 
-Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`, `PathPolicy::class_of_resolved`, `holds_secret_of_resolved`, `PathRule`, `MAX_LINKS`), `eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`), `eukhe-shell/src/run.rs` (step path effects: `PathPolicy::class`, `holds_secret`).
-
-Tie: `durable::path_policy::bridge::path_policy_and_gate_match_the_model` vs `bend/bridge_path_policy.bend`: 200 scenarios, fixed seed. Each: a temp-dir tree (dirs, files, symlinks targeting from `/` and from their dir, dangling, loops) and a policy (roots, `Tree`, `Dir`, `Named` rules, secret entries).
-- Per query path: loop bit, real path, class, `holds_secret`; for a read, list, search and write with random auto set and answer: whether the real `DocumentsGate` ran it and asked.
-- Then writes via `Documents::write` with never-yes answers: whether the gate asked, the path the question names, each protected or secret file's content after (`Pp.guarded` of `Pp.run`: law `config_needs_yes`).
+Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`, `PathPolicy`, `PathRule`, `MAX_LINKS`), `eukhe-shell/src/paths.rs` (`judge`: class and holds-a-secret of a resolved path, run as compiled model `judge`, entry `bend/ffi_path_policy.bend`, request laws `path_policy_ffi_*`; each path component crosses as an id), `eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`), `eukhe-shell/src/run.rs` (step path effects: one `judge_path` per path).
 
 Tests: `durable::path_policy::tests::every_loader_file_is_guarded_and_a_project_file_is_inside`, `durable::path_policy::tests::a_write_whose_links_looped_asks_even_when_its_real_path_is_inside`, `path_policy::tests` (`eukhe-types`).
 
@@ -478,10 +474,19 @@ and `doc_lines`.
 | `load_persist_roundtrip` | load + write, no edit: same bytes (S8.6) |
 | `edit_keeps_untouched_bytes` | every byte outside the edited lines kept (S8.6) |
 | `grep_line_is_read_line` | `grep` and `read`: same text at the same line number (S8.6) |
+| `persist_weaves_carry` | edited file written line by line: each line but the last followed by its own ending, else the separator written before it (S8.6) |
+| `persist_plan_refines` | separator plan over runs of lines gives, line for line, that rule's separators (S8.6) |
+| `lines_entry_refines` | the plan's compiled entry reads every request back, answers the model's separators (S8.6) |
 | `tag_names_shown_text` | tag names the text its rows come from (S8.7) |
 | `edit_only_seen_lines` | applies only if every anchor is seen (S8.8) |
 | `edit_seen_applies` | all anchors seen: applies (S8.8) |
-| `reveal_then_retry` | rejected edit applies on a straight retry (S8.8) |
+| `reveal_then_retry` | rejected edit with ≤ 40 anchors applies on a straight retry iff every unseen anchor is a line of ≤ 512 characters (S8.8) |
+| `edit_marks_whole_reveal` | unseen anchors become seen iff the rejection showed them all whole: ≤ 40, each a line of ≤ 512 characters (S8.8) |
+| `reject_names_unseen` | rejection names exactly the unseen anchors, in order (S8.8) |
+| `reject_shows_lines` | rejection shows, of its first 40 unseen anchors, each that is a file line, cut to 512 characters when longer (S8.8) |
+| `reject_whole_exact` | rejection says it showed its anchors whole iff it did (S8.8) |
+| `reveal_bounds` | reveal cap: 40 anchors, 512 characters (S8.8) |
+| `seen_entry_refines` | the guard's compiled entry reads every request back, answers the model's verdict (S8.8) |
 | `grep_accounts_every_file` | each walked entry in exactly one class; classes sum to the walk (S8.9) |
 | `grep_notes_every_gap` | skipped, cut or unsearched class has a notice iff not empty (S8.9) |
 | `grep_notes_every_cut` | shown file with cut matches has its own notice (S8.9) |
@@ -489,7 +494,7 @@ and `doc_lines`.
 | `continuation_contiguous` | continuation = next part of the list: none left out, none twice (S8.9) |
 | `continuation_disjoint` | page and continuation share no item (S8.9) |
 
-Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`, `write_file`, sweep), `hashline/mod.rs` (`apply_hashline`, `commit`), `hashline/patcher.rs`, `hashline/apply.rs` (line origins, `persist`, seen guard), `text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs` (`saw_bytes`), `eukhe-core/src/durable/documents/tool.rs` (`bounded`), `requests.rs` (`Cut`, `Done::mark_seen`).
+Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`, `write_file`, sweep), `hashline/mod.rs` (`apply_hashline`, `commit`), `hashline/patcher.rs`, `hashline/seen.rs` (seen guard), `hashline/apply.rs` (line origins, `persist`), `text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs` (`saw_bytes`), `eukhe-core/src/durable/documents/tool.rs` (`bounded`), `requests.rs` (`Cut`, `Done::mark_seen`).
 
 Ties: `write::bridge` (multi-file edit with injected faults and conflicts; write tool vs writes by another program; move; sweep with live locks), `hashline::bridge` (random bytes with `\r`, `\n`, `\r\n`, BOM through real read and edit), `grep::bridge` (read and grep rows; file changes between search and record), `grep::bridge_accounts`, `glob::bridge` (generated trees; every continuation followed once), `durable::documents::bridge` (long read cut by the output bound; edits at anchors in and around the cut).
 

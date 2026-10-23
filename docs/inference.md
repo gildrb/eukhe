@@ -13,7 +13,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
    - Model: model id.
    - Host: host naming the wire API (API one host speaks), else naming the provider id, else longest URL fragment in base URL (tie: smaller host id). One host; signals never combine: provider `openrouter` on a loopback base URL (local proxy) gets `openrouter`, not `loopback`. `openrouter` (provider match) adds Anthropic-format `cache_control` marks for `anthropic/` models; `openrouter-url` (custom provider, openrouter.ai base URL) gives other OpenRouter settings, no marks.
 3. Forced tool call = tool + retry count. Each request ends with a soft prompt naming the tool. First request sets native forced choice only if supported and free (no prompt-cache invalidation); retries set it if supported. Support per request (`maps_forced_tool_choice`, wire API's predicate). Manual extended thinking: Anthropic and Claude on Bedrock reject forced choice → unsupported, no escalation to an unsent flag; a wire API given one there drops it and warns. No call → retry while retries remain, then `ForcedToolError::NotCalled` (names tool). Nothing forced → no change.
-4. ≤ `strict_cap` strict schemas per request, highest `priority` first (default `0`; ties: earlier tool). Rest loose: client validates and repairs arguments. None dropped. Strict-required tool past cap → error.
+4. ≤ `strict_cap` strict schemas per request, highest `priority` first (default `0`; ties: earlier tool). Rest loose: client validates and repairs arguments. None dropped. Strict-required tool past cap → error; several → names the highest-priority one.
 5. Repetition guard, text and thinking deltas of every stream:
    - Chunk = one complete non-blank output line; lines over 4096 bytes (`MAX_CHUNK_BYTES`) split there on a character boundary, so no-newline loops (`abab…`) are cut.
    - Window = last `k` chunks (`retry.provider.streamRepeatLimit`, default 64); periodic with period `p` if each chunk after the first `p` equals the one `p` earlier. Period 1 to `k / 4` (at least 1) → abort: cycle seen 4 times; period 1 = one chunk `k` times; default cuts ≤ 16-line blocks seen 4 times. Otherwise not cut.
@@ -59,7 +59,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
     - `prompt_caching` (true: `claude-adaptive`, `claude-adaptive-4-6`, `claude-cached`; false: `claude-uncached`): Bedrock sends `cachePoint` blocks; unnamed models cache only with `AWS_BEDROCK_FORCE_CACHE=1`.
     - `explicit_cache_breakpoints` (`gpt-explicit-cache`, `gpt-priority-explicit-cache`): OpenAI Responses sends `prompt_cache_breakpoint`, `reasoning.context: "all_turns"`.
     - `google_thinking_level` (true: `gemini-3-plus`, `gemini-latest`, `gemma-4`; false: Gemini 2.5 families): Google sends `thinkingLevel`; unnamed → `thinkingBudget`.
-    - `thinking_budgets` (`gemini-2.5-pro` 128, 2048, 8192, 32768; `gemini-2.5-flash` 128, 2048, 8192, 24576; `gemini-2.5-flash-lite` 512, 2048, 8192, 24576): Google per-level budget, Gemini API and Vertex. User `thinkingBudgets` wins, clamped to the rule's `minimal`..`high`. No rule → user budget, else `-1` (dynamic).
+    - `thinking_budgets` (`gemini-2.5-pro` 128, 2048, 8192, 32768; `gemini-2.5-flash` 128, 2048, 8192, 24576; `gemini-2.5-flash-lite` 512, 2048, 8192, 24576): Google per-level budget, Gemini API and Vertex. User `thinkingBudgets` wins, clamped to the rule's `minimal`..`high`. No rule → user budget, else `-1` (dynamic). Unordered rule budgets (not `minimal` ≤ `low` ≤ `medium` ≤ `high`) → error, never a clamp (rulebook compiler refuses).
     - `thinking_defaults.budgets` (1024, 2048, 8192, 16384): budget when neither user nor rule gives one, every token-budget wire API.
 
     Family `except` regex excludes matches (families stay disjoint). Bedrock effort = model's thinking-level map (native `xhigh`: `xhigh: "xhigh"`), else Bedrock default.
@@ -103,8 +103,8 @@ Code:
 
 Tie (bridge tests, transcripts byte for byte):
 - `harness::generation::infer_bridge::the_rust_quirks_rulebook_equals_the_bend_model` vs `bend/bridge_quirks.bend`: compile, lookup on generated rulebooks, each also with two rules swapped; directives = first of each value type in `Directive::ALL`; queries may name no family or host.
-- `durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model` (S10): default and rule ladders vs `bend/infer.bend` section 6.
-- `the_rust_inference_units_equal_the_bend_model` vs `bend/bridge_infer.bend`: escalation; strict budget; guard on lines in random deltas (random chunks, 1-4 chunk cycles, same with one chunk changed, observed 7-line loop vs windows 27, 28, 32, 64); compaction threshold. Code compares strictly (`>`), so for whole token counts model threshold = limit − margin + 1.
+- `the_rust_inference_units_equal_the_bend_model` vs `bend/bridge_infer.bend`: escalation; guard on lines in random deltas (random chunks, 1-4 chunk cycles, same with one chunk changed, observed 7-line loop vs windows 27, 28, 32, 64); compaction threshold. Code compares strictly (`>`), so for whole token counts model threshold = limit − margin + 1.
+- Strict plan and thinking ladder (section 6) run as their compiled models (`bend/ffi_infer.bend`, `bend/ffi_effort.bend`); no Rust copy.
 
 Tests:
 - `quirks::tests`: shipped rulebook compiles, no catalog overlap; `families_that_overlap_on_a_catalog_model_are_rejected`, `a_model_two_shipped_families_match_names_no_family`; errors, precedence, order, host/family queries, former hand-written checks; `the_shipped_qwen_families_split_at_the_revision_3_8`.
@@ -156,7 +156,7 @@ No code touches `~/.eukhe/models/provider-model-catalog.v1.json` (older builds' 
 
 Laws: `LAWS.bend` section `catalog_union` (C1; model `bend/catalog_union.bend`; proofs `PROOF.bend` section `catalog_union`).
 Code: `eukhe-models/src/effective.rs` (`effective_catalog`), `chain.rs` (`ModelCatalog::models`), `bundled.rs` (`load_bundled_models`), `pinning.rs`.
-Bridge: `effective::bridge::the_rust_union_equals_the_bend_model` vs `bend/bridge_catalog_union.bend`, generated catalogs.
+Union runs as the compiled model (`fast`, pinned to `union` by law `union_fast`; entry `bend/ffi_catalog_union.bend`, request laws `catalog_union_ffi_*`): `effective_catalog` projects both sources (key and api interned, each field = place of its source entry), calls it, assembles the models back.
 Tests: `chain::tests::a_bundle_without_a_compiled_model_keeps_it`; `eukhe-daemon` `tests/model_catalog_e2e.rs` (`a_bundle_without_a_compiled_model_still_lists_it`: pinned snapshot as bundle, Anthropic login → Claude Haiku 5.5 listed).
 
 #### S6 models.json and the saved default model
@@ -175,8 +175,7 @@ Unpinned sessions start on the saved default (`defaultProvider`/`defaultModel`),
 4. Memory compactor (no `memory.model`) fails with saved default and reason.
 
 Laws: `default_honoured_or_reported`, `default_quiet_when_honoured`, `default_quiet_when_unset`, `default_unkeyed_never_moves` (model `bend/default_model.bend`; proofs `PROOF.bend` section `default_model`).
-Code: `eukhe-core/src/models/custom.rs` (`ModelsConfig::load`), `models/registry.rs` (`compose`), `durable/models/compose.rs`, `models/resolver.rs` (`saved_default_miss`), `durable/models.rs` (`resolve_session_model`, `resolve_open_model`).
-Bridge: `durable::models::default_bridge::the_rust_session_model_resolution_equals_the_bend_model` vs `bend/bridge_default_model.bend`.
+Code: `eukhe-core/src/models/custom.rs` (`ModelsConfig::load`), `models/registry.rs` (`compose`), `durable/models/compose.rs`, `models/resolver.rs` (`saved_default_miss`, `resolve_default`), `durable/models.rs` (`resolve_session_model`, `resolve_open_model`). `resolve_default` runs `resolve` of `bend/default_model.bend` as the compiled Bend core (entry `bend/ffi_default_model.bend`).
 
 ### S9. Local tiny models
 
@@ -261,7 +260,7 @@ Model `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs: `PROOF.bend` sec
 
 Code: `eukhe-tiny/src/roles.rs` (`chain`, `pick`, `Candidate`, `FallbackChain`), `election.rs` (`ensure`, `request`, `probe`, `Launcher`, `Got`), `worker.rs` (`launch_tag`, `run_worker`, `bind`, `serve`), `client.rs` (`TinyClient`, `TinyError`), `catalog.rs` (`CATALOG`, `installed`, `install_state`), `download.rs` `download`, `tasks.rs` (prompts, output parsing); `eukhe-tiny-onnx/src/text.rs`, `whisper.rs`, `kokoro.rs`, `runtime.rs`, `tokenizer.rs`; `eukhe-core/src/tiny/` (settings, `resolve`, `title.rs`, `judge.rs` `judge_classifier`), `eukhe-core/src/durable/codemode.rs`; `eukhe-durable/src/codemode/models.rs` `ClassifierDefault`; `eukhe-daemon/src/worker/title.rs`; `eukhe-cli/src/tiny_command.rs`, `tiny_models_command.rs`.
 
-Tie: `eukhe-tiny` `bridge::the_rust_pick_equals_the_bend_model` (`pick`, generated chains and available sets), `bridge::the_rust_election_equals_the_bend_model` (real election: `ensure`, real `serve`, in process, fake engine, generated needs and exits) vs `bend/bridge_tiny.bend`.
+Tie: `pick` runs as the compiled model (entry `bend/ffi_tiny.bend`, request laws `tiny_ffi_*`; a candidate crosses as the index of its first equal one). `eukhe-tiny` `bridge::the_rust_election_equals_the_bend_model` (real election: `ensure`, real `serve`, in process, fake engine, generated needs and exits) vs `bend/bridge_tiny.bend`.
 
 Tests:
 - `client::tests`: real workers, temp run dir, started on the client's command line without agent dir variable, other `HOME`: started, joined, replaced, idle exit, crash, not installed, client's agent dir served.
@@ -334,6 +333,6 @@ Model `bend/effort.bend`. Laws: `LAWS.bend` section (S10). Proofs: `PROOF.bend` 
 
 Code: `eukhe-ai/src/models/ladder.rs` (`thinking_level_map`, `get_supported_thinking_levels`, `registry_thinking_levels`, `registry_clamp_thinking_level`, `clamp_thinking_level`, `cycle_thinking_level`), provider clamps in `eukhe-ai/src/api/`; `eukhe-core/src/durable/open.rs` `settle_main_agent`; `eukhe-daemon/src/model_switch.rs` (switch, set), `setting_switches.rs` `handle_cycle_thinking_level`, `worker/summary.rs` `thinking_level`, `rpc/model_commands.rs`.
 
-Tie: `eukhe-core` `durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model` runs `get_supported_thinking_levels`, `clamp_thinking_level`, `cycle_thinking_level` (both ways, from each level) on catalog models vs `bend/bridge_effort.bend`: edge models (no reasoning, no map, `off`-only, empty ladder, one level, explicit `xhigh` and `max`) and random ones (entries missing, `null`, wire string); must reach every rule.
+Tie: offer, clamp and cycle run as the compiled model (`bend/ffi_effort.bend`, called from `eukhe-ai` `models/ladder.rs`); no Rust copy of the rule.
 Tests: `eukhe-core` `durable::open::tests` (`open_settles_an_unset_thinking_level_on_the_clamped_default`); `eukhe-daemon` `setting_switches::tests` (`cycle_thinking_level` without reasoning → `null`; steps wrap both ways; unset shows `default`).
 Not modelled: settings order for the default level; level → per-provider wire value.
