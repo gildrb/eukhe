@@ -102,18 +102,21 @@ fn registered_files_resolve_by_their_json_name() {
 }
 
 /// A registered file shadows a builtin of the same name; a second file
-/// with a name already taken warns and loses.
+/// with a name already taken and other colors warns and loses; a second
+/// file with the same theme loses silently.
 #[test]
 fn the_first_file_with_a_name_wins() {
     let dir = tempfile::tempdir().expect("temp dir");
     let first = dir.path().join("a.json");
     let second = dir.path().join("b.json");
+    let same = dir.path().join("c.json");
     let dark = Palette::builtin("dark").expect("dark");
     let registered_dark = DUSK_APPLE.replacen("\"name\": \"dusk-apple\"", "\"name\": \"dark\"", 1);
     write(&first, &registered_dark);
-    write(&second, &registered_dark);
+    write(&second, &registered_dark.replacen("#c4a77d", "#c4a77e", 1));
+    write(&same, &registered_dark);
     let resolved = ThemeSources {
-        registered: vec![first.clone(), second.clone()],
+        registered: vec![first.clone(), second.clone(), same],
         ..ThemeSources::default()
     }
     .resolve("dark");

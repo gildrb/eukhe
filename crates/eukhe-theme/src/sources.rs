@@ -137,7 +137,8 @@ impl ThemeSources {
             failures: Vec::new(),
             warnings,
         };
-        let mut winners: Vec<(String, PathBuf)> = Vec::new();
+        // Each winner: its path, whether it is custom, its index in that list.
+        let mut winners: Vec<(PathBuf, bool, usize)> = Vec::new();
         for (path, custom) in registered_files
             .into_iter()
             .map(|path| (path, false))
@@ -145,21 +146,32 @@ impl ThemeSources {
         {
             match Palette::load(&path) {
                 Ok(palette) => {
-                    if let Some((_, winner)) =
-                        winners.iter().find(|(name, _)| name == palette.name())
-                    {
-                        catalog.warnings.push(format!(
-                            "Theme name \"{}\" collision: {} (using {})",
-                            palette.name(),
-                            path.display(),
-                            winner.display()
-                        ));
+                    let taken = winners.iter().find_map(|(winner, in_custom, at)| {
+                        let kept = if *in_custom {
+                            &catalog.custom[*at]
+                        } else {
+                            &catalog.registered[*at]
+                        };
+                        (kept.name() == palette.name()).then_some((winner, *kept == palette))
+                    });
+                    if let Some((winner, same)) = taken {
+                        // The same theme twice (a config mirrored into a
+                        // project, a copy) collides with nothing.
+                        if !same {
+                            catalog.warnings.push(format!(
+                                "Theme name \"{}\" collision: {} (using {})",
+                                palette.name(),
+                                path.display(),
+                                winner.display()
+                            ));
+                        }
                         continue;
                     }
-                    winners.push((palette.name().to_string(), path));
                     if custom {
+                        winners.push((path, true, catalog.custom.len()));
                         catalog.custom.push(palette);
                     } else {
+                        winners.push((path, false, catalog.registered.len()));
                         catalog.registered.push(palette);
                     }
                 }

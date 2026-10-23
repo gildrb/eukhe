@@ -362,7 +362,8 @@ empty, the theme is `eukhe` on every surface. A name resolves by the
 3. The files in `<agent-dir>/themes/`.
 
 The first valid file with the name wins. A second valid file with the
-same name gives a collision warning. A name that no valid theme has
+same name and other colors gives a collision warning; one with the same
+theme loses silently. A name that no valid theme has
 resolves to `eukhe`, with a warning. Resolution never fails.
 
 The export uses the same sources as the terminal UI. The TUI sends its
