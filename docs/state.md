@@ -1,251 +1,108 @@
 # Harness laws: session state
 
-The shared rules (what a law secures, the adversary, H1 to H6) are in [harness.md](harness.md).
+Shared rules (what a law secures, adversary, H1 to H6): [harness.md](harness.md).
 
 ### S1. The session tree
 
-One tree holds the state of a session. Each node has an id, a parent and a
-value. The id of a node is more than the id of its parent. The root (id
-`0`) is the parent of the top nodes. The root is not a node.
+One tree holds a session's state. Node: id, parent, value. Node id > parent id. Root (id `0`) parents the top nodes; the root is not a node.
 
-1. A record changes the tree. A `Do` record holds one checked change: a
-   `Put` sets a node, and a `Del` removes a node and every node below it.
-   The tree rejects a `Put` whose parent is not the root or a node, and a
-   `Del` of the root. A rejected record does not change the tree.
-2. A `Rewind` record holds exact changes back to an earlier tree. The tree
-   rejects a rewind whose result is not a sound tree.
-3. The journal keeps every record in order. A replay of the journal makes
-   the live tree. A replay of a prefix is a snapshot. The cursor is the
-   number of records.
-4. A rewind plan compares the live tree with a snapshot. It stops each
-   node that goes, starts each node that comes back, and restores each
-   node that changes.
+1. A record changes the tree. `Do` holds one checked change: `Put` sets a node; `Del` removes a node and its subtree. Rejected: `Put` whose parent is not root or a node; `Del` of the root. A rejected record changes nothing.
+2. `Rewind` holds exact changes back to an earlier tree. Rejected if the result is not a sound tree.
+3. The journal keeps every record in order. Replay of the journal = live tree; replay of a prefix = snapshot. Cursor = number of records.
+4. A rewind plan compares live tree and snapshot: stops each node that goes, starts each node that comes back, restores each node that changes.
 
-The state tree of a session is a session tree that the commits of its
-storage make. The disk format does not change: the tree comes from the
-same commits that `main.jsonl` holds.
+The state tree is the session tree made by the storage's commits. Disk format unchanged: the tree comes from the commits in `main.jsonl`.
 
-1. Each stored record is a node: a conversation, an entry, a task, a
-   submission, or a document. A conversation hangs under the
-   conversation of the task that owns it, else under the conversation
-   that it forks from, else under the root. An entry, a task, and a
-   submission hang under their conversation. A session document hangs
-   under the root. A conversation document hangs under its conversation.
-   A task document hangs under the conversation of its task.
-2. So the parent of each node is the root or a conversation, and no
-   commit deletes a conversation. The stored history does not keep the
-   early states of a terminal task, but each node still finds its
-   parent. A build from the history first learns the conversation of
-   each task.
-3. Each change of a commit is one `Do` record. A new or changed record is
-   a `Put`. A retired document is a `Del`. A copied document is a `Put`.
-   The changes of a commit come in no order: a `Put` waits until its
-   parent is in the tree.
-4. A change whose parent or node is not in the tree is a typed error
-   (`StateError`). The tree does not change, and the session logs the
-   error. Nothing is dropped in silence.
-5. The value of a conversation, a task, and a submission node is its
-   record as JSON. An entry node keeps its kind, conversation, head, and
-   task. A document node keeps its kind, key, scope, the commit that
-   made it, and the commit that last changed it.
-6. Ids go to records in the order that the tree first sees them. A
-   commit at or before the last commit of the tree counts once.
-7. On open, the storage keeps its replayed history. A background task
-   builds the tree from it. Then the task records each commit of the
-   Harness. The commit listener only puts the commit in a queue, so no
-   commit waits for the tree. Open and attach do not wait for the build.
-   A read waits until the build ends. If the build or a record panics,
-   the tree stops: it ends its commit subscription, and a read gets an
-   error.
-8. The ids and the cursor hold for one worker. A tree built again from
-   the stored history can see the records in another order. After a
-   worker restart, a client reads a new snapshot.
+1. Each stored record is a node: conversation, entry, task, submission, document. Conversation: under the conversation of its owning task, else of its fork source, else root. Entry, task, submission: under their conversation. Session document: root. Conversation document: its conversation. Task document: its task's conversation.
+2. So each parent is root or a conversation; no commit deletes a conversation. History drops early states of a terminal task, yet each node finds its parent: a build from history first learns each task's conversation.
+3. Each change of a commit is one `Do`: new or changed record `Put`; retired document `Del`; copied document `Put`. Changes come unordered: a `Put` waits for its parent.
+4. A change whose parent or node is missing is a typed error (`StateError`): tree unchanged, session logs it. Nothing dropped silently.
+5. Value: conversation, task, submission = record as JSON. Entry = kind, conversation, head, task. Document = kind, key, scope, creating commit, last changing commit.
+6. Ids go in first-seen order. A commit at or before the tree's last commit counts once.
+7. On open, storage keeps its replayed history; a background task builds the tree from it, then records each Harness commit. The commit listener only queues, so no commit waits for the tree. Open and attach do not wait for the build; a read does. A panic in build or record stops the tree: it ends its commit subscription; reads get an error.
+8. Ids and cursor hold for one worker. A rebuild can see records in another order; after a worker restart a client reads a new snapshot.
 
-The wire has a one-shot read and an opt-in subscription.
+Wire: one-shot read, opt-in subscription.
 
-1. `get_state_tree` gives the snapshot (with its cursor), or the records
-   after the cursor `since`. `get_state_rewind_plan` gives the effects of
-   a rewind to a cursor.
-2. `subscribe_state_tree` gives the same reply. The supervisor adds the
-   connection to the session's state tree subscribers before the worker
-   reads the tree. Then the connection gets a `state_tree_update` frame
-   (`from`, `cursor`, and the records) after each commit that adds
-   records. So the frames cover every record after the reply's cursor.
-3. A frame can repeat records that the reply had. A client skips a frame
-   whose `cursor` is not more than its own cursor. For the other frames,
-   it applies the records from its own cursor. A frame whose `from` is
-   more than the client's cursor shows a loss: the client subscribes
-   again.
-4. `unsubscribe_state_tree` or a closed connection ends the subscription.
-   A connection that does not subscribe never gets the frame. The frame is
-   not a session event: it takes no event sequence, so the replay cursors
-   of other clients do not change. A direct session client of the worker
-   never gets the frame.
+1. `get_state_tree`: snapshot (with cursor), or records after cursor `since`. `get_state_rewind_plan`: effects of a rewind to a cursor.
+2. `subscribe_state_tree`: same reply. The supervisor adds the connection to the session's state tree subscribers before the worker reads the tree; then each commit that adds records sends a `state_tree_update` frame (`from`, `cursor`, records). Frames cover every record after the reply's cursor.
+3. Frames can repeat reply records. Client skips a frame with `cursor` <= its own; else applies records from its own cursor. `from` > client cursor = loss: subscribe again.
+4. `unsubscribe_state_tree` or a closed connection ends it. Non-subscribers never get the frame. The frame is not a session event: no event sequence, so other clients' replay cursors are unchanged. A direct session client of the worker never gets it.
 
-Model: `bend/tree.bend`. Laws: `LAWS.bend` section (S1). Proofs:
-`PROOF.bend` section `tree`. Every law is universal: every record is free (any
-put, valid or not, any delete, any rewind ops).
+Model: `bend/tree.bend`. Laws: `LAWS.bend` section (S1). Proofs: `PROOF.bend` section `tree`. All laws universal: any record (any put, valid or not, any delete, any rewind ops).
 
 | Law | Says |
 | --- | --- |
-| `tree_apply_sound` | A record keeps a sound tree sound: the ids are in order, and every node hangs under the root or a node (no orphan, no cycle) (S1.1, S1.2). |
-| `tree_replay_sound` | Every journal makes a sound tree (S1.3). |
-| `tree_snapshot` | A snapshot after a prefix of the journal, with the records after it, makes the tree of the whole journal. A client that holds a snapshot and gets the records after it holds the live tree (S1.3). |
-| `tree_rewind_reaches` | A rewind with the diff from the live tree to a target makes the target exactly (S1.2, S1.4). |
-| `tree_rewind_still` | A rewind to the live tree has no changes (S1.4). |
-| `tree_rewind_minimal` | Each change of a rewind is on a node that differs between the live tree and the target: a rewind starts, stops, or restores only what changed (S1.4). |
-| `tree_delete_removes` | A delete removes its node (S1.1). |
-| `tree_delete_only_below` | A delete removes a node only when it is the deleted node or its parent goes: it removes the subtree, nothing else (S1.1). |
-| `tree_delete_within` | A delete changes no node that it keeps (S1.1). |
-| `tree_put_sets` | A put under the root or a node sets its node (S1.1). |
-| `tree_put_keeps_others` | A put changes no other node (S1.1). |
+| `tree_apply_sound` | Sound tree stays sound: ids ordered, no orphan, no cycle (S1.1, S1.2). |
+| `tree_replay_sound` | Any journal → sound tree (S1.3). |
+| `tree_snapshot` | Prefix snapshot + later records = whole-journal tree (= live tree for a client) (S1.3). |
+| `tree_rewind_reaches` | Rewind by diff live→target = target exactly (S1.2, S1.4). |
+| `tree_rewind_still` | Rewind to live = no changes (S1.4). |
+| `tree_rewind_minimal` | Rewind touches only nodes differing between live and target (S1.4). |
+| `tree_delete_removes` | Delete removes its node (S1.1). |
+| `tree_delete_only_below` | Delete removes only its subtree (S1.1). |
+| `tree_delete_within` | Delete changes no kept node (S1.1). |
+| `tree_put_sets` | Put under root or a node sets it (S1.1). |
+| `tree_put_keeps_others` | Put changes no other node (S1.1). |
 
-Code: `eukhe-durable/src/tree/mod.rs` `SessionTree::apply`, `TreeRecord`,
-`TreeOp`; `tree/journal.rs` `Journal` (`push`, `replay`, `snapshot_at`);
-`tree/diff.rs` `diff`, `rewind_to`, `rewind_effects`; `tree/state.rs`
-`StateTree` (`record`, `from_history`, `record_writes`, `records_since`, `snapshot_at`,
-`rewind_plan`); `storage/jsonl/storage.rs` `CommitHistory`,
-`JsonlStorage::take_history`; `eukhe-core/src/durable/state_tree.rs`
-`LiveStateTree`; `eukhe-daemon/src/worker/state_tree.rs` (the
-`get_state_tree`, `subscribe_state_tree`, and `get_state_rewind_plan`
-requests, and the `state_tree_update` frame);
-`supervisor/clients.rs` (the subscription, `state_tree_subscribers`);
-`supervisor/supervision.rs` (the frame routing); `peer.rs`
-`ConnectionRole::streams`; `eukhe-cli/src/daemon_command.rs` `run_state`
-(`eukhe state`, `eukhe state --follow`, `eukhe state rewind-plan`).
+Code: `eukhe-durable/src/tree/mod.rs` `SessionTree::apply`, `TreeRecord`, `TreeOp`; `tree/journal.rs` `Journal` (`push`, `replay`, `snapshot_at`); `tree/diff.rs` `diff`, `rewind_to`, `rewind_effects`; `tree/state.rs` `StateTree` (`record`, `from_history`, `record_writes`, `records_since`, `snapshot_at`, `rewind_plan`); `storage/jsonl/storage.rs` `CommitHistory`, `JsonlStorage::take_history`; `eukhe-core/src/durable/state_tree.rs` `LiveStateTree`; `eukhe-daemon/src/worker/state_tree.rs` (`get_state_tree`, `subscribe_state_tree`, `get_state_rewind_plan`, `state_tree_update`); `supervisor/clients.rs` (subscription, `state_tree_subscribers`); `supervisor/supervision.rs` (frame routing); `peer.rs` `ConnectionRole::streams`; `eukhe-cli/src/daemon_command.rs` `run_state` (`eukhe state`, `--follow`, `rewind-plan`).
 
-Tie: the bridge test `tree::bridge::the_rust_tree_equals_the_bend_model`
-runs `Journal` and `bend/bridge_tree.bend` on 300 generated scenarios
-(checked puts and deletes, saves, rewinds to a save, raw rewinds, and
-replays of the journal) and compares the transcripts byte for byte. The
-scenarios reach every rule of the model. Regression tests:
-`tree::state::tests::commits_build_the_tree_with_parents_first`,
-`storage_writes_build_the_same_journal_as_publications`,
-`a_rewind_plan_stops_starts_and_restores`,
-`a_history_gives_every_node_its_conversation`,
-`an_unknown_parent_or_node_is_an_error`;
-`jsonl_storage::keeps_the_replayed_and_later_commits_until_the_history_is_taken`;
-`durable::open::tests::the_state_tree_follows_the_history_and_the_live_commits`;
-the daemon tests `get_state_tree_answers_the_sessions_tree` and
-`subscribe_state_tree_streams_records_to_its_connection_only`;
-`peer::tests::peer_session_attach_gates_event_stream`. Not modelled:
-the map from commits to records (S1, second list). Its tests tie it.
+Bridge: `tree::bridge::the_rust_tree_equals_the_bend_model`: `Journal` vs `bend/bridge_tree.bend`, 300 generated scenarios (checked puts, deletes, saves, rewinds to a save, raw rewinds, replays), byte-equal transcripts, every model rule reached.
+
+Tests: `tree::state::tests::commits_build_the_tree_with_parents_first`, `storage_writes_build_the_same_journal_as_publications`, `a_rewind_plan_stops_starts_and_restores`, `a_history_gives_every_node_its_conversation`, `an_unknown_parent_or_node_is_an_error`; `jsonl_storage::keeps_the_replayed_and_later_commits_until_the_history_is_taken`; `durable::open::tests::the_state_tree_follows_the_history_and_the_live_commits`; daemon `get_state_tree_answers_the_sessions_tree`, `subscribe_state_tree_streams_records_to_its_connection_only`; `peer::tests::peer_session_attach_gates_event_stream`.
+
+Not modelled: commit→record map (S1, second list); tested.
 
 ### D2. Storage and cron
 
-A session's storage is a directory with one commit log, `main.jsonl`.
-A storage opens with fsync on in each worker.
+Storage = a directory with one commit log, `main.jsonl`; opened with fsync on in each worker.
 
-1. A commit appends one line to `main.jsonl` and flushes the file. The
-   first commit after an open also flushes the storage directory (the
-   entry of `main.jsonl`). An open also flushes the parent directory
-   (the entry of the storage directory). Only then is a commit
-   acknowledged.
-2. A crash can come at any step. It keeps the flushed bytes and any
-   first part of the bytes that are not flushed. It can also lose the
-   directory entries that are not flushed.
-3. An open reads only complete lines. It cuts a torn tail (the bytes
-   after the last newline) and never reads it as a commit.
+1. Commit: append one line to `main.jsonl`, flush the file. First commit after open also flushes the storage directory (entry of `main.jsonl`); open flushes the parent directory (entry of the storage directory). Only then is the commit acknowledged.
+2. A crash can come at any step: keeps flushed bytes and any prefix of unflushed bytes; can lose unflushed directory entries.
+3. Open reads complete lines only; cuts a torn tail (bytes after the last newline), never read as a commit.
 
-A new storage (an import of a legacy file, a fork) is built in a staging
-directory beside its place, `.<name>.import-<uuid>` or
-`.<name>.fork-<uuid>`.
+A new storage (legacy import, fork) builds in a staging directory beside its place: `.<name>.import-<uuid>` or `.<name>.fork-<uuid>`.
 
-1. The builder creates the lock file `<staging>.lock` first and holds an
-   exclusive lock on it until the build ends.
-2. The publish renames the staging directory to its place only when no
-   entry has that name (`RENAME_NOREPLACE`). An entry at the target, even
-   an empty directory, stays as it was, and the build fails with "exists".
-3. The sweep runs at boot and every 5 minutes. It walks every depth of
-   the sessions directory and of `session-artifacts`. It does not go into
-   a storage, a symlink or a leftover. It removes a staging directory, a
-   delete tombstone, or a lock file without its directory, when no live
-   process holds its lock and nothing touched it for a day.
+1. The builder creates `<staging>.lock` first and holds an exclusive lock until the build ends.
+2. Publish renames staging into place only if no entry has the name (`RENAME_NOREPLACE`). An existing entry, even an empty directory, stays; the build fails with "exists".
+3. Sweep: at boot and every 5 minutes, every depth of the sessions directory and `session-artifacts`; never enters a storage, symlink or leftover. Removes a staging directory, delete tombstone, or lock file without its directory, when no live process holds its lock and it is untouched for a day.
 
-The listing of a sessions directory shows a storage directory (not
-hidden, with `main.jsonl` and a cwd that reads) and a legacy file
-`<stem>.jsonl`. A legacy file is listed under its stem, the name of the
-storage that every open imports it into, and only while no directory
-has that name. So a session is listed once, before and after its
-import.
+Listing shows storage directories (not hidden, with `main.jsonl` and a readable cwd) and legacy files `<stem>.jsonl`. A legacy file lists under its stem (the storage name every open imports it into), only while no directory has that name. So a session lists once, before and after import.
 
-Models: `bend/log.bend`, `bend/staging.bend`. Laws: `LAWS.bend` section `storage`.
-Proofs: `PROOF.bend` section `log`, `PROOF.bend` section `staging`.
+Models: `bend/log.bend`, `bend/staging.bend`. Laws: `LAWS.bend` section `storage`. Proofs: `PROOF.bend` sections `log`, `staging`.
 
 | Law | Says |
 | --- | --- |
-| `log_reads_lines` | An open reads exactly the complete lines, in order; a torn tail is never read. |
-| `log_ack_durable` | After any crash, the log is the old log, then every acknowledged commit, then maybe more. |
-| `log_only_commits` | After any crash, the log is the old log, then a prefix of the commits tried. |
-| `publish_never_overwrites` | A publish to a taken name fails and changes nothing. |
-| `publish_moves` | A publish to a free name moves the storage. |
-| `sweep_never_live` | A sweep never removes an entry whose lock a live process holds. |
-| `sweep_never_young` | A sweep never removes an entry touched within the day. |
-| `sweep_stays_out` | A sweep never removes an entry it does not reach. |
-| `sweep_reaches_every_depth` | A sweep removes every free, stale leftover it reaches. |
-| `list_one_location` | No name is listed both as a storage and as a legacy file. |
-| `list_import_lists_storage` | After an import, the stem is listed as a storage. |
-| `list_import_keeps_others` | An import changes the listing of no other name. |
+| `log_reads_lines` | Open reads exactly the complete lines, in order; never a torn tail. |
+| `log_ack_durable` | Post-crash log = old log + all acked commits + maybe more. |
+| `log_only_commits` | Post-crash log = old log + prefix of tried commits. |
+| `publish_never_overwrites` | Taken name: publish fails, no change. |
+| `publish_moves` | Free name: publish moves the storage. |
+| `sweep_never_live` | Never removes a live-locked entry. |
+| `sweep_never_young` | Never removes an entry touched within the day. |
+| `sweep_stays_out` | Never removes an unreached entry. |
+| `sweep_reaches_every_depth` | Removes every free, stale, reached leftover. |
+| `list_one_location` | No name listed as both storage and legacy file. |
+| `list_import_lists_storage` | After import, the stem lists as storage. |
+| `list_import_keeps_others` | Import changes no other listing. |
 
-Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`,
-the commit path, `read_lines`); `eukhe-core/src/durable/staging.rs`
-(`lock_staging`, `publish`, `sweep_stale_staging_dirs`);
-`platform/fs.rs` `rename_no_replace`; `durable/discovery.rs`
-(`list_sessions`); `eukhe-daemon/src/session_archive.rs` (the sweep
-loop).
+Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`, commit path, `read_lines`); `eukhe-core/src/durable/staging.rs` (`lock_staging`, `publish`, `sweep_stale_staging_dirs`); `platform/fs.rs` `rename_no_replace`; `durable/discovery.rs` `list_sessions`; `eukhe-daemon/src/session_archive.rs` (sweep loop).
 
-Tie: the bridge tests
-`storage::jsonl::bridge::the_commit_log_runs_as_its_model` (the real
-`JsonlStorage` over a file system that loses power after any step, at
-every crash point of a three-commit epoch and on 120 random histories)
-and `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model`
-(publishes to every kind of target, 60 generated sweep trees, 30
-generated sessions directories with imports). Regression tests:
-`durable::staging::tests::publish_never_replaces_an_entry_at_the_target`,
-`a_held_staging_dir_is_never_swept`,
-`sweeps_leftovers_at_every_depth_it_owns`.
+Bridges: `storage::jsonl::bridge::the_commit_log_runs_as_its_model` (real `JsonlStorage`, power loss after any step, every crash point of a three-commit epoch, 120 random histories); `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model` (every target kind, 60 sweep trees, 30 sessions directories with imports).
+
+Tests: `durable::staging::tests::publish_never_replaces_an_entry_at_the_target`, `a_held_staging_dir_is_never_swept`, `sweeps_leftovers_at_every_depth_it_owns`.
 
 #### The cron store
 
-The cron jobs file (`cron-jobs.json`, or a session's
-`scheduled-jobs.json`) is shared by all processes of an agent directory.
-`AgentCronJobStore` (crates/eukhe-core/src/cron/store/) keeps these rules:
+All processes of an agent directory share the cron jobs file (`cron-jobs.json`, or a session's `scheduled-jobs.json`). `AgentCronJobStore` (crates/eukhe-core/src/cron/store/):
 
-1. A claim belongs to its owner. Each dispatch record names the process
-   that claimed it (pid and start identity, `ProcessIdentity`). A
-   recovery clears a claim only when it is the claim of this process and
-   its run is no longer live (the pass unwound), or when its owner is
-   dead. The live claim of another process stays.
-2. A one-shot job is completed only by the finish step of its run, or
-   by the recovery of a claim whose run ended. A claim never completes it.
-3. Nothing is dropped. A job record or a claim record that does not parse
-   stays in the file as it is, and so do top-level keys the store does
-   not know. A file that exists but cannot be read or parsed is never
-   written over: the next update moves it aside as
-   `<name>.corrupt-<ms>-<id>` and starts from an empty file. Only a
-   missing file reads as empty.
-4. A failing job stops. Each failed run pushes the next run out by
-   2, 4, 8, 16, 32 minutes, then 60 minutes (never earlier than the
-   schedule). The pause never gets shorter in a streak. After
-   `FAILURE_STOP_AFTER` (8) failures in a row the job is paused with its
-   error, and the cron list shows `paused`, `failures=8` and the error.
-   Only a user action starts it again (a resume sets the count to 0). A
-   good run sets the count to 0. The eighth failure comes about three
-   hours after the first, and the last two pauses are one hour each: a
-   cause that lasts this long is not a short outage.
+1. A claim belongs to its owner. Each dispatch record names its claiming process (pid and start identity, `ProcessIdentity`). Recovery clears a claim only if it is this process's and its run is no longer live (pass unwound), or its owner is dead. Another process's live claim stays.
+2. A one-shot job completes only by its run's finish step, or by recovery of a claim whose run ended. A claim never completes it.
+3. Nothing dropped. Unparseable job or claim records, and unknown top-level keys, stay as they are. A file that exists but cannot be read or parsed is never overwritten: the next update moves it to `<name>.corrupt-<ms>-<id>` and starts empty. Only a missing file reads as empty.
+4. A failing job stops. Each failure delays the next run by 2, 4, 8, 16, 32, then 60 minutes (never before schedule); the pause never shrinks in a streak. After `FAILURE_STOP_AFTER` (8) failures in a row: paused with its error; cron list shows `paused`, `failures=8`, the error. Only a user action restarts it (resume sets the count to 0). A good run sets the count to 0. Failure 8 comes about three hours after failure 1; the last two pauses are one hour each: a cause that lasts this long is not a short outage.
 
-Laws: `LAWS.bend` section `cron` (`cron_fires_once`, `cron_once_finished_after_end`,
-`cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`) about the
-model `bend/cron.bend`, proved in `PROOF.bend` section `cron` and
-`PROOF.bend` section `cron_step`. Tie: the bridge test
-`cron::store::bridge::the_rust_cron_store_equals_the_bend_model` runs
-three simulated processes (each with its own store and owner identity,
-a liveness seam and a fake clock) on one file, and compares its
-transcript with `bend/bridge_cron.bend` byte for byte. Not modelled: cron
-expressions (the model has one-shot and interval schedules), and the
-freshness merge of whole-list writes (the bridge runs one step at a time).
-Regression tests in `cron::store::jobs::tests`:
-`a_pass_of_another_process_keeps_a_live_claim`,
-`a_one_shot_is_not_completed_while_it_runs`,
-`an_unread_job_survives_a_create`, `a_corrupt_file_is_moved_aside`,
-`a_failing_job_stops_after_the_cap`.
+Model: `bend/cron.bend`. Laws: `LAWS.bend` section `cron` (`cron_fires_once`, `cron_once_finished_after_end`, `cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`). Proofs: `PROOF.bend` sections `cron`, `cron_step`.
+
+Bridge: `cron::store::bridge::the_rust_cron_store_equals_the_bend_model`: 3 simulated processes (own store, owner identity, liveness seam, fake clock), one file, byte-equal to `bend/bridge_cron.bend`. Not modelled: cron expressions (model: one-shot, interval); freshness merge of whole-list writes (bridge steps one at a time).
+
+Tests (`cron::store::jobs::tests`): `a_pass_of_another_process_keeps_a_live_claim`, `a_one_shot_is_not_completed_while_it_runs`, `an_unread_job_survives_a_create`, `a_corrupt_file_is_moved_aside`, `a_failing_job_stops_after_the_cap`.

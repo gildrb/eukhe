@@ -5,99 +5,61 @@ nix develop        # Rust toolchain, uv, git, ONNX Runtime (sets ORT_DYLIB_PATH)
 make check         # fmt, clippy, tests
 make dashboard-ui  # Node: rebuild the dashboard web app into crates/eukhe-dashboard/web (commit it)
 make hooks         # install the git hooks (prek)
-```
-
-Run tests with a clean environment. Inherited `EUKHE_*` variables point
-test daemons at real state:
-
-```sh
-env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace
+env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace  # clean env: inherited EUKHE_* points test daemons at real state
 ```
 
 ## Local CI and git hooks
 
-The CI gates run only on this machine, in the git hooks. GitHub runs no
-gate. The repository takes no pull requests. Install
-[prek](https://github.com/j178/prek) 0.5.7, then the hooks:
+Gates run only here, in git hooks. GitHub runs no gate; no pull requests.
 
 ```sh
-mise use -g github:j178/prek@0.5.7
+mise use -g github:j178/prek@0.5.7  # prek 0.5.7 (https://github.com/j178/prek)
 make hooks   # prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 ```
 
-The hooks (`.pre-commit-config.yaml`) run at low CPU priority
-(`nice -n 10`). They unset `RUSTUP_TOOLCHAIN`, so
-`rust-toolchain.toml` selects the toolchain.
+Hooks (`.pre-commit-config.yaml`) run under `nice -n 10` and unset `RUSTUP_TOOLCHAIN` (`rust-toolchain.toml` selects).
 
-- pre-commit: `make ci-fast`. It checks the staged change: `cargo fmt`,
-  a gitleaks scan of the staged diff (skipped with a note when gitleaks
-  is not installed), and clippy `-D warnings` on the crates the change
-  touches and their dependents (`scripts/ci_pr_crates.py`; a path
-  outside `crates/<crate>/` selects the workspace).
-- pre-push: `scripts/ci_local.sh pre-push`. It checks the pushed commits
-  in the worktree that pushes them: `cargo fmt`, a gitleaks scan of the
-  pushed commits, clippy and `cargo test --no-fail-fast` on the crates
-  they touch and their dependents, `scripts/check_laws_wired.py` and
-  `bend PROOF.bend`. Push from a worktree at the pushed commit. There is
-  no lock: every worktree pushes at any time.
-- Skip rule: a push that changes only Markdown files in `docs/` or at
-  the repository root does not run the pre-push gate.
+|Hook|Command|Checks|
+|---|---|---|
+|pre-commit|`make ci-fast`|Staged change: `cargo fmt`; gitleaks on the staged diff (skipped with a note if not installed); clippy `-D warnings` on touched crates + dependents (`scripts/ci_pr_crates.py`; a path outside `crates/<crate>/` selects the workspace)|
+|pre-push|`scripts/ci_local.sh pre-push`|Pushed commits, in the pushing worktree: `cargo fmt`; gitleaks on them; clippy and `cargo test --no-fail-fast` on touched crates + dependents; `scripts/check_laws_wired.py`; `bend PROOF.bend`|
 
-The gates need bend and Lean at the versions that
-`scripts/toolchain.env` pins, and cargo-deny, uv, npm and gitleaks.
-A gate that fails prints its name; fix the cause and run the command
-again.
+- Push from a worktree at the pushed commit. No lock; any worktree pushes any time.
+- Skip: a push changing only Markdown in `docs/` or the repo root skips pre-push.
+- Needs bend and Lean at `scripts/toolchain.env` versions, cargo-deny, uv, npm, gitleaks.
+- A failed gate prints its name; fix, rerun.
 
 ## Nightly gate
 
-A systemd user timer runs `scripts/ci_nightly.sh run` once a night
-(02:30 UTC). It runs the full gate (`make ci-local`) on `origin/main` in
-the gate worktree (`<repo>-ci` beside the main checkout, for example
-`~/Repos/eukhe-ci`). The full gate is: fmt, cargo check and clippy on the
-workspace, every test unit in 8 parallel shards in a clean environment
-with `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
-(`web/` up to date), `bend PROOF.bend` and `--verdict`, the
-release-version bridge, cargo-deny, and gitleaks on the commits since the
-last release.
+A systemd user timer runs `scripts/ci_nightly.sh run` at 02:30 UTC: full gate (`make ci-local`) on `origin/main` in the gate worktree (`<repo>-ci` beside the checkout, e.g. `~/Repos/eukhe-ci`).
 
-- Green: the run starts the release of that commit (`gh workflow run
-  eukhe-release.yml -f sha=<commit>`).
-- Red: nothing is released. A commit that breaks a test does not ship.
+Full gate: fmt; workspace cargo check and clippy; every test unit in 8 parallel shards, clean env, `EUKHE_REQUIRE_BEND=1`; eukhe-runtime suite; dashboard UI (`web/` up to date); `bend PROOF.bend` and `--verdict`; release-version bridge; cargo-deny; gitleaks on commits since the last release.
 
-Build size:
+- Green: releases that commit (`gh workflow run eukhe-release.yml -f sha=<commit>`).
+- Red: no release; a test-breaking commit never ships.
 
-| Rule | Why |
+| Build-size rule | Why |
 | --- | --- |
-| Each nightly run starts with `cargo clean` in the gate worktree | Cargo never deletes stale build files. One day of gate runs grew that build dir to 410 GB |
-| The full gate builds without incremental files (`CARGO_INCREMENTAL=0`) | The gate builds once. Incremental files only add size |
-| The full gate builds with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | A failed test still shows file and line. Full debug info is several times larger |
-| The test environment keeps these two settings | The tests reuse the gate's build. A second build with other settings doubles the size |
+| Each nightly run starts with `cargo clean` in the gate worktree | Cargo never deletes stale build files; one day of runs grew the build dir to 410 GB |
+| Full gate: `CARGO_INCREMENTAL=0` | One build; incremental files only add size |
+| Full gate: `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | Failed tests still show file and line; full debug info is several times larger |
+| Tests keep these two settings | Tests reuse the gate's build; other settings double the size |
 
 ```sh
 make nightly          # run the nightly gate now
-make nightly-status   # the result of the last run
+make nightly-status   # result of the last run
 ```
 
-Each run appends its result, and for a failure the failed gates and
-test units, to `~/.eukhe/ci/nightly.log`. The full output of the last
-run is `~/.eukhe/ci/nightly-last.log`.
+- `~/.eukhe/ci/nightly.log`: each run's result; on failure, failed gates and test units.
+- `~/.eukhe/ci/nightly-last.log`: full output of the last run.
 
-GitHub runs one workflow: the release below.
+GitHub runs one workflow: the release.
 
 ## Releases
 
-The nightly gate starts `.github/workflows/eukhe-release.yml` for the
-commit that passed. Run the workflow by hand (`workflow_dispatch` with
-`sha`) for an urgent release of a commit that passed `make ci-local`.
-The version is the next patch of
-the series in `Cargo.toml` (`[workspace.package] version = "X.Y.0"`): 1 +
-the highest patch among the tags `eukhe-vX.Y.P`, or 0 for the first
-release of a series. The release is tagged `eukhe-v<version>`, titled
-`Eukhe v<version>`, marked latest, and pinned for the flake in
-`nix/release.json`. To start a new series, set the workspace version to
-the next `X.Y.0` (for example `0.11.0` or `1.0.0`). A workspace version
-that is no `X.Y.0`, or a tag of a newer series, stops the release.
-`scripts/release/next_version.py` computes the version; its rule is the
-model `bend/semver.bend`, whose laws (`LAWS.bend` section `release`, section R1)
-`PROOF.bend` proves, and `scripts/release/test_next_version.py` runs the
-script and the model on the same cases.
+- The nightly gate starts `.github/workflows/eukhe-release.yml` for the passing commit. Urgent release of a commit that passed `make ci-local`: run it by hand (`workflow_dispatch` with `sha`).
+- Version: next patch of the `Cargo.toml` series (`[workspace.package] version = "X.Y.0"`): 1 + highest patch among tags `eukhe-vX.Y.P`, or 0 for a series' first release.
+- Tag `eukhe-v<version>`, title `Eukhe v<version>`, marked latest, pinned for the flake in `nix/release.json`.
+- New series: set the workspace version to the next `X.Y.0` (e.g. `0.11.0`, `1.0.0`).
+- Stops the release: a workspace version not `X.Y.0`, or a tag of a newer series.
+- `scripts/release/next_version.py` computes it; rule = model `bend/semver.bend`; laws `LAWS.bend` section `release` (R1), proved in `PROOF.bend`; `scripts/release/test_next_version.py` runs script and model on the same cases.

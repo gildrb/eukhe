@@ -1,22 +1,11 @@
 # eukhe
 
-eukhe (Greek εὐχή: a wish, a prayer) is a coding agent with one endless chat
-as its memory.
-
-eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
-by Prime Intellect. It is not affiliated with Prime Intellect, Victor Taelin or Earendil.
-See [Attribution](#attribution).
-
-A coding agent forgets. A new session starts empty. A compaction removes the
-start of a long session. eukhe keeps one chat log for all sessions. Each turn
-starts from a compact view of the full log.
+eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions (no empty new session, no compaction dropping the start); each turn starts from a compact view of the full log. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect; not affiliated with Prime Intellect, Victor Taelin or Earendil ([Attribution](#attribution)).
 
 ## Install
 
-macOS (Apple Silicon), Linux (x64, arm64):
-
 ```sh
-curl -fsSL https://eukhe.com/install | sh
+curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64); rerun to update
 ```
 
 |Method|Command|
@@ -26,8 +15,7 @@ curl -fsSL https://eukhe.com/install | sh
 |mise|`"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }`|
 |Source|`cargo build --release --locked -p eukhe-cli`|
 
-To update, run the install command again. `eukhe update` does not download.
-Details: [docs/install.md](docs/install.md).
+`eukhe update` does not download. Details: [docs/install.md](docs/install.md).
 
 ## Use
 
@@ -43,35 +31,29 @@ All commands: [docs/usage.md](docs/usage.md).
 
 ## Memory
 
-- The chat log is in `~/.eukhe/chat/`. It is append-only.
+- Log: `~/.eukhe/chat/`, append-only.
 - The compactor writes one-line summaries into a binary tree over the log.
 - Each root turn starts from the view: 64 KB to 128 KB of lines.
-- `/memory` shows the view. `/memory zoom <id> <n>` opens a node.
-- `/memory-model` selects the compaction model and its reasoning effort.
+- `/memory`: the view. `/memory zoom <id> <n>`: open a node. `/memory-model`: compaction model and reasoning effort.
 
-The design is Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
-Details: [docs/memory.md](docs/memory.md).
+Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449). Details: [docs/memory.md](docs/memory.md).
 
 ## Agents
 
-- An agent starts subagents from its Python REPL (`rlm.spawn`).
-- `@name message` sends a message to a family agent.
-- `/agents` lists the agents of the session.
+- `rlm.spawn` in the agent's Python REPL starts subagents.
+- `@name message`: message a family agent. `/agents`: list the session's agents.
 
 ## Dynamic workflows
 
-- `/dynamic-workflow <request>` makes the agent write and run one orchestration script.
-- The script starts many subagents: fan-out, pipelines and phases.
-- `--size small|medium|large` sets how many agents run. `/workflow-size` sets the default.
-- `/workflows` shows each run: phases, agents, log.
+- `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
+- `--size small|medium|large`: how many agents; `/workflow-size` sets the default. `/workflows`: phases, agents, log per run.
 
 Details: [docs/workflows.md](docs/workflows.md).
 
 ## Phone and browser
 
-- `eukhe gateway` connects Signal to the CLI session. See [docs/gateway.md](docs/gateway.md).
-- `eukhe dashboard` serves the session on `127.0.0.1`. For a phone, run
-  `poros eukhe dashboard`. See [docs/dashboard.md](docs/dashboard.md).
+- `eukhe gateway`: Signal to the CLI session ([docs/gateway.md](docs/gateway.md)).
+- `eukhe dashboard`: the session on `127.0.0.1`; phone: `poros eukhe dashboard` ([docs/dashboard.md](docs/dashboard.md)).
 
 ## References
 
@@ -89,11 +71,10 @@ Details: [docs/workflows.md](docs/workflows.md).
 
 ## Limitations
 
-- eukhe runs model-generated Python and shell commands with your user
-  permissions. It is not a sandbox. Use trusted repositories only.
-- Platforms: macOS (Apple Silicon), Linux (x64, arm64). No Windows.
-- The kernel needs uv. The chat memory needs git. The Nix package supplies both.
-- Local models need ONNX Runtime 1.24 or newer.
+- Runs model-generated Python and shell with your user permissions; no sandbox. Trusted repositories only.
+- macOS (Apple Silicon), Linux (x64, arm64). No Windows.
+- Kernel needs uv; chat memory needs git; the Nix package supplies both.
+- Local models need ONNX Runtime 1.24+.
 
 ## Attribution
 

@@ -1,432 +1,198 @@
 # Harness laws: settings and directors
 
-The shared rules (what a law secures, the adversary, H1 to H6) are in [harness.md](harness.md).
+Shared rules (what a law secures, the adversary, H1 to H6): [harness.md](harness.md).
 
 ### S4. Settings as console variables
 
-Each setting is a console variable (a cvar). One table declares each cvar
-once: its id, its type, its scope, two flags and its default. The id is
-the dotted path of the key in `settings.json` (`retry.enabled`).
+Each setting is a console variable (cvar), declared once in one table: id, type, scope, two flags, default. Id = dotted key path in `settings.json` (`retry.enabled`).
 
-1. The registry holds each id once. A second declaration of an id, or a
-   default that does not have the type of its cvar, stops eukhe at
-   startup (`RegistryError`).
-2. The scope is Global or Local. A Global cvar has one value for every
-   agent: only the global config sets it. A Local cvar can have a
-   different value in each agent.
-3. `persist`: an agent can write its sets of the cvar to its cfg.
-   `replicate`: clients see the value of the cvar.
+1. Registry holds each id once. Duplicate id, or default not of the cvar's type: eukhe stops at startup (`RegistryError`).
+2. Scope Global or Local. Global: one value for every agent, set only by the global config. Local: may differ per agent.
+3. `persist`: an agent may write its sets of the cvar to its cfg. `replicate`: clients see the value.
 
-The value of a cvar comes from layers. A higher layer wins:
+Value layers, higher wins:
 
 ```text
 default < config < each agent of the family, root first:
                    its profile < its own sets
 ```
 
-- The config is `settings.json` (global, then project) and then
-  `config.cfg` (global `<agent dir>/config.cfg`, then project
-  `.eukhe/config.cfg`). The project files obey the project trust rules
-  of `settings.json`. A project file never sets a Global cvar.
-- The profile of a subagent is `subagent.cfg`, then
-  `agents/<name>.cfg` for a named agent. The root session is the agent
-  `main`.
-- The sets of an agent are its runtime sets (`/set`, `/toggle`, the
-  session switches). They are session state: the conversation document
-  `eukhe.cvar.agent`, committed on each change. So the state tree shows
-  them, and a rewind or a fork restores them.
+- Config: `settings.json` (global, then project), then `config.cfg` (global `<agent dir>/config.cfg`, then project `.eukhe/config.cfg`). Project files obey `settings.json` project trust rules; never set a Global cvar.
+- Subagent profile: `subagent.cfg`, then `agents/<name>.cfg` for a named agent. Root session = agent `main`.
+- Agent sets: runtime sets (`/set`, `/toggle`, session switches). Session state: conversation document `eukhe.cvar.agent`, committed per change; shown in the state tree; restored by rewind or fork.
 
-In each layer, the last valid set of a cvar wins. A set is valid when its
-cvar is declared and its value has the type of the cvar. In a profile or
-an agent's sets, the cvar must also be Local. A set that is not valid is
-rejected with a typed error (`CvarError`): `Undeclared`, `BadValue`,
-`Global`, `NotBool`.
+- Per layer, the last valid set wins. Valid: cvar declared, value of its type; in a profile or agent sets also Local. Invalid: typed `CvarError` (`Undeclared`, `BadValue`, `Global`, `NotBool`).
+- Subagent starts from its parent's family (spawn carries parent layers); own profile and sets on top.
+- Session switches (transport, steering mode, follow-up mode, auto retry, auto compaction, service tier): sets of the session's own agent; never change another session.
+- Session cannot set a Global cvar; `/set --global` writes it to global `config.cfg`.
+- `toggle` in `/set --global` flips only the global layer (global `settings.json`, then global `config.cfg`); a project file never changes what it flips.
+- Cfg read-change-write holds the file lock: concurrent sessions lose no set.
+- Existing unreadable cfg file: settings error, never written. Profile file errors and unparsable agent-state aliases: settings errors.
+- `eukhe.settings` service shows a session's settings errors as an `eukhe.settings_error` row of its main conversation (display-only, not in model context): at open, and each new error after reload; each distinct error once per opened session.
 
-A subagent starts from the family of its parent: the spawn carries the
-parent's layers. Its own profile and sets go on top of them.
-
-The session switches (transport, steering mode, follow-up mode, auto
-retry, auto compaction, service tier) are sets of the session's own
-agent. They do not change another session. A session cannot set a Global
-cvar: `/set --global` writes it to the global `config.cfg`. A `toggle`
-in `/set --global` flips the value of the global layer only (the global
-`settings.json`, then the global `config.cfg`). A project file never
-changes what it flips. The read, the change and the write of a cfg file
-hold the lock of the file, so two sessions that write at the same time
-do not lose a set. A cfg file that exists but eukhe cannot read is a
-settings error, and eukhe does not write it. The errors of a profile
-file and of an alias in the agent state that does not parse are
-settings errors too. The `eukhe.settings` service shows the settings
-errors of a session as an `eukhe.settings_error` row of its main
-conversation (display-only: the model does not see it). It shows the
-errors at open, and after a reload it shows each new error. It shows
-each distinct error one time for each session that eukhe opens.
-
-The command language is the same in the cfg files, in the `/set` slash
-command family and in key binds. A line is a list of commands, separated
-by `;`. A word in double quotes keeps its spaces.
+One command language for cfg files, the `/set` family and key binds. Line = commands separated by `;`; double quotes keep spaces.
 
 | Command | Does |
 | --- | --- |
 | `set <id> <value>` | Sets the cvar. |
-| `toggle <id>` | Sets a Bool cvar to the opposite of its value in the agent, with the values the agent inherits. |
-| `alias <name> "<cmds>"` | Gives a name to a list of commands. |
-| `bind <key> "<cmds>"` | Gives the commands that a key press runs. |
+| `toggle <id>` | Bool cvar to the opposite of its value in the agent (inherited values included). |
+| `alias <name> "<cmds>"` | Names a command list. |
+| `bind <key> "<cmds>"` | Commands a key press runs. |
 | `action <id>` | Runs a built-in client action (in a bind). |
-| `<name>` | Runs the alias `<name>`. |
+| `<name>` | Runs alias `<name>`. |
 
-4. An expansion replaces each run of an alias with its commands. It
-   nests at most one level per alias of the table and one more. A deeper
-   nest repeats an alias, so it is a cycle (`ExpandError::Cycle`). A run
-   of an alias that does not exist is `ExpandError::Unknown`. An
-   expansion that fails runs nothing.
-5. The key binds are in `<agent dir>/binds.cfg`. The first bind of a key
-   wins: the user's binds come before the default binds. A key with no
-   bind runs nothing; an empty bind (`bind <key> ""`) turns off a
-   default. The default actions that share a key share one bind; the
-   screen that gets the key runs its own action. A key press sends its
-   `set`, `toggle` and `alias` commands to the session and runs its
-   `action` commands in the client. eukhe writes `binds.cfg` one time
-   from `keybindings.json` when `binds.cfg` does not exist; the binds it
-   writes give each key the actions that `keybindings.json` gave it. A
-   `binds.cfg` that eukhe cannot read, or an import that eukhe cannot
-   write, shows a warning at startup and at `/reload`.
-6. `/cvar save` writes the agent's sets of `persist` cvars to its
-   `agents/<name>.cfg`. Read back as the profile, they give the same
-   values.
+4. Expansion replaces each alias run with its commands; nests at most one level per table alias, plus one. Deeper = repeated alias = cycle (`ExpandError::Cycle`). Missing alias: `ExpandError::Unknown`. Failed expansion runs nothing.
+5. Key binds: `<agent dir>/binds.cfg`.
+   - First bind of a key wins; user binds before defaults.
+   - Unbound key runs nothing; empty bind (`bind <key> ""`) disables a default.
+   - Default actions sharing a key share one bind; the screen receiving the key runs its own action.
+   - Press sends `set`, `toggle`, `alias` to the session; runs `action` in the client.
+   - No `binds.cfg`: written once from `keybindings.json`, same actions per key.
+   - Unreadable `binds.cfg` or unwritable import: warning at startup and `/reload`.
+6. `/cvar save` writes the agent's `persist` sets to `agents/<name>.cfg`; read back as profile, same values.
 
-Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`,
-`expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs:
-`PROOF.bend` section `cvar`. Every input is free: any declarations (with
-duplicate ids and wrong defaults), any config, any family of agents with
-any profiles and sets (wrong types, Global cvars, undeclared ids), any
-alias table and any binds.
+Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs: `PROOF.bend` section `cvar`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds.
 
 | Law | Says |
 | --- | --- |
-| `cvar_registry_unique` | The registry holds each id once (S4.1). |
-| `cvar_registry_typed` | Each default of the registry has its type (S4.1). |
-| `cvar_value_typed` | Each value has the type of its cvar in each agent; an undeclared cvar has no value. |
-| `cvar_inherits` | A subagent with no profile and no sets has its parent's values. |
-| `cvar_set_wins` | The last valid set of a subagent wins over its parent's value. |
-| `cvar_global_uniform` | A Global cvar has one value in each agent: the config on the default (S4.2). |
-| `cvar_written_flagged` | An agent writes to its cfg only `persist` cvars and replicates only `replicate` cvars (S4.3). |
-| `cvar_persist_roundtrip` | The written cfg, read back as the profile, gives the same value of each persisting cvar (S4.6). |
-| `cvar_toggle_twice` | Two toggles give back the value. |
-| `alias_expands_fully` | An expansion leaves no alias to run, or it reports a cycle or an unknown alias (S4.4). |
-| `alias_self_cycle` | An alias that runs itself is a cycle (S4.4). |
-| `alias_unknown_reported` | A run of an alias that does not exist is reported (S4.4). |
-| `alias_runs_body` | An alias of plain commands runs exactly its commands (S4.4). |
-| `bind_press_plain` | A key press runs only plain commands (S4.5). |
-| `bind_unbound_runs_nothing` | A key with no bind runs nothing (S4.5). |
-| `bind_first_wins` | A key press runs the commands of the first bind of the key (S4.5). |
+| `cvar_registry_unique` | Each id once in registry (S4.1). |
+| `cvar_registry_typed` | Each default has its type (S4.1). |
+| `cvar_value_typed` | Each value has its cvar's type in each agent; undeclared cvar has no value. |
+| `cvar_inherits` | Subagent without profile or sets has parent's values. |
+| `cvar_set_wins` | Subagent's last valid set beats parent's value. |
+| `cvar_global_uniform` | Global cvar: one value in every agent, config over default (S4.2). |
+| `cvar_written_flagged` | Agent writes to cfg only `persist` cvars, replicates only `replicate` cvars (S4.3). |
+| `cvar_persist_roundtrip` | Written cfg read back as profile gives each persisting cvar's value (S4.6). |
+| `cvar_toggle_twice` | Two toggles restore the value. |
+| `alias_expands_fully` | Expansion leaves no alias, or reports cycle or unknown alias (S4.4). |
+| `alias_self_cycle` | Self-running alias is a cycle (S4.4). |
+| `alias_unknown_reported` | Run of a missing alias is reported (S4.4). |
+| `alias_runs_body` | Alias of plain commands runs exactly them (S4.4). |
+| `bind_press_plain` | Key press runs only plain commands (S4.5). |
+| `bind_unbound_runs_nothing` | Unbound key runs nothing (S4.5). |
+| `bind_first_wins` | Key press runs the key's first bind (S4.5). |
 
-Code: `eukhe-types/src/cvar.rs` (the command language: `parse_list`,
-`parse_script`, `Aliases`, `expand`, `Binds::press`);
-`eukhe-core/src/settings/cvar.rs` (`Registry`, `Cvars::value`,
-`Cvars::execute`, `Sets::written`, `document_sets`) and
-`settings/cvar/table.rs` (the declarations); `settings/cfg.rs` (the
-config layer: `settings.json`, then the `config.cfg` files under the
-trust rules); `settings/manager.rs` and `settings/getters.rs` (the
-getters, all through `Cvars`); `eukhe-core/src/durable/cvar_agent.rs` (the
-session's agent: `CvarAgent`, the `eukhe.cvar.agent` document,
-`run_cvar_line`, `save_agent_cfg`) and `durable/settings.rs`
-(`EukheSettings`: the family of the session over its config). The daemon
-commands `cvar { line, global }` and `cvar_save` run them
-(`eukhe-daemon/src/setting_switches.rs`); a refused command answers its
-`CvarError` with `data: { kind, id?, message }`. A spawn carries the parent's
-family in the create config (`cvarFamily`). The TUI sends `/set`,
-`/toggle`, `/alias` and `/cvar` as `cvar` lines
-(`eukhe-tui/src/session_ui/cvar.rs`).
+Code:
 
-Ties: the bridge test
-`settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` compares
-transcripts with `bend/bridge_cvar.bend` byte for byte. It runs 300
-generated scenarios: registries (with duplicate ids and wrong
-defaults), values over a config and a family (wrong types, Global
-cvars, undeclared ids, profiles and sets), toggles of the last agent of
-a family (a subagent toggles a value that it inherits), the written sets
-(`persist` and `replicate`), expansions (cycles, unknown aliases) and
-key presses. The scenarios reach every rule.
+- `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `expand`, `Binds::press`.
+- `eukhe-core/src/settings/cvar.rs`: `Registry`, `Cvars::value`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
+- `settings/cfg.rs`: config layer (`settings.json`, then `config.cfg` files under trust rules).
+- `settings/manager.rs`, `settings/getters.rs`: getters, all through `Cvars`.
+- `eukhe-core/src/durable/cvar_agent.rs` (session agent): `CvarAgent`, `eukhe.cvar.agent` document, `run_cvar_line`, `save_agent_cfg`.
+- `durable/settings.rs`: `EukheSettings` (session family over its config).
+- `eukhe-daemon/src/setting_switches.rs`: daemon commands `cvar { line, global }`, `cvar_save`; refusal answers its `CvarError` as `data: { kind, id?, message }`.
+- Spawn carries parent family in create config (`cvarFamily`).
+- `eukhe-tui/src/session_ui/cvar.rs`: TUI sends `/set`, `/toggle`, `/alias`, `/cvar` as `cvar` lines.
 
-Regression tests: `a_switch_changes_only_its_own_session` (daemon: two
-workers over one agent dir; the switches of one do not change the other
-or `settings.json`); `a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse`
-(a setter refuses to write over a `settings.json` that did not parse);
-`cvar_rejects_a_global_cvar_from_a_session`;
-`a_subagent_inherits_its_parents_family_under_its_profile`;
-`a_fork_starts_from_the_agent_state_at_its_fork_point`;
-`an_unreadable_cfg_file_is_reported_and_never_overwritten`;
-`concurrent_global_sets_both_land`;
-`a_global_toggle_flips_the_global_value_not_the_projects`;
-`profile_and_agent_alias_errors_reach_the_manager`;
-`settings_errors_show_as_a_row_of_the_session`;
-`unreadable_binds_cfg_and_failed_import_are_warnings`; the
-`keybindings::tests` of the `binds.cfg` import and of the presses.
+Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bend/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`); expansions (cycles, unknown aliases); key presses.
+
+Regression tests:
+
+- `a_switch_changes_only_its_own_session` (daemon: two workers on one agent dir; one's switches change neither the other nor `settings.json`)
+- `a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse` (setter refuses to overwrite an unparsed `settings.json`)
+- `cvar_rejects_a_global_cvar_from_a_session`, `a_subagent_inherits_its_parents_family_under_its_profile`, `a_fork_starts_from_the_agent_state_at_its_fork_point`, `an_unreadable_cfg_file_is_reported_and_never_overwritten`, `concurrent_global_sets_both_land`, `a_global_toggle_flips_the_global_value_not_the_projects`, `profile_and_agent_alias_errors_reach_the_manager`, `settings_errors_show_as_a_row_of_the_session`, `unreadable_binds_cfg_and_failed_import_are_warnings`
+- `keybindings::tests` (`binds.cfg` import, presses)
 
 ### S4b. Config documents
 
-The config documents are `settings.json` (global and project),
-`mcp-connections.json` and `auth.json`. No input of these documents is
-lost in silence.
+Documents: `settings.json` (global, project), `mcp-connections.json`, `auth.json`. No input lost silently.
 
-1. A writer reads the document under its lock, applies its change, and
-   writes the result. When the read fails (the file cannot be read, it is
-   not valid JSON or not an object, or its version is not known), the
-   writer writes nothing and returns the error. Only a file that is not
-   there reads as empty. Each key that the change does not touch keeps
-   its value. This applies to `eukhe mcp add` and `eukhe mcp remove`, to
-   each settings setter, to the connection records and to `AuthStorage`
-   `set` and `remove`. `set` and `remove` return the error to the caller.
-2. A settings setter writes the document that is on disk when it writes,
-   not the copy that it loaded. A key that failed to load stays, and a
-   key that another writer added stays. The setter refuses a value that
-   its setting does not hold. When a higher layer sets the same setting
-   (the global `config.cfg`, the project `settings.json` or the project
-   `config.cfg`), the setter says which file sets it
-   (`Persisted::Shadowed`), and the client shows it. The daemon shows a
-   default model or thinking level that it could not save as a settings
-   error row.
-3. Each leaf of a `settings.json` applies or is named by a settings
-   error. A leaf is a value that is not an object, or the whole value of
-   a cvar. A value that its setting does not hold is `BadValue`; a key
-   that no setting declares is `Undeclared`. These are the same
-   `CvarError`s as for `config.cfg`, and they show in the same row. One
-   bad leaf drops only that leaf. The known top-level keys come from the
-   `Settings` type.
-4. A malformed limit fails closed. A `providerMaxInFlight` entry that is
-   not a whole number limits its provider to 1 request; a value that is
-   not a map limits each provider to 1. `idleEvictionMinutes` and the
-   session archive rules are a whole number, `off` or `none`
-   (`NatOrOff`); another value is a settings error.
-5. An untrusted project does not change a limit, a system prompt or a
-   credential: `maxToolRounds`, `subagentMaxConcurrency`,
-   `subagentStallMs`, `toolBlockingBudgetMs`, `autonomous`, `directors`,
-   `thinkingBudgets`, `retry.maxRetries` and `retry.failover.maxRetries`
-   are withheld with the keys that run code, and so are the project
-   `SYSTEM.md` and `APPEND_SYSTEM.md`. The trust warning names them.
-   `trustedProjects` comes from the global layer only (the global
-   `settings.json`, then the global `config.cfg`).
-6. An `mcpServers` entry is a unit: a project entry replaces the global
-   entry of its name, and it never takes a URL or a credential from it.
-   `kernelTransport` is a unit too.
-7. The sessions directory has one precedence for each reader (the CLI,
-   the dashboard, the gateway and the daemon,
-   `settings::resolve_session_dir`): the `--session-dir` flag, then
-   `EUKHE_SESSION_DIR` (or the legacy `EUKHE_CODING_AGENT_SESSION_DIR`),
-   then the `sessionDir` setting, then `<agent dir>/sessions`.
+1. Writer reads under lock, applies its change, writes. Read fails (unreadable, invalid JSON, not an object, unknown version): writes nothing, returns the error. Only a missing file reads as empty. Untouched keys keep values. Applies to `eukhe mcp add`, `eukhe mcp remove`, every settings setter, connection records, `AuthStorage` `set` and `remove` (both return the error to the caller).
+2. Settings setter writes the on-disk document, not its loaded copy: keys that failed to load and keys another writer added stay. Refuses a value its setting cannot hold. If a higher layer sets the same setting (global `config.cfg`, project `settings.json`, project `config.cfg`), it names that file (`Persisted::Shadowed`); client shows it. Daemon shows an unsavable default model or thinking level as a settings error row.
+3. Each `settings.json` leaf applies or is named by a settings error. Leaf: a non-object value, or a cvar's whole value. Value its setting cannot hold: `BadValue`; undeclared key: `Undeclared` (same `CvarError`s and row as `config.cfg`). A bad leaf drops only itself. Known top-level keys come from the `Settings` type.
+4. Malformed limit fails closed: non-whole `providerMaxInFlight` entry limits its provider to 1; non-map value limits each provider to 1. `idleEvictionMinutes` and session archive rules: whole number, `off` or `none` (`NatOrOff`); else settings error.
+5. Untrusted project changes no limit, system prompt or credential: `maxToolRounds`, `subagentMaxConcurrency`, `subagentStallMs`, `toolBlockingBudgetMs`, `autonomous`, `directors`, `thinkingBudgets`, `retry.maxRetries`, `retry.failover.maxRetries` withheld with the code-running keys, plus project `SYSTEM.md` and `APPEND_SYSTEM.md`; trust warning names them. `trustedProjects`: global layer only (global `settings.json`, then global `config.cfg`).
+6. `mcpServers` entry is a unit: a project entry replaces the same-named global entry, never takes its URL or credential. `kernelTransport` is a unit too.
+7. Sessions directory, one precedence for every reader (CLI, dashboard, gateway, daemon; `settings::resolve_session_dir`): `--session-dir`, `EUKHE_SESSION_DIR` (or legacy `EUKHE_CODING_AGENT_SESSION_DIR`), `sessionDir` setting, `<agent dir>/sessions`.
 
-Model: `bend/config.bend`. Laws: `LAWS.bend` section `config`. Proofs:
-`PROOF.bend` section `config`.
+Model: `bend/config.bend`. Laws: `LAWS.bend` section `config`. Proofs: `PROOF.bend` section `config`.
 
 | Law | Says |
 | --- | --- |
-| `rmw_refuses_broken` | A document that could not be read or parsed is never written (S4b.1). |
-| `rmw_keeps_others` | A write keeps each key that the change does not touch (S4b.1). |
-| `rmw_applies_change` | The key that the change sets has the value that it sets. |
-| `settings_save_preserves` | A setter writes the document on disk with its key changed, whatever copy it loaded (S4b.2). |
+| `rmw_refuses_broken` | Unreadable or unparsable document never written (S4b.1). |
+| `rmw_keeps_others` | Write keeps every untouched key (S4b.1). |
+| `rmw_applies_change` | Changed key has the set value. |
+| `settings_save_preserves` | Setter writes the on-disk document with its key changed, whatever copy it loaded (S4b.2). |
 | `leaf_applied_or_reported` | Each leaf applies or is named by a diagnostic (S4b.3). |
 | `leaf_not_both` | No leaf both applies and is named. |
-| `limit_malformed_fails_closed` | A malformed in-flight limit limits to 1, never "no limit" (S4b.4). |
-| `limit_number_applies` | A whole-number entry is its provider's limit. |
-| `untrusted_changes_nothing_guarded` | An untrusted project changes no limit, prompt or credential (S4b.5). |
-| `trusted_project_applies` | A trusted project's item applies. |
-| `project_entry_never_merges` | A project MCP entry applies whole (S4b.6). |
-| `global_entry_kept` | A global entry that the project does not name stays whole. |
+| `limit_malformed_fails_closed` | Malformed in-flight limit = 1, never "no limit" (S4b.4). |
+| `limit_number_applies` | Whole-number entry is its provider's limit. |
+| `untrusted_changes_nothing_guarded` | Untrusted project changes no limit, prompt or credential (S4b.5). |
+| `trusted_project_applies` | Trusted project's item applies. |
+| `project_entry_never_merges` | Project MCP entry applies whole (S4b.6). |
+| `global_entry_kept` | Global entry the project does not name stays whole. |
 
-The laws of the saved default model are in [inference.md](inference.md)
-("S6 models.json and the saved default model") and in
-`LAWS.bend` section `config`.
+Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `LAWS.bend` section `config`.
 
-Ties: the bridge test
-`settings::bridge::the_rust_config_code_equals_the_bend_model` compares
-transcripts with `bend/bridge_config.bend` byte for byte. It runs 360
-generated scenarios: each writer over a missing, valid, invalid,
-unreadable and other-version file; setters after another writer changed
-the file; documents with good, wrong-typed and undeclared leaves;
-`providerMaxInFlight` values; projects under each trust; and global and
-project `mcpServers` entries.
+Tie: `settings::bridge::the_rust_config_code_equals_the_bend_model` vs `bend/bridge_config.bend`, byte for byte, 360 generated scenarios: each writer over missing, valid, invalid, unreadable, other-version files; setters after another writer's change; documents with good, wrong-typed, undeclared leaves; `providerMaxInFlight` values; projects under each trust; global and project `mcpServers` entries.
 
-Regression tests: `add_refuses_a_settings_file_that_does_not_parse`;
-`a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`;
-`another_version_is_refused_and_never_rewritten`;
-`set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`;
-`a_bad_leaf_drops_only_itself_and_is_named`;
-`a_setting_a_cfg_file_shadows_says_so`;
-`a_project_mcp_entry_never_takes_global_credentials`.
+Regression tests: `add_refuses_a_settings_file_that_does_not_parse`, `a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`, `another_version_is_refused_and_never_rewritten`, `set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`, `a_bad_leaf_drops_only_itself_and_is_named`, `a_setting_a_cfg_file_shadows_says_so`, `a_project_mcp_entry_never_takes_global_credentials`.
 
 ### S5. The Director stack
 
-After each final answer, the agent loop asks a stack of Directors what to
-do. A Director is one layer of the stack. A layer has a kind and a
-budget: the loop steps that it can still ask for. The kinds are the goal,
-the autonomous run, a reminder, and a forced tool call.
+After each final answer the agent loop asks a stack of Directors what to do. Director = one layer: a kind and a budget (loop steps it may still request). Kinds: goal, autonomous run, reminder, forced tool call.
 
-1. The top layer decides first. Each layer gives one verdict:
-   - `Defer`: the next layer down decides. The layer stays.
-   - `Again`: the loop continues. This costs the layer 1 unit of its
-     budget. A layer with no budget yields.
-   - `Yield`: the loop stops and gives control back to the user.
-   - `Stack{l}`: the layer puts `l` on top of itself, and the loop
-     continues. This costs 1 unit of budget. A layer with no budget
-     yields. A push needs room in the full stack: the layers above the
-     layer (also the layers that deferred or left), the layer, and the
-     layers below must be fewer than the cap. With no room, the loop
-     fails.
-   - `Leave`: the layer removes itself. The next layer down decides.
-   - `Abort`: the loop stops with a failure.
-2. When no layer decides, the loop gives control back to the user.
-3. The loop of one run has a global budget of steps. Each continuation
-   costs 1 step. When no step is left, a continuation yields.
-4. The verdict of each kind comes from the session state:
-   - Goal: an active goal mints a continuation (`Again`), unless its
-     progress check stops it (8). A paused, budget-limited, complete, or
-     failed goal yields. A cleared goal leaves. An empty reply never gets
-     to the goal: the harness fails it as a model error
-     ([harness.md](harness.md) H4.7), and the goal fails with that error.
-   - Autonomous: it defers while a goal drives continuations, so the goal
-     keeps its priority. A disabled run leaves. Else its gates and limits
-     continue the run (`Again`) or stop it (`Yield`).
-   - Reminder: its text goes first in the continuation of the step. Then
-     it leaves. When the step does not continue (no layer below
-     continues, or no step is left), the reminder defers: it stays on the
-     stack until a continuation comes. A reminder never makes its own
-     continuation, so it waits for the goal or the autonomous run.
-   - Forced tool call: each request forces its tool (`stream.forceTool`,
-     S6) until a response calls the tool. Then the layer leaves at the next
-     final answer. Each response to a forced request without the call is
-     a miss. The miss after the `tries` retries fails the generation with
-     `ForcedToolError::NotCalled` (S6.3), with the real number of
-     requests. That miss removes the layer and appends a display row with
-     the error (`eukhe.director`, not in the model context) in one commit,
-     so the next request is not forced. When a run ends before a request
-     forced the tool, the layer continues the run (`Again`) while it has
-     budget. The continuation only names the forced call; the soft prompt
-     of the forced request asks for the call. With no budget, the layer
-     aborts with `ForcedToolError::NotCalled` and the same display row.
-5. A step evaluates the layers from the top until one decides. The
-   autonomous gates run before the commit of the step. The step commits
-   the stack, the goal and autonomous changes, the goal context row, and
-   its decision in one commit. A rerun of the same generation repeats the
-   decision.
-6. A run that has a new first input starts a new loop: the global budget
-   (`directors.maxSteps`, default 200) comes back, the goal layer gets that
-   budget, and the autonomous layer gets its remaining continuations
-   (`autonomous.maxContinuations` minus the used ones). The goal and the
-   autonomous run come on the stack (the goal above the autonomous run)
-   when they drive continuations and have no layer. They go below the
-   pushed layers (reminders and forced calls), so the pushed layers decide
-   first. `directors.stackCap` (default 8) caps the pushed layers only. The
-   stack keeps 2 more places, one for the goal and one for the autonomous
-   run, so these always have room: a stack holds at most
-   `directors.stackCap + 2` layers, and each decision gets that cap. A
-   push past the cap is refused with an error. With no layer, a final
-   answer writes nothing.
-7. Reminders and forced calls come on the stack from these entry points:
-   the `/remind <text>` and `/force <tool> [--tries <n>]` session slash
-   commands (the TUI sends them through the daemon), and the kernel host
-   request `directors.push` (`goal.remind(text)` and
-   `goal.force_tool(tool, tries=1)` in the Python REPL). A forced call
-   gets 1 unit of budget and `tries` 1 when not given.
-8. The stack is the conversation document `eukhe.directors`. It is
-   rewindable: a fork or a branch move starts from the stack as of its
-   fork entry, so a rewind removes the Directors added after that entry
-   and brings back the ones removed. A resume reads the stored stack.
-   The document is a node of the state tree (S1), under its conversation.
+1. Top layer decides first. Verdicts:
+   - `Defer`: next layer down decides; layer stays.
+   - `Again`: loop continues; costs 1 budget; no budget = yield.
+   - `Yield`: loop stops; control to user.
+   - `Stack{l}`: push `l` on top of itself, loop continues; costs 1 budget; no budget = yield. Needs room: layers above (including deferred or left ones) + the layer + layers below < cap. No room: loop fails.
+   - `Leave`: layer removes itself; next layer down decides.
+   - `Abort`: loop stops with failure.
+2. No layer decides: control to user.
+3. Each run's loop has a global step budget; each continuation costs 1; none left: continuation yields.
+4. Verdict per kind, from session state:
+   - Goal: active = `Again`, unless the progress check stops it (8). Paused, budget-limited, complete or failed = yield. Cleared = leave. Empty reply never reaches the goal: harness fails it as a model error ([harness.md](harness.md) H4.7); goal fails with it.
+   - Autonomous: defers while a goal drives continuations (goal keeps priority). Disabled = leave. Else gates and limits give `Again` or `Yield`.
+   - Reminder: its text leads the step's continuation, then it leaves. Step not continuing (no lower layer continues, or no step left): defers, stays until a continuation comes. Never makes its own continuation; waits for goal or autonomous run.
+   - Forced tool call: each request forces its tool (`stream.forceTool`, S6) until a response calls it; layer leaves at the next final answer. Each forced response without the call = miss. Miss after `tries` retries fails the generation with `ForcedToolError::NotCalled` (S6.3), real request count; that miss removes the layer and appends a display row with the error (`eukhe.director`, not in model context) in one commit, so the next request is unforced. Run ending before any forced request: layer continues (`Again`) while budget lasts; continuation only names the forced call, the forced request's soft prompt asks for it. No budget: aborts with `ForcedToolError::NotCalled` and the same row.
+5. Step evaluates from the top until one decides. Autonomous gates run before the step commit. One commit: stack, goal and autonomous changes, goal context row, decision. Rerun of the same generation repeats the decision.
+6. Run with a new first input = new loop: global budget (`directors.maxSteps`, default 200) restored; goal layer gets it; autonomous layer gets remaining continuations (`autonomous.maxContinuations` minus used). Goal and autonomous run join the stack (goal above autonomous) when driving continuations without a layer, below pushed layers (reminders, forced calls), so pushed layers decide first. `directors.stackCap` (default 8) caps pushed layers only; 2 extra places (goal, autonomous) always have room: max `directors.stackCap + 2` layers, each decision gets that cap. Push past cap: refused with error. No layer: final answer writes nothing.
+7. Reminder and forced-call entry points: session slash commands `/remind <text>`, `/force <tool> [--tries <n>]` (TUI sends via daemon); kernel host request `directors.push` (Python REPL `goal.remind(text)`, `goal.force_tool(tool, tries=1)`). Forced call: 1 budget, `tries` 1 by default.
+8. Stack = conversation document `eukhe.directors`, rewindable: fork or branch move starts from the stack at its fork entry (rewind drops later Directors, restores removed ones). Resume reads the stored stack. Document is a state tree node (S1) under its conversation.
 
-Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs:
-`PROOF.bend` section `director`. Every verdict is free: each layer of each
-step says what the adversary picks.
+Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs: `PROOF.bend` section `director`. Every verdict free: the adversary picks each layer's verdict each step.
 
 | Law | Says |
 | --- | --- |
-| `dir_stack_bounded` | A decision never grows the stack past its cap (S5.1). |
-| `dir_loop_stack_bounded` | So the loop never does, whatever its steps (S5.1). |
-| `dir_loop_ends` | The loop ends (gives control back or fails) after at most n + 1 steps, with n its global budget, whatever every layer says (S5.3). |
-| `dir_end_is_final` | An ended loop stays as it ended (S5.3). |
-| `dir_encode_sound` | The stack in the tree is a sound tree (S5.8). |
-| `dir_resume_restores` | A resume reads back the stack that the tree holds, exactly (S5.8). |
-| `dir_rewind_restores` | A rewind of a sound tree to the tree of a stack restores that stack, exactly (S5.8). |
+| `dir_stack_bounded` | Decision never grows stack past cap (S5.1). |
+| `dir_loop_stack_bounded` | Nor does the loop, over any steps (S5.1). |
+| `dir_loop_ends` | Loop ends (control back or failure) within n + 1 steps, n = global budget, whatever layers say (S5.3). |
+| `dir_end_is_final` | Ended loop stays ended (S5.3). |
+| `dir_encode_sound` | Stored stack is a sound tree (S5.8). |
+| `dir_resume_restores` | Resume reads back the stored stack exactly (S5.8). |
+| `dir_rewind_restores` | Rewinding a sound tree to a stack's tree restores that stack exactly (S5.8). |
 
-Code: `eukhe-core/src/durable/directors/stack.rs` `decide`, `Loop::tick`,
-`Layer`, `LayerKind`, `Verdict`; `directors/mod.rs` `DIRECTORS_DOC`,
-`DirectorState`, `DirectorLimits` (`bound`), `push_director`,
-`DIRECTOR_NOTICE_CUSTOM_TYPE`; `durable/goals/hooks.rs` (the `on_yield`
-step: `begin`, `judge`, `commit_step`; the forced tool of
-`before_request`; the call or the miss of `after_response`,
-`mark_forced_response`); `durable/goals/host.rs` (`directors.push`);
-`durable/session_commands.rs` (`/remind`, `/force`);
-`skills/goal/src/goal/__init__.py` (`remind`, `force_tool`);
-`eukhe-durable/src/harness/generation.rs` (the `before_request` hooks may
-set the forced tool of a request, `RequestMessages::force_tool`);
-`eukhe-core/src/settings` `directors`.
+Code:
 
-Tie: the bridge test
-`durable::directors::bridge::the_rust_director_stack_equals_the_bend_model`
-runs `decide`, `Loop::tick`, and the persisted `eukhe.directors` value
-against `bend/bridge_director.bend` on 300 generated scenarios (stacks,
-verdict lists per step, caps, global budgets; the model's `decide`,
-`tick`, `run`, `encode`, and `decode`), and compares the transcripts byte
-for byte. The scenarios reach every rule of the model (a push with room,
-a push that fits only the layers below, a full stack, no budget, a
-leave, all layers defer, no step left, a tick after the end). Regression
-tests: `durable::directors::tests` (the goal layer until the goal
-completes, the global budget, a reminder, a reminder that waits on the
-stack for a continuation, a forced tool call, a forced call that is never
-made and a next run that is not forced, the goal on a full stack, the
-stack after a reopen and in a fork); `durable::session_commands::tests`
-(`/remind` and `/force` on the stack, a `/force` that fails once);
-`durable::goals::tests`. Not modelled: the map from the session state to
-the verdicts (S5.4), `begin` (S5.6), the reminder that defers when no
-continuation follows, and the kind data of a layer (the model keeps a
-number for the kind). Their tests tie them.
+- `eukhe-core/src/durable/directors/stack.rs`: `decide`, `Loop::tick`, `Layer`, `LayerKind`, `Verdict`.
+- `directors/mod.rs`: `DIRECTORS_DOC`, `DirectorState`, `DirectorLimits` (`bound`), `push_director`, `DIRECTOR_NOTICE_CUSTOM_TYPE`.
+- `durable/goals/hooks.rs`: `on_yield` step (`begin`, `judge`, `commit_step`); forced tool of `before_request`; call or miss of `after_response`, `mark_forced_response`.
+- `durable/goals/host.rs` (`directors.push`); `durable/session_commands.rs` (`/remind`, `/force`); `skills/goal/src/goal/__init__.py` (`remind`, `force_tool`).
+- `eukhe-durable/src/harness/generation.rs`: `before_request` hooks may set a request's forced tool (`RequestMessages::force_tool`).
+- `eukhe-core/src/settings` `directors`.
+
+Tie: `durable::directors::bridge::the_rust_director_stack_equals_the_bend_model` runs `decide`, `Loop::tick` and the persisted `eukhe.directors` value vs `bend/bridge_director.bend`, 300 generated scenarios (stacks, per-step verdict lists, caps, global budgets; model `decide`, `tick`, `run`, `encode`, `decode`), byte for byte. Scenarios reach every model rule: push with room, push fitting only the layers below, full stack, no budget, leave, all defer, no step left, tick after end.
+
+Regression tests:
+
+- `durable::directors::tests`: goal layer until completion, global budget, reminder, reminder waiting for a continuation, forced call, forced call never made + unforced next run, goal on full stack, stack after reopen and in a fork.
+- `durable::session_commands::tests`: `/remind`, `/force` on the stack; `/force` failing once.
+- `durable::goals::tests`.
+
+Not modelled (tied by tests): session state → verdict map (S5.4), `begin` (S5.6), reminder deferring without a following continuation, layer kind data (model keeps a number).
 
 #### S5.8. A goal without progress stops
 
-8. At each continuation of an active goal, the progress check looks at
-   the work of the session: the number of its distinct acts (a tool call
-   with its result, by tool name, arguments, result text and error flag;
-   or an accepted progress note). Call ids, timestamps, and the text and
-   thinking around a call are no work. The check compares the work with
-   the work at the last continuation of the same run and goal:
-   - The work grew: the count of continuations in a row with no new work
-     goes back to 0, and the goal continues.
-   - The work did not grow: the count grows by 1. Under the cap, the goal
-     continues, and its continuation tells the model how many
-     continuations in a row did no new work and that the goal pauses at
-     the cap. At the cap (`directors.stallSteps`, default 3; `0` takes
-     the default), the goal pauses with the reason (`No progress: <n>
-     goal continuations in a row made no tool call with a new result`),
-     the run yields, and a display row (`eukhe.director`, not in the
-     model context) tells the user why and how to go on.
-   - The first continuation of a run, or of a new goal, starts the
-     count: a new user input or a resume gives the goal the full cap
-     again.
+8. At each continuation of an active goal the progress check counts the session's distinct acts: tool call + result (by tool name, arguments, result text, error flag), or an accepted progress note. Call ids, timestamps, text and thinking around a call: not work. Compared with the work at the last continuation of the same run and goal:
+   - Work grew: no-progress streak = 0; goal continues.
+   - Work did not grow: streak + 1. Under the cap: continues; continuation tells the model the streak and that the goal pauses at the cap. At cap (`directors.stallSteps`, default 3; `0` = default): goal pauses with reason `No progress: <n> goal continuations in a row made no tool call with a new result`, run yields, display row (`eukhe.director`, not in model context) says why and how to go on.
+   - First continuation of a run or new goal starts the count: new user input or resume restores the full cap.
 
-   Before this check, an active goal with no token budget got up to
-   `directors.maxSteps` (200) continuations when the model only answered
-   (for example "waiting for the build"), each a request with the full
-   context. The default 3: the first continuation can be an answer that
-   only states a plan, the second carries the note that asks for one
-   concrete step, and the third shows that the model did not act on it.
-   (An earlier strike counted replies with no text and no tool call. Such
-   a reply is now a model error, H4.7, so that strike was removed. This
-   check counts work, not replies.)
+   Default 3: continuation 1 may only state a plan, 2 carries the note asking for one concrete step, 3 shows the model did not act. Without the check, an active goal with no token budget got up to `directors.maxSteps` (200) answer-only continuations (e.g. "waiting for the build"), each a full-context request. Reply with no text and no tool call = model error (H4.7); the check counts work, not replies.
 
-Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws
-(`LAWS.bend` section `progress`): `goal_stops_without_progress` (continuations in a
-row whose acts the session did before, at least as many as the cap, stop
-the goal from any count) and `goal_progress_continues` (a continuation
-with an act the session never did before clears the count). Proofs:
-`PROOF.bend` section `progress`.
+Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws (`LAWS.bend` section `progress`): `goal_stops_without_progress` (cap-many consecutive continuations with only previously seen acts stop the goal from any count), `goal_progress_continues` (a continuation with a never-seen act clears the count). Proofs: `PROOF.bend` section `progress`.
 
-Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`),
-`durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs`
-(`goal_check`, the work read in `on_yield`, the pause and its row in
-`commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
+Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`), `durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs` (`goal_check`, work read in `on_yield`, pause and row in `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
 
-Tie: the bridge test
-`durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model`
-runs the ledger over real transcripts and `goal_check` against
-`bend/bridge_progress.bend`. Regression test:
-`durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.
+Tie: `durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model` runs the ledger over real transcripts and `goal_check` vs `bend/bridge_progress.bend`. Regression: `durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.

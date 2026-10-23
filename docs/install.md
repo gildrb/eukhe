@@ -5,28 +5,16 @@
 macOS (Apple Silicon), Linux (x64, arm64). No root.
 
 ```sh
-curl -fsSL https://eukhe.com/install | sh
+curl -fsSL https://eukhe.com/install | sh               # install, or update in place
+curl -fsSL https://eukhe.com/install | sh -s -- 0.10.41 # pin a version
 ```
 
-It installs the payload into `~/.local/share/eukhe/eukhe-<version>` and a
-launcher into `~/.local/bin/eukhe`. It checks the download against the
-release `SHA256SUMS` and, for the newest release, against the hash pinned
-in `nix/release.json`. Re-running the command updates in place; it keeps
-the previous payload for running daemons and prunes older ones. Pin a
-version with `sh -s -- 0.10.41`; move the install with
-`EUKHE_INSTALL_ROOT` and `EUKHE_INSTALL_BIN_DIR`. Uninstall:
-`eukhe shutdown`, then remove those two paths.
-
-`https://eukhe.com/install` redirects (302) to
-`releases/latest/download/install.sh`. The installer that runs is the one
-that CI released with the newest release, never an untested edit on `main`.
-`https://eukhe.com/` gives the same redirect to a client that does not ask
-for HTML (`curl`, `wget`); a browser gets the eukhe page. The Cloudflare
-Worker `gildrb-products` (repository `gildrb/gildrb.com`, file
-`worker/products.ts`) serves both redirects. `curl -L` follows the redirect.
-
-The kernel needs `uv`, and the chat memory needs `git`; the installer
-warns when either is missing. The Nix package supplies both.
+- Payload `~/.local/share/eukhe/eukhe-<version>`, launcher `~/.local/bin/eukhe`; move with `EUKHE_INSTALL_ROOT`, `EUKHE_INSTALL_BIN_DIR`.
+- Verifies against the release `SHA256SUMS` and, for the newest release, the hash pinned in `nix/release.json`.
+- Update keeps the previous payload for running daemons, prunes older ones.
+- Uninstall: `eukhe shutdown`, remove both paths.
+- Warns if `uv` (kernel) or `git` (chat memory) is missing; the Nix package supplies both.
+- `https://eukhe.com/install` 302-redirects to `releases/latest/download/install.sh`: the installer CI released with the newest release, never untested `main`. `https://eukhe.com/` redirects the same for non-HTML clients (`curl`, `wget`); browsers get the eukhe page. Served by Cloudflare Worker `gildrb-products` (repo `gildrb/gildrb.com`, `worker/products.ts`). `curl -L` follows.
 
 ## Nix
 
@@ -50,13 +38,12 @@ nix run github:gildrb/eukhe
 }
 ```
 
-`programs.eukhe.settings` is copied to `~/.eukhe/settings.json` at each
-activation. `programs.eukhe.files` links files into `~/.eukhe`.
+- `programs.eukhe.settings` → `~/.eukhe/settings.json`, copied at each activation.
+- `programs.eukhe.files` links files into `~/.eukhe`.
 
 ## mise
 
-The newest GitHub release. eukhe tags are `eukhe-v<version>`. The
-repository also holds the upstream `v*` tags.
+Newest GitHub release. eukhe tags: `eukhe-v<version>`; upstream `v*` tags also exist.
 
 ```toml
 [tools]
@@ -66,23 +53,14 @@ repository also holds the upstream `v*` tags.
 ## Source
 
 ```sh
-cargo build --release --locked -p eukhe-cli
+cargo build --release --locked -p eukhe-cli  # eukhe --version reports <series>-dev, e.g. 0.10.0-dev; only a release reports a release version
 ```
-
-A source build reports `<series>-dev` (`eukhe --version`, for example
-`0.10.0-dev`); only a release reports a release version.
 
 ## Versions and the daemon
 
-Each daemon reports its build: `<version>+<commit>`, plus `.dirty.<hash>`
-(a hash of the changes) when the sources differ from the commit, or
-`<version>+src.<hash>` (a hash of the sources) when no commit is known, so
-two builds of other sources never share a build. After an upgrade, the
-next interactive `eukhe` start replaces an idle daemon of a lower
-version, or a pre-rename `prime-agent` daemon on the socket. Release
-versions have the semver order; a `-dev` build is below the releases of
-its series. Background clients (`eukhe dashboard`, `eukhe gateway`, ACP)
-never replace a running daemon. No client replaces a newer daemon or
-another build of the same version; the client tells you, and
-`eukhe shutdown` stops the daemon. A daemon with active work keeps
-running until the next idle start. Sessions persist and reattach.
+- Build id: `<version>+<commit>`, plus `.dirty.<hash>` (hash of changes) if sources differ from the commit; `<version>+src.<hash>` (hash of sources) with no commit. Different sources never share an id.
+- Order: semver for releases; `-dev` is below its series' releases.
+- After an upgrade, the next interactive `eukhe` start replaces an idle lower-version daemon, or a pre-rename `prime-agent` daemon on the socket.
+- Background clients (`eukhe dashboard`, `eukhe gateway`, ACP) never replace a daemon.
+- No client replaces a newer daemon or another build of the same version; it tells you. `eukhe shutdown` stops the daemon.
+- A busy daemon runs until the next idle start. Sessions persist and reattach.

@@ -1,30 +1,24 @@
 # Dynamic workflows
 
-A dynamic workflow is one JavaScript orchestration script that the agent writes and eukhe runs. The script starts many subagents, waits for them, and returns one result.
-
-PROBLEM: a task splits into many independent agent tasks. One agent does them one after another, or you start and track each subagent by hand.
-
-SOLUTION: the agent writes the plan as a short deterministic script. eukhe runs the agents of the script at once, up to the size you select, and shows the progress.
+One JavaScript orchestration script the agent writes and eukhe runs: starts many subagents at once (up to the size), waits, returns one result; eukhe shows progress.
 
 ## Use
 
 ```
-/dynamic-workflow review every crate for unsafe error handling   # the default size
-/dynamic-workflow --size large migrate the tests to the new API     # one run of size large
-/workflow-size                                                      # open the size picker
+/dynamic-workflow review every crate for unsafe error handling   # default size
+/dynamic-workflow --size large migrate the tests to the new API     # one run, size large
+/workflow-size                                                      # size picker
 /workflow-size small                                                # set the default size
-/workflows                                                          # show the runs of this session
+/workflows                                                          # this session's runs
 ```
 
-- `/workflow` is an alias of `/dynamic-workflow`.
-- `--size` must come first.
-- The run goes on in the background. The `workflow` call returns at once with the run id.
-- You can chat while the run goes on.
-- When the script ends, the result comes back as a `[job-settled job:workflow-<id> status:ok|error|aborted]` message. That message starts a new turn of the agent.
-- On the `/workflows` page: the arrows move over the agents, Enter opens the agents view, `c` then `y` cancels the run, Esc closes.
-- Esc in the chat stops the turn. It does not stop a run. Cancel a run on the `/workflows` page.
-- The activity dock shows a `workflows` count while a run runs. Enter on it opens `/workflows`. The agents block above the composer lists the run (its active phase and how many agents are done) and each of its running agents (`terminal.pinnedAgents` in [settings.md](settings.md)).
-- The Signal gateway and the dashboard send `/dynamic-workflow` to the session as a prompt.
+- `/workflow` = `/dynamic-workflow`. `--size` comes first.
+- Runs in the background; chat goes on. The `workflow` call returns the run id at once.
+- Result arrives as `[job-settled job:workflow-<id> status:ok|error|aborted]`, which starts an agent turn.
+- `/workflows`: arrows move, Enter opens the agents view, `c` then `y` cancels, Esc closes.
+- Chat Esc stops the turn, not the run; cancel on `/workflows`.
+- While running: activity dock shows a `workflows` count (Enter opens `/workflows`); the agents block above the composer shows the run (active phase, agents done) and each running agent (`terminal.pinnedAgents`, [settings.md](settings.md)).
+- Signal gateway and dashboard send `/dynamic-workflow` as a prompt.
 
 ## Sizes
 
@@ -34,13 +28,13 @@ SOLUTION: the agent writes the plan as a short deterministic script. eukhe runs 
 |`medium`|6|10|
 |`large`|12|25|
 
-- The setting is `workflow.size` (default `medium`).
-- `subagentMaxConcurrency` caps the agents at once. A cap of 0 is no cap.
-- An `agent()` call past the total throws `WorkflowBudgetExhausted`. In `parallel` or `pipeline` that slot is `null`.
+- Setting `workflow.size`, default `medium`.
+- `subagentMaxConcurrency` caps agents at once; 0 = no cap.
+- `agent()` past the total throws `WorkflowBudgetExhausted`; in `parallel`/`pipeline` that slot is `null`.
 
 ## Script API
 
-The script is the body of an async function. It starts with a pure literal meta:
+Body of an async function; starts with a pure literal meta:
 
 ```js
 export const meta = { name: "review", description: "Review the changed files", phases: [{ title: "Scan" }, { title: "Fix" }] };
@@ -48,40 +42,36 @@ export const meta = { name: "review", description: "Review the changed files", p
 
 |Global|Effect|
 |---|---|
-|`agent(prompt, opts?)`|Runs one subagent. Returns its final message, the parsed object for a `schema`, or `null` on a failure|
-|`parallel(thunks)`|Runs `() => agent(...)` thunks at once and waits for all. A throw gives `null`|
-|`pipeline(items, ...stages)`|Runs each item through the stages in order. Items do not wait for each other between stages. `null` stops an item|
-|`phase(title)`|Enters a phase of `meta.phases`|
-|`log(message)`|Adds a line to the run's log|
-|`args`|The request text|
+|`agent(prompt, opts?)`|One subagent → final message, parsed object for `schema`, or `null` on failure|
+|`parallel(thunks)`|Runs `() => agent(...)` thunks at once, waits for all; a throw → `null`|
+|`pipeline(items, ...stages)`|Each item through the stages in order, no waiting between items; `null` stops an item|
+|`phase(title)`|Enter a `meta.phases` phase|
+|`log(message)`|Line in the run log|
+|`args`|Request text|
 |`budget`|`{ size, concurrency, maxAgents, spawned() }`|
 
-`agent()` options:
-
-|Option|Effect|
+|`agent()` option|Effect|
 |---|---|
-|`label`|The agent's name on `/workflows`|
-|`phase`|The agent's phase. Default: the last `phase()`|
-|`schema`|A JSON Schema object. The agent ends with a matching JSON block. A mismatch gets one retry, then `null`|
-|`model`|The agent's model|
-|`effort`|The agent's thinking level|
-|`isolation`|`"worktree"`: the agent works in a copy-on-write copy of the workspace. Its changes come back when it ends|
+|`label`|Name on `/workflows`|
+|`phase`|Phase; default the last `phase()`|
+|`schema`|JSON Schema; agent ends with a matching JSON block; mismatch: one retry, then `null`|
+|`model`|Model|
+|`effort`|Thinking level|
+|`isolation`|`"worktree"`: copy-on-write workspace copy; changes return at the end|
 
-Rules:
-
-- `Date` is virtual. `Math.random` is seeded. The script has no I/O.
-- Agents do not see the conversation. Put every fact in the prompt.
-- The return value comes back in the result message. Keep it small.
+- `Date` virtual, `Math.random` seeded, no I/O.
+- Agents do not see the conversation: put every fact in the prompt.
+- The return value goes into the result message: keep it small.
 
 ## Resume
 
-- A worker restart resumes the run. Finished agents come from the journal. Running agents reattach. An agent that the restart cut off runs once more. The result message comes once.
-- The start answer and the result message name the run id: `workflow run <id> (<name>)`.
-- A new run with `resume: "<id>"` reuses every finished agent whose prompt and options did not change. Reused agents show `↺` and do not count against the total.
+- Worker restart resumes: finished agents from the journal, running agents reattach, a cut-off agent runs once more; one result message.
+- Start answer and result name the run: `workflow run <id> (<name>)`.
+- `resume: "<id>"` on a new run reuses finished agents with unchanged prompt and options; shown `↺`, not counted against the total.
 
 ## Limits
 
-- Dynamic workflows need the eukhe daemon. A `--no-session` run refuses the tool.
-- Agents are subagents: `rlmMaxDepth` limits how deep a workflow can start one.
-- Agents report to the script, not to the conversation.
-- The dashboard shows runs but cannot cancel them.
+- Needs the daemon; `--no-session` refuses the tool.
+- Agents are subagents: `rlmMaxDepth` limits depth.
+- Agents report to the script, not the conversation.
+- Dashboard shows runs, cannot cancel.

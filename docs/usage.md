@@ -9,58 +9,47 @@ eukhe agents               # search and open sessions
 eukhe attach <agent>       # attach to a running session
 eukhe --resume [path|id]   # resume a session
 eukhe chat view            # print the memory view
-eukhe chat status [--json] # show the chat size and compactor progress
-eukhe chat browse          # write the whole memory as one HTML page
+eukhe chat status [--json] # chat size, compactor progress
+eukhe chat browse          # whole memory as one HTML page
 eukhe chat import sessions <path>...
-eukhe status               # show daemon state
-eukhe state [agent]        # show the session state tree
-eukhe provider caps        # list provider capabilities; no network
-eukhe provider models <p>  # list the models of provider <p>
+eukhe status               # daemon state
+eukhe state [agent]        # session state tree
+eukhe provider caps        # provider capabilities; no network
+eukhe provider models <p>  # models of provider <p>
 eukhe tiny-models          # list or download local models
-eukhe config               # show and set the installed resources; no network
+eukhe config               # show and set installed resources; no network
 eukhe package install <s>  # install an npm or git package; add it to settings
-eukhe package update [s]   # update the installed packages
+eukhe package update [s]   # update installed packages
 eukhe doctor [--fix]       # check or repair the daemon
 eukhe shutdown [--force]   # stop all agents and the daemon
 ```
 
-Only `eukhe package install` and `eukhe package update` download packages
-(npm or git). Sessions and `eukhe config` use the installed packages only.
-They do not install or fetch a package. For each configured package that
-is not installed, they show a warning with the `eukhe package install`
-command for it.
+Only `eukhe package install`/`update` download (npm, git). Sessions and `eukhe config` use installed packages only and warn per missing configured package with its `eukhe package install` command.
 
 ## Agents
 
-An agent spawns subagents from its Python REPL with `rlm.spawn` or
-`rlm.spawn_batch`. The family is every agent under one root session. Any
-agent can message any family member by name, id, or `parent/child` path, or
-all members with `all`. A message between two subagents also shows in the
-root chat as a relay row. The roster note gives the latest report or progress
-of each agent.
-
-In the chat:
-
-- `@name message` sends a message to a family agent. The reply comes back as
-  `name -> you`.
-- `/agents` lists the agents of this session: status, depth, model, and work.
-- In the agents view, Esc clears the search, then returns to the chat the
-  view was opened from. Ctrl+D with an empty search, or a double Ctrl+C,
-  exits.
+- Subagents: `rlm.spawn`, `rlm.spawn_batch` in the Python REPL.
+- Family = all agents under one root session. Message any member by name, id or `parent/child` path; `all` for everyone.
+- Subagent-to-subagent messages also show in the root chat as relay rows.
+- The roster note has each agent's latest report or progress.
+- `@name message`: message a family agent; reply shows as `name -> you`.
+- `/agents`: session agents with status, depth, model, work.
+- Agents view: Esc clears the search, then returns to the opening chat; Ctrl+D on empty search or double Ctrl+C exits.
 
 Settings: [settings.md](settings.md#agents-and-providers).
 
 ## Providers
 
-`eukhe provider caps [provider]` shows what each provider can do beside
-chat: count tokens, list models, embeddings, images, usage, web search and
-compaction. It sends no request. `eukhe provider models <provider>` asks the
-provider for its model list: ID, name, context and maximum output.
+- `eukhe provider caps [provider]`: non-chat capabilities (count tokens, list models, embeddings, images, usage, web search, compaction); sends no request.
+- `eukhe provider models <provider>`: asks the provider: ID, name, context, max output.
 
 ## Session state
 
-Each session keeps a state tree: its conversations, tasks, jobs and
-documents. `eukhe state [agent]` shows it. `--since <cursor>` shows the
-changes after a cursor. `--follow` shows new changes until Ctrl+C.
-`eukhe state rewind-plan <cursor>` shows what a rewind to the cursor stops,
-starts and restores.
+State tree per session: conversations, tasks, jobs, documents.
+
+```sh
+eukhe state [agent]                   # show the tree
+eukhe state --since <cursor>          # changes after a cursor
+eukhe state --follow                  # new changes until Ctrl+C
+eukhe state rewind-plan <cursor>      # what a rewind stops, starts, restores
+```

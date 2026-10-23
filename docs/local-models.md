@@ -1,45 +1,44 @@
 # Local models
 
-eukhe can run small models on your computer for titles, judgments,
-translation, speech and dictation. eukhe does not download them
-automatically:
+On-device models for titles, judgments, translation, speech, dictation. Never downloaded automatically.
 
 ```sh
-eukhe tiny-models                       # list models and their state
-eukhe tiny-models download lfm2.5-230m  # download one model, or all
-eukhe translate de hello                # translate text to German
-eukhe say "hello" [--out a.wav]         # speak text, or write a WAV file
-eukhe transcribe a.wav                  # write the text of a WAV file
+eukhe tiny-models                       # list models and state
+eukhe tiny-models download lfm2.5-230m  # download one, or all
+eukhe translate de hello                # translate to German
+eukhe say "hello" [--out a.wav]         # speak, or write a WAV
+eukhe transcribe a.wav                  # WAV to text
 ```
 
-The models are `lfm2.5-230m` and `lfm2.5-350m` (text), `whisper-base` and
-`whisper-small` (speech to text), and `kokoro` (text to speech). They go in
-`~/.eukhe/models/tiny/`. The download checks the size and the sha256 of each
-file. The models need ONNX Runtime 1.24 or newer. The Nix package sets
-`ORT_DYLIB_PATH` to the nixpkgs library; your own `ORT_DYLIB_PATH` wins.
+- Text: `lfm2.5-230m`, `lfm2.5-350m`. Speech to text: `whisper-base`, `whisper-small`. Text to speech: `kokoro`.
+- Stored in `~/.eukhe/models/tiny/`; download checks size and sha256 per file.
+- ONNX Runtime 1.24+. Nix sets `ORT_DYLIB_PATH` to nixpkgs' library; yours wins.
 
-Each task has a role. A role uses its model, then its fallback list. It uses
-the first model that is available: a local model must be installed, and a
-provider model must be the session's model. If no model is available, the
-task fails.
+## Roles
+
+A role uses the first available of its model, then its fallbacks (local: installed; provider: the session's model). None: the task fails.
 
 |Role|Task|Default order|
 |---|---|---|
 |`tiny`|Session titles|`local/lfm2.5-230m`, `local/lfm2.5-350m`, the session's model|
-|`judge`|Typed judgments|Same as `tiny`|
-|`translate`|Translation|Same as `tiny`|
+|`judge`|Typed judgments|As `tiny`|
+|`translate`|Translation|As `tiny`|
 |`speech`|Text to speech|`local/kokoro`|
 |`dictation`|Speech to text|`local/whisper-base`, `local/whisper-small`|
 
 |Key|Default|Effect|
 |---|---|---|
-|`modelRoles.<role>`|none|The model of the role: `local/<id>` or `provider/model`|
-|`retry.fallbackChains.<role>`|default order|List of models after `modelRoles.<role>`; `[]` uses only `modelRoles.<role>`|
-|`tts.localVoice`|`af_heart`|Voice of `eukhe say`; `--voice` overrides it|
-|`stt.enabled`|`false`|Dictation into the editor with the `dictation` role|
-|`providers.tinyRuntimeLibrary`|none|Path of the ONNX Runtime library; none uses `ORT_DYLIB_PATH` (global only)|
+|`modelRoles.<role>`|none|Role model: `local/<id>` or `provider/model`|
+|`retry.fallbackChains.<role>`|default order|Models after `modelRoles.<role>`; `[]` = only `modelRoles.<role>`|
+|`tts.localVoice`|`af_heart`|`eukhe say` voice; `--voice` overrides|
+|`stt.enabled`|`false`|Dictation into the editor via `dictation`|
+|`providers.tinyRuntimeLibrary`|none|ONNX Runtime library path; none = `ORT_DYLIB_PATH` (global only)|
 
-For dictation, set `stt.enabled true`, then bind `action app.stt.pushToTalk`
-(hold the key) or `action app.stt.toggle` in `binds.cfg`. Both are not bound
-by default. Recording uses the first of `pw-record`, `parec` and `arecord`
-on `PATH` (macOS: `sox`, then `ffmpeg`).
+## Dictation
+
+```sh
+set stt.enabled true                 # config.cfg
+bind <key> "action app.stt.pushToTalk" # binds.cfg: hold to talk; or action app.stt.toggle; neither bound by default
+```
+
+Recorder: first on `PATH` of `pw-record`, `parec`, `arecord` (macOS: `sox`, then `ffmpeg`).
