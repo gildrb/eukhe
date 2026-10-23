@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # Committed blocks are inert
 def ps.app_assoc(xs: List<&2, Sc.Blk>, -ys: List<&2, Sc.Blk>, -zs: List<&2, Sc.Blk>) -> {List.append(&2, Sc.Blk, List.append(&2, Sc.Blk, xs, ys), zs) == List.append(&2, Sc.Blk, xs, List.append(&2, Sc.Blk, ys, zs)) : List<&2, Sc.Blk>}:
@@ -43,9 +43,9 @@ def ps.edit_inert(cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +x: Nat, +g: Mayb
               +R = List.append(&2, Sc.Blk, cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x)))
               Equal.trans(List<&2, Sc.Blk>, Sc.edit.go(Sc.Blk{i, Sc.Comm{}, l} <> L, x, g, Sc.bid.at(Sc.Blk{i, Sc.Comm{}, l} <> L, x)), Sc.Blk{i, Sc.Comm{}, l} <> Sc.edit.go(L, x, g, Sc.bid.at(L, x)), Sc.Blk{i, Sc.Comm{}, l} <> R, ps.edit_comm(i, l, L, x, g, Sc.bid.at(Sc.Blk{i, Sc.Comm{}, l} <> L, x)), ps.bcons(Sc.Blk{i, Sc.Comm{}, l}, Sc.edit.go(L, x, g, Sc.bid.at(L, x)), R, ps.edit_inert(cr, bs, x, g, comm)))
             case Sc.Final{}:
-              LBoolMisc.screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
+              LLogicLogic.screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
             case Sc.Active{}:
-              LBoolMisc.screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
+              LLogicLogic.screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
 
 def ps.flush_inert(cs: List<&2, Sc.Blk>, -bs: List<&2, Sc.Blk>, comm: {Screen.all_comm(cs) == True{} : Bool}) -> {Sc.flush(List.append(&2, Sc.Blk, cs, bs)) == List.append(&2, Sc.Blk, cs, Sc.flush(bs)) : List<&2, Sc.Blk>}:
   match cs:
@@ -58,9 +58,9 @@ def ps.flush_inert(cs: List<&2, Sc.Blk>, -bs: List<&2, Sc.Blk>, comm: {Screen.al
             case Sc.Comm{}:
               ps.bcons(Sc.Blk{i, Sc.Comm{}, l}, Sc.flush(List.append(&2, Sc.Blk, cr, bs)), List.append(&2, Sc.Blk, cr, Sc.flush(bs)), ps.flush_inert(cr, bs, comm))
             case Sc.Final{}:
-              LBoolMisc.screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
+              LLogicLogic.screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
             case Sc.Active{}:
-              LBoolMisc.screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
+              LLogicLogic.screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
 
 def ps.tx_eq(-a: List<&2, Sc.Blk>, -b: List<&2, Sc.Blk>, -n: Nat, -w: Nat, e: {a == b : List<&2, Sc.Blk>}) -> {Sc.Tx{a, n, w} == Sc.Tx{b, n, w} : Sc.Tx}:
   %e : {Sc.Tx{a, n, w} == Sc.Tx{_, n, w} : Sc.Tx}

@@ -3,8 +3,8 @@
 import Base
 import ../../bend/replace.bend as Rp
 import ../../laws/replace.bend as Replace
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/bool.bend as LBool
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # (D1) replace_never_downgrades
@@ -17,9 +17,9 @@ def pr.nb_self(-S: List<&2, Rp.Build>, +b: Rp.Build, inv: {Rp.not_below(S, b) ==
 def pr.lift.put(p: Bool, q: Bool, rb: List<&2, Nat>, rc: List<&2, Nat>, re: List<&2, Nat>, -t1: Bool, -t2: Bool, ep: {Rp.lt(rb, re) == p : Bool}, eq: {Rp.lt(rc, re) == q : Bool}, h: {Rp.lt(rb, rc) == True{} : Bool}, inv: {Bool.and(Bool.not(p), t1) == True{} : Bool}, ih: {t1 == True{} : Bool} -> {t2 == True{} : Bool}) -> {Bool.and(Bool.not(q), t2) == True{} : Bool}:
   match p q:
     case True{} True{}:
-      LBoolMisc.supervisor.ps.absurdF({Bool.and(Bool.not(True{}), t2) == True{} : Bool}, inv)
+      LLogicLogic.supervisor.ps.absurdF({Bool.and(Bool.not(True{}), t2) == True{} : Bool}, inv)
     case True{} False{}:
-      LBoolMisc.supervisor.ps.absurdF({Bool.and(Bool.not(False{}), t2) == True{} : Bool}, inv)
+      LLogicLogic.supervisor.ps.absurdF({Bool.and(Bool.not(False{}), t2) == True{} : Bool}, inv)
     case False{} True{}:
       LA.pr.clash({Bool.and(Bool.not(True{}), t2) == True{} : Bool}, Rp.lt(rb, re), LA.pr.lt_trans(rb, rc, re, h, eq), ep)
     case False{} False{}:
@@ -48,7 +48,7 @@ def pr.rising(ss: List<&2, Rp.Start>, +b: Rp.Build, +S: List<&2, Rp.Build>, +inv
     case s <> +rest:
       match s:
         case Rp.Start{+c, +k}:
-          LBoolAnd.supervisor.ps.and_t(Rp.not_below(b <> S, Rp.after.put(Rp.verdict(c, b, k), c, b)), Rp.never_back.go(Rp.trace.go(rest, Some{Rp.after.put(Rp.verdict(c, b, k), c, b)}), Rp.after.put(Rp.verdict(c, b, k), c, b) <> (b <> S)), pr.next.put(Rp.verdict(c, b, k), c, b, k, S, {==}, inv), pr.rising(rest, Rp.after.put(Rp.verdict(c, b, k), c, b), b <> S, pr.next.put(Rp.verdict(c, b, k), c, b, k, S, {==}, inv)))
+          LBool.supervisor.ps.and_t(Rp.not_below(b <> S, Rp.after.put(Rp.verdict(c, b, k), c, b)), Rp.never_back.go(Rp.trace.go(rest, Some{Rp.after.put(Rp.verdict(c, b, k), c, b)}), Rp.after.put(Rp.verdict(c, b, k), c, b) <> (b <> S)), pr.next.put(Rp.verdict(c, b, k), c, b, k, S, {==}, inv), pr.rising(rest, Rp.after.put(Rp.verdict(c, b, k), c, b), b <> S, pr.next.put(Rp.verdict(c, b, k), c, b, k, S, {==}, inv)))
 
 def pr.replace_never_downgrades(ss: List<&2, Rp.Start>) -> {Rp.never_back(Rp.daemons(ss)) == True{} : Bool}:
   match ss:

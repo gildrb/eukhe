@@ -4,7 +4,7 @@
 # encodes a request with eukhe_bend::wire::Writer: the tag of the
 # decision, then its inputs; ffi answers the decision's value, or the
 # wire's error form for a malformed request (never a default). The codec
-# composes the primitives of bend/wire.bend; LAWS.bend section run proves
+# composes the primitives of bend/wire.bend; laws/run.bend proves
 # that every request and every answer decodes to itself.
 
 import Base

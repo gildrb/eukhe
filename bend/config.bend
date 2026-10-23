@@ -2,7 +2,7 @@
 # mcp-connections.json, auth.json) and with the layers over them. The
 # Rust code is crates/eukhe-core/src/settings/ (`persist.rs`, `load.rs`,
 # `manager.rs`, `trust.rs`, `merge.rs`), mcp/connection_store.rs,
-# auth/storage.rs and admission.rs; the laws are LAWS.bend section config.
+# auth/storage.rs and admission.rs; the laws are laws/config.bend.
 #
 # A document is a list of entries: a key and a value, both numbers (a
 # key stands for a key path, a value for the JSON at it).

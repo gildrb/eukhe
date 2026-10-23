@@ -17,8 +17,8 @@ import ./base.bend as LawsBase
 # reuses the first such answer, and only then the budget decides. A run's
 # concurrency is its size's, at most the subagent cap (W.effective, the
 # Rust `effective_limits`). Each law is an open claim about the model in
-# bend/workflow.bend; PROOF.bend proves them (as Laws.<law>) with the
-# lemmas of PROOF.bend section workflow.
+# bend/workflow.bend; PROOF.bend proves them (as Workflow.<law>) with the
+# lemmas of proof/workflow/.
 
 # Spec helpers
 # ------------

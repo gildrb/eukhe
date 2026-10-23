@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of area screen share
 
 import Base
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def screen.ps.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
   %Equal.sym(Bool, a, True{}, ha) : {Bool.and(_, b) == True{} : Bool}
@@ -27,6 +27,6 @@ def ps.bound(s: Nat, r: Nat, +x: Nat, h: {Nat.is_le(s, r) == True{} : Bool}) -> 
     case 0n 1n+rp:
       ps.min_le_l(1n+rp, x)
     case 1n+sp 0n:
-      LBoolMisc.screen.ps.absurdF({Nat.is_le(Nat.add(1n+sp, Nat.min(Nat.sub(0n, 1n+sp), x)), 0n) == True{} : Bool}, h)
+      LLogicLogic.screen.ps.absurdF({Nat.is_le(Nat.add(1n+sp, Nat.min(Nat.sub(0n, 1n+sp), x)), 0n) == True{} : Bool}, h)
     case 1n+sp 1n+rp:
       ps.bound(sp, rp, x, h)

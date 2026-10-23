@@ -3,7 +3,7 @@
 import Base
 import ../../bend/compactor.bend as C
 import ../../laws/compactor.bend as Compactor
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 
 # (H1) A line
 # -----------
@@ -11,9 +11,9 @@ import ../base/nat/is_le.bend as LNatIsLe
 def pc.calls_next(fit: Bool, less: Bool, -ws: List<&2, C.W>, -node: Nat, -best: Maybe<&2, List<&2, C.W>>, -input: List<&2, C.W>, rec: C.Line, p: Nat, ih: {Nat.is_le(C.Line.calls(rec), p) == True{} : Bool}) -> {Nat.is_le(C.Line.calls(C.line.next(fit, less, ws, node, best, input, rec)), 1n+p) == True{} : Bool}:
   match fit less:
     case True{} l:
-      LNatIsLe.compactor.pc.le_zero(p)
+      LNat.compactor.pc.le_zero(p)
     case False{} False{}:
-      LNatIsLe.compactor.pc.le_zero(p)
+      LNat.compactor.pc.le_zero(p)
     case False{} True{}:
       match rec:
         case C.Line{c, l}:
@@ -26,15 +26,15 @@ def pc.calls_go(tries: Nat, +node: Nat, +best: Maybe<&2, List<&2, C.W>>, +bl: Na
     case 1n+p:
       match rs:
         case Nil{}:
-          LNatIsLe.compactor.pc.le_zero(p)
+          LNat.compactor.pc.le_zero(p)
         case r <> +rest:
           match r:
             case C.Erred{}:
-              LNatIsLe.compactor.pc.le_zero(p)
+              LNat.compactor.pc.le_zero(p)
             case C.Says{ws}:
               match ws:
                 case Nil{}:
-                  LNatIsLe.compactor.pc.le_zero(p)
+                  LNat.compactor.pc.le_zero(p)
                 case +w <> +t:
                   +q = p
                   +len = C.Text.len(w <> t)

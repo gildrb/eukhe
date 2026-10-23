@@ -569,8 +569,8 @@ law run_reply_saturates_the_attempt:
 # ---- recover ----
 
 # LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
-# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section recover.
+# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Run.<law>)
+# with the lemmas of proof/run/.
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
@@ -805,12 +805,12 @@ law rec_recover_is_the_rust_rule:
 # ---- run_ffi ----
 
 # LAWS (H4.10): the entry of the run's decisions in the compiled core
-# (bend/ffi_run.bend). Each law is an open claim; PROOF.bend section
-# run_ffi proves them (as Laws.<law>) from the laws of section wire.
+# (bend/ffi_run.bend). Each law is an open claim; PROOF.bend proves them
+# (as Run.<law>) in proof/run/ from the laws of laws/wire.bend.
 # bend/ffi_run.bend: Rust writes a request (the decision's tag and its
 # inputs) with eukhe_bend::wire::Writer, and reads the decision's value
 # from the answer. Its codec composes the primitives of bend/wire.bend, so
-# these laws rest on LAWS.bend section wire.
+# these laws rest on laws/wire.bend.
 
 # Every Nat of a request fits the wire (at most 14 digits: Rust saturates
 # its u64 counts at eukhe_bend::wire::NAT_MAX and its u32s fit)

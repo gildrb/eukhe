@@ -3,16 +3,16 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # a not at most b: b is at most a
 def pf.not_le_le(+a: Nat, +b: Nat, h: {Nat.is_le(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
   match a b:
     case 0n 0n:
-      LBoolMisc.pq.absurd({Nat.is_le(0n, 0n) == True{} : Bool}, h)
+      LLogicLogic.pq.absurd({Nat.is_le(0n, 0n) == True{} : Bool}, h)
     case 0n 1n+q:
-      LBoolMisc.pq.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, h)
+      LLogicLogic.pq.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, h)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:

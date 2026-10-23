@@ -3,10 +3,10 @@
 import Base
 import ../../bend/approvals.bend as Am
 import ../../bend/tools.bend as Tl
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def tools.pl.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : LBoolMisc.tools.pl.BD(_, Unit, A)
+  %e : LLogicLogic.tools.pl.BD(_, Unit, A)
   Unit{}
 
 def tools.pl.eq_refl(k: Nat) -> {True{} == Nat.is_eq(k, k) : Bool}:
@@ -266,7 +266,7 @@ def ps.auto_never_sensitive(+s: Tl.Step, +auto: List<&2, Nat>, +c: Nat, has: {Tl
   ps.auto_needs_every_effect(s, auto, c, has, ps.out_big(c, auto, held))
 
 def approvals.pa.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : LBoolMisc.approvals.pa.BD(_, Unit, A)
+  %e : LLogicLogic.approvals.pa.BD(_, Unit, A)
   Unit{}
 
 # it lets the step run when neither holds

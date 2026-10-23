@@ -1,4 +1,4 @@
-# dash: the model of the dashboard's pairing gate (LAWS.bend section dashboard_auth,
+# dash: the model of the dashboard's pairing gate (laws/dash.bend,
 # docs/dashboard.md "Pairing"). crates/eukhe-dashboard/src/pairing.rs,
 # http.rs and bridge.rs implement it; its bridge test
 # (pairing::tests::the_gate_pairs_as_its_model, with

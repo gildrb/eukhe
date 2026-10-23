@@ -38,11 +38,12 @@ not a reference), and places each block:
 A file past 1,000 lines (SITTING) becomes a folder of the same name:
 proof/base.bend -> proof/base/<topic>.bend, a law's lemmas -> proof/<area>/
 <law>/<topic>.bend (its fill stays). The topic of a lemma is the code
-module or Base type its claim calls (`claim_refs`); a topic still too long
-splits by the first def of that topic the claim calls. A lemma joins the
-latest topic one of its lemmas is in (Base types, then modules by import
-depth; misc, then by name, below a topic), so the topic files never import
-in a cycle.
+module or Base type its claim calls first (`claim_refs`), logic when it
+calls nothing; a topic still too long splits by the function of that topic
+the claim calls (logic again when none), logic by the type the claim names. A lemma joins the latest topic
+one of its lemmas is in (logic, Base types, then modules by import depth;
+logic, then by name, below a topic), so the topic files never import in a
+cycle.
 
 Each file keeps the blocks in their order of the sources (Bend refuses a
 call to a def written below it). References are rewritten with the
@@ -259,7 +260,8 @@ class Laws:
         bend/wire.bend (and wire_flat) area wire; of several, not wire
         and not spec, then the first called; no call: the modules of its
         types; none at all (a witness or an example): the area of the
-        nearest law whose premise it witnesses or that shares a helper"""
+        nearest law whose premise it witnesses or that shares a helper
+        (none of these: an error, the law needs an area by hand)"""
         blocks = {b.name: b for b in src.blocks}
         helpers = {b.name for b in src.blocks if b.kind != "law"}
 
@@ -322,9 +324,7 @@ class Laws:
                 hs = helper_set(law)
                 cands = [n for n in self.area if hs & helper_set(n)]
             if not cands:
-                self.area[law] = "misc"
-                self.witness[law] = None
-                continue
+                raise SystemExit(f"{law}: calls no module and shares no premise or helper with a law: no area")
             best = min(cands, key=lambda n: abs(self.order[n] - self.order[law]))
             self.area[law] = self.area[best]
             self.witness[law] = best
@@ -646,25 +646,34 @@ def signature(b):
 
 
 def claim_refs(b):
-    """(topic, first name after it) of each code module or Base type the
-    claim of b calls (a name before `(` or `{`), in order; else the
-    parameters' calls; else the types the claim, then the parameters,
-    name"""
-    params, claim = signature(b)
-    for part, calls in ((claim, True), (params, True), (claim, False), (params, False)):
-        out = []
-        for m in TOK.finditer(part):
-            if calls and part[m.end() : m.end() + 1] not in ("(", "{"):
-                continue
-            head, _, rest = m.group(1).partition(".")
-            q = b.src.aliases.get(head)
-            if q is not None and (ROOT / "bend") in q.parents:
-                out.append((code_area(q), rest.split(".")[0]))
-            elif head in TYPE_TOPIC and (rest or not calls):
-                out.append((TYPE_TOPIC[head], rest.split(".")[0]))
-        if out:
-            return out
-    return []
+    """(topic, function) of each call (a name before `(` or `{`) the claim
+    of b makes to a code module or a Base type, in order; none: a claim
+    of logic"""
+    claim = signature(b)[1]
+    out = []
+    for m in TOK.finditer(claim):
+        if claim[m.end() : m.end() + 1] not in ("(", "{"):
+            continue
+        head, _, rest = m.group(1).partition(".")
+        q = b.src.aliases.get(head)
+        if q is not None and (ROOT / "bend") in q.parents:
+            out.append((code_area(q), rest.split(".")[0]))
+        elif head in TYPE_TOPIC and rest:
+            out.append((TYPE_TOPIC[head], rest.split(".")[0]))
+    return out
+
+
+def named_type(b):
+    """the first code module or Base type the claim of b names; logic when
+    none (absurdity, a premise taken apart)"""
+    for m in TOK.finditer(signature(b)[1]):
+        head = m.group(1).partition(".")[0]
+        q = b.src.aliases.get(head)
+        if q is not None and (ROOT / "bend") in q.parents:
+            return code_area(q)
+        if head in TYPE_TOPIC:
+            return TYPE_TOPIC[head]
+    return "logic"
 
 
 def topic_rank(t):
@@ -690,24 +699,23 @@ def split_file(fk, mine, level, dep, fkey, sub, laws):
         if level == 0:
             refs = claim_refs(b)
             raw[id(b)] = laws.area[b.fill] if b.fill else refs[0][0] if refs else "logic"
+        elif tp[-1] == "logic":
+            # logic splits by the type its claim names
+            raw[id(b)] = named_type(b)
         else:
-            topic = tp[-1]
-            names = [n for t, n in claim_refs(b) if t == topic and n]
-            raw[id(b)] = names[0] if names else "misc"
+            # the function of the topic the claim calls first, else its
+            # first call; a claim that calls nothing is logic
+            refs = claim_refs(b)
+            names = [n for t, n in refs if t == tp[-1] and n] + [n for t, n in refs if n]
+            raw[id(b)] = names[0] if names else "logic"
     if level == 0:
         rank = topic_rank
     else:
-        # a sub-topic of a few lemmas joins misc
-        size = Counter()
-        for b in mine:
-            if id(b) in raw:
-                size[raw[id(b)]] += len(b.lines) - b.start  # the def, not its comment
-        for k in raw:
-            if size[raw[k]] < SMALL:
-                raw[k] = "misc"
+
         def rank(t):
-            # misc first, then by name: any fixed order keeps the files acyclic
-            return (t != "misc", t)
+            # logic first, then by name: any fixed order keeps the files acyclic
+            return (t != "logic", t)
+
     for b in mine:
         if id(b) in stay:
             continue
@@ -717,9 +725,6 @@ def split_file(fk, mine, level, dep, fkey, sub, laws):
                 if rank(sub[id(d)][level]) > rank(t):
                     t = sub[id(d)][level]
         sub[id(b)] = tp + (t,)
-
-
-SMALL = 60  # lines: a smaller sub-topic joins misc
 
 
 # ---------------------------------------------------------------- main

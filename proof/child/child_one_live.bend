@@ -3,7 +3,7 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../laws/child.bend as Child
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pc.old_live(rest: List<&2, Ch.Sub>, +m: Nat, o: {LA.pc.Old(rest, m) == True{} : Bool}) -> {0n == Ch.live(rest) : Nat}:
@@ -15,11 +15,11 @@ def pc.old_live(rest: List<&2, Ch.Sub>, +m: Nat, o: {LA.pc.Old(rest, m) == True{
         case Ch.Sub{+j, f}:
           match f:
             case Ch.Queued{}:
-              LBoolMisc.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Queued{}} <> r) : Nat}, o)
+              LLogicLogic.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Queued{}} <> r) : Nat}, o)
             case Ch.Withdrawn{}:
               pc.old_live(r, j, LA.pc.and_r(Nat.is_le(1n+j, m), LA.pc.Old(r, j), o))
             case Ch.Placed{}:
-              LBoolMisc.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
+              LLogicLogic.child.pc.absurd({0n == Ch.live(Ch.Sub{j, Ch.Placed{}} <> r) : Nat}, o)
 
 # one_live, report_once: only the newest submission may be live
 def pc.le1_live(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.live(f), 0n), 1n) == True{} : Bool}:

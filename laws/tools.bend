@@ -149,8 +149,8 @@ law gate_finish_runs_all:
 # ---- path_policy ----
 
 # LAWS (G1): the path policy. Each law is an open claim about the model
-# in bend/path_policy.bend; PROOF.bend proves them (as Laws.<law>) with the
-# lemmas of PROOF.bend section path_policy.
+# in bend/path_policy.bend; PROOF.bend proves them (as Tools.<law>) with the
+# lemmas of proof/path_policy/.
 
 # (G1) Path policy
 # ----------------
@@ -174,7 +174,7 @@ law gate_inside_write_runs:
 # ---- shell_classification ----
 
 # shell_classification: the laws of section G2 (PROOF.bend proves them
-# as Laws.<law>).
+# as Tools.<law>).
 
 # (G2) Shell classification
 # -------------------------

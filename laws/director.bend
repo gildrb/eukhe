@@ -300,8 +300,8 @@ law dir_lead_stays_example:
 
 # LAWS (S5, the compiled core): the entry bend/ffi_director.bend runs the
 # Director stack's step for the Rust code. Each law is an open claim about
-# that entry; PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section director_entry.
+# that entry; PROOF.bend proves them (as Director.<law>) with the lemmas of
+# proof/director/.
 
 # The entry of the compiled core (bend/ffi_director.bend)
 # --------------------------------------------------------

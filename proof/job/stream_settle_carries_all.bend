@@ -3,13 +3,13 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pj.carry(es: List<&2, Jb.CEv>, +b: Nat, +w: Nat, +u: Nat, h: {Jb.c.ends(es) == True{} : Bool}) -> {Jb.carried(Jb.c.go(es, Jb.Open{b, w, u})) == Some{Jb.Tally{Nat.add(b, Jb.c.bytes(es)), Nat.add(w, Jb.c.warns(es)), Nat.add(u, Jb.c.usage(es))}} : Maybe<&2, Jb.Tally>}:
   match es:
     case Nil{}:
-      LBoolMisc.pj.absurdF({Jb.carried(Nil{}) == Some{Jb.Tally{Nat.add(b, 0n), Nat.add(w, 0n), Nat.add(u, 0n)}} : Maybe<&2, Jb.Tally>}, h)
+      LLogicLogic.pj.absurdF({Jb.carried(Nil{}) == Some{Jb.Tally{Nat.add(b, 0n), Nat.add(w, 0n), Nat.add(u, 0n)}} : Maybe<&2, Jb.Tally>}, h)
     case e <> +rest:
       match e:
         case Jb.Delta{+n}:

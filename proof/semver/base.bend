@@ -2,9 +2,10 @@
 
 import Base
 import ../../bend/semver.bend as Sv
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
+import ../base/nat.bend as LNat
 import ../base/semver.bend as LSemver
 
 # Numbers
@@ -127,9 +128,9 @@ def ps.num_trans(a: Nat, b: Nat, c: Nat, h1: {Sv.Num.le(a, b) == True{} : Bool},
     case 0n _ _:
       {==}
     case 1n+p 0n _:
-      LBoolMisc.semver.ps.absurdF({Sv.Num.le(1n+p, c) == True{} : Bool}, h1)
+      LLogicLogic.semver.ps.absurdF({Sv.Num.le(1n+p, c) == True{} : Bool}, h1)
     case 1n+p 1n+q 0n:
-      LBoolMisc.semver.ps.absurdF({False{} == True{} : Bool}, h2)
+      LLogicLogic.semver.ps.absurdF({False{} == True{} : Bool}, h2)
     case 1n+p 1n+q 1n+r:
       ps.num_trans(p, q, r, h1, h2)
 
@@ -160,7 +161,7 @@ def ps.lt_irrefl(+v: Sv.Ver) -> {False{} == Sv.Ver.lt(v, v) : Bool}:
 # a version newer than u is not u
 def ps.lt_ne(+u: Sv.Ver, -w: Sv.Ver, h: {Sv.Ver.lt(u, w) == True{} : Bool}, e: {u == w : Sv.Ver}) -> Empty:
   +self = Equal.cong(Sv.Ver, Bool, x => Sv.Ver.lt(u, x), u, w, e)
-  LBoolMisc.semver.ps.absurdF(Empty, Equal.trans(Bool, False{}, Sv.Ver.lt(u, w), True{}, Equal.trans(Bool, False{}, Sv.Ver.lt(u, u), Sv.Ver.lt(u, w), ps.lt_irrefl(u), self), h))
+  LLogicLogic.semver.ps.absurdF(Empty, Equal.trans(Bool, False{}, Sv.Ver.lt(u, w), True{}, Equal.trans(Bool, False{}, Sv.Ver.lt(u, u), Sv.Ver.lt(u, w), ps.lt_irrefl(u), self), h))
 
 # m names a number of at least p
 def ps.atl(p: Nat, m: Maybe<&2, Nat>) -> Bool:
@@ -200,7 +201,7 @@ def ps.atl_keep(+p: Nat, b: Bool, +q: Nat, acc: Maybe<&2, Nat>, h: {ps.atl(p, ac
     case True{}:
       match acc:
         case None{}:
-          LBoolMisc.semver.ps.absurdF({ps.atl(p, Sv.Rel.max(q, None{})) == True{} : Bool}, h)
+          LLogicLogic.semver.ps.absurdF({ps.atl(p, Sv.Rel.max(q, None{})) == True{} : Bool}, h)
         case Some{+r}:
           ps.num_trans(p, r, Sv.Num.max(q, r), h, ps.le_max_r(q, r))
     case False{}:
@@ -229,14 +230,14 @@ def semver.ps.le_succ(p: Nat, q: Nat, h: {Sv.Num.le(p, q) == True{} : Bool}) -> 
     case 0n _:
       {==}
     case 1n+a 0n:
-      LBoolMisc.semver.ps.absurdF({Sv.Num.le(1n+0n, 1n+a) == False{} : Bool}, h)
+      LLogicLogic.semver.ps.absurdF({Sv.Num.le(1n+0n, 1n+a) == False{} : Bool}, h)
     case 1n+a 1n+b:
       semver.ps.le_succ(a, b, h)
 
 def ps.after_gt(+p: Nat, m: Maybe<&2, Nat>, h: {ps.atl(p, m) == True{} : Bool}) -> {Sv.Num.le(Sv.Rel.after(m), p) == False{} : Bool}:
   match m:
     case None{}:
-      LBoolMisc.semver.ps.absurdF({Sv.Num.le(0n, p) == False{} : Bool}, h)
+      LLogicLogic.semver.ps.absurdF({Sv.Num.le(0n, p) == False{} : Bool}, h)
     case Some{q}:
       semver.ps.le_succ(p, q, h)
 
@@ -258,8 +259,8 @@ def ps.le3_same(a: Nat, +b: Nat, +x: Nat, +y: Nat) -> {Sv.Num.le(x, y) == Sv.Ver
 def ps.next_newer(s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, v: Sv.Ver, parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}, +ins: {Sv.Ver.in_series(s, v) == True{} : Bool}) -> {Sv.Ver.lt(v, Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) == True{} : Bool}:
   match s v:
     case Sv.Ver{+a, +b, +c} Sv.Ver{+va, +vb, +vc}:
-      %LNatIsEq.semver.ps.eq_true(a, va, LBoolAnd.semver.ps.and_l(Nat.is_eq(a, va), Nat.is_eq(b, vb), ins)) : {Bool.not(Sv.Ver.le3(a, _, b, vb, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc)) == True{} : Bool}
-      %LNatIsEq.semver.ps.eq_true(b, vb, LBoolAnd.semver.ps.and_r(Nat.is_eq(a, va), Nat.is_eq(b, vb), ins)) : {Bool.not(Sv.Ver.le3(a, a, b, _, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc)) == True{} : Bool}
+      %LLogicNat.semver.ps.eq_true(a, va, LLogicBool.semver.ps.and_l(Nat.is_eq(a, va), Nat.is_eq(b, vb), ins)) : {Bool.not(Sv.Ver.le3(a, _, b, vb, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc)) == True{} : Bool}
+      %LLogicNat.semver.ps.eq_true(b, vb, LLogicBool.semver.ps.and_r(Nat.is_eq(a, va), Nat.is_eq(b, vb), ins)) : {Bool.not(Sv.Ver.le3(a, a, b, _, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc)) == True{} : Bool}
       %ps.le3_same(a, b, Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc) : {Bool.not(_) == True{} : Bool}
       %Equal.sym(Bool, Sv.Num.le(Sv.Rel.after(Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys))), vc), False{}, ps.after_gt(vc, Sv.Rel.top(Sv.Ver{a, b, c}, List.append(&2, String, xs, t <> ys)), ps.top_mid(Sv.Ver{a, b, c}, xs, t, ys, Sv.Ver{va, vb, vc}, parsed, ins))) : {Bool.not(_) == True{} : Bool}
       {==}
@@ -268,8 +269,8 @@ def ps.next_newer(s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, St
 def ps.series_next(s: Sv.Ver, tags: List<&2, String>) -> {Sv.Ver.in_series(s, Sv.Rel.next(s, tags)) == True{} : Bool}:
   match s:
     case Sv.Ver{+a, +b, c}:
-      %LNatIsEq.semver.ps.eq_refl(a) : {Bool.and(_, Nat.is_eq(b, b)) == True{} : Bool}
-      Equal.sym(Bool, True{}, Nat.is_eq(b, b), LNatIsEq.semver.ps.eq_refl(b))
+      %LNat.semver.ps.eq_refl(a) : {Bool.and(_, Nat.is_eq(b, b)) == True{} : Bool}
+      Equal.sym(Bool, True{}, Nat.is_eq(b, b), LNat.semver.ps.eq_refl(b))
 
 def ps.next_ne.go(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, +v: Sv.Ver, parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}, b: Bool, eb: {Sv.Ver.in_series(s, v) == b : Bool}, e: {v == Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) : Sv.Ver}) -> Empty:
   match b:
@@ -278,7 +279,7 @@ def ps.next_ne.go(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, S
     case False{}:
       +same = Equal.cong(Sv.Ver, Bool, x => Sv.Ver.in_series(s, x), v, Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)), e)
       +into = Equal.trans(Bool, Sv.Ver.in_series(s, v), Sv.Ver.in_series(s, Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))), True{}, same, ps.series_next(s, List.append(&2, String, xs, t <> ys)))
-      LBoolMisc.semver.ps.absurdF(Empty, Equal.trans(Bool, False{}, Sv.Ver.in_series(s, v), True{}, Equal.sym(Bool, Sv.Ver.in_series(s, v), False{}, eb), into))
+      LLogicLogic.semver.ps.absurdF(Empty, Equal.trans(Bool, False{}, Sv.Ver.in_series(s, v), True{}, Equal.sym(Bool, Sv.Ver.in_series(s, v), False{}, eb), into))
 
 # no version tag names the next release
 def ps.next_ne(+s: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, +v: Sv.Ver, parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}) -> {v != Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) : Sv.Ver}:

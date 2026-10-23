@@ -1,8 +1,8 @@
 # kernel_local: the model of the kernel setup, the session's tools while
 # the kernel is missing, and the bootstrap lock's leftovers
 # (crates/eukhe-core/src/kernel/bootstrap: setup.rs, venv.rs, mod.rs,
-# dir_lock.rs). LAWS.bend section kernel_local states the laws;
-# PROOF.bend section kernel_local proves them; bridge/bridge_kernel_local.bend
+# dir_lock.rs). laws/kernel_local.bend states the laws;
+# proof/kernel_local/ proves them; bridge/bridge_kernel_local.bend
 # runs this model against the Rust code.
 
 import Base

@@ -3,9 +3,10 @@
 import Base
 import ../../bend/skill_load.bend as Sk
 import ../../laws/skill_load.bend as SkillLoad
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/bool.bend as LBool
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
 
 # a loaded path is the path of a candidate
 def ppr.loaded_sub(cs: List<&2, Sk.Cand>, +q: Nat) -> {Sk.listed(Sk.loaded(cs), q) == True{} : Bool} -> {Sk.listed(Sk.paths(cs), q) == True{} : Bool}:
@@ -17,13 +18,13 @@ def ppr.loaded_sub(cs: List<&2, Sk.Cand>, +q: Nat) -> {Sk.listed(Sk.loaded(cs), 
         case Sk.Cand{+p, o}:
           match o:
             case Sk.Good{}:
-              h => LBoolMisc.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.loaded(rest), q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q), h)
+              h => LBool.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.loaded(rest), q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q), h)
             case Sk.Unreadable{}:
-              h => LBoolMisc.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
+              h => LBool.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
             case Sk.Malformed{}:
-              h => LBoolMisc.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
+              h => LBool.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
             case Sk.Incomplete{}:
-              h => LBoolMisc.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
+              h => LBool.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.loaded_sub(rest, q)(h))
 
 # a reported path is the path of a candidate
 def ppr.named_sub(cs: List<&2, Sk.Cand>, +q: Nat) -> {Sk.listed(Sk.named(Sk.diags(cs)), q) == True{} : Bool} -> {Sk.listed(Sk.paths(cs), q) == True{} : Bool}:
@@ -35,19 +36,19 @@ def ppr.named_sub(cs: List<&2, Sk.Cand>, +q: Nat) -> {Sk.listed(Sk.named(Sk.diag
         case Sk.Cand{+p, o}:
           match o:
             case Sk.Good{}:
-              h => LBoolMisc.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q)(h))
+              h => LBool.ppr.or_r(Nat.is_eq(p, q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q)(h))
             case Sk.Unreadable{}:
-              h => LBoolMisc.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
+              h => LBool.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
             case Sk.Malformed{}:
-              h => LBoolMisc.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
+              h => LBool.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
             case Sk.Incomplete{}:
-              h => LBoolMisc.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
+              h => LBool.ppr.or_mono(Nat.is_eq(p, q), Sk.listed(Sk.named(Sk.diags(rest)), q), Sk.listed(Sk.paths(rest), q), ppr.named_sub(rest, q), h)
 
 # a list of paths of rest does not name q when the paths of rest do not
 def ppr.not_in(b: Bool, +ns: List<&2, Nat>, +rest: List<&2, Sk.Cand>, +q: Nat, eb: {Sk.listed(ns, q) == b : Bool}, sub: {Sk.listed(ns, q) == True{} : Bool} -> {Sk.listed(Sk.paths(rest), q) == True{} : Bool}, out: {Sk.listed(Sk.paths(rest), q) == False{} : Bool}) -> {b == False{} : Bool}:
   match b:
     case True{}:
-      LBoolMisc.ppr.absurd({True{} == False{} : Bool}, Equal.trans(Bool, True{}, Sk.listed(Sk.paths(rest), q), False{}, Equal.sym(Bool, Sk.listed(Sk.paths(rest), q), True{}, sub(eb)), out))
+      LLogicLogic.ppr.absurd({True{} == False{} : Bool}, Equal.trans(Bool, True{}, Sk.listed(Sk.paths(rest), q), False{}, Equal.sym(Bool, Sk.listed(Sk.paths(rest), q), True{}, sub(eb)), out))
     case False{}:
       {==}
 
@@ -55,7 +56,7 @@ def ppr.not_in(b: Bool, +ns: List<&2, Nat>, +rest: List<&2, Sk.Cand>, +q: Nat, e
 def ppr.good_at(c: Bool, +p: Nat, +n: Nat, +rest: List<&2, Sk.Cand>, +ec: {Nat.is_eq(p, n) == c : Bool}, +dp: {Sk.listed(Sk.paths(rest), p) == False{} : Bool}, ih: {Bool.and(Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n)) == False{} : Bool}) -> {Bool.and(Bool.or(c, Sk.listed(Sk.loaded(rest), n)), Sk.listed(Sk.named(Sk.diags(rest)), n)) == False{} : Bool}:
   match c:
     case True{}:
-      %LNatIsEq.ppr.nat_eq_true(p, n, ec) : {Sk.listed(Sk.named(Sk.diags(rest)), _) == False{} : Bool}
+      %LLogicNat.ppr.nat_eq_true(p, n, ec) : {Sk.listed(Sk.named(Sk.diags(rest)), _) == False{} : Bool}
       ppr.not_in(Sk.listed(Sk.named(Sk.diags(rest)), p), Sk.named(Sk.diags(rest)), rest, p, {==}, ppr.named_sub(rest, p), dp)
     case False{}:
       ih
@@ -65,7 +66,7 @@ def ppr.bad_at(c: Bool, +p: Nat, +n: Nat, +rest: List<&2, Sk.Cand>, +ec: {Nat.is
   match c:
     case True{}:
       +eL = ppr.not_in(Sk.listed(Sk.loaded(rest), p), Sk.loaded(rest), rest, p, {==}, ppr.loaded_sub(rest, p), dp)
-      %LNatIsEq.ppr.nat_eq_true(p, n, ec) : {Bool.and(Sk.listed(Sk.loaded(rest), _), True{}) == False{} : Bool}
+      %LLogicNat.ppr.nat_eq_true(p, n, ec) : {Bool.and(Sk.listed(Sk.loaded(rest), _), True{}) == False{} : Bool}
       %Equal.sym(Bool, Sk.listed(Sk.loaded(rest), p), False{}, eL) : {Bool.and(_, True{}) == False{} : Bool}
       {==}
     case False{}:
@@ -83,20 +84,20 @@ def ppr.skill_loaded_not_failed(cs: List<&2, Sk.Cand>, +n: Nat, +d: {Sk.distinct
           match o:
             case Sk.Good{}:
               +nd = Bool.not(Sk.listed(Sk.paths(rest), p))
-              +dp = LBoolMisc.ppr.not_t(Sk.listed(Sk.paths(rest), p), LBoolAnd.ppr.and_l(nd, Sk.distinct(rest), d))
-              ppr.good_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LBoolAnd.ppr.and_r(nd, Sk.distinct(rest), d)))
+              +dp = LLogicBool.ppr.not_t(Sk.listed(Sk.paths(rest), p), LLogicBool.ppr.and_l(nd, Sk.distinct(rest), d))
+              ppr.good_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LLogicBool.ppr.and_r(nd, Sk.distinct(rest), d)))
             case Sk.Unreadable{}:
               +nd = Bool.not(Sk.listed(Sk.paths(rest), p))
-              +dp = LBoolMisc.ppr.not_t(Sk.listed(Sk.paths(rest), p), LBoolAnd.ppr.and_l(nd, Sk.distinct(rest), d))
-              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LBoolAnd.ppr.and_r(nd, Sk.distinct(rest), d)))
+              +dp = LLogicBool.ppr.not_t(Sk.listed(Sk.paths(rest), p), LLogicBool.ppr.and_l(nd, Sk.distinct(rest), d))
+              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LLogicBool.ppr.and_r(nd, Sk.distinct(rest), d)))
             case Sk.Malformed{}:
               +nd = Bool.not(Sk.listed(Sk.paths(rest), p))
-              +dp = LBoolMisc.ppr.not_t(Sk.listed(Sk.paths(rest), p), LBoolAnd.ppr.and_l(nd, Sk.distinct(rest), d))
-              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LBoolAnd.ppr.and_r(nd, Sk.distinct(rest), d)))
+              +dp = LLogicBool.ppr.not_t(Sk.listed(Sk.paths(rest), p), LLogicBool.ppr.and_l(nd, Sk.distinct(rest), d))
+              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LLogicBool.ppr.and_r(nd, Sk.distinct(rest), d)))
             case Sk.Incomplete{}:
               +nd = Bool.not(Sk.listed(Sk.paths(rest), p))
-              +dp = LBoolMisc.ppr.not_t(Sk.listed(Sk.paths(rest), p), LBoolAnd.ppr.and_l(nd, Sk.distinct(rest), d))
-              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LBoolAnd.ppr.and_r(nd, Sk.distinct(rest), d)))
+              +dp = LLogicBool.ppr.not_t(Sk.listed(Sk.paths(rest), p), LLogicBool.ppr.and_l(nd, Sk.distinct(rest), d))
+              ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, LLogicBool.ppr.and_r(nd, Sk.distinct(rest), d)))
 
 def SkillLoad.skill_loaded_not_failed(cs, n, d):
   ppr.skill_loaded_not_failed(cs, n, d)

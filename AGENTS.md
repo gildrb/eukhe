@@ -73,7 +73,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 
 - `make check`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 - Before a push: the pre-push hook passes; never bypass hooks. The full gate (`make ci-local`) runs nightly and gates the release.
-- `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs`, `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled model catalog. Built-in catalog = its union with the bundled snapshot (`eukhe-models` `effective.rs`; laws: `LAWS.bend` section `catalog_union`). `eukhe-models` adds transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`). `scripts/generate-catalog-fixture.py` refreshes `crates/eukhe-models/tests/fixtures/catalog.v1.json`.
+- `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs`, `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled model catalog. Built-in catalog = its union with the bundled snapshot (`eukhe-models` `effective.rs`; laws: `laws/catalog_union.bend`). `eukhe-models` adds transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`). `scripts/generate-catalog-fixture.py` refreshes `crates/eukhe-models/tests/fixtures/catalog.v1.json`.
 
 ## Crates
 

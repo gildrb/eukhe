@@ -12,8 +12,8 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/run.bend as Run
 import ../../laws/wire.bend as Wire
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/add.bend as LNatAdd
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
@@ -45,19 +45,19 @@ def InvS(+cfg: RnState.Cfg, +s: RnState.St, +k: Nat) -> Type:
 def cap_of(-T: Type, o: Or({False{} == True{} : Bool}, T)) -> T:
   match o:
     case Inl{x}:
-      LBoolMisc.absurd(T, x)
+      LLogicLogic.absurd(T, x)
     case Inr{y}:
       y
 
 def cap_next(n: Nat, -s: Nat, -cap: Nat, capv: {Nat.add(n, 2n+s) == cap : Nat}) -> {1n+Nat.add(n, 1n+s) == cap : Nat}:
   %capv : {1n+Nat.add(n, 1n+s) == _ : Nat}
-  LNatAdd.add_succ_r(n, 1n+s)
+  LNat.add_succ_r(n, 1n+s)
 
 # the round that meets the cap is the max(cap, 1)th
 def one_more(+n: Nat, -m: Nat, capv: {Nat.add(n, 1n+0n) == m : Nat}) -> {1n+n == m : Nat}:
   %capv : {1n+n == _ : Nat}
-  %LNatAdd.add_succ_r(n, 0n) : {1n+n == _ : Nat}
-  %Equal.sym(Nat, Nat.add(n, 0n), n, LNatAdd.add_zero(n)) : {1n+n == 1n+_ : Nat}
+  %LNat.add_succ_r(n, 0n) : {1n+n == _ : Nat}
+  %Equal.sym(Nat, Nat.add(n, 0n), n, LNat.add_zero(n)) : {1n+n == 1n+_ : Nat}
   {==}
 
 def inv_round(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reset: Bool, r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, capv: {Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}) -> InvS(RnState.Cfg{cap, P, A, N}, RnStep.round(RnState.Cfg{cap, P, A, N}, reset, r, c, a, n, p), 1n+k):

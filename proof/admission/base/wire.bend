@@ -7,7 +7,7 @@ import ../../../bend/wire.bend as Wr
 import ../../../laws/admission.bend as Admission
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
-import ../../base/bool/and.bend as LBoolAnd
+import ../../base/logic/bool.bend as LLogicBool
 import ../../base/wire.bend as LWire
 import ../adw_cls_round_trip.bend as PAdwClsRoundTrip
 
@@ -53,8 +53,8 @@ def Admission.adw_op_round_trip(o, rest, h):
     case Ad.Limit{+l, +q}:
       +r = rest
       +hh = h
-      %paw.lim(l, Wr.put_nat(q, r), LBoolAnd.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.limit(_) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
-      %paw.nat(q, r, LBoolAnd.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.q(l, _) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.limit(_) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      %paw.nat(q, r, LLogicBool.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_op.q(l, _) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
       {==}
 
 # a op reads back (turned around for rewriting)
@@ -64,8 +64,8 @@ def paw.op(+o: Ad.Op, +rest: String, h: {Admission.adw_op_fits(o) == True{} : Bo
 def Admission.adw_open_round_trip(l, q, rest, h):
   +r = rest
   +hh = h
-  %paw.lim(l, Wr.put_nat(q, r), LBoolAnd.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.go(_) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
-  %paw.nat(q, r, LBoolAnd.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.q(l, _) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  %paw.lim(l, Wr.put_nat(q, r), LLogicBool.wr_and_l(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.go(_) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  %paw.nat(q, r, LLogicBool.wr_and_r(Admission.adw_lim_fits(l), LawsBase.wire_fits(q), hh)) : {FAd.get_open.q(l, _) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
   {==}
 
 # an open request that fits reads back (turned around for rewriting)

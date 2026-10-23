@@ -7,7 +7,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/default_model.bend as DefaultModel
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ./dmw_reason_round_trip.bend as PDmwReasonRoundTrip
@@ -58,11 +58,11 @@ def DefaultModel.dmw_in_round_trip(x, rest, h):
     case Dm.In{+saved, +cat, +key, +out, +next}:
       +z = rest
       +hh = h
-      %pdw.saved(saved, Wr.put_bool(cat, Wr.put_bool(key, Wr.put_bool(out, FDm.put_next(next, z)))), LBoolAnd.wr_and_l(DefaultModel.dmw_saved_fits(saved), DefaultModel.dmw_next_fits(next), hh)) : {FDm.get_in.go(_) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.saved(saved, Wr.put_bool(cat, Wr.put_bool(key, Wr.put_bool(out, FDm.put_next(next, z)))), LLogicBool.wr_and_l(DefaultModel.dmw_saved_fits(saved), DefaultModel.dmw_next_fits(next), hh)) : {FDm.get_in.go(_) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
       %pdw.bool(cat, Wr.put_bool(key, Wr.put_bool(out, FDm.put_next(next, z)))) : {FDm.get_in.cat(saved, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
       %pdw.bool(key, Wr.put_bool(out, FDm.put_next(next, z))) : {FDm.get_in.key(saved, cat, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
       %pdw.bool(out, FDm.put_next(next, z)) : {FDm.get_in.out(saved, cat, key, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
-      %pdw.next(next, z, LBoolAnd.wr_and_r(DefaultModel.dmw_saved_fits(saved), DefaultModel.dmw_next_fits(next), hh)) : {FDm.get_in.next(saved, cat, key, out, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.next(next, z, LLogicBool.wr_and_r(DefaultModel.dmw_saved_fits(saved), DefaultModel.dmw_next_fits(next), hh)) : {FDm.get_in.next(saved, cat, key, out, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
       {==}
 
 # a in reads back (turned around for rewriting)

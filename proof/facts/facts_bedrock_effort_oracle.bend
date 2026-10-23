@@ -3,8 +3,8 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
 
 # Oracles
 # -------
@@ -15,13 +15,13 @@ def pf.xhigh(+m: Fx.EMap, ok: {Fx.native_ok.e(Fx.EMap.at(m, Fx.EXhigh{})) == Tru
     case Fx.EMap{mi, lo, me, hi, xh, mx}:
       match xh:
         case None{}:
-          LBoolMisc.pq.absurdF({5n == Fx.effort.default(Fx.EXhigh{}) : Nat}, ok)
+          LLogicLogic.pq.absurdF({5n == Fx.effort.default(Fx.EXhigh{}) : Nat}, ok)
         case Some{w}:
           match w:
             case None{}:
-              LBoolMisc.pq.absurdF({5n == Fx.effort.default(Fx.EXhigh{}) : Nat}, ok)
+              LLogicLogic.pq.absurdF({5n == Fx.effort.default(Fx.EXhigh{}) : Nat}, ok)
             case Some{v}:
-              Equal.sym(Nat, v, 5n, LNatIsEq.pq.eq_true(v, 5n, ok))
+              Equal.sym(Nat, v, 5n, LLogicNat.pq.eq_true(v, 5n, ok))
 
 def pf.facts_bedrock_effort_oracle(native: Bool, +m: Fx.EMap, +l: Fx.ELv, ok: {Fx.native_ok(native, m) == True{} : Bool}) -> {Fx.effort.old(native, m, l) == Fx.effort(m, l) : Nat}:
   match native:

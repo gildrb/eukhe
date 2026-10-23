@@ -12,7 +12,7 @@
 # A Cause is its tag in declaration order (Refusal 0 .. Unknown 13); Facts,
 # Tried, Policy and Switch are records; a Delay is After (tag 0, ms) or
 # Refused (tag 1, server, cap). Malformed input answers the wire's error
-# form, never a default. LAWS.bend section retry states the laws of this
+# form, never a default. laws/retry.bend states the laws of this
 # codec; PROOF.bend proves them. Pure: no IO, no @unsafe.
 
 import Base

@@ -5,7 +5,7 @@ import ../../bend/run/request.bend as RnRequest
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
 import ../../laws/run.bend as Run
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
   match n:
@@ -51,7 +51,7 @@ def lt_up(a: Nat, b: Nat, h: {lt(a, b) == True{} : Bool}) -> {lt(a, 1n+b) == Tru
     case 0n 1n+q:
       {==}
     case 1n+p 0n:
-      LBoolMisc.absurd({lt(1n+p, 1n) == True{} : Bool}, h)
+      LLogicLogic.absurd({lt(1n+p, 1n) == True{} : Bool}, h)
     case 1n+p 1n+q:
       lt_up(p, q, h)
 
@@ -65,7 +65,7 @@ def lt_self(a: Nat) -> {lt(a, 1n+a) == True{} : Bool}:
 def lt_ne(a: Nat, b: Nat, h: {lt(a, b) == True{} : Bool}) -> {Nat.is_eq(a, b) == False{} : Bool}:
   match a b:
     case 0n 0n:
-      LBoolMisc.absurd({Nat.is_eq(0n, 0n) == False{} : Bool}, h)
+      LLogicLogic.absurd({Nat.is_eq(0n, 0n) == False{} : Bool}, h)
     case 0n 1n+q:
       {==}
     case 1n+p 0n:
@@ -123,7 +123,7 @@ def or_ff(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool
     case False{}:
       eb
     case True{}:
-      LBoolMisc.absurd({Bool.or(True{}, b) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, ea))
+      LLogicLogic.absurd({Bool.or(True{}, b) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, ea))
 
 # an older context
 def not_older(+c: Nat, +ctx: Nat, -m: Nat, -note: Nat, l: {lt(c, ctx) == True{} : Bool}) -> {RnRequest.Req.is(RnRequest.Req{c, m}, RnRequest.Req{ctx, note}) == False{} : Bool}:

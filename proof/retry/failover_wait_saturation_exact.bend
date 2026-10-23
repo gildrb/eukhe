@@ -3,7 +3,7 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # max(a, b) > x when b > x
@@ -12,9 +12,9 @@ def rx.gt_max(+a: Nat, +b: Nat, +x: Nat, hb: {Nat.is_gt(b, x) == True{} : Bool})
     case 0n b x:
       hb
     case 1n+p 0n 0n:
-      LBoolMisc.rp.absurdF({Nat.is_gt(1n+p, 0n) == True{} : Bool}, hb)
+      LLogicLogic.rp.absurdF({Nat.is_gt(1n+p, 0n) == True{} : Bool}, hb)
     case 1n+p 0n 1n+r:
-      LBoolMisc.rp.absurdF({Nat.is_gt(1n+p, 1n+r) == True{} : Bool}, hb)
+      LLogicLogic.rp.absurdF({Nat.is_gt(1n+p, 1n+r) == True{} : Bool}, hb)
     case 1n+p 1n+q 0n:
       {==}
     case 1n+p 1n+q 1n+r:
@@ -95,9 +95,9 @@ def rx.cw_fresh(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +c: Nat) -> {R.pick.f
 def rx.not_le_of_gt(c: Cmp, e: {Cmp.is_gt(c) == True{} : Bool}) -> {Cmp.is_le(c) == False{} : Bool}:
   match c:
     case LT{}:
-      LBoolMisc.rp.absurdF({True{} == False{} : Bool}, e)
+      LLogicLogic.rp.absurdF({True{} == False{} : Bool}, e)
     case EQ{}:
-      LBoolMisc.rp.absurdF({True{} == False{} : Bool}, e)
+      LLogicLogic.rp.absurdF({True{} == False{} : Bool}, e)
     case GT{}:
       {==}
 

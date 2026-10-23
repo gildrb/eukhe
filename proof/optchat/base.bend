@@ -8,8 +8,9 @@ import ../../bend/optchat/node.bend as ONode
 import ../../bend/optchat/state.bend as OState
 import ../../bend/optchat/step.bend as OStep
 import ../../bend/spec.bend as S
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/bool.bend as LBool
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
 import ../base/optchat.bend as LOptchat
 
 # ---- cover ----
@@ -349,7 +350,7 @@ def pf.IsSome(m: Maybe<&2, Nat>) -> Type:
 def pf.to_some(m: Maybe<&2, Nat>, e: {Maybe.is_some(&2, Nat, m) == True{} : Bool}) -> pf.IsSome(m):
   match m:
     case None{}:
-      LBoolMisc.pf.absurd_ft(Empty, e)
+      LLogicLogic.pf.absurd_ft(Empty, e)
     case Some{x}:
       Unit{}
 
@@ -389,7 +390,7 @@ def pf.has_at(+info: OInfo.Info, +a: ONode.Node, +x: ONode.Node, rest: List<&2, 
     case Nil{}:
       e
     case +y <> more:
-      LBoolMisc.pf.or_r(Bool.and(ONode.Node.eq(x, a), OFit.mergeable(info, x, y)), rec, e)
+      LBool.pf.or_r(Bool.and(ONode.Node.eq(x, a), OFit.mergeable(info, x, y)), rec, e)
 
 # v with p's lines before it, p reversed
 def pf.rapp(p: List<&2, ONode.Node>, v: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
@@ -419,7 +420,7 @@ def pf.Cand(+info: OInfo.Info, +v: List<&2, ONode.Node>, r: Maybe<&2, ONode.Node
       ({pf.Has(info, v, a) == True{} : Bool} & {OInfo.Info.built(info, ONode.Node.parent(a)) == True{} : Bool})
 
 def pf.merge_built(+info: OInfo.Info, +a: ONode.Node, +y: ONode.Node, e: {OFit.mergeable(info, a, y) == True{} : Bool}) -> {OInfo.Info.built(info, ONode.Node.parent(a)) == True{} : Bool}:
-  LBoolAnd.pf.and_r(ONode.Node.sib(a, y), OInfo.Info.built(info, ONode.Node.parent(a)), e)
+  LLogicBool.pf.and_r(ONode.Node.sib(a, y), OInfo.Info.built(info, ONode.Node.parent(a)), e)
 
 def pf.here_has(+info: OInfo.Info, +a: ONode.Node, +y: ONode.Node, +more: List<&2, ONode.Node>, e: {True{} == OFit.mergeable(info, a, y) : Bool}) -> {pf.Has(info, a <> y <> more, a) == True{} : Bool}:
   %LOptchat.pf.node_eq_refl(a) : {Bool.or(Bool.and(_, OFit.mergeable(info, a, y)), pf.Has(info, y <> more, a)) == True{} : Bool}
@@ -594,7 +595,7 @@ def pf.msumm.pick(h: Bool, +info: OInfo.Info, +a: ONode.Node, +x: ONode.Node, +y
   match h:
     case True{}:
       (ey, sm) = sr
-      (pf.implies_true(OBits.Nat.is_pos(ONode.Node.lvl(ONode.Node.parent(x))), OInfo.Info.built(info, ONode.Node.parent(x)), pf.merge_built(info, x, y, LBoolAnd.pf.and_r(ONode.Node.eq(x, a), OFit.mergeable(info, x, y), Equal.sym(Bool, True{}, Bool.and(ONode.Node.eq(x, a), OFit.mergeable(info, x, y)), e)))), sm)
+      (pf.implies_true(OBits.Nat.is_pos(ONode.Node.lvl(ONode.Node.parent(x))), OInfo.Info.built(info, ONode.Node.parent(x)), pf.merge_built(info, x, y, LLogicBool.pf.and_r(ONode.Node.eq(x, a), OFit.mergeable(info, x, y), Equal.sym(Bool, True{}, Bool.and(ONode.Node.eq(x, a), OFit.mergeable(info, x, y)), e)))), sm)
     case False{}:
       (hx, ih(sr))
 

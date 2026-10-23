@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 def screen.ps.le_add_l(y: Nat, +a: Nat, +b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_le(Nat.add(y, a), Nat.add(y, b)) == True{} : Bool}:
@@ -23,7 +23,7 @@ def ps.apart_go(hs: List<&2, Nat>, +y: Nat, +rows: Nat, +z: Nat, hz: {Nat.is_le(
       LA.screen.ps.and_t(Nat.is_le(z, y), Sc.apart(Sc.vstack(rest, Nat.add(y, h), rows), Nat.add(y, m)), hz, ps.apart_go(rest, Nat.add(y, h), rows, Nat.add(y, m), screen.ps.le_add_l(y, m, h, LA.ps.min_le_l(h, Nat.sub(rows, y)))))
 
 def ps.layout_apart(hs: List<&2, Nat>, +y: Nat, +rows: Nat) -> {Sc.apart(Sc.vstack(hs, y, rows), y) == True{} : Bool}:
-  ps.apart_go(hs, y, rows, y, LNatIsLe.screen.ps.le_refl(y))
+  ps.apart_go(hs, y, rows, y, LNat.screen.ps.le_refl(y))
 
 def Screen.layout_apart(hs, y, rows):
   ps.layout_apart(hs, y, rows)

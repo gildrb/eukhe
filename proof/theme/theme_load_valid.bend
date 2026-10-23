@@ -7,8 +7,7 @@ import ../../bend/theme/palette.bend as TPalette
 import ../../bend/theme/reader.bend as TReader
 import ../../bend/theme/token.bend as TToken
 import ../../laws/theme.bend as Theme
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/maybe.bend as LMaybe
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # Loading and completion
@@ -18,7 +17,7 @@ def themes.pt.some_inj(-A: Data, -a: A, -b: A, e: {Some{a} == Some{b} : Maybe<&2
   Equal.cong(Maybe<&2, A>, A, m => TPalette.or_else(A, m, a), Some{a}, Some{b}, e)
 
 def pt.con_nil(-G: Type, -x: U32, -xs: List<&2, U32>, e: {x <> xs == Nil{} : List<&2, U32>}) -> G:
-  %e : LBoolMisc.themes.pt.BD(List.is_empty(&2, U32, _), G, Unit)
+  %e : LLogicLogic.themes.pt.BD(List.is_empty(&2, U32, _), G, Unit)
   Unit{}
 
 # an empty missing list: no keep took its token
@@ -81,7 +80,7 @@ def pt.valid_go(+cols: List<&2, TFile.Ent>, +ts: List<&2, U32>, +h9: {TToken.has
 def pt.miss_at(+cols: List<&2, TFile.Ent>, +ts: List<&2, U32>, +k: Nat, +t: U32, +hm: {TReader.missing.go(cols, ts) == Nil{} : List<&2, U32>}, +hg: {List.get(&2, U32, ts, k) == Some{t} : Maybe<&2, U32>}, +hr: {TReader.required(t) == True{} : Bool}) -> {TToken.has(cols, t) == True{} : Bool}:
   match ts k:
     case Nil{} q:
-      LMaybe.themes.pt.none_some({TToken.has(cols, t) == True{} : Bool}, U32, t, hg)
+      LLogicLogic.themes.pt.none_some({TToken.has(cols, t) == True{} : Bool}, U32, t, hg)
     case Con{+x, rest} 0n:
       +cx = pt.keep_nil(Bool.and(TReader.required(x), Bool.not(TToken.has(cols, x))), x, TReader.missing.go(cols, rest), hm)
       +ct = {%themes.pt.some_inj(U32, x, t, hg) : {Bool.and(TReader.required(_), Bool.not(TToken.has(cols, _))) == False{} : Bool}; cx : {Bool.and(TReader.required(t), Bool.not(TToken.has(cols, t))) == False{} : Bool}}
@@ -96,11 +95,11 @@ def pt.valid_of(+es: List<&2, TFile.Ent>, +hm: {TReader.missing(es) == Nil{} : L
 def pt.load_end(+name: String, +es: List<&2, TFile.Ent>, p: TReader.Bg, c: TReader.Bg, i: TReader.Bg, -f: TFile.Th, +hv: {TToken.valid.go(es, TToken.toks()) == True{} : Bool}, h: {TReader.load.of(TReader.read.end(name, es, p, c, i)) == Some{f} : Maybe<&2, TFile.Th>}) -> {TToken.valid(f) == True{} : Bool}:
   match p c i:
     case TReader.BgBad{x} q r:
-      LMaybe.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
+      LLogicLogic.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
     case TReader.BgOk{pc} TReader.BgBad{x} r:
-      LMaybe.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
+      LLogicLogic.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
     case TReader.BgOk{pc} TReader.BgOk{cc} TReader.BgBad{x}:
-      LMaybe.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
+      LLogicLogic.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
     case TReader.BgOk{pc} TReader.BgOk{cc} TReader.BgOk{ic}:
       %themes.pt.some_inj(TFile.Th, TFile.Th{name, es, pc, cc, ic}, f, h) : {TToken.valid(_) == True{} : Bool}
       hv
@@ -110,12 +109,12 @@ def pt.load_full(+name: String, +ix: TChase.Ix, +es: List<&2, TFile.Ent>, miss: 
     case Nil{}:
       pt.load_end(name, es, TReader.surf(ix, TFile.OnPage{}, pg), TReader.surf(ix, TFile.OnCard{}, cd), TReader.surf(ix, TFile.OnInfo{}, io), f, pt.valid_of(es, hm), h)
     case Con{t, rest}:
-      LMaybe.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
+      LLogicLogic.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
 
 def pt.load_cols(+name: String, +ix: TChase.Ix, r: TReader.Ents, +pg: Maybe<&2, TFile.Json>, +cd: Maybe<&2, TFile.Json>, +io: Maybe<&2, TFile.Json>, -f: TFile.Th, h: {TReader.load.of(TReader.read.cols(name, ix, r, pg, cd, io)) == Some{f} : Maybe<&2, TFile.Th>}) -> {TToken.valid(f) == True{} : Bool}:
   match r:
     case TReader.Stuck{x}:
-      LMaybe.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
+      LLogicLogic.themes.pt.none_some({TToken.valid(f) == True{} : Bool}, TFile.Th, f, h)
     case TReader.All{+es}:
       pt.load_full(name, ix, es, TReader.missing(es), pg, cd, io, f, {==}, h)
 

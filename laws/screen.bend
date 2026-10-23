@@ -203,8 +203,8 @@ law all_comm_rejects:
 # ---- recover ----
 
 # LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
-# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section recover.
+# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Screen.<law>)
+# with the lemmas of proof/screen/.
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------

@@ -13,8 +13,8 @@ import ./base.bend as LawsBase
 # other has; a model in both takes each field from one stated source; the
 # result does not depend on the order the sources are read. Each law is
 # an open claim about the model in bend/catalog_union.bend; PROOF.bend
-# proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section catalog_union.
+# proves them (as CatalogUnion.<law>) with the lemmas of
+# proof/catalog_union/.
 
 # (C1) The catalog union
 # ----------------------

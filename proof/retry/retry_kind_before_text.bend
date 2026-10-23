@@ -3,12 +3,12 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def rp.known(k: R.Cause, known: {R.Cause.known(k) == True{} : Bool}, t1: Bool, t2: Bool) -> {R.by_class(R.Cause.class(k), t1) == R.by_class(R.Cause.class(k), t2) : Bool}:
   match k:
     case R.Unknown{}:
-      LBoolMisc.rp.absurdF({t1 == t2 : Bool}, known)
+      LLogicLogic.rp.absurdF({t1 == t2 : Bool}, known)
     case R.Refusal{}:
       {==}
     case R.Safety{}:

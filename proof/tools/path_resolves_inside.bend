@@ -3,7 +3,7 @@
 import Base
 import ../../bend/tools.bend as Tl
 import ../../laws/tools.bend as Tools
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # a walk that stays under its root, from the names at, is Some
@@ -20,7 +20,7 @@ def pl.ins(segs: List<&2, Tl.Seg>, at: List<&2, Nat>, h: {Tl.stays(segs, LA.pl.l
         case Tl.Up{}:
           match at:
             case Nil{}:
-              LBoolMisc.tools.pl.absurdF({Maybe.is_some(&2, List<&2, Nat>, Tl.walk(Tl.Up{} <> rest, Nil{})) == True{} : Bool}, h)
+              LLogicLogic.tools.pl.absurdF({Maybe.is_some(&2, List<&2, Nat>, Tl.walk(Tl.Up{} <> rest, Nil{})) == True{} : Bool}, h)
             case a <> above:
               pl.ins(rest, above, h)
 

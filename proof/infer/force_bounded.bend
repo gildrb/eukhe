@@ -3,13 +3,13 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 def pi.bounded_go(+replies: List<&2, Bool>, +r: Nat, +flag: Bool, +sup: Bool) -> {Nat.is_le(List.length(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force.go(replies, r, flag, sup))), 1n+r) == True{} : Bool}:
   match replies:
     case Nil{}:
-      LNatIsLe.pi.le0(r)
+      LNat.pi.le0(r)
     case c <> rest:
       match c:
         case True{}:

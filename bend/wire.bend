@@ -17,8 +17,8 @@
 # so encoders compose with no append: put_nat(a, put_str(b, rest)). A
 # decoder `get_x(s)` answers Got{x, rest} when s starts with an encoding
 # of x, else Bad{}; it never folds more than 14 digits, so no input can
-# push a Nat past the runtime's 2^48-1 bound. The laws (LAWS.bend section
-# wire) pin both directions: get_x(put_x(x, rest)) == Got{x, rest}, and
+# push a Nat past the runtime's 2^48-1 bound. The laws (laws/wire.bend)
+# pin both directions: get_x(put_x(x, rest)) == Got{x, rest}, and
 # get_x(s) == Got{x, rest} only when s == put_x(x, rest).
 
 import Base

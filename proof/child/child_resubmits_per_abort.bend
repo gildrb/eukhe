@@ -3,8 +3,8 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../laws/child.bend as Child
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 def pc.le_add_mono(+a: Nat, +x: Nat, +y: Nat, e: {Nat.is_le(x, y) == True{} : Bool}) -> {Nat.is_le(Nat.add(a, x), Nat.add(a, y)) == True{} : Bool}:
@@ -32,12 +32,12 @@ def pc.act_eq(rest: List<&2, Ch.Sub>, +m: Nat, +a: Ch.Act, o: {LA.pc.Old(rest, m
         case Ch.Sub{+j, f}:
           match f:
             case Ch.Queued{}:
-              LBoolMisc.child.pc.absurd({Ch.Sub{j, Ch.Queued{}} <> r == Ch.act(Ch.Sub{j, Ch.Queued{}} <> r, a) : List<&2, Ch.Sub>}, o)
+              LLogicLogic.child.pc.absurd({Ch.Sub{j, Ch.Queued{}} <> r == Ch.act(Ch.Sub{j, Ch.Queued{}} <> r, a) : List<&2, Ch.Sub>}, o)
             case Ch.Withdrawn{}:
               %pc.act_eq(r, j, a, LA.pc.and_r(Nat.is_le(1n+j, m), LA.pc.Old(r, j), o)) : {Ch.Sub{j, Ch.Withdrawn{}} <> r == Ch.Sub{j, Ch.Withdrawn{}} <> _ : List<&2, Ch.Sub>}
               {==}
             case Ch.Placed{}:
-              LBoolMisc.child.pc.absurd({Ch.Sub{j, Ch.Placed{}} <> r == Ch.act(Ch.Sub{j, Ch.Placed{}} <> r, a) : List<&2, Ch.Sub>}, o)
+              LLogicLogic.child.pc.absurd({Ch.Sub{j, Ch.Placed{}} <> r == Ch.act(Ch.Sub{j, Ch.Placed{}} <> r, a) : List<&2, Ch.Sub>}, o)
 
 # resubmits_per_abort: the potential pot = 1 + the withdrawn submissions
 # bounds the inbox (all but the newest are withdrawn) and grows only at a
@@ -81,11 +81,11 @@ def pc.old_len(rest: List<&2, Ch.Sub>, +m: Nat, o: {LA.pc.Old(rest, m) == True{}
         case Ch.Sub{+j, f}:
           match f:
             case Ch.Queued{}:
-              LBoolMisc.child.pc.absurd({Nat.is_le(1n+List.length(&2, Ch.Sub, Ch.Sub{j, Ch.Queued{}} <> r), pc.slots(Ch.Sub{j, Ch.Queued{}} <> r)) == True{} : Bool}, o)
+              LLogicLogic.child.pc.absurd({Nat.is_le(1n+List.length(&2, Ch.Sub, Ch.Sub{j, Ch.Queued{}} <> r), pc.slots(Ch.Sub{j, Ch.Queued{}} <> r)) == True{} : Bool}, o)
             case Ch.Withdrawn{}:
               pc.old_len(r, j, LA.pc.and_r(Nat.is_le(1n+j, m), LA.pc.Old(r, j), o))
             case Ch.Placed{}:
-              LBoolMisc.child.pc.absurd({Nat.is_le(1n+List.length(&2, Ch.Sub, Ch.Sub{j, Ch.Placed{}} <> r), pc.slots(Ch.Sub{j, Ch.Placed{}} <> r)) == True{} : Bool}, o)
+              LLogicLogic.child.pc.absurd({Nat.is_le(1n+List.length(&2, Ch.Sub, Ch.Sub{j, Ch.Placed{}} <> r), pc.slots(Ch.Sub{j, Ch.Placed{}} <> r)) == True{} : Bool}, o)
 
 def pc.len_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Ch.Sub, inbox), pc.slots(inbox)) == True{} : Bool}:
   match inbox:
@@ -94,21 +94,21 @@ def pc.len_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool})
     case s <> +rest:
       match s:
         case Ch.Sub{+m, +f}:
-          LNatIsLe.child.pc.le_trans(1n+List.length(&2, Ch.Sub, rest), pc.slots(rest), Nat.add(pc.fwd(f), pc.slots(rest)), pc.old_len(rest, m, kin), LNatIsLe.child.pc.le_add(pc.fwd(f), pc.slots(rest)))
+          LNat.child.pc.le_trans(1n+List.length(&2, Ch.Sub, rest), pc.slots(rest), Nat.add(pc.fwd(f), pc.slots(rest)), pc.old_len(rest, m, kin), LNat.child.pc.le_add(pc.fwd(f), pc.slots(rest)))
 
 def pc.hit_placed(b: Bool, +w: Nat) -> {Nat.is_le(Nat.add(pc.fwd(Ch.Act.hit(b, Ch.Placed{})), w), w) == True{} : Bool}:
   match b:
     case True{}:
-      LNatIsLe.child.pc.le_refl(w)
+      LNat.child.pc.le_refl(w)
     case False{}:
-      LNatIsLe.child.pc.le_refl(w)
+      LNat.child.pc.le_refl(w)
 
 def pc.hit_pulled(b: Bool, +w: Nat) -> {Nat.is_le(Nat.add(pc.fwd(Ch.Act.hit(b, Ch.Withdrawn{})), w), 1n+w) == True{} : Bool}:
   match b:
     case True{}:
-      LNatIsLe.child.pc.le_refl(w)
+      LNat.child.pc.le_refl(w)
     case False{}:
-      LNatIsLe.pc.le_succ(w, w, LNatIsLe.child.pc.le_refl(w))
+      LNat.pc.le_succ(w, w, LNat.child.pc.le_refl(w))
 
 def pc.slots_queued(a: Ch.Act, +i: Nat, +w: Nat) -> {Nat.is_le(Nat.add(pc.fwd(Ch.Act.queued(a, i)), w), Nat.add(pc.acut(a), Nat.add(0n, w))) == True{} : Bool}:
   match a:
@@ -117,7 +117,7 @@ def pc.slots_queued(a: Ch.Act, +i: Nat, +w: Nat) -> {Nat.is_le(Nat.add(pc.fwd(Ch
     case Ch.Pull{+x}:
       pc.hit_pulled(Nat.is_eq(i, x), w)
     case Ch.PullAll{}:
-      LNatIsLe.child.pc.le_refl(w)
+      LNat.child.pc.le_refl(w)
 
 # the newest submission's share of the potential grows by at most the act's
 def pc.slots_head(f: Ch.Fate, +a: Ch.Act, +i: Nat, +w: Nat) -> {Nat.is_le(Nat.add(pc.fwd(Ch.Fate.act(a, i, f)), w), Nat.add(pc.acut(a), Nat.add(pc.fwd(f), w))) == True{} : Bool}:
@@ -125,14 +125,14 @@ def pc.slots_head(f: Ch.Fate, +a: Ch.Act, +i: Nat, +w: Nat) -> {Nat.is_le(Nat.ad
     case Ch.Queued{}:
       pc.slots_queued(a, i, w)
     case Ch.Withdrawn{}:
-      LNatIsLe.child.pc.le_add(pc.acut(a), Nat.add(1n, w))
+      LNat.child.pc.le_add(pc.acut(a), Nat.add(1n, w))
     case Ch.Placed{}:
-      LNatIsLe.child.pc.le_add(pc.acut(a), w)
+      LNat.child.pc.le_add(pc.acut(a), w)
 
 def pc.slots_act(inbox: List<&2, Ch.Sub>, +a: Ch.Act, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {Nat.is_le(pc.slots(Ch.act(inbox, a)), Nat.add(pc.acut(a), pc.slots(inbox))) == True{} : Bool}:
   match inbox:
     case Nil{}:
-      LNatIsLe.child.pc.le_add(pc.acut(a), 1n)
+      LNat.child.pc.le_add(pc.acut(a), 1n)
     case s <> +rest:
       match s:
         case Ch.Sub{+m, +f}:
@@ -144,30 +144,30 @@ def pc.slots_owe(x: Maybe<&2, Ch.Fate>, +kr: Ch.Report, +n: Nat, open: Bool, +in
     case None{}:
       match open:
         case True{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
         case False{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
     case Some{y}:
       match y:
         case Ch.Queued{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
         case Ch.Withdrawn{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
         case Ch.Placed{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
 
 def pc.slots_poll(cut: Maybe<&2, Bool>, ph: Ch.Ph, +inbox: List<&2, Ch.Sub>, +open: Bool, +cfg: Ch.Cfg, +dt: Nat, +o: Ch.Obs) -> {Nat.is_le(pc.slots(Ch.St.inbox(Ch.task(cfg, ph, cut, open, inbox, dt, o))), pc.slots(inbox)) == True{} : Bool}:
   match cut:
     case None{}:
       match ph:
         case Ch.Watching{w}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
         case Ch.Owing{kr, +n}:
           pc.slots_owe(Ch.fate(inbox, n), kr, n, open, inbox)
         case Ch.Ended{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
     case Some{del}:
-      LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+      LNat.child.pc.le_refl(pc.slots(inbox))
 
 def pc.pot_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev, k: {LA.pc.K(s) == True{} : Bool}) -> {Nat.is_le(pc.pot(Ch.step(cfg, s, e)), Nat.add(Ch.Ev.cut(e), pc.pot(s))) == True{} : Bool}:
   match s:
@@ -184,20 +184,20 @@ def pc.pot_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev, k: {LA.pc.K(s) == True{} : Boo
         case Ch.Shut{}:
           pc.slots_act(inbox, Ch.PullAll{}, LA.pc.and_r(LA.pc.Kph(ph, inbox), LA.pc.Kin(inbox), k))
         case Ch.Reopen{}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
         case Ch.Cut{del}:
-          LNatIsLe.child.pc.le_refl(pc.slots(inbox))
+          LNat.child.pc.le_refl(pc.slots(inbox))
 
 def pc.pot_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool}) -> {Nat.is_le(pc.pot(Ch.run(evs, cfg, s)), Nat.add(Ch.cuts(evs), pc.pot(s))) == True{} : Bool}:
   match evs:
     case Nil{}:
-      LNatIsLe.child.pc.le_refl(pc.pot(s))
+      LNat.child.pc.le_refl(pc.pot(s))
     case +e <> +t:
       %Equal.sym(Nat, Nat.add(Nat.add(Ch.cuts(t), Ch.Ev.cut(e)), pc.pot(s)), Nat.add(Ch.cuts(t), Nat.add(Ch.Ev.cut(e), pc.pot(s))), pc.add_assoc(Ch.cuts(t), Ch.Ev.cut(e), pc.pot(s))) : {Nat.is_le(pc.pot(Ch.run(t, cfg, Ch.step(cfg, s, e))), _) == True{} : Bool}
-      LNatIsLe.child.pc.le_trans(pc.pot(Ch.run(t, cfg, Ch.step(cfg, s, e))), Nat.add(Ch.cuts(t), pc.pot(Ch.step(cfg, s, e))), Nat.add(Ch.cuts(t), Nat.add(Ch.Ev.cut(e), pc.pot(s))), pc.pot_run(t, cfg, Ch.step(cfg, s, e), LA.pc.K_step(cfg, s, e, k)), pc.le_add_mono(Ch.cuts(t), pc.pot(Ch.step(cfg, s, e)), Nat.add(Ch.Ev.cut(e), pc.pot(s)), pc.pot_step(cfg, s, e, k)))
+      LNat.child.pc.le_trans(pc.pot(Ch.run(t, cfg, Ch.step(cfg, s, e))), Nat.add(Ch.cuts(t), pc.pot(Ch.step(cfg, s, e))), Nat.add(Ch.cuts(t), Nat.add(Ch.Ev.cut(e), pc.pot(s))), pc.pot_run(t, cfg, Ch.step(cfg, s, e), LA.pc.K_step(cfg, s, e, k)), pc.le_add_mono(Ch.cuts(t), pc.pot(Ch.step(cfg, s, e)), Nat.add(Ch.Ev.cut(e), pc.pot(s)), pc.pot_step(cfg, s, e, k)))
 
 def pc.resubmits_per_abort(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>) -> {Nat.is_le(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), Nat.add(Ch.cuts(evs), 1n)) == True{} : Bool}:
-  LNatIsLe.child.pc.le_trans(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), pc.pot(Ch.run(evs, cfg, Ch.St.init(cfg))), Nat.add(Ch.cuts(evs), 1n), pc.len_le(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg))), LA.pc.Kin_of(Ch.run(evs, cfg, Ch.St.init(cfg)), LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}))), pc.pot_run(evs, cfg, Ch.St.init(cfg), {==}))
+  LNat.child.pc.le_trans(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), pc.pot(Ch.run(evs, cfg, Ch.St.init(cfg))), Nat.add(Ch.cuts(evs), 1n), pc.len_le(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg))), LA.pc.Kin_of(Ch.run(evs, cfg, Ch.St.init(cfg)), LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}))), pc.pot_run(evs, cfg, Ch.St.init(cfg), {==}))
 
 def Child.child_resubmits_per_abort(cfg, evs):
   pc.resubmits_per_abort(cfg, evs)

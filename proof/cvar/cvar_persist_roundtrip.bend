@@ -3,7 +3,7 @@
 import Base
 import ../../bend/cvar.bend as Cv
 import ../../laws/cvar.bend as Cvar
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # a set that hits a persisted cvar is written
@@ -17,7 +17,7 @@ def pv.out_hit(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +x: Nat, keeps: {Cv.flag.at(
 def pv.out_miss(b: Bool, +s: Cv.Bind, +ds: List<&2, Cv.Decl>, +x: Nat, keeps: {Cv.flag.at(Cv.find(ds, x), Cv.Persist{}) == True{} : Bool}, eb: {Cv.hit.at([s], ds, Cv.Agent{}, x) == b : Bool}, ho: {Cv.out.at([s], ds, Cv.Persist{}) == False{} : Bool}) -> {Cv.hit.at([s], ds, Cv.Agent{}, x) == False{} : Bool}:
   match b:
     case True{}:
-      LBoolMisc.cvar.pv.absurd({Cv.hit.at([s], ds, Cv.Agent{}, x) == False{} : Bool}, Equal.trans(Bool, True{}, Cv.out.at([s], ds, Cv.Persist{}), False{}, Equal.sym(Bool, Cv.out.at([s], ds, Cv.Persist{}), True{}, pv.out_hit(s, ds, x, keeps, eb)), ho))
+      LLogicLogic.cvar.pv.absurd({Cv.hit.at([s], ds, Cv.Agent{}, x) == False{} : Bool}, Equal.trans(Bool, True{}, Cv.out.at([s], ds, Cv.Persist{}), False{}, Equal.sym(Bool, Cv.out.at([s], ds, Cv.Persist{}), True{}, pv.out_hit(s, ds, x, keeps, eb)), ho))
     case False{}:
       eb
 

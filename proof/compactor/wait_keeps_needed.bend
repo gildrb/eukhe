@@ -8,7 +8,7 @@ import ../../bend/optchat/node.bend as ONode
 import ../../bend/optchat/queue.bend as OQueue
 import ../../bend/optchat/state.bend as OState
 import ../../laws/compactor.bend as Compactor
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/optchat.bend as LOptchat
 import ./base.bend as LA
 
@@ -29,7 +29,7 @@ def pc.kept_cons(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode
     case +b <> +rest:
       +c = Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b)))
       +y = ONode.Nodes.has(ws, b)
-      LA.pc.and_true(OBits.Bool.implies(c, Bool.or(ONode.Node.eq(x, b), y)), C.kept(info, v, rest, x <> ws), pc.implies_or(c, ONode.Node.eq(x, b), y, LBoolAnd.pf.and_l(OBits.Bool.implies(c, y), C.kept(info, v, rest, ws), e)), pc.kept_cons(info, v, rest, x, ws, LBoolAnd.pf.and_r(OBits.Bool.implies(c, y), C.kept(info, v, rest, ws), e)))
+      LA.pc.and_true(OBits.Bool.implies(c, Bool.or(ONode.Node.eq(x, b), y)), C.kept(info, v, rest, x <> ws), pc.implies_or(c, ONode.Node.eq(x, b), y, LLogicBool.pf.and_l(OBits.Bool.implies(c, y), C.kept(info, v, rest, ws), e)), pc.kept_cons(info, v, rest, x, ws, LLogicBool.pf.and_r(OBits.Bool.implies(c, y), C.kept(info, v, rest, ws), e)))
 
 def pc.kept_step(c: Bool, +info: OInfo.Info, +v: List<&2, ONode.Node>, +b: ONode.Node, +rest: List<&2, ONode.Node>, +ns: List<&2, ONode.Node>, ih: {C.kept(info, v, rest, ns) == True{} : Bool}) -> {Bool.and(OBits.Bool.implies(c, ONode.Nodes.has(ONode.Nodes.keep(c, b, ns), b)), C.kept(info, v, rest, ONode.Nodes.keep(c, b, ns))) == True{} : Bool}:
   match c:

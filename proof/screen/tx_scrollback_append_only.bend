@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def screen.ps.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -11,14 +11,14 @@ def screen.ps.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> 
     case True{}:
       {==}
     case False{}:
-      LBoolMisc.screen.ps.absurdF({False{} == True{} : Bool}, h)
+      LLogicLogic.screen.ps.absurdF({False{} == True{} : Bool}, h)
 
 def screen.ps.and_r(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
   match a:
     case True{}:
       h
     case False{}:
-      LBoolMisc.screen.ps.absurdF({b == True{} : Bool}, h)
+      LLogicLogic.screen.ps.absurdF({b == True{} : Bool}, h)
 
 # Numbers
 # -------
@@ -121,7 +121,7 @@ def ps.flush_pre(bs: List<&2, Sc.Blk>, X: List<&2, Sc.Line>, +h: {Sc.pre(X, Sc.s
                 case Nil{}:
                   {==}
                 case Sc.Line{a, c} <> xr:
-                  LBoolMisc.screen.ps.absurdF({Sc.pre(Sc.Line{a, c} <> xr, Sc.scroll(Sc.flush(Sc.Blk{i, Sc.Final{}, l} <> rest))) == True{} : Bool}, h)
+                  LLogicLogic.screen.ps.absurdF({Sc.pre(Sc.Line{a, c} <> xr, Sc.scroll(Sc.flush(Sc.Blk{i, Sc.Final{}, l} <> rest))) == True{} : Bool}, h)
             case Sc.Active{}:
               h
 

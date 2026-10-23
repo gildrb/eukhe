@@ -3,8 +3,8 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 # n == min(m, n) when n <= m
@@ -13,7 +13,7 @@ def pj.min_of_ge(m: Nat, n: Nat, h: {Nat.is_le(n, m) == True{} : Bool}) -> {n ==
     case 0n 0n:
       {==}
     case 0n 1n+np:
-      LBoolMisc.pj.absurdF({1n+np == Nat.min(0n, 1n+np) : Nat}, h)
+      LLogicLogic.pj.absurdF({1n+np == Nat.min(0n, 1n+np) : Nat}, h)
     case 1n+mp 0n:
       {==}
     case 1n+mp 1n+np:
@@ -23,11 +23,11 @@ def pj.min_of_ge(m: Nat, n: Nat, h: {Nat.is_le(n, m) == True{} : Bool}) -> {n ==
 def pj.lt_le(t: Nat, n: Nat, h: {Nat.is_lt(t, n) == True{} : Bool}) -> {Nat.is_le(t, n) == True{} : Bool}:
   match t n:
     case 0n 0n:
-      LBoolMisc.pj.absurdF({Nat.is_le(0n, 0n) == True{} : Bool}, h)
+      LLogicLogic.pj.absurdF({Nat.is_le(0n, 0n) == True{} : Bool}, h)
     case 0n 1n+np:
       {==}
     case 1n+tp 0n:
-      LBoolMisc.pj.absurdF({Nat.is_le(1n+tp, 0n) == True{} : Bool}, h)
+      LLogicLogic.pj.absurdF({Nat.is_le(1n+tp, 0n) == True{} : Bool}, h)
     case 1n+tp 1n+np:
       pj.lt_le(tp, np, h)
 
@@ -35,11 +35,11 @@ def pj.lt_le(t: Nat, n: Nat, h: {Nat.is_lt(t, n) == True{} : Bool}) -> {Nat.is_l
 def pj.sub_le_of_lt(a: Nat, t: Nat, +n: Nat, h: {Nat.is_lt(t, Nat.add(a, n)) == True{} : Bool}) -> {Nat.is_le(Nat.sub(t, a), n) == True{} : Bool}:
   match a t:
     case 0n 0n:
-      LNatIsLe.pj.le0(n)
+      LNat.pj.le0(n)
     case 0n 1n+tp:
       pj.lt_le(1n+tp, n, h)
     case 1n+ap 0n:
-      LNatIsLe.pj.le0(n)
+      LNat.pj.le0(n)
     case 1n+ap 1n+tp:
       pj.sub_le_of_lt(ap, tp, n, h)
 

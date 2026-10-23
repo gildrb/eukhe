@@ -3,7 +3,7 @@
 import Base
 import ../../bend/auth_flight.bend as F
 import ../../laws/auth_flight.bend as AuthFlight
-import ../base/nat/misc.bend as LNatMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # The laws
@@ -20,13 +20,13 @@ def pf.zero_fetching(cs: List<&2, F.Leg>, z: {LA.pf.leads(cs) == 0n : Nat}) -> {
         case F.Board{}:
           pf.zero_fetching(t, z)
         case F.Check{f}:
-          LNatMisc.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
+          LLogicLogic.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
         case F.Fetch{f}:
-          LNatMisc.pf.succ_ne_zero({1n+F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
+          LLogicLogic.pf.succ_ne_zero({1n+F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
         case F.Store{f, c}:
-          LNatMisc.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
+          LLogicLogic.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
         case F.Land{f, o}:
-          LNatMisc.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
+          LLogicLogic.pf.succ_ne_zero({F.fetching(t) == 0n : Nat}, LA.pf.leads(t), z)
         case F.Waiting{f}:
           pf.zero_fetching(t, z)
         case F.Served{v, o}:
@@ -38,7 +38,7 @@ def pf.one_holds(b: Bool, -x: Nat, e: {1n+x == LA.pf.holds(b) : Nat}) -> {x == 0
     case True{}:
       LA.pf.succ_inj(x, 0n, e)
     case False{}:
-      LNatMisc.pf.succ_ne_zero({x == 0n : Nat}, x, e)
+      LLogicLogic.pf.succ_ne_zero({x == 0n : Nat}, x, e)
 
 def pf.le_zero_fetching(+t: List<&2, F.Leg>, +b: Bool, e: {1n+LA.pf.leads(t) == LA.pf.holds(b) : Nat}, +n: Nat) -> {F.le(F.fetching(t), n) == True{} : Bool}:
   %Equal.sym(Nat, F.fetching(t), 0n, pf.zero_fetching(t, pf.one_holds(b, LA.pf.leads(t), e))) : {F.le(_, n) == True{} : Bool}

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # Admission limits
 # ----------------
@@ -11,11 +11,11 @@ import ../base/bool/misc.bend as LBoolMisc
 def pcf.malformed_cap(m: Maybe<&2, Cf.Val>, h: {Cf.malformed_val(m) == True{} : Bool}) -> {Cf.slot_limit(m) == Cf.Cap{1n} : Cf.Lim}:
   match m:
     case None{}:
-      LBoolMisc.ppr.absurdF({Cf.slot_limit(None{}) == Cf.Cap{1n} : Cf.Lim}, h)
+      LLogicLogic.ppr.absurdF({Cf.slot_limit(None{}) == Cf.Cap{1n} : Cf.Lim}, h)
     case Some{v}:
       match v:
         case Cf.Num{n}:
-          LBoolMisc.ppr.absurdF({Cf.slot_limit(Some{Cf.Num{n}}) == Cf.Cap{1n} : Cf.Lim}, h)
+          LLogicLogic.ppr.absurdF({Cf.slot_limit(Some{Cf.Num{n}}) == Cf.Cap{1n} : Cf.Lim}, h)
         case Cf.Malformed{}:
           {==}
 
@@ -23,7 +23,7 @@ def pcf.malformed_cap(m: Maybe<&2, Cf.Val>, h: {Cf.malformed_val(m) == True{} : 
 def pcf.limit_malformed_fails_closed(s: Cf.InFlight, +p: Nat, h: {Cf.malformed_at(s, p) == True{} : Bool}) -> {Cf.limit(s, p) == Cf.Cap{1n} : Cf.Lim}:
   match s:
     case Cf.Unset{}:
-      LBoolMisc.ppr.absurdF({Cf.limit(Cf.Unset{}, p) == Cf.Cap{1n} : Cf.Lim}, h)
+      LLogicLogic.ppr.absurdF({Cf.limit(Cf.Unset{}, p) == Cf.Cap{1n} : Cf.Lim}, h)
     case Cf.Entries{es}:
       pcf.malformed_cap(Cf.slot(es, p), h)
     case Cf.NotMap{}:

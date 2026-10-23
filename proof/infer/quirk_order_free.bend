@@ -3,9 +3,9 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
 import ./base.bend as LA
 
 def pq.lt_irrefl(k: Nat) -> {Nat.is_lt(k, k) == False{} : Bool}:
@@ -18,9 +18,9 @@ def pq.lt_irrefl(k: Nat) -> {Nat.is_lt(k, k) == False{} : Bool}:
 def pq.lt_trans(a: Nat, b: Nat, c: Nat, ab: {Nat.is_lt(a, b) == True{} : Bool}, bc: {Nat.is_lt(b, c) == True{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
   match a b c:
     case _ 0n _:
-      LBoolMisc.pq.absurdF({Nat.is_lt(a, c) == True{} : Bool}, ab)
+      LLogicLogic.pq.absurdF({Nat.is_lt(a, c) == True{} : Bool}, ab)
     case _ 1n+q 0n:
-      LBoolMisc.pq.absurdF({Nat.is_lt(a, 0n) == True{} : Bool}, bc)
+      LLogicLogic.pq.absurdF({Nat.is_lt(a, 0n) == True{} : Bool}, bc)
     case 0n 1n+q 1n+r:
       {==}
     case 1n+p 1n+q 1n+r:
@@ -52,7 +52,7 @@ def pq.pair_swap(+a: If.Rule, +b: If.Rule, +q: If.Query, +d: Nat, c1: Bool, +e1:
       +VB = If.Rule.val(b)
       +er = LA.pq.tri(RA, RB, e1, e2)
       +ev = LA.pq.same_val(q, a, b, d, nc, ha, hb, er)
-      +ek = LNatIsEq.pq.eq_true(RA, RB, er)
+      +ek = LLogicNat.pq.eq_true(RA, RB, er)
       %ek : {Some{If.Best{_, VB}} == Some{If.Best{RA, VA}} : Maybe<&2, If.Best>}
       %ev : {Some{If.Best{RA, _}} == Some{If.Best{RA, VA}} : Maybe<&2, If.Best>}
       {==}
@@ -153,7 +153,7 @@ def pq.amb_tail(pre: List<&2, If.Rule>, +X: List<&2, If.Rule>, h: {If.ambiguous(
 def pq.quirk_order_free(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +a: If.Rule, +b: If.Rule, +post: List<&2, If.Rule>, +q: If.Query, +d: Nat, ok: {If.compiles(known, List.append(&2, If.Rule, pre, a <> b <> post)) == True{} : Bool}) -> {If.lookup(List.append(&2, If.Rule, pre, b <> a <> post), q, d) == If.lookup(List.append(&2, If.Rule, pre, a <> b <> post), q, d) : If.Ans}:
   +L1 = List.append(&2, If.Rule, pre, b <> a <> post)
   +L2 = List.append(&2, If.Rule, pre, a <> b <> post)
-  +am = LA.pq.not_f(If.ambiguous(L2), LBoolAnd.pq.and_r(If.known_all(L2, known), Bool.not(If.ambiguous(L2)), ok))
+  +am = LA.pq.not_f(If.ambiguous(L2), LLogicBool.pq.and_r(If.known_all(L2, known), Bool.not(If.ambiguous(L2)), ok))
   +ab = pq.amb_tail(pre, a <> b <> post, am)
   +nc = LA.pq.or_l(If.clash(a, b), If.clashes(a, post), LA.pq.or_l(Bool.or(If.clash(a, b), If.clashes(a, post)), If.ambiguous(b <> post), ab))
   +sw = pq.swap_go(pre, a, b, post, q, d, None{}, If.use.at(L1, q, d), If.use.at(L2, q, d), {==}, {==}, nc)

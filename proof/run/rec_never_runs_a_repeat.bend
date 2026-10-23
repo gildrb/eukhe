@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # ---- recover ----
 
@@ -37,9 +37,9 @@ def max_zero(n: Nat) -> {Nat.max(n, 0n) == n : Nat}:
 def below_max(m: Nat, b: Nat, e: {RnRecovery.below(m, b) == True{} : Bool}) -> {RnRecovery.below(m, Nat.max(b, 1n)) == True{} : Bool}:
   match m b:
     case 0n 0n:
-      LBoolMisc.absurd({RnRecovery.below(0n, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LLogicLogic.absurd({RnRecovery.below(0n, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case 1n+p 0n:
-      LBoolMisc.absurd({RnRecovery.below(1n+p, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LLogicLogic.absurd({RnRecovery.below(1n+p, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case m 1n+q:
       %Equal.sym(Nat, Nat.max(q, 0n), q, max_zero(q)) : {RnRecovery.below(m, 1n+_) == True{} : Bool}
       e
@@ -55,9 +55,9 @@ def zero_below_max(b: Nat) -> {RnRecovery.below(0n, Nat.max(b, 1n)) == True{} : 
 def one_below_q(x: Nat, q: Nat, e: {RnRecovery.below(x, q) == True{} : Bool}) -> {RnRecovery.below(0n, q) == True{} : Bool}:
   match x q:
     case 0n 0n:
-      LBoolMisc.absurd({RnRecovery.below(0n, 0n) == True{} : Bool}, e)
+      LLogicLogic.absurd({RnRecovery.below(0n, 0n) == True{} : Bool}, e)
     case 1n+p 0n:
-      LBoolMisc.absurd({RnRecovery.below(0n, 0n) == True{} : Bool}, e)
+      LLogicLogic.absurd({RnRecovery.below(0n, 0n) == True{} : Bool}, e)
     case x 1n+r:
       {==}
 
@@ -65,9 +65,9 @@ def one_below_q(x: Nat, q: Nat, e: {RnRecovery.below(x, q) == True{} : Bool}) ->
 def one_below_max(m: Nat, +b: Nat, pos: {RnRecovery.below(0n, m) == True{} : Bool}, e: {RnRecovery.below(m, b) == True{} : Bool}) -> {RnRecovery.below(1n, Nat.max(b, 1n)) == True{} : Bool}:
   match m b:
     case 0n b:
-      LBoolMisc.absurd({RnRecovery.below(1n, Nat.max(b, 1n)) == True{} : Bool}, pos)
+      LLogicLogic.absurd({RnRecovery.below(1n, Nat.max(b, 1n)) == True{} : Bool}, pos)
     case 1n+x 0n:
-      LBoolMisc.absurd({RnRecovery.below(1n, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LLogicLogic.absurd({RnRecovery.below(1n, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case 1n+x 1n+q:
       %Equal.sym(Nat, Nat.max(q, 0n), q, max_zero(q)) : {RnRecovery.below(1n, 1n+_) == True{} : Bool}
       one_below_q(x, q, e)

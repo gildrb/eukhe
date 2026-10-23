@@ -10,8 +10,8 @@ import ../bend/kernel_local.bend as KL
 # against its hash before the kernel uses it; a missing kernel never
 # blocks the other tools; a bootstrap lock candidate never outlives its
 # attempt. Each law is an open claim about the model in
-# bend/kernel_local.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section kernel_local.
+# bend/kernel_local.bend; PROOF.bend proves them (as KernelLocal.<law>)
+# with the lemmas of proof/kernel_local/.
 
 # (K1.1) The setup
 # ----------------

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/semver.bend as Sv
 import ../../laws/semver.bend as Semver
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 
 def semver.ps.MD(m: Maybe<&2, Sv.Ver>, t: Type, f: Type) -> Type:
   match m:
@@ -37,9 +37,9 @@ def ps.guard_val(ok: Bool, +n: Sv.Ver, -r: Sv.Ver, h: {Sv.Rel.guard(ok, n) == So
 def ps.newest_mid(+n: Sv.Ver, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, h: {Sv.Rel.newest(n, List.append(&2, String, xs, t <> ys)) == True{} : Bool}) -> {Sv.Rel.older(n, Sv.Tag.ver(t)) == True{} : Bool}:
   match xs:
     case Nil{}:
-      LBoolAnd.semver.ps.and_l(Sv.Rel.older(n, Sv.Tag.ver(t)), Sv.Rel.newest(n, ys), h)
+      LLogicBool.semver.ps.and_l(Sv.Rel.older(n, Sv.Tag.ver(t)), Sv.Rel.newest(n, ys), h)
     case +x <> +r:
-      ps.newest_mid(n, r, t, ys, LBoolAnd.semver.ps.and_r(Sv.Rel.older(n, Sv.Tag.ver(x)), Sv.Rel.newest(n, List.append(&2, String, r, t <> ys)), h))
+      ps.newest_mid(n, r, t, ys, LLogicBool.semver.ps.and_r(Sv.Rel.older(n, Sv.Tag.ver(x)), Sv.Rel.newest(n, List.append(&2, String, r, t <> ys)), h))
 
 # a release is newer than every version tag
 def ps.release_newest(m: Maybe<&2, Sv.Ver>, +xs: List<&2, String>, +t: String, +ys: List<&2, String>, -r: Sv.Ver, +rel: {Sv.Rel.release.of(m, List.append(&2, String, xs, t <> ys)) == Some{r} : Maybe<&2, Sv.Ver>}, +v: Sv.Ver, parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}) -> {Sv.Ver.lt(v, r) == True{} : Bool}:

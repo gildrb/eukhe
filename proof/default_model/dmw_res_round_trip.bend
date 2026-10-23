@@ -5,7 +5,7 @@ import ../../bend/default_model.bend as Dm
 import ../../bend/ffi_default_model.bend as FDm
 import ../../bend/wire.bend as Wr
 import ../../laws/default_model.bend as DefaultModel
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ./base.bend as LA
 import ./dmw_pick_round_trip.bend as PDmwPickRoundTrip
 import ./dmw_sub_round_trip.bend as PDmwSubRoundTrip
@@ -23,8 +23,8 @@ def DefaultModel.dmw_res_round_trip(r, rest, h):
     case Dm.Runs{+p, +s}:
       +z = rest
       +hh = h
-      %pdw.pick(p, FDm.put_sub(s, z), LBoolAnd.wr_and_l(DefaultModel.dmw_pick_fits(p), DefaultModel.dmw_sub_fits(s), hh)) : {FDm.get_res.pick(_) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
-      %pdw.sub(s, z, LBoolAnd.wr_and_r(DefaultModel.dmw_pick_fits(p), DefaultModel.dmw_sub_fits(s), hh)) : {FDm.get_res.sub(p, _) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
+      %pdw.pick(p, FDm.put_sub(s, z), LLogicBool.wr_and_l(DefaultModel.dmw_pick_fits(p), DefaultModel.dmw_sub_fits(s), hh)) : {FDm.get_res.pick(_) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
+      %pdw.sub(s, z, LLogicBool.wr_and_r(DefaultModel.dmw_pick_fits(p), DefaultModel.dmw_sub_fits(s), hh)) : {FDm.get_res.sub(p, _) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
       {==}
     case Dm.Nothing{}:
       {==}

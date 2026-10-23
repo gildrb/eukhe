@@ -3,17 +3,17 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pi.lt_le(a: Nat, b: Nat, +h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
   match a b:
     case 0n 0n:
-      LBoolMisc.pi.absurdF({True{} == True{} : Bool}, h)
+      LLogicLogic.pi.absurdF({True{} == True{} : Bool}, h)
     case 0n 1n+q:
       {==}
     case 1n+p 0n:
-      LBoolMisc.pi.absurdF({False{} == True{} : Bool}, h)
+      LLogicLogic.pi.absurdF({False{} == True{} : Bool}, h)
     case 1n+p 1n+q:
       pi.lt_le(p, q, h)
 
@@ -31,9 +31,9 @@ def pi.nle_lt(+a: Nat, +b: Nat, +h: {Nat.is_le(a, b) == False{} : Bool}) -> {Nat
 def pi.lt_zero(+a: Nat, +h: {Nat.is_lt(a, 0n) == True{} : Bool}) -> Empty:
   match a:
     case 0n:
-      LBoolMisc.pi.absurdF(Empty, h)
+      LLogicLogic.pi.absurdF(Empty, h)
     case 1n+p:
-      LBoolMisc.pi.absurdF(Empty, h)
+      LLogicLogic.pi.absurdF(Empty, h)
 
 def pi.lt_succ(+a: Nat) -> {Nat.is_lt(a, 1n+a) == True{} : Bool}:
   match a:
@@ -49,7 +49,7 @@ def pi.lt_succ_r(+a: Nat, +b: Nat, +h: {Nat.is_lt(a, b) == True{} : Bool}) -> {N
     case 0n 1n+q:
       {==}
     case 1n+p 0n:
-      LBoolMisc.pi.absurdF({Nat.is_lt(1n+p, 1n) == True{} : Bool}, h)
+      LLogicLogic.pi.absurdF({Nat.is_lt(1n+p, 1n) == True{} : Bool}, h)
     case 1n+p 1n+q:
       pi.lt_succ_r(p, q, h)
 
@@ -61,7 +61,7 @@ def pi.le_succ_false(+x: Nat, +lim: Nat, +h: {Nat.is_le(x, lim) == True{} : Bool
     case 0n _:
       {==}
     case 1n+p 0n:
-      LBoolMisc.pi.absurdF({Nat.is_le(1n, 1n+p) == False{} : Bool}, h)
+      LLogicLogic.pi.absurdF({Nat.is_le(1n, 1n+p) == False{} : Bool}, h)
     case 1n+p 1n+q:
       pi.le_succ_false(p, q, h)
 

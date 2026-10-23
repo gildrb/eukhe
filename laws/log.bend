@@ -7,8 +7,8 @@ import ../bend/log.bend as Lg
 
 # LAWS (D2): the durable storage of a session. Each law is an open claim
 # about the models in bend/log.bend and bend/staging.bend; PROOF.bend
-# proves them (as Laws.<law>) with the lemmas of PROOF.bend section log
-# and PROOF.bend section staging.
+# proves them (as Log.<law>) with the lemmas of proof/log/
+# and proof/staging/.
 
 # (D2) Storage
 # ------------

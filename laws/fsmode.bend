@@ -7,8 +7,8 @@ import ../bend/fsmode.bend as Fs
 
 # LAWS (G1, file modes, the socket dir and the working dir): who
 # reaches eukhe's own state. Each law is an open claim about the model in
-# bend/fsmode.bend; PROOF.bend proves them (as Laws.<law>) with the lemmas
-# of PROOF.bend section fsmode.
+# bend/fsmode.bend; PROOF.bend proves them (as Fsmode.<law>) with the lemmas
+# of proof/fsmode/.
 
 # (G1) Path policy
 # ----------------

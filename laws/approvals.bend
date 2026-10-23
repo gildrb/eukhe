@@ -8,8 +8,8 @@ import ../bend/approvals.bend as Am
 # LAWS (G5): a child's question reaches its root's user, a session that
 # runs only from the phone gateway never waits, and the default auto set
 # runs every step but the never-auto ones. Each law is an open claim about
-# the model in bend/approvals.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section approvals.
+# the model in bend/approvals.bend; PROOF.bend proves them (as Approvals.<law>)
+# with the lemmas of proof/approvals/.
 
 # (G5) A child's question reaches its root's user
 # ------------------------------------------------

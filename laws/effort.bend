@@ -165,8 +165,8 @@ law effort_shown_is_sent:
 
 # LAWS (S6.9): the thinking ladder of a model is rulebook data. Each law
 # is an open claim about the model in bend/infer.bend section 6;
-# PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section quirks.
+# PROOF.bend proves them (as Effort.<law>) with the lemmas of
+# proof/effort/.
 
 # (S6.9) The thinking ladder
 # --------------------------

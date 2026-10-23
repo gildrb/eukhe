@@ -11,7 +11,7 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base/bool/and.bend as LBoolAnd
+import ../base/bool.bend as LBool
 import ../base/list.bend as LList
 import ./base.bend as LA
 
@@ -46,7 +46,7 @@ def Command.command_menu_shut_off_path(t, q, w, more, p, ok, on, word, after, la
   +wd = word
   +mp = List.append(&2, List<&2, Nat>, more, [p])
   +d = List.append(&2, List<&2, Nat>, q, w <> more)
-  +hs = LA.cb_all_spaceless_app(q, w <> mp, LA.cb_names_spaceless(q, LA.cb_walks_names(t, q, k, o)), LBoolAnd.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(mp), LA.cb_typed_spaceless(w, wd), LA.cb_all_spaceless_app(more, [p], after, LBoolAnd.cb_and_intro(Command.cmd_spaceless(p), True{}, last, {==}))))
+  +hs = LA.cb_all_spaceless_app(q, w <> mp, LA.cb_names_spaceless(q, LA.cb_walks_names(t, q, k, o)), LBool.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(mp), LA.cb_typed_spaceless(w, wd), LA.cb_all_spaceless_app(more, [p], after, LBool.cb_and_intro(Command.cmd_spaceless(p), True{}, last, {==}))))
   %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, q, w <> mp))), List.append(&2, List<&2, Nat>, q, w <> mp), LA.cb_words_render_app(q, w, mp, hs)) : {Cmd.menu.cut(Cmd.cut(_), t) == Cmd.Shut{} : Cmd.Menu}
   %LList.cb_app_assoc(List<&2, Nat>, q, w <> more, [p]) : {Cmd.menu.cut(Cmd.cut(_), t) == Cmd.Shut{} : Cmd.Menu}
   %Equal.sym(List<&2, List<&2, Nat>> & List<&2, Nat>, Cmd.cut(List.append(&2, List<&2, Nat>, d, [p])), (d, p), LA.cb_cut(d, p)) : {Cmd.menu.cut(_, t) == Cmd.Shut{} : Cmd.Menu}

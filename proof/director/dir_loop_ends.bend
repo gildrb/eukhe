@@ -3,7 +3,8 @@
 import Base
 import ../../bend/director.bend as Dr
 import ../../laws/director.bend as Director
-import ../base/nat/is_lt.bend as LNatIsLt
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 
 # The loop
 # --------
@@ -51,7 +52,7 @@ def pd.ok_zero(l: Dr.Loop, h: {pd.ok(l, 0n) == True{} : Bool}) -> {Dr.ended(l) =
     case Dr.Loop{+n, +s, e}:
       match e:
         case None{}:
-          LNatIsLt.pt.lt_zero({Dr.ended(Dr.Loop{n, s, None{}}) == True{} : Bool}, n, h)
+          LLogicLogic.pt.lt_zero({Dr.ended(Dr.Loop{n, s, None{}}) == True{} : Bool}, n, h)
         case Some{x}:
           {==}
 
@@ -65,7 +66,7 @@ def pd.ends_go(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, +l: Dr.Loop, h: {
 
 def pd.lt_len(+n: Nat, +k: Nat, e: {k == 1n+n : Nat}) -> {Nat.is_lt(n, k) == True{} : Bool}:
   %Equal.sym(Nat, k, 1n+n, e) : {Nat.is_lt(n, _) == True{} : Bool}
-  LNatIsLt.pd.lt_succ(n)
+  LNat.pd.lt_succ(n)
 
 def pd.dir_loop_ends(+n: Nat, +s: List<&2, Dr.Layer>, +vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}) -> {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}:
   pd.ends_go(vss, cap, Dr.Loop{n, s, None{}}, pd.lt_len(n, List.length(&2, List<&2, Dr.Verdict>, vss), long))

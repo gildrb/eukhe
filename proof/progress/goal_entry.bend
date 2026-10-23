@@ -6,7 +6,7 @@ import ../../bend/progress.bend as Pr
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/progress.bend as Progress
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 
 # Progress
@@ -21,8 +21,8 @@ def pw6.prior(p: Maybe<&2, Pr.Prior>, +rest: String, +h: {Progress.wire_prior_fi
       match x:
         case Pr.Prior{+s, +w}:
           %LWire.pw6.nat(1n, Wr.put_nat(s, Wr.put_nat(w, rest)), {==}) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.go(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
-          %LWire.pw6.nat(s, Wr.put_nat(w, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.s(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
-          %LWire.pw6.nat(w, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.w(s, _) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+          %LWire.pw6.nat(s, Wr.put_nat(w, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.s(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+          %LWire.pw6.nat(w, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.w(s, _) : Wr.Dec<Maybe<&2, Pr.Prior>>}
           {==}
 
 def Progress.goal_entry(t, cap, p, work, ht, hc, hp, hw):

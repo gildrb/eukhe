@@ -4,20 +4,20 @@ import Base
 import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
 import ../../laws/path_policy.bend as PathPolicy
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pp.or_false_l(a: Bool, +b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
   match a:
     case True{}:
-      LBoolMisc.pp.absurd({True{} == False{} : Bool}, h)
+      LLogicLogic.pp.absurd({True{} == False{} : Bool}, h)
     case False{}:
       {==}
 
 def pp.or_false_r(a: Bool, +b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
   match a:
     case True{}:
-      LBoolMisc.pp.absurd({b == False{} : Bool}, h)
+      LLogicLogic.pp.absurd({b == False{} : Bool}, h)
     case False{}:
       h
 

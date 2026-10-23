@@ -1,5 +1,5 @@
 # tokens: the dashboard's presentation tokens, the model of (T2) in
-# LAWS.bend section dashboard_tokens. The web app writes the same values once,
+# laws/tokens.bend. The web app writes the same values once,
 # in crates/eukhe-dashboard/ui/src/tokens.stylex.ts; its test
 # src/tokens.test.ts runs bridge/bridge_tokens.bend and checks that both
 # tables are equal.

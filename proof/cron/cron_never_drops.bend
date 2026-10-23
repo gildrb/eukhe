@@ -3,7 +3,6 @@
 import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
-import ./base/bool.bend as LABool
 import ./base/cron.bend as LACron
 import ./base/logic.bend as LALogic
 import ./base/nat.bend as LANat
@@ -13,7 +12,7 @@ def cron.pc.or_l(a: Bool, b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) ==
     case True{}:
       {==}
     case False{}:
-      LABool.cron.pc.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
+      LALogic.cron.pc.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
 
 def cron.pc.or_r(a: Bool, b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
@@ -23,7 +22,7 @@ def cron.pc.or_r(a: Bool, b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) ==
       h
 
 def cron_step.pc.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  LABool.cron.pc.absurdF(A, e)
+  LALogic.cron.pc.absurdF(A, e)
 
 def cron_step.pc.void(-A: Type, e: Empty) -> A:
   LALogic.cron.pc.void(A, e)
@@ -186,7 +185,7 @@ def pc.never_drops(s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat, nc: {Cr.Ev.is_corrupt(e
         case Cr.RawClaim{+x}:
           pc.keeps_raw_claim(bad, x, t, i, rs, rd, dead, c, n, aside)
         case Cr.Corrupt{x}:
-          LABool.cron_step.pc.absurd(Cr.Keeps(t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{Some{x}, Nil{}, Nil{}, dead, c, n, aside}), nc)
+          LALogic.cron_step.pc.absurd(Cr.Keeps(t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{Some{x}, Nil{}, Nil{}, dead, c, n, aside}), nc)
 
 def pc.cron_never_drops(+s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat) -> {Cr.Ev.is_corrupt(e) == False{} : Bool} -> Cr.Keeps(t, i, s, Cr.step(s, e)):
   nc => pc.never_drops(s, e, t, i, nc)

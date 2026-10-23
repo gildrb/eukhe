@@ -3,7 +3,7 @@
 import Base
 import ../../bend/compactor.bend as C
 import ../../laws/compactor.bend as Compactor
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # a built line stays built
 def pc.run_made(os: List<&2, C.Outcome>) -> {C.Pend.run(os, C.Made{}) == C.Made{} : C.Pend}:
@@ -24,7 +24,7 @@ def pc.run_made(os: List<&2, C.Outcome>) -> {C.Pend.run(os, C.Made{}) == C.Made{
 def pc.fail_cap_builds(os: List<&2, C.Outcome>, n: Nat, many: {Nat.is_le(1n+n, C.failures(os)) == True{} : Bool}) -> {C.Pend.run(os, C.Owed{n}) == C.Made{} : C.Pend}:
   match os:
     case Nil{}:
-      LBoolMisc.pc.absurd_ft({C.Owed{n} == C.Made{} : C.Pend}, many)
+      LLogicLogic.pc.absurd_ft({C.Owed{n} == C.Made{} : C.Pend}, many)
     case o <> rest:
       match o:
         case C.Built{}:

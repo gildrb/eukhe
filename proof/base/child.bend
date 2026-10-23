@@ -2,9 +2,8 @@
 
 import Base
 import ../../bend/child.bend as Ch
-import ./bool/misc.bend as LBoolMisc
-import ./nat/is_eq.bend as LNatIsEq
-import ./nat/is_le.bend as LNatIsLe
+import ./logic/logic.bend as LLogicLogic
+import ./nat.bend as LNat
 
 # The watch
 # ---------
@@ -23,7 +22,7 @@ def pc.moved_self(+tok: Maybe<&2, Nat>) -> {False{} == Ch.moved(tok, tok) : Bool
     case None{}:
       {==}
     case Some{+x}:
-      %Equal.sym(Bool, Nat.is_eq(x, x), True{}, LNatIsEq.child.pc.eq_refl(x)) : {False{} == Bool.not(_) : Bool}
+      %Equal.sym(Bool, Nat.is_eq(x, x), True{}, LNat.child.pc.eq_refl(x)) : {False{} == Bool.not(_) : Bool}
       {==}
 
 # from the clock spend(r, tok, n), quiet polls hs, at least r of them,
@@ -35,7 +34,7 @@ def pc.stall(hs: List<&2, Ch.Hush>, +cfg: Ch.Cfg, +r: Nat, +tok: Maybe<&2, Nat>,
         case 0n:
           {==}
         case 1n+p:
-          LBoolMisc.child.pc.absurd({Ch.Next.watching(Ch.hush(Nil{}, cfg, Ch.spend(1n+p, tok, n))) == False{} : Bool}, long)
+          LLogicLogic.child.pc.absurd({Ch.Next.watching(Ch.hush(Nil{}, cfg, Ch.spend(1n+p, tok, n))) == False{} : Bool}, long)
     case h <> +t:
       match h:
         case Ch.Same{+dt}:
@@ -44,7 +43,7 @@ def pc.stall(hs: List<&2, Ch.Hush>, +cfg: Ch.Cfg, +r: Nat, +tok: Maybe<&2, Nat>,
               pc.owe_stops(t, cfg, Ch.Stalled{})
             case 1n+p:
               %pc.moved_self(tok) : {Ch.Next.watching(Ch.hush(t, cfg, Ch.busy(_, cfg, Ch.W{tok, 1n+p, n}, tok, 1n+dt))) == False{} : Bool}
-              pc.stall(t, cfg, Nat.sub(p, dt), tok, Ch.Cfg.fails(cfg), LNatIsLe.child.pc.le_trans(Nat.sub(p, dt), p, List.length(&2, Ch.Hush, t), LNatIsLe.pc.sub_le(p, dt), long))
+              pc.stall(t, cfg, Nat.sub(p, dt), tok, Ch.Cfg.fails(cfg), LNat.child.pc.le_trans(Nat.sub(p, dt), p, List.length(&2, Ch.Hush, t), LNat.pc.sub_le(p, dt), long))
         case Ch.Miss{+dt}:
           match r:
             case 0n:
@@ -58,7 +57,7 @@ def pc.stall(hs: List<&2, Ch.Hush>, +cfg: Ch.Cfg, +r: Nat, +tok: Maybe<&2, Nat>,
                     case 0n:
                       pc.owe_stops(t, cfg, Ch.Unreachable{})
                     case 1n+u:
-                      pc.stall(t, cfg, Nat.sub(p, dt), tok, 1n+u, LNatIsLe.child.pc.le_trans(Nat.sub(p, dt), p, List.length(&2, Ch.Hush, t), LNatIsLe.pc.sub_le(p, dt), long))
+                      pc.stall(t, cfg, Nat.sub(p, dt), tok, 1n+u, LNat.child.pc.le_trans(Nat.sub(p, dt), p, List.length(&2, Ch.Hush, t), LNat.pc.sub_le(p, dt), long))
 
 # a clock with nothing left ends at the next quiet poll
 def pc.spent(h: Ch.Hush, hs: List<&2, Ch.Hush>, +cfg: Ch.Cfg, +tok: Maybe<&2, Nat>, +n: Nat) -> {Ch.Next.watching(Ch.hush(h <> hs, cfg, Ch.Watch{Ch.W{tok, 0n, n}})) == False{} : Bool}:

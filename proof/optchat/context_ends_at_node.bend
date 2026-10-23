@@ -8,7 +8,7 @@ import ../../bend/optchat/node.bend as ONode
 import ../../bend/optchat/state.bend as OState
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 
 def pf.ctx_bef.keep(k: Bool, +info: OInfo.Info, +bound: List<&2, Bool>, +h: ONode.Node, -rec: List<&2, ONode.Node>, +e: {k == OCtx.ctx.ok(info, bound, h) : Bool}, ih: S.Before(info, bound, rec))
   -> S.Before(info, bound, OCtx.ctx.keep(k, h, rec)):
@@ -16,7 +16,7 @@ def pf.ctx_bef.keep(k: Bool, +info: OInfo.Info, +bound: List<&2, Bool>, +h: ONod
     case False{}:
       Unit{}
     case True{}:
-      (LBoolAnd.pf.and_l(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), (LBoolAnd.pf.and_r(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), ih))
+      (LLogicBool.pf.and_l(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), (LLogicBool.pf.and_r(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), ih))
 
 def pf.ctx_bef(v: List<&2, ONode.Node>, +info: OInfo.Info, +bound: List<&2, Bool>) -> S.Before(info, bound, OCtx.ctx.go(v, info, bound)):
   match v:

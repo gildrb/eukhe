@@ -3,7 +3,7 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 
 # The strict schema budget
 # ------------------------
@@ -11,7 +11,7 @@ import ../base/nat/is_le.bend as LNatIsLe
 def pi.take_len(xs: List<&2, If.Tool>, n: Nat) -> {Nat.is_le(List.length(&2, If.Tool, List.take(&2, If.Tool, xs, n)), n) == True{} : Bool}:
   match xs n:
     case Nil{} _:
-      LNatIsLe.pi.le0(n)
+      LNat.pi.le0(n)
     case h <> t 0n:
       {==}
     case h <> t 1n+p:

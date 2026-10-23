@@ -3,13 +3,13 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # the first project entry when the project does not name n
 def pcf.kept_at(b: Bool, +fs: List<&2, Cf.Entry>, +x: Maybe<&2, List<&2, Cf.Entry>>, +y: Maybe<&2, List<&2, Cf.Entry>>, +r: Bool, h: {Bool.or(b, r) == False{} : Bool}, ih: {r == False{} : Bool} -> {x == y : Maybe<&2, List<&2, Cf.Entry>>}) -> {Cf.find.pick(b, fs, x) == y : Maybe<&2, List<&2, Cf.Entry>>}:
   match b:
     case True{}:
-      LBoolMisc.ppr.absurd({Cf.find.pick(True{}, fs, x) == y : Maybe<&2, List<&2, Cf.Entry>>}, h)
+      LLogicLogic.ppr.absurd({Cf.find.pick(True{}, fs, x) == y : Maybe<&2, List<&2, Cf.Entry>>}, h)
     case False{}:
       ih(h)
 

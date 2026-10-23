@@ -7,7 +7,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/catalog_union.bend as CatalogUnion
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 
 # catalog_union
@@ -36,8 +36,8 @@ def fe.ents_of(es: List<&2, CU.Ent>) -> {FCu.ents.of(FCu.ents(es)) == Some{es} :
 
 def CatalogUnion.catalog_union_ffi_request_round_trip(bs, cs, rest, h0):
   +h = h0
-  +hb = LBoolAnd.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(bs))), LawsBase.wire_nats_fit(FCu.ents(bs))), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(cs))), LawsBase.wire_nats_fit(FCu.ents(cs))), h)
-  +hc = LBoolAnd.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(bs))), LawsBase.wire_nats_fit(FCu.ents(bs))), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(cs))), LawsBase.wire_nats_fit(FCu.ents(cs))), h)
+  +hb = LLogicBool.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(bs))), LawsBase.wire_nats_fit(FCu.ents(bs))), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(cs))), LawsBase.wire_nats_fit(FCu.ents(cs))), h)
+  +hc = LLogicBool.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(bs))), LawsBase.wire_nats_fit(FCu.ents(bs))), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, FCu.ents(cs))), LawsBase.wire_nats_fit(FCu.ents(cs))), h)
   %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest))), Wr.Got{FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest)}, Wire.wire_list_round_trip(FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest), hb)) : {FCu.get_req.b(_) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
   %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, FCu.ents(cs), rest)), Wr.Got{FCu.ents(cs), rest}, Wire.wire_list_round_trip(FCu.ents(cs), rest, hc)) : {FCu.get_req.c(FCu.ents(bs), _) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
   %Equal.sym(Maybe<&2, List<&2, CU.Ent>>, FCu.ents.of(FCu.ents(bs)), Some{bs}, fe.ents_of(bs)) : {FCu.get_req.both(_, FCu.ents.of(FCu.ents(cs)), rest) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}

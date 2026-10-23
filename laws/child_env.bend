@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # LAWS (G3): no credential reaches a child. Each law is an open claim
 # about the model in bend/child_env.bend; PROOF.bend proves them (as
-# Laws.<law>) with the lemmas of PROOF.bend section child_env.
+# ChildEnv.<law>) with the lemmas of proof/child_env/.
 
 # (G3) No credential reaches a child
 # ----------------------------------
@@ -161,8 +161,8 @@ law env_kernel_example:
 
 # LAWS (G3, the compiled core): the entry bend/ffi_child_env.bend runs the
 # child environment for the Rust code. Each law is an open claim about
-# that entry; PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section child_env_entry.
+# that entry; PROOF.bend proves them (as ChildEnv.<law>) with the lemmas of
+# proof/child_env/.
 
 # The entry of the compiled core (bend/ffi_child_env.bend)
 # ---------------------------------------------------------

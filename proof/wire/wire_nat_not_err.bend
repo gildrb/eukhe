@@ -4,8 +4,8 @@ import Base
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/list.bend as LList
-import ../base/string.bend as LString
+import ../base/logic/list.bend as LLogicList
+import ../base/logic/string.bend as LLogicString
 import ../base/wire.bend as LWire
 
 # no digit char is 'E'
@@ -35,7 +35,7 @@ def wn_dchar_ne(d: Nat) -> {Char.is_eq(Wr.dchar(d), 'E') == False{} : Bool}:
       {==}
 
 def wn_ne(ds: List<&2, Nat>, c: Char, t: String, hc: {Char.is_eq(c, 'E') == False{} : Bool})
-  -> {LawsBase.wire_opens_err(LString.wn_emit(ds, SCon{c, t})) == False{} : Bool}:
+  -> {LawsBase.wire_opens_err(LLogicString.wn_emit(ds, SCon{c, t})) == False{} : Bool}:
   match ds:
     case Nil{}:
       hc
@@ -43,8 +43,8 @@ def wn_ne(ds: List<&2, Nat>, c: Char, t: String, hc: {Char.is_eq(c, 'E') == Fals
       wn_ne(u, Wr.dchar(d), SCon{c, t}, wn_dchar_ne(d))
 
 def wn_not_err(+n: Nat, +rest: String) -> {LawsBase.wire_opens_err(Wr.put_nat(n, rest)) == False{} : Bool}:
-  %Equal.sym(String, Wr.put_nat(n, rest), LString.wn_emit(LList.wn_full(n), SCon{',', rest}), LWire.wn_put_emit(n, rest)) : {LawsBase.wire_opens_err(_) == False{} : Bool}
-  wn_ne(LList.wn_full(n), ',', rest, {==})
+  %Equal.sym(String, Wr.put_nat(n, rest), LLogicString.wn_emit(LLogicList.wn_full(n), SCon{',', rest}), LWire.wn_put_emit(n, rest)) : {LawsBase.wire_opens_err(_) == False{} : Bool}
+  wn_ne(LLogicList.wn_full(n), ',', rest, {==})
 
 def Wire.wire_nat_not_err(n, rest):
   wn_not_err(n, rest)

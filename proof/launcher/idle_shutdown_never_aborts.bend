@@ -3,7 +3,7 @@
 import Base
 import ../../bend/launcher.bend as La
 import ../../laws/launcher.bend as Launcher
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # (D1) idle_shutdown_never_aborts
 # -------------------------------
@@ -145,12 +145,12 @@ def ps.closed_idle(ws: List<&2, La.Wk>, inv: ps.Inv(ws), ac: {La.all_closed(ws) 
         case La.Wk{b, c}:
           match b c:
             case True{} False{}:
-              LBoolMisc.supervisor.ps.absurdF({La.busy_count(La.Wk{True{}, False{}} <> t) == 0n : Nat}, ac)
+              LLogicLogic.supervisor.ps.absurdF({La.busy_count(La.Wk{True{}, False{}} <> t) == 0n : Nat}, ac)
             case False{} False{}:
-              LBoolMisc.supervisor.ps.absurdF({La.busy_count(La.Wk{False{}, False{}} <> t) == 0n : Nat}, ac)
+              LLogicLogic.supervisor.ps.absurdF({La.busy_count(La.Wk{False{}, False{}} <> t) == 0n : Nat}, ac)
             case True{} True{}:
               (wo, it) = inv
-              LBoolMisc.supervisor.ps.absurd({La.busy_count(La.Wk{True{}, True{}} <> t) == 0n : Nat}, wo)
+              LLogicLogic.supervisor.ps.absurd({La.busy_count(La.Wk{True{}, True{}} <> t) == 0n : Nat}, wo)
             case False{} True{}:
               (wo, it) = inv
               ps.closed_idle(t, it, ac)

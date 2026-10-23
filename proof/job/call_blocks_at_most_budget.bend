@@ -3,7 +3,7 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # Blocking calls
 # --------------
@@ -15,7 +15,7 @@ def pj.blocks(es: List<&2, Jb.JEv>, +b: Nat, long: {Nat.is_le(b, Jb.ticks(es)) =
         case 0n:
           {==}
         case 1n+l:
-          LBoolMisc.pj.absurdF({Maybe.is_some(&2, Jb.Wait, Jb.wait(Nil{}, 1n+l)) == True{} : Bool}, long)
+          LLogicLogic.pj.absurdF({Maybe.is_some(&2, Jb.Wait, Jb.wait(Nil{}, 1n+l)) == True{} : Bool}, long)
     case e <> rest:
       match e:
         case Jb.Out{n}:

@@ -241,8 +241,8 @@ law compact_starts_early:
 
 # LAWS (S6.9): the thinking ladder of a model is rulebook data. Each law
 # is an open claim about the model in bend/infer.bend section 6;
-# PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section quirks.
+# PROOF.bend proves them (as Infer.<law>) with the lemmas of
+# proof/infer/.
 
 # (S6.9) The thinking ladder
 # --------------------------
@@ -392,8 +392,8 @@ law core_infer_malformed_example:
 # explicit compat flag or the user's setting), the thinking budgets stay
 # inside the model's limits, and where a fact moved from code into data the
 # data gives the answers the code gave. Each law is an open claim about the
-# model in bend/facts.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section facts; bridge/bridge_facts.bend runs the
+# model in bend/facts.bend; PROOF.bend proves them (as Infer.<law>)
+# with the lemmas of proof/facts/; bridge/bridge_facts.bend runs the
 # model against the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
 
 # (S6.10.1) Decisions are rulebook lookups

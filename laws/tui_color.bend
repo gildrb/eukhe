@@ -8,8 +8,8 @@ import ../bend/tui_color.bend as TC
 
 # LAWS (T3): terminal colors. Each law is an open claim about the model
 # in bend/tui_color.bend (with the theme tables of bend/theme/bundled.bend);
-# PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section tui_color.
+# PROOF.bend proves them (as TuiColor.<law>) with the lemmas of
+# proof/tui_color/.
 
 # (T3) Terminal colors
 # --------------------

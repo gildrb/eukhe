@@ -3,7 +3,7 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pj.same(+xs: List<&2, Jb.JEv>, +ys: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, +x: Jb.End) -> {Jb.go(xs, cap, Jb.Ended{k, d, x}) == Jb.go(ys, cap, Jb.Ended{k, d, x}) : Jb.J}:
@@ -28,7 +28,7 @@ def pj.kill_end(+xs: List<&2, Jb.JEv>, +ys: List<&2, Jb.JEv>, +cap: Maybe<&2, Na
 def pj.final(pre: List<&2, Jb.JEv>, post: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, +j: Jb.J, h: {Jb.has_end(pre) == True{} : Bool}) -> {Jb.go(List.append(&2, Jb.JEv, pre, post), cap, j) == Jb.go(pre, cap, j) : Jb.J}:
   match pre:
     case Nil{}:
-      LBoolMisc.pj.absurdF({Jb.go(post, cap, j) == j : Jb.J}, h)
+      LLogicLogic.pj.absurdF({Jb.go(post, cap, j) == j : Jb.J}, h)
     case e <> +rest:
       match e:
         case Jb.Out{n}:

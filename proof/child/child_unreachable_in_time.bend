@@ -3,15 +3,15 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../laws/child.bend as Child
-import ../base/bool/misc.bend as LBoolMisc
 import ../base/child.bend as LChild
+import ../base/logic/logic.bend as LLogicLogic
 
 # from the clock spend(r, tok, 1 + q), failed polls ds, more than q of
 # them, end the watch
 def pc.miss(ds: List<&2, Nat>, +cfg: Ch.Cfg, +r: Nat, +tok: Maybe<&2, Nat>, +q: Nat, long: {Nat.is_le(1n+q, List.length(&2, Nat, ds)) == True{} : Bool}) -> {Ch.Next.watching(Ch.hush(Ch.misses(ds), cfg, Ch.spend(r, tok, 1n+q))) == False{} : Bool}:
   match ds:
     case Nil{}:
-      LBoolMisc.child.pc.absurd({Ch.Next.watching(Ch.hush(Nil{}, cfg, Ch.spend(r, tok, 1n+q))) == False{} : Bool}, long)
+      LLogicLogic.child.pc.absurd({Ch.Next.watching(Ch.hush(Nil{}, cfg, Ch.spend(r, tok, 1n+q))) == False{} : Bool}, long)
     case +d <> +t:
       match r:
         case 0n:

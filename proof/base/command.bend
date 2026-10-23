@@ -3,7 +3,7 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ./list.bend as LList
+import ./logic/nat.bend as LLogicNat
 
 # the model's same is cmd_eq
 def cb_same(a: List<&2, Nat>, b: List<&2, Nat>) -> {Cmd.same(a, b) == Command.cmd_eq(a, b) : Bool}:
@@ -19,7 +19,7 @@ def cb_same(a: List<&2, Nat>, b: List<&2, Nat>) -> {Cmd.same(a, b) == Command.cm
       {==}
 
 def cb_same_eq(+a: List<&2, Nat>, +b: List<&2, Nat>, e: {Cmd.same(a, b) == True{} : Bool}) -> {a == b : List<&2, Nat>}:
-  LList.cb_eq(a, b, Equal.trans(Bool, Command.cmd_eq(a, b), Cmd.same(a, b), True{}, Equal.sym(Bool, Cmd.same(a, b), Command.cmd_eq(a, b), cb_same(a, b)), e))
+  LLogicNat.cb_eq(a, b, Equal.trans(Bool, Command.cmd_eq(a, b), Cmd.same(a, b), True{}, Equal.sym(Bool, Cmd.same(a, b), Command.cmd_eq(a, b), cb_same(a, b)), e))
 
 # the model's same_path is cmd_path_eq
 def cb_same_path(a: List<&2, List<&2, Nat>>, b: List<&2, List<&2, Nat>>) -> {Cmd.same_path(a, b) == Command.cmd_path_eq(a, b) : Bool}:
@@ -36,4 +36,4 @@ def cb_same_path(a: List<&2, List<&2, Nat>>, b: List<&2, List<&2, Nat>>) -> {Cmd
       {==}
 
 def cb_same_path_eq(+a: List<&2, List<&2, Nat>>, +b: List<&2, List<&2, Nat>>, e: {Cmd.same_path(a, b) == True{} : Bool}) -> {a == b : List<&2, List<&2, Nat>>}:
-  LList.cb_path_eq(a, b, Equal.trans(Bool, Command.cmd_path_eq(a, b), Cmd.same_path(a, b), True{}, Equal.sym(Bool, Cmd.same_path(a, b), Command.cmd_path_eq(a, b), cb_same_path(a, b)), e))
+  LLogicNat.cb_path_eq(a, b, Equal.trans(Bool, Command.cmd_path_eq(a, b), Cmd.same_path(a, b), True{}, Equal.sym(Bool, Cmd.same_path(a, b), Command.cmd_path_eq(a, b), cb_same_path(a, b)), e))

@@ -182,8 +182,8 @@ law bind_first_wins:
 
 # LAWS (S4, the compiled core): the entries of bend/ffi_cvar.bend run the
 # expansion and the key presses for the Rust code. Each law is an open
-# claim about those entries; PROOF.bend proves them (as Laws.<law>) with
-# the lemmas of PROOF.bend section cvar_entry.
+# claim about those entries; PROOF.bend proves them (as Cvar.<law>) with
+# the lemmas of proof/cvar/.
 
 # The entries of the compiled core (bend/ffi_cvar.bend)
 # ------------------------------------------------------

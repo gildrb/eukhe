@@ -2,13 +2,11 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/logic.bend as LLogic
-import ../base/nat/add.bend as LNatAdd
-import ../base/nat/misc.bend as LNatMisc
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
 
 def auth_flight.pf.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  %e : LBoolMisc.auth_flight.pf.BD(_, A, Unit)
+  %e : LLogicLogic.auth_flight.pf.BD(_, A, Unit)
   Unit{}
 
 def pf.pred(n: Nat) -> Nat:
@@ -38,9 +36,9 @@ def pf.some_inj(-A: Data, +d: A, -x: A, -y: A, e: {Some{x} == Some{y} : Maybe<&2
 def pf.add_succ_ne_zero(-A: Type, a: Nat, -b: Nat, e: {Nat.add(a, 1n+b) == 0n : Nat}) -> A:
   match a:
     case 0n:
-      LNatMisc.pf.succ_ne_zero(A, b, e)
+      LLogicLogic.pf.succ_ne_zero(A, b, e)
     case 1n+p:
-      LNatMisc.pf.succ_ne_zero(A, Nat.add(p, 1n+b), e)
+      LLogicLogic.pf.succ_ne_zero(A, Nat.add(p, 1n+b), e)
 
 # a + (1 + b) == 1: both are 0
 def pf.add_one(a: Nat, -b: Nat, e: {Nat.add(a, 1n+b) == 1n : Nat}) -> ({a == 0n : Nat} & {b == 0n : Nat}):
@@ -347,13 +345,13 @@ def pf.good_store(+s1: F.Sto, +s2: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +n: N
     case F.Board{}:
       Unit{}
     case F.Check{f}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
     case F.Fetch{f}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
     case F.Store{f, c}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(fl, ld, f), 0n, z)
     case F.Land{f, o}:
-      LNatMisc.pf.succ_ne_zero((pf.Lead(fl, ld, f) & pf.Kept(o, s2)), 0n, z)
+      LLogicLogic.pf.succ_ne_zero((pf.Lead(fl, ld, f) & pf.Kept(o, s2)), 0n, z)
     case F.Waiting{f}:
       Unit{}
     case F.Served{v, o}:
@@ -365,7 +363,7 @@ def pf.all_store(+s1: F.Sto, +s2: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +n: Na
       Unit{}
     case +h <> +t:
       (gh, at) = a
-      (pf.good_store(s1, s2, fl, ld, n, h, pf.fst({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), gh), pf.all_store(s1, s2, fl, ld, n, t, LLogic.pf.snd({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), at))
+      (pf.good_store(s1, s2, fl, ld, n, h, pf.fst({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), gh), pf.all_store(s1, s2, fl, ld, n, t, LLogicLogic.pf.snd({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), at))
 
 # the leader lands: no other caller leads, and the landed outcomes only grow
 def pf.got_land(+ld: List<&2, F.Out>, +o: F.Out, v: Maybe<&2, Nat>, +o2: F.Out, g: pf.Got(ld, v, o2)) -> pf.Got(List.append(&2, F.Out, ld, [o]), v, o2):
@@ -382,13 +380,13 @@ def pf.good_land(+s: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +o: F.Out, +n: Nat,
     case F.Board{}:
       Unit{}
     case F.Check{f}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
     case F.Fetch{f}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
     case F.Store{f, c}:
-      LNatMisc.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
+      LLogicLogic.pf.succ_ne_zero(pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f), 0n, z)
     case F.Land{f, o3}:
-      LNatMisc.pf.succ_ne_zero((pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f) & pf.Kept(o3, s)), 0n, z)
+      LLogicLogic.pf.succ_ne_zero((pf.Lead(False{}, List.append(&2, F.Out, ld, [o]), f) & pf.Kept(o3, s)), 0n, z)
     case F.Waiting{f}:
       Unit{}
     case F.Served{v, o2}:
@@ -400,7 +398,7 @@ def pf.all_land(+s: F.Sto, +fl: Bool, +ld: List<&2, F.Out>, +o: F.Out, +n: Nat, 
       Unit{}
     case +h <> +t:
       (gh, at) = a
-      (pf.good_land(s, fl, ld, o, n, h, pf.fst({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), gh), pf.all_land(s, fl, ld, o, n, t, LLogic.pf.snd({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), at))
+      (pf.good_land(s, fl, ld, o, n, h, pf.fst({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), gh), pf.all_land(s, fl, ld, o, n, t, LLogicLogic.pf.snd({pf.lead(h) == 0n : Nat}, {pf.leads(t) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.lead(h), pf.leads(t), z)), at))
 
 # a peer stores a newer credential
 def pf.kept_peer(o: F.Out, +c: Nat, +fr: Bool, k: pf.Kept(o, F.Sto{c, fr})) -> pf.Kept(o, F.Sto{1n+c, True{}}):
@@ -488,8 +486,8 @@ def pf.core.start.count(-a: Nat, -b: Nat, za: {a == 0n : Nat}, zb: {b == 0n : Na
 
 # a caller boards and no flight is in flight: it starts the next flight
 def pf.core.start(+s: F.Sto, +ld: List<&2, F.Out>, +n: Nat, +pre: List<&2, F.Leg>, +post: List<&2, F.Leg>, +i: {Nat.add(pf.leads(pre), pf.leads(post)) == 0n : Nat}, ap: pf.All(F.W{s, False{}, ld, n}, pre), aq: pf.All(F.W{s, False{}, ld, n}, post)) -> auth_flight.pf.Inv(F.St{F.W{s, True{}, ld, n}, List.append(&2, F.Leg, pre, F.Check{List.length(&2, F.Out, ld)} <> post)}):
-  +zp = pf.fst({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.leads(pre), pf.leads(post), i))
-  +zq = LLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, LNatAdd.auth_flight.pf.add_zero(pf.leads(pre), pf.leads(post), i))
+  +zp = pf.fst({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.leads(pre), pf.leads(post), i))
+  +zq = LLogicLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, LLogicNat.auth_flight.pf.add_zero(pf.leads(pre), pf.leads(post), i))
   pf.inv_of(F.W{s, True{}, ld, n}, pre, F.Check{List.length(&2, F.Out, ld)}, post, pf.core.start.count(pf.leads(pre), pf.leads(post), zp, zq), pf.all_flon(s, ld, n, pre, ap), ({==}, {==}), pf.all_flon(s, ld, n, post, aq))
 
 def pf.core.land.got(-f: Nat, +ld: List<&2, F.Out>, +o: F.Out, ef: {f == List.length(&2, F.Out, ld) : Nat}) -> {List.get(&2, F.Out, List.append(&2, F.Out, ld, [o]), f) == Some{o} : Maybe<&2, F.Out>}:
@@ -501,7 +499,7 @@ def pf.core.store(+pre: List<&2, F.Leg>, +post: List<&2, F.Leg>, +f: Nat, +c: Na
   match fl:
     case True{}:
       +zp = pf.fst({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
-      +zq = LLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
+      +zq = LLogicLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
       pf.inv_of(F.W{F.Sto{c, True{}}, True{}, ld, n}, pre, F.Land{f, F.Ok{c}}, post, i, pf.all_store(F.Sto{x, False{}}, F.Sto{c, True{}}, True{}, ld, n, pre, zp, ap), (gl, auth_flight.pf.le_refl(c)), pf.all_store(F.Sto{x, False{}}, F.Sto{c, True{}}, True{}, ld, n, post, zq, aq))
     case False{}:
       (e, _) = gl
@@ -514,7 +512,7 @@ def pf.core.land(+pre: List<&2, F.Leg>, +post: List<&2, F.Leg>, +f: Nat, +o: F.O
       (lead, kept) = gl
       (efl, ef) = lead
       +zp = pf.fst({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
-      +zq = LLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
+      +zq = LLogicLogic.pf.snd({pf.leads(pre) == 0n : Nat}, {pf.leads(post) == 0n : Nat}, pf.add_one(pf.leads(pre), pf.leads(post), i))
       pf.inv_of(F.W{s, False{}, List.append(&2, F.Out, ld, [o]), n}, pre, F.Served{Some{f}, o}, post, pf.zero_sum(pf.leads(pre), pf.leads(post), zp, zq), pf.all_land(s, True{}, ld, o, n, pre, zp, ap), pf.core.land.got(f, ld, o, ef), pf.all_land(s, True{}, ld, o, n, post, zq, aq))
     case False{}:
       (lead, kept) = gl
@@ -654,4 +652,4 @@ def pf.stored(s: F.St, inv: auth_flight.pf.Inv(s), +k: Nat, +f: Nat, +c: Nat, +l
             case F.Sto{+c2, +fr}:
               (cnt, all) = inv
               %Equal.sym(Maybe<&2, F.Leg>, List.get(&2, F.Leg, cs, k), Some{F.Land{f, F.Ok{c}}}, lands) : {F.le(c, F.Sto.c(F.W.sto(F.St.w(F.step.at(_, k, ok, F.W{F.Sto{c2, fr}, fl, ld, n}, cs))))) == True{} : Bool}
-              LLogic.pf.snd(pf.Lead(fl, ld, f), pf.Kept(F.Ok{c}, F.Sto{c2, fr}), pf.all_get(F.W{F.Sto{c2, fr}, fl, ld, n}, cs, k, F.Land{f, F.Ok{c}}, lands, all))
+              LLogicLogic.pf.snd(pf.Lead(fl, ld, f), pf.Kept(F.Ok{c}, F.Sto{c2, fr}), pf.all_get(F.W{F.Sto{c2, fr}, fl, ld, n}, cs, k, F.Land{f, F.Ok{c}}, lands, all))

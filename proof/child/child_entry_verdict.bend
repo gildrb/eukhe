@@ -6,15 +6,15 @@ import ../../bend/ffi_child.bend as FCh
 import ../../bend/wire.bend as Wr
 import ../../laws/child.bend as Child
 import ../../laws/base.bend as LawsBase
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ./base.bend as LA
 
 def pw6.cfg(c: Ch.Cfg, +rest: String, +h: {Child.wire_cfg_fits(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FCh.get_cfg(FCh.put_cfg(c, rest)) : Wr.Dec<Ch.Cfg>}:
   match c:
     case Ch.Cfg{+s, +f}:
-      %LWire.pw6.nat(s, Wr.put_nat(f, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.s(_) : Wr.Dec<Ch.Cfg>}
-      %LWire.pw6.nat(f, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.f(s, _) : Wr.Dec<Ch.Cfg>}
+      %LWire.pw6.nat(s, Wr.put_nat(f, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.s(_) : Wr.Dec<Ch.Cfg>}
+      %LWire.pw6.nat(f, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.f(s, _) : Wr.Dec<Ch.Cfg>}
       {==}
 
 def pw6.obs(o: Ch.Obs, +rest: String, +h: {Child.wire_obs_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FCh.get_obs(FCh.put_obs(o, rest)) : Wr.Dec<Ch.Obs>}:

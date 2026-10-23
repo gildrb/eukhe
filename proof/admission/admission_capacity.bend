@@ -4,9 +4,12 @@ import Base
 import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
 import ./base/admission/bit.bend as LAAdmissionBit
+import ./base/admission/cnt.bend as LAAdmissionCnt
+import ./base/admission/hit.bend as LAAdmissionHit
+import ./base/admission/isz.bend as LAAdmissionIsz
 import ./base/admission/le.bend as LAAdmissionLe
-import ./base/admission/misc.bend as LAAdmissionMisc
 import ./base/bool.bend as LABool
+import ./base/logic.bend as LALogic
 import ./base/nat.bend as LANat
 
 def ad.add_one(n: Nat) -> {1n+n == Nat.add(n, 1n) : Nat}:
@@ -22,7 +25,7 @@ def ad.or_tl(x: Bool, -y: Bool, ex: {x == True{} : Bool}) -> {Bool.or(x, y) == T
     case True{}:
       {==}
     case False{}:
-      LABool.ad.absurd({Bool.or(False{}, y) == True{} : Bool}, ex)
+      LALogic.ad.absurd({Bool.or(False{}, y) == True{} : Bool}, ex)
 
 def ad.or_elim(w: Bool, -v: Bool, ih: {Bool.or(w, v) == True{} : Bool}, f: {v == True{} : Bool} -> {w == True{} : Bool}) -> {w == True{} : Bool}:
   match w:
@@ -36,7 +39,7 @@ def ad.pick_room(r: Bool, -wi: Nat, -hi: Nat, -wb: Nat, -c: Ad.Cls, e: {Ad.pick.
     case True{}:
       {==}
     case False{}:
-      %e : LABool.ad.BD(Maybe.is_some(&2, Ad.Cls, _), {False{} == True{} : Bool}, Unit)
+      %e : LALogic.ad.BD(Maybe.is_some(&2, Ad.Cls, _), {False{} == True{} : Bool}, Unit)
       Unit{}
 
 def ad.within_room(l: Ad.Lim, -n: Nat, rm: {Ad.room(l, n) == True{} : Bool}) -> {Ad.within(l, 1n+n) == True{} : Bool}:
@@ -74,9 +77,9 @@ def ad.held_mark(+t: List<&2, Ad.Tk>, c: Ad.Cls, +nz: {Ad.isz(Ad.cnt(Ad.Waiting{
 def ad.nz_of(+l: Ad.Lim, +t: List<&2, Ad.Tk>, c: Ad.Cls, +ed: {Ad.pick(l, t) == Some{c} : Maybe<&2, Ad.Cls>}) -> {Ad.isz(Ad.cnt(Ad.Waiting{}, c, t)) == False{} : Bool}:
   match c:
     case Ad.Ia{}:
-      LAAdmissionMisc.ad.pick_ia(Ad.room(l, Ad.held(t)), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t), Ad.cnt(Ad.Holding{}, Ad.Ia{}, t), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t), ed)
+      LAAdmissionIsz.ad.pick_ia(Ad.room(l, Ad.held(t)), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t), Ad.cnt(Ad.Holding{}, Ad.Ia{}, t), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t), ed)
     case Ad.Bg{}:
-      LAAdmissionMisc.ad.bg_wb(t, LAAdmissionMisc.ad.pbg(l, t, ed))
+      LAAdmissionIsz.ad.bg_wb(t, LAAdmissionIsz.ad.pbg(l, t, ed))
 
 def ad.cap_tr(-w: Bool, -g: Nat, -a: Nat, -b: Nat, e: {a == b : Nat}, ih: {Bool.or(w, Ad.le(g, a)) == True{} : Bool}) -> {Bool.or(w, Ad.le(g, b)) == True{} : Bool}:
   %e : {Bool.or(w, Ad.le(g, _)) == True{} : Bool}
@@ -104,8 +107,8 @@ def ad.cap_grant(+n: Nat, +d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>
 # Collected, released, left
 def ad.held_col(+ts: List<&2, Ad.Tk>, +k: Nat, +c: Ad.Cls, +e: {Ad.get(ts, k) == Some{Ad.Tk{c, Ad.Granted{}}} : Maybe<&2, Ad.Tk>}) -> {Ad.held(Ad.put(ts, k, Ad.Held{})) == Ad.held(ts) : Nat}:
   +t2 = Ad.put(ts, k, Ad.Held{})
-  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), LAAdmissionBit.ad.col_cnt(Ad.Holding{}, Ad.Ia{}, ts, k, c, e)) : {Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)) == Ad.held(ts) : Nat}
-  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts), LAAdmissionBit.ad.col_cnt(Ad.Holding{}, Ad.Bg{}, ts, k, c, e)) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), _) == Ad.held(ts) : Nat}
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), LAAdmissionCnt.ad.col_cnt(Ad.Holding{}, Ad.Ia{}, ts, k, c, e)) : {Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)) == Ad.held(ts) : Nat}
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts), LAAdmissionCnt.ad.col_cnt(Ad.Holding{}, Ad.Bg{}, ts, k, c, e)) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), _) == Ad.held(ts) : Nat}
   {==}
 
 # a ticket that holds no slot ends
@@ -116,9 +119,9 @@ def ad.held_same(+ts: List<&2, Ad.Tk>, +k: Nat, +c: Ad.Cls, s: Ad.Sts, +e: {Ad.g
       %LAAdmissionBit.ad.end_cnt(Ad.Holding{}, Ad.Bg{}, ts, k, c, Ad.Queued{}, e) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.put(ts, k, Ad.Ended{}))) == Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), _) : Nat}
       {==}
     case Ad.Granted{}:
-      LABool.ad.absurd({Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, Equal.sym(Bool, True{}, False{}, hs))
+      LALogic.ad.absurd({Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, Equal.sym(Bool, True{}, False{}, hs))
     case Ad.Held{}:
-      LABool.ad.absurd({Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, Equal.sym(Bool, True{}, False{}, hs))
+      LALogic.ad.absurd({Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, Equal.sym(Bool, True{}, False{}, hs))
     case Ad.Preempted{}:
       %LAAdmissionBit.ad.end_cnt(Ad.Holding{}, Ad.Ia{}, ts, k, c, Ad.Preempted{}, e) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.put(ts, k, Ad.Ended{}))) == Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)) : Nat}
       %LAAdmissionBit.ad.end_cnt(Ad.Holding{}, Ad.Bg{}, ts, k, c, Ad.Preempted{}, e) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.put(ts, k, Ad.Ended{}))) == Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), _) : Nat}
@@ -148,11 +151,11 @@ def ad.held_end(+ts: List<&2, Ad.Tk>, +k: Nat, c: Ad.Cls, s: Ad.Sts, +e: {Ad.get
       %LAAdmissionBit.ad.end_cnt(Ad.Holding{}, Ad.Bg{}, ts, k, Ad.Bg{}, Ad.Held{}, e) : {1n+Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.put(ts, k, Ad.Ended{}))) == Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), _) : Nat}
       LANat.ad.add_succ(Ad.cnt(Ad.Holding{}, Ad.Ia{}, Ad.put(ts, k, Ad.Ended{})), Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.put(ts, k, Ad.Ended{})))
     case _ Ad.Queued{}:
-      LABool.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
+      LALogic.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
     case _ Ad.Preempted{}:
-      LABool.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
+      LALogic.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
     case _ Ad.Ended{}:
-      LABool.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
+      LALogic.ad.absurd({1n+Ad.held(Ad.put(ts, k, Ad.Ended{})) == Ad.held(ts) : Nat}, hs)
 
 def ad.cap_id(+l: Ad.Lim, +n: Nat) -> {Bool.or(Ad.within(l, n), Ad.le(Nat.add(n, 0n), n)) == True{} : Bool}:
   %Equal.sym(Nat, Nat.add(n, 0n), n, LANat.ad.add_zero(n)) : {Bool.or(Ad.within(l, n), Ad.le(_, n)) == True{} : Bool}
@@ -295,8 +298,8 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
           +t1 = Ad.preempt(ts)
           +t2 = List.append(&2, Ad.Tk, t1, [x])
           +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), hi)
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionBit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionBit.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionMisc.ad.pre_hb(ts))) : {Bool.or(Ad.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionHit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionHit.ad.pre_hb(ts))) : {Bool.or(Ad.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
           ad.cap_ia(l, q, wi, hi, hb)
         case Ad.Admit{Ad.Bg{}}:
           +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
@@ -307,8 +310,8 @@ def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)),
           +y = {Ad.Tk{Ad.Bg{}, st} : Ad.Tk}
           +t2 = List.append(&2, Ad.Tk, ts, [y])
           +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Bg{}, y), hb)
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), hi, LAAdmissionBit.ad.app_off(Ad.Holding{}, Ad.Ia{}, ts, y, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), 0n), Nat.add(hi, hb))) == True{} : Bool}
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), b, LAAdmissionBit.ad.cnt_app(Ad.Holding{}, Ad.Bg{}, ts, y)) : {Bool.or(Ad.within(l, Nat.add(hi, _)), Ad.le(Nat.add(Nat.add(hi, _), 0n), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), hi, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Ia{}, ts, y, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), 0n), Nat.add(hi, hb))) == True{} : Bool}
+          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), b, LAAdmissionCnt.ad.cnt_app(Ad.Holding{}, Ad.Bg{}, ts, y)) : {Bool.or(Ad.within(l, Nat.add(hi, _)), Ad.le(Nat.add(Nat.add(hi, _), 0n), Nat.add(hi, hb))) == True{} : Bool}
           ad.cap_bg(l, hi, wi, wb, hb)
         case Ad.Collect{+k}:
           ad.cap_col(Ad.get(ts, k), l, q, ts, k, {==})

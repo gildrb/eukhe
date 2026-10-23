@@ -3,26 +3,25 @@
 import Base
 import ../../bend/revive.bend as Rv
 import ../../laws/revive.bend as Revive
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/add.bend as LNatAdd
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 
 # adding b on the right keeps the order
 def ps.le_mono_r(a: Nat, h: Nat, +b: Nat, ah: {Nat.is_le(a, h) == True{} : Bool}) -> {Nat.is_le(Nat.add(a, b), Nat.add(h, b)) == True{} : Bool}:
   match a h:
     case 0n _:
-      LNatIsLe.supervisor.ps.le_add_l(h, b)
+      LNat.supervisor.ps.le_add_l(h, b)
     case 1n+p 0n:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_le(Nat.add(1n+p, b), Nat.add(0n, b)) == True{} : Bool}, ah)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_le(Nat.add(1n+p, b), Nat.add(0n, b)) == True{} : Bool}, ah)
     case 1n+p 1n+q:
       ps.le_mono_r(p, q, b, ah)
 
 def ps.lt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
   match a b:
     case 0n _:
-      LNatIsLe.ps.le_zero(b)
+      LNat.ps.le_zero(b)
     case 1n+p 0n:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h)
     case 1n+p 1n+q:
       ps.lt_le(p, q, h)
 
@@ -30,15 +29,15 @@ def ps.lt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_l
 def ps.lt_succ_ne(r: Nat, h: Nat, lt: {Nat.is_lt(r, h) == True{} : Bool}, ne: {Nat.is_eq(1n+r, h) == False{} : Bool}) -> {Nat.is_lt(1n+r, h) == True{} : Bool}:
   match r h:
     case 0n 0n:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(1n, 0n) == True{} : Bool}, lt)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_lt(1n, 0n) == True{} : Bool}, lt)
     case 0n 1n+q:
       match q:
         case 0n:
-          LBoolMisc.supervisor.ps.absurd({Nat.is_lt(1n, 1n) == True{} : Bool}, ne)
+          LLogicLogic.supervisor.ps.absurd({Nat.is_lt(1n, 1n) == True{} : Bool}, ne)
         case 1n+s:
           {==}
     case 1n+p 0n:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(2n+p, 0n) == True{} : Bool}, lt)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_lt(2n+p, 0n) == True{} : Bool}, lt)
     case 1n+p 1n+q:
       ps.lt_succ_ne(p, q, lt, ne)
 
@@ -67,7 +66,7 @@ def ps.since_lt(c: Nat, +h: Nat, +r: Nat, +pos: {Nat.is_lt(0n, h) == True{} : Bo
 def ps.revive_after_refresh(+h: Nat, +pos: {Nat.is_lt(0n, h) == True{} : Bool}, +b: Nat, +c: Nat, +d: Nat, soon: {Nat.is_le(d, b) == True{} : Bool}) -> {Rv.fresh(Nat.add(h, b), Rv.age(h, c, d)) == True{} : Bool}:
   +a = Rv.since(c, h, 0n)
   +al = ps.lt_le(a, h, ps.since_lt(c, h, 0n, pos, pos))
-  LNatIsLe.supervisor.ps.le_trans(Nat.add(a, d), Nat.add(a, b), Nat.add(h, b), LNatIsLe.ps.le_mono(a, d, b, soon), ps.le_mono_r(a, h, b, al))
+  LNat.supervisor.ps.le_trans(Nat.add(a, d), Nat.add(a, b), Nat.add(h, b), LNat.ps.le_mono(a, d, b, soon), ps.le_mono_r(a, h, b, al))
 
-def Revive.revive_after_refresh(h, LNatAdd.pos, b, c, d, soon):
-  ps.revive_after_refresh(h, LNatAdd.pos, b, c, d, soon)
+def Revive.revive_after_refresh(h, LNat.pos, b, c, d, soon):
+  ps.revive_after_refresh(h, LNat.pos, b, c, d, soon)

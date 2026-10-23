@@ -14,7 +14,7 @@ import ../bend/config.bend as Cf
 # prompt or credential; a project MCP entry never takes the keys of a
 # global one. Each law is an open claim about the models in
 # bend/config.bend and bend/default_model.bend; PROOF.bend proves them
-# (as Laws.<law>) with the lemmas of PROOF.bend section config.
+# (as Config.<law>) with the lemmas of proof/config/.
 
 # (H1) A read/modify/write of a config document
 # ---------------------------------------------

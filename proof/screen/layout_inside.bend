@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 def screen.ps.or_tr(a: Bool, +b: Bool, hb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
@@ -16,7 +16,7 @@ def screen.ps.or_tr(a: Bool, +b: Bool, hb: {b == True{} : Bool}) -> {Bool.or(a, 
 def ps.min_le_r(n: Nat, m: Nat) -> {Nat.is_le(Nat.min(n, m), m) == True{} : Bool}:
   match n m:
     case 0n _:
-      LNatIsLe.ps.le0(m)
+      LNat.ps.le0(m)
     case 1n+np 0n:
       {==}
     case 1n+np 1n+mp:

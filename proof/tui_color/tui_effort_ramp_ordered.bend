@@ -3,15 +3,15 @@
 import Base
 import ../../bend/tui_color.bend as TC
 import ../../laws/tui_color.bend as TuiColor
-import ../base/bool/and.bend as LBoolAnd
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/bool.bend as LBool
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 # adding d never lowers the quotient
 def pu.dv_le_add(+x: Nat, +d: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}) -> {Nat.is_le(Nat.div(x, n), Nat.div(Nat.add(d, x), n)) == True{} : Bool}:
   +y = Nat.add(d, x)
   +q = Nat.div(x, n)
-  +low = LNatIsLe.pu.le_trans(Nat.mul(q, n), x, y, LA.pu.div_low(x, n, en), LA.pu.le_add(d, x))
+  +low = LNat.pu.le_trans(Nat.mul(q, n), x, y, LA.pu.div_low(x, n, en), LA.pu.le_add(d, x))
   LA.pu.div_max(y, n, q, en, low)
 
 # The effort ramp
@@ -38,16 +38,16 @@ def pu.ordered_go(+left: Nat, +done: Nat, +lr: Nat, +lg: Nat, +lb: Nat, +hr: Nat
       +sr = pu.chan_le(Nat.is_le(lr, hr), lr, hr, done, l, n, en)
       +sg = pu.chan_le(Nat.is_le(lg, hg), lg, hg, done, l, n, en)
       +sb = pu.chan_le(Nat.is_le(lb, hb), lb, hb, done, l, n, en)
-      +here = LBoolAnd.pu.and_t(TC.step(lr, hr, TC.chan(lr, hr, done, 1n+l, n), TC.chan(lr, hr, 1n+done, l, n)), Bool.and(TC.step(lg, hg, TC.chan(lg, hg, done, 1n+l, n), TC.chan(lg, hg, 1n+done, l, n)), TC.step(lb, hb, TC.chan(lb, hb, done, 1n+l, n), TC.chan(lb, hb, 1n+done, l, n))), sr, LBoolAnd.pu.and_t(TC.step(lg, hg, TC.chan(lg, hg, done, 1n+l, n), TC.chan(lg, hg, 1n+done, l, n)), TC.step(lb, hb, TC.chan(lb, hb, done, 1n+l, n), TC.chan(lb, hb, 1n+done, l, n)), sg, sb))
+      +here = LBool.pu.and_t(TC.step(lr, hr, TC.chan(lr, hr, done, 1n+l, n), TC.chan(lr, hr, 1n+done, l, n)), Bool.and(TC.step(lg, hg, TC.chan(lg, hg, done, 1n+l, n), TC.chan(lg, hg, 1n+done, l, n)), TC.step(lb, hb, TC.chan(lb, hb, done, 1n+l, n), TC.chan(lb, hb, 1n+done, l, n))), sr, LBool.pu.and_t(TC.step(lg, hg, TC.chan(lg, hg, done, 1n+l, n), TC.chan(lg, hg, 1n+done, l, n)), TC.step(lb, hb, TC.chan(lb, hb, done, 1n+l, n), TC.chan(lb, hb, 1n+done, l, n)), sg, sb))
       +more = pu.ordered_go(l, 1n+done, lr, lg, lb, hr, hg, hb, n, en)
-      LBoolAnd.pu.and_t(TC.moves(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, done, 1n+l, n), TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, 1n+done, l, n)), TC.ordered.from(TC.ramp.go(l, 1n+done, TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n), TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, 1n+done, l, n), TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}), here, more)
+      LBool.pu.and_t(TC.moves(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, done, 1n+l, n), TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, 1n+done, l, n)), TC.ordered.from(TC.ramp.go(l, 1n+done, TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n), TC.rung(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, 1n+done, l, n), TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}), here, more)
 
 def tui_effort_ramp_ordered(+lo: TC.Px, +hi: TC.Px, +n: Nat) -> {TC.ordered(lo, hi, TC.ramp(lo, hi, n)) == True{} : Bool}:
   match lo hi n:
     case TC.Px{lr, lg, lb} TC.Px{hr, hg, hb} 0n:
       {==}
     case TC.Px{lr, lg, lb} TC.Px{hr, hg, hb} 1n+m:
-      pu.ordered_go(m, 1n, lr, lg, lb, hr, hg, hb, 1n+m, LNatIsLe.pu.le_zero(m))
+      pu.ordered_go(m, 1n, lr, lg, lb, hr, hg, hb, 1n+m, LNat.pu.le_zero(m))
 
 def TuiColor.tui_effort_ramp_ordered(lo, hi, n):
   tui_effort_ramp_ordered(lo, hi, n)

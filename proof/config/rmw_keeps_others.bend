@@ -3,14 +3,14 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/logic/nat.bend as LLogicNat
 import ./base.bend as LA
 
 # one entry of key i before rest, b saying whether i is k
 def pcf.del_step(b: Bool, +i: Nat, v: Nat, +rest: List<&2, Cf.Entry>, +k: Nat, +j: Nat, eb: {Nat.is_eq(i, k) == b : Bool}, h: {Nat.is_eq(k, j) == False{} : Bool}, ih: {Cf.lookup(Cf.del(rest, k), j) == Cf.lookup(rest, j) : Maybe<&2, Nat>}) -> {Cf.lookup(Cf.keep(b, Cf.Entry{i, v}, Cf.del(rest, k)), j) == Cf.pick(Nat.is_eq(i, j), v, Cf.lookup(rest, j)) : Maybe<&2, Nat>}:
   match b:
     case True{}:
-      %Equal.sym(Nat, i, k, LNatIsEq.ppr.nat_eq_true(i, k, eb)) : {Cf.lookup(Cf.del(rest, k), j) == Cf.pick(Nat.is_eq(_, j), v, Cf.lookup(rest, j)) : Maybe<&2, Nat>}
+      %Equal.sym(Nat, i, k, LLogicNat.ppr.nat_eq_true(i, k, eb)) : {Cf.lookup(Cf.del(rest, k), j) == Cf.pick(Nat.is_eq(_, j), v, Cf.lookup(rest, j)) : Maybe<&2, Nat>}
       %Equal.sym(Bool, Nat.is_eq(k, j), False{}, h) : {Cf.lookup(Cf.del(rest, k), j) == Cf.pick(_, v, Cf.lookup(rest, j)) : Maybe<&2, Nat>}
       ih
     case False{}:

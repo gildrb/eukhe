@@ -11,13 +11,13 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def Command.command_free_takes_rest(t, q, w, more, ok, on, open, word, after, miss):
   match q:
     case Nil{}:
-      LBoolMisc.cb_absurd({Cmd.resolve(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, w <> more))) == Cmd.Runs{Nil{}, Command.cmd_render(w <> more)} : Cmd.Res}, on)
+      LLogicLogic.cb_absurd({Cmd.resolve(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, w <> more))) == Cmd.Runs{Nil{}, Command.cmd_render(w <> more)} : Cmd.Res}, on)
     case Con{+x, +rest}:
       +qq = {x <> rest : List<&2, List<&2, Nat>>}
       +wm = {w <> more : List<&2, List<&2, Nat>>}

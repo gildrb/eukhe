@@ -3,17 +3,16 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_le.bend as LNatIsLe
-import ../base/nat/misc.bend as LNatMisc
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 def pj.le_addl(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(Nat.add(n, p), m) == True{} : Bool}) -> {Nat.is_le(n, m) == True{} : Bool}:
   match n m:
     case 0n _:
-      LNatIsLe.pj.le0(m)
+      LNat.pj.le0(m)
     case 1n+np 0n:
-      LBoolMisc.pj.absurdF({Nat.is_le(1n+np, 0n) == True{} : Bool}, h)
+      LLogicLogic.pj.absurdF({Nat.is_le(1n+np, 0n) == True{} : Bool}, h)
     case 1n+np 1n+mp:
       pj.le_addl(np, p, mp, h)
 
@@ -23,7 +22,7 @@ def pj.fit_room(+c: Nat, +k: Nat, +n: Nat, +p: Nat, h: {Nat.is_le(Nat.add(n, p),
   LA.pj.le_sub(n, p, Nat.sub(c, k), h)
 
 def pj.room0(+c: Nat, -es: List<&2, Jb.JEv>, fits: {Nat.is_le(Jb.produced(es), c) == True{} : Bool}) -> {Nat.is_le(Jb.produced(es), Nat.sub(c, 0n)) == True{} : Bool}:
-  %LNatMisc.pj.sub_zero(c) : {Nat.is_le(Jb.produced(es), _) == True{} : Bool}
+  %LNat.pj.sub_zero(c) : {Nat.is_le(Jb.produced(es), _) == True{} : Bool}
   fits
 
 # output that fits the room left under the cap drops nothing
@@ -34,7 +33,7 @@ def pj.fit(es: List<&2, Jb.JEv>, +c: Nat, +k: Nat, +h: {Nat.is_le(Jb.produced(es
     case e <> +rest:
       match e:
         case Jb.Out{+n}:
-          %LNatMisc.pj.min_of_le(n, Nat.sub(c, k), pj.le_addl(n, Jb.produced(rest), Nat.sub(c, k), h)) : {Jb.J.dropped(Jb.go(rest, Some{c}, Jb.Live{Nat.add(k, _), Nat.sub(n, _)})) == 0n : Nat}
+          %LNat.pj.min_of_le(n, Nat.sub(c, k), pj.le_addl(n, Jb.produced(rest), Nat.sub(c, k), h)) : {Jb.J.dropped(Jb.go(rest, Some{c}, Jb.Live{Nat.add(k, _), Nat.sub(n, _)})) == 0n : Nat}
           %LA.pj.sub_self(n) : {Jb.J.dropped(Jb.go(rest, Some{c}, Jb.Live{Nat.add(k, n), _})) == 0n : Nat}
           pj.fit(rest, c, Nat.add(k, n), pj.fit_room(c, k, n, Jb.produced(rest), h))
         case Jb.Quit{q}:

@@ -21,7 +21,7 @@
 #   delete owes a cancelled report) goes on under the same rule.
 #
 # LAWS.bend states what must hold (section H5); PROOF.bend proves it with
-# PROOF.bend section child. The Rust task runs `verdict`, `owe.next` and
+# proof/child/. The Rust task runs `verdict`, `owe.next` and
 # `cut.ph` as the compiled Bend core (bend/ffi_child.bend).
 
 import Base

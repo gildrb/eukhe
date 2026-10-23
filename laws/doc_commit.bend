@@ -8,9 +8,9 @@ import ../bend/doc_commit.bend as Cm
 # LAWS: the documents tools (crates/eukhe-docs and the documents tools of
 # crates/eukhe-core): edits, writes, moves, temporary files, line endings,
 # tags, seen lines, grep and glob. Each law is an open claim about a model
-# in bend/doc_*.bend; PROOF.bend proves them (as Laws.<law>) with the
-# lemmas of PROOF.bend section documents and, for lines and their endings,
-# PROOF.bend section doc_lines. A Rust bridge test runs the real
+# in bend/doc_*.bend; PROOF.bend proves them (as DocCommit.<law>) with the
+# lemmas of proof/doc_commit/ and, for lines and their endings,
+# proof/doc_lines/. A Rust bridge test runs the real
 # code and the model on the same generated scenarios and requires the same
 # transcript.
 

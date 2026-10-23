@@ -7,14 +7,14 @@ import ../../bend/wire.bend as Wr
 import ../../laws/infer.bend as Infer
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
+import ../base/nat.bend as LNat
 import ../base/wire.bend as LWire
 
 def pi.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : LBoolMisc.pi.BD(_, Unit, A)
+  %e : LLogicLogic.pi.BD(_, Unit, A)
   Unit{}
 
 def pi.void(-A: Type, e: Empty) -> A:
@@ -28,14 +28,14 @@ def pi.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == T
     case True{}:
       {==}
     case False{}:
-      LBoolMisc.pi.absurdF({False{} == True{} : Bool}, h)
+      LLogicLogic.pi.absurdF({False{} == True{} : Bool}, h)
 
 def pi.and_r(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
   match a:
     case True{}:
       h
     case False{}:
-      LBoolMisc.pi.absurdF({b == True{} : Bool}, h)
+      LLogicLogic.pi.absurdF({b == True{} : Bool}, h)
 
 # Forced calls
 # ------------
@@ -50,11 +50,11 @@ def pi.fst_next(-t: If.Try, p: List<&2, If.Try> & If.Forced) -> {t <> Pair.fst(L
 def pi.le_trans(a: Nat, b: Nat, c: Nat, +ab: {Nat.is_le(a, b) == True{} : Bool}, +bc: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
   match a b c:
     case 0n _ _:
-      LNatIsLe.pi.le0(c)
+      LNat.pi.le0(c)
     case 1n+p 0n _:
-      LBoolMisc.pi.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, ab)
+      LLogicLogic.pi.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, ab)
     case 1n+p 1n+q 0n:
-      LBoolMisc.pi.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, bc)
+      LLogicLogic.pi.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, bc)
     case 1n+p 1n+q 1n+r:
       pi.le_trans(p, q, r, ab, bc)
 
@@ -92,7 +92,7 @@ def pi.each_step(b: Bool, +x: Nat, +rest: List<&2, Nat>, +q: Nat, +n: Nat, +ih: 
 def pi.each_cycle(+s: List<&2, Nat>, +q: Nat, +m: Nat) -> {If.each(s, q, m) == Nat.is_le(m, If.cycle(s, q)) : Bool}:
   match s m:
     case _ 0n:
-      Equal.sym(Bool, Nat.is_le(0n, If.cycle(s, q)), True{}, LNatIsLe.pi.le0(If.cycle(s, q)))
+      Equal.sym(Bool, Nat.is_le(0n, If.cycle(s, q)), True{}, LNat.pi.le0(If.cycle(s, q)))
     case Nil{} 1n+n:
       {==}
     case x <> rest 1n+n:
@@ -112,7 +112,7 @@ def pi.fires_periodic(+s: List<&2, Nat>, +k: Nat, +n: Nat) -> {If.fires.go(s, k,
 def pi.cut_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat, hit: Bool, +eh: {If.fire.at(xs, k, seen) == hit : Bool}, +lp: {If.loops.go(xs, k, seen) == True{} : Bool}) -> {If.Cut.cut(If.guard.go(xs, k, seen, n, hit)) == True{} : Bool}:
   match xs:
     case Nil{}:
-      LBoolMisc.pi.absurdF({If.Cut.cut(If.guard.go(Nil{}, k, seen, n, hit)) == True{} : Bool}, lp)
+      LLogicLogic.pi.absurdF({If.Cut.cut(If.guard.go(Nil{}, k, seen, n, hit)) == True{} : Bool}, lp)
     case x <> rest:
       match hit:
         case True{}:
@@ -122,7 +122,7 @@ def pi.cut_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat, hit: B
           pi.cut_go(rest, k, x <> seen, 1n+n, If.fire.at(rest, k, x <> seen), {==}, pi.or_r_true(If.periodic(x <> seen, k), If.loops.go(rest, k, x <> seen), lp, ep))
 
 def pq.flip(-A: Type, -a: Bool, h: {a == True{} : Bool}, g: {a == False{} : Bool}) -> A:
-  LBoolMisc.pq.absurd(A, Equal.trans(Bool, True{}, a, False{}, Equal.sym(Bool, a, True{}, h), g))
+  LLogicLogic.pq.absurd(A, Equal.trans(Bool, True{}, a, False{}, Equal.sym(Bool, a, True{}, h), g))
 
 def pq.and_t(-a: Bool, -b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
   %Equal.sym(Bool, a, True{}, ha) : {Bool.and(_, b) == True{} : Bool}
@@ -141,19 +141,19 @@ def pq.and_tf(a: Bool, -b: Bool, h: {Bool.and(a, b) == False{} : Bool}, ha: {a =
     case True{}:
       h
     case False{}:
-      LBoolMisc.pq.absurdF({b == False{} : Bool}, ha)
+      LLogicLogic.pq.absurdF({b == False{} : Bool}, ha)
 
 def pq.or_l(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
   match a:
     case True{}:
-      LBoolMisc.pq.absurd({True{} == False{} : Bool}, h)
+      LLogicLogic.pq.absurd({True{} == False{} : Bool}, h)
     case False{}:
       {==}
 
 def pq.or_r(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
   match a:
     case True{}:
-      LBoolMisc.pq.absurd({b == False{} : Bool}, h)
+      LLogicLogic.pq.absurd({b == False{} : Bool}, h)
     case False{}:
       h
 
@@ -161,14 +161,14 @@ def pq.or_r(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == Fa
 def pq.or_fl(a: Bool, -b: Bool, h: {Bool.or(a, b) == True{} : Bool}, na: {a == False{} : Bool}) -> {b == True{} : Bool}:
   match a:
     case True{}:
-      LBoolMisc.pq.absurd({b == True{} : Bool}, na)
+      LLogicLogic.pq.absurd({b == True{} : Bool}, na)
     case False{}:
       h
 
 def pq.not_f(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
   match b:
     case True{}:
-      LBoolMisc.pq.absurdF({True{} == False{} : Bool}, h)
+      LLogicLogic.pq.absurdF({True{} == False{} : Bool}, h)
     case False{}:
       {==}
 
@@ -176,13 +176,13 @@ def pq.not_f(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool
 def pq.ncv(x: Bool, y: Bool, z: Bool, nc: {Bool.and(x, Bool.and(y, Bool.not(z))) == False{} : Bool}, hx: {x == True{} : Bool}, hy: {y == True{} : Bool}) -> {z == True{} : Bool}:
   match x y z:
     case False{} _ _:
-      LBoolMisc.pq.absurdF({z == True{} : Bool}, hx)
+      LLogicLogic.pq.absurdF({z == True{} : Bool}, hx)
     case True{} False{} _:
-      LBoolMisc.pq.absurdF({z == True{} : Bool}, hy)
+      LLogicLogic.pq.absurdF({z == True{} : Bool}, hy)
     case True{} True{} True{}:
       {==}
     case True{} True{} False{}:
-      LBoolMisc.pq.absurd({False{} == True{} : Bool}, nc)
+      LLogicLogic.pq.absurd({False{} == True{} : Bool}, nc)
 
 # Numbers
 # -------
@@ -199,7 +199,7 @@ def pq.eq_of(+a: Nat, +b: Nat, ab: {a == b : Nat}) -> {Nat.is_eq(a, b) == True{}
   Equal.sym(Bool, True{}, Nat.is_eq(a, a), pq.eq_refl(a))
 
 def pq.eq_tr(+x: Nat, +y: Nat, +z: Nat, xz: {Nat.is_eq(x, z) == True{} : Bool}, yz: {Nat.is_eq(y, z) == True{} : Bool}) -> {Nat.is_eq(x, y) == True{} : Bool}:
-  %Equal.sym(Nat, y, z, LNatIsEq.pq.eq_true(y, z, yz)) : {Nat.is_eq(x, _) == True{} : Bool}
+  %Equal.sym(Nat, y, z, LLogicNat.pq.eq_true(y, z, yz)) : {Nat.is_eq(x, _) == True{} : Bool}
   xz
 
 # neither below the other: equal
@@ -208,9 +208,9 @@ def pq.tri(x: Nat, y: Nat, n1: {Nat.is_lt(y, x) == False{} : Bool}, n2: {Nat.is_
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      LBoolMisc.pq.absurd({Nat.is_eq(0n, 1n+q) == True{} : Bool}, n2)
+      LLogicLogic.pq.absurd({Nat.is_eq(0n, 1n+q) == True{} : Bool}, n2)
     case 1n+p 0n:
-      LBoolMisc.pq.absurd({Nat.is_eq(1n+p, 0n) == True{} : Bool}, n1)
+      LLogicLogic.pq.absurd({Nat.is_eq(1n+p, 0n) == True{} : Bool}, n1)
     case 1n+p 1n+q:
       pq.tri(p, q, n1, n2)
 
@@ -219,7 +219,7 @@ def pq.lt_le(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_le(1n+a, b) : Bool}:
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      Equal.sym(Bool, Nat.is_le(0n, q), True{}, LNatIsLe.pq.le0(q))
+      Equal.sym(Bool, Nat.is_le(0n, q), True{}, LNat.pq.le0(q))
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:
@@ -242,7 +242,7 @@ def pq.none_go(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +b: Maybe<&2, If.Be
           +H = Bool.and(If.applies(q, r), Nat.is_eq(If.Rule.dir(r), d))
           +z = Nat.is_le(0n, If.Rule.rank(r))
           +le = pq.and_tf(H, z, pq.or_l(Bool.and(H, z), If.any_at(rest, q, d, 0n), none), eh)
-          pq.flip({If.look.go(r <> rest, q, d, b, True{}) == b : Maybe<&2, If.Best>}, z, LNatIsLe.pq.le0(If.Rule.rank(r)), le)
+          pq.flip({If.look.go(r <> rest, q, d, b, True{}) == b : Maybe<&2, If.Best>}, z, LNat.pq.le0(If.Rule.rank(r)), le)
         case False{}:
           +H = Bool.and(Bool.and(If.applies(q, r), Nat.is_eq(If.Rule.dir(r), d)), Nat.is_le(0n, If.Rule.rank(r)))
           pq.none_go(rest, q, d, b, If.use.at(rest, q, d), {==}, pq.or_r(H, If.any_at(rest, q, d, 0n), none))
@@ -255,30 +255,30 @@ def pq.quirk_unknown_when_none(+rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, no
 # --------------------
 
 def pq.val_of(+ta: Nat, +tb: Nat, +da: Nat, +db: Nat, +va: Nat, +vb: Nat, +f: Nat, +d: Nat, nc: {Bool.and(Nat.is_eq(ta, tb), Bool.and(Nat.is_eq(da, db), Bool.not(Nat.is_eq(va, vb)))) == False{} : Bool}, af: {Nat.is_eq(ta, f) == True{} : Bool}, bf: {Nat.is_eq(tb, f) == True{} : Bool}, ad: {Nat.is_eq(da, d) == True{} : Bool}, bd: {Nat.is_eq(db, d) == True{} : Bool}) -> {va == vb : Nat}:
-  LNatIsEq.pq.eq_true(va, vb, pq.ncv(Nat.is_eq(ta, tb), Nat.is_eq(da, db), Nat.is_eq(va, vb), nc, pq.eq_tr(ta, tb, f, af, bf), pq.eq_tr(da, db, d, ad, bd)))
+  LLogicNat.pq.eq_true(va, vb, pq.ncv(Nat.is_eq(ta, tb), Nat.is_eq(da, db), Nat.is_eq(va, vb), nc, pq.eq_tr(ta, tb, f, af, bf), pq.eq_tr(da, db, d, ad, bd)))
 
 # two rules of one rank that apply with one directive and do not clash
 # have one value
 def pq.same_val(+q: If.Query, +a: If.Rule, +b: If.Rule, +d: Nat, nc: {If.clash(a, b) == False{} : Bool}, +ha: {Bool.and(If.applies(q, a), Nat.is_eq(If.Rule.dir(a), d)) == True{} : Bool}, +hb: {Bool.and(If.applies(q, b), Nat.is_eq(If.Rule.dir(b), d)) == True{} : Bool}, er: {Nat.is_eq(If.Rule.rank(a), If.Rule.rank(b)) == True{} : Bool}) -> {If.Rule.val(a) == If.Rule.val(b) : Nat}:
   match q a b:
     case If.Query{+f, m, h} If.Rule{If.Fam{}, +ta, +da, +va} If.Rule{If.Fam{}, +tb, +db, +vb}:
-      pq.val_of(ta, tb, da, db, va, vb, f, d, nc, LBoolAnd.pq.and_l(Nat.is_eq(ta, f), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_l(Nat.is_eq(tb, f), Nat.is_eq(db, d), hb), LBoolAnd.pq.and_r(Nat.is_eq(ta, f), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_r(Nat.is_eq(tb, f), Nat.is_eq(db, d), hb))
+      pq.val_of(ta, tb, da, db, va, vb, f, d, nc, LLogicBool.pq.and_l(Nat.is_eq(ta, f), Nat.is_eq(da, d), ha), LLogicBool.pq.and_l(Nat.is_eq(tb, f), Nat.is_eq(db, d), hb), LLogicBool.pq.and_r(Nat.is_eq(ta, f), Nat.is_eq(da, d), ha), LLogicBool.pq.and_r(Nat.is_eq(tb, f), Nat.is_eq(db, d), hb))
     case If.Query{f, +m, h} If.Rule{If.Mod{}, +ta, +da, +va} If.Rule{If.Mod{}, +tb, +db, +vb}:
-      pq.val_of(ta, tb, da, db, va, vb, m, d, nc, LBoolAnd.pq.and_l(Nat.is_eq(ta, m), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_l(Nat.is_eq(tb, m), Nat.is_eq(db, d), hb), LBoolAnd.pq.and_r(Nat.is_eq(ta, m), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_r(Nat.is_eq(tb, m), Nat.is_eq(db, d), hb))
+      pq.val_of(ta, tb, da, db, va, vb, m, d, nc, LLogicBool.pq.and_l(Nat.is_eq(ta, m), Nat.is_eq(da, d), ha), LLogicBool.pq.and_l(Nat.is_eq(tb, m), Nat.is_eq(db, d), hb), LLogicBool.pq.and_r(Nat.is_eq(ta, m), Nat.is_eq(da, d), ha), LLogicBool.pq.and_r(Nat.is_eq(tb, m), Nat.is_eq(db, d), hb))
     case If.Query{f, m, +h} If.Rule{If.Host{}, +ta, +da, +va} If.Rule{If.Host{}, +tb, +db, +vb}:
-      pq.val_of(ta, tb, da, db, va, vb, h, d, nc, LBoolAnd.pq.and_l(Nat.is_eq(ta, h), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_l(Nat.is_eq(tb, h), Nat.is_eq(db, d), hb), LBoolAnd.pq.and_r(Nat.is_eq(ta, h), Nat.is_eq(da, d), ha), LBoolAnd.pq.and_r(Nat.is_eq(tb, h), Nat.is_eq(db, d), hb))
+      pq.val_of(ta, tb, da, db, va, vb, h, d, nc, LLogicBool.pq.and_l(Nat.is_eq(ta, h), Nat.is_eq(da, d), ha), LLogicBool.pq.and_l(Nat.is_eq(tb, h), Nat.is_eq(db, d), hb), LLogicBool.pq.and_r(Nat.is_eq(ta, h), Nat.is_eq(da, d), ha), LLogicBool.pq.and_r(Nat.is_eq(tb, h), Nat.is_eq(db, d), hb))
     case If.Query{f, m, h} If.Rule{If.Fam{}, ta, da, va} If.Rule{If.Mod{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
     case If.Query{f, m, h} If.Rule{If.Fam{}, ta, da, va} If.Rule{If.Host{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
     case If.Query{f, m, h} If.Rule{If.Mod{}, ta, da, va} If.Rule{If.Fam{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
     case If.Query{f, m, h} If.Rule{If.Mod{}, ta, da, va} If.Rule{If.Host{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
     case If.Query{f, m, h} If.Rule{If.Host{}, ta, da, va} If.Rule{If.Fam{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
     case If.Query{f, m, h} If.Rule{If.Host{}, ta, da, va} If.Rule{If.Mod{}, tb, db, vb}:
-      LBoolMisc.pq.absurdF({va == vb : Nat}, er)
+      LLogicLogic.pq.absurdF({va == vb : Nat}, er)
 
 # The highest layer wins
 # ----------------------
@@ -306,11 +306,11 @@ def pq.good(b: Maybe<&2, If.Best>, +r: If.Rule) -> Bool:
 def pq.good_ans(b: Maybe<&2, If.Best>, +r: If.Rule, g: {pq.good(b, r) == True{} : Bool}) -> {If.ans(b) == If.Known{If.Rule.val(r)} : If.Ans}:
   match b:
     case None{}:
-      LBoolMisc.pq.absurdF({If.ans(None{}) == If.Known{If.Rule.val(r)} : If.Ans}, g)
+      LLogicLogic.pq.absurdF({If.ans(None{}) == If.Known{If.Rule.val(r)} : If.Ans}, g)
     case Some{x}:
       match x:
         case If.Best{+k, +v}:
-          +ev = LNatIsEq.pq.eq_true(v, If.Rule.val(r), LBoolAnd.pq.and_r(Nat.is_eq(k, If.Rule.rank(r)), Nat.is_eq(v, If.Rule.val(r)), g))
+          +ev = LLogicNat.pq.eq_true(v, If.Rule.val(r), LLogicBool.pq.and_r(Nat.is_eq(k, If.Rule.rank(r)), Nat.is_eq(v, If.Rule.val(r)), g))
           Equal.cong(Nat, If.Ans, z => If.Known{z}, v, If.Rule.val(r), ev)
 
 def pq.good_fresh(+r: If.Rule) -> {pq.good(Some{If.Best{If.Rule.rank(r), If.Rule.val(r)}}, r) == True{} : Bool}:
@@ -323,12 +323,12 @@ def pq.good_fresh(+r: If.Rule) -> {pq.good(Some{If.Best{If.Rule.rank(r), If.Rule
 def pq.post_step(b: Maybe<&2, If.Best>, +s: If.Rule, +r: If.Rule, +gb: {pq.good(b, r) == True{} : Bool}, ns: {Nat.is_lt(If.Rule.rank(r), If.Rule.rank(s)) == False{} : Bool}) -> {pq.good(If.better(b, s), r) == True{} : Bool}:
   match b:
     case None{}:
-      LBoolMisc.pq.absurdF({pq.good(If.better(None{}, s), r) == True{} : Bool}, gb)
+      LLogicLogic.pq.absurdF({pq.good(If.better(None{}, s), r) == True{} : Bool}, gb)
     case Some{x}:
       match x:
         case If.Best{+k, +v}:
           +R = If.Rule.rank(r)
-          +ek = LNatIsEq.pq.eq_true(k, R, LBoolAnd.pq.and_l(Nat.is_eq(k, R), Nat.is_eq(v, If.Rule.val(r)), gb))
+          +ek = LLogicNat.pq.eq_true(k, R, LLogicBool.pq.and_l(Nat.is_eq(k, R), Nat.is_eq(v, If.Rule.val(r)), gb))
           +lk = pq.lt_at(k, R, If.Rule.rank(s), ek, ns)
           %Equal.sym(Bool, Nat.is_lt(k, If.Rule.rank(s)), False{}, lk) : {pq.good(If.better.at(_, If.Best{k, v}, s), r) == True{} : Bool}
           gb
@@ -447,7 +447,7 @@ def pq.pre_go(pre: List<&2, If.Rule>, +r: If.Rule, +post: List<&2, If.Rule>, +q:
 def pq.quirk_highest_wins(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +r: If.Rule, +post: List<&2, If.Rule>, +q: If.Query, ok: {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == True{} : Bool}, hit: {If.applies(q, r) == True{} : Bool}, top: {If.any_at(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r), 1n+If.Rule.rank(r)) == False{} : Bool}) -> {If.lookup(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r)) == If.Known{If.Rule.val(r)} : If.Ans}:
   +L = List.append(&2, If.Rule, pre, r <> post)
   +D = If.Rule.dir(r)
-  +am = pq.not_f(If.ambiguous(L), LBoolAnd.pq.and_r(If.known_all(L, known), Bool.not(If.ambiguous(L)), ok))
+  +am = pq.not_f(If.ambiguous(L), LLogicBool.pq.and_r(If.known_all(L, known), Bool.not(If.ambiguous(L)), ok))
   +g = pq.pre_go(pre, r, post, q, None{}, If.use.at(L, q, D), {==}, {==}, top, am, hit)
   pq.good_ans(If.look.go(L, q, D, None{}, If.use.at(L, q, D)), r, g)
 
@@ -480,10 +480,10 @@ def w2.of_fits(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +ls: List<&2, Nat>, f: 
     case None{}:
       Equal.cong(If.Plan, List<&2, Nat>, w2.listed, If.Fits{ls}, If.Fits{If.ids(L)}, Equal.sym(If.Plan, If.Fits{If.ids(L)}, If.Fits{ls}, f))
     case Some{i}:
-      LBoolMisc.pq.absurd({ls == If.ids(L) : List<&2, Nat>}, Equal.cong(If.Plan, Bool, w2.over, If.Over{i}, If.Fits{ls}, f))
+      LLogicLogic.pq.absurd({ls == If.ids(L) : List<&2, Nat>}, Equal.cong(If.Plan, Bool, w2.over, If.Over{i}, If.Fits{ls}, f))
 
 def w2.mt(-A: Type, -x: Nat, e: {Some{x} == None{} : Maybe<&2, Nat>}) -> A:
-  LBoolMisc.pq.absurd(A, Equal.cong(Maybe<&2, Nat>, Bool, m => Maybe.is_some(&2, Nat, m), Some{x}, None{}, e))
+  LLogicLogic.pq.absurd(A, Equal.cong(Maybe<&2, Nat>, Bool, m => Maybe.is_some(&2, Nat, m), Some{x}, None{}, e))
 
 # is_eq(a, b) true and is_eq(a, c) false: b is not c
 def w2.elem_at(+need: List<&2, Nat>, +a: Nat, +i: Nat, ai: {a == i : Nat}, n: {If.elem(need, i) == True{} : Bool}) -> {If.elem(need, a) == True{} : Bool}:
@@ -521,11 +521,11 @@ def pc.i_tool(+t: If.Tool, +rest: String, h: {Infer.core_tool_fits(t) == True{} 
   match t:
     case If.Tool{+i, +p}:
       +hhh = h
-      +hh0 = LBoolAnd.wr_and_r(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh)
+      +hh0 = LLogicBool.wr_and_r(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh)
       +r1 = Wr.put_nat(p, rest)
       +r0 = Wr.put_nat(i, r1)
       +d0 = Wr.get_nat(r0)
-      +e0 = LWire.pc.nat(i, r1, LBoolAnd.wr_and_l(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh))
+      +e0 = LWire.pc.nat(i, r1, LLogicBool.wr_and_l(LawsBase.wire_fits(i), LawsBase.wire_fits(p), hhh))
       +d1 = FIn.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
       +e1 = pc.seqFIn(~Nat, ~Nat, ~Wr.get_nat, i, r1, p, rest, d0, e0, LWire.pc.nat(p, rest, hh0))
       %e1 : {Wr.Got{If.Tool{i, p}, rest} == FIn.get_tool.of(_) : Wr.Dec<If.Tool>}
@@ -560,11 +560,11 @@ def pc.i_tool_go_rt(+t: List<&2, If.Tool>, +x: If.Tool, +rest: String,
   {Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, If.Tool>>}:
   match t:
     case Nil{}:
-      %pc.i_tool(x, rest, LBoolAnd.wr_and_l(Infer.core_tool_fits(x), True{}, hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, If.Tool>>}
+      %pc.i_tool(x, rest, LLogicBool.wr_and_l(Infer.core_tool_fits(x), True{}, hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, If.Tool>>}
       {==}
     case Con{+y, +u}:
-      %pc.i_tool(x, FIn.put_tool(y, pc.i_tool_items(u, rest)), LBoolAnd.wr_and_l(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 1n+List.length(&2, If.Tool, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
-      %Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, u), FIn.get_tool(FIn.put_tool(y, pc.i_tool_items(u, rest)))), Wr.Got{y <> u, rest}, pc.i_tool_go_rt(u, y, rest, LBoolAnd.wr_and_r(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf))) : {Wr.get_list.cons(If.Tool, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      %pc.i_tool(x, FIn.put_tool(y, pc.i_tool_items(u, rest)), LLogicBool.wr_and_l(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 1n+List.length(&2, If.Tool, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      %Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, u), FIn.get_tool(FIn.put_tool(y, pc.i_tool_items(u, rest)))), Wr.Got{y <> u, rest}, pc.i_tool_go_rt(u, y, rest, LLogicBool.wr_and_r(Infer.core_tool_fits(x), Infer.core_tools_fit(y <> u), hf))) : {Wr.get_list.cons(If.Tool, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
       {==}
 
 # a list that fits, of a length that fits, reads back
@@ -572,29 +572,29 @@ def pc.i_tools(+xs: List<&2, If.Tool>, +rest: String, h: {Bool.and(LawsBase.wire
   {Wr.Got{xs, rest} == Wr.get_list(~If.Tool, ~FIn.get_tool, Wr.put_list(~If.Tool, ~FIn.put_tool, xs, rest)) : Wr.Dec<List<&2, If.Tool>>}:
   match xs:
     case Nil{}:
-      %LWire.pc.nat(0n, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(0n), True{}, h)) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      %LWire.pc.nat(0n, rest, LLogicBool.wr_and_l(LawsBase.wire_fits(0n), True{}, h)) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~If.Tool, ~FIn.put_tool, x <> t, r), Wr.put_nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r)), pc.i_tool_put(x <> t, r)) : {Wr.Got{x <> t, r} == Wr.get_list(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
-      %LWire.pc.nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)) : {Wr.Got{x <> t, r} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
-      Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, r)))), Wr.Got{x <> t, r}, pc.i_tool_go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)))
+      %LWire.pc.nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)) : {Wr.Got{x <> t, r} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, r)))), Wr.Got{x <> t, r}, pc.i_tool_go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, If.Tool, x <> t)), Infer.core_tools_fit(x <> t), hh)))
 
 # a strict plan request that fits reads back
 def pc.i_req(+q: FIn.Req, +rest: String, h: {Infer.core_infer_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FIn.get_req(FIn.put_req(q, rest)) : Wr.Dec<FIn.Req>}:
   match q:
     case FIn.Req{+cap, +ts, +need}:
       +hhh = h
-      +hh0 = LBoolAnd.wr_and_r(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh)
-      +hh1 = LBoolAnd.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)
+      +hh0 = LLogicBool.wr_and_r(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh)
+      +hh1 = LLogicBool.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)
       +r2 = Wr.put_list(~Nat, ~Wr.put_nat, need, rest)
       +r1 = Wr.put_list(~If.Tool, ~FIn.put_tool, ts, r2)
       +r0 = FIn.put_mnat(cap, r1)
       +d0 = FIn.get_mnat(r0)
-      +e0 = pc.i_mnat(cap, r1, LBoolAnd.wr_and_l(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh))
+      +e0 = pc.i_mnat(cap, r1, LLogicBool.wr_and_l(LawsBase.core_mfits(cap), Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need))), hhh))
       +d1 = FIn.seq(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, d0)
-      +e1 = pc.seqFIn(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, cap, r1, ts, r2, d0, e0, pc.i_tools(ts, r2, LBoolAnd.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)))
+      +e1 = pc.seqFIn(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, cap, r1, ts, r2, d0, e0, pc.i_tools(ts, r2, LLogicBool.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, If.Tool, ts)), Infer.core_tools_fit(ts)), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, need)), LawsBase.wire_nats_fit(need)), hh0)))
       +d2 = FIn.seq(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, d1)
       +e2 = pc.seqFIn(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, FIn.P2{cap, ts}, r2, need, rest, d1, e1, pc.nats(need, rest, hh1))
       %e2 : {Wr.Got{FIn.Req{cap, ts, need}, rest} == FIn.get_req.of(_) : Wr.Dec<FIn.Req>}

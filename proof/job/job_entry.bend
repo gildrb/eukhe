@@ -7,7 +7,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/job.bend as Job
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ../wire/wire_u32_round_trip.bend as PWireU32RoundTrip
 
@@ -48,13 +48,13 @@ def pw6.job(j: Jb.J, +rest: String, +h: {Job.wire_job_fits(j) == True{} : Bool})
   match j:
     case Jb.Live{+k, +d}:
       %LWire.pw6.nat(0n, Wr.put_nat(k, Wr.put_nat(d, rest)), {==}) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
-      %LWire.pw6.nat(k, Wr.put_nat(d, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.k(_) : Wr.Dec<Jb.J>}
-      %LWire.pw6.nat(d, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.d(k, _) : Wr.Dec<Jb.J>}
+      %LWire.pw6.nat(k, Wr.put_nat(d, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.k(_) : Wr.Dec<Jb.J>}
+      %LWire.pw6.nat(d, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.d(k, _) : Wr.Dec<Jb.J>}
       {==}
     case Jb.Ended{+k, +d, +x}:
       %LWire.pw6.nat(1n, Wr.put_nat(k, Wr.put_nat(d, FJb.put_end(x, rest))), {==}) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
-      %LWire.pw6.nat(k, Wr.put_nat(d, FJb.put_end(x, rest)), LBoolAnd.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ek(_) : Wr.Dec<Jb.J>}
-      %LWire.pw6.nat(d, FJb.put_end(x, rest), LBoolAnd.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ed(k, _) : Wr.Dec<Jb.J>}
+      %LWire.pw6.nat(k, Wr.put_nat(d, FJb.put_end(x, rest)), LLogicBool.wr_and_l(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ek(_) : Wr.Dec<Jb.J>}
+      %LWire.pw6.nat(d, FJb.put_end(x, rest), LLogicBool.wr_and_r(LawsBase.wire_fits(k), LawsBase.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ed(k, _) : Wr.Dec<Jb.J>}
       %pw6.end(x, rest) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.e(k, d, _) : Wr.Dec<Jb.J>}
       {==}
 

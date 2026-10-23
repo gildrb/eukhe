@@ -3,24 +3,24 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/nat.bend as LNat
 
 def ps.le_assoc(y: Nat, +h: Nat, +s: Nat, rows: Nat, f: {Nat.is_le(Nat.add(y, Nat.add(h, s)), rows) == True{} : Bool}) -> {Nat.is_le(Nat.add(Nat.add(y, h), s), rows) == True{} : Bool}:
   match y rows:
     case 0n _:
       f
     case 1n+p 0n:
-      LBoolMisc.screen.ps.absurdF({Nat.is_le(Nat.add(Nat.add(1n+p, h), s), 0n) == True{} : Bool}, f)
+      LLogicLogic.screen.ps.absurdF({Nat.is_le(Nat.add(Nat.add(1n+p, h), s), 0n) == True{} : Bool}, f)
     case 1n+p 1n+rp:
       ps.le_assoc(p, h, s, rp, f)
 
 def ps.le_addl(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(Nat.add(n, p), m) == True{} : Bool}) -> {Nat.is_le(n, m) == True{} : Bool}:
   match n m:
     case 0n _:
-      LNatIsLe.ps.le0(m)
+      LNat.ps.le0(m)
     case 1n+np 0n:
-      LBoolMisc.screen.ps.absurdF({Nat.is_le(1n+np, 0n) == True{} : Bool}, h)
+      LLogicLogic.screen.ps.absurdF({Nat.is_le(1n+np, 0n) == True{} : Bool}, h)
     case 1n+np 1n+mp:
       ps.le_addl(np, p, mp, h)
 
@@ -31,7 +31,7 @@ def ps.le_sub(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(Nat.add(n, p), m) == True{}
     case 0n 1n+mp:
       h
     case 1n+np 0n:
-      LBoolMisc.screen.ps.absurdF({Nat.is_le(p, 0n) == True{} : Bool}, h)
+      LLogicLogic.screen.ps.absurdF({Nat.is_le(p, 0n) == True{} : Bool}, h)
     case 1n+np 1n+mp:
       ps.le_sub(np, p, mp, h)
 
@@ -40,7 +40,7 @@ def ps.min_of_le(n: Nat, m: Nat, h: {Nat.is_le(n, m) == True{} : Bool}) -> {Nat.
     case 0n _:
       {==}
     case 1n+np 0n:
-      LBoolMisc.screen.ps.absurdF({Nat.min(1n+np, 0n) == 1n+np : Nat}, h)
+      LLogicLogic.screen.ps.absurdF({Nat.min(1n+np, 0n) == 1n+np : Nat}, h)
     case 1n+np 1n+mp:
       %ps.min_of_le(np, mp, h) : {1n+Nat.min(np, mp) == 1n+_ : Nat}
       {==}

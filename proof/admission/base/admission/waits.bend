@@ -2,10 +2,10 @@
 
 import Base
 import ../../../../bend/admission.bend as Ad
+import ./isz.bend as LAAdmissionIsz
 import ./le.bend as LAAdmissionLe
-import ./misc.bend as LAAdmissionMisc
 import ./pot.bend as LAAdmissionPot
-import ../bool.bend as LABool
+import ../logic.bend as LALogic
 
 def aw.wait_pre1(t: Ad.Tk) -> {Ad.waits.ia(Some{Ad.Tk.preempt(t)}) == Ad.waits.ia(Some{t}) : Bool}:
   match t:
@@ -41,7 +41,7 @@ def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get
         case Ad.Ia{} Ad.Queued{}:
           match c w:
             case Ad.Ia{} 0n:
-              LABool.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Ia{}, Ad.Queued{}}}) == True{} : Bool}, e)
             case Ad.Ia{} 1n+p:
               e
             case Ad.Bg{} 0n:
@@ -51,7 +51,7 @@ def aw.wait_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, +w: Nat, e: {Ad.waits.ia(Ad.get
         case Ad.Bg{} Ad.Queued{}:
           match c w:
             case Ad.Bg{} 0n:
-              LABool.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}) == True{} : Bool}, e)
+              LALogic.ad.absurd({Ad.waits.ia(Some{Ad.Tk{Ad.Bg{}, Ad.Queued{}}}) == True{} : Bool}, e)
             case Ad.Bg{} 1n+p:
               e
             case Ad.Ia{} 0n:
@@ -116,7 +116,7 @@ def aw.st_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +w: Nat, +ws: {Ad.waits.
   +ws1 = Equal.trans(Bool, Ad.waits.ia(Ad.get(t1, w)), Ad.waits.ia(Ad.get(ts, w)), True{}, aw.wait_pre(ts, w), ws)
   %Equal.sym(Nat, Ad.pot(List.append(&2, Ad.Tk, t1, [x]), w), Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), Ad.pot(t1, w)), LAAdmissionPot.aw.pot_app(t1, x, w, ws1)) : {Ad.le(_, p) == True{} : Bool}
   %Equal.sym(Nat, Ad.pot(t1, w), p, LAAdmissionPot.aw.pot_pre(ts, w)) : {Ad.le(Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), _), p) == True{} : Bool}
-  %Equal.sym(Bool, Ad.isz(wi), False{}, LAAdmissionMisc.aw.wait_cnt(ts, w, ws)) : {Ad.le(Ad.bit(Bool.and(Ad.Mode.of(Ad.Holding{}, Ad.admit.ia.st(Bool.and(_, Ad.room(l, hi)), Ad.le(q, wi))), True{}), p), p) == True{} : Bool}
+  %Equal.sym(Bool, Ad.isz(wi), False{}, LAAdmissionIsz.aw.wait_cnt(ts, w, ws)) : {Ad.le(Ad.bit(Bool.and(Ad.Mode.of(Ad.Holding{}, Ad.admit.ia.st(Bool.and(_, Ad.room(l, hi)), Ad.le(q, wi))), True{}), p), p) == True{} : Bool}
   LAAdmissionLe.aw.ia_new(Ad.room(l, hi), Ad.le(q, wi), p)
 
 def aw.rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, +w: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, wf: {Ad.waits.ia(Ad.get(Ad.St.ts(Ad.release.at(mb, l, q, ts, k)), w)) == True{} : Bool}) -> {Ad.le(Nat.add(Ad.frees.at(mb, True{}), Ad.pot(Ad.St.ts(Ad.release.at(mb, l, q, ts, k)), w)), Ad.pot(ts, w)) == True{} : Bool}:

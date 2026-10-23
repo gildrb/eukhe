@@ -3,13 +3,13 @@
 import Base
 import ../../bend/wire.bend as Wr
 import ../../laws/wire.bend as Wire
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def wr_lt_eq(-G: Type, e: {LT{} == EQ{} : Cmp}) -> G:
-  LBoolMisc.wr_absurd(G, Equal.cong(Cmp, Bool, c => Cmp.is_eq(c), LT{}, EQ{}, e))
+  LLogicLogic.wr_absurd(G, Equal.cong(Cmp, Bool, c => Cmp.is_eq(c), LT{}, EQ{}, e))
 
 def wr_gt_eq(-G: Type, e: {GT{} == EQ{} : Cmp}) -> G:
-  LBoolMisc.wr_absurd(G, Equal.cong(Cmp, Bool, c => Cmp.is_eq(c), GT{}, EQ{}, e))
+  LLogicLogic.wr_absurd(G, Equal.cong(Cmp, Bool, c => Cmp.is_eq(c), GT{}, EQ{}, e))
 
 def wr_cmp_eq_fin(-p: Nat, -at: Word(p), -bt: Word(p), t: Cmp, +ab: Bool, +bb: Bool,
   et: {Word.cmp(p, at, bt) == t : Cmp},
@@ -56,11 +56,11 @@ def wr_sound_fin(+a: U32, +b: U32, t: Cmp, et: {U32.cmp(a, b) == t : Cmp},
   e: {Cmp.is_eq(t) == True{} : Bool}) -> {a == b : U32}:
   match t:
     case LT{}:
-      LBoolMisc.wr_absurd({a == b : U32}, e)
+      LLogicLogic.wr_absurd({a == b : U32}, e)
     case EQ{}:
       wr_cmp_eq(a, b)(et)
     case GT{}:
-      LBoolMisc.wr_absurd({a == b : U32}, e)
+      LLogicLogic.wr_absurd({a == b : U32}, e)
 
 # U32.is_eq is real equality (u32_order: eq_sound)
 def wr_eq_sound(+a: U32, +b: U32, e: {U32.is_eq(a, b) == True{} : Bool}) -> {a == b : U32}:

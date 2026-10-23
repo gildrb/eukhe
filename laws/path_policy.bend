@@ -11,8 +11,8 @@ import ./base.bend as LawsBase
 # ---- path_policy ----
 
 # LAWS (G1): the path policy. Each law is an open claim about the model
-# in bend/path_policy.bend; PROOF.bend proves them (as Laws.<law>) with the
-# lemmas of PROOF.bend section path_policy.
+# in bend/path_policy.bend; PROOF.bend proves them (as PathPolicy.<law>) with the
+# lemmas of proof/path_policy/.
 
 # (G1) Path policy
 # ----------------

@@ -20,8 +20,8 @@
 # (Recoveries, H4.8), so the run has no loop guard.
 #
 # LAWS.bend (H4) states what must hold; PROOF.bend proves it through
-# PROOF.bend section run, and the laws of the requests a run sends (H4.7,
-# Reqs at the end) through PROOF.bend section retry. The Rust side is
+# proof/run/, and the laws of the requests a run sends (H4.7,
+# Reqs at the end) through proof/retry/. The Rust side is
 # crates/eukhe-durable/src/harness/generation/decide.rs: it calls the
 # decisions at the end through the compiled core (bend/ffi_run.bend).
 

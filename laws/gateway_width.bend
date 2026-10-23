@@ -12,8 +12,8 @@ import ./base.bend as LawsBase
 # LAWS: the Signal gateway aligns a table by display width. Each law is an
 # open claim about the model in bend/gateway_width.bend (the formatter
 # `push_table` of crates/eukhe-gateway/src/style.rs); PROOF.bend proves
-# them (as Laws.<law>) with the lemmas of
-# PROOF.bend section gateway_width.
+# them (as GatewayWidth.<law>) with the lemmas of
+# proof/gateway_width/.
 
 # LAW: every row of a formatted table has the same display width per
 # column: each row of the table (pre, row, post) renders as the widths of

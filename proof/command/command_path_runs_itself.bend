@@ -11,8 +11,9 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base/bool/misc.bend as LBoolMisc
 import ../base/list.bend as LList
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
 import ./base.bend as LA
 
 def pri_at(b: Bool, -p: List<&2, List<&2, Nat>>) -> {Cmd.finish.at(b, p) == Command.cmd_ended.at(b, p) : Cmd.Res}:
@@ -28,14 +29,14 @@ def pri_end(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, 
     case None{}:
       {==}
     case Some{Cmd.Ent{+q, +a, +r, +f, +g}}:
-      %LList.cb_path_eq(q, p, hf) : {Cmd.finish.at(Bool.or(r, Bool.not(Cmd.kids.any(t, q))), p) == Command.cmd_ended.at(Bool.or(r, Bool.not(Command.cmd_has_kid(t, _))), p) : Cmd.Res}
+      %LLogicNat.cb_path_eq(q, p, hf) : {Cmd.finish.at(Bool.or(r, Bool.not(Cmd.kids.any(t, q))), p) == Command.cmd_ended.at(Bool.or(r, Bool.not(Command.cmd_has_kid(t, _))), p) : Cmd.Res}
       %LA.cb_kids_any(t, q) : {Cmd.finish.at(Bool.or(r, Bool.not(Cmd.kids.any(t, q))), p) == Command.cmd_ended.at(Bool.or(r, Bool.not(_)), p) : Cmd.Res}
       pri_at(Bool.or(r, Bool.not(Cmd.kids.any(t, q))), p)
 
 def Command.command_path_runs_itself(t, p, ok, on):
   match p:
     case Nil{}:
-      LBoolMisc.cb_absurd({Cmd.resolve(t, Command.cmd_render(Nil{})) == Command.cmd_ended(t, Nil{}) : Cmd.Res}, on)
+      LLogicLogic.cb_absurd({Cmd.resolve(t, Command.cmd_render(Nil{})) == Command.cmd_ended(t, Nil{}) : Cmd.Res}, on)
     case Con{+x, +rest}:
       +k = ok
       +o = on

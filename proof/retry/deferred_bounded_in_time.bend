@@ -3,8 +3,8 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def rp.late_off(a: R.Act, +left: Nat) -> {R.tally.late(a, left, False{}) == 0n : Nat}:
@@ -25,7 +25,7 @@ def rp.pending_late(over: Bool, left: Nat, +gap: Nat, e: {Nat.is_eq(left, 0n) ==
     case True{} l:
       {==}
     case False{} 0n:
-      LBoolMisc.rp.absurdT({R.late.at(0n) == 0n : Nat}, e)
+      LLogicLogic.rp.absurdT({R.late.at(0n) == 0n : Nat}, e)
     case False{} 1n+k:
       {==}
 
@@ -34,7 +34,7 @@ def rp.failed_late(again: Bool, r: Bool, +failed: Nat, +fails: Nat, left: Nat, +
     case False{} l:
       {==}
     case True{} 0n:
-      LBoolMisc.rp.absurdF({R.late.at(0n) == 0n : Nat}, LBoolAnd.rp.and_r(Nat.is_lt(failed, fails), False{}, LBoolAnd.rp.and_r(r, Bool.and(Nat.is_lt(failed, fails), False{}), e)))
+      LLogicLogic.rp.absurdF({R.late.at(0n) == 0n : Nat}, LLogicBool.rp.and_r(Nat.is_lt(failed, fails), False{}, LLogicBool.rp.and_r(r, Bool.and(Nat.is_lt(failed, fails), False{}), e)))
     case True{} 1n+k:
       {==}
 

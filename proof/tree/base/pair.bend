@@ -2,9 +2,9 @@
 
 import Base
 import ../../../bend/tree.bend as Tr
-import ./bool.bend as LABool
+import ./logic.bend as LALogic
 
-def tc.keep_case_bst2(b: Bool, +m: Tr.KMap, +n: Tr.KMap, +bm: {LABool.tc.mpok(m) == True{} : Bool}, +bn: {LABool.tc.mpok(n) == True{} : Bool}) -> {LABool.tc.mpok(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n))) == True{} : Bool}:
+def tc.keep_case_bst2(b: Bool, +m: Tr.KMap, +n: Tr.KMap, +bm: {LALogic.tc.mpok(m) == True{} : Bool}, +bn: {LALogic.tc.mpok(n) == True{} : Bool}) -> {LALogic.tc.mpok(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n))) == True{} : Bool}:
   match b:
     case True{}:
       bn

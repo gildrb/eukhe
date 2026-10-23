@@ -7,7 +7,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/replace.bend as Replace
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
@@ -24,4 +24,4 @@ def fr.rt_rel(+c: String, +d: String, +same: Bool, hc: {LawsBase.wire_fits(Strin
 
 def Replace.replace_ffi_relation(c, d, ic, id, f):
   +X = FRp.put_req(FRp.ReqRelation{c, d, String.eq(ic, id)}, "")
-  Equal.trans(String, FRp.ffi(X), FRp.ffi.of(Wr.Got{FRp.ReqRelation{c, d, String.eq(ic, id)}, ""}), FRp.put_rel(Rp.relation(Rp.Build.of(c, ic), Rp.Build.of(d, id)), ""), Equal.cong(Wr.Dec<FRp.Req>, String, FRp.ffi.of, FRp.get_req(X), Wr.Got{FRp.ReqRelation{c, d, String.eq(ic, id)}, ""}, fr.rt_rel(c, d, String.eq(ic, id), LBoolAnd.wr_and_l(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), f), LBoolAnd.wr_and_r(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), f))), {==})
+  Equal.trans(String, FRp.ffi(X), FRp.ffi.of(Wr.Got{FRp.ReqRelation{c, d, String.eq(ic, id)}, ""}), FRp.put_rel(Rp.relation(Rp.Build.of(c, ic), Rp.Build.of(d, id)), ""), Equal.cong(Wr.Dec<FRp.Req>, String, FRp.ffi.of, FRp.get_req(X), Wr.Got{FRp.ReqRelation{c, d, String.eq(ic, id)}, ""}, fr.rt_rel(c, d, String.eq(ic, id), LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), f), LLogicBool.wr_and_r(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), f))), {==})

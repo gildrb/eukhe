@@ -6,7 +6,7 @@ import ../../bend/ffi_admission.bend as FAd
 import ../../bend/wire.bend as Wr
 import ../../laws/admission.bend as Admission
 import ../../laws/base.bend as LawsBase
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ./base/wire.bend as LAWire
 import ./adw_lvs_round_trip.bend as PAdwLvsRoundTrip
 
@@ -21,10 +21,10 @@ def Admission.adw_live_round_trip(x, rest, h):
       +r = rest
       +hh = h
       +lt = Bool.and(LawsBase.wire_fits(List.length(&2, Ad.Lv, ts)), Admission.adw_lvs_fit(ts))
-      +h1 = LBoolAnd.wr_and_r(Admission.adw_lim_fits(l), Bool.and(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n))), hh)
-      +h2 = LBoolAnd.wr_and_r(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n)), h1)
-      %LAWire.paw.lim(l, Wr.put_nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r))), LBoolAnd.wr_and_l(Admission.adw_lim_fits(l), Bool.and(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n))), hh)) : {FAd.get_live.go(_) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
-      %LAWire.paw.nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r)), LBoolAnd.wr_and_l(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n)), h1)) : {FAd.get_live.q(l, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
-      %paw.lvs(ts, Wr.put_nat(n, r), LBoolAnd.wr_and_l(lt, LawsBase.wire_fits(n), h2)) : {FAd.get_live.ts(l, q, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
-      %LAWire.paw.nat(n, r, LBoolAnd.wr_and_r(lt, LawsBase.wire_fits(n), h2)) : {FAd.get_live.next(l, q, ts, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      +h1 = LLogicBool.wr_and_r(Admission.adw_lim_fits(l), Bool.and(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n))), hh)
+      +h2 = LLogicBool.wr_and_r(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n)), h1)
+      %LAWire.paw.lim(l, Wr.put_nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r))), LLogicBool.wr_and_l(Admission.adw_lim_fits(l), Bool.and(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n))), hh)) : {FAd.get_live.go(_) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %LAWire.paw.nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r)), LLogicBool.wr_and_l(LawsBase.wire_fits(q), Bool.and(lt, LawsBase.wire_fits(n)), h1)) : {FAd.get_live.q(l, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %paw.lvs(ts, Wr.put_nat(n, r), LLogicBool.wr_and_l(lt, LawsBase.wire_fits(n), h2)) : {FAd.get_live.ts(l, q, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %LAWire.paw.nat(n, r, LLogicBool.wr_and_r(lt, LawsBase.wire_fits(n), h2)) : {FAd.get_live.next(l, q, ts, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
       {==}

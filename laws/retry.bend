@@ -10,8 +10,8 @@ import ./base.bend as LawsBase
 
 # LAWS (R, retries): when the harness sends a failed request again
 # (audit H2, H3, H4, H5, H10, M3, M4). Each law is an open claim about
-# the model in bend/retry.bend; PROOF.bend proves them (as Laws.<law>) with
-# the lemmas of PROOF.bend sections retry_policy and retry_ffi. The
+# the model in bend/retry.bend; PROOF.bend proves them (as Retry.<law>) with
+# the lemmas of proof/retry/. The
 # classifier, the wait, the failover walk and the stall run as this model,
 # compiled (bend/ffi_retry.bend, R7; Rust calls eukhe_bend::rules::retry).
 # The deferred job runs as bend/run/decision.bend, compiled (bend/ffi_run.bend).
@@ -611,7 +611,7 @@ law stall_silent_ends_at_deadline:
 # -----------------------------------
 # bend/ffi_retry.bend `ffi`: the classifier, the wait, the failover walk
 # and the stall, called from Rust through crate eukhe-bend in the wire
-# format of LAWS.bend section wire. Rust saturates every value (above) so
+# format of laws/wire.bend. Rust saturates every value (above) so
 # each Nat it encodes fits the wire.
 
 # a Maybe<Nat> fits the wire

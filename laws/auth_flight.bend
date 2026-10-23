@@ -7,7 +7,7 @@ import ../bend/auth_flight.bend as F
 
 # LAWS (A1): the OAuth refresh flight. Each law is an open claim about the
 # model in bend/auth_flight.bend; PROOF.bend proves them (as
-# Laws.<law>) with the lemmas of PROOF.bend section auth_flight.
+# AuthFlight.<law>) with the lemmas of proof/auth_flight/.
 
 # (A1) One refresh flight per provider
 # ------------------------------------

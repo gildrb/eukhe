@@ -3,8 +3,10 @@
 import Base
 import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
-import ./base/admission/misc.bend as LAAdmissionMisc
+import ./base/admission/get.bend as LAAdmissionGet
+import ./base/admission/hit.bend as LAAdmissionHit
 import ./base/bool.bend as LABool
+import ./base/logic.bend as LALogic
 
 # Grants within a class go oldest first
 # -------------------------------------
@@ -30,7 +32,7 @@ def ad.f_any(t: List<&2, Ad.Tk>, +c: Ad.Cls, b: Bool, e: {Ad.fifo(c, t, True{}) 
         case True{}:
           e
         case False{}:
-          ad.f_any(r, c, Ad.hit(Ad.Waiting{}, c, h), LABool.ad.and_r(Bool.not(Ad.hit(Ad.Holding{}, c, h)), Ad.fifo(c, r, True{}), e))
+          ad.f_any(r, c, Ad.hit(Ad.Waiting{}, c, h), LALogic.ad.and_r(Bool.not(Ad.hit(Ad.Holding{}, c, h)), Ad.fifo(c, r, True{}), e))
 
 def ad.f_weak(+r: List<&2, Ad.Tk>, +c: Ad.Cls, s: Bool, w: Bool, e: {Ad.fifo(c, r, Bool.or(s, w)) == True{} : Bool}) -> {Ad.fifo(c, r, s) == True{} : Bool}:
   match s:
@@ -51,8 +53,8 @@ def ad.f_pre_ia(t: List<&2, Ad.Tk>, +s: Bool) -> {Ad.fifo(Ad.Ia{}, Ad.preempt(t)
       +hh = Ad.hit(Ad.Holding{}, Ad.Ia{}, h)
       +hw = Ad.hit(Ad.Waiting{}, Ad.Ia{}, h)
       +rhs = Bool.and(Bool.not(Bool.and(s, hh)), Ad.fifo(Ad.Ia{}, r, Bool.or(s, hw)))
-      %Equal.sym(Bool, Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk.preempt(h)), hh, LAAdmissionMisc.ad.hit_pre(Ad.Holding{}, h)) : {Bool.and(Bool.not(Bool.and(s, _)), Ad.fifo(Ad.Ia{}, Ad.preempt(r), Bool.or(s, Ad.hit(Ad.Waiting{}, Ad.Ia{}, Ad.Tk.preempt(h))))) == rhs : Bool}
-      %Equal.sym(Bool, Ad.hit(Ad.Waiting{}, Ad.Ia{}, Ad.Tk.preempt(h)), hw, LAAdmissionMisc.ad.hit_pre(Ad.Waiting{}, h)) : {Bool.and(Bool.not(Bool.and(s, hh)), Ad.fifo(Ad.Ia{}, Ad.preempt(r), Bool.or(s, _))) == rhs : Bool}
+      %Equal.sym(Bool, Ad.hit(Ad.Holding{}, Ad.Ia{}, Ad.Tk.preempt(h)), hh, LAAdmissionHit.ad.hit_pre(Ad.Holding{}, h)) : {Bool.and(Bool.not(Bool.and(s, _)), Ad.fifo(Ad.Ia{}, Ad.preempt(r), Bool.or(s, Ad.hit(Ad.Waiting{}, Ad.Ia{}, Ad.Tk.preempt(h))))) == rhs : Bool}
+      %Equal.sym(Bool, Ad.hit(Ad.Waiting{}, Ad.Ia{}, Ad.Tk.preempt(h)), hw, LAAdmissionHit.ad.hit_pre(Ad.Waiting{}, h)) : {Bool.and(Bool.not(Bool.and(s, hh)), Ad.fifo(Ad.Ia{}, Ad.preempt(r), Bool.or(s, _))) == rhs : Bool}
       %Equal.sym(Bool, Ad.fifo(Ad.Ia{}, Ad.preempt(r), Bool.or(s, hw)), Ad.fifo(Ad.Ia{}, r, Bool.or(s, hw)), ad.f_pre_ia(r, Bool.or(s, hw))) : {Bool.and(Bool.not(Bool.and(s, hh)), _) == rhs : Bool}
       {==}
 
@@ -62,14 +64,14 @@ def ad.f_pre_bg(t: List<&2, Ad.Tk>, +s: Bool) -> {Ad.fifo(Ad.Bg{}, Ad.preempt(t)
       {==}
     case +h <> +r:
       +rest = Ad.fifo(Ad.Bg{}, Ad.preempt(r), Bool.or(s, Ad.hit(Ad.Waiting{}, Ad.Bg{}, Ad.Tk.preempt(h))))
-      %Equal.sym(Bool, Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk.preempt(h)), False{}, LAAdmissionMisc.ad.hb_pre(h)) : {Bool.and(Bool.not(Bool.and(s, _)), rest) == True{} : Bool}
+      %Equal.sym(Bool, Ad.hit(Ad.Holding{}, Ad.Bg{}, Ad.Tk.preempt(h)), False{}, LAAdmissionHit.ad.hb_pre(h)) : {Bool.and(Bool.not(Bool.and(s, _)), rest) == True{} : Bool}
       %Equal.sym(Bool, Bool.and(s, False{}), False{}, LABool.ad.and_f(s)) : {Bool.and(Bool.not(_), rest) == True{} : Bool}
       ad.f_pre_bg(r, Bool.or(s, Ad.hit(Ad.Waiting{}, Ad.Bg{}, Ad.Tk.preempt(h))))
 
 def ad.fapp0(s: Bool, x: Bool, ok: {Bool.or(Bool.not(x), Bool.and(Bool.not(s), True{})) == True{} : Bool}) -> {Bool.and(Bool.not(Bool.and(s, x)), True{}) == True{} : Bool}:
   match s x:
     case True{} True{}:
-      LABool.ad.absurd({False{} == True{} : Bool}, ok)
+      LALogic.ad.absurd({False{} == True{} : Bool}, ok)
     case True{} False{}:
       {==}
     case False{} _:
@@ -80,9 +82,9 @@ def ad.fapp_ok(x: Bool, s: Bool, w: Bool, n: Nat, ok: {Bool.or(Bool.not(x), Bool
     case False{} _ _:
       {==}
     case True{} True{} _:
-      LABool.ad.absurd({Bool.or(False{}, Bool.and(False{}, Ad.isz(n))) == True{} : Bool}, ok)
+      LALogic.ad.absurd({Bool.or(False{}, Bool.and(False{}, Ad.isz(n))) == True{} : Bool}, ok)
     case True{} False{} True{}:
-      LABool.ad.absurd({Bool.or(False{}, Bool.and(False{}, Ad.isz(n))) == True{} : Bool}, ok)
+      LALogic.ad.absurd({Bool.or(False{}, Bool.and(False{}, Ad.isz(n))) == True{} : Bool}, ok)
     case True{} False{} False{}:
       ok
 
@@ -95,7 +97,7 @@ def ad.f_app(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, +x: Ad.Tk, +e: {Ad.fifo(c
     case +h <> +r:
       +hh = Ad.hit(Ad.Holding{}, c, h)
       +hw = Ad.hit(Ad.Waiting{}, c, h)
-      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, List.append(&2, Ad.Tk, r, [x]), Bool.or(s, hw)), LABool.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_app(r, c, Bool.or(s, hw), x, LABool.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.fapp_ok(Ad.hit(Ad.Holding{}, c, x), s, hw, Ad.cnt(Ad.Waiting{}, c, r), ok)))
+      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, List.append(&2, Ad.Tk, r, [x]), Bool.or(s, hw)), LALogic.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_app(r, c, Bool.or(s, hw), x, LALogic.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.fapp_ok(Ad.hit(Ad.Holding{}, c, x), s, hw, Ad.cnt(Ad.Waiting{}, c, r), ok)))
 
 # a ticket that ends keeps the order
 def ad.f_end(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, k: Nat, +e: {Ad.fifo(c, t, s) == True{} : Bool}) -> {Ad.fifo(c, Ad.put(t, k, Ad.Ended{}), s) == True{} : Bool}:
@@ -107,27 +109,27 @@ def ad.f_end(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, k: Nat, +e: {Ad.fifo(c, t
       +hw = Ad.hit(Ad.Waiting{}, c, Ad.Tk{hc, hs})
       %Equal.sym(Bool, Bool.and(s, False{}), False{}, LABool.ad.and_f(s)) : {Bool.and(Bool.not(_), Ad.fifo(c, r, Bool.or(s, False{}))) == True{} : Bool}
       %Equal.sym(Bool, Bool.or(s, False{}), s, ad.or_f(s)) : {Ad.fifo(c, r, _) == True{} : Bool}
-      ad.f_weak(r, c, s, hw, LABool.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e))
+      ad.f_weak(r, c, s, hw, LALogic.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e))
     case Ad.Tk{+hc, +hs} <> +r 1n+p:
       +hh = Ad.hit(Ad.Holding{}, c, Ad.Tk{hc, hs})
       +hw = Ad.hit(Ad.Waiting{}, c, Ad.Tk{hc, hs})
-      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, Ad.put(r, p, Ad.Ended{}), Bool.or(s, hw)), LABool.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_end(r, c, Bool.or(s, hw), p, LABool.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e)))
+      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, Ad.put(r, p, Ad.Ended{}), Bool.or(s, hw)), LALogic.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_end(r, c, Bool.or(s, hw), p, LALogic.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e)))
 
-def ad.fcol0(+hc: Ad.Cls, hs: Ad.Sts, +r: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, e: {Ad.fifo(c, Ad.Tk{hc, hs} <> r, s) == True{} : Bool}, g: {LABool.ad.isg(Some{Ad.Tk{hc, hs}}) == True{} : Bool}) -> {Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}:
+def ad.fcol0(+hc: Ad.Cls, hs: Ad.Sts, +r: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, e: {Ad.fifo(c, Ad.Tk{hc, hs} <> r, s) == True{} : Bool}, g: {LALogic.ad.isg(Some{Ad.Tk{hc, hs}}) == True{} : Bool}) -> {Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}:
   match hs:
     case Ad.Queued{}:
-      LABool.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
+      LALogic.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
     case Ad.Granted{}:
       e
     case Ad.Held{}:
-      LABool.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
+      LALogic.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
     case Ad.Preempted{}:
-      LABool.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
+      LALogic.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
     case Ad.Ended{}:
-      LABool.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
+      LALogic.ad.absurd({Ad.fifo(c, Ad.Tk{hc, Ad.Held{}} <> r, s) == True{} : Bool}, g)
 
 # collecting a grant keeps the order
-def ad.f_col(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, k: Nat, +e: {Ad.fifo(c, t, s) == True{} : Bool}, g: {LABool.ad.isg(Ad.get(t, k)) == True{} : Bool}) -> {Ad.fifo(c, Ad.put(t, k, Ad.Held{}), s) == True{} : Bool}:
+def ad.f_col(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, k: Nat, +e: {Ad.fifo(c, t, s) == True{} : Bool}, g: {LALogic.ad.isg(Ad.get(t, k)) == True{} : Bool}) -> {Ad.fifo(c, Ad.put(t, k, Ad.Held{}), s) == True{} : Bool}:
   match t k:
     case Nil{} _:
       e
@@ -136,7 +138,7 @@ def ad.f_col(t: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Bool, k: Nat, +e: {Ad.fifo(c, t
     case Ad.Tk{+hc, +hs} <> +r 1n+p:
       +hh = Ad.hit(Ad.Holding{}, c, Ad.Tk{hc, hs})
       +hw = Ad.hit(Ad.Waiting{}, c, Ad.Tk{hc, hs})
-      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, Ad.put(r, p, Ad.Held{}), Bool.or(s, hw)), LABool.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_col(r, c, Bool.or(s, hw), p, LABool.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), g))
+      LABool.ad.and_t(Bool.not(Bool.and(s, hh)), Ad.fifo(c, Ad.put(r, p, Ad.Held{}), Bool.or(s, hw)), LALogic.ad.and_l(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), ad.f_col(r, c, Bool.or(s, hw), p, LALogic.ad.and_r(Bool.not(Bool.and(s, hh)), Ad.fifo(c, r, Bool.or(s, hw)), e), g))
 
 # a grant to class c takes its oldest waiter
 def ad.f_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, e: {Ad.fifo(c, t, False{}) == True{} : Bool}) -> {Ad.fifo(c, Ad.mark(c, t), False{}) == True{} : Bool}:
@@ -169,10 +171,10 @@ def ad.f_mark(t: List<&2, Ad.Tk>, +c: Ad.Cls, e: {Ad.fifo(c, t, False{}) == True
 # a grant to the other class keeps the order: (c, d) is (Ia, Bg) or
 # (Bg, Ia)
 def ad.f_tail(+c: Ad.Cls, +h: Ad.Tk, -r: List<&2, Ad.Tk>, +s: Bool, e: {Ad.fifo(c, h <> r, s) == True{} : Bool}) -> {Ad.fifo(c, r, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))) == True{} : Bool}:
-  LABool.ad.and_r(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), e)
+  LALogic.ad.and_r(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), e)
 
 def ad.f_skip(+c: Ad.Cls, +h: Ad.Tk, -r2: List<&2, Ad.Tk>, -r: List<&2, Ad.Tk>, +s: Bool, e: {Ad.fifo(c, h <> r, s) == True{} : Bool}, ih: {Ad.fifo(c, r2, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))) == True{} : Bool}) -> {Ad.fifo(c, h <> r2, s) == True{} : Bool}:
-  LABool.ad.and_t(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r2, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), LABool.ad.and_l(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), e), ih)
+  LABool.ad.and_t(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r2, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), LALogic.ad.and_l(Bool.not(Bool.and(s, Ad.hit(Ad.Holding{}, c, h))), Ad.fifo(c, r, Bool.or(s, Ad.hit(Ad.Waiting{}, c, h))), e), ih)
 
 def ad.f_mark_ib(t: List<&2, Ad.Tk>, +s: Bool, +e: {Ad.fifo(Ad.Ia{}, t, s) == True{} : Bool}) -> {Ad.fifo(Ad.Ia{}, Ad.mark(Ad.Bg{}, t), s) == True{} : Bool}:
   match t:
@@ -220,14 +222,14 @@ def ad.f_grant(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +t: List<&2, Ad.Tk>, +e
       e
     case 1n+f Some{Ad.Ia{}}:
       +t2 = Ad.mark(Ad.Ia{}, t)
-      ad.f_grant(f, Ad.pick(l, t2), l, t2, LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_mark(t, Ad.Ia{}, LABool.ad.and_l(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e)), ad.f_mark_bi(t, False{}, LABool.ad.and_r(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e))))
+      ad.f_grant(f, Ad.pick(l, t2), l, t2, LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_mark(t, Ad.Ia{}, LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e)), ad.f_mark_bi(t, False{}, LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e))))
     case 1n+f Some{Ad.Bg{}}:
       +t2 = Ad.mark(Ad.Bg{}, t)
-      ad.f_grant(f, Ad.pick(l, t2), l, t2, LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_mark_ib(t, False{}, LABool.ad.and_l(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e)), ad.f_mark(t, Ad.Bg{}, LABool.ad.and_r(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e))))
+      ad.f_grant(f, Ad.pick(l, t2), l, t2, LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_mark_ib(t, False{}, LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e)), ad.f_mark(t, Ad.Bg{}, LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, t, False{}), Ad.fifo(Ad.Bg{}, t, False{}), e))))
 
 def ad.f_end2(+ts: List<&2, Ad.Tk>, +k: Nat, +e: {Ad.fifo.both(ts) == True{} : Bool}) -> {Ad.fifo.both(Ad.put(ts, k, Ad.Ended{})) == True{} : Bool}:
   +t2 = Ad.put(ts, k, Ad.Ended{})
-  LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_end(ts, Ad.Ia{}, False{}, k, LABool.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)), ad.f_end(ts, Ad.Bg{}, False{}, k, LABool.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)))
+  LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_end(ts, Ad.Ia{}, False{}, k, LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)), ad.f_end(ts, Ad.Bg{}, False{}, k, LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)))
 
 def ad.f_end_grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +k: Nat, +e: {Ad.fifo.both(ts) == True{} : Bool}) -> {Ad.fifo.both(Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))) == True{} : Bool}:
   +t2 = Ad.put(ts, k, Ad.Ended{})
@@ -241,8 +243,8 @@ def ad.f_col_op(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>,
       e
     case Some{Ad.Tk{+c, Ad.Granted{}}}:
       +t2 = Ad.put(ts, k, Ad.Held{})
-      +g = LAAdmissionMisc.ad.isg_at(ts, k, Some{Ad.Tk{c, Ad.Granted{}}}, ej, {==})
-      LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_col(ts, Ad.Ia{}, False{}, k, LABool.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e), g), ad.f_col(ts, Ad.Bg{}, False{}, k, LABool.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e), g))
+      +g = LAAdmissionGet.ad.isg_at(ts, k, Some{Ad.Tk{c, Ad.Granted{}}}, ej, {==})
+      LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_col(ts, Ad.Ia{}, False{}, k, LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e), g), ad.f_col(ts, Ad.Bg{}, False{}, k, LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e), g))
     case Some{Ad.Tk{c, Ad.Held{}}}:
       e
     case Some{Ad.Tk{c, Ad.Preempted{}}}:
@@ -309,18 +311,18 @@ def ad.fifo_wi(-a: Nat, -b: Nat, -x: Bool, e: {b == a : Nat}, h: {Bool.or(x, Ad.
 def ad.f_step(s: Ad.St, o: Ad.Op, +e: {Ad.fifo.both(Ad.St.ts(s)) == True{} : Bool}) -> {Ad.fifo.both(Ad.St.ts(Ad.step(s, o))) == True{} : Bool}:
   match s o:
     case Ad.St{+l, +q, +ts} Ad.Admit{Ad.Ia{}}:
-      +ei = LABool.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
+      +ei = LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
       +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
       +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
       +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
       +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
       +t1 = Ad.preempt(ts)
       +t2 = List.append(&2, Ad.Tk, t1, [x])
-      +oki = ad.fifo_wi(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, Bool.not(Ad.hit(Ad.Holding{}, Ad.Ia{}, x)), Equal.sym(Nat, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, LAAdmissionMisc.ad.pre_ia(Ad.Waiting{}, ts)), ad.fifo_ia_ok(wi, Ad.room(l, hi), Ad.le(q, wi)))
+      +oki = ad.fifo_wi(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, Bool.not(Ad.hit(Ad.Holding{}, Ad.Ia{}, x)), Equal.sym(Nat, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, LAAdmissionHit.ad.pre_ia(Ad.Waiting{}, ts)), ad.fifo_ia_ok(wi, Ad.room(l, hi), Ad.le(q, wi)))
       LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_app(t1, Ad.Ia{}, False{}, x, Equal.trans(Bool, Ad.fifo(Ad.Ia{}, t1, False{}), Ad.fifo(Ad.Ia{}, ts, False{}), True{}, ad.f_pre_ia(ts, False{}), ei), oki), ad.f_app(t1, Ad.Bg{}, False{}, x, ad.f_pre_bg(ts, False{}), ad.or_nt(Ad.hit(Ad.Holding{}, Ad.Bg{}, x), Bool.and(True{}, Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t1))), LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))))
     case Ad.St{+l, +q, +ts} Ad.Admit{Ad.Bg{}}:
-      +ei = LABool.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
-      +eb = LABool.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
+      +ei = LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
+      +eb = LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
       +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
       +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
       +hb = Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)

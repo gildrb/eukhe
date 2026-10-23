@@ -5,14 +5,14 @@ import ../../bend/child.bend as Ch
 import ../../bend/progress.bend as Pr
 import ../../laws/progress.bend as Progress
 import ../base/child.bend as LChild
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # b is not a: a test that sees b at least 1 above a sees them differ
 def pp.ne.at(c: Bool, +a: Nat, +b: Nat, e: {Nat.is_eq(a, b) == c : Bool}, lt: {Nat.is_le(1n+a, b) == True{} : Bool}) -> {Bool.not(c) == True{} : Bool}:
   match c:
     case True{}:
-      LNatIsLe.pc.lt_ne({Bool.not(True{}) == True{} : Bool}, a, b, lt, e)
+      LLogicLogic.pc.lt_ne({Bool.not(True{}) == True{} : Bool}, a, b, lt, e)
     case False{}:
       {==}
 

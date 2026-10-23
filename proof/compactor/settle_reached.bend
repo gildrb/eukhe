@@ -3,7 +3,7 @@
 import Base
 import ../../bend/compactor.bend as C
 import ../../laws/compactor.bend as Compactor
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def pc.NZ(n: Nat, A: Type) -> Type:
@@ -23,7 +23,7 @@ def pc.le_zero_eq(x: Nat, e: {Nat.is_le(x, 0n) == True{} : Bool}) -> {x == 0n : 
     case 0n:
       {==}
     case 1n+p:
-      LBoolMisc.pc.absurd_ft({1n+p == 0n : Nat}, e)
+      LLogicLogic.pc.absurd_ft({1n+p == 0n : Nat}, e)
 
 # h + x <= m <= h leaves x = 0
 def pc.rest_zero(h: Nat, x: Nat, m: Nat, e1: {Nat.is_le(Nat.add(h, x), m) == True{} : Bool}, e2: {Nat.is_le(m, h) == True{} : Bool}) -> {x == 0n : Nat}:
@@ -31,9 +31,9 @@ def pc.rest_zero(h: Nat, x: Nat, m: Nat, e1: {Nat.is_le(Nat.add(h, x), m) == Tru
     case 0n 0n:
       pc.le_zero_eq(x, e1)
     case 0n 1n+q:
-      LBoolMisc.pc.absurd_ft({x == 0n : Nat}, e2)
+      LLogicLogic.pc.absurd_ft({x == 0n : Nat}, e2)
     case 1n+p 0n:
-      LBoolMisc.pc.absurd_ft({x == 0n : Nat}, e1)
+      LLogicLogic.pc.absurd_ft({x == 0n : Nat}, e1)
     case 1n+p 1n+q:
       pc.rest_zero(p, x, q, e1, e2)
 

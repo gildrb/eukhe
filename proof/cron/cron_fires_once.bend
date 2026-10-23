@@ -4,11 +4,12 @@ import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
 import ./base/cron.bend as LACron
+import ./base/logic.bend as LALogic
 
 # What the invariant gives
 # ------------------------
 
-def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LACron.pc.OnceG(s, ss, nx)) -> Cr.OnceOnce(s, ss):
+def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LALogic.pc.OnceG(s, ss, nx)) -> Cr.OnceOnce(s, ss):
   match s:
     case Cr.Once{d}:
       match ss:
@@ -20,7 +21,7 @@ def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LACron.
     case Cr.Every{q}:
       Unit{}
 
-def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LACron.pc.G(c, dead, j)) -> Cr.Fires(j):
+def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LALogic.pc.G(c, dead, j)) -> Cr.Fires(j):
   match j:
     case Cr.Job{i, +s, +st, +nx, k, +cl, +rs, +ss, h}:
       (h1, g2) = g
@@ -30,7 +31,7 @@ def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LACron.pc.G(c, dead,
       (h5, g6) = g5
       (h1, (h3, pc.once_once(s, ss, nx, h5)))
 
-def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LACron.pc.AllG(c, dead, rs)) -> Cr.FiresAll(rs):
+def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LALogic.pc.AllG(c, dead, rs)) -> Cr.FiresAll(rs):
   match rs:
     case Nil{}:
       Unit{}
@@ -42,7 +43,7 @@ def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LACron.
         case Cr.Raw{x}:
           pc.all_fires(c, dead, t, g)
 
-def pc.fires_of(s: Cr.S, inv: LACron.pc.Inv(s)) -> Cr.FiresAll(Cr.S.recs(s)):
+def pc.fires_of(s: Cr.S, inv: LALogic.pc.Inv(s)) -> Cr.FiresAll(Cr.S.recs(s)):
   match s:
     case Cr.S{b, rs, rd, +dead, +c, n, a}:
       pc.all_fires(c, dead, rs, inv)

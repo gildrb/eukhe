@@ -16,8 +16,8 @@
 #   continuations in a row with no new work; else the count grows by one,
 #   and at the cap (directors.stallSteps) the goal stops (`check`).
 #
-# LAWS.bend section progress states what must hold; PROOF.bend proves it with
-# PROOF.bend section progress. bridge/bridge_progress.bend runs `work` and
+# laws/progress.bend states what must hold; PROOF.bend proves it with
+# proof/progress/. bridge/bridge_progress.bend runs `work` and
 # `check` on the scenarios of the Rust bridge test.
 
 import Base

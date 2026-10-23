@@ -23,8 +23,8 @@
 #    `StreamIdle::within`): a stream with no event for the deadline ends
 #    as stalled, never later than its last event plus the deadline.
 #
-# LAWS.bend section retry states the laws; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend sections retry_policy and retry_ffi.
+# laws/retry.bend states the laws; PROOF.bend proves them (as Retry.<law>)
+# with the lemmas of proof/retry/.
 # Decisions 1, 2, 3 and 5 run compiled (bend/ffi_retry.bend, crate
 # eukhe-bend); 4 runs compiled as bend/run/decision.bend's (bend/ffi_run.bend);
 # bridge/bridge_retry.bend runs 6 against the Rust code.

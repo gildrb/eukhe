@@ -1,16 +1,15 @@
 # eukhe: lemmas the proofs of area tree share: tree/has
 
 import Base
-import ../../../../bend/director.bend as Dr
 import ../../../../bend/tree.bend as Tr
-import ../../../base/bool/and.bend as LBoolAnd
-import ../../../base/bool/misc.bend as LBoolMisc
-import ../../../base/nat/is_eq.bend as LNatIsEq
+import ../../../base/bool.bend as LBool
+import ../../../base/logic/bool.bend as LLogicBool
+import ../../../base/logic/logic.bend as LLogicLogic
+import ../../../base/nat.bend as LNat
 import ../../../base/tree.bend as LTree
 import ../bool.bend as LABool
-import ../list.bend as LAList
+import ../logic.bend as LALogic
 import ../maybe.bend as LAMaybe
-import ../nat.bend as LANat
 import ./KMap.bend as LATreeKMap
 import ./above.bend as LATreeAbove
 import ./get.bend as LATreeGet
@@ -51,7 +50,7 @@ def pt.has_below(X: List<&2, Tr.Ent>, +y: Nat, +al: {Tr.above(y, X) == True{} : 
     case Nil{}:
       {==}
     case +h <> +r:
-      Equal.trans(Bool, Tr.has(h <> r, y), Tr.has(r, y), False{}, pt.has_miss(h, r, y, LNatIsEq.pt.lt_ne_r(y, Tr.Ent.k(h), al)), pt.has_below(r, y, LATreeAbove.pt.above_tail(y, h, r, al, st), LBoolAnd.tree.pt.and_r(Tr.above(Tr.Ent.k(h), r), Tr.sorted(r), st)))
+      Equal.trans(Bool, Tr.has(h <> r, y), Tr.has(r, y), False{}, pt.has_miss(h, r, y, LNat.pt.lt_ne_r(y, Tr.Ent.k(h), al)), pt.has_below(r, y, LATreeAbove.pt.above_tail(y, h, r, al, st), LLogicBool.tree.pt.and_r(Tr.above(Tr.Ent.k(h), r), Tr.sorted(r), st)))
 
 # A put
 # -----
@@ -59,7 +58,7 @@ def pt.has_below(X: List<&2, Tr.Ent>, +y: Nat, +al: {Tr.above(y, X) == True{} : 
 def pt.has_set_go(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +y: Nat, b: Bool, eb: {Nat.is_eq(Tr.Ent.k(e), y) == b : Bool}, h: {Tr.has(t, y) == True{} : Bool}) -> {Tr.has(Tr.set(t, e), y) == True{} : Bool}:
   match b:
     case True{}:
-      %LANat.pt.eq_true(Tr.Ent.k(e), y, eb) : {Tr.has(Tr.set(t, e), _) == True{} : Bool}
+      %LALogic.pt.eq_true(Tr.Ent.k(e), y, eb) : {Tr.has(Tr.set(t, e), _) == True{} : Bool}
       %Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(Tr.set(t, e), Tr.Ent.k(e)), Some{e}, LATreeGet.pt.get_set_same(t, e)) : {Maybe.is_some(&2, Tr.Ent, _) == True{} : Bool}
       {==}
     case False{}:
@@ -77,10 +76,6 @@ def pt.or_has_set(b: Bool, +t: List<&2, Tr.Ent>, +e: Tr.Ent, +p: Nat, o: {Bool.o
     case False{}:
       pt.has_set(t, e, p, o)
 
-def pt.ok_set(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +k: Nat, +p: Nat, +h: {Tr.ok(t, k, p) == True{} : Bool}) -> {Tr.ok(Tr.set(t, e), k, p) == True{} : Bool}:
-  +o = LBoolAnd.tree.pt.and_r(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(t, p)), h)
-  LBoolAnd.tree.pt.and_t(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(Tr.set(t, e), p)), LBoolAnd.tree.pt.and_l(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(t, p)), h), pt.or_has_set(Nat.is_eq(p, 0n), t, e, p, o))
-
 def pt.or_mono_app(+b: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +g: List<&2, Nat>, +x: Nat, c: Bool, ec: {Tr.has(b, x) == c : Bool}, h: {Bool.or(c, Tr.elem(g, x)) == True{} : Bool}) -> {Bool.or(Tr.has(List.append(&2, Tr.Ent, b, C), x), Tr.elem(g, x)) == True{} : Bool}:
   match c:
     case True{}:
@@ -88,66 +83,61 @@ def pt.or_mono_app(+b: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +g: List<&2, Nat>
     case False{}:
       LABool.pt.or_tr(Tr.has(List.append(&2, Tr.Ent, b, C), x), Tr.elem(g, x), h)
 
-def pt.cov_b(A: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +g: List<&2, Nat>, +ca: {LABool.pt.cov(A, b, g) == True{} : Bool}) -> {LABool.pt.cov(A, List.append(&2, Tr.Ent, b, C), g) == True{} : Bool}:
+def pt.cov_b(A: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +g: List<&2, Nat>, +ca: {LALogic.pt.cov(A, b, g) == True{} : Bool}) -> {LALogic.pt.cov(A, List.append(&2, Tr.Ent, b, C), g) == True{} : Bool}:
   match A:
     case Nil{}:
       {==}
     case +a <> +r:
       +i = Bool.or(Tr.has(b, Tr.Ent.k(a)), Tr.elem(g, Tr.Ent.k(a)))
-      LBoolAnd.tree.pt.and_t(Bool.or(Tr.has(List.append(&2, Tr.Ent, b, C), Tr.Ent.k(a)), Tr.elem(g, Tr.Ent.k(a))), LABool.pt.cov(r, List.append(&2, Tr.Ent, b, C), g), pt.or_mono_app(b, C, g, Tr.Ent.k(a), Tr.has(b, Tr.Ent.k(a)), {==}, LBoolAnd.tree.pt.and_l(i, LABool.pt.cov(r, b, g), ca)), pt.cov_b(r, b, C, g, LBoolAnd.tree.pt.and_r(i, LABool.pt.cov(r, b, g), ca)))
+      LBool.tree.pt.and_t(Bool.or(Tr.has(List.append(&2, Tr.Ent, b, C), Tr.Ent.k(a)), Tr.elem(g, Tr.Ent.k(a))), LALogic.pt.cov(r, List.append(&2, Tr.Ent, b, C), g), pt.or_mono_app(b, C, g, Tr.Ent.k(a), Tr.has(b, Tr.Ent.k(a)), {==}, LLogicBool.tree.pt.and_l(i, LALogic.pt.cov(r, b, g), ca)), pt.cov_b(r, b, C, g, LLogicBool.tree.pt.and_r(i, LALogic.pt.cov(r, b, g), ca)))
 
 def pt.cov_has_go(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +g: List<&2, Nat>, +y: Nat, c: Bool, ec: {Nat.is_eq(Tr.Ent.k(e), y) == c : Bool}, he: {Bool.or(Tr.has(b, Tr.Ent.k(e)), Tr.elem(g, Tr.Ent.k(e))) == True{} : Bool}, ih: {Tr.has(r, y) == True{} : Bool} -> {Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}, hp: {Tr.has(e <> r, y) == True{} : Bool}) -> {Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}:
   match c:
     case True{}:
-      %LANat.pt.eq_true(Tr.Ent.k(e), y, ec) : {Bool.or(Tr.has(b, _), Tr.elem(g, _)) == True{} : Bool}
+      %LALogic.pt.eq_true(Tr.Ent.k(e), y, ec) : {Bool.or(Tr.has(b, _), Tr.elem(g, _)) == True{} : Bool}
       he
     case False{}:
       ih(Equal.trans(Bool, Tr.has(r, y), Tr.has(e <> r, y), True{}, Equal.sym(Bool, Tr.has(e <> r, y), Tr.has(r, y), pt.has_miss(e, r, y, ec)), hp))
 
 # a node of pre is kept or gone
-def pt.cov_has(pre: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +g: List<&2, Nat>, +y: Nat, +cv: {LABool.pt.cov(pre, b, g) == True{} : Bool}) -> {Tr.has(pre, y) == True{} : Bool} -> {Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}:
+def pt.cov_has(pre: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +g: List<&2, Nat>, +y: Nat, +cv: {LALogic.pt.cov(pre, b, g) == True{} : Bool}) -> {Tr.has(pre, y) == True{} : Bool} -> {Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}:
   match pre:
     case Nil{}:
-      hp => LBoolMisc.tree.pt.absurdF({Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}, hp)
+      hp => LLogicLogic.tree.pt.absurdF({Bool.or(Tr.has(b, y), Tr.elem(g, y)) == True{} : Bool}, hp)
     case +e <> +r:
       +i = Bool.or(Tr.has(b, Tr.Ent.k(e)), Tr.elem(g, Tr.Ent.k(e)))
-      +he = LBoolAnd.tree.pt.and_l(i, LABool.pt.cov(r, b, g), cv)
-      ih = pt.cov_has(r, b, g, y, LBoolAnd.tree.pt.and_r(i, LABool.pt.cov(r, b, g), cv))
+      +he = LLogicBool.tree.pt.and_l(i, LALogic.pt.cov(r, b, g), cv)
+      ih = pt.cov_has(r, b, g, y, LLogicBool.tree.pt.and_r(i, LALogic.pt.cov(r, b, g), cv))
       hp => pt.cov_has_go(e, r, b, g, y, Nat.is_eq(Tr.Ent.k(e), y), {==}, he, ih, hp)
 
-def pt.ok_keep_go(c: Bool, +pre: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +X: List<&2, Tr.Ent>, +p: Nat, o: {Bool.or(c, Tr.has(pre, p)) == True{} : Bool}, +cv: {LABool.pt.cov(pre, b, gone) == True{} : Bool}, ng: {Tr.elem(gone, p) == False{} : Bool}) -> {Bool.or(c, Tr.has(List.append(&2, Tr.Ent, b, X), p)) == True{} : Bool}:
+def pt.ok_keep_go(c: Bool, +pre: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +X: List<&2, Tr.Ent>, +p: Nat, o: {Bool.or(c, Tr.has(pre, p)) == True{} : Bool}, +cv: {LALogic.pt.cov(pre, b, gone) == True{} : Bool}, ng: {Tr.elem(gone, p) == False{} : Bool}) -> {Bool.or(c, Tr.has(List.append(&2, Tr.Ent, b, X), p)) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
       +q = pt.cov_has(pre, b, gone, p, cv)(o)
-      pt.has_app_l(b, X, p, LABool.pt.or_l_true(Tr.has(b, p), Tr.elem(gone, p), q, ng))
+      pt.has_app_l(b, X, p, LALogic.pt.or_l_true(Tr.has(b, p), Tr.elem(gone, p), q, ng))
 
-# a kept node still hangs under the root or a kept node
-def pt.ok_keep(+pre: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +X: List<&2, Tr.Ent>, +k: Nat, +p: Nat, +op: {Tr.ok(pre, k, p) == True{} : Bool}, +cv: {LABool.pt.cov(pre, b, gone) == True{} : Bool}, ng: {Tr.elem(gone, p) == False{} : Bool}) -> {Tr.ok(List.append(&2, Tr.Ent, b, X), k, p) == True{} : Bool}:
-  +o = LBoolAnd.tree.pt.and_r(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(pre, p)), op)
-  LBoolAnd.tree.pt.and_t(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(List.append(&2, Tr.Ent, b, X), p)), LBoolAnd.tree.pt.and_l(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(pre, p)), op), pt.ok_keep_go(Nat.is_eq(p, 0n), pre, b, gone, X, p, o, cv, ng))
-
-def pt.allhas_cons(s: List<&2, Tr.Ent>, +h: Tr.Ent, +r: List<&2, Tr.Ent>, +ah: {LABool.pt.allhas(s, r) == True{} : Bool}) -> {LABool.pt.allhas(s, h <> r) == True{} : Bool}:
+def pt.allhas_cons(s: List<&2, Tr.Ent>, +h: Tr.Ent, +r: List<&2, Tr.Ent>, +ah: {LALogic.pt.allhas(s, r) == True{} : Bool}) -> {LALogic.pt.allhas(s, h <> r) == True{} : Bool}:
   match s:
     case Nil{}:
       {==}
     case +e <> +rest:
       +i = Tr.has(r, Tr.Ent.k(e))
-      +hd = Equal.trans(Bool, Tr.has(h <> r, Tr.Ent.k(e)), Bool.or(Nat.is_eq(Tr.Ent.k(h), Tr.Ent.k(e)), i), True{}, pt.has_cons(h, r, Tr.Ent.k(e)), LABool.pt.or_tr(Nat.is_eq(Tr.Ent.k(h), Tr.Ent.k(e)), i, LBoolAnd.tree.pt.and_l(i, LABool.pt.allhas(rest, r), ah)))
-      LBoolAnd.tree.pt.and_t(Tr.has(h <> r, Tr.Ent.k(e)), LABool.pt.allhas(rest, h <> r), hd, pt.allhas_cons(rest, h, r, LBoolAnd.tree.pt.and_r(i, LABool.pt.allhas(rest, r), ah)))
+      +hd = Equal.trans(Bool, Tr.has(h <> r, Tr.Ent.k(e)), Bool.or(Nat.is_eq(Tr.Ent.k(h), Tr.Ent.k(e)), i), True{}, pt.has_cons(h, r, Tr.Ent.k(e)), LABool.pt.or_tr(Nat.is_eq(Tr.Ent.k(h), Tr.Ent.k(e)), i, LLogicBool.tree.pt.and_l(i, LALogic.pt.allhas(rest, r), ah)))
+      LBool.tree.pt.and_t(Tr.has(h <> r, Tr.Ent.k(e)), LALogic.pt.allhas(rest, h <> r), hd, pt.allhas_cons(rest, h, r, LLogicBool.tree.pt.and_r(i, LALogic.pt.allhas(rest, r), ah)))
 
-def pt.allhas_self(t: List<&2, Tr.Ent>) -> {LABool.pt.allhas(t, t) == True{} : Bool}:
+def pt.allhas_self(t: List<&2, Tr.Ent>) -> {LALogic.pt.allhas(t, t) == True{} : Bool}:
   match t:
     case Nil{}:
       {==}
     case +h <> +r:
-      LBoolAnd.tree.pt.and_t(Tr.has(h <> r, Tr.Ent.k(h)), LABool.pt.allhas(r, h <> r), pt.has_head(h, r), pt.allhas_cons(r, h, r, pt.allhas_self(r)))
+      LBool.tree.pt.and_t(Tr.has(h <> r, Tr.Ent.k(h)), LALogic.pt.allhas(r, h <> r), pt.has_head(h, r), pt.allhas_cons(r, h, r, pt.allhas_self(r)))
 
 def tc.has_set.go(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +y: Nat, b: Bool, eb: {Nat.is_eq(Tr.Ent.k(e), y) == b : Bool}) -> {Tr.has(Tr.set(t, e), y) == Bool.or(b, Tr.has(t, y)) : Bool}:
   match b:
     case True{}:
-      %LANat.pt.eq_true(Tr.Ent.k(e), y, eb) : {Tr.has(Tr.set(t, e), _) == True{} : Bool}
+      %LALogic.pt.eq_true(Tr.Ent.k(e), y, eb) : {Tr.has(Tr.set(t, e), _) == True{} : Bool}
       Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Maybe.is_some(&2, Tr.Ent, z), Tr.get(Tr.set(t, e), Tr.Ent.k(e)), Some{e}, LATreeGet.pt.get_set_same(t, e))
     case False{}:
       Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Maybe.is_some(&2, Tr.Ent, z), Tr.get(Tr.set(t, e), y), Tr.get(t, y), LATreeGet.pt.get_set_other(t, e, y, eb))
@@ -157,19 +147,19 @@ def tc.has_set(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +y: Nat) -> {Tr.has(Tr.set(t, e
   tc.has_set.go(t, e, y, Nat.is_eq(Tr.Ent.k(e), y), {==})
 
 # the gone keys hold exactly the keys of the gone list
-def tc.bld_has(gone: List<&2, Nat>, +y: Nat) -> {Tr.has(LAList.tc.bld(gone), y) == Tr.elem(gone, y) : Bool}:
+def tc.bld_has(gone: List<&2, Nat>, +y: Nat) -> {Tr.has(LALogic.tc.bld(gone), y) == Tr.elem(gone, y) : Bool}:
   match gone:
     case Nil{}:
       {==}
     case +k <> +rest:
-      Equal.trans(Bool, Tr.has(Tr.set(LAList.tc.bld(rest), Tr.Ent{k, 0n, 0n}), y), Bool.or(Nat.is_eq(k, y), Tr.has(LAList.tc.bld(rest), y)), Bool.or(Nat.is_eq(k, y), Tr.elem(rest, y)), tc.has_set(LAList.tc.bld(rest), Tr.Ent{k, 0n, 0n}, y), Equal.cong(Bool, Bool, z => Bool.or(Nat.is_eq(k, y), z), Tr.has(LAList.tc.bld(rest), y), Tr.elem(rest, y), tc.bld_has(rest, y)))
+      Equal.trans(Bool, Tr.has(Tr.set(LALogic.tc.bld(rest), Tr.Ent{k, 0n, 0n}), y), Bool.or(Nat.is_eq(k, y), Tr.has(LALogic.tc.bld(rest), y)), Bool.or(Nat.is_eq(k, y), Tr.elem(rest, y)), tc.has_set(LALogic.tc.bld(rest), Tr.Ent{k, 0n, 0n}, y), Equal.cong(Bool, Bool, z => Bool.or(Nat.is_eq(k, y), z), Tr.has(LALogic.tc.bld(rest), y), Tr.elem(rest, y), tc.bld_has(rest, y)))
 
 # the gone map holds what the gone list holds
-def tc.ghas(+g: Tr.KMap, +gone: List<&2, Nat>, +y: Nat, +bt: {LBoolMisc.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LAList.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.KMap.has(g, y) == Tr.elem(gone, y) : Bool}:
-  Equal.trans(Bool, Tr.KMap.has(g, y), Tr.has(Tr.KMap.read(g), y), Tr.elem(gone, y), LATreeGet.tc.has(g, y, bt), Equal.trans(Bool, Tr.has(Tr.KMap.read(g), y), Tr.has(LAList.tc.bld(gone), y), Tr.elem(gone, y), Equal.cong(List<&2, Tr.Ent>, Bool, z => Tr.has(z, y), Tr.KMap.read(g), LAList.tc.bld(gone), rg), tc.bld_has(gone, y)))
+def tc.ghas(+g: Tr.KMap, +gone: List<&2, Nat>, +y: Nat, +bt: {LLogicBool.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LALogic.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.KMap.has(g, y) == Tr.elem(gone, y) : Bool}:
+  Equal.trans(Bool, Tr.KMap.has(g, y), Tr.has(Tr.KMap.read(g), y), Tr.elem(gone, y), LATreeGet.tc.has(g, y, bt), Equal.trans(Bool, Tr.has(Tr.KMap.read(g), y), Tr.has(LALogic.tc.bld(gone), y), Tr.elem(gone, y), Equal.cong(List<&2, Tr.Ent>, Bool, z => Tr.has(z, y), Tr.KMap.read(g), LALogic.tc.bld(gone), rg), tc.bld_has(gone, y)))
 
 # the gone test of the map is the gone test of the list
-def tc.gin(s: List<&2, Tr.Ent>, +g: Tr.KMap, +gone: List<&2, Nat>, +bt: {LBoolMisc.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LAList.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.gone.in(s, g) == Tr.gone.at(s, gone) : Bool}:
+def tc.gin(s: List<&2, Tr.Ent>, +g: Tr.KMap, +gone: List<&2, Nat>, +bt: {LLogicBool.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LALogic.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.gone.in(s, g) == Tr.gone.at(s, gone) : Bool}:
   match s:
     case Nil{}:
       {==}
@@ -179,7 +169,7 @@ def tc.gin(s: List<&2, Tr.Ent>, +g: Tr.KMap, +gone: List<&2, Nat>, +bt: {LBoolMi
       {==}
 
 # the walk over the gone map drops what the walk over the gone list drops
-def tc.ds(s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +g: Tr.KMap, +gone: List<&2, Nat>, hit: Bool, +bt: {LBoolMisc.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LAList.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.drops.s(s, hs, g, hit) == LAList.tc.dgo(s, gone, hit) : List<&2, Nat>}:
+def tc.ds(s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +g: Tr.KMap, +gone: List<&2, Nat>, hit: Bool, +bt: {LLogicBool.tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == LALogic.tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.drops.s(s, hs, g, hit) == LALogic.tc.dgo(s, gone, hit) : List<&2, Nat>}:
   match s:
     case Nil{}:
       {==}
@@ -191,19 +181,19 @@ def tc.ds(s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +g: Tr.KMap, +gone: List<&2, 
           +gn = {k <> gone : List<&2, Nat>}
           +bt2 = LTree.tc.set_bst(g, hs, Tr.Ent{k, 0n, 0n}, bt)
           +rg2 = LATreeKMap.tc.gone_of(hs, g, gone, k, bt, rg)
-          %Equal.sym(Bool, Tr.gone.in(r, g2), Tr.gone.at(r, gn), tc.gin(r, g2, gn, bt2, rg2)) : {k <> Tr.drops.s(r, hs, g2, _) == k <> LAList.tc.dgo(r, gn, Tr.gone.at(r, gn)) : List<&2, Nat>}
-          Equal.cong(List<&2, Nat>, List<&2, Nat>, z => k <> z, Tr.drops.s(r, hs, g2, Tr.gone.at(r, gn)), LAList.tc.dgo(r, gn, Tr.gone.at(r, gn)), tc.ds(r, hs, g2, gn, Tr.gone.at(r, gn), bt2, rg2))
+          %Equal.sym(Bool, Tr.gone.in(r, g2), Tr.gone.at(r, gn), tc.gin(r, g2, gn, bt2, rg2)) : {k <> Tr.drops.s(r, hs, g2, _) == k <> LALogic.tc.dgo(r, gn, Tr.gone.at(r, gn)) : List<&2, Nat>}
+          Equal.cong(List<&2, Nat>, List<&2, Nat>, z => k <> z, Tr.drops.s(r, hs, g2, Tr.gone.at(r, gn)), LALogic.tc.dgo(r, gn, Tr.gone.at(r, gn)), tc.ds(r, hs, g2, gn, Tr.gone.at(r, gn), bt2, rg2))
         case False{}:
-          %Equal.sym(Bool, Tr.gone.in(r, g), Tr.gone.at(r, gone), tc.gin(r, g, gone, bt, rg)) : {Tr.drops.s(r, hs, g, _) == LAList.tc.dgo(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
+          %Equal.sym(Bool, Tr.gone.in(r, g), Tr.gone.at(r, gone), tc.gin(r, g, gone, bt, rg)) : {Tr.drops.s(r, hs, g, _) == LALogic.tc.dgo(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
           tc.ds(r, hs, g, gone, Tr.gone.at(r, gone), bt, rg)
 
 # a delete's walk with the gone map drops what the walk with the gone list
 # [x] drops
-def tc.drops(+s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +x: Nat) -> {Tr.drops(s, hs, x) == LAList.tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}:
+def tc.drops(+s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +x: Nat) -> {Tr.drops(s, hs, x) == LALogic.tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}:
   +g = Tr.gone.of(hs, Tr.KNil{}, x)
   +bt = LTree.tc.set_bst(Tr.KNil{}, hs, Tr.Ent{x, 0n, 0n}, {==})
   +rg = LATreeKMap.tc.gone_of(hs, Tr.KNil{}, Nil{}, x, {==}, {==})
-  %Equal.sym(Bool, Tr.gone.in(s, g), Tr.gone.at(s, [x]), tc.gin(s, g, [x], bt, rg)) : {Tr.drops.s(s, hs, g, _) == LAList.tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}
+  %Equal.sym(Bool, Tr.gone.in(s, g), Tr.gone.at(s, [x]), tc.gin(s, g, [x], bt, rg)) : {Tr.drops.s(s, hs, g, _) == LALogic.tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}
   tc.ds(s, hs, g, [x], Tr.gone.at(s, [x]), bt, rg)
 
 # The stack in the tree: parents
@@ -215,25 +205,3 @@ def pd.or_has_app(c: Bool, +all: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +p: Nat
       {==}
     case False{}:
       pt.has_app_l(all, C, p, o)
-
-# a parent stays a parent when nodes come after
-def pd.ok_app(+all: List<&2, Tr.Ent>, +C: List<&2, Tr.Ent>, +k: Nat, +p: Nat, +h: {Tr.ok(all, k, p) == True{} : Bool}) -> {Tr.ok(List.append(&2, Tr.Ent, all, C), k, p) == True{} : Bool}:
-  +o = LBoolAnd.tree.pt.and_r(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(all, p)), h)
-  LBoolAnd.tree.pt.and_t(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(List.append(&2, Tr.Ent, all, C), p)), LBoolAnd.tree.pt.and_l(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.has(all, p)), h), pd.or_has_app(Nat.is_eq(p, 0n), all, C, p, o))
-
-# the kind node of the layer above rest hangs under the root (no layer
-# below) or the kind node of the layer below
-def pd.parent_ok(rest: List<&2, Dr.Layer>, +C: List<&2, Tr.Ent>) -> {Tr.ok(List.append(&2, Tr.Ent, Dr.encode(rest), C), Dr.kind.key(List.length(&2, Dr.Layer, rest)), Dr.kind.parent(List.length(&2, Dr.Layer, rest))) == True{} : Bool}:
-  match rest:
-    case Nil{}:
-      {==}
-    case l2 <> +r2:
-      match l2:
-        case Dr.Layer{+k2, +b2}:
-          +m = List.length(&2, Dr.Layer, r2)
-          +E2 = Dr.encode(r2)
-          +x2 = {Tr.Ent{1n+Nat.double(m), Dr.kind.parent(m), k2} : Tr.Ent}
-          +y2 = {Tr.Ent{2n+Nat.double(m), 1n+Nat.double(m), b2} : Tr.Ent}
-          +X2 = {[x2, y2] : List<&2, Tr.Ent>}
-          +hh = pt.has_app_l(List.append(&2, Tr.Ent, E2, X2), C, 1n+Nat.double(m), pt.has_app_r(E2, X2, 1n+Nat.double(m), pt.has_head(x2, [y2])))
-          LBoolAnd.tree.pt.and_t(Nat.is_lt(1n+Nat.double(m), 3n+Nat.double(m)), Bool.or(Nat.is_eq(1n+Nat.double(m), 0n), Tr.has(List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, E2, X2), C), 1n+Nat.double(m))), LANat.pd.lt_add2(1n+Nat.double(m)), LABool.pt.or_tr(Nat.is_eq(1n+Nat.double(m), 0n), Tr.has(List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, E2, X2), C), 1n+Nat.double(m)), hh))

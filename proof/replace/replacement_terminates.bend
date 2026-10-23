@@ -3,9 +3,9 @@
 import Base
 import ../../bend/replace.bend as Rp
 import ../../laws/replace.bend as Replace
-import ../base/bool/misc.bend as LBoolMisc
-import ../base/nat/is_eq.bend as LNatIsEq
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/logic/logic.bend as LLogicLogic
+import ../base/logic/nat.bend as LLogicNat
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 # ---- replace ----
@@ -39,18 +39,18 @@ def replace.pr.and_r(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) ->
     case True{}:
       e
     case False{}:
-      LBoolMisc.supervisor.ps.absurdF({b == True{} : Bool}, e)
+      LLogicLogic.supervisor.ps.absurdF({b == True{} : Bool}, e)
 
 def pr.ranks_eq_sound(xs: List<&2, Nat>, ys: List<&2, Nat>, +e: {Rp.ranks_eq(xs, ys) == True{} : Bool}) -> {xs == ys : List<&2, Nat>}:
   match xs ys:
     case Nil{} Nil{}:
       {==}
     case Nil{} y <> yr:
-      LBoolMisc.supervisor.ps.absurdF({Nil{} == y <> yr : List<&2, Nat>}, e)
+      LLogicLogic.supervisor.ps.absurdF({Nil{} == y <> yr : List<&2, Nat>}, e)
     case x <> xr Nil{}:
-      LBoolMisc.supervisor.ps.absurdF({x <> xr == Nil{} : List<&2, Nat>}, e)
+      LLogicLogic.supervisor.ps.absurdF({x <> xr == Nil{} : List<&2, Nat>}, e)
     case +x <> +xr +y <> +yr:
-      %LNatIsEq.supervisor.ps.eq_of_is_eq(x, y, replace.pr.and_l(Nat.is_eq(x, y), Rp.ranks_eq(xr, yr), e)) : {x <> xr == _ <> yr : List<&2, Nat>}
+      %LLogicNat.supervisor.ps.eq_of_is_eq(x, y, replace.pr.and_l(Nat.is_eq(x, y), Rp.ranks_eq(xr, yr), e)) : {x <> xr == _ <> yr : List<&2, Nat>}
       %pr.ranks_eq_sound(xr, yr, replace.pr.and_r(Nat.is_eq(x, y), Rp.ranks_eq(xr, yr), e)) : {x <> xr == x <> _ : List<&2, Nat>}
       {==}
 
@@ -84,7 +84,7 @@ def pr.weak.put(p: Bool, q: Bool, +x: Nat, +y: Nat, rb: List<&2, Nat>, rc: List<
     case True{} False{}:
       LA.pr.clash({Nat.is_le(Nat.add(1n, x), Nat.add(0n, y)) == True{} : Bool}, Rp.lt(rb, re), LA.pr.lt_trans(rb, rc, re, h, ep), eq)
     case False{} True{}:
-      LNatIsLe.supervisor.ps.le_trans(x, y, 1n+y, ih, LNatIsLe.supervisor.ps.le_succ(y))
+      LNat.supervisor.ps.le_trans(x, y, 1n+y, ih, LNat.supervisor.ps.le_succ(y))
     case False{} False{}:
       ih
 
@@ -103,7 +103,7 @@ def pr.strict.put(p: Bool, q: Bool, +x: Nat, +y: Nat, rb: List<&2, Nat>, rc: Lis
     case True{} False{}:
       LA.pr.clash({Nat.is_le(1n+Nat.add(1n, x), Nat.add(0n, y)) == True{} : Bool}, Rp.lt(rb, re), LA.pr.lt_trans(rb, rc, re, h, ep), eq)
     case False{} True{}:
-      LNatIsLe.supervisor.ps.le_trans(x, 1n+x, y, LNatIsLe.supervisor.ps.le_succ(x), ih)
+      LNat.supervisor.ps.le_trans(x, 1n+x, y, LNat.supervisor.ps.le_succ(x), ih)
     case False{} False{}:
       ih
 
@@ -121,7 +121,7 @@ def pr.member.put(be: Bool, +e: Rp.Build, +t: List<&2, Rp.Build>, +c: Rp.Build, 
 def pr.above_strict(bs: List<&2, Rp.Build>, +rb: List<&2, Nat>, +c: Rp.Build, +h: {Rp.lt(rb, Rp.Build.rank(c)) == True{} : Bool}, m: {Rp.has(bs, c) == True{} : Bool}) -> {Nat.is_le(1n+pr.above(bs, Rp.Build.rank(c)), pr.above(bs, rb)) == True{} : Bool}:
   match bs:
     case Nil{}:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_le(1n+pr.above(Nil{}, Rp.Build.rank(c)), pr.above(Nil{}, rb)) == True{} : Bool}, m)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_le(1n+pr.above(Nil{}, Rp.Build.rank(c)), pr.above(Nil{}, rb)) == True{} : Bool}, m)
     case +e <> +t:
       pr.member.put(Rp.build_eq(e, c), e, t, c, rb, {==}, m, h, i => pr.above_strict(t, rb, c, h, i))
 
@@ -130,7 +130,7 @@ def pr.len.put(p: Bool, +x: Nat, +n: Nat, ih: {Nat.is_le(x, n) == True{} : Bool}
     case True{}:
       ih
     case False{}:
-      LNatIsLe.supervisor.ps.le_trans(x, n, 1n+n, ih, LNatIsLe.supervisor.ps.le_succ(n))
+      LNat.supervisor.ps.le_trans(x, n, 1n+n, ih, LNat.supervisor.ps.le_succ(n))
 
 def pr.above_le_len(bs: List<&2, Rp.Build>, +r: List<&2, Nat>) -> {Nat.is_le(pr.above(bs, r), List.length(&2, Rp.Build, bs)) == True{} : Bool}:
   match bs:
@@ -144,7 +144,7 @@ def pr.mlen.put(p: Bool, +x: Nat, +n: Nat, ih: {Nat.is_le(1n+x, n) == True{} : B
     case True{}:
       ih
     case False{}:
-      LNatIsLe.supervisor.ps.le_trans(x, 1n+x, n, LNatIsLe.supervisor.ps.le_succ(x), ih)
+      LNat.supervisor.ps.le_trans(x, 1n+x, n, LNat.supervisor.ps.le_succ(x), ih)
 
 def pr.member_len.put(be: Bool, +e: Rp.Build, +t: List<&2, Rp.Build>, +c: Rp.Build, ebe: {Rp.build_eq(e, c) == be : Bool}, m: {Bool.or(be, Rp.has(t, c)) == True{} : Bool}, ih: {Rp.has(t, c) == True{} : Bool} -> {Nat.is_le(1n+pr.above(t, Rp.Build.rank(c)), List.length(&2, Rp.Build, t)) == True{} : Bool}) -> {Nat.is_le(1n+Nat.add(pr.one(Rp.lt(Rp.Build.rank(c), Rp.Build.rank(e))), pr.above(t, Rp.Build.rank(c))), 1n+List.length(&2, Rp.Build, t)) == True{} : Bool}:
   match be:
@@ -159,14 +159,14 @@ def pr.member_len.put(be: Bool, +e: Rp.Build, +t: List<&2, Rp.Build>, +c: Rp.Bui
 def pr.above_member(bs: List<&2, Rp.Build>, +c: Rp.Build, m: {Rp.has(bs, c) == True{} : Bool}) -> {Nat.is_le(1n+pr.above(bs, Rp.Build.rank(c)), List.length(&2, Rp.Build, bs)) == True{} : Bool}:
   match bs:
     case Nil{}:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_le(1n+pr.above(Nil{}, Rp.Build.rank(c)), 0n) == True{} : Bool}, m)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_le(1n+pr.above(Nil{}, Rp.Build.rank(c)), 0n) == True{} : Bool}, m)
     case +e <> +t:
       pr.member_len.put(Rp.build_eq(e, c), e, t, c, {==}, m, i => pr.above_member(t, c, i))
 
 def pr.count.put(v: Rp.Verdict, +c: Rp.Build, +b: Rp.Build, -k: Rp.Caller, +rest: List<&2, Rp.Start>, +bs: List<&2, Rp.Build>, ev: {Rp.verdict(c, b, k) == v : Rp.Verdict}, mc: {Rp.has(bs, c) == True{} : Bool}, ih: @d: Rp.Build -> {Nat.is_le(Rp.replaced.go(rest, Some{d}), pr.above(bs, Rp.Build.rank(d))) == True{} : Bool}) -> {Nat.is_le(Nat.add(Rp.replaces.put(v), Rp.replaced.go(rest, Some{Rp.after.put(v, c, b)})), pr.above(bs, Rp.Build.rank(b))) == True{} : Bool}:
   match v:
     case Rp.Replace{}:
-      LNatIsLe.supervisor.ps.le_trans(1n+Rp.replaced.go(rest, Some{c}), 1n+pr.above(bs, Rp.Build.rank(c)), pr.above(bs, Rp.Build.rank(b)), ih(c), pr.above_strict(bs, Rp.Build.rank(b), c, LA.pr.replace_older(c, b, k, ev), mc))
+      LNat.supervisor.ps.le_trans(1n+Rp.replaced.go(rest, Some{c}), 1n+pr.above(bs, Rp.Build.rank(c)), pr.above(bs, Rp.Build.rank(b)), ih(c), pr.above_strict(bs, Rp.Build.rank(b), c, LA.pr.replace_older(c, b, k, ev), mc))
     case Rp.Keep{r}:
       ih(b)
 
@@ -174,7 +174,7 @@ def pr.count.put(v: Rp.Verdict, +c: Rp.Build, +b: Rp.Build, -k: Rp.Caller, +rest
 def pr.count_le(ss: List<&2, Rp.Start>, +bs: List<&2, Rp.Build>, +b: Rp.Build, +cov: {Rp.covers(bs, ss) == True{} : Bool}) -> {Nat.is_le(Rp.replaced.go(ss, Some{b}), pr.above(bs, Rp.Build.rank(b))) == True{} : Bool}:
   match ss:
     case Nil{}:
-      LNatIsLe.ps.le_zero(pr.above(bs, Rp.Build.rank(b)))
+      LNat.ps.le_zero(pr.above(bs, Rp.Build.rank(b)))
     case s <> +rest:
       match s:
         case Rp.Start{+c, +k}:
@@ -183,7 +183,7 @@ def pr.count_le(ss: List<&2, Rp.Start>, +bs: List<&2, Rp.Build>, +b: Rp.Build, +
 def pr.le_pred(+a: Nat, n: Nat, h: {Nat.is_le(1n+a, n) == True{} : Bool}) -> {Nat.is_le(a, Nat.sub(n, 1n)) == True{} : Bool}:
   match n:
     case 0n:
-      LBoolMisc.supervisor.ps.absurdF({Nat.is_le(a, Nat.sub(0n, 1n)) == True{} : Bool}, h)
+      LLogicLogic.supervisor.ps.absurdF({Nat.is_le(a, Nat.sub(0n, 1n)) == True{} : Bool}, h)
     case 1n+m:
       match m:
         case 0n:
@@ -194,11 +194,11 @@ def pr.le_pred(+a: Nat, n: Nat, h: {Nat.is_le(1n+a, n) == True{} : Bool}) -> {Na
 def pr.replacement_terminates(+bs: List<&2, Rp.Build>, ss: List<&2, Rp.Start>, +cover: {Rp.covers(bs, ss) == True{} : Bool}) -> {Nat.is_le(Rp.replaced(ss), Nat.sub(List.length(&2, Rp.Build, bs), 1n)) == True{} : Bool}:
   match ss:
     case Nil{}:
-      LNatIsLe.ps.le_zero(Nat.sub(List.length(&2, Rp.Build, bs), 1n))
+      LNat.ps.le_zero(Nat.sub(List.length(&2, Rp.Build, bs), 1n))
     case s <> +rest:
       match s:
         case Rp.Start{+c, k}:
-          pr.le_pred(Rp.replaced.go(rest, Some{c}), List.length(&2, Rp.Build, bs), LNatIsLe.supervisor.ps.le_trans(1n+Rp.replaced.go(rest, Some{c}), 1n+pr.above(bs, Rp.Build.rank(c)), List.length(&2, Rp.Build, bs), pr.count_le(rest, bs, c, replace.pr.and_r(Rp.has(bs, c), Rp.covers(bs, rest), cover)), pr.above_member(bs, c, replace.pr.and_l(Rp.has(bs, c), Rp.covers(bs, rest), cover))))
+          pr.le_pred(Rp.replaced.go(rest, Some{c}), List.length(&2, Rp.Build, bs), LNat.supervisor.ps.le_trans(1n+Rp.replaced.go(rest, Some{c}), 1n+pr.above(bs, Rp.Build.rank(c)), List.length(&2, Rp.Build, bs), pr.count_le(rest, bs, c, replace.pr.and_r(Rp.has(bs, c), Rp.covers(bs, rest), cover)), pr.above_member(bs, c, replace.pr.and_l(Rp.has(bs, c), Rp.covers(bs, rest), cover))))
 
 def Replace.replacement_terminates(bs, ss, cover):
   pr.replacement_terminates(bs, ss, cover)

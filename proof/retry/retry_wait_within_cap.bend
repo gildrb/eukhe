@@ -3,7 +3,7 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def rx.not_gt_of_le(c: Cmp, e: {Cmp.is_le(c) == True{} : Bool}) -> {Cmp.is_gt(c) == False{} : Bool}:
@@ -13,7 +13,7 @@ def rx.not_gt_of_le(c: Cmp, e: {Cmp.is_le(c) == True{} : Bool}) -> {Cmp.is_gt(c)
     case EQ{}:
       {==}
     case GT{}:
-      LBoolMisc.rp.absurdF({True{} == False{} : Bool}, e)
+      LLogicLogic.rp.absurdF({True{} == False{} : Bool}, e)
 
 # (R2) The wait, exactly
 # ----------------------
@@ -21,7 +21,7 @@ def rx.not_gt_of_le(c: Cmp, e: {Cmp.is_le(c) == True{} : Bool}) -> {Cmp.is_gt(c)
 def rx.not_over(over: Bool, +jitter: Nat, +s: Nat, +cap: Nat, e: {over == False{} : Bool}) -> {R.wait.server(over, jitter, s, cap) == R.After{Nat.max(jitter, s)} : R.Delay}:
   match over:
     case True{}:
-      LBoolMisc.rp.absurdT({R.wait.server(True{}, jitter, s, cap) == R.After{Nat.max(jitter, s)} : R.Delay}, e)
+      LLogicLogic.rp.absurdT({R.wait.server(True{}, jitter, s, cap) == R.After{Nat.max(jitter, s)} : R.Delay}, e)
     case False{}:
       {==}
 

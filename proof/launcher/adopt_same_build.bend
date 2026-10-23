@@ -3,7 +3,7 @@
 import Base
 import ../../bend/launcher.bend as La
 import ../../laws/launcher.bend as Launcher
-import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/logic/nat.bend as LLogicNat
 
 # (D1) adopt_same_build
 # ---------------------
@@ -22,7 +22,7 @@ def ps.not_adopted(-A: Type, e: {La.Replace{} == La.Adopt{} : La.Adoption}) -> A
 def ps.adopt_put(same: Bool, +b: Nat, +sup: Nat, e: {Nat.is_eq(b, sup) == same : Bool}, adopted: {La.adopt.put(same) == La.Adopt{} : La.Adoption}) -> {Some{b} == Some{sup} : Maybe<&2, Nat>}:
   match same:
     case True{}:
-      Equal.cong(Nat, Maybe<&2, Nat>, x => Some{x}, b, sup, LNatIsEq.supervisor.ps.eq_of_is_eq(b, sup, e))
+      Equal.cong(Nat, Maybe<&2, Nat>, x => Some{x}, b, sup, LLogicNat.supervisor.ps.eq_of_is_eq(b, sup, e))
     case False{}:
       ps.not_adopted({Some{b} == Some{sup} : Maybe<&2, Nat>}, adopted)
 

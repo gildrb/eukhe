@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/config.bend as Cf
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # ---- config ----
 
@@ -35,6 +35,6 @@ import ../base/bool/misc.bend as LBoolMisc
 def pcf.pick_false(b: Bool, v: Nat, +later: Maybe<&2, Nat>, h: {b == False{} : Bool}) -> {Cf.pick(b, v, later) == later : Maybe<&2, Nat>}:
   match b:
     case True{}:
-      LBoolMisc.ppr.absurd({Cf.pick(True{}, v, later) == later : Maybe<&2, Nat>}, h)
+      LLogicLogic.ppr.absurd({Cf.pick(True{}, v, later) == later : Maybe<&2, Nat>}, h)
     case False{}:
       {==}

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/tui_color.bend as TC
 import ../../laws/tui_color.bend as TuiColor
-import ../base/nat/is_le.bend as LNatIsLe
+import ../base/nat.bend as LNat
 import ./base.bend as LA
 
 # tokens past the window reach a band of num <= den as the full window
@@ -11,7 +11,7 @@ import ./base.bend as LA
 def pu.reach_full(+num: Nat, +den: Nat, +t: Nat, +w: Nat, +hnd: {Nat.is_le(num, den) == True{} : Bool}, +past: {Nat.is_le(w, t) == True{} : Bool}) -> {TC.reached(TC.Frac{num, den}, t, w) == TC.reached(TC.Frac{num, den}, w, w) : Bool}:
   +wn = Nat.mul(w, num)
   +a = LA.pu.mul_le_mono_r(w, num, den, hnd)
-  +c = LNatIsLe.pu.le_trans(wn, Nat.mul(w, den), Nat.mul(t, den), a, LA.pu.mul_le_mono_l(w, t, den, past))
+  +c = LNat.pu.le_trans(wn, Nat.mul(w, den), Nat.mul(t, den), a, LA.pu.mul_le_mono_l(w, t, den, past))
   %Equal.sym(Bool, Nat.is_le(wn, Nat.mul(t, den)), True{}, c) : {Bool.and(Nat.is_lt(0n, w), _) == Bool.and(Nat.is_lt(0n, w), Nat.is_le(wn, Nat.mul(w, den))) : Bool}
   %Equal.sym(Bool, Nat.is_le(wn, Nat.mul(w, den)), True{}, a) : {Bool.and(Nat.is_lt(0n, w), True{}) == Bool.and(Nat.is_lt(0n, w), _) : Bool}
   {==}

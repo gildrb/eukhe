@@ -5,7 +5,7 @@ import ../../bend/run/measure.bend as RnMeasure
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
 import ../../laws/run.bend as Run
-import ../base/nat/add.bend as LNatAdd
+import ../base/nat.bend as LNat
 
 # The polls
 # ---------
@@ -99,7 +99,7 @@ def pinv_overflow(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, cut: Bool, +r: Nat, c: N
 # the last poll's deferred reply makes polls + 1 in a row
 def polls_full(+k: Nat, -P: Nat, i: {Nat.add(k, 0n) == P : Nat}) -> {1n+k == 1n+P : Nat}:
   %i : {1n+k == 1n+_ : Nat}
-  %Equal.sym(Nat, Nat.add(k, 0n), k, LNatAdd.add_zero(k)) : {1n+k == 1n+_ : Nat}
+  %Equal.sym(Nat, Nat.add(k, 0n), k, LNat.add_zero(k)) : {1n+k == 1n+_ : Nat}
   {==}
 
 def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: RnState.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, p: Nat, +k: Nat, i: {Nat.add(k, p) == P : Nat}) -> PInv(RnState.Cfg{cap, P, A, N}, RnStep.call(RnState.Cfg{cap, P, A, N}, reply, r, c, a, n, p), RnMeasure.defers.reply(reply, k)):
@@ -114,7 +114,7 @@ def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: RnState.Reply, +r: Na
           polls_full(k, P, i)
         case 1n+q:
           %i : {1n+Nat.add(k, q) == _ : Nat}
-          LNatAdd.add_succ_r(k, q)
+          LNat.add_succ_r(k, q)
     case RnState.Error{retryable, noted}:
       pinv_error(cap, P, A, N, retryable, noted, r, c, a, n, p)
     case RnState.Overflow{cut}:

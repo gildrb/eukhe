@@ -23,7 +23,7 @@
 # the same list by tables keyed by the entries' keys (a binary trie of
 # native steps), O(n log n): the law union_fast pins it to `union`.
 #
-# LAWS.bend section catalog_union states the laws; PROOF.bend section catalog_union
+# laws/catalog_union.bend states the laws; proof/catalog_union/
 # proves them; bend/ffi_catalog_union.bend is the entry the Rust code
 # calls (crates/eukhe-models/src/effective.rs).
 

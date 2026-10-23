@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # Outcomes
 # --------
@@ -39,8 +39,8 @@ def pa.nearest(+below: List<&2, Am.Desk>, quiet: {Am.quiet(below) == True{} : Bo
         case Am.Left{}:
           pa.end_first_up_is(Am.route(List.append(&2, Am.Desk, rest, Am.Says{yes} <> above)), Am.Answered{List.length(&2, Am.Desk, rest), yes}, pa.nearest(rest, quiet, yes, above))
         case Am.Says{z}:
-          LBoolMisc.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.Says{z} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.Says{z} <> rest), yes} : Am.End}, quiet)
+          LLogicLogic.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.Says{z} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.Says{z} <> rest), yes} : Am.End}, quiet)
         case Am.Phone{}:
-          LBoolMisc.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.Phone{} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.Phone{} <> rest), yes} : Am.End}, quiet)
+          LLogicLogic.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.Phone{} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.Phone{} <> rest), yes} : Am.End}, quiet)
         case Am.PhoneLeft{}:
-          LBoolMisc.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.PhoneLeft{} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.PhoneLeft{} <> rest), yes} : Am.End}, quiet)
+          LLogicLogic.approvals.pa.absurdF({Am.Out.end(Am.route(List.append(&2, Am.Desk, Am.PhoneLeft{} <> rest, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, Am.PhoneLeft{} <> rest), yes} : Am.End}, quiet)

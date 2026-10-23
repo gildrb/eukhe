@@ -7,7 +7,7 @@ import ../../bend/optchat/node.bend as ONode
 import ../../bend/optchat/queue.bend as OQueue
 import ../../bend/optchat/state.bend as OState
 import ../../laws/compactor.bend as Compactor
-import ../base/bool/and.bend as LBoolAnd
+import ../base/logic/bool.bend as LLogicBool
 import ./base.bend as LA
 
 # a waiting turn stops every call it does not need
@@ -32,7 +32,7 @@ def pc.needed_app(+info: OInfo.Info, +v: List<&2, ONode.Node>, xs: List<&2, ONod
       ey
     case +x <> +rest:
       +a = Bool.and(ONode.Nodes.has(v, x), Bool.not(OInfo.Info.built(info, x)))
-      LA.pc.and_true(a, C.needed(info, v, List.append(&2, ONode.Node, rest, ys)), LBoolAnd.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), ex), ey))
+      LA.pc.and_true(a, C.needed(info, v, List.append(&2, ONode.Node, rest, ys)), LLogicBool.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, LLogicBool.pf.and_r(a, C.needed(info, v, rest), ex), ey))
 
 def pc.need_first_running(+cfg: OState.Cfg, +s: OState.St) -> {C.needed(OState.St.info(s), OState.St.view(s), List.append(&2, ONode.Node, OState.St.busy(OQueue.St.wait(s)), OQueue.cands.need(cfg, OQueue.St.wait(s)))) == True{} : Bool}:
   match s:

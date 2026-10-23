@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # The share's guard: when k >= b the quotient b / (1 + k) is 0
 def ps.div_small(n: Nat, m: Nat, -r: Nat, h: {Nat.is_lt(m, n) == False{} : Bool}) -> {Pair.fst(Nat, Nat, Nat.divmod.go(n, m, 0n, r)) == 0n : Nat}:
@@ -11,7 +11,7 @@ def ps.div_small(n: Nat, m: Nat, -r: Nat, h: {Nat.is_lt(m, n) == False{} : Bool}
     case 0n _:
       {==}
     case 1n+np 0n:
-      LBoolMisc.screen.ps.absurdF({Pair.fst(Nat, Nat, Nat.divmod.go(1n+np, 0n, 0n, r)) == 0n : Nat}, Equal.sym(Bool, Nat.is_lt(0n, 1n+np), False{}, h))
+      LLogicLogic.screen.ps.absurdF({Pair.fst(Nat, Nat, Nat.divmod.go(1n+np, 0n, 0n, r)) == 0n : Nat}, Equal.sym(Bool, Nat.is_lt(0n, 1n+np), False{}, h))
     case 1n+np 1n+mp:
       ps.div_small(np, mp, 1n+r, h)
 

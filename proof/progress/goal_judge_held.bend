@@ -3,8 +3,7 @@
 import Base
 import ../../bend/progress.bend as Pr
 import ../../laws/progress.bend as Progress
-import ../base/nat/is_le.bend as LNatIsLe
-import ../base/nat/misc.bend as LNatMisc
+import ../base/nat.bend as LNat
 
 def pp.strike_stalls(b: Bool, +n: Nat) -> {n == Pr.Goal.stalls(Pr.strike.put(b, n)) : Nat}:
   match b:
@@ -28,8 +27,8 @@ def pp.judge_held(+u: Nat, +cap: Nat, p: Maybe<&2, Pr.Prior>, +work: Nat) -> {Na
     case Some{x}:
       match x:
         case Pr.Prior{+s, +w}:
-          %LNatMisc.pj.sub_zero(u) : {Nat.is_le(Pr.Goal.stalls(Pr.check(cap, Nat.min(s, _), Nat.is_lt(w, work))), 1n+u) == True{} : Bool}
-          pp.held_check(u, cap, Nat.min(s, u), Nat.is_lt(w, work), LNatIsLe.pj.min_le_r(s, u))
+          %LNat.pj.sub_zero(u) : {Nat.is_le(Pr.Goal.stalls(Pr.check(cap, Nat.min(s, _), Nat.is_lt(w, work))), 1n+u) == True{} : Bool}
+          pp.held_check(u, cap, Nat.min(s, u), Nat.is_lt(w, work), LNat.pj.min_le_r(s, u))
 
 def Progress.goal_judge_held(u, cap, p, work):
   pp.judge_held(u, cap, p, work)

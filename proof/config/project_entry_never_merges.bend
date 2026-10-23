@@ -3,7 +3,7 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # Named entries
 # -------------
@@ -20,7 +20,7 @@ def pcf.merge_at(b: Bool, +fs: List<&2, Cf.Entry>, +x: Maybe<&2, List<&2, Cf.Ent
 def pcf.project_entry_never_merges(+g: List<&2, Cf.Named>, p: List<&2, Cf.Named>, +n: Nat, h: {Cf.has(p, n) == True{} : Bool}) -> {Cf.find(Cf.merge(g, p), n) == Cf.find(p, n) : Maybe<&2, List<&2, Cf.Entry>>}:
   match p:
     case Nil{}:
-      LBoolMisc.ppr.absurdF({Cf.find(Cf.merge(g, Nil{}), n) == Cf.find(Nil{}, n) : Maybe<&2, List<&2, Cf.Entry>>}, h)
+      LLogicLogic.ppr.absurdF({Cf.find(Cf.merge(g, Nil{}), n) == Cf.find(Nil{}, n) : Maybe<&2, List<&2, Cf.Entry>>}, h)
     case e <> +rest:
       match e:
         case Cf.Named{+m, +fs}:

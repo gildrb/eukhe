@@ -9,8 +9,8 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base/bool/misc.bend as LBoolMisc
 import ../base/list.bend as LList
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 # the model's starts is cmd_prefix
@@ -63,14 +63,14 @@ def cb_items(t: List<&2, Cmd.Ent>, +i: Nat, +q: List<&2, List<&2, Nat>>, +x: Lis
 def pml_at(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +p: List<&2, Nat>, hs: {Command.cmd_some(m) == True{} : Bool}) -> {Cmd.menu.at(LA.cb_st.of(m, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}:
   match m:
     case None{}:
-      LBoolMisc.cb_absurd({Cmd.menu.at(LA.cb_st.of(None{}, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}, hs)
+      LLogicLogic.cb_absurd({Cmd.menu.at(LA.cb_st.of(None{}, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}, hs)
     case Some{e}:
       {==}
 
 def Command.command_menu_lists_children(t, q, p, ok, on, word):
   match q:
     case Nil{}:
-      LBoolMisc.cb_absurd({Cmd.menu(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, [p]))) == Cmd.Kids{Nil{}, Command.cmd_rows(t, 0n, Nil{}, Command.cmd_lower(p))} : Cmd.Menu}, on)
+      LLogicLogic.cb_absurd({Cmd.menu(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, [p]))) == Cmd.Kids{Nil{}, Command.cmd_rows(t, 0n, Nil{}, Command.cmd_lower(p))} : Cmd.Menu}, on)
     case Con{+x, +rest}:
       +qq = {x <> rest : List<&2, List<&2, Nat>>}
       +o = on

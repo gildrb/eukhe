@@ -1,6 +1,6 @@
 # wire_flat: lists of lists of Nats as one list of Nats, so an entry's
 # request is a record of the wire's Nat lists (bend/wire.bend reads them;
-# LAWS.bend section wire proves their round trip). Each item of an inner
+# laws/wire.bend proves their round trip). Each item of an inner
 # list is written as 1 + item and each inner list ends with 0:
 # [[4], [], [0, 7]] is [5, 0, 0, 1, 8, 0].
 #

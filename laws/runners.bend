@@ -7,7 +7,7 @@ import ../bend/runners.bend as Ru
 
 # LAWS (G4): every runner of code goes through the gate. Each law is an
 # open claim about the model in bend/runners.bend; PROOF.bend proves them
-# (as Laws.<law>) with the lemmas of PROOF.bend section runners.
+# (as Runners.<law>) with the lemmas of proof/runners/.
 
 # (G4) Every runner of code goes through the gate
 # -----------------------------------------------

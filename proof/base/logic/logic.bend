@@ -1,10 +1,9 @@
-# eukhe: lemmas the proofs of two or more areas share: bool/misc
+# eukhe: lemmas the proofs of two or more areas share: logic/logic
 
 import Base
-import ../../../bend/replace.bend as Rp
+import ../../../bend/fsmode.bend as Fs
+import ../../../bend/path_policy.bend as Pp
 import ../../../bend/retry.bend as R
-import ../../../bend/semver.bend as Sv
-import ../../../bend/tree.bend as Tr
 
 # ---- wire nat (wn_): Bool kit (copied from the skill's examples/sort/proof/kit.bend) ----
 
@@ -18,55 +17,6 @@ def wn_Clash(b: Bool, G: Type) -> Type:
 def wn_absurd(-G: Type, e: {False{} == True{} : Bool}) -> G:
   %e : wn_Clash(_, G)
   Unit{}
-
-# ---- Nat.divmod by 10 ----
-
-def wn_lt10(d: Nat) -> Bool:
-  match d:
-    case 0n:
-      True{}
-    case 1n:
-      True{}
-    case 2n:
-      True{}
-    case 3n:
-      True{}
-    case 4n:
-      True{}
-    case 5n:
-      True{}
-    case 6n:
-      True{}
-    case 7n:
-      True{}
-    case 8n:
-      True{}
-    case 9n:
-      True{}
-    case 10n+p:
-      False{}
-
-def wn_nz10(d: Nat) -> Bool:
-  match d:
-    case 0n:
-      False{}
-    case 1n+p:
-      wn_lt10(1n+p)
-
-# d <> t is a canonical digit list: digits below 10, the last (highest) not 0
-def wn_okc(t: List<&2, Nat>, d: Nat) -> Bool:
-  match t:
-    case Nil{}:
-      wn_nz10(d)
-    case Con{e, u}:
-      Bool.and(wn_lt10(d), wn_okc(u, e))
-
-def wn_canon(ds: List<&2, Nat>) -> Bool:
-  match ds:
-    case Nil{}:
-      False{}
-    case Con{d, t}:
-      wn_okc(t, d)
 
 # ---- wire: rest ----
 
@@ -132,20 +82,6 @@ def pf.absurd_ft(-A: Type, e: {False{} == True{} : Bool}) -> A:
   %e : fit.pf.BD(_, A, Unit)
   Unit{}
 
-def pf.or_r(a: Bool, -b: Bool, e: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
-  match a:
-    case False{}:
-      e
-    case True{}:
-      {==}
-
-def pf.bool_cmp_refl(b: Bool) -> {EQ{} == Bool.cmp(b, b) : Cmp}:
-  match b:
-    case False{}:
-      {==}
-    case True{}:
-      {==}
-
 # ---- compactor ----
 
 # proof_compactor: the laws of a compactor call (H1) and of the wait for
@@ -170,9 +106,6 @@ def pc.absurd_ft(-A: Type, e: {False{} == True{} : Bool}) -> A:
 def pc.absurd_tf(-A: Type, e: {True{} == False{} : Bool}) -> A:
   %e : compactor.pc.BD(_, Unit, A)
   Unit{}
-
-def pc.or_true(a: Bool) -> {Bool.or(True{}, a) == True{} : Bool}:
-  {==}
 
 # ---- child ----
 
@@ -277,45 +210,6 @@ def pt.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
 def tree.pt.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
   %e : tree.pt.BD(_, A, Unit)
   Unit{}
-
-def pt.not_f(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
-  match b:
-    case True{}:
-      tree.pt.absurdF({True{} == False{} : Bool}, h)
-    case False{}:
-      {==}
-
-def pt.not_t(+b: Bool, h: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
-  %Equal.sym(Bool, b, False{}, h) : {Bool.not(_) == True{} : Bool}
-  {==}
-
-# Bounds
-
-# every key of t is below b
-def tc.lt(t: List<&2, Tr.Ent>, +b: Nat) -> Bool:
-  match t:
-    case Nil{}:
-      True{}
-    case +e <> r:
-      Bool.and(Nat.is_lt(Tr.Ent.k(e), b), tc.lt(r, b))
-
-# every key of t is b or more
-def tc.ge(t: List<&2, Tr.Ent>, +b: Nat) -> Bool:
-  match t:
-    case Nil{}:
-      True{}
-    case +e <> r:
-      Bool.and(Bool.not(Nat.is_lt(Tr.Ent.k(e), b)), tc.ge(r, b))
-
-# a fork's left keys are below its split, its right keys at or above it
-def tc.bst(m: Tr.KMap) -> Bool:
-  match m:
-    case Tr.KNil{}:
-      True{}
-    case Tr.KOne{e}:
-      True{}
-    case Tr.KFork{+mid, +mp, +l, +r}:
-      Bool.and(tc.bst(l), Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))))
 
 # ---- job ----
 
@@ -623,55 +517,6 @@ def ppr.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
   %e : ppr.BD(_, A, Unit)
   Unit{}
 
-# a true right side makes the or true
-def ppr.or_r(a: Bool, +b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      h
-
-def ppr.or_l(a: Bool, b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      ppr.absurdF({b == True{} : Bool}, h)
-
-def ppr.not_t(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
-  match b:
-    case True{}:
-      ppr.absurdF({True{} == False{} : Bool}, h)
-    case False{}:
-      {==}
-
-# Loading
-# -------
-
-# a head of a true or keeps it true: or(a, or(A, B)) from or(A, B), in the
-# loaded place and in the reported place
-def ppr.or_in_l(a: Bool, +x: Bool, +y: Bool, h: {Bool.or(x, y) == True{} : Bool}) -> {Bool.or(Bool.or(a, x), y) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      h
-
-def ppr.or_in_r(a: Bool, x: Bool, +y: Bool, h: {Bool.or(x, y) == True{} : Bool}) -> {Bool.or(x, Bool.or(a, y)) == True{} : Bool}:
-  match x:
-    case True{}:
-      {==}
-    case False{}:
-      ppr.or_r(a, y, h)
-
-# a true or with a false-making implication
-def ppr.or_mono(a: Bool, +x: Bool, +y: Bool, f: {x == True{} : Bool} -> {y == True{} : Bool}, h: {Bool.or(a, x) == True{} : Bool}) -> {Bool.or(a, y) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      f(h)
-
 # ---- supervisor ----
 
 # proof_supervisor: the D1 laws of LAWS.bend section supervisor.
@@ -706,21 +551,6 @@ def supervisor.ps.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
 def supervisor.ps.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
   %e : supervisor.ps.BD(_, A, Unit)
   Unit{}
-
-# the most significant of the digits is not 0 (there is one)
-def rk.nz(ds: List<&2, Sv.Dig>) -> Bool:
-  match ds:
-    case Nil{}:
-      False{}
-    case d <> rest:
-      Bool.not(Rp.zero(Rp.top(rest, d)))
-
-def rk.not_true(b: Bool, f: {b == True{} : Bool} -> Empty) -> {b == False{} : Bool}:
-  match b:
-    case True{}:
-      Empty.absurd({True{} == False{} : Bool}, f({==}))
-    case False{}:
-      {==}
 
 # ---- tui_color ----
 
@@ -876,67 +706,116 @@ def rp.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
   %e : rp.ND(_, A)
   Unit{}
 
-# Bools
-# -----
+# j < n and j = n at once
+def pc.lt_ne(-A: Type, +j: Nat, +n: Nat, lt: {Nat.is_le(1n+j, n) == True{} : Bool}, eq: {Nat.is_eq(j, n) == True{} : Bool}) -> A:
+  match j n:
+    case 0n 0n:
+      child.pc.absurd(A, lt)
+    case 0n 1n+q:
+      child.pc.absurd(A, eq)
+    case 1n+p 0n:
+      child.pc.absurd(A, eq)
+    case 1n+p 1n+q:
+      pc.lt_ne(A, p, q, lt, eq)
 
-def rp.or_l(a: Bool, -b: Bool, ea: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+# nothing is below 0
+def pc.lt_zero(-A: Type, a: Nat, e: {Nat.is_lt(a, 0n) == True{} : Bool}) -> A:
   match a:
-    case True{}:
-      {==}
-    case False{}:
-      rp.absurdF({Bool.or(False{}, b) == True{} : Bool}, ea)
+    case 0n:
+      pc.absurd_ft(A, e)
+    case 1n+p:
+      pc.absurd_ft(A, e)
 
-def rp.or_r(a: Bool, -b: Bool, eb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      eb
+def pt.lt_zero(-A: Type, p: Nat, lt: {Nat.is_lt(p, 0n) == True{} : Bool}) -> A:
+  match p:
+    case 0n:
+      tree.pt.absurdF(A, lt)
+    case 1n+q:
+      tree.pt.absurdF(A, lt)
 
-# (R3) The failover walk
-# ----------------------
+def ND(n: Nat, t: Type, f: Type) -> Type:
+  match n:
+    case 0n:
+      t
+    case 1n+p:
+      f
 
-# what pick.fresh guarantees of its switch: no wait, not the last
-# provider, not tried
-def rp.fresh_ok(m: Maybe<&2, R.Switch>, +last: Nat, +ts: List<&2, R.Tried>) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{s}:
-      match s:
-        case R.Switch{+to, d}:
-          Bool.and(Nat.is_eq(d, 0n), Bool.and(Bool.not(Nat.is_eq(to, last)), Bool.not(R.seen(to, ts))))
+# 0 is no successor
+def zero_succ(-A: Type, -n: Nat, e: {0n == 1n+n : Nat}) -> A:
+  %e : ND(_, Unit, A)
+  Unit{}
 
-# Order
-# -----
+def pf.ND(n: Nat, z: Type, s: Type) -> Type:
+  match n:
+    case 0n:
+      z
+    case 1n+p:
+      s
 
-# last is no element of xs
-def rp.notin(+last: Nat, xs: List<&2, Nat>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case x <> rest:
-      Bool.and(Bool.not(Nat.is_eq(x, last)), rp.notin(last, rest))
+def pf.succ_ne_zero(-A: Type, -n: Nat, e: {1n+n == 0n : Nat}) -> A:
+  %e : pf.ND(_, A, Unit)
+  Unit{}
 
-def rp.not_of_false(b: Bool, e: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
-  match b:
-    case True{}:
-      rp.absurdT({Bool.not(True{}) == True{} : Bool}, e)
-    case False{}:
-      {==}
+def pf.OD(v: Fs.Open, A: Type) -> Type:
+  match v:
+    case Fs.Opened{p}:
+      A
+    case Fs.NeedsCwd{}:
+      Unit
+    case Fs.Gone{p}:
+      Unit
+    case Fs.NotDir{p}:
+      Unit
 
-# what pick.back guarantees of its switch: the wait is the backoff, and
-# never less than its server's wait; not the last provider; the wait is
-# positive and at most max
-def rp.back_ok(m: Maybe<&2, R.Switch>, +last: Nat, +ts: List<&2, R.Tried>, +backoff: Nat, +max: Nat) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{s}:
-      match s:
-        case R.Switch{+to, +d}:
-          Bool.and(Nat.is_eq(Nat.max(backoff, R.server(to, ts)), d), Bool.and(Bool.not(Nat.is_eq(to, last)), Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, max))))
+def pf.needs_opened(-A: Type, +p: Nat, e: {Fs.NeedsCwd{} == Fs.Opened{p} : Fs.Open}) -> A:
+  %e : pf.OD(_, A)
+  Unit{}
 
-def rp.not_eq_move(+to: Nat, -a: Nat, -b: Nat, e: {a == b : Nat}, h: {Bool.not(Nat.is_eq(to, a)) == True{} : Bool}) -> {Bool.not(Nat.is_eq(to, b)) == True{} : Bool}:
-  %e : {Bool.not(Nat.is_eq(to, _)) == True{} : Bool}
-  h
+def pf.gone_opened(-A: Type, +q: Nat, +p: Nat, e: {Fs.Gone{q} == Fs.Opened{p} : Fs.Open}) -> A:
+  %e : pf.OD(_, A)
+  Unit{}
+
+def pf.notdir_opened(-A: Type, +q: Nat, +p: Nat, e: {Fs.NotDir{q} == Fs.Opened{p} : Fs.Open}) -> A:
+  %e : pf.OD(_, A)
+  Unit{}
+
+def pf.snd(-A: Type, -B: Type, p: (A & B)) -> B:
+  (a, b) = p
+  b
+
+def themes.pt.none_some(-A: Type, -B: Data, -b: B, e: {None{} == Some{b} : Maybe<&2, B>}) -> A:
+  %e : themes.pt.BD(Maybe.is_some(&2, B, _), A, Unit)
+  Unit{}
+
+# the five checks of a switch together
+def rp.Good(m: Maybe<&2, R.Switch>, len: Nat, ts: List<&2, R.Tried>, p: R.Policy) -> Type:
+  {R.Switch.not_last(m, ts) == True{} : Bool} & ({R.Switch.fresh_first(m, len, ts) == True{} : Bool} & ({R.Switch.return_waits(m, ts) == True{} : Bool} & ({R.Switch.capped(m, R.Policy.max(p)) == True{} : Bool} & {R.Switch.within(m, ts, p) == True{} : Bool})))
+
+def rp.good_none(+len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> rp.Good(None{}, len, ts, p):
+  ({==}, ({==}, ({==}, ({==}, {==}))))
+
+# A at Inside, Unit elsewhere: refutes {c == Inside} for c not Inside
+def pp.CM(c: Pp.Cls, A: Type) -> Type:
+  match c:
+    case Pp.Inside{}:
+      A
+    case Pp.Outside{}:
+      Unit
+    case Pp.Protected{}:
+      Unit
+    case Pp.Secret{}:
+      Unit
+
+def pp.not_inside(-A: Type, c: Pp.Cls, n: {Pp.Cls.inside(c) == False{} : Bool}, e: {c == Pp.Inside{} : Pp.Cls}) -> A:
+  match c:
+    case Pp.Inside{}:
+      pp.absurd(A, n)
+    case Pp.Outside{}:
+      %e : pp.CM(_, A)
+      Unit{}
+    case Pp.Protected{}:
+      %e : pp.CM(_, A)
+      Unit{}
+    case Pp.Secret{}:
+      %e : pp.CM(_, A)
+      Unit{}

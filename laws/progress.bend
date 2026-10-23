@@ -12,8 +12,8 @@ import ./base.bend as LawsBase
 # is new work, a loop of the same work stops in time, and what the harness
 # changes or drops on its own reaches the user. Each law is an open claim
 # about the models in bend/progress.bend (and bend/child.bend for the
-# subagent watch); PROOF.bend proves them (as Laws.<law>) with the lemmas of
-# PROOF.bend section progress.
+# subagent watch); PROOF.bend proves them (as Progress.<law>) with the lemmas of
+# proof/progress/.
 
 # (H7) A subagent's progress is new work
 # --------------------------------------

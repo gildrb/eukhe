@@ -3,12 +3,12 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 def pq.or_and_f(c: Bool, -y: Bool, -z: Bool, h: {Bool.or(Bool.and(c, y), z) == True{} : Bool}, nc: {c == False{} : Bool}) -> {z == True{} : Bool}:
   match c:
     case True{}:
-      LBoolMisc.pq.absurd({z == True{} : Bool}, nc)
+      LLogicLogic.pq.absurd({z == True{} : Bool}, nc)
     case False{}:
       h
 
@@ -42,7 +42,7 @@ def pq.stay_k(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +b: Maybe<&2, If.Bes
 def pq.found_k(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +b: Maybe<&2, If.Best>, hit: Bool, eh: {If.use.at(rs, q, d) == hit : Bool}, some: {If.any_at(rs, q, d, 0n) == True{} : Bool}) -> {If.is_known(If.ans(If.look.go(rs, q, d, b, hit))) == True{} : Bool}:
   match rs:
     case Nil{}:
-      LBoolMisc.pq.absurdF({If.is_known(If.ans(b)) == True{} : Bool}, some)
+      LLogicLogic.pq.absurdF({If.is_known(If.ans(b)) == True{} : Bool}, some)
     case +r <> +rest:
       match hit:
         case True{}:

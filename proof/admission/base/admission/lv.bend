@@ -3,9 +3,8 @@
 import Base
 import ../../../../bend/admission.bend as Ad
 import ../../../../laws/admission.bend as Admission
-import ../bool.bend as LABool
 import ../list.bend as LAList
-import ../maybe.bend as LAMaybe
+import ../logic.bend as LALogic
 import ../nat.bend as LANat
 
 # Counting
@@ -76,7 +75,7 @@ def al.mark_at(b: Bool, +c: Ad.Cls, +j: Nat, +c2: Ad.Cls, s: Ad.Sts, +r: List<&2
         case Ad.Preempted{}:
           Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c2, Ad.Preempted{}} <> x, Ad.lv.mark(c, Admission.adl_lives(r, 1n+j)), Admission.adl_lives(Ad.mark(c, r), 1n+j), ih)
         case Ad.Ended{}:
-          LABool.al.absurd({Ad.lv.mark.at(False{}, c, Ad.Lv{j, c2, Ad.Ended{}}, Admission.adl_lives(r, 1n+j), Ad.lv.mark(c, Admission.adl_lives(r, 1n+j))) == Admission.adl_lives(Ad.mark.at(False{}, c, Ad.Tk{c2, Ad.Ended{}}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}, ne)
+          LALogic.al.absurd({Ad.lv.mark.at(False{}, c, Ad.Lv{j, c2, Ad.Ended{}}, Admission.adl_lives(r, 1n+j), Ad.lv.mark(c, Admission.adl_lives(r, 1n+j))) == Admission.adl_lives(Ad.mark.at(False{}, c, Ad.Tk{c2, Ad.Ended{}}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}, ne)
 
 def al.mark(+c: Ad.Cls, ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.mark(c, Admission.adl_lives(ts, j)) == Admission.adl_lives(Ad.mark(c, ts), j) : List<&2, Ad.Lv>}:
   match ts:
@@ -257,7 +256,7 @@ def al.drop_none(ts: List<&2, Ad.Tk>, +d: Nat, +j: Nat) -> {Ad.lv.drop(Admission
         case Ad.Ended{}:
           al.drop_none(r, 1n+d, j)
 
-def al.find0(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.find(Admission.adl_lives(Ad.Tk{c, s} <> r, j), j) == LAMaybe.al.st(Some{Ad.Tk{c, s}}) : Maybe<&2, Ad.Sts>}:
+def al.find0(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.find(Admission.adl_lives(Ad.Tk{c, s} <> r, j), j) == LALogic.al.st(Some{Ad.Tk{c, s}}) : Maybe<&2, Ad.Sts>}:
   match s:
     case Ad.Queued{}:
       %Equal.sym(Bool, Nat.is_eq(j, j), True{}, LANat.al.eq_refl(j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), j)) == Some{Ad.Queued{}} : Maybe<&2, Ad.Sts>}
@@ -274,30 +273,30 @@ def al.find0(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.find(
     case Ad.Ended{}:
       al.find_none(r, 0n, j)
 
-def al.find1(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.find(Admission.adl_lives(r, 1n+j), Nat.add(p, 1n+j)) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}) -> {Ad.lv.find(Admission.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j)) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}:
+def al.find1(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.find(Admission.adl_lives(r, 1n+j), Nat.add(p, 1n+j)) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}) -> {Ad.lv.find(Admission.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j)) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}:
   match s:
     case Ad.Queued{}:
-      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
-      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
       ih
     case Ad.Granted{}:
-      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Granted{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
-      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Granted{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
       ih
     case Ad.Held{}:
-      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Held{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
-      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Held{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
       ih
     case Ad.Preempted{}:
-      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Preempted{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
-      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, LANat.al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Preempted{}, Ad.lv.find(Admission.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
       ih
     case Ad.Ended{}:
-      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LAMaybe.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %LANat.al.add_succ(p, j) : {Ad.lv.find(Admission.adl_lives(r, 1n+j), _) == LALogic.al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
       ih
 
 # the live controller finds ticket i of the model (numbered from j)
-def al.find(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.find(Admission.adl_lives(ts, j), Nat.add(i, j)) == LAMaybe.al.st(List.get(&2, Ad.Tk, ts, i)) : Maybe<&2, Ad.Sts>}:
+def al.find(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.find(Admission.adl_lives(ts, j), Nat.add(i, j)) == LALogic.al.st(List.get(&2, Ad.Tk, ts, i)) : Maybe<&2, Ad.Sts>}:
   match ts i:
     case Nil{} _:
       {==}
@@ -321,7 +320,7 @@ def al.set0(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat, ne: {Ad.ended(S
       %Equal.sym(Bool, Nat.is_eq(j, j), True{}, LANat.al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Preempted{}}, Ad.Held{}) <> Ad.lv.set(Admission.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Admission.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
       Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Admission.adl_lives(r, 1n+j), j, Ad.Held{}), Admission.adl_lives(r, 1n+j), al.set_none(r, 0n, j))
     case Ad.Ended{}:
-      LABool.al.absurd({Ad.lv.set(Admission.adl_lives(r, 1n+j), j, Ad.Held{}) == Admission.adl_lives(Ad.Tk{c, Ad.Held{}} <> r, j) : List<&2, Ad.Lv>}, ne)
+      LALogic.al.absurd({Ad.lv.set(Admission.adl_lives(r, 1n+j), j, Ad.Held{}) == Admission.adl_lives(Ad.Tk{c, Ad.Held{}} <> r, j) : List<&2, Ad.Lv>}, ne)
 
 def al.set1(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.set(Admission.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}) == Admission.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.set(Admission.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j), Ad.Held{}) == Admission.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 1n+p, Ad.Held{}), j) : List<&2, Ad.Lv>}:
   match s:
@@ -404,7 +403,7 @@ def al.drop(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.drop(Admission.adl_l
 
 # ---- the step ----
 
-def al.col(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.collect(LAMaybe.al.st(m), Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.collect.at(m, l, q, ts, k)) : Ad.Live}:
+def al.col(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.collect(LALogic.al.st(m), Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.collect.at(m, l, q, ts, k)) : Ad.Live}:
   match m:
     case None{}:
       {==}
@@ -422,7 +421,7 @@ def al.col(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: N
     case Some{Ad.Tk{c, Ad.Ended{}}}:
 {==}
 
-def al.rel(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.release(LAMaybe.al.st(m), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.release.at(m, l, q, ts, k)) : Ad.Live}:
+def al.rel(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.release(LALogic.al.st(m), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.release.at(m, l, q, ts, k)) : Ad.Live}:
   match m:
     case None{}:
       {==}
@@ -445,7 +444,7 @@ def al.rel(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: N
     case Some{Ad.Tk{c, Ad.Ended{}}}:
 {==}
 
-def al.lea(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.leave(LAMaybe.al.st(m), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.leave.at(m, l, q, ts, k)) : Ad.Live}:
+def al.lea(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.leave(LALogic.al.st(m), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.leave.at(m, l, q, ts, k)) : Ad.Live}:
   match m:
     case None{}:
       {==}
@@ -486,15 +485,15 @@ def al.step(s: Ad.St, o: Ad.Op) -> {Ad.Live.step(Admission.adl_live(s), o) == Ad
               {==}
         case Ad.Collect{+k}:
           %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.collect(Ad.lv.find(Admission.adl_lives(ts, 0n), _), Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Collect{k})) : Ad.Live}
-          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LAMaybe.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.collect(_, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Collect{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.collect(_, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Collect{k})) : Ad.Live}
           al.col(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
         case Ad.Release{+k}:
           %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.release(Ad.lv.find(Admission.adl_lives(ts, 0n), _), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
-          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LAMaybe.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.release(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.release(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
           al.rel(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
         case Ad.Leave{+k}:
           %LANat.al.add_zero(k) : {Ad.Live{l, q, Ad.lv.leave(Ad.lv.find(Admission.adl_lives(ts, 0n), _), l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
-          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LAMaybe.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.leave(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Admission.adl_lives(ts, 0n), Nat.add(k, 0n)), LALogic.al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.leave(_, l, Admission.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
           al.lea(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
         case Ad.Limit{+l2, q2}:
           %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l2, Admission.adl_lives(ts, 0n)), Admission.adl_lives(Ad.grant(l2, ts), 0n), al.grant(l2, ts, 0n)) : {Ad.Live{l2, q2, _, List.length(&2, Ad.Tk, ts)} == Admission.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Limit{l2, q2})) : Ad.Live}

@@ -6,8 +6,8 @@ import ../bend/dash.bend as Da
 # ---- dashboard_auth ----
 
 # LAWS (D1): the dashboard's pairing gate. Each law is an open claim about
-# the model in bend/dash.bend; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section dashboard_auth.
+# the model in bend/dash.bend; PROOF.bend proves them (as Dash.<law>)
+# with the lemmas of proof/dash/.
 
 # (D1) Pairing
 # ------------

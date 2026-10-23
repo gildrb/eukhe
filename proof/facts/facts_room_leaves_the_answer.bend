@@ -3,7 +3,7 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 
 def facts.pf.add_zero(+n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
@@ -28,7 +28,7 @@ def pf.sub_add(+m: Nat, +a: Nat, h: {Nat.is_le(a, m) == True{} : Bool}) -> {Nat.
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      LBoolMisc.pq.absurdF({Nat.add(Nat.sub(0n, 1n+q), 1n+q) == 0n : Nat}, h)
+      LLogicLogic.pq.absurdF({Nat.add(Nat.sub(0n, 1n+q), 1n+q) == 0n : Nat}, h)
     case 1n+p 0n:
       facts.pf.add_zero(1n+p)
     case 1n+p 1n+q:
@@ -48,7 +48,7 @@ def pf.le_add_mono(+x: Nat, +y: Nat, +a: Nat, h: {Nat.is_le(x, y) == True{} : Bo
     case 0n y:
       pf.le_add(y, a)
     case 1n+p 0n:
-      LBoolMisc.pq.absurdF({Nat.is_le(Nat.add(1n+p, a), Nat.add(0n, a)) == True{} : Bool}, h)
+      LLogicLogic.pq.absurdF({Nat.is_le(Nat.add(1n+p, a), Nat.add(0n, a)) == True{} : Bool}, h)
     case 1n+p 1n+q:
       pf.le_add_mono(p, q, a, h)
 

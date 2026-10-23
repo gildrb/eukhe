@@ -3,21 +3,21 @@
 import Base
 import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
-import ./base/bool.bend as LABool
+import ./base/logic.bend as LALogic
 
 # ending an ended ticket again changes nothing
 def ad.twice(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, ej: {Ad.get(ts, k) == mb : Maybe<&2, Ad.Tk>}, e: {Ad.ended(mb) == True{} : Bool}) -> {Ad.step(Ad.St{l, q, ts}, Ad.finish(mb, k)) == Ad.St{l, q, ts} : Ad.St}:
   match mb:
     case None{}:
-      LABool.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Queued{}}}:
-      LABool.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Granted{}}}:
-      LABool.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Leave{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Held{}}}:
-      LABool.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{c, Ad.Preempted{}}}:
-      LABool.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
+      LALogic.ad.absurd({Ad.step(Ad.St{l, q, ts}, Ad.Release{k}) == Ad.St{l, q, ts} : Ad.St}, e)
     case Some{Ad.Tk{+c, Ad.Ended{}}}:
       %Equal.sym(Maybe<&2, Ad.Tk>, Ad.get(ts, k), Some{Ad.Tk{c, Ad.Ended{}}}, ej) : {Ad.release.at(_, l, q, ts, k) == Ad.St{l, q, ts} : Ad.St}
       {==}

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/director.bend as Dr
 import ../../laws/director.bend as Director
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 import ../base/run.bend as LRun
 import ./base.bend as LA
 
@@ -73,7 +73,7 @@ def pd.goon_end(n: Nat, +t1: List<&2, Dr.Layer>, +t2: List<&2, Dr.Layer>, +s: Li
     case 0n:
       Equal.cong(List<&2, Dr.Layer>, Dr.Loop, k => Dr.Loop{0n, k, Some{Dr.Hand{}}}, Dr.kept(s, vs1, cap), Dr.kept(s, vs2, cap), ek)
     case 1n+m:
-      LBoolMisc.tree.pt.absurdF({Dr.go.on(1n+m, t1, s, vs1, cap) == Dr.go.on(1n+m, t2, s, vs2, cap) : Dr.Loop}, ends)
+      LLogicLogic.tree.pt.absurdF({Dr.go.on(1n+m, t1, s, vs1, cap) == Dr.go.on(1n+m, t2, s, vs2, cap) : Dr.Loop}, ends)
 
 # a settle that ends reads only the outcome and the kept stack
 def pd.settle_end1(o1: Dr.Out, +t1: List<&2, Dr.Layer>, d2: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +vs3: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(Dr.Dec{o1, t1}) == Dr.Dec.out(d2) : Dr.Out}, +ek: {Dr.kept(s, vs1, cap) == Dr.kept(s, vs2, cap) : List<&2, Dr.Layer>}, ends: {Dr.ended(Dr.settle(Dr.Dec{o1, t1}, n, s, vs3, cap)) == True{} : Bool}) -> {Dr.settle(Dr.Dec{o1, t1}, n, s, vs1, cap) == Dr.settle(d2, n, s, vs2, cap) : Dr.Loop}:

@@ -7,7 +7,7 @@ import ../bend/cron.bend as Cr
 
 # LAWS (D2): the cron store shared by processes. Each law is an open claim
 # about the model in bend/cron.bend; PROOF.bend proves them (as
-# Laws.<law>) with the lemmas of PROOF.bend section cron.
+# Cron.<law>) with the lemmas of proof/cron/.
 
 # (D2) Cron
 # ---------

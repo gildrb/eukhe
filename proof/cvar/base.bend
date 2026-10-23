@@ -7,13 +7,13 @@ import ../../bend/wire.bend as Wr
 import ../../laws/cvar.bend as Cvar
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base/bool/and.bend as LBoolAnd
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/bool.bend as LLogicBool
+import ../base/logic/logic.bend as LLogicLogic
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 def pv.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  %e : LBoolMisc.cvar.pv.BD(_, A, Unit)
+  %e : LLogicLogic.cvar.pv.BD(_, A, Unit)
   Unit{}
 
 def cvar.pv.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -269,7 +269,7 @@ def pvf.val_rt(+v: Cv.Val, +rest: String, +h: {Cvar.cvar_val_fits(v) == True{} :
 def pvf.cmd_rt(+c: Cv.Cmd, +rest: String, +h: {Cvar.cvar_cmd_fits(c) == True{} : Bool}) -> {FCv.get_cmd(FCv.put_cmd(c, rest)) == Wr.Got{c, rest} : Wr.Dec<Cv.Cmd>}:
   match c:
     case Cv.CSet{+i, +v}:
-      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest))))), FCv.get_cmd.go(Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest)))), Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}, Wire.wire_nat_round_trip(0n, Wr.put_nat(i, FCv.put_val(v, rest)), {==})), Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.set(Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest)))), FCv.get_cmd.set(Wr.Got{i, FCv.put_val(v, rest)}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set(d), Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest))), Wr.Got{i, FCv.put_val(v, rest)}, Wire.wire_nat_round_trip(i, FCv.put_val(v, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(i), Cvar.cvar_val_fits(v), h))), Equal.cong(Wr.Dec<Cv.Val>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set.v(i, d), FCv.get_val(FCv.put_val(v, rest)), Wr.Got{v, rest}, pvf.val_rt(v, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(i), Cvar.cvar_val_fits(v), h)))))
+      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest))))), FCv.get_cmd.go(Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest)))), Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}, Wire.wire_nat_round_trip(0n, Wr.put_nat(i, FCv.put_val(v, rest)), {==})), Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.set(Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest)))), FCv.get_cmd.set(Wr.Got{i, FCv.put_val(v, rest)}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set(d), Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest))), Wr.Got{i, FCv.put_val(v, rest)}, Wire.wire_nat_round_trip(i, FCv.put_val(v, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(i), Cvar.cvar_val_fits(v), h))), Equal.cong(Wr.Dec<Cv.Val>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set.v(i, d), FCv.get_val(FCv.put_val(v, rest)), Wr.Got{v, rest}, pvf.val_rt(v, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(i), Cvar.cvar_val_fits(v), h)))))
     case Cv.CToggle{+n}:
       Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(n, rest)))), FCv.get_cmd.go(Wr.Got{1n, Wr.put_nat(n, rest)}), Wr.Got{Cv.CToggle{n}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(n, rest))), Wr.Got{1n, Wr.put_nat(n, rest)}, Wire.wire_nat_round_trip(1n, Wr.put_nat(n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.toggle(d), Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, h)))
     case Cv.CRun{+n}:
@@ -302,30 +302,30 @@ def pvf.cs.put(+xs: List<&2, Cv.Cmd>, -rest: String) -> {Wr.put_list(~Cv.Cmd, ~F
 def pvf.cs.go_rt(+t: List<&2, Cv.Cmd>, +x: Cv.Cmd, +rest: String, +hf: {Cvar.cvar_cmds_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, List.length(&2, Cv.Cmd, t), FCv.get_cmd(FCv.put_cmd(x, pvf.cs.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Cv.Cmd>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, rest)), Wr.Got{x, rest}, pvf.cmd_rt(x, rest, LBoolAnd.wr_and_l(Cvar.cvar_cmd_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, rest)), Wr.Got{x, rest}, pvf.cmd_rt(x, rest, LLogicBool.wr_and_l(Cvar.cvar_cmd_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Cmd>>}
       {==}
     case Con{+y, +u}:
-      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{x, FCv.put_cmd(y, pvf.cs.items(u, rest))}, pvf.cmd_rt(x, FCv.put_cmd(y, pvf.cs.items(u, rest)), LBoolAnd.wr_and_l(Cvar.cvar_cmd_fits(x), Cvar.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 1n+List.length(&2, Cv.Cmd, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
-      %Equal.sym(Wr.Dec<List<&2, Cv.Cmd>>, Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, List.length(&2, Cv.Cmd, u), FCv.get_cmd(FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.cs.go_rt(u, y, rest, LBoolAnd.wr_and_r(Cvar.cvar_cmd_fits(x), Cvar.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Cmd, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{x, FCv.put_cmd(y, pvf.cs.items(u, rest))}, pvf.cmd_rt(x, FCv.put_cmd(y, pvf.cs.items(u, rest)), LLogicBool.wr_and_l(Cvar.cvar_cmd_fits(x), Cvar.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 1n+List.length(&2, Cv.Cmd, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<List<&2, Cv.Cmd>>, Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, List.length(&2, Cv.Cmd, u), FCv.get_cmd(FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.cs.go_rt(u, y, rest, LLogicBool.wr_and_r(Cvar.cvar_cmd_fits(x), Cvar.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Cmd, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
       {==}
 
 # a list of Cv.Cmd that fits reads back
 def pvf.cs.rt(+xs: List<&2, Cv.Cmd>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Cv.Cmd, xs)), Cvar.cvar_cmds_all(xs)) == True{} : Bool}) -> {Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Cv.Cmd>>}:
   match xs:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LLogicBool.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, x <> t, r), Wr.put_nat(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r)), pvf.cs.put(x <> t, r)) : {Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Cmd>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Cvar.cvar_cmds_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Cmd>>}
-      pvf.cs.go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Cvar.cvar_cmds_all(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Cvar.cvar_cmds_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Cmd>>}
+      pvf.cs.go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Cvar.cvar_cmds_all(x <> t), hh))
 
 def pvf.alias_rt(+a: Cv.Alias, +rest: String, +h: {Cvar.cvar_alias_fits(a) == True{} : Bool}) -> {FCv.get_alias(FCv.put_alias(a, rest)) == Wr.Got{a, rest} : Wr.Dec<Cv.Alias>}:
   match a:
     case Cv.Alias{+n, +b}:
-      Equal.trans(Wr.Dec<Cv.Alias>, FCv.get_alias.name(Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest)))), FCv.get_alias.name(Wr.Got{n, FCv.put_cmds(b, rest)}), Wr.Got{Cv.Alias{n, b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.name(d), Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest))), Wr.Got{n, FCv.put_cmds(b, rest)}, Wire.wire_nat_round_trip(n, FCv.put_cmds(b, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(n), Cvar.cvar_cmds_fit(b), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.body(n, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, b, rest)), Wr.Got{b, rest}, pvf.cs.rt(b, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(n), Cvar.cvar_cmds_fit(b), h))))
+      Equal.trans(Wr.Dec<Cv.Alias>, FCv.get_alias.name(Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest)))), FCv.get_alias.name(Wr.Got{n, FCv.put_cmds(b, rest)}), Wr.Got{Cv.Alias{n, b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.name(d), Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest))), Wr.Got{n, FCv.put_cmds(b, rest)}, Wire.wire_nat_round_trip(n, FCv.put_cmds(b, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(n), Cvar.cvar_cmds_fit(b), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.body(n, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, b, rest)), Wr.Got{b, rest}, pvf.cs.rt(b, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(n), Cvar.cvar_cmds_fit(b), h))))
 
 # the items of a list of Cv.Alias, then rest
 def pvf.as.items(xs: List<&2, Cv.Alias>, rest: String) -> String:
@@ -352,25 +352,25 @@ def pvf.as.put(+xs: List<&2, Cv.Alias>, -rest: String) -> {Wr.put_list(~Cv.Alias
 def pvf.as.go_rt(+t: List<&2, Cv.Alias>, +x: Cv.Alias, +rest: String, +hf: {Cvar.cvar_aliases_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, List.length(&2, Cv.Alias, t), FCv.get_alias(FCv.put_alias(x, pvf.as.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Cv.Alias>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, rest)), Wr.Got{x, rest}, pvf.alias_rt(x, rest, LBoolAnd.wr_and_l(Cvar.cvar_alias_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, rest)), Wr.Got{x, rest}, pvf.alias_rt(x, rest, LLogicBool.wr_and_l(Cvar.cvar_alias_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Alias>>}
       {==}
     case Con{+y, +u}:
-      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{x, FCv.put_alias(y, pvf.as.items(u, rest))}, pvf.alias_rt(x, FCv.put_alias(y, pvf.as.items(u, rest)), LBoolAnd.wr_and_l(Cvar.cvar_alias_fits(x), Cvar.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 1n+List.length(&2, Cv.Alias, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
-      %Equal.sym(Wr.Dec<List<&2, Cv.Alias>>, Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, List.length(&2, Cv.Alias, u), FCv.get_alias(FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.as.go_rt(u, y, rest, LBoolAnd.wr_and_r(Cvar.cvar_alias_fits(x), Cvar.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Alias, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{x, FCv.put_alias(y, pvf.as.items(u, rest))}, pvf.alias_rt(x, FCv.put_alias(y, pvf.as.items(u, rest)), LLogicBool.wr_and_l(Cvar.cvar_alias_fits(x), Cvar.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 1n+List.length(&2, Cv.Alias, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<List<&2, Cv.Alias>>, Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, List.length(&2, Cv.Alias, u), FCv.get_alias(FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.as.go_rt(u, y, rest, LLogicBool.wr_and_r(Cvar.cvar_alias_fits(x), Cvar.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Alias, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
       {==}
 
 # a list of Cv.Alias that fits reads back
 def pvf.as.rt(+xs: List<&2, Cv.Alias>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Cv.Alias, xs)), Cvar.cvar_aliases_all(xs)) == True{} : Bool}) -> {Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Cv.Alias>>}:
   match xs:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LLogicBool.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Alias>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~Cv.Alias, ~FCv.put_alias, x <> t, r), Wr.put_nat(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r)), pvf.as.put(x <> t, r)) : {Wr.get_list(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Alias>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Cv.Alias, x <> t)), Cvar.cvar_aliases_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Alias>>}
-      pvf.as.go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Cv.Alias, x <> t)), Cvar.cvar_aliases_all(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Cv.Alias, x <> t)), Cvar.cvar_aliases_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Alias>>}
+      pvf.as.go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Cv.Alias, x <> t)), Cvar.cvar_aliases_all(x <> t), hh))
 
 def pvf.xreq_rt(+as: List<&2, Cv.Alias>, +cs: List<&2, Cv.Cmd>, +rest: String, +h: {Bool.and(Cvar.cvar_aliases_fit(as), Cvar.cvar_cmds_fit(cs)) == True{} : Bool}) -> {FCv.get_xreq(FCv.put_xreq(FCv.Xreq{as, cs}, rest)) == Wr.Got{FCv.Xreq{as, cs}, rest} : Wr.Dec<FCv.Xreq>}:
-  Equal.trans(Wr.Dec<FCv.Xreq>, FCv.get_xreq.aliases(Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest)))), FCv.get_xreq.aliases(Wr.Got{as, FCv.put_cmds(cs, rest)}), Wr.Got{FCv.Xreq{as, cs}, rest}, Equal.cong(Wr.Dec<List<&2, Cv.Alias>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.aliases(d), Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest))), Wr.Got{as, FCv.put_cmds(cs, rest)}, pvf.as.rt(as, FCv.put_cmds(cs, rest), LBoolAnd.wr_and_l(Cvar.cvar_aliases_fit(as), Cvar.cvar_cmds_fit(cs), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.cmds(as, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, cs, rest)), Wr.Got{cs, rest}, pvf.cs.rt(cs, rest, LBoolAnd.wr_and_r(Cvar.cvar_aliases_fit(as), Cvar.cvar_cmds_fit(cs), h))))
+  Equal.trans(Wr.Dec<FCv.Xreq>, FCv.get_xreq.aliases(Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest)))), FCv.get_xreq.aliases(Wr.Got{as, FCv.put_cmds(cs, rest)}), Wr.Got{FCv.Xreq{as, cs}, rest}, Equal.cong(Wr.Dec<List<&2, Cv.Alias>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.aliases(d), Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest))), Wr.Got{as, FCv.put_cmds(cs, rest)}, pvf.as.rt(as, FCv.put_cmds(cs, rest), LLogicBool.wr_and_l(Cvar.cvar_aliases_fit(as), Cvar.cvar_cmds_fit(cs), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.cmds(as, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, cs, rest)), Wr.Got{cs, rest}, pvf.cs.rt(cs, rest, LLogicBool.wr_and_r(Cvar.cvar_aliases_fit(as), Cvar.cvar_cmds_fit(cs), h))))

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/aux_fallback.bend as Af
 import ../../laws/aux_fallback.bend as AuxFallback
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/bool.bend as LBool
 
 # a notice of c's key comes with its substitution
 def ppr.quiet_new(c: Bool, +k: Af.Key, +t: List<&2, Af.Ev>, ih: {Af.listed(Af.notes(t), k) == True{} : Bool} -> {Af.listed(Af.subs(t), k) == True{} : Bool}, h: {Bool.or(c, Af.listed(Af.notes(t), k)) == True{} : Bool}) -> {Bool.or(c, Af.listed(Af.subs(t), k)) == True{} : Bool}:
@@ -18,7 +18,7 @@ def ppr.quiet_new(c: Bool, +k: Af.Key, +t: List<&2, Af.Ev>, ih: {Af.listed(Af.no
 def ppr.quiet_fb(seen: Bool, +kk: Af.Key, +k: Af.Key, +t: List<&2, Af.Ev>, ih: {Af.listed(Af.notes(t), k) == True{} : Bool} -> {Af.listed(Af.subs(t), k) == True{} : Bool}, h: {Af.listed(Af.notes(Af.noted(seen, kk, t)), k) == True{} : Bool}) -> {Bool.or(Af.Key.eq(kk, k), Af.listed(Af.subs(Af.noted(seen, kk, t)), k)) == True{} : Bool}:
   match seen:
     case True{}:
-      LBoolMisc.ppr.or_r(Af.Key.eq(kk, k), Af.listed(Af.subs(t), k), ih(h))
+      LBool.ppr.or_r(Af.Key.eq(kk, k), Af.listed(Af.subs(t), k), ih(h))
     case False{}:
       ppr.quiet_new(Af.Key.eq(kk, k), k, t, ih, h)
 

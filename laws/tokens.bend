@@ -7,7 +7,7 @@ import ../bend/tokens.bend as Tk
 
 # LAWS (T2): the dashboard's presentation tokens. Each law is an open
 # claim about the model in bend/tokens.bend; PROOF.bend proves them (as
-# Laws.<law>) with the lemmas of PROOF.bend section tokens.
+# Tokens.<law>) with the lemmas of proof/tokens/.
 
 # (T2) Dashboard tokens
 # ---------------------

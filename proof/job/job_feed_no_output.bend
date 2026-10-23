@@ -3,13 +3,13 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base/bool/misc.bend as LBoolMisc
+import ../base/logic/logic.bend as LLogicLogic
 
 # The step the Rust jobs run (`feed`): below t it is the step; any output
 # is a step on a part of it; the counts stay within t and fill it.
 
 def pj.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : LBoolMisc.pj.BD(_, Unit, A)
+  %e : LLogicLogic.pj.BD(_, Unit, A)
   Unit{}
 
 def pj.job_feed_no_output(+t: Nat, +cap: Maybe<&2, Nat>, j: Jb.J, e: Jb.JEv, quiet: {Job.JobWrites(e) == False{} : Bool}) -> {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}:

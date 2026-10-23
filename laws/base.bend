@@ -12,8 +12,8 @@ def rank_spec.short(+x: Nat) -> Bool:
 # LAWS (the wire format of the compiled Bend core): every entry of
 # bend/core.bend reads its input and writes its reply in the format of
 # bend/wire.bend (grammar: crates/eukhe-bend/WIRE.md). Each law is an open
-# claim about bend/wire.bend; PROOF.bend proves them (as Laws.<law>) with
-# the lemmas of PROOF.bend section wire.
+# claim about bend/wire.bend; PROOF.bend proves them (as Wire.<law>) with
+# the lemmas of proof/wire/.
 #
 # R1: a decoder reads back what its encoder wrote, and leaves the input
 #     after it untouched (so values compose: the laws quantify `rest`).
@@ -74,7 +74,7 @@ def wire_opens_err(s: String) -> Bool:
 # thinking ladder, the strict plan and the thinking budgets
 # (bend/ffi_effort.bend, bend/ffi_infer.bend, bend/ffi_facts.bend). Each law
 # is an open claim about those files; PROOF.bend proves them (as
-# Laws.<law>) on the lemmas of PROOF.bend section wire.
+# Effort.<law>, Infer.<law>, Facts.<law>) on the lemmas of proof/wire/.
 #
 # R1: a request Rust writes (`put_req`, the grammar of the file's header,
 #     every Nat and list length within the wire) reads back whole: no field
