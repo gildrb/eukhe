@@ -3,7 +3,7 @@
 //! `edit_keeps_untouched_bytes` of `LAWS.bend` section `documents`): generated files
 //! of content bytes, `\r`, `\n` and `\r\n`, with or without a BOM, get one
 //! generated edit through [`Documents::read`] and [`Documents::edit`], and
-//! `bend/bridge_doc_lines.bend` must print the bytes the edit wrote, byte
+//! `bridge/bridge_doc_lines.bend` must print the bytes the edit wrote, byte
 //! for byte.
 //!
 //! A scenario file (no trailing newline) has one file and edit a line:
@@ -15,7 +15,7 @@ use crate::read::ReadContent;
 use crate::testing::{compare, Rng, Scenario};
 use crate::Documents;
 
-const MODEL: &str = "bend/bridge_doc_lines.bend";
+const MODEL: &str = "bridge/bridge_doc_lines.bend";
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// One generated edit: the model's words and the hashline op.

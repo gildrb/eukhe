@@ -1,5 +1,5 @@
 // The token source against its Bend model and the files that cannot read
-// it: bend/bridge_tokens.bend must print the tables of tokens.stylex.ts
+// it: bridge/bridge_tokens.bend must print the tables of tokens.stylex.ts
 // (LAWS.bend section dashboard_tokens states their rules), the browser's theme
 // color in index.html, the manifest and theme.js must be the palette's
 // `bg`, and global.css must hold no literal (the lint rule
@@ -63,7 +63,7 @@ test("the token tables equal bend/tokens.bend", (context) => {
   const bend = process.env.BEND ?? "bend";
   const dir = mkdtempSync(join(tmpdir(), "eukhe-tokens-"));
   const binary = join(dir, "bridge");
-  const built = spawnSync(bend, [join(REPO, "bend/bridge_tokens.bend"), "-o", binary], {
+  const built = spawnSync(bend, [join(REPO, "bridge/bridge_tokens.bend"), "-o", binary], {
     encoding: "utf8",
   });
   if (built.error) {
@@ -79,7 +79,7 @@ test("the token tables equal bend/tokens.bend", (context) => {
   }
   expect(
     built.status,
-    `bend could not build bend/bridge_tokens.bend:\n${built.stdout}${built.stderr}`,
+    `bend could not build bridge/bridge_tokens.bend:\n${built.stdout}${built.stderr}`,
   ).toBe(0);
   const ran = spawnSync(binary, { encoding: "utf8" });
   expect(ran.status, ran.stderr).toBe(0);

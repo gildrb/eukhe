@@ -2,7 +2,7 @@
 //! (docs/inference.md S6.10) and their Bend model (`bend/facts.bend`; the
 //! laws are `LAWS.bend` section `model_facts`, which `PROOF.bend` proves): both run
 //! the same scenarios and must print the same transcript, byte for byte
-//! (`bend/bridge_facts.bend` documents the format).
+//! (`bridge/bridge_facts.bend` documents the format).
 //!
 //! - Decisions: the scenario lists the rules of the shipped rulebook
 //!   (`quirks/rulebook.json`, read as data) for the five decision
@@ -414,7 +414,7 @@ fn price_scenario() -> Scenario {
 #[test]
 fn the_rust_model_facts_equal_the_bend_model() {
     compare(
-        "bend/bridge_facts.bend",
+        "bridge/bridge_facts.bend",
         [decision_scenario(), effort_scenario(), price_scenario()],
     );
 }

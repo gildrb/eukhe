@@ -2,13 +2,13 @@
 //! (`bend/optchat.bend`, whose laws `PROOF.bend` proves): both run the
 //! same scenarios and must print the same transcript, byte for byte.
 //!
-//! A scenario is a list of events (`bend/bridge.bend` documents the
+//! A scenario is a list of events (`bridge/bridge.bend` documents the
 //! format): messages, nodes built, calls started and failed, and queries
 //! of the view and of a compaction's view. The Rust side drives a [`Chat`]
 //! with them and prints, after each event, the view, the compaction view,
 //! whether a batch is still shrinking, the batch it ran and the work
 //! queue, without and with a waiting turn; the Bend side builds
-//! `bend/bridge.bend` into a native binary and prints the same from the
+//! `bridge/bridge.bend` into a native binary and prints the same from the
 //! model, through [`compare`] (which skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
 
@@ -275,7 +275,7 @@ fn scenarios() -> Vec<(String, Run)> {
 #[test]
 fn the_rust_planner_equals_the_bend_model() {
     compare(
-        "bend/bridge.bend",
+        "bridge/bridge.bend",
         scenarios().into_iter().map(|(name, run)| Scenario {
             name,
             events: run.events,

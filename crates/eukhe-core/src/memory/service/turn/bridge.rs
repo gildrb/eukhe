@@ -1,7 +1,7 @@
 //! The bridge between the harness's waits and their Bend models
 //! (`bend/wait.bend`, `bend/lease.bend`, whose laws `PROOF.bend` proves):
 //! the Rust code and the models run the same scenarios and must print the
-//! same transcript, byte for byte (`bend/bridge_wait.bend` documents the
+//! same transcript, byte for byte (`bridge/bridge_wait.bend` documents the
 //! format).
 //!
 //! - The wait: [`race`] on paused tokio time, against an event (a oneshot),
@@ -234,5 +234,5 @@ fn scenarios() -> Vec<Scenario> {
 
 #[test]
 fn the_waits_equal_their_bend_models() {
-    compare("bend/bridge_wait.bend", scenarios());
+    compare("bridge/bridge_wait.bend", scenarios());
 }

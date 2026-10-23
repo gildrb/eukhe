@@ -161,7 +161,7 @@ mod tests {
     fn the_restore_notices_run_as_their_model() {
         let mut rng = Rng(0x0de5_7012);
         let scenarios: Vec<Scenario> = (0..60).map(|_| scenario(&mut rng)).collect();
-        compare("bend/bridge_notice.bend", scenarios);
+        compare("bridge/bridge_notice.bend", scenarios);
     }
 
     /// A rebuild shows the notices the view did not show yet, and the

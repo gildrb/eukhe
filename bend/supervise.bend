@@ -4,7 +4,7 @@
 # (crates/eukhe-daemon/src/supervisor/restart_budget.rs) calls `decide`
 # through bend/ffi_supervise.bend. The timeouts are the constants of
 # crates/eukhe-daemon/src/timeouts.rs, eukhe-types daemon/timing.rs and
-# eukhe-core kernel/shared.rs; the bridge (bend/bridge_supervise.bend,
+# eukhe-core kernel/shared.rs; the bridge (bridge/bridge_supervise.bend,
 # crates/eukhe-daemon/src/supervision_bridge.rs) prints the same constants.
 #
 # A worker fails again and again. Each failure comes g ms after the one

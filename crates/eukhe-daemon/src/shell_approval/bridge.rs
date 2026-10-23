@@ -1,7 +1,7 @@
 //! The bridge between the routing of approval questions and its Bend
 //! model (`bend/approvals.bend`, laws `LAWS.bend` section `approvals`, G5, proved in
 //! `PROOF.bend`): both run the same chains of sessions and must print the
-//! same transcript, byte for byte (`bend/bridge_approvals.bend` documents
+//! same transcript, byte for byte (`bridge/bridge_approvals.bend` documents
 //! the format). A chain is real [`ShellApprovals`], one per session, from
 //! the subagent that asks up to its root; each hands a question up through
 //! its parent's real `relay_shell_approval` handler (in place of the
@@ -53,7 +53,7 @@ enum Desk {
 }
 
 impl Desk {
-    /// The desk of a code of `bend/bridge_approvals.bend`.
+    /// The desk of a code of `bridge/bridge_approvals.bend`.
     fn of(code: u64) -> Self {
         match code {
             0 => Self::Away,
@@ -134,7 +134,7 @@ async fn clients(
 
 /// Ask one question about a step with the effects of `codes` from the
 /// first session of `chain` and return what happened, as
-/// `bend/bridge_approvals.bend` prints it.
+/// `bridge/bridge_approvals.bend` prints it.
 async fn ask(codes: &[u8], chain: &[Desk]) -> String {
     let log = Arc::new(Mutex::new(Log::default()));
     let mut tasks = Vec::new();
@@ -287,5 +287,5 @@ async fn the_approval_route_is_its_model() {
         scenario("chains of 1 to 3", &small).await,
         scenario("longer chains", &long).await,
     ];
-    compare("bend/bridge_approvals.bend", scenarios);
+    compare("bridge/bridge_approvals.bend", scenarios);
 }

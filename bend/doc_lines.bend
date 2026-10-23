@@ -20,8 +20,8 @@
 # empty piece after a final `\n`. Grep splits on `\n`, strips the `\r` of
 # each `\r\n` terminator, and shows no row after a final `\n`.
 #
-# The bridges (bend/bridge_doc_lines.bend with
-# crates/eukhe-docs/src/hashline/bridge.rs, bend/bridge_doc_rows.bend
+# The bridges (bridge/bridge_doc_lines.bend with
+# crates/eukhe-docs/src/hashline/bridge.rs, bridge/bridge_doc_rows.bend
 # with crates/eukhe-docs/src/grep/bridge.rs) run the real code on
 # generated files and compare.
 

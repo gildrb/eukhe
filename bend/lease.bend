@@ -1,7 +1,7 @@
 # lease: the model of the chat's root-turn lease (docs/harness.md, H6):
 # one holder, then the waiters in the order they asked. The Rust code is
 # `Turns` in crates/eukhe-core/src/memory/service/turn.rs; the bridge
-# (bend/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs)
+# (bridge/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs)
 # runs both on the same events.
 #
 # A waiter asks (it gets the next key, so keys are the order of arrival);

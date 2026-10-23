@@ -10,7 +10,7 @@
 # Truncation is on by default: the Rust default is Some.
 #
 # The Rust jobs (crates/eukhe-core/src/durable/jobs/) are checked against
-# this model by the bridge (bend/bridge_job.bend).
+# this model by the bridge (bridge/bridge_job.bend).
 
 import Base
 

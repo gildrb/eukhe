@@ -478,7 +478,7 @@ mod tests {
                 transcript,
             });
         }
-        compare("bend/bridge_dash.bend", scenarios);
+        compare("bridge/bridge_dash.bend", scenarios);
     }
 
     #[test]

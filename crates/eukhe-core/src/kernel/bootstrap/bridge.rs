@@ -2,7 +2,7 @@
 //! kernel is missing, the bootstrap lock, and their Bend model
 //! (`bend/kernel_local.bend`, whose laws `LAWS.bend` section `kernel_local` and
 //! `PROOF.bend` prove): both run the same scenarios and must print the
-//! same transcript, byte for byte. `bend/bridge_kernel_local.bend`
+//! same transcript, byte for byte. `bridge/bridge_kernel_local.bend`
 //! documents the scenario format.
 //!
 //! A uv command is a fetch unless it has `--offline`; a fetch is hashed
@@ -93,7 +93,7 @@ fn the_rust_setup_equals_the_bend_model() {
             }
         }
     }
-    compare("bend/bridge_kernel_local.bend", scenarios);
+    compare("bridge/bridge_kernel_local.bend", scenarios);
 }
 
 /// A pid with no process: a child that already exited.
@@ -167,7 +167,7 @@ fn the_rust_lock_equals_the_bend_model() {
             transcript,
         });
     }
-    compare("bend/bridge_kernel_local.bend", scenarios);
+    compare("bridge/bridge_kernel_local.bend", scenarios);
 }
 
 /// Sets the kernel env of a test and puts the old values back when the
@@ -263,5 +263,5 @@ async fn a_missing_kernel_answers_as_its_model() {
             transcript,
         });
     }
-    compare("bend/bridge_kernel_local.bend", scenarios);
+    compare("bridge/bridge_kernel_local.bend", scenarios);
 }

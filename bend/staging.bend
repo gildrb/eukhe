@@ -19,7 +19,7 @@
 # only while no directory has its stem: an open imports it into
 # `<stem>/`, and then that directory is the session.
 #
-# The bridge (bend/bridge_staging.bend,
+# The bridge (bridge/bridge_staging.bend,
 # crates/eukhe-core/src/durable/staging/bridge.rs) runs the real code on
 # generated directories and compares.
 

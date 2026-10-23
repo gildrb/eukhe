@@ -3,7 +3,7 @@
 //! both run the same scenarios and must print the same transcript, byte for
 //! byte.
 //!
-//! A scenario is a list of ops (`bend/bridge_tools.bend` documents the
+//! A scenario is a list of ops (`bridge/bridge_tools.bend` documents the
 //! format): new sessions with a roster, tools that join and quit, requests,
 //! and tool schemas to build. The Rust side drives a real registry with its
 //! roster fixed, a [`ToolSurface`] and [`tool_contract::build`]: a tool that
@@ -13,7 +13,7 @@
 //! Harness does. After each op it prints the roster, what `dyn` reaches, the
 //! requests sent and whether each sent the roster; a schema prints the
 //! parameters and version the harness sends and whether building it again
-//! changes nothing. The Bend side builds `bend/bridge_tools.bend` into a
+//! changes nothing. The Bend side builds `bridge/bridge_tools.bend` into a
 //! native binary and prints the same from the model `run`/`step`/`dyn_call`
 //! and `build`.
 //!
@@ -239,7 +239,7 @@ fn scenarios() -> Run {
 fn the_rust_tool_surface_equals_the_bend_model() {
     let run = scenarios();
     compare(
-        "bend/bridge_tools.bend",
+        "bridge/bridge_tools.bend",
         [Scenario {
             name: "every scenario".to_owned(),
             events: run.events,

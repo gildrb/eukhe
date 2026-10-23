@@ -13,7 +13,7 @@
 #   sawtooth; a compaction sees it up to its node (gist §4).
 # - The work queue starts nodes in the gist's order (gist §4).
 #
-# LAWS.bend states what must hold; PROOF.bend proves it. bend/bridge.bend
+# LAWS.bend states what must hold; PROOF.bend proves it. bridge/bridge.bend
 # runs this model on the scenarios the Rust bridge test sends.
 
 import Base

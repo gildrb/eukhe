@@ -346,7 +346,7 @@ async fn the_default_auto_set_is_its_model() {
         writeln!(transcript, "a {gated}").unwrap();
     }
     compare(
-        "bend/bridge_approvals.bend",
+        "bridge/bridge_approvals.bend",
         [Scenario {
             name: "the default auto set".to_owned(),
             events,

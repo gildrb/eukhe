@@ -2,7 +2,7 @@
 //! progress check ([`goal_check`]) and their Bend model (`work` and
 //! `check` in `bend/progress.bend`, whose laws `PROOF.bend` proves): both
 //! run the same scenarios and must print the same transcript, byte for
-//! byte. `bend/bridge_progress.bend` documents the scenario format: a cap,
+//! byte. `bridge/bridge_progress.bend` documents the scenario format: a cap,
 //! then goal continuations, each after the acts of the run since the last
 //! one; after each, the work and the check's verdict.
 //!
@@ -202,5 +202,5 @@ fn the_rust_progress_check_equals_the_bend_model() {
             transcript,
         }
     });
-    compare("bend/bridge_progress.bend", scenarios);
+    compare("bridge/bridge_progress.bend", scenarios);
 }

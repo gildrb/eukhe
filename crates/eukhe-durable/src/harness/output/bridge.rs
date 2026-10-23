@@ -3,7 +3,7 @@
 //! laws `PROOF.bend` proves): both run the same scenarios and must print
 //! the same transcript, byte for byte.
 //!
-//! A scenario is a bounder scenario of `bend/bridge_stream.bend` (the file
+//! A scenario is a bounder scenario of `bridge/bridge_stream.bend` (the file
 //! documents the format): the cap (`Truncation::On` with that many bytes,
 //! or the opt-out `Truncation::Off`), chunks of output, and the end of the
 //! output. After each chunk and the end the driver prints the job as the
@@ -110,5 +110,5 @@ fn the_rust_output_bounder_equals_the_bend_model() {
             }
         })
         .collect();
-    compare("bend/bridge_stream.bend", scenarios);
+    compare("bridge/bridge_stream.bend", scenarios);
 }

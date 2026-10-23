@@ -3,7 +3,7 @@
 //! ([`ramp_rung`], [`Theme::effort_ramp`]), the usage bands
 //! ([`crate::status_line::context_band`]) and the color roles (the
 //! tokens of [`ThemeColor`], [`ThemeBg`] and [`ThemeRgb`]) run generated
-//! scenarios, and `bend/bridge_tui_color.bend` must print the same
+//! scenarios, and `bridge/bridge_tui_color.bend` must print the same
 //! transcript, byte for byte.
 //!
 //! A scenario file (no trailing newline) has one query a line:
@@ -23,7 +23,7 @@ use crate::testing::{compare, Rng, Scenario};
 use eukhe_theme::Rgb;
 use std::fmt::Write as _;
 
-const MODEL: &str = "bend/bridge_tui_color.bend";
+const MODEL: &str = "bridge/bridge_tui_color.bend";
 
 /// The builtin themes by their scenario number.
 const SHIPPED: [&str; 3] = ["eukhe", "dark", "light"];

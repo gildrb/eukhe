@@ -2,7 +2,7 @@
 //! (`bend/log.bend`, whose laws `PROOF.bend` proves): both run the same
 //! scenarios and must print the same transcript, byte for byte.
 //!
-//! A scenario is a list of epochs (`bend/bridge_log.bend` documents the
+//! A scenario is a list of epochs (`bridge/bridge_log.bend` documents the
 //! events). Each epoch opens the storage with fsync over [`CrashFs`], a
 //! native file system that does the first `p` steps (appends, file
 //! flushes, directory flushes) and then loses power: every later step
@@ -561,5 +561,5 @@ async fn the_commit_log_runs_as_its_model() {
             .collect();
         scenarios.push(run(format!("random {at}"), &epochs, &mut rng).await);
     }
-    compare("bend/bridge_log.bend", scenarios);
+    compare("bridge/bridge_log.bend", scenarios);
 }

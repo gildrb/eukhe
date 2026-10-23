@@ -1,6 +1,6 @@
 # semver: the model of eukhe's release versions (LAWS.bend section release R1,
 # docs/develop.md "Releases"). scripts/release/next_version.py implements it; its bridge
-# test (scripts/release/test_next_version.py, with bend/bridge_semver.bend)
+# test (scripts/release/test_next_version.py, with bridge/bridge_semver.bend)
 # runs both on the same cases.
 #
 # 1. Numbers. A number is written in decimal without leading zeros: "0",

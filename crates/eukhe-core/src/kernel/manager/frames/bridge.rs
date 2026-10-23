@@ -4,7 +4,7 @@
 //! same transcript, byte for byte.
 //!
 //! A scenario is a size limit, the host-request kinds the host serves,
-//! and a stream of host-request frames (`bend/bridge_sandbox.bend`
+//! and a stream of host-request frames (`bridge/bridge_sandbox.bend`
 //! documents the format). The driver writes each frame as the runtime
 //! does, cuts the stream into reads of random sizes, and prints the
 //! gate's answer to each frame and the frames it served.
@@ -129,7 +129,7 @@ fn the_rust_frame_gate_equals_the_bend_model() {
             }
         })
         .collect();
-    compare("bend/bridge_sandbox.bend", scenarios);
+    compare("bridge/bridge_sandbox.bend", scenarios);
     // The scenarios reach every rule of the model.
     assert_eq!(
         reached,

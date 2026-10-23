@@ -22,7 +22,7 @@
 # gone unless both entries are durable. After the crash, what is on disk
 # is the start of the next epoch.
 #
-# The bridge (bend/bridge_log.bend, crates/eukhe-durable/src/storage/
+# The bridge (bridge/bridge_log.bend, crates/eukhe-durable/src/storage/
 # jsonl/bridge.rs) runs the real `JsonlStorage` over a file system that
 # crashes the same way, at every crash point, and compares.
 

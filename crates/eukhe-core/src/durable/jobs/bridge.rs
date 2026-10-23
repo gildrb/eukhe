@@ -3,7 +3,7 @@
 //! whose laws `PROOF.bend` proves): both run the same scenarios and must
 //! print the same transcript, byte for byte.
 //!
-//! A scenario (`bend/bridge_job.bend` documents the format) gives one job
+//! A scenario (`bridge/bridge_job.bend` documents the format) gives one job
 //! its output cap (or the opt-out) and a blocking wait its budget, then
 //! feeds the job its events: output, an exit, the kill, a tick of time
 //! (the paused tokio clock moves one millisecond). After each event the
@@ -240,5 +240,5 @@ async fn the_rust_jobs_equal_the_bend_model() {
         ]),
         "the scenarios reach every case"
     );
-    compare("bend/bridge_job.bend", scenarios);
+    compare("bridge/bridge_job.bend", scenarios);
 }

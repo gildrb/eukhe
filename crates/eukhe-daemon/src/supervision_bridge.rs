@@ -3,17 +3,17 @@
 //! the models run the same scenarios and must print the same transcript,
 //! byte for byte.
 //!
-//! - The timeouts against `bend/bridge_supervise.bend` (they are `const`
+//! - The timeouts against `bridge/bridge_supervise.bend` (they are `const`
 //!   expressions: no core call can replace them).
 //! - [`busy_evidence_fresh`] on the refresh schedule against
-//!   `bend/bridge_revive.bend`.
+//!   `bridge/bridge_revive.bend`.
 //! - [`WorkGate`], [`idle_shutdown_commits`] and [`adoption_verdict`]
-//!   against `bend/bridge_launcher.bend`.
+//!   against `bridge/bridge_launcher.bend`.
 //!
 //! The restart budget and the orphan exit run as their compiled models
 //! (`bend/ffi_supervise.bend`, `bend/ffi_orphan.bend`): no bridge.
 //!
-//! Each `bend/bridge_*.bend` file documents its events and its output.
+//! Each `bridge/bridge_*.bend` file documents its events and its output.
 //! [`compare`] runs them (and skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
 
@@ -65,7 +65,7 @@ fn timeouts_scenario() -> (String, String) {
 fn the_timeouts_derive_as_their_model() {
     let (events, transcript) = timeouts_scenario();
     compare(
-        "bend/bridge_supervise.bend",
+        "bridge/bridge_supervise.bend",
         [Scenario {
             name: "timeouts".to_owned(),
             events,
@@ -104,7 +104,7 @@ fn the_revival_runs_as_its_model() {
         writeln!(transcript, "v {}", u8::from(fresh)).unwrap();
     }
     compare(
-        "bend/bridge_revive.bend",
+        "bridge/bridge_revive.bend",
         [Scenario {
             name: "long runs".to_owned(),
             events,
@@ -220,5 +220,5 @@ fn replacement_scenario(rng: &mut Rng) -> Scenario {
 fn the_replacement_runs_as_its_model() {
     let mut rng = Rng(0x1d1e_5407);
     let scenarios: Vec<Scenario> = (0..60).map(|_| replacement_scenario(&mut rng)).collect();
-    compare("bend/bridge_launcher.bend", scenarios);
+    compare("bridge/bridge_launcher.bend", scenarios);
 }

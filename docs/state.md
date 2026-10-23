@@ -114,6 +114,6 @@ All processes of an agent directory share the cron jobs file (`cron-jobs.json`, 
 
 Model: `bend/cron.bend`. Laws: `LAWS.bend` section `cron` (`cron_fires_once`, `cron_once_finished_after_end`, `cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`). Proofs: `PROOF.bend` sections `cron`, `cron_step`.
 
-Bridge: `cron::store::bridge::the_rust_cron_store_equals_the_bend_model`: 3 simulated processes (own store, owner identity, liveness seam, fake clock), one file, byte-equal to `bend/bridge_cron.bend`. Not modelled: cron expressions (model: one-shot, interval); freshness merge of whole-list writes (bridge steps one at a time).
+Bridge: `cron::store::bridge::the_rust_cron_store_equals_the_bend_model`: 3 simulated processes (own store, owner identity, liveness seam, fake clock), one file, byte-equal to `bridge/bridge_cron.bend`. Not modelled: cron expressions (model: one-shot, interval); freshness merge of whole-list writes (bridge steps one at a time).
 
 Tests (`cron::store::jobs::tests`): `a_pass_of_another_process_keeps_a_live_claim`, `a_one_shot_is_not_completed_while_it_runs`, `an_unread_job_survives_a_create`, `a_corrupt_file_is_moved_aside`, `a_failing_job_stops_after_the_cap`.

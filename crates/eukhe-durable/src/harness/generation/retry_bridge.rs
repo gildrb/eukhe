@@ -1,7 +1,7 @@
 //! The bridge between the idle deadline's decisions and its Bend model
 //! (`bend/retry.bend` §6, whose laws `LAWS.bend` section `retry` states
 //! and `PROOF.bend` proves): both run the same scenarios and must print
-//! the same transcript, byte for byte. `bend/bridge_retry.bend` documents
+//! the same transcript, byte for byte. `bridge/bridge_retry.bend` documents
 //! the scenario format (its `i` lines). The deferred job (§4) has no
 //! bridge: its decisions run as `bend/run.bend` in the compiled core (laws
 //! `run_failed_poll_is_the_job_model` and the like); the stall (§5) runs
@@ -130,5 +130,5 @@ fn the_rust_idle_deadline_equals_the_bend_model() {
             transcript,
         }
     });
-    compare("bend/bridge_retry.bend", scenarios);
+    compare("bridge/bridge_retry.bend", scenarios);
 }

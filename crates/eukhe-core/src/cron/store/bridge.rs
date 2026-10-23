@@ -2,7 +2,7 @@
 //! model (`bend/cron.bend`, whose laws `PROOF.bend` proves): both run the
 //! same scenarios and must print the same transcript, byte for byte.
 //!
-//! A scenario (`bend/bridge_cron.bend` documents the format) runs three
+//! A scenario (`bridge/bridge_cron.bend` documents the format) runs three
 //! simulated processes, each with its own store and owner identity, on one
 //! jobs file, over a clock of minutes. The processes make jobs, claim the
 //! due jobs, recover claims, finish their runs (good, failed, skipped),
@@ -570,5 +570,5 @@ fn the_rust_cron_store_equals_the_bend_model() {
         ]),
         "the scenarios reach every case"
     );
-    compare("bend/bridge_cron.bend", scenarios);
+    compare("bridge/bridge_cron.bend", scenarios);
 }

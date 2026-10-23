@@ -102,8 +102,8 @@ Code:
 - Capabilities: `eukhe-ai/src/capabilities/` (`Capability`, `Dialect::endpoint`, `capabilities_of`, one module per dialect), `models/capabilities.rs` (`Models` operations), `Directive::Endpoint`, `eukhe-cli/src/provider_command.rs`.
 
 Tie (bridge tests, transcripts byte for byte):
-- `harness::generation::infer_bridge::the_rust_quirks_rulebook_equals_the_bend_model` vs `bend/bridge_quirks.bend`: compile, lookup on generated rulebooks, each also with two rules swapped; directives = first of each value type in `Directive::ALL`; queries may name no family or host.
-- `the_rust_inference_units_equal_the_bend_model` vs `bend/bridge_infer.bend`: escalation; guard on lines in random deltas (random chunks, 1-4 chunk cycles, same with one chunk changed, observed 7-line loop vs windows 27, 28, 32, 64); compaction threshold. Code compares strictly (`>`), so for whole token counts model threshold = limit − margin + 1.
+- `harness::generation::infer_bridge::the_rust_quirks_rulebook_equals_the_bend_model` vs `bridge/bridge_quirks.bend`: compile, lookup on generated rulebooks, each also with two rules swapped; directives = first of each value type in `Directive::ALL`; queries may name no family or host.
+- `the_rust_inference_units_equal_the_bend_model` vs `bridge/bridge_infer.bend`: escalation; guard on lines in random deltas (random chunks, 1-4 chunk cycles, same with one chunk changed, observed 7-line loop vs windows 27, 28, 32, 64); compaction threshold. Code compares strictly (`>`), so for whole token counts model threshold = limit − margin + 1.
 - Strict plan and thinking ladder (section 6) run as their compiled models (`bend/ffi_infer.bend`, `bend/ffi_effort.bend`); no Rust copy.
 
 Tests:
@@ -260,7 +260,7 @@ Model `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs: `PROOF.bend` sec
 
 Code: `eukhe-tiny/src/roles.rs` (`chain`, `pick`, `Candidate`, `FallbackChain`), `election.rs` (`ensure`, `request`, `probe`, `Launcher`, `Got`), `worker.rs` (`launch_tag`, `run_worker`, `bind`, `serve`), `client.rs` (`TinyClient`, `TinyError`), `catalog.rs` (`CATALOG`, `installed`, `install_state`), `download.rs` `download`, `tasks.rs` (prompts, output parsing); `eukhe-tiny-onnx/src/text.rs`, `whisper.rs`, `kokoro.rs`, `runtime.rs`, `tokenizer.rs`; `eukhe-core/src/tiny/` (settings, `resolve`, `title.rs`, `judge.rs` `judge_classifier`), `eukhe-core/src/durable/codemode.rs`; `eukhe-durable/src/codemode/models.rs` `ClassifierDefault`; `eukhe-daemon/src/worker/title.rs`; `eukhe-cli/src/tiny_command.rs`, `tiny_models_command.rs`.
 
-Tie: `pick` runs as the compiled model (entry `bend/ffi_tiny.bend`, request laws `tiny_ffi_*`; a candidate crosses as the index of its first equal one). `eukhe-tiny` `bridge::the_rust_election_equals_the_bend_model` (real election: `ensure`, real `serve`, in process, fake engine, generated needs and exits) vs `bend/bridge_tiny.bend`.
+Tie: `pick` runs as the compiled model (entry `bend/ffi_tiny.bend`, request laws `tiny_ffi_*`; a candidate crosses as the index of its first equal one). `eukhe-tiny` `bridge::the_rust_election_equals_the_bend_model` (real election: `ensure`, real `serve`, in process, fake engine, generated needs and exits) vs `bridge/bridge_tiny.bend`.
 
 Tests:
 - `client::tests`: real workers, temp run dir, started on the client's command line without agent dir variable, other `HOME`: started, joined, replaced, idle exit, crash, not installed, client's agent dir served.

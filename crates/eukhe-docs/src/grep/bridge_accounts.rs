@@ -3,7 +3,7 @@
 //! `grep_accounts_every_file`, `grep_notes_every_gap`,
 //! `grep_notes_every_cut` and the continuation laws of
 //! `LAWS.bend` section `documents`): generated trees run through the Rust code and
-//! `bend/bridge_doc_search.bend` must print the same transcript, byte for
+//! `bridge/bridge_doc_search.bend` must print the same transcript, byte for
 //! byte.
 //!
 //! A tree holds entries `e00`, `e01`, ... in walk order: text files with
@@ -38,7 +38,7 @@ use crate::{
     testing::{compare, Rng, Scenario},
 };
 
-const MODEL: &str = "bend/bridge_doc_search.bend";
+const MODEL: &str = "bridge/bridge_doc_search.bend";
 /// The size limit of the generated searches: a text file has at most 40
 /// matching lines of 2 bytes, so all its matches are inside it.
 const MAX_FILE_BYTES: u64 = 128;

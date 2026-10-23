@@ -220,4 +220,4 @@ Status line: context usage of the daemon-served window (`contextUsage.contextWin
 - Each band: a window fraction in (0, 1], above the previous band. More tokens, same window: never a lower band. Band depends only on the used fraction: same fraction of a k-times window, same band.
 - Every terminal UI color role resolves in every valid theme's palette and paints a color in every shipped theme.
 
-Bridge test `crates/eukhe-tui/src/theme/bridge.rs`: Rust ramp, shipped ramps, bands, roles vs `bend/bridge_tui_color.bend`.
+Bridge test `crates/eukhe-tui/src/theme/bridge.rs`: Rust ramp, shipped ramps, bands, roles vs `bridge/bridge_tui_color.bend`.

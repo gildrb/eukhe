@@ -2,7 +2,7 @@
 # docs/dashboard.md "Pairing"). crates/eukhe-dashboard/src/pairing.rs,
 # http.rs and bridge.rs implement it; its bridge test
 # (pairing::tests::the_gate_pairs_as_its_model, with
-# bend/bridge_dash.bend) runs both on the same events.
+# bridge/bridge_dash.bend) runs both on the same events.
 #
 # 1. Tokens. A token is named by the order in which it was made: the
 #    first is 0, and each rotation makes the next one current. So the

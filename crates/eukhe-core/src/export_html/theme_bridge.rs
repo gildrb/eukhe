@@ -3,7 +3,7 @@
 //! share) and its Bend model (`bend/theme.bend`, `bend/color.bend`, whose
 //! laws `PROOF.bend` proves, section T1 of `LAWS.bend` section `themes`): both run
 //! the same scenarios and must print the same transcript, byte for byte
-//! (`bend/bridge_theme.bend` documents the format).
+//! (`bridge/bridge_theme.bend` documents the format).
 //!
 //! The scenarios hold:
 //! - the shipped tables: the color every token of each bundled theme file
@@ -456,5 +456,5 @@ fn the_rust_themes_equal_the_bend_model() {
     let mut rng = Rng(0x7e3e_c0de_5eed_0001);
     let mut scenarios = vec![tables(), colors(&mut rng), files(&mut rng)];
     scenarios.extend(resolutions(&mut rng));
-    compare("bend/bridge_theme.bend", scenarios);
+    compare("bridge/bridge_theme.bend", scenarios);
 }
