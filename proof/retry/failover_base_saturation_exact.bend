@@ -3,7 +3,8 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # Saturated base
@@ -12,7 +13,7 @@ import ./base.bend as LA
 def rx.flip_le(+a: Nat, +b: Nat, e: {Nat.is_le(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
   match a b:
     case 0n b:
-      L.rp.absurdT({Nat.is_le(b, 0n) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_le(0n, b), False{}, Equal.sym(Bool, Nat.is_le(0n, b), True{}, L.rp.le_zero(b)), e))
+      LBoolMisc.rp.absurdT({Nat.is_le(b, 0n) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_le(0n, b), False{}, Equal.sym(Bool, Nat.is_le(0n, b), True{}, LNatIsLe.rp.le_zero(b)), e))
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:

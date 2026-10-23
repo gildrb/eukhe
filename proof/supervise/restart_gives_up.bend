@@ -3,22 +3,23 @@
 import Base
 import ../../bend/supervise.bend as Su
 import ../../laws/supervise.bend as Supervise
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
 
 def ps.le_lt(a: Nat, b: Nat, c: Nat, ab: {Nat.is_le(a, b) == True{} : Bool}, bc: {Nat.is_lt(b, c) == True{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
   match a b c:
     case 0n 0n 0n:
-      L.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, bc)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, bc)
     case 0n 0n 1n+r:
       {==}
     case 0n 1n+q 0n:
-      L.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, bc)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, bc)
     case 0n 1n+q 1n+r:
       {==}
     case 1n+p 0n _:
-      L.supervisor.ps.absurdF({Nat.is_lt(1n+p, c) == True{} : Bool}, ab)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(1n+p, c) == True{} : Bool}, ab)
     case 1n+p 1n+q 0n:
-      L.supervisor.ps.absurdF({Nat.is_lt(1n+p, 0n) == True{} : Bool}, bc)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(1n+p, 0n) == True{} : Bool}, bc)
     case 1n+p 1n+q 1n+r:
       ps.le_lt(p, q, r, ab, bc)
 
@@ -26,11 +27,11 @@ def ps.le_lt(a: Nat, b: Nat, c: Nat, ab: {Nat.is_le(a, b) == True{} : Bool}, bc:
 def ps.lt_of_le_succ(k: Nat, n: Nat, h: {Nat.is_le(1n+k, n) == True{} : Bool}) -> {Nat.is_lt(k, n) == True{} : Bool}:
   match k n:
     case 0n 0n:
-      L.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
     case 0n 1n+q:
       {==}
     case 1n+p 0n:
-      L.supervisor.ps.absurdF({Nat.is_lt(1n+p, 0n) == True{} : Bool}, h)
+      LBoolMisc.supervisor.ps.absurdF({Nat.is_lt(1n+p, 0n) == True{} : Bool}, h)
     case 1n+p 1n+q:
       ps.lt_of_le_succ(p, q, h)
 
@@ -71,16 +72,16 @@ def ps.young(+x: Nat, A: List<&2, Nat>) -> Nat:
 def ps.put_ge(b: Bool, +r: Nat) -> {Nat.is_le(r, ps.young.put(b, r)) == True{} : Bool}:
   match b:
     case True{}:
-      L.supervisor.ps.le_succ(r)
+      LNatIsLe.supervisor.ps.le_succ(r)
     case False{}:
-      L.supervisor.ps.le_refl(r)
+      LNatIsLe.supervisor.ps.le_refl(r)
 
 def ps.young_len.put(b: Bool, +r: Nat, +l: Nat, h: {Nat.is_le(r, l) == True{} : Bool}) -> {Nat.is_le(ps.young.put(b, r), 1n+l) == True{} : Bool}:
   match b:
     case True{}:
       h
     case False{}:
-      L.supervisor.ps.le_trans(r, l, 1n+l, h, L.supervisor.ps.le_succ(l))
+      LNatIsLe.supervisor.ps.le_trans(r, l, 1n+l, h, LNatIsLe.supervisor.ps.le_succ(l))
 
 def ps.young_len(+x: Nat, A: List<&2, Nat>) -> {Nat.is_le(ps.young(x, A), List.length(&2, Nat, A)) == True{} : Bool}:
   match A:
@@ -94,12 +95,12 @@ def ps.keep.at(b1: Bool, +a: Nat, +x: Nat, +g: Nat, +w: Nat, e1: {Nat.is_le(a, x
   -> {Nat.is_le(ps.young.put(b1, y), ps.young(Nat.add(g, x), Su.keep.put(b2, Nat.add(g, a), k))) == True{} : Bool}:
   match b1 b2:
     case True{} True{}:
-      %Equal.sym(Bool, Nat.is_le(Nat.add(g, a), Nat.add(g, x)), True{}, L.ps.le_mono(g, a, x, e1)) : {Nat.is_le(1n+y, ps.young.put(_, ps.young(Nat.add(g, x), k))) == True{} : Bool}
+      %Equal.sym(Bool, Nat.is_le(Nat.add(g, a), Nat.add(g, x)), True{}, LNatIsLe.ps.le_mono(g, a, x, e1)) : {Nat.is_le(1n+y, ps.young.put(_, ps.young(Nat.add(g, x), k))) == True{} : Bool}
       ih
     case True{} False{}:
-      L.supervisor.ps.absurd({Nat.is_le(1n+y, ps.young(Nat.add(g, x), k)) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_lt(Nat.add(g, a), w), False{}, Equal.sym(Bool, Nat.is_lt(Nat.add(g, a), w), True{}, ps.le_lt(Nat.add(g, a), Nat.add(g, x), w, L.ps.le_mono(g, a, x, e1), lt)), e2))
+      LBoolMisc.supervisor.ps.absurd({Nat.is_le(1n+y, ps.young(Nat.add(g, x), k)) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_lt(Nat.add(g, a), w), False{}, Equal.sym(Bool, Nat.is_lt(Nat.add(g, a), w), True{}, ps.le_lt(Nat.add(g, a), Nat.add(g, x), w, LNatIsLe.ps.le_mono(g, a, x, e1), lt)), e2))
     case False{} True{}:
-      L.supervisor.ps.le_trans(y, ps.young(Nat.add(g, x), k), ps.young.put(Nat.is_le(Nat.add(g, a), Nat.add(g, x)), ps.young(Nat.add(g, x), k)), ih, ps.put_ge(Nat.is_le(Nat.add(g, a), Nat.add(g, x)), ps.young(Nat.add(g, x), k)))
+      LNatIsLe.supervisor.ps.le_trans(y, ps.young(Nat.add(g, x), k), ps.young.put(Nat.is_le(Nat.add(g, a), Nat.add(g, x)), ps.young(Nat.add(g, x), k)), ih, ps.put_ge(Nat.is_le(Nat.add(g, a), Nat.add(g, x)), ps.young(Nat.add(g, x), k)))
     case False{} False{}:
       ih
 
@@ -116,13 +117,13 @@ def ps.keep(+w: Nat, +g: Nat, +x: Nat, A: List<&2, Nat>, +lt: {Nat.is_lt(Nat.add
 def ps.span_ge(gs: List<&2, Nat>, +c: Nat) -> {Nat.is_le(c, Su.span.go(gs, c)) == True{} : Bool}:
   match gs:
     case Nil{}:
-      L.supervisor.ps.le_refl(c)
+      LNatIsLe.supervisor.ps.le_refl(c)
     case +g <> +rest:
-      L.supervisor.ps.le_trans(c, Nat.add(g, c), Su.span.go(rest, Nat.add(g, c)), L.supervisor.ps.le_add_l(g, c), ps.span_ge(rest, Nat.add(g, c)))
+      LNatIsLe.supervisor.ps.le_trans(c, Nat.add(g, c), Su.span.go(rest, Nat.add(g, c)), LNatIsLe.supervisor.ps.le_add_l(g, c), ps.span_ge(rest, Nat.add(g, c)))
 
 # a new failure is young
 def ps.young_new(+z: Nat, +k: List<&2, Nat>) -> {ps.young(z, 0n <> k) == 1n+ps.young(z, k) : Nat}:
-  %Equal.sym(Bool, Nat.is_le(0n, z), True{}, L.ps.le_zero(z)) : {ps.young.put(_, ps.young(z, k)) == 1n+ps.young(z, k) : Nat}
+  %Equal.sym(Bool, Nat.is_le(0n, z), True{}, LNatIsLe.ps.le_zero(z)) : {ps.young.put(_, ps.young(z, k)) == 1n+ps.young(z, k) : Nat}
   {==}
 
 def ps.block.yo(+z: Nat, +k: List<&2, Nat>, +m: Nat, kept: {Nat.is_le(m, ps.young(z, k)) == True{} : Bool}) -> {Nat.is_le(1n+m, ps.young(z, 0n <> k)) == True{} : Bool}:
@@ -146,9 +147,9 @@ def ps.block(+c: Su.Cfg, gs: List<&2, Nat>, s: Su.St, +x: Nat, +m: Nat,
           +z = Nat.add(g, x)
           +k = Su.kept(c, g, a)
           +lt = ps.le_lt(z, Su.span.go(rest, z), w, ps.span_ge(rest, z), sp)
-          +kept = L.supervisor.ps.le_trans(m, ps.young(x, a), ps.young(z, k), yo, ps.keep(w, g, x, a, lt))
+          +kept = LNatIsLe.supervisor.ps.le_trans(m, ps.young(x, a), ps.young(z, k), yo, ps.keep(w, g, x, a, lt))
           +yo2 = ps.block.yo(z, k, m, kept)
-          +nm2 = L.supervisor.ps.le_trans(m, ps.young(z, k), List.length(&2, Nat, k), kept, ps.young_len(z, k))
+          +nm2 = LNatIsLe.supervisor.ps.le_trans(m, ps.young(z, k), List.length(&2, Nat, k), kept, ps.young_len(z, k))
           %ps.add_succ_r(List.length(&2, Nat, rest), m) : {Nat.is_le(_, Su.St.n(Su.go(c, rest, Su.St{0n <> k, 1n+List.length(&2, Nat, k)}))) == True{} : Bool}
           ps.block(c, rest, Su.St{0n <> k, 1n+List.length(&2, Nat, k)}, z, 1n+m, yo2, nm2, sp)
 
@@ -156,13 +157,13 @@ def ps.block(+c: Su.Cfg, gs: List<&2, Nat>, s: Su.St, +x: Nat, +m: Nat,
 def ps.first_young(+c: Su.Cfg, s: Su.St, +g: Nat) -> {Nat.is_le(1n, ps.young(0n, Su.St.ages(Su.step(c, s, g)))) == True{} : Bool}:
   match s:
     case Su.St{a, n}:
-      L.ps.le_zero(ps.young(0n, Su.kept(c, g, a)))
+      LNatIsLe.ps.le_zero(ps.young(0n, Su.kept(c, g, a)))
 
 # and counted
 def ps.first_n(+c: Su.Cfg, s: Su.St, +g: Nat) -> {Nat.is_le(1n, Su.St.n(Su.step(c, s, g))) == True{} : Bool}:
   match s:
     case Su.St{a, n}:
-      L.ps.le_zero(List.length(&2, Nat, Su.kept(c, g, a)))
+      LNatIsLe.ps.le_zero(List.length(&2, Nat, Su.kept(c, g, a)))
 
 def ps.go_append(+c: Su.Cfg, xs: List<&2, Nat>, +ys: List<&2, Nat>, s: Su.St) -> {Su.go(c, List.append(&2, Nat, xs, ys), s) == Su.go(c, ys, Su.go(c, xs, s)) : Su.St}:
   match xs:

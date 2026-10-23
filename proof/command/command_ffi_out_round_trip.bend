@@ -9,7 +9,7 @@ import ../../bend/ffi_command.bend as FCmd
 import ../../bend/wire.bend as Wr
 import ../../laws/command.bend as Command
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 def Command.command_ffi_out_round_trip(x, rest, h):

@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/replace.bend as Replace
-import ../base.bend as L
+import ../base/replace.bend as LReplace
 
 def Replace.replace_rank_reads_semver(s):
-  L.rk.rank(s)
+  LReplace.rk.rank(s)

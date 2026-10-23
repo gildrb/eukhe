@@ -4,7 +4,7 @@ import Base
 import ../../bend/compactor.bend as C
 import ../../bend/optchat.bend as O
 import ../../laws/compactor.bend as Compactor
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
 import ./base.bend as LA
 
 # a waiting turn stops every call it does not need
@@ -29,7 +29,7 @@ def pc.needed_app(+info: O.Info, +v: List<&2, O.Node>, xs: List<&2, O.Node>, -ys
       ey
     case +x <> +rest:
       +a = Bool.and(O.Nodes.has(v, x), Bool.not(O.Info.built(info, x)))
-      LA.pc.and_true(a, C.needed(info, v, List.append(&2, O.Node, rest, ys)), L.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, L.pf.and_r(a, C.needed(info, v, rest), ex), ey))
+      LA.pc.and_true(a, C.needed(info, v, List.append(&2, O.Node, rest, ys)), LBoolAnd.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), ex), ey))
 
 def pc.need_first_running(+cfg: O.Cfg, +s: O.St) -> {C.needed(O.St.info(s), O.St.view(s), List.append(&2, O.Node, O.St.busy(O.St.wait(s)), O.cands.need(cfg, O.St.wait(s)))) == True{} : Bool}:
   match s:

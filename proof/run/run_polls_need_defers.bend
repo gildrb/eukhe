@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run.bend as Rn
 import ../../laws/run.bend as Run
-import ../base.bend as L
+import ../base/nat/add.bend as LNatAdd
 
 # The polls
 # ---------
@@ -97,7 +97,7 @@ def pinv_overflow(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, cut: Bool, +r: Nat, c: N
 # the last poll's deferred reply makes polls + 1 in a row
 def polls_full(+k: Nat, -P: Nat, i: {Nat.add(k, 0n) == P : Nat}) -> {1n+k == 1n+P : Nat}:
   %i : {1n+k == 1n+_ : Nat}
-  %Equal.sym(Nat, Nat.add(k, 0n), k, L.add_zero(k)) : {1n+k == 1n+_ : Nat}
+  %Equal.sym(Nat, Nat.add(k, 0n), k, LNatAdd.add_zero(k)) : {1n+k == 1n+_ : Nat}
   {==}
 
 def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: Rn.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, p: Nat, +k: Nat, i: {Nat.add(k, p) == P : Nat}) -> PInv(Rn.Cfg{cap, P, A, N}, Rn.call(Rn.Cfg{cap, P, A, N}, reply, r, c, a, n, p), Rn.defers.reply(reply, k)):
@@ -112,7 +112,7 @@ def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: Rn.Reply, +r: Nat, +c
           polls_full(k, P, i)
         case 1n+q:
           %i : {1n+Nat.add(k, q) == _ : Nat}
-          L.add_succ_r(k, q)
+          LNatAdd.add_succ_r(k, q)
     case Rn.Error{retryable, noted}:
       pinv_error(cap, P, A, N, retryable, noted, r, c, a, n, p)
     case Rn.Overflow{cut}:
@@ -150,7 +150,7 @@ def pinv_tools(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, fin: Rn.Fin, +r: Nat, +c: N
 # one input keeps the poll invariant
 def pinv_step(+cfg: Rn.Cfg, +s: Rn.St, +e: Rn.Ev, +k: Nat, i: PInv(cfg, s, k)) -> PInv(cfg, Rn.step(cfg, s, e), Rn.defers.at(Rn.St.ph(s), e, k)):
   match cfg:
-    case Rn.Cfg{cap, P, A, N}:
+    case Rn.Cfg{cap, pp, aa, nn}:
       match s:
         case Rn.St{ph, r, c, a, n, p}:
           match ph e:
@@ -169,13 +169,13 @@ def pinv_step(+cfg: Rn.Cfg, +s: Rn.St, +e: Rn.Ev, +k: Nat, i: PInv(cfg, s, k)) -
             case Rn.Tools{} Rn.Abort{}:
               Unit{}
             case Rn.Prepare{} Rn.Go{reply, fin, got}:
-              pinv_prepare(cap, P, A, N, reply, r, c, a, n)
+              pinv_prepare(cap, pp, aa, nn, reply, r, c, a, n)
             case Rn.Call{} Rn.Go{reply, fin, got}:
-              pinv_call(cap, P, A, N, reply, r, c, a, n, p, k, i)
+              pinv_call(cap, pp, aa, nn, reply, r, c, a, n, p, k, i)
             case Rn.Compact{over} Rn.Go{reply, fin, got}:
-              pinv_compact(cap, P, A, N, over, got, r, c, a, n, p)
+              pinv_compact(cap, pp, aa, nn, over, got, r, c, a, n, p)
             case Rn.Tools{} Rn.Go{reply, fin, got}:
-              pinv_tools(cap, P, A, N, fin, r, c, a, n, p)
+              pinv_tools(cap, pp, aa, nn, fin, r, c, a, n, p)
 
 def pinv_run(evs: List<&2, Rn.Ev>, +cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: PInv(cfg, s, k)) -> PInv(cfg, Rn.run.go(evs, cfg, s), Rn.defers.go(evs, cfg, s, k)):
   match evs:
@@ -187,7 +187,7 @@ def pinv_run(evs: List<&2, Rn.Ev>, +cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: PInv(cfg
 # a run the poll cap failed had polls + 1 deferred replies in a row
 def polls_of(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: PInv(cfg, s, k)) -> Or({Rn.polled(s) == False{} : Bool}, {k == 1n+Rn.Cfg.polls(cfg) : Nat}):
   match cfg:
-    case Rn.Cfg{cap, P, A, N}:
+    case Rn.Cfg{cap, pp, aa, nn}:
       match s:
         case Rn.St{ph, r, c, a, n, p}:
           match ph:

@@ -7,7 +7,8 @@ import ../../bend/workflow.bend as W
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../../laws/workflow.bend as Workflow
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/wire.bend as LWire
 import ./wfw_sts_round_trip.bend as PWfwStsRoundTrip
 
 # ---- workflow ----
@@ -158,24 +159,24 @@ def pww.row_go_rt(+t: List<&2, W.Row>, +x: W.Row, +rest: String,
   {Wr.get_list.go(~W.Row, ~FW.get_row, List.length(&2, W.Row, t), FW.get_row(FW.put_row(x, pww.row_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, W.Row>>}:
   match t:
     case Nil{}:
-      %pww.row(x, rest, L.wr_and_l(Workflow.wfw_row_fits(x), True{}, hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, W.Row>>}
+      %pww.row(x, rest, LBoolAnd.wr_and_l(Workflow.wfw_row_fits(x), True{}, hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, W.Row>>}
       {==}
     case Con{+y, +u}:
-      %pww.row(x, FW.put_row(y, pww.row_items(u, rest)), L.wr_and_l(Workflow.wfw_row_fits(x), Workflow.wfw_rows_fit(y <> u), hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 1n+List.length(&2, W.Row, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
-      %Equal.sym(Wr.Dec<List<&2, W.Row>>, Wr.get_list.go(~W.Row, ~FW.get_row, List.length(&2, W.Row, u), FW.get_row(FW.put_row(y, pww.row_items(u, rest)))), Wr.Got{y <> u, rest}, pww.row_go_rt(u, y, rest, L.wr_and_r(Workflow.wfw_row_fits(x), Workflow.wfw_rows_fit(y <> u), hf))) : {Wr.get_list.cons(W.Row, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
+      %pww.row(x, FW.put_row(y, pww.row_items(u, rest)), LBoolAnd.wr_and_l(Workflow.wfw_row_fits(x), Workflow.wfw_rows_fit(y <> u), hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 1n+List.length(&2, W.Row, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
+      %Equal.sym(Wr.Dec<List<&2, W.Row>>, Wr.get_list.go(~W.Row, ~FW.get_row, List.length(&2, W.Row, u), FW.get_row(FW.put_row(y, pww.row_items(u, rest)))), Wr.Got{y <> u, rest}, pww.row_go_rt(u, y, rest, LBoolAnd.wr_and_r(Workflow.wfw_row_fits(x), Workflow.wfw_rows_fit(y <> u), hf))) : {Wr.get_list.cons(W.Row, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
       {==}
 
 def Workflow.wfw_rows_round_trip(xs, rest, h):
   match xs:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, L.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, W.Row>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, W.Row>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~W.Row, ~FW.put_row, x <> t, r), Wr.put_nat(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r)), pww.row_put(x <> t, r)) : {Wr.get_list(~W.Row, ~FW.get_row, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, W.Row>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r))), Wr.Got{List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r), L.wr_and_l(LawsBase.wire_fits(List.length(&2, W.Row, x <> t)), Workflow.wfw_rows_fit(x <> t), hh))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, W.Row>>}
-      pww.row_go_rt(t, x, r, L.wr_and_r(LawsBase.wire_fits(List.length(&2, W.Row, x <> t)), Workflow.wfw_rows_fit(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r))), Wr.Got{List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, W.Row, x <> t)), Workflow.wfw_rows_fit(x <> t), hh))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, W.Row>>}
+      pww.row_go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, W.Row, x <> t)), Workflow.wfw_rows_fit(x <> t), hh))
 
 # a list that fits reads back (turned around for rewriting)
 def pww.rows(+xs: List<&2, W.Row>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, W.Row, xs)), Workflow.wfw_rows_fit(xs)) == True{} : Bool}) ->
@@ -187,8 +188,8 @@ def Workflow.wfw_pool_round_trip(p, rest, h):
     case W.Pool{+t, +l}:
       +z = rest
       +hh = h
-      %pww.nat(t, Wr.put_nat(l, z), L.wr_and_l(LawsBase.wire_fits(t), LawsBase.wire_fits(l), hh)) : {FW.get_pool.go(_) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
-      %pww.nat(l, z, L.wr_and_r(LawsBase.wire_fits(t), LawsBase.wire_fits(l), hh)) : {FW.get_pool.left(t, _) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
+      %pww.nat(t, Wr.put_nat(l, z), LBoolAnd.wr_and_l(LawsBase.wire_fits(t), LawsBase.wire_fits(l), hh)) : {FW.get_pool.go(_) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
+      %pww.nat(l, z, LBoolAnd.wr_and_r(LawsBase.wire_fits(t), LawsBase.wire_fits(l), hh)) : {FW.get_pool.left(t, _) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
       {==}
 
 # a pool reads back (turned around for rewriting)
@@ -201,19 +202,19 @@ def Workflow.wfw_req_round_trip(r, rest, h):
       +z = rest
       +hh = h
       +lt = Bool.and(LawsBase.wire_fits(List.length(&2, W.Row, rows)), Workflow.wfw_rows_fit(rows))
-      +h1 = L.wr_and_r(LawsBase.wire_fits(k), Bool.and(lt, Workflow.wfw_pool_fits(p)), hh)
+      +h1 = LBoolAnd.wr_and_r(LawsBase.wire_fits(k), Bool.and(lt, Workflow.wfw_pool_fits(p)), hh)
       %pww.prior(prior, Wr.put_nat(k, Wr.put_list(~W.Row, ~FW.put_row, rows, FW.put_pool(p, z)))) : {FW.get_req.admit(_) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
-      %pww.nat(k, Wr.put_list(~W.Row, ~FW.put_row, rows, FW.put_pool(p, z)), L.wr_and_l(LawsBase.wire_fits(k), Bool.and(lt, Workflow.wfw_pool_fits(p)), hh)) : {FW.get_req.key(prior, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
-      %pww.rows(rows, FW.put_pool(p, z), L.wr_and_l(lt, Workflow.wfw_pool_fits(p), h1)) : {FW.get_req.rows(prior, k, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
-      %pww.pool(p, z, L.wr_and_r(lt, Workflow.wfw_pool_fits(p), h1)) : {FW.get_req.pool(prior, k, rows, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(k, Wr.put_list(~W.Row, ~FW.put_row, rows, FW.put_pool(p, z)), LBoolAnd.wr_and_l(LawsBase.wire_fits(k), Bool.and(lt, Workflow.wfw_pool_fits(p)), hh)) : {FW.get_req.key(prior, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.rows(rows, FW.put_pool(p, z), LBoolAnd.wr_and_l(lt, Workflow.wfw_pool_fits(p), h1)) : {FW.get_req.rows(prior, k, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.pool(p, z, LBoolAnd.wr_and_r(lt, Workflow.wfw_pool_fits(p), h1)) : {FW.get_req.pool(prior, k, rows, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
       {==}
     case FW.LimitsReq{+c, +m, +cap}:
       +z = rest
       +hh = h
-      +h1 = L.wr_and_r(LawsBase.wire_fits(c), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(cap)), hh)
-      %pww.nat(c, Wr.put_nat(m, Wr.put_nat(cap, z)), L.wr_and_l(LawsBase.wire_fits(c), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(cap)), hh)) : {FW.get_req.limits(_) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
-      %pww.nat(m, Wr.put_nat(cap, z), L.wr_and_l(LawsBase.wire_fits(m), LawsBase.wire_fits(cap), h1)) : {FW.get_req.max(c, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
-      %pww.nat(cap, z, L.wr_and_r(LawsBase.wire_fits(m), LawsBase.wire_fits(cap), h1)) : {FW.get_req.cap(c, m, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      +h1 = LBoolAnd.wr_and_r(LawsBase.wire_fits(c), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(cap)), hh)
+      %pww.nat(c, Wr.put_nat(m, Wr.put_nat(cap, z)), LBoolAnd.wr_and_l(LawsBase.wire_fits(c), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(cap)), hh)) : {FW.get_req.limits(_) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(m, Wr.put_nat(cap, z), LBoolAnd.wr_and_l(LawsBase.wire_fits(m), LawsBase.wire_fits(cap), h1)) : {FW.get_req.max(c, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(cap, z, LBoolAnd.wr_and_r(LawsBase.wire_fits(m), LawsBase.wire_fits(cap), h1)) : {FW.get_req.cap(c, m, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
       {==}
 
 # a req reads back (turned around for rewriting)

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 def rp.lt_add_succ(k: Nat, +j: Nat) -> {Nat.is_lt(k, Nat.add(k, 1n+j)) == True{} : Bool}:
   match k:
@@ -18,7 +18,7 @@ def rp.lt_add_succ(k: Nat, +j: Nat) -> {Nat.is_lt(k, Nat.add(k, 1n+j)) == True{}
 def stall_extends(+idle: Nat, positive: {Nat.is_gt(idle, 0n) == True{} : Bool}) -> {Nat.is_lt(idle, R.stall.next(idle)) == True{} : Bool}:
   match idle:
     case 0n:
-      L.rp.absurdF({Nat.is_lt(0n, R.stall.next(0n)) == True{} : Bool}, positive)
+      LBoolMisc.rp.absurdF({Nat.is_lt(0n, R.stall.next(0n)) == True{} : Bool}, positive)
     case 1n+k:
       rp.lt_add_succ(k, k)
 

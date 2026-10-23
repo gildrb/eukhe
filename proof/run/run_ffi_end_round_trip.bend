@@ -6,7 +6,7 @@ import ../../bend/run.bend as Rn
 import ../../bend/wire.bend as Wr
 import ../../laws/run.bend as Run
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/wire.bend as LWire
 
 def rk.rt_end(x: Rn.End, +rest: String, +h: {Run.run.end_fits(x) == True{} : Bool}) -> {FRn.get_end(FRn.put_end(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.End>}:
   match x:

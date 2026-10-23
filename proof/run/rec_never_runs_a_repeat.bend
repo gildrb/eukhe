@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run.bend as Rn
 import ../../laws/run.bend as Run
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # ---- recover ----
 
@@ -37,9 +37,9 @@ def max_zero(n: Nat) -> {Nat.max(n, 0n) == n : Nat}:
 def below_max(m: Nat, b: Nat, e: {Rn.below(m, b) == True{} : Bool}) -> {Rn.below(m, Nat.max(b, 1n)) == True{} : Bool}:
   match m b:
     case 0n 0n:
-      L.absurd({Rn.below(0n, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LBoolMisc.absurd({Rn.below(0n, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case 1n+p 0n:
-      L.absurd({Rn.below(1n+p, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LBoolMisc.absurd({Rn.below(1n+p, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case m 1n+q:
       %Equal.sym(Nat, Nat.max(q, 0n), q, max_zero(q)) : {Rn.below(m, 1n+_) == True{} : Bool}
       e
@@ -55,9 +55,9 @@ def zero_below_max(b: Nat) -> {Rn.below(0n, Nat.max(b, 1n)) == True{} : Bool}:
 def one_below_q(x: Nat, q: Nat, e: {Rn.below(x, q) == True{} : Bool}) -> {Rn.below(0n, q) == True{} : Bool}:
   match x q:
     case 0n 0n:
-      L.absurd({Rn.below(0n, 0n) == True{} : Bool}, e)
+      LBoolMisc.absurd({Rn.below(0n, 0n) == True{} : Bool}, e)
     case 1n+p 0n:
-      L.absurd({Rn.below(0n, 0n) == True{} : Bool}, e)
+      LBoolMisc.absurd({Rn.below(0n, 0n) == True{} : Bool}, e)
     case x 1n+r:
       {==}
 
@@ -65,9 +65,9 @@ def one_below_q(x: Nat, q: Nat, e: {Rn.below(x, q) == True{} : Bool}) -> {Rn.bel
 def one_below_max(m: Nat, +b: Nat, pos: {Rn.below(0n, m) == True{} : Bool}, e: {Rn.below(m, b) == True{} : Bool}) -> {Rn.below(1n, Nat.max(b, 1n)) == True{} : Bool}:
   match m b:
     case 0n b:
-      L.absurd({Rn.below(1n, Nat.max(b, 1n)) == True{} : Bool}, pos)
+      LBoolMisc.absurd({Rn.below(1n, Nat.max(b, 1n)) == True{} : Bool}, pos)
     case 1n+x 0n:
-      L.absurd({Rn.below(1n, Nat.max(0n, 1n)) == True{} : Bool}, e)
+      LBoolMisc.absurd({Rn.below(1n, Nat.max(0n, 1n)) == True{} : Bool}, e)
     case 1n+x 1n+q:
       %Equal.sym(Nat, Nat.max(q, 0n), q, max_zero(q)) : {Rn.below(1n, 1n+_) == True{} : Bool}
       one_below_q(x, q, e)

@@ -2,7 +2,8 @@
 
 import Base
 import ../../bend/job.bend as Jb
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/misc.bend as LNatMisc
 
 def pj.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
   match n:
@@ -71,9 +72,9 @@ def pj.sub_sub(c: Nat, k: Nat, +n: Nat) -> {Nat.sub(Nat.sub(c, k), n) == Nat.sub
 def pj.add_sub(t: Nat, n: Nat, le: {Nat.is_le(t, n) == True{} : Bool}) -> {n == Nat.add(t, Nat.sub(n, t)) : Nat}:
   match t n:
     case 0n _:
-      L.pj.sub_zero(n)
+      LNatMisc.pj.sub_zero(n)
     case 1n+tp 0n:
-      L.pj.absurdF({0n == Nat.add(1n+tp, Nat.sub(0n, 1n+tp)) : Nat}, le)
+      LBoolMisc.pj.absurdF({0n == Nat.add(1n+tp, Nat.sub(0n, 1n+tp)) : Nat}, le)
     case 1n+tp 1n+np:
       %pj.add_sub(tp, np, le) : {1n+np == 1n+_ : Nat}
       {==}
@@ -94,7 +95,7 @@ def pj.le_sub(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(Nat.add(n, p), m) == True{}
     case 0n 1n+mp:
       h
     case 1n+np 0n:
-      L.pj.absurdF({Nat.is_le(p, 0n) == True{} : Bool}, h)
+      LBoolMisc.pj.absurdF({Nat.is_le(p, 0n) == True{} : Bool}, h)
     case 1n+np 1n+mp:
       pj.le_sub(np, p, mp, h)
 

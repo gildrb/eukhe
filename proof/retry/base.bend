@@ -7,7 +7,10 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/retry.bend as Retry
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
+import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 def rp.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
@@ -35,7 +38,7 @@ def rp.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
 def rp.le_add(n: Nat, +d: Nat) -> {Nat.is_le(n, Nat.add(n, d)) == True{} : Bool}:
   match n:
     case 0n:
-      L.rp.le_zero(d)
+      LNatIsLe.rp.le_zero(d)
     case 1n+p:
       rp.le_add(p, d)
 
@@ -50,9 +53,9 @@ def rx.lt_le(c: Cmp, e: {Cmp.is_lt(c) == True{} : Bool}) -> {Cmp.is_le(c) == Tru
     case LT{}:
       {==}
     case EQ{}:
-      L.rp.absurdF({True{} == True{} : Bool}, e)
+      LBoolMisc.rp.absurdF({True{} == True{} : Bool}, e)
     case GT{}:
-      L.rp.absurdF({False{} == True{} : Bool}, e)
+      LBoolMisc.rp.absurdF({False{} == True{} : Bool}, e)
 
 def rx.le_of_not_gt(c: Cmp, e: {Cmp.is_gt(c) == False{} : Bool}) -> {Cmp.is_le(c) == True{} : Bool}:
   match c:
@@ -61,17 +64,17 @@ def rx.le_of_not_gt(c: Cmp, e: {Cmp.is_gt(c) == False{} : Bool}) -> {Cmp.is_le(c
     case EQ{}:
       {==}
     case GT{}:
-      L.rp.absurdT({False{} == True{} : Bool}, e)
+      LBoolMisc.rp.absurdT({False{} == True{} : Bool}, e)
 
 # a <= b and b <= c give a <= c
 def rx.le_trans(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
   match a b c:
     case 0n b c:
-      L.rp.le_zero(c)
+      LNatIsLe.rp.le_zero(c)
     case 1n+p 0n c:
-      L.rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
+      LBoolMisc.rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
     case 1n+p 1n+q 0n:
-      L.rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
+      LBoolMisc.rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
     case 1n+p 1n+q 1n+r:
       rx.le_trans(p, q, r, h1, h2)
 
@@ -79,11 +82,11 @@ def rx.le_trans(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool
 def rx.le_gt(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Nat.is_gt(c, b) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
   match a b c:
     case 0n b c:
-      L.rp.le_zero(c)
+      LNatIsLe.rp.le_zero(c)
     case 1n+p 0n c:
-      L.rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
+      LBoolMisc.rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
     case 1n+p 1n+q 0n:
-      L.rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
+      LBoolMisc.rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
     case 1n+p 1n+q 1n+r:
       rx.le_gt(p, q, r, h1, h2)
 
@@ -93,7 +96,7 @@ def rx.min_l(+a: Nat, +b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.mi
     case 0n b:
       {==}
     case 1n+p 0n:
-      L.rp.absurdF({Nat.min(1n+p, 0n) == 1n+p : Nat}, h)
+      LBoolMisc.rp.absurdF({Nat.min(1n+p, 0n) == 1n+p : Nat}, h)
     case 1n+p 1n+q:
       %rx.min_l(p, q, h) : {1n+Nat.min(p, q) == 1n+_ : Nat}
       {==}
@@ -104,7 +107,7 @@ def rx.min_r(+a: Nat, +b: Nat, h: {Nat.is_le(b, a) == True{} : Bool}) -> {Nat.mi
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      L.rp.absurdF({Nat.min(0n, 1n+q) == 1n+q : Nat}, h)
+      LBoolMisc.rp.absurdF({Nat.min(0n, 1n+q) == 1n+q : Nat}, h)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:
@@ -115,13 +118,13 @@ def rx.min_r(+a: Nat, +b: Nat, h: {Nat.is_le(b, a) == True{} : Bool}) -> {Nat.mi
 def rx.gt_min(+a: Nat, +b: Nat, +x: Nat, ha: {Nat.is_gt(a, x) == True{} : Bool}, hb: {Nat.is_gt(b, x) == True{} : Bool}) -> {Nat.is_gt(Nat.min(a, b), x) == True{} : Bool}:
   match a b x:
     case 0n b 0n:
-      L.rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, ha)
+      LBoolMisc.rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, ha)
     case 0n b 1n+r:
-      L.rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, ha)
+      LBoolMisc.rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, ha)
     case 1n+p 0n 0n:
-      L.rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, hb)
+      LBoolMisc.rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, hb)
     case 1n+p 0n 1n+r:
-      L.rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, hb)
+      LBoolMisc.rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, hb)
     case 1n+p 1n+q 0n:
       {==}
     case 1n+p 1n+q 1n+r:
@@ -131,9 +134,9 @@ def rx.gt_min(+a: Nat, +b: Nat, +x: Nat, ha: {Nat.is_gt(a, x) == True{} : Bool},
 def rx.gt_lt(+a: Nat, +b: Nat, h: {Nat.is_gt(a, b) == True{} : Bool}) -> {Nat.is_lt(b, a) == True{} : Bool}:
   match a b:
     case 0n 0n:
-      L.rp.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
+      LBoolMisc.rp.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
     case 0n 1n+q:
-      L.rp.absurdF({Nat.is_lt(1n+q, 0n) == True{} : Bool}, h)
+      LBoolMisc.rp.absurdF({Nat.is_lt(1n+q, 0n) == True{} : Bool}, h)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:
@@ -323,18 +326,18 @@ def rw.fit1(t: R.Tried) -> Bool:
 def rw.fit_l(t: R.Tried, -ts: List<&2, R.Tried>, h: {Retry.rs.tried_fit(t <> ts) == True{} : Bool}) -> {rw.fit1(t) == True{} : Bool}:
   match t:
     case R.Tried{+at, +w}:
-      L.rp.and_l(Bool.and(LawsBase.wire_fits(at), Retry.rs.mfits(w)), Retry.rs.tried_fit(ts), h)
+      LBoolAnd.rp.and_l(Bool.and(LawsBase.wire_fits(at), Retry.rs.mfits(w)), Retry.rs.tried_fit(ts), h)
 
 def rw.fit_r(t: R.Tried, -ts: List<&2, R.Tried>, h: {Retry.rs.tried_fit(t <> ts) == True{} : Bool}) -> {Retry.rs.tried_fit(ts) == True{} : Bool}:
   match t:
     case R.Tried{+at, +w}:
-      L.rp.and_r(Bool.and(LawsBase.wire_fits(at), Retry.rs.mfits(w)), Retry.rs.tried_fit(ts), h)
+      LBoolAnd.rp.and_r(Bool.and(LawsBase.wire_fits(at), Retry.rs.mfits(w)), Retry.rs.tried_fit(ts), h)
 
 def rw.tried_rt(t: R.Tried, +rest: String, +h: {rw.fit1(t) == True{} : Bool}) -> {Fr.get_tried(Fr.put_tried(t, rest)) == Wr.Got{t, rest} : Wr.Dec<R.Tried>}:
   match t:
     case R.Tried{+at, +w}:
-      %rw.rt(at, Fr.put_mnat(w, rest), L.rp.and_l(LawsBase.wire_fits(at), Retry.rs.mfits(w), h)) : {Fr.get_tried.at(_) == Wr.Got{R.Tried{at, w}, rest} : Wr.Dec<R.Tried>}
-      %Equal.sym(Wr.Dec<Maybe<&2, Nat>>, Fr.get_mnat(Fr.put_mnat(w, rest)), Wr.Got{w, rest}, rw.mnat_rt(w, rest, L.rp.and_r(LawsBase.wire_fits(at), Retry.rs.mfits(w), h))) : {Fr.get_tried.wait(at, _) == Wr.Got{R.Tried{at, w}, rest} : Wr.Dec<R.Tried>}
+      %rw.rt(at, Fr.put_mnat(w, rest), LBoolAnd.rp.and_l(LawsBase.wire_fits(at), Retry.rs.mfits(w), h)) : {Fr.get_tried.at(_) == Wr.Got{R.Tried{at, w}, rest} : Wr.Dec<R.Tried>}
+      %Equal.sym(Wr.Dec<Maybe<&2, Nat>>, Fr.get_mnat(Fr.put_mnat(w, rest)), Wr.Got{w, rest}, rw.mnat_rt(w, rest, LBoolAnd.rp.and_r(LawsBase.wire_fits(at), Retry.rs.mfits(w), h))) : {Fr.get_tried.wait(at, _) == Wr.Got{R.Tried{at, w}, rest} : Wr.Dec<R.Tried>}
       {==}
 
 # the items of a list of attempts, then rest
@@ -387,36 +390,36 @@ def rw.req_rt(q: Fr.Req, +rest: String, +h: {Retry.rs.req_fits(q) == True{} : Bo
       %Equal.sym(Wr.Dec<R.Facts>, Fr.get_facts(Fr.put_facts(f, rest)), Wr.Got{f, rest}, rw.facts_rt(f, rest, h)) : {Fr.get_classify(_) == Wr.Got{Fr.QClassify{f}, rest} : Wr.Dec<Fr.Req>}
       {==}
     case Fr.QWait{+b, +a, +c, +d, +sv}:
-      +ha = L.rp.and_l(Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(a)), Bool.and(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv)), h)
-      +hb = L.rp.and_r(Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(a)), Bool.and(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv)), h)
-      +hc = L.rp.and_l(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv), hb)
+      +ha = LBoolAnd.rp.and_l(Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(a)), Bool.and(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv)), h)
+      +hb = LBoolAnd.rp.and_r(Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(a)), Bool.and(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv)), h)
+      +hc = LBoolAnd.rp.and_l(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv), hb)
       +Q = {Fr.QWait{b, a, c, d, sv} : Fr.Req}
       +s5 = Fr.put_mnat(sv, rest)
       %rw.rt(1n, Wr.put_nat(b, Wr.put_nat(a, Wr.put_nat(c, Wr.put_nat(d, s5)))), {==}) : {Fr.get_req.start(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-      %rw.rt(b, Wr.put_nat(a, Wr.put_nat(c, Wr.put_nat(d, s5))), L.rp.and_l(LawsBase.wire_fits(b), LawsBase.wire_fits(a), ha)) : {Fr.get_wait(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-      %rw.rt(a, Wr.put_nat(c, Wr.put_nat(d, s5)), L.rp.and_r(LawsBase.wire_fits(b), LawsBase.wire_fits(a), ha)) : {Fr.get_wait.attempt(b, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-      %rw.rt(c, Wr.put_nat(d, s5), L.rp.and_l(LawsBase.wire_fits(c), LawsBase.wire_fits(d), hc)) : {Fr.get_wait.cap(b, a, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-      %rw.rt(d, s5, L.rp.and_r(LawsBase.wire_fits(c), LawsBase.wire_fits(d), hc)) : {Fr.get_wait.draw(b, a, c, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-      %Equal.sym(Wr.Dec<Maybe<&2, Nat>>, Fr.get_mnat(s5), Wr.Got{sv, rest}, rw.mnat_rt(sv, rest, L.rp.and_r(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv), hb))) : {Fr.get_wait.server(b, a, c, d, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+      %rw.rt(b, Wr.put_nat(a, Wr.put_nat(c, Wr.put_nat(d, s5))), LBoolAnd.rp.and_l(LawsBase.wire_fits(b), LawsBase.wire_fits(a), ha)) : {Fr.get_wait(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+      %rw.rt(a, Wr.put_nat(c, Wr.put_nat(d, s5)), LBoolAnd.rp.and_r(LawsBase.wire_fits(b), LawsBase.wire_fits(a), ha)) : {Fr.get_wait.attempt(b, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+      %rw.rt(c, Wr.put_nat(d, s5), LBoolAnd.rp.and_l(LawsBase.wire_fits(c), LawsBase.wire_fits(d), hc)) : {Fr.get_wait.cap(b, a, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+      %rw.rt(d, s5, LBoolAnd.rp.and_r(LawsBase.wire_fits(c), LawsBase.wire_fits(d), hc)) : {Fr.get_wait.draw(b, a, c, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+      %Equal.sym(Wr.Dec<Maybe<&2, Nat>>, Fr.get_mnat(s5), Wr.Got{sv, rest}, rw.mnat_rt(sv, rest, LBoolAnd.rp.and_r(Bool.and(LawsBase.wire_fits(c), LawsBase.wire_fits(d)), Retry.rs.mfits(sv), hb))) : {Fr.get_wait.server(b, a, c, d, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
       {==}
     case Fr.QFailover{+len, +ts, p}:
       match p:
         case R.Policy{+sw, +b, +m}:
           +A = Bool.and(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)))
           +B = Bool.and(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)))
-          +ha = L.rp.and_l(A, B, h)
-          +hb = L.rp.and_r(A, B, h)
-          +hts = L.rp.and_r(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)
-          +hbm = L.rp.and_r(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)
+          +ha = LBoolAnd.rp.and_l(A, B, h)
+          +hb = LBoolAnd.rp.and_r(A, B, h)
+          +hts = LBoolAnd.rp.and_r(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)
+          +hbm = LBoolAnd.rp.and_r(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)
           +Q = {Fr.QFailover{len, ts, R.Policy{sw, b, m}} : Fr.Req}
           +s3 = Fr.put_policy(R.Policy{sw, b, m}, rest)
           +s2 = Wr.put_list(~R.Tried, ~Fr.put_tried, ts, s3)
           %rw.rt(2n, Wr.put_nat(len, s2), {==}) : {Fr.get_req.start(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %rw.rt(len, s2, L.rp.and_l(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)) : {Fr.get_failover(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %Equal.sym(Wr.Dec<List<&2, R.Tried>>, Wr.get_list(~R.Tried, ~Fr.get_tried, s2), Wr.Got{ts, s3}, rw.list_rt(ts, s3, L.rp.and_l(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts), L.rp.and_r(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts))) : {Fr.get_failover.tried(len, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %rw.rt(sw, Wr.put_nat(b, Wr.put_nat(m, rest)), L.rp.and_l(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.switches(_)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %rw.rt(b, Wr.put_nat(m, rest), L.rp.and_l(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.base(sw, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
-          %rw.rt(m, rest, L.rp.and_r(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.max(sw, b, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %rw.rt(len, s2, LBoolAnd.rp.and_l(LawsBase.wire_fits(len), Bool.and(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts)), ha)) : {Fr.get_failover(_) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %Equal.sym(Wr.Dec<List<&2, R.Tried>>, Wr.get_list(~R.Tried, ~Fr.get_tried, s2), Wr.Got{ts, s3}, rw.list_rt(ts, s3, LBoolAnd.rp.and_l(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts), LBoolAnd.rp.and_r(LawsBase.wire_fits(R.length(ts)), Retry.rs.tried_fit(ts), hts))) : {Fr.get_failover.tried(len, _) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %rw.rt(sw, Wr.put_nat(b, Wr.put_nat(m, rest)), LBoolAnd.rp.and_l(LawsBase.wire_fits(sw), Bool.and(LawsBase.wire_fits(b), LawsBase.wire_fits(m)), hb)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.switches(_)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %rw.rt(b, Wr.put_nat(m, rest), LBoolAnd.rp.and_l(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.base(sw, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
+          %rw.rt(m, rest, LBoolAnd.rp.and_r(LawsBase.wire_fits(b), LawsBase.wire_fits(m), hbm)) : {Fr.get_failover.policy(len, ts, Fr.get_policy.max(sw, b, _)) == Wr.Got{Q, rest} : Wr.Dec<Fr.Req>}
           {==}
     case Fr.QStall{+i}:
       %rw.rt(3n, Wr.put_nat(i, rest), {==}) : {Fr.get_req.start(_) == Wr.Got{Fr.QStall{i}, rest} : Wr.Dec<Fr.Req>}

@@ -3,11 +3,11 @@
 import Base
 import ../../bend/replace.bend as Rp
 import ../../laws/replace.bend as Replace
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # x cannot be True and False
 def pr.clash(-A: Type, -x: Bool, t: {x == True{} : Bool}, f: {x == False{} : Bool}) -> A:
-  L.supervisor.ps.absurdF(A, Equal.trans(Bool, False{}, x, True{}, Equal.sym(Bool, x, False{}, f), t))
+  LBoolMisc.supervisor.ps.absurdF(A, Equal.trans(Bool, False{}, x, True{}, Equal.sym(Bool, x, False{}, f), t))
 
 def pr.VD(v: Rp.Verdict, A: Type) -> Type:
   match v:
@@ -59,28 +59,28 @@ def pr.lex_trans(x: Nat, y: Nat, z: Nat, -t1: Bool, -t2: Bool, -t3: Bool, h1: {R
     case 0n 0n 1n+r:
       {==}
     case 0n 1n+q 0n:
-      L.supervisor.ps.absurdF({Rp.lex(0n, 0n, t3) == True{} : Bool}, h2)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lex(0n, 0n, t3) == True{} : Bool}, h2)
     case 0n 1n+q 1n+r:
       {==}
     case 1n+p 0n _:
-      L.supervisor.ps.absurdF({Rp.lex(1n+p, z, t3) == True{} : Bool}, h1)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lex(1n+p, z, t3) == True{} : Bool}, h1)
     case 1n+p 1n+q 0n:
-      L.supervisor.ps.absurdF({Rp.lex(1n+p, 0n, t3) == True{} : Bool}, h2)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lex(1n+p, 0n, t3) == True{} : Bool}, h2)
     case 1n+p 1n+q 1n+r:
       pr.lex_trans(p, q, r, t1, t2, t3, h1, h2, k)
 
 def pr.lt_trans(xs: List<&2, Nat>, ys: List<&2, Nat>, zs: List<&2, Nat>, h1: {Rp.lt(xs, ys) == True{} : Bool}, h2: {Rp.lt(ys, zs) == True{} : Bool}) -> {Rp.lt(xs, zs) == True{} : Bool}:
   match xs ys zs:
     case Nil{} Nil{} _:
-      L.supervisor.ps.absurdF({Rp.lt(Nil{}, zs) == True{} : Bool}, h1)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lt(Nil{}, zs) == True{} : Bool}, h1)
     case Nil{} y <> yr Nil{}:
-      L.supervisor.ps.absurdF({Rp.lt(Nil{}, Nil{}) == True{} : Bool}, h2)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lt(Nil{}, Nil{}) == True{} : Bool}, h2)
     case Nil{} y <> yr z <> zr:
       {==}
     case x <> xr Nil{} _:
-      L.supervisor.ps.absurdF({Rp.lt(x <> xr, zs) == True{} : Bool}, h1)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lt(x <> xr, zs) == True{} : Bool}, h1)
     case x <> xr y <> yr Nil{}:
-      L.supervisor.ps.absurdF({Rp.lt(x <> xr, Nil{}) == True{} : Bool}, h2)
+      LBoolMisc.supervisor.ps.absurdF({Rp.lt(x <> xr, Nil{}) == True{} : Bool}, h2)
     case x <> +xr y <> +yr z <> +zr:
       pr.lex_trans(x, y, z, Rp.lt(xr, yr), Rp.lt(yr, zr), Rp.lt(xr, zr), h1, h2, a => b => pr.lt_trans(xr, yr, zr, a, b))
 

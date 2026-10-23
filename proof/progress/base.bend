@@ -2,7 +2,8 @@
 
 import Base
 import ../../bend/progress.bend as Pr
-import ../base.bend as L
+import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/nat/is_le.bend as LNatIsLe
 
 # ---- progress ----
 
@@ -112,7 +113,7 @@ def pp.mem_self.at(b: Bool, +s: List<&2, Nat>, +x: Nat, e: {Pr.mem(x, s) == b : 
     case True{}:
       e
     case False{}:
-      %Equal.sym(Bool, Nat.is_eq(x, x), True{}, L.child.pc.eq_refl(x)) : {Bool.or(_, Pr.mem(x, s)) == True{} : Bool}
+      %Equal.sym(Bool, Nat.is_eq(x, x), True{}, LNatIsEq.child.pc.eq_refl(x)) : {Bool.or(_, Pr.mem(x, s)) == True{} : Bool}
       {==}
 
 # an act read is held
@@ -150,18 +151,18 @@ def pp.repeat(+seen: List<&2, Nat>, +loop: List<&2, Nat>, w: Pr.Within(loop, see
 def pp.len_put(b: Bool, +s: List<&2, Nat>, +x: Nat) -> {Nat.is_le(List.length(&2, Nat, s), List.length(&2, Nat, Pr.add.put(b, x, s))) == True{} : Bool}:
   match b:
     case True{}:
-      L.child.pc.le_refl(List.length(&2, Nat, s))
+      LNatIsLe.child.pc.le_refl(List.length(&2, Nat, s))
     case False{}:
-      L.pc.le_succ(List.length(&2, Nat, s), List.length(&2, Nat, s), L.child.pc.le_refl(List.length(&2, Nat, s)))
+      LNatIsLe.pc.le_succ(List.length(&2, Nat, s), List.length(&2, Nat, s), LNatIsLe.child.pc.le_refl(List.length(&2, Nat, s)))
 
 # the ledger never shrinks
 def pp.len_ledger(xs: List<&2, Nat>, +s: List<&2, Nat>) -> {Nat.is_le(List.length(&2, Nat, s), List.length(&2, Nat, Pr.ledger(xs, s))) == True{} : Bool}:
   match xs:
     case Nil{}:
-      L.child.pc.le_refl(List.length(&2, Nat, s))
+      LNatIsLe.child.pc.le_refl(List.length(&2, Nat, s))
     case +h <> +t:
       +a = Pr.add(s, h)
-      L.child.pc.le_trans(List.length(&2, Nat, s), List.length(&2, Nat, a), List.length(&2, Nat, Pr.ledger(t, a)), pp.len_put(Pr.mem(h, s), s, h), pp.len_ledger(t, a))
+      LNatIsLe.child.pc.le_trans(List.length(&2, Nat, s), List.length(&2, Nat, a), List.length(&2, Nat, Pr.ledger(t, a)), pp.len_put(Pr.mem(h, s), s, h), pp.len_ledger(t, a))
 
 # x is held by s, or reading xs grows the ledger past s
 def pp.Grown(+x: Nat, +s: List<&2, Nat>, +r: List<&2, Nat>) -> Type:
@@ -196,7 +197,7 @@ def pp.grown_past(+x: Nat, +s: List<&2, Nat>, +a: List<&2, Nat>, +r: List<&2, Na
     case Inl{m}:
       back(m)
     case Inr{le}:
-      Inr{L.child.pc.le_trans(1n+List.length(&2, Nat, s), 1n+List.length(&2, Nat, a), List.length(&2, Nat, r), sa, le)}
+      Inr{LNatIsLe.child.pc.le_trans(1n+List.length(&2, Nat, s), 1n+List.length(&2, Nat, a), List.length(&2, Nat, r), sa, le)}
 
 # an act x of xs is held by s, or reading xs grows the ledger past s
 def pp.grows(xs: List<&2, Nat>, +s: List<&2, Nat>, +x: Nat, i: Pr.In(x, xs)) -> pp.Grown(x, s, Pr.ledger(xs, s)):

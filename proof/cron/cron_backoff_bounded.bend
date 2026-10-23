@@ -3,7 +3,9 @@
 import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
-import ./base.bend as LA
+import ./base/bool.bend as LABool
+import ./base/cron.bend as LACron
+import ./base/nat.bend as LANat
 
 def cron.pc.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
   match n:
@@ -12,11 +14,11 @@ def cron.pc.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
     case 1n+p:
       cron.pc.le_refl(p)
 
-def pc.stops_st(st: Cr.Status, +k: Nat, +h: List<&2, Cr.Mark>, ek: {k == Cr.trail(h) : Nat}, +act: LA.pc.Act2(st, k)) -> ({Nat.is_le(Cr.trail(h), Cr.CAP()) == True{} : Bool} & Cr.Act(st, Cr.trail(h))):
+def pc.stops_st(st: Cr.Status, +k: Nat, +h: List<&2, Cr.Mark>, ek: {k == Cr.trail(h) : Nat}, +act: LACron.pc.Act2(st, k)) -> ({Nat.is_le(Cr.trail(h), Cr.CAP()) == True{} : Bool} & Cr.Act(st, Cr.trail(h))):
   match st:
     case Cr.Active{}:
       %ek : ({Nat.is_le(_, Cr.CAP()) == True{} : Bool} & Cr.Act(Cr.Active{}, _))
-      (LA.pc.lt_le(k, Cr.CAP(), act), act)
+      (LANat.pc.lt_le(k, Cr.CAP(), act), act)
     case Cr.Paused{}:
       %ek : ({Nat.is_le(_, Cr.CAP()) == True{} : Bool} & Unit)
       (act, Unit{})
@@ -27,7 +29,7 @@ def pc.stops_st(st: Cr.Status, +k: Nat, +h: List<&2, Cr.Mark>, ek: {k == Cr.trai
       %ek : ({Nat.is_le(_, Cr.CAP()) == True{} : Bool} & Unit)
       (act, Unit{})
 
-def pc.g_stops(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j)) -> Cr.Stops(j):
+def pc.g_stops(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LACron.pc.G(c, dead, j)) -> Cr.Stops(j):
   match j:
     case Cr.Job{i, +s, +st, +nx, +k, cl, +rs, +ss, +h}:
       (h1, g2) = g
@@ -39,7 +41,7 @@ def pc.g_stops(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j))
       (ek, act) = h6
       pc.stops_st(st, k, h, ek, act)
 
-def pc.all_stops(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.AllG(c, dead, rs)) -> Cr.StopsAll(rs):
+def pc.all_stops(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LACron.pc.AllG(c, dead, rs)) -> Cr.StopsAll(rs):
   match rs:
     case Nil{}:
       Unit{}
@@ -51,7 +53,7 @@ def pc.all_stops(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.A
         case Cr.Raw{x}:
           pc.all_stops(c, dead, t, g)
 
-def pc.stops_of(s: Cr.S, inv: LA.pc.Inv(s)) -> Cr.StopsAll(Cr.S.recs(s)):
+def pc.stops_of(s: Cr.S, inv: LACron.pc.Inv(s)) -> Cr.StopsAll(Cr.S.recs(s)):
   match s:
     case Cr.S{b, rs, rd, +dead, +c, n, a}:
       pc.all_stops(c, dead, rs, inv)
@@ -178,11 +180,11 @@ def pc.paused_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, nu: {Cr.
     case Cr.Die{+p}:
       pc.st_unrun(p, j, hp)
     case Cr.Cancel{+p, +ji}:
-      LA.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Cancel{p, ji}, c, dead, j)), nu)
+      LABool.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Cancel{p, ji}, c, dead, j)), nu)
     case Cr.Resume{+p, +ji}:
-      LA.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Resume{p, ji}, c, dead, j)), nu)
+      LABool.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Resume{p, ji}, c, dead, j)), nu)
     case Cr.Create{+p, +sc}:
-      LA.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Create{p, sc}, c, dead, j)), nu)
+      LABool.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Create{p, sc}, c, dead, j)), nu)
     case Cr.Tick{d}:
       hp
     case Cr.RawJob{t}:
@@ -230,7 +232,7 @@ def pc.status_rec(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>
         case Cr.Raw{y}:
           pc.status_rec(e, c, dead, rest, i, nu, h)
         case Cr.Known{+j}:
-          %Equal.sym(Nat, Cr.Job.id(Cr.job(e, c, dead, j)), Cr.Job.id(j), LA.pc.id_job(e, c, dead, j)) : {Cr.status_of.pick(Nat.is_eq(_, i), Cr.Job.status(Cr.job(e, c, dead, j)), Cr.status_of(i, Cr.recs(e, c, dead, rest))) == pc.SP() : Maybe<&2, Cr.Status>}
+          %Equal.sym(Nat, Cr.Job.id(Cr.job(e, c, dead, j)), Cr.Job.id(j), LACron.pc.id_job(e, c, dead, j)) : {Cr.status_of.pick(Nat.is_eq(_, i), Cr.Job.status(Cr.job(e, c, dead, j)), Cr.status_of(i, Cr.recs(e, c, dead, rest))) == pc.SP() : Maybe<&2, Cr.Status>}
           pc.status_pick(Nat.is_eq(Cr.Job.id(j), i), e, c, dead, j, rest, i, nu, h, q => pc.status_rec(e, c, dead, rest, i, nu, q))
 
 def pc.status_pick_app(b: Bool, +st: Cr.Status, +rest: List<&2, Cr.Rec>, +ys: List<&2, Cr.Rec>, +i: Nat, h: {Cr.status_of.pick(b, st, Cr.status_of(i, rest)) == pc.SP() : Maybe<&2, Cr.Status>}, next: {Cr.status_of(i, rest) == pc.SP() : Maybe<&2, Cr.Status>} -> {Cr.status_of(i, List.append(&2, Cr.Rec, rest, ys)) == pc.SP() : Maybe<&2, Cr.Status>}) -> {Cr.status_of.pick(b, st, Cr.status_of(i, List.append(&2, Cr.Rec, rest, ys))) == pc.SP() : Maybe<&2, Cr.Status>}:
@@ -281,7 +283,7 @@ def pc.stays(s: Cr.S, +e: Cr.Ev, +i: Nat, +nu: {Cr.Ev.is_user(e) == False{} : Bo
     case Cr.S{+bad, +rs, +rd, +dead, +c, +n, +aside}:
       match e:
         case Cr.Create{+p, +sc}:
-          LA.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Create{p, sc})), nu)
+          LABool.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Create{p, sc})), nu)
         case Cr.Take{+p}:
           pc.sp_alive(Cr.has(p, dead), i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{None{}, Cr.recs(e, c, dead, rs), rd, dead, c, n, Cr.heal(bad, aside)}, h, Inl{pc.status_rec(e, c, dead, rs, i, nu, h)})
         case Cr.Recover{+p}:
@@ -293,9 +295,9 @@ def pc.stays(s: Cr.S, +e: Cr.Ev, +i: Nat, +nu: {Cr.Ev.is_user(e) == False{} : Bo
         case Cr.Die{+p}:
           Inl{pc.status_rec(e, c, dead, rs, i, nu, h)}
         case Cr.Cancel{+p, +ji}:
-          LA.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Cancel{p, ji})), nu)
+          LABool.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Cancel{p, ji})), nu)
         case Cr.Resume{+p, +ji}:
-          LA.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Resume{p, ji})), nu)
+          LABool.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Resume{p, ji})), nu)
         case Cr.Tick{+d}:
           Inl{h}
         case Cr.RawJob{+t}:
@@ -340,7 +342,7 @@ def pc.not_lt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == False{} : Bool}) -> {Nat
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      LA.cron_step.pc.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, h)
+      LABool.cron_step.pc.absurd({Nat.is_le(1n+q, 0n) == True{} : Bool}, h)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:
@@ -362,7 +364,7 @@ def pc.later_ge(nx: Maybe<&2, Nat>, +u: Nat) -> {Nat.is_le(u, Cr.later(nx, u)) =
       pc.ge_pick(Nat.is_lt(n, u), n, u, {==})
 
 def pc.cron_backoff_bounded(+evs: List<&2, Cr.Ev>, +s: Cr.S, +e: Cr.Ev, +i: Nat, +k: Nat, +c: Nat, +nx: Maybe<&2, Nat>) -> (Cr.StopsAll(Cr.S.recs(Cr.run(evs))) & (({Cr.Ev.is_user(e) == False{} : Bool} -> Cr.StaysPaused(i, s, Cr.step(s, e))) & ({Nat.is_le(Cr.delay(k), Cr.delay(1n+k)) == True{} : Bool} & {Nat.is_le(Nat.add(c, Cr.delay(k)), Cr.later(nx, Nat.add(c, Cr.delay(k)))) == True{} : Bool}))):
-  (pc.stops_of(Cr.run(evs), LA.pc.inv_run(evs)), (nu => h => pc.stays(s, e, i, nu, h), (pc.delay_mono(k), pc.later_ge(nx, Nat.add(c, Cr.delay(k))))))
+  (pc.stops_of(Cr.run(evs), LACron.pc.inv_run(evs)), (nu => h => pc.stays(s, e, i, nu, h), (pc.delay_mono(k), pc.later_ge(nx, Nat.add(c, Cr.delay(k))))))
 
 def Cron.cron_backoff_bounded(evs, s, e, i, k, c, nx):
   pc.cron_backoff_bounded(evs, s, e, i, k, c, nx)

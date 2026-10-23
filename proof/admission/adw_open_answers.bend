@@ -4,8 +4,8 @@ import Base
 import ../../bend/admission.bend as Ad
 import ../../bend/ffi_admission.bend as FAd
 import ../../laws/admission.bend as Admission
-import ./base.bend as LA
+import ./base/wire.bend as LAWire
 
 def Admission.adw_open_answers(l, q, h):
-  %LA.paw.open(l, q, "", h) : {FAd.open.go(_) == (FAd.Running{Ad.Live.new(l, q)}, FAd.put_live(Ad.Live.new(l, q), "")) : FAd.St & String}
+  %LAWire.paw.open(l, q, "", h) : {FAd.open.go(_) == (FAd.Running{Ad.Live.new(l, q)}, FAd.put_live(Ad.Live.new(l, q), "")) : FAd.St & String}
   {==}

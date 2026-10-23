@@ -3,7 +3,8 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_eq.bend as LNatIsEq
 import ./base.bend as LA
 
 def w2.of_none(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +ls: List<&2, Nat>, f: {If.plan.of(m, L) == If.Fits{ls} : If.Plan}) -> {m == None{} : Maybe<&2, Nat>}:
@@ -11,19 +12,19 @@ def w2.of_none(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +ls: List<&2, Nat>, f: 
     case None{}:
       {==}
     case Some{i}:
-      L.pq.absurd({Some{i} == None{} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, LA.w2.over, If.Over{i}, If.Fits{ls}, f))
+      LBoolMisc.pq.absurd({Some{i} == None{} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, LA.w2.over, If.Over{i}, If.Fits{ls}, f))
 
 # is_eq(a, i) true, a not needed, i needed: impossible
 def w2.eq_ne(+a: Nat, +i: Nat, h: {Nat.is_eq(a, i) == True{} : Bool}, +need: List<&2, Nat>, en: {If.elem(need, a) == False{} : Bool}, n: {If.elem(need, i) == True{} : Bool}) -> Empty:
-  +na = LA.w2.elem_at(need, a, i, L.pq.eq_true(a, i, h), n)
-  L.pq.absurd(Empty, Equal.trans(Bool, True{}, If.elem(need, a), False{}, Equal.sym(Bool, If.elem(need, a), True{}, na), en))
+  +na = LA.w2.elem_at(need, a, i, LNatIsEq.pq.eq_true(a, i, h), n)
+  LBoolMisc.pq.absurd(Empty, Equal.trans(Bool, True{}, If.elem(need, a), False{}, Equal.sym(Bool, If.elem(need, a), True{}, na), en))
 
 def w2.or_f(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
   match a:
     case False{}:
       eb
     case True{}:
-      L.pq.absurd({Bool.or(True{}, b) == False{} : Bool}, ea)
+      LBoolMisc.pq.absurd({Bool.or(True{}, b) == False{} : Bool}, ea)
 
 def w2.ne_of(+a: Nat, +i: Nat, +need: List<&2, Nat>, en: {If.elem(need, a) == False{} : Bool}, n: {If.elem(need, i) == True{} : Bool}, e: Bool, ee: {Nat.is_eq(a, i) == e : Bool}) -> {Nat.is_eq(a, i) == False{} : Bool}:
   match e:

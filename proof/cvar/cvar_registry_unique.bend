@@ -3,7 +3,7 @@
 import Base
 import ../../bend/cvar.bend as Cv
 import ../../laws/cvar.bend as Cvar
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 def pv.not_t(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
@@ -47,7 +47,7 @@ def pv.find_ne(b: Bool, +h: Cv.Decl, +r: List<&2, Cv.Decl>, +y: Nat, nf: {Maybe.
 def pv.find_tail(b: Bool, +h: Cv.Decl, +r: List<&2, Cv.Decl>, +y: Nat, nf: {Maybe.is_some(&2, Cv.Decl, Cv.find.go(h <> r, y, b)) == False{} : Bool}) -> {Maybe.is_some(&2, Cv.Decl, Cv.find(r, y)) == False{} : Bool}:
   match b:
     case True{}:
-      L.cvar.pv.absurd({Maybe.is_some(&2, Cv.Decl, Cv.find(r, y)) == False{} : Bool}, nf)
+      LBoolMisc.cvar.pv.absurd({Maybe.is_some(&2, Cv.Decl, Cv.find(r, y)) == False{} : Bool}, nf)
     case False{}:
       nf
 
@@ -60,7 +60,7 @@ def pv.find_snoc(r: List<&2, Cv.Decl>, +d: Cv.Decl, +y: Nat, b: Bool, eb: {Cv.id
     case +h <> +t:
       match b:
         case True{}:
-          L.cvar.pv.absurd({Maybe.is_some(&2, Cv.Decl, Cv.find(h <> List.append(&2, Cv.Decl, t, [d]), y)) == False{} : Bool}, h1)
+          LBoolMisc.cvar.pv.absurd({Maybe.is_some(&2, Cv.Decl, Cv.find(h <> List.append(&2, Cv.Decl, t, [d]), y)) == False{} : Bool}, h1)
         case False{}:
           %Equal.sym(Bool, Nat.is_eq(Cv.Decl.id(h), y), False{}, eb) : {Maybe.is_some(&2, Cv.Decl, Cv.find.go(h <> List.append(&2, Cv.Decl, t, [d]), y, _)) == False{} : Bool}
           pv.find_snoc(t, d, y, Cv.id.at(t, y), {==}, h1, h2)

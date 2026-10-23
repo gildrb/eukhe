@@ -3,14 +3,17 @@
 import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
-import ./base.bend as LA
+import ./base/bool.bend as LABool
+import ./base/cron.bend as LACron
+import ./base/logic.bend as LALogic
+import ./base/nat.bend as LANat
 
 def cron.pc.or_l(a: Bool, b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
     case True{}:
       {==}
     case False{}:
-      LA.cron.pc.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
+      LABool.cron.pc.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
 
 def cron.pc.or_r(a: Bool, b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
@@ -20,13 +23,13 @@ def cron.pc.or_r(a: Bool, b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) ==
       h
 
 def cron_step.pc.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  LA.cron.pc.absurdF(A, e)
+  LABool.cron.pc.absurdF(A, e)
 
 def cron_step.pc.void(-A: Type, e: Empty) -> A:
-  LA.cron.pc.void(A, e)
+  LALogic.cron.pc.void(A, e)
 
 def cron_step.pc.eq_refl(k: Nat) -> {Nat.is_eq(k, k) == True{} : Bool}:
-  LA.cron.pc.eq_refl(k)
+  LANat.cron.pc.eq_refl(k)
 
 def cron_step.pc.or_l(a: Bool, b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   cron.pc.or_l(a, b, h)
@@ -75,7 +78,7 @@ def pc.job_recs(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, 
         case Cr.Raw{x}:
           pc.job_recs(e, c, dead, rest, i, h)
         case Cr.Known{+j}:
-          %Equal.sym(Nat, Cr.Job.id(Cr.job(e, c, dead, j)), Cr.Job.id(j), LA.pc.id_job(e, c, dead, j)) : {Bool.or(Nat.is_eq(_, i), Cr.has_job(i, Cr.recs(e, c, dead, rest))) == True{} : Bool}
+          %Equal.sym(Nat, Cr.Job.id(Cr.job(e, c, dead, j)), Cr.Job.id(j), LACron.pc.id_job(e, c, dead, j)) : {Bool.or(Nat.is_eq(_, i), Cr.has_job(i, Cr.recs(e, c, dead, rest))) == True{} : Bool}
           pc.or_mono(Nat.is_eq(Cr.Job.id(j), i), Cr.has_job(i, rest), Cr.has_job(i, Cr.recs(e, c, dead, rest)), h, q => pc.job_recs(e, c, dead, rest, i, q))
 
 def pc.job_append(rs: List<&2, Cr.Rec>, +ys: List<&2, Cr.Rec>, +i: Nat, h: {Cr.has_job(i, rs) == True{} : Bool}) -> {Cr.has_job(i, List.append(&2, Cr.Rec, rs, ys)) == True{} : Bool}:
@@ -183,7 +186,7 @@ def pc.never_drops(s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat, nc: {Cr.Ev.is_corrupt(e
         case Cr.RawClaim{+x}:
           pc.keeps_raw_claim(bad, x, t, i, rs, rd, dead, c, n, aside)
         case Cr.Corrupt{x}:
-          LA.cron_step.pc.absurd(Cr.Keeps(t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{Some{x}, Nil{}, Nil{}, dead, c, n, aside}), nc)
+          LABool.cron_step.pc.absurd(Cr.Keeps(t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{Some{x}, Nil{}, Nil{}, dead, c, n, aside}), nc)
 
 def pc.cron_never_drops(+s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat) -> {Cr.Ev.is_corrupt(e) == False{} : Bool} -> Cr.Keeps(t, i, s, Cr.step(s, e)):
   nc => pc.never_drops(s, e, t, i, nc)

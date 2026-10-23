@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/fsmode.bend as Fsmode
-import ../base.bend as L
+import ../base/fsmode.bend as LFsmode
 
 def Fsmode.cwd_is_explicit(c, p, ok):
-  L.explicit(c, p, ok)
+  LFsmode.explicit(c, p, ok)

@@ -6,7 +6,7 @@ import ../../bend/ffi_aux_fallback.bend as FAf
 import ../../bend/wire.bend as Wr
 import ../../laws/aux_fallback.bend as AuxFallback
 import ../../laws/base.bend as LawsBase
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
 import ./base.bend as LA
 import ./afw_evs_round_trip.bend as PAfwEvsRoundTrip
 
@@ -20,6 +20,6 @@ def AuxFallback.afw_pass_round_trip(es, ks, rest, h):
   +hh = h
   +le = Bool.and(LawsBase.wire_fits(List.length(&2, Af.Ev, es)), AuxFallback.afw_evs_fit(es))
   +lk = Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, ks)), AuxFallback.afw_keys_fit(ks))
-  %pfw.evs(es, Wr.put_list(~Af.Key, ~FAf.put_key, ks, z), L.wr_and_l(le, lk, hh)) : {FAf.get_pass.go(_) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
-  %LA.pfw.keys(ks, z, L.wr_and_r(le, lk, hh)) : {FAf.get_pass.keys(es, _) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
+  %pfw.evs(es, Wr.put_list(~Af.Key, ~FAf.put_key, ks, z), LBoolAnd.wr_and_l(le, lk, hh)) : {FAf.get_pass.go(_) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
+  %LA.pfw.keys(ks, z, LBoolAnd.wr_and_r(le, lk, hh)) : {FAf.get_pass.keys(es, _) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
   {==}

@@ -7,7 +7,8 @@ import ../../bend/wire.bend as Wr
 import ../../laws/aux_fallback.bend as AuxFallback
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 # ---- aux_fallback_wire ----
@@ -28,10 +29,10 @@ def AuxFallback.afw_key_round_trip(k, rest, h):
     case Af.K{+p, +s, +r}:
       +z = rest
       +hh = h
-      +h1 = L.wr_and_r(LawsBase.wire_fits(p), Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(r)), hh)
-      %pfw.nat(p, Wr.put_nat(s, Wr.put_nat(r, z)), L.wr_and_l(LawsBase.wire_fits(p), Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(r)), hh)) : {FAf.get_key.go(_) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
-      %pfw.nat(s, Wr.put_nat(r, z), L.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(r), h1)) : {FAf.get_key.s(p, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
-      %pfw.nat(r, z, L.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(r), h1)) : {FAf.get_key.r(p, s, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      +h1 = LBoolAnd.wr_and_r(LawsBase.wire_fits(p), Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(r)), hh)
+      %pfw.nat(p, Wr.put_nat(s, Wr.put_nat(r, z)), LBoolAnd.wr_and_l(LawsBase.wire_fits(p), Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(r)), hh)) : {FAf.get_key.go(_) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      %pfw.nat(s, Wr.put_nat(r, z), LBoolAnd.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(r), h1)) : {FAf.get_key.s(p, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      %pfw.nat(r, z, LBoolAnd.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(r), h1)) : {FAf.get_key.r(p, s, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
       {==}
 
 # a key reads back (turned around for rewriting)
@@ -67,24 +68,24 @@ def pfw.key_go_rt(+t: List<&2, Af.Key>, +x: Af.Key, +rest: String,
   {Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, t), FAf.get_key(FAf.put_key(x, pfw.key_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Af.Key>>}:
   match t:
     case Nil{}:
-      %pfw.key(x, rest, L.wr_and_l(AuxFallback.afw_key_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Key>>}
+      %pfw.key(x, rest, LBoolAnd.wr_and_l(AuxFallback.afw_key_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Key>>}
       {==}
     case Con{+y, +u}:
-      %pfw.key(x, FAf.put_key(y, pfw.key_items(u, rest)), L.wr_and_l(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 1n+List.length(&2, Af.Key, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
-      %Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, u), FAf.get_key(FAf.put_key(y, pfw.key_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.key_go_rt(u, y, rest, L.wr_and_r(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Key, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %pfw.key(x, FAf.put_key(y, pfw.key_items(u, rest)), LBoolAnd.wr_and_l(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 1n+List.length(&2, Af.Key, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, u), FAf.get_key(FAf.put_key(y, pfw.key_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.key_go_rt(u, y, rest, LBoolAnd.wr_and_r(AuxFallback.afw_key_fits(x), AuxFallback.afw_keys_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Key, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
       {==}
 
 def AuxFallback.afw_keys_round_trip(xs, rest, h):
   match xs:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, L.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Af.Key>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~Af.Key, ~FAf.put_key, x <> t, r), Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)), pfw.key_put(x <> t, r)) : {Wr.get_list(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r))), Wr.Got{List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r), L.wr_and_l(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
-      pfw.key_go_rt(t, x, r, L.wr_and_r(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r))), Wr.Got{List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
+      pfw.key_go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Af.Key, x <> t)), AuxFallback.afw_keys_fit(x <> t), hh))
 
 # a list that fits reads back (turned around for rewriting)
 def pfw.keys(+xs: List<&2, Af.Key>, +rest: String, h: {Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, xs)), AuxFallback.afw_keys_fit(xs)) == True{} : Bool}) ->
@@ -113,8 +114,8 @@ def AuxFallback.afw_gate_round_trip(g, rest, h):
     case Af.Lookup{+p, +s}:
       +z = rest
       +hh = h
-      %pfw.nat(p, Wr.put_nat(s, z), L.wr_and_l(LawsBase.wire_fits(p), LawsBase.wire_fits(s), hh)) : {FAf.get_gate.p(_) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
-      %pfw.nat(s, z, L.wr_and_r(LawsBase.wire_fits(p), LawsBase.wire_fits(s), hh)) : {FAf.get_gate.s(p, _) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
+      %pfw.nat(p, Wr.put_nat(s, z), LBoolAnd.wr_and_l(LawsBase.wire_fits(p), LawsBase.wire_fits(s), hh)) : {FAf.get_gate.p(_) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
+      %pfw.nat(s, z, LBoolAnd.wr_and_r(LawsBase.wire_fits(p), LawsBase.wire_fits(s), hh)) : {FAf.get_gate.s(p, _) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
       {==}
 
 # a gate reads back (turned around for rewriting)
@@ -153,24 +154,24 @@ def AuxFallback.afw_req_round_trip(x, rest, h):
     case FAf.GateReq{+p, +sel, +ok}:
       +z = rest
       +hh = h
-      %pfw.nat(p, FAf.put_sel(sel, Wr.put_bool(ok, z)), L.wr_and_l(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.gate(_) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
-      %pfw.sel(sel, Wr.put_bool(ok, z), L.wr_and_r(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.sel(p, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.nat(p, FAf.put_sel(sel, Wr.put_bool(ok, z)), LBoolAnd.wr_and_l(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.gate(_) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.sel(sel, Wr.put_bool(ok, z), LBoolAnd.wr_and_r(LawsBase.wire_fits(p), AuxFallback.afw_sel_fits(sel), hh)) : {FAf.get_req.sel(p, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
       %pfw.bool(ok, z) : {FAf.get_req.ok(p, sel, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
       {==}
     case FAf.SettleReq{+g, +look, +need}:
       +z = rest
       +hh = h
-      +h1 = L.wr_and_r(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)
-      %pfw.gate(g, FAf.put_look(look, Wr.put_nat(need, z)), L.wr_and_l(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)) : {FAf.get_req.settle(_) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
-      %pfw.look(look, Wr.put_nat(need, z), L.wr_and_l(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.look(g, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
-      %pfw.nat(need, z, L.wr_and_r(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.need(g, look, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      +h1 = LBoolAnd.wr_and_r(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)
+      %pfw.gate(g, FAf.put_look(look, Wr.put_nat(need, z)), LBoolAnd.wr_and_l(AuxFallback.afw_gate_fits(g), Bool.and(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need)), hh)) : {FAf.get_req.settle(_) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.look(look, Wr.put_nat(need, z), LBoolAnd.wr_and_l(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.look(g, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.nat(need, z, LBoolAnd.wr_and_r(AuxFallback.afw_look_fits(look), LawsBase.wire_fits(need), h1)) : {FAf.get_req.need(g, look, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
       {==}
     case FAf.PassReq{+r, +sh}:
       +z = rest
       +hh = h
       +lt = Bool.and(LawsBase.wire_fits(List.length(&2, Af.Key, sh)), AuxFallback.afw_keys_fit(sh))
-      %pfw.route(r, Wr.put_list(~Af.Key, ~FAf.put_key, sh, z), L.wr_and_l(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.pass(_) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
-      %pfw.keys(sh, z, L.wr_and_r(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.shown(r, _) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      %pfw.route(r, Wr.put_list(~Af.Key, ~FAf.put_key, sh, z), LBoolAnd.wr_and_l(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.pass(_) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      %pfw.keys(sh, z, LBoolAnd.wr_and_r(AuxFallback.afw_route_fits(r), lt, hh)) : {FAf.get_req.shown(r, _) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
       {==}
 
 # a req reads back (turned around for rewriting)

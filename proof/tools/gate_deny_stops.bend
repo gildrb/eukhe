@@ -3,7 +3,7 @@
 import Base
 import ../../bend/tools.bend as Tl
 import ../../laws/tools.bend as Tools
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 def pl.ND(n: Nat, z: Type, s: Type) -> Type:
@@ -24,7 +24,7 @@ def pl.one_zero(b: Bool, -g: Nat, h: {Nat.add(Tl.gated.one(b), g) == 0n : Nat}, 
     case True{}:
       h
     case False{}:
-      L.tools.pl.absurdF({g == 0n : Nat}, hb)
+      LBoolMisc.tools.pl.absurdF({g == 0n : Nat}, hb)
 
 # a held head adds a gated step
 def pl.one_nz(-A: Type, b: Bool, -g: Nat, h: {Nat.add(Tl.gated.one(b), g) == 0n : Nat}, hb: {b == False{} : Bool}) -> A:

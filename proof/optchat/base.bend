@@ -3,7 +3,9 @@
 import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/optchat.bend as LOptchat
 
 # ---- cover ----
 
@@ -342,7 +344,7 @@ def pf.IsSome(m: Maybe<&2, Nat>) -> Type:
 def pf.to_some(m: Maybe<&2, Nat>, e: {Maybe.is_some(&2, Nat, m) == True{} : Bool}) -> pf.IsSome(m):
   match m:
     case None{}:
-      L.pf.absurd_ft(Empty, e)
+      LBoolMisc.pf.absurd_ft(Empty, e)
     case Some{x}:
       Unit{}
 
@@ -382,7 +384,7 @@ def pf.has_at(+info: O.Info, +a: O.Node, +x: O.Node, rest: List<&2, O.Node>, -re
     case Nil{}:
       e
     case +y <> more:
-      L.pf.or_r(Bool.and(O.Node.eq(x, a), O.mergeable(info, x, y)), rec, e)
+      LBoolMisc.pf.or_r(Bool.and(O.Node.eq(x, a), O.mergeable(info, x, y)), rec, e)
 
 # v with p's lines before it, p reversed
 def pf.rapp(p: List<&2, O.Node>, v: List<&2, O.Node>) -> List<&2, O.Node>:
@@ -412,10 +414,10 @@ def pf.Cand(+info: O.Info, +v: List<&2, O.Node>, r: Maybe<&2, O.Node>) -> Type:
       ({pf.Has(info, v, a) == True{} : Bool} & {O.Info.built(info, O.Node.parent(a)) == True{} : Bool})
 
 def pf.merge_built(+info: O.Info, +a: O.Node, +y: O.Node, e: {O.mergeable(info, a, y) == True{} : Bool}) -> {O.Info.built(info, O.Node.parent(a)) == True{} : Bool}:
-  L.pf.and_r(O.Node.sib(a, y), O.Info.built(info, O.Node.parent(a)), e)
+  LBoolAnd.pf.and_r(O.Node.sib(a, y), O.Info.built(info, O.Node.parent(a)), e)
 
 def pf.here_has(+info: O.Info, +a: O.Node, +y: O.Node, +more: List<&2, O.Node>, e: {True{} == O.mergeable(info, a, y) : Bool}) -> {pf.Has(info, a <> y <> more, a) == True{} : Bool}:
-  %L.pf.node_eq_refl(a) : {Bool.or(Bool.and(_, O.mergeable(info, a, y)), pf.Has(info, y <> more, a)) == True{} : Bool}
+  %LOptchat.pf.node_eq_refl(a) : {Bool.or(Bool.and(_, O.mergeable(info, a, y)), pf.Has(info, y <> more, a)) == True{} : Bool}
   %e : {Bool.or(Bool.and(True{}, _), pf.Has(info, y <> more, a)) == True{} : Bool}
   {==}
 
@@ -587,7 +589,7 @@ def pf.msumm.pick(h: Bool, +info: O.Info, +a: O.Node, +x: O.Node, +y: O.Node, +m
   match h:
     case True{}:
       (ey, sm) = sr
-      (pf.implies_true(O.Nat.is_pos(O.Node.lvl(O.Node.parent(x))), O.Info.built(info, O.Node.parent(x)), pf.merge_built(info, x, y, L.pf.and_r(O.Node.eq(x, a), O.mergeable(info, x, y), Equal.sym(Bool, True{}, Bool.and(O.Node.eq(x, a), O.mergeable(info, x, y)), e)))), sm)
+      (pf.implies_true(O.Nat.is_pos(O.Node.lvl(O.Node.parent(x))), O.Info.built(info, O.Node.parent(x)), pf.merge_built(info, x, y, LBoolAnd.pf.and_r(O.Node.eq(x, a), O.mergeable(info, x, y), Equal.sym(Bool, True{}, Bool.and(O.Node.eq(x, a), O.mergeable(info, x, y)), e)))), sm)
     case False{}:
       (hx, ih(sr))
 

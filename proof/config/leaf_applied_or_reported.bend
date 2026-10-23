@@ -3,7 +3,8 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_eq.bend as LNatIsEq
 
 # Leaves
 # ------
@@ -15,13 +16,13 @@ def pcf.leaf_head(+x: Cf.Leaf, +rest: List<&2, Cf.Leaf>) -> {Bool.or(Cf.listed(C
       match o:
         case Cf.Good{}:
           +a = Cf.listed(Cf.applied(rest), p)
-          L.ppr.or_l(Bool.or(Nat.is_eq(p, p), a), Cf.listed(Cf.reported(rest), p), L.ppr.or_l(Nat.is_eq(p, p), a, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_l(Bool.or(Nat.is_eq(p, p), a), Cf.listed(Cf.reported(rest), p), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), a, LNatIsEq.ppr.nat_eq_refl(p)))
         case Cf.BadType{}:
           +b = Cf.listed(Cf.reported(rest), p)
-          L.ppr.or_r(Cf.listed(Cf.applied(rest), p), Bool.or(Nat.is_eq(p, p), b), L.ppr.or_l(Nat.is_eq(p, p), b, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_r(Cf.listed(Cf.applied(rest), p), Bool.or(Nat.is_eq(p, p), b), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), b, LNatIsEq.ppr.nat_eq_refl(p)))
         case Cf.Undeclared{}:
           +b = Cf.listed(Cf.reported(rest), p)
-          L.ppr.or_r(Cf.listed(Cf.applied(rest), p), Bool.or(Nat.is_eq(p, p), b), L.ppr.or_l(Nat.is_eq(p, p), b, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_r(Cf.listed(Cf.applied(rest), p), Bool.or(Nat.is_eq(p, p), b), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), b, LNatIsEq.ppr.nat_eq_refl(p)))
 
 # a path that applies or is reported in rest stays so with x before rest
 def pcf.leaf_cons(+x: Cf.Leaf, +rest: List<&2, Cf.Leaf>, +n: Nat, h: {Bool.or(Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n)) == True{} : Bool}) -> {Bool.or(Cf.listed(Cf.applied(x <> rest), n), Cf.listed(Cf.reported(x <> rest), n)) == True{} : Bool}:
@@ -29,11 +30,11 @@ def pcf.leaf_cons(+x: Cf.Leaf, +rest: List<&2, Cf.Leaf>, +n: Nat, h: {Bool.or(Cf
     case Cf.Leaf{+p, o}:
       match o:
         case Cf.Good{}:
-          L.ppr.or_in_l(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
+          LBoolMisc.ppr.or_in_l(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
         case Cf.BadType{}:
-          L.ppr.or_in_r(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
+          LBoolMisc.ppr.or_in_r(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
         case Cf.Undeclared{}:
-          L.ppr.or_in_r(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
+          LBoolMisc.ppr.or_in_r(Nat.is_eq(p, n), Cf.listed(Cf.applied(rest), n), Cf.listed(Cf.reported(rest), n), h)
 
 # LAW leaf_applied_or_reported
 def pcf.leaf_applied_or_reported(ls: List<&2, Cf.Leaf>, +l: Cf.Leaf, i: Cf.In(l, ls)) -> {Bool.or(Cf.listed(Cf.applied(ls), Cf.Leaf.path(l)), Cf.listed(Cf.reported(ls), Cf.Leaf.path(l))) == True{} : Bool}:

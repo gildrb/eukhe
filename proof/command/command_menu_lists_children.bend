@@ -9,7 +9,8 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/list.bend as LList
 import ./base.bend as LA
 
 # the model's starts is cmd_prefix
@@ -62,14 +63,14 @@ def cb_items(t: List<&2, Cmd.Ent>, +i: Nat, +q: List<&2, List<&2, Nat>>, +x: Lis
 def pml_at(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +p: List<&2, Nat>, hs: {Command.cmd_some(m) == True{} : Bool}) -> {Cmd.menu.at(LA.cb_st.of(m, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.menu.at(LA.cb_st.of(None{}, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}, hs)
+      LBoolMisc.cb_absurd({Cmd.menu.at(LA.cb_st.of(None{}, q), t, p) == Cmd.Kids{q, Cmd.items(t, 0n, q, Cmd.lows(p))} : Cmd.Menu}, hs)
     case Some{e}:
       {==}
 
 def Command.command_menu_lists_children(t, q, p, ok, on, word):
   match q:
     case Nil{}:
-      L.cb_absurd({Cmd.menu(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, [p]))) == Cmd.Kids{Nil{}, Command.cmd_rows(t, 0n, Nil{}, Command.cmd_lower(p))} : Cmd.Menu}, on)
+      LBoolMisc.cb_absurd({Cmd.menu(t, Command.cmd_render(List.append(&2, List<&2, Nat>, Nil{}, [p]))) == Cmd.Kids{Nil{}, Command.cmd_rows(t, 0n, Nil{}, Command.cmd_lower(p))} : Cmd.Menu}, on)
     case Con{+x, +rest}:
       +qq = {x <> rest : List<&2, List<&2, Nat>>}
       +o = on
@@ -79,4 +80,4 @@ def Command.command_menu_lists_children(t, q, p, ok, on, word):
       %LA.cb_lows(p) : {Cmd.menu(t, line) == Cmd.Kids{qq, Cmd.items(t, 0n, qq, _)} : Cmd.Menu}
       %Equal.sym(List<&2, List<&2, Nat>> & List<&2, Nat>, Cmd.cut(Cmd.words(line)), (qq, p), LA.cb_cut_last(t, qq, p, k, o, word)) : {Cmd.menu.cut(_, t) == Cmd.Kids{qq, Cmd.items(t, 0n, qq, Cmd.lows(p))} : Cmd.Menu}
       %Equal.sym(Cmd.St, Cmd.walk(qq, t, Cmd.Top{}), LA.cb_st(t, qq), LA.cb_walk_root(qq, t, k, o)) : {Cmd.menu.at(_, t, p) == Cmd.Kids{qq, Cmd.items(t, 0n, qq, Cmd.lows(p))} : Cmd.Menu}
-      pml_at(Command.cmd_lookup(t, qq), t, qq, p, L.cb_walks_decl(rest, x, t, Nil{}, o))
+      pml_at(Command.cmd_lookup(t, qq), t, qq, p, LList.cb_walks_decl(rest, x, t, Nil{}, o))

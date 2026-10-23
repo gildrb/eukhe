@@ -3,7 +3,9 @@
 import Base
 import ../../bend/child.bend as Ch
 import ../../laws/child.bend as Child
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_eq.bend as LNatIsEq
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # The report
@@ -36,7 +38,7 @@ def pc.zero_succ(-A: Type, -p: Nat, e: {0n == 1n+p : Nat}) -> A:
 def pc.one_zero(-A: Type, x: Nat, e: {0n == x : Nat}, r: {Nat.is_eq(x, 1n) == True{} : Bool}) -> A:
   match x:
     case 0n:
-      L.child.pc.absurd(A, r)
+      LBoolMisc.child.pc.absurd(A, r)
     case 1n+p:
       pc.zero_succ(A, p, e)
 
@@ -45,9 +47,9 @@ def pc.eq_next(+m: Nat, +n: Nat, e: {Nat.is_eq(m, n) == True{} : Bool}) -> {Nat.
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      L.child.pc.absurd({Nat.is_eq(0n, 2n+q) == False{} : Bool}, e)
+      LBoolMisc.child.pc.absurd({Nat.is_eq(0n, 2n+q) == False{} : Bool}, e)
     case 1n+p 0n:
-      L.child.pc.absurd({Nat.is_eq(1n+p, 1n) == False{} : Bool}, e)
+      LBoolMisc.child.pc.absurd({Nat.is_eq(1n+p, 1n) == False{} : Bool}, e)
     case 1n+p 1n+q:
       pc.eq_next(p, q, e)
 
@@ -115,40 +117,40 @@ def pc.fs_new(same: Bool, -x: Maybe<&2, Ch.Fate>, e: {same == True{} : Bool}) ->
     case True{}:
       {==}
     case False{}:
-      L.child.pc.absurd({pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(False{}, Ch.Queued{}), x)) == True{} : Bool}, e)
+      LBoolMisc.child.pc.absurd({pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(False{}, Ch.Queued{}), x)) == True{} : Bool}, e)
 
 def pc.fq_new(same: Bool, -x: Maybe<&2, Ch.Fate>, e: {same == True{} : Bool}) -> {pc.fq(Maybe.or(&2, Ch.Fate, Ch.fate.here(same, Ch.Queued{}), x)) == True{} : Bool}:
   match same:
     case True{}:
       {==}
     case False{}:
-      L.child.pc.absurd({pc.fq(Maybe.or(&2, Ch.Fate, Ch.fate.here(False{}, Ch.Queued{}), x)) == True{} : Bool}, e)
+      LBoolMisc.child.pc.absurd({pc.fq(Maybe.or(&2, Ch.Fate, Ch.fate.here(False{}, Ch.Queued{}), x)) == True{} : Bool}, e)
 
 def pc.fs_off(same: Bool, -f: Ch.Fate, e: {same == False{} : Bool}) -> {pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(same, f), None{})) == True{} : Bool}:
   match same:
     case True{}:
-      L.child.pc.absurd({pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(True{}, f), None{})) == True{} : Bool}, Equal.sym(Bool, True{}, False{}, e))
+      LBoolMisc.child.pc.absurd({pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(True{}, f), None{})) == True{} : Bool}, Equal.sym(Bool, True{}, False{}, e))
     case False{}:
       {==}
 
 def pc.fs_of_fq(x: Maybe<&2, Ch.Fate>, e: {pc.fq(x) == True{} : Bool}) -> {pc.fs(x) == True{} : Bool}:
   match x:
     case None{}:
-      L.child.pc.absurd({pc.fs(None{}) == True{} : Bool}, e)
+      LBoolMisc.child.pc.absurd({pc.fs(None{}) == True{} : Bool}, e)
     case Some{f}:
       match f:
         case Ch.Queued{}:
           {==}
         case Ch.Withdrawn{}:
-          L.child.pc.absurd({pc.fs(Some{Ch.Withdrawn{}}) == True{} : Bool}, e)
+          LBoolMisc.child.pc.absurd({pc.fs(Some{Ch.Withdrawn{}}) == True{} : Bool}, e)
         case Ch.Placed{}:
-          L.child.pc.absurd({pc.fs(Some{Ch.Placed{}}) == True{} : Bool}, e)
+          LBoolMisc.child.pc.absurd({pc.fs(Some{Ch.Placed{}}) == True{} : Bool}, e)
 
 # no queued submission where none exists
 def pc.fq_none(-A: Type, x: Maybe<&2, Ch.Fate>, e: {None{} == x : Maybe<&2, Ch.Fate>}, r: {pc.fq(x) == True{} : Bool}) -> A:
   match x:
     case None{}:
-      L.child.pc.absurd(A, r)
+      LBoolMisc.child.pc.absurd(A, r)
     case Some{f}:
       pc.none_some(A, f, e)
 
@@ -160,19 +162,19 @@ def pc.soon_owe.at(same: Bool, +kr: Ch.Report, +n: Nat, +m: Nat, f: Ch.Fate, +re
         case Ch.Queued{}:
           pc.fs_new(Nat.is_eq(m, n), Ch.fate(rest, n), eb)
         case Ch.Withdrawn{}:
-          %LA.pc.old_none(rest, m, 1n+n, kin, L.pc.le_succ(m, n, LA.pc.le_of_eq(m, n, eb))) : {pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(Nat.is_eq(m, 1n+n), Ch.Withdrawn{}), _)) == True{} : Bool}
+          %LA.pc.old_none(rest, m, 1n+n, kin, LNatIsLe.pc.le_succ(m, n, LA.pc.le_of_eq(m, n, eb))) : {pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(Nat.is_eq(m, 1n+n), Ch.Withdrawn{}), _)) == True{} : Bool}
           pc.fs_off(Nat.is_eq(m, 1n+n), Ch.Withdrawn{}, pc.eq_next(m, n, eb))
         case Ch.Placed{}:
           %LA.pc.old_placed(rest, m, kin) : {Nat.is_eq(Nat.add(1n, _), 1n) == True{} : Bool}
           {==}
     case False{}:
       %LA.pc.old_none(rest, m, n, kin, LA.pc.le_pred(m, n, LA.pc.le_of_eq(1n+m, n, LA.pc.and_l(Nat.is_eq(1n+m, n), LA.pc.isW(f), kph)))) : {pc.soon(Ch.owe(_, kr, n, True{}, Ch.Sub{m, f} <> rest)) == True{} : Bool}
-      pc.fs_new(Nat.is_eq(n, n), Ch.fate(Ch.Sub{m, f} <> rest, n), L.child.pc.eq_refl(n))
+      pc.fs_new(Nat.is_eq(n, n), Ch.fate(Ch.Sub{m, f} <> rest, n), LNatIsEq.child.pc.eq_refl(n))
 
 def pc.soon_owe(inbox: List<&2, Ch.Sub>, +kr: Ch.Report, +n: Nat, kph: {LA.pc.Kowe(inbox, n) == True{} : Bool}, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {pc.soon(Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox)) == True{} : Bool}:
   match inbox:
     case Nil{}:
-      pc.fs_new(Nat.is_eq(n, n), None{}, L.child.pc.eq_refl(n))
+      pc.fs_new(Nat.is_eq(n, n), None{}, LNatIsEq.child.pc.eq_refl(n))
     case s <> rest:
       match s:
         case Ch.Sub{+m, f}:
@@ -182,23 +184,23 @@ def pc.soon_owe(inbox: List<&2, Ch.Sub>, +kr: Ch.Report, +n: Nat, kph: {LA.pc.Ko
 def pc.ready_owe(x: Maybe<&2, Ch.Fate>, +kr: Ch.Report, +n: Nat, +inbox: List<&2, Ch.Sub>, ex: {Ch.fate(inbox, n) == x : Maybe<&2, Ch.Fate>}, sn: {pc.fs(x) == True{} : Bool}) -> {pc.ready(Ch.owe(x, kr, n, True{}, inbox)) == True{} : Bool}:
   match x:
     case None{}:
-      pc.fq_new(Nat.is_eq(n, n), Ch.fate(inbox, n), L.child.pc.eq_refl(n))
+      pc.fq_new(Nat.is_eq(n, n), Ch.fate(inbox, n), LNatIsEq.child.pc.eq_refl(n))
     case Some{y}:
       match y:
         case Ch.Queued{}:
           %Equal.sym(Maybe<&2, Ch.Fate>, Ch.fate(inbox, n), Some{Ch.Queued{}}, ex) : {pc.fq(_) == True{} : Bool}
           {==}
         case Ch.Withdrawn{}:
-          L.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Withdrawn{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
+          LBoolMisc.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Withdrawn{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
         case Ch.Placed{}:
-          L.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Placed{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
+          LBoolMisc.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Placed{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
 
 def pc.ready_soon(+cfg: Ch.Cfg, s: Ch.St, +d: Nat, +o: Ch.Obs, sn: {pc.soon(s) == True{} : Bool}) -> {pc.ready(Ch.step(cfg, s, Ch.Poll{d, o})) == True{} : Bool}:
   match s:
     case Ch.St{ph, cut, open, +inbox}:
       match ph:
         case Ch.Watching{w}:
-          L.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
+          LBoolMisc.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
         case Ch.Owing{kr, +n}:
           match cut:
             case None{}:
@@ -206,9 +208,9 @@ def pc.ready_soon(+cfg: Ch.Cfg, s: Ch.St, +d: Nat, +o: Ch.Obs, sn: {pc.soon(s) =
                 case True{}:
                   pc.ready_owe(Ch.fate(inbox, n), kr, n, inbox, {==}, sn)
                 case False{}:
-                  L.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
+                  LBoolMisc.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
             case Some{del}:
-              L.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
+              LBoolMisc.child.pc.absurd({pc.ready(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Poll{d, o})) == True{} : Bool}, sn)
         case Ch.Ended{}:
           match cut:
             case None{}:
@@ -245,9 +247,9 @@ def pc.del_at(same: Bool, +n: Nat, +m: Nat, f: Ch.Fate, +rest: List<&2, Ch.Sub>,
           %Equal.sym(Bool, Nat.is_eq(m, n), True{}, eb) : {Nat.add(Ch.Fate.placed(Ch.Act.hit(_, Ch.Placed{})), 0n) == 1n : Nat}
           {==}
         case Ch.Withdrawn{}:
-          L.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
+          LBoolMisc.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
         case Ch.Placed{}:
-          L.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Placed{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
+          LBoolMisc.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Placed{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
     case False{}:
       pc.fq_none({Ch.placed(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n})) == 1n : Nat}, Ch.fate(rest, n), LA.pc.old_none(rest, m, n, kin, LA.pc.le_pred(m, n, LA.pc.le_of_eq(1n+m, n, LA.pc.and_l(Nat.is_eq(1n+m, n), LA.pc.isW(f), kph)))), r)
 
@@ -255,7 +257,7 @@ def pc.del_at(same: Bool, +n: Nat, +m: Nat, f: Ch.Fate, +rest: List<&2, Ch.Sub>,
 def pc.del_end(inbox: List<&2, Ch.Sub>, +x: Nat, kin: {LA.pc.Kin(inbox) == True{} : Bool}, r: {Nat.is_eq(Ch.placed(inbox), 1n) == True{} : Bool}) -> {Ch.placed(Ch.act(inbox, Ch.Place{x})) == 1n : Nat}:
   match inbox:
     case Nil{}:
-      L.child.pc.absurd({Ch.placed(Ch.act(Nil{}, Ch.Place{x})) == 1n : Nat}, r)
+      LBoolMisc.child.pc.absurd({Ch.placed(Ch.act(Nil{}, Ch.Place{x})) == 1n : Nat}, r)
     case s <> +rest:
       match s:
         case Ch.Sub{+m, f}:
@@ -273,7 +275,7 @@ def pc.ready_deliver0(+cfg: Ch.Cfg, s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool},
     case Ch.St{ph, cut, open, +inbox}:
       match ph:
         case Ch.Watching{w}:
-          L.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Deliver{0n})) == 1n : Nat}, r)
+          LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Deliver{0n})) == 1n : Nat}, r)
         case Ch.Owing{kr, +n}:
           match cut:
             case None{}:
@@ -281,15 +283,15 @@ def pc.ready_deliver0(+cfg: Ch.Cfg, s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool},
                 case True{}:
                   match inbox:
                     case Nil{}:
-                      L.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, Nil{}}, Ch.Deliver{n})) == 1n : Nat}, r)
+                      LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, Nil{}}, Ch.Deliver{n})) == 1n : Nat}, r)
                     case s2 <> +rest:
                       match s2:
                         case Ch.Sub{+m, +f}:
                           pc.del_at(Nat.is_eq(m, n), n, m, f, rest, {==}, LA.pc.and_l(LA.pc.Kowe.at(Nat.is_eq(m, n), n, m, f), LA.pc.Old(rest, m), k), LA.pc.and_r(LA.pc.Kowe.at(Nat.is_eq(m, n), n, m, f), LA.pc.Old(rest, m), k), r)
                 case False{}:
-                  L.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
+                  LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
             case Some{del}:
-              L.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
+              LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
         case Ch.Ended{}:
           pc.del_end(inbox, 0n, k, r)
 
@@ -305,7 +307,7 @@ def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: C
     case Ch.St{ph, cut, open, +inbox}:
       match ph:
         case Ch.Watching{w}:
-          L.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Watching{w}, cut, open, inbox})) == 1n : Nat}, ow)
+          LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Watching{w}, cut, open, inbox})) == 1n : Nat}, ow)
         case Ch.Owing{+kr, +n}:
           match cut:
             case None{}:
@@ -313,7 +315,7 @@ def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: C
             case Some{del}:
               pc.ready_deliver(cfg, Ch.step(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), Ch.Poll{d3, o3}), m, LA.pc.K_step(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), Ch.Poll{d3, o3}, LA.pc.K_step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, inbox}, Ch.Poll{d2, o2}, k)), pc.ready_soon(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), d3, o3, pc.soon_owe(inbox, kr, n, LA.pc.and_l(LA.pc.Kowe(inbox, n), LA.pc.Kin(inbox), k), LA.pc.and_r(LA.pc.Kowe(inbox, n), LA.pc.Kin(inbox), k))), em)
         case Ch.Ended{}:
-          L.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Ended{}, cut, open, inbox})) == 1n : Nat}, ow)
+          LBoolMisc.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Ended{}, cut, open, inbox})) == 1n : Nat}, ow)
 
 def pc.delivered_once(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, ow: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}, +m: Nat, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}) -> {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}:
   pc.delivered(cfg, Ch.run(evs, cfg, Ch.St.init(cfg)), d1, o1, d2, o2, d3, o3, m, LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}), ow, em)

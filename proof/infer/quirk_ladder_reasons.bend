@@ -4,7 +4,7 @@ import Base
 import ../../bend/effort.bend as Ef
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base.bend as L
+import ../base/fsmode.bend as LFsmode
 
 # The ladder model and the strict plan
 # -----------------------------------
@@ -38,14 +38,14 @@ def w2.wired(+m: Ef.LvMap) -> {If.lad.wired(m) == Infer.ladder.wired.go(Ef.ladde
       %w2.or_false(Infer.ladder.is_wire(mx)) : {Bool.or(Infer.ladder.is_wire(o), Bool.or(Infer.ladder.is_wire(mi), Bool.or(Infer.ladder.is_wire(lo), Bool.or(Infer.ladder.is_wire(me), Bool.or(Infer.ladder.is_wire(hi), Bool.or(Infer.ladder.is_wire(xh), _)))))) == Infer.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
       {==}
 
-def Infer.quirk_ladder_reasons(f, bm, L.explicit):
+def Infer.quirk_ladder_reasons(f, bm, LFsmode.explicit):
   match f bm:
     case True{} _:
       {==}
     case False{} False{}:
       {==}
     case False{} True{}:
-      match L.explicit:
+      match LFsmode.explicit:
         case None{}:
           {==}
         case Some{+m}:

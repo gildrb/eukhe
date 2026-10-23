@@ -35,6 +35,15 @@ not a reference), and places each block:
   down; a fill it uses moves down too when the fill's file imports the
   base file (Bend refuses import cycles). Every such move is reported.
 
+A file past 1,000 lines (SITTING) becomes a folder of the same name:
+proof/base.bend -> proof/base/<topic>.bend, a law's lemmas -> proof/<area>/
+<law>/<topic>.bend (its fill stays). The topic of a lemma is the code
+module or Base type its claim calls (`claim_refs`); a topic still too long
+splits by the first def of that topic the claim calls. A lemma joins the
+latest topic one of its lemmas is in (Base types, then modules by import
+depth; misc, then by name, below a topic), so the topic files never import
+in a cycle.
+
 Each file keeps the blocks in their order of the sources (Bend refuses a
 call to a def written below it). References are rewritten with the
 alias of the file that now holds the name; nothing else in a block
@@ -571,6 +580,148 @@ def place_path(place):
     return ROOT / "proof" / place[1] / f"{place[2]}.bend"
 
 
+# ---------------------------------------------------------------- folders
+
+SITTING = 1000  # lines one reads in a sitting; a longer file becomes a folder
+
+# Base types, the most basic first: a lemma goes to the topic of its claim,
+# or to a later topic one of its lemmas is in, so a topic file imports only
+# earlier ones (no cycle)
+BASE_TOPICS = ["logic", "bool", "nat", "u32", "char", "string", "list", "maybe", "pair", "equal"]
+TYPE_TOPIC = {"Bool": "bool", "Nat": "nat", "U32": "u32", "Word": "u32", "Char": "char",
+              "String": "string", "List": "list", "Maybe": "maybe", "Pair": "pair", "Equal": "equal"}
+
+
+def global_topic_header(tp):
+    return [f"# eukhe: lemmas the proofs of two or more areas share: {'/'.join(tp)}"]
+
+
+def area_topic_header(area, tp):
+    return [f"# eukhe: lemmas the proofs of area {area} share: {'/'.join(tp)}"]
+
+
+def law_topic_header(law, tp):
+    return [f"# eukhe: lemmas of the proof of LAW {law}: {'/'.join(tp)}"]
+
+
+def fk_path(fk):
+    pl, tp = fk
+    path = place_path(pl)
+    if not tp:
+        return path
+    return path.with_suffix("").joinpath(*tp[:-1], tp[-1] + ".bend")
+
+
+def code_area(path):
+    """the area of a bend/ module: bend/<x>.bend, bend/ffi_<x>.bend and
+    bend/<x>/<part>.bend are area <x>; bend/wire_flat.bend is wire"""
+    bend = (ROOT / "bend").resolve()
+    x = path.stem if path.parent == bend else path.parent.name
+    if x.startswith("ffi_"):
+        x = x[4:]
+    return "wire" if x == "wire_flat" else x
+
+
+_DEPTH = {}
+
+
+def code_depth(path):
+    """1 + the longest chain of bend/ imports below a module"""
+    if path not in _DEPTH:
+        _DEPTH[path] = 0
+        below = [q for q in Src(path).aliases.values() if q.suffix == ".bend" and q.exists()] if path.exists() else []
+        _DEPTH[path] = 1 + max((code_depth(q) for q in below), default=0)
+    return _DEPTH[path]
+
+
+def signature(b):
+    """the masked text of a def's parameters and of its claim"""
+    text = ""
+    for line in b.lines[b.start :]:
+        text += " " + mask(line)
+        if "->" in text and mask(line).rstrip().endswith(":"):
+            break
+    i = text.find("->")
+    return (text[:i], text[i + 2 :]) if i >= 0 else (text, "")
+
+
+def claim_refs(b):
+    """(topic, first name after it) of each code module or Base type the
+    claim of b calls (a name before `(` or `{`), in order; else the
+    parameters' calls; else the types the claim, then the parameters,
+    name"""
+    params, claim = signature(b)
+    for part, calls in ((claim, True), (params, True), (claim, False), (params, False)):
+        out = []
+        for m in TOK.finditer(part):
+            if calls and part[m.end() : m.end() + 1] not in ("(", "{"):
+                continue
+            head, _, rest = m.group(1).partition(".")
+            q = b.src.aliases.get(head)
+            if q is not None and (ROOT / "bend") in q.parents:
+                out.append((code_area(q), rest.split(".")[0]))
+            elif head in TYPE_TOPIC and (rest or not calls):
+                out.append((TYPE_TOPIC[head], rest.split(".")[0]))
+        if out:
+            return out
+    return []
+
+
+def topic_rank(t):
+    if t in BASE_TOPICS:
+        return (0, BASE_TOPICS.index(t), t)
+    paths = [p for p in (ROOT / "bend").rglob("*.bend") if code_area(p.resolve()) == t]
+    return (1, max((code_depth(p.resolve()) for p in paths), default=0), t)
+
+
+def split_file(fk, mine, level, dep, fkey, sub, laws):
+    """give each block of the file fk the topic of the next level; the
+    fill of a law's file, and the lemmas that use it, stay"""
+    pl, tp = fk
+    stay = set()
+    if pl[0] == "law" and level == 0:
+        for b in mine:
+            if b.fill or any(id(d) in stay for d in dep[id(b)]):
+                stay.add(id(b))
+    raw = {}
+    for b in mine:
+        if id(b) in stay:
+            continue
+        if level == 0:
+            refs = claim_refs(b)
+            raw[id(b)] = laws.area[b.fill] if b.fill else refs[0][0] if refs else "logic"
+        else:
+            topic = tp[-1]
+            names = [n for t, n in claim_refs(b) if t == topic and n]
+            raw[id(b)] = names[0] if names else "misc"
+    if level == 0:
+        rank = topic_rank
+    else:
+        # a sub-topic of a few lemmas joins misc
+        size = Counter()
+        for b in mine:
+            if id(b) in raw:
+                size[raw[id(b)]] += len(b.lines) - b.start  # the def, not its comment
+        for k in raw:
+            if size[raw[k]] < SMALL:
+                raw[k] = "misc"
+        def rank(t):
+            # misc first, then by name: any fixed order keeps the files acyclic
+            return (t != "misc", t)
+    for b in mine:
+        if id(b) in stay:
+            continue
+        t = raw[id(b)]
+        for d in dep[id(b)]:
+            if fkey(d)[0] == pl and id(d) in raw and len(sub[id(d)]) == level + 1 and sub[id(d)][:level] == tp:
+                if rank(sub[id(d)][level]) > rank(t):
+                    t = sub[id(d)][level]
+        sub[id(b)] = tp + (t,)
+
+
+SMALL = 60  # lines: a smaller sub-topic joins misc
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -786,7 +937,7 @@ def main():
     # ------------------------------------------------------------ write
     module_order = sorted(mod_alias, key=lambda a: (mod_alias[a].as_posix(), a))
     law_alias = {}
-    taken = set(mod_alias) | set(laws.alias.values()) | {"L", "LA", "Base"}
+    taken = set(mod_alias) | set(laws.alias.values()) | {"L", "LA", "LL", "Base"}
     for law in laws.law_mod:
         a = "P" + camel(law)
         if a in taken:
@@ -794,12 +945,33 @@ def main():
         taken.add(a)
         law_alias[law] = a
 
-    def alias_in(pl, q):
-        if q == GLOBAL:
-            return "L"
-        if q[0] == "area":
-            return "LA"
-        return law_alias[q[2]]
+    # a file is a place and a topic path (empty: the place's own file)
+    sub = {id(b): () for b in blocks}
+
+    def fkey(b):
+        return (place[id(b)], sub[id(b)])
+
+    def alias_in(fk):
+        """the name a proof file gives the file fk"""
+        pl, tp = fk
+        if pl == GLOBAL:
+            return "L" + "".join(camel(t) for t in tp)
+        if pl[0] == "area":
+            return "LA" + "".join(camel(t) for t in tp)
+        if not tp:
+            return law_alias[pl[2]]
+        return "LL" + "".join(camel(t) for t in tp)
+
+    def index_name(fk):
+        """the name PROOF.bend gives the file fk"""
+        pl, tp = fk
+        if pl == GLOBAL:
+            return "L" + "".join(camel(t) for t in tp)
+        if pl[0] == "area":
+            return "LA" + camel(pl[1]) + "".join(camel(t) for t in tp)
+        if not tp:
+            return law_alias[pl[2]]
+        return "LL" + camel(pl[2]) + "".join(camel(t) for t in tp)
 
     extra_header = {}
     for s in srcs:
@@ -817,79 +989,103 @@ def main():
             target = place[id(fs[0])]
         else:
             target = Counter(place[id(b)] for b in s.blocks).most_common(1)[0][0]
-        extra_header.setdefault(target, head)
+        extra_header.setdefault((target, ()), head)
 
-    outputs = {}
-    for pl in order_places:
-        path = place_path(pl)
-        mine = [b for b in blocks if place[id(b)] == pl]
-        body, used_mods, used_places, used_laws = [], [], set(), set()
-        for b in mine:
-            lines = list(b.lines)
-            for i, st, en, sym in sorted(b.occ, key=lambda o: (o[0], -o[1])):
-                if sym[0] == "proof":
-                    q = place[id(owner[sym[1]])]
-                    text = sym[1] if q == pl else f"{alias_in(pl, q)}.{sym[1]}"
-                    if q != pl:
-                        used_places.add(q)
-                elif sym[0] == "law":
-                    mod = laws.law_mod[sym[1]]
-                    used_laws.add(mod)
-                    text = f"{laws.alias[mod]}.{sym[1]}"
-                    if not (i == b.start and st == len(b.kind) + 1) and sym[1] != b.fill:
-                        q = place[id(fills[sym[1]])]
-                        if q != pl:
-                            used_places.add(q)
-                elif sym[0] == "helper":
-                    mod = laws.helper_mod[sym[1]]
-                    used_laws.add(mod)
-                    text = f"{laws.alias[mod]}.{sym[1]}"
-                else:
-                    if sym[1] not in used_mods:
-                        used_mods.append(sym[1])
-                    continue
-                lines[i] = lines[i][:st] + text + lines[i][en:]
-            body.append(lines)
-        rel = os.path.relpath(ROOT, path.parent)
-        head = law_header(pl[2]) if pl[0] == "law" else area_header(pl[1]) if pl[0] == "area" else GLOBAL_HEADER
-        if pl in extra_header:
-            head = head + ["#"] + extra_header[pl]
-        imps = ["import Base"]
-        for a in module_order:
-            if a in used_mods:
-                imps.append(f"import {rel}/{mod_alias[a].relative_to(ROOT).as_posix()} as {a}")
-        for mod in sorted(used_laws, key=lambda m: (m != laws.index, laws.alias[m])):
-            imps.append(f"import {rel}/{mod.relative_to(ROOT).as_posix()} as {laws.alias[mod]}")
-        for q in sorted(used_places, key=lambda q: (len(chain(q)), index_key(q, laws))):
-            target = os.path.relpath(place_path(q), path.parent)
-            if not target.startswith("."):
-                target = "./" + target
-            imps.append(f"import {target} as {alias_in(pl, q)}")
-        out = head + [""] + imps
-        for lines in body:
-            out.append("")
-            out.extend(lines)
-        # leading blank lines of a block were kept: no double blank
-        text = re.sub(r"\n{3,}", "\n\n", "\n".join(out)) + "\n"
-        outputs[path] = text
-    index = PROOF_HEADER + ["", "import Base", "import ./LAWS.bend as Laws"]
-    names = {}
-    for q in order_places:
-        if q == GLOBAL:
-            names[q] = "L"
-        elif q[0] == "area":
-            names[q] = "LA" + camel(q[1])
-        else:
-            names[q] = law_alias[q[2]]
-    for q in sorted(order_places, key=lambda q: index_key(q, laws)):
-        index.append(f"import ./{place_path(q).relative_to(ROOT).as_posix()} as {names[q]}")
-    outputs[(ROOT / "PROOF.bend").resolve()] = "\n".join(index) + "\n"
+    def render():
+        files = list(dict.fromkeys(fkey(b) for b in blocks))
+        outputs = {}
+        for fk in files:
+            pl, tp = fk
+            path = fk_path(fk)
+            mine = [b for b in blocks if fkey(b) == fk]
+            body, used_mods, used_files, used_laws = [], [], set(), set()
+            for b in mine:
+                lines = list(b.lines)
+                for i, st, en, sym in sorted(b.occ, key=lambda o: (o[0], -o[1])):
+                    if sym[0] == "proof":
+                        q = fkey(owner[sym[1]])
+                        text = sym[1] if q == fk else f"{alias_in(q)}.{sym[1]}"
+                        if q != fk:
+                            used_files.add(q)
+                    elif sym[0] == "law":
+                        mod = laws.law_mod[sym[1]]
+                        used_laws.add(mod)
+                        text = f"{laws.alias[mod]}.{sym[1]}"
+                        if not (i == b.start and st == len(b.kind) + 1) and sym[1] != b.fill:
+                            q = fkey(fills[sym[1]])
+                            if q != fk:
+                                used_files.add(q)
+                    elif sym[0] == "helper":
+                        mod = laws.helper_mod[sym[1]]
+                        used_laws.add(mod)
+                        text = f"{laws.alias[mod]}.{sym[1]}"
+                    else:
+                        if sym[1] not in used_mods:
+                            used_mods.append(sym[1])
+                        continue
+                    lines[i] = lines[i][:st] + text + lines[i][en:]
+                body.append(lines)
+            rel = os.path.relpath(ROOT, path.parent)
+            if pl[0] == "law":
+                head = law_header(pl[2]) if not tp else law_topic_header(pl[2], tp)
+            elif pl[0] == "area":
+                head = area_header(pl[1]) if not tp else area_topic_header(pl[1], tp)
+            else:
+                head = GLOBAL_HEADER if not tp else global_topic_header(tp)
+            if fk in extra_header:
+                head = head + ["#"] + extra_header[fk]
+            imps = ["import Base"]
+            for a in module_order:
+                if a in used_mods:
+                    imps.append(f"import {rel}/{mod_alias[a].relative_to(ROOT).as_posix()} as {a}")
+            for mod in sorted(used_laws, key=lambda m: (m != laws.index, laws.alias[m])):
+                imps.append(f"import {rel}/{mod.relative_to(ROOT).as_posix()} as {laws.alias[mod]}")
+            for q in sorted(used_files, key=lambda q: (len(chain(q[0])), index_key(q[0], laws), q[1])):
+                target = os.path.relpath(fk_path(q), path.parent)
+                if not target.startswith("."):
+                    target = "./" + target
+                imps.append(f"import {target} as {alias_in(q)}")
+            out = head + [""] + imps
+            for lines in body:
+                out.append("")
+                out.extend(lines)
+            # leading blank lines of a block were kept: no double blank
+            outputs[path] = re.sub(r"\n{3,}", "\n\n", "\n".join(out)) + "\n"
+        index = PROOF_HEADER + ["", "import Base", "import ./LAWS.bend as Laws"]
+        for fk in sorted(files, key=lambda q: (index_key(q[0], laws), q[1])):
+            index.append(f"import ./{fk_path(fk).relative_to(ROOT).as_posix()} as {index_name(fk)}")
+        outputs[(ROOT / "PROOF.bend").resolve()] = "\n".join(index) + "\n"
+        return outputs
+
+    # a file past one sitting becomes a folder of the same name, split by
+    # the topic of its lemmas, then by the topic's first def they claim
+    # about (`topic_of`); a law's fill stays in its file
+    outputs = render()
+    folders = []
+    for level in (0, 1):
+        over = [
+            fk for fk in dict.fromkeys(fkey(b) for b in blocks)
+            if len(fk[1]) == level and outputs[fk_path(fk)].count("\n") > SITTING
+        ]
+        for fk in over:
+            split_file(fk, [b for b in blocks if fkey(b) == fk], level, dep, fkey, sub, laws)
+            folders.append(fk_path(fk))
+        if not over:
+            break
+        outputs = render()
+    for path, text in outputs.items():
+        if path.name != "PROOF.bend" and text.count("\n") > SITTING:
+            raise SystemExit(f"{path.relative_to(ROOT)}: {text.count(chr(10))} lines after the split")
+    for path, text in outputs.items():
+        names = re.findall(r"^import \S+ as (\S+)$", text, re.M)
+        if len(names) != len(set(names)):
+            raise SystemExit(f"{path.relative_to(ROOT)}: an alias names two imports")
 
     old = {s.path for s in srcs}
     stale = sorted(p for p in old if p not in outputs)
     differs = laws_differs + [p for p, t in outputs.items() if not p.exists() or p.read_text() != t] + stale
     if dry:
-        report(first, laws_rep, blocks, place, unreached, moved, outputs)
+        report(first, laws_rep, blocks, place, unreached, moved, outputs, folders)
         return
     if check:
         for p in differs:
@@ -900,10 +1096,10 @@ def main():
     for p, t in outputs.items():
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(t)
-    for d in sorted((ROOT / "proof").glob("*/"), reverse=True):
+    for d in sorted((ROOT / "proof").rglob("*/"), key=lambda d: -len(d.parts)):
         if d.is_dir() and not any(d.iterdir()):
             d.rmdir()
-    report(first, laws_rep, blocks, place, unreached, moved, outputs)
+    report(first, laws_rep, blocks, place, unreached, moved, outputs, folders)
 
 
 def index_key(q, laws):
@@ -917,8 +1113,10 @@ def index_key(q, laws):
     return (first, 1, laws.order[q[2]])
 
 
-def report(laws, laws_rep, blocks, place, unreached, moved, outputs):
+def report(laws, laws_rep, blocks, place, unreached, moved, outputs, folders):
     print("\n".join(laws_rep))
+    for path in folders:
+        print(f"split into a folder: {path.relative_to(ROOT)}")
     files = [p for p in outputs if p.name != "PROOF.bend"]
     areas = Counter(laws.area[l] for l in laws.law_mod)
     print(f"files: {len(files)} under proof/ (+ PROOF.bend)")

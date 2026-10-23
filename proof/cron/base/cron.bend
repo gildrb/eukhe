@@ -1,144 +1,12 @@
-# eukhe: lemmas the proofs of area cron share
+# eukhe: lemmas the proofs of area cron share: cron
 
 import Base
-import ../../bend/cron.bend as Cr
-
-# ---- cron ----
-
-# proof_cron: the cron laws of LAWS.bend section cron (D2). Every event keeps an
-# invariant of the reachable states, job by job (`pc.G`): at most one
-# process runs a job, its run holds the claim on record and its process
-# is alive; the occurrences that started fall strictly and lie at or
-# before the clock and before the next run; a one-shot that started has
-# no next run; the failures in a row match the job's counted results and
-# stay under the cap while the job is active; a finished one-shot has no
-# run. From it: `cron_fires_once`, `cron_once_finished_after_end` and the
-# first part of `cron_backoff_bounded`. The other laws are about one step
-# from any state: `cron_never_drops`, `cron_claim_owned`, and the rest of
-# `cron_backoff_bounded`.
-
-# Logic and numbers
-# -----------------
-
-def cron.pc.BD(b: Bool, t: Type, f: Type) -> Type:
-  match b:
-    case True{}:
-      t
-    case False{}:
-      f
-
-def cron.pc.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : cron.pc.BD(_, Unit, A)
-  Unit{}
-
-def cron.pc.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  %e : cron.pc.BD(_, A, Unit)
-  Unit{}
-
-def cron.pc.MD(m: Maybe<&2, Nat>, A: Type) -> Type:
-  match m:
-    case None{}:
-      A
-    case Some{x}:
-      Unit
-
-def pc.some_none(-A: Type, -x: Nat, e: {Some{x} == None{} : Maybe<&2, Nat>}) -> A:
-  %e : cron.pc.MD(_, A)
-  Unit{}
-
-def cron.pc.le_zero(n: Nat) -> {Nat.is_le(0n, n) == True{} : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+p:
-      {==}
-
-def pc.lt_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
-  match a b:
-    case 0n _:
-      cron.pc.le_zero(b)
-    case 1n+p 0n:
-      cron.pc.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h)
-    case 1n+p 1n+q:
-      pc.lt_le(p, q, h)
-
-def pc.lt_succ_le(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(1n+a, b) == True{} : Bool}:
-  match a b:
-    case _ 0n:
-      cron.pc.absurdF({Nat.is_le(1n+a, 0n) == True{} : Bool}, h)
-    case 0n 1n+q:
-      cron.pc.le_zero(q)
-    case 1n+p 1n+q:
-      pc.lt_succ_le(p, q, h)
-
-# x <= c gives x <= c + d
-def cron.pc.le_add(x: Nat, c: Nat, +d: Nat, h: {Nat.is_le(x, c) == True{} : Bool}) -> {Nat.is_le(x, Nat.add(c, d)) == True{} : Bool}:
-  match x c:
-    case 0n _:
-      cron.pc.le_zero(Nat.add(c, d))
-    case 1n+p 0n:
-      cron.pc.absurdF({Nat.is_le(1n+p, Nat.add(0n, d)) == True{} : Bool}, h)
-    case 1n+p 1n+q:
-      cron.pc.le_add(p, q, d, h)
-
-# x <= c gives x < c + 1 + k
-def pc.lt_add(x: Nat, c: Nat, +k: Nat, h: {Nat.is_le(x, c) == True{} : Bool}) -> {Nat.is_lt(x, Nat.add(c, 1n+k)) == True{} : Bool}:
-  match x c:
-    case 0n 0n:
-      {==}
-    case 0n 1n+q:
-      {==}
-    case 1n+p 0n:
-      cron.pc.absurdF({Nat.is_lt(1n+p, Nat.add(0n, 1n+k)) == True{} : Bool}, h)
-    case 1n+p 1n+q:
-      pc.lt_add(p, q, k, h)
-
-def cron.pc.eq_refl(k: Nat) -> {Nat.is_eq(k, k) == True{} : Bool}:
-  match k:
-    case 0n:
-      {==}
-    case 1n+p:
-      cron.pc.eq_refl(p)
-
-def cron.pc.eq_of(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
-  match a b:
-    case 0n 0n:
-      {==}
-    case 0n 1n+q:
-      cron.pc.absurdF({0n == 1n+q : Nat}, h)
-    case 1n+p 0n:
-      cron.pc.absurdF({1n+p == 0n : Nat}, h)
-    case 1n+p 1n+q:
-      +e = cron.pc.eq_of(p, q, h)
-      %e : {1n+p == 1n+_ : Nat}
-      {==}
-
-# The invariant of a job
-# ----------------------
-
-# the processes that run the job are alive
-def pc.Live(rs: List<&2, Nat>, +dead: List<&2, Nat>) -> Type:
-  match rs:
-    case Nil{}:
-      Unit
-    case +o <> t:
-      ({Cr.has(o, dead) == False{} : Bool} & pc.Live(t, dead))
-
-def pc.Below(+x: Nat, nx: Maybe<&2, Nat>) -> Type:
-  match nx:
-    case None{}:
-      Unit
-    case Some{n}:
-      {Nat.is_lt(x, n) == True{} : Bool}
-
-# the newest occurrence that started is at or before the clock and
-# before the next run
-def pc.Top(ss: List<&2, Nat>, +c: Nat, +nx: Maybe<&2, Nat>) -> Type:
-  match ss:
-    case Nil{}:
-      Unit
-    case +x <> t:
-      ({Nat.is_le(x, c) == True{} : Bool} & pc.Below(x, nx))
+import ../../../bend/cron.bend as Cr
+import ./bool.bend as LABool
+import ./list.bend as LAList
+import ./logic.bend as LALogic
+import ./maybe.bend as LAMaybe
+import ./nat.bend as LANat
 
 # a one-shot that started has no next run
 def pc.OnceG(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>) -> Type:
@@ -170,7 +38,7 @@ def pc.Cnt(+st: Cr.Status, +k: Nat, +h: List<&2, Cr.Mark>) -> Type:
 def pc.G(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job) -> Type:
   match j:
     case Cr.Job{i, +s, +st, +nx, k, cl, +rs, +ss, h}:
-      (Cr.Held(rs, cl) & (pc.Live(rs, dead) & (Cr.Desc(ss) & (pc.Top(ss, c, nx) & (pc.OnceG(s, ss, nx) & (pc.Cnt(st, k, h) & Cr.EndsOf(s, st, rs)))))))
+      (Cr.Held(rs, cl) & (LAList.pc.Live(rs, dead) & (Cr.Desc(ss) & (LAList.pc.Top(ss, c, nx) & (pc.OnceG(s, ss, nx) & (pc.Cnt(st, k, h) & Cr.EndsOf(s, st, rs)))))))
 
 def pc.AllG(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>) -> Type:
   match rs:
@@ -192,17 +60,17 @@ def pc.Inv(s: Cr.S) -> Type:
 # ---------------------------
 
 # a next run rolled from c lies after every occurrence at or before c
-def pc.below_adv(+s: Cr.Sched, +c: Nat, +x: Nat, +h: {Nat.is_le(x, c) == True{} : Bool}) -> pc.Below(x, Cr.adv(s, c)):
+def pc.below_adv(+s: Cr.Sched, +c: Nat, +x: Nat, +h: {Nat.is_le(x, c) == True{} : Bool}) -> LANat.pc.Below(x, Cr.adv(s, c)):
   match s:
     case Cr.Once{d}:
       Unit{}
     case Cr.Every{q}:
-      pc.lt_add(x, c, q, h)
+      LANat.pc.lt_add(x, c, q, h)
 
-def pc.top_pair(+s: Cr.Sched, +c: Nat, +x: Nat, +a: {Nat.is_le(x, c) == True{} : Bool}) -> ({Nat.is_le(x, c) == True{} : Bool} & pc.Below(x, Cr.adv(s, c))):
+def pc.top_pair(+s: Cr.Sched, +c: Nat, +x: Nat, +a: {Nat.is_le(x, c) == True{} : Bool}) -> ({Nat.is_le(x, c) == True{} : Bool} & LANat.pc.Below(x, Cr.adv(s, c))):
   (a, pc.below_adv(s, c, x, a))
 
-def pc.top_adv(+ss: List<&2, Nat>, +s: Cr.Sched, +c: Nat, -nx: Maybe<&2, Nat>, t: pc.Top(ss, c, nx)) -> pc.Top(ss, c, Cr.adv(s, c)):
+def pc.top_adv(+ss: List<&2, Nat>, +s: Cr.Sched, +c: Nat, -nx: Maybe<&2, Nat>, t: LAList.pc.Top(ss, c, nx)) -> LAList.pc.Top(ss, c, Cr.adv(s, c)):
   match ss:
     case Nil{}:
       Unit{}
@@ -230,7 +98,7 @@ def pc.ends_active(+s: Cr.Sched, -rs: List<&2, Nat>) -> Cr.EndsOf(s, Cr.Active{}
       Unit{}
 
 # the new occurrence n lies after every one that started
-def pc.desc_push(+ss: List<&2, Nat>, +n: Nat, -c: Nat, d: Cr.Desc(ss), t: pc.Top(ss, c, Some{n})) -> Cr.DescFrom(n, ss):
+def pc.desc_push(+ss: List<&2, Nat>, +n: Nat, -c: Nat, d: Cr.Desc(ss), t: LAList.pc.Top(ss, c, Some{n})) -> Cr.DescFrom(n, ss):
   match ss:
     case Nil{}:
       Unit{}
@@ -246,7 +114,7 @@ def pc.once_new(+s: Cr.Sched, +ss: List<&2, Nat>, +n: Nat, +c: Nat, o: pc.OnceG(
           ({==}, {==})
         case +x <> +t:
           (a, b) = o
-          pc.some_none(({x <> t == Nil{} : List<&2, Nat>} & {None{} == None{} : Maybe<&2, Nat>}), n, b)
+          LAMaybe.pc.some_none(({x <> t == Nil{} : List<&2, Nat>} & {None{} == None{} : Maybe<&2, Nat>}), n, b)
     case Cr.Every{q}:
       Unit{}
 
@@ -311,38 +179,6 @@ def pc.g_take(+p: Nat, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +al: {Cr.has(p
         case Cr.Cancelled{}:
           g
 
-def cron.pc.void(-A: Type, e: Empty) -> A:
-  match e:
-
-def cron.pc.or_false_r(a: Bool, h: {Bool.or(a, False{}) == True{} : Bool}) -> {a == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      h
-
-def pc.eq_flip(a: Nat, b: Nat, h: {Nat.is_eq(a, b) == False{} : Bool}) -> {Nat.is_eq(b, a) == False{} : Bool}:
-  match a b:
-    case 0n 0n:
-      h
-    case 0n 1n+q:
-      {==}
-    case 1n+p 0n:
-      {==}
-    case 1n+p 1n+q:
-      pc.eq_flip(p, q, h)
-
-# Shapes the invariant keeps
-# --------------------------
-
-def pc.top_none(+ss: List<&2, Nat>, +c: Nat, -nx: Maybe<&2, Nat>, t: pc.Top(ss, c, nx)) -> pc.Top(ss, c, None{}):
-  match ss:
-    case Nil{}:
-      Unit{}
-    case +x <> +u:
-      (a, b) = t
-      (a, Unit{})
-
 def pc.once_none(+s: Cr.Sched, +ss: List<&2, Nat>, -nx: Maybe<&2, Nat>, o: pc.OnceG(s, ss, nx)) -> pc.OnceG(s, ss, None{}):
   match s:
     case Cr.Once{d}:
@@ -384,23 +220,13 @@ def pc.cnt_down(+st: Cr.Status, +k: Nat, +h: List<&2, Cr.Mark>, c6: pc.Cnt(Cr.Ac
       c6
     case Cr.Paused{}:
       (ek, lt) = c6
-      (ek, pc.lt_le(k, Cr.CAP(), lt))
+      (ek, LANat.pc.lt_le(k, Cr.CAP(), lt))
     case Cr.Finished{}:
       (ek, lt) = c6
-      (ek, pc.lt_le(k, Cr.CAP(), lt))
+      (ek, LANat.pc.lt_le(k, Cr.CAP(), lt))
     case Cr.Cancelled{}:
       (ek, lt) = c6
-      (ek, pc.lt_le(k, Cr.CAP(), lt))
-
-# A recovery keeps the invariant
-# ------------------------------
-
-def pc.no_clear(b: Bool, +hd: Bool, live: {hd == False{} : Bool}) -> {Bool.or(Bool.and(b, Bool.not(Bool.or(b, False{}))), hd) == False{} : Bool}:
-  match b:
-    case True{}:
-      live
-    case False{}:
-      live
+      (ek, LANat.pc.lt_le(k, Cr.CAP(), lt))
 
 def pc.clears_at(+p: Nat, +o: Nat, +w: Nat, +dead: List<&2, Nat>, ow: {o == w : Nat}, nc: {Cr.clears(p, w, [w], dead) == False{} : Bool}) -> {Cr.clears(p, o, [w], dead) == False{} : Bool}:
   %Equal.sym(Nat, o, w, ow) : {Cr.clears(p, _, [w], dead) == False{} : Bool}
@@ -409,8 +235,8 @@ def pc.clears_at(+p: Nat, +o: Nat, +w: Nat, +dead: List<&2, Nat>, ow: {o == w : 
 # a claim a recovery clears has no run: the run of an alive process
 # holds it, and only its owner runs it
 def pc.rec_none(+p: Nat, +o: Nat, +w: Nat, +dead: List<&2, Nat>, ow: {o == w : Nat}, live: {Cr.has(w, dead) == False{} : Bool}, eq: {Cr.clears(p, o, [w], dead) == True{} : Bool}) -> Empty:
-  +no = pc.clears_at(p, o, w, dead, ow, pc.no_clear(Nat.is_eq(w, p), Cr.has(w, dead), live))
-  cron.pc.absurd(Empty, Equal.trans(Bool, True{}, Cr.clears(p, o, [w], dead), False{}, Equal.sym(Bool, Cr.clears(p, o, [w], dead), True{}, eq), no))
+  +no = pc.clears_at(p, o, w, dead, ow, LABool.pc.no_clear(Nat.is_eq(w, p), Cr.has(w, dead), live))
+  LABool.cron.pc.absurd(Empty, Equal.trans(Bool, True{}, Cr.clears(p, o, [w], dead), False{}, Equal.sym(Bool, Cr.clears(p, o, [w], dead), True{}, eq), no))
 
 def pc.rec_end(+s: Cr.Sched, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, +x: Cr.Claim, g: pc.G(c, dead, Cr.Job{i, s, Cr.Active{}, nx, k, Some{x}, Nil{}, ss, h})) -> pc.G(c, dead, Cr.recover.end(Cr.is_once(s), i, s, nx, k, Nil{}, ss, h)):
   match s:
@@ -421,7 +247,7 @@ def pc.rec_end(+s: Cr.Sched, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<
       (h4, g5) = g4
       (h5, g6) = g5
       (h6, h7) = g6
-      (Unit{}, (Unit{}, (h3, (pc.top_none(ss, c, nx, h4), (pc.once_none(Cr.Once{d}, ss, nx, h5), (pc.cnt_down(Cr.Finished{}, k, h, h6), {==}))))))
+      (Unit{}, (Unit{}, (h3, (LAList.pc.top_none(ss, c, nx, h4), (pc.once_none(Cr.Once{d}, ss, nx, h5), (pc.cnt_down(Cr.Finished{}, k, h, h6), {==}))))))
     case Cr.Every{q}:
       g
 
@@ -447,7 +273,7 @@ def pc.rec_go(b: Bool, +rs: List<&2, Nat>, +st: Cr.Status, +p: Nat, +o: Nat, +xo
               (h1, g2) = g
               (h2, g3) = g2
               (live, u) = h2
-              cron.pc.void(pc.G(c, dead, Cr.recover.go(True{}, i, s, st, nx, k, Cr.Claim{xo, o}, [w], ss, h)), pc.rec_none(p, o, w, dead, h1, live, eq))
+              LALogic.cron.pc.void(pc.G(c, dead, Cr.recover.go(True{}, i, s, st, nx, k, Cr.Claim{xo, o}, [w], ss, h)), pc.rec_none(p, o, w, dead, h1, live, eq))
             case +y <> +v:
               (h1, g2) = g
               match h1:
@@ -463,69 +289,20 @@ def pc.g_recover(+p: Nat, +dead: List<&2, Nat>, +c: Nat, +j: Cr.Job, g: pc.G(c, 
             case Cr.Claim{+xo, +o}:
               pc.rec_go(Cr.clears(p, o, rs, dead), rs, st, p, o, xo, dead, c, i, s, nx, k, ss, h, {==}, g)
 
-# The finish step keeps the invariant
-# -----------------------------------
-
-# a pause lies after the clock: x <= c gives x < c + delay(k)
-def pc.lt_delay(+x: Nat, +c: Nat, k: Nat, +le: {Nat.is_le(x, c) == True{} : Bool}) -> {Nat.is_lt(x, Nat.add(c, Cr.delay(k))) == True{} : Bool}:
-  match k:
-    case 0n:
-      pc.lt_add(x, c, 1n, le)
-    case 1n+a:
-      match a:
-        case 0n:
-          pc.lt_add(x, c, 1n, le)
-        case 1n+b:
-          match b:
-            case 0n:
-              pc.lt_add(x, c, 3n, le)
-            case 1n+d:
-              match d:
-                case 0n:
-                  pc.lt_add(x, c, 7n, le)
-                case 1n+e:
-                  match e:
-                    case 0n:
-                      pc.lt_add(x, c, 15n, le)
-                    case 1n+f:
-                      match f:
-                        case 0n:
-                          pc.lt_add(x, c, 31n, le)
-                        case 1n+g:
-                          pc.lt_add(x, c, 59n, le)
-
-def pc.lt_pick(b: Bool, +n: Nat, +u: Nat, +x: Nat, ltu: {Nat.is_lt(x, u) == True{} : Bool}, ltn: {Nat.is_lt(x, n) == True{} : Bool}) -> {Nat.is_lt(x, Cr.later.pick(b, n, u)) == True{} : Bool}:
-  match b:
-    case True{}:
-      ltu
-    case False{}:
-      ltn
-
-# the next run after a failure lies after every start
-def pc.lt_later(+nx: Maybe<&2, Nat>, +x: Nat, +u: Nat, ltu: {Nat.is_lt(x, u) == True{} : Bool}, bl: pc.Below(x, nx)) -> {Nat.is_lt(x, Cr.later(nx, u)) == True{} : Bool}:
-  match nx:
-    case None{}:
-      ltu
-    case Some{+n}:
-      pc.lt_pick(Nat.is_lt(n, u), n, u, x, ltu, bl)
-
-def pc.top_fail2(+x: Nat, +c: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +a: {Nat.is_le(x, c) == True{} : Bool}, bl: pc.Below(x, nx)) -> ({Nat.is_le(x, c) == True{} : Bool} & pc.Below(x, Some{Cr.later(nx, Nat.add(c, Cr.delay(k)))})):
-  (a, pc.lt_later(nx, x, Nat.add(c, Cr.delay(k)), pc.lt_delay(x, c, k, a), bl))
-
-def pc.top_fail(+ss: List<&2, Nat>, +c: Nat, +nx: Maybe<&2, Nat>, +k: Nat, t: pc.Top(ss, c, nx)) -> pc.Top(ss, c, Some{Cr.later(nx, Nat.add(c, Cr.delay(k)))}):
+def pc.top_fail(+ss: List<&2, Nat>, +c: Nat, +nx: Maybe<&2, Nat>, +k: Nat, t: LAList.pc.Top(ss, c, nx)) -> LAList.pc.Top(ss, c, Some{Cr.later(nx, Nat.add(c, Cr.delay(k)))}):
   match ss:
     case Nil{}:
       Unit{}
     case +x <> +u:
       (a, b) = t
-      pc.top_fail2(x, c, nx, k, a, b)
+      LANat.pc.top_fail2(x, c, nx, k, a, b)
 
-def pc.fin_fail(b: Bool, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +q: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, +eqb: {Nat.is_lt(1n+k, Cr.CAP()) == b : Bool}, h3: Cr.Desc(ss), h4: pc.Top(ss, c, nx), +ek: {k == Cr.trail(h) : Nat}, +lt: {Nat.is_lt(k, Cr.CAP()) == True{} : Bool}) -> pc.G(c, dead, Cr.finish.fail(b, c, i, Cr.Every{q}, nx, 1n+k, Nil{}, ss, Cr.MLoss{} <> h)):
+def pc.fin_fail(b: Bool, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +q: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, +eqb: {Nat.is_lt(1n+k, Cr.CAP()) == b : Bool}, h3: Cr.Desc(ss), h4: LAList.pc.Top(ss, c, nx), +ek: {k == Cr.trail(h) : Nat}, +lt: {Nat.is_lt(k, Cr.CAP()) == True{} : Bool}) -> pc.G(c, dead, Cr.finish.fail(b, c, i, Cr.Every{q}, nx, 1n+k, Nil{}, ss, Cr.MLoss{} <> h)):
   match b:
     case True{}:
       (Unit{}, (Unit{}, (h3, (pc.top_fail(ss, c, nx, 1n+k, h4), (Unit{}, ((Equal.cong(Nat, Nat, v => 1n+v, k, Cr.trail(h), ek), eqb), Unit{}))))))
     case False{}:
-      (Unit{}, (Unit{}, (h3, (pc.top_none(ss, c, nx, h4), (Unit{}, ((Equal.cong(Nat, Nat, v => 1n+v, k, Cr.trail(h), ek), pc.lt_succ_le(k, Cr.CAP(), lt)), Unit{}))))))
+      (Unit{}, (Unit{}, (h3, (LAList.pc.top_none(ss, c, nx, h4), (Unit{}, ((Equal.cong(Nat, Nat, v => 1n+v, k, Cr.trail(h), ek), LANat.pc.lt_succ_le(k, Cr.CAP(), lt)), Unit{}))))))
 
 def pc.cnt_fin(+o: Cr.Out, +k: Nat, +h: List<&2, Cr.Mark>, c6: pc.Cnt(Cr.Active{}, k, h)) -> pc.Cnt(Cr.Finished{}, Cr.count.streak(o, k), Cr.count.hist(o, h)):
   match o:
@@ -533,15 +310,15 @@ def pc.cnt_fin(+o: Cr.Out, +k: Nat, +h: List<&2, Cr.Mark>, c6: pc.Cnt(Cr.Active{
       ({==}, {==})
     case Cr.Loss{}:
       (ek, lt) = c6
-      (Equal.cong(Nat, Nat, v => 1n+v, k, Cr.trail(h), ek), pc.lt_succ_le(k, Cr.CAP(), lt))
+      (Equal.cong(Nat, Nat, v => 1n+v, k, Cr.trail(h), ek), LANat.pc.lt_succ_le(k, Cr.CAP(), lt))
     case Cr.Skip{}:
       (ek, lt) = c6
-      (ek, pc.lt_le(k, Cr.CAP(), lt))
+      (ek, LANat.pc.lt_le(k, Cr.CAP(), lt))
 
-def pc.fin_count(+s: Cr.Sched, +o: Cr.Out, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, h3: Cr.Desc(ss), h4: pc.Top(ss, c, nx), h5: pc.OnceG(s, ss, nx), h6: pc.Cnt(Cr.Active{}, k, h)) -> pc.G(c, dead, Cr.finish.count(Cr.is_once(s), c, o, i, s, nx, k, Nil{}, ss, h)):
+def pc.fin_count(+s: Cr.Sched, +o: Cr.Out, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, h3: Cr.Desc(ss), h4: LAList.pc.Top(ss, c, nx), h5: pc.OnceG(s, ss, nx), h6: pc.Cnt(Cr.Active{}, k, h)) -> pc.G(c, dead, Cr.finish.count(Cr.is_once(s), c, o, i, s, nx, k, Nil{}, ss, h)):
   match s:
     case Cr.Once{+d}:
-      (Unit{}, (Unit{}, (h3, (pc.top_none(ss, c, nx, h4), (pc.once_none(Cr.Once{d}, ss, nx, h5), (pc.cnt_fin(o, k, h, h6), {==}))))))
+      (Unit{}, (Unit{}, (h3, (LAList.pc.top_none(ss, c, nx, h4), (pc.once_none(Cr.Once{d}, ss, nx, h5), (pc.cnt_fin(o, k, h, h6), {==}))))))
     case Cr.Every{+q}:
       match o:
         case Cr.Win{}:
@@ -552,7 +329,7 @@ def pc.fin_count(+s: Cr.Sched, +o: Cr.Out, +c: Nat, +dead: List<&2, Nat>, +i: Na
           (ek, lt) = h6
           pc.fin_fail(Nat.is_lt(1n+k, Cr.CAP()), c, dead, i, q, nx, k, ss, h, {==}, h3, h4, ek, lt)
 
-def pc.fin_st(+st: Cr.Status, +x: Cr.Claim, +c: Nat, +dead: List<&2, Nat>, +o: Cr.Out, +i: Nat, +s: Cr.Sched, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, h3: Cr.Desc(ss), h4: pc.Top(ss, c, nx), h5: pc.OnceG(s, ss, nx), h6: pc.Cnt(st, k, h)) -> pc.G(c, dead, Cr.finish.own(True{}, x, c, o, i, s, st, nx, k, Nil{}, ss, h)):
+def pc.fin_st(+st: Cr.Status, +x: Cr.Claim, +c: Nat, +dead: List<&2, Nat>, +o: Cr.Out, +i: Nat, +s: Cr.Sched, +nx: Maybe<&2, Nat>, +k: Nat, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, h3: Cr.Desc(ss), h4: LAList.pc.Top(ss, c, nx), h5: pc.OnceG(s, ss, nx), h6: pc.Cnt(st, k, h)) -> pc.G(c, dead, Cr.finish.own(True{}, x, c, o, i, s, st, nx, k, Nil{}, ss, h)):
   match st:
     case Cr.Active{}:
       pc.fin_count(s, o, c, dead, i, nx, k, ss, h, h3, h4, h5, h6)
@@ -571,7 +348,7 @@ def pc.fin_run(b: Bool, +rs: List<&2, Nat>, +cl: Maybe<&2, Cr.Claim>, +p: Nat, +
     case True{}:
       match rs:
         case Nil{}:
-          cron.pc.absurdF(pc.G(c, dead, Cr.finish.run(True{}, p, c, o, i, s, st, nx, k, cl, Nil{}, ss, h)), eq)
+          LABool.cron.pc.absurdF(pc.G(c, dead, Cr.finish.run(True{}, p, c, o, i, s, st, nx, k, cl, Nil{}, ss, h)), eq)
         case +w <> +t:
           match t:
             case +y <> +u:
@@ -591,11 +368,11 @@ def pc.fin_run(b: Bool, +rs: List<&2, Nat>, +cl: Maybe<&2, Cr.Claim>, +p: Nat, +
                       (h4, g5) = g4
                       (h5, g6) = g5
                       (h6, h7) = g6
-                      +ewp = cron.pc.eq_of(w, p, cron.pc.or_false_r(Nat.is_eq(w, p), eq))
+                      +ewp = LANat.cron.pc.eq_of(w, p, LABool.cron.pc.or_false_r(Nat.is_eq(w, p), eq))
                       +w2p = Equal.trans(Nat, w2, w, p, h1, ewp)
                       %Equal.sym(Nat, w2, p, w2p) : pc.G(c, dead, Cr.finish.own(Nat.is_eq(_, p), Cr.Claim{xo, _}, c, o, i, s, st, nx, k, Cr.drop(p, [w]), ss, h))
                       %Equal.sym(Nat, w, p, ewp) : pc.G(c, dead, Cr.finish.own(Nat.is_eq(p, p), Cr.Claim{xo, p}, c, o, i, s, st, nx, k, Cr.drop.put(Nat.is_eq(_, p), _, Nil{}), ss, h))
-                      %Equal.sym(Bool, Nat.is_eq(p, p), True{}, cron.pc.eq_refl(p)) : pc.G(c, dead, Cr.finish.own(_, Cr.Claim{xo, p}, c, o, i, s, st, nx, k, Cr.drop.put(_, p, Nil{}), ss, h))
+                      %Equal.sym(Bool, Nat.is_eq(p, p), True{}, LANat.cron.pc.eq_refl(p)) : pc.G(c, dead, Cr.finish.own(_, Cr.Claim{xo, p}, c, o, i, s, st, nx, k, Cr.drop.put(_, p, Nil{}), ss, h))
                       pc.fin_st(st, Cr.Claim{xo, p}, c, dead, o, i, s, nx, k, ss, h, h3, h4, h5, h6)
 
 def pc.g_finish(+p: Nat, +c: Nat, +o: Cr.Out, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) -> pc.G(c, dead, Cr.finish(p, c, o, j)):
@@ -626,7 +403,7 @@ def pc.g_cancel(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) 
           (h4, g5) = g4
           (h5, g6) = g5
           (h6, h7) = g6
-          (h1, (h2, (h3, (pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (pc.cnt_down(Cr.Cancelled{}, k, h, h6), pc.ends_cancel(s, rs)))))))
+          (h1, (h2, (h3, (LAList.pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (pc.cnt_down(Cr.Cancelled{}, k, h, h6), pc.ends_cancel(s, rs)))))))
         case Cr.Paused{}:
           (h1, g2) = g
           (h2, g3) = g2
@@ -634,7 +411,7 @@ def pc.g_cancel(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) 
           (h4, g5) = g4
           (h5, g6) = g5
           (h6, h7) = g6
-          (h1, (h2, (h3, (pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+          (h1, (h2, (h3, (LAList.pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
         case Cr.Finished{}:
           (h1, g2) = g
           (h2, g3) = g2
@@ -642,7 +419,7 @@ def pc.g_cancel(+c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) 
           (h4, g5) = g4
           (h5, g6) = g5
           (h6, h7) = g6
-          (h1, (h2, (h3, (pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
+          (h1, (h2, (h3, (LAList.pc.top_none(ss, c, nx, h4), (pc.once_none(s, ss, nx, h5), (h6, pc.ends_cancel(s, rs)))))))
 
 def pc.pick_cancel(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) -> pc.G(c, dead, Cr.job.pick(b, Cr.cancel(j), j)):
   match b:
@@ -682,16 +459,6 @@ def pc.pick_resume(b: Bool, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c
       pc.g_resume(c, dead, j, g)
     case False{}:
       g
-
-# A pass that unwinds, or a process that dies, keeps the invariant
-# ----------------------------------------------------------------
-
-def pc.or_ff(a: Bool, +b: Bool, ha: {a == False{} : Bool}, hb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
-  match a:
-    case True{}:
-      cron.pc.absurd({Bool.or(True{}, b) == False{} : Bool}, ha)
-    case False{}:
-      hb
 
 def pc.abort_one(b: Bool, +w: Nat, +c: Nat, +dead: List<&2, Nat>, +i: Nat, +s: Cr.Sched, +st: Cr.Status, +nx: Maybe<&2, Nat>, +k: Nat, +cl: Maybe<&2, Cr.Claim>, +ss: List<&2, Nat>, +h: List<&2, Cr.Mark>, g: pc.G(c, dead, Cr.Job{i, s, st, nx, k, cl, [w], ss, h})) -> pc.G(c, dead, Cr.Job{i, s, st, nx, k, cl, Cr.drop.put(b, w, Nil{}), ss, h}):
   match b:
@@ -734,7 +501,7 @@ def pc.die_one(b: Bool, +w: Nat, +p: Nat, +c: Nat, +dead: List<&2, Nat>, +i: Nat
       (h1, g2) = g
       (h2, g3) = g2
       (live, un) = h2
-      (h1, ((pc.or_ff(Nat.is_eq(p, w), Cr.has(w, dead), pc.eq_flip(w, p, eqb), live), Unit{}), g3))
+      (h1, ((LABool.pc.or_ff(Nat.is_eq(p, w), Cr.has(w, dead), LANat.pc.eq_flip(w, p, eqb), live), Unit{}), g3))
 
 def pc.g_die(+p: Nat, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) -> pc.G(c, p <> dead, Cr.unrun(p, j)):
   match j:
@@ -783,34 +550,7 @@ def pc.Alive(e: Cr.Ev, +dead: List<&2, Nat>) -> Data:
     case Cr.Corrupt{t}:
       Unit
 
-def pc.dead_after(e: Cr.Ev, +dead: List<&2, Nat>) -> List<&2, Nat>:
-  match e:
-    case Cr.Die{p}:
-      p <> dead
-    case Cr.Take{p}:
-      dead
-    case Cr.Create{p, s}:
-      dead
-    case Cr.Recover{p}:
-      dead
-    case Cr.Finish{p, i, o}:
-      dead
-    case Cr.Abort{p}:
-      dead
-    case Cr.Cancel{p, i}:
-      dead
-    case Cr.Resume{p, i}:
-      dead
-    case Cr.Tick{d}:
-      dead
-    case Cr.RawJob{t}:
-      dead
-    case Cr.RawClaim{t}:
-      dead
-    case Cr.Corrupt{t}:
-      dead
-
-def pc.g_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +al: pc.Alive(e, dead), g: pc.G(c, dead, j)) -> pc.G(c, pc.dead_after(e, dead), Cr.job(e, c, dead, j)):
+def pc.g_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +al: pc.Alive(e, dead), g: pc.G(c, dead, j)) -> pc.G(c, LAList.pc.dead_after(e, dead), Cr.job(e, c, dead, j)):
   match e:
     case Cr.Take{+p}:
       pc.g_take(p, c, dead, j, al, g)
@@ -837,7 +577,7 @@ def pc.g_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, +al: pc.Alive
     case Cr.Corrupt{t}:
       g
 
-def pc.all_recs(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, +al: pc.Alive(e, dead), g: pc.AllG(c, dead, rs)) -> pc.AllG(c, pc.dead_after(e, dead), Cr.recs(e, c, dead, rs)):
+def pc.all_recs(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, +al: pc.Alive(e, dead), g: pc.AllG(c, dead, rs)) -> pc.AllG(c, LAList.pc.dead_after(e, dead), Cr.recs(e, c, dead, rs)):
   match rs:
     case Nil{}:
       Unit{}
@@ -861,14 +601,6 @@ def pc.all_append(+c: Nat, +dead: List<&2, Nat>, xs: List<&2, Cr.Rec>, +ys: List
         case Cr.Raw{x}:
           pc.all_append(c, dead, t, ys, gx, gy)
 
-def pc.top_tick(+ss: List<&2, Nat>, +c: Nat, +d: Nat, -nx: Maybe<&2, Nat>, t: pc.Top(ss, c, nx)) -> pc.Top(ss, Nat.add(c, d), nx):
-  match ss:
-    case Nil{}:
-      Unit{}
-    case +x <> +u:
-      (a, b) = t
-      (cron.pc.le_add(x, c, d, a), b)
-
 def pc.g_tick(+c: Nat, +d: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dead, j)) -> pc.G(Nat.add(c, d), dead, j):
   match j:
     case Cr.Job{+i, +s, +st, +nx, +k, +cl, +rs, +ss, +h}:
@@ -876,7 +608,7 @@ def pc.g_tick(+c: Nat, +d: Nat, +dead: List<&2, Nat>, +j: Cr.Job, g: pc.G(c, dea
       (h2, g3) = g2
       (h3, g4) = g3
       (h4, g5) = g4
-      (h1, (h2, (h3, (pc.top_tick(ss, c, d, nx, h4), g5))))
+      (h1, (h2, (h3, (LAList.pc.top_tick(ss, c, d, nx, h4), g5))))
 
 def pc.all_tick(+c: Nat, +d: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: pc.AllG(c, dead, rs)) -> pc.AllG(Nat.add(c, d), dead, rs):
   match rs:
@@ -914,7 +646,7 @@ def pc.alive_take(b: Bool, +p: Nat, +c: Nat, +dead: List<&2, Nat>, +rs: List<&2,
     case True{}:
       inv
 
-def pc.alive_recs(b: Bool, +e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +rs: List<&2, Cr.Rec>, -b1: Maybe<&2, Nat>, -rd1: List<&2, Nat>, -n1: Nat, -a1: List<&2, Nat>, -b0: Maybe<&2, Nat>, -rd0: List<&2, Nat>, -n0: Nat, -a0: List<&2, Nat>, +al: pc.Alive(e, dead), de: {pc.dead_after(e, dead) == dead : List<&2, Nat>}, inv: pc.AllG(c, dead, rs)) -> pc.Inv(Cr.step.alive(b, Cr.S{b1, Cr.recs(e, c, dead, rs), rd1, dead, c, n1, a1}, Cr.S{b0, rs, rd0, dead, c, n0, a0})):
+def pc.alive_recs(b: Bool, +e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +rs: List<&2, Cr.Rec>, -b1: Maybe<&2, Nat>, -rd1: List<&2, Nat>, -n1: Nat, -a1: List<&2, Nat>, -b0: Maybe<&2, Nat>, -rd0: List<&2, Nat>, -n0: Nat, -a0: List<&2, Nat>, +al: pc.Alive(e, dead), de: {LAList.pc.dead_after(e, dead) == dead : List<&2, Nat>}, inv: pc.AllG(c, dead, rs)) -> pc.Inv(Cr.step.alive(b, Cr.S{b1, Cr.recs(e, c, dead, rs), rd1, dead, c, n1, a1}, Cr.S{b0, rs, rd0, dead, c, n0, a0})):
   match b:
     case False{}:
       %de : pc.AllG(c, _, Cr.recs(e, c, dead, rs))
@@ -974,22 +706,6 @@ def pc.inv_go(evs: List<&2, Cr.Ev>, +s: Cr.S, inv: pc.Inv(s)) -> pc.Inv(Cr.go(ev
 
 def pc.inv_run(evs: List<&2, Cr.Ev>) -> pc.Inv(Cr.run(evs)):
   pc.inv_go(evs, Cr.S.empty(), Unit{})
-
-# ---- cron_step ----
-
-# proof_cron_step: the cron laws of LAWS.bend section cron (D2) about one step from
-# any state (bend/cron.bend): no step but the file's corruption drops a
-# record (`cron_never_drops`); a step of p removes the claim of o only when
-# o is p or dead (`cron_claim_owned`); a paused job stays paused through
-# every step that is not a user action, and the failure backoff never
-# shrinks (the rest of `cron_backoff_bounded`). The invariant laws are in
-# PROOF.bend section cron.
-
-# Logic, from PROOF.bend section cron
-# --------------------------------
-
-def cron_step.pc.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  cron.pc.absurd(A, e)
 
 # Ids stay
 # --------

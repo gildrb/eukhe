@@ -3,7 +3,7 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 # b - c is 0 when b is at most c
@@ -12,7 +12,7 @@ def w2.sub_zero_le(+b: Nat, +c: Nat, h: {Nat.is_le(b, c) == True{} : Bool}) -> {
     case 0n c:
       {==}
     case 1n+p 0n:
-      L.pq.absurdF({1n+p == 0n : Nat}, h)
+      LBoolMisc.pq.absurdF({1n+p == 0n : Nat}, h)
     case 1n+p 1n+q:
       w2.sub_zero_le(p, q, h)
 

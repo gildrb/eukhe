@@ -3,7 +3,8 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # More numbers
@@ -14,9 +15,9 @@ def pi.eq_true(+a: Nat, +b: Nat, +h: {Nat.is_eq(a, b) == True{} : Bool}) -> {a =
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      L.pi.absurdF({0n == 1n+q : Nat}, h)
+      LBoolMisc.pi.absurdF({0n == 1n+q : Nat}, h)
     case 1n+p 0n:
-      L.pi.absurdF({1n+p == 0n : Nat}, h)
+      LBoolMisc.pi.absurdF({1n+p == 0n : Nat}, h)
     case 1n+p 1n+q:
       Equal.cong(Nat, Nat, n => 1n+n, p, q, pi.eq_true(p, q, h))
 
@@ -32,7 +33,7 @@ def pi.le_succ_r(+a: Nat, +b: Nat, +h: {Nat.is_le(a, b) == True{} : Bool}) -> {N
     case 0n _:
       {==}
     case 1n+p 0n:
-      L.pi.absurdF({Nat.is_le(1n+p, 1n) == True{} : Bool}, h)
+      LBoolMisc.pi.absurdF({Nat.is_le(1n+p, 1n) == True{} : Bool}, h)
     case 1n+p 1n+q:
       pi.le_succ_r(p, q, h)
 
@@ -51,7 +52,7 @@ def pi.or_tl(a: Bool, +b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == Tr
     case True{}:
       {==}
     case False{}:
-      L.pi.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
+      LBoolMisc.pi.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
 
 def pi.or_tr(a: Bool, +b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
@@ -78,11 +79,11 @@ def pi.periodic_one(+s: List<&2, Nat>, +k: Nat, q: Nat, +e: {If.each(s, 0n, Nat.
 def pi.sub1_le(+k: Nat, +s: Nat, +h: {Nat.is_le(k, 1n+s) == True{} : Bool}) -> {Nat.is_le(Nat.sub(k, 1n), s) == True{} : Bool}:
   match k:
     case 0n:
-      L.pi.le0(s)
+      LNatIsLe.pi.le0(s)
     case 1n+j:
       match j:
         case 0n:
-          L.pi.le0(s)
+          LNatIsLe.pi.le0(s)
         case 1n+i:
           h
 
@@ -134,7 +135,7 @@ def pi.rhead(xs: List<&2, Nat>, +k: Nat) -> Bool:
 def pi.rep_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, c: Bool, +ec: {pi.rhead(xs, k) == c : Bool}, +rep: {If.repeats(xs, k) == True{} : Bool}) -> {If.loops.go(xs, k, seen) == True{} : Bool}:
   match xs:
     case Nil{}:
-      L.pi.absurdF({If.loops.go(Nil{}, k, seen) == True{} : Bool}, rep)
+      LBoolMisc.pi.absurdF({If.loops.go(Nil{}, k, seen) == True{} : Bool}, rep)
     case x <> rest:
       match c:
         case True{}:

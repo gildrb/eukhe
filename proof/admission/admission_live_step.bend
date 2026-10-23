@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/admission.bend as Admission
-import ./base.bend as LA
+import ./base/admission/lv.bend as LAAdmissionLv
 
 def Admission.admission_live_step(s, o):
-  LA.al.step(s, o)
+  LAAdmissionLv.al.step(s, o)

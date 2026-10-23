@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/tree.bend as Tree
-import ./base.bend as LA
+import ./base/director.bend as LADirector
 
 def Tree.dir_encode_sound(s):
-  LA.pd.dir_encode_sound(s)
+  LADirector.pd.dir_encode_sound(s)

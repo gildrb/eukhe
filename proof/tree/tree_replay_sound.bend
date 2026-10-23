@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/tree.bend as Tree
-import ./base.bend as LA
+import ./base/tree/sorted.bend as LATreeSorted
 
 def Tree.tree_replay_sound(rs):
-  LA.replay_sound(rs)
+  LATreeSorted.replay_sound(rs)

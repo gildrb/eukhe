@@ -8,7 +8,9 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/run.bend as Run
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/add.bend as LNatAdd
+import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 # max(cap, 1) = 1 + (cap - 1)
@@ -39,19 +41,19 @@ def InvS(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat) -> Type:
 def cap_of(-T: Type, o: Or({False{} == True{} : Bool}, T)) -> T:
   match o:
     case Inl{x}:
-      L.absurd(T, x)
+      LBoolMisc.absurd(T, x)
     case Inr{y}:
       y
 
 def cap_next(n: Nat, -s: Nat, -cap: Nat, capv: {Nat.add(n, 2n+s) == cap : Nat}) -> {1n+Nat.add(n, 1n+s) == cap : Nat}:
   %capv : {1n+Nat.add(n, 1n+s) == _ : Nat}
-  L.add_succ_r(n, 1n+s)
+  LNatAdd.add_succ_r(n, 1n+s)
 
 # the round that meets the cap is the max(cap, 1)th
 def one_more(+n: Nat, -m: Nat, capv: {Nat.add(n, 1n+0n) == m : Nat}) -> {1n+n == m : Nat}:
   %capv : {1n+n == _ : Nat}
-  %L.add_succ_r(n, 0n) : {1n+n == _ : Nat}
-  %Equal.sym(Nat, Nat.add(n, 0n), n, L.add_zero(n)) : {1n+n == 1n+_ : Nat}
+  %LNatAdd.add_succ_r(n, 0n) : {1n+n == _ : Nat}
+  %Equal.sym(Nat, Nat.add(n, 0n), n, LNatAdd.add_zero(n)) : {1n+n == 1n+_ : Nat}
   {==}
 
 def inv_round(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reset: Bool, r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, capv: {Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}) -> InvS(Rn.Cfg{cap, P, A, N}, Rn.round(Rn.Cfg{cap, P, A, N}, reset, r, c, a, n, p), 1n+k):
@@ -157,7 +159,7 @@ def inv_compact(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, over: Bool, got: Rn.Got, +
 # one input keeps the invariant
 def inv_step(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, +e: Rn.Ev, i: InvS(cfg, s, k)) -> InvS(cfg, Rn.step(cfg, s, e), Rn.counted(Rn.St.ph(s), e, k)):
   match cfg:
-    case Rn.Cfg{cap, P, A, N}:
+    case Rn.Cfg{cap, pp, aa, nn}:
       match s:
         case Rn.St{ph, r, c, a, n, p}:
           match ph e:
@@ -181,16 +183,16 @@ def inv_step(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, +e: Rn.Ev, i: InvS(cfg, s, k)) ->
               (Inl{{==}}, Inr{cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co)})
             case Rn.Prepare{} Rn.Go{reply, fin, got}:
               (cp, co) = i
-              inv_prepare(cap, P, A, N, reply, r, c, a, n, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
+              inv_prepare(cap, pp, aa, nn, reply, r, c, a, n, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
             case Rn.Call{} Rn.Go{reply, fin, got}:
               (cp, co) = i
-              inv_call(cap, P, A, N, reply, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
+              inv_call(cap, pp, aa, nn, reply, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
             case Rn.Compact{over} Rn.Go{reply, fin, got}:
               (cp, co) = i
-              inv_compact(cap, P, A, N, over, got, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
+              inv_compact(cap, pp, aa, nn, over, got, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
             case Rn.Tools{} Rn.Go{reply, fin, got}:
               (cp, co) = i
-              inv_tools(cap, P, A, N, fin, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
+              inv_tools(cap, pp, aa, nn, fin, r, c, a, n, p, k, cap_of({Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}, co))
 
 def inv_run(evs: List<&2, Rn.Ev>, +cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: InvS(cfg, s, k)) -> InvS(cfg, Rn.run.go(evs, cfg, s), Rn.rounds.go(evs, cfg, s, k)):
   match evs:
@@ -202,7 +204,7 @@ def inv_run(evs: List<&2, Rn.Ev>, +cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: InvS(cfg,
 # a run starts with the invariant
 def inv_init(+cfg: Rn.Cfg) -> InvS(cfg, Rn.init(cfg), 0n):
   match cfg:
-    case Rn.Cfg{cap, P, A, N}:
+    case Rn.Cfg{cap, pp, aa, nn}:
       (Inl{{==}}, Inr{Equal.sym(Nat, Nat.max(cap, 1n), 1n+Nat.sub(cap, 1n), max1(cap))})
 
 # The decisions Rust calls (H4.9)

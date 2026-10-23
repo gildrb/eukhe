@@ -6,7 +6,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/supervise.bend as Supervise
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/wire.bend as LWire
 
 # (D1) the restart decision and the orphan exit window
 

@@ -6,7 +6,7 @@ import ../../bend/tools.bend as Tl
 import ../../bend/wire.bend as Wr
 import ../../laws/tools.bend as Tools
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/wire.bend as LWire
 
 # tools
 # -----

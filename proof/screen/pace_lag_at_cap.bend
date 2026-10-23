@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # b <= k: k is not below b
 def ps.le_not_lt(b: Nat, k: Nat, h: {Nat.is_le(b, k) == True{} : Bool}) -> {Nat.is_lt(k, b) == False{} : Bool}:
@@ -15,7 +15,7 @@ def ps.le_not_lt(b: Nat, k: Nat, h: {Nat.is_le(b, k) == True{} : Bool}) -> {Nat.
         case 1n+kp:
           {==}
     case 1n+bp 0n:
-      L.screen.ps.absurdF({Nat.is_lt(0n, 1n+bp) == False{} : Bool}, h)
+      LBoolMisc.screen.ps.absurdF({Nat.is_lt(0n, 1n+bp) == False{} : Bool}, h)
     case 1n+bp 1n+kp:
       ps.le_not_lt(bp, kp, h)
 

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/job.bend as Jb
 import ../../laws/job.bend as Job
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 def pj.is_settled(m: Maybe<&2, Jb.Wait>) -> Bool:
@@ -41,22 +41,22 @@ def pj.settle(es: List<&2, Jb.JEv>, +b: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: 
     case Nil{}:
       match b:
         case 0n:
-          L.pj.absurdF({Nil{} == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
+          LBoolMisc.pj.absurdF({Nil{} == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
         case 1n+l:
-          L.pj.absurdF({Nil{} == [x] : List<&2, Jb.End>}, pj.settled(None{}, x, s))
+          LBoolMisc.pj.absurdF({Nil{} == [x] : List<&2, Jb.End>}, pj.settled(None{}, x, s))
     case e <> +rest:
       match e:
         case Jb.Out{+n}:
           match b:
             case 0n:
-              L.pj.absurdF({Jb.ends.go(Jb.Out{n} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
+              LBoolMisc.pj.absurdF({Jb.ends.go(Jb.Out{n} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
             case 1n+l:
               +t = Jb.take(cap, k, n)
               pj.settle(rest, 1n+l, cap, Nat.add(k, t), Nat.add(d, Nat.sub(n, t)), x, s)
         case Jb.Quit{+q}:
           match b:
             case 0n:
-              L.pj.absurdF({Jb.ends.go(Jb.Quit{q} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
+              LBoolMisc.pj.absurdF({Jb.ends.go(Jb.Quit{q} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
             case 1n+l:
               %LA.pj.ends_ended(rest, cap, k, d, Jb.Exited{q}) : {Jb.Exited{q} <> _ == [x] : List<&2, Jb.End>}
               %pj.end_eq(Some{Jb.Settled{Jb.Exited{q}}}, x, s) : {[Jb.Exited{q}] == [_] : List<&2, Jb.End>}
@@ -64,7 +64,7 @@ def pj.settle(es: List<&2, Jb.JEv>, +b: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: 
         case Jb.Kill{}:
           match b:
             case 0n:
-              L.pj.absurdF({Jb.ends.go(Jb.Kill{} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
+              LBoolMisc.pj.absurdF({Jb.ends.go(Jb.Kill{} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
             case 1n+l:
               %LA.pj.ends_ended(rest, cap, k, d, Jb.Killed{}) : {Jb.Killed{} <> _ == [x] : List<&2, Jb.End>}
               %pj.end_eq(Some{Jb.Settled{Jb.Killed{}}}, x, s) : {[Jb.Killed{}] == [_] : List<&2, Jb.End>}
@@ -72,7 +72,7 @@ def pj.settle(es: List<&2, Jb.JEv>, +b: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: 
         case Jb.Tick{}:
           match b:
             case 0n:
-              L.pj.absurdF({Jb.ends.go(Jb.Tick{} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
+              LBoolMisc.pj.absurdF({Jb.ends.go(Jb.Tick{} <> rest, cap, Jb.Live{k, d}) == [x] : List<&2, Jb.End>}, pj.settled(Some{Jb.Detached{}}, x, s))
             case 1n+l:
               pj.settle(rest, l, cap, k, d, x, s)
 

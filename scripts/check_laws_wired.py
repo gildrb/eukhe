@@ -9,7 +9,9 @@ proof/<area>/base.bend and proof/base.bend for shared lemmas):
 - every law has a fill `def <Alias>.NAME(` in a proof/ file PROOF.bend
   imports, where <Alias> is that file's name for the law's file;
 - a file proof/<area>/<x>.bend but base.bend fills law <x>; when <x> lives
-  in laws/<a>.bend, <area> is <a>;
+  in laws/<a>.bend, <area> is <a> (the folders a file past 1,000 lines
+  becomes, proof/base/, proof/<area>/base/ and proof/<area>/<law>/, hold
+  lemmas);
 - no laws/ file but those LAWS.bend imports; no proof*.bend file but
   PROOF.bend;
 - no other .bend file declares a `law` or fills one.
@@ -96,7 +98,7 @@ def gaps_of(root: Path) -> list[str]:
                 filled.add(n)
             else:
                 gaps.append(f"{rel}: proves law {n}; every proof lives in a proof/ file PROOF.bend imports")
-        if rf in proof_files and rf.parent != proof_dir and rf.stem != "base":
+        if rf in proof_files and rf.parent.parent == proof_dir and "base" not in (rf.stem, rf.parent.name):
             law = rf.stem
             if law not in mine:
                 gaps.append(f"{rel}: does not fill law {law}")

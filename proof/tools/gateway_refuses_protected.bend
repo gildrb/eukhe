@@ -4,7 +4,7 @@ import Base
 import ../../bend/approvals.bend as Am
 import ../../bend/tools.bend as Tl
 import ../../laws/tools.bend as Tools
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # the guard refuses when its first part holds
 def pa.guard_first(b1: Bool, b2: Bool, h: {b1 == True{} : Bool}) -> {Am.guard(Bool.or(b1, b2)) == Am.GatewayRefused{} : Am.Fate}:
@@ -12,7 +12,7 @@ def pa.guard_first(b1: Bool, b2: Bool, h: {b1 == True{} : Bool}) -> {Am.guard(Bo
     case True{}:
       {==}
     case False{}:
-      L.approvals.pa.absurdF({Am.guard(Bool.or(False{}, b2)) == Am.GatewayRefused{} : Am.Fate}, h)
+      LBoolMisc.approvals.pa.absurdF({Am.guard(Bool.or(False{}, b2)) == Am.GatewayRefused{} : Am.Fate}, h)
 
 def pa.refuses_protected(+es: List<&2, Nat>, protected: {Tl.elem(es, 5n) == True{} : Bool}, +above: List<&2, Am.Desk>) -> {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}:
   pa.guard_first(Tl.elem(es, 5n), Tl.elem(es, 6n), protected)

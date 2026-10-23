@@ -3,7 +3,8 @@
 import Base
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 def w2.named(p: If.Plan) -> Nat:
@@ -16,7 +17,7 @@ def w2.named(p: If.Plan) -> Nat:
 def w2.of_over(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +i: Nat, o: {If.plan.of(m, L) == If.Over{i} : If.Plan}) -> {m == Some{i} : Maybe<&2, Nat>}:
   match m:
     case None{}:
-      L.pq.absurdF({None{} == Some{i} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, LA.w2.over, If.Fits{If.ids(L)}, If.Over{i}, o))
+      LBoolMisc.pq.absurdF({None{} == Some{i} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, LA.w2.over, If.Fits{If.ids(L)}, If.Over{i}, o))
     case Some{j}:
       %Equal.cong(If.Plan, Nat, w2.named, If.Over{j}, If.Over{i}, o) : {Some{j} == Some{_} : Maybe<&2, Nat>}
       {==}
@@ -44,8 +45,8 @@ def w2.some_go(+ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.
         case False{}:
           +a = If.Tool.id(t)
           +h = w2.some_go(rest, need, If.needs.at(rest, need), {==}, i, s)
-          +hn = L.pq.and_l(If.elem(need, i), If.elem(If.ids(rest), i), h)
-          +hr = L.pq.and_r(If.elem(need, i), If.elem(If.ids(rest), i), h)
+          +hn = LBoolAnd.pq.and_l(If.elem(need, i), If.elem(If.ids(rest), i), h)
+          +hr = LBoolAnd.pq.and_r(If.elem(need, i), If.elem(If.ids(rest), i), h)
           %Equal.sym(Bool, If.elem(need, i), True{}, hn) : {Bool.and(_, Bool.or(Nat.is_eq(a, i), If.elem(If.ids(rest), i))) == True{} : Bool}
           %Equal.sym(Bool, If.elem(If.ids(rest), i), True{}, hr) : {Bool.and(True{}, Bool.or(Nat.is_eq(a, i), _)) == True{} : Bool}
           w2.or_t(Nat.is_eq(a, i))

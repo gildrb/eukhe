@@ -3,7 +3,7 @@
 import Base
 import ../../bend/tools.bend as Tl
 import ../../laws/tools.bend as Tools
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 def pl.fin_add(+s: Tl.Step, r: Tl.Ran, h: {Tl.End.finished(Tl.Ran.end(Tl.ran.add(s, r))) == True{} : Bool}) -> {Tl.End.finished(Tl.Ran.end(r)) == True{} : Bool}:
@@ -14,7 +14,7 @@ def pl.fin_add(+s: Tl.Step, r: Tl.Ran, h: {Tl.End.finished(Tl.Ran.end(Tl.ran.add
 def pl.gate_no_fin(-A: Type, s: Tl.Step, r: Tl.Ran, h: {Tl.End.finished(Tl.Ran.end(Tl.gate(False{}, s, r))) == True{} : Bool}) -> A:
   match s:
     case Tl.Step{i, f}:
-      L.tools.pl.absurdF(A, h)
+      LBoolMisc.tools.pl.absurdF(A, h)
 
 # a run that finished ran every step, at any head test
 def pl.fin_go(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, free: Bool, +ans: List<&2, Bool>, h: {Tl.End.finished(Tl.Ran.end(Tl.exec.go(ss, auto, free, ans))) == True{} : Bool}) -> {Tl.Ran.steps(Tl.exec.go(ss, auto, free, ans)) == ss : List<&2, Tl.Step>}:

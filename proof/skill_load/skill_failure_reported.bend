@@ -3,7 +3,8 @@
 import Base
 import ../../bend/skill_load.bend as Sk
 import ../../laws/skill_load.bend as SkillLoad
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_eq.bend as LNatIsEq
 
 # the candidate x is loaded or reported
 def ppr.skill_head(+x: Sk.Cand, +rest: List<&2, Sk.Cand>) -> {Bool.or(Sk.listed(Sk.loaded(x <> rest), Sk.Cand.path(x)), Sk.listed(Sk.named(Sk.diags(x <> rest)), Sk.Cand.path(x))) == True{} : Bool}:
@@ -12,16 +13,16 @@ def ppr.skill_head(+x: Sk.Cand, +rest: List<&2, Sk.Cand>) -> {Bool.or(Sk.listed(
       match o:
         case Sk.Good{}:
           +a = Sk.listed(Sk.loaded(rest), p)
-          L.ppr.or_l(Bool.or(Nat.is_eq(p, p), a), Sk.listed(Sk.named(Sk.diags(rest)), p), L.ppr.or_l(Nat.is_eq(p, p), a, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_l(Bool.or(Nat.is_eq(p, p), a), Sk.listed(Sk.named(Sk.diags(rest)), p), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), a, LNatIsEq.ppr.nat_eq_refl(p)))
         case Sk.Unreadable{}:
           +b = Sk.listed(Sk.named(Sk.diags(rest)), p)
-          L.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), L.ppr.or_l(Nat.is_eq(p, p), b, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), b, LNatIsEq.ppr.nat_eq_refl(p)))
         case Sk.Malformed{}:
           +b = Sk.listed(Sk.named(Sk.diags(rest)), p)
-          L.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), L.ppr.or_l(Nat.is_eq(p, p), b, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), b, LNatIsEq.ppr.nat_eq_refl(p)))
         case Sk.Incomplete{}:
           +b = Sk.listed(Sk.named(Sk.diags(rest)), p)
-          L.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), L.ppr.or_l(Nat.is_eq(p, p), b, L.ppr.nat_eq_refl(p)))
+          LBoolMisc.ppr.or_r(Sk.listed(Sk.loaded(rest), p), Bool.or(Nat.is_eq(p, p), b), LBoolMisc.ppr.or_l(Nat.is_eq(p, p), b, LNatIsEq.ppr.nat_eq_refl(p)))
 
 # a path loaded or reported in rest stays so with x before rest
 def ppr.skill_cons(+x: Sk.Cand, +rest: List<&2, Sk.Cand>, +n: Nat, h: {Bool.or(Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n)) == True{} : Bool}) -> {Bool.or(Sk.listed(Sk.loaded(x <> rest), n), Sk.listed(Sk.named(Sk.diags(x <> rest)), n)) == True{} : Bool}:
@@ -29,13 +30,13 @@ def ppr.skill_cons(+x: Sk.Cand, +rest: List<&2, Sk.Cand>, +n: Nat, h: {Bool.or(S
     case Sk.Cand{+p, o}:
       match o:
         case Sk.Good{}:
-          L.ppr.or_in_l(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
+          LBoolMisc.ppr.or_in_l(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
         case Sk.Unreadable{}:
-          L.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
+          LBoolMisc.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
         case Sk.Malformed{}:
-          L.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
+          LBoolMisc.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
         case Sk.Incomplete{}:
-          L.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
+          LBoolMisc.ppr.or_in_r(Nat.is_eq(p, n), Sk.listed(Sk.loaded(rest), n), Sk.listed(Sk.named(Sk.diags(rest)), n), h)
 
 # LAW skill_failure_reported: the path of every candidate file is on the
 # loaded list or named by a diagnostic

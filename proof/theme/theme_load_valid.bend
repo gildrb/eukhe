@@ -3,7 +3,8 @@
 import Base
 import ../../bend/theme.bend as T
 import ../../laws/theme.bend as Theme
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/maybe.bend as LMaybe
 import ./base.bend as LA
 
 # Loading and completion
@@ -13,7 +14,7 @@ def themes.pt.some_inj(-A: Data, -a: A, -b: A, e: {Some{a} == Some{b} : Maybe<&2
   Equal.cong(Maybe<&2, A>, A, m => T.or_else(A, m, a), Some{a}, Some{b}, e)
 
 def pt.con_nil(-G: Type, -x: U32, -xs: List<&2, U32>, e: {x <> xs == Nil{} : List<&2, U32>}) -> G:
-  %e : L.themes.pt.BD(List.is_empty(&2, U32, _), G, Unit)
+  %e : LBoolMisc.themes.pt.BD(List.is_empty(&2, U32, _), G, Unit)
   Unit{}
 
 # an empty missing list: no keep took its token
@@ -76,7 +77,7 @@ def pt.valid_go(+cols: List<&2, T.Ent>, +ts: List<&2, U32>, +h9: {T.has(cols, 9)
 def pt.miss_at(+cols: List<&2, T.Ent>, +ts: List<&2, U32>, +k: Nat, +t: U32, +hm: {T.missing.go(cols, ts) == Nil{} : List<&2, U32>}, +hg: {List.get(&2, U32, ts, k) == Some{t} : Maybe<&2, U32>}, +hr: {T.required(t) == True{} : Bool}) -> {T.has(cols, t) == True{} : Bool}:
   match ts k:
     case Nil{} q:
-      L.themes.pt.none_some({T.has(cols, t) == True{} : Bool}, U32, t, hg)
+      LMaybe.themes.pt.none_some({T.has(cols, t) == True{} : Bool}, U32, t, hg)
     case Con{+x, rest} 0n:
       +cx = pt.keep_nil(Bool.and(T.required(x), Bool.not(T.has(cols, x))), x, T.missing.go(cols, rest), hm)
       +ct = {%themes.pt.some_inj(U32, x, t, hg) : {Bool.and(T.required(_), Bool.not(T.has(cols, _))) == False{} : Bool}; cx : {Bool.and(T.required(t), Bool.not(T.has(cols, t))) == False{} : Bool}}
@@ -91,11 +92,11 @@ def pt.valid_of(+es: List<&2, T.Ent>, +hm: {T.missing(es) == Nil{} : List<&2, U3
 def pt.load_end(+name: String, +es: List<&2, T.Ent>, p: T.Bg, c: T.Bg, i: T.Bg, -f: T.Th, +hv: {T.valid.go(es, T.toks()) == True{} : Bool}, h: {T.load.of(T.read.end(name, es, p, c, i)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match p c i:
     case T.BgBad{x} q r:
-      L.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+      LMaybe.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
     case T.BgOk{pc} T.BgBad{x} r:
-      L.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+      LMaybe.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
     case T.BgOk{pc} T.BgOk{cc} T.BgBad{x}:
-      L.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+      LMaybe.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
     case T.BgOk{pc} T.BgOk{cc} T.BgOk{ic}:
       %themes.pt.some_inj(T.Th, T.Th{name, es, pc, cc, ic}, f, h) : {T.valid(_) == True{} : Bool}
       hv
@@ -105,12 +106,12 @@ def pt.load_full(+name: String, +ix: T.Ix, +es: List<&2, T.Ent>, miss: List<&2, 
     case Nil{}:
       pt.load_end(name, es, T.surf(ix, T.OnPage{}, pg), T.surf(ix, T.OnCard{}, cd), T.surf(ix, T.OnInfo{}, io), f, pt.valid_of(es, hm), h)
     case Con{t, rest}:
-      L.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+      LMaybe.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
 
 def pt.load_cols(+name: String, +ix: T.Ix, r: T.Ents, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, h: {T.load.of(T.read.cols(name, ix, r, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match r:
     case T.Stuck{x}:
-      L.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+      LMaybe.themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
     case T.All{+es}:
       pt.load_full(name, ix, es, T.missing(es), pg, cd, io, f, {==}, h)
 

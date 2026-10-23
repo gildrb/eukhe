@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/tree.bend as Tree
-import ./base.bend as LA
+import ./base/tree/sorted.bend as LATreeSorted
 
 def Tree.tree_rewind_reaches(a, b, ga, gb):
-  LA.rewind_reaches(a, b, ga, gb)
+  LATreeSorted.rewind_reaches(a, b, ga, gb)

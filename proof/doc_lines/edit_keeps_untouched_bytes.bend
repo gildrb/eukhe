@@ -304,11 +304,11 @@ def pdl.emit_split(P: List<&2, Dl.Piece>, +t: List<&2, Dl.B>, +en: Maybe<&2, Dl.
   match P:
     case Nil{}:
       {==}
-    case p2 <> +P2:
+    case p2 <> +pp2:
       match p2:
         case Dl.Piece{+t2, +en2}:
           +s = Dl.sep(en, c)
-          %pdl.emit_split(P2, t2, en2, q, more, s) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), pdl.pre(Dl.Piece{t2, en2} <> P2, s, Dl.start(q <> more, pdl.carry(Dl.Piece{t2, en2} <> P2, s))))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), _)) : List<&2, Dl.B>}
+          %pdl.emit_split(pp2, t2, en2, q, more, s) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), pdl.pre(Dl.Piece{t2, en2} <> pp2, s, Dl.start(q <> more, pdl.carry(Dl.Piece{t2, en2} <> pp2, s))))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), _)) : List<&2, Dl.B>}
           {==}
 
 # persisting P then a run that is not empty: the bytes of P with their
@@ -317,10 +317,10 @@ def pdl.start_split(P: List<&2, Dl.Piece>, +q: Dl.Piece, +more: List<&2, Dl.Piec
   match P:
     case Nil{}:
       {==}
-    case p <> +P2:
+    case p <> +pp2:
       match p:
         case Dl.Piece{+t, +en}:
-          pdl.emit_split(P2, t, en, q, more, c)
+          pdl.emit_split(pp2, t, en, q, more, c)
 
 def pdl.start_lines(+P: List<&2, Dl.Piece>, ls: Dl.Lines, +c: Dl.End) -> {pdl.pre(P, c, Dl.start(Dl.pieces(ls), pdl.carry(P, c))) == Dl.start(List.append(&2, Dl.Piece, P, Dl.pieces(ls)), c) : List<&2, Dl.B>}:
   match ls:
@@ -333,24 +333,24 @@ def pdl.pre_app(P: List<&2, Dl.Piece>, +F: List<&2, Dl.Piece>, +c: Dl.End, +y: L
   match P:
     case Nil{}:
       {==}
-    case p <> +P2:
+    case p <> +pp2:
       match p:
         case Dl.Piece{+t, +en}:
           +s = Dl.sep(en, c)
-          %pdl.pre_app(P2, F, s, y) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), pdl.pre(P2, s, pdl.pre(F, pdl.carry(P2, s), y)))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), _)) : List<&2, Dl.B>}
+          %pdl.pre_app(pp2, F, s, y) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), pdl.pre(pp2, s, pdl.pre(F, pdl.carry(pp2, s), y)))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(s), _)) : List<&2, Dl.B>}
           {==}
 
 def pdl.pre_nil(F: List<&2, Dl.Piece>, +c: Dl.End, +y: List<&2, Dl.B>) -> {List.append(&2, Dl.B, pdl.pre(F, c, Nil{}), y) == pdl.pre(F, c, y) : List<&2, Dl.B>}:
   match F:
     case Nil{}:
       {==}
-    case p <> +F2:
+    case p <> +ff2:
       match p:
         case Dl.Piece{+t, +en}:
           +s = Dl.sep(en, c)
-          +w = pdl.pre(F2, s, Nil{})
+          +w = pdl.pre(ff2, s, Nil{})
           +E = Dl.ebytes(s)
-          %pdl.pre_nil(F2, s, y) : {List.append(&2, Dl.B, List.append(&2, Dl.B, t, List.append(&2, Dl.B, E, w)), y) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, E, _)) : List<&2, Dl.B>}
+          %pdl.pre_nil(ff2, s, y) : {List.append(&2, Dl.B, List.append(&2, Dl.B, t, List.append(&2, Dl.B, E, w)), y) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, E, _)) : List<&2, Dl.B>}
           %pdl.app_assoc(Dl.B, E, w, y) : {List.append(&2, Dl.B, List.append(&2, Dl.B, t, List.append(&2, Dl.B, E, w)), y) == List.append(&2, Dl.B, t, _) : List<&2, Dl.B>}
           pdl.app_assoc(Dl.B, t, List.append(&2, Dl.B, E, w), y)
 

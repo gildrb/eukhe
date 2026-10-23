@@ -4,14 +4,14 @@ import Base
 import ../../bend/compactor.bend as C
 import ../../bend/optchat.bend as O
 import ../../laws/compactor.bend as Compactor
-import ../base.bend as L
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # a cut fits its room
 def pc.cut_le(t: List<&2, C.W>, room: Nat) -> {Nat.is_le(C.Text.len(C.cut(t, room)), room) == True{} : Bool}:
   match t:
     case Nil{}:
-      L.compactor.pc.le_zero(room)
+      LNatIsLe.compactor.pc.le_zero(room)
     case c <> rest:
       match c room:
         case C.W1{} 0n:

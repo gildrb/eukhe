@@ -7,7 +7,8 @@ import ../../bend/wire.bend as Wr
 import ../../laws/doc_seen.bend as DocSeen
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/wire.bend as LWire
 
 # ---- documents codecs ----
 
@@ -23,8 +24,8 @@ def fsv_iv(iv: Ds.Iv, +rest: String, h: {DocSeen.seen.IvFit(iv) == True{} : Bool
   match iv:
     case Ds.Iv{+lo, +hi}:
       +hh = h
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(lo, Wr.put_nat(hi, rest))), Wr.Got{lo, Wr.put_nat(hi, rest)}, Wire.wire_nat_round_trip(lo, Wr.put_nat(hi, rest), L.wr_and_l(LawsBase.wire_fits(lo), LawsBase.wire_fits(hi), hh))) : {Fds.get_iv.lo(_) == Wr.Got{Ds.Iv{lo, hi}, rest} : Wr.Dec<Ds.Iv>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(hi, rest)), Wr.Got{hi, rest}, Wire.wire_nat_round_trip(hi, rest, L.wr_and_r(LawsBase.wire_fits(lo), LawsBase.wire_fits(hi), hh))) : {Fds.get_iv.hi(lo, _) == Wr.Got{Ds.Iv{lo, hi}, rest} : Wr.Dec<Ds.Iv>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(lo, Wr.put_nat(hi, rest))), Wr.Got{lo, Wr.put_nat(hi, rest)}, Wire.wire_nat_round_trip(lo, Wr.put_nat(hi, rest), LBoolAnd.wr_and_l(LawsBase.wire_fits(lo), LawsBase.wire_fits(hi), hh))) : {Fds.get_iv.lo(_) == Wr.Got{Ds.Iv{lo, hi}, rest} : Wr.Dec<Ds.Iv>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(hi, rest)), Wr.Got{hi, rest}, Wire.wire_nat_round_trip(hi, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(lo), LawsBase.wire_fits(hi), hh))) : {Fds.get_iv.hi(lo, _) == Wr.Got{Ds.Iv{lo, hi}, rest} : Wr.Dec<Ds.Iv>}
       {==}
 
 # an anchor reads back
@@ -38,9 +39,9 @@ def fsv_at(a: Ds.At, +rest: String, h: {DocSeen.seen.AtFit(a) == True{} : Bool})
           {==}
         case Some{+x}:
           +hh = h
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, Wr.put_nat(1n, Wr.put_nat(x, rest)))), Wr.Got{n, Wr.put_nat(1n, Wr.put_nat(x, rest))}, Wire.wire_nat_round_trip(n, Wr.put_nat(1n, Wr.put_nat(x, rest)), L.wr_and_l(LawsBase.wire_fits(n), LawsBase.wire_fits(x), hh))) : {Fds.get_at.n(_) == Wr.Got{Ds.At{n, Some{x}}, rest} : Wr.Dec<Ds.At>}
+          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, Wr.put_nat(1n, Wr.put_nat(x, rest)))), Wr.Got{n, Wr.put_nat(1n, Wr.put_nat(x, rest))}, Wire.wire_nat_round_trip(n, Wr.put_nat(1n, Wr.put_nat(x, rest)), LBoolAnd.wr_and_l(LawsBase.wire_fits(n), LawsBase.wire_fits(x), hh))) : {Fds.get_at.n(_) == Wr.Got{Ds.At{n, Some{x}}, rest} : Wr.Dec<Ds.At>}
           %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(x, rest))), Wr.Got{1n, Wr.put_nat(x, rest)}, Wire.wire_nat_round_trip(1n, Wr.put_nat(x, rest), {==})) : {Fds.get_at.w(n, Fds.get_mnat.tag(_)) == Wr.Got{Ds.At{n, Some{x}}, rest} : Wr.Dec<Ds.At>}
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, rest)), Wr.Got{x, rest}, Wire.wire_nat_round_trip(x, rest, L.wr_and_r(LawsBase.wire_fits(n), LawsBase.wire_fits(x), hh))) : {Fds.get_at.w(n, Fds.get_mnat.some(_)) == Wr.Got{Ds.At{n, Some{x}}, rest} : Wr.Dec<Ds.At>}
+          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(x, rest)), Wr.Got{x, rest}, Wire.wire_nat_round_trip(x, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(n), LawsBase.wire_fits(x), hh))) : {Fds.get_at.w(n, Fds.get_mnat.some(_)) == Wr.Got{Ds.At{n, Some{x}}, rest} : Wr.Dec<Ds.At>}
           {==}
 
 # Lists of seen runs
@@ -68,12 +69,12 @@ def fsv_ivs_put(+xs: List<&2, Ds.Iv>, -rest: String) -> {Wr.put_list(~Ds.Iv, ~Fd
 def fsv_ivs_loop(+t: List<&2, Ds.Iv>, +x: Ds.Iv, +rest: String, +hf: {DocSeen.seen.IvsFit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, List.length(&2, Ds.Iv, t), Fds.get_iv(Fds.put_iv(x, fsv_ivs_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Ds.Iv>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Ds.Iv>, Fds.get_iv(Fds.put_iv(x, rest)), Wr.Got{x, rest}, fsv_iv(x, rest, L.wr_and_l(DocSeen.seen.IvFit(x), True{}, hf))) : {Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ds.Iv>>}
+      %Equal.sym(Wr.Dec<Ds.Iv>, Fds.get_iv(Fds.put_iv(x, rest)), Wr.Got{x, rest}, fsv_iv(x, rest, LBoolAnd.wr_and_l(DocSeen.seen.IvFit(x), True{}, hf))) : {Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ds.Iv>>}
       {==}
     case Con{+y, +u}:
       +r2 = Fds.put_iv(y, fsv_ivs_items(u, rest))
-      %Equal.sym(Wr.Dec<Ds.Iv>, Fds.get_iv(Fds.put_iv(x, r2)), Wr.Got{x, r2}, fsv_iv(x, r2, L.wr_and_l(DocSeen.seen.IvFit(x), DocSeen.seen.IvsFit(y <> u), hf))) : {Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, 1n+List.length(&2, Ds.Iv, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.Iv>>}
-      %Equal.sym(Wr.Dec<List<&2, Ds.Iv>>, Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, List.length(&2, Ds.Iv, u), Fds.get_iv(r2)), Wr.Got{y <> u, rest}, fsv_ivs_loop(u, y, rest, L.wr_and_r(DocSeen.seen.IvFit(x), DocSeen.seen.IvsFit(y <> u), hf))) : {Wr.get_list.cons(Ds.Iv, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.Iv>>}
+      %Equal.sym(Wr.Dec<Ds.Iv>, Fds.get_iv(Fds.put_iv(x, r2)), Wr.Got{x, r2}, fsv_iv(x, r2, LBoolAnd.wr_and_l(DocSeen.seen.IvFit(x), DocSeen.seen.IvsFit(y <> u), hf))) : {Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, 1n+List.length(&2, Ds.Iv, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.Iv>>}
+      %Equal.sym(Wr.Dec<List<&2, Ds.Iv>>, Wr.get_list.go(~Ds.Iv, ~Fds.get_iv, List.length(&2, Ds.Iv, u), Fds.get_iv(r2)), Wr.Got{y <> u, rest}, fsv_ivs_loop(u, y, rest, LBoolAnd.wr_and_r(DocSeen.seen.IvFit(x), DocSeen.seen.IvsFit(y <> u), hf))) : {Wr.get_list.cons(Ds.Iv, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.Iv>>}
       {==}
 
 # a list of seen runs reads back
@@ -113,12 +114,12 @@ def fsv_ats_put(+xs: List<&2, Ds.At>, -rest: String) -> {Wr.put_list(~Ds.At, ~Fd
 def fsv_ats_loop(+t: List<&2, Ds.At>, +x: Ds.At, +rest: String, +hf: {DocSeen.seen.AtsFit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Ds.At, ~Fds.get_at, List.length(&2, Ds.At, t), Fds.get_at(Fds.put_at(x, fsv_ats_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Ds.At>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Ds.At>, Fds.get_at(Fds.put_at(x, rest)), Wr.Got{x, rest}, fsv_at(x, rest, L.wr_and_l(DocSeen.seen.AtFit(x), True{}, hf))) : {Wr.get_list.go(~Ds.At, ~Fds.get_at, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ds.At>>}
+      %Equal.sym(Wr.Dec<Ds.At>, Fds.get_at(Fds.put_at(x, rest)), Wr.Got{x, rest}, fsv_at(x, rest, LBoolAnd.wr_and_l(DocSeen.seen.AtFit(x), True{}, hf))) : {Wr.get_list.go(~Ds.At, ~Fds.get_at, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ds.At>>}
       {==}
     case Con{+y, +u}:
       +r2 = Fds.put_at(y, fsv_ats_items(u, rest))
-      %Equal.sym(Wr.Dec<Ds.At>, Fds.get_at(Fds.put_at(x, r2)), Wr.Got{x, r2}, fsv_at(x, r2, L.wr_and_l(DocSeen.seen.AtFit(x), DocSeen.seen.AtsFit(y <> u), hf))) : {Wr.get_list.go(~Ds.At, ~Fds.get_at, 1n+List.length(&2, Ds.At, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.At>>}
-      %Equal.sym(Wr.Dec<List<&2, Ds.At>>, Wr.get_list.go(~Ds.At, ~Fds.get_at, List.length(&2, Ds.At, u), Fds.get_at(r2)), Wr.Got{y <> u, rest}, fsv_ats_loop(u, y, rest, L.wr_and_r(DocSeen.seen.AtFit(x), DocSeen.seen.AtsFit(y <> u), hf))) : {Wr.get_list.cons(Ds.At, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.At>>}
+      %Equal.sym(Wr.Dec<Ds.At>, Fds.get_at(Fds.put_at(x, r2)), Wr.Got{x, r2}, fsv_at(x, r2, LBoolAnd.wr_and_l(DocSeen.seen.AtFit(x), DocSeen.seen.AtsFit(y <> u), hf))) : {Wr.get_list.go(~Ds.At, ~Fds.get_at, 1n+List.length(&2, Ds.At, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.At>>}
+      %Equal.sym(Wr.Dec<List<&2, Ds.At>>, Wr.get_list.go(~Ds.At, ~Fds.get_at, List.length(&2, Ds.At, u), Fds.get_at(r2)), Wr.Got{y <> u, rest}, fsv_ats_loop(u, y, rest, LBoolAnd.wr_and_r(DocSeen.seen.AtFit(x), DocSeen.seen.AtsFit(y <> u), hf))) : {Wr.get_list.cons(Ds.At, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ds.At>>}
       {==}
 
 # a list of anchors reads back
@@ -135,11 +136,11 @@ def fsv_ats(+xs: List<&2, Ds.At>, +rest: String, hl: {LawsBase.wire_fits(List.le
 
 # the entry reads a request back and answers the model's verdict
 def fsv_entry(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>, +h: {DocSeen.seen.WireFits(seen, ats) == True{} : Bool}) -> {Fds.ffi(Fds.put_req(seen, ats, "")) == Fds.put_check(Ds.check(seen, ats), "") : String}:
-  +hs = L.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen)), Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats)), h)
-  +ha = L.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen)), Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats)), h)
+  +hs = LBoolAnd.wr_and_l(Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen)), Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats)), h)
+  +ha = LBoolAnd.wr_and_r(Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen)), Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats)), h)
   +tail = Wr.put_list(~Ds.At, ~Fds.put_at, ats, "")
-  %Equal.sym(Wr.Dec<List<&2, Ds.Iv>>, Wr.get_list(~Ds.Iv, ~Fds.get_iv, Wr.put_list(~Ds.Iv, ~Fds.put_iv, seen, tail)), Wr.Got{seen, tail}, fsv_ivs(seen, tail, L.wr_and_l(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen), hs), L.wr_and_r(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen), hs))) : {Fds.run.seen(_) == Fds.put_check(Ds.check(seen, ats), "") : String}
-  %Equal.sym(Wr.Dec<List<&2, Ds.At>>, Wr.get_list(~Ds.At, ~Fds.get_at, tail), Wr.Got{ats, ""}, fsv_ats(ats, "", L.wr_and_l(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats), ha), L.wr_and_r(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats), ha))) : {Fds.run.ats(seen, _) == Fds.put_check(Ds.check(seen, ats), "") : String}
+  %Equal.sym(Wr.Dec<List<&2, Ds.Iv>>, Wr.get_list(~Ds.Iv, ~Fds.get_iv, Wr.put_list(~Ds.Iv, ~Fds.put_iv, seen, tail)), Wr.Got{seen, tail}, fsv_ivs(seen, tail, LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen), hs), LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), DocSeen.seen.IvsFit(seen), hs))) : {Fds.run.seen(_) == Fds.put_check(Ds.check(seen, ats), "") : String}
+  %Equal.sym(Wr.Dec<List<&2, Ds.At>>, Wr.get_list(~Ds.At, ~Fds.get_at, tail), Wr.Got{ats, ""}, fsv_ats(ats, "", LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats), ha), LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), DocSeen.seen.AtsFit(ats), ha))) : {Fds.run.ats(seen, _) == Fds.put_check(Ds.check(seen, ats), "") : String}
   {==}
 
 def DocSeen.seen_entry_refines(seen, ats, h):

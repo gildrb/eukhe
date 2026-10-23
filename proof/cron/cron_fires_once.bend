@@ -3,12 +3,12 @@
 import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
-import ./base.bend as LA
+import ./base/cron.bend as LACron
 
 # What the invariant gives
 # ------------------------
 
-def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LA.pc.OnceG(s, ss, nx)) -> Cr.OnceOnce(s, ss):
+def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LACron.pc.OnceG(s, ss, nx)) -> Cr.OnceOnce(s, ss):
   match s:
     case Cr.Once{d}:
       match ss:
@@ -20,7 +20,7 @@ def pc.once_once(s: Cr.Sched, ss: List<&2, Nat>, +nx: Maybe<&2, Nat>, o: LA.pc.O
     case Cr.Every{q}:
       Unit{}
 
-def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j)) -> Cr.Fires(j):
+def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LACron.pc.G(c, dead, j)) -> Cr.Fires(j):
   match j:
     case Cr.Job{i, +s, +st, +nx, k, +cl, +rs, +ss, h}:
       (h1, g2) = g
@@ -30,7 +30,7 @@ def pc.g_fires(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j))
       (h5, g6) = g5
       (h1, (h3, pc.once_once(s, ss, nx, h5)))
 
-def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.AllG(c, dead, rs)) -> Cr.FiresAll(rs):
+def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LACron.pc.AllG(c, dead, rs)) -> Cr.FiresAll(rs):
   match rs:
     case Nil{}:
       Unit{}
@@ -42,7 +42,7 @@ def pc.all_fires(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.A
         case Cr.Raw{x}:
           pc.all_fires(c, dead, t, g)
 
-def pc.fires_of(s: Cr.S, inv: LA.pc.Inv(s)) -> Cr.FiresAll(Cr.S.recs(s)):
+def pc.fires_of(s: Cr.S, inv: LACron.pc.Inv(s)) -> Cr.FiresAll(Cr.S.recs(s)):
   match s:
     case Cr.S{b, rs, rd, +dead, +c, n, a}:
       pc.all_fires(c, dead, rs, inv)
@@ -51,7 +51,7 @@ def pc.fires_of(s: Cr.S, inv: LA.pc.Inv(s)) -> Cr.FiresAll(Cr.S.recs(s)):
 # --------
 
 def pc.cron_fires_once(+evs: List<&2, Cr.Ev>) -> Cr.FiresAll(Cr.S.recs(Cr.run(evs))):
-  pc.fires_of(Cr.run(evs), LA.pc.inv_run(evs))
+  pc.fires_of(Cr.run(evs), LACron.pc.inv_run(evs))
 
 # Cron
 

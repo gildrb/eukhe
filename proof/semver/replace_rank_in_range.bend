@@ -6,7 +6,7 @@ import ../../bend/semver.bend as Sv
 import ../../laws/base.bend as LawsBase
 import ../../laws/replace.bend as Replace
 import ../../laws/semver.bend as Semver
-import ../base.bend as L
+import ../base/replace.bend as LReplace
 
 def rk.ir(+a: Nat, +b: Nat, -t: Nat, +c: Nat, ok: Bool, eq: {Bool.and(LawsBase.rank_spec.short(a), Bool.and(LawsBase.rank_spec.short(b), LawsBase.rank_spec.short(c))) == ok : Bool}) -> {Semver.rank_spec.in_range(Replace.rank_spec.keep(ok, a, b, t, c)) == True{} : Bool}:
   match ok:
@@ -32,5 +32,5 @@ def rk.in_range_cap(short: Bool, +s: String) -> {Semver.rank_spec.in_range(Repla
       {==}
 
 def Semver.replace_rank_in_range(s):
-  %Equal.sym(List<&2, Nat>, Rp.rank(s), Replace.rank_spec(s), L.rk.rank(s)) : {Semver.rank_spec.in_range(_) == True{} : Bool}
+  %Equal.sym(List<&2, Nat>, Rp.rank(s), Replace.rank_spec(s), LReplace.rk.rank(s)) : {Semver.rank_spec.in_range(_) == True{} : Bool}
   rk.in_range_cap(Nat.is_le(String.length(s), 64n), s)

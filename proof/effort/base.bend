@@ -7,7 +7,8 @@ import ../../bend/wire.bend as Wr
 import ../../laws/effort.bend as Effort
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 # ---- effort ----
@@ -767,12 +768,12 @@ def pc.e_lvs(+xs: List<&2, Ef.Lv>, +rest: String, h: {LawsBase.wire_fits(List.le
   {Wr.Got{xs, rest} == Wr.get_list(~Ef.Lv, ~FEf.get_lv, Wr.put_list(~Ef.Lv, ~FEf.put_lv, xs, rest)) : Wr.Dec<List<&2, Ef.Lv>>}:
   match xs:
     case Nil{}:
-      %L.pc.nat(0n, rest, h) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
+      %LWire.pc.nat(0n, rest, h) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
       {==}
     case Con{+x, +t}:
       +r = rest
       %Equal.sym(String, Wr.put_list(~Ef.Lv, ~FEf.put_lv, x <> t, r), Wr.put_nat(List.length(&2, Ef.Lv, x <> t), pc.e_lv_items(x <> t, r)), pc.e_lv_put(x <> t, r)) : {Wr.Got{x <> t, r} == Wr.get_list(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
-      %L.pc.nat(List.length(&2, Ef.Lv, x <> t), pc.e_lv_items(x <> t, r), h) : {Wr.Got{x <> t, r} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
+      %LWire.pc.nat(List.length(&2, Ef.Lv, x <> t), pc.e_lv_items(x <> t, r), h) : {Wr.Got{x <> t, r} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
       Equal.sym(Wr.Dec<List<&2, Ef.Lv>>, Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, List.length(&2, Ef.Lv, t), FEf.get_lv(FEf.put_lv(x, pc.e_lv_items(t, r)))), Wr.Got{x <> t, r}, pc.e_lv_go_rt(t, x, r))
 
 # the facts that fit read back
@@ -780,7 +781,7 @@ def pc.e_facts(+f: FEf.Facts, +rest: String, h: {Effort.core_facts_fit(f) == Tru
   match f:
     case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
       +hhh = h
-      +hh0 = L.wr_and_r(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)
+      +hh0 = LBoolAnd.wr_and_r(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)
       +r5 = FEf.put_lvs(plain, rest)
       +r4 = FEf.put_lvs(reasoning, r5)
       +r3 = FEf.put_mmap(rule, r4)
@@ -796,7 +797,7 @@ def pc.e_facts(+f: FEf.Facts, +rest: String, h: {Effort.core_facts_fit(f) == Tru
       +d3 = FEf.seq(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, d2)
       +e3 = pc.seqFEf(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, FEf.P2{FEf.P2{flag, by_map}, explicit}, r3, rule, r4, d2, e2, pc.e_mmap(rule, r4))
       +d4 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d3)
-      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, r4, reasoning, r5, d3, e3, pc.e_lvs(reasoning, r5, L.wr_and_l(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)))
+      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, r4, reasoning, r5, d3, e3, pc.e_lvs(reasoning, r5, LBoolAnd.wr_and_l(Effort.core_lvs_fit(reasoning), Effort.core_lvs_fit(plain), hhh)))
       +d5 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d4)
       +e5 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, reasoning}, r5, plain, rest, d4, e4, pc.e_lvs(plain, rest, hh0))
       %e5 : {Wr.Got{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}, rest} == FEf.get_facts.of(_) : Wr.Dec<FEf.Facts>}

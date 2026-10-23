@@ -4,7 +4,7 @@ import Base
 import ../../bend/optchat.bend as O
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 # a type picked by a Maybe: a rewrite through it refutes Some == None
@@ -27,7 +27,7 @@ def pf.cmp_le(c: Cmp, e: {False{} == Cmp.is_gt(c) : Bool}) -> {Cmp.is_le(c) == T
     case EQ{}:
       {==}
     case GT{}:
-      L.pf.absurd_ft({False{} == True{} : Bool}, e)
+      LBoolMisc.pf.absurd_ft({False{} == True{} : Bool}, e)
 
 # a merge at a pair of v drops one line
 def pf.mlen.pick(h: Bool, +info: O.Info, +a: O.Node, +x: O.Node, +y: O.Node, +more: List<&2, O.Node>,
@@ -47,14 +47,14 @@ def pf.mlen.here(+info: O.Info, +a: O.Node, +x: O.Node, rest: List<&2, O.Node>,
   -> {1n+List.length(&2, O.Node, rest) == 1n+List.length(&2, O.Node, O.merge.here(info, a, x, rest, O.merge(info, rest, a))) : Nat}:
   match rest:
     case Nil{}:
-      L.pf.absurd_ft({1n == 2n : Nat}, e)
+      LBoolMisc.pf.absurd_ft({1n == 2n : Nat}, e)
     case +y <> +more:
       pf.mlen.pick(Bool.and(O.Node.eq(x, a), O.mergeable(info, x, y)), info, a, x, y, more, ih, e)
 
 def pf.merge_len(v: List<&2, O.Node>, +info: O.Info, +a: O.Node) -> {LA.pf.Has(info, v, a) == True{} : Bool} -> {List.length(&2, O.Node, v) == 1n+List.length(&2, O.Node, O.merge(info, v, a)) : Nat}:
   match v:
     case Nil{}:
-      e => L.pf.absurd_ft({0n == 1n : Nat}, e)
+      e => LBoolMisc.pf.absurd_ft({0n == 1n : Nat}, e)
     case +x <> +rest:
       e => pf.mlen.here(info, a, x, rest, pf.merge_len(rest, info, a), e)
 

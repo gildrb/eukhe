@@ -3,7 +3,7 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base.bend as L
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # (R3) The failover walk, exactly
@@ -107,7 +107,7 @@ def rx.le_succ(+k: Nat, +s: Nat) -> {Nat.is_le(1n+k, s) == Nat.is_lt(k, s) : Boo
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      L.rp.le_zero(q)
+      LNatIsLe.rp.le_zero(q)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:

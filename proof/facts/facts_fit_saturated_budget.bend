@@ -3,7 +3,7 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 # y at most b: b is not below y
@@ -12,7 +12,7 @@ def w2.le_not_lt(+y: Nat, +b: Nat, h: {Nat.is_le(y, b) == True{} : Bool}) -> {Na
     case 0n b:
       LA.w2.lt_zero(b)
     case 1n+p 0n:
-      L.pq.absurdF({Nat.is_lt(0n, 1n+p) == False{} : Bool}, h)
+      LBoolMisc.pq.absurdF({Nat.is_lt(0n, 1n+p) == False{} : Bool}, h)
     case 1n+p 1n+q:
       w2.le_not_lt(p, q, h)
 

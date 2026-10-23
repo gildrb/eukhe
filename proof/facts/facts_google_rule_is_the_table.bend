@@ -3,18 +3,19 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
 import ./base.bend as LA
 
 # a below b and b at most a cannot both hold
 def pf.lt_le_absurd(-A: Type, +a: Nat, +b: Nat, h1: {Nat.is_lt(a, b) == True{} : Bool}, h2: {Nat.is_le(b, a) == True{} : Bool}) -> A:
   match a b:
     case 0n 0n:
-      L.pq.absurdF(A, h1)
+      LBoolMisc.pq.absurdF(A, h1)
     case 0n 1n+q:
-      L.pq.absurdF(A, h2)
+      LBoolMisc.pq.absurdF(A, h2)
     case 1n+p 0n:
-      L.pq.absurdF(A, h1)
+      LBoolMisc.pq.absurdF(A, h1)
     case 1n+p 1n+q:
       pf.lt_le_absurd(A, p, q, h1, h2)
 
@@ -50,8 +51,8 @@ def pf.table_at(+mi: Nat, +lo: Nat, +me: Nat, +hi: Nat, l: Fx.Lv, ml: {Nat.is_le
 def pf.facts_google_rule_is_the_table(+b: Fx.Budgets, +l: Fx.Lv, +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}) -> {Fx.gtokens(b, Fx.Customs.none(), l) == Fx.Budgets.at(b, l) : Nat}:
   match b:
     case Fx.Budgets{+mi, +lo, +me, +hi}:
-      +rest = L.pq.and_r(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered)
-      pf.table_at(mi, lo, me, hi, l, L.pq.and_l(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered), L.pq.and_l(Nat.is_le(lo, me), Nat.is_le(me, hi), rest), L.pq.and_r(Nat.is_le(lo, me), Nat.is_le(me, hi), rest))
+      +rest = LBoolAnd.pq.and_r(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered)
+      pf.table_at(mi, lo, me, hi, l, LBoolAnd.pq.and_l(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)), ordered), LBoolAnd.pq.and_l(Nat.is_le(lo, me), Nat.is_le(me, hi), rest), LBoolAnd.pq.and_r(Nat.is_le(lo, me), Nat.is_le(me, hi), rest))
 
 def Facts.facts_google_rule_is_the_table(b, l, ordered):
   pf.facts_google_rule_is_the_table(b, l, ordered)

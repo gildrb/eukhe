@@ -3,7 +3,9 @@
 import Base
 import ../../bend/aux_fallback.bend as Af
 import ../../laws/aux_fallback.bend as AuxFallback
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_eq.bend as LNatIsEq
 
 # Fallbacks
 # ---------
@@ -12,10 +14,10 @@ def ppr.key_eq_true(a: Af.Key, b: Af.Key, +h: {Af.Key.eq(a, b) == True{} : Bool}
   match a b:
     case Af.K{+ap, +as1, +ar} Af.K{+bp, +bs1, +br}:
       +i = Bool.and(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br))
-      +ep = L.ppr.nat_eq_true(ap, bp, L.ppr.and_l(Nat.is_eq(ap, bp), i, h))
-      +hs = L.ppr.and_r(Nat.is_eq(ap, bp), i, h)
-      +es = L.ppr.nat_eq_true(as1, bs1, L.ppr.and_l(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br), hs))
-      +er = L.ppr.nat_eq_true(ar, br, L.ppr.and_r(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br), hs))
+      +ep = LNatIsEq.ppr.nat_eq_true(ap, bp, LBoolAnd.ppr.and_l(Nat.is_eq(ap, bp), i, h))
+      +hs = LBoolAnd.ppr.and_r(Nat.is_eq(ap, bp), i, h)
+      +es = LNatIsEq.ppr.nat_eq_true(as1, bs1, LBoolAnd.ppr.and_l(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br), hs))
+      +er = LNatIsEq.ppr.nat_eq_true(ar, br, LBoolAnd.ppr.and_r(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br), hs))
       %ep : {Af.K{ap, as1, ar} == Af.K{_, bs1, br} : Af.Key}
       %es : {Af.K{ap, as1, ar} == Af.K{ap, _, br} : Af.Key}
       %er : {Af.K{ap, as1, ar} == Af.K{ap, as1, _} : Af.Key}
@@ -36,7 +38,7 @@ def ppr.rep_seen(c: Bool, +sh: List<&2, Af.Key>, +kk: Af.Key, +k: Af.Key, +t: Li
 def ppr.rep_new(c: Bool, +sh: List<&2, Af.Key>, +k: Af.Key, +t: List<&2, Af.Ev>, ih: {Af.listed(Af.subs(t), k) == True{} : Bool} -> {Bool.or(Bool.or(c, Af.listed(sh, k)), Af.listed(Af.notes(t), k)) == True{} : Bool}, h: {Bool.or(c, Af.listed(Af.subs(t), k)) == True{} : Bool}) -> {Bool.or(Af.listed(sh, k), Bool.or(c, Af.listed(Af.notes(t), k))) == True{} : Bool}:
   match c:
     case True{}:
-      L.ppr.or_r(Af.listed(sh, k), Bool.or(True{}, Af.listed(Af.notes(t), k)), {==})
+      LBoolMisc.ppr.or_r(Af.listed(sh, k), Bool.or(True{}, Af.listed(Af.notes(t), k)), {==})
     case False{}:
       ih(h)
 
@@ -64,7 +66,7 @@ def ppr.rep_put(r: Af.Route, +sh: List<&2, Af.Key>, +k: Af.Key, +t: List<&2, Af.
 def ppr.rep_go(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>, +k: Af.Key) -> {Af.listed(Af.subs(Af.go(ps, sh)), k) == True{} : Bool} -> {Bool.or(Af.listed(sh, k), Af.listed(Af.notes(Af.go(ps, sh)), k)) == True{} : Bool}:
   match ps:
     case Nil{}:
-      h => L.ppr.absurdF({Bool.or(Af.listed(sh, k), False{}) == True{} : Bool}, h)
+      h => LBoolMisc.ppr.absurdF({Bool.or(Af.listed(sh, k), False{}) == True{} : Bool}, h)
     case +x <> +rest:
       +sh2 = Af.after(Af.decide(x), sh)
       ih = ppr.rep_go(rest, sh2, k)

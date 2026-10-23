@@ -5,7 +5,9 @@ import ../../bend/color.bend as Co
 import ../../bend/theme.bend as T
 import ../../bend/tui_color.bend as TC
 import ../../laws/theme.bend as Theme
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_lt.bend as LNatIsLt
 import ./base.bend as LA
 
 def pu.and_l(+a: Bool, +b: Bool, +h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -13,14 +15,14 @@ def pu.and_l(+a: Bool, +b: Bool, +h: {Bool.and(a, b) == True{} : Bool}) -> {a ==
     case True{}:
       {==}
     case False{}:
-      L.pu.absurd_ft({False{} == True{} : Bool}, h)
+      LBoolMisc.pu.absurd_ft({False{} == True{} : Bool}, h)
 
 def pu.and_r(+a: Bool, +b: Bool, +h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
   match a:
     case True{}:
       h
     case False{}:
-      L.pu.absurd_ft({b == True{} : Bool}, h)
+      LBoolMisc.pu.absurd_ft({b == True{} : Bool}, h)
 
 # The roles
 # ---------
@@ -45,7 +47,7 @@ def pu.get_found(+p: List<&2, Maybe<&2, T.Val>>, +r: Nat, +hc: {T.complete(p) ==
   -> {TC.found(T.Val, List.get(&2, Maybe<&2, T.Val>, p, r)) == True{} : Bool}:
   match p r:
     case Nil{} q:
-      L.pu.absurd_ft({TC.found(T.Val, List.get(&2, Maybe<&2, T.Val>, Nil{}, q)) == True{} : Bool}, Equal.trans(Bool, False{}, Nat.is_lt(q, 0n), True{}, L.pu.lt_zero_f(q), hl))
+      LBoolMisc.pu.absurd_ft({TC.found(T.Val, List.get(&2, Maybe<&2, T.Val>, Nil{}, q)) == True{} : Bool}, Equal.trans(Bool, False{}, Nat.is_lt(q, 0n), True{}, LNatIsLt.pu.lt_zero_f(q), hl))
     case Con{+v, +rest} 0n:
       pu.and_l(Maybe.is_some(&2, T.Val, v), T.complete(rest), hc)
     case Con{+v, +rest} 1n+q:
@@ -60,7 +62,7 @@ def pu.resolves_go(+p: List<&2, Maybe<&2, T.Val>>, +rs: List<&2, Nat>, +hc: {T.c
       +len = List.length(&2, Maybe<&2, T.Val>, p)
       +here = pu.get_found(p, r, hc, pu.and_l(Nat.is_lt(r, len), pu.all_lt(rest, len), hl))
       +more = pu.resolves_go(p, rest, hc, pu.and_r(Nat.is_lt(r, len), pu.all_lt(rest, len), hl))
-      L.pu.and_t(TC.found(T.Val, List.get(&2, Maybe<&2, T.Val>, p, r)), TC.resolves(p, rest), here, more)
+      LBoolAnd.pu.and_t(TC.found(T.Val, List.get(&2, Maybe<&2, T.Val>, p, r)), TC.resolves(p, rest), here, more)
 
 def tui_roles_resolve(+f: T.Th, +v: {T.valid(f) == True{} : Bool}) -> {TC.resolves(T.palette(f), TC.roles()) == True{} : Bool}:
   match f:

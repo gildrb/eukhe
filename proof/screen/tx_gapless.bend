@@ -3,7 +3,7 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # a new active block at the end changes no gap
 def ps.gapp(bs: List<&2, Sc.Blk>, +i: Nat, +l: Nat, +seen: Bool) -> {Sc.gapless.go(bs, seen) == Sc.gapless.go(List.append(&2, Sc.Blk, bs, [Sc.Blk{i, Sc.Active{}, l}]), seen) : Bool}:
@@ -89,7 +89,7 @@ def ps.gflush(bs: List<&2, Sc.Blk>, seen: Bool, h: {Sc.gapless.go(bs, seen) == T
             case Sc.Comm{}:
               match seen:
                 case True{}:
-                  L.screen.ps.absurdF({Sc.gapless.go(Sc.flush(Sc.Blk{i, Sc.Comm{}, l} <> rest), False{}) == True{} : Bool}, h)
+                  LBoolMisc.screen.ps.absurdF({Sc.gapless.go(Sc.flush(Sc.Blk{i, Sc.Comm{}, l} <> rest), False{}) == True{} : Bool}, h)
                 case False{}:
                   ps.gflush(rest, False{}, h)
             case Sc.Final{}:

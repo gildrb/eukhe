@@ -3,7 +3,7 @@
 import Base
 import ../../bend/replace.bend as Rp
 import ../../laws/replace.bend as Replace
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 # a text no longer than n is its first 1 + n chars
 def fr.take_all(s: String, n: Nat, h: {Nat.is_le(String.length(s), n) == True{} : Bool}) -> {String.take(s, 1n+n) == s : String}:
@@ -13,7 +13,7 @@ def fr.take_all(s: String, n: Nat, h: {Nat.is_le(String.length(s), n) == True{} 
     case SCon{c, t}:
       match n:
         case 0n:
-          L.wr_absurd({String.take(SCon{c, t}, 1n) == SCon{c, t} : String}, h)
+          LBoolMisc.wr_absurd({String.take(SCon{c, t}, 1n) == SCon{c, t} : String}, h)
         case 1n+m:
           Equal.cong(String, String, x => SCon{c, x}, String.take(t, 1n+m), t, fr.take_all(t, m, h))
 
@@ -23,9 +23,9 @@ def fr.take_long(s: String, n: Nat, h: {Nat.is_le(String.length(s), n) == False{
     case SNil{}:
       match n:
         case 0n:
-          L.wr_absurd({Nat.is_le(0n, 0n) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+          LBoolMisc.wr_absurd({Nat.is_le(0n, 0n) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
         case 1n+m:
-          L.wr_absurd({Nat.is_le(0n, 1n+m) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+          LBoolMisc.wr_absurd({Nat.is_le(0n, 1n+m) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
     case SCon{c, t}:
       match n:
         case 0n:

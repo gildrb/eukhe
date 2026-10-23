@@ -11,7 +11,7 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../laws/command.bend as Command
-import ../base.bend as L
+import ../base/command.bend as LCommand
 import ./base.bend as LA
 
 def eor_typed(d: Bool, l: List<&2, Nat>, line: List<&2, Nat>) -> {Cmd.key.typed(d, l, line) == Command.cmd_enter.typed(d, l, line) : Cmd.Out}:
@@ -45,7 +45,7 @@ def eor_pick(e: Cmd.Ent, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, +p: List<&
     case Cmd.Ent{+pp, +a, +r, f, +g}:
       %LA.cb_lows(p) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(Command.cmd_eq(_, Command.cmd_last(pp)), Command.cmd_in(_, a)), Command.cmd_has_kid(t, pp), r, g, Command.cmd_render(pp), line) : Cmd.Out}
       %LA.cb_last(pp) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(Command.cmd_eq(Cmd.lows(p), _), Command.cmd_in(Cmd.lows(p), a)), Command.cmd_has_kid(t, pp), r, g, Command.cmd_render(pp), line) : Cmd.Out}
-      %L.cb_same(Cmd.lows(p), Cmd.last(pp)) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(_, Command.cmd_in(Cmd.lows(p), a)), Command.cmd_has_kid(t, pp), r, g, Command.cmd_render(pp), line) : Cmd.Out}
+      %LCommand.cb_same(Cmd.lows(p), Cmd.last(pp)) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(_, Command.cmd_in(Cmd.lows(p), a)), Command.cmd_has_kid(t, pp), r, g, Command.cmd_render(pp), line) : Cmd.Out}
       %LA.cb_has(a, Cmd.lows(p)) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(Cmd.same(Cmd.lows(p), Cmd.last(pp)), _), Command.cmd_has_kid(t, pp), r, g, Command.cmd_render(pp), line) : Cmd.Out}
       %LA.cb_kids_any(t, pp) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(Cmd.same(Cmd.lows(p), Cmd.last(pp)), Cmd.has(a, Cmd.lows(p))), _, r, g, Command.cmd_render(pp), line) : Cmd.Out}
       %LA.cb_join(pp) : {Cmd.key.pick(Cmd.Enter{}, Cmd.Ent{pp, a, r, f, g}, t, line, p) == Command.cmd_enter.at(Bool.or(Cmd.same(Cmd.lows(p), Cmd.last(pp)), Cmd.has(a, Cmd.lows(p))), Cmd.kids.any(t, pp), r, g, _, line) : Cmd.Out}

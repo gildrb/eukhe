@@ -3,7 +3,8 @@
 import Base
 import ../../bend/director.bend as Dr
 import ../../laws/director.bend as Director
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/run.bend as LRun
 import ./base.bend as LA
 
 # a Lead that stays is a Defer, whatever the decision does with leads
@@ -72,7 +73,7 @@ def pd.goon_end(n: Nat, +t1: List<&2, Dr.Layer>, +t2: List<&2, Dr.Layer>, +s: Li
     case 0n:
       Equal.cong(List<&2, Dr.Layer>, Dr.Loop, k => Dr.Loop{0n, k, Some{Dr.Hand{}}}, Dr.kept(s, vs1, cap), Dr.kept(s, vs2, cap), ek)
     case 1n+m:
-      L.tree.pt.absurdF({Dr.go.on(1n+m, t1, s, vs1, cap) == Dr.go.on(1n+m, t2, s, vs2, cap) : Dr.Loop}, ends)
+      LBoolMisc.tree.pt.absurdF({Dr.go.on(1n+m, t1, s, vs1, cap) == Dr.go.on(1n+m, t2, s, vs2, cap) : Dr.Loop}, ends)
 
 # a settle that ends reads only the outcome and the kept stack
 def pd.settle_end1(o1: Dr.Out, +t1: List<&2, Dr.Layer>, d2: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +vs3: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(Dr.Dec{o1, t1}) == Dr.Dec.out(d2) : Dr.Out}, +ek: {Dr.kept(s, vs1, cap) == Dr.kept(s, vs2, cap) : List<&2, Dr.Layer>}, ends: {Dr.ended(Dr.settle(Dr.Dec{o1, t1}, n, s, vs3, cap)) == True{} : Bool}) -> {Dr.settle(Dr.Dec{o1, t1}, n, s, vs1, cap) == Dr.settle(d2, n, s, vs2, cap) : Dr.Loop}:
@@ -118,7 +119,7 @@ def pd.ends_eq(-d1: Dr.Dec, -d2: Dr.Dec, e: {d1 == d2 : Dr.Dec}, +n: Nat, +s: Li
   %Equal.sym(Dr.Dec, d1, d2, e) : {Dr.ended(Dr.settle(_, n, s, vs, cap)) == True{} : Bool}
   h
 
-def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, L.ends):
+def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, LRun.ends):
   match l:
     case Dr.Loop{+n, +s, e}:
       match e:
@@ -130,7 +131,7 @@ def Director.dir_lead_stays_when_the_loop_ends(cap, l, vs, L.ends):
           +E = Dr.decide.go(s, vs, r, True{})
           +eo = Equal.trans(Dr.Out, Dr.Dec.out(D), Dr.Dec.out(E), Dr.Dec.out(Dr.decide.go(s, Df, r, False{})), Equal.sym(Dr.Out, Dr.Dec.out(E), Dr.Dec.out(D), pd.out_stay(s, vs, r)), Equal.cong(Dr.Dec, Dr.Out, d => Dr.Dec.out(d), E, Dr.decide.go(s, Df, r, False{}), pd.defer_as(s, vs, r, False{})))
           +ek = Equal.cong(Dr.Dec, List<&2, Dr.Layer>, d => Dr.Dec.stack(d), E, Dr.decide.go(s, Df, r, True{}), pd.defer_as(s, vs, r, True{}))
-          +ends2 = pd.ends_eq(D, Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{}), n, s, L, cap, L.ends)
+          +ends2 = pd.ends_eq(D, Dr.decide.go(s, L, r, False{}), LA.pd.leave_as(s, vs, r, False{}), n, s, L, cap, LRun.ends)
           pd.settle_end(Dr.decide(s, vs, cap), Dr.decide(s, Df, cap), n, s, vs, Df, L, cap, eo, ek, ends2)
         case Some{x}:
           {==}

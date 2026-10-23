@@ -7,7 +7,8 @@ import ../../bend/wire.bend as Wr
 import ../../laws/doc_lines.bend as DocLines
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/wire.bend as LWire
 
 # ==== lines codec ====
 
@@ -62,12 +63,12 @@ def fln_runs_put(+xs: List<&2, Dl.Run>, -rest: String) -> {Wr.put_list(~Dl.Run, 
 def fln_runs_loop(+t: List<&2, Dl.Run>, +x: Dl.Run, +rest: String, +hf: {DocLines.lines.RunsFit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Dl.Run, ~Fdl.get_run, List.length(&2, Dl.Run, t), Fdl.get_run(Fdl.put_run(x, fln_runs_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Dl.Run>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<Dl.Run>, Fdl.get_run(Fdl.put_run(x, rest)), Wr.Got{x, rest}, fln_run(x, rest, L.wr_and_l(DocLines.lines.RunFit(x), True{}, hf))) : {Wr.get_list.go(~Dl.Run, ~Fdl.get_run, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Dl.Run>>}
+      %Equal.sym(Wr.Dec<Dl.Run>, Fdl.get_run(Fdl.put_run(x, rest)), Wr.Got{x, rest}, fln_run(x, rest, LBoolAnd.wr_and_l(DocLines.lines.RunFit(x), True{}, hf))) : {Wr.get_list.go(~Dl.Run, ~Fdl.get_run, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Dl.Run>>}
       {==}
     case Con{+y, +u}:
       +r2 = Fdl.put_run(y, fln_runs_items(u, rest))
-      %Equal.sym(Wr.Dec<Dl.Run>, Fdl.get_run(Fdl.put_run(x, r2)), Wr.Got{x, r2}, fln_run(x, r2, L.wr_and_l(DocLines.lines.RunFit(x), DocLines.lines.RunsFit(y <> u), hf))) : {Wr.get_list.go(~Dl.Run, ~Fdl.get_run, 1n+List.length(&2, Dl.Run, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dl.Run>>}
-      %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list.go(~Dl.Run, ~Fdl.get_run, List.length(&2, Dl.Run, u), Fdl.get_run(r2)), Wr.Got{y <> u, rest}, fln_runs_loop(u, y, rest, L.wr_and_r(DocLines.lines.RunFit(x), DocLines.lines.RunsFit(y <> u), hf))) : {Wr.get_list.cons(Dl.Run, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dl.Run>>}
+      %Equal.sym(Wr.Dec<Dl.Run>, Fdl.get_run(Fdl.put_run(x, r2)), Wr.Got{x, r2}, fln_run(x, r2, LBoolAnd.wr_and_l(DocLines.lines.RunFit(x), DocLines.lines.RunsFit(y <> u), hf))) : {Wr.get_list.go(~Dl.Run, ~Fdl.get_run, 1n+List.length(&2, Dl.Run, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dl.Run>>}
+      %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list.go(~Dl.Run, ~Fdl.get_run, List.length(&2, Dl.Run, u), Fdl.get_run(r2)), Wr.Got{y <> u, rest}, fln_runs_loop(u, y, rest, LBoolAnd.wr_and_r(DocLines.lines.RunFit(x), DocLines.lines.RunsFit(y <> u), hf))) : {Wr.get_list.cons(Dl.Run, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dl.Run>>}
       {==}
 
 # a list of runs reads back
@@ -85,7 +86,7 @@ def fln_runs(+xs: List<&2, Dl.Run>, +rest: String, hl: {LawsBase.wire_fits(List.
 # the entry reads a request back and answers the model's separators
 def fln_entry(+rs: List<&2, Dl.Run>, +c: Dl.End, +h: {DocLines.lines.WireFits(rs) == True{} : Bool}) -> {Fdl.ffi(Fdl.put_req(rs, c, "")) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}:
   +tail = Fdl.put_end(c, "")
-  %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list(~Dl.Run, ~Fdl.get_run, Wr.put_list(~Dl.Run, ~Fdl.put_run, rs, tail)), Wr.Got{rs, tail}, fln_runs(rs, tail, L.wr_and_l(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h), L.wr_and_r(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h))) : {Fdl.run.runs(_) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
+  %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list(~Dl.Run, ~Fdl.get_run, Wr.put_list(~Dl.Run, ~Fdl.put_run, rs, tail)), Wr.Got{rs, tail}, fln_runs(rs, tail, LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h), LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h))) : {Fdl.run.runs(_) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
   %Equal.sym(Wr.Dec<Dl.End>, Fdl.get_end(tail), Wr.Got{c, ""}, fln_end(c, "")) : {Fdl.run.carry(rs, _) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
   {==}
 

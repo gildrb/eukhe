@@ -3,9 +3,9 @@
 import Base
 import ../../bend/cron.bend as Cr
 import ../../laws/cron.bend as Cron
-import ./base.bend as LA
+import ./base/cron.bend as LACron
 
-def pc.g_ends(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j)) -> Cr.Ends(j):
+def pc.g_ends(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LACron.pc.G(c, dead, j)) -> Cr.Ends(j):
   match j:
     case Cr.Job{i, +s, +st, +nx, k, cl, +rs, +ss, h}:
       (h1, g2) = g
@@ -16,7 +16,7 @@ def pc.g_ends(+c: Nat, +dead: List<&2, Nat>, j: Cr.Job, g: LA.pc.G(c, dead, j)) 
       (h6, h7) = g6
       h7
 
-def pc.all_ends(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.AllG(c, dead, rs)) -> Cr.EndsAll(rs):
+def pc.all_ends(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LACron.pc.AllG(c, dead, rs)) -> Cr.EndsAll(rs):
   match rs:
     case Nil{}:
       Unit{}
@@ -28,13 +28,13 @@ def pc.all_ends(+c: Nat, +dead: List<&2, Nat>, rs: List<&2, Cr.Rec>, g: LA.pc.Al
         case Cr.Raw{x}:
           pc.all_ends(c, dead, t, g)
 
-def pc.ends_of(s: Cr.S, inv: LA.pc.Inv(s)) -> Cr.EndsAll(Cr.S.recs(s)):
+def pc.ends_of(s: Cr.S, inv: LACron.pc.Inv(s)) -> Cr.EndsAll(Cr.S.recs(s)):
   match s:
     case Cr.S{b, rs, rd, +dead, +c, n, a}:
       pc.all_ends(c, dead, rs, inv)
 
 def pc.cron_once_finished_after_end(+evs: List<&2, Cr.Ev>) -> Cr.EndsAll(Cr.S.recs(Cr.run(evs))):
-  pc.ends_of(Cr.run(evs), LA.pc.inv_run(evs))
+  pc.ends_of(Cr.run(evs), LACron.pc.inv_run(evs))
 
 def Cron.cron_once_finished_after_end(evs):
   pc.cron_once_finished_after_end(evs)

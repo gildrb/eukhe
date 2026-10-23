@@ -3,14 +3,15 @@
 import Base
 import ../../bend/wire.bend as Wr
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/string.bend as LString
+import ../base/wire.bend as LWire
 import ./wire_nat_exact.bend as PWireNatExact
 
 # what the item loop's answer says about its input s (m + 1 items)
 def wr_pl(s: String, m: Nat, d: Wr.Dec<List<&2, Nat>>) -> Type:
   match d:
     case Wr.Got{+xs, r}:
-      {s == L.wr_items(xs, r) : String} & {List.length(&2, Nat, xs) == 1n+m : Nat}
+      {s == LString.wr_items(xs, r) : String} & {List.length(&2, Nat, xs) == 1n+m : Nat}
     case Wr.Bad{}:
       Unit
 
@@ -19,8 +20,8 @@ def wr_list_step(-s: String, +x: Nat, +s3: String, -k: Nat, ex: {s == Wr.put_nat
   match d:
     case Wr.Got{+ys, +r}:
       (e1, e2) = ih
-      (Equal.trans(String, s, Wr.put_nat(x, s3), Wr.put_nat(x, L.wr_items(ys, r)), ex,
-          Equal.cong(String, String, z => Wr.put_nat(x, z), s3, L.wr_items(ys, r), e1)),
+      (Equal.trans(String, s, Wr.put_nat(x, s3), Wr.put_nat(x, LString.wr_items(ys, r)), ex,
+          Equal.cong(String, String, z => Wr.put_nat(x, z), s3, LString.wr_items(ys, r), e1)),
         Equal.cong(Nat, Nat, k2 => 1n+k2, List.length(&2, Nat, ys), 1n+k, e2))
     case Wr.Bad{}:
       Unit{}
@@ -52,8 +53,8 @@ def wr_list_conv(+s: String, +s2: String, -m: Nat, en: {s == Wr.put_nat(1n+m, s2
   match d:
     case Wr.Got{+xs, +r}:
       (e1, e2) = pl
-      %Equal.sym(String, Wr.put_list(~Nat, ~Wr.put_nat, xs, r), Wr.put_nat(List.length(&2, Nat, xs), L.wr_items(xs, r)), L.wr_put_list(xs, r)) : {s == _ : String}
-      %Equal.sym(Nat, List.length(&2, Nat, xs), 1n+m, e2) : {s == Wr.put_nat(_, L.wr_items(xs, r)) : String}
+      %Equal.sym(String, Wr.put_list(~Nat, ~Wr.put_nat, xs, r), Wr.put_nat(List.length(&2, Nat, xs), LString.wr_items(xs, r)), LWire.wr_put_list(xs, r)) : {s == _ : String}
+      %Equal.sym(Nat, List.length(&2, Nat, xs), 1n+m, e2) : {s == Wr.put_nat(_, LString.wr_items(xs, r)) : String}
       %e1 : {s == Wr.put_nat(1n+m, _) : String}
       en
     case Wr.Bad{}:

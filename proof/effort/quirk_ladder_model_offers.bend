@@ -2,9 +2,9 @@
 
 import Base
 import ../../laws/effort.bend as Effort
-import ../base.bend as L
+import ../base/fsmode.bend as LFsmode
 
-def Effort.quirk_ladder_model_offers(r, L.explicit, rule, d):
+def Effort.quirk_ladder_model_offers(r, LFsmode.explicit, rule, d):
   match r:
     case True{}:
       {==}

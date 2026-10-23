@@ -3,15 +3,16 @@
 import Base
 import ../../bend/screen.bend as Sc
 import ../../laws/screen.bend as Screen
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 def ps.le_add_r(s: Nat, r: Nat, +n: Nat, h: {Nat.is_le(s, r) == True{} : Bool}) -> {Nat.is_le(s, Nat.add(r, n)) == True{} : Bool}:
   match s r:
     case 0n _:
-      L.ps.le0(Nat.add(r, n))
+      LNatIsLe.ps.le0(Nat.add(r, n))
     case 1n+sp 0n:
-      L.screen.ps.absurdF({Nat.is_le(1n+sp, Nat.add(0n, n)) == True{} : Bool}, h)
+      LBoolMisc.screen.ps.absurdF({Nat.is_le(1n+sp, Nat.add(0n, n)) == True{} : Bool}, h)
     case 1n+sp 1n+rp:
       ps.le_add_r(sp, rp, n, h)
 

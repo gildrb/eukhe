@@ -4,10 +4,10 @@ import Base
 import ../../bend/color.bend as Co
 import ../../bend/theme.bend as T
 import ../../laws/theme.bend as Theme
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 def themes.pt.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  %e : L.themes.pt.BD(_, A, Unit)
+  %e : LBoolMisc.themes.pt.BD(_, A, Unit)
   Unit{}
 
 def themes.pt.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
@@ -38,7 +38,7 @@ def pt.or_false_l(c: Bool, +d: Bool, h: {Bool.or(c, d) == False{} : Bool}) -> {c
 def themes.pt.or_false_r(c: Bool, +d: Bool, h: {Bool.or(c, d) == False{} : Bool}) -> {d == False{} : Bool}:
   match c:
     case True{}:
-      %Equal.sym(Bool, True{}, False{}, h) : L.themes.pt.BD(_, {d == False{} : Bool}, Unit)
+      %Equal.sym(Bool, True{}, False{}, h) : LBoolMisc.themes.pt.BD(_, {d == False{} : Bool}, Unit)
       Unit{}
     case False{}:
       h

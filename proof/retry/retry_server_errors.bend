@@ -3,12 +3,12 @@
 import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
 
 def rp.server(lt: Bool, +s: Nat, e: {lt == False{} : Bool}) -> {R.status.ok.go(lt, s) == True{} : Bool}:
   match lt:
     case True{}:
-      L.rp.absurdT({R.status.ok.go(True{}, s) == True{} : Bool}, e)
+      LBoolMisc.rp.absurdT({R.status.ok.go(True{}, s) == True{} : Bool}, e)
     case False{}:
       {==}
 

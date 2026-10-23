@@ -3,7 +3,7 @@
 import Base
 import ../../bend/progress.bend as Pr
 import ../../laws/progress.bend as Progress
-import ../base.bend as L
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 # Numbers
@@ -90,7 +90,7 @@ def pp.stops(rest: List<&2, List<&2, Nat>>, +seg: List<&2, Nat>, +cap: Nat, +s: 
 
 def pp.goal_stops(+cap: Nat, +s: Nat, +hist: List<&2, Nat>, +seg: List<&2, Nat>, +segs: List<&2, List<&2, Nat>>, r: Pr.Repeats(seg <> segs, hist), long: {Nat.is_le(cap, List.length(&2, List<&2, Nat>, seg <> segs)) == True{} : Bool}) -> {Pr.Goal.stopped(Pr.goal(seg <> segs, cap, hist, Pr.Go{s})) == True{} : Bool}:
   +l = List.length(&2, List<&2, Nat>, segs)
-  pp.stops(segs, seg, cap, s, hist, r, L.child.pc.le_trans(cap, 1n+l, Nat.add(1n+s, l), long, L.child.pc.le_add(s, l)))
+  pp.stops(segs, seg, cap, s, hist, r, LNatIsLe.child.pc.le_trans(cap, 1n+l, Nat.add(1n+s, l), long, LNatIsLe.child.pc.le_add(s, l)))
 
 def Progress.goal_stops_without_progress(cap, s, hist, seg, segs, repeats, long):
   pp.goal_stops(cap, s, hist, seg, segs, repeats, long)

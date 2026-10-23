@@ -3,7 +3,8 @@
 import Base
 import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
-import ./base.bend as LA
+import ./base/admission/misc.bend as LAAdmissionMisc
+import ./base/bool.bend as LABool
 
 # Every ticket ends exactly once
 # ------------------------------
@@ -38,7 +39,7 @@ def ad.end_pre(t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt(t), k)
 def ad.end_app(t: List<&2, Ad.Tk>, -x: Ad.Tk, k: Nat, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(List.append(&2, Ad.Tk, t, [x]), k)) == True{} : Bool}:
   match t:
     case Nil{}:
-      LA.ad.absurd({Ad.ended(Ad.get([x], k)) == True{} : Bool}, e)
+      LABool.ad.absurd({Ad.ended(Ad.get([x], k)) == True{} : Bool}, e)
     case +h <> +r:
       match k:
         case 0n:
@@ -54,7 +55,7 @@ def ad.end_put(t: List<&2, Ad.Tk>, k: Nat, j: Nat, -x: Ad.Sts, e: {Ad.ended(Ad.g
     case Ad.Tk{+c, +s} <> +r:
       match k j:
         case 0n 0n:
-          LA.ad.absurd({Ad.ended(Some{Ad.Tk{c, x}}) == True{} : Bool}, Equal.trans(Bool, False{}, Ad.ended(Some{Ad.Tk{c, s}}), True{}, Equal.sym(Bool, Ad.ended(Some{Ad.Tk{c, s}}), False{}, ne), e))
+          LABool.ad.absurd({Ad.ended(Some{Ad.Tk{c, x}}) == True{} : Bool}, Equal.trans(Bool, False{}, Ad.ended(Some{Ad.Tk{c, s}}), True{}, Equal.sym(Bool, Ad.ended(Some{Ad.Tk{c, s}}), False{}, ne), e))
         case 0n 1n+q:
           e
         case 1n+p 0n:
@@ -95,7 +96,7 @@ def ad.end_rel(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
       e
     case Some{Ad.Tk{+c, Ad.Held{}}}:
       +t2 = Ad.put(ts, j, Ad.Ended{})
-      LA.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Held{}, ej, {==}, e))
+      LAAdmissionMisc.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Held{}, ej, {==}, e))
     case Some{Ad.Tk{+c, Ad.Preempted{}}}:
       ad.end_other(l, ts, k, j, c, Ad.Preempted{}, ej, {==}, e)
     case Some{Ad.Tk{c, Ad.Ended{}}}:
@@ -107,10 +108,10 @@ def ad.end_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
       e
     case Some{Ad.Tk{+c, Ad.Queued{}}}:
       +t2 = Ad.put(ts, j, Ad.Ended{})
-      LA.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Queued{}, ej, {==}, e))
+      LAAdmissionMisc.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Queued{}, ej, {==}, e))
     case Some{Ad.Tk{+c, Ad.Granted{}}}:
       +t2 = Ad.put(ts, j, Ad.Ended{})
-      LA.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Granted{}, ej, {==}, e))
+      LAAdmissionMisc.ad.end_grant_k(Ad.waits(t2), Ad.pick(l, t2), l, t2, k, ad.end_other(l, ts, k, j, c, Ad.Granted{}, ej, {==}, e))
     case Some{Ad.Tk{c, Ad.Held{}}}:
       e
     case Some{Ad.Tk{c, Ad.Preempted{}}}:
@@ -135,7 +136,7 @@ def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Ad.ended(Ad.status(s, k))
         case Ad.Leave{+j}:
           ad.end_lea(Ad.get(ts, j), l, q, ts, j, k, {==}, e)
         case Ad.Limit{+l2, q2}:
-          LA.ad.end_grant_k(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, k, e)
+          LAAdmissionMisc.ad.end_grant_k(Ad.waits(ts), Ad.pick(l2, ts), l2, ts, k, e)
 
 def Admission.admission_ended_stays_ended(s, o, k, e):
   ended_stays_ended(s, o, k, e)

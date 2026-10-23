@@ -13,10 +13,14 @@ import ../../bend/wire.bend as Wr
 import ../../laws/command.bend as Command
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/command.bend as LCommand
+import ../base/list.bend as LList
+import ../base/wire.bend as LWire
 
 def cb_absurd2(-G: Type, e: {True{} == False{} : Bool}) -> G:
-  L.cb_absurd(G, Equal.sym(Bool, True{}, False{}, e))
+  LBoolMisc.cb_absurd(G, Equal.sym(Bool, True{}, False{}, e))
 
 def cb_or_false_l(+a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
   match a:
@@ -37,7 +41,7 @@ def cb_not_true(+a: Bool, e: {Bool.not(a) == True{} : Bool}) -> {a == False{} : 
     case False{}:
       {==}
     case True{}:
-      L.cb_absurd({True{} == False{} : Bool}, e)
+      LBoolMisc.cb_absurd({True{} == False{} : Bool}, e)
 
 # Lists
 # -----
@@ -131,7 +135,7 @@ def cb_lows(w: List<&2, Nat>) -> {Cmd.lows(w) == Command.cmd_lower(w) : List<&2,
 
 # a name is its own lowercase
 def cb_name_low(+w: List<&2, Nat>, h: {Command.cmd_name_ok(w) == True{} : Bool}) -> {Command.cmd_lower(w) == w : List<&2, Nat>}:
-  L.cb_eq(Command.cmd_lower(w), w, L.cb_and_r(Command.cmd_typed(w), Command.cmd_eq(Command.cmd_lower(w), w), h))
+  LList.cb_eq(Command.cmd_lower(w), w, LBoolAnd.cb_and_r(Command.cmd_typed(w), Command.cmd_eq(Command.cmd_lower(w), w), h))
 
 def cb_name_lows(+w: List<&2, Nat>, h: {Command.cmd_name_ok(w) == True{} : Bool}) -> {Cmd.lows(w) == w : List<&2, Nat>}:
   Equal.trans(List<&2, Nat>, Cmd.lows(w), Command.cmd_lower(w), w, cb_lows(w), cb_name_low(w, h))
@@ -140,12 +144,12 @@ def cb_name_lows(+w: List<&2, Nat>, h: {Command.cmd_name_ok(w) == True{} : Bool}
 def cb_typed_spaceless(w: List<&2, Nat>, h: {Command.cmd_typed(w) == True{} : Bool}) -> {Command.cmd_spaceless(w) == True{} : Bool}:
   match w:
     case Nil{}:
-      L.cb_absurd({Command.cmd_spaceless(Nil{}) == True{} : Bool}, h)
+      LBoolMisc.cb_absurd({Command.cmd_spaceless(Nil{}) == True{} : Bool}, h)
     case Con{c, r}:
       h
 
 def cb_name_spaceless(+w: List<&2, Nat>, h: {Command.cmd_name_ok(w) == True{} : Bool}) -> {Command.cmd_spaceless(w) == True{} : Bool}:
-  cb_typed_spaceless(w, L.cb_and_l(Command.cmd_typed(w), Command.cmd_eq(Command.cmd_lower(w), w), h))
+  cb_typed_spaceless(w, LBoolAnd.cb_and_l(Command.cmd_typed(w), Command.cmd_eq(Command.cmd_lower(w), w), h))
 
 # Words
 # -----
@@ -164,9 +168,9 @@ def cb_words_app(w: List<&2, Nat>, -s: List<&2, Nat>, +h: {Command.cmd_spaceless
     case Nil{}:
       {==}
     case Con{+c, +r}:
-      +hc = L.cb_and_l(Bool.not(Nat.is_eq(c, 32n)), Command.cmd_spaceless(r), h)
+      +hc = LBoolAnd.cb_and_l(Bool.not(Nat.is_eq(c, 32n)), Command.cmd_spaceless(r), h)
       %Equal.sym(Bool, Nat.is_eq(c, 32n), False{}, cb_not_true(Nat.is_eq(c, 32n), hc)) : {Cmd.words.at(_, c, Cmd.words(List.append(&2, Nat, r, s))) == Cmd.put_word(c, cb_put(r, Cmd.words(s))) : List<&2, List<&2, Nat>>}
-      %cb_words_app(r, s, L.cb_and_r(Bool.not(Nat.is_eq(c, 32n)), Command.cmd_spaceless(r), h)) : {Cmd.put_word(c, Cmd.words(List.append(&2, Nat, r, s))) == Cmd.put_word(c, _) : List<&2, List<&2, Nat>>}
+      %cb_words_app(r, s, LBoolAnd.cb_and_r(Bool.not(Nat.is_eq(c, 32n)), Command.cmd_spaceless(r), h)) : {Cmd.put_word(c, Cmd.words(List.append(&2, Nat, r, s))) == Cmd.put_word(c, _) : List<&2, List<&2, Nat>>}
       {==}
 
 def cb_put_con(w: List<&2, Nat>, -v: List<&2, Nat>, -rest: List<&2, List<&2, Nat>>) -> {cb_put(w, v <> rest) == List.append(&2, Nat, w, v) <> rest : List<&2, List<&2, Nat>>}:
@@ -183,10 +187,10 @@ def cb_words_sep(rest: List<&2, List<&2, Nat>>, +h: {Command.cmd_all_spaceless(r
     case Nil{}:
       {==}
     case Con{+v, +r}:
-      +hv = L.cb_and_l(Command.cmd_spaceless(v), Command.cmd_all_spaceless(r), h)
+      +hv = LBoolAnd.cb_and_l(Command.cmd_spaceless(v), Command.cmd_all_spaceless(r), h)
       %cb_app_nil(Nat, v) : {Nil{} <> Cmd.words(List.append(&2, Nat, v, Command.cmd_sep(r))) == Nil{} <> (_ <> r) : List<&2, List<&2, Nat>>}
       %cb_put_con(v, Nil{}, r) : {Nil{} <> Cmd.words(List.append(&2, Nat, v, Command.cmd_sep(r))) == Nil{} <> _ : List<&2, List<&2, Nat>>}
-      %cb_words_sep(r, L.cb_and_r(Command.cmd_spaceless(v), Command.cmd_all_spaceless(r), h)) : {Nil{} <> Cmd.words(List.append(&2, Nat, v, Command.cmd_sep(r))) == Nil{} <> cb_put(v, _) : List<&2, List<&2, Nat>>}
+      %cb_words_sep(r, LBoolAnd.cb_and_r(Command.cmd_spaceless(v), Command.cmd_all_spaceless(r), h)) : {Nil{} <> Cmd.words(List.append(&2, Nat, v, Command.cmd_sep(r))) == Nil{} <> cb_put(v, _) : List<&2, List<&2, Nat>>}
       %cb_words_app(v, Command.cmd_sep(r), hv) : {Nil{} <> Cmd.words(List.append(&2, Nat, v, Command.cmd_sep(r))) == Nil{} <> _ : List<&2, List<&2, Nat>>}
       {==}
 
@@ -194,8 +198,8 @@ def cb_words_sep(rest: List<&2, List<&2, Nat>>, +h: {Command.cmd_all_spaceless(r
 def cb_words_render(+x: List<&2, Nat>, +rest: List<&2, List<&2, Nat>>, +h: {Command.cmd_all_spaceless(x <> rest) == True{} : Bool}) -> {Cmd.words(Command.cmd_render(x <> rest)) == x <> rest : List<&2, List<&2, Nat>>}:
   %cb_app_nil(Nat, x) : {Cmd.words(Command.cmd_render(x <> rest)) == _ <> rest : List<&2, List<&2, Nat>>}
   %cb_put_con(x, Nil{}, rest) : {Cmd.words(Command.cmd_render(x <> rest)) == _ : List<&2, List<&2, Nat>>}
-  %cb_words_sep(rest, L.cb_and_r(Command.cmd_spaceless(x), Command.cmd_all_spaceless(rest), h)) : {Cmd.words(Command.cmd_render(x <> rest)) == cb_put(x, _) : List<&2, List<&2, Nat>>}
-  cb_words_app(x, Command.cmd_sep(rest), L.cb_and_l(Command.cmd_spaceless(x), Command.cmd_all_spaceless(rest), h))
+  %cb_words_sep(rest, LBoolAnd.cb_and_r(Command.cmd_spaceless(x), Command.cmd_all_spaceless(rest), h)) : {Cmd.words(Command.cmd_render(x <> rest)) == cb_put(x, _) : List<&2, List<&2, Nat>>}
+  cb_words_app(x, Command.cmd_sep(rest), LBoolAnd.cb_and_l(Command.cmd_spaceless(x), Command.cmd_all_spaceless(rest), h))
 
 # the words of q and then the words of r, spaceless, render to q ++ r
 def cb_words_render_app(q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +more: List<&2, List<&2, Nat>>, h: {Command.cmd_all_spaceless(List.append(&2, List<&2, Nat>, q, w <> more)) == True{} : Bool}) -> {Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, q, w <> more))) == List.append(&2, List<&2, Nat>, q, w <> more) : List<&2, List<&2, Nat>>}:
@@ -210,7 +214,7 @@ def cb_all_spaceless_app(a: List<&2, List<&2, Nat>>, -b: List<&2, List<&2, Nat>>
     case Nil{}:
       hb
     case Con{+w, +r}:
-      L.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(List.append(&2, List<&2, Nat>, r, b)), L.cb_and_l(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), ha), cb_all_spaceless_app(r, b, L.cb_and_r(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), ha), hb))
+      LBoolAnd.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(List.append(&2, List<&2, Nat>, r, b)), LBoolAnd.cb_and_l(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), ha), cb_all_spaceless_app(r, b, LBoolAnd.cb_and_r(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), ha), hb))
 
 # names are spaceless words
 def cb_names_spaceless(ws: List<&2, List<&2, Nat>>, +h: {Command.cmd_names_ok(ws) == True{} : Bool}) -> {Command.cmd_all_spaceless(ws) == True{} : Bool}:
@@ -218,18 +222,18 @@ def cb_names_spaceless(ws: List<&2, List<&2, Nat>>, +h: {Command.cmd_names_ok(ws
     case Nil{}:
       {==}
     case Con{+w, +r}:
-      L.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), cb_name_spaceless(w, L.cb_and_l(Command.cmd_name_ok(w), Command.cmd_names_ok(r), h)), cb_names_spaceless(r, L.cb_and_r(Command.cmd_name_ok(w), Command.cmd_names_ok(r), h)))
+      LBoolAnd.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(r), cb_name_spaceless(w, LBoolAnd.cb_and_l(Command.cmd_name_ok(w), Command.cmd_names_ok(r), h)), cb_names_spaceless(r, LBoolAnd.cb_and_r(Command.cmd_name_ok(w), Command.cmd_names_ok(r), h)))
 
 def cb_names_app_r(a: List<&2, List<&2, Nat>>, -b: List<&2, List<&2, Nat>>, h: {Command.cmd_names_ok(List.append(&2, List<&2, Nat>, a, b)) == True{} : Bool}) -> {Command.cmd_names_ok(b) == True{} : Bool}:
   match a:
     case Nil{}:
       h
     case Con{+w, +r}:
-      cb_names_app_r(r, b, L.cb_and_r(Command.cmd_name_ok(w), Command.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h))
+      cb_names_app_r(r, b, LBoolAnd.cb_and_r(Command.cmd_name_ok(w), Command.cmd_names_ok(List.append(&2, List<&2, Nat>, r, b)), h))
 
 # the last name of a path of names is a name
 def cb_names_last(+q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, h: {Command.cmd_names_ok(List.append(&2, List<&2, Nat>, q, [x])) == True{} : Bool}) -> {Command.cmd_name_ok(x) == True{} : Bool}:
-  L.cb_and_l(Command.cmd_name_ok(x), True{}, cb_names_app_r(q, [x], h))
+  LBoolAnd.cb_and_l(Command.cmd_name_ok(x), True{}, cb_names_app_r(q, [x], h))
 
 # the words before the last, and the last
 def cb_cut_go(ws: List<&2, List<&2, Nat>>, -p: List<&2, Nat>, -w: List<&2, Nat>) -> {Cmd.cut.go(List.append(&2, List<&2, Nat>, ws, [p]), w) == (w <> ws, p) : List<&2, List<&2, Nat>> & List<&2, Nat>}:
@@ -286,7 +290,7 @@ def cb_by_path(t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>) -> {Cmd.by_pat
     case Con{+e, +rest}:
       %cb_by_path(rest, p) : {Cmd.pick(Cmd.same_path(Cmd.Ent.path(e), p), e, Cmd.by_path(rest, p)) == Command.cmd_first.at(Command.cmd_path_eq(Command.cmd_ent_path(e), p), e, _) : Maybe<&2, Cmd.Ent>}
       %cb_ent_path(e) : {Cmd.pick(Cmd.same_path(Cmd.Ent.path(e), p), e, Cmd.by_path(rest, p)) == Command.cmd_first.at(Command.cmd_path_eq(_, p), e, Cmd.by_path(rest, p)) : Maybe<&2, Cmd.Ent>}
-      %L.cb_same_path(Cmd.Ent.path(e), p) : {Cmd.pick(Cmd.same_path(Cmd.Ent.path(e), p), e, Cmd.by_path(rest, p)) == Command.cmd_first.at(_, e, Cmd.by_path(rest, p)) : Maybe<&2, Cmd.Ent>}
+      %LCommand.cb_same_path(Cmd.Ent.path(e), p) : {Cmd.pick(Cmd.same_path(Cmd.Ent.path(e), p), e, Cmd.by_path(rest, p)) == Command.cmd_first.at(_, e, Cmd.by_path(rest, p)) : Maybe<&2, Cmd.Ent>}
       cb_pick(Cmd.same_path(Cmd.Ent.path(e), p), e, Cmd.by_path(rest, p))
 
 def cb_and_false(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
@@ -325,7 +329,7 @@ def cb_kid(q: List<&2, List<&2, Nat>>, p: List<&2, List<&2, Nat>>) -> {Cmd.kid(q
     case Con{+x, +xs} Con{+y, Con{+z, +zs}}:
       %cb_kid(xs, z <> zs) : {Bool.and(Cmd.same(x, y), Cmd.kid(xs, z <> zs)) == Bool.and(Command.cmd_eq(y, x), _) : Bool}
       %cb_eq_sym(x, y) : {Bool.and(Cmd.same(x, y), Cmd.kid(xs, z <> zs)) == Bool.and(_, Cmd.kid(xs, z <> zs)) : Bool}
-      %L.cb_same(x, y) : {Bool.and(Cmd.same(x, y), Cmd.kid(xs, z <> zs)) == Bool.and(_, Cmd.kid(xs, z <> zs)) : Bool}
+      %LCommand.cb_same(x, y) : {Bool.and(Cmd.same(x, y), Cmd.kid(xs, z <> zs)) == Bool.and(_, Cmd.kid(xs, z <> zs)) : Bool}
       {==}
 
 # the model's kids.any is cmd_has_kid
@@ -345,7 +349,7 @@ def cb_has(xs: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> {Cmd.has(xs, x) ==
       {==}
     case Con{+y, +rest}:
       %cb_has(rest, x) : {Bool.or(Cmd.same(x, y), Cmd.has(rest, x)) == Bool.or(Command.cmd_eq(x, y), _) : Bool}
-      %L.cb_same(x, y) : {Bool.or(Cmd.same(x, y), Cmd.has(rest, x)) == Bool.or(_, Cmd.has(rest, x)) : Bool}
+      %LCommand.cb_same(x, y) : {Bool.or(Cmd.same(x, y), Cmd.has(rest, x)) == Bool.or(_, Cmd.has(rest, x)) : Bool}
       {==}
 
 def cb_last_go(p: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.last.go(p, x) == Command.cmd_last.go(p, x) : List<&2, Nat>}:
@@ -419,7 +423,7 @@ def cb_lookup_fits(t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>) -> {cb_fit
 def cb_decl_names_at(b: Bool, +q: List<&2, List<&2, Nat>>, +p: List<&2, List<&2, Nat>>, -e: Cmd.Ent, -m: Maybe<&2, Cmd.Ent>, hb: {Command.cmd_path_eq(q, p) == b : Bool}, hq: {Command.cmd_names_ok(q) == True{} : Bool}, d: {Command.cmd_some(Command.cmd_first.at(b, e, m)) == True{} : Bool}, ih: {Command.cmd_some(m) == True{} : Bool} -> {Command.cmd_names_ok(p) == True{} : Bool}) -> {Command.cmd_names_ok(p) == True{} : Bool}:
   match b:
     case True{}:
-      %L.cb_path_eq(q, p, hb) : {Command.cmd_names_ok(_) == True{} : Bool}
+      %LList.cb_path_eq(q, p, hb) : {Command.cmd_names_ok(_) == True{} : Bool}
       hq
     case False{}:
       ih(d)
@@ -428,10 +432,10 @@ def cb_decl_names_at(b: Bool, +q: List<&2, List<&2, Nat>>, +p: List<&2, List<&2,
 def cb_decl_names(t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +ok: {Command.cmd_wf(t) == True{} : Bool}, d: {Command.cmd_declared(t, p) == True{} : Bool}) -> {Command.cmd_names_ok(p) == True{} : Bool}:
   match t:
     case Nil{}:
-      L.cb_absurd({Command.cmd_names_ok(p) == True{} : Bool}, d)
+      LBoolMisc.cb_absurd({Command.cmd_names_ok(p) == True{} : Bool}, d)
     case Con{Cmd.Ent{+q, +a, +r, +f, +g}, +rest}:
-      +hh = L.cb_and_l(Bool.and(Command.cmd_names_ok(q), Command.cmd_names_ok(a)), Command.cmd_wf(rest), ok)
-      cb_decl_names_at(Command.cmd_path_eq(q, p), q, p, Cmd.Ent{q, a, r, f, g}, Command.cmd_lookup(rest, p), {==}, L.cb_and_l(Command.cmd_names_ok(q), Command.cmd_names_ok(a), hh), d, d2 => cb_decl_names(rest, p, L.cb_and_r(Bool.and(Command.cmd_names_ok(q), Command.cmd_names_ok(a)), Command.cmd_wf(rest), ok), d2))
+      +hh = LBoolAnd.cb_and_l(Bool.and(Command.cmd_names_ok(q), Command.cmd_names_ok(a)), Command.cmd_wf(rest), ok)
+      cb_decl_names_at(Command.cmd_path_eq(q, p), q, p, Cmd.Ent{q, a, r, f, g}, Command.cmd_lookup(rest, p), {==}, LBoolAnd.cb_and_l(Command.cmd_names_ok(q), Command.cmd_names_ok(a), hh), d, d2 => cb_decl_names(rest, p, LBoolAnd.cb_and_r(Bool.and(Command.cmd_names_ok(q), Command.cmd_names_ok(a)), Command.cmd_wf(rest), ok), d2))
 
 # every name of a walked path is a name
 def cb_walks_names(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, ok: {Command.cmd_wf(t) == True{} : Bool}, h: {Command.cmd_walks(t, q) == True{} : Bool}) -> {Command.cmd_names_ok(q) == True{} : Bool}:
@@ -439,11 +443,11 @@ def cb_walks_names(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, ok: {Comma
     case Nil{}:
       {==}
     case Con{+x, +rest}:
-      cb_decl_names(t, x <> rest, ok, L.cb_walks_decl(rest, x, t, Nil{}, h))
+      cb_decl_names(t, x <> rest, ok, LList.cb_walks_decl(rest, x, t, Nil{}, h))
 
 # the words of the line of a walked path q and a spaceless last word p
 def cb_words_last(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +p: List<&2, Nat>, ok: {Command.cmd_wf(t) == True{} : Bool}, on: {Command.cmd_walks(t, q) == True{} : Bool}, hp: {Command.cmd_spaceless(p) == True{} : Bool}) -> {Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, q, [p]))) == List.append(&2, List<&2, Nat>, q, [p]) : List<&2, List<&2, Nat>>}:
-  cb_words_render_app(q, p, Nil{}, cb_all_spaceless_app(q, [p], cb_names_spaceless(q, cb_walks_names(t, q, ok, on)), L.cb_and_intro(Command.cmd_spaceless(p), True{}, hp, {==})))
+  cb_words_render_app(q, p, Nil{}, cb_all_spaceless_app(q, [p], cb_names_spaceless(q, cb_walks_names(t, q, ok, on)), LBoolAnd.cb_and_intro(Command.cmd_spaceless(p), True{}, hp, {==})))
 
 # ... and its cut: the path, and the last word
 def cb_cut_last(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +p: List<&2, Nat>, ok: {Command.cmd_wf(t) == True{} : Bool}, on: {Command.cmd_walks(t, q) == True{} : Bool}, hp: {Command.cmd_spaceless(p) == True{} : Bool}) -> {Cmd.cut(Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, q, [p])))) == (q, p) : List<&2, List<&2, Nat>> & List<&2, Nat>}:
@@ -489,15 +493,15 @@ def cb_walks_at(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, h: {Command.c
     case Nil{}:
       {==}
     case Con{+x, +rest}:
-      L.cb_walks_decl(rest, x, t, Nil{}, h)
+      LList.cb_walks_decl(rest, x, t, Nil{}, h)
 
 def cb_found(+e: Cmd.Ent, +p: List<&2, List<&2, Nat>>, h: {Command.cmd_path_eq(Command.cmd_ent_path(e), p) == True{} : Bool}) -> {Cmd.Ent.path(e) == p : List<&2, List<&2, Nat>>}:
-  Equal.trans(List<&2, List<&2, Nat>>, Cmd.Ent.path(e), Command.cmd_ent_path(e), p, cb_ent_path(e), L.cb_path_eq(Command.cmd_ent_path(e), p, h))
+  Equal.trans(List<&2, List<&2, Nat>>, Cmd.Ent.path(e), Command.cmd_ent_path(e), p, cb_ent_path(e), LList.cb_path_eq(Command.cmd_ent_path(e), p, h))
 
 def cb_land_walk(m: Maybe<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -f: Bool, -w: List<&2, Nat>, +p: List<&2, List<&2, Nat>>, hs: {Command.cmd_some(m) == True{} : Bool}, hf: {cb_fits(m, p) == True{} : Bool}) -> {Cmd.step.walk(m, q, f, w) == cb_st.of(m, p) : Cmd.St}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.step.walk(None{}, q, f, w) == cb_st.of(None{}, p) : Cmd.St}, hs)
+      LBoolMisc.cb_absurd({Cmd.step.walk(None{}, q, f, w) == cb_st.of(None{}, p) : Cmd.St}, hs)
     case Some{+e}:
       %cb_found(e, p, hf) : {Cmd.Walk{Cmd.Ent.path(e), e} == Cmd.Walk{_, e} : Cmd.St}
       {==}
@@ -505,7 +509,7 @@ def cb_land_walk(m: Maybe<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -f: Bool, -
 def cb_land_top(m: Maybe<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, hs: {Command.cmd_some(m) == True{} : Bool}, hf: {cb_fits(m, p) == True{} : Bool}) -> {Cmd.step.top(m) == cb_st.of(m, p) : Cmd.St}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.step.top(None{}) == cb_st.of(None{}, p) : Cmd.St}, hs)
+      LBoolMisc.cb_absurd({Cmd.step.top(None{}) == cb_st.of(None{}, p) : Cmd.St}, hs)
     case Some{+e}:
       %cb_found(e, p, hf) : {Cmd.Walk{Cmd.Ent.path(e), e} == Cmd.Walk{_, e} : Cmd.St}
       {==}
@@ -513,7 +517,7 @@ def cb_land_top(m: Maybe<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, hs: {Command
 def cb_alias_some(m: Maybe<&2, Cmd.Ent>, -t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>, h: {Command.cmd_some(m) == True{} : Bool}) -> {Cmd.search.alias(m, t, q, x) == m : Maybe<&2, Cmd.Ent>}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.search.alias(None{}, t, q, x) == None{} : Maybe<&2, Cmd.Ent>}, h)
+      LBoolMisc.cb_absurd({Cmd.search.alias(None{}, t, q, x) == None{} : Maybe<&2, Cmd.Ent>}, h)
     case Some{e}:
       {==}
 
@@ -537,17 +541,17 @@ def cb_search_miss(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<
 def cb_step_word(w: List<&2, Nat>, -s: Cmd.St, -t: List<&2, Cmd.Ent>, h: {Command.cmd_typed(w) == True{} : Bool}) -> {Cmd.step(s, t, w) == Cmd.step.word(s, t, w) : Cmd.St}:
   match w:
     case Nil{}:
-      L.cb_absurd({Cmd.step(s, t, Nil{}) == Cmd.step.word(s, t, Nil{}) : Cmd.St}, h)
+      LBoolMisc.cb_absurd({Cmd.step(s, t, Nil{}) == Cmd.step.word(s, t, Nil{}) : Cmd.St}, h)
     case Con{c, r}:
       {==}
 
 def cb_step_walk(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, hs: {Command.cmd_some(m) == True{} : Bool}, +hx: {Command.cmd_name_ok(x) == True{} : Bool}, +d: {Command.cmd_declared(t, List.append(&2, List<&2, Nat>, q, [x])) == True{} : Bool}) -> {Cmd.step(cb_st.of(m, q), t, x) == cb_st.of(Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [x])), List.append(&2, List<&2, Nat>, q, [x])) : Cmd.St}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.step(cb_st.of(None{}, q), t, x) == cb_st.of(Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [x])), List.append(&2, List<&2, Nat>, q, [x])) : Cmd.St}, hs)
+      LBoolMisc.cb_absurd({Cmd.step(cb_st.of(None{}, q), t, x) == cb_st.of(Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [x])), List.append(&2, List<&2, Nat>, q, [x])) : Cmd.St}, hs)
     case Some{+e}:
       +qx = List.append(&2, List<&2, Nat>, q, [x])
-      %Equal.sym(Cmd.St, Cmd.step(Cmd.Walk{q, e}, t, x), Cmd.step.word(Cmd.Walk{q, e}, t, x), cb_step_word(x, Cmd.Walk{q, e}, t, L.cb_and_l(Command.cmd_typed(x), Command.cmd_eq(Command.cmd_lower(x), x), hx))) : {_ == cb_st.of(Command.cmd_lookup(t, qx), qx) : Cmd.St}
+      %Equal.sym(Cmd.St, Cmd.step(Cmd.Walk{q, e}, t, x), Cmd.step.word(Cmd.Walk{q, e}, t, x), cb_step_word(x, Cmd.Walk{q, e}, t, LBoolAnd.cb_and_l(Command.cmd_typed(x), Command.cmd_eq(Command.cmd_lower(x), x), hx))) : {_ == cb_st.of(Command.cmd_lookup(t, qx), qx) : Cmd.St}
       %Equal.sym(Maybe<&2, Cmd.Ent>, Cmd.search(t, q, Cmd.lows(x)), Command.cmd_lookup(t, qx), cb_search_hit(t, q, x, x, cb_name_lows(x, hx), d)) : {Cmd.step.walk(_, q, Cmd.Ent.free(e), x) == cb_st.of(Command.cmd_lookup(t, qx), qx) : Cmd.St}
       cb_land_walk(Command.cmd_lookup(t, qx), q, Cmd.Ent.free(e), x, qx, d, cb_lookup_fits(t, qx))
 
@@ -557,7 +561,7 @@ def cb_step(+t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>
   match q:
     case Nil{}:
       +hx = cb_names_last(Nil{}, x, cb_decl_names(t, [x], ok, d))
-      %Equal.sym(Cmd.St, Cmd.step(Cmd.Top{}, t, x), Cmd.step.word(Cmd.Top{}, t, x), cb_step_word(x, Cmd.Top{}, t, L.cb_and_l(Command.cmd_typed(x), Command.cmd_eq(Command.cmd_lower(x), x), hx))) : {_ == cb_st.of(Command.cmd_lookup(t, [x]), [x]) : Cmd.St}
+      %Equal.sym(Cmd.St, Cmd.step(Cmd.Top{}, t, x), Cmd.step.word(Cmd.Top{}, t, x), cb_step_word(x, Cmd.Top{}, t, LBoolAnd.cb_and_l(Command.cmd_typed(x), Command.cmd_eq(Command.cmd_lower(x), x), hx))) : {_ == cb_st.of(Command.cmd_lookup(t, [x]), [x]) : Cmd.St}
       %Equal.sym(Maybe<&2, Cmd.Ent>, Cmd.search(t, Nil{}, Cmd.lows(x)), Command.cmd_lookup(t, [x]), cb_search_hit(t, Nil{}, x, x, cb_name_lows(x, hx), d)) : {Cmd.step.top(_) == cb_st.of(Command.cmd_lookup(t, [x]), [x]) : Cmd.St}
       cb_land_top(Command.cmd_lookup(t, [x]), [x], d, cb_lookup_fits(t, [x]))
     case Con{+y, +ys}:
@@ -574,10 +578,10 @@ def cb_walk(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +q: List<&2, List
       {==}
     case Con{+x, +more}:
       +qx = List.append(&2, List<&2, Nat>, q, [x])
-      +d = L.cb_and_l(Command.cmd_declared(t, qx), Command.cmd_walks.go(more, t, qx), h)
+      +d = LBoolAnd.cb_and_l(Command.cmd_declared(t, qx), Command.cmd_walks.go(more, t, qx), h)
       %Equal.sym(Cmd.St, Cmd.step(cb_st(t, q), t, x), cb_st(t, qx), cb_step(t, q, x, ok, at, d)) : {Cmd.walk(more, t, _) == cb_st(t, List.append(&2, List<&2, Nat>, q, x <> more)) : Cmd.St}
-      %L.cb_app_assoc(List<&2, Nat>, q, [x], more) : {Cmd.walk(more, t, cb_st(t, qx)) == cb_st(t, _) : Cmd.St}
-      cb_walk(more, t, qx, ok, cb_at_app(t, q, x, d), L.cb_and_r(Command.cmd_declared(t, qx), Command.cmd_walks.go(more, t, qx), h))
+      %LList.cb_app_assoc(List<&2, Nat>, q, [x], more) : {Cmd.walk(more, t, cb_st(t, qx)) == cb_st(t, _) : Cmd.St}
+      cb_walk(more, t, qx, ok, cb_at_app(t, q, x, d), LBoolAnd.cb_and_r(Command.cmd_declared(t, qx), Command.cmd_walks.go(more, t, qx), h))
 
 # the walk of a walked path from the root lands on its state
 def cb_walk_root(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, ok: {Command.cmd_wf(t) == True{} : Bool}, h: {Command.cmd_walks(t, r) == True{} : Bool}) -> {Cmd.walk(r, t, Cmd.Top{}) == cb_st(t, r) : Cmd.St}:
@@ -607,7 +611,7 @@ def cb_walk_rest(r: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +q: List<&2,
     case Con{+w, +more}:
       +ww = List.append(&2, List<&2, Nat>, ws, [w])
       %Equal.sym(Cmd.St, Cmd.step(Cmd.Rest{q, ws}, t, w), Cmd.Rest{q, ww}, cb_step_rest(w, t, q, ws)) : {Cmd.walk(more, t, _) == Cmd.Rest{q, List.append(&2, List<&2, Nat>, ws, w <> more)} : Cmd.St}
-      %L.cb_app_assoc(List<&2, Nat>, ws, [w], more) : {Cmd.walk(more, t, Cmd.Rest{q, ww}) == Cmd.Rest{q, _} : Cmd.St}
+      %LList.cb_app_assoc(List<&2, Nat>, ws, [w], more) : {Cmd.walk(more, t, Cmd.Rest{q, ww}) == Cmd.Rest{q, _} : Cmd.St}
       cb_walk_rest(more, t, q, ww)
 
 def cb_step_lost(w: List<&2, Nat>, -t: List<&2, Cmd.Ent>, -q: List<&2, List<&2, Nat>>, -x: List<&2, Nat>) -> {Cmd.step(Cmd.Lost{q, x}, t, w) == Cmd.Lost{q, x} : Cmd.St}:
@@ -654,7 +658,7 @@ def cb_miss(t: List<&2, Cmd.Ent>, q: List<&2, List<&2, Nat>>, w: List<&2, Nat>) 
 def cb_miss_walk(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, hs: {Command.cmd_some(m) == True{} : Bool}, hw: {Command.cmd_typed(w) == True{} : Bool}, miss: {Command.cmd_takes(t, q, Command.cmd_lower(w)) == False{} : Bool}) -> {Cmd.step(cb_st.of(m, q), t, w) == Cmd.step.miss(Command.cmd_free.of(m), q, w) : Cmd.St}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.step(cb_st.of(None{}, q), t, w) == Cmd.step.miss(Command.cmd_free.of(None{}), q, w) : Cmd.St}, hs)
+      LBoolMisc.cb_absurd({Cmd.step(cb_st.of(None{}, q), t, w) == Cmd.step.miss(Command.cmd_free.of(None{}), q, w) : Cmd.St}, hs)
     case Some{Cmd.Ent{+p, +a, +r, +f, +g}}:
       %Equal.sym(Cmd.St, Cmd.step(Cmd.Walk{q, Cmd.Ent{p, a, r, f, g}}, t, w), Cmd.step.word(Cmd.Walk{q, Cmd.Ent{p, a, r, f, g}}, t, w), cb_step_word(w, Cmd.Walk{q, Cmd.Ent{p, a, r, f, g}}, t, hw)) : {_ == Cmd.step.miss(f, q, w) : Cmd.St}
       %Equal.sym(Maybe<&2, Cmd.Ent>, Cmd.search(t, q, Cmd.lows(w)), None{}, cb_search_miss(t, q, w, Command.cmd_lower(w), cb_lows(w), miss)) : {Cmd.step.walk(_, q, f, w) == Cmd.step.miss(f, q, w) : Cmd.St}
@@ -682,7 +686,7 @@ def cb_walk_miss(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2
 # the same from the line of those words (all spaceless)
 def cb_line_miss(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +more: List<&2, List<&2, Nat>>, +ok: {Command.cmd_wf(t) == True{} : Bool}, +on: {Command.cmd_walks(t, q) == True{} : Bool}, +word: {Command.cmd_typed(w) == True{} : Bool}, after: {Command.cmd_all_spaceless(more) == True{} : Bool}, miss: {Command.cmd_takes(t, q, Command.cmd_lower(w)) == False{} : Bool}) -> {Cmd.walk(Cmd.words(Command.cmd_render(List.append(&2, List<&2, Nat>, q, w <> more))), t, Cmd.Top{}) == Cmd.walk(more, t, cb_miss(t, q, w)) : Cmd.St}:
   +line = List.append(&2, List<&2, Nat>, q, w <> more)
-  +hs = cb_all_spaceless_app(q, w <> more, cb_names_spaceless(q, cb_walks_names(t, q, ok, on)), L.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(more), cb_typed_spaceless(w, word), after))
+  +hs = cb_all_spaceless_app(q, w <> more, cb_names_spaceless(q, cb_walks_names(t, q, ok, on)), LBoolAnd.cb_and_intro(Command.cmd_spaceless(w), Command.cmd_all_spaceless(more), cb_typed_spaceless(w, word), after))
   %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(Command.cmd_render(line)), line, cb_words_render_app(q, w, more, hs)) : {Cmd.walk(_, t, Cmd.Top{}) == Cmd.walk(more, t, cb_miss(t, q, w)) : Cmd.St}
   cb_walk_miss(t, q, w, more, ok, on, word, miss)
 
@@ -691,7 +695,7 @@ def cb_line_miss(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2
 def kr_st_of(m: Maybe<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +line: List<&2, Nat>, p: List<&2, Nat>, sel: Cmd.Sel, k: Cmd.Press, s: {Command.cmd_some(m) == True{} : Bool}) -> {Cmd.key.row(Cmd.row(sel, t, q), k, t, line, p) == Cmd.key.at(cb_st.of(m, q), t, line, p, sel, k) : Cmd.Out}:
   match m:
     case None{}:
-      L.cb_absurd({Cmd.key.row(Cmd.row(sel, t, q), k, t, line, p) == Cmd.key.at(cb_st.of(None{}, q), t, line, p, sel, k) : Cmd.Out}, s)
+      LBoolMisc.cb_absurd({Cmd.key.row(Cmd.row(sel, t, q), k, t, line, p) == Cmd.key.at(cb_st.of(None{}, q), t, line, p, sel, k) : Cmd.Out}, s)
     case Some{e}:
       {==}
 
@@ -703,7 +707,7 @@ def kr_walked(q: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +line: List<&2,
       {==}
     case Con{+x, +rest}:
       %Equal.sym(Cmd.St, Cmd.walk(x <> rest, t, Cmd.Top{}), cb_st(t, x <> rest), cb_walk_root(x <> rest, t, ok, on)) : {Cmd.key.row(Cmd.row(sel, t, x <> rest), k, t, line, p) == Cmd.key.at(_, t, line, p, sel, k) : Cmd.Out}
-      kr_st_of(Command.cmd_lookup(t, x <> rest), x <> rest, t, line, p, sel, k, L.cb_walks_decl(rest, x, t, Nil{}, on))
+      kr_st_of(Command.cmd_lookup(t, x <> rest), x <> rest, t, line, p, sel, k, LList.cb_walks_decl(rest, x, t, Nil{}, on))
 
 # the line q p: Tab or Enter answers through the row of the selection at q
 def kr_key(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +p: List<&2, Nat>, sel: Cmd.Sel, k: Cmd.Press, +ok: {Command.cmd_wf(t) == True{} : Bool}, +on: {Command.cmd_walks(t, q) == True{} : Bool}, word: {Command.cmd_spaceless(p) == True{} : Bool}) -> {Cmd.key.row(Cmd.row(sel, t, q), k, t, Command.cmd_render(List.append(&2, List<&2, Nat>, q, [p])), p) == Cmd.key(t, Command.cmd_render(List.append(&2, List<&2, Nat>, q, [p])), sel, k) : Cmd.Out}:
@@ -749,11 +753,11 @@ def cfr_ss_put(+xs: List<&2, String>, -rest: String) -> {Wr.put_list(~String, ~W
 def cfr_ss_go_rt(+t: List<&2, String>, +x: String, +rest: String, +hf: {Command.cmd_strs_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, t), Wr.get_str(Wr.put_str(x, cfr_ss_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, String>>}:
   match t:
     case Nil{}:
-      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Wire.wire_str_round_trip(x, rest, L.wr_and_l(LawsBase.wire_fits(String.length(x)), True{}, hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Wire.wire_str_round_trip(x, rest, LBoolAnd.wr_and_l(LawsBase.wire_fits(String.length(x)), True{}, hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, String>>}
       {==}
     case Con{+y, +u}:
-      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{x, Wr.put_str(y, cfr_ss_items(u, rest))}, Wire.wire_str_round_trip(x, Wr.put_str(y, cfr_ss_items(u, rest)), L.wr_and_l(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 1n+List.length(&2, String, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
-      %Equal.sym(Wr.Dec<List<&2, String>>, Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, u), Wr.get_str(Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{y <> u, rest}, cfr_ss_go_rt(u, y, rest, L.wr_and_r(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.cons(String, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{x, Wr.put_str(y, cfr_ss_items(u, rest))}, Wire.wire_str_round_trip(x, Wr.put_str(y, cfr_ss_items(u, rest)), LBoolAnd.wr_and_l(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 1n+List.length(&2, String, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<List<&2, String>>, Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, u), Wr.get_str(Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{y <> u, rest}, cfr_ss_go_rt(u, y, rest, LBoolAnd.wr_and_r(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.cons(String, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
       {==}
 
 # a list of strings that fits reads back
@@ -766,5 +770,5 @@ def cfr_strs_rt(+xs: List<&2, String>, +rest: String, h: {Command.cmd_strs_fit(x
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~String, ~Wr.put_str, x <> t, r), Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)), cfr_ss_put(x <> t, r)) : {Wr.get_list(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r))), Wr.Got{List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r), L.wr_and_l(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
-      cfr_ss_go_rt(t, x, r, L.wr_and_r(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r))), Wr.Got{List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r), LBoolAnd.wr_and_l(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
+      cfr_ss_go_rt(t, x, r, LBoolAnd.wr_and_r(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))

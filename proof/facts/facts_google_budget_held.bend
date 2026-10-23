@@ -3,7 +3,8 @@
 import Base
 import ../../bend/facts.bend as Fx
 import ../../laws/facts.bend as Facts
-import ../base.bend as L
+import ../base/bool/misc.bend as LBoolMisc
+import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
 
 def w2.cong1(-a: Nat, -b: Nat, e: {a == b : Nat}) -> {1n+a == 1n+b : Nat}:
@@ -15,7 +16,7 @@ def w2.max_l(+a: Nat, +y: Nat, h: {Nat.is_le(y, a) == True{} : Bool}) -> {Nat.ma
     case 0n 0n:
       {==}
     case 0n 1n+q:
-      L.pq.absurdF({1n+q == 0n : Nat}, h)
+      LBoolMisc.pq.absurdF({1n+q == 0n : Nat}, h)
     case 1n+p 0n:
       {==}
     case 1n+p 1n+q:
@@ -26,7 +27,7 @@ def w2.max_r(+a: Nat, +y: Nat, h: {Nat.is_le(a, y) == True{} : Bool}) -> {Nat.ma
     case 0n y:
       {==}
     case 1n+p 0n:
-      L.pq.absurdF({1n+p == 0n : Nat}, h)
+      LBoolMisc.pq.absurdF({1n+p == 0n : Nat}, h)
     case 1n+p 1n+q:
       w2.cong1(Nat.max(p, q), q, w2.max_r(p, q, h))
 
@@ -35,7 +36,7 @@ def w2.min_l(+x: Nat, +y: Nat, h: {Nat.is_le(x, y) == True{} : Bool}) -> {Nat.mi
     case 0n y:
       {==}
     case 1n+p 0n:
-      L.pq.absurdF({0n == 1n+p : Nat}, h)
+      LBoolMisc.pq.absurdF({0n == 1n+p : Nat}, h)
     case 1n+p 1n+q:
       w2.cong1(Nat.min(p, q), p, w2.min_l(p, q, h))
 
@@ -51,9 +52,9 @@ def w2.min_le_l(+x: Nat, +y: Nat) -> {Nat.is_le(Nat.min(x, y), x) == True{} : Bo
 def w2.lt_le(+a: Nat, +b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
   match a b:
     case 0n b:
-      L.pq.le0(b)
+      LNatIsLe.pq.le0(b)
     case 1n+p 0n:
-      L.pq.absurdF({False{} == True{} : Bool}, h)
+      LBoolMisc.pq.absurdF({False{} == True{} : Bool}, h)
     case 1n+p 1n+q:
       w2.lt_le(p, q, h)
 

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/semver.bend as Sv
 import ../../laws/semver.bend as Semver
-import ../base.bend as L
+import ../base/bool/and.bend as LBoolAnd
 import ./base.bend as LA
 
 # The next release
@@ -28,9 +28,9 @@ def ps.newest_only(rest: List<&2, String>, +s: Sv.Ver, +pre: List<&2, String>, +
     case Nil{}:
       {==}
     case +t <> +r:
-      %ps.older_of(s, pre, t, r, Sv.Tag.ver(t), {==}, L.semver.ps.and_l(Sv.Rel.only.of(s, Sv.Tag.ver(t)), Sv.Rel.only(s, r), h)) : {True{} == Bool.and(_, Sv.Rel.newest(Sv.Rel.next(s, List.append(&2, String, pre, t <> r)), r)) : Bool}
+      %ps.older_of(s, pre, t, r, Sv.Tag.ver(t), {==}, LBoolAnd.semver.ps.and_l(Sv.Rel.only.of(s, Sv.Tag.ver(t)), Sv.Rel.only(s, r), h)) : {True{} == Bool.and(_, Sv.Rel.newest(Sv.Rel.next(s, List.append(&2, String, pre, t <> r)), r)) : Bool}
       %ps.app_snoc(pre, t, r) : {True{} == Sv.Rel.newest(Sv.Rel.next(s, _), r) : Bool}
-      ps.newest_only(r, s, List.append(&2, String, pre, [t]), L.semver.ps.and_r(Sv.Rel.only.of(s, Sv.Tag.ver(t)), Sv.Rel.only(s, r), h))
+      ps.newest_only(r, s, List.append(&2, String, pre, [t]), LBoolAnd.semver.ps.and_r(Sv.Rel.only.of(s, Sv.Tag.ver(t)), Sv.Rel.only(s, r), h))
 
 # with only tags of the series, the workspace version X.Y.0 releases the
 # next release

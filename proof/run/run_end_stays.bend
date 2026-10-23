@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/run.bend as Run
-import ../base.bend as L
+import ../base/run.bend as LRun
 
 def Run.run_end_stays(cfg, s, ended, e):
-  L.end_stays(cfg, s, e, ended)
+  LRun.end_stays(cfg, s, e, ended)

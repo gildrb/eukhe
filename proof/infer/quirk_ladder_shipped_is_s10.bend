@@ -4,7 +4,7 @@ import Base
 import ../../bend/effort.bend as Ef
 import ../../bend/infer.bend as If
 import ../../laws/infer.bend as Infer
-import ../base.bend as L
+import ../base/effort.bend as LEffort
 
 # with the shipped default ladder, the ladder rule keeps what S10 keeps
 def pq.lad_ship_e(e: Ef.Ent, l: Ef.Lv) -> {If.lad.keep(l, e, If.Defaults.reasoning(If.lad.shipped())) == Ef.keep.e(l, e) : Bool}:
@@ -30,7 +30,7 @@ def pq.lad_ship_e(e: Ef.Ent, l: Ef.Lv) -> {If.lad.keep(l, e, If.Defaults.reasoni
 
 def pq.lad_ks(+map: Ef.LvMap, +l: Ef.Lv) -> {Ef.keep(If.lad.fill(map, If.Defaults.reasoning(If.lad.shipped())), l) == Ef.keep(map, l) : Bool}:
   +S = If.Defaults.reasoning(If.lad.shipped())
-  Equal.trans(Bool, Ef.keep(If.lad.fill(map, S), l), If.lad.keep(l, Ef.entry(l, map), S), Ef.keep(map, l), L.pq.lad_fill_keep(map, S, l), pq.lad_ship_e(Ef.entry(l, map), l))
+  Equal.trans(Bool, Ef.keep(If.lad.fill(map, S), l), If.lad.keep(l, Ef.entry(l, map), S), Ef.keep(map, l), LEffort.pq.lad_fill_keep(map, S, l), pq.lad_ship_e(Ef.entry(l, map), l))
 
 def pq.lad_offer_fill(+map: Ef.LvMap, xs: List<&2, Ef.Lv>) -> {Ef.offer(If.lad.fill(map, If.Defaults.reasoning(If.lad.shipped())), xs) == Ef.offer(map, xs) : List<&2, Ef.Lv>}:
   match xs:

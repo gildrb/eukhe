@@ -4,7 +4,7 @@ import Base
 import ../../bend/child.bend as Ch
 import ../../bend/progress.bend as Pr
 import ../../laws/progress.bend as Progress
-import ../base.bend as L
+import ../base/child.bend as LChild
 import ./base.bend as LA
 
 def pp.loops_app(ps: List<&2, Pr.Peek>, +hist: List<&2, Nat>, +more: List<&2, Nat>, l: Pr.Loops(ps, hist)) -> Pr.Loops(ps, List.append(&2, Nat, hist, more)):
@@ -61,7 +61,7 @@ def pp.spend_keeps(r: Nat, +tok: Maybe<&2, Nat>, +n: Nat) -> pp.Keep(Ch.spend(r,
 def pp.same_keeps(+cfg: Ch.Cfg, w: Ch.W, +e: Nat) -> pp.Keep(Ch.look(cfg, w, e, Ch.Busy{Ch.W.tok(w)}), Ch.W.tok(w)):
   match w:
     case Ch.W{+tok, +l, +n}:
-      %L.pc.moved_self(tok) : pp.Keep(Ch.busy(_, cfg, Ch.W{tok, l, n}, tok, e), tok)
+      %LChild.pc.moved_self(tok) : pp.Keep(Ch.busy(_, cfg, Ch.W{tok, l, n}, tok, e), tok)
       pp.spend_keeps(Nat.sub(l, e), tok, Ch.Cfg.fails(cfg))
 
 def pp.keep_eq(x: Ch.Next, +a: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, e: {a == b : Maybe<&2, Nat>}, k: pp.Keep(x, a)) -> pp.Keep(x, b):
@@ -103,7 +103,7 @@ def pp.loop_stalls(+cfg: Ch.Cfg, +w: Ch.W, +hist: List<&2, Nat>, p: Pr.Peek, +ps
     case Pr.Peek{+seg, +dt}:
       +q = {Pr.Peek{seg, dt} : Pr.Peek}
       %Equal.sym(Ch.Next, Pr.watch(q <> ps, cfg, hist, Ch.Watch{w}), Ch.hush(pp.sames(q <> ps), cfg, Ch.Watch{w}), pp.watch_hush(q <> ps, cfg, hist, Ch.Watch{w}, l, tok)) : {Ch.Next.watching(_) == False{} : Bool}
-      L.pc.stalls_in_time(cfg, w, Ch.Same{dt}, pp.sames(ps), pp.long_sames(w, ps, long))
+      LChild.pc.stalls_in_time(cfg, w, Ch.Same{dt}, pp.sames(ps), pp.long_sames(w, ps, long))
 
 def Progress.child_loop_is_a_stall(cfg, w, hist, p, ps, loops, tok, long):
   pp.loop_stalls(cfg, w, hist, p, ps, loops, tok, long)

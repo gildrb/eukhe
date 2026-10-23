@@ -2,10 +2,10 @@
 
 import Base
 import ../../laws/tree.bend as Tree
-import ./base.bend as LA
+import ./base/wire.bend as LAWire
 
 # The laws
 # --------
 
 def Tree.tree_ffi_ask_round_trip(q, rest, h):
-  LA.tf.ask_rt(q, rest, h)
+  LAWire.tf.ask_rt(q, rest, h)

@@ -4,7 +4,7 @@ import Base
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../base.bend as L
+import ../base/wire.bend as LWire
 import ./base.bend as LA
 
 def wu_nat_eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
