@@ -235,7 +235,9 @@ impl ThemeSources {
             picked
                 .clashes
                 .iter()
-                .filter(|&&(at, winner)| catalog.loads[at].palette() != catalog.loads[winner].palette())
+                .filter(|&&(at, winner)| {
+                    catalog.loads[at].palette() != catalog.loads[winner].palette()
+                })
                 .map(|&(at, winner)| {
                     let clash = &catalog.loads[at];
                     format!(
