@@ -7082,6 +7082,69 @@ law screen_ffi_example:
 law screen_ffi_refuses_example:
   {[FSc.ffi("7,"), FSc.ffi("2,0,0,0,x"), FSc.ffi("1,2,3,0,0,01,")] == [Wr.err("screen: malformed request"), Wr.err("screen: input left over"), Wr.err("screen: malformed request")] : List<&2, String>}
 
+# The paint decision (inline_term.rs `paint_decision`): Rust runs a
+# frame's check and asks the entry with the checks run so far, in order;
+# the entry answers the paint, or asks for the next check (the full
+# redraw's, then the fresh redraw's), which Rust then builds and runs.
+# A frame is the index of the attempt that built it: 0 the frame, 1 its
+# full redraw, 2 its fresh redraw. Every check result is free.
+
+# the checks the first k attempts give, in order (at most three)
+def screen_paint_checks(ok1: Bool, ok2: Bool, ok3: Bool, k: Nat) -> List<&2, Bool>:
+  List.take(&2, Bool, [ok1, ok2, ok3], k)
+
+# whether the paint still needs a check after ks: every check run so far
+# failed and fewer than n of them ran
+def screen_paint_open.go(n: Nat, ks: List<&2, Bool>) -> Bool:
+  match n:
+    case 0n:
+      False{}
+    case 1n+m:
+      match ks:
+        case Nil{}:
+          True{}
+        case Con{ok, rest}:
+          match ok:
+            case True{}:
+              False{}
+            case False{}:
+              screen_paint_open.go(m, rest)
+
+def screen_paint_open(ks: List<&2, Bool>) -> Bool:
+  screen_paint_open.go(3n, ks)
+
+# what the entry answers: nothing yet while a check is still needed, else
+# the paint
+def screen_paint_step(open: Bool, p: Sc.Paint) -> Maybe<&2, Sc.Paint>:
+  match open:
+    case True{}:
+      None{}
+    case False{}:
+      Some{p}
+
+# LAW: after any number of checks, the entry asks for the next check
+# exactly while every check run so far failed (and fewer than three ran),
+# and otherwise answers the paint of the first passing check
+# (screen_paint_spec, the spec of paint_first_passing_check), whatever
+# the checks not yet run would answer
+# EXCLUDES: a paint decided before the check it depends on ran; a check
+# asked for after the paint is settled (a redraw built for nothing); a
+# frame drawn after its check failed; a passing redraw left unused; an
+# outcome other than Kept after three failed checks; a wrong frame index
+law screen_ffi_paint:
+  for +k: Nat
+  for +ok1: Bool
+  for +ok2: Bool
+  for +ok3: Bool
+  {FSc.ffi(FSc.put_req(FSc.ReqPaint{screen_paint_checks(ok1, ok2, ok3, k)}, "")) == FSc.put_step(screen_paint_step(screen_paint_open(screen_paint_checks(ok1, ok2, ok3, k)), screen_paint_spec(0n, 1n, 2n, ok1, ok2, ok3)), "") : String}
+
+# LAW: the paint requests Rust writes, as text, with their replies; more
+# than three checks is refused
+# EXCLUDES: a request or reply format other than WIRE.md's (Bools as T
+# and F with no comma, the step tags); a reply to a fourth check
+law screen_ffi_paint_example:
+  {[FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,2,FT"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("3,4,FFFF")] == ["1,0,F", "0,", "1,1,T", "2,2,", "3,0,", Wr.err("screen: more than three checks")] : List<&2, String>}
+
 # ---- replace: the entry ----
 
 # LAWS (D1, the compiled core): the launcher's replacement verdict runs as

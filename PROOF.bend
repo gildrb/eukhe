@@ -48123,6 +48123,136 @@ def Laws.screen_ffi_example():
 def Laws.screen_ffi_refuses_example():
   {==}
 
+def Laws.screen_ffi_paint(k, ok1, ok2, ok3):
+  match k:
+    case 0n:
+      match ok1:
+        case True{}:
+          match ok2:
+            case True{}:
+              match ok3:
+                case True{}:
+                  {==}
+                case False{}:
+                  {==}
+            case False{}:
+              match ok3:
+                case True{}:
+                  {==}
+                case False{}:
+                  {==}
+        case False{}:
+          match ok2:
+            case True{}:
+              match ok3:
+                case True{}:
+                  {==}
+                case False{}:
+                  {==}
+            case False{}:
+              match ok3:
+                case True{}:
+                  {==}
+                case False{}:
+                  {==}
+    case 1n+p:
+      match p:
+        case 0n:
+          match ok1:
+            case True{}:
+              match ok2:
+                case True{}:
+                  match ok3:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
+                case False{}:
+                  match ok3:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
+            case False{}:
+              match ok2:
+                case True{}:
+                  match ok3:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
+                case False{}:
+                  match ok3:
+                    case True{}:
+                      {==}
+                    case False{}:
+                      {==}
+        case 1n+q:
+          match q:
+            case 0n:
+              match ok1:
+                case True{}:
+                  match ok2:
+                    case True{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                    case False{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                case False{}:
+                  match ok2:
+                    case True{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                    case False{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+            case 1n+r:
+              match ok1:
+                case True{}:
+                  match ok2:
+                    case True{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                    case False{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                case False{}:
+                  match ok2:
+                    case True{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+                    case False{}:
+                      match ok3:
+                        case True{}:
+                          {==}
+                        case False{}:
+                          {==}
+
+def Laws.screen_ffi_paint_example():
+  {==}
+
 # ---- replace: the entry ----
 
 # The proofs of LAWS.bend section `replace: the entry` (the compiled

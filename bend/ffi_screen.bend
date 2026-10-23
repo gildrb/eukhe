@@ -1,8 +1,8 @@
 # ffi_screen: the compiled core's entry for the interface model
-# (bend/screen.bend): the transcript ledger, the pace and the vertical
-# stack, called per frame by crates/eukhe-tui (`view/ledger.rs`,
-# `pace.rs`, `view/stack.rs`). The wire format is bend/wire.bend
-# (crates/eukhe-bend/WIRE.md).
+# (bend/screen.bend): the transcript ledger, the pace, the vertical
+# stack and the paint decision, called per frame by crates/eukhe-tui
+# (`view/ledger.rs`, `pace.rs`, `view/stack.rs`, `inline_term.rs`). The
+# wire format is bend/wire.bend (crates/eukhe-bend/WIRE.md).
 #
 # A request is one constructor:
 #   0 Run{tx, events}           the events of a frame on the blocks after
@@ -11,11 +11,18 @@
 #   1 Pace{min, k, pace, n}     n characters arrive, then a frame (pace.run
 #                               of [Chunk{n}, Frame]); answers the Pace
 #   2 Stack{heights, y, rows}   vstack; answers the rects
+#   3 Paint{checks}             the paint decision (resync of present) on
+#                               the checks run so far, in order (at most
+#                               three: the frame, its full redraw, its
+#                               fresh redraw); answers a Step
 # Tx = blocks (a List of Blk = id, state tag (0 active, 1 final, 2
 # committed), len), next, width. Ev tags: 0 Open, 1 Grow{id, n}, 2 Fin{id},
 # 3 Flush, 4 Resize{w}. Pace = recv, shown.
-# Rect = y, h. A malformed request (or input left over) answers the error
-# form, never a default.
+# Rect = y, h. Step: 0 (run the next check), 1 frame full (Put), 2 frame
+# (Fresh) or 3 frame (Kept); a frame is the index of the attempt that
+# built it (0 the frame, 1 its full redraw, 2 its fresh redraw). A
+# malformed request (or input left over, or more than three checks)
+# answers the error form, never a default.
 
 import Base
 import ./wire.bend as W
@@ -25,6 +32,7 @@ type Req is Data:
   ReqRun{tx: Sc.Tx, es: List<&2, Sc.Ev>}
   ReqPace{min: Nat, k: Nat, p: Sc.Pace, n: Nat}
   ReqStack{hs: List<&2, Nat>, y: Nat, rows: Nat}
+  ReqPaint{ks: List<&2, Bool>}
 
 # Encoders
 # --------
@@ -71,6 +79,20 @@ def put_rect(r: Sc.Rect, rest: String) -> String:
     case Sc.Rect{y, h}:
       W.put_nat(y, W.put_nat(h, rest))
 
+# the paint decision, or None while the next check must run
+def put_step(m: Maybe<&2, Sc.Paint>, rest: String) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, rest)
+    case Some{p}:
+      match p:
+        case Sc.Put{f, full}:
+          W.put_nat(1n, W.put_nat(f, W.put_bool(full, rest)))
+        case Sc.Fresh{f}:
+          W.put_nat(2n, W.put_nat(f, rest))
+        case Sc.Kept{f}:
+          W.put_nat(3n, W.put_nat(f, rest))
+
 # the encoding of a request (what Rust writes)
 def put_req(q: Req, rest: String) -> String:
   match q:
@@ -80,6 +102,8 @@ def put_req(q: Req, rest: String) -> String:
       W.put_nat(1n, W.put_nat(min, W.put_nat(k, put_pace(p, W.put_nat(n, rest)))))
     case ReqStack{hs, y, rows}:
       W.put_nat(2n, W.put_list(~Nat, ~W.put_nat, hs, W.put_nat(y, W.put_nat(rows, rest))))
+    case ReqPaint{ks}:
+      W.put_nat(3n, W.put_list(~Bool, ~W.put_bool, ks, rest))
 
 # Decoders
 # --------
@@ -298,6 +322,13 @@ def get_stack(r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+def get_paint(r: W.Dec<List<&2, Bool>>) -> W.Dec<Req>:
+  match r:
+    case W.Got{ks, s}:
+      W.Got{ReqPaint{ks}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(n: Nat, s: String) -> W.Dec<Req>:
   match n:
     case 0n:
@@ -311,7 +342,11 @@ def get_req.tag(n: Nat, s: String) -> W.Dec<Req>:
             case 0n:
               get_stack(W.get_list(~Nat, ~W.get_nat, s))
             case 1n+c:
-              W.Bad{}
+              match c:
+                case 0n:
+                  get_paint(W.get_list(~Bool, ~W.get_bool, s))
+                case 1n+d:
+                  W.Bad{}
 
 def get_req.of(r: W.Dec<Nat>) -> W.Dec<Req>:
   match r:
@@ -323,6 +358,101 @@ def get_req.of(r: W.Dec<Nat>) -> W.Dec<Req>:
 # the request at the head of s (what the entry reads)
 def get_req(s: String) -> W.Dec<Req>:
   get_req.of(W.get_nat(s))
+
+# The paint decision
+# ------------------
+
+# The model's paint (resync of present) with the frames as the indexes of
+# the attempts that built them: 0 the frame, 1 its full redraw, 2 its
+# fresh redraw. Rust runs a check only when the model's paint still
+# depends on it: the decision on the checks run so far is the paint when
+# every result of the checks not yet run gives that same paint, else None
+# (run the next check).
+def paint.of(a: Bool, b: Bool, c: Bool) -> Sc.Paint:
+  Sc.resync(Sc.present(0n, 1n, a, b), 2n, c)
+
+def paint.same(p: Sc.Paint, q: Sc.Paint) -> Bool:
+  match p q:
+    case Sc.Put{f, x} Sc.Put{g, y}:
+      Bool.and(Nat.is_eq(f, g), Bool.not(Bool.xor(x, y)))
+    case Sc.Put{f, x} Sc.Fresh{g}:
+      False{}
+    case Sc.Put{f, x} Sc.Kept{g}:
+      False{}
+    case Sc.Fresh{f} Sc.Put{g, y}:
+      False{}
+    case Sc.Fresh{f} Sc.Fresh{g}:
+      Nat.is_eq(f, g)
+    case Sc.Fresh{f} Sc.Kept{g}:
+      False{}
+    case Sc.Kept{f} Sc.Put{g, y}:
+      False{}
+    case Sc.Kept{f} Sc.Fresh{g}:
+      False{}
+    case Sc.Kept{f} Sc.Kept{g}:
+      Nat.is_eq(f, g)
+
+def paint.keep(same: Bool, p: Sc.Paint) -> Maybe<&2, Sc.Paint>:
+  match same:
+    case True{}:
+      Some{p}
+    case False{}:
+      None{}
+
+# the paint both halves decide, when they decide the same one
+def paint.both(m: Maybe<&2, Sc.Paint>, n: Maybe<&2, Sc.Paint>) -> Maybe<&2, Sc.Paint>:
+  match m n:
+    case Some{+p} Some{q}:
+      paint.keep(paint.same(p, q), p)
+    case Some{p} None{}:
+      None{}
+    case None{} Some{q}:
+      None{}
+    case None{} None{}:
+      None{}
+
+def paint.d3(a: Bool, b: Bool, c: Bool) -> Maybe<&2, Sc.Paint>:
+  Some{paint.of(a, b, c)}
+
+def paint.d2(+a: Bool, +b: Bool) -> Maybe<&2, Sc.Paint>:
+  paint.both(paint.d3(a, b, False{}), paint.d3(a, b, True{}))
+
+def paint.d1(+a: Bool) -> Maybe<&2, Sc.Paint>:
+  paint.both(paint.d2(a, False{}), paint.d2(a, True{}))
+
+def paint.d0() -> Maybe<&2, Sc.Paint>:
+  paint.both(paint.d1(False{}), paint.d1(True{}))
+
+# the decision on the checks run so far (at most three; more: None)
+def paint.decide(ks: List<&2, Bool>) -> Maybe<&2, Sc.Paint>:
+  match ks:
+    case Nil{}:
+      paint.d0()
+    case Con{a, r1}:
+      match r1:
+        case Nil{}:
+          paint.d1(a)
+        case Con{b, r2}:
+          match r2:
+            case Nil{}:
+              paint.d2(a, b)
+            case Con{c, r3}:
+              match r3:
+                case Nil{}:
+                  paint.d3(a, b, c)
+                case Con{d, r4}:
+                  None{}
+
+def paint.reply.fit(fits: Bool, ks: List<&2, Bool>) -> String:
+  match fits:
+    case True{}:
+      put_step(paint.decide(ks), SNil{})
+    case False{}:
+      W.err("screen: more than three checks")
+
+# the reply to the checks run so far: more than three is an error
+def paint.reply(+ks: List<&2, Bool>) -> String:
+  paint.reply.fit(Nat.is_le(List.length(&2, Bool, ks), 3n), ks)
 
 # The entry
 # ---------
@@ -336,6 +466,8 @@ def answer(q: Req) -> String:
       put_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, p), SNil{})
     case ReqStack{hs, y, rows}:
       W.put_list(~Sc.Rect, ~put_rect, Sc.vstack(hs, y, rows), SNil{})
+    case ReqPaint{ks}:
+      paint.reply(ks)
 
 def ffi.whole(q: Req, whole: Bool) -> String:
   match whole:

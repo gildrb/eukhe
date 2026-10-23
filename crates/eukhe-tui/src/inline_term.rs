@@ -24,7 +24,8 @@
 //! changes.
 //!
 //! Every frame is checked off screen before it is written (the model's
-//! `present` and `resync`, bend/screen.bend): its bytes run on a copy of
+//! `present` and `resync`, bend/screen.bend, run as the compiled core:
+//! [`paint_decision`]): its bytes run on a copy of
 //! a shadow screen ([`crate::vt::Vt`]) and must leave the history rows
 //! right above the live area, every live row as it reads written fresh,
 //! and the cursor where the writer tracks it. A frame that fails is drawn
@@ -45,6 +46,9 @@ use std::borrow::Cow;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
+
+use eukhe_bend::wire::WireError;
+use eukhe_bend::Entry;
 
 use crate::vt::{Pos, Vt, VtRow};
 use crate::Line;
@@ -217,60 +221,114 @@ pub(crate) enum Redraw {
     Full,
 }
 
-/// What reached the terminal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Shown<F> {
-    /// The terminal got `frame`.
-    Drawn { frame: F, redraw: Redraw },
-    /// Both checks failed: nothing was drawn. `frame` is the first one.
-    Error { frame: F },
+/// A redraw [`paint_decision`] builds when the compiled core asks for its
+/// check. The model numbers the attempts: the frame is 0, the full
+/// redraw 1, the fresh redraw 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Attempt {
+    /// The whole live area, drawn again.
+    Full,
+    /// The whole live area, drawn on a blank screen (the old screen goes
+    /// into scrollback).
+    Fresh,
 }
 
-/// Pick what reaches the terminal (the model's `present`): `frame` when
-/// its check passed; else the full redraw `full` builds, when its check
-/// passed; else nothing. `full` runs only when the first check failed.
-pub(crate) fn present<F>(frame: F, first: Check, full: impl FnOnce() -> (F, Check)) -> Shown<F> {
-    match first {
-        Check::Pass => Shown::Drawn {
-            frame,
-            redraw: Redraw::Diff,
-        },
-        Check::Fail => {
-            let (redrawn, second) = full();
-            match second {
-                Check::Pass => Shown::Drawn {
-                    frame: redrawn,
-                    redraw: Redraw::Full,
-                },
-                Check::Fail => Shown::Error { frame },
-            }
-        }
-    }
-}
-
-/// What reaches the terminal after [`present`].
+/// What reaches the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Painting<F> {
-    /// [`present`] drew `frame`.
+    /// The terminal gets `frame`: the frame itself or its full redraw.
     Shown { frame: F, redraw: Redraw },
-    /// Both checks failed; the fresh redraw `frame` on a blank screen
-    /// passed its check.
+    /// The first two checks failed; the fresh redraw `frame` on a blank
+    /// screen passed its check.
     Fresh { frame: F },
-    /// Every check failed: nothing was drawn. `frame` is the first one.
+    /// Every check failed: nothing is drawn. `frame` is the first one.
     Kept { frame: F },
 }
 
-/// Finish the decision (the model's `resync`): what `present` drew;
-/// else the fresh redraw `fresh` builds, when its check passed; else
-/// nothing. `fresh` runs only when both checks of `present` failed.
-pub(crate) fn resync<F>(shown: Shown<F>, fresh: impl FnOnce() -> (F, Check)) -> Painting<F> {
-    match shown {
-        Shown::Drawn { frame, redraw } => Painting::Shown { frame, redraw },
-        Shown::Error { frame } => {
-            let (redrawn, third) = fresh();
-            match third {
-                Check::Pass => Painting::Fresh { frame: redrawn },
-                Check::Fail => Painting::Kept { frame },
+/// One answer of the compiled paint decision.
+enum PaintStep {
+    /// Build this redraw and run its check.
+    Run(Attempt),
+    /// The decision, its frames as the numbers of their attempts.
+    Paint(Painting<u32>),
+}
+
+/// Pick what reaches the terminal: the model's paint (`resync` of
+/// `present`, bend/screen.bend), run as the compiled core's paint
+/// decision (`bend/ffi_screen.bend`, laws `screen_ffi_paint` and
+/// `paint_first_passing_check`). The core reads the checks run so far
+/// (`first`, the check of `frame`, then those of the redraws) and answers
+/// the paint, or asks for the next redraw, which `attempt` builds and
+/// checks. A redraw is built only when the core asks for its check: the
+/// first passing check picks the frame drawn; when all three fail,
+/// nothing is drawn and `frame` is kept.
+pub(crate) fn paint_decision<F>(
+    frame: F,
+    first: Check,
+    mut attempt: impl FnMut(Attempt) -> (F, Check),
+) -> Painting<F> {
+    let mut frames = vec![frame];
+    let mut passed = vec![first == Check::Pass];
+    let mut built: u32 = 1;
+    let mut attempts = [Attempt::Full, Attempt::Fresh].into_iter();
+    loop {
+        let next = attempts.next();
+        let step = crate::bend_core::decide(
+            Entry::Screen,
+            |writer| {
+                writer.tag(3).count(passed.len());
+                for ok in &passed {
+                    writer.bool(*ok);
+                }
+            },
+            |reader| {
+                Ok(match reader.tag_of(4, "a paint step")? {
+                    0 => PaintStep::Run(next.ok_or(WireError::Malformed {
+                        at: 0,
+                        expected: "a paint after the third check",
+                    })?),
+                    1 => {
+                        let frame = reader.tag_of(built, "a frame built")?;
+                        let redraw = if reader.bool()? {
+                            Redraw::Full
+                        } else {
+                            Redraw::Diff
+                        };
+                        PaintStep::Paint(Painting::Shown { frame, redraw })
+                    }
+                    2 => PaintStep::Paint(Painting::Fresh {
+                        frame: reader.tag_of(built, "a frame built")?,
+                    }),
+                    // `tag_of` answered at most 3.
+                    3..=u32::MAX => PaintStep::Paint(Painting::Kept {
+                        frame: reader.tag_of(built, "a frame built")?,
+                    }),
+                })
+            },
+        );
+        match step {
+            PaintStep::Run(next) => {
+                let (redrawn, check) = attempt(next);
+                frames.push(redrawn);
+                passed.push(check == Check::Pass);
+                built += 1;
+            }
+            // The reader took only frames already built.
+            PaintStep::Paint(Painting::Shown { frame, redraw }) => {
+                return Painting::Shown {
+                    frame: frames.swap_remove(frame as usize),
+                    redraw,
+                };
+            }
+            PaintStep::Paint(Painting::Fresh { frame }) => {
+                return Painting::Fresh {
+                    frame: frames.swap_remove(frame as usize),
+                };
+            }
+            PaintStep::Paint(Painting::Kept { frame }) => {
+                return Painting::Kept {
+                    frame: frames.swap_remove(frame as usize),
+                };
             }
         }
     }
@@ -493,47 +551,49 @@ impl InlineTerminal {
         };
         let first_check = first.check();
         let mut full_failure = String::new();
-        let shown = present(first, first_check, || {
-            let encoded = std::mem::take(&mut self.live);
-            // Start from the cursor row the shadow screen has, not the
-            // one tracked: the redraw must not depend on what failed.
-            self.cursor_row = self.shadow.cursor().row.saturating_sub(self.top);
-            let bytes = self.frame_bytes(Redraw::Full, &[], &history, encoded, cursor);
-            let full = self.check(bytes, &[], &history, cursor);
-            if let Some(failure) = &full.failure {
-                full_failure.clone_from(failure);
-            }
-            let check = full.check();
-            (full, check)
-        });
         let mut fresh_failure = String::new();
-        let painting = resync(shown, || {
-            let encoded = std::mem::take(&mut self.live);
-            let shadow = std::mem::replace(&mut self.shadow, Vt::new(self.width, self.height));
-            let top = std::mem::replace(&mut self.top, 0);
-            self.cursor_row = 0;
-            let bytes = self.frame_bytes(Redraw::Full, &[], &history, encoded, cursor);
-            let mut fresh = self.check(bytes, &[], &history, cursor);
-            match &fresh.failure {
-                None => {
-                    // On the terminal: the screen's rows scroll into
-                    // scrollback (nothing is lost) and the cursor goes
-                    // home, which leaves the blank screen checked.
-                    let body = &fresh.bytes[PAINT_BEGIN.len()..];
-                    fresh.bytes = format!(
-                        "{PAINT_BEGIN}\x1b[{};1H{}\x1b[H{body}",
-                        self.height,
-                        "\n".repeat(self.height)
-                    );
+        let painting = paint_decision(first, first_check, |attempt| match attempt {
+            Attempt::Full => {
+                let encoded = std::mem::take(&mut self.live);
+                // Start from the cursor row the shadow screen has, not the
+                // one tracked: the redraw must not depend on what failed.
+                self.cursor_row = self.shadow.cursor().row.saturating_sub(self.top);
+                let bytes = self.frame_bytes(Redraw::Full, &[], &history, encoded, cursor);
+                let full = self.check(bytes, &[], &history, cursor);
+                if let Some(failure) = &full.failure {
+                    full_failure.clone_from(failure);
                 }
-                Some(failure) => {
-                    fresh_failure.clone_from(failure);
-                    self.shadow = shadow;
-                    self.top = top;
-                }
+                let check = full.check();
+                (full, check)
             }
-            let check = fresh.check();
-            (fresh, check)
+            Attempt::Fresh => {
+                let encoded = std::mem::take(&mut self.live);
+                let shadow = std::mem::replace(&mut self.shadow, Vt::new(self.width, self.height));
+                let top = std::mem::replace(&mut self.top, 0);
+                self.cursor_row = 0;
+                let bytes = self.frame_bytes(Redraw::Full, &[], &history, encoded, cursor);
+                let mut fresh = self.check(bytes, &[], &history, cursor);
+                match &fresh.failure {
+                    None => {
+                        // On the terminal: the screen's rows scroll into
+                        // scrollback (nothing is lost) and the cursor goes
+                        // home, which leaves the blank screen checked.
+                        let body = &fresh.bytes[PAINT_BEGIN.len()..];
+                        fresh.bytes = format!(
+                            "{PAINT_BEGIN}\x1b[{};1H{}\x1b[H{body}",
+                            self.height,
+                            "\n".repeat(self.height)
+                        );
+                    }
+                    Some(failure) => {
+                        fresh_failure.clone_from(failure);
+                        self.shadow = shadow;
+                        self.top = top;
+                    }
+                }
+                let check = fresh.check();
+                (fresh, check)
+            }
         });
         match painting {
             Painting::Shown { frame, redraw } => {
@@ -1625,47 +1685,34 @@ mod tests {
         *REJECTION_LOG.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
-    /// `present` is the model's table: the full redraw runs only when the
-    /// first check fails, and a double failure keeps the first frame.
+    /// The shell around the compiled paint decision: each redraw is built
+    /// only when the core asks for its check, and the frame the core picks
+    /// is the one its attempt built (all eight check triples).
     #[test]
-    fn present_follows_the_model_table() {
+    fn paint_decision_builds_each_redraw_only_when_asked() {
+        use Check::{Fail, Pass};
+        let shown = |frame, redraw| Painting::Shown { frame, redraw };
         let table = [
-            (
-                Check::Pass,
-                Check::Pass,
-                Shown::Drawn {
-                    frame: 1,
-                    redraw: Redraw::Diff,
-                },
-                0,
-            ),
-            (
-                Check::Pass,
-                Check::Fail,
-                Shown::Drawn {
-                    frame: 1,
-                    redraw: Redraw::Diff,
-                },
-                0,
-            ),
-            (
-                Check::Fail,
-                Check::Pass,
-                Shown::Drawn {
-                    frame: 2,
-                    redraw: Redraw::Full,
-                },
-                1,
-            ),
-            (Check::Fail, Check::Fail, Shown::Error { frame: 1 }, 1),
+            ([Pass, Pass, Pass], shown("frame", Redraw::Diff), 0),
+            ([Pass, Pass, Fail], shown("frame", Redraw::Diff), 0),
+            ([Pass, Fail, Pass], shown("frame", Redraw::Diff), 0),
+            ([Pass, Fail, Fail], shown("frame", Redraw::Diff), 0),
+            ([Fail, Pass, Pass], shown("full", Redraw::Full), 1),
+            ([Fail, Pass, Fail], shown("full", Redraw::Full), 1),
+            ([Fail, Fail, Pass], Painting::Fresh { frame: "fresh" }, 2),
+            ([Fail, Fail, Fail], Painting::Kept { frame: "frame" }, 2),
         ];
-        for (first, second, shown, runs) in table {
-            let ran = std::cell::Cell::new(0);
-            let got = present(1, first, || {
-                ran.set(ran.get() + 1);
-                (2, second)
+        for ([first, second, third], painting, built) in table {
+            let mut ran = Vec::new();
+            let got = paint_decision("frame", first, |attempt| {
+                ran.push(attempt);
+                match attempt {
+                    Attempt::Full => ("full", second),
+                    Attempt::Fresh => ("fresh", third),
+                }
             });
-            assert_eq!((got, ran.get()), (shown, runs));
+            assert_eq!(got, painting);
+            assert_eq!(ran, [Attempt::Full, Attempt::Fresh][..built]);
         }
     }
 
