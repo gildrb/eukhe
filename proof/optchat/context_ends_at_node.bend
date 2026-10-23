@@ -1,28 +1,32 @@
 # eukhe: the proof of LAW context_ends_at_node
 
 import Base
-import ../../bend/optchat.bend as O
+import ../../bend/optchat/bits.bend as OBits
+import ../../bend/optchat/ctx.bend as OCtx
+import ../../bend/optchat/info.bend as OInfo
+import ../../bend/optchat/node.bend as ONode
+import ../../bend/optchat/state.bend as OState
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
 import ../base/bool/and.bend as LBoolAnd
 
-def pf.ctx_bef.keep(k: Bool, +info: O.Info, +bound: List<&2, Bool>, +h: O.Node, -rec: List<&2, O.Node>, +e: {k == O.ctx.ok(info, bound, h) : Bool}, ih: S.Before(info, bound, rec))
-  -> S.Before(info, bound, O.ctx.keep(k, h, rec)):
+def pf.ctx_bef.keep(k: Bool, +info: OInfo.Info, +bound: List<&2, Bool>, +h: ONode.Node, -rec: List<&2, ONode.Node>, +e: {k == OCtx.ctx.ok(info, bound, h) : Bool}, ih: S.Before(info, bound, rec))
+  -> S.Before(info, bound, OCtx.ctx.keep(k, h, rec)):
   match k:
     case False{}:
       Unit{}
     case True{}:
-      (LBoolAnd.pf.and_l(O.Bits.le(O.Node.end_bits(h), bound), O.Info.built(info, h), Equal.sym(Bool, True{}, O.ctx.ok(info, bound, h), e)), (LBoolAnd.pf.and_r(O.Bits.le(O.Node.end_bits(h), bound), O.Info.built(info, h), Equal.sym(Bool, True{}, O.ctx.ok(info, bound, h), e)), ih))
+      (LBoolAnd.pf.and_l(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), (LBoolAnd.pf.and_r(OBits.Bits.le(OCtx.Node.end_bits(h), bound), OInfo.Info.built(info, h), Equal.sym(Bool, True{}, OCtx.ctx.ok(info, bound, h), e)), ih))
 
-def pf.ctx_bef(v: List<&2, O.Node>, +info: O.Info, +bound: List<&2, Bool>) -> S.Before(info, bound, O.ctx.go(v, info, bound)):
+def pf.ctx_bef(v: List<&2, ONode.Node>, +info: OInfo.Info, +bound: List<&2, Bool>) -> S.Before(info, bound, OCtx.ctx.go(v, info, bound)):
   match v:
     case Nil{}:
       Unit{}
     case +h <> +rest:
-      pf.ctx_bef.keep(O.ctx.ok(info, bound, h), info, bound, h, O.ctx.go(rest, info, bound), {==}, pf.ctx_bef(rest, info, bound))
+      pf.ctx_bef.keep(OCtx.ctx.ok(info, bound, h), info, bound, h, OCtx.ctx.go(rest, info, bound), {==}, pf.ctx_bef(rest, info, bound))
 
-def context_ends_at_node(+s: O.St, +n: O.Node) -> S.Before(O.St.info(s), O.ctx.bound(n), O.ctx(s, n)):
-  pf.ctx_bef(O.St.cview(s), O.St.info(s), O.ctx.bound(n))
+def context_ends_at_node(+s: OState.St, +n: ONode.Node) -> S.Before(OState.St.info(s), OCtx.ctx.bound(n), OCtx.ctx(s, n)):
+  pf.ctx_bef(OState.St.cview(s), OState.St.info(s), OCtx.ctx.bound(n))
 
 # (g) A compaction's view
 

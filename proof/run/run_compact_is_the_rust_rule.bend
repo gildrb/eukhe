@@ -1,22 +1,23 @@
 # eukhe: the proof of LAW run_compact_is_the_rust_rule
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/decision.bend as RnDecision
+import ../../bend/run/state.bend as RnState
 import ../../laws/run.bend as Run
 
-def rk.run_compact_is_the_rust_rule(+over: Bool, +got: Rn.Got) -> {Rn.decide.compact(over, got) == Run.rust.after_compaction(over, got) : Bool}:
+def rk.run_compact_is_the_rust_rule(+over: Bool, +got: RnState.Got) -> {RnDecision.decide.compact(over, got) == Run.rust.after_compaction(over, got) : Bool}:
   match over got:
-    case True{} Rn.Built{}:
+    case True{} RnState.Built{}:
       {==}
-    case True{} Rn.Kept{}:
+    case True{} RnState.Kept{}:
       {==}
-    case True{} Rn.Broke{}:
+    case True{} RnState.Broke{}:
       {==}
-    case False{} Rn.Built{}:
+    case False{} RnState.Built{}:
       {==}
-    case False{} Rn.Kept{}:
+    case False{} RnState.Kept{}:
       {==}
-    case False{} Rn.Broke{}:
+    case False{} RnState.Broke{}:
       {==}
 
 def Run.run_compact_is_the_rust_rule(over, got):

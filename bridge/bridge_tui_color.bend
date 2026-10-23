@@ -19,7 +19,7 @@
 
 import Base
 import ../bend/tui_color.bend as TC
-import ../bend/theme.bend as T
+import ../bend/theme/bundled.bend as TBundled
 
 # Reading
 # -------
@@ -59,14 +59,14 @@ def nats.show(xs: List<&2, Nat>) -> String:
     case Con{x, rest}:
       String.concat([" ", Nat.show(x), nats.show(rest)])
 
-def shipped.of(i: Nat) -> T.Shipped:
+def shipped.of(i: Nat) -> TBundled.Shipped:
   match i:
     case 0n:
-      T.Eukhe{}
+      TBundled.Eukhe{}
     case 1n:
-      T.Dark{}
+      TBundled.Dark{}
     case 2n+p:
-      T.Light{}
+      TBundled.Light{}
 
 # Running
 # -------

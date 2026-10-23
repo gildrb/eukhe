@@ -63,7 +63,7 @@ struct Catalog {
     warnings: Vec<String>,
 }
 
-/// A loaded file as the pick sees it (`bend/theme.bend` `Ld`).
+/// A loaded file as the pick sees it (`bend/theme/choice.bend` `Ld`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Reached<'a> {
     /// A valid file, by the name it advertises.
@@ -94,7 +94,7 @@ enum Cause {
     NotFound,
 }
 
-/// What a name picks (`bend/theme.bend` `pick`): the theme, the cause of
+/// What a name picks (`bend/theme/choice.bend` `pick`): the theme, the cause of
 /// its warning (none when it does not warn), the clashes (a file and the
 /// earlier file whose name it repeats) and the other files that did not
 /// load, each in load order.
@@ -106,7 +106,7 @@ struct Pick {
     broken: Vec<usize>,
 }
 
-/// The rule `bend/theme.bend` `pick` states: a name resolves to the first
+/// The rule `bend/theme/choice.bend` `pick` states: a name resolves to the first
 /// valid registered file, else the builtin, else the first valid custom
 /// file advertising it; the empty name is the default theme; a name no
 /// valid file advertises is the default theme with a warning whose cause

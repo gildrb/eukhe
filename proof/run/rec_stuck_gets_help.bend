@@ -1,27 +1,27 @@
 # eukhe: the proof of LAW rec_stuck_gets_help
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 
 # A stuck reply always gets help
 # ------------------------------
 
-def help_long(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: Rn.Rec) -> {Rn.Act.helps(Rn.Dec.act(Rn.rec.long(u, n, same, last, r))) == True{} : Bool}:
+def help_long(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.long(u, n, same, last, r))) == True{} : Bool}:
   match u:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def help_leak(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: Rn.Rec) -> {Rn.Act.helps(Rn.Dec.act(Rn.rec.leak(u, n, same, last, r))) == True{} : Bool}:
+def help_leak(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.leak(u, n, same, last, r))) == True{} : Bool}:
   match u:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def help_ran(fresh: Bool, u: Bool, -kept: Bool, -m: Nat, -h: Nat, -n: Nat, -same: Nat, -last: Nat, -r: Rn.Rec) -> {Rn.Act.helps(Rn.Dec.act(Rn.rec.ran(fresh, u, kept, m, h, n, same, last, r))) == True{} : Bool}:
+def help_ran(fresh: Bool, u: Bool, -kept: Bool, -m: Nat, -h: Nat, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.ran(fresh, u, kept, m, h, n, same, last, r))) == True{} : Bool}:
   match fresh u:
     case True{} u:
       {==}
@@ -30,30 +30,30 @@ def help_ran(fresh: Bool, u: Bool, -kept: Bool, -m: Nat, -h: Nat, -n: Nat, -same
     case False{} False{}:
       {==}
 
-def help_out(+rc: Rn.RCfg, o: Rn.Out, +k: Rn.Rk, +row: Nat, +same: Nat, +last: Nat) -> {Bool.or(Bool.not(Rn.Out.stuck(o)), Rn.Act.helps(Rn.Dec.act(Rn.rec.go(rc, o, k, row, same, last)))) == True{} : Bool}:
+def help_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.go(rc, o, k, row, same, last)))) == True{} : Bool}:
   match o:
-    case Rn.Long{}:
-      help_long(Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)), Rn.Rk.longs(k, row), same, last, Rn.Rec{k, row, same, last})
-    case Rn.Leak{rebuilt, +h, kept}:
+    case RnRecovery.Long{}:
+      help_long(RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last})
+    case RnRecovery.Leak{rebuilt, +h, kept}:
       match rebuilt:
         case True{}:
-          help_ran(Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)), Rn.below(Rn.Rk.loops(k, row), Rn.RCfg.redirect(rc)), kept, Rn.again(same, last, h), h, Rn.Rk.loops(k, row), same, last, Rn.Rec{k, row, same, last})
+          help_ran(RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)), RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)), kept, RnRecovery.again(same, last, h), h, RnRecovery.Rk.loops(k, row), same, last, RnRecovery.Rec{k, row, same, last})
         case False{}:
-          help_leak(Rn.below(Rn.Rk.leaks(k, row), Rn.RCfg.leak(rc)), Rn.Rk.leaks(k, row), same, last, Rn.Rec{k, row, same, last})
-    case Rn.Ran{+h, kept}:
-      help_ran(Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)), Rn.below(Rn.Rk.loops(k, row), Rn.RCfg.redirect(rc)), kept, Rn.again(same, last, h), h, Rn.Rk.loops(k, row), same, last, Rn.Rec{k, row, same, last})
-    case Rn.Noted{}:
+          help_leak(RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)), RnRecovery.Rk.leaks(k, row), same, last, RnRecovery.Rec{k, row, same, last})
+    case RnRecovery.Ran{+h, kept}:
+      help_ran(RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)), RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)), kept, RnRecovery.again(same, last, h), h, RnRecovery.Rk.loops(k, row), same, last, RnRecovery.Rec{k, row, same, last})
+    case RnRecovery.Noted{}:
       {==}
-    case Rn.Said{}:
+    case RnRecovery.Said{}:
       {==}
-    case Rn.Answer{}:
+    case RnRecovery.Answer{}:
       {==}
-    case Rn.Other{}:
+    case RnRecovery.Other{}:
       {==}
 
-def stuck_gets_help(+rc: Rn.RCfg, o: Rn.Out, r: Rn.Rec) -> {Bool.or(Bool.not(Rn.Out.stuck(o)), Rn.Act.helps(Rn.Dec.act(Rn.Rec.step(rc, o, r)))) == True{} : Bool}:
+def stuck_gets_help(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}:
   match r:
-    case Rn.Rec{k, row, same, last}:
+    case RnRecovery.Rec{k, row, same, last}:
       help_out(rc, o, k, row, same, last)
 
 def Run.rec_stuck_gets_help(rc, o, r):

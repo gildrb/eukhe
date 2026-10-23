@@ -1,16 +1,16 @@
 # eukhe: the proof of LAW run_prepare_compacted_reads_no_threshold
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/decision.bend as RnDecision
 import ../../laws/run.bend as Run
 
-def rk.run_prepare_compacted_reads_no_threshold(+th: Rn.Th) -> {Rn.decide.prepare(True{}, th) == Rn.decide.prepare(True{}, Rn.Under{}) : Rn.Prepared}:
+def rk.run_prepare_compacted_reads_no_threshold(+th: RnDecision.Th) -> {RnDecision.decide.prepare(True{}, th) == RnDecision.decide.prepare(True{}, RnDecision.Under{}) : RnDecision.Prepared}:
   match th:
-    case Rn.Under{}:
+    case RnDecision.Under{}:
       {==}
-    case Rn.Background{}:
+    case RnDecision.Background{}:
       {==}
-    case Rn.Blocking{}:
+    case RnDecision.Blocking{}:
       {==}
 
 def Run.run_prepare_compacted_reads_no_threshold(th):

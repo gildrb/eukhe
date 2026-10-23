@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../bend/optchat.bend as O
+import ../../bend/optchat/bits.bend as OBits
 import ../../laws/compactor.bend as Compactor
 import ../base/nat/is_le.bend as LNatIsLe
 import ./base.bend as LA
@@ -79,7 +79,7 @@ def pc.end_fits(best: Maybe<&2, List<&2, C.W>>, nb: pc.NE(best), c: C.W, rest: L
         case x <> y:
           pc.cut_fits(x, y, k)
 
-def pc.pos_len(w: C.W, -t: List<&2, C.W>) -> {O.Nat.is_pos(C.Text.len(w <> t)) == True{} : Bool}:
+def pc.pos_len(w: C.W, -t: List<&2, C.W>) -> {OBits.Nat.is_pos(C.Text.len(w <> t)) == True{} : Bool}:
   match w:
     case C.W1{}:
       {==}
@@ -93,7 +93,7 @@ def pc.pos_len(w: C.W, -t: List<&2, C.W>) -> {O.Nat.is_pos(C.Text.len(w <> t)) =
 def pc.fits_next(fit: Bool, less: Bool, +w: C.W, +t: List<&2, C.W>, +k: Nat, best: Maybe<&2, List<&2, C.W>>, nb: pc.NE(best), c: C.W, rest: List<&2, C.W>, rec: C.Line, efit: {Nat.is_le(C.Text.len(w <> t), 4n+k) == fit : Bool}, ih: {C.line.fits(4n+k, C.Line.line(rec)) == True{} : Bool}) -> {C.line.fits(4n+k, C.Line.line(C.line.next(fit, less, w <> t, 4n+k, best, c <> rest, rec))) == True{} : Bool}:
   match fit less:
     case True{} l:
-      LA.pc.and_true(O.Nat.is_pos(C.Text.len(w <> t)), Nat.is_le(C.Text.len(w <> t), 4n+k), pc.pos_len(w, t), efit)
+      LA.pc.and_true(OBits.Nat.is_pos(C.Text.len(w <> t)), Nat.is_le(C.Text.len(w <> t), 4n+k), pc.pos_len(w, t), efit)
     case False{} False{}:
       pc.end_fits(best, nb, c, rest, k)
     case False{} True{}:

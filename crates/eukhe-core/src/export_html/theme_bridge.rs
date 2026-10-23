@@ -1,6 +1,6 @@
 //! The bridge between `eukhe-theme` (the theme validator, the name
 //! resolver and the color math that the terminal UI and this export
-//! share) and its Bend model (`bend/theme.bend`, `bend/color.bend`, whose
+//! share) and its Bend model (`bend/theme/`, `bend/color.bend`, whose
 //! laws `PROOF.bend` proves, T1, `laws/theme.bend`): both run
 //! the same scenarios and must print the same transcript, byte for byte
 //! (`bridge/bridge_theme.bend` documents the format).

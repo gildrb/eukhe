@@ -17,11 +17,13 @@
 #   is the number of bands reached: 0 dim, 1 warning, 2 contextHigh,
 #   3 error.
 # - The roles. Every color slot of the terminal UI, as its token index in
-#   bend/theme.bend: the ink slots, the surface slots, then the ramp ends,
+#   bend/theme/: the ink slots, the surface slots, then the ramp ends,
 #   the lift ends and the canvas.
 
 import Base
-import ./theme.bend as T
+import ./theme/file.bend as TFile
+import ./theme/palette.bend as TPalette
+import ./theme/bundled.bend as TBundled
 import ./color.bend as Co
 import ./effort.bend as Ef
 
@@ -140,11 +142,11 @@ def distinct(xs: List<&2, Px>) -> Bool:
       Bool.and(notin(x, rest), distinct(rest))
 
 # the effort ramp ends of a shipped theme
-def shipped.lo(s: T.Shipped) -> Px:
-  px.of(T.at(T.table(s), 42n))
+def shipped.lo(s: TBundled.Shipped) -> Px:
+  px.of(TPalette.at(TBundled.table(s), 42n))
 
-def shipped.hi(s: T.Shipped) -> Px:
-  px.of(T.at(T.table(s), 43n))
+def shipped.hi(s: TBundled.Shipped) -> Px:
+  px.of(TPalette.at(TBundled.table(s), 43n))
 
 # the longest ladder: every level of the vocabulary
 def ladder.max() -> Nat:
@@ -233,12 +235,12 @@ def found(-A: Data, m: Maybe<&2, Maybe<&2, A>>) -> Bool:
       Maybe.is_some(&2, A, v)
 
 # every role has a value in the palette p
-def resolves(+p: List<&2, Maybe<&2, T.Val>>, rs: List<&2, Nat>) -> Bool:
+def resolves(+p: List<&2, Maybe<&2, TFile.Val>>, rs: List<&2, Nat>) -> Bool:
   match rs:
     case Nil{}:
       True{}
     case Con{r, rest}:
-      Bool.and(found(T.Val, List.get(&2, Maybe<&2, T.Val>, p, r)), resolves(p, rest))
+      Bool.and(found(TFile.Val, List.get(&2, Maybe<&2, TFile.Val>, p, r)), resolves(p, rest))
 
 # every role paints a color in the table xs
 def paints(+xs: List<&2, Co.Rgb>, rs: List<&2, Nat>) -> Bool:

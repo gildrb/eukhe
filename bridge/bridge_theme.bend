@@ -1,4 +1,4 @@
-# bridge_theme: runs the theme model (bend/theme.bend, bend/color.bend) on
+# bridge_theme: runs the theme model (bend/theme/, bend/color.bend) on
 # a scenario file and prints what it did, line for line as the Rust bridge
 # test prints the Rust code (crates/eukhe-core/src/export_html/theme_bridge.rs).
 # Build it with
@@ -46,7 +46,12 @@
 
 import Base
 import ../bend/color.bend as Co
-import ../bend/theme.bend as T
+import ../bend/theme/file.bend as TFile
+import ../bend/theme/token.bend as TToken
+import ../bend/theme/palette.bend as TPalette
+import ../bend/theme/bundled.bend as TBundled
+import ../bend/theme/name.bend as TName
+import ../bend/theme/choice.bend as TChoice
 
 # Reading
 # -------
@@ -101,29 +106,29 @@ def tok.u32(m: Maybe<&2, Nat>) -> Maybe<&2, U32>:
 def tok.of(+key: String) -> Maybe<&2, U32>:
   tok.u32(index(names(), key, 0n))
 
-def json.pick(d: Bool, h: Bool, r: Bool, n: Bool, +rest: String, +vn: List<&2, String>) -> T.Json:
+def json.pick(d: Bool, h: Bool, r: Bool, n: Bool, +rest: String, +vn: List<&2, String>) -> TFile.Json:
   match d:
     case True{}:
-      T.JStr{"", None{}}
+      TFile.JStr{"", None{}}
     case False{}:
       match h:
         case True{}:
-          T.JStr{SCon{'#', rest}, None{}}
+          TFile.JStr{SCon{'#', rest}, None{}}
         case False{}:
           match r:
             case True{}:
-              T.JStr{rest, index(vn, rest, 0n)}
+              TFile.JStr{rest, index(vn, rest, 0n)}
             case False{}:
               match n:
                 case True{}:
-                  T.JNum{rest}
+                  TFile.JNum{rest}
                 case False{}:
-                  T.JOther{rest}
+                  TFile.JOther{rest}
 
 # a raw value word: d (""), hTEXT (#TEXT), rNAME (the string NAME), nTEXT
 # (the number JSON writes as TEXT), oTEXT (any other JSON value, as
 # written); a string carries the index of the variable it names
-def json(+s: String, +vn: List<&2, String>) -> T.Json:
+def json(+s: String, +vn: List<&2, String>) -> TFile.Json:
   +c = tok.head(s)
   json.pick(Char.is_eq(c, 'd'), Char.is_eq(c, 'h'), Char.is_eq(c, 'r'), Char.is_eq(c, 'n'), tok.tail(s), vn)
 # Printing
@@ -158,7 +163,7 @@ def rgbs.show(xs: List<&2, Co.Rgb>) -> String:
 # -------
 
 def q.tables() -> String:
-  String.concat(["table eukhe", rgbs.show(T.table.eukhe()), "\ntable dark", rgbs.show(T.table.dark()), "\ntable light", rgbs.show(T.table.light()), "\n"])
+  String.concat(["table eukhe", rgbs.show(TPalette.table.eukhe()), "\ntable dark", rgbs.show(TBundled.table.dark()), "\ntable light", rgbs.show(TPalette.table.light()), "\n"])
 
 def q.lin.go(n: Nat, +c: U32) -> String:
   match n:
@@ -195,16 +200,16 @@ def word.has(ws: List<&2, String>, +c: Char) -> List<&2, List<&2, String>>:
       +ps = String.split(w, ':')
       words.keep(Char.is_eq(tok.head(tok.at(ps, 0n)), c), ps, word.has(rest, c))
 
-def ld.of(valid: Bool, nm: String, +custom: Bool) -> T.Ld:
+def ld.of(valid: Bool, nm: String, +custom: Bool) -> TChoice.Ld:
   match valid:
     case True{}:
-      T.Fine{nm, custom}
+      TChoice.Fine{nm, custom}
     case False{}:
-      T.Broke{Some{nm}, None{}}
+      TChoice.Broke{Some{nm}, None{}}
 
 # the files of a resolve query: `R:name:valid:id` (registered) or
 # `C:name:valid:id` (custom directory), valid 1/0
-def lds(ps: List<&2, List<&2, String>>, +custom: Bool) -> List<&2, T.Ld>:
+def lds(ps: List<&2, List<&2, String>>, +custom: Bool) -> List<&2, TChoice.Ld>:
   match ps:
     case Nil{}:
       Nil{}
@@ -235,24 +240,24 @@ def id.show(low: Bool, +id: U32, +fs: List<&2, U32>) -> String:
     case False{}:
       id.at(fs, U32.to_nat((id - 3 : U32)))
 
-def cause.show(m: Maybe<&2, T.Cause>, +fs: List<&2, U32>) -> String:
+def cause.show(m: Maybe<&2, TChoice.Cause>, +fs: List<&2, U32>) -> String:
   match m:
     case None{}:
       "-"
     case Some{c}:
       match c:
-        case T.NoTheme{}:
+        case TChoice.NoTheme{}:
           "n"
-        case T.FailedAt{at}:
+        case TChoice.FailedAt{at}:
           id.at(fs, at)
 
-def clashes.show(cs: List<&2, T.Clash>, +fs: List<&2, U32>) -> String:
+def clashes.show(cs: List<&2, TChoice.Clash>, +fs: List<&2, U32>) -> String:
   match cs:
     case Nil{}:
       ""
     case Con{c, rest}:
       match c:
-        case T.Clash{at, w}:
+        case TChoice.Clash{at, w}:
           String.concat([",", id.at(fs, at), ">", id.at(fs, w), clashes.show(rest, fs)])
 
 def broken.show(bs: List<&2, Nat>, +fs: List<&2, U32>) -> String:
@@ -262,11 +267,11 @@ def broken.show(bs: List<&2, Nat>, +fs: List<&2, U32>) -> String:
     case Con{b, rest}:
       String.concat([",", id.at(fs, b), broken.show(rest, fs)])
 
-def q.resolve.show(p: T.Pick, +fs: List<&2, U32>) -> String:
+def q.resolve.show(p: TChoice.Pick, +fs: List<&2, U32>) -> String:
   match p:
-    case T.Pick{r, c, k, b}:
+    case TChoice.Pick{r, c, k, b}:
       match r:
-        case T.Res{+id, warned}:
+        case TName.Res{+id, warned}:
           String.concat(["resolve ", id.show(U32.is_lt(id, 3), id, fs), " ", bit(warned), " ", cause.show(c, fs), " ", clashes.show(k, fs), " ", broken.show(b, fs), "\n"])
 
 def q.resolve(+ws: List<&2, String>) -> String:
@@ -274,8 +279,8 @@ def q.resolve(+ws: List<&2, String>) -> String:
   +rest = List.drop(&2, String, ws, 2n)
   +rs = word.has(rest, 'R')
   +cs = word.has(rest, 'C')
-  +ls = List.append(&2, T.Ld, lds(rs, False{}), lds(cs, True{}))
-  q.resolve.show(T.pick(ls, name.of(n, String.eq(n, "-"))), List.append(&2, U32, ids(rs), ids(cs)))
+  +ls = List.append(&2, TChoice.Ld, lds(rs, False{}), lds(cs, True{}))
+  q.resolve.show(TChoice.pick(ls, name.of(n, String.eq(n, "-"))), List.append(&2, U32, ids(rs), ids(cs)))
 
 # the variable names of a file query, in order
 def var.names(ps: List<&2, List<&2, String>>) -> List<&2, String>:
@@ -285,36 +290,36 @@ def var.names(ps: List<&2, List<&2, String>>) -> List<&2, String>:
     case Con{+p, rest}:
       tok.at(p, 1n) <> var.names(rest)
 
-def vars(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> List<&2, T.Var>:
+def vars(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> List<&2, TFile.Var>:
   match ps:
     case Nil{}:
       Nil{}
     case Con{+p, rest}:
-      T.Var{tok.at(p, 1n), json(tok.at(p, 2n), vn)} <> vars(rest, vn)
+      TFile.Var{tok.at(p, 1n), json(tok.at(p, 2n), vn)} <> vars(rest, vn)
 
-def cols(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> List<&2, T.REnt>:
+def cols(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> List<&2, TFile.REnt>:
   match ps:
     case Nil{}:
       Nil{}
     case Con{+p, rest}:
       +key = tok.at(p, 1n)
-      T.REnt{key, tok.of(key), json(tok.at(p, 2n), vn)} <> cols(rest, vn)
+      TFile.REnt{key, tok.of(key), json(tok.at(p, 2n), vn)} <> cols(rest, vn)
 
-def surf(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> Maybe<&2, T.Json>:
+def surf(ps: List<&2, List<&2, String>>, +vn: List<&2, String>) -> Maybe<&2, TFile.Json>:
   match ps:
     case Nil{}:
       None{}
     case Con{+p, rest}:
       Some{json(tok.at(p, 1n), vn)}
 
-def paints(+p: List<&2, Maybe<&2, T.Val>>, ts: List<&2, U32>) -> List<&2, Co.Rgb>:
+def paints(+p: List<&2, Maybe<&2, TFile.Val>>, ts: List<&2, U32>) -> List<&2, Co.Rgb>:
   match ts:
     case Nil{}:
       Nil{}
     case Con{t, rest}:
-      T.paint(p, t) <> paints(p, rest)
+      TPalette.paint(p, t) <> paints(p, rest)
 
-def somes(vs: List<&2, T.Val>) -> List<&2, Maybe<&2, T.Val>>:
+def somes(vs: List<&2, TFile.Val>) -> List<&2, Maybe<&2, TFile.Val>>:
   match vs:
     case Nil{}:
       Nil{}
@@ -328,24 +333,24 @@ def opt.show(m: Maybe<&2, Co.Rgb>) -> String:
     case Some{c}:
       rgb.show(c)
 
-def why.show(w: T.Why) -> String:
+def why.show(w: TFile.Why) -> String:
   match w:
-    case T.Circular{n}:
+    case TFile.Circular{n}:
       String.append("Circular variable reference detected: ", n)
-    case T.NotFound{n}:
+    case TFile.NotFound{n}:
       String.append("Variable reference not found: ", n)
-    case T.BadHex{t}:
+    case TFile.BadHex{t}:
       String.append("Invalid hex color: ", t)
-    case T.BadValue{t}:
+    case TFile.BadValue{t}:
       String.append("Invalid color value: ", t)
 
-def surf.key(s: T.Surf) -> String:
+def surf.key(s: TFile.Surf) -> String:
   match s:
-    case T.OnPage{}:
+    case TFile.OnPage{}:
       "pageBg"
-    case T.OnCard{}:
+    case TFile.OnCard{}:
       "cardBg"
-    case T.OnInfo{}:
+    case TFile.OnInfo{}:
       "infoBg"
 
 def name.of.tok(+t: U32) -> String:
@@ -362,29 +367,29 @@ def missing.show(ts: List<&2, U32>, first: Bool) -> String:
         case False{}:
           String.append(", ", String.append(name.of.tok(t), missing.show(rest, False{})))
 
-def fault.show(f: T.Fault) -> String:
+def fault.show(f: TFile.Fault) -> String:
   match f:
-    case T.Unknown{k}:
+    case TFile.Unknown{k}:
       String.append("unknown color token: ", k)
-    case T.InColor{k, w}:
+    case TFile.InColor{k, w}:
       String.append("color \"", String.append(k, String.append("\": ", why.show(w))))
-    case T.Missing{ts}:
+    case TFile.Missing{ts}:
       String.append("missing required color tokens: ", missing.show(ts, True{}))
-    case T.InExport{s, w}:
+    case TFile.InExport{s, w}:
       String.append("export \"", String.append(surf.key(s), String.append("\": ", why.show(w))))
 
-def q.file.show(p: T.Parsed) -> String:
+def q.file.show(p: TPalette.Parsed) -> String:
   match p:
-    case T.Rejected{f}:
+    case TPalette.Rejected{f}:
       String.append("file invalid ", String.append(fault.show(f), "\n"))
-    case T.Painted{vs, light, d, pg, cd, io}:
-      String.concat(["file ok ", bit(light), rgbs.show(paints(somes(vs), T.toks())), " ", opt.show(d), " ", opt.show(pg), " ", opt.show(cd), " ", opt.show(io), "\n"])
+    case TPalette.Painted{vs, light, d, pg, cd, io}:
+      String.concat(["file ok ", bit(light), rgbs.show(paints(somes(vs), TToken.toks())), " ", opt.show(d), " ", opt.show(pg), " ", opt.show(cd), " ", opt.show(io), "\n"])
 
 def q.file(+ws: List<&2, String>) -> String:
   +rest = List.drop(&2, String, ws, 1n)
   +vs = word.has(rest, 'V')
   +vn = var.names(vs)
-  q.file.show(T.parse(T.RFile{"f", vars(vs, vn), cols(word.has(rest, 'C'), vn), surf(word.has(rest, 'P'), vn), surf(word.has(rest, 'K'), vn), surf(word.has(rest, 'I'), vn)}))
+  q.file.show(TPalette.parse(TFile.RFile{"f", vars(vs, vn), cols(word.has(rest, 'C'), vn), surf(word.has(rest, 'P'), vn), surf(word.has(rest, 'K'), vn), surf(word.has(rest, 'I'), vn)}))
 
 # Running
 # -------

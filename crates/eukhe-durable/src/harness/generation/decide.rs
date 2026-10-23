@@ -8,7 +8,7 @@
 //! call over plain data (the counters that bound a run); the phases in
 //! `generation.rs` and `round.rs` do the IO around it and act on what it
 //! returns.
-//! The Bend model `bend/run.bend` makes the same decisions; `laws/run.bend`
+//! The Bend model `bend/run/` makes the same decisions; `laws/run.bend`
 //! (H4) proves that every run ends under them, that a retry never
 //! resends a request it cut and that every recovery stops at its cap, and
 //! the bridge test (`bridge.rs`) runs both on the same scenarios.
@@ -101,7 +101,7 @@ pub(crate) enum Act {
 /// calls run below the repeat cap, else are redone under the redirect
 /// cap, then quit. A recovery does not read the retry policy: its note is
 /// a new request, not a transient error. The decision is `decide.recover`
-/// of `bend/run.bend` (law `rec_recover_is_the_rust_rule`).
+/// of `bend/run/decision.bend` (law `rec_recover_is_the_rust_rule`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
     entry::ask(
         Ask::Recover,
@@ -205,7 +205,7 @@ impl Ended {
     /// `stop` with tool calls); else an answer when it has text. With no
     /// text and no call, the model gave no answer: the reply is a noted
     /// model error, so it never ends the run as answered. The decision is
-    /// `Ended.reply` of `bend/run.bend` (laws `run_no_answer_is_an_error`,
+    /// `Ended.reply` of `bend/run/state.bend` (laws `run_no_answer_is_an_error`,
     /// `run_calls_never_answer`).
     pub(crate) fn reply<D>(self) -> Reply<D> {
         entry::ask(
@@ -264,7 +264,7 @@ pub(crate) enum Failure {
 
 /// The step after a reply to the request or poll counted by `at`. A noted
 /// reply spends a note and a transient error a retry: neither shrinks
-/// the other's budget. The decision is `decide.reply` of `bend/run.bend`
+/// the other's budget. The decision is `decide.reply` of `bend/run/decision.bend`
 /// (law `run_reply_is_the_rust_rule`); a poll goes on with the deferred
 /// reply's handle.
 pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> Step<D> {
@@ -380,7 +380,7 @@ pub(crate) enum Prepared {
 /// exists). A generation compacts at most once, so one that compacted
 /// reads no threshold (law `run_prepare_compacted_reads_no_threshold`): the
 /// caller need not measure its context and passes `None`. The decision is
-/// `decide.prepare` of `bend/run.bend` (law `run_prepare_is_the_rust_rule`).
+/// `decide.prepare` of `bend/run/decision.bend` (law `run_prepare_is_the_rust_rule`).
 pub(crate) fn before_request(at: Counts, threshold: Option<Threshold>) -> Prepared {
     entry::ask(
         Ask::Prepare,
@@ -426,7 +426,7 @@ pub(crate) enum Compacted {
 /// threshold one that found nothing leaves a request that may still fit;
 /// one that failed left a context it judged too large, and sending it
 /// would at best leave no room for the answer. The decision is
-/// `decide.compact` of `bend/run.bend` (law `run_compact_is_the_rust_rule`).
+/// `decide.compact` of `bend/run/decision.bend` (law `run_compact_is_the_rust_rule`).
 pub(crate) fn after_compaction(
     compaction: Compaction,
     compacted: Compacted,
@@ -498,7 +498,7 @@ pub(crate) struct Ending {
 /// [`Limits::max_rounds`] rounds, else a queued reset ends it, else the
 /// next generation goes on with one more round. A control wins over a
 /// reset, and the cap over a reset. The decision is `decide.round` of
-/// `bend/run.bend` (law `run_round_is_the_rust_rule`).
+/// `bend/run/decision.bend` (law `run_round_is_the_rust_rule`).
 pub(crate) fn round_end(rounds: Rounds, ending: Ending, limits: &Limits) -> RoundEnd {
     entry::ask(
         Ask::Round,

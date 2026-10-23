@@ -2,7 +2,7 @@
 
 import Base
 import ../bend/ffi_screen.bend as FSc
-import ../bend/run.bend as Rn
+import ../bend/run/recovery.bend as RnRecovery
 import ../bend/screen.bend as Sc
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
@@ -203,12 +203,12 @@ law all_comm_rejects:
 # ---- recover ----
 
 # LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
-# about the model in bend/run.bend; PROOF.bend proves them (as Laws.<law>)
+# about the model in bend/run/recovery.bend; PROOF.bend proves them (as Laws.<law>)
 # with the lemmas of PROOF.bend section recover.
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
-# docs/harness.md H4.8, the recoveries of bend/run.bend (Rec): a length
+# docs/harness.md H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
 # stop while the model still reasons, tool calls leaked as text, the same
 # tool calls with the same results round after round. Every reply is
 # free, in any order. A Redo is a noted error, so its retry ends its
@@ -219,26 +219,26 @@ law all_comm_rejects:
 # LAW: a length stop with no answer under the cap (fewer than `long`
 # length notes in a row) is retried with the next length note
 law rec_length_retries_with_a_note:
-  for +rc: Rn.RCfg
-  for +k: Rn.Rk
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
   for +row: Nat
   for +same: Nat
   for +last: Nat
-  for under: {Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)) == True{} : Bool}
-  {Rn.Rec.step(rc, Rn.Long{}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Redo{}, Rn.Rec{Rn.Longs{}, 1n+Rn.Rk.longs(k, row), same, last}} : Rn.Dec}
+  for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
 
 # LAW: leaked calls that were not rebuilt, under the cap, are retried with
 # the next leak note
 law rec_leak_retries_with_a_note:
-  for +rc: Rn.RCfg
+  for +rc: RnRecovery.RCfg
   for +h: Nat
   for kept: Bool
-  for +k: Rn.Rk
+  for +k: RnRecovery.Rk
   for +row: Nat
   for +same: Nat
   for +last: Nat
-  for under: {Rn.below(Rn.Rk.leaks(k, row), Rn.RCfg.leak(rc)) == True{} : Bool}
-  {Rn.Rec.step(rc, Rn.Leak{False{}, h, kept}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Redo{}, Rn.Rec{Rn.Leaks{}, 1n+Rn.Rk.leaks(k, row), same, last}} : Rn.Dec}
+  for under: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Leaks{}, 1n+RnRecovery.Rk.leaks(k, row), same, last}} : RnRecovery.Dec}
 
 # ---- screen: the entry ----
 

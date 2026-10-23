@@ -4,7 +4,7 @@
 # (crates/eukhe-durable/src/harness/generation/retry_bridge.rs for the i
 # lines; the classifier, the wait, the failover walk and the stall run as
 # the compiled model, bend/ffi_retry.bend, and the deferred job as
-# bend/run.bend in the compiled core, bend/ffi_run.bend). Build it with
+# bend/run/decision.bend in the compiled core, bend/ffi_run.bend). Build it with
 #
 #   bend bridge/bridge_retry.bend -o <out>
 #

@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of two or more areas share: nat/add
 
 import Base
-import ../../../bend/run.bend as Rn
+import ../../../bend/run/state.bend as RnState
 import ../bool/misc.bend as LBoolMisc
 import ./misc.bend as LNatMisc
 
@@ -155,8 +155,8 @@ def next_gen(+gp: Nat, +X: Nat) -> {Nat.add(0n, 1n+Nat.add(1n+gp, X)) == Nat.add
   %add_succ(gp, X) : {1n+_ == 1n+Nat.add(gp, 1n+X) : Nat}
   {==}
 
-def call_end(+P: Nat, +U: Nat, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> {Nat.add(LNatMisc.gen(P, Rn.Call{}, c, u, p), 1n+LNatMisc.X(P, U, r)) == Nat.add(LNatMisc.K.call_end(P, U, r, c, u, p), 1n+0n) : Nat}:
-  to_end(LNatMisc.gen(P, Rn.Call{}, c, u, p), LNatMisc.X(P, U, r))
+def call_end(+P: Nat, +U: Nat, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> {Nat.add(LNatMisc.gen(P, RnState.Call{}, c, u, p), 1n+LNatMisc.X(P, U, r)) == Nat.add(LNatMisc.K.call_end(P, U, r, c, u, p), 1n+0n) : Nat}:
+  to_end(LNatMisc.gen(P, RnState.Call{}, c, u, p), LNatMisc.X(P, U, r))
 
 def succ_m(+j: Nat, +g: Nat, +X: Nat) -> {Nat.add(j, Nat.add(g, 1n+X)) == 1n+Nat.add(j, Nat.add(g, X)) : Nat}:
   %add_succ_r(g, X) : {Nat.add(j, _) == 1n+Nat.add(j, Nat.add(g, X)) : Nat}

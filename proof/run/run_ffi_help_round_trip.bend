@@ -2,22 +2,22 @@
 
 import Base
 import ../../bend/ffi_run.bend as FRn
-import ../../bend/run.bend as Rn
+import ../../bend/run/decision.bend as RnDecision
 import ../../bend/wire.bend as Wr
 import ../../laws/run.bend as Run
 import ../../laws/wire.bend as Wire
 import ../base/wire.bend as LWire
 
-def rk.rt_help(x: Rn.Help, +rest: String, +h: {Run.run.help_fits(x) == True{} : Bool}) -> {FRn.get_help(FRn.put_help(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Help>}:
+def rk.rt_help(x: RnDecision.Help, +rest: String, +h: {Run.run.help_fits(x) == True{} : Bool}) -> {FRn.get_help(FRn.put_help(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Help>}:
   match x:
-    case Rn.Runs{}:
+    case RnDecision.Runs{}:
       {==}
-    case Rn.Redoes{+row}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Wire.wire_nat_round_trip(row, rest, h)) : {FRn.get_help.c1.f0(_) == Wr.Got{Rn.Redoes{row}, rest} : Wr.Dec<Rn.Help>}
+    case RnDecision.Redoes{+row}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Wire.wire_nat_round_trip(row, rest, h)) : {FRn.get_help.c1.f0(_) == Wr.Got{RnDecision.Redoes{row}, rest} : Wr.Dec<RnDecision.Help>}
       {==}
-    case Rn.Stands{}:
+    case RnDecision.Stands{}:
       {==}
-    case Rn.Quits{}:
+    case RnDecision.Quits{}:
       {==}
 
 def Run.run_ffi_help_round_trip(x, rest, h):

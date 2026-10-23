@@ -1,13 +1,13 @@
 # eukhe: the laws of area tui_color
 
 import Base
-import ../bend/theme.bend as T
+import ../bend/theme/bundled.bend as TBundled
 import ../bend/tui_color.bend as TC
 
 # ---- tui_color ----
 
 # LAWS (T3): terminal colors. Each law is an open claim about the model
-# in bend/tui_color.bend (with the theme tables of bend/theme.bend);
+# in bend/tui_color.bend (with the theme tables of bend/theme/bundled.bend);
 # PROOF.bend proves them (as Laws.<law>) with the lemmas of
 # PROOF.bend section tui_color.
 
@@ -47,7 +47,7 @@ law tui_effort_ramp_distinct:
 # LAW: in every shipped theme, no two rungs of the effort ramp have the
 # same color, for any ladder of the level vocabulary
 law tui_effort_shipped_distinct:
-  for s: T.Shipped
+  for s: TBundled.Shipped
   for n: Nat
   for fits: {Nat.is_le(n, TC.ladder.max()) == True{} : Bool}
   {TC.distinct(TC.ramp(TC.shipped.lo(s), TC.shipped.hi(s), n)) == True{} : Bool}
@@ -86,5 +86,5 @@ law tui_usage_band_full:
 # LAW: every color role of the terminal UI paints a color in every
 # shipped theme
 law tui_roles_shipped:
-  for s: T.Shipped
-  {TC.paints(T.table(s), TC.roles()) == True{} : Bool}
+  for s: TBundled.Shipped
+  {TC.paints(TBundled.table(s), TC.roles()) == True{} : Bool}

@@ -1,17 +1,17 @@
 # eukhe: the proof of LAW tui_roles_shipped
 
 import Base
-import ../../bend/theme.bend as T
+import ../../bend/theme/bundled.bend as TBundled
 import ../../bend/tui_color.bend as TC
 import ../../laws/tui_color.bend as TuiColor
 
-def tui_roles_shipped(s: T.Shipped) -> {TC.paints(T.table(s), TC.roles()) == True{} : Bool}:
+def tui_roles_shipped(s: TBundled.Shipped) -> {TC.paints(TBundled.table(s), TC.roles()) == True{} : Bool}:
   match s:
-    case T.Eukhe{}:
+    case TBundled.Eukhe{}:
       {==}
-    case T.Dark{}:
+    case TBundled.Dark{}:
       {==}
-    case T.Light{}:
+    case TBundled.Light{}:
       {==}
 
 def TuiColor.tui_roles_shipped(s):

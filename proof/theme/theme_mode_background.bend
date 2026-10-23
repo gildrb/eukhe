@@ -2,23 +2,24 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../bend/theme.bend as T
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/palette.bend as TPalette
 import ../../laws/theme.bend as Theme
 
 # Modes and names
 # ---------------
 
-def pt.light_bg(f: T.Th) -> {T.light(f) == Co.light(T.bg(f)) : Bool}:
+def pt.light_bg(f: TFile.Th) -> {TPalette.light(f) == Co.light(TPalette.bg(f)) : Bool}:
   match f:
-    case T.Th{name, cols, page, card, info}:
+    case TFile.Th{name, cols, page, card, info}:
       {==}
 
-def theme_mode_background(f: T.Th, g: T.Th, same: {T.bg(f) == T.bg(g) : Co.Rgb}) -> {T.light(f) == T.light(g) : Bool}:
+def theme_mode_background(f: TFile.Th, g: TFile.Th, same: {TPalette.bg(f) == TPalette.bg(g) : Co.Rgb}) -> {TPalette.light(f) == TPalette.light(g) : Bool}:
   +lf = pt.light_bg(f)
   +lg = pt.light_bg(g)
-  %Equal.sym(Bool, T.light(f), Co.light(T.bg(f)), lf) : {_ == T.light(g) : Bool}
-  %Equal.sym(Bool, T.light(g), Co.light(T.bg(g)), lg) : {Co.light(T.bg(f)) == _ : Bool}
-  Equal.cong(Co.Rgb, Bool, c => Co.light(c), T.bg(f), T.bg(g), same)
+  %Equal.sym(Bool, TPalette.light(f), Co.light(TPalette.bg(f)), lf) : {_ == TPalette.light(g) : Bool}
+  %Equal.sym(Bool, TPalette.light(g), Co.light(TPalette.bg(g)), lg) : {Co.light(TPalette.bg(f)) == _ : Bool}
+  Equal.cong(Co.Rgb, Bool, c => Co.light(c), TPalette.bg(f), TPalette.bg(g), same)
 
 def Theme.theme_mode_background(f, g, same):
   theme_mode_background(f, g, same)

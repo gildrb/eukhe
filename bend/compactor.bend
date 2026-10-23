@@ -21,7 +21,9 @@
 # `line` on the scenarios of the Rust bridge test.
 
 import Base
-import ./optchat.bend as O
+import ./optchat/bits.bend as OBits
+import ./optchat/node.bend as ONode
+import ./optchat/info.bend as OInfo
 
 # Text
 # ----
@@ -350,7 +352,7 @@ def line.fits(+node: Nat, m: Maybe<&2, List<&2, W>>) -> Bool:
     case None{}:
       True{}
     case Some{+t}:
-      Bool.and(O.Nat.is_pos(Text.len(t)), Nat.is_le(Text.len(t), node))
+      Bool.and(OBits.Nat.is_pos(Text.len(t)), Nat.is_le(Text.len(t), node))
 
 # The settle (H2)
 # ---------------
@@ -479,7 +481,7 @@ def hits(es: List<&2, End>, +ps: List<&2, Pend>) -> Nat:
     case Nil{}:
       0n
     case End{+k, +o} <> rest:
-      Nat.add(O.bit(Bool.and(pending_at(ps, k), Outcome.lands(o)), 0n), hits(rest, hit(ps, k, o)))
+      Nat.add(OBits.bit(Bool.and(pending_at(ps, k), Outcome.lands(o)), 0n), hits(rest, hit(ps, k, o)))
 
 # a line after the outcomes of its calls, in order
 def Pend.run(os: List<&2, Outcome>, p: Pend) -> Pend:
@@ -513,46 +515,46 @@ def settle.line(built: Bool, +p: Nat) -> Pend:
     case False{}:
       Owed{p}
 
-def settle.start(+p: Nat, +info: O.Info, v: List<&2, O.Node>) -> List<&2, Pend>:
+def settle.start(+p: Nat, +info: OInfo.Info, v: List<&2, ONode.Node>) -> List<&2, Pend>:
   match v:
     case Nil{}:
       Nil{}
     case h <> rest:
-      settle.line(O.Info.built(info, h), p) <> settle.start(p, info, rest)
+      settle.line(OInfo.Info.built(info, h), p) <> settle.start(p, info, rest)
 
 # the view's lines not built
-def unbuilt(+info: O.Info, v: List<&2, O.Node>) -> Nat:
+def unbuilt(+info: OInfo.Info, v: List<&2, ONode.Node>) -> Nat:
   match v:
     case Nil{}:
       0n
     case h <> rest:
-      Nat.add(O.bit(Bool.not(O.Info.built(info, h)), 0n), unbuilt(info, rest))
+      Nat.add(OBits.bit(Bool.not(OInfo.Info.built(info, h)), 0n), unbuilt(info, rest))
 
 # Need first (H2.1)
 # -----------------
 
 # every node of ns is a line of v that is not built
-def needed(+info: O.Info, +v: List<&2, O.Node>, ns: List<&2, O.Node>) -> Bool:
+def needed(+info: OInfo.Info, +v: List<&2, ONode.Node>, ns: List<&2, ONode.Node>) -> Bool:
   match ns:
     case Nil{}:
       True{}
     case +n <> rest:
-      Bool.and(Bool.and(O.Nodes.has(v, n), Bool.not(O.Info.built(info, n))), needed(info, v, rest))
+      Bool.and(Bool.and(ONode.Nodes.has(v, n), Bool.not(OInfo.Info.built(info, n))), needed(info, v, rest))
 
 # every node of bs that is a line of v not built is in ws: a stop that
 # leaves ws running spared every call the view needs
-def kept(+info: O.Info, +v: List<&2, O.Node>, bs: List<&2, O.Node>, +ws: List<&2, O.Node>) -> Bool:
+def kept(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>, +ws: List<&2, ONode.Node>) -> Bool:
   match bs:
     case Nil{}:
       True{}
     case +b <> rest:
-      Bool.and(O.Bool.implies(Bool.and(O.Nodes.has(v, b), Bool.not(O.Info.built(info, b))), O.Nodes.has(ws, b)), kept(info, v, rest, ws))
+      Bool.and(OBits.Bool.implies(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b))), ONode.Nodes.has(ws, b)), kept(info, v, rest, ws))
 
 # some line of v is neither built nor busy: a line the turn needs that no
 # call builds
-def idle(+info: O.Info, v: List<&2, O.Node>, +busy: List<&2, O.Node>) -> Bool:
+def idle(+info: OInfo.Info, v: List<&2, ONode.Node>, +busy: List<&2, ONode.Node>) -> Bool:
   match v:
     case Nil{}:
       False{}
     case +h <> rest:
-      Bool.or(Bool.and(Bool.not(O.Info.built(info, h)), Bool.not(O.Nodes.has(busy, h))), idle(info, rest, busy))
+      Bool.or(Bool.and(Bool.not(OInfo.Info.built(info, h)), Bool.not(ONode.Nodes.has(busy, h))), idle(info, rest, busy))

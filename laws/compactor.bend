@@ -2,7 +2,10 @@
 
 import Base
 import ../bend/compactor.bend as C
-import ../bend/optchat.bend as O
+import ../bend/optchat/info.bend as OInfo
+import ../bend/optchat/node.bend as ONode
+import ../bend/optchat/queue.bend as OQueue
+import ../bend/optchat/state.bend as OState
 
 # (H1) A compactor call always ends with a line that fits
 # -------------------------------------------------------
@@ -75,30 +78,30 @@ law fail_cap_builds:
 
 # (H2) A turn never waits forever for the memory
 # ----------------------------------------------
-# docs/harness.md H2: the need-first queue of bend/optchat.bend, the settle
+# docs/harness.md H2: the need-first queue of bend/optchat/queue.bend, the settle
 # of bend/compactor.bend.
 
 # LAW: while a turn waits, every node the queue starts is a line of the
 # view that is not built
 law need_first:
-  for +cfg: O.Cfg
-  for +s: O.St
-  {C.needed(O.St.info(s), O.St.view(s), O.cands.need(cfg, s)) == True{} : Bool}
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need(cfg, s)) == True{} : Bool}
 
 # LAW: when a turn starts to wait, every call it does not need stops
 # (O.St.wait): then every running call and every call the queue starts
 # is for a line of the view that is not built
 law need_first_running:
-  for +cfg: O.Cfg
-  for +s: O.St
-  {C.needed(O.St.info(s), O.St.view(s), List.append(&2, O.Node, O.St.busy(O.St.wait(s)), O.cands.need(cfg, O.St.wait(s)))) == True{} : Bool}
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  {C.needed(OState.St.info(s), OState.St.view(s), List.append(&2, ONode.Node, OState.St.busy(OQueue.St.wait(s)), OQueue.cands.need(cfg, OQueue.St.wait(s)))) == True{} : Bool}
 
 # LAW: and it stops no call the view needs: a call of a view line not
 # built still runs. Every waiting turn waits for the same view, so no
 # turn's wait stops a call another waiting turn needs.
 law wait_keeps_needed:
-  for +s: O.St
-  {C.kept(O.St.info(s), O.St.view(s), O.St.busy(s), O.St.busy(O.St.wait(s))) == True{} : Bool}
+  for +s: OState.St
+  {C.kept(OState.St.info(s), OState.St.view(s), OState.St.busy(s), OState.St.busy(OQueue.St.wait(s))) == True{} : Bool}
 
 # LAW: each outcome that counts (a saved line, a failed call) of a
 # pending line's call lowers the measure
@@ -130,6 +133,6 @@ law settle_reached:
 # times the view's unbuilt lines
 law settle_start:
   for +p: Nat
-  for +info: O.Info
-  for +v: List<&2, O.Node>
+  for +info: OInfo.Info
+  for +v: List<&2, ONode.Node>
   {C.measure(C.settle.start(p, info, v)) == Nat.mul(C.unbuilt(info, v), 1n+p) : Nat}

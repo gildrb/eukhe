@@ -1,16 +1,16 @@
 # eukhe: the proof of LAW theme_shipped_status_distinct
 
 import Base
-import ../../bend/theme.bend as T
+import ../../bend/theme/bundled.bend as TBundled
 import ../../laws/theme.bend as Theme
 
-def theme_shipped_status_distinct(s: T.Shipped) -> {T.status_distinct(T.table(s)) == True{} : Bool}:
+def theme_shipped_status_distinct(s: TBundled.Shipped) -> {TBundled.status_distinct(TBundled.table(s)) == True{} : Bool}:
   match s:
-    case T.Eukhe{}:
+    case TBundled.Eukhe{}:
       {==}
-    case T.Dark{}:
+    case TBundled.Dark{}:
       {==}
-    case T.Light{}:
+    case TBundled.Light{}:
       {==}
 
 def Theme.theme_shipped_status_distinct(s):

@@ -1,5 +1,5 @@
 //! The bridge between the Rust planner and its Bend model
-//! (`bend/optchat.bend`, whose laws `PROOF.bend` proves): both run the
+//! (`bend/optchat/`, whose laws `PROOF.bend` proves): both run the
 //! same scenarios and must print the same transcript, byte for byte.
 //!
 //! A scenario is a list of events (`bridge/bridge.bend` documents the

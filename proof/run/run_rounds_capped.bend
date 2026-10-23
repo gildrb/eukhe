@@ -1,7 +1,9 @@
 # eukhe: the proof of LAW run_rounds_capped
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/measure.bend as RnMeasure
+import ../../bend/run/state.bend as RnState
+import ../../bend/run/step.bend as RnStep
 import ../../laws/run.bend as Run
 import ./base.bend as LA
 
@@ -20,16 +22,16 @@ def lt_of(n: Nat, -r: Nat, -cap: Nat, eq: {Nat.add(n, 1n+r) == cap : Nat}) -> {N
   lt_add(n, r)
 
 # a run that did not fail made fewer than max(cap, 1) rounds
-def rounds_of(+cfg: Rn.Cfg, +s: Rn.St, +k: Nat, i: LA.InvS(cfg, s, k)) -> Or({Rn.failed(s) == True{} : Bool}, {Nat.is_lt(k, Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool}):
+def rounds_of(+cfg: RnState.Cfg, +s: RnState.St, +k: Nat, i: LA.InvS(cfg, s, k)) -> Or({RnState.failed(s) == True{} : Bool}, {Nat.is_lt(k, Nat.max(RnState.Cfg.cap(cfg), 1n)) == True{} : Bool}):
   (cp, co) = i
   match co:
     case Inl{f}:
       Inl{f}
     case Inr{eq}:
-      Inr{lt_of(k, Rn.St.r(s), Nat.max(Rn.Cfg.cap(cfg), 1n), eq)}
+      Inr{lt_of(k, RnState.St.r(s), Nat.max(RnState.Cfg.cap(cfg), 1n), eq)}
 
-def rounds_capped(+cfg: Rn.Cfg, +evs: List<&2, Rn.Ev>) -> Or({Rn.failed(Rn.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(Rn.rounds(cfg, evs), Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool}):
-  rounds_of(cfg, Rn.run(cfg, evs), Rn.rounds(cfg, evs), LA.inv_run(evs, cfg, Rn.init(cfg), 0n, LA.inv_init(cfg)))
+def rounds_capped(+cfg: RnState.Cfg, +evs: List<&2, RnState.Ev>) -> Or({RnState.failed(RnStep.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(RnMeasure.rounds(cfg, evs), Nat.max(RnState.Cfg.cap(cfg), 1n)) == True{} : Bool}):
+  rounds_of(cfg, RnStep.run(cfg, evs), RnMeasure.rounds(cfg, evs), LA.inv_run(evs, cfg, RnState.init(cfg), 0n, LA.inv_init(cfg)))
 
 def Run.run_rounds_capped(cfg, evs):
   rounds_capped(cfg, evs)

@@ -1,11 +1,11 @@
 # eukhe: the proof of LAW rec_length_gives_up
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 
-def length_gives_up(+rc: Rn.RCfg, +k: Rn.Rk, +row: Nat, +same: Nat, +last: Nat, over: {Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)) == False{} : Bool}) -> {Rn.Dec.act(Rn.Rec.step(rc, Rn.Long{}, Rn.Rec{k, row, same, last})) == Rn.Quit{} : Rn.Act}:
-  %Equal.sym(Bool, Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)), False{}, over) : {Rn.Dec.act(Rn.rec.long(_, Rn.Rk.longs(k, row), same, last, Rn.Rec{k, row, same, last})) == Rn.Quit{} : Rn.Act}
+def length_gives_up(+rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, over: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == False{} : Bool}) -> {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}:
+  %Equal.sym(Bool, RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), False{}, over) : {RnRecovery.Dec.act(RnRecovery.rec.long(_, RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
   {==}
 
 def Run.rec_length_gives_up(rc, k, row, same, last, over):

@@ -2,7 +2,7 @@
 
 import Base
 import ../../../bend/fsmode.bend as Fs
-import ../../../bend/run.bend as Rn
+import ../../../bend/run/state.bend as RnState
 import ../bool/misc.bend as LBoolMisc
 
 # The value of digits read last first: d0 + 10 * value(rest).
@@ -106,46 +106,46 @@ def B(+P: Nat, c: Nat, u: Nat) -> Nat:
   Nat.add(Nat.mul(c, 1n+Q(P)), Nat.mul(u, Q(P)))
 
 # what the generation may still take before its round ends
-def gen(+P: Nat, ph: Rn.Ph, c: Nat, u: Nat, p: Nat) -> Nat:
+def gen(+P: Nat, ph: RnState.Ph, c: Nat, u: Nat, p: Nat) -> Nat:
   match ph:
-    case Rn.Prepare{}:
+    case RnState.Prepare{}:
       Nat.add(Q(P), B(P, c, u))
-    case Rn.Call{}:
+    case RnState.Call{}:
       1n+Nat.add(p, B(P, c, u))
-    case Rn.Compact{over}:
+    case RnState.Compact{over}:
       1n+Nat.add(Q(P), B(P, c, u))
-    case Rn.Tools{}:
+    case RnState.Tools{}:
       0n
-    case Rn.Answered{}:
+    case RnState.Answered{}:
       0n
-    case Rn.Aborted{}:
+    case RnState.Aborted{}:
       0n
-    case Rn.Failed{why}:
+    case RnState.Failed{why}:
       0n
 
 def G(+P: Nat, +U: Nat) -> Nat:
-  1n+gen(P, Rn.Prepare{}, 1n, U, 0n)
+  1n+gen(P, RnState.Prepare{}, 1n, U, 0n)
 
-def M.ph(+P: Nat, +U: Nat, ph: Rn.Ph, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> Nat:
+def M.ph(+P: Nat, +U: Nat, ph: RnState.Ph, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> Nat:
   match ph:
-    case Rn.Prepare{}:
-      Nat.add(gen(P, Rn.Prepare{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
-    case Rn.Call{}:
-      Nat.add(gen(P, Rn.Call{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
-    case Rn.Compact{over}:
-      Nat.add(gen(P, Rn.Compact{over}, c, u, p), 1n+Nat.mul(r, G(P, U)))
-    case Rn.Tools{}:
-      Nat.add(gen(P, Rn.Tools{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
-    case Rn.Answered{}:
+    case RnState.Prepare{}:
+      Nat.add(gen(P, RnState.Prepare{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
+    case RnState.Call{}:
+      Nat.add(gen(P, RnState.Call{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
+    case RnState.Compact{over}:
+      Nat.add(gen(P, RnState.Compact{over}, c, u, p), 1n+Nat.mul(r, G(P, U)))
+    case RnState.Tools{}:
+      Nat.add(gen(P, RnState.Tools{}, c, u, p), 1n+Nat.mul(r, G(P, U)))
+    case RnState.Answered{}:
       0n
-    case Rn.Aborted{}:
+    case RnState.Aborted{}:
       0n
-    case Rn.Failed{why}:
+    case RnState.Failed{why}:
       0n
 
-def M(+cfg: Rn.Cfg, s: Rn.St) -> Nat:
+def M(+cfg: RnState.Cfg, s: RnState.St) -> Nat:
   match cfg s:
-    case Rn.Cfg{cap, pp, aa, nn} Rn.St{ph, r, c, a, n, p}:
+    case RnState.Cfg{cap, pp, aa, nn} RnState.St{ph, r, c, a, n, p}:
       M.ph(pp, Nat.add(aa, nn), ph, r, c, Nat.add(a, n), p)
 
 def X(+P: Nat, +U: Nat, r: Nat) -> Nat:
@@ -160,22 +160,22 @@ def K.prepare_cut(+P: Nat, cut: Bool, c: Nat) -> Nat:
     case False{} c:
       0n
 
-def K.prepare(+P: Nat, reply: Rn.Reply, c: Nat) -> Nat:
+def K.prepare(+P: Nat, reply: RnState.Reply, c: Nat) -> Nat:
   match reply:
-    case Rn.Overflow{cut}:
+    case RnState.Overflow{cut}:
       K.prepare_cut(P, cut, c)
-    case Rn.Plain{}:
+    case RnState.Plain{}:
       0n
-    case Rn.Calls{}:
+    case RnState.Calls{}:
       0n
-    case Rn.Deferred{}:
+    case RnState.Deferred{}:
       0n
-    case Rn.Error{retryable, noted}:
+    case RnState.Error{retryable, noted}:
       0n
 
 # the k of a call that ends the run
 def K.call_end(+P: Nat, +U: Nat, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> Nat:
-  Nat.add(gen(P, Rn.Call{}, c, u, p), X(P, U, r))
+  Nat.add(gen(P, RnState.Call{}, c, u, p), X(P, U, r))
 
 def K.retry(+P: Nat, +U: Nat, retryable: Bool, +r: Nat, +c: Nat, a: Nat, +n: Nat, +p: Nat) -> Nat:
   match retryable a:
@@ -216,29 +216,29 @@ def K.deferred(+P: Nat, +U: Nat, +r: Nat, +c: Nat, +u: Nat, p: Nat) -> Nat:
     case 1n+q:
       0n
 
-def K.call(+P: Nat, +U: Nat, reply: Rn.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> Nat:
+def K.call(+P: Nat, +U: Nat, reply: RnState.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> Nat:
   match reply:
-    case Rn.Plain{}:
+    case RnState.Plain{}:
       K.call_end(P, U, r, c, Nat.add(a, n), p)
-    case Rn.Calls{}:
+    case RnState.Calls{}:
       Nat.add(p, B(P, c, Nat.add(a, n)))
-    case Rn.Deferred{}:
+    case RnState.Deferred{}:
       K.deferred(P, U, r, c, Nat.add(a, n), p)
-    case Rn.Error{retryable, noted}:
+    case RnState.Error{retryable, noted}:
       K.error(P, U, retryable, noted, r, c, a, n, p)
-    case Rn.Overflow{cut}:
+    case RnState.Overflow{cut}:
       K.overflow(P, U, cut, r, c, Nat.add(a, n), p)
 
-def K.compact(+P: Nat, +U: Nat, over: Bool, got: Rn.Got, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> Nat:
+def K.compact(+P: Nat, +U: Nat, over: Bool, got: RnState.Got, +r: Nat, +c: Nat, +u: Nat, +p: Nat) -> Nat:
   match over got:
-    case over Rn.Built{}:
+    case over RnState.Built{}:
       0n
-    case True{} Rn.Kept{}:
-      Nat.add(gen(P, Rn.Compact{True{}}, c, u, p), X(P, U, r))
-    case False{} Rn.Kept{}:
+    case True{} RnState.Kept{}:
+      Nat.add(gen(P, RnState.Compact{True{}}, c, u, p), X(P, U, r))
+    case False{} RnState.Kept{}:
       0n
-    case over Rn.Broke{}:
-      Nat.add(gen(P, Rn.Compact{over}, c, u, p), X(P, U, r))
+    case over RnState.Broke{}:
+      Nat.add(gen(P, RnState.Compact{over}, c, u, p), X(P, U, r))
 
 def K.round(+P: Nat, +U: Nat, reset: Bool, r: Nat) -> Nat:
   match reset r:
@@ -249,41 +249,41 @@ def K.round(+P: Nat, +U: Nat, reset: Bool, r: Nat) -> Nat:
     case False{} 1n+s:
       0n
 
-def K.tools(+P: Nat, +U: Nat, fin: Rn.Fin, +r: Nat) -> Nat:
+def K.tools(+P: Nat, +U: Nat, fin: RnState.Fin, +r: Nat) -> Nat:
   match fin:
-    case Rn.Stops{}:
+    case RnState.Stops{}:
       Nat.add(0n, X(P, U, r))
-    case Rn.Goes{}:
+    case RnState.Goes{}:
       K.round(P, U, False{}, r)
-    case Rn.Resets{}:
+    case RnState.Resets{}:
       K.round(P, U, True{}, r)
 
 # k for any input
-def K(+cfg: Rn.Cfg, s: Rn.St, e: Rn.Ev) -> Nat:
+def K(+cfg: RnState.Cfg, s: RnState.St, e: RnState.Ev) -> Nat:
   match cfg s:
-    case Rn.Cfg{cap, pp, aa, nn} Rn.St{ph, r, c, a, n, p}:
+    case RnState.Cfg{cap, pp, aa, nn} RnState.St{ph, r, c, a, n, p}:
       match ph e:
-        case Rn.Answered{} e:
+        case RnState.Answered{} e:
           0n
-        case Rn.Aborted{} e:
+        case RnState.Aborted{} e:
           0n
-        case Rn.Failed{why} e:
+        case RnState.Failed{why} e:
           0n
-        case Rn.Prepare{} Rn.Abort{}:
-          Nat.add(gen(pp, Rn.Prepare{}, c, Nat.add(a, n), p), X(pp, Nat.add(aa, nn), r))
-        case Rn.Call{} Rn.Abort{}:
+        case RnState.Prepare{} RnState.Abort{}:
+          Nat.add(gen(pp, RnState.Prepare{}, c, Nat.add(a, n), p), X(pp, Nat.add(aa, nn), r))
+        case RnState.Call{} RnState.Abort{}:
           K.call_end(pp, Nat.add(aa, nn), r, c, Nat.add(a, n), p)
-        case Rn.Compact{over} Rn.Abort{}:
-          Nat.add(gen(pp, Rn.Compact{over}, c, Nat.add(a, n), p), X(pp, Nat.add(aa, nn), r))
-        case Rn.Tools{} Rn.Abort{}:
+        case RnState.Compact{over} RnState.Abort{}:
+          Nat.add(gen(pp, RnState.Compact{over}, c, Nat.add(a, n), p), X(pp, Nat.add(aa, nn), r))
+        case RnState.Tools{} RnState.Abort{}:
           Nat.add(0n, X(pp, Nat.add(aa, nn), r))
-        case Rn.Prepare{} Rn.Go{reply, fin, got}:
+        case RnState.Prepare{} RnState.Go{reply, fin, got}:
           K.prepare(pp, reply, c)
-        case Rn.Call{} Rn.Go{reply, fin, got}:
+        case RnState.Call{} RnState.Go{reply, fin, got}:
           K.call(pp, Nat.add(aa, nn), reply, r, c, a, n, p)
-        case Rn.Compact{over} Rn.Go{reply, fin, got}:
+        case RnState.Compact{over} RnState.Go{reply, fin, got}:
           K.compact(pp, Nat.add(aa, nn), over, got, r, c, Nat.add(a, n), p)
-        case Rn.Tools{} Rn.Go{reply, fin, got}:
+        case RnState.Tools{} RnState.Go{reply, fin, got}:
           K.tools(pp, Nat.add(aa, nn), fin, r)
 
 def tc.cmp_lt(a: Nat, b: Nat, +h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.cmp(a, b) == LT{} : Cmp}:

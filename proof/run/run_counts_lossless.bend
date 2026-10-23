@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW run_counts_lossless
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/decision.bend as RnDecision
 import ../../laws/run.bend as Run
 import ./base.bend as LA
 
@@ -14,18 +14,18 @@ def rk.att(+attempt: Nat, +notes: Nat, +e: {Nat.is_le(1n+notes, attempt) == True
       %LA.rk.subadd(b, notes, e) : {1n+_ == 1n+Nat.add(Nat.sub(b, notes), notes) : Nat}
       {==}
 
-def rk.c(+compacted: Bool) -> {compacted == Nat.is_eq(Rn.c.of(compacted), 0n) : Bool}:
+def rk.c(+compacted: Bool) -> {compacted == Nat.is_eq(RnDecision.c.of(compacted), 0n) : Bool}:
   match compacted:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Run.rust.within(l, t) == True{} : Bool}) -> {Run.rust.back(l, Rn.At.a(l, t), Rn.At.n(l, t), Rn.At.p(l, t), Rn.At.c(t)) == t : Rn.At}:
+def rk.run_counts_lossless(+l: RnDecision.Lim, +t: RnDecision.At, +w: {Run.rust.within(l, t) == True{} : Bool}) -> {Run.rust.back(l, RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t), RnDecision.At.c(t)) == t : RnDecision.At}:
   match l:
-    case Rn.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
       match t:
-        case Rn.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
           +spent = Nat.sub(Nat.sub(attempt, 1n), notes)
           +b1 = Nat.is_le(notes, most)
           +b2 = Nat.is_le(1n+notes, attempt)
@@ -37,11 +37,11 @@ def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Run.rust.within(l, t) == 
           +r2 = LA.rk.and_r(b2, Bool.and(b3, b4), r1)
           +w3 = LA.rk.and_l(b3, b4, r2)
           +w4 = LA.rk.and_r(b3, b4, r2)
-          %LA.rk.subsub(retries, spent, w3) : {Rn.At{1n+Nat.add(_, Nat.sub(most, Nat.sub(most, notes))), Nat.sub(most, Nat.sub(most, notes)), Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
-          %LA.rk.subsub(most, notes, w1) : {Rn.At{1n+Nat.add(spent, _), _, Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
-          %LA.rk.subsub(wait, waited, w4) : {Rn.At{1n+Nat.add(spent, notes), notes, _, Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
-          %rk.c(compacted) : {Rn.At{1n+Nat.add(spent, notes), notes, waited, _} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
-          %rk.att(attempt, notes, w2) : {Rn.At{_, notes, waited, compacted} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          %LA.rk.subsub(retries, spent, w3) : {RnDecision.At{1n+Nat.add(_, Nat.sub(most, Nat.sub(most, notes))), Nat.sub(most, Nat.sub(most, notes)), Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(RnDecision.c.of(compacted), 0n)} == RnDecision.At{attempt, notes, waited, compacted} : RnDecision.At}
+          %LA.rk.subsub(most, notes, w1) : {RnDecision.At{1n+Nat.add(spent, _), _, Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(RnDecision.c.of(compacted), 0n)} == RnDecision.At{attempt, notes, waited, compacted} : RnDecision.At}
+          %LA.rk.subsub(wait, waited, w4) : {RnDecision.At{1n+Nat.add(spent, notes), notes, _, Nat.is_eq(RnDecision.c.of(compacted), 0n)} == RnDecision.At{attempt, notes, waited, compacted} : RnDecision.At}
+          %rk.c(compacted) : {RnDecision.At{1n+Nat.add(spent, notes), notes, waited, _} == RnDecision.At{attempt, notes, waited, compacted} : RnDecision.At}
+          %rk.att(attempt, notes, w2) : {RnDecision.At{_, notes, waited, compacted} == RnDecision.At{attempt, notes, waited, compacted} : RnDecision.At}
           {==}
 
 def Run.run_counts_lossless(l, t, w):

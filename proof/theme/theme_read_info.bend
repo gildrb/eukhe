@@ -1,15 +1,17 @@
 # eukhe: the proof of LAW theme_read_info
 
 import Base
-import ../../bend/theme.bend as T
+import ../../bend/theme/chase.bend as TChase
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/reader.bend as TReader
 import ../../laws/theme.bend as Theme
 import ./base.bend as LA
 
 def Theme.theme_read_info(nm, vars, cols, pg, cd, j, why, ok, all, fine1, fine2, bad):
   +gs = Theme.th.goods(vars, cols)
-  +want = {T.Failed{T.InExport{T.OnInfo{}, why}} : T.Read}
-  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, Some{j}}), T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, Some{j})), LA.pt.read_end(nm, vars, cols, pg, cd, Some{j}, ok, all)) : {_ == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnPage{}, pg), T.BgOk{Theme.th.bgv(vars, pg)}, LA.pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, Some{j})) == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnCard{}, cd), T.BgOk{Theme.th.bgv(vars, cd)}, LA.pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Theme.th.bgv(vars, pg)}, _, T.surf(T.index(vars), T.OnInfo{}, Some{j})) == want : T.Read}
-  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Theme.th.bgv(vars, pg)}, T.BgOk{Theme.th.bgv(vars, cd)}, T.surf.got(T.OnInfo{}, _)) == want : T.Read}
+  +want = {TReader.Failed{TFile.InExport{TFile.OnInfo{}, why}} : TReader.Read}
+  %Equal.sym(TReader.Read, TReader.read(TFile.RFile{nm, vars, cols, pg, cd, Some{j}}), TReader.read.end(nm, gs, TReader.surf(TChase.index(vars), TFile.OnPage{}, pg), TReader.surf(TChase.index(vars), TFile.OnCard{}, cd), TReader.surf(TChase.index(vars), TFile.OnInfo{}, Some{j})), LA.pt.read_end(nm, vars, cols, pg, cd, Some{j}, ok, all)) : {_ == want : TReader.Read}
+  %Equal.sym(TReader.Bg, TReader.surf(TChase.index(vars), TFile.OnPage{}, pg), TReader.BgOk{Theme.th.bgv(vars, pg)}, LA.pt.surf_fine(vars, TFile.OnPage{}, pg, fine1)) : {TReader.read.end(nm, gs, _, TReader.surf(TChase.index(vars), TFile.OnCard{}, cd), TReader.surf(TChase.index(vars), TFile.OnInfo{}, Some{j})) == want : TReader.Read}
+  %Equal.sym(TReader.Bg, TReader.surf(TChase.index(vars), TFile.OnCard{}, cd), TReader.BgOk{Theme.th.bgv(vars, cd)}, LA.pt.surf_fine(vars, TFile.OnCard{}, cd, fine2)) : {TReader.read.end(nm, gs, TReader.BgOk{Theme.th.bgv(vars, pg)}, _, TReader.surf(TChase.index(vars), TFile.OnInfo{}, Some{j})) == want : TReader.Read}
+  %Equal.sym(TChase.Got, TChase.chase(vars, j), TChase.Miss{why}, bad) : {TReader.read.end(nm, gs, TReader.BgOk{Theme.th.bgv(vars, pg)}, TReader.BgOk{Theme.th.bgv(vars, cd)}, TReader.surf.got(TFile.OnInfo{}, _)) == want : TReader.Read}
   {==}

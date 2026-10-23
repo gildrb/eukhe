@@ -5,7 +5,7 @@ Source of truth: Victor Taelin's OptChat gist ("UniiChat: one chat that never en
 revision 2026-10-08). This page maps each gist rule to Rust code and the law or test securing it.
 
 - Rust: `crates/eukhe-core/src/memory/`, `crates/eukhe-core/src/durable/optchat/`; paths below start at `crates/eukhe-core/src/`.
-- Bend model of the pure core (view, merge order, sawtooth, compaction view, work queue): `bend/optchat.bend`.
+- Bend model of the pure core (view, merge order, sawtooth, compaction view, work queue): `bend/optchat/`.
 - `LAWS.bend` states the laws; `PROOF.bend` proves them.
 - Bridge test: Rust planner and Bend model run the same scenarios; output equal byte for byte.
 
@@ -48,7 +48,7 @@ cargo test -p eukhe-core --lib memory::compactor::bridge
 
 | File | Holds |
 | --- | --- |
-| `bend/optchat.bend` | Model: nodes, view, due, push, fit, sawtooth, compaction view, work queue. |
+| `bend/optchat/` | Model: nodes, view, due, push, fit, sawtooth, compaction view, work queue. |
 | `bend/spec.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
 | `LAWS.bend` | Imports only; `laws/<area>.bend` one area's laws as open claims, `laws/base.bend` shared spec helpers. |
 | `PROOF.bend` | Imports only; `proof/<area>/<law>.bend` one law's proof, `proof/<area>/base.bend` and `proof/base.bend` shared lemmas. |
@@ -65,7 +65,7 @@ Lists, not arrays:
 - Numbers: ~20-bit lists; fast in kernel; plain induction.
 - Proofs: every universal law by induction on these lists (`push_agrees_always` inducts on view as "view one level up, then one line"). Bend 2.0.37 `Array` is a single-owner `Type`: a state holding one cannot be reused or compared in a law; indexed by wrapping `U32`; Base proves nothing about its reads/writes. An array model needs its own proven array theory and bridge, no less work per merge.
 
-- Model = specification; Rust = production. Bridge runs the compiled model (`bridge/bridge.bend` imports `bend/optchat.bend`, the module the laws speak of), so laws cover the code the bridge runs.
+- Model = specification; Rust = production. Bridge runs the compiled model (`bridge/bridge.bend` imports `bend/optchat/`, the modules the laws speak of), so laws cover the code the bridge runs.
 - Due compare without division: `(T - last_a)/2^la > (T - last_b)/2^lb` ⇔ `(T+1)·2^lb + e_b·2^la > (T+1)·2^la + e_a·2^lb`, `e = last + 1`. Rust compares `(T + 1 - first)/2^l`: same order shifted by 2; bridge shows agreement.
 
 ### The laws and their strength
@@ -105,7 +105,7 @@ Universal: every input. Bounded: computed for named inputs.
 
 ### What is trusted
 
-- Laws: theorems about `bend/optchat.bend`, checked by Bend 2.0.38 and its BendTT kernel (Lean 4.34.0).
+- Laws: theorems about `bend/optchat/`, checked by Bend 2.0.38 and its BendTT kernel (Lean 4.34.0).
 - Rust = model: finite differential test (bridge), not proof; also trusts Bend 2.0.38 compiler, runtime, clang (build the bridge binary).
 - Deliberate breaks, each caught, then removed:
   - Due from `first` in model: `last_merges_8_9` and `push_agrees_always` proof fail.

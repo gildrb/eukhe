@@ -1,19 +1,19 @@
 # eukhe: the proof of LAW theme_shipped_legible
 
 import Base
-import ../../bend/theme.bend as T
+import ../../bend/theme/bundled.bend as TBundled
 import ../../laws/theme.bend as Theme
 
 # Shipped themes
 # --------------
 
-def theme_shipped_legible(s: T.Shipped) -> {T.legible(T.table(s)) == True{} : Bool}:
+def theme_shipped_legible(s: TBundled.Shipped) -> {TBundled.legible(TBundled.table(s)) == True{} : Bool}:
   match s:
-    case T.Eukhe{}:
+    case TBundled.Eukhe{}:
       {==}
-    case T.Dark{}:
+    case TBundled.Dark{}:
       {==}
-    case T.Light{}:
+    case TBundled.Light{}:
       {==}
 
 def Theme.theme_shipped_legible(s):

@@ -14,7 +14,7 @@ import ./base.bend as LawsBase
 # the lemmas of PROOF.bend sections retry_policy and retry_ffi. The
 # classifier, the wait, the failover walk and the stall run as this model,
 # compiled (bend/ffi_retry.bend, R7; Rust calls eukhe_bend::rules::retry).
-# The deferred job runs as bend/run.bend, compiled (bend/ffi_run.bend).
+# The deferred job runs as bend/run/decision.bend, compiled (bend/ffi_run.bend).
 # The idle deadline stays Rust: the bridge test
 # crates/eukhe-durable/src/harness/generation/retry_bridge.rs runs it
 # against bridge/bridge_retry.bend.

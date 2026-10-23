@@ -2,27 +2,27 @@
 
 import Base
 import ../../bend/ffi_run.bend as FRn
-import ../../bend/run.bend as Rn
+import ../../bend/run/decision.bend as RnDecision
 import ../../bend/wire.bend as Wr
 import ../../laws/run.bend as Run
 
-def rk.rt_then(x: Rn.Then, +rest: String) -> {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Then>}:
+def rk.rt_then(x: RnDecision.Then, +rest: String) -> {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Then>}:
   match x:
-    case Rn.DoAnswer{}:
+    case RnDecision.DoAnswer{}:
       {==}
-    case Rn.DoTools{}:
+    case RnDecision.DoTools{}:
       {==}
-    case Rn.DoPoll{}:
+    case RnDecision.DoPoll{}:
       {==}
-    case Rn.DoRetry{}:
+    case RnDecision.DoRetry{}:
       {==}
-    case Rn.DoNote{}:
+    case RnDecision.DoNote{}:
       {==}
-    case Rn.DoCompact{}:
+    case RnDecision.DoCompact{}:
       {==}
-    case Rn.DoFail{}:
+    case RnDecision.DoFail{}:
       {==}
-    case Rn.DoLate{}:
+    case RnDecision.DoLate{}:
       {==}
 
 def Run.run_ffi_then_round_trip(x, rest):

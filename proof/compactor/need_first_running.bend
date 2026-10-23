@@ -2,13 +2,16 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../bend/optchat.bend as O
+import ../../bend/optchat/info.bend as OInfo
+import ../../bend/optchat/node.bend as ONode
+import ../../bend/optchat/queue.bend as OQueue
+import ../../bend/optchat/state.bend as OState
 import ../../laws/compactor.bend as Compactor
 import ../base/bool/and.bend as LBoolAnd
 import ./base.bend as LA
 
 # a waiting turn stops every call it does not need
-def pc.keep_need(c: Bool, +info: O.Info, +v: List<&2, O.Node>, +b: O.Node, +rest: List<&2, O.Node>, ec: {c == Bool.and(O.Nodes.has(v, b), Bool.not(O.Info.built(info, b))) : Bool}, +ih: {C.needed(info, v, rest) == True{} : Bool}) -> {C.needed(info, v, O.Nodes.keep(c, b, rest)) == True{} : Bool}:
+def pc.keep_need(c: Bool, +info: OInfo.Info, +v: List<&2, ONode.Node>, +b: ONode.Node, +rest: List<&2, ONode.Node>, ec: {c == Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b))) : Bool}, +ih: {C.needed(info, v, rest) == True{} : Bool}) -> {C.needed(info, v, ONode.Nodes.keep(c, b, rest)) == True{} : Bool}:
   match c:
     case True{}:
       %ec : {Bool.and(_, C.needed(info, v, rest)) == True{} : Bool}
@@ -16,26 +19,26 @@ def pc.keep_need(c: Bool, +info: O.Info, +v: List<&2, O.Node>, +b: O.Node, +rest
     case False{}:
       ih
 
-def pc.busy_need(+info: O.Info, +v: List<&2, O.Node>, bs: List<&2, O.Node>) -> {C.needed(info, v, O.busy.need(info, v, bs)) == True{} : Bool}:
+def pc.busy_need(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>) -> {C.needed(info, v, OQueue.busy.need(info, v, bs)) == True{} : Bool}:
   match bs:
     case Nil{}:
       {==}
     case +b <> +rest:
-      pc.keep_need(Bool.and(O.Nodes.has(v, b), Bool.not(O.Info.built(info, b))), info, v, b, O.busy.need(info, v, rest), {==}, pc.busy_need(info, v, rest))
+      pc.keep_need(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b))), info, v, b, OQueue.busy.need(info, v, rest), {==}, pc.busy_need(info, v, rest))
 
-def pc.needed_app(+info: O.Info, +v: List<&2, O.Node>, xs: List<&2, O.Node>, -ys: List<&2, O.Node>, +ex: {C.needed(info, v, xs) == True{} : Bool}, +ey: {C.needed(info, v, ys) == True{} : Bool}) -> {C.needed(info, v, List.append(&2, O.Node, xs, ys)) == True{} : Bool}:
+def pc.needed_app(+info: OInfo.Info, +v: List<&2, ONode.Node>, xs: List<&2, ONode.Node>, -ys: List<&2, ONode.Node>, +ex: {C.needed(info, v, xs) == True{} : Bool}, +ey: {C.needed(info, v, ys) == True{} : Bool}) -> {C.needed(info, v, List.append(&2, ONode.Node, xs, ys)) == True{} : Bool}:
   match xs:
     case Nil{}:
       ey
     case +x <> +rest:
-      +a = Bool.and(O.Nodes.has(v, x), Bool.not(O.Info.built(info, x)))
-      LA.pc.and_true(a, C.needed(info, v, List.append(&2, O.Node, rest, ys)), LBoolAnd.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), ex), ey))
+      +a = Bool.and(ONode.Nodes.has(v, x), Bool.not(OInfo.Info.built(info, x)))
+      LA.pc.and_true(a, C.needed(info, v, List.append(&2, ONode.Node, rest, ys)), LBoolAnd.pf.and_l(a, C.needed(info, v, rest), ex), pc.needed_app(info, v, rest, ys, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), ex), ey))
 
-def pc.need_first_running(+cfg: O.Cfg, +s: O.St) -> {C.needed(O.St.info(s), O.St.view(s), List.append(&2, O.Node, O.St.busy(O.St.wait(s)), O.cands.need(cfg, O.St.wait(s)))) == True{} : Bool}:
+def pc.need_first_running(+cfg: OState.Cfg, +s: OState.St) -> {C.needed(OState.St.info(s), OState.St.view(s), List.append(&2, ONode.Node, OState.St.busy(OQueue.St.wait(s)), OQueue.cands.need(cfg, OQueue.St.wait(s)))) == True{} : Bool}:
   match s:
-    case O.St{t, info, view, shrink, cview, ready, busy}:
-      +w = {O.St{t, info, view, shrink, cview, ready, O.busy.need(info, view, busy)} : O.St}
-      pc.needed_app(info, view, O.busy.need(info, view, busy), O.cands.need(cfg, w), pc.busy_need(info, view, busy), LA.pc.need_first(cfg, w))
+    case OState.St{t, info, view, shrink, cview, ready, busy}:
+      +w = {OState.St{t, info, view, shrink, cview, ready, OQueue.busy.need(info, view, busy)} : OState.St}
+      pc.needed_app(info, view, OQueue.busy.need(info, view, busy), OQueue.cands.need(cfg, w), pc.busy_need(info, view, busy), LA.pc.need_first(cfg, w))
 
 def Compactor.need_first_running(cfg, s):
   pc.need_first_running(cfg, s)

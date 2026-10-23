@@ -2,7 +2,11 @@
 
 import Base
 import ../../bend/compactor.bend as C
-import ../../bend/optchat.bend as O
+import ../../bend/optchat/bits.bend as OBits
+import ../../bend/optchat/info.bend as OInfo
+import ../../bend/optchat/node.bend as ONode
+import ../../bend/optchat/queue.bend as OQueue
+import ../../bend/optchat/state.bend as OState
 import ../base/bool/and.bend as LBoolAnd
 import ../base/bool/misc.bend as LBoolMisc
 import ../base/nat/is_le.bend as LNatIsLe
@@ -103,7 +107,7 @@ def pc.settle_holds(ps: List<&2, C.Pend>, k: Nat, +o: C.Outcome) -> {Nat.is_le(C
     case +p <> rest 1n+j:
       pc.le_add_l(C.Pend.weight(p), C.measure(C.hit(rest, j, o)), C.measure(rest), pc.settle_holds(rest, j, o))
 
-def pc.bounded_step(b: Bool, +h: Nat, +x: Nat, +m1: Nat, +m0: Nat, +ih: {Nat.is_le(Nat.add(h, x), m1) == True{} : Bool}, holds: {Nat.is_le(m1, m0) == True{} : Bool}, falls: {b == True{} : Bool} -> {Nat.is_lt(m1, m0) == True{} : Bool}) -> {Nat.is_le(Nat.add(Nat.add(O.bit(b, 0n), h), x), m0) == True{} : Bool}:
+def pc.bounded_step(b: Bool, +h: Nat, +x: Nat, +m1: Nat, +m0: Nat, +ih: {Nat.is_le(Nat.add(h, x), m1) == True{} : Bool}, holds: {Nat.is_le(m1, m0) == True{} : Bool}, falls: {b == True{} : Bool} -> {Nat.is_lt(m1, m0) == True{} : Bool}) -> {Nat.is_le(Nat.add(Nat.add(OBits.bit(b, 0n), h), x), m0) == True{} : Bool}:
   match b:
     case False{}:
       LNatIsLe.compactor.pc.le_trans(Nat.add(h, x), m1, m0, ih, holds)
@@ -123,38 +127,38 @@ def pc.settle_bounded(es: List<&2, C.End>, +ps: List<&2, C.Pend>) -> {Nat.is_le(
 # (H2) Need first
 # ---------------
 
-def pc.needed_cons(+info: O.Info, +h: O.Node, +v: List<&2, O.Node>, ns: List<&2, O.Node>, +e: {C.needed(info, v, ns) == True{} : Bool}) -> {C.needed(info, h <> v, ns) == True{} : Bool}:
+def pc.needed_cons(+info: OInfo.Info, +h: ONode.Node, +v: List<&2, ONode.Node>, ns: List<&2, ONode.Node>, +e: {C.needed(info, v, ns) == True{} : Bool}) -> {C.needed(info, h <> v, ns) == True{} : Bool}:
   match ns:
     case Nil{}:
       {==}
     case +n <> rest:
-      +a = Bool.and(O.Nodes.has(v, n), Bool.not(O.Info.built(info, n)))
+      +a = Bool.and(ONode.Nodes.has(v, n), Bool.not(OInfo.Info.built(info, n)))
       +ea = LBoolAnd.pf.and_l(a, C.needed(info, v, rest), e)
-      pc.and_true(Bool.and(Bool.or(O.Node.eq(h, n), O.Nodes.has(v, n)), Bool.not(O.Info.built(info, n))), C.needed(info, h <> v, rest), pc.and_true(Bool.or(O.Node.eq(h, n), O.Nodes.has(v, n)), Bool.not(O.Info.built(info, n)), LBoolMisc.pf.or_r(O.Node.eq(h, n), O.Nodes.has(v, n), LBoolAnd.pf.and_l(O.Nodes.has(v, n), Bool.not(O.Info.built(info, n)), ea)), LBoolAnd.pf.and_r(O.Nodes.has(v, n), Bool.not(O.Info.built(info, n)), ea)), pc.needed_cons(info, h, v, rest, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), e)))
+      pc.and_true(Bool.and(Bool.or(ONode.Node.eq(h, n), ONode.Nodes.has(v, n)), Bool.not(OInfo.Info.built(info, n))), C.needed(info, h <> v, rest), pc.and_true(Bool.or(ONode.Node.eq(h, n), ONode.Nodes.has(v, n)), Bool.not(OInfo.Info.built(info, n)), LBoolMisc.pf.or_r(ONode.Node.eq(h, n), ONode.Nodes.has(v, n), LBoolAnd.pf.and_l(ONode.Nodes.has(v, n), Bool.not(OInfo.Info.built(info, n)), ea)), LBoolAnd.pf.and_r(ONode.Nodes.has(v, n), Bool.not(OInfo.Info.built(info, n)), ea)), pc.needed_cons(info, h, v, rest, LBoolAnd.pf.and_r(a, C.needed(info, v, rest), e)))
 
-def pc.emit_ok(stop: Bool, b: Bool, free: Bool, +info: O.Info, +h: O.Node, +rest: List<&2, O.Node>, +rec: List<&2, O.Node>, eb: {b == O.Info.built(info, h) : Bool}, +ih: {C.needed(info, rest, rec) == True{} : Bool}) -> {C.needed(info, h <> rest, O.cand.emit(stop, b, free, h, rec)) == True{} : Bool}:
+def pc.emit_ok(stop: Bool, b: Bool, free: Bool, +info: OInfo.Info, +h: ONode.Node, +rest: List<&2, ONode.Node>, +rec: List<&2, ONode.Node>, eb: {b == OInfo.Info.built(info, h) : Bool}, +ih: {C.needed(info, rest, rec) == True{} : Bool}) -> {C.needed(info, h <> rest, OQueue.cand.emit(stop, b, free, h, rec)) == True{} : Bool}:
   match stop b free:
     case True{} y z:
       {==}
     case False{} True{} z:
       pc.needed_cons(info, h, rest, rec, ih)
     case False{} False{} True{}:
-      %eb : {Bool.and(Bool.and(Bool.or(O.Node.eq(h, h), O.Nodes.has(rest, h)), Bool.not(_)), C.needed(info, h <> rest, rec)) == True{} : Bool}
-      %LOptchat.pf.node_eq_refl(h) : {Bool.and(Bool.and(Bool.or(_, O.Nodes.has(rest, h)), True{}), C.needed(info, h <> rest, rec)) == True{} : Bool}
+      %eb : {Bool.and(Bool.and(Bool.or(ONode.Node.eq(h, h), ONode.Nodes.has(rest, h)), Bool.not(_)), C.needed(info, h <> rest, rec)) == True{} : Bool}
+      %LOptchat.pf.node_eq_refl(h) : {Bool.and(Bool.and(Bool.or(_, ONode.Nodes.has(rest, h)), True{}), C.needed(info, h <> rest, rec)) == True{} : Bool}
       pc.needed_cons(info, h, rest, rec, ih)
     case False{} False{} False{}:
       pc.needed_cons(info, h, rest, rec, ih)
 
-def pc.cand_ok(v: List<&2, O.Node>, +info: O.Info, +busy: List<&2, O.Node>, +jobs: Nat, +unb: Nat, room: Nat) -> {C.needed(info, v, O.cand.view(v, info, busy, jobs, unb, room)) == True{} : Bool}:
+def pc.cand_ok(v: List<&2, ONode.Node>, +info: OInfo.Info, +busy: List<&2, ONode.Node>, +jobs: Nat, +unb: Nat, room: Nat) -> {C.needed(info, v, OQueue.cand.view(v, info, busy, jobs, unb, room)) == True{} : Bool}:
   match v room:
     case Nil{} r:
       {==}
     case h <> rest 0n:
       {==}
     case +h <> +rest 1n+r:
-      +unb2 = Nat.add(unb, O.bit(Bool.not(O.Info.built(info, h)), 0n))
-      +room2 = Nat.sub(1n+r, O.bit(Bool.and(Bool.not(O.Info.built(info, h)), Bool.not(O.Nodes.has(busy, h))), 0n))
-      pc.emit_ok(Nat.is_ge(unb, jobs), O.Info.built(info, h), Bool.not(O.Nodes.has(busy, h)), info, h, rest, O.cand.view(rest, info, busy, jobs, unb2, room2), {==}, pc.cand_ok(rest, info, busy, jobs, unb2, room2))
+      +unb2 = Nat.add(unb, OBits.bit(Bool.not(OInfo.Info.built(info, h)), 0n))
+      +room2 = Nat.sub(1n+r, OBits.bit(Bool.and(Bool.not(OInfo.Info.built(info, h)), Bool.not(ONode.Nodes.has(busy, h))), 0n))
+      pc.emit_ok(Nat.is_ge(unb, jobs), OInfo.Info.built(info, h), Bool.not(ONode.Nodes.has(busy, h)), info, h, rest, OQueue.cand.view(rest, info, busy, jobs, unb2, room2), {==}, pc.cand_ok(rest, info, busy, jobs, unb2, room2))
 
-def pc.need_first(+cfg: O.Cfg, +s: O.St) -> {C.needed(O.St.info(s), O.St.view(s), O.cands.need(cfg, s)) == True{} : Bool}:
-  pc.cand_ok(O.St.view(s), O.St.info(s), O.St.busy(s), O.Cfg.jobs(cfg), 0n, Nat.sub(O.Cfg.jobs(cfg), List.length(&2, O.Node, O.St.busy(s))))
+def pc.need_first(+cfg: OState.Cfg, +s: OState.St) -> {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need(cfg, s)) == True{} : Bool}:
+  pc.cand_ok(OState.St.view(s), OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), 0n, Nat.sub(OState.Cfg.jobs(cfg), List.length(&2, ONode.Node, OState.St.busy(s))))

@@ -3,7 +3,7 @@
 //! and `PROOF.bend` proves): both run the same scenarios and must print
 //! the same transcript, byte for byte. `bridge/bridge_retry.bend` documents
 //! the scenario format (its `i` lines). The deferred job (§4) has no
-//! bridge: its decisions run as `bend/run.bend` in the compiled core (laws
+//! bridge: its decisions run as `bend/run/decision.bend` in the compiled core (laws
 //! `run_failed_poll_is_the_job_model` and the like); the stall (§5) runs
 //! as the compiled model too (`bend/ffi_retry.bend`).
 //!

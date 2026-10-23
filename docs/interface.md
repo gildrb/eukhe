@@ -188,7 +188,7 @@ Setting `theme` (`/settings`); empty = `eukhe` everywhere. Name resolves by the 
 
 #### Laws
 
-`laws/theme.bend`, `laws/color.bend` (T1), model `bend/theme.bend`, `bend/color.bend`; proved in `proof/theme/` and `proof/color/`:
+`laws/theme.bend`, `laws/color.bend` (T1), model `bend/theme/`, `bend/color.bend`; proved in `proof/theme/` and `proof/color/`:
 
 - Empty name → default theme; name → first valid theme having it; unknown name → default theme with warning.
 - Loaded file is valid; a valid file's palette defines every token.
@@ -214,7 +214,7 @@ Status line: context usage of the daemon-served window (`contextUsage.contextWin
 
 #### Laws
 
-`laws/tui_color.bend`, `laws/theme.bend` (T3), model `bend/tui_color.bend` with `bend/theme.bend` theme tables; proved in `proof/tui_color/` and `proof/theme/`:
+`laws/tui_color.bend`, `laws/theme.bend` (T3), model `bend/tui_color.bend` with `bend/theme/bundled.bend` theme tables; proved in `proof/tui_color/` and `proof/theme/`:
 
 - Ramp: one rung per level. Any ladder length: each channel moves from `effortLow` toward `effortHigh`, never back. Ladder length ≤ widest channel distance of the ends: all rungs distinct. Each shipped theme: rungs distinct for any ladder of the level vocabulary.
 - Each band: a window fraction in (0, 1], above the previous band. More tokens, same window: never a lower band. Band depends only on the used fraction: same fraction of a k-times window, same band.

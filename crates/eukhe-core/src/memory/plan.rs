@@ -1,7 +1,7 @@
 //! The chat's planner: which lines the view and the compaction view hold,
 //! which batch a message runs, which nodes the compactor builds next. One
-//! state machine over plain data, `St` of `bend/optchat.bend` stepped as
-//! its `stepx`: the owner keeps the texts and performs every read and
+//! state machine over plain data, `St` of `bend/optchat/state.bend` stepped as
+//! its `stepx` (`bend/optchat/stepx.bend`): the owner keeps the texts and performs every read and
 //! write, and tells the planner only what happened (a message, a node
 //! built with its size, a call started or freed, a turn waiting).
 

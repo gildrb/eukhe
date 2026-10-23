@@ -7,7 +7,7 @@
 //! stall). `laws/retry.bend` states its laws (`deferred_pays_once`,
 //! `deferred_bounded_in_time`, `deferred_failed_poll_repolls`,
 //! `stall_retry_extends`) and `PROOF.bend` proves them. A failed poll runs
-//! as `decide.poll` of `bend/run.bend` in the compiled core; with the time
+//! as `decide.poll` of `bend/run/decision.bend` in the compiled core; with the time
 //! check of [`after_reply`] it is the job of §4 (laws
 //! `run_failed_poll_is_the_job_model`, `run_deferred_reply_is_the_job_model`,
 //! `run_first_deferred_reply_is_the_job_model`). The stall runs as
@@ -46,7 +46,7 @@ impl PollFailure {
     /// same job again; any other failure cancels the job. The job's
     /// deadline still applies to the next poll: the run sends it through
     /// `after_reply` as a deferred reply. The decision is `decide.poll` of
-    /// `bend/run.bend`; with `after_reply` it is the job of
+    /// `bend/run/decision.bend`; with `after_reply` it is the job of
     /// `bend/retry.bend` §4 (law `run_failed_poll_is_the_job_model`).
     pub(crate) fn next(self, max_retries: u32) -> FailedPoll {
         let repoll = entry::ask(

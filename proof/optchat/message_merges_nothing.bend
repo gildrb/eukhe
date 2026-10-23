@@ -1,11 +1,14 @@
 # eukhe: the proof of LAW message_merges_nothing
 
 import Base
-import ../../bend/optchat.bend as O
+import ../../bend/optchat/bits.bend as OBits
+import ../../bend/optchat/node.bend as ONode
+import ../../bend/optchat/state.bend as OState
+import ../../bend/optchat/step.bend as OStep
 import ../../laws/optchat.bend as Optchat
 
-def message_merges_nothing(+cfg: O.Cfg, +s: O.St, quiet: {O.St.batch(cfg, s) == False{} : Bool}) -> {Pair.snd(O.St, List<&2, O.Node>, O.msg(cfg, s)) == Nil{} : List<&2, O.Node>}:
-  %Equal.sym(Bool, O.St.batch(cfg, s), False{}, quiet) : {Pair.snd(O.St, List<&2, O.Node>, O.msg.go(_, cfg, O.Bits.inc(O.St.t(s)), O.St.info(s), O.St.grown(s), List.append(&2, O.Node, O.St.cview(s), [O.Node.leaf(O.St.t(s))]), O.St.ready(s), O.St.busy(s))) == Nil{} : List<&2, O.Node>}
+def message_merges_nothing(+cfg: OState.Cfg, +s: OState.St, quiet: {OStep.St.batch(cfg, s) == False{} : Bool}) -> {Pair.snd(OState.St, List<&2, ONode.Node>, OStep.msg(cfg, s)) == Nil{} : List<&2, ONode.Node>}:
+  %Equal.sym(Bool, OStep.St.batch(cfg, s), False{}, quiet) : {Pair.snd(OState.St, List<&2, ONode.Node>, OStep.msg.go(_, cfg, OBits.Bits.inc(OState.St.t(s)), OState.St.info(s), OStep.St.grown(s), List.append(&2, ONode.Node, OState.St.cview(s), [ONode.Node.leaf(OState.St.t(s))]), OState.St.ready(s), OState.St.busy(s))) == Nil{} : List<&2, ONode.Node>}
   {==}
 
 def Optchat.message_merges_nothing(cfg, s, quiet):

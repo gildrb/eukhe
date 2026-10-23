@@ -1,7 +1,10 @@
 # eukhe: lemmas of the proof of LAW push_agrees_always: nat
 
 import Base
-import ../../../bend/optchat.bend as O
+import ../../../bend/optchat/bits.bend as OBits
+import ../../../bend/optchat/fit.bend as OFit
+import ../../../bend/optchat/info.bend as OInfo
+import ../../../bend/optchat/node.bend as ONode
 import ../../base/nat/add.bend as LNatAdd
 import ../../base/nat/misc.bend as LNatMisc
 
@@ -78,7 +81,7 @@ def pa.sh_double(+l: Nat, +x: Nat) -> {pa.sh(l, Nat.double(x)) == Nat.double(pa.
     case 1n+p:
       Equal.cong(Nat, Nat, y => Nat.double(y), pa.sh(p, Nat.double(x)), Nat.double(pa.sh(p, x)), pa.sh_double(p, x))
 
-def pa.add_bits(x: Bool, y: Bool, +P: Nat, +Q: Nat) -> {Nat.add(O.bit(x, P), O.bit(y, Q)) == O.bit(x, O.bit(y, Nat.add(P, Q))) : Nat}:
+def pa.add_bits(x: Bool, y: Bool, +P: Nat, +Q: Nat) -> {Nat.add(OBits.bit(x, P), OBits.bit(y, Q)) == OBits.bit(x, OBits.bit(y, Nat.add(P, Q))) : Nat}:
   match x y:
     case False{} False{}:
       {==}
@@ -115,8 +118,8 @@ def pa.hd(xs: List<&2, Nat>) -> Nat:
 # -----
 # Under push every line counts 1 and every node is built (All{1}).
 
-def pa.vs(v: List<&2, O.Node>) -> Nat:
-  O.view_size(0n, O.All{1n}, v)
+def pa.vs(v: List<&2, ONode.Node>) -> Nat:
+  OFit.view_size(0n, OInfo.All{1n}, v)
 
 # B(d <> r) from B(r), and the slack one level up
 def pa.Bd(d: Bool, +R: Nat) -> Nat:
@@ -185,9 +188,9 @@ def pa.ineq(+l: Nat, +R: Nat, +vi: Nat, +k: Nat, e: {pa.sh(l, 3n+vi) == Nat.add(
   c8 = Equal.trans(Nat, L0, L7, L8, c7, pa.swap_mid(4n+Nat.double(R), dk, dP))
   Equal.trans(Nat, L0, L8, L9, c8, Equal.sym(Nat, L9, 1n+Nat.add(Y, dk), LNatAdd.pa.add_succ(Y, dk)))
 
-def pa.old_one.gt(-X: List<&2, Bool>, -Y: List<&2, Bool>, -XX: Nat, +YY: Nat, +k: Nat, ex: {O.Bits.val(X) == XX : Nat}, ey: {O.Bits.val(Y) == YY : Nat}, ei: {XX == Nat.add(YY, 1n+Nat.double(k)) : Nat})
-  -> {Nat.is_gt(O.Bits.val(X), O.Bits.val(Y)) == True{} : Bool}:
-  %Equal.sym(Nat, O.Bits.val(X), XX, ex) : {Nat.is_gt(_, O.Bits.val(Y)) == True{} : Bool}
-  %Equal.sym(Nat, O.Bits.val(Y), YY, ey) : {Nat.is_gt(XX, _) == True{} : Bool}
+def pa.old_one.gt(-X: List<&2, Bool>, -Y: List<&2, Bool>, -XX: Nat, +YY: Nat, +k: Nat, ex: {OBits.Bits.val(X) == XX : Nat}, ey: {OBits.Bits.val(Y) == YY : Nat}, ei: {XX == Nat.add(YY, 1n+Nat.double(k)) : Nat})
+  -> {Nat.is_gt(OBits.Bits.val(X), OBits.Bits.val(Y)) == True{} : Bool}:
+  %Equal.sym(Nat, OBits.Bits.val(X), XX, ex) : {Nat.is_gt(_, OBits.Bits.val(Y)) == True{} : Bool}
+  %Equal.sym(Nat, OBits.Bits.val(Y), YY, ey) : {Nat.is_gt(XX, _) == True{} : Bool}
   %Equal.sym(Nat, XX, Nat.add(YY, 1n+Nat.double(k)), ei) : {Nat.is_gt(_, YY) == True{} : Bool}
   pa.gt_add(YY, Nat.double(k))

@@ -1,7 +1,9 @@
 # eukhe: the proof of LAW run_ends
 
 import Base
-import ../../bend/run.bend as Rn
+import ../../bend/run/measure.bend as RnMeasure
+import ../../bend/run/state.bend as RnState
+import ../../bend/run/step.bend as RnStep
 import ../../laws/run.bend as Run
 import ../base/nat/add.bend as LNatAdd
 import ../base/nat/misc.bend as LNatMisc
@@ -20,30 +22,30 @@ def G_eq(+P: Nat, +U: Nat) -> {LNatMisc.G(P, U) == 2n+Nat.mul(2n+U, 2n+P) : Nat}
   {==}
 
 # bound(cfg) is M at the start
-def bound_m(+cfg: Rn.Cfg) -> {Rn.bound(cfg) == LNatMisc.M(cfg, Rn.init(cfg)) : Nat}:
+def bound_m(+cfg: RnState.Cfg) -> {RnMeasure.bound(cfg) == LNatMisc.M(cfg, RnState.init(cfg)) : Nat}:
   match cfg:
-    case Rn.Cfg{cap, pp, aa, nn}:
+    case RnState.Cfg{cap, pp, aa, nn}:
       +U = Nat.add(aa, nn)
-      +gp = LNatMisc.gen(pp, Rn.Prepare{}, 1n, U, 0n)
+      +gp = LNatMisc.gen(pp, RnState.Prepare{}, 1n, U, 0n)
       +r0 = Nat.sub(cap, 1n)
-      %G_eq(pp, U) : {Nat.mul(Nat.max(cap, 1n), _) == LNatMisc.M(Rn.Cfg{cap, pp, aa, nn}, Rn.init(Rn.Cfg{cap, pp, aa, nn})) : Nat}
-      %Equal.sym(Nat, Nat.max(cap, 1n), 1n+r0, LA.max1(cap)) : {Nat.mul(_, LNatMisc.G(pp, U)) == LNatMisc.M(Rn.Cfg{cap, pp, aa, nn}, Rn.init(Rn.Cfg{cap, pp, aa, nn})) : Nat}
+      %G_eq(pp, U) : {Nat.mul(Nat.max(cap, 1n), _) == LNatMisc.M(RnState.Cfg{cap, pp, aa, nn}, RnState.init(RnState.Cfg{cap, pp, aa, nn})) : Nat}
+      %Equal.sym(Nat, Nat.max(cap, 1n), 1n+r0, LA.max1(cap)) : {Nat.mul(_, LNatMisc.G(pp, U)) == LNatMisc.M(RnState.Cfg{cap, pp, aa, nn}, RnState.init(RnState.Cfg{cap, pp, aa, nn})) : Nat}
       %LNatAdd.add_succ(gp, Nat.mul(r0, LNatMisc.G(pp, U))) : {_ == Nat.add(gp, 1n+Nat.mul(r0, LNatMisc.G(pp, U))) : Nat}
       {==}
 
-def run_append(xs: List<&2, Rn.Ev>, -ys: List<&2, Rn.Ev>, +cfg: Rn.Cfg, +s: Rn.St) -> {Rn.run.go(List.append(&2, Rn.Ev, xs, ys), cfg, s) == Rn.run.go(ys, cfg, Rn.run.go(xs, cfg, s)) : Rn.St}:
+def run_append(xs: List<&2, RnState.Ev>, -ys: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +s: RnState.St) -> {RnStep.run.go(List.append(&2, RnState.Ev, xs, ys), cfg, s) == RnStep.run.go(ys, cfg, RnStep.run.go(xs, cfg, s)) : RnState.St}:
   match xs:
     case Nil{}:
       {==}
     case e <> rest:
-      run_append(rest, ys, cfg, Rn.step(cfg, s, e))
+      run_append(rest, ys, cfg, RnStep.step(cfg, s, e))
 
 # The laws
 # --------
 
-def run_ends(+cfg: Rn.Cfg, +xs: List<&2, Rn.Ev>, h: {List.length(&2, Rn.Ev, xs) == Rn.bound(cfg) : Nat}, +more: List<&2, Rn.Ev>) -> {Rn.done(Rn.run(cfg, List.append(&2, Rn.Ev, xs, more))) == True{} : Bool}:
-  %Equal.sym(Rn.St, Rn.run.go(List.append(&2, Rn.Ev, xs, more), cfg, Rn.init(cfg)), Rn.run.go(more, cfg, Rn.run.go(xs, cfg, Rn.init(cfg))), run_append(xs, more, cfg, Rn.init(cfg))) : {Rn.done(_) == True{} : Bool}
-  LRun.stays_done(more, cfg, Rn.run.go(xs, cfg, Rn.init(cfg)), LRun.ends(xs, cfg, Rn.init(cfg), 0n, Equal.trans(Nat, List.length(&2, Rn.Ev, xs), Rn.bound(cfg), LNatMisc.M(cfg, Rn.init(cfg)), h, bound_m(cfg))))
+def run_ends(+cfg: RnState.Cfg, +xs: List<&2, RnState.Ev>, h: {List.length(&2, RnState.Ev, xs) == RnMeasure.bound(cfg) : Nat}, +more: List<&2, RnState.Ev>) -> {RnState.done(RnStep.run(cfg, List.append(&2, RnState.Ev, xs, more))) == True{} : Bool}:
+  %Equal.sym(RnState.St, RnStep.run.go(List.append(&2, RnState.Ev, xs, more), cfg, RnState.init(cfg)), RnStep.run.go(more, cfg, RnStep.run.go(xs, cfg, RnState.init(cfg))), run_append(xs, more, cfg, RnState.init(cfg))) : {RnState.done(_) == True{} : Bool}
+  LRun.stays_done(more, cfg, RnStep.run.go(xs, cfg, RnState.init(cfg)), LRun.ends(xs, cfg, RnState.init(cfg), 0n, Equal.trans(Nat, List.length(&2, RnState.Ev, xs), RnMeasure.bound(cfg), LNatMisc.M(cfg, RnState.init(cfg)), h, bound_m(cfg))))
 
 # (H4) Every run ends
 

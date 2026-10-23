@@ -1,9 +1,11 @@
 # eukhe: the proof of LAW theme_entry_color
 
 import Base
-import ../../bend/theme.bend as T
+import ../../bend/theme/chase.bend as TChase
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/reader.bend as TReader
 import ../../laws/theme.bend as Theme
 
 def Theme.theme_entry_color(vars, k, t, j, v, h):
-  %Equal.sym(T.Got, T.chase(vars, j), T.Hit{v}, h) : {T.entry.got(k, t, _) == T.Good{T.Ent{t, v}} : T.EntR}
+  %Equal.sym(TChase.Got, TChase.chase(vars, j), TChase.Hit{v}, h) : {TReader.entry.got(k, t, _) == TReader.Good{TFile.Ent{t, v}} : TReader.EntR}
   {==}
