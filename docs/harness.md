@@ -875,9 +875,9 @@ Code: `eukhe-core/src/durable/compaction/auxiliary_model.rs`
 `frontmatter.rs`), `eukhe-durable/src/harness/tool.rs`
 (`INTERRUPTED_NEXT_STEP`).
 
-Tie: the bridge `durable::compaction::auxiliary_model::tests::bridge` runs
-the real decision and notices against `bend/bridge_aux_fallback.bend` on
-40 sessions of 60 passes; the bridge `skills::bridge` runs the real
+Tie: `decide_auxiliary_route` runs `gate` and `settle` of
+`bend/aux_fallback.bend` as the compiled Bend core (entry
+`bend/ffi_aux_fallback.bend`); the bridge `skills::bridge` runs the real
 loaders over a temp dir of good, unreadable, malformed and incomplete
 files against `bend/bridge_skill_load.bend` on 30 scenarios. Regression
 tests: `durable::compaction::tests::an_unused_auxiliary_model_shows_a_notice_once`,

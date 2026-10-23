@@ -533,10 +533,10 @@ Laws: `default_honoured_or_reported`, `default_quiet_when_honoured`,
 `PROOF.bend` section `default_model`). Code: `eukhe-core/src/models/custom.rs`
 (`ModelsConfig::load`), `models/registry.rs` (`compose`),
 `durable/models/compose.rs`, `models/resolver.rs`
-(`saved_default_miss`), `durable/models.rs` (`resolve_session_model`,
-`resolve_open_model`). Bridge:
-`durable::models::default_bridge::the_rust_session_model_resolution_equals_the_bend_model`
-runs the resolution against `bend/bridge_default_model.bend`.
+(`saved_default_miss`, `resolve_default`), `durable/models.rs`
+(`resolve_session_model`, `resolve_open_model`). `resolve_default` runs
+`resolve` of `bend/default_model.bend` as the compiled Bend core (entry
+`bend/ffi_default_model.bend`).
 
 ### S9. Local tiny models
 

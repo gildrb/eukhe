@@ -701,29 +701,81 @@ pub enum DefaultResolution {
     Refused(DefaultMiss),
 }
 
-/// The resolution rule: the saved default's checks in order (the catalog,
-/// the credentials, the scope), and whether the chain picks a model
-/// without it (`has_next`). A saved default without credentials never
-/// gives way to another provider.
+/// The resolution rule (`bend/default_model.bend` `resolve`, run by the
+/// compiled core): the saved default's checks in order (the catalog, the
+/// credentials, the scope), and whether the chain picks a model without
+/// it (`has_next`). A saved default without credentials never gives way
+/// to another provider.
+///
+/// # Panics
+///
+/// When the compiled core fails or answers out of shape: an inconsistent
+/// build ([`eukhe_bend::expect_core`]).
 #[must_use]
 pub fn resolve_default(saved: Option<SavedDefaultFacts>, has_next: bool) -> DefaultResolution {
-    let swap = |reason| {
+    use eukhe_bend::wire::{Reader, WireError, Writer};
+    use eukhe_bend::Entry;
+    // The model ids are opaque to the rule: the saved default is 0 and
+    // the chain's pick 1.
+    let resolved = (|| -> Result<DefaultResolution, eukhe_bend::Error> {
+        let mut request = Writer::new();
+        let facts = match saved {
+            None => {
+                request.tag(0);
+                SavedDefaultFacts {
+                    in_catalog: false,
+                    has_credentials: false,
+                    out_of_scope: false,
+                }
+            }
+            Some(facts) => {
+                request.tag(1).nat(0);
+                facts
+            }
+        };
+        request
+            .bool(facts.in_catalog)
+            .bool(facts.has_credentials)
+            .bool(facts.out_of_scope);
         if has_next {
-            DefaultResolution::Next(Some(reason))
+            request.tag(1).nat(1);
         } else {
-            DefaultResolution::Refused(reason)
+            request.tag(0);
         }
-    };
-    match saved {
-        None if has_next => DefaultResolution::Next(None),
-        None => DefaultResolution::Nothing,
-        Some(facts) if !facts.in_catalog => swap(DefaultMiss::NotInCatalog),
-        Some(facts) if !facts.has_credentials => {
-            DefaultResolution::Refused(DefaultMiss::NoCredentials)
-        }
-        Some(facts) if facts.out_of_scope => swap(DefaultMiss::NotInScope),
-        Some(_) => DefaultResolution::Saved,
-    }
+        let reply = eukhe_bend::call(Entry::DefaultModel, &request.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let out_of_shape = |expected| WireError::Malformed { at: 0, expected };
+        let key = |reader: &mut Reader<'_>| -> Result<DefaultMiss, WireError> {
+            reader.nat()?;
+            match reader.tag_of(3, "a reason")? {
+                0 => Ok(DefaultMiss::NotInCatalog),
+                1 => Ok(DefaultMiss::NoCredentials),
+                2 => Ok(DefaultMiss::NotInScope),
+                _tag => Err(out_of_shape("a reason")),
+            }
+        };
+        let resolution = match reader.tag_of(3, "a resolution")? {
+            0 => {
+                let saved_runs = reader.tag_of(2, "a pick")? == 0;
+                if !saved_runs {
+                    reader.nat()?;
+                }
+                let swapped = reader.tag_of(2, "a substitution")? == 1;
+                match (saved_runs, swapped) {
+                    (true, false) => DefaultResolution::Saved,
+                    (true, true) => return Err(out_of_shape("a resolution").into()),
+                    (false, false) => DefaultResolution::Next(None),
+                    (false, true) => DefaultResolution::Next(Some(key(&mut reader)?)),
+                }
+            }
+            1 => DefaultResolution::Nothing,
+            2 => DefaultResolution::Refused(key(&mut reader)?),
+            _tag => return Err(out_of_shape("a resolution").into()),
+        };
+        reader.end()?;
+        Ok(resolution)
+    })();
+    eukhe_bend::expect_core(Entry::DefaultModel, resolved)
 }
 
 /// The first check the saved default of `options` fails, in this order:

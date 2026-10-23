@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use eukhe_ai::models::Models;
+use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
+use eukhe_bend::{expect_core, Entry, WireError};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
 use eukhe_durable::harness::Conversation;
@@ -118,20 +120,130 @@ pub(crate) enum Gate<'a> {
     Lookup(&'a str),
 }
 
-/// The selector, then `allowedModels` (`allowed`: whether it admits the
-/// selector; read only for another model).
-pub(crate) fn gate(selector: &AuxiliarySelector, allowed: bool) -> Gate<'_> {
-    match selector {
-        AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => Gate::Session,
-        AuxiliarySelector::Other(name) if allowed => Gate::Lookup(name),
-        AuxiliarySelector::Other(name) => Gate::Fallback(name, FallbackReason::NotAllowed),
+/// A fallback reason's number in `bend/aux_fallback.bend`.
+fn reason_nat(reason: FallbackReason) -> u64 {
+    match reason {
+        FallbackReason::NotAllowed => 0,
+        FallbackReason::ModelListFailed => 1,
+        FallbackReason::NotFound => 2,
+        FallbackReason::NoKey => 3,
+        FallbackReason::NotInSession => 4,
+        FallbackReason::WindowTooSmall => 5,
     }
 }
 
-/// A found model's context window (`0`: unknown) fits the request
-/// (`None`: unknown): `bend/aux_fallback.bend` `settle` of a found model.
-pub(crate) fn fits(context_window: u64, required_context_tokens: Option<u64>) -> bool {
-    required_context_tokens.is_none_or(|required| context_window == 0 || context_window >= required)
+/// The fallback key of a reply (`p`, `s`, `r`); the purpose and the
+/// selector are the opaque 0 the requests send.
+fn read_reason(reader: &mut Reader<'_>) -> Result<FallbackReason, WireError> {
+    reader.nat()?;
+    reader.nat()?;
+    let at = 0;
+    match reader.nat()? {
+        0 => Ok(FallbackReason::NotAllowed),
+        1 => Ok(FallbackReason::ModelListFailed),
+        2 => Ok(FallbackReason::NotFound),
+        3 => Ok(FallbackReason::NoKey),
+        4 => Ok(FallbackReason::NotInSession),
+        5 => Ok(FallbackReason::WindowTooSmall),
+        _reason => Err(WireError::Malformed {
+            at,
+            expected: "a fallback reason",
+        }),
+    }
+}
+
+/// The selector, then `allowedModels` (`allowed`: whether it admits the
+/// selector; read only for another model): `bend/aux_fallback.bend`
+/// `gate`, run by the compiled core.
+///
+/// # Panics
+///
+/// When the compiled core fails or answers out of shape: an inconsistent
+/// build ([`eukhe_bend::expect_core`]).
+pub(crate) fn gate(selector: &AuxiliarySelector, allowed: bool) -> Gate<'_> {
+    let decided = (|| -> Result<Gate<'_>, eukhe_bend::Error> {
+        let mut request = Writer::new();
+        request.tag(0).nat(0);
+        let name = match selector {
+            AuxiliarySelector::Unset => {
+                request.tag(0);
+                None
+            }
+            AuxiliarySelector::SessionModel => {
+                request.tag(1);
+                None
+            }
+            AuxiliarySelector::Other(name) => {
+                request.tag(2).nat(0);
+                Some(name.as_str())
+            }
+        };
+        request.bool(allowed);
+        let reply = eukhe_bend::call(Entry::AuxFallback, &request.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let out_of_shape = || WireError::Malformed {
+            at: 0,
+            expected: "a gate of the selector",
+        };
+        let decided = match (reader.tag_of(2, "a gate")?, name) {
+            (0, name) => match (reader.tag_of(3, "a route")?, name) {
+                (0, None) => Gate::Session,
+                (2, Some(name)) => Gate::Fallback(name, read_reason(&mut reader)?),
+                (_route, _) => return Err(out_of_shape().into()),
+            },
+            (1, Some(name)) => {
+                reader.nat()?;
+                reader.nat()?;
+                Gate::Lookup(name)
+            }
+            (_gate, _) => return Err(out_of_shape().into()),
+        };
+        reader.end()?;
+        Ok(decided)
+    })();
+    expect_core(Entry::AuxFallback, decided)
+}
+
+/// The route of an admitted selector once its lookups ran: `found` is the
+/// found model (its context window `0`: unknown) or why nothing usable was
+/// found; `required_context_tokens` is the request's size (`None`:
+/// unknown). `Ok` routes the pass to the found model, `Err` is the reason
+/// it falls back: `bend/aux_fallback.bend` `settle`, run by the compiled
+/// core. Sizes past the wire's largest Nat saturate.
+///
+/// # Panics
+///
+/// When the compiled core fails or answers out of shape: an inconsistent
+/// build ([`eukhe_bend::expect_core`]).
+pub(crate) fn settle<T>(
+    found: Result<Found<T>, FallbackReason>,
+    required_context_tokens: Option<u64>,
+) -> Result<T, FallbackReason> {
+    let decided = (|| -> Result<Result<T, FallbackReason>, eukhe_bend::Error> {
+        let mut request = Writer::new();
+        request.tag(1).tag(1).nat(0).nat(0);
+        match &found {
+            Err(reason) => request.tag(0).nat(reason_nat(*reason)),
+            Ok(found) => request.tag(1).nat(found.context_window.min(NAT_MAX)),
+        };
+        request.nat(required_context_tokens.unwrap_or(0).min(NAT_MAX));
+        let reply = eukhe_bend::call(Entry::AuxFallback, &request.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let settled = match (reader.tag_of(3, "a route")?, found) {
+            (1, Ok(found)) => Ok(found.model),
+            (2, _) => Err(read_reason(&mut reader)?),
+            (_route, _) => {
+                return Err(WireError::Malformed {
+                    at: 0,
+                    expected: "the route of a looked-up selector",
+                }
+                .into())
+            }
+        };
+        reader.end()?;
+        Ok(settled)
+    })();
+    expect_core(Entry::AuxFallback, decided)
 }
 
 /// Decide where a summarizer pass runs, with the checks in their order:
@@ -156,11 +268,8 @@ pub fn decide_auxiliary_route<T>(
     let (name, reason) = match gate(selector, allowed) {
         Gate::Session => return AuxiliaryRoute::Session,
         Gate::Fallback(name, reason) => (name, reason),
-        Gate::Lookup(name) => match find(name) {
-            Ok(found) if fits(found.context_window, required_context_tokens) => {
-                return AuxiliaryRoute::Routed(found.model)
-            }
-            Ok(_) => (name, FallbackReason::WindowTooSmall),
+        Gate::Lookup(name) => match settle(find(name), required_context_tokens) {
+            Ok(model) => return AuxiliaryRoute::Routed(model),
             Err(reason) => (name, reason),
         },
     };
