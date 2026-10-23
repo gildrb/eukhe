@@ -17,7 +17,7 @@
 #
 # Text is a list of characters by their UTF-8 width: lengths are bytes,
 # and a cut never splits a character. LAWS.bend states the laws (H1, H2);
-# PROOF.bend section compactor proves them; bend/bridge_compactor.bend runs
+# PROOF.bend section compactor proves them; bridge/bridge_compactor.bend runs
 # `line` on the scenarios of the Rust bridge test.
 
 import Base

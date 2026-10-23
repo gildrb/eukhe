@@ -7,7 +7,7 @@
 //! The Bend model `bend/job.bend` is the specification. `laws/job.bend`
 //! (S2) states its laws and `proof/job/` proves them.
 //! [`JobState::step`] runs the model's `feed` as the compiled Bend core. The
-//! bridge test (`bridge.rs`, with `bend/bridge_job.bend`) runs the jobs and
+//! bridge test (`bridge.rs`, with `bridge/bridge_job.bend`) runs the jobs and
 //! the model on the same scenarios and requires the same transcript:
 //! [`Job::record`] and its writer against the model's `step` and `ends`,
 //! [`wait_until`] against its `wait`, and [`JobTable::rewind`] against its

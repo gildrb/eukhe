@@ -2,7 +2,7 @@
 """Tests for the next-release rule (next_version.py) and its bridge to the
 Bend model (bend/semver.bend, laws/semver.bend, R1).
 
-The bridge builds bend/bridge_semver.bend into a native binary (needs
+The bridge builds bridge/bridge_semver.bend into a native binary (needs
 `bend` 2.0.38, from $BEND or PATH, and clang), runs it on generated cases
 and requires its transcript to equal the script's, byte for byte. Without
 `bend` the bridge is skipped with a message, unless EUKHE_REQUIRE_BEND is
@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import next_version  # noqa: E402  (same release-scripts directory)
 
 ROOT = Path(__file__).resolve().parents[2]
-BRIDGE = ROOT / "bend" / "bridge_semver.bend"
+BRIDGE = ROOT / "bridge" / "bridge_semver.bend"
 
 
 def run_main(workspace: str, tags: list[str]) -> tuple[int, str, str]:

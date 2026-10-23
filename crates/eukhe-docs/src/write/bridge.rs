@@ -1,7 +1,7 @@
 //! The bridge from the locked writes (an edit of many files, the write
 //! tool, `MV`, the sweep of temporary files) to their Bend model
 //! (`bend/doc_commit.bend`, laws in `laws/doc_commit.bend`): generated
-//! scenarios run through the real code, and `bend/bridge_doc_commit.bend`
+//! scenarios run through the real code, and `bridge/bridge_doc_commit.bend`
 //! must print the same transcript, byte for byte. That file gives the
 //! events and the transcript lines.
 
@@ -19,7 +19,7 @@ use crate::store::EditStore;
 use crate::testing::{compare, Rng, Scenario};
 use crate::{Documents, ReadContent};
 
-const MODEL: &str = "bend/bridge_doc_commit.bend";
+const MODEL: &str = "bridge/bridge_doc_commit.bend";
 
 /// The ` I` of each index, as the model prints a list.
 fn indices(list: &[impl std::fmt::Display]) -> String {

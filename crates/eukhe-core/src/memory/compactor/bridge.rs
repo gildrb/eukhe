@@ -7,7 +7,7 @@
 //! texts of any length (multibyte characters across the cut), empty texts,
 //! thinking-only replies, errors, and too few replies. The Rust side runs
 //! `build_line` on a scripted summarizer and prints how many calls it made
-//! and the line (each character by its UTF-8 width); `bend/bridge_compactor.bend`
+//! and the line (each character by its UTF-8 width); `bridge/bridge_compactor.bend`
 //! prints the same from `line`. The failure cap scenario runs every
 //! sequence of up to six ends of a node's calls (a failed call, a disk
 //! error) through [`Pend::after`], which `Actor::failed` counts with, and
@@ -189,5 +189,5 @@ async fn the_compactor_equals_the_bend_model() {
             transcript,
         });
     }
-    compare("bend/bridge_compactor.bend", scenarios);
+    compare("bridge/bridge_compactor.bend", scenarios);
 }

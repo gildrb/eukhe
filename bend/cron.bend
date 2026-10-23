@@ -1,6 +1,6 @@
 # cron: the model of the cron job store shared by processes
 # (docs/state.md D2). The Rust code is `AgentCronJobStore` in
-# crates/eukhe-core/src/cron/store/; the bridge (bend/bridge_cron.bend,
+# crates/eukhe-core/src/cron/store/; the bridge (bridge/bridge_cron.bend,
 # crates/eukhe-core/src/cron/store/bridge.rs) runs both on the same events.
 #
 # One jobs file, shared by any number of processes. Each job record holds

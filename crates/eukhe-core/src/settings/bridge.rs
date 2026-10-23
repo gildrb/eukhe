@@ -2,7 +2,7 @@
 //! (`bend/config.bend`, whose laws `laws/config.bend` states and
 //! `PROOF.bend` proves): the Rust test builds each scenario's documents in
 //! a temp dir, runs the real code over them, and prints what it did; the
-//! model prints the same from the scenario. `bend/bridge_config.bend`
+//! model prints the same from the scenario. `bridge/bridge_config.bend`
 //! documents the scenario format. Six kinds of scenario:
 //!
 //! - rmw: a read/modify/write of each writer (`eukhe mcp add`/`remove`
@@ -785,5 +785,5 @@ fn the_rust_config_code_equals_the_bend_model() {
             transcript,
         }
     });
-    compare("bend/bridge_config.bend", scenarios);
+    compare("bridge/bridge_config.bend", scenarios);
 }

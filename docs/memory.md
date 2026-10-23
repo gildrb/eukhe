@@ -52,7 +52,7 @@ cargo test -p eukhe-core --lib memory::compactor::bridge
 | `bend/spec.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
 | `LAWS.bend` | Imports only; `laws/<area>.bend` one area's laws as open claims, `laws/base.bend` shared spec helpers. |
 | `PROOF.bend` | Imports only; `proof/<area>/<law>.bend` one law's proof, `proof/<area>/base.bend` and `proof/base.bend` shared lemmas. |
-| `bend/bridge.bend` | Runs the model on a scenario file; built with `bend bend/bridge.bend -o <binary>`. |
+| `bridge/bridge.bend` | Runs the model on a scenario file; built with `bend bridge/bridge.bend -o <binary>`. |
 | `memory/chat/bridge.rs` | Bridge test. |
 
 - Node index `i`: binary, lowest bit first; parent = drop lowest bit. All merge-order arithmetic on bits. Kernel numbers are unary, so this keeps bounded proofs (law d) in fuel.
@@ -65,7 +65,7 @@ Lists, not arrays:
 - Numbers: ~20-bit lists; fast in kernel; plain induction.
 - Proofs: every universal law by induction on these lists (`push_agrees_always` inducts on view as "view one level up, then one line"). Bend 2.0.37 `Array` is a single-owner `Type`: a state holding one cannot be reused or compared in a law; indexed by wrapping `U32`; Base proves nothing about its reads/writes. An array model needs its own proven array theory and bridge, no less work per merge.
 
-- Model = specification; Rust = production. Bridge runs the compiled model (`bend/bridge.bend` imports `bend/optchat.bend`, the module the laws speak of), so laws cover the code the bridge runs.
+- Model = specification; Rust = production. Bridge runs the compiled model (`bridge/bridge.bend` imports `bend/optchat.bend`, the module the laws speak of), so laws cover the code the bridge runs.
 - Due compare without division: `(T - last_a)/2^la > (T - last_b)/2^lb` ⇔ `(T+1)·2^lb + e_b·2^la > (T+1)·2^la + e_a·2^lb`, `e = last + 1`. Rust compares `(T + 1 - first)/2^l`: same order shifted by 2; bridge shows agreement.
 
 ### The laws and their strength

@@ -2,7 +2,7 @@
 //! (`bend/job.bend`, whose laws `PROOF.bend` proves): both run the same
 //! scenarios and must print the same transcript, byte for byte.
 //!
-//! A scenario is a call scenario of `bend/bridge_stream.bend` (the file
+//! A scenario is a call scenario of `bridge/bridge_stream.bend` (the file
 //! documents the format): a model-issued call streams result bytes, warns,
 //! and records usage, then returns or is cancelled. The driver records
 //! every `pi.live` commit from the call's start on and prints, in order,
@@ -317,5 +317,5 @@ fn a_real_tool_calls_journal_equals_the_bend_model() {
             }
         })
         .collect();
-    compare("bend/bridge_stream.bend", scenarios);
+    compare("bridge/bridge_stream.bend", scenarios);
 }

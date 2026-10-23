@@ -1,6 +1,6 @@
 //! The bridge from the tiny-model service's worker election to its Bend
 //! model (`bend/tiny.bend`, docs/inference.md S9): generated needs run
-//! through the Rust code, and `bend/bridge_tiny.bend` must print the same
+//! through the Rust code, and `bridge/bridge_tiny.bend` must print the same
 //! transcript, byte for byte. (The pick runs as the compiled model itself:
 //! `roles::pick`.)
 //!
@@ -29,7 +29,7 @@ use crate::protocol::{ChatMessage, ChatRequest, ChatRole, Reply, Request, Respon
 use crate::testing::{compare, Echo, Rng, Scenario, ECHO};
 use crate::worker::{bind, serve, Bound, Exit};
 
-const MODEL: &str = "bend/bridge_tiny.bend";
+const MODEL: &str = "bridge/bridge_tiny.bend";
 
 /// Longer than any scenario: the bridge's workers exit by its events only.
 const IDLE: Duration = Duration::from_secs(3600);

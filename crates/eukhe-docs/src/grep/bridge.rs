@@ -4,7 +4,7 @@
 //! `laws/doc_search.bend`): generated bodies of content bytes, `\r`, `\n`
 //! and `\r\n` (not empty), with or without a BOM, are read with
 //! [`Documents::read`] and searched with the pattern `^`, and
-//! `bend/bridge_doc_rows.bend` must print the same rows. A scenario line is
+//! `bridge/bridge_doc_rows.bend` must print the same rows. A scenario line is
 //! `M BODY` (M: 1 for a BOM; BODY: `a`, `r`, `n` for each byte); it prints
 //! `r N TEXT` for each row of read, then `g N TEXT` for each row of grep
 //! (TEXT: `a` and `r` for each byte, `-` when empty).
@@ -25,8 +25,8 @@ use crate::testing::{compare, Rng, Scenario};
 use crate::text::{normalize_to_lf, strip_bom};
 use crate::Documents;
 
-const ROWS_MODEL: &str = "bend/bridge_doc_rows.bend";
-const TAGS_MODEL: &str = "bend/bridge_doc_tags.bend";
+const ROWS_MODEL: &str = "bridge/bridge_doc_rows.bend";
+const TAGS_MODEL: &str = "bridge/bridge_doc_tags.bend";
 const BOM: &str = "\u{FEFF}";
 
 /// A request for every line of `path`.

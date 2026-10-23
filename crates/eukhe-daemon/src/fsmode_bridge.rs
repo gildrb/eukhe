@@ -1,7 +1,7 @@
 //! The bridge between the local access code and its Bend model
 //! (`bend/fsmode.bend`, laws `laws/fsmode.bend`, proved in `PROOF.bend`):
 //! both run the same scenarios and must print the same transcript, byte
-//! for byte (`bend/bridge_fsmode.bend` documents the format). Four kinds
+//! for byte (`bridge/bridge_fsmode.bend` documents the format). Four kinds
 //! of scenario, each on the real code:
 //!
 //! - socket dirs: missing dirs, dirs of this uid with generated modes, a
@@ -286,5 +286,5 @@ async fn the_local_access_code_equals_the_bend_model() {
     .unwrap();
     scenarios.push(creation_scenario("import and fork", &store));
 
-    compare("bend/bridge_fsmode.bend", scenarios);
+    compare("bridge/bridge_fsmode.bend", scenarios);
 }

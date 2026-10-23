@@ -4,7 +4,7 @@
 //! run the same interleavings and must print the same transcript, byte for
 //! byte.
 //!
-//! A scenario is a list of events (`bend/bridge_auth_flight.bend` documents
+//! A scenario is a list of events (`bridge/bridge_auth_flight.bend` documents
 //! the format): callers arrive and take their steps in any order, fetches
 //! succeed or fail, a peer stores a fresh credential, the stored credential
 //! expires. The Rust side drives one flight book and one leg per caller
@@ -12,7 +12,7 @@
 //! [`super::RefreshFlights::refresh`] (a waiting caller takes a step that
 //! leaves it waiting instead of blocking), and prints after each event the
 //! fetches, the stored credential and every caller's leg; the Bend side
-//! builds `bend/bridge_auth_flight.bend` into a native binary and prints
+//! builds `bridge/bridge_auth_flight.bend` into a native binary and prints
 //! the same from the model.
 //!
 //! [`compare`] runs it (and skips without `bend`, unless
@@ -247,7 +247,7 @@ fn scenarios() -> Run {
 fn the_rust_flight_machine_equals_the_bend_model() {
     let run = scenarios();
     compare(
-        "bend/bridge_auth_flight.bend",
+        "bridge/bridge_auth_flight.bend",
         [Scenario {
             name: "every scenario".to_owned(),
             events: run.events,

@@ -2,7 +2,7 @@
 # (crates/eukhe-tui/src/theme.rs, crates/eukhe-tui/src/status_line.rs);
 # laws in LAWS.bend section tui_color (T3), docs/interface.md "Terminal colors".
 # The bridge test crates/eukhe-tui/src/theme/bridge.rs runs the Rust code
-# and this model (through bend/bridge_tui_color.bend) on the same
+# and this model (through bridge/bridge_tui_color.bend) on the same
 # scenarios.
 #
 # - The effort ramp. A model offers a ladder of n effort levels (any n).

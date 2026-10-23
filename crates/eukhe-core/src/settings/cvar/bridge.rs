@@ -3,7 +3,7 @@
 //! `docs/control.md`): both run the same scenarios and must print the same
 //! transcript, byte for byte.
 //!
-//! A scenario is a list of events (`bend/bridge_cvar.bend` documents the
+//! A scenario is a list of events (`bridge/bridge_cvar.bend` documents the
 //! format). Model cvar `n` is Rust cvar `c<n>`;
 //! a Nat is a [`CvarType::Nat`] with JSON numbers, a Bool a
 //! [`CvarType::Bool`] with JSON bools. Four kinds of scenario:
@@ -659,7 +659,7 @@ fn the_rust_cvars_equal_the_bend_model() {
             }
         })
         .collect();
-    compare("bend/bridge_cvar.bend", scenarios);
+    compare("bridge/bridge_cvar.bend", scenarios);
     // The scenarios reach every rule of the model.
     assert_eq!(
         reached,

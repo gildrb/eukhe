@@ -2,7 +2,7 @@
 //! [`sweep_stale_staging_dirs`], [`list_sessions`] with
 //! [`import_legacy_session`]) and its Bend model (`bend/staging.bend`,
 //! whose laws `PROOF.bend` proves): both run the same scenarios and must
-//! print the same transcript, byte for byte (`bend/bridge_staging.bend`
+//! print the same transcript, byte for byte (`bridge/bridge_staging.bend`
 //! documents the events).
 //!
 //! A publish scenario moves a staged storage to a target that is absent,
@@ -318,5 +318,5 @@ async fn staging_sweep_and_listing_run_as_their_model() {
     for at in 0..30 {
         scenarios.push(listing_scenario(at, &mut rng).await);
     }
-    compare("bend/bridge_staging.bend", scenarios);
+    compare("bridge/bridge_staging.bend", scenarios);
 }

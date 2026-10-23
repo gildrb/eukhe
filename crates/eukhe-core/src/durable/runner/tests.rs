@@ -2,7 +2,7 @@
 //! (G4) laws of `laws/runners.bend`). The registry bridge dumps every tool
 //! a session installs (its name, caps and gate) and the gate bridge runs
 //! one `ipython` call on each scenario (an auto set, an asker): both print
-//! what `bend/bridge_runners.bend` prints, byte for byte.
+//! what `bridge/bridge_runners.bend` prints, byte for byte.
 
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -41,7 +41,7 @@ enum Asker {
 }
 
 impl Asker {
-    /// The asker's code in the events (`bend/bridge_runners.bend` `p`).
+    /// The asker's code in the events (`bridge/bridge_runners.bend` `p`).
     fn code(self) -> u8 {
         match self {
             Self::NoClient => 0,
@@ -114,7 +114,7 @@ async fn the_registry_is_its_model() {
         .open_configured(move |config| config.memory = Some(memory))
         .await;
     compare(
-        "bend/bridge_runners.bend",
+        "bridge/bridge_runners.bend",
         [
             Scenario {
                 name: "registry".to_owned(),
@@ -217,7 +217,7 @@ async fn the_ipython_gate_runs_as_its_model() {
             transcript: format!("asked {}\nend {end}\n", asked.len()),
         });
     }
-    compare("bend/bridge_runners.bend", scenarios);
+    compare("bridge/bridge_runners.bend", scenarios);
 }
 
 /// Regression (audit C1): an `ipython` cell ran unasked whatever the auto

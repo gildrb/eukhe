@@ -3,7 +3,7 @@
 //! `continuation_contiguous` and `continuation_disjoint` of
 //! `laws/doc_search.bend`): generated files with times that are often equal
 //! run through the Rust code, which follows each continuation the result
-//! gives, and `bend/bridge_doc_search.bend` must print the same
+//! gives, and `bridge/bridge_doc_search.bend` must print the same
 //! transcript, byte for byte.
 //!
 //! A scenario's events are `o S K` (a glob that skips S paths, with limit
@@ -25,7 +25,7 @@ use crate::{
     testing::{compare, Rng, Scenario},
 };
 
-const MODEL: &str = "bend/bridge_doc_search.bend";
+const MODEL: &str = "bridge/bridge_doc_search.bend";
 
 /// The `f` line of one page: the number of each file `eNN`.
 fn page(output: &GlobOutput) -> String {

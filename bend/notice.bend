@@ -1,7 +1,7 @@
 # notice: the model of the kernel restore notices a TUI view shows
 # (docs/daemon.md D1). The Rust code is
 # crates/eukhe-tui/src/restore_notices.rs (`RestoreNotices`); the bridge
-# (bend/bridge_notice.bend, `the_restore_notices_run_as_their_model` in
+# (bridge/bridge_notice.bend, `the_restore_notices_run_as_their_model` in
 # that file) runs both on the same events.
 #
 # A kernel restore stores one notice in the session. The newest notice

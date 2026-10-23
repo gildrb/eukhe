@@ -1,7 +1,7 @@
 # auth_flight: the model of the OAuth refresh of one provider's stored
 # credential. The Rust code is `Leg::advance` and `FlightBook::advance`
 # (crates/eukhe-core/src/auth/flight.rs); the bridge
-# (bend/bridge_auth_flight.bend, crates/eukhe-core/src/auth/flight/bridge.rs)
+# (bridge/bridge_auth_flight.bend, crates/eukhe-core/src/auth/flight/bridge.rs)
 # runs both on the same events.
 #
 # Each caller takes its refresh one step at a time. A caller loads the

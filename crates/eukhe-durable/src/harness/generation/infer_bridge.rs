@@ -3,7 +3,7 @@
 //! run the same scenarios and must print the same transcript, byte for
 //! byte.
 //!
-//! - `bend/bridge_quirks.bend` documents the rulebook format: generated
+//! - `bridge/bridge_quirks.bend` documents the rulebook format: generated
 //!   rules (layer, target, directive, value) and queries. The Rust side
 //!   compiles them with [`eukhe_ai::quirks::compile`] and looks them up
 //!   with `Rules::lookup`. Model directive `d` is the Rust directive
@@ -18,7 +18,7 @@
 //!   (`None`: a model that no family or no host matches), which the model
 //!   reads as a target no rule names. Each rulebook also runs with two
 //!   adjacent rules swapped.
-//! - `bend/bridge_infer.bend` documents the other problems: the forced
+//! - `bridge/bridge_infer.bend` documents the other problems: the forced
 //!   call ([`ForceEscalation`], model `force`), the repetition guard
 //!   ([`RepetitionGuard`], model `guard`: chunk id `x` is the line `c<x>`,
 //!   fed in deltas cut at random points; the chunks are random, a cycle of
@@ -202,7 +202,7 @@ fn quirks_scenarios() -> Vec<Scenario> {
 
 #[test]
 fn the_rust_quirks_rulebook_equals_the_bend_model() {
-    compare("bend/bridge_quirks.bend", quirks_scenarios());
+    compare("bridge/bridge_quirks.bend", quirks_scenarios());
 }
 
 // The forced call, the guard, early compaction
@@ -369,5 +369,5 @@ fn infer_scenarios() -> Vec<Scenario> {
 
 #[test]
 fn the_rust_inference_units_equal_the_bend_model() {
-    compare("bend/bridge_infer.bend", infer_scenarios());
+    compare("bridge/bridge_infer.bend", infer_scenarios());
 }

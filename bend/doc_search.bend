@@ -15,7 +15,7 @@
 #
 # Glob: the paths, newest first and then by name, are paged.
 #
-# The bridges (bend/bridge_doc_search.bend,
+# The bridges (bridge/bridge_doc_search.bend,
 # crates/eukhe-docs/src/grep/bridge_accounts.rs and
 # crates/eukhe-docs/src/glob/bridge.rs) run the real code on generated
 # trees and compare.

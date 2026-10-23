@@ -36,7 +36,7 @@ One source for every presentation value: `ui/src/tokens.stylex.ts` (colors, leng
   - layers strictly ordered;
   - spacing scale, type sizes, line heights ascend.
 
-  `src/tokens.test.ts` runs `bend/bridge_tokens.bend` and checks its tables equal `tokens.stylex.ts`; skipped without `bend` unless `EUKHE_REQUIRE_BEND` is set.
+  `src/tokens.test.ts` runs `bridge/bridge_tokens.bend` and checks its tables equal `tokens.stylex.ts`; skipped without `bend` unless `EUKHE_REQUIRE_BEND` is set.
 
 ## Run
 

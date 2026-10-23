@@ -6,7 +6,7 @@
 # Time is counted in ticks. A deadline of d ticks passes on the d-th
 # tick; a deadline of 0 has passed before anything happens. The Rust race
 # (`eukhe_chord::context::race`) is checked against this model by the
-# bridge (bend/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs).
+# bridge (bridge/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs).
 
 import Base
 

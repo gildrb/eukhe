@@ -179,9 +179,9 @@ the user.
 Code: `eukhe-durable/src/harness/registry.rs` (`Registry::fix_roster`, `RosterFixed`, `RosterChange`, `install`/`uninstall` checks), `harness/harness/conversation.rs` `Conversation::configure`, `harness/generation/round.rs` (`add_tools`), `eukhe-core/src/durable/registry.rs` `create_eukhe_registry` (builds schemas, then fixes roster), `durable/tool_contract.rs` (`parameters`, `build`), `durable/tool_surface/mod.rs` (`ToolSurface`, `dyn`, `report_issue`), `kernel/manager/mod.rs` `mcp_tool_call` + `mcp_call` of the kernel MCP lane (`eukhe-runtime/src/rlm/repl.py`), `eukhe-docs/src/url.rs` (`walk`: sole URL path walker, under `Url::names`, `Url::remote`), `eukhe-core/src/durable/documents/ssh.rs` (`SshRead`: `ssh.hosts` check, `ssh` args, bounded read, typed errors), `eukhe-core/src/durable/shell.rs` (`bash` + approval), crate `eukhe-shell` (in-process shell, `effect.rs`, gate).
 
 Ties:
-- `durable::tool_surface::bridge::the_rust_tool_surface_equals_the_bend_model` vs `bend/bridge_tools.bend` (`run`, `step`, `dyn_call`, `build`): real registry with fixed roster, `ToolSurface`, `tool_contract::build`; tools join (registry also asked to install) and quit (registry also asked to drop roster); requests resolved as the Harness does; schemas built twice.
+- `durable::tool_surface::bridge::the_rust_tool_surface_equals_the_bend_model` vs `bridge/bridge_tools.bend` (`run`, `step`, `dyn_call`, `build`): real registry with fixed roster, `ToolSurface`, `tool_contract::build`; tools join (registry also asked to install) and quit (registry also asked to drop roster); requests resolved as the Harness does; schemas built twice.
 - `Url::names` and `Url::remote` walk a path with model `resolve`, run as the compiled core (entry `bend/ffi_tools.bend`, request laws `tools_ffi_*`; a name crosses as its segment's index).
-- `bend/bridge_shell.bend`: `eukhe-shell` gate (`run::tests::the_gate_runs_as_its_model`) vs model `join`, `exec` (G2).
+- `bridge/bridge_shell.bend`: `eukhe-shell` gate (`run::tests::the_gate_runs_as_its_model`) vs model `join`, `exec` (G2).
 
 Tests: `harness::tests::registry::a_fixed_roster_rejects_every_change_of_the_tools_the_model_sees`; `durable::tool_surface::tests` (two turns, same roster each request; late tool listed and run via `dyn`; `report_issue` row stored; install, `configure` rejected); daemon `dyn_tool_e2e` (stdio MCP tool listed and called via `dyn`; one tool loadout in transcript); `url::tests::an_ssh_url_*` (host, path rules); `durable::documents::ssh::tests` (fake `ssh` records args, plays hosts; shell-syntax path reads that file, runs nothing; each failure typed; cap counts dropped bytes; budget kills `ssh`).
 
@@ -307,7 +307,7 @@ Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 
 Code: `eukhe-types/src/shell.rs` (`ShellEffect`, `ShellEffects`, `AutoSet`), `eukhe-shell/src/effect.rs` (`classify`, `GIT_UNTRUSTED_REPO_ARGS`, `reads_cwd`), `run.rs` (`Shell::effects`; parts of an out-of-grammar script from `parse::parts`), `shown.rs` (`quote`, `visible`), `eukhe-tui/src/confirm.rs` (`ConfirmPanel::approval`).
 
-Tie: `run::tests::the_gate_runs_as_its_model` vs `bend/bridge_shell.bend`: steps from parts whose effects and secret paths come from a temp workspace's path classes (secret reads, writes outside and to a protected tree, redirections, out-of-grammar scripts), run in the workspace or the dir above it, which holds a secret (there `echo`, `date`: no secret part; `ls`, `grep -r`: one for the working dir); random auto sets (outside, protected, secret included) and answers; compares steps run, their effects, the end. Every command and redirection kind runs in each dir.
+Tie: `run::tests::the_gate_runs_as_its_model` vs `bridge/bridge_shell.bend`: steps from parts whose effects and secret paths come from a temp workspace's path classes (secret reads, writes outside and to a protected tree, redirections, out-of-grammar scripts), run in the workspace or the dir above it, which holds a secret (there `echo`, `date`: no secret part; `ls`, `grep -r`: one for the working dir); random auto sets (outside, protected, secret included) and answers; compares steps run, their effects, the end. Every command and redirection kind runs in each dir.
 
 Tests: `every_effect_of_a_step_must_be_allowed`, `only_a_step_that_reads_its_working_directory_reads_a_secret_in_it`, `effect::tests::a_command_reads_the_working_directory_only_when_it_names_no_path`, `effect::tests::a_git_step_that_can_run_a_repository_program_is_exec`, `a_git_step_that_is_not_exec_runs_with_the_untrusted_repository_arguments`, `shown::tests::a_hidden_character_is_escaped_and_bash_reads_the_word_back`, `confirm::tests::an_approval_answers_no_on_enter_and_keeps_every_line`.
 
@@ -337,7 +337,7 @@ installs, in install order; `cell`, the gate of one call). Laws:
 
 Code: `eukhe-core/src/durable/runner.rs` (`Runner`, `Gate`), `durable/rlm/tool.rs` (`ipython` gate), `durable/shell.rs` (`bash` runner).
 
-Tie: `durable::runner::tests` vs `bend/bridge_runners.bend`: `the_registry_is_its_model` (every tool of an opened session: name, caps, gate vs `registry`); `the_ipython_gate_runs_as_its_model` (one real `ipython` call per auto set and asker: no client, no answer, deny, approve; asked? end? vs `cell`).
+Tie: `durable::runner::tests` vs `bridge/bridge_runners.bend`: `the_registry_is_its_model` (every tool of an opened session: name, caps, gate vs `registry`); `the_ipython_gate_runs_as_its_model` (one real `ipython` call per auto set and asker: no client, no answer, deny, approve; asked? end? vs `cell`).
 
 Test: `a_cell_runs_only_within_the_auto_set_or_approved`.
 
@@ -391,7 +391,7 @@ answer, the gateway alone, clients that leave while the gateway stays;
 Code: `eukhe-daemon/src/shell_approval.rs` (`ShellApprovals::ask`, `relay`), `worker.rs` (relay over the supervisor link), `worker/connection.rs` (client kind at attach), `supervisor/routing.rs` (relay budget), `eukhe-tui/src/session_ui/settings.rs` (prompt), `eukhe-gateway/src/link.rs` (attaches as `gateway`), `eukhe-core/src/settings/cvar/table.rs` (`SHELL_AUTO_EFFECTS`, default auto set).
 
 Ties:
-- `shell_approval::bridge::the_approval_route_is_its_model` vs `bend/bridge_approvals.bend`: every chain of up to 3 sessions with a write, a program run, a protected write, a secret read, plus generated longer ones, on real `ShellApprovals` relaying through each parent's real handler; compares which sessions showed the question, whether each frame names the subagent, the end.
+- `shell_approval::bridge::the_approval_route_is_its_model` vs `bridge/bridge_approvals.bend`: every chain of up to 3 sessions with a write, a program run, a protected write, a secret read, plus generated longer ones, on real `ShellApprovals` relaying through each parent's real handler; compares which sessions showed the question, whether each frame names the subagent, the end.
 - `durable::shell::tests::the_default_auto_set_is_its_model`: real default auto set vs the same model: effects held; whether the gate runs each of the 127 steps of 1 to 7 effects unasked.
 
 Tests:

@@ -611,7 +611,7 @@ async fn the_gate_runs_as_its_model() {
         (every(BASES), every(REDIRECTS)),
         "every command and redirection kind runs in some scenario in each directory"
     );
-    compare("bend/bridge_shell.bend", scenarios);
+    compare("bridge/bridge_shell.bend", scenarios);
 }
 
 /// Regression (audit H4, H2, M4): a step had one effect, so a write

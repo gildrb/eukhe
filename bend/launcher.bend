@@ -2,7 +2,7 @@
 # idle shutdown and the adoption of live workers. The Rust code is
 # crates/eukhe-daemon/src/work_gate.rs (`WorkGate`, `idle_shutdown_commits`)
 # and `supervisor/adoption.rs` `adoption_verdict`; the bridge
-# (bend/bridge_launcher.bend, crates/eukhe-daemon/src/supervision_bridge.rs)
+# (bridge/bridge_launcher.bend, crates/eukhe-daemon/src/supervision_bridge.rs)
 # runs both on the same operations.
 #
 # The idle shutdown: any operations, in any order, on any workers. A

@@ -3,7 +3,7 @@
 //! model (`bend/skill_load.bend`, whose laws `PROOF.bend` proves): the
 //! Rust test writes each scenario's candidate files into a temp dir, runs
 //! the real loaders over it, and prints what became of each file; the
-//! model prints the same from the scenario. `bend/bridge_skill_load.bend`
+//! model prints the same from the scenario. `bridge/bridge_skill_load.bend`
 //! documents the scenario format.
 //!
 //! [`compare`] runs it (and skips without `bend`, unless
@@ -126,5 +126,5 @@ fn the_rust_skill_loaders_equal_the_bend_model() {
             transcript,
         }
     });
-    compare("bend/bridge_skill_load.bend", scenarios);
+    compare("bridge/bridge_skill_load.bend", scenarios);
 }

@@ -21,7 +21,7 @@
 # Sweep: a replace of a file removes the temporary files of that file
 # that no live writer holds; it keeps every other entry.
 #
-# The bridge (bend/bridge_doc_commit.bend,
+# The bridge (bridge/bridge_doc_commit.bend,
 # crates/eukhe-docs/src/write/bridge.rs) runs the real code on generated
 # scenarios and compares.
 

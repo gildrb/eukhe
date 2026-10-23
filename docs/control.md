@@ -87,7 +87,7 @@ Code:
 - Spawn carries parent family in create config (`cvarFamily`).
 - `eukhe-tui/src/session_ui/cvar.rs`: TUI sends `/set`, `/toggle`, `/alias`, `/cvar` as `cvar` lines.
 
-Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bend/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`). Expansion and presses: no bridge, they run as the model; `rules::cvar::tests` checks the glue (names and commands to the model's numbers and back).
+Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bridge/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`). Expansion and presses: no bridge, they run as the model; `rules::cvar::tests` checks the glue (names and commands to the model's numbers and back).
 
 Regression tests:
 
@@ -127,7 +127,7 @@ Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs: `proof/config/`.
 
 Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `laws/default_model.bend`.
 
-Tie: `settings::bridge::the_rust_config_code_equals_the_bend_model` vs `bend/bridge_config.bend`, byte for byte, 360 generated scenarios: each writer over missing, valid, invalid, unreadable, other-version files; setters after another writer's change; documents with good, wrong-typed, undeclared leaves; `providerMaxInFlight` values; projects under each trust; global and project `mcpServers` entries.
+Tie: `settings::bridge::the_rust_config_code_equals_the_bend_model` vs `bridge/bridge_config.bend`, byte for byte, 360 generated scenarios: each writer over missing, valid, invalid, unreadable, other-version files; setters after another writer's change; documents with good, wrong-typed, undeclared leaves; `providerMaxInFlight` values; projects under each trust; global and project `mcpServers` entries.
 
 Regression tests: `add_refuses_a_settings_file_that_does_not_parse`, `a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`, `another_version_is_refused_and_never_rewritten`, `set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`, `a_bad_leaf_drops_only_itself_and_is_named`, `a_setting_a_cfg_file_shadows_says_so`, `a_project_mcp_entry_never_takes_global_credentials`.
 
@@ -203,4 +203,4 @@ Model: `bend/progress.bend` (`work`, `check`, `goal`, `judge`). Laws (`laws/prog
 
 Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`), `durable/goals/state.rs` (`stall_check`: `judge`, run as the compiled Bend core, `bend/ffi_progress.bend`), `durable/goals/hooks.rs` (`goal_check`, work read in `on_yield`, pause and row in `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
 
-Tie: `durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model` runs the ledger over real transcripts and `goal_check` vs `bend/bridge_progress.bend`. Regression: `durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.
+Tie: `durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model` runs the ledger over real transcripts and `goal_check` vs `bridge/bridge_progress.bend`. Regression: `durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.

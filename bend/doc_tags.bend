@@ -11,7 +11,7 @@
 # result (`later`). Grep records the searched buffer, not the disk, so its
 # tag names the text its rows come from.
 #
-# The bridge (bend/bridge_doc_tags.bend with
+# The bridge (bridge/bridge_doc_tags.bend with
 # crates/eukhe-docs/src/grep/bridge.rs) runs the real grep with a rewrite
 # of the file between the search and the record, and compares.
 
