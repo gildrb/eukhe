@@ -7,11 +7,9 @@ eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agen
 by Prime Intellect. It is not affiliated with Prime Intellect, Victor Taelin or Earendil.
 See [Attribution](#attribution).
 
-PROBLEM: A coding agent forgets. A new session starts empty. A compaction
-removes the start of a long session.
-
-SOLUTION: eukhe keeps one chat log for all sessions. Each turn starts from a
-compact view of the full log.
+A coding agent forgets. A new session starts empty. A compaction removes the
+start of a long session. eukhe keeps one chat log for all sessions. Each turn
+starts from a compact view of the full log.
 
 ## Install
 
