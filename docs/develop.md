@@ -64,6 +64,15 @@ last release.
   eukhe-release.yml -f sha=<commit>`).
 - Red: nothing is released. A commit that breaks a test does not ship.
 
+Build size:
+
+| Rule | Why |
+| --- | --- |
+| Each nightly run starts with `cargo clean` in the gate worktree | Cargo never deletes stale build files. One day of gate runs grew that build dir to 410 GB |
+| The full gate builds without incremental files (`CARGO_INCREMENTAL=0`) | The gate builds once. Incremental files only add size |
+| The full gate builds with `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | A failed test still shows file and line. Full debug info is several times larger |
+| The test environment keeps these two settings | The tests reuse the gate's build. A second build with other settings doubles the size |
+
 ```sh
 make nightly          # run the nightly gate now
 make nightly-status   # the result of the last run

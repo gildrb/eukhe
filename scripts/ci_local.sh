@@ -223,9 +223,18 @@ if (( TEST_THREADS_PER_SHARD < 1 )); then
   TEST_THREADS_PER_SHARD=1
 fi
 
+# The test environment is clean, except for the build settings that select
+# which build the tests reuse (set by `full`, or by the caller).
 clean_env() {
+  local keep=()
+  if [[ -n ${CARGO_INCREMENTAL:-} ]]; then
+    keep+=("CARGO_INCREMENTAL=${CARGO_INCREMENTAL}")
+  fi
+  if [[ -n ${CARGO_PROFILE_DEV_DEBUG:-} ]]; then
+    keep+=("CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG}")
+  fi
   env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
-    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 "$@"
+    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 "${keep[@]}" "$@"
 }
 
 workspace_tests() {
@@ -269,6 +278,10 @@ case "${mode}" in
     gate "clippy (touched crates)" clippy_touched "$(change_rows --cached)"
     ;;
   full)
+    # The full gate builds the workspace once: incremental files only add
+    # size, and line tables keep file:line in a failed test's backtrace at a
+    # fraction of full debug info. clean_env passes both to the test build.
+    export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only
     start=${SECONDS}
     gate tools check_tools cargo uv npm python3 cargo-deny
     gate "bend version" check_bend

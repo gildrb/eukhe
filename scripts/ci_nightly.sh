@@ -58,6 +58,9 @@ case "${mode}" in
       git worktree prune
       git worktree add --quiet --detach --force "${worktree}" "${sha}"
     fi
+    # Every night builds from an empty build dir: cargo never deletes stale
+    # build files, and one day of gate runs grew this dir to 410 GB.
+    (cd "${worktree}" && cargo clean --quiet) </dev/null 9>&-
     start=${SECONDS}
     set +e
     # 9>&-: a process the gate leaves behind never holds the lock.
