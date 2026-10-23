@@ -73,8 +73,6 @@
 //! `bend/default_model.bend`.
 
 mod compose;
-#[cfg(test)]
-mod default_bridge;
 pub(crate) mod failover;
 pub(crate) mod image_route;
 pub(crate) mod park;
