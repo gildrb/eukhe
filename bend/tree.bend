@@ -596,17 +596,38 @@ def KMap.ups(m: KMap, +x: Nat, acc: List<&2, Ent>, gl: Bool, gr: Bool) -> List<&
     case KFork{mid, mp, l, r} False{} False{}:
       acc
 
-# the keys of the nodes that prune.go removes from s, in order
-def drops.go(s: List<&2, Ent>, +gone: List<&2, Nat>, hit: Bool) -> List<&2, Nat>:
+# the gone keys of a delete's walk, as a key map (a key k is the node
+# Ent{k, 0, 0}): a lookup costs a path, not the keys gone so far
+def gone.of(+hs: List<&2, Nat>, +g: KMap, +k: Nat) -> KMap:
+  KMap.set(g, hs, Ent{k, 0n, 0n})
+
+# the first node of s, or its parent, is in the gone map g
+def gone.in(+s: List<&2, Ent>, +g: KMap) -> Bool:
+  match s:
+    case Nil{}:
+      False{}
+    case +e <> rest:
+      Bool.or(KMap.has(g, Ent.k(e)), KMap.has(g, Ent.p(e)))
+
+# the keys of the nodes a delete removes from s, in order: a node goes
+# when its key or its parent is gone, and then its key is gone (in key
+# order a parent comes before its child); hit is gone.in(s, g)
+def drops.s(s: List<&2, Ent>, +hs: List<&2, Nat>, +g: KMap, hit: Bool) -> List<&2, Nat>:
   match s:
     case Nil{}:
       Nil{}
     case +e <> +rest:
       match hit:
         case True{}:
-          Ent.k(e) <> drops.go(rest, Ent.k(e) <> gone, gone.at(rest, Ent.k(e) <> gone))
+          +g2 = gone.of(hs, g, Ent.k(e))
+          Ent.k(e) <> drops.s(rest, hs, g2, gone.in(rest, g2))
         case False{}:
-          drops.go(rest, gone, gone.at(rest, gone))
+          drops.s(rest, hs, g, gone.in(rest, g))
+
+# the keys of the nodes of s a delete of x removes
+def drops(+s: List<&2, Ent>, +hs: List<&2, Nat>, +x: Nat) -> List<&2, Nat>:
+  +g = gone.of(hs, KNil{}, x)
+  drops.s(s, hs, g, gone.in(s, g))
 
 # one exact op of a rewind, on a key map
 def KMap.exact(+m: KMap, +hs: List<&2, Nat>, o: Op) -> KMap:
@@ -664,13 +685,12 @@ def cut.ans(m: KMap, +ks: List<&2, Nat>) -> KMap & Ans:
 
 # a delete: key 0 is the root (no change); else the walk over the nodes
 # it may remove
-def del.ans(+m: KMap, x: Nat) -> KMap & Ans:
+def del.ans(+m: KMap, +hs: List<&2, Nat>, x: Nat) -> KMap & Ans:
   match x:
     case 0n:
       (m, Kept{})
     case 1n++y:
-      +rows = KMap.ups(m, 1n+y, Nil{}, KMap.gl(m, 1n+y), KMap.gr(m, 1n+y))
-      cut.ans(m, drops.go(rows, [1n+y], gone.at(rows, [1n+y])))
+      cut.ans(m, drops(KMap.ups(m, 1n+y, Nil{}, KMap.gl(m, 1n+y), KMap.gr(m, 1n+y)), hs, 1n+y))
 
 # one record on a key map, and its answer
 def KMap.rec(+m: KMap, +hs: List<&2, Nat>, r: Rec) -> KMap & Ans:
@@ -680,7 +700,7 @@ def KMap.rec(+m: KMap, +hs: List<&2, Nat>, r: Rec) -> KMap & Ans:
         case Put{+k, +p, v}:
           put.ans(Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), KMap.has(m, p))), m, hs, Ent{k, p, v})
         case Del{x}:
-          del.ans(m, x)
+          del.ans(m, hs, x)
     case Rewind{ops}:
       +n = KMap.patch(ops, hs, m)
       keep.ans(KMap.hangs(KMap.onto(n, Nil{}), n), m, n)
