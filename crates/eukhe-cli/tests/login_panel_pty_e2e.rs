@@ -512,10 +512,11 @@ fn model_picker_routes_the_sign_in_flow_and_applies_after_login() {
 
     harness.wait_from_start(PASTE_ENABLE, "the startup bracketed-paste enable");
 
-    // `/model` opens the picker: the unauthenticated provider's row stays
+    // `/model chat` opens the hub at the chat role's models: the
+    // unauthenticated provider's row stays
     // visible and carries the sign-in marking (the TS "require sign in"
     // trailing).
-    harness.write(b"/model\r");
+    harness.write(b"/model chat\r");
     harness.wait_from_start("Search models", "the model picker");
     harness.wait_from_start("GLM 5.3 Fast", "the unauthenticated provider's model row");
     harness.wait_from_start("require sign in", "the row's sign-in marking");

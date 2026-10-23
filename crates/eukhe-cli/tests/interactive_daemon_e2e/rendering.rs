@@ -577,7 +577,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            eukhe_tui::interactive::HeadlessStep::Submit("/model".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Submit("/model chat".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("glm".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::Submit("hello".to_string()),
@@ -722,9 +722,19 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            eukhe_tui::interactive::HeadlessStep::Submit("/model".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Submit("/model chat".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("mock-2".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
+            // The pick returns the hub to its roles; Esc closes it, so the
+            // status line shows again.
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Model: mock-2".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
             eukhe_tui::interactive::HeadlessStep::Submit("turn after the switch".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 90_000 },
         ],

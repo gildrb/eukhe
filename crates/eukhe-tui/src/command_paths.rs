@@ -116,7 +116,12 @@ impl CommandTable {
                 usage: command.argument_hint.clone(),
                 source_tag: command.source_tag.clone(),
                 run: !has_kids || command.subcommand_optional,
-                free: command.takes_argument || !has_kids,
+                // A command whose children are only the interface's live
+                // values (`/tier`, `/effort`) keeps other words as its
+                // text: its handler checks them against the daemon's own
+                // list and names the available ones. A command with
+                // registry subcommands takes no word it does not name.
+                free: command.takes_argument || command.subcommands.is_empty(),
                 arg: command.takes_argument,
             });
         }

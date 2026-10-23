@@ -117,7 +117,7 @@ Code: `eukhe-tui/src/keybindings/definitions.rs` (defaults), `session_ui/keys.rs
 
 A slash command alone on the prompt, cursor at its end: the path rules decide (Bend model `bend/command.bend`, entry `bend/ffi_command.bend`, one core call per menu, key or submit).
 
-- Table: one row per declared path (command, registry subcommand, argument value), names lowercase. Flags: `run` (bare path runs: a default or no child), `free` (a word naming no child starts the argument text), `arg` (text expected after it).
+- Table: one row per declared path (command, registry subcommand, argument value), names lowercase. Flags: `run` (bare path runs: a default or no child), `free` (a word naming no child starts the argument text: commands without registry subcommands, so `/tier x` and `/effort x` reach their handlers' error with the daemon's list), `arg` (text expected after it).
 - Sources: `eukhe-types/src/slash_commands.rs` (`subcommands`, `subcommand_optional`, `Subcommand {name, description, usage}`; `/model` roles from `ModelRole::ALL`); argument lists by path from `session_ui.rs` `update_model_eligibility_filters` (`tier`, `effort`, `workflows size`, `dynamic-workflow --size`).
 - `resolve(line)`: `Runs{path, args}` (args as typed), `Opens{path}` (bare path, no default), `Unknown{path, word}`, `NoCommand` (first word names no command: typo note or prompt, as before).
 - `menu(line)`: first word: command names (Rust fuzzy ranking); later: children of the typed path with the typed prefix, any case, table order; none below argument text or an unknown word.

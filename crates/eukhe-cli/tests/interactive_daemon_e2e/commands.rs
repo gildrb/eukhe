@@ -386,12 +386,12 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         "the unknown-command suggestion matched the TS string:\n{rendered}"
     );
     assert!(
-        rendered.contains("Search models"),
-        "the /model command opened the inline menu-panel:\n{rendered}"
+        rendered.contains("Search roles"),
+        "the /model command opened the role hub:\n{rendered}"
     );
     assert!(
-        rendered.contains("Enter select - Esc close"),
-        "the menu-panel hint rendered:\n{rendered}"
+        rendered.contains("Enter choose - Backspace/x clear - Esc close"),
+        "the hub's hint rendered:\n{rendered}"
     );
     // The menu: the first registry entry is selected at `/`, and `/goa`
     // fuzzy-matches to the goal command.
@@ -531,7 +531,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
-            eukhe_tui::interactive::HeadlessStep::Submit("/model".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Submit("/model chat".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("mock".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::Submit("/effort".to_string()),
@@ -541,6 +541,16 @@ async fn tui_model_picker_applies_and_effort_reports() {
             eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
                 crossterm::event::KeyCode::Char('l'),
                 crossterm::event::KeyModifiers::CONTROL,
+            )),
+            // The key opens the role hub; Enter on the chat role lists its
+            // models, Enter picks.
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Search roles".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
             )),
             eukhe_tui::interactive::HeadlessStep::WaitRender {
                 needle: "Search models".to_string(),
@@ -678,7 +688,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            eukhe_tui::interactive::HeadlessStep::Submit("/model".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Submit("/model chat".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("chat".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::Submit("/effort xhigh".to_string()),

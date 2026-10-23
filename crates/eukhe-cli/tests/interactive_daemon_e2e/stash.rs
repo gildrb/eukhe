@@ -1147,9 +1147,9 @@ async fn tui_dispatches_declared_editor_keybindings() {
             // streams while the interrupt key lands.
             eukhe_tui::interactive::HeadlessStep::Submit("hello".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            // ctrl+l opens the /model surface.
+            // ctrl+l opens the /model role hub.
             key(KeyCode::Char('l'), KeyModifiers::CONTROL),
-            wait_render("Search models"),
+            wait_render("Search roles"),
             key(KeyCode::Esc, KeyModifiers::NONE),
             // The slow turn runs so the interrupt key lands mid-turn.
             eukhe_tui::interactive::HeadlessStep::Submit("start the slow turn".to_string()),
@@ -1185,8 +1185,8 @@ async fn tui_dispatches_declared_editor_keybindings() {
         );
     }
     assert!(
-        rendered.contains("Search models"),
-        "ctrl+l opened the model picker:\n{rendered}"
+        rendered.contains("Search roles"),
+        "ctrl+l opened the model hub:\n{rendered}"
     );
     assert!(
         !rendered.contains("the final answer that the abort must never deliver"),
