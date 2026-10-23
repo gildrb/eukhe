@@ -80,6 +80,9 @@ import ./bend/ffi_director.bend as FDr
 import ./bend/ffi_child_env.bend as FEnv
 import ./bend/ffi_cvar.bend as FCv
 import ./bend/ffi_retry.bend as Fr
+import ./bend/ffi_effort.bend as FEf
+import ./bend/ffi_infer.bend as FIn
+import ./bend/ffi_facts.bend as FFx
 
 # (a) The view
 # ------------
@@ -5008,6 +5011,331 @@ law wire_err_example:
 law wire_end_exact:
   for +s: String
   {Wr.end(s) == String.is_empty(s) : Bool}
+
+# ---- core entries ----
+
+# LAWS: the entries of the compiled Bend core (bend/core.bend) for the
+# thinking ladder, the strict plan and the thinking budgets
+# (bend/ffi_effort.bend, bend/ffi_infer.bend, bend/ffi_facts.bend). Each law
+# is an open claim about those files; PROOF.bend proves them (as
+# Laws.<law>) on the lemmas of PROOF.bend section wire.
+#
+# R1: a request Rust writes (`put_req`, the grammar of the file's header,
+#     every Nat and list length within the wire) reads back whole: no field
+#     lost, invented, swapped or reordered, and the rest untouched.
+# R2: the entry answers that request with the encoding of the model's
+#     decision: the Rust rule is the proven model.
+# R3: a malformed request, or one with input left over, answers the
+#     entry's error form, never a default decision.
+# Every input is free: any facts, maps, levels, tools, caps, budgets and
+# any text.
+
+# what fits the wire: a Maybe<Nat> whose Nat fits (None always does)
+def core_mfits(m: Maybe<&2, Nat>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{x}:
+      wire_fits(x)
+
+# (effort) The thinking ladder: bend/ffi_effort.bend
+# --------------------------------------------------
+
+# a list of levels whose length fits (every level's tag does)
+def core_lvs_fit(ls: List<&2, Ef.Lv>) -> Bool:
+  wire_fits(List.length(&2, Ef.Lv, ls))
+
+def core_facts_fit(f: FEf.Facts) -> Bool:
+  match f:
+    case FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}:
+      Bool.and(core_lvs_fit(reasoning), core_lvs_fit(plain))
+
+def core_effort_fits(q: FEf.Req) -> Bool:
+  match q:
+    case FEf.Offered{f}:
+      core_facts_fit(f)
+    case FEf.Clamp{f, l}:
+      core_facts_fit(f)
+    case FEf.Cycle{f, l, d}:
+      core_facts_fit(f)
+
+# the S10 model whose ladder the facts give (bend/infer.bend section 6)
+def core_effort_model(f: FEf.Facts) -> Ef.Mdl:
+  match f:
+    case FEf.Facts{flag, by_map, +explicit, rule, reasoning, plain}:
+      If.lad.model(If.lad.reasons(flag, by_map, explicit), explicit, rule, If.Defaults{reasoning, plain})
+
+# LAW R1 a ladder request that fits reads back, and the rest is untouched
+# EXCLUDES: a flag, a map entry, a default level, the level or the
+#   direction lost, swapped or misread; a request that eats the rest
+law core_effort_round_trip:
+  for +q: FEf.Req
+  for rest: String
+  for h: {core_effort_fits(q) == True{} : Bool}
+  {FEf.get_req(FEf.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FEf.Req>}
+
+# LAW R2 the offer request answers the levels the model offers
+# EXCLUDES: a codec that drops or swaps a fact, a default ladder
+law core_effort_offered:
+  for +f: FEf.Facts
+  for h: {core_effort_fits(FEf.Offered{f}) == True{} : Bool}
+  {FEf.ffi(FEf.put_req(FEf.Offered{f}, "")) == Wr.put_list(~Ef.Lv, ~FEf.put_lv, Ef.offered(core_effort_model(f)), "") : String}
+
+# LAW R2 the clamp request answers the model's clamp of the level
+# EXCLUDES: a clamp of another level or of another model, the level as sent
+law core_effort_clamp:
+  for +f: FEf.Facts
+  for +l: Ef.Lv
+  for h: {core_effort_fits(FEf.Clamp{f, l}) == True{} : Bool}
+  {FEf.ffi(FEf.put_req(FEf.Clamp{f, l}, "")) == FEf.put_lv(Ef.clamp(core_effort_model(f), l), "") : String}
+
+# LAW R2 the cycle request answers the model's cycle step
+# EXCLUDES: a reversed direction, a step of another level or model
+law core_effort_cycle:
+  for +f: FEf.Facts
+  for +l: Ef.Lv
+  for +d: Ef.Dir
+  for h: {core_effort_fits(FEf.Cycle{f, l, d}) == True{} : Bool}
+  {FEf.ffi(FEf.put_req(FEf.Cycle{f, l, d}, "")) == FEf.put_mlv(Ef.cycle(core_effort_model(f), l, d), "") : String}
+
+# LAW R3 a malformed ladder request answers the error form
+# EXCLUDES: a default ladder or level for a request it cannot read
+law core_effort_malformed:
+  for +s: String
+  for h: {FEf.get_req(s) == Wr.Bad{} : Wr.Dec<FEf.Req>}
+  {FEf.ffi(s) == Wr.err("ladder request: malformed") : String}
+
+# LAW R3 a ladder request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law core_effort_left_over:
+  for +q: FEf.Req
+  for c: Char
+  for rest: String
+  for h: {core_effort_fits(q) == True{} : Bool}
+  {FEf.ffi(FEf.put_req(q, SCon{c, rest})) == Wr.err("ladder request: input left over") : String}
+
+# LAW R1 anchor and witness: a cycle request is its tag, the facts (flag,
+# by_map, explicit map, rule map, reasoning and plain defaults), the
+# level and the direction, as `models/ladder.rs` writes them
+# EXCLUDES: a vacuous core_effort_round_trip, fields or tags in another
+#   order than Rust's
+law core_effort_req_example:
+  {core_effort_fits(FEf.Cycle{FEf.Facts{True{}, False{}, None{}, Some{Ef.LvMap{Ef.Missing{}, Ef.Null{}, Ef.Wire{}, Ef.Wire{}, Ef.Wire{}, Ef.Null{}, Ef.Missing{}}}, [Ef.Low{}, Ef.High{}], Nil{}}, Ef.Medium{}, Ef.Backward{}}) == True{} : Bool} & {FEf.put_req(FEf.Cycle{FEf.Facts{True{}, False{}, None{}, Some{Ef.LvMap{Ef.Missing{}, Ef.Null{}, Ef.Wire{}, Ef.Wire{}, Ef.Wire{}, Ef.Null{}, Ef.Missing{}}}, [Ef.Low{}, Ef.High{}], Nil{}}, Ef.Medium{}, Ef.Backward{}}, "") == "2,TF0,1,0,1,2,2,2,1,0,2,2,4,0,3,1," : String}
+
+# LAW R2 anchor: a level is its tag off 0 .. max 6; a cycle's answer is 0
+# (none) or 1 then the level
+# EXCLUDES: level tags the Rust reader reads as other levels
+law core_effort_reply_example:
+  {FEf.put_lv(Ef.Off{}, FEf.put_lv(Ef.Minimal{}, FEf.put_lv(Ef.Low{}, FEf.put_lv(Ef.Medium{}, FEf.put_lv(Ef.High{}, FEf.put_lv(Ef.Xhigh{}, FEf.put_lv(Ef.Max{}, ""))))))) == "0,1,2,3,4,5,6," : String} & {FEf.put_mlv(None{}, FEf.put_mlv(Some{Ef.High{}}, "")) == "0,1,4," : String}
+
+# LAW R3 witness: a malformed ladder request exists (an unknown tag)
+# EXCLUDES: a vacuous core_effort_malformed
+law core_effort_malformed_example:
+  {FEf.get_req("3,") == Wr.Bad{} : Wr.Dec<FEf.Req>} & {FEf.ffi("3,") == Wr.err("ladder request: malformed") : String}
+
+# (infer) The strict plan: bend/ffi_infer.bend
+# --------------------------------------------
+
+def core_tool_fits(t: If.Tool) -> Bool:
+  match t:
+    case If.Tool{i, p}:
+      Bool.and(wire_fits(i), wire_fits(p))
+
+def core_tools_fit(ts: List<&2, If.Tool>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case Con{t, u}:
+      Bool.and(core_tool_fits(t), core_tools_fit(u))
+
+def core_infer_fits(q: FIn.Req) -> Bool:
+  match q:
+    case FIn.Req{cap, +ts, +need}:
+      Bool.and(core_mfits(cap), Bool.and(Bool.and(wire_fits(List.length(&2, If.Tool, ts)), core_tools_fit(ts)), Bool.and(wire_fits(List.length(&2, Nat, need)), wire_nats_fit(need))))
+
+# LAW R1 a strict plan request that fits reads back, and the rest is
+# untouched
+# EXCLUDES: the cap read as none or the reverse, a tool's id and priority
+#   swapped, tools or needed ids lost, added or reordered
+law core_infer_round_trip:
+  for +q: FIn.Req
+  for rest: String
+  for h: {core_infer_fits(q) == True{} : Bool}
+  {FIn.get_req(FIn.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FIn.Req>}
+
+# LAW R2 the entry answers the model's strict plan of the request
+# EXCLUDES: a plan of other tools or another cap, a refusal for a request
+#   that fits, a plan that ignores the needed tools
+law core_infer_answers:
+  for +cap: Maybe<&2, Nat>
+  for +ts: List<&2, If.Tool>
+  for +need: List<&2, Nat>
+  for h: {core_infer_fits(FIn.Req{cap, ts, need}) == True{} : Bool}
+  {FIn.ffi(FIn.put_req(FIn.Req{cap, ts, need}, "")) == FIn.put_plan(If.plan(cap, ts, need), "") : String}
+
+# LAW R3 a malformed strict plan request answers the error form
+# EXCLUDES: a default plan (every tool strict, or none) for a request it
+#   cannot read
+law core_infer_malformed:
+  for +s: String
+  for h: {FIn.get_req(s) == Wr.Bad{} : Wr.Dec<FIn.Req>}
+  {FIn.ffi(s) == Wr.err("strict plan request: malformed") : String}
+
+# LAW R3 a strict plan request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law core_infer_left_over:
+  for +q: FIn.Req
+  for c: Char
+  for rest: String
+  for h: {core_infer_fits(q) == True{} : Bool}
+  {FIn.ffi(FIn.put_req(q, SCon{c, rest})) == Wr.err("strict plan request: input left over") : String}
+
+# LAW R1 anchor and witness: a request is the cap (0, or 1 then the cap),
+# the tools (count, then id and priority each) and the needed ids
+# EXCLUDES: a vacuous core_infer_round_trip, fields in another order than
+#   `api/constrained_sampling.rs` writes them
+law core_infer_req_example:
+  {core_infer_fits(FIn.Req{Some{1n}, [If.Tool{7n, 3n}, If.Tool{9n, 0n}], [9n]}) == True{} : Bool} & {FIn.put_req(FIn.Req{Some{1n}, [If.Tool{7n, 3n}, If.Tool{9n, 0n}], [9n]}, "") == "1,1,2,7,3,9,0,1,9," : String}
+
+# LAW R2 anchor: a plan that fits is 0 then the loose ids; a refusal is 1
+# then the tool's id
+# EXCLUDES: a refusal the Rust reader reads as a plan, or the reverse
+law core_infer_reply_example:
+  {FIn.put_plan(If.Fits{[3n, 1n]}, FIn.put_plan(If.Over{7n}, "")) == "0,2,3,1,1,7," : String}
+
+# LAW R3 witness: a malformed strict plan request exists (an unknown cap
+# tag)
+# EXCLUDES: a vacuous core_infer_malformed
+law core_infer_malformed_example:
+  {FIn.get_req("2,") == Wr.Bad{} : Wr.Dec<FIn.Req>} & {FIn.ffi("2,") == Wr.err("strict plan request: malformed") : String}
+
+# (facts) The thinking budgets: bend/ffi_facts.bend
+# -------------------------------------------------
+
+def core_customs_fit(c: Fx.Customs) -> Bool:
+  match c:
+    case Fx.Customs{mi, lo, me, hi}:
+      Bool.and(core_mfits(mi), Bool.and(core_mfits(lo), Bool.and(core_mfits(me), core_mfits(hi))))
+
+def core_budgets_fit(b: Fx.Budgets) -> Bool:
+  match b:
+    case Fx.Budgets{mi, lo, me, hi}:
+      Bool.and(wire_fits(mi), Bool.and(wire_fits(lo), Bool.and(wire_fits(me), wire_fits(hi))))
+
+def core_mbudgets_fit(m: Maybe<&2, Fx.Budgets>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{b}:
+      core_budgets_fit(b)
+
+def core_facts_req_fits(q: FFx.Req) -> Bool:
+  match q:
+    case FFx.Level{l, c, d}:
+      Bool.and(core_customs_fit(c), core_budgets_fit(d))
+    case FFx.Room{b, m, a}:
+      Bool.and(wire_fits(b), Bool.and(wire_fits(m), wire_fits(a)))
+    case FFx.Adjust{base, mm, l, c, d, a}:
+      Bool.and(core_mfits(base), Bool.and(wire_fits(mm), Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), wire_fits(a)))))
+    case FFx.Google{rule, c, l}:
+      Bool.and(core_mbudgets_fit(rule), core_customs_fit(c))
+    case FFx.Aux{c, d, a, top}:
+      Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), Bool.and(wire_fits(a), wire_fits(top))))
+
+# LAW R1 a budget request that fits reads back, and the rest is untouched
+# EXCLUDES: a level, a user's budget, a default budget, a cap or the
+#   answer's room lost, swapped or misread; a user's budget read as none
+law core_facts_round_trip:
+  for +q: FFx.Req
+  for rest: String
+  for h: {core_facts_req_fits(q) == True{} : Bool}
+  {FFx.get_req(FFx.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FFx.Req>}
+
+# LAW R2 the level request answers the level's budget
+# EXCLUDES: the default budget over the user's, another level's budget
+law core_facts_level:
+  for +l: Fx.ELv
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for h: {core_facts_req_fits(FFx.Level{l, c, d}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Level{l, c, d}, "")) == Wr.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "") : String}
+
+# LAW R2 the room request answers the budget under the answer's room
+# EXCLUDES: the budget, the ceiling and the answer's tokens swapped
+law core_facts_room:
+  for +b: Nat
+  for +m: Nat
+  for +a: Nat
+  for h: {core_facts_req_fits(FFx.Room{b, m, a}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Room{b, m, a}, "")) == Wr.put_nat(Fx.room(b, m, a), "") : String}
+
+# LAW R2 the adjust request answers the fitted ceiling and budget
+# EXCLUDES: the caller's cap read as none, the model's cap and the answer's
+#   tokens swapped, the ceiling and the budget swapped in the reply
+law core_facts_adjust:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +l: Fx.ELv
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a), "") : String}
+
+# LAW R2 the Google request answers the Google budget, the refusal of an
+# unordered rule included
+# EXCLUDES: a rule read as none, a dynamic budget for an unordered rule
+law core_facts_google:
+  for +rule: Maybe<&2, Fx.Budgets>
+  for +c: Fx.Customs
+  for +l: Fx.Lv
+  for h: {core_facts_req_fits(FFx.Google{rule, c, l}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Google{rule, c, l}, "")) == FFx.put_gb(Fx.gbudget(rule, c, l), "") : String}
+
+# LAW R2 the aux request answers the auxiliary call's output cap
+# EXCLUDES: the answer's tokens and the top swapped, a cap past the top
+law core_facts_aux:
+  for +c: Fx.Customs
+  for +d: Fx.Budgets
+  for +a: Nat
+  for +top: Nat
+  for h: {core_facts_req_fits(FFx.Aux{c, d, a, top}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Aux{c, d, a, top}, "")) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
+
+# LAW R3 a malformed budget request answers the error form
+# EXCLUDES: a default budget for a request it cannot read
+law core_facts_malformed:
+  for +s: String
+  for h: {FFx.get_req(s) == Wr.Bad{} : Wr.Dec<FFx.Req>}
+  {FFx.ffi(s) == Wr.err("budget request: malformed") : String}
+
+# LAW R3 a budget request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law core_facts_left_over:
+  for +q: FFx.Req
+  for c: Char
+  for rest: String
+  for h: {core_facts_req_fits(q) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(q, SCon{c, rest})) == Wr.err("budget request: input left over") : String}
+
+# LAW R1 anchor and witness: an adjust request is its tag, the caller's
+# cap, the model's cap, the level, the user's budgets, the defaults and
+# the answer's tokens, as `api/simple_options.rs` writes them
+# EXCLUDES: a vacuous core_facts_round_trip, fields or tags in another
+#   order than Rust's
+law core_facts_req_example:
+  {core_facts_req_fits(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}) == True{} : Bool} & {FFx.put_req(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}, "") == "2,1,100,64,4,0,1,5,0,0,1,2,3,4,8," : String}
+
+# LAW R2 anchor: a Google budget is 0 dynamic, 1 then the tokens, 2
+# unordered; a fit is the ceiling, then the budget
+# EXCLUDES: replies the Rust reader reads as other values
+law core_facts_reply_example:
+  {FFx.put_gb(Fx.Dynamic{}, FFx.put_gb(Fx.Tokens{5n}, FFx.put_gb(Fx.Unordered{}, ""))) == "0,1,5,2," : String} & {FFx.put_fit(Fx.Fit{9n, 4n}, "") == "9,4," : String}
+
+# LAW R3 witness: a malformed budget request exists (an unknown tag)
+# EXCLUDES: a vacuous core_facts_malformed
+law core_facts_malformed_example:
+  {FFx.get_req("5,") == Wr.Bad{} : Wr.Dec<FFx.Req>} & {FFx.ffi("5,") == Wr.err("budget request: malformed") : String}
 
 # ---- retry ----
 

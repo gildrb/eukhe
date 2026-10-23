@@ -104,6 +104,28 @@ def get_req.of(d: W.Dec<P2<P2<Maybe<&2, Nat>, List<&2, If.Tool>>, List<&2, Nat>>
 def get_req(s: String) -> W.Dec<Req>:
   get_req.of(seq(~P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~get_ids, seq(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~get_tools, get_mnat(s))))
 
+# Encoding
+# --------
+# The request as Rust's `Writer` spells it (`api/constrained_sampling.rs`):
+# the inverse of get_req, used by the laws (LAWS.bend `core entries`).
+
+def put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, rest)
+    case Some{n}:
+      W.put_nat(1n, W.put_nat(n, rest))
+
+def put_tool(t: If.Tool, rest: String) -> String:
+  match t:
+    case If.Tool{i, p}:
+      W.put_nat(i, W.put_nat(p, rest))
+
+def put_req(q: Req, rest: String) -> String:
+  match q:
+    case Req{cap, ts, need}:
+      put_mnat(cap, W.put_list(~If.Tool, ~put_tool, ts, W.put_list(~Nat, ~W.put_nat, need, rest)))
+
 # Replies
 # -------
 

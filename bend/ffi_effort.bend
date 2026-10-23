@@ -268,11 +268,62 @@ def get_req.go(d: W.Dec<Nat>) -> W.Dec<Req>:
 def get_req(s: String) -> W.Dec<Req>:
   get_req.go(W.get_nat(s))
 
-# Replies
-# -------
+# Encoding
+# --------
+# The request as Rust's `Writer` spells it (`models/ladder.rs`): the
+# inverse of get_req, used by the laws (LAWS.bend `core entries`).
 
+# a level (a request's field and a reply): its tag off 0 .. max 6
 def put_lv(l: Ef.Lv, rest: String) -> String:
   W.put_nat(Ef.Lv.idx(l), rest)
+
+def put_ent(e: Ef.Ent, rest: String) -> String:
+  match e:
+    case Ef.Missing{}:
+      W.put_nat(0n, rest)
+    case Ef.Null{}:
+      W.put_nat(1n, rest)
+    case Ef.Wire{}:
+      W.put_nat(2n, rest)
+
+def put_map(m: Ef.LvMap, rest: String) -> String:
+  match m:
+    case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+      put_ent(o, put_ent(mi, put_ent(lo, put_ent(me, put_ent(hi, put_ent(xh, put_ent(mx, rest)))))))
+
+def put_mmap(m: Maybe<&2, Ef.LvMap>, rest: String) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, rest)
+    case Some{x}:
+      W.put_nat(1n, put_map(x, rest))
+
+def put_dir(d: Ef.Dir, rest: String) -> String:
+  match d:
+    case Ef.Forward{}:
+      W.put_nat(0n, rest)
+    case Ef.Backward{}:
+      W.put_nat(1n, rest)
+
+def put_lvs(ls: List<&2, Ef.Lv>, rest: String) -> String:
+  W.put_list(~Ef.Lv, ~put_lv, ls, rest)
+
+def put_facts(f: Facts, rest: String) -> String:
+  match f:
+    case Facts{flag, by_map, explicit, rule, reasoning, plain}:
+      W.put_bool(flag, W.put_bool(by_map, put_mmap(explicit, put_mmap(rule, put_lvs(reasoning, put_lvs(plain, rest))))))
+
+def put_req(q: Req, rest: String) -> String:
+  match q:
+    case Offered{f}:
+      W.put_nat(0n, put_facts(f, rest))
+    case Clamp{f, l}:
+      W.put_nat(1n, put_facts(f, put_lv(l, rest)))
+    case Cycle{f, l, d}:
+      W.put_nat(2n, put_facts(f, put_lv(l, put_dir(d, rest))))
+
+# Replies
+# -------
 
 def put_mlv(m: Maybe<&2, Ef.Lv>, rest: String) -> String:
   match m:
