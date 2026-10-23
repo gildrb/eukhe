@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """check_laws_wired.py [ROOT]: the layout of the laws (AGENTS.md, Tests).
 
-Every law lives in LAWS.bend and every proof and proof lemma in PROOF.bend:
+Every law lives in LAWS.bend and every proof and proof lemma in PROOF.bend
+or in a file of proof/ that PROOF.bend imports (the Bend Bank layout:
+proof/<law>.bend per law, proof/base.bend for shared lemmas):
 - PROOF.bend imports LAWS.bend, and every `law NAME` of LAWS.bend has a fill
-  `def <Alias>.NAME(` in PROOF.bend, where <Alias> is PROOF.bend's name for
-  LAWS.bend;
+  `def <Alias>.NAME(` in PROOF.bend or in a proof/ file PROOF.bend imports,
+  where <Alias> is that file's name for LAWS.bend;
 - there is no laws/ directory and no proof*.bend file but PROOF.bend;
 - no .bend file but LAWS.bend declares a `law`;
-- no .bend file but PROOF.bend fills a law of LAWS.bend.
+- no .bend file but PROOF.bend and the proof/ files it imports fills a law
+  of LAWS.bend.
 Exit 1 with the list of gaps."""
 import re
 import subprocess
@@ -33,6 +36,18 @@ def bend_files(root: Path) -> list[Path]:
         )
 
 
+def laws_alias(text: str, path: Path, laws_path: Path) -> str | None:
+    """The name `text` (the file at `path`) gives LAWS.bend, if it imports it."""
+    return next(
+        (a for p, a in IMPORT.findall(text) if (path.parent / p).resolve() == laws_path),
+        None,
+    )
+
+
+def fills_of(text: str, alias: str) -> set[str]:
+    return set(re.findall(rf"^def {re.escape(alias)}\.(\w+)\(", text, re.M))
+
+
 def gaps_of(root: Path) -> list[str]:
     root = root.resolve()
     laws_path = (root / "LAWS.bend").resolve()
@@ -43,7 +58,16 @@ def gaps_of(root: Path) -> list[str]:
     if not laws_path.exists() or not proof_path.exists():
         return gaps + ["LAWS.bend and PROOF.bend must both exist at the root"]
     laws = set(LAW.findall(laws_path.read_text()))
+    proof = proof_path.read_text()
+    proof_dir = (root / "proof").resolve()
+    # the proof/ files PROOF.bend imports: they may fill laws
+    proof_files = {
+        (root / p).resolve()
+        for p, _ in IMPORT.findall(proof)
+        if (root / p).resolve().parent == proof_dir
+    }
 
+    filled = set()
     for f in bend_files(root):
         rf = f.resolve()
         if rf in (laws_path, proof_path):
@@ -54,22 +78,21 @@ def gaps_of(root: Path) -> list[str]:
             gaps.append(f"{rel}: every proof and proof lemma lives in PROOF.bend")
         for n in LAW.findall(text):
             gaps.append(f"{rel}: declares law {n}; every law lives in LAWS.bend")
-        for p, a in IMPORT.findall(text):
-            if (f.parent / p).resolve() != laws_path:
-                continue
-            for n in re.findall(rf"^def {re.escape(a)}\.(\w+)\(", text, re.M):
-                if n in laws:
-                    gaps.append(f"{rel}: proves law {n}; every proof lives in PROOF.bend")
+        alias = laws_alias(text, f, laws_path)
+        if alias is None:
+            continue
+        for n in sorted(fills_of(text, alias) & laws):
+            if rf in proof_files:
+                filled.add(n)
+            else:
+                gaps.append(f"{rel}: proves law {n}; every proof lives in PROOF.bend or a proof/ file it imports")
 
-    proof = proof_path.read_text()
-    alias = next(
-        (a for p, a in IMPORT.findall(proof) if (root / p).resolve() == laws_path), None
-    )
+    alias = laws_alias(proof, proof_path, laws_path)
     if alias is None:
         return gaps + ["PROOF.bend: does not import ./LAWS.bend"]
-    filled = set(re.findall(rf"^def {re.escape(alias)}\.(\w+)\(", proof, re.M))
+    filled |= fills_of(proof, alias)
     for n in sorted(laws - filled):
-        gaps.append(f"LAWS.bend: law {n} has no fill def {alias}.{n}( in PROOF.bend")
+        gaps.append(f"LAWS.bend: law {n} has no fill def {alias}.{n}( in PROOF.bend or a proof/ file it imports")
     return gaps
 
 

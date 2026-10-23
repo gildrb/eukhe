@@ -66,6 +66,8 @@ pub enum Entry {
     GatewayWidth = 28,
     /// `bend/ffi_path_policy.bend`: a call.
     PathPolicy = 29,
+    /// `bend/ffi_command.bend`: a call.
+    Command = 30,
 }
 
 impl Entry {
@@ -101,6 +103,7 @@ impl Entry {
         Entry::CatalogUnion,
         Entry::GatewayWidth,
         Entry::PathPolicy,
+        Entry::Command,
     ];
 
     /// The id `bend/core.bend` dispatches on.

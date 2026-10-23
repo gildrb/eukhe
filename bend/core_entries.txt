@@ -31,3 +31,4 @@
 27 catalog_union
 28 gateway_width
 29 path_policy
+30 command
