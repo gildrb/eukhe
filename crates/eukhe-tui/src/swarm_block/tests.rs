@@ -149,6 +149,7 @@ fn mentions_offer_each_agent_by_the_handle_that_resolves_it() {
         description: Some(description.to_string()),
         argument_hint: None,
         source_tag: None,
+        path_row: None,
     };
     assert_eq!(
         mention_items(&members, "lead"),

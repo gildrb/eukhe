@@ -8,6 +8,7 @@ use super::{
     RebuildKind, Result, SessionUi, SlashCommandExecution, SlashCommandRegistry, StatusKind,
     SubmitBehavior, Value, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::command_paths::{PathRow, Resolution};
 use crate::glyphs::WARN;
 use crate::workflow_size_picker;
 use eukhe_types::model_roles::ModelRole;
@@ -105,7 +106,57 @@ impl SessionUi {
             _ => {}
         }
 
-        let Some(resolved) = registry.parse(text) else {
+        // The command paths (`command_paths`, the Bend model): the path the
+        // line names, never its parent. An unknown word below a command
+        // runs nothing; a bare path with no default waits for its choice.
+        let resolution = view
+            .editor
+            .command_table()
+            .map(|table| (table.resolve(&text[1..]), table.clone()));
+        let path = match resolution {
+            Some((Resolution::Unknown { path, word }, table)) => {
+                let names: Vec<&str> = table.children(&path).map(PathRow::name).collect();
+                let at = path.join(" ");
+                let message = match eukhe_types::slash_commands::find_slash_command_suggestion(
+                    &word.to_lowercase(),
+                    &names,
+                ) {
+                    Some(suggestion) => {
+                        format!("Unknown: /{at} {word}. Did you mean /{at} {suggestion}?")
+                    }
+                    None => format!("Unknown: /{at} {word}. Choose one of: {}", names.join(", ")),
+                };
+                view.editor.set_text(text);
+                self.error_row(&message, view);
+                return Ok(());
+            }
+            Some((Resolution::Opens { path }, table)) => {
+                let at = path.join(" ");
+                let names: Vec<&str> = table.children(&path).map(PathRow::name).collect();
+                view.editor.set_text(&format!("/{at} "));
+                self.note(&format!("/{at}: choose one of {}", names.join(", ")), view);
+                return Ok(());
+            }
+            Some((Resolution::Runs { path, args }, _)) => Some((path, args.trim().to_string())),
+            Some((Resolution::NoCommand, _)) | None => None,
+        };
+
+        // The command the path starts with (the model matched the typed
+        // name in any case, by name or alias).
+        let parsed = match &path {
+            Some((path, _)) => path.first().and_then(|command| {
+                let typed = name.to_lowercase();
+                registry.parse(&format!("/{command}")).map(|parsed| {
+                    eukhe_types::slash_commands::ResolvedSlashCommand {
+                        is_alias: typed != parsed.name,
+                        original_name: typed,
+                        ..parsed
+                    }
+                })
+            }),
+            None => registry.parse(text),
+        };
+        let Some(mut resolved) = parsed else {
             // Oversized names are prompts (TS `_throwIfUnknownSlashCommand`
             // bails out before fuzzy matching). Close typos get the exact TS
             // error; everything else passes through to the model.
@@ -131,10 +182,30 @@ impl SessionUi {
         let command = registry
             .get(resolved.name)
             .expect("resolved name is builtin");
+        // The path below the command: a registry subcommand is the arm's
+        // to read; an argument value (`/tier flex`) is the handler's text.
+        let sub: Vec<String> = match path {
+            Some((path, args)) => {
+                let below = path.get(1..).unwrap_or_default().to_vec();
+                if command.subcommands.is_empty() {
+                    let mut words = below;
+                    if !args.is_empty() {
+                        words.push(args);
+                    }
+                    resolved.args = words.join(" ");
+                    Vec::new()
+                } else {
+                    resolved.args = args;
+                    below
+                }
+            }
+            None => Vec::new(),
+        };
         match command.execution {
             SlashCommandExecution::Session => self.send_prompt(text, behavior, view),
             SlashCommandExecution::Client => {
-                self.dispatch_client_command(&resolved, text, view).await
+                self.dispatch_client_command(&resolved, &sub, text, view)
+                    .await
             }
         }
     }
@@ -158,11 +229,14 @@ impl SessionUi {
     }
 
     /// A builtin client command. Only the implemented subset runs locally;
-    /// commands whose UI does not exist yet report unavailability. `text` is
-    /// the typed submission (the client echo rows render it verbatim).
+    /// commands whose UI does not exist yet report unavailability. `sub`
+    /// is the path below the command the command paths resolved
+    /// (`/memory model`: `["model"]`), `text` the typed submission (the
+    /// client echo rows render it verbatim).
     async fn dispatch_client_command(
         &mut self,
         resolved: &eukhe_types::slash_commands::ResolvedSlashCommand,
+        sub: &[String],
         text: &str,
         view: &mut AgentView,
     ) -> Result<()> {
@@ -206,24 +280,18 @@ impl SessionUi {
                     }
                 }
             }
-            // `/model` opens the role hub; `/model <role>` opens it at
-            // that role's models; anything else is the usage error.
+            // `/model` opens the role hub; `/model <role>` opens it at that
+            // role (the command paths list the roles: an unknown word never
+            // reaches here).
             "model" => {
-                let role = resolved.args.trim();
-                if role.is_empty() {
-                    self.open_model_hub(view, None).await?;
-                } else if let Some(role) = ModelRole::from_id(role) {
-                    self.open_model_hub(view, Some(role)).await?;
-                } else {
-                    view.editor
-                        .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
+                if !resolved.args.trim().is_empty() {
+                    view.editor.set_text(text);
                     let roles: Vec<&str> = ModelRole::ALL.iter().map(|role| role.id()).collect();
                     self.error_row(&format!("Usage: /model [{}]", roles.join("|")), view);
                     return Ok(());
                 }
-            }
-            "memory-model" => {
-                self.open_model_hub(view, Some(ModelRole::Memory)).await?;
+                let role = sub.first().and_then(|id| ModelRole::from_id(id));
+                self.open_model_hub(view, role).await?;
             }
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model
@@ -278,35 +346,39 @@ impl SessionUi {
                     }
                 }
             }
+            // `/workflows`: this session's runs; `/workflows size [size]`:
+            // the default size of a `/dynamic-workflow` run (the
+            // `workflow.size` setting).
             "workflows" => {
-                if resolved.args.trim().is_empty() {
+                let size = sub.get(1).map_or(resolved.args.as_str(), String::as_str);
+                if sub.is_empty() && resolved.args.trim().is_empty() {
                     self.open_workflows_page(view);
+                } else if sub.first().is_some_and(|word| word == "size")
+                    && (sub.len() == 1 || resolved.args.trim().is_empty())
+                {
+                    let current = self
+                        .client_settings
+                        .as_ref()
+                        .and_then(|settings| WorkflowSize::parse(&settings.workflow_size()));
+                    match workflow_size_picker::workflow_size_command(size, current) {
+                        workflow_size_picker::WorkflowSizeCommand::Open(picker) => {
+                            view.workflow_size_picker = Some(picker);
+                        }
+                        workflow_size_picker::WorkflowSizeCommand::Apply(size) => {
+                            self.apply_workflow_size(size, view);
+                        }
+                        workflow_size_picker::WorkflowSizeCommand::Unknown(requested) => {
+                            self.error_row(
+                                &format!(
+                                    "Unknown workflow size '{requested}'. Available: small, medium, large"
+                                ),
+                                view,
+                            );
+                        }
+                    }
                 } else {
-                    self.note("Usage: /workflows", view);
-                }
-            }
-            // `/workflow-size [size]`: the default size of a
-            // `/dynamic-workflow` run (the `workflow.size` setting).
-            "workflow-size" => {
-                let current = self
-                    .client_settings
-                    .as_ref()
-                    .and_then(|settings| WorkflowSize::parse(&settings.workflow_size()));
-                match workflow_size_picker::workflow_size_command(&resolved.args, current) {
-                    workflow_size_picker::WorkflowSizeCommand::Open(picker) => {
-                        view.workflow_size_picker = Some(picker);
-                    }
-                    workflow_size_picker::WorkflowSizeCommand::Apply(size) => {
-                        self.apply_workflow_size(size, view);
-                    }
-                    workflow_size_picker::WorkflowSizeCommand::Unknown(requested) => {
-                        self.error_row(
-                            &format!(
-                                "Unknown workflow size '{requested}'. Available: small, medium, large"
-                            ),
-                            view,
-                        );
-                    }
+                    view.editor.set_text(text);
+                    self.error_row("Usage: /workflows [size [small|medium|large]]", view);
                 }
             }
             // `/tree` (TS `showTreeSelector`): the session-tree navigator.
@@ -674,8 +746,19 @@ impl SessionUi {
             }
             // `/memory`: the chat memory as a navigable tree of dated,
             // labelled, expandable lines, docked over the editor.
+            // `/memory [view]` is the view; `/memory model` the model of
+            // the memory role.
             "memory" => {
-                self.handle_memory_command(&resolved.args, text, view);
+                if sub.first().is_some_and(|word| word == "model") {
+                    if resolved.args.trim().is_empty() {
+                        self.open_model_hub(view, Some(ModelRole::Memory)).await?;
+                    } else {
+                        view.editor.set_text(text);
+                        self.error_row("Usage: /memory model", view);
+                    }
+                } else {
+                    self.handle_memory_command(&resolved.args, text, view);
+                }
             }
             // `/agents`: this session's agent family printed inline as
             // tree-indented rows (the agents panel stays on Left).

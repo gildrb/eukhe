@@ -756,7 +756,10 @@ impl SessionUi {
     /// The tiers are the ones the daemon serves with the current model's
     /// catalog entry (`["default"]` without an entry); the `/tier` and
     /// `/fast` commands themselves read `availableServiceTiers` of the
-    /// connection state.
+    /// connection state. The lists are paths of the command table
+    /// (`command_paths`): `/tier <tier>`, `/effort <level>` (the levels
+    /// of the model's catalog entry), `/workflows size <size>`,
+    /// `/dynamic-workflow --size <size>`.
     fn update_model_eligibility_filters(&self, view: &mut AgentView) {
         let default_only = [eukhe_types::ai::ServiceTier::Default];
         let tiers = self
@@ -790,31 +793,56 @@ impl SessionUi {
                     description: Some(description),
                     argument_hint: None,
                     source_tag: None,
+                    path_row: None,
                 }
             })
             .collect();
         view.editor
             .set_autocomplete_argument_completions("tier", items);
-        // The dynamic workflow sizes: `/workflow-size <size>` and the
+        // `/effort <level>`: the model's thinking levels (none for a model
+        // without thinking: `/effort` then reports it).
+        let levels = self
+            .current_model_entry(view)
+            .map_or(&[][..], |entry| entry.thinking_levels.as_slice());
+        let levels: Vec<crate::autocomplete::CompletionItem> =
+            if levels == [eukhe_types::ai::ModelThinkingLevel::Off] {
+                Vec::new()
+            } else {
+                levels
+                    .iter()
+                    .map(|level| crate::autocomplete::CompletionItem {
+                        value: level.wire_name().to_string(),
+                        label: level.wire_name().to_string(),
+                        description: Some(
+                            crate::effort_picker::level_description(level.wire_name()).to_string(),
+                        ),
+                        argument_hint: None,
+                        source_tag: None,
+                        path_row: None,
+                    })
+                    .collect()
+            };
+        view.editor
+            .set_autocomplete_argument_completions("effort", levels);
+        // The dynamic workflow sizes: `/workflows size <size>` and the
         // leading `--size <size>` of `/dynamic-workflow` (and its alias).
-        let sizes = |prefix: &str| -> Vec<crate::autocomplete::CompletionItem> {
+        let sizes = || -> Vec<crate::autocomplete::CompletionItem> {
             eukhe_types::workflow::WorkflowSize::ALL
                 .iter()
                 .map(|size| crate::autocomplete::CompletionItem {
-                    value: format!("{prefix}{}", size.as_str()),
-                    label: format!("{prefix}{}", size.as_str()),
+                    value: size.as_str().to_string(),
+                    label: size.as_str().to_string(),
                     description: Some(crate::workflow_size_picker::size_description(*size)),
                     argument_hint: None,
                     source_tag: None,
+                    path_row: None,
                 })
                 .collect()
         };
         view.editor
-            .set_autocomplete_argument_completions("workflow-size", sizes(""));
-        for command in ["dynamic-workflow", "workflow"] {
-            view.editor
-                .set_autocomplete_argument_completions(command, sizes("--size "));
-        }
+            .set_autocomplete_argument_completions("workflows size", sizes());
+        view.editor
+            .set_autocomplete_argument_completions("dynamic-workflow --size", sizes());
     }
 
     /// `/tier [tier]` (TS `handleTierCommand`): without an argument report

@@ -18,14 +18,14 @@ pub(crate) struct MemoryTreeUpdate {
 }
 
 impl SessionUi {
-    /// `/memory`: open the memory tree at once and fetch its top level
+    /// `/memory` (`/memory view`): open the memory tree at once and fetch its top level
     /// (the view's lines) in the background. Arguments keep the text in
     /// the editor with the usage; a daemon without the `memory_tree` lane
     /// says so.
     pub(super) fn handle_memory_command(&mut self, args: &str, text: &str, view: &mut AgentView) {
         if !args.trim().is_empty() {
             view.editor.set_text(text);
-            self.error_row("Usage: /memory", view);
+            self.error_row("Usage: /memory [view|model]", view);
             return;
         }
         if !self

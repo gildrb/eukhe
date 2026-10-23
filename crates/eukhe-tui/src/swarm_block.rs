@@ -360,6 +360,7 @@ pub(crate) fn mention_items(members: &[FamilyMember<'_>], root_name: &str) -> Ve
                 description: Some(description),
                 argument_hint: None,
                 source_tag: None,
+                path_row: None,
             }
         })
         .collect()

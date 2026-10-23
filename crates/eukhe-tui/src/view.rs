@@ -98,7 +98,7 @@ pub struct AgentView {
     /// The `/effort` inline picker (TS `ThinkingSelectorComponent` seam):
     /// while set, it owns the whole frame like the model picker.
     pub effort_picker: Option<crate::effort_picker::EffortPicker>,
-    /// The `/workflow-size` picker, while open.
+    /// The `/workflows size` picker, while open.
     pub workflow_size_picker: Option<crate::workflow_size_picker::WorkflowSizePicker>,
     /// The `/mcp` inline connections view (the MCP surface's own
     /// picker): while set, it owns the editor dock like the model

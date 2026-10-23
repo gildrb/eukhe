@@ -1,4 +1,4 @@
-//! The `/workflow-size` inline picker: the dynamic workflow sizes
+//! The `/workflows size` inline picker: the dynamic workflow sizes
 //! (`small`, `medium`, `large`) over the inline-picker component, the
 //! `/effort` picker's seam. Enter applies the picked size through the
 //! caller (the `workflow.size` setting); Esc cancels.
@@ -31,7 +31,7 @@ pub enum WorkflowSizePickerAction {
     None,
 }
 
-/// The outcome of `/workflow-size [size]`.
+/// The outcome of `/workflows size [size]`.
 #[derive(Debug)]
 pub(crate) enum WorkflowSizeCommand {
     /// No argument: open the picker.
@@ -42,7 +42,7 @@ pub(crate) enum WorkflowSizeCommand {
     Unknown(String),
 }
 
-/// Dispatch `/workflow-size [size]`; `current` is the setting's value.
+/// Dispatch `/workflows size [size]`; `current` is the setting's value.
 pub(crate) fn workflow_size_command(
     arg: &str,
     current: Option<WorkflowSize>,

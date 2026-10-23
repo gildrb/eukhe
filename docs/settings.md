@@ -88,7 +88,7 @@ More settings:
 |Key|Default|Effect|
 |---|---|---|
 |`subagentMaxConcurrency`|`32`|Concurrent subagents; `0` no limit|
-|`workflow.size`|`medium`|Default `/dynamic-workflow` size: `small`, `medium`, `large` ([workflows.md](workflows.md)); `/workflow-size` sets it|
+|`workflow.size`|`medium`|Default `/dynamic-workflow` size: `small`, `medium`, `large` ([workflows.md](workflows.md)); `/workflows size` sets it|
 |`subagentStallMs`|`600000`|No progress this long: subagent stopped, reported stalled; `0` default|
 |`subagentDefaultModel`|parent model|Model of a subagent spawned without `model`|
 |`rlmMaxDepth`|`2`|Max subagent depth (global only)|

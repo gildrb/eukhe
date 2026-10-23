@@ -245,6 +245,7 @@ fn search(base: &Path, at_prefix: &str, cancel: &AtomicBool) -> Option<Suggestio
                 description: Some(display_path),
                 argument_hint: None,
                 source_tag: None,
+                path_row: None,
             }
         })
         .collect();

@@ -7,12 +7,12 @@ One JavaScript orchestration script the agent writes and eukhe runs: starts many
 ```
 /dynamic-workflow review every crate for unsafe error handling   # default size
 /dynamic-workflow --size large migrate the tests to the new API     # one run, size large
-/workflow-size                                                      # size picker
-/workflow-size small                                                # set the default size
+/workflows size                                                     # size picker
+/workflows size small                                               # set the default size
 /workflows                                                          # this session's runs
 ```
 
-- `/workflow` = `/dynamic-workflow`. `--size` comes first.
+- `/workflow` = `/dynamic-workflow`. `--size` comes first; after `--size ` the menu lists the sizes.
 - Runs in the background; chat goes on. The `workflow` call returns the run id at once.
 - Result arrives as `[job-settled job:workflow-<id> status:ok|error|aborted]`, which starts an agent turn.
 - `/workflows`: arrows move, Enter opens the agents view, `c` then `y` cancels, Esc closes.

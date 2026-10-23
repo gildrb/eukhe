@@ -6,10 +6,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::command_paths::{CommandTable, PathKey, PathMenu};
 use crate::fuzzy::fuzzy_filter;
 use crate::width::str_width;
 use crate::{Line, Span};
-use eukhe_types::slash_commands::SlashCommandRegistry;
+use eukhe_types::slash_commands::{SlashCommandRegistry, Subcommand};
 
 mod fuzzy_file_search;
 pub use fuzzy_file_search::FileSearch;
@@ -24,6 +25,10 @@ pub struct CompletionItem {
     /// `sourceTag`, from `getAutocompleteSourceLabel`). Rendered as a
     /// muted trailing segment of the menu row.
     pub source_tag: Option<String>,
+    /// The place of the row's path in the slash-command table
+    /// ([`CommandTable`]): Tab and Enter on the row go through the
+    /// command paths' key rule. None for every other row.
+    pub path_row: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,14 +93,27 @@ pub trait AutocompleteProvider: Send {
     /// command list). A default no-op for providers without command
     /// listings.
     fn set_skill_commands(&mut self, _skills: Vec<SlashCommandEntry>) {}
-    /// Replace the argument completions for one command (TS
-    /// `command.getArgumentCompletions`): the items offered at the
-    /// command's argument position. A default no-op for providers without
+    /// Replace the argument completions below one command path (TS
+    /// `command.getArgumentCompletions`): `path` is the path's names
+    /// with one space between them (`"tier"`, `"workflows size"`); each
+    /// item's value is a path of its own below it. Answers whether the
+    /// command table changed. A default no-op for providers without
     /// argument completions.
-    fn set_argument_completions(&mut self, _command: &'static str, _items: Vec<CompletionItem>) {}
+    fn set_argument_completions(
+        &mut self,
+        _path: &'static str,
+        _items: Vec<CompletionItem>,
+    ) -> bool {
+        false
+    }
     /// Replace the agent-family `@name` completions offered at prompt
     /// start. A default no-op for providers without agent mentions.
     fn set_agent_mentions(&mut self, _items: Vec<CompletionItem>) {}
+    /// The slash-command table the menus, the keys and the dispatch share
+    /// (`command_paths`); none for providers without commands.
+    fn command_table(&self) -> Option<&CommandTable> {
+        None
+    }
 }
 
 /// Slash-command context (port of slash-command-context.ts): which part of
@@ -177,6 +195,41 @@ pub fn get_slash_command_context(
         command_name: None,
         at_prompt_start: false,
     })
+}
+
+/// A slash command alone on the prompt with the cursor at its end: the
+/// text up to and with the `/`, and the line after it (what the command
+/// paths read). None anywhere else (a `/name` mid-text, a cursor inside
+/// the line, a draft of several lines).
+#[must_use]
+pub fn slash_path_at(
+    lines: &[String],
+    cursor_line: usize,
+    cursor_col: usize,
+) -> Option<(String, String)> {
+    if lines.len() != 1 || cursor_line != 0 {
+        return None;
+    }
+    let text = &lines[0];
+    if cursor_col != text.chars().count() {
+        return None;
+    }
+    let context = get_slash_command_context(lines, cursor_line, cursor_col)?;
+    if !context.at_prompt_start {
+        return None;
+    }
+    let lead = text.len() - text.trim_start().len();
+    let head = &text[..=lead];
+    Some((head.to_string(), text[lead + 1..].to_string()))
+}
+
+/// The text of a slash command at the prompt start after its `/` (the
+/// chars before the cursor, `before`), as the command paths read it; the
+/// whole text when it has no `/`.
+#[must_use]
+pub fn slash_line(before: &[char]) -> String {
+    let trimmed: String = before.iter().skip_while(|c| c.is_whitespace()).collect();
+    trimmed.strip_prefix('/').unwrap_or(&trimmed).to_string()
 }
 
 /// Delimiters that end a path token (TS `PATH_DELIMITERS`).
@@ -564,6 +617,7 @@ impl PathCompletionProvider {
                 },
                 description: None,
                 argument_hint: None,
+                path_row: None,
             });
         }
         suggestions.sort_by(|a, b| {
@@ -673,6 +727,12 @@ pub struct SlashCommandEntry {
     /// The source label (`#user`, `#project`, ...) for dynamic commands
     /// (TS `sourceTag`).
     pub source_tag: Option<String>,
+    /// The registry's subcommands (`/memory model`); none for a dynamic
+    /// command.
+    pub subcommands: &'static [Subcommand],
+    /// The bare command runs its default instead of waiting for a
+    /// subcommand.
+    pub subcommand_optional: bool,
 }
 
 impl SlashCommandEntry {
@@ -762,6 +822,8 @@ pub fn skill_command_entries(commands: &serde_json::Value) -> Vec<SlashCommandEn
                 argument_hint: Some(SKILL_ARGUMENT_HINT.to_string()),
                 takes_argument: true,
                 source_tag: entry.get("sourceInfo").and_then(autocomplete_source_label),
+                subcommands: &[],
+                subcommand_optional: false,
             })
         })
         .collect()
@@ -780,10 +842,14 @@ pub struct CombinedAutocompleteProvider {
     /// `getAvailableCommands` drops `/fast` when the model is not
     /// fast-mode-eligible).
     hidden: std::collections::HashSet<String>,
-    /// Per-command argument completions (TS
-    /// `command.getArgumentCompletions`): the items offered at the
-    /// command's argument position (e.g. the `/tier` tier choices).
+    /// The argument completions below command paths (TS
+    /// `command.getArgumentCompletions`), keyed by path (`"tier"`,
+    /// `"workflows size"`): each item is a path of its own in the table.
     arguments: std::collections::HashMap<&'static str, Vec<CompletionItem>>,
+    /// The table of every command path: the builtins with their
+    /// subcommands, the skills, the argument completions. Rebuilt when
+    /// any of them changes.
+    table: CommandTable,
     /// The agent family's `@name` completions (one per agent, value
     /// `@<name>`): offered ahead of the file matches when the `@` token is
     /// the prompt's first word -- the position an `@name message` routes
@@ -807,6 +873,8 @@ impl CombinedAutocompleteProvider {
                 argument_hint: command.argument_hint.map(str::to_string),
                 takes_argument: command.takes_argument,
                 source_tag: None,
+                subcommands: command.subcommands,
+                subcommand_optional: command.subcommand_optional,
             })
             .collect()
     }
@@ -822,14 +890,22 @@ impl CombinedAutocompleteProvider {
     /// composer's session-owned subset plus its view commands.
     #[must_use]
     pub fn new(commands: Vec<SlashCommandEntry>, base: std::path::PathBuf) -> Self {
+        let table = CommandTable::build(&commands, &HashMap::default());
         Self {
             commands,
             skill_commands: Vec::new(),
             hidden: HashSet::default(),
             arguments: HashMap::default(),
+            table,
             agent_mentions: Vec::new(),
             paths: PathCompletionProvider { base },
         }
+    }
+
+    fn rebuild_table(&mut self) {
+        let mut commands = self.commands.clone();
+        commands.extend(self.skill_commands.iter().cloned());
+        self.table = CommandTable::build(&commands, &self.arguments);
     }
 
     /// Replace the hidden-command set (the caller recomputes model
@@ -844,12 +920,29 @@ impl CombinedAutocompleteProvider {
     /// merges).
     pub fn set_skill_commands(&mut self, skills: Vec<SlashCommandEntry>) {
         self.skill_commands = skills;
+        self.rebuild_table();
     }
 
-    /// Replace one command's argument completions (TS
+    /// Replace the argument completions below one command path (TS
     /// `command.getArgumentCompletions`, e.g. the `/tier` tier choices).
-    pub fn set_argument_completions(&mut self, command: &'static str, items: Vec<CompletionItem>) {
-        self.arguments.insert(command, items);
+    /// Answers whether the list (so the table) changed.
+    pub fn set_argument_completions(
+        &mut self,
+        path: &'static str,
+        items: Vec<CompletionItem>,
+    ) -> bool {
+        if self.arguments.get(path) == Some(&items) {
+            return false;
+        }
+        self.arguments.insert(path, items);
+        self.rebuild_table();
+        true
+    }
+
+    /// The slash-command table (`command_paths`).
+    #[must_use]
+    pub fn command_table(&self) -> &CommandTable {
+        &self.table
     }
 
     /// The agent mentions matching an `@` token at prompt start (fuzzy
@@ -889,8 +982,42 @@ impl CombinedAutocompleteProvider {
                 description: command.description.clone(),
                 argument_hint: command.argument_hint.clone(),
                 source_tag: command.source_tag.clone(),
+                path_row: self.table.place(&[command.name.to_lowercase()]),
             })
             .collect()
+    }
+
+    /// The rows below the path a typed command line names (`line`: the
+    /// text after the `/` up to the cursor): the children the model lists
+    /// (`command_paths` menu), each a table row; the prefix is the last
+    /// word. None for no rows.
+    fn path_suggestions(&self, line: &str) -> Option<Suggestions> {
+        let PathMenu::Kids { rows, .. } = self.table.menu(line) else {
+            return None;
+        };
+        let items: Vec<CompletionItem> = rows
+            .into_iter()
+            .filter_map(|place| {
+                let row = self.table.row(place)?;
+                Some(CompletionItem {
+                    value: row.name().to_string(),
+                    label: row.name().to_string(),
+                    description: row.description.clone(),
+                    argument_hint: row.usage.clone(),
+                    source_tag: row.source_tag.clone(),
+                    path_row: Some(place),
+                })
+            })
+            .collect();
+        if items.is_empty() {
+            return None;
+        }
+        let prefix = line.rsplit(' ').next().unwrap_or_default().to_string();
+        Some(Suggestions {
+            prefix,
+            kind: Some(SuggestionKind::SlashCommand),
+            items,
+        })
     }
 
     /// Apply a slash-command completion: argument-taking commands complete
@@ -957,8 +1084,12 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         CombinedAutocompleteProvider::set_skill_commands(self, skills);
     }
 
-    fn set_argument_completions(&mut self, command: &'static str, items: Vec<CompletionItem>) {
-        CombinedAutocompleteProvider::set_argument_completions(self, command, items);
+    fn set_argument_completions(&mut self, path: &'static str, items: Vec<CompletionItem>) -> bool {
+        CombinedAutocompleteProvider::set_argument_completions(self, path, items)
+    }
+
+    fn command_table(&self) -> Option<&CommandTable> {
+        Some(&self.table)
     }
 
     fn set_agent_mentions(&mut self, items: Vec<CompletionItem>) {
@@ -996,31 +1127,22 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                             items,
                         }));
                     }
-                    // TS `command.getArgumentCompletions`: a command that
-                    // supplies argument items offers them at its argument
-                    // position (filtered by the typed term); commands
-                    // without items -- and terms with no match -- answer
-                    // nothing (TS `getSuggestions` returns null at argument
-                    // positions; the force-triggered path completion is
-                    // the file surface there).
+                    // TS `command.getArgumentCompletions`: past the
+                    // command name the rows are the children of the path
+                    // the line names (`command_paths`); a line with none
+                    // answers nothing here (a Tab then completes files).
                     SlashKind::Argument => {
-                        let command = context.command_name.as_deref()?;
-                        let items = self.arguments.get(command)?;
-                        let term = context.prefix.trim().to_lowercase();
-                        let matches: Vec<CompletionItem> = items
-                            .iter()
-                            .filter(|item| term.is_empty() || item.value.starts_with(&term))
-                            .cloned()
-                            .collect();
-                        if matches.is_empty() {
-                            return None;
+                        if let Some(suggestions) = self.path_suggestions(&slash_line(&before)) {
+                            return Some(SuggestionLookup::Ready(suggestions));
                         }
-                        return Some(SuggestionLookup::Ready(Suggestions {
-                            prefix: context.prefix.clone(),
-                            kind: Some(SuggestionKind::SlashCommand),
-                            items: matches,
-                        }));
+                        return None;
                     }
+                }
+            }
+        } else if let Some(context) = get_slash_command_context(lines, cursor_line, cursor_col) {
+            if context.kind == SlashKind::Argument {
+                if let Some(suggestions) = self.path_suggestions(&slash_line(&before)) {
+                    return Some(SuggestionLookup::Ready(suggestions));
                 }
             }
         }
@@ -1044,6 +1166,19 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         item: &CompletionItem,
         prefix: &str,
     ) -> CompletionResult {
+        // A row of the command table at the end of a slash command: Tab's
+        // completion of the command paths' key rule.
+        if let (Some(place), Some((head, line))) =
+            (item.path_row, slash_path_at(lines, cursor_line, cursor_col))
+        {
+            let out = self.table.key(&line, Some(place), PathKey::Tab);
+            let text = format!("{head}{}", out.line);
+            return CompletionResult {
+                cursor_col: text.chars().count(),
+                lines: vec![text],
+                cursor_line: 0,
+            };
+        }
         let is_slash = get_slash_command_context(lines, cursor_line, cursor_col)
             .is_some_and(|context| context.kind == SlashKind::Name && context.prefix == prefix);
         // TS `applyCompletion` finds the item over its whole command list

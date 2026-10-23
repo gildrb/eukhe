@@ -84,6 +84,9 @@ pub(crate) fn render(
         .collect();
     let mut cursor: Option<(usize, usize)> = None;
     let placeholder_row = placeholder.filter(|_| editor.get_text().is_empty());
+    // The ghost hint of a slash command (the rest of the selected row and
+    // its usage), dim after the cursor at the end of the line.
+    let ghost = editor.ghost_hint();
     for (index, line) in visible.iter().enumerate() {
         let lead = if index == 0 && scroll_offset == 0 {
             Span::styled(prompt.to_string(), prompt_style)
@@ -131,6 +134,17 @@ pub(crate) fn render(
         if let Some(position) = cursor_pos {
             let head = split_at_chars(text, position).0;
             cursor = Some((content_offset + index, str_width(head) + prompt_width));
+            if let Some(ghost) = ghost
+                .as_deref()
+                .filter(|_| position == text.chars().count())
+            {
+                // The cursor cell takes one column after the text.
+                let room = input_width.saturating_sub(str_width(text) + 1);
+                let ghost = truncate_to_width(ghost, room, "");
+                if !ghost.is_empty() {
+                    row.push(Span::styled(ghost, dim));
+                }
+            }
         }
         rows.push(row);
     }

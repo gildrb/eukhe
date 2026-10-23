@@ -1,10 +1,13 @@
 //! Editor autocomplete integration: slash-command and file/path completion via
-//! the configured provider.
+//! the configured provider, and the command paths' Tab and Enter
+//! (`command_paths`: the Bend model decides what a key does to a slash
+//! command alone on the prompt).
 
 use std::sync::mpsc::TryRecvError;
 
 use super::text_utils::{char_at, char_prefix, ends_with_symbol_token};
 use super::{AutocompleteSearch, Editor, EditorEvent, PendingAutocomplete};
+use crate::command_paths::PathKey;
 
 impl Editor {
     // ---- autocomplete ------------------------------------------------------
@@ -86,6 +89,99 @@ impl Editor {
         }
     }
 
+    /// The slash command alone on the prompt with the cursor at its end:
+    /// the text up to and with its `/`, and the line the command paths
+    /// read.
+    pub(crate) fn slash_path(&self) -> Option<(String, String)> {
+        crate::autocomplete::slash_path_at(&self.lines, self.cursor_line, self.cursor_col)
+    }
+
+    /// Tab or Enter at the end of a slash command, with the table place of
+    /// the selected menu row (none without a row): the command paths' key
+    /// rule rewrites the line, opens the menu at it, or submits it. False
+    /// when the prompt holds no slash command ending at the cursor (the
+    /// caller keeps its own handling).
+    pub(crate) fn apply_path_key(&mut self, key: PathKey, place: Option<usize>) -> bool {
+        let Some((head, line)) = self.slash_path() else {
+            return false;
+        };
+        let Some(table) = self.command_table() else {
+            return false;
+        };
+        let out = table.key(&line, place, key);
+        // The usage of the path a completion lands on, for the ghost hint
+        // while its text stays.
+        let landed = format!("{head}{}", out.line);
+        let hint = table
+            .place(
+                &out.line
+                    .split(' ')
+                    .filter(|word| !word.is_empty())
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>(),
+            )
+            .and_then(|place| table.row(place))
+            .and_then(|row| row.usage.clone());
+        self.cancel_autocomplete();
+        if out.line != line {
+            self.push_undo_snapshot();
+            self.last_action = None;
+            self.selection_anchor = None;
+            self.lines = vec![landed.clone()];
+            self.cursor_line = 0;
+            self.set_cursor_col(landed.chars().count());
+            self.emit(EditorEvent::Changed(self.get_text()));
+        }
+        self.path_hint = hint.map(|hint| (landed, hint));
+        if out.submit {
+            if !self.disable_submit {
+                self.submit_value();
+            }
+            return true;
+        }
+        if out.open {
+            // Tab with no row completes files past the command's own
+            // rows (`/export pa` + Tab), as before the command paths.
+            let files = key == PathKey::Tab
+                && place.is_none()
+                && self
+                    .current_slash_command_context()
+                    .is_some_and(|c| c.kind == crate::autocomplete::SlashKind::Argument);
+            self.request_autocomplete(files, files);
+        }
+        true
+    }
+
+    /// The ghost hint after the cursor at the end of a slash command: the
+    /// rest of the selected row's name and its usage while the slash menu
+    /// is open, else the usage of the path a Tab or Enter completed.
+    #[must_use]
+    pub fn ghost_hint(&self) -> Option<String> {
+        self.slash_path()?;
+        if let Some(state) = self.autocomplete.as_ref() {
+            if state.kind != Some(crate::autocomplete::SuggestionKind::SlashCommand) {
+                return None;
+            }
+            let item = state.selected_item()?;
+            let typed = state.prefix.strip_prefix('/').unwrap_or(&state.prefix);
+            let typed_len = typed.chars().count();
+            let rest: String = if item.value.to_lowercase().starts_with(&typed.to_lowercase()) {
+                item.value.chars().skip(typed_len).collect()
+            } else {
+                String::new()
+            };
+            let hint = match (rest.is_empty(), item.argument_hint) {
+                (true, None) => return None,
+                (true, Some(usage)) => usage,
+                (false, None) => rest,
+                (false, Some(usage)) => format!("{rest} {usage}"),
+            };
+            return Some(hint);
+        }
+        let (text, hint) = self.path_hint.as_ref()?;
+        (*text == self.get_text()).then(|| hint.clone())
+    }
+
     pub(crate) fn handle_tab_completion(&mut self) {
         if self.autocomplete_provider.is_none() {
             return;
@@ -96,6 +192,11 @@ impl Editor {
         // whitespace-only) prompt is a no-op; completion after text is
         // typed keeps its existing behavior.
         if self.get_text().trim().is_empty() {
+            return;
+        }
+        // Tab at the end of a slash command: the command paths' key rule
+        // (no row: the menu of the line opens).
+        if self.apply_path_key(PathKey::Tab, None) {
             return;
         }
         if matches!(self.current_slash_command_context(), Some(c) if c.kind == crate::autocomplete::SlashKind::Name)
@@ -113,6 +214,10 @@ impl Editor {
             if c == '/'
                 && matches!(&slash_ctx, Some(ctx) if ctx.kind == crate::autocomplete::SlashKind::Name)
             {
+                self.request_autocomplete(false, false);
+            } else if c == ' ' && self.slash_path().is_some() {
+                // A space after a command or subcommand opens the menu of
+                // its children at once.
                 self.request_autocomplete(false, false);
             } else if c == '@' || c == '#' {
                 let current_line = &self.lines[self.cursor_line];

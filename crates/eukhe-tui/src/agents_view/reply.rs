@@ -57,6 +57,8 @@ fn reply_autocomplete_provider(
             argument_hint: command.argument_hint.map(str::to_string),
             takes_argument: command.takes_argument,
             source_tag: None,
+            subcommands: command.subcommands,
+            subcommand_optional: command.subcommand_optional,
         })
         .collect();
     for (name, description, argument_hint, takes_argument) in VIEW_COMMAND_DESCRIPTIONS {
@@ -73,6 +75,8 @@ fn reply_autocomplete_provider(
             argument_hint: argument_hint.map(str::to_string),
             takes_argument,
             source_tag: None,
+            subcommands: builtin.map_or(&[], |command| command.subcommands),
+            subcommand_optional: builtin.is_some_and(|command| command.subcommand_optional),
         });
     }
     let base = summary

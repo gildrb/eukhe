@@ -113,6 +113,20 @@ At the prompt. An open menu, picker or panel gets keys first (settings menu: Shi
 
 Code: `eukhe-tui/src/keybindings/definitions.rs` (defaults), `session_ui/keys.rs` (key arms), `session_ui/model_picker.rs` `cycle_thinking_level`, `show_thinking_level`. Tests: `tests/effort_tray_label_headless.rs`.
 
+#### Slash commands
+
+A slash command alone on the prompt, cursor at its end: the path rules decide (Bend model `bend/command.bend`, entry `bend/ffi_command.bend`, one core call per menu, key or submit).
+
+- Table: one row per declared path (command, registry subcommand, argument value), names lowercase. Flags: `run` (bare path runs: a default or no child), `free` (a word naming no child starts the argument text), `arg` (text expected after it).
+- Sources: `eukhe-types/src/slash_commands.rs` (`subcommands`, `subcommand_optional`, `Subcommand {name, description, usage}`; `/model` roles from `ModelRole::ALL`); argument lists by path from `session_ui.rs` `update_model_eligibility_filters` (`tier`, `effort`, `workflows size`, `dynamic-workflow --size`).
+- `resolve(line)`: `Runs{path, args}` (args as typed), `Opens{path}` (bare path, no default), `Unknown{path, word}`, `NoCommand` (first word names no command: typo note or prompt, as before).
+- `menu(line)`: first word: command names (Rust fuzzy ranking); later: children of the typed path with the typed prefix, any case, table order; none below argument text or an unknown word.
+- `key(line, row, Tab|Enter)`: Tab on a row: its path, a space when it has children or expects text, its children open. Enter on a row typed in full: submit when it runs bare, else its children open. Enter on a row typed in part: complete, then descend (children), wait (text expected) or submit. No row: Tab opens the line's menu; Enter submits unless `Opens`. A row that is not a child of the typed path counts as no row.
+- Lines longer than 4096 chars: no menu, Enter submits as typed; `resolve` up to the wire's string bound.
+- Unknown suggestion: Rust edit distance over the children of the path (`find_slash_command_suggestion`).
+
+Laws: `LAWS.bend` section `commands` (R1-R14), proofs `proof/command_*.bend` (imported from `PROOF.bend`). Code: `eukhe-tui/src/command_paths.rs` (table, codec, calls), `autocomplete.rs` (`path_suggestions`, `slash_path_at`), `editor/autocomplete.rs` (`apply_path_key`, `ghost_hint`), `editor/input.rs` (Tab/Enter arms), `session_ui/commands.rs` (`handle_slash`: `Unknown`/`Opens`/`Runs`). Tests: `command_paths::tests`, `editor::path_key_tests`, `autocomplete::tests`.
+
 #### Turn visibility
 
 Working indicator: on from Enter to turn end, only while work runs (prompt traveling or queued, a turn of its run unanswered, a compaction running).

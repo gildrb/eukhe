@@ -54,6 +54,7 @@ pub mod client_settings;
 mod clipboard;
 mod clipboard_image;
 pub mod code_preview;
+pub mod command_paths;
 mod compaction_row;
 pub mod config_selector;
 pub mod confirm;

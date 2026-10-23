@@ -19,6 +19,7 @@ fn item(value: &str) -> CompletionItem {
         description: None,
         argument_hint: None,
         source_tag: None,
+        path_row: None,
     }
 }
 
@@ -103,6 +104,7 @@ fn tier_argument_completions_list_filter_and_mark_current() {
                 }),
                 argument_hint: None,
                 source_tag: None,
+                path_row: None,
             })
             .collect::<Vec<_>>()
     };
@@ -279,6 +281,7 @@ fn at_prefix_lists_nested_fuzzy_matches() {
         description: None,
         argument_hint: None,
         source_tag: None,
+        path_row: None,
     };
     let result = provider.apply_completion(&["see @partial".to_string()], 0, 12, &item, "@partial");
     assert_eq!(result.lines[0], "see @src/deep/partial_match.rs ");
@@ -301,6 +304,7 @@ fn at_prompt_start_offers_agents_ahead_of_files() {
         description: Some(format!("agent, {status}")),
         argument_hint: None,
         source_tag: None,
+        path_row: None,
     };
     provider.set_agent_mentions(vec![agent("worker-1", "running"), agent("scout", "idle")]);
     let values = |text: &str| -> Vec<String> {
@@ -367,6 +371,7 @@ fn render_uses_the_menu_panel_grammar() {
             description: Some(format!("description {i}")),
             argument_hint: Some("[arg]".to_string()),
             source_tag: None,
+            path_row: None,
         })
         .collect();
     let state = AutocompleteState::new(
@@ -472,6 +477,8 @@ fn provider_with_skill(base: &str) -> CombinedAutocompleteProvider {
         argument_hint: Some(SKILL_ARGUMENT_HINT.to_string()),
         takes_argument: true,
         source_tag: Some("#project".to_string()),
+        subcommands: &[],
+        subcommand_optional: false,
     }]);
     provider
 }

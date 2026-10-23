@@ -26,6 +26,15 @@ eukhe shutdown [--force]   # stop all agents and the daemon
 
 Only `eukhe package install`/`update` download (npm, git). Sessions and `eukhe config` use installed packages only and warn per missing configured package with its `eukhe package install` command.
 
+## Slash commands
+
+- `/` at prompt start: command menu, fuzzy on names and aliases.
+- Space after a command name, or Tab/Enter on a command row: `/<name> `, its subcommand menu opens at once.
+- Subcommand menu: the rows whose name starts with the typed word (any case). Tab/Enter on a row: `<sub> `, the next level opens if any. Ghost text after the cursor: rest of the selected row, then its usage.
+- Enter on a fully typed path runs it: `/memory model`, `/workflows size large`. Bare command with subcommands: its default (`/memory` = `/memory view`, `/model` = the role hub). Bare path that needs a choice (`/dynamic-workflow --size`): its menu opens, nothing runs.
+- A path never runs its parent. Unknown subcommand: `Unknown: /memory x. Did you mean /memory view?`; nothing runs.
+- Paths: `/memory [view|model]`, `/model [<role>]`, `/workflows [size [small|medium|large]]`, `/dynamic-workflow [--size small|medium|large] <request>`, `/tier [<tier>]`, `/effort [<level>]` (the levels of the current model).
+
 ## Agents
 
 - Subagents: `rlm.spawn`, `rlm.spawn_batch` in the Python REPL.

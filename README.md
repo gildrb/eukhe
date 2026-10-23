@@ -34,7 +34,7 @@ All commands: [docs/usage.md](docs/usage.md).
 - Log: `~/.eukhe/chat/`, append-only.
 - The compactor writes one-line summaries into a binary tree over the log.
 - Each root turn starts from the view: 64 KB to 128 KB of lines.
-- `/memory`: the view. `/memory zoom <id> <n>`: open a node. `/memory-model`: compaction model and reasoning effort.
+- `/memory`: the view. `/memory model`: compaction model and reasoning effort (the `/model` hub at the memory role).
 
 Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449). Details: [docs/memory.md](docs/memory.md).
 
@@ -46,7 +46,7 @@ Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a
 ## Dynamic workflows
 
 - `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
-- `--size small|medium|large`: how many agents; `/workflow-size` sets the default. `/workflows`: phases, agents, log per run.
+- `--size small|medium|large`: how many agents; `/workflows size` sets the default. `/workflows`: phases, agents, log per run.
 
 Details: [docs/workflows.md](docs/workflows.md).
 

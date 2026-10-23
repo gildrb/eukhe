@@ -26,6 +26,8 @@ mod layout;
 mod motion;
 #[cfg(test)]
 mod paste_tests;
+#[cfg(test)]
+mod path_key_tests;
 mod selection;
 mod text_ops;
 mod text_utils;
@@ -135,6 +137,10 @@ pub struct Editor {
     /// (TS `isAutocompleteRequestCurrent`): a result that lands after the
     /// lines or cursor moved is dropped, never applied.
     autocomplete_search: Option<AutocompleteSearch>,
+    /// The ghost hint of a slash command a Tab or Enter completed (the
+    /// usage of its path), with the text it belongs to: it shows only
+    /// while the editor still holds that text.
+    path_hint: Option<(String, String)>,
     events: Vec<EditorEvent>,
 }
 
@@ -195,6 +201,7 @@ impl Editor {
             autocomplete: None,
             pending_autocomplete: None,
             autocomplete_search: None,
+            path_hint: None,
             events: Vec::new(),
         }
     }
@@ -243,17 +250,32 @@ impl Editor {
         }
     }
 
-    /// Replace one command's argument completions on the installed provider
-    /// (TS `command.getArgumentCompletions`, e.g. the `/tier` tier
-    /// choices).
+    /// Replace the argument completions below one command path on the
+    /// installed provider (TS `command.getArgumentCompletions`, e.g. the
+    /// `/tier` tier choices). A change rebuilds the command table, so an
+    /// open menu (its rows are places in the old table) drops.
     pub fn set_autocomplete_argument_completions(
         &mut self,
-        command: &'static str,
+        path: &'static str,
         items: Vec<crate::autocomplete::CompletionItem>,
     ) {
-        if let Some(provider) = self.autocomplete_provider.as_mut() {
-            provider.set_argument_completions(command, items);
+        let changed = self
+            .autocomplete_provider
+            .as_mut()
+            .is_some_and(|provider| provider.set_argument_completions(path, items));
+        if changed && self.autocomplete.take().is_some() {
+            self.emit(EditorEvent::AutocompleteToggled(false));
         }
+    }
+
+    /// The slash-command table of the installed provider
+    /// (`command_paths`): the dispatch resolves submitted commands with
+    /// the same table the menus and keys read.
+    #[must_use]
+    pub fn command_table(&self) -> Option<&crate::command_paths::CommandTable> {
+        self.autocomplete_provider
+            .as_ref()
+            .and_then(|provider| provider.command_table())
     }
 
     /// Replace the provider's `skill:` commands (TS

@@ -194,6 +194,19 @@ impl Editor {
                     .autocomplete
                     .as_ref()
                     .and_then(crate::autocomplete::AutocompleteState::selected_item);
+                // A row of the command table at the end of a slash
+                // command: the command paths decide (complete, descend,
+                // submit).
+                if let Some(place) = selected.as_ref().and_then(|item| item.path_row) {
+                    let key = if self.kb_matches(input, "tui.input.tab") {
+                        crate::command_paths::PathKey::Tab
+                    } else {
+                        crate::command_paths::PathKey::Enter
+                    };
+                    if self.apply_path_key(key, Some(place)) {
+                        return;
+                    }
+                }
                 if let Some(item) = selected {
                     let is_typed_exact = self.is_slash_name_completion_at_prompt_start();
                     self.push_undo_snapshot();
@@ -322,6 +335,11 @@ impl Editor {
                 self.add_new_line();
                 return;
             }
+            // Enter at the end of a slash command: the command paths
+            // submit it, or open the menu of a bare path with no default.
+            if self.apply_path_key(crate::command_paths::PathKey::Enter, None) {
+                return;
+            }
             self.submit_value();
             return;
         }
@@ -428,30 +446,6 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(submitted, vec!["/goal"]);
         assert_eq!(e.get_text(), "");
-    }
-
-    /// Once the parked request materializes (the input queue drained), a
-    /// typed-exact command with an open dropdown completes into the
-    /// argument position on Enter instead of submitting -- the TS
-    /// async-suggestion behavior for a command typed character-by-character
-    /// with pauses.
-    #[test]
-    fn materialized_dropdown_enter_completes_into_args() {
-        let mut e = ed();
-        for key in ["/", "g", "o", "a", "l"] {
-            e.handle_input(key);
-        }
-        e.materialize_autocomplete();
-        assert!(
-            e.is_showing_autocomplete(),
-            "dropdown opens after the batch"
-        );
-        e.handle_input("enter");
-        let events = e.take_events();
-        assert!(!events
-            .iter()
-            .any(|event| matches!(event, EditorEvent::Submitted(_))));
-        assert_eq!(e.get_text(), "/goal ");
     }
 
     /// A typed ZWJ family sequence lands in the buffer byte-exact (the

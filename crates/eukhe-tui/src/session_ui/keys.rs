@@ -144,7 +144,7 @@ impl SessionUi {
         Ok(())
     }
 
-    /// One key press while the `/workflow-size` picker is open: Esc or
+    /// One key press while the `/workflows size` picker is open: Esc or
     /// Ctrl+C close it; Enter sets `workflow.size`.
     fn handle_workflow_size_picker_key(&mut self, key: KeyEvent, view: &mut AgentView) {
         let Some(id) = key_event_to_id(&key) else {
@@ -195,7 +195,7 @@ impl SessionUi {
         if view.effort_picker.is_some() {
             return self.handle_effort_picker_key(key, view).await;
         }
-        // The `/workflow-size` picker owns the frame the same way.
+        // The `/workflows size` picker owns the frame the same way.
         if view.workflow_size_picker.is_some() {
             self.handle_workflow_size_picker_key(key, view);
             return Ok(());

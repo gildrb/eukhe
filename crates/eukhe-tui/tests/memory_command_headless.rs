@@ -326,8 +326,9 @@ fn memory_opens_the_tree_drills_down_and_shows_live_updates() {
                 timeout_ms: 10_000,
             },
             wait(LIVE_GAUGE),
+            // An unknown subcommand runs nothing: never the memory view.
             HeadlessStep::Submit("/memory zoom 40".to_string()),
-            wait("Usage: /memory"),
+            wait("Unknown: /memory zoom. Choose one of: view, model"),
         ],
         width: 200,
         height: 40,

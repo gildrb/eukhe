@@ -25,9 +25,8 @@ revision 2026-10-08). This page maps each gist rule to Rust code and the law or 
 
 |Command|Effect|
 |---|---|
-|`/memory`|Status and every view line|
-|`/memory zoom <id> <n>`|Messages or summaries of node `<id>+<n>`|
-|`/memory-model`|Compaction model and reasoning effort (←/→ on a reasoning model; saved as `memory.model`, `memory.thinking`, default `medium`)|
+|`/memory`, `/memory view`|Status and every view line|
+|`/memory model`|The `/model` hub at the `memory` role: compaction model and reasoning effort (saved as `memory.model`, `memory.thinking`, default `medium`)|
 
 - Status bar: `mem N/128K`.
 - Each compactor change: a `memory:` row. Summary text at full detail only.

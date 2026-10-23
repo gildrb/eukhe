@@ -58,7 +58,7 @@ pub enum SelectorKind {
     ResourceConfig,
     /// The `/effort` picker: single-select semantics, Enter applies.
     Effort,
-    /// The `/workflow-size` picker: single-select semantics, Enter
+    /// The `/workflows size` picker: single-select semantics, Enter
     /// applies.
     WorkflowSize,
 }

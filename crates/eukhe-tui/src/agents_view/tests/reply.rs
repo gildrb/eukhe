@@ -417,14 +417,16 @@ fn the_reply_completion_lists_session_and_view_commands() {
     );
 }
 
-/// An open completion owns Enter (TS's editor applies the selected
-/// item; the typed-exact fall-through is what submits): typing `/`
-/// completes into the buffer instead of submitting the partial.
+/// An open completion owns Enter: Enter on the selected row of a command
+/// that expects text completes it into the buffer (`/rem` is `/remind `)
+/// instead of submitting the partial.
 #[test]
 fn an_open_completion_owns_enter() {
     let mut mode = armed_live();
-    mode.handle_key("/");
-    mode.materialize_composer_autocomplete();
+    for key in ["/", "r", "e", "m"] {
+        mode.handle_key(key);
+        mode.materialize_composer_autocomplete();
+    }
     assert!(
         matches!(&mode.composer, Composer::Reply(reply)
             if reply.editor.is_showing_autocomplete()),
@@ -434,10 +436,10 @@ fn an_open_completion_owns_enter() {
     let Composer::Reply(reply) = &mode.composer else {
         panic!("the composer stays armed");
     };
-    assert!(
-        reply.editor.get_text().starts_with('/'),
-        "Enter applied the completion instead of submitting:\n{:?}",
-        reply.editor.get_text()
+    assert_eq!(
+        reply.editor.get_text(),
+        "/remind ",
+        "Enter applied the completion instead of submitting"
     );
     assert!(
         mode.pending_reply.is_none() && mode.pending_kill.is_none(),
