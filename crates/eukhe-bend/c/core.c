@@ -385,192 +385,188 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_ffi_tree_get_op_k43 16
 #define FID_ffi_tree_get_op_k44 17
 #define FID_tree_KMap_del 18
-#define FID_tree_elem 19
-#define FID_tree_elem_k52 20
-#define FID_tree_KMap_drop 21
-#define FID_tree_KMap_drop_k54 22
-#define FID_tree_KMap_put 23
-#define FID_tree_KMap_put_k60 24
-#define FID_tree_KMap_put_k61 25
-#define FID_wire_put_str_go 26
-#define FID_wire_put_str_go_k68 27
-#define FID_tree_KMap_exact 28
-#define FID_tree_gone_at 29
-#define FID_tree_gone_at_k84 30
-#define FID_tree_gone_at_k85 31
-#define FID_tree_drops_go 32
-#define FID_tree_drops_go_k87 33
-#define FID_tree_drops_go_k88 34
-#define FID_tree_drops_go_k89 35
-#define FID_tree_KMap_ups 36
-#define FID_tree_KMap_ups_k95 37
-#define FID_tree_KMap_set 38
-#define FID_wire_put_list_go_3 39
-#define FID_wire_put_list_go_3_k100 40
-#define FID_wire_put_list_go_2 41
-#define FID_wire_put_list_go_2_k102 42
-#define FID_wire_put_list_go_1 43
-#define FID_wire_put_list_go_1_k104 44
-#define FID_wire_take 45
-#define FID_wire_take_k111 46
-#define FID_wire_put_str 47
-#define FID_wire_put_str_k113 48
-#define FID_List_take 49
-#define FID_List_take_k121 50
-#define FID_tree_KMap_go 51
-#define FID_tree_KMap_go_k123 52
-#define FID_tree_puts_m 53
-#define FID_tree_puts_m_k125 54
-#define FID_tree_dels_m 55
-#define FID_tree_dels_m_k127 56
-#define FID_List_append 57
-#define FID_List_append_k129 58
-#define FID_tree_KMap_hangs 59
-#define FID_tree_KMap_hangs_k132 60
-#define FID_tree_KMap_patch 61
-#define FID_tree_KMap_patch_k135 62
-#define FID_wire_put_list_3 63
-#define FID_wire_put_list_3_k146 64
-#define FID_wire_put_list_2 65
-#define FID_wire_put_list_2_k148 66
-#define FID_wire_put_list_1 67
-#define FID_wire_put_list_1_k150 68
-#define FID_wire_value 69
-#define FID_wire_value_k155 70
-#define FID_ffi_tree_get_rec 71
-#define FID_ffi_tree_get_rec_k165 72
-#define FID_ffi_tree_get_rec_k166 73
-#define FID_ffi_tree_get_rec_k167 74
-#define FID_tree_St_at 75
-#define FID_tree_St_at_k170 76
-#define FID_tree_diff_m 77
-#define FID_tree_diff_m_k172 78
-#define FID_tree_diff_m_k173 79
-#define FID_tree_effects 80
-#define FID_tree_effects_k175 81
-#define FID_tree_effects_k176 82
-#define FID_tree_KMap_onto 83
-#define FID_tree_KMap_onto_k178 84
-#define FID_tree_KMap_rec 85
+#define FID_tree_drops_s 19
+#define FID_tree_drops_s_k55 20
+#define FID_tree_drops_s_k56 21
+#define FID_tree_gone_of 22
+#define FID_tree_KMap_drop 23
+#define FID_tree_KMap_drop_k59 24
+#define FID_tree_KMap_put 25
+#define FID_tree_KMap_put_k63 26
+#define FID_tree_KMap_put_k64 27
+#define FID_wire_put_str_go 28
+#define FID_wire_put_str_go_k71 29
+#define FID_tree_KMap_exact 30
+#define FID_tree_KMap_ups 31
+#define FID_tree_KMap_ups_k89 32
+#define FID_tree_drops 33
+#define FID_tree_drops_k91 34
+#define FID_tree_KMap_set 35
+#define FID_wire_put_list_go_3 36
+#define FID_wire_put_list_go_3_k98 37
+#define FID_wire_put_list_go_2 38
+#define FID_wire_put_list_go_2_k100 39
+#define FID_wire_put_list_go_1 40
+#define FID_wire_put_list_go_1_k102 41
+#define FID_wire_take 42
+#define FID_wire_take_k109 43
+#define FID_wire_put_str 44
+#define FID_wire_put_str_k111 45
+#define FID_List_take 46
+#define FID_List_take_k119 47
+#define FID_tree_KMap_go 48
+#define FID_tree_KMap_go_k121 49
+#define FID_tree_puts_m 50
+#define FID_tree_puts_m_k123 51
+#define FID_tree_dels_m 52
+#define FID_tree_dels_m_k125 53
+#define FID_List_append 54
+#define FID_List_append_k127 55
+#define FID_tree_KMap_hangs 56
+#define FID_tree_KMap_hangs_k130 57
+#define FID_tree_KMap_patch 58
+#define FID_tree_KMap_patch_k133 59
+#define FID_wire_put_list_3 60
+#define FID_wire_put_list_3_k143 61
+#define FID_wire_put_list_2 62
+#define FID_wire_put_list_2_k145 63
+#define FID_wire_put_list_1 64
+#define FID_wire_put_list_1_k147 65
+#define FID_wire_value 66
+#define FID_wire_value_k152 67
+#define FID_ffi_tree_get_rec 68
+#define FID_ffi_tree_get_rec_k162 69
+#define FID_ffi_tree_get_rec_k163 70
+#define FID_ffi_tree_get_rec_k164 71
+#define FID_tree_St_at 72
+#define FID_tree_St_at_k167 73
+#define FID_tree_diff_m 74
+#define FID_tree_diff_m_k169 75
+#define FID_tree_diff_m_k170 76
+#define FID_tree_effects 77
+#define FID_tree_effects_k172 78
+#define FID_tree_effects_k173 79
+#define FID_tree_KMap_onto 80
+#define FID_tree_KMap_onto_k175 81
+#define FID_tree_KMap_rec 82
+#define FID_tree_KMap_rec_k177 83
+#define FID_tree_KMap_rec_k178 84
+#define FID_tree_KMap_rec_k179 85
 #define FID_tree_KMap_rec_k180 86
 #define FID_tree_KMap_rec_k181 87
 #define FID_tree_KMap_rec_k182 88
 #define FID_tree_KMap_rec_k183 89
-#define FID_tree_KMap_rec_k184 90
-#define FID_tree_KMap_rec_k185 91
-#define FID_tree_KMap_rec_k186 92
-#define FID_tree_KMap_rec_k187 93
-#define FID_ffi_tree_put_ans 94
-#define FID_ffi_tree_put_ans_k190 95
-#define FID_ffi_tree_put_ans_k191 96
-#define FID_ffi_tree_put_ans_k192 97
-#define FID_wire_cdig_go 98
-#define FID_wire_cdig_go_k195 99
-#define FID_wire_get_nat_go 100
-#define FID_wire_get_nat_go_k198 101
-#define FID_wire_get_nat_go_k199 102
-#define FID_wire_get_nat_end 103
-#define FID_wire_get_nat_end_k201 104
-#define FID_wire_get_str 105
-#define FID_wire_get_str_k206 106
-#define FID_U32_show_go 107
-#define FID_tree_core_step 108
+#define FID_ffi_tree_put_ans 90
+#define FID_ffi_tree_put_ans_k186 91
+#define FID_ffi_tree_put_ans_k187 92
+#define FID_ffi_tree_put_ans_k188 93
+#define FID_wire_cdig_go 94
+#define FID_wire_cdig_go_k191 95
+#define FID_wire_get_nat_go 96
+#define FID_wire_get_nat_go_k194 97
+#define FID_wire_get_nat_go_k195 98
+#define FID_wire_get_nat_end 99
+#define FID_wire_get_nat_end_k197 100
+#define FID_wire_get_str 101
+#define FID_wire_get_str_k202 102
+#define FID_U32_show_go 103
+#define FID_tree_core_step 104
+#define FID_tree_core_step_k214 105
+#define FID_tree_core_step_k215 106
+#define FID_tree_core_step_k216 107
+#define FID_tree_core_step_k217 108
 #define FID_tree_core_step_k218 109
 #define FID_tree_core_step_k219 110
 #define FID_tree_core_step_k220 111
 #define FID_tree_core_step_k221 112
-#define FID_tree_core_step_k222 113
-#define FID_tree_core_step_k223 114
-#define FID_tree_core_step_k224 115
-#define FID_tree_core_step_k225 116
-#define FID_wire_tok 117
-#define FID_wire_tok_k230 118
-#define FID_wire_get_list_go_1 119
-#define FID_wire_get_list_go_1_k240 120
-#define FID_wire_get_list_go_1_k241 121
-#define FID_Nat_show_fin 122
-#define FID_wire_peek 123
-#define FID_wire_peek_k255 124
-#define FID_wire_get_u32 125
-#define FID_wire_get_u32_k260 126
-#define FID_U32_show 127
-#define FID_ffi_tree_get_ask 128
-#define FID_ffi_tree_get_ask_k272 129
-#define FID_ffi_tree_get_ask_k273 130
-#define FID_ffi_tree_get_ask_k274 131
-#define FID_ffi_tree_get_ask_k275 132
-#define FID_Nat_show 133
-#define FID_String_append 134
-#define FID_String_append_k281 135
-#define FID_wire_get_nat 136
-#define FID_wire_get_nat_k283 137
-#define FID_wire_get_nat_k284 138
-#define FID_wire_get_list_1 139
-#define FID_wire_get_list_1_k292 140
-#define FID_wire_get_list_1_k293 141
-#define FID_ffi_tree_step 142
-#define FID_ffi_tree_step_k298 143
-#define FID_ffi_tree_step_k299 144
-#define FID_ffi_tree_step_k300 145
-#define FID_ffi_echo_step 146
-#define FID_ffi_echo_step_k303 147
-#define FID_ffi_echo_step_k304 148
-#define FID_ffi_echo_step_k305 149
-#define FID_ffi_tree_open 150
-#define FID_ffi_tree_open_k316 151
-#define FID_ffi_echo_open 152
-#define FID_ffi_echo_open_k320 153
-#define FID_ffi_echo_open_k321 154
-#define FID_step_go 155
-#define FID_step_go_k324 156
-#define FID_step_go_k325 157
-#define FID_ffi_go 158
+#define FID_wire_tok 113
+#define FID_wire_tok_k226 114
+#define FID_wire_get_list_go_1 115
+#define FID_wire_get_list_go_1_k236 116
+#define FID_wire_get_list_go_1_k237 117
+#define FID_Nat_show_fin 118
+#define FID_wire_peek 119
+#define FID_wire_peek_k251 120
+#define FID_wire_get_u32 121
+#define FID_wire_get_u32_k256 122
+#define FID_U32_show 123
+#define FID_ffi_tree_get_ask 124
+#define FID_ffi_tree_get_ask_k268 125
+#define FID_ffi_tree_get_ask_k269 126
+#define FID_ffi_tree_get_ask_k270 127
+#define FID_ffi_tree_get_ask_k271 128
+#define FID_Nat_show 129
+#define FID_String_append 130
+#define FID_String_append_k277 131
+#define FID_wire_get_nat 132
+#define FID_wire_get_nat_k279 133
+#define FID_wire_get_nat_k280 134
+#define FID_wire_get_list_1 135
+#define FID_wire_get_list_1_k288 136
+#define FID_wire_get_list_1_k289 137
+#define FID_ffi_tree_step 138
+#define FID_ffi_tree_step_k294 139
+#define FID_ffi_tree_step_k295 140
+#define FID_ffi_tree_step_k296 141
+#define FID_ffi_echo_step 142
+#define FID_ffi_echo_step_k299 143
+#define FID_ffi_echo_step_k300 144
+#define FID_ffi_echo_step_k301 145
+#define FID_ffi_tree_open 146
+#define FID_ffi_tree_open_k312 147
+#define FID_ffi_echo_open 148
+#define FID_ffi_echo_open_k316 149
+#define FID_ffi_echo_open_k317 150
+#define FID_step_go 151
+#define FID_step_go_k320 152
+#define FID_step_go_k321 153
+#define FID_ffi_go 154
+#define FID_ffi_go_k324 155
+#define FID_ffi_go_k325 156
+#define FID_ffi_go_k326 157
+#define FID_ffi_go_k327 158
 #define FID_ffi_go_k328 159
 #define FID_ffi_go_k329 160
-#define FID_ffi_go_k330 161
-#define FID_ffi_go_k331 162
-#define FID_ffi_go_k332 163
-#define FID_ffi_go_k333 164
-#define FID_open_go 165
-#define FID_open_go_k337 166
-#define FID_open_go_k338 167
-#define FID_step 168
-#define FID_step_k340 169
-#define FID_close 170
-#define FID_ffi 171
-#define FID_ffi_k344 172
-#define FID_U32_read_go 173
-#define FID_open 174
-#define FID_open_k349 175
-#define FID_cli_steps 176
-#define FID_cli_steps_k351 177
-#define FID_cli_steps_k352 178
-#define FID_cli_steps_k353 179
-#define FID_U32_read 180
-#define FID_cli_print 181
-#define FID_cli_print_c365 182
-#define FID_cli_print_c366 183
-#define FID_cli_print_c367 184
-#define FID_cli_args 185
-#define FID_cli_args_k369 186
-#define FID_cli_args_k370 187
-#define FID_cli_args_k371 188
-#define FID_cli_args_k372 189
-#define FID_IO_bind 190
-#define FID_IO_bind_c376 191
-#define FID_IO_bind_k377 192
-#define FID_main 193
-#define FID_main_c379 194
-#define FID_main_c380 195
-#define FID_main_k381 196
-#define FID_main_c382 197
-#define FID_IO_args 198
-#define FID_IO_print 199
-#define FID_IO_emit 200
-#define FID_Clo_apply 201
-#define FID_EXIT 202
-#define FID_ENTER 203
-CONSTV Fid FID_T[] = { { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 7, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 7, 6, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 10, 3, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 6, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 9, 0, 0, 1 }, { 10, 3, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 7, 7, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 11, 8, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 5, 0, 1 }, { 2, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 5, 0, 1 }, { 6, 0, 0, 1 }, { 6, 6, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 6, 0, 1 }, { 7, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 6, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 7, 6, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
+#define FID_open_go 161
+#define FID_open_go_k333 162
+#define FID_open_go_k334 163
+#define FID_step 164
+#define FID_step_k336 165
+#define FID_close 166
+#define FID_ffi 167
+#define FID_ffi_k340 168
+#define FID_U32_read_go 169
+#define FID_open 170
+#define FID_open_k345 171
+#define FID_cli_steps 172
+#define FID_cli_steps_k347 173
+#define FID_cli_steps_k348 174
+#define FID_cli_steps_k349 175
+#define FID_U32_read 176
+#define FID_cli_print 177
+#define FID_cli_print_c361 178
+#define FID_cli_print_c362 179
+#define FID_cli_print_c363 180
+#define FID_cli_args 181
+#define FID_cli_args_k365 182
+#define FID_cli_args_k366 183
+#define FID_cli_args_k367 184
+#define FID_cli_args_k368 185
+#define FID_IO_bind 186
+#define FID_IO_bind_c372 187
+#define FID_IO_bind_k373 188
+#define FID_main 189
+#define FID_main_c375 190
+#define FID_main_c376 191
+#define FID_main_k377 192
+#define FID_main_c378 193
+#define FID_IO_args 194
+#define FID_IO_print 195
+#define FID_IO_emit 196
+#define FID_Clo_apply 197
+#define FID_EXIT 198
+#define FID_ENTER 199
+CONSTV Fid FID_T[] = { { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 7, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 7, 6, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 4, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 10, 3, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 6, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 9, 0, 0, 1 }, { 10, 3, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 7, 7, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 11, 8, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 5, 0, 1 }, { 2, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 5, 0, 1 }, { 6, 0, 0, 1 }, { 6, 6, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 6, 0, 1 }, { 7, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 6, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 7, 6, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
 CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 5, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
 #define STAT_LEN 596
 
@@ -625,7 +621,7 @@ CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 
 
 #define WL_ALL e, sp, seq, rn, r0, r1, r2, r3, r4, r5, rp, r6, r7, r8, r9
 
-#define WL_TABLE WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k8) WL_X(FID_wire_get_list_go_0_k9) WL_X(FID_tree_KMap_unset) WL_X(FID_tree_KMap_unset_k24) WL_X(FID_tree_KMap_unset_k25) WL_X(FID_tree_KMap_two) WL_X(FID_tree_KMap_two_k30) WL_X(FID_tree_KMap_two_k31) WL_X(FID_wire_get_list_0) WL_X(FID_wire_get_list_0_k36) WL_X(FID_wire_get_list_0_k37) WL_X(FID_ffi_tree_get_op) WL_X(FID_ffi_tree_get_op_k40) WL_X(FID_ffi_tree_get_op_k41) WL_X(FID_ffi_tree_get_op_k42) WL_X(FID_ffi_tree_get_op_k43) WL_X(FID_ffi_tree_get_op_k44) WL_X(FID_tree_KMap_del) WL_X(FID_tree_elem) WL_X(FID_tree_elem_k52) WL_X(FID_tree_KMap_drop) WL_X(FID_tree_KMap_drop_k54) WL_X(FID_tree_KMap_put) WL_X(FID_tree_KMap_put_k60) WL_X(FID_tree_KMap_put_k61) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k68) WL_X(FID_tree_KMap_exact) WL_X(FID_tree_gone_at) WL_X(FID_tree_gone_at_k84) WL_X(FID_tree_gone_at_k85) WL_X(FID_tree_drops_go) WL_X(FID_tree_drops_go_k87) WL_X(FID_tree_drops_go_k88) WL_X(FID_tree_drops_go_k89) WL_X(FID_tree_KMap_ups) WL_X(FID_tree_KMap_ups_k95) WL_X(FID_tree_KMap_set) WL_X(FID_wire_put_list_go_3) WL_X(FID_wire_put_list_go_3_k100) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k102) WL_X(FID_wire_put_list_go_1) WL_X(FID_wire_put_list_go_1_k104) WL_X(FID_wire_take) WL_X(FID_wire_take_k111) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k113) WL_X(FID_List_take) WL_X(FID_List_take_k121) WL_X(FID_tree_KMap_go) WL_X(FID_tree_KMap_go_k123) WL_X(FID_tree_puts_m) WL_X(FID_tree_puts_m_k125) WL_X(FID_tree_dels_m) WL_X(FID_tree_dels_m_k127) WL_X(FID_List_append) WL_X(FID_List_append_k129) WL_X(FID_tree_KMap_hangs) WL_X(FID_tree_KMap_hangs_k132) WL_X(FID_tree_KMap_patch) WL_X(FID_tree_KMap_patch_k135) WL_X(FID_wire_put_list_3) WL_X(FID_wire_put_list_3_k146) WL_X(FID_wire_put_list_2) WL_X(FID_wire_put_list_2_k148) WL_X(FID_wire_put_list_1) WL_X(FID_wire_put_list_1_k150) WL_X(FID_wire_value) WL_X(FID_wire_value_k155) WL_X(FID_ffi_tree_get_rec) WL_X(FID_ffi_tree_get_rec_k165) WL_X(FID_ffi_tree_get_rec_k166) WL_X(FID_ffi_tree_get_rec_k167) WL_X(FID_tree_St_at) WL_X(FID_tree_St_at_k170) WL_X(FID_tree_diff_m) WL_X(FID_tree_diff_m_k172) WL_X(FID_tree_diff_m_k173) WL_X(FID_tree_effects) WL_X(FID_tree_effects_k175) WL_X(FID_tree_effects_k176) WL_X(FID_tree_KMap_onto) WL_X(FID_tree_KMap_onto_k178) WL_X(FID_tree_KMap_rec) WL_X(FID_tree_KMap_rec_k180) WL_X(FID_tree_KMap_rec_k181) WL_X(FID_tree_KMap_rec_k182) WL_X(FID_tree_KMap_rec_k183) WL_X(FID_tree_KMap_rec_k184) WL_X(FID_tree_KMap_rec_k185) WL_X(FID_tree_KMap_rec_k186) WL_X(FID_tree_KMap_rec_k187) WL_X(FID_ffi_tree_put_ans) WL_X(FID_ffi_tree_put_ans_k190) WL_X(FID_ffi_tree_put_ans_k191) WL_X(FID_ffi_tree_put_ans_k192) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k195) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k198) WL_X(FID_wire_get_nat_go_k199) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k201) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k206) WL_X(FID_U32_show_go) WL_X(FID_tree_core_step) WL_X(FID_tree_core_step_k218) WL_X(FID_tree_core_step_k219) WL_X(FID_tree_core_step_k220) WL_X(FID_tree_core_step_k221) WL_X(FID_tree_core_step_k222) WL_X(FID_tree_core_step_k223) WL_X(FID_tree_core_step_k224) WL_X(FID_tree_core_step_k225) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k230) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k240) WL_X(FID_wire_get_list_go_1_k241) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k255) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k260) WL_X(FID_U32_show) WL_X(FID_ffi_tree_get_ask) WL_X(FID_ffi_tree_get_ask_k272) WL_X(FID_ffi_tree_get_ask_k273) WL_X(FID_ffi_tree_get_ask_k274) WL_X(FID_ffi_tree_get_ask_k275) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k281) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k283) WL_X(FID_wire_get_nat_k284) WL_X(FID_wire_get_list_1) WL_X(FID_wire_get_list_1_k292) WL_X(FID_wire_get_list_1_k293) WL_X(FID_ffi_tree_step) WL_X(FID_ffi_tree_step_k298) WL_X(FID_ffi_tree_step_k299) WL_X(FID_ffi_tree_step_k300) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k303) WL_X(FID_ffi_echo_step_k304) WL_X(FID_ffi_echo_step_k305) WL_X(FID_ffi_tree_open) WL_X(FID_ffi_tree_open_k316) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k320) WL_X(FID_ffi_echo_open_k321) WL_X(FID_step_go) WL_X(FID_step_go_k324) WL_X(FID_step_go_k325) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k328) WL_X(FID_ffi_go_k329) WL_X(FID_ffi_go_k330) WL_X(FID_ffi_go_k331) WL_X(FID_ffi_go_k332) WL_X(FID_ffi_go_k333) WL_X(FID_open_go) WL_X(FID_open_go_k337) WL_X(FID_open_go_k338) WL_X(FID_step) WL_X(FID_step_k340) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k344) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k349) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k351) WL_X(FID_cli_steps_k352) WL_X(FID_cli_steps_k353) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c365) WL_X(FID_cli_print_c366) WL_X(FID_cli_print_c367) WL_X(FID_cli_args) WL_X(FID_cli_args_k369) WL_X(FID_cli_args_k370) WL_X(FID_cli_args_k371) WL_X(FID_cli_args_k372) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c376) WL_X(FID_IO_bind_k377) WL_X(FID_main) WL_X(FID_main_c379) WL_X(FID_main_c380) WL_X(FID_main_k381) WL_X(FID_main_c382) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
+#define WL_TABLE WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k8) WL_X(FID_wire_get_list_go_0_k9) WL_X(FID_tree_KMap_unset) WL_X(FID_tree_KMap_unset_k24) WL_X(FID_tree_KMap_unset_k25) WL_X(FID_tree_KMap_two) WL_X(FID_tree_KMap_two_k30) WL_X(FID_tree_KMap_two_k31) WL_X(FID_wire_get_list_0) WL_X(FID_wire_get_list_0_k36) WL_X(FID_wire_get_list_0_k37) WL_X(FID_ffi_tree_get_op) WL_X(FID_ffi_tree_get_op_k40) WL_X(FID_ffi_tree_get_op_k41) WL_X(FID_ffi_tree_get_op_k42) WL_X(FID_ffi_tree_get_op_k43) WL_X(FID_ffi_tree_get_op_k44) WL_X(FID_tree_KMap_del) WL_X(FID_tree_drops_s) WL_X(FID_tree_drops_s_k55) WL_X(FID_tree_drops_s_k56) WL_X(FID_tree_gone_of) WL_X(FID_tree_KMap_drop) WL_X(FID_tree_KMap_drop_k59) WL_X(FID_tree_KMap_put) WL_X(FID_tree_KMap_put_k63) WL_X(FID_tree_KMap_put_k64) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k71) WL_X(FID_tree_KMap_exact) WL_X(FID_tree_KMap_ups) WL_X(FID_tree_KMap_ups_k89) WL_X(FID_tree_drops) WL_X(FID_tree_drops_k91) WL_X(FID_tree_KMap_set) WL_X(FID_wire_put_list_go_3) WL_X(FID_wire_put_list_go_3_k98) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k100) WL_X(FID_wire_put_list_go_1) WL_X(FID_wire_put_list_go_1_k102) WL_X(FID_wire_take) WL_X(FID_wire_take_k109) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k111) WL_X(FID_List_take) WL_X(FID_List_take_k119) WL_X(FID_tree_KMap_go) WL_X(FID_tree_KMap_go_k121) WL_X(FID_tree_puts_m) WL_X(FID_tree_puts_m_k123) WL_X(FID_tree_dels_m) WL_X(FID_tree_dels_m_k125) WL_X(FID_List_append) WL_X(FID_List_append_k127) WL_X(FID_tree_KMap_hangs) WL_X(FID_tree_KMap_hangs_k130) WL_X(FID_tree_KMap_patch) WL_X(FID_tree_KMap_patch_k133) WL_X(FID_wire_put_list_3) WL_X(FID_wire_put_list_3_k143) WL_X(FID_wire_put_list_2) WL_X(FID_wire_put_list_2_k145) WL_X(FID_wire_put_list_1) WL_X(FID_wire_put_list_1_k147) WL_X(FID_wire_value) WL_X(FID_wire_value_k152) WL_X(FID_ffi_tree_get_rec) WL_X(FID_ffi_tree_get_rec_k162) WL_X(FID_ffi_tree_get_rec_k163) WL_X(FID_ffi_tree_get_rec_k164) WL_X(FID_tree_St_at) WL_X(FID_tree_St_at_k167) WL_X(FID_tree_diff_m) WL_X(FID_tree_diff_m_k169) WL_X(FID_tree_diff_m_k170) WL_X(FID_tree_effects) WL_X(FID_tree_effects_k172) WL_X(FID_tree_effects_k173) WL_X(FID_tree_KMap_onto) WL_X(FID_tree_KMap_onto_k175) WL_X(FID_tree_KMap_rec) WL_X(FID_tree_KMap_rec_k177) WL_X(FID_tree_KMap_rec_k178) WL_X(FID_tree_KMap_rec_k179) WL_X(FID_tree_KMap_rec_k180) WL_X(FID_tree_KMap_rec_k181) WL_X(FID_tree_KMap_rec_k182) WL_X(FID_tree_KMap_rec_k183) WL_X(FID_ffi_tree_put_ans) WL_X(FID_ffi_tree_put_ans_k186) WL_X(FID_ffi_tree_put_ans_k187) WL_X(FID_ffi_tree_put_ans_k188) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k191) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k194) WL_X(FID_wire_get_nat_go_k195) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k197) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k202) WL_X(FID_U32_show_go) WL_X(FID_tree_core_step) WL_X(FID_tree_core_step_k214) WL_X(FID_tree_core_step_k215) WL_X(FID_tree_core_step_k216) WL_X(FID_tree_core_step_k217) WL_X(FID_tree_core_step_k218) WL_X(FID_tree_core_step_k219) WL_X(FID_tree_core_step_k220) WL_X(FID_tree_core_step_k221) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k226) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k236) WL_X(FID_wire_get_list_go_1_k237) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k251) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k256) WL_X(FID_U32_show) WL_X(FID_ffi_tree_get_ask) WL_X(FID_ffi_tree_get_ask_k268) WL_X(FID_ffi_tree_get_ask_k269) WL_X(FID_ffi_tree_get_ask_k270) WL_X(FID_ffi_tree_get_ask_k271) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k277) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k279) WL_X(FID_wire_get_nat_k280) WL_X(FID_wire_get_list_1) WL_X(FID_wire_get_list_1_k288) WL_X(FID_wire_get_list_1_k289) WL_X(FID_ffi_tree_step) WL_X(FID_ffi_tree_step_k294) WL_X(FID_ffi_tree_step_k295) WL_X(FID_ffi_tree_step_k296) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k299) WL_X(FID_ffi_echo_step_k300) WL_X(FID_ffi_echo_step_k301) WL_X(FID_ffi_tree_open) WL_X(FID_ffi_tree_open_k312) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k316) WL_X(FID_ffi_echo_open_k317) WL_X(FID_step_go) WL_X(FID_step_go_k320) WL_X(FID_step_go_k321) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k324) WL_X(FID_ffi_go_k325) WL_X(FID_ffi_go_k326) WL_X(FID_ffi_go_k327) WL_X(FID_ffi_go_k328) WL_X(FID_ffi_go_k329) WL_X(FID_open_go) WL_X(FID_open_go_k333) WL_X(FID_open_go_k334) WL_X(FID_step) WL_X(FID_step_k336) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k340) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k345) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k347) WL_X(FID_cli_steps_k348) WL_X(FID_cli_steps_k349) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c361) WL_X(FID_cli_print_c362) WL_X(FID_cli_print_c363) WL_X(FID_cli_args) WL_X(FID_cli_args_k365) WL_X(FID_cli_args_k366) WL_X(FID_cli_args_k367) WL_X(FID_cli_args_k368) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c372) WL_X(FID_IO_bind_k373) WL_X(FID_main) WL_X(FID_main_c375) WL_X(FID_main_c376) WL_X(FID_main_k377) WL_X(FID_main_c378) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
 #define MAIN_FID FID_main
 #define MAIN_PURE 0
 #define BLK_SHR 0
@@ -2055,7 +2051,196 @@ INLINE Term spin_20(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_21(Env e, THR Term* o, Term r0) {
+INLINE Term spin_23(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
+  u32 wpoll = 0;
+  Term _m_2 = r0;
+  Term _x_2 = r1;
+  u32 _b_0 = r2;
+  WL_SPIN
+    if (term_aux(_m_2) == CID_tree_KNil) {
+      if (_b_0 == 1) {
+        o[0] = 0;
+        o[1] = 0;
+        o[2] = 0;
+        o[3] = 0;
+      } else {
+        o[0] = 0;
+        o[1] = 0;
+        o[2] = 0;
+        o[3] = 0;
+      }
+    } else if (term_aux(_m_2) == CID_tree_KOne) {
+      u64 _sp_2 = term_peek(e.mem, _m_2);
+      Term _f_5 = e.mem[_sp_2 + 0];
+      Term _f_6 = e.mem[_sp_2 + 1];
+      Term _f_7 = e.mem[_sp_2 + 2];
+      if (_b_0 == 1) {
+        o[0] = 1;
+        o[1] = _f_5;
+        o[2] = _f_6;
+        o[3] = _f_7;
+      } else {
+        o[0] = 0;
+        o[1] = 0;
+        o[2] = 0;
+        o[3] = 0;
+      }
+    } else {
+      u64 _sp_3 = term_peek(e.mem, _m_2);
+      Term _f_8 = e.mem[_sp_3 + 0];
+      Term _f_9 = e.mem[_sp_3 + 1];
+      Term _f_10 = e.mem[_sp_3 + 2];
+      Term _f_11 = e.mem[_sp_3 + 3];
+      if (_b_0 == 1) {
+        u32 _v_7 = 0;
+        Term _o_2[1];
+        if (spin_7(e, _o_2, _f_10, _x_2) == 0) {
+          return 0;
+        }
+        _v_7 = (u32)_o_2[0];
+        r0 = _f_10;
+        r1 = _x_2;
+        r2 = _v_7;
+        _m_2 = r0;
+        _x_2 = r1;
+        _b_0 = r2;
+        WL_AGAIN(spin_23);
+      } else {
+        u32 _v_8 = 0;
+        Term _o_3[1];
+        if (spin_7(e, _o_3, _f_11, _x_2) == 0) {
+          return 0;
+        }
+        _v_8 = (u32)_o_3[0];
+        r0 = _f_11;
+        r1 = _x_2;
+        r2 = _v_8;
+        _m_2 = r0;
+        _x_2 = r1;
+        _b_0 = r2;
+        WL_AGAIN(spin_23);
+      }
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_22(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _m_1 = r0;
+  Term _x_1 = r1;
+  WL_SPIN
+    u32 _v_6 = 0;
+    Term _o_1[1];
+    if (spin_7(e, _o_1, _m_1, _x_1) == 0) {
+      return 0;
+    }
+    _v_6 = (u32)_o_1[0];
+    Term _o_4[4];
+    if (spin_23(e, _o_4, _m_1, _x_1, _v_6) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_4[0];
+    o[1] = _o_4[1];
+    o[2] = _o_4[2];
+    o[3] = _o_4[3];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_24(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  u32 _m_3 = r0;
+  Term _m_4 = r1;
+  Term _m_5 = r2;
+  Term _m_6 = r3;
+  WL_SPIN
+    if (_m_3 == 0) {
+      o[0] = 0;
+    } else {
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_21(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _m_0 = r0;
+  Term _x_0 = r1;
+  WL_SPIN
+    u32 _v_2 = 0;
+    Term _v_3 = 0;
+    Term _v_4 = 0;
+    Term _v_5 = 0;
+    Term _o_5[4];
+    if (spin_22(e, _o_5, _m_0, _x_0) == 0) {
+      return 0;
+    }
+    _v_2 = (u32)_o_5[0];
+    _v_3 = _o_5[1];
+    _v_4 = _o_5[2];
+    _v_5 = _o_5[3];
+    Term _o_6[1];
+    if (spin_24(e, _o_6, _v_2, _v_3, _v_4, _v_5) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_6[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_25(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _s_1 = r0;
+  Term _g_1 = r1;
+  WL_SPIN
+    if (term_aux(_s_1) == CID_Nil) {
+      o[0] = 0;
+    } else {
+      u64 _sp_2 = term_peek(e.mem, _s_1);
+      Term _f_9 = e.mem[_sp_2 + 0];
+      Term _f_10 = e.mem[_sp_2 + 1];
+      u64 _sp_3 = term_peek(e.mem, _f_9);
+      Term _f_11 = e.mem[_sp_3 + 0];
+      Term _f_12 = e.mem[_sp_3 + 1];
+      Term _f_13 = e.mem[_sp_3 + 2];
+      u32 _v_2 = 0;
+      Term _v_3 = 0;
+      Term _o_1[1];
+      if (spin_3(e, _o_1, _f_11, _f_12, _f_13) == 0) {
+        return 0;
+      }
+      _v_3 = _o_1[0];
+      Term _o_2[1];
+      if (spin_21(e, _o_2, _g_1, _v_3) == 0) {
+        return 0;
+      }
+      _v_2 = (u32)_o_2[0];
+      u32 _v_4 = 0;
+      Term _v_5 = 0;
+      Term _o_3[1];
+      if (spin_6(e, _o_3, _f_11, _f_12, _f_13) == 0) {
+        return 0;
+      }
+      _v_5 = _o_3[0];
+      Term _o_4[1];
+      if (spin_21(e, _o_4, _g_1, _v_5) == 0) {
+        return 0;
+      }
+      _v_4 = (u32)_o_4[0];
+      o[0] = ((_v_2) | (_v_4));
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_26(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _hs_1 = r0;
   WL_SPIN
@@ -2074,7 +2259,7 @@ INLINE Term spin_21(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_22(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_27(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _e_0 = r0;
   Term _e_1 = r1;
@@ -2103,7 +2288,7 @@ INLINE Term spin_22(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_28(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _e_0 = r0;
   Term _e_1 = r1;
@@ -2151,7 +2336,7 @@ INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_24(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_29(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _c_0 = r0;
   Term _r_0 = r1;
@@ -2167,7 +2352,7 @@ INLINE Term spin_24(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_25(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5) {
+INLINE Term spin_30(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   u32 _r_1 = r1;
@@ -2198,7 +2383,7 @@ INLINE Term spin_25(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r
   return 1;
 }
 
-INLINE Term spin_26(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_31(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_6 = r0;
   Term _r_7 = r1;
@@ -2226,7 +2411,7 @@ INLINE Term spin_26(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_27(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
+INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _a_1 = r1;
@@ -2269,7 +2454,7 @@ INLINE Term spin_27(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term
   return 1;
 }
 
-INLINE Term spin_28(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_33(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   u32 wpoll = 0;
   Term _e_3 = r0;
   Term _e_4 = r1;
@@ -2281,7 +2466,7 @@ INLINE Term spin_28(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_29(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
+INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   u32 wpoll = 0;
   Term _s_1 = r0;
   Term _k_1 = r1;
@@ -2314,7 +2499,7 @@ INLINE Term spin_29(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
         _s_1 = r0;
         _k_1 = r1;
         _lo_0 = r2;
-        WL_AGAIN(spin_29);
+        WL_AGAIN(spin_34);
       } else {
         u64 _nd_0 = heap_alloc(e, cls_fit(3));
         e.mem[_nd_0 + 0] = rfc_seal(e, _f_2);
@@ -2331,7 +2516,7 @@ INLINE Term spin_29(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_30(Env e, THR Term* o, u32 r0) {
+INLINE Term spin_35(Env e, THR Term* o, u32 r0) {
   u32 wpoll = 0;
   u32 _b_0 = r0;
   WL_SPIN
@@ -2345,7 +2530,7 @@ INLINE Term spin_30(Env e, THR Term* o, u32 r0) {
   return 1;
 }
 
-INLINE Term spin_31(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_36(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _m_1 = r0;
   Term _x_1 = r1;
@@ -2377,7 +2562,7 @@ INLINE Term spin_31(Env e, THR Term* o, Term r0, Term r1) {
       }
       _v_4 = _o_2[0];
       Term _o_3[1];
-      if (spin_30(e, _o_3, (_v_4 < _x_1)) == 0) {
+      if (spin_35(e, _o_3, (_v_4 < _x_1)) == 0) {
         return 0;
       }
       _v_3 = (u32)_o_3[0];
@@ -2396,7 +2581,7 @@ INLINE Term spin_31(Env e, THR Term* o, Term r0, Term r1) {
       }
       _v_6 = _o_4[0];
       Term _o_5[1];
-      if (spin_30(e, _o_5, (_v_6 < _x_1)) == 0) {
+      if (spin_35(e, _o_5, (_v_6 < _x_1)) == 0) {
         return 0;
       }
       _v_5 = (u32)_o_5[0];
@@ -2407,7 +2592,7 @@ INLINE Term spin_31(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_37(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _m_2 = r0;
   Term _x_2 = r1;
@@ -2428,7 +2613,7 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1) {
       Term _f_20 = e.mem[_sp_5 + 3];
       u32 _v_8 = 0;
       Term _o_7[1];
-      if (spin_30(e, _o_7, (_x_2 < _f_17)) == 0) {
+      if (spin_35(e, _o_7, (_x_2 < _f_17)) == 0) {
         return 0;
       }
       _v_8 = (u32)_o_7[0];
@@ -2440,7 +2625,7 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1) {
       }
       _v_10 = _o_8[0];
       Term _o_9[1];
-      if (spin_30(e, _o_9, (_v_10 < _x_2)) == 0) {
+      if (spin_35(e, _o_9, (_v_10 < _x_2)) == 0) {
         return 0;
       }
       _v_9 = (u32)_o_9[0];
@@ -2451,82 +2636,7 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_33(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
-  u32 wpoll = 0;
-  Term _m_1 = r0;
-  Term _x_1 = r1;
-  u32 _b_0 = r2;
-  WL_SPIN
-    if (term_aux(_m_1) == CID_tree_KNil) {
-      if (_b_0 == 1) {
-        o[0] = 0;
-        o[1] = 0;
-        o[2] = 0;
-        o[3] = 0;
-      } else {
-        o[0] = 0;
-        o[1] = 0;
-        o[2] = 0;
-        o[3] = 0;
-      }
-    } else if (term_aux(_m_1) == CID_tree_KOne) {
-      u64 _sp_0 = term_peek(e.mem, _m_1);
-      Term _f_0 = e.mem[_sp_0 + 0];
-      Term _f_1 = e.mem[_sp_0 + 1];
-      Term _f_2 = e.mem[_sp_0 + 2];
-      if (_b_0 == 1) {
-        o[0] = 1;
-        o[1] = _f_0;
-        o[2] = _f_1;
-        o[3] = _f_2;
-      } else {
-        o[0] = 0;
-        o[1] = 0;
-        o[2] = 0;
-        o[3] = 0;
-      }
-    } else {
-      u64 _sp_1 = term_peek(e.mem, _m_1);
-      Term _f_3 = e.mem[_sp_1 + 0];
-      Term _f_4 = e.mem[_sp_1 + 1];
-      Term _f_5 = e.mem[_sp_1 + 2];
-      Term _f_6 = e.mem[_sp_1 + 3];
-      if (_b_0 == 1) {
-        u32 _v_1 = 0;
-        Term _o_1[1];
-        if (spin_7(e, _o_1, _f_5, _x_1) == 0) {
-          return 0;
-        }
-        _v_1 = (u32)_o_1[0];
-        r0 = _f_5;
-        r1 = _x_1;
-        r2 = _v_1;
-        _m_1 = r0;
-        _x_1 = r1;
-        _b_0 = r2;
-        WL_AGAIN(spin_33);
-      } else {
-        u32 _v_2 = 0;
-        Term _o_2[1];
-        if (spin_7(e, _o_2, _f_6, _x_1) == 0) {
-          return 0;
-        }
-        _v_2 = (u32)_o_2[0];
-        r0 = _f_6;
-        r1 = _x_1;
-        r2 = _v_2;
-        _m_1 = r0;
-        _x_1 = r1;
-        _b_0 = r2;
-        WL_AGAIN(spin_33);
-      }
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_38(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   Term _x_1 = r1;
@@ -2536,7 +2646,7 @@ INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term
   WL_SPIN
     Term _v_0 = 0;
     Term _o_0[1];
-    if (spin_22(e, _o_0, _x_0, _x_1, _x_2, _r_1) == 0) {
+    if (spin_27(e, _o_0, _x_0, _x_1, _x_2, _r_1) == 0) {
       return 0;
     }
     _v_0 = _o_0[0];
@@ -2547,7 +2657,7 @@ INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term
   return 1;
 }
 
-INLINE Term spin_35(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_39(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _x_0 = r0;
   Term _x_1 = r1;
@@ -2556,7 +2666,7 @@ INLINE Term spin_35(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   WL_SPIN
     Term _v_0 = 0;
     Term _o_4[1];
-    if (spin_23(e, _o_4, _x_0, _x_1, _r_1) == 0) {
+    if (spin_28(e, _o_4, _x_0, _x_1, _r_1) == 0) {
       return 0;
     }
     _v_0 = _o_4[0];
@@ -2567,7 +2677,7 @@ INLINE Term spin_35(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_36(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_40(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   Term _r_0 = r1;
@@ -2586,7 +2696,7 @@ INLINE Term spin_36(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_37(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_41(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _c_0 = r0;
   u32 _r_0 = r1;
@@ -2610,7 +2720,7 @@ INLINE Term spin_37(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_38(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_42(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _r_0 = r0;
   Term _r_1 = r1;
@@ -2625,7 +2735,7 @@ INLINE Term spin_38(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_40(Env e, THR Term* o, Term r0, u32 r1, Term r2) {
+INLINE Term spin_44(Env e, THR Term* o, Term r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   Term _p_0 = r0;
   u32 _p_1 = r1;
@@ -2638,7 +2748,7 @@ INLINE Term spin_40(Env e, THR Term* o, Term r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_41(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_45(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _s_0 = r0;
   Term _k_0 = r1;
@@ -2650,7 +2760,7 @@ INLINE Term spin_41(Env e, THR Term* o, Term r0, Term r1) {
     }
     _v_2 = (u32)_o_1[0];
     Term _o_2[1];
-    if (spin_29(e, _o_2, _s_0, _k_0, _v_2) == 0) {
+    if (spin_34(e, _o_2, _s_0, _k_0, _v_2) == 0) {
       return 0;
     }
     o[0] = _o_2[0];
@@ -2659,7 +2769,7 @@ INLINE Term spin_41(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_42(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_46(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _s_1 = r0;
   Term _e_0 = r1;
@@ -2681,7 +2791,7 @@ INLINE Term spin_42(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
       spare_free(e, cls_fit(3), _sp_3);
       term_sink(e, _f_9);
       Term _o_4[1];
-      if (spin_27(e, _o_4, _f_10, _f_11, _f_12, _e_0, _e_1, _e_2) == 0) {
+      if (spin_32(e, _o_4, _f_10, _f_11, _f_12, _e_0, _e_1, _e_2) == 0) {
         return 0;
       }
       o[0] = (u32)_o_4[0];
@@ -2692,7 +2802,7 @@ INLINE Term spin_42(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_43(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_47(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   u32 _hit_0 = r0;
   Term _e_3 = r1;
@@ -2717,7 +2827,7 @@ INLINE Term spin_43(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
       _v_6 = _o_7[0];
       Term _v_7 = 0;
       Term _o_8[1];
-      if (spin_28(e, _o_8, _e_3, _e_4, _e_5) == 0) {
+      if (spin_33(e, _o_8, _e_3, _e_4, _e_5) == 0) {
         return 0;
       }
       _v_7 = _o_8[0];
@@ -2735,7 +2845,7 @@ INLINE Term spin_43(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
   return 1;
 }
 
-INLINE Term spin_44(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_48(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _t_1 = r0;
   Term _x_0 = r1;
@@ -2772,7 +2882,7 @@ INLINE Term spin_44(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_45(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_49(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _hit_0 = r0;
   Term _k_0 = r1;
@@ -2793,75 +2903,7 @@ INLINE Term spin_45(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_47(Env e, THR Term* o, Term r0, Term r1) {
-  u32 wpoll = 0;
-  Term _m_3 = r0;
-  Term _x_1 = r1;
-  WL_SPIN
-    u32 _v_11 = 0;
-    Term _o_5[1];
-    if (spin_7(e, _o_5, _m_3, _x_1) == 0) {
-      return 0;
-    }
-    _v_11 = (u32)_o_5[0];
-    Term _o_6[4];
-    if (spin_33(e, _o_6, _m_3, _x_1, _v_11) == 0) {
-      return 0;
-    }
-    o[0] = (u32)_o_6[0];
-    o[1] = _o_6[1];
-    o[2] = _o_6[2];
-    o[3] = _o_6[3];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_48(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
-  u32 wpoll = 0;
-  u32 _m_4 = r0;
-  Term _m_5 = r1;
-  Term _m_6 = r2;
-  Term _m_7 = r3;
-  WL_SPIN
-    if (_m_4 == 0) {
-      o[0] = 0;
-    } else {
-      o[0] = 1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_46(Env e, THR Term* o, Term r0, Term r1) {
-  u32 wpoll = 0;
-  Term _m_2 = r0;
-  Term _x_0 = r1;
-  WL_SPIN
-    u32 _v_7 = 0;
-    Term _v_8 = 0;
-    Term _v_9 = 0;
-    Term _v_10 = 0;
-    Term _o_7[4];
-    if (spin_47(e, _o_7, _m_2, _x_0) == 0) {
-      return 0;
-    }
-    _v_7 = (u32)_o_7[0];
-    _v_8 = _o_7[1];
-    _v_9 = _o_7[2];
-    _v_10 = _o_7[3];
-    Term _o_8[1];
-    if (spin_48(e, _o_8, _v_7, _v_8, _v_9, _v_10) == 0) {
-      return 0;
-    }
-    o[0] = (u32)_o_8[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_49(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_50(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _r_0 = r0;
   Term _r_1 = r1;
@@ -2876,7 +2918,7 @@ INLINE Term spin_49(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_50(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_51(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _b_3 = r0;
   Term _rest_0 = r1;
@@ -2897,7 +2939,7 @@ INLINE Term spin_50(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_51(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_52(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _x_3 = r0;
   Term _rest_1 = r1;
@@ -2912,7 +2954,7 @@ INLINE Term spin_51(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_53(Env e, THR Term* o, Term r0) {
+INLINE Term spin_54(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _text_0 = r0;
   WL_SPIN
@@ -2928,11 +2970,11 @@ INLINE Term spin_53(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_52(Env e, THR Term* o) {
+INLINE Term spin_53(Env e, THR Term* o) {
   u32 wpoll = 0;
   WL_SPIN
     Term _o_4[1];
-    if (spin_53(e, _o_4, term_ctr(CID_SCon, STAT_OFF + 42)) == 0) {
+    if (spin_54(e, _o_4, term_ctr(CID_SCon, STAT_OFF + 42)) == 0) {
       return 0;
     }
     o[0] = _o_4[0];
@@ -2941,7 +2983,7 @@ INLINE Term spin_52(Env e, THR Term* o) {
   return 1;
 }
 
-INLINE Term spin_55(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_56(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _xs_1 = r0;
   Term _acc_0 = r1;
@@ -2960,19 +3002,19 @@ INLINE Term spin_55(Env e, THR Term* o, Term r0, Term r1) {
       r1 = term_ctr(CID_Con, _nd_0);
       _xs_1 = r0;
       _acc_0 = r1;
-      WL_AGAIN(spin_55);
+      WL_AGAIN(spin_56);
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_54(Env e, THR Term* o, Term r0) {
+INLINE Term spin_55(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _xs_0 = r0;
   WL_SPIN
     Term _o_0[1];
-    if (spin_55(e, _o_0, _xs_0, term_pak(CID_Nil, 0)) == 0) {
+    if (spin_56(e, _o_0, _xs_0, term_pak(CID_Nil, 0)) == 0) {
       return 0;
     }
     o[0] = _o_0[0];
@@ -2981,7 +3023,7 @@ INLINE Term spin_54(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_56(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_57(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _held_0 = r0;
   Term _k_0 = r1;
@@ -2998,20 +3040,20 @@ INLINE Term spin_56(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_57(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_58(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _good_0 = r0;
-  Term _m_7 = r1;
+  Term _m_6 = r1;
   Term _n_3 = r2;
   WL_SPIN
     if (_good_0 == 1) {
-      term_sink(e, _m_7);
+      term_sink(e, _m_6);
       o[0] = _n_3;
       o[1] = 1;
       o[2] = 0;
     } else {
       term_sink(e, _n_3);
-      o[0] = _m_7;
+      o[0] = _m_6;
       o[1] = 0;
       o[2] = 0;
     }
@@ -3020,7 +3062,7 @@ INLINE Term spin_57(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_58(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_59(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _hit_0 = r0;
   u32 _later_0 = r1;
@@ -3039,7 +3081,7 @@ INLINE Term spin_58(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_59(Env e, THR Term* o, u32 r0) {
+INLINE Term spin_60(Env e, THR Term* o, u32 r0) {
   u32 wpoll = 0;
   u32 _comma_1 = r0;
   WL_SPIN
@@ -3055,7 +3097,7 @@ INLINE Term spin_59(Env e, THR Term* o, u32 r0) {
   return 1;
 }
 
-INLINE Term spin_60(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_61(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _f_1 = r0;
   Term _s_1 = r1;
@@ -3075,7 +3117,7 @@ INLINE Term spin_60(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_61(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5, Term r6) {
+INLINE Term spin_62(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5, Term r6) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   u32 _r_1 = r1;
@@ -3109,7 +3151,7 @@ INLINE Term spin_61(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r
   return 1;
 }
 
-INLINE Term spin_62(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_63(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_7 = r0;
   Term _r_8 = r1;
@@ -3139,7 +3181,7 @@ INLINE Term spin_62(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_63(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_64(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_10 = r0;
   Term _r_11 = r1;
@@ -3169,7 +3211,7 @@ INLINE Term spin_63(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_64(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3, Term r4, Term r5, Term r6, Term r7, u32 r8, Term r9) {
+INLINE Term spin_65(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3, Term r4, Term r5, Term r6, Term r7, u32 r8, Term r9) {
   u32 wpoll = 0;
   Term _log_0 = r0;
   u32 _r_0 = r1;
@@ -3208,7 +3250,7 @@ INLINE Term spin_64(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3, Term 
   return 1;
 }
 
-INLINE Term spin_65(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_66(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _qr_0 = r0;
   Term _qr_1 = r1;
@@ -3220,7 +3262,7 @@ INLINE Term spin_65(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_66(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
+INLINE Term spin_67(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
   u32 wpoll = 0;
   u32 _m_0 = r0;
   Term _m_1 = r1;
@@ -3231,7 +3273,7 @@ INLINE Term spin_66(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
       o[1] = _m_1;
     } else {
       Term _o_0[2];
-      if (spin_59(e, _o_0, _comma_0) == 0) {
+      if (spin_60(e, _o_0, _comma_0) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -3242,7 +3284,7 @@ INLINE Term spin_66(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_67(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_68(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   u32 _ok_0 = r0;
   u32 _x_1 = r1;
@@ -3263,7 +3305,7 @@ INLINE Term spin_67(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_68(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_69(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   u32 _t_0 = r0;
   u32 _f_2 = r1;
@@ -3275,7 +3317,7 @@ INLINE Term spin_68(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
       o[2] = _s_1;
     } else {
       Term _o_0[3];
-      if (spin_60(e, _o_0, _f_2, _s_1) == 0) {
+      if (spin_61(e, _o_0, _f_2, _s_1) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -3287,7 +3329,7 @@ INLINE Term spin_68(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_69(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_70(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   u32 _r_0 = r1;
@@ -3311,7 +3353,7 @@ INLINE Term spin_69(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_71(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -3326,7 +3368,7 @@ INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
       }
       _v_0 = (u32)_o_0[0];
       Term _o_1[3];
-      if (spin_67(e, _o_1, _v_0, _x_0, _r_2) == 0) {
+      if (spin_68(e, _o_1, _v_0, _x_0, _r_2) == 0) {
         return 0;
       }
       o[0] = (u32)_o_1[0];
@@ -3342,7 +3384,7 @@ INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_71(Env e, THR Term* o, Term r0) {
+INLINE Term spin_72(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _s_0 = r0;
   WL_SPIN
@@ -3356,7 +3398,7 @@ INLINE Term spin_71(Env e, THR Term* o, Term r0) {
       u32 _f_0 = _fb_0[0];
       Term _f_1 = _fb_0[1];
       Term _o_0[3];
-      if (spin_68(e, _o_0, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
+      if (spin_69(e, _o_0, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -3369,7 +3411,7 @@ INLINE Term spin_71(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_72(Env e, THR Term* o, Term r0) {
+INLINE Term spin_73(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _s_1 = r0;
   WL_SPIN
@@ -3389,7 +3431,7 @@ INLINE Term spin_72(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_73(Env e, THR Term* o, Term r0) {
+INLINE Term spin_74(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _hs_1 = r0;
   WL_SPIN
@@ -3401,12 +3443,12 @@ INLINE Term spin_73(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_74(Env e, THR Term* o, Term r0) {
+INLINE Term spin_75(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _s_3 = r0;
   WL_SPIN
     Term _o_0[1];
-    if (spin_72(e, _o_0, _s_3) == 0) {
+    if (spin_73(e, _o_0, _s_3) == 0) {
       return 0;
     }
     o[0] = (u32)_o_0[0];
@@ -3415,7 +3457,7 @@ INLINE Term spin_74(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_75(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_76(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _done_0 = r0;
   Term _hs_0 = r1;
@@ -3425,7 +3467,7 @@ INLINE Term spin_75(Env e, THR Term* o, u32 r0, Term r1) {
       Term _v_2 = 0;
       Term _v_3 = 0;
       Term _o_1[3];
-      if (spin_73(e, _o_1, _hs_0) == 0) {
+      if (spin_74(e, _o_1, _hs_0) == 0) {
         return 0;
       }
       _v_1 = _o_1[0];
@@ -3449,7 +3491,7 @@ INLINE Term spin_75(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_76(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_77(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -3458,12 +3500,12 @@ INLINE Term spin_76(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
     if (_r_0 == 0) {
       u32 _v_0 = 0;
       Term _o_0[1];
-      if (spin_74(e, _o_0, _r_2) == 0) {
+      if (spin_75(e, _o_0, _r_2) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_0[0];
       Term _o_1[5];
-      if (spin_75(e, _o_1, _v_0, _r_1) == 0) {
+      if (spin_76(e, _o_1, _v_0, _r_1) == 0) {
         return 0;
       }
       o[0] = (u32)_o_1[0];
@@ -3483,7 +3525,7 @@ INLINE Term spin_76(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_77(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_78(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -3501,7 +3543,7 @@ INLINE Term spin_77(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_78(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_79(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   u32 _r_4 = r0;
   Term _r_5 = r1;
@@ -3520,7 +3562,7 @@ INLINE Term spin_78(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
   return 1;
 }
 
-INLINE Term spin_79(Env e, THR Term* o, Term r0) {
+INLINE Term spin_80(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _input_1 = r0;
   WL_SPIN
@@ -3530,7 +3572,7 @@ INLINE Term spin_79(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_80(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_81(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -3548,7 +3590,7 @@ INLINE Term spin_80(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_81(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_82(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   u32 _r_4 = r0;
   Term _r_5 = r1;
@@ -3567,7 +3609,7 @@ INLINE Term spin_81(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
   return 1;
 }
 
-INLINE Term spin_82(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_83(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   u32 _state_5 = r0;
   u32 _state_6 = r1;
@@ -3591,7 +3633,7 @@ INLINE Term spin_82(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r
   return 1;
 }
 
-INLINE Term spin_83(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
+INLINE Term spin_84(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   u32 wpoll = 0;
   Term _a_1 = r0;
   Term _b_1 = r1;
@@ -3638,7 +3680,7 @@ INLINE Term spin_83(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
           _a_1 = r0;
           _b_1 = r1;
           _c_0 = r2;
-          WL_AGAIN(spin_83);
+          WL_AGAIN(spin_84);
         } else {
           term_sink(e, _f_5);
           o[0] = _c_0;
@@ -3651,7 +3693,7 @@ INLINE Term spin_83(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_84(Env e, THR Term* o, Term r0) {
+INLINE Term spin_85(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _reply_0 = r0;
   WL_SPIN
@@ -3664,13 +3706,13 @@ INLINE Term spin_84(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_85(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_86(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_1 = r0;
   Term _b_1 = r1;
   WL_SPIN
     Term _o_0[1];
-    if (spin_83(e, _o_0, _a_1, _b_1, 1) == 0) {
+    if (spin_84(e, _o_0, _a_1, _b_1, 1) == 0) {
       return 0;
     }
     o[0] = (u32)_o_0[0];
@@ -3679,14 +3721,14 @@ INLINE Term spin_85(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_86(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_87(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _b_0 = r1;
   WL_SPIN
     u32 _v_1 = 0;
     Term _o_0[1];
-    if (spin_85(e, _o_0, _a_0, _b_0) == 0) {
+    if (spin_86(e, _o_0, _a_0, _b_0) == 0) {
       return 0;
     }
     _v_1 = (u32)_o_0[0];
@@ -3700,7 +3742,7 @@ INLINE Term spin_86(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_87(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_88(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _code_0 = r0;
   Term _msg_0 = r1;
@@ -4619,58 +4661,181 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_elem)
-    Term _xs_0 = r0;
-    Term _x_0 = r1;
+  WL_CASE(FID_tree_drops_s)
+    Term _s_0 = r0;
+    Term _hs_0 = r1;
+    Term _g_0 = r2;
+    u32 _hit_0 = r3;
     WL_OPEN
     WL_SPIN
-    if (term_aux(_xs_0) == CID_Nil) {
-      r0 = 0;
+    if (term_aux(_s_0) == CID_Nil) {
+      term_sink(e, _hs_0);
+      term_sink(e, _g_0);
+      r0 = term_pak(CID_Nil, 0);
       WL_RETN(1);
     } else {
       Term _fb_0[2];
-      u64 _sp_0 = ctr_take(e, _xs_0, 2, _fb_0);
+      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
       Term _f_0 = _fb_0[0];
       Term _f_1 = _fb_0[1];
-      spare_free(e, cls_fit(2), _sp_0);
-      if (seq) {
-        WL_ROOM(3, 0);
-        STK(0) = _f_0;
-        STK(1) = _x_0;
-        STK(2) = FID_tree_elem_k52;
-        WL_PUSHN(3);
+      Term _fb_1[3];
+      u64 _sp_1 = ctr_take(e, _f_0, 3, _fb_1);
+      Term _f_2 = _fb_1[0];
+      Term _f_3 = _fb_1[1];
+      Term _f_4 = _fb_1[2];
+      spare_free(e, cls_fit(3), _sp_1);
+      if (_hit_0 == 1) {
+        Term _v_0 = 0;
+        Term _o_0[1];
+        if (spin_3(e, _o_0, _f_2, _f_3, _f_4) == 0) {
+          return 0;
+        }
+        _v_0 = _o_0[0];
+        _hs_0 = term_keep(e, _hs_0, 1);
+        spare_free(e, cls_fit(2), _sp_0);
+        if (seq) {
+          WL_ROOM(6, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_3;
+          STK(2) = _f_4;
+          STK(3) = _f_1;
+          STK(4) = _hs_0;
+          STK(5) = FID_tree_drops_s_k55;
+          WL_PUSHN(6);
+        } else {
+          u64 _t_0 = task_node(e, FID_tree_drops_s_k55, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _f_2;
+          e.mem[_t_0 + 1] = _f_3;
+          e.mem[_t_0 + 2] = _f_4;
+          e.mem[_t_0 + 3] = _f_1;
+          e.mem[_t_0 + 4] = _hs_0;
+          WL_CONT = term_tsk(FID_tree_drops_s_k55, _t_0);
+          WL_IDX = 5;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_tree_gone_of)) {
+          u64 _t_1 = task_node(e, FID_tree_gone_of, WL_CONT, WL_IDX, 0);
+          e.mem[_t_1 + 0] = _hs_0;
+          e.mem[_t_1 + 1] = _g_0;
+          e.mem[_t_1 + 2] = _v_0;
+          return term_tsk(FID_tree_gone_of, _t_1);
+        }
+        r0 = _hs_0;
+        r1 = _g_0;
+        r2 = _v_0;
+        WL_JMP(FID_tree_gone_of);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_elem_k52, WL_CONT, WL_IDX, 1);
-        e.mem[_t_0 + 0] = _f_0;
-        e.mem[_t_0 + 1] = _x_0;
-        WL_CONT = term_tsk(FID_tree_elem_k52, _t_0);
-        WL_IDX = 2;
+        u32 _v_7 = 0;
+        Term _o_7[1];
+        if (spin_25(e, _o_7, _f_1, _g_0) == 0) {
+          return 0;
+        }
+        _v_7 = (u32)_o_7[0];
+        spare_free(e, cls_fit(2), _sp_0);
+        r0 = _f_1;
+        r1 = _hs_0;
+        r2 = _g_0;
+        r3 = _v_7;
+        _s_0 = r0;
+        _hs_0 = r1;
+        _g_0 = r2;
+        _hit_0 = r3;
+        WL_AGAIN(FID_tree_drops_s);
       }
-      r0 = _f_1;
-      r1 = _x_0;
-      _xs_0 = r0;
-      _x_0 = r1;
-      WL_AGAIN(FID_tree_elem);
     }
     WL_SPUN
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_elem_k52)
-    WL_POPN(2);
-    Term _f_2 = STK(0);
-    Term _x_1 = STK(1);
-    u32 _h_0 = r0;
+  WL_CASE(FID_tree_drops_s_k55)
+    WL_POPN(5);
+    Term _f_5 = STK(0);
+    Term _f_6 = STK(1);
+    Term _f_7 = STK(2);
+    Term _f_8 = STK(3);
+    Term _hs_1 = STK(4);
+    Term _g2_0 = r0;
     WL_OPEN
-    u32 _v_0 = 0;
-    Term _o_0[1];
-    if (spin_8(e, _o_0, _f_2, _x_1) == 0) {
+    u32 _v_1 = 0;
+    Term _o_5[1];
+    if (spin_25(e, _o_5, _f_8, _g2_0) == 0) {
       return 0;
     }
-    _v_0 = (u32)_o_0[0];
-    r0 = ((_v_0) | (_h_0));
+    _v_1 = (u32)_o_5[0];
+    if (seq) {
+      WL_ROOM(4, 0);
+      STK(0) = _f_5;
+      STK(1) = _f_6;
+      STK(2) = _f_7;
+      STK(3) = FID_tree_drops_s_k56;
+      WL_PUSHN(4);
+    } else {
+      u64 _t_2 = task_node(e, FID_tree_drops_s_k56, WL_CONT, WL_IDX, 1);
+      e.mem[_t_2 + 0] = _f_5;
+      e.mem[_t_2 + 1] = _f_6;
+      e.mem[_t_2 + 2] = _f_7;
+      WL_CONT = term_tsk(FID_tree_drops_s_k56, _t_2);
+      WL_IDX = 3;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_tree_drops_s)) {
+      u64 _t_3 = task_node(e, FID_tree_drops_s, WL_CONT, WL_IDX, 0);
+      e.mem[_t_3 + 0] = _f_8;
+      e.mem[_t_3 + 1] = _hs_1;
+      e.mem[_t_3 + 2] = _g2_0;
+      e.mem[_t_3 + 3] = _v_1;
+      return term_tsk(FID_tree_drops_s, _t_3);
+    }
+    r0 = _f_8;
+    r1 = _hs_1;
+    r2 = _g2_0;
+    r3 = _v_1;
+    WL_JMP(FID_tree_drops_s);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_tree_drops_s_k56)
+    WL_POPN(3);
+    Term _f_14 = STK(0);
+    Term _f_15 = STK(1);
+    Term _f_16 = STK(2);
+    Term _h_0 = r0;
+    WL_OPEN
+    Term _v_6 = 0;
+    Term _o_6[1];
+    if (spin_3(e, _o_6, _f_14, _f_15, _f_16) == 0) {
+      return 0;
+    }
+    _v_6 = _o_6[0];
+    u64 _nd_0 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _v_6);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_0);
     WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_tree_gone_of)
+    Term _hs_0 = r0;
+    Term _g_0 = r1;
+    Term _k_0 = r2;
+    WL_OPEN
+    if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_set)) {
+      u64 _t_0 = task_node(e, FID_tree_KMap_set, WL_CONT, WL_IDX, 0);
+      e.mem[_t_0 + 0] = _g_0;
+      e.mem[_t_0 + 1] = _hs_0;
+      e.mem[_t_0 + 2] = _k_0;
+      e.mem[_t_0 + 3] = 0;
+      e.mem[_t_0 + 4] = 0;
+      return term_tsk(FID_tree_KMap_set, _t_0);
+    }
+    r0 = _g_0;
+    r1 = _hs_0;
+    r2 = _k_0;
+    r3 = 0;
+    r4 = 0;
+    WL_JMP(FID_tree_KMap_set);
   }}
 #endif
 
@@ -4691,12 +4856,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_1;
-        STK(1) = FID_tree_KMap_drop_k54;
+        STK(1) = FID_tree_KMap_drop_k59;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_KMap_drop_k54, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_KMap_drop_k59, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_1;
-        WL_CONT = term_tsk(FID_tree_KMap_drop_k54, _t_0);
+        WL_CONT = term_tsk(FID_tree_KMap_drop_k59, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_del)) {
@@ -4713,7 +4878,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_drop_k54)
+  WL_CASE(FID_tree_KMap_drop_k59)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -4836,7 +5001,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_b_0 == 1) {
         Term _v_4 = 0;
         Term _o_4[1];
-        if (spin_21(e, _o_4, _hs_0) == 0) {
+        if (spin_26(e, _o_4, _hs_0) == 0) {
           return 0;
         }
         _v_4 = _o_4[0];
@@ -4857,13 +5022,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_ROOM(3, 0);
           STK(0) = _f_3;
           STK(1) = _f_6;
-          STK(2) = FID_tree_KMap_put_k60;
+          STK(2) = FID_tree_KMap_put_k63;
           WL_PUSHN(3);
         } else {
-          u64 _t_1 = task_node(e, FID_tree_KMap_put_k60, WL_CONT, WL_IDX, 1);
+          u64 _t_1 = task_node(e, FID_tree_KMap_put_k63, WL_CONT, WL_IDX, 1);
           e.mem[_t_1 + 0] = _f_3;
           e.mem[_t_1 + 1] = _f_6;
-          WL_CONT = term_tsk(FID_tree_KMap_put_k60, _t_1);
+          WL_CONT = term_tsk(FID_tree_KMap_put_k63, _t_1);
           WL_IDX = 2;
         }
         r0 = _f_5;
@@ -4884,7 +5049,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else {
         Term _v_7 = 0;
         Term _o_8[1];
-        if (spin_21(e, _o_8, _hs_0) == 0) {
+        if (spin_26(e, _o_8, _hs_0) == 0) {
           return 0;
         }
         _v_7 = _o_8[0];
@@ -4905,13 +5070,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_ROOM(3, 0);
           STK(0) = _f_3;
           STK(1) = _f_5;
-          STK(2) = FID_tree_KMap_put_k61;
+          STK(2) = FID_tree_KMap_put_k64;
           WL_PUSHN(3);
         } else {
-          u64 _t_2 = task_node(e, FID_tree_KMap_put_k61, WL_CONT, WL_IDX, 1);
+          u64 _t_2 = task_node(e, FID_tree_KMap_put_k64, WL_CONT, WL_IDX, 1);
           e.mem[_t_2 + 0] = _f_3;
           e.mem[_t_2 + 1] = _f_5;
-          WL_CONT = term_tsk(FID_tree_KMap_put_k61, _t_2);
+          WL_CONT = term_tsk(FID_tree_KMap_put_k64, _t_2);
           WL_IDX = 2;
         }
         r0 = _f_6;
@@ -4936,7 +5101,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_put_k60)
+  WL_CASE(FID_tree_KMap_put_k63)
     WL_POPN(2);
     Term _f_9 = STK(0);
     Term _f_10 = STK(1);
@@ -4952,7 +5117,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_put_k61)
+  WL_CASE(FID_tree_KMap_put_k64)
     WL_POPN(2);
     Term _f_11 = STK(0);
     Term _f_12 = STK(1);
@@ -4986,12 +5151,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_put_str_go_k68;
+        STK(1) = FID_wire_put_str_go_k71;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_str_go_k68, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_str_go_k71, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_put_str_go_k68, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_str_go_k71, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -5005,14 +5170,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_str_go_k68)
+  WL_CASE(FID_wire_put_str_go_k71)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[2];
-    if (spin_24(e, _o_0, _f_2, _h_0, _h_1) == 0) {
+    if (spin_29(e, _o_0, _f_2, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -5062,290 +5227,6 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_gone_at)
-    Term _t_0 = r0;
-    Term _gone_0 = r1;
-    WL_OPEN
-    if (term_aux(_t_0) == CID_Nil) {
-      term_sink(e, _gone_0);
-      r0 = 0;
-      WL_RETN(1);
-    } else {
-      u64 _sp_0 = term_peek(e.mem, _t_0);
-      Term _f_0 = e.mem[_sp_0 + 0];
-      Term _f_1 = e.mem[_sp_0 + 1];
-      u64 _sp_1 = term_peek(e.mem, _f_0);
-      Term _f_2 = e.mem[_sp_1 + 0];
-      Term _f_3 = e.mem[_sp_1 + 1];
-      Term _f_4 = e.mem[_sp_1 + 2];
-      Term _v_0 = 0;
-      Term _o_0[1];
-      if (spin_3(e, _o_0, _f_2, _f_3, _f_4) == 0) {
-        return 0;
-      }
-      _v_0 = _o_0[0];
-      _gone_0 = term_keep(e, _gone_0, 1);
-      if (seq) {
-        WL_ROOM(5, 0);
-        STK(0) = _f_2;
-        STK(1) = _f_3;
-        STK(2) = _f_4;
-        STK(3) = _gone_0;
-        STK(4) = FID_tree_gone_at_k84;
-        WL_PUSHN(5);
-      } else {
-        u64 _t_1 = task_node(e, FID_tree_gone_at_k84, WL_CONT, WL_IDX, 1);
-        e.mem[_t_1 + 0] = _f_2;
-        e.mem[_t_1 + 1] = _f_3;
-        e.mem[_t_1 + 2] = _f_4;
-        e.mem[_t_1 + 3] = _gone_0;
-        WL_CONT = term_tsk(FID_tree_gone_at_k84, _t_1);
-        WL_IDX = 4;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_tree_elem)) {
-        u64 _t_2 = task_node(e, FID_tree_elem, WL_CONT, WL_IDX, 0);
-        e.mem[_t_2 + 0] = _gone_0;
-        e.mem[_t_2 + 1] = _v_0;
-        return term_tsk(FID_tree_elem, _t_2);
-      }
-      r0 = _gone_0;
-      r1 = _v_0;
-      WL_JMP(FID_tree_elem);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_gone_at_k84)
-    WL_POPN(4);
-    Term _f_5 = STK(0);
-    Term _f_6 = STK(1);
-    Term _f_7 = STK(2);
-    Term _gone_1 = STK(3);
-    u32 _h_0 = r0;
-    WL_OPEN
-    Term _v_1 = 0;
-    Term _o_1[1];
-    if (spin_6(e, _o_1, _f_5, _f_6, _f_7) == 0) {
-      return 0;
-    }
-    _v_1 = _o_1[0];
-    if (seq) {
-      WL_ROOM(2, 0);
-      STK(0) = _h_0;
-      STK(1) = FID_tree_gone_at_k85;
-      WL_PUSHN(2);
-    } else {
-      u64 _t_3 = task_node(e, FID_tree_gone_at_k85, WL_CONT, WL_IDX, 1);
-      e.mem[_t_3 + 0] = _h_0;
-      WL_CONT = term_tsk(FID_tree_gone_at_k85, _t_3);
-      WL_IDX = 1;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_tree_elem)) {
-      u64 _t_4 = task_node(e, FID_tree_elem, WL_CONT, WL_IDX, 0);
-      e.mem[_t_4 + 0] = _gone_1;
-      e.mem[_t_4 + 1] = _v_1;
-      return term_tsk(FID_tree_elem, _t_4);
-    }
-    r0 = _gone_1;
-    r1 = _v_1;
-    WL_JMP(FID_tree_elem);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_gone_at_k85)
-    WL_POPN(1);
-    u32 _h_2 = STK(0);
-    u32 _h_1 = r0;
-    WL_OPEN
-    r0 = ((_h_2) | (_h_1));
-    WL_RETN(1);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_drops_go)
-    Term _s_0 = r0;
-    Term _gone_0 = r1;
-    u32 _hit_0 = r2;
-    WL_OPEN
-    if (term_aux(_s_0) == CID_Nil) {
-      term_sink(e, _gone_0);
-      r0 = term_pak(CID_Nil, 0);
-      WL_RETN(1);
-    } else {
-      Term _fb_0[2];
-      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
-      Term _f_0 = _fb_0[0];
-      Term _f_1 = _fb_0[1];
-      Term _fb_1[3];
-      u64 _sp_1 = ctr_take(e, _f_0, 3, _fb_1);
-      Term _f_2 = _fb_1[0];
-      Term _f_3 = _fb_1[1];
-      Term _f_4 = _fb_1[2];
-      spare_free(e, cls_fit(3), _sp_1);
-      if (_hit_0 == 1) {
-        Term _v_0 = 0;
-        Term _o_0[1];
-        if (spin_3(e, _o_0, _f_2, _f_3, _f_4) == 0) {
-          return 0;
-        }
-        _v_0 = _o_0[0];
-        _gone_0 = term_keep(e, _gone_0, 1);
-        u64 _nd_0 = _sp_0 >= HEAP_OFF ? _sp_0 : heap_alloc(e, cls_fit(2));
-        e.mem[_nd_0 + 0] = rfc_seal(e, _v_0);
-        e.mem[_nd_0 + 1] = rfc_seal(e, _gone_0);
-        if (seq) {
-          WL_ROOM(6, 0);
-          STK(0) = _f_2;
-          STK(1) = _f_3;
-          STK(2) = _f_4;
-          STK(3) = _f_1;
-          STK(4) = _gone_0;
-          STK(5) = FID_tree_drops_go_k87;
-          WL_PUSHN(6);
-        } else {
-          u64 _t_0 = task_node(e, FID_tree_drops_go_k87, WL_CONT, WL_IDX, 1);
-          e.mem[_t_0 + 0] = _f_2;
-          e.mem[_t_0 + 1] = _f_3;
-          e.mem[_t_0 + 2] = _f_4;
-          e.mem[_t_0 + 3] = _f_1;
-          e.mem[_t_0 + 4] = _gone_0;
-          WL_CONT = term_tsk(FID_tree_drops_go_k87, _t_0);
-          WL_IDX = 5;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_tree_gone_at)) {
-          u64 _t_1 = task_node(e, FID_tree_gone_at, WL_CONT, WL_IDX, 0);
-          e.mem[_t_1 + 0] = _f_1;
-          e.mem[_t_1 + 1] = term_ctr(CID_Con, _nd_0);
-          return term_tsk(FID_tree_gone_at, _t_1);
-        }
-        r0 = _f_1;
-        r1 = term_ctr(CID_Con, _nd_0);
-        WL_JMP(FID_tree_gone_at);
-      } else {
-        _gone_0 = term_keep(e, _gone_0, 1);
-        spare_free(e, cls_fit(2), _sp_0);
-        if (seq) {
-          WL_ROOM(3, 0);
-          STK(0) = _f_1;
-          STK(1) = _gone_0;
-          STK(2) = FID_tree_drops_go_k89;
-          WL_PUSHN(3);
-        } else {
-          u64 _t_4 = task_node(e, FID_tree_drops_go_k89, WL_CONT, WL_IDX, 1);
-          e.mem[_t_4 + 0] = _f_1;
-          e.mem[_t_4 + 1] = _gone_0;
-          WL_CONT = term_tsk(FID_tree_drops_go_k89, _t_4);
-          WL_IDX = 2;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_tree_gone_at)) {
-          u64 _t_5 = task_node(e, FID_tree_gone_at, WL_CONT, WL_IDX, 0);
-          e.mem[_t_5 + 0] = _f_1;
-          e.mem[_t_5 + 1] = _gone_0;
-          return term_tsk(FID_tree_gone_at, _t_5);
-        }
-        r0 = _f_1;
-        r1 = _gone_0;
-        WL_JMP(FID_tree_gone_at);
-      }
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_drops_go_k87)
-    WL_POPN(5);
-    Term _f_5 = STK(0);
-    Term _f_6 = STK(1);
-    Term _f_7 = STK(2);
-    Term _f_8 = STK(3);
-    Term _gone_1 = STK(4);
-    u32 _h_0 = r0;
-    WL_OPEN
-    Term _v_1 = 0;
-    Term _o_1[1];
-    if (spin_3(e, _o_1, _f_5, _f_6, _f_7) == 0) {
-      return 0;
-    }
-    _v_1 = _o_1[0];
-    u64 _nd_1 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_1 + 0] = rfc_seal(e, _v_1);
-    e.mem[_nd_1 + 1] = rfc_seal(e, _gone_1);
-    if (seq) {
-      WL_ROOM(4, 0);
-      STK(0) = _f_5;
-      STK(1) = _f_6;
-      STK(2) = _f_7;
-      STK(3) = FID_tree_drops_go_k88;
-      WL_PUSHN(4);
-    } else {
-      u64 _t_2 = task_node(e, FID_tree_drops_go_k88, WL_CONT, WL_IDX, 1);
-      e.mem[_t_2 + 0] = _f_5;
-      e.mem[_t_2 + 1] = _f_6;
-      e.mem[_t_2 + 2] = _f_7;
-      WL_CONT = term_tsk(FID_tree_drops_go_k88, _t_2);
-      WL_IDX = 3;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_tree_drops_go)) {
-      u64 _t_3 = task_node(e, FID_tree_drops_go, WL_CONT, WL_IDX, 0);
-      e.mem[_t_3 + 0] = _f_8;
-      e.mem[_t_3 + 1] = term_ctr(CID_Con, _nd_1);
-      e.mem[_t_3 + 2] = _h_0;
-      return term_tsk(FID_tree_drops_go, _t_3);
-    }
-    r0 = _f_8;
-    r1 = term_ctr(CID_Con, _nd_1);
-    r2 = _h_0;
-    WL_JMP(FID_tree_drops_go);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_drops_go_k88)
-    WL_POPN(3);
-    Term _f_9 = STK(0);
-    Term _f_10 = STK(1);
-    Term _f_11 = STK(2);
-    Term _h_1 = r0;
-    WL_OPEN
-    Term _v_2 = 0;
-    Term _o_2[1];
-    if (spin_3(e, _o_2, _f_9, _f_10, _f_11) == 0) {
-      return 0;
-    }
-    _v_2 = _o_2[0];
-    u64 _nd_2 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_2 + 0] = rfc_seal(e, _v_2);
-    e.mem[_nd_2 + 1] = rfc_seal(e, _h_1);
-    r0 = term_ctr(CID_Con, _nd_2);
-    WL_RETN(1);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_drops_go_k89)
-    WL_POPN(2);
-    Term _f_12 = STK(0);
-    Term _gone_2 = STK(1);
-    u32 _h_2 = r0;
-    WL_OPEN
-    if (!DEVICE && !seq && fid_nofk(FID_tree_drops_go)) {
-      u64 _t_6 = task_node(e, FID_tree_drops_go, WL_CONT, WL_IDX, 0);
-      e.mem[_t_6 + 0] = _f_12;
-      e.mem[_t_6 + 1] = _gone_2;
-      e.mem[_t_6 + 2] = _h_2;
-      return term_tsk(FID_tree_drops_go, _t_6);
-    }
-    r0 = _f_12;
-    r1 = _gone_2;
-    r2 = _h_2;
-    WL_JMP(FID_tree_drops_go);
-  }}
-#endif
-
-#if !DEVICE
   WL_CASE(FID_tree_KMap_ups)
     Term _m_0 = r0;
     Term _x_0 = r1;
@@ -5386,13 +5267,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (_gr_0 == 1) {
           u32 _v_0 = 0;
           Term _o_6[1];
-          if (spin_31(e, _o_6, _f_6, _x_0) == 0) {
+          if (spin_36(e, _o_6, _f_6, _x_0) == 0) {
             return 0;
           }
           _v_0 = (u32)_o_6[0];
           u32 _v_7 = 0;
           Term _o_10[1];
-          if (spin_32(e, _o_10, _f_6, _x_0) == 0) {
+          if (spin_37(e, _o_10, _f_6, _x_0) == 0) {
             return 0;
           }
           _v_7 = (u32)_o_10[0];
@@ -5400,13 +5281,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             WL_ROOM(3, 0);
             STK(0) = _f_5;
             STK(1) = _x_0;
-            STK(2) = FID_tree_KMap_ups_k95;
+            STK(2) = FID_tree_KMap_ups_k89;
             WL_PUSHN(3);
           } else {
-            u64 _t_0 = task_node(e, FID_tree_KMap_ups_k95, WL_CONT, WL_IDX, 1);
+            u64 _t_0 = task_node(e, FID_tree_KMap_ups_k89, WL_CONT, WL_IDX, 1);
             e.mem[_t_0 + 0] = _f_5;
             e.mem[_t_0 + 1] = _x_0;
-            WL_CONT = term_tsk(FID_tree_KMap_ups_k95, _t_0);
+            WL_CONT = term_tsk(FID_tree_KMap_ups_k89, _t_0);
             WL_IDX = 2;
           }
           r0 = _f_6;
@@ -5423,13 +5304,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         } else {
           u32 _v_13 = 0;
           Term _o_13[1];
-          if (spin_31(e, _o_13, _f_5, _x_0) == 0) {
+          if (spin_36(e, _o_13, _f_5, _x_0) == 0) {
             return 0;
           }
           _v_13 = (u32)_o_13[0];
           u32 _v_14 = 0;
           Term _o_14[1];
-          if (spin_32(e, _o_14, _f_5, _x_0) == 0) {
+          if (spin_37(e, _o_14, _f_5, _x_0) == 0) {
             return 0;
           }
           _v_14 = (u32)_o_14[0];
@@ -5449,13 +5330,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (_gr_0 == 1) {
           u32 _v_15 = 0;
           Term _o_15[1];
-          if (spin_31(e, _o_15, _f_6, _x_0) == 0) {
+          if (spin_36(e, _o_15, _f_6, _x_0) == 0) {
             return 0;
           }
           _v_15 = (u32)_o_15[0];
           u32 _v_16 = 0;
           Term _o_16[1];
-          if (spin_32(e, _o_16, _f_6, _x_0) == 0) {
+          if (spin_37(e, _o_16, _f_6, _x_0) == 0) {
             return 0;
           }
           _v_16 = (u32)_o_16[0];
@@ -5481,7 +5362,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_ups_k95)
+  WL_CASE(FID_tree_KMap_ups_k89)
     WL_POPN(2);
     Term _f_21 = STK(0);
     Term _x_3 = STK(1);
@@ -5489,13 +5370,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_11 = 0;
     Term _o_11[1];
-    if (spin_31(e, _o_11, _f_21, _x_3) == 0) {
+    if (spin_36(e, _o_11, _f_21, _x_3) == 0) {
       return 0;
     }
     _v_11 = (u32)_o_11[0];
     u32 _v_12 = 0;
     Term _o_12[1];
-    if (spin_32(e, _o_12, _f_21, _x_3) == 0) {
+    if (spin_37(e, _o_12, _f_21, _x_3) == 0) {
       return 0;
     }
     _v_12 = (u32)_o_12[0];
@@ -5514,6 +5395,69 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     r3 = _v_11;
     r4 = _v_12;
     WL_JMP(FID_tree_KMap_ups);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_tree_drops)
+    Term _s_0 = r0;
+    Term _hs_0 = r1;
+    Term _x_0 = r2;
+    WL_OPEN
+    _hs_0 = term_keep(e, _hs_0, 1);
+    if (seq) {
+      WL_ROOM(3, 0);
+      STK(0) = _s_0;
+      STK(1) = _hs_0;
+      STK(2) = FID_tree_drops_k91;
+      WL_PUSHN(3);
+    } else {
+      u64 _t_0 = task_node(e, FID_tree_drops_k91, WL_CONT, WL_IDX, 1);
+      e.mem[_t_0 + 0] = _s_0;
+      e.mem[_t_0 + 1] = _hs_0;
+      WL_CONT = term_tsk(FID_tree_drops_k91, _t_0);
+      WL_IDX = 2;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_tree_gone_of)) {
+      u64 _t_1 = task_node(e, FID_tree_gone_of, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _hs_0;
+      e.mem[_t_1 + 1] = term_pak(CID_tree_KNil, 0);
+      e.mem[_t_1 + 2] = _x_0;
+      return term_tsk(FID_tree_gone_of, _t_1);
+    }
+    r0 = _hs_0;
+    r1 = term_pak(CID_tree_KNil, 0);
+    r2 = _x_0;
+    WL_JMP(FID_tree_gone_of);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_tree_drops_k91)
+    WL_POPN(2);
+    Term _s_1 = STK(0);
+    Term _hs_1 = STK(1);
+    Term _g_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    Term _o_0[1];
+    if (spin_25(e, _o_0, _s_1, _g_0) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    if (!DEVICE && !seq && fid_nofk(FID_tree_drops_s)) {
+      u64 _t_2 = task_node(e, FID_tree_drops_s, WL_CONT, WL_IDX, 0);
+      e.mem[_t_2 + 0] = _s_1;
+      e.mem[_t_2 + 1] = _hs_1;
+      e.mem[_t_2 + 2] = _g_0;
+      e.mem[_t_2 + 3] = _v_0;
+      return term_tsk(FID_tree_drops_s, _t_2);
+    }
+    r0 = _s_1;
+    r1 = _hs_1;
+    r2 = _g_0;
+    r3 = _v_0;
+    WL_JMP(FID_tree_drops_s);
   }}
 #endif
 
@@ -5586,14 +5530,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _f_2;
         STK(1) = _f_3;
         STK(2) = _f_4;
-        STK(3) = FID_wire_put_list_go_3_k100;
+        STK(3) = FID_wire_put_list_go_3_k98;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_3_k100, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_3_k98, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
-        WL_CONT = term_tsk(FID_wire_put_list_go_3_k100, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_3_k98, _t_0);
         WL_IDX = 3;
       }
       r0 = _f_1;
@@ -5607,7 +5551,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_3_k100)
+  WL_CASE(FID_wire_put_list_go_3_k98)
     WL_POPN(3);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -5616,7 +5560,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_34(e, _o_1, _f_5, _f_6, _f_7, _h_0, _h_1) == 0) {
+    if (spin_38(e, _o_1, _f_5, _f_6, _f_7, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -5669,13 +5613,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_ROOM(3, 0);
         STK(0) = _o_0;
         STK(1) = _o_1;
-        STK(2) = FID_wire_put_list_go_2_k102;
+        STK(2) = FID_wire_put_list_go_2_k100;
         WL_PUSHN(3);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k102, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k100, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _o_0;
         e.mem[_t_0 + 1] = _o_1;
-        WL_CONT = term_tsk(FID_wire_put_list_go_2_k102, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_2_k100, _t_0);
         WL_IDX = 2;
       }
       r0 = _f_1;
@@ -5689,7 +5633,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_2_k102)
+  WL_CASE(FID_wire_put_list_go_2_k100)
     WL_POPN(2);
     u32 _o_2 = STK(0);
     Term _o_3 = STK(1);
@@ -5697,7 +5641,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_5[2];
-    if (spin_35(e, _o_5, _o_2, _o_3, _h_0, _h_1) == 0) {
+    if (spin_39(e, _o_5, _o_2, _o_3, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_5[0];
@@ -5725,12 +5669,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_put_list_go_1_k104;
+        STK(1) = FID_wire_put_list_go_1_k102;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_1_k104, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_1_k102, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_put_list_go_1_k104, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_1_k102, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -5744,14 +5688,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_1_k104)
+  WL_CASE(FID_wire_put_list_go_1_k102)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_36(e, _o_1, _f_2, _h_0, _h_1) == 0) {
+    if (spin_40(e, _o_1, _f_2, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -5787,12 +5731,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _f_0;
-          STK(1) = FID_wire_take_k111;
+          STK(1) = FID_wire_take_k109;
           WL_PUSHN(2);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_take_k111, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_take_k109, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _f_0;
-          WL_CONT = term_tsk(FID_wire_take_k111, _t_0);
+          WL_CONT = term_tsk(FID_wire_take_k109, _t_0);
           WL_IDX = 1;
         }
         r0 = _m_0;
@@ -5807,7 +5751,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_take_k111)
+  WL_CASE(FID_wire_take_k109)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     u32 _h_0 = r0;
@@ -5815,7 +5759,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_2 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_37(e, _o_0, _f_2, _h_0, _h_1, _h_2) == 0) {
+    if (spin_41(e, _o_0, _f_2, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -5832,11 +5776,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_str_k113;
+      STK(0) = FID_wire_put_str_k111;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_str_k113, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_str_k113, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_str_k111, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_str_k111, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_str_go)) {
@@ -5852,12 +5796,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_str_k113)
+  WL_CASE(FID_wire_put_str_k111)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[1];
-    if (spin_38(e, _o_1, _h_0, _h_1) == 0) {
+    if (spin_42(e, _o_1, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -5891,12 +5835,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _f_0;
-          STK(1) = FID_List_take_k121;
+          STK(1) = FID_List_take_k119;
           WL_PUSHN(2);
         } else {
-          u64 _t_0 = task_node(e, FID_List_take_k121, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_List_take_k119, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _f_0;
-          WL_CONT = term_tsk(FID_List_take_k121, _t_0);
+          WL_CONT = term_tsk(FID_List_take_k119, _t_0);
           WL_IDX = 1;
         }
         r0 = _f_1;
@@ -5911,7 +5855,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_List_take_k121)
+  WL_CASE(FID_List_take_k119)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -5976,10 +5920,10 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(4) = _o_4;
         STK(5) = _f_1;
         STK(6) = _hs_0;
-        STK(7) = FID_tree_KMap_go_k123;
+        STK(7) = FID_tree_KMap_go_k121;
         WL_PUSHN(8);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_KMap_go_k123, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_KMap_go_k121, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _o_0;
         e.mem[_t_0 + 1] = _o_1;
         e.mem[_t_0 + 2] = _o_2;
@@ -5987,7 +5931,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         e.mem[_t_0 + 4] = _o_4;
         e.mem[_t_0 + 5] = _f_1;
         e.mem[_t_0 + 6] = _hs_0;
-        WL_CONT = term_tsk(FID_tree_KMap_go_k123, _t_0);
+        WL_CONT = term_tsk(FID_tree_KMap_go_k121, _t_0);
         WL_IDX = 7;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_rec)) {
@@ -6014,7 +5958,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_go_k123)
+  WL_CASE(FID_tree_KMap_go_k121)
     WL_POPN(7);
     u32 _o_5 = STK(0);
     Term _o_6 = STK(1);
@@ -6030,7 +5974,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     term_sink(e, _o_6);
     Term _v_0 = 0;
     Term _o_10[1];
-    if (spin_40(e, _o_10, _h_0, _h_1, _h_2) == 0) {
+    if (spin_44(e, _o_10, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     _v_0 = _o_10[0];
@@ -6077,7 +6021,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       }
       _v_1 = _o_0[0];
       Term _o_3[1];
-      if (spin_41(e, _o_3, _a_0, _v_1) == 0) {
+      if (spin_45(e, _o_3, _a_0, _v_1) == 0) {
         return 0;
       }
       _v_0 = _o_3[0];
@@ -6089,15 +6033,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _f_3;
         STK(2) = _f_4;
         STK(3) = _v_0;
-        STK(4) = FID_tree_puts_m_k125;
+        STK(4) = FID_tree_puts_m_k123;
         WL_PUSHN(5);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_puts_m_k125, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_puts_m_k123, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
         e.mem[_t_0 + 3] = _v_0;
-        WL_CONT = term_tsk(FID_tree_puts_m_k125, _t_0);
+        WL_CONT = term_tsk(FID_tree_puts_m_k123, _t_0);
         WL_IDX = 4;
       }
       r0 = _f_1;
@@ -6111,7 +6055,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_puts_m_k125)
+  WL_CASE(FID_tree_puts_m_k123)
     WL_POPN(4);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -6121,12 +6065,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_4 = 0;
     Term _o_5[1];
-    if (spin_42(e, _o_5, _v_3, _f_5, _f_6, _f_7) == 0) {
+    if (spin_46(e, _o_5, _v_3, _f_5, _f_6, _f_7) == 0) {
       return 0;
     }
     _v_4 = (u32)_o_5[0];
     Term _o_9[1];
-    if (spin_43(e, _o_9, _v_4, _f_5, _f_6, _f_7, _h_0) == 0) {
+    if (spin_47(e, _o_9, _v_4, _f_5, _f_6, _f_7, _h_0) == 0) {
       return 0;
     }
     r0 = _o_9[0];
@@ -6160,7 +6104,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       }
       _v_1 = _o_0[0];
       Term _o_1[1];
-      if (spin_41(e, _o_1, _b_0, _v_1) == 0) {
+      if (spin_45(e, _o_1, _b_0, _v_1) == 0) {
         return 0;
       }
       _v_0 = _o_1[0];
@@ -6171,15 +6115,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _f_3;
         STK(2) = _f_4;
         STK(3) = _v_0;
-        STK(4) = FID_tree_dels_m_k127;
+        STK(4) = FID_tree_dels_m_k125;
         WL_PUSHN(5);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_dels_m_k127, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_dels_m_k125, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
         e.mem[_t_0 + 3] = _v_0;
-        WL_CONT = term_tsk(FID_tree_dels_m_k127, _t_0);
+        WL_CONT = term_tsk(FID_tree_dels_m_k125, _t_0);
         WL_IDX = 4;
       }
       r0 = _f_1;
@@ -6193,7 +6137,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_dels_m_k127)
+  WL_CASE(FID_tree_dels_m_k125)
     WL_POPN(4);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -6209,7 +6153,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     }
     _v_4 = _o_2[0];
     Term _o_5[1];
-    if (spin_44(e, _o_5, _v_2, _v_4) == 0) {
+    if (spin_48(e, _o_5, _v_2, _v_4) == 0) {
       return 0;
     }
     _v_3 = (u32)_o_5[0];
@@ -6220,7 +6164,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     }
     _v_6 = _o_6[0];
     Term _o_7[1];
-    if (spin_45(e, _o_7, _v_3, _v_6, _h_0) == 0) {
+    if (spin_49(e, _o_7, _v_3, _v_6, _h_0) == 0) {
       return 0;
     }
     r0 = _o_7[0];
@@ -6246,12 +6190,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_List_append_k129;
+        STK(1) = FID_List_append_k127;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_List_append_k129, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_List_append_k127, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_List_append_k129, _t_0);
+        WL_CONT = term_tsk(FID_List_append_k127, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -6265,7 +6209,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_List_append_k129)
+  WL_CASE(FID_List_append_k127)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -6305,15 +6249,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _f_3;
         STK(2) = _f_4;
         STK(3) = _m_0;
-        STK(4) = FID_tree_KMap_hangs_k132;
+        STK(4) = FID_tree_KMap_hangs_k130;
         WL_PUSHN(5);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_KMap_hangs_k132, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_KMap_hangs_k130, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
         e.mem[_t_0 + 3] = _m_0;
-        WL_CONT = term_tsk(FID_tree_KMap_hangs_k132, _t_0);
+        WL_CONT = term_tsk(FID_tree_KMap_hangs_k130, _t_0);
         WL_IDX = 4;
       }
       r0 = _f_1;
@@ -6327,7 +6271,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_hangs_k132)
+  WL_CASE(FID_tree_KMap_hangs_k130)
     WL_POPN(4);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -6367,21 +6311,21 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       return 0;
     }
     _v_6 = _o_4[0];
-    Term _o_9[1];
-    if (spin_46(e, _o_9, _m_1, _v_6) == 0) {
+    Term _o_5[1];
+    if (spin_21(e, _o_5, _m_1, _v_6) == 0) {
       return 0;
     }
-    _v_5 = (u32)_o_9[0];
-    Term _o_10[1];
-    if (spin_19(e, _o_10, (_v_1 < _v_2), ((_v_3) | (_v_5))) == 0) {
+    _v_5 = (u32)_o_5[0];
+    Term _o_6[1];
+    if (spin_19(e, _o_6, (_v_1 < _v_2), ((_v_3) | (_v_5))) == 0) {
       return 0;
     }
-    _v_0 = (u32)_o_10[0];
-    Term _o_11[1];
-    if (spin_19(e, _o_11, _v_0, _h_0) == 0) {
+    _v_0 = (u32)_o_6[0];
+    Term _o_7[1];
+    if (spin_19(e, _o_7, _v_0, _h_0) == 0) {
       return 0;
     }
-    r0 = (u32)_o_11[0];
+    r0 = (u32)_o_7[0];
     WL_RETN(1);
   }}
 #endif
@@ -6424,13 +6368,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_ROOM(3, 0);
         STK(0) = _f_1;
         STK(1) = _hs_0;
-        STK(2) = FID_tree_KMap_patch_k135;
+        STK(2) = FID_tree_KMap_patch_k133;
         WL_PUSHN(3);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_KMap_patch_k135, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_KMap_patch_k133, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_1;
         e.mem[_t_0 + 1] = _hs_0;
-        WL_CONT = term_tsk(FID_tree_KMap_patch_k135, _t_0);
+        WL_CONT = term_tsk(FID_tree_KMap_patch_k133, _t_0);
         WL_IDX = 2;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_exact)) {
@@ -6455,7 +6399,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_patch_k135)
+  WL_CASE(FID_tree_KMap_patch_k133)
     WL_POPN(2);
     Term _f_6 = STK(0);
     Term _hs_1 = STK(1);
@@ -6482,11 +6426,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_3_k146;
+      STK(0) = FID_wire_put_list_3_k143;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_3_k146, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_3_k146, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_list_3_k143, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_3_k143, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_3)) {
@@ -6502,12 +6446,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_3_k146)
+  WL_CASE(FID_wire_put_list_3_k143)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[1];
-    if (spin_49(e, _o_1, _h_0, _h_1) == 0) {
+    if (spin_50(e, _o_1, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -6522,11 +6466,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_2_k148;
+      STK(0) = FID_wire_put_list_2_k145;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_2_k148, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_2_k148, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_list_2_k145, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_2_k145, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_2)) {
@@ -6542,12 +6486,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_2_k148)
+  WL_CASE(FID_wire_put_list_2_k145)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[1];
-    if (spin_49(e, _o_0, _h_0, _h_1) == 0) {
+    if (spin_50(e, _o_0, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -6562,11 +6506,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_1_k150;
+      STK(0) = FID_wire_put_list_1_k147;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_1_k150, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_1_k150, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_list_1_k147, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_1_k147, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_1)) {
@@ -6582,12 +6526,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_1_k150)
+  WL_CASE(FID_wire_put_list_1_k147)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[1];
-    if (spin_49(e, _o_0, _h_0, _h_1) == 0) {
+    if (spin_50(e, _o_0, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -6612,12 +6556,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_value_k155;
+        STK(1) = FID_wire_value_k152;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_value_k155, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_value_k152, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_value_k155, _t_0);
+        WL_CONT = term_tsk(FID_wire_value_k152, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -6629,7 +6573,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_value_k155)
+  WL_CASE(FID_wire_value_k152)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -6645,11 +6589,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_tree_get_rec_k165;
+      STK(0) = FID_ffi_tree_get_rec_k162;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_tree_get_rec_k165, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_tree_get_rec_k165, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_tree_get_rec_k162, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_tree_get_rec_k162, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -6663,7 +6607,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_rec_k165)
+  WL_CASE(FID_ffi_tree_get_rec_k162)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -6672,11 +6616,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_h_1 == 0) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_get_rec_k166;
+          STK(0) = FID_ffi_tree_get_rec_k163;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_tree_get_rec_k166, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_get_rec_k166, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_tree_get_rec_k163, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_get_rec_k163, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_get_op)) {
@@ -6689,11 +6633,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_get_rec_k167;
+          STK(0) = FID_ffi_tree_get_rec_k164;
           WL_PUSHN(1);
         } else {
-          u64 _t_4 = task_node(e, FID_ffi_tree_get_rec_k167, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_get_rec_k167, _t_4);
+          u64 _t_4 = task_node(e, FID_ffi_tree_get_rec_k164, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_get_rec_k164, _t_4);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_0)) {
@@ -6729,7 +6673,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_rec_k166)
+  WL_CASE(FID_ffi_tree_get_rec_k163)
     u32 _h_3 = r0;
     u32 _h_4 = r1;
     Term _h_5 = r2;
@@ -6738,7 +6682,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_8 = r5;
     WL_OPEN
     Term _o_0[7];
-    if (spin_25(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
+    if (spin_30(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -6753,13 +6697,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_rec_k167)
+  WL_CASE(FID_ffi_tree_get_rec_k164)
     u32 _h_9 = r0;
     Term _h_10 = r1;
     Term _h_11 = r2;
     WL_OPEN
     Term _o_1[7];
-    if (spin_26(e, _o_1, _h_9, _h_10, _h_11) == 0) {
+    if (spin_31(e, _o_1, _h_9, _h_10, _h_11) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -6781,19 +6725,19 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     Term _v_0 = 0;
     Term _o_1[1];
-    if (spin_54(e, _o_1, _log_0) == 0) {
+    if (spin_55(e, _o_1, _log_0) == 0) {
       return 0;
     }
     _v_0 = _o_1[0];
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _hs_0;
-      STK(1) = FID_tree_St_at_k170;
+      STK(1) = FID_tree_St_at_k167;
       WL_PUSHN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_tree_St_at_k170, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_tree_St_at_k167, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _hs_0;
-      WL_CONT = term_tsk(FID_tree_St_at_k170, _t_0);
+      WL_CONT = term_tsk(FID_tree_St_at_k167, _t_0);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_List_take)) {
@@ -6809,7 +6753,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_St_at_k170)
+  WL_CASE(FID_tree_St_at_k167)
     WL_POPN(1);
     Term _hs_1 = STK(0);
     Term _h_0 = r0;
@@ -6838,13 +6782,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_ROOM(3, 0);
       STK(0) = _a_0;
       STK(1) = _b_0;
-      STK(2) = FID_tree_diff_m_k172;
+      STK(2) = FID_tree_diff_m_k169;
       WL_PUSHN(3);
     } else {
-      u64 _t_0 = task_node(e, FID_tree_diff_m_k172, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_tree_diff_m_k169, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _a_0;
       e.mem[_t_0 + 1] = _b_0;
-      WL_CONT = term_tsk(FID_tree_diff_m_k172, _t_0);
+      WL_CONT = term_tsk(FID_tree_diff_m_k169, _t_0);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_dels_m)) {
@@ -6860,7 +6804,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_diff_m_k172)
+  WL_CASE(FID_tree_diff_m_k169)
     WL_POPN(2);
     Term _a_1 = STK(0);
     Term _b_1 = STK(1);
@@ -6869,12 +6813,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _h_0;
-      STK(1) = FID_tree_diff_m_k173;
+      STK(1) = FID_tree_diff_m_k170;
       WL_PUSHN(2);
     } else {
-      u64 _t_2 = task_node(e, FID_tree_diff_m_k173, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_tree_diff_m_k170, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _h_0;
-      WL_CONT = term_tsk(FID_tree_diff_m_k173, _t_2);
+      WL_CONT = term_tsk(FID_tree_diff_m_k170, _t_2);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_puts_m)) {
@@ -6890,7 +6834,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_diff_m_k173)
+  WL_CASE(FID_tree_diff_m_k170)
     WL_POPN(1);
     Term _h_2 = STK(0);
     Term _h_1 = r0;
@@ -6949,12 +6893,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _o_1;
-          STK(1) = FID_tree_effects_k175;
+          STK(1) = FID_tree_effects_k172;
           WL_PUSHN(2);
         } else {
-          u64 _t_0 = task_node(e, FID_tree_effects_k175, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_tree_effects_k172, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _o_1;
-          WL_CONT = term_tsk(FID_tree_effects_k175, _t_0);
+          WL_CONT = term_tsk(FID_tree_effects_k172, _t_0);
           WL_IDX = 1;
         }
         r0 = _f_1;
@@ -6968,13 +6912,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_ROOM(3, 0);
           STK(0) = _o_1;
           STK(1) = _m_0;
-          STK(2) = FID_tree_effects_k176;
+          STK(2) = FID_tree_effects_k173;
           WL_PUSHN(3);
         } else {
-          u64 _t_1 = task_node(e, FID_tree_effects_k176, WL_CONT, WL_IDX, 1);
+          u64 _t_1 = task_node(e, FID_tree_effects_k173, WL_CONT, WL_IDX, 1);
           e.mem[_t_1 + 0] = _o_1;
           e.mem[_t_1 + 1] = _m_0;
-          WL_CONT = term_tsk(FID_tree_effects_k176, _t_1);
+          WL_CONT = term_tsk(FID_tree_effects_k173, _t_1);
           WL_IDX = 2;
         }
         r0 = _f_1;
@@ -6989,7 +6933,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_effects_k175)
+  WL_CASE(FID_tree_effects_k172)
     WL_POPN(1);
     Term _o_4 = STK(0);
     Term _h_0 = r0;
@@ -7005,7 +6949,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_effects_k176)
+  WL_CASE(FID_tree_effects_k173)
     WL_POPN(2);
     Term _o_5 = STK(0);
     Term _m_1 = STK(1);
@@ -7015,12 +6959,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _v_1 = 0;
     u32 _v_2 = 0;
     Term _o_6[1];
-    if (spin_46(e, _o_6, _m_1, _o_5) == 0) {
+    if (spin_21(e, _o_6, _m_1, _o_5) == 0) {
       return 0;
     }
     _v_2 = (u32)_o_6[0];
     Term _o_7[2];
-    if (spin_56(e, _o_7, _v_2, _o_5) == 0) {
+    if (spin_57(e, _o_7, _v_2, _o_5) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_7[0];
@@ -7079,12 +7023,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_5;
-        STK(1) = FID_tree_KMap_onto_k178;
+        STK(1) = FID_tree_KMap_onto_k175;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_KMap_onto_k178, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_KMap_onto_k175, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_5;
-        WL_CONT = term_tsk(FID_tree_KMap_onto_k178, _t_0);
+        WL_CONT = term_tsk(FID_tree_KMap_onto_k175, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_6;
@@ -7098,7 +7042,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_onto_k178)
+  WL_CASE(FID_tree_KMap_onto_k175)
     WL_POPN(1);
     Term _f_7 = STK(0);
     Term _h_0 = r0;
@@ -7136,7 +7080,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         _v_1 = (u32)_o_0[0];
         u32 _v_2 = 0;
         Term _o_1[1];
-        if (spin_46(e, _o_1, _m_0, _r_3) == 0) {
+        if (spin_21(e, _o_1, _m_0, _r_3) == 0) {
           return 0;
         }
         _v_2 = (u32)_o_1[0];
@@ -7148,11 +7092,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (_v_0 == 1) {
           if (seq) {
             WL_ROOM(1, 0);
-            STK(0) = FID_tree_KMap_rec_k180;
+            STK(0) = FID_tree_KMap_rec_k177;
             WL_PUSHN(1);
           } else {
-            u64 _t_0 = task_node(e, FID_tree_KMap_rec_k180, WL_CONT, WL_IDX, 1);
-            WL_CONT = term_tsk(FID_tree_KMap_rec_k180, _t_0);
+            u64 _t_0 = task_node(e, FID_tree_KMap_rec_k177, WL_CONT, WL_IDX, 1);
+            WL_CONT = term_tsk(FID_tree_KMap_rec_k177, _t_0);
             WL_IDX = 0;
           }
           if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_set)) {
@@ -7178,8 +7122,8 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_RETN(3);
         }
       } else {
-        term_sink(e, _hs_0);
         if (_r_2 == 0) {
+          term_sink(e, _hs_0);
           r0 = _m_0;
           r1 = 0;
           r2 = 0;
@@ -7188,28 +7132,30 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           Term _y_0 = (_r_2 - 1);
           u32 _v_3 = 0;
           Term _o_3[1];
-          if (spin_31(e, _o_3, _m_0, nat_chk(e, _y_0 + 1)) == 0) {
+          if (spin_36(e, _o_3, _m_0, nat_chk(e, _y_0 + 1)) == 0) {
             return 0;
           }
           _v_3 = (u32)_o_3[0];
           u32 _v_4 = 0;
           Term _o_4[1];
-          if (spin_32(e, _o_4, _m_0, nat_chk(e, _y_0 + 1)) == 0) {
+          if (spin_37(e, _o_4, _m_0, nat_chk(e, _y_0 + 1)) == 0) {
             return 0;
           }
           _v_4 = (u32)_o_4[0];
           if (seq) {
-            WL_ROOM(3, 0);
+            WL_ROOM(4, 0);
             STK(0) = _m_0;
-            STK(1) = _y_0;
-            STK(2) = FID_tree_KMap_rec_k181;
-            WL_PUSHN(3);
+            STK(1) = _hs_0;
+            STK(2) = _y_0;
+            STK(3) = FID_tree_KMap_rec_k178;
+            WL_PUSHN(4);
           } else {
-            u64 _t_2 = task_node(e, FID_tree_KMap_rec_k181, WL_CONT, WL_IDX, 1);
+            u64 _t_2 = task_node(e, FID_tree_KMap_rec_k178, WL_CONT, WL_IDX, 1);
             e.mem[_t_2 + 0] = _m_0;
-            e.mem[_t_2 + 1] = _y_0;
-            WL_CONT = term_tsk(FID_tree_KMap_rec_k181, _t_2);
-            WL_IDX = 2;
+            e.mem[_t_2 + 1] = _hs_0;
+            e.mem[_t_2 + 2] = _y_0;
+            WL_CONT = term_tsk(FID_tree_KMap_rec_k178, _t_2);
+            WL_IDX = 3;
           }
           if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_ups)) {
             u64 _t_3 = task_node(e, FID_tree_KMap_ups, WL_CONT, WL_IDX, 0);
@@ -7233,20 +7179,20 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _m_0;
-        STK(1) = FID_tree_KMap_rec_k185;
+        STK(1) = FID_tree_KMap_rec_k181;
         WL_PUSHN(2);
       } else {
-        u64 _t_10 = task_node(e, FID_tree_KMap_rec_k185, WL_CONT, WL_IDX, 1);
-        e.mem[_t_10 + 0] = _m_0;
-        WL_CONT = term_tsk(FID_tree_KMap_rec_k185, _t_10);
+        u64 _t_8 = task_node(e, FID_tree_KMap_rec_k181, WL_CONT, WL_IDX, 1);
+        e.mem[_t_8 + 0] = _m_0;
+        WL_CONT = term_tsk(FID_tree_KMap_rec_k181, _t_8);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_patch)) {
-        u64 _t_11 = task_node(e, FID_tree_KMap_patch, WL_CONT, WL_IDX, 0);
-        e.mem[_t_11 + 0] = _r_1;
-        e.mem[_t_11 + 1] = _hs_0;
-        e.mem[_t_11 + 2] = _m_0;
-        return term_tsk(FID_tree_KMap_patch, _t_11);
+        u64 _t_9 = task_node(e, FID_tree_KMap_patch, WL_CONT, WL_IDX, 0);
+        e.mem[_t_9 + 0] = _r_1;
+        e.mem[_t_9 + 1] = _hs_0;
+        e.mem[_t_9 + 2] = _m_0;
+        return term_tsk(FID_tree_KMap_patch, _t_9);
       }
       r0 = _r_1;
       r1 = _hs_0;
@@ -7257,7 +7203,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k180)
+  WL_CASE(FID_tree_KMap_rec_k177)
     Term _h_0 = r0;
     WL_OPEN
     r0 = _h_0;
@@ -7268,110 +7214,70 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k181)
-    WL_POPN(2);
-    Term _m_1 = STK(0);
-    Term _y_1 = STK(1);
-    Term _rows_0 = r0;
-    WL_OPEN
-    u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = rfc_seal(e, nat_chk(e, _y_1 + 1));
-    e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
-    if (seq) {
-      WL_ROOM(4, 0);
-      STK(0) = _m_1;
-      STK(1) = _y_1;
-      STK(2) = _rows_0;
-      STK(3) = FID_tree_KMap_rec_k182;
-      WL_PUSHN(4);
-    } else {
-      u64 _t_4 = task_node(e, FID_tree_KMap_rec_k182, WL_CONT, WL_IDX, 1);
-      e.mem[_t_4 + 0] = _m_1;
-      e.mem[_t_4 + 1] = _y_1;
-      e.mem[_t_4 + 2] = _rows_0;
-      WL_CONT = term_tsk(FID_tree_KMap_rec_k182, _t_4);
-      WL_IDX = 3;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_tree_gone_at)) {
-      u64 _t_5 = task_node(e, FID_tree_gone_at, WL_CONT, WL_IDX, 0);
-      e.mem[_t_5 + 0] = _rows_0;
-      e.mem[_t_5 + 1] = term_ctr(CID_Con, _nd_0);
-      return term_tsk(FID_tree_gone_at, _t_5);
-    }
-    r0 = _rows_0;
-    r1 = term_ctr(CID_Con, _nd_0);
-    WL_JMP(FID_tree_gone_at);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k182)
+  WL_CASE(FID_tree_KMap_rec_k178)
     WL_POPN(3);
-    Term _m_2 = STK(0);
-    Term _y_2 = STK(1);
-    Term _rows_1 = STK(2);
-    u32 _h_1 = r0;
+    Term _m_1 = STK(0);
+    Term _hs_1 = STK(1);
+    Term _y_1 = STK(2);
+    Term _h_1 = r0;
     WL_OPEN
-    u64 _nd_1 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_1 + 0] = rfc_seal(e, nat_chk(e, _y_2 + 1));
-    e.mem[_nd_1 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
     if (seq) {
       WL_ROOM(2, 0);
-      STK(0) = _m_2;
-      STK(1) = FID_tree_KMap_rec_k183;
+      STK(0) = _m_1;
+      STK(1) = FID_tree_KMap_rec_k179;
       WL_PUSHN(2);
     } else {
-      u64 _t_6 = task_node(e, FID_tree_KMap_rec_k183, WL_CONT, WL_IDX, 1);
-      e.mem[_t_6 + 0] = _m_2;
-      WL_CONT = term_tsk(FID_tree_KMap_rec_k183, _t_6);
+      u64 _t_4 = task_node(e, FID_tree_KMap_rec_k179, WL_CONT, WL_IDX, 1);
+      e.mem[_t_4 + 0] = _m_1;
+      WL_CONT = term_tsk(FID_tree_KMap_rec_k179, _t_4);
       WL_IDX = 1;
     }
-    if (!DEVICE && !seq && fid_nofk(FID_tree_drops_go)) {
-      u64 _t_7 = task_node(e, FID_tree_drops_go, WL_CONT, WL_IDX, 0);
-      e.mem[_t_7 + 0] = _rows_1;
-      e.mem[_t_7 + 1] = term_ctr(CID_Con, _nd_1);
-      e.mem[_t_7 + 2] = _h_1;
-      return term_tsk(FID_tree_drops_go, _t_7);
+    if (!DEVICE && !seq && fid_nofk(FID_tree_drops)) {
+      u64 _t_5 = task_node(e, FID_tree_drops, WL_CONT, WL_IDX, 0);
+      e.mem[_t_5 + 0] = _h_1;
+      e.mem[_t_5 + 1] = _hs_1;
+      e.mem[_t_5 + 2] = nat_chk(e, _y_1 + 1);
+      return term_tsk(FID_tree_drops, _t_5);
     }
-    r0 = _rows_1;
-    r1 = term_ctr(CID_Con, _nd_1);
-    r2 = _h_1;
-    WL_JMP(FID_tree_drops_go);
+    r0 = _h_1;
+    r1 = _hs_1;
+    r2 = nat_chk(e, _y_1 + 1);
+    WL_JMP(FID_tree_drops);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k183)
+  WL_CASE(FID_tree_KMap_rec_k179)
     WL_POPN(1);
-    Term _m_3 = STK(0);
+    Term _m_2 = STK(0);
     Term _h_2 = r0;
     WL_OPEN
     _h_2 = term_keep(e, _h_2, 1);
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _h_2;
-      STK(1) = FID_tree_KMap_rec_k184;
+      STK(1) = FID_tree_KMap_rec_k180;
       WL_PUSHN(2);
     } else {
-      u64 _t_8 = task_node(e, FID_tree_KMap_rec_k184, WL_CONT, WL_IDX, 1);
-      e.mem[_t_8 + 0] = _h_2;
-      WL_CONT = term_tsk(FID_tree_KMap_rec_k184, _t_8);
+      u64 _t_6 = task_node(e, FID_tree_KMap_rec_k180, WL_CONT, WL_IDX, 1);
+      e.mem[_t_6 + 0] = _h_2;
+      WL_CONT = term_tsk(FID_tree_KMap_rec_k180, _t_6);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_drop)) {
-      u64 _t_9 = task_node(e, FID_tree_KMap_drop, WL_CONT, WL_IDX, 0);
-      e.mem[_t_9 + 0] = _h_2;
-      e.mem[_t_9 + 1] = _m_3;
-      return term_tsk(FID_tree_KMap_drop, _t_9);
+      u64 _t_7 = task_node(e, FID_tree_KMap_drop, WL_CONT, WL_IDX, 0);
+      e.mem[_t_7 + 0] = _h_2;
+      e.mem[_t_7 + 1] = _m_2;
+      return term_tsk(FID_tree_KMap_drop, _t_7);
     }
     r0 = _h_2;
-    r1 = _m_3;
+    r1 = _m_2;
     WL_JMP(FID_tree_KMap_drop);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k184)
+  WL_CASE(FID_tree_KMap_rec_k180)
     WL_POPN(1);
     Term _h_4 = STK(0);
     Term _h_3 = r0;
@@ -7384,29 +7290,29 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k185)
+  WL_CASE(FID_tree_KMap_rec_k181)
     WL_POPN(1);
-    Term _m_4 = STK(0);
+    Term _m_3 = STK(0);
     Term _n_0 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(3, 0);
-      STK(0) = _m_4;
+      STK(0) = _m_3;
       STK(1) = _n_0;
-      STK(2) = FID_tree_KMap_rec_k186;
+      STK(2) = FID_tree_KMap_rec_k182;
       WL_PUSHN(3);
     } else {
-      u64 _t_12 = task_node(e, FID_tree_KMap_rec_k186, WL_CONT, WL_IDX, 1);
-      e.mem[_t_12 + 0] = _m_4;
-      e.mem[_t_12 + 1] = _n_0;
-      WL_CONT = term_tsk(FID_tree_KMap_rec_k186, _t_12);
+      u64 _t_10 = task_node(e, FID_tree_KMap_rec_k182, WL_CONT, WL_IDX, 1);
+      e.mem[_t_10 + 0] = _m_3;
+      e.mem[_t_10 + 1] = _n_0;
+      WL_CONT = term_tsk(FID_tree_KMap_rec_k182, _t_10);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_onto)) {
-      u64 _t_13 = task_node(e, FID_tree_KMap_onto, WL_CONT, WL_IDX, 0);
-      e.mem[_t_13 + 0] = _n_0;
-      e.mem[_t_13 + 1] = term_pak(CID_Nil, 0);
-      return term_tsk(FID_tree_KMap_onto, _t_13);
+      u64 _t_11 = task_node(e, FID_tree_KMap_onto, WL_CONT, WL_IDX, 0);
+      e.mem[_t_11 + 0] = _n_0;
+      e.mem[_t_11 + 1] = term_pak(CID_Nil, 0);
+      return term_tsk(FID_tree_KMap_onto, _t_11);
     }
     r0 = _n_0;
     r1 = term_pak(CID_Nil, 0);
@@ -7415,30 +7321,30 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k186)
+  WL_CASE(FID_tree_KMap_rec_k182)
     WL_POPN(2);
-    Term _m_5 = STK(0);
+    Term _m_4 = STK(0);
     Term _n_1 = STK(1);
     Term _h_5 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(3, 0);
-      STK(0) = _m_5;
+      STK(0) = _m_4;
       STK(1) = _n_1;
-      STK(2) = FID_tree_KMap_rec_k187;
+      STK(2) = FID_tree_KMap_rec_k183;
       WL_PUSHN(3);
     } else {
-      u64 _t_14 = task_node(e, FID_tree_KMap_rec_k187, WL_CONT, WL_IDX, 1);
-      e.mem[_t_14 + 0] = _m_5;
-      e.mem[_t_14 + 1] = _n_1;
-      WL_CONT = term_tsk(FID_tree_KMap_rec_k187, _t_14);
+      u64 _t_12 = task_node(e, FID_tree_KMap_rec_k183, WL_CONT, WL_IDX, 1);
+      e.mem[_t_12 + 0] = _m_4;
+      e.mem[_t_12 + 1] = _n_1;
+      WL_CONT = term_tsk(FID_tree_KMap_rec_k183, _t_12);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_hangs)) {
-      u64 _t_15 = task_node(e, FID_tree_KMap_hangs, WL_CONT, WL_IDX, 0);
-      e.mem[_t_15 + 0] = _h_5;
-      e.mem[_t_15 + 1] = _n_1;
-      return term_tsk(FID_tree_KMap_hangs, _t_15);
+      u64 _t_13 = task_node(e, FID_tree_KMap_hangs, WL_CONT, WL_IDX, 0);
+      e.mem[_t_13 + 0] = _h_5;
+      e.mem[_t_13 + 1] = _n_1;
+      return term_tsk(FID_tree_KMap_hangs, _t_13);
     }
     r0 = _h_5;
     r1 = _n_1;
@@ -7447,14 +7353,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_KMap_rec_k187)
+  WL_CASE(FID_tree_KMap_rec_k183)
     WL_POPN(2);
-    Term _m_6 = STK(0);
+    Term _m_5 = STK(0);
     Term _n_2 = STK(1);
     u32 _h_6 = r0;
     WL_OPEN
     Term _o_5[3];
-    if (spin_57(e, _o_5, _h_6, _m_6, _n_2) == 0) {
+    if (spin_58(e, _o_5, _h_6, _m_5, _n_2) == 0) {
       return 0;
     }
     r0 = _o_5[0];
@@ -7487,11 +7393,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else if (_a_0 == 2) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_tree_put_ans_k190;
+        STK(0) = FID_ffi_tree_put_ans_k186;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_tree_put_ans_k190, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k190, _t_0);
+        u64 _t_0 = task_node(e, FID_ffi_tree_put_ans_k186, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k186, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
@@ -7506,11 +7412,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else if (_a_0 == 3) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_tree_put_ans_k191;
+        STK(0) = FID_ffi_tree_put_ans_k187;
         WL_PUSHN(1);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_tree_put_ans_k191, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k191, _t_2);
+        u64 _t_2 = task_node(e, FID_ffi_tree_put_ans_k187, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k187, _t_2);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_2)) {
@@ -7525,11 +7431,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_tree_put_ans_k192;
+        STK(0) = FID_ffi_tree_put_ans_k188;
         WL_PUSHN(1);
       } else {
-        u64 _t_4 = task_node(e, FID_ffi_tree_put_ans_k192, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k192, _t_4);
+        u64 _t_4 = task_node(e, FID_ffi_tree_put_ans_k188, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_tree_put_ans_k188, _t_4);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_3)) {
@@ -7546,7 +7452,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_put_ans_k190)
+  WL_CASE(FID_ffi_tree_put_ans_k186)
     Term _h_0 = r0;
     WL_OPEN
     Term _o_2[1];
@@ -7559,7 +7465,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_put_ans_k191)
+  WL_CASE(FID_ffi_tree_put_ans_k187)
     Term _h_1 = r0;
     WL_OPEN
     Term _o_3[1];
@@ -7572,7 +7478,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_put_ans_k192)
+  WL_CASE(FID_ffi_tree_put_ans_k188)
     Term _h_2 = r0;
     WL_OPEN
     Term _o_4[1];
@@ -7606,14 +7512,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _f_0;
         STK(1) = _x_0;
         STK(2) = _i_0;
-        STK(3) = FID_wire_cdig_go_k195;
+        STK(3) = FID_wire_cdig_go_k191;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_cdig_go_k195, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_cdig_go_k191, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
         e.mem[_t_0 + 1] = _x_0;
         e.mem[_t_0 + 2] = _i_0;
-        WL_CONT = term_tsk(FID_wire_cdig_go_k195, _t_0);
+        WL_CONT = term_tsk(FID_wire_cdig_go_k191, _t_0);
         WL_IDX = 3;
       }
       r0 = _f_1;
@@ -7629,7 +7535,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_cdig_go_k195)
+  WL_CASE(FID_wire_cdig_go_k191)
     WL_POPN(3);
     u32 _f_2 = STK(0);
     u32 _x_1 = STK(1);
@@ -7638,7 +7544,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[2];
-    if (spin_58(e, _o_0, U32_BIN(_x_1, ==, _f_2), _h_0, _h_1, _i_1) == 0) {
+    if (spin_59(e, _o_0, U32_BIN(_x_1, ==, _f_2), _h_0, _h_1, _i_1) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -7677,14 +7583,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(0) = _j_0;
           STK(1) = _ts_1;
           STK(2) = _ds_0;
-          STK(3) = FID_wire_get_nat_go_k198;
+          STK(3) = FID_wire_get_nat_go_k194;
           WL_PUSHN(4);
         } else {
-          u64 _t_1 = task_node(e, FID_wire_get_nat_go_k198, WL_CONT, WL_IDX, 1);
+          u64 _t_1 = task_node(e, FID_wire_get_nat_go_k194, WL_CONT, WL_IDX, 1);
           e.mem[_t_1 + 0] = _j_0;
           e.mem[_t_1 + 1] = _ts_1;
           e.mem[_t_1 + 2] = _ds_0;
-          WL_CONT = term_tsk(FID_wire_get_nat_go_k198, _t_1);
+          WL_CONT = term_tsk(FID_wire_get_nat_go_k194, _t_1);
           WL_IDX = 3;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -7698,12 +7604,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _ts_2;
-          STK(1) = FID_wire_get_nat_go_k199;
+          STK(1) = FID_wire_get_nat_go_k195;
           WL_PUSHN(2);
         } else {
-          u64 _t_4 = task_node(e, FID_wire_get_nat_go_k199, WL_CONT, WL_IDX, 1);
+          u64 _t_4 = task_node(e, FID_wire_get_nat_go_k195, WL_CONT, WL_IDX, 1);
           e.mem[_t_4 + 0] = _ts_2;
-          WL_CONT = term_tsk(FID_wire_get_nat_go_k199, _t_4);
+          WL_CONT = term_tsk(FID_wire_get_nat_go_k195, _t_4);
           WL_IDX = 1;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_value)) {
@@ -7726,7 +7632,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_go_k198)
+  WL_CASE(FID_wire_get_nat_go_k194)
     WL_POPN(3);
     Term _j_1 = STK(0);
     Term _ts_3 = STK(1);
@@ -7757,7 +7663,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_go_k199)
+  WL_CASE(FID_wire_get_nat_go_k195)
     WL_POPN(1);
     Term _ts_4 = STK(0);
     Term _h_3 = r0;
@@ -7787,12 +7693,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _ts_2;
-        STK(1) = FID_wire_get_nat_end_k201;
+        STK(1) = FID_wire_get_nat_end_k197;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_get_nat_end_k201, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_get_nat_end_k197, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _ts_2;
-        WL_CONT = term_tsk(FID_wire_get_nat_end_k201, _t_0);
+        WL_CONT = term_tsk(FID_wire_get_nat_end_k197, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_value)) {
@@ -7814,7 +7720,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_end_k201)
+  WL_CASE(FID_wire_get_nat_end_k197)
     WL_POPN(1);
     Term _ts_3 = STK(0);
     Term _h_0 = r0;
@@ -7832,11 +7738,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_str_k206;
+      STK(0) = FID_wire_get_str_k202;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_str_k206, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_str_k206, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_str_k202, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_str_k202, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7850,7 +7756,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_str_k206)
+  WL_CASE(FID_wire_get_str_k202)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -7932,10 +7838,10 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(4) = _q_3;
         STK(5) = _q_4;
         STK(6) = _q_5;
-        STK(7) = FID_tree_core_step_k218;
+        STK(7) = FID_tree_core_step_k214;
         WL_PUSHN(8);
       } else {
-        u64 _t_0 = task_node(e, FID_tree_core_step_k218, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_tree_core_step_k214, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _s_1;
         e.mem[_t_0 + 1] = _s_2;
         e.mem[_t_0 + 2] = _q_1;
@@ -7943,7 +7849,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         e.mem[_t_0 + 4] = _q_3;
         e.mem[_t_0 + 5] = _q_4;
         e.mem[_t_0 + 6] = _q_5;
-        WL_CONT = term_tsk(FID_tree_core_step_k218, _t_0);
+        WL_CONT = term_tsk(FID_tree_core_step_k214, _t_0);
         WL_IDX = 7;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_rec)) {
@@ -7972,15 +7878,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _s_1;
         STK(2) = _s_2;
         STK(3) = _q_1;
-        STK(4) = FID_tree_core_step_k219;
+        STK(4) = FID_tree_core_step_k215;
         WL_PUSHN(5);
       } else {
-        u64 _t_2 = task_node(e, FID_tree_core_step_k219, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_tree_core_step_k215, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _s_0;
         e.mem[_t_2 + 1] = _s_1;
         e.mem[_t_2 + 2] = _s_2;
         e.mem[_t_2 + 3] = _q_1;
-        WL_CONT = term_tsk(FID_tree_core_step_k219, _t_2);
+        WL_CONT = term_tsk(FID_tree_core_step_k215, _t_2);
         WL_IDX = 4;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_onto)) {
@@ -8000,14 +7906,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _s_0;
         STK(1) = _s_1;
         STK(2) = _s_2;
-        STK(3) = FID_tree_core_step_k224;
+        STK(3) = FID_tree_core_step_k220;
         WL_PUSHN(4);
       } else {
-        u64 _t_12 = task_node(e, FID_tree_core_step_k224, WL_CONT, WL_IDX, 1);
+        u64 _t_12 = task_node(e, FID_tree_core_step_k220, WL_CONT, WL_IDX, 1);
         e.mem[_t_12 + 0] = _s_0;
         e.mem[_t_12 + 1] = _s_1;
         e.mem[_t_12 + 2] = _s_2;
-        WL_CONT = term_tsk(FID_tree_core_step_k224, _t_12);
+        WL_CONT = term_tsk(FID_tree_core_step_k220, _t_12);
         WL_IDX = 3;
       }
       if (!DEVICE && !seq && fid_nofk(FID_tree_St_at)) {
@@ -8026,7 +7932,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k218)
+  WL_CASE(FID_tree_core_step_k214)
     WL_POPN(7);
     Term _s_3 = STK(0);
     Term _s_4 = STK(1);
@@ -8040,7 +7946,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_2 = r2;
     WL_OPEN
     Term _o_0[5];
-    if (spin_64(e, _o_0, _s_3, _q_6, _q_7, _q_8, _q_9, _q_10, _s_4, _h_0, _h_1, _h_2) == 0) {
+    if (spin_65(e, _o_0, _s_3, _q_6, _q_7, _q_8, _q_9, _q_10, _s_4, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -8053,7 +7959,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k219)
+  WL_CASE(FID_tree_core_step_k215)
     WL_POPN(4);
     Term _s_5 = STK(0);
     Term _s_6 = STK(1);
@@ -8069,15 +7975,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(1) = _s_6;
       STK(2) = _s_7;
       STK(3) = _a_0;
-      STK(4) = FID_tree_core_step_k220;
+      STK(4) = FID_tree_core_step_k216;
       WL_PUSHN(5);
     } else {
-      u64 _t_4 = task_node(e, FID_tree_core_step_k220, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_tree_core_step_k216, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _s_5;
       e.mem[_t_4 + 1] = _s_6;
       e.mem[_t_4 + 2] = _s_7;
       e.mem[_t_4 + 3] = _a_0;
-      WL_CONT = term_tsk(FID_tree_core_step_k220, _t_4);
+      WL_CONT = term_tsk(FID_tree_core_step_k216, _t_4);
       WL_IDX = 4;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_St_at)) {
@@ -8095,7 +8001,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k220)
+  WL_CASE(FID_tree_core_step_k216)
     WL_POPN(4);
     Term _s_8 = STK(0);
     Term _s_9 = STK(1);
@@ -8110,16 +8016,16 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(2) = _s_10;
       STK(3) = _a_1;
       STK(4) = _h_3;
-      STK(5) = FID_tree_core_step_k221;
+      STK(5) = FID_tree_core_step_k217;
       WL_PUSHN(6);
     } else {
-      u64 _t_6 = task_node(e, FID_tree_core_step_k221, WL_CONT, WL_IDX, 1);
+      u64 _t_6 = task_node(e, FID_tree_core_step_k217, WL_CONT, WL_IDX, 1);
       e.mem[_t_6 + 0] = _s_8;
       e.mem[_t_6 + 1] = _s_9;
       e.mem[_t_6 + 2] = _s_10;
       e.mem[_t_6 + 3] = _a_1;
       e.mem[_t_6 + 4] = _h_3;
-      WL_CONT = term_tsk(FID_tree_core_step_k221, _t_6);
+      WL_CONT = term_tsk(FID_tree_core_step_k217, _t_6);
       WL_IDX = 5;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_onto)) {
@@ -8135,7 +8041,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k221)
+  WL_CASE(FID_tree_core_step_k217)
     WL_POPN(5);
     Term _s_11 = STK(0);
     Term _s_12 = STK(1);
@@ -8150,14 +8056,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _s_11;
       STK(1) = _s_12;
       STK(2) = _s_13;
-      STK(3) = FID_tree_core_step_k222;
+      STK(3) = FID_tree_core_step_k218;
       WL_PUSHN(4);
     } else {
-      u64 _t_8 = task_node(e, FID_tree_core_step_k222, WL_CONT, WL_IDX, 1);
+      u64 _t_8 = task_node(e, FID_tree_core_step_k218, WL_CONT, WL_IDX, 1);
       e.mem[_t_8 + 0] = _s_11;
       e.mem[_t_8 + 1] = _s_12;
       e.mem[_t_8 + 2] = _s_13;
-      WL_CONT = term_tsk(FID_tree_core_step_k222, _t_8);
+      WL_CONT = term_tsk(FID_tree_core_step_k218, _t_8);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_diff_m)) {
@@ -8173,7 +8079,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k222)
+  WL_CASE(FID_tree_core_step_k218)
     WL_POPN(3);
     Term _s_14 = STK(0);
     Term _s_15 = STK(1);
@@ -8185,14 +8091,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _s_14;
       STK(1) = _s_15;
       STK(2) = _s_16;
-      STK(3) = FID_tree_core_step_k223;
+      STK(3) = FID_tree_core_step_k219;
       WL_PUSHN(4);
     } else {
-      u64 _t_10 = task_node(e, FID_tree_core_step_k223, WL_CONT, WL_IDX, 1);
+      u64 _t_10 = task_node(e, FID_tree_core_step_k219, WL_CONT, WL_IDX, 1);
       e.mem[_t_10 + 0] = _s_14;
       e.mem[_t_10 + 1] = _s_15;
       e.mem[_t_10 + 2] = _s_16;
-      WL_CONT = term_tsk(FID_tree_core_step_k223, _t_10);
+      WL_CONT = term_tsk(FID_tree_core_step_k219, _t_10);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_effects)) {
@@ -8208,7 +8114,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k223)
+  WL_CASE(FID_tree_core_step_k219)
     WL_POPN(3);
     Term _s_17 = STK(0);
     Term _s_18 = STK(1);
@@ -8225,7 +8131,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k224)
+  WL_CASE(FID_tree_core_step_k220)
     WL_POPN(3);
     Term _s_20 = STK(0);
     Term _s_21 = STK(1);
@@ -8238,15 +8144,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(1) = _s_21;
       STK(2) = _s_22;
       STK(3) = _h_8;
-      STK(4) = FID_tree_core_step_k225;
+      STK(4) = FID_tree_core_step_k221;
       WL_PUSHN(5);
     } else {
-      u64 _t_14 = task_node(e, FID_tree_core_step_k225, WL_CONT, WL_IDX, 1);
+      u64 _t_14 = task_node(e, FID_tree_core_step_k221, WL_CONT, WL_IDX, 1);
       e.mem[_t_14 + 0] = _s_20;
       e.mem[_t_14 + 1] = _s_21;
       e.mem[_t_14 + 2] = _s_22;
       e.mem[_t_14 + 3] = _h_8;
-      WL_CONT = term_tsk(FID_tree_core_step_k225, _t_14);
+      WL_CONT = term_tsk(FID_tree_core_step_k221, _t_14);
       WL_IDX = 4;
     }
     if (!DEVICE && !seq && fid_nofk(FID_tree_KMap_onto)) {
@@ -8262,7 +8168,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_tree_core_step_k225)
+  WL_CASE(FID_tree_core_step_k221)
     WL_POPN(4);
     Term _s_23 = STK(0);
     Term _s_24 = STK(1);
@@ -8287,12 +8193,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _c_0;
-      STK(1) = FID_wire_tok_k230;
+      STK(1) = FID_wire_tok_k226;
       WL_PUSHN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_tok_k230, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_wire_tok_k226, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _c_0;
-      WL_CONT = term_tsk(FID_wire_tok_k230, _t_0);
+      WL_CONT = term_tsk(FID_wire_tok_k226, _t_0);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_cdig_go)) {
@@ -8310,14 +8216,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_tok_k230)
+  WL_CASE(FID_wire_tok_k226)
     WL_POPN(1);
     u32 _c_1 = STK(0);
     u32 _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_66(e, _o_1, _h_0, _h_1, U32_BIN(_c_1, ==, 44ull)) == 0) {
+    if (spin_67(e, _o_1, _h_0, _h_1, U32_BIN(_c_1, ==, 44ull)) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -8355,13 +8261,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_ROOM(3, 0);
           STK(0) = _m_0;
           STK(1) = _cur_1;
-          STK(2) = FID_wire_get_list_go_1_k240;
+          STK(2) = FID_wire_get_list_go_1_k236;
           WL_PUSHN(3);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_get_list_go_1_k240, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_1_k236, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _m_0;
           e.mem[_t_0 + 1] = _cur_1;
-          WL_CONT = term_tsk(FID_wire_get_list_go_1_k240, _t_0);
+          WL_CONT = term_tsk(FID_wire_get_list_go_1_k236, _t_0);
           WL_IDX = 2;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8382,7 +8288,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_1_k240)
+  WL_CASE(FID_wire_get_list_go_1_k236)
     WL_POPN(2);
     Term _m_1 = STK(0);
     Term _cur_3 = STK(1);
@@ -8393,12 +8299,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _cur_3;
-      STK(1) = FID_wire_get_list_go_1_k241;
+      STK(1) = FID_wire_get_list_go_1_k237;
       WL_PUSHN(2);
     } else {
-      u64 _t_2 = task_node(e, FID_wire_get_list_go_1_k241, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_1_k237, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _cur_3;
-      WL_CONT = term_tsk(FID_wire_get_list_go_1_k241, _t_2);
+      WL_CONT = term_tsk(FID_wire_get_list_go_1_k237, _t_2);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_1)) {
@@ -8418,7 +8324,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_1_k241)
+  WL_CASE(FID_wire_get_list_go_1_k237)
     WL_POPN(1);
     Term _cur_4 = STK(0);
     u32 _h_3 = r0;
@@ -8426,7 +8332,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_5 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_69(e, _o_0, _cur_4, _h_3, _h_4, _h_5) == 0) {
+    if (spin_70(e, _o_0, _cur_4, _h_3, _h_4, _h_5) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -8470,7 +8376,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         Term _a_1 = (_a_0 == 0 ? 0 : _n_1 / _a_0);
         Term _a_2 = (_a_0 == 0 ? _n_1 : _n_1 % _a_0);
         Term _o_0[2];
-        if (spin_65(e, _o_0, _a_1, _a_2) == 0) {
+        if (spin_66(e, _o_0, _a_1, _a_2) == 0) {
           return 0;
         }
         _v_0 = (u32)_o_0[0];
@@ -8508,12 +8414,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_1;
-        STK(1) = FID_wire_peek_k255;
+        STK(1) = FID_wire_peek_k251;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_peek_k255, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_peek_k251, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_1;
-        WL_CONT = term_tsk(FID_wire_peek_k255, _t_0);
+        WL_CONT = term_tsk(FID_wire_peek_k251, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_tok)) {
@@ -8528,7 +8434,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_peek_k255)
+  WL_CASE(FID_wire_peek_k251)
     WL_POPN(1);
     Term _f_2 = STK(0);
     u32 _h_0 = r0;
@@ -8547,11 +8453,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_u32_k260;
+      STK(0) = FID_wire_get_u32_k256;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_u32_k260, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_u32_k260, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_u32_k256, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_u32_k256, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8565,13 +8471,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_u32_k260)
+  WL_CASE(FID_wire_get_u32_k256)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     WL_OPEN
     Term _o_2[3];
-    if (spin_70(e, _o_2, _h_0, _h_1, _h_2) == 0) {
+    if (spin_71(e, _o_2, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = (u32)_o_2[0];
@@ -8611,11 +8517,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_tree_get_ask_k272;
+      STK(0) = FID_ffi_tree_get_ask_k268;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_tree_get_ask_k272, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_tree_get_ask_k272, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_tree_get_ask_k268, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_tree_get_ask_k268, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8629,7 +8535,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_ask_k272)
+  WL_CASE(FID_ffi_tree_get_ask_k268)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -8638,11 +8544,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_h_1 == 0) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_get_ask_k273;
+          STK(0) = FID_ffi_tree_get_ask_k269;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_tree_get_ask_k273, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k273, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_tree_get_ask_k269, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k269, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_get_rec)) {
@@ -8655,11 +8561,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_get_ask_k274;
+          STK(0) = FID_ffi_tree_get_ask_k270;
           WL_PUSHN(1);
         } else {
-          u64 _t_4 = task_node(e, FID_ffi_tree_get_ask_k274, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k274, _t_4);
+          u64 _t_4 = task_node(e, FID_ffi_tree_get_ask_k270, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k270, _t_4);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8672,11 +8578,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 2) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_get_ask_k275;
+          STK(0) = FID_ffi_tree_get_ask_k271;
           WL_PUSHN(1);
         } else {
-          u64 _t_6 = task_node(e, FID_ffi_tree_get_ask_k275, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k275, _t_6);
+          u64 _t_6 = task_node(e, FID_ffi_tree_get_ask_k271, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_get_ask_k271, _t_6);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8714,7 +8620,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_ask_k273)
+  WL_CASE(FID_ffi_tree_get_ask_k269)
     u32 _h_3 = r0;
     u32 _h_4 = r1;
     Term _h_5 = r2;
@@ -8724,7 +8630,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_9 = r6;
     WL_OPEN
     Term _o_0[8];
-    if (spin_61(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8, _h_9) == 0) {
+    if (spin_62(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8, _h_9) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -8740,13 +8646,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_ask_k274)
+  WL_CASE(FID_ffi_tree_get_ask_k270)
     u32 _h_10 = r0;
     Term _h_11 = r1;
     Term _h_12 = r2;
     WL_OPEN
     Term _o_1[8];
-    if (spin_62(e, _o_1, _h_10, _h_11, _h_12) == 0) {
+    if (spin_63(e, _o_1, _h_10, _h_11, _h_12) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -8762,13 +8668,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_get_ask_k275)
+  WL_CASE(FID_ffi_tree_get_ask_k271)
     u32 _h_13 = r0;
     Term _h_14 = r1;
     Term _h_15 = r2;
     WL_OPEN
     Term _o_2[8];
-    if (spin_63(e, _o_2, _h_13, _h_14, _h_15) == 0) {
+    if (spin_64(e, _o_2, _h_13, _h_14, _h_15) == 0) {
       return 0;
     }
     r0 = (u32)_o_2[0];
@@ -8793,7 +8699,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _a_1 = (_a_0 == 0 ? 0 : _n_0 / _a_0);
     Term _a_2 = (_a_0 == 0 ? _n_0 : _n_0 % _a_0);
     Term _o_0[2];
-    if (spin_65(e, _o_0, _a_1, _a_2) == 0) {
+    if (spin_66(e, _o_0, _a_1, _a_2) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_0[0];
@@ -8832,12 +8738,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_String_append_k281;
+        STK(1) = FID_String_append_k277;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_String_append_k281, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_String_append_k277, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_String_append_k281, _t_0);
+        WL_CONT = term_tsk(FID_String_append_k277, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -8851,7 +8757,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_String_append_k281)
+  WL_CASE(FID_String_append_k277)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     Term _h_0 = r0;
@@ -8870,11 +8776,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_nat_k283;
+      STK(0) = FID_wire_get_nat_k279;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_nat_k283, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_nat_k283, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_nat_k279, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_nat_k279, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -8888,7 +8794,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_k283)
+  WL_CASE(FID_wire_get_nat_k279)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -8897,12 +8803,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_wire_get_nat_k284;
+        STK(1) = FID_wire_get_nat_k280;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_wire_get_nat_k284, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_wire_get_nat_k280, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_wire_get_nat_k284, _t_2);
+        WL_CONT = term_tsk(FID_wire_get_nat_k280, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -8929,7 +8835,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_k284)
+  WL_CASE(FID_wire_get_nat_k280)
     WL_POPN(1);
     Term _h_6 = STK(0);
     u32 _h_3 = r0;
@@ -8980,11 +8886,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_list_1_k292;
+      STK(0) = FID_wire_get_list_1_k288;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_list_1_k292, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_list_1_k292, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_list_1_k288, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_1_k288, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -8998,7 +8904,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_1_k292)
+  WL_CASE(FID_wire_get_list_1_k288)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -9014,12 +8920,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _m_0;
-          STK(1) = FID_wire_get_list_1_k293;
+          STK(1) = FID_wire_get_list_1_k289;
           WL_PUSHN(2);
         } else {
-          u64 _t_2 = task_node(e, FID_wire_get_list_1_k293, WL_CONT, WL_IDX, 1);
+          u64 _t_2 = task_node(e, FID_wire_get_list_1_k289, WL_CONT, WL_IDX, 1);
           e.mem[_t_2 + 0] = _m_0;
-          WL_CONT = term_tsk(FID_wire_get_list_1_k293, _t_2);
+          WL_CONT = term_tsk(FID_wire_get_list_1_k289, _t_2);
           WL_IDX = 1;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9040,7 +8946,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_1_k293)
+  WL_CASE(FID_wire_get_list_1_k289)
     WL_POPN(1);
     Term _m_1 = STK(0);
     u32 _h_3 = r0;
@@ -9077,14 +8983,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _st_1;
         STK(1) = _st_2;
         STK(2) = _st_3;
-        STK(3) = FID_ffi_tree_step_k298;
+        STK(3) = FID_ffi_tree_step_k294;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_tree_step_k298, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_ffi_tree_step_k294, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _st_1;
         e.mem[_t_0 + 1] = _st_2;
         e.mem[_t_0 + 2] = _st_3;
-        WL_CONT = term_tsk(FID_ffi_tree_step_k298, _t_0);
+        WL_CONT = term_tsk(FID_ffi_tree_step_k294, _t_0);
         WL_IDX = 3;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_get_ask)) {
@@ -9107,7 +9013,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_step_k298)
+  WL_CASE(FID_ffi_tree_step_k294)
     WL_POPN(3);
     Term _st_4 = STK(0);
     Term _st_5 = STK(1);
@@ -9124,18 +9030,18 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (_h_0 == 0) {
       u32 _v_0 = 0;
       Term _o_0[1];
-      if (spin_74(e, _o_0, _h_7) == 0) {
+      if (spin_75(e, _o_0, _h_7) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_0[0];
       if (_v_0 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_tree_step_k299;
+          STK(0) = FID_ffi_tree_step_k295;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_tree_step_k299, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_tree_step_k299, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_tree_step_k295, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_tree_step_k295, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_tree_core_step)) {
@@ -9182,7 +9088,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_step_k299)
+  WL_CASE(FID_ffi_tree_step_k295)
     Term _h_8 = r0;
     Term _h_9 = r1;
     Term _h_10 = r2;
@@ -9194,14 +9100,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _h_8;
       STK(1) = _h_9;
       STK(2) = _h_10;
-      STK(3) = FID_ffi_tree_step_k300;
+      STK(3) = FID_ffi_tree_step_k296;
       WL_PUSHN(4);
     } else {
-      u64 _t_4 = task_node(e, FID_ffi_tree_step_k300, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_ffi_tree_step_k296, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _h_8;
       e.mem[_t_4 + 1] = _h_9;
       e.mem[_t_4 + 2] = _h_10;
-      WL_CONT = term_tsk(FID_ffi_tree_step_k300, _t_4);
+      WL_CONT = term_tsk(FID_ffi_tree_step_k296, _t_4);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_put_ans)) {
@@ -9219,7 +9125,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_step_k300)
+  WL_CASE(FID_ffi_tree_step_k296)
     WL_POPN(3);
     Term _h_14 = STK(0);
     Term _h_15 = STK(1);
@@ -9248,14 +9154,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _s_1;
         STK(1) = _s_2;
         STK(2) = _input_0;
-        STK(3) = FID_ffi_echo_step_k303;
+        STK(3) = FID_ffi_echo_step_k299;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_echo_step_k303, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_ffi_echo_step_k299, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _s_1;
         e.mem[_t_0 + 1] = _s_2;
         e.mem[_t_0 + 2] = _input_0;
-        WL_CONT = term_tsk(FID_ffi_echo_step_k303, _t_0);
+        WL_CONT = term_tsk(FID_ffi_echo_step_k299, _t_0);
         WL_IDX = 3;
       }
       if (!DEVICE && !seq && fid_nofk(FID_Nat_show)) {
@@ -9277,7 +9183,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k303)
+  WL_CASE(FID_ffi_echo_step_k299)
     WL_POPN(3);
     Term _s_3 = STK(0);
     Term _s_4 = STK(1);
@@ -9289,14 +9195,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _s_3;
       STK(1) = _input_1;
       STK(2) = _h_0;
-      STK(3) = FID_ffi_echo_step_k304;
+      STK(3) = FID_ffi_echo_step_k300;
       WL_PUSHN(4);
     } else {
-      u64 _t_2 = task_node(e, FID_ffi_echo_step_k304, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_ffi_echo_step_k300, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _s_3;
       e.mem[_t_2 + 1] = _input_1;
       e.mem[_t_2 + 2] = _h_0;
-      WL_CONT = term_tsk(FID_ffi_echo_step_k304, _t_2);
+      WL_CONT = term_tsk(FID_ffi_echo_step_k300, _t_2);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_String_append)) {
@@ -9312,7 +9218,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k304)
+  WL_CASE(FID_ffi_echo_step_k300)
     WL_POPN(3);
     Term _s_5 = STK(0);
     Term _input_2 = STK(1);
@@ -9323,13 +9229,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_ROOM(3, 0);
       STK(0) = _s_5;
       STK(1) = _input_2;
-      STK(2) = FID_ffi_echo_step_k305;
+      STK(2) = FID_ffi_echo_step_k301;
       WL_PUSHN(3);
     } else {
-      u64 _t_4 = task_node(e, FID_ffi_echo_step_k305, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_ffi_echo_step_k301, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _s_5;
       e.mem[_t_4 + 1] = _input_2;
-      WL_CONT = term_tsk(FID_ffi_echo_step_k305, _t_4);
+      WL_CONT = term_tsk(FID_ffi_echo_step_k301, _t_4);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_String_append)) {
@@ -9345,7 +9251,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k305)
+  WL_CASE(FID_ffi_echo_step_k301)
     WL_POPN(2);
     Term _s_6 = STK(0);
     Term _input_3 = STK(1);
@@ -9365,11 +9271,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_tree_open_k316;
+      STK(0) = FID_ffi_tree_open_k312;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_tree_open_k316, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_tree_open_k316, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_tree_open_k312, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_tree_open_k312, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_1)) {
@@ -9383,13 +9289,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_tree_open_k316)
+  WL_CASE(FID_ffi_tree_open_k312)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     WL_OPEN
     Term _o_2[5];
-    if (spin_76(e, _o_2, _h_0, _h_1, _h_2) == 0) {
+    if (spin_77(e, _o_2, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = (u32)_o_2[0];
@@ -9407,11 +9313,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_echo_open_k320;
+      STK(0) = FID_ffi_echo_open_k316;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_echo_open_k320, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_echo_open_k320, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_echo_open_k316, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_echo_open_k316, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_U32_read)) {
@@ -9425,7 +9331,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_open_k320)
+  WL_CASE(FID_ffi_echo_open_k316)
     u32 _h_0 = r0;
     u32 _h_1 = r1;
     WL_OPEN
@@ -9433,12 +9339,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_ffi_echo_open_k321;
+        STK(1) = FID_ffi_echo_open_k317;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_echo_open_k321, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_ffi_echo_open_k317, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_echo_open_k321, _t_2);
+        WL_CONT = term_tsk(FID_ffi_echo_open_k317, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_U32_show)) {
@@ -9459,7 +9365,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_open_k321)
+  WL_CASE(FID_ffi_echo_open_k317)
     WL_POPN(1);
     u32 _h_3 = STK(0);
     Term _h_2 = r0;
@@ -9484,11 +9390,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (_state_0 == 0) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_step_go_k324;
+        STK(0) = FID_step_go_k320;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_step_go_k324, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_step_go_k324, _t_0);
+        u64 _t_0 = task_node(e, FID_step_go_k320, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_step_go_k320, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_echo_step)) {
@@ -9507,11 +9413,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else if (_state_0 == 1) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_step_go_k325;
+        STK(0) = FID_step_go_k321;
         WL_PUSHN(1);
       } else {
-        u64 _t_2 = task_node(e, FID_step_go_k325, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_step_go_k325, _t_2);
+        u64 _t_2 = task_node(e, FID_step_go_k321, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_step_go_k321, _t_2);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_step)) {
@@ -9543,14 +9449,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_step_go_k324)
+  WL_CASE(FID_step_go_k320)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     Term _h_3 = r3;
     WL_OPEN
     Term _o_0[6];
-    if (spin_77(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
+    if (spin_78(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -9564,7 +9470,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_step_go_k325)
+  WL_CASE(FID_step_go_k321)
     u32 _h_4 = r0;
     Term _h_5 = r1;
     Term _h_6 = r2;
@@ -9572,7 +9478,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_8 = r4;
     WL_OPEN
     Term _o_1[6];
-    if (spin_78(e, _o_1, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
+    if (spin_79(e, _o_1, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -9592,7 +9498,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (_entry_0 == 0) {
       Term _o_0[1];
-      if (spin_79(e, _o_0, _input_0) == 0) {
+      if (spin_80(e, _o_0, _input_0) == 0) {
         return 0;
       }
       r0 = _o_0[0];
@@ -9631,7 +9537,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _11_29 = ((_entry_0 >> 31) & 1);
       term_sink(e, _input_0);
       Term _o_1[1];
-      if (spin_53(e, _o_1, term_ctr(CID_SCon, STAT_OFF + 428)) == 0) {
+      if (spin_54(e, _o_1, term_ctr(CID_SCon, STAT_OFF + 428)) == 0) {
         return 0;
       }
       r0 = _o_1[0];
@@ -9639,11 +9545,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else if (_entry_0 == 1) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_go_k328;
+        STK(0) = FID_ffi_go_k324;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_go_k328, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_go_k328, _t_0);
+        u64 _t_0 = task_node(e, FID_ffi_go_k324, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_go_k324, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9687,7 +9593,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _73_29 = ((_entry_0 >> 31) & 1);
       term_sink(e, _input_0);
       Term _o_12[1];
-      if (spin_53(e, _o_12, term_ctr(CID_SCon, STAT_OFF + 428)) == 0) {
+      if (spin_54(e, _o_12, term_ctr(CID_SCon, STAT_OFF + 428)) == 0) {
         return 0;
       }
       r0 = _o_12[0];
@@ -9697,7 +9603,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k328)
+  WL_CASE(FID_ffi_go_k324)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -9706,12 +9612,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_ffi_go_k329;
+        STK(1) = FID_ffi_go_k325;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_go_k329, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_ffi_go_k325, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_go_k329, _t_2);
+        WL_CONT = term_tsk(FID_ffi_go_k325, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_u32)) {
@@ -9723,7 +9629,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_JMP(FID_wire_get_u32);
     } else {
       Term _o_11[1];
-      if (spin_52(e, _o_11) == 0) {
+      if (spin_53(e, _o_11) == 0) {
         return 0;
       }
       r0 = _o_11[0];
@@ -9733,7 +9639,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k329)
+  WL_CASE(FID_ffi_go_k325)
     WL_POPN(1);
     Term _h_6 = STK(0);
     u32 _h_3 = r0;
@@ -9745,7 +9651,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _v_1 = 0;
       Term _v_2 = 0;
       Term _o_2[3];
-      if (spin_71(e, _o_2, _h_5) == 0) {
+      if (spin_72(e, _o_2, _h_5) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_2[0];
@@ -9757,14 +9663,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(0) = _v_1;
           STK(1) = _h_6;
           STK(2) = _h_4;
-          STK(3) = FID_ffi_go_k330;
+          STK(3) = FID_ffi_go_k326;
           WL_PUSHN(4);
         } else {
-          u64 _t_4 = task_node(e, FID_ffi_go_k330, WL_CONT, WL_IDX, 1);
+          u64 _t_4 = task_node(e, FID_ffi_go_k326, WL_CONT, WL_IDX, 1);
           e.mem[_t_4 + 0] = _v_1;
           e.mem[_t_4 + 1] = _h_6;
           e.mem[_t_4 + 2] = _h_4;
-          WL_CONT = term_tsk(FID_ffi_go_k330, _t_4);
+          WL_CONT = term_tsk(FID_ffi_go_k326, _t_4);
           WL_IDX = 3;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
@@ -9776,7 +9682,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_JMP(FID_wire_get_str);
       } else {
         Term _o_9[1];
-        if (spin_52(e, _o_9) == 0) {
+        if (spin_53(e, _o_9) == 0) {
           return 0;
         }
         r0 = _o_9[0];
@@ -9784,7 +9690,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       }
     } else {
       Term _o_10[1];
-      if (spin_52(e, _o_10) == 0) {
+      if (spin_53(e, _o_10) == 0) {
         return 0;
       }
       r0 = _o_10[0];
@@ -9794,7 +9700,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k330)
+  WL_CASE(FID_ffi_go_k326)
     WL_POPN(3);
     u32 _v_3 = STK(0);
     Term _h_10 = STK(1);
@@ -9810,15 +9716,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _h_10;
         STK(2) = _h_11;
         STK(3) = _v_3;
-        STK(4) = FID_ffi_go_k331;
+        STK(4) = FID_ffi_go_k327;
         WL_PUSHN(5);
       } else {
-        u64 _t_6 = task_node(e, FID_ffi_go_k331, WL_CONT, WL_IDX, 1);
+        u64 _t_6 = task_node(e, FID_ffi_go_k327, WL_CONT, WL_IDX, 1);
         e.mem[_t_6 + 0] = _h_8;
         e.mem[_t_6 + 1] = _h_10;
         e.mem[_t_6 + 2] = _h_11;
         e.mem[_t_6 + 3] = _v_3;
-        WL_CONT = term_tsk(FID_ffi_go_k331, _t_6);
+        WL_CONT = term_tsk(FID_ffi_go_k327, _t_6);
         WL_IDX = 4;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_1)) {
@@ -9830,7 +9736,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_JMP(FID_wire_get_list_1);
     } else {
       Term _o_8[1];
-      if (spin_52(e, _o_8) == 0) {
+      if (spin_53(e, _o_8) == 0) {
         return 0;
       }
       r0 = _o_8[0];
@@ -9840,7 +9746,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k331)
+  WL_CASE(FID_ffi_go_k327)
     WL_POPN(4);
     Term _h_15 = STK(0);
     Term _h_16 = STK(1);
@@ -9858,15 +9764,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(1) = _h_17;
           STK(2) = _v_4;
           STK(3) = _h_15;
-          STK(4) = FID_ffi_go_k332;
+          STK(4) = FID_ffi_go_k328;
           WL_PUSHN(5);
         } else {
-          u64 _t_8 = task_node(e, FID_ffi_go_k332, WL_CONT, WL_IDX, 1);
+          u64 _t_8 = task_node(e, FID_ffi_go_k328, WL_CONT, WL_IDX, 1);
           e.mem[_t_8 + 0] = _h_16;
           e.mem[_t_8 + 1] = _h_17;
           e.mem[_t_8 + 2] = _v_4;
           e.mem[_t_8 + 3] = _h_15;
-          WL_CONT = term_tsk(FID_ffi_go_k332, _t_8);
+          WL_CONT = term_tsk(FID_ffi_go_k328, _t_8);
           WL_IDX = 4;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
@@ -9887,7 +9793,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         term_sink(e, _f_1);
         term_sink(e, _h_15);
         Term _o_6[1];
-        if (spin_52(e, _o_6) == 0) {
+        if (spin_53(e, _o_6) == 0) {
           return 0;
         }
         spare_free(e, cls_fit(2), _sp_0);
@@ -9897,7 +9803,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else {
       term_sink(e, _h_15);
       Term _o_7[1];
-      if (spin_52(e, _o_7) == 0) {
+      if (spin_53(e, _o_7) == 0) {
         return 0;
       }
       r0 = _o_7[0];
@@ -9907,7 +9813,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k332)
+  WL_CASE(FID_ffi_go_k328)
     WL_POPN(4);
     Term _h_19 = STK(0);
     u32 _h_20 = STK(1);
@@ -9920,14 +9826,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _h_19;
       STK(1) = _h_20;
       STK(2) = _v_5;
-      STK(3) = FID_ffi_go_k333;
+      STK(3) = FID_ffi_go_k329;
       WL_PUSHN(4);
     } else {
-      u64 _t_10 = task_node(e, FID_ffi_go_k333, WL_CONT, WL_IDX, 1);
+      u64 _t_10 = task_node(e, FID_ffi_go_k329, WL_CONT, WL_IDX, 1);
       e.mem[_t_10 + 0] = _h_19;
       e.mem[_t_10 + 1] = _h_20;
       e.mem[_t_10 + 2] = _v_5;
-      WL_CONT = term_tsk(FID_ffi_go_k333, _t_10);
+      WL_CONT = term_tsk(FID_ffi_go_k329, _t_10);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_str)) {
@@ -9943,7 +9849,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k333)
+  WL_CASE(FID_ffi_go_k329)
     WL_POPN(3);
     Term _h_23 = STK(0);
     u32 _h_24 = STK(1);
@@ -9953,12 +9859,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _v_7 = 0;
     Term _v_8 = 0;
     Term _o_3[1];
-    if (spin_50(e, _o_3, _v_6, _h_22) == 0) {
+    if (spin_51(e, _o_3, _v_6, _h_22) == 0) {
       return 0;
     }
     _v_8 = _o_3[0];
     Term _o_4[1];
-    if (spin_51(e, _o_4, _h_24, _v_8) == 0) {
+    if (spin_52(e, _o_4, _h_24, _v_8) == 0) {
       return 0;
     }
     _v_7 = _o_4[0];
@@ -9979,11 +9885,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (_entry_0 == 0) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_open_go_k337;
+        STK(0) = FID_open_go_k333;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_open_go_k337, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_open_go_k337, _t_0);
+        u64 _t_0 = task_node(e, FID_open_go_k333, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_open_go_k333, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_echo_open)) {
@@ -9996,11 +9902,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     } else if (_entry_0 == 2) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_open_go_k338;
+        STK(0) = FID_open_go_k334;
         WL_PUSHN(1);
       } else {
-        u64 _t_2 = task_node(e, FID_open_go_k338, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_open_go_k338, _t_2);
+        u64 _t_2 = task_node(e, FID_open_go_k334, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_open_go_k334, _t_2);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_tree_open)) {
@@ -10056,14 +9962,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_open_go_k337)
+  WL_CASE(FID_open_go_k333)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     Term _h_3 = r3;
     WL_OPEN
     Term _o_0[6];
-    if (spin_80(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
+    if (spin_81(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -10077,7 +9983,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_open_go_k338)
+  WL_CASE(FID_open_go_k334)
     u32 _h_4 = r0;
     Term _h_5 = r1;
     Term _h_6 = r2;
@@ -10085,7 +9991,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_8 = r4;
     WL_OPEN
     Term _o_1[6];
-    if (spin_81(e, _o_1, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
+    if (spin_82(e, _o_1, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -10109,11 +10015,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_step_k340;
+      STK(0) = FID_step_k336;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_step_k340, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_step_k340, _t_0);
+      u64 _t_0 = task_node(e, FID_step_k336, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_step_k336, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_step_go)) {
@@ -10137,7 +10043,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_step_k340)
+  WL_CASE(FID_step_k336)
     u32 _r_0 = r0;
     u32 _r_1 = r1;
     Term _r_2 = r2;
@@ -10165,7 +10071,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     Term _v_0 = 0;
     Term _o_0[1];
-    if (spin_82(e, _o_0, _state_0, _state_1, _state_2, _state_3, _state_4) == 0) {
+    if (spin_83(e, _o_0, _state_0, _state_1, _state_2, _state_3, _state_4) == 0) {
       return 0;
     }
     _v_0 = _o_0[0];
@@ -10181,11 +10087,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_k344;
+      STK(0) = FID_ffi_k340;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_k344, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_k344, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_k340, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_k340, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_ffi_go)) {
@@ -10201,7 +10107,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_k344)
+  WL_CASE(FID_ffi_k340)
     Term _r_0 = r0;
     WL_OPEN
     r0 = _r_0;
@@ -10253,11 +10159,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_open_k349;
+      STK(0) = FID_open_k345;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_open_k349, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_open_k349, _t_0);
+      u64 _t_0 = task_node(e, FID_open_k345, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_open_k345, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_open_go)) {
@@ -10273,7 +10179,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_open_k349)
+  WL_CASE(FID_open_k345)
     u32 _r_0 = r0;
     u32 _r_1 = r1;
     Term _r_2 = r2;
@@ -10305,12 +10211,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _r_5;
-        STK(1) = FID_cli_steps_k351;
+        STK(1) = FID_cli_steps_k347;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_cli_steps_k351, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_cli_steps_k347, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _r_5;
-        WL_CONT = term_tsk(FID_cli_steps_k351, _t_0);
+        WL_CONT = term_tsk(FID_cli_steps_k347, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_close)) {
@@ -10338,13 +10244,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_ROOM(3, 0);
         STK(0) = _f_1;
         STK(1) = _r_5;
-        STK(2) = FID_cli_steps_k352;
+        STK(2) = FID_cli_steps_k348;
         WL_PUSHN(3);
       } else {
-        u64 _t_2 = task_node(e, FID_cli_steps_k352, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_cli_steps_k348, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _f_1;
         e.mem[_t_2 + 1] = _r_5;
-        WL_CONT = term_tsk(FID_cli_steps_k352, _t_2);
+        WL_CONT = term_tsk(FID_cli_steps_k348, _t_2);
         WL_IDX = 2;
       }
       if (!DEVICE && !seq && fid_nofk(FID_step)) {
@@ -10369,13 +10275,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k351)
+  WL_CASE(FID_cli_steps_k347)
     WL_POPN(1);
     Term _r_6 = STK(0);
     Term _h_0 = r0;
     WL_OPEN
     Term _o_0[1];
-    if (spin_84(e, _o_0, _r_6) == 0) {
+    if (spin_85(e, _o_0, _r_6) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -10384,7 +10290,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k352)
+  WL_CASE(FID_cli_steps_k348)
     WL_POPN(2);
     Term _f_2 = STK(0);
     Term _r_7 = STK(1);
@@ -10398,12 +10304,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _r_7;
-      STK(1) = FID_cli_steps_k353;
+      STK(1) = FID_cli_steps_k349;
       WL_PUSHN(2);
     } else {
-      u64 _t_4 = task_node(e, FID_cli_steps_k353, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_cli_steps_k349, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _r_7;
-      WL_CONT = term_tsk(FID_cli_steps_k353, _t_4);
+      WL_CONT = term_tsk(FID_cli_steps_k349, _t_4);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_steps)) {
@@ -10429,7 +10335,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k353)
+  WL_CASE(FID_cli_steps_k349)
     WL_POPN(1);
     Term _r_8 = STK(0);
     Term _h_7 = r0;
@@ -10476,7 +10382,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _lines_0 = r0;
     WL_OPEN
     if (term_aux(_lines_0) == CID_Nil) {
-      r0 = term_clo(FID_cli_print_c365, 0);
+      r0 = term_clo(FID_cli_print_c361, 0);
       WL_RETN(1);
     } else {
       Term _fb_0[2];
@@ -10487,14 +10393,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_nd_0 + 0] = _f_0;
       e.mem[_nd_0 + 1] = _f_1;
       spare_free(e, cls_fit(2), _sp_0);
-      r0 = term_clo(FID_cli_print_c366, _nd_0);
+      r0 = term_clo(FID_cli_print_c362, _nd_0);
       WL_RETN(1);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c365)
+  WL_CASE(FID_cli_print_c361)
     Term _x_0 = r0;
     WL_OPEN
     Term _x_1 = term_pak(CID_Unit, 0);
@@ -10511,7 +10417,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c366)
+  WL_CASE(FID_cli_print_c362)
     Term _f_2 = r0;
     Term _f_3 = r1;
     Term _x_2 = r2;
@@ -10523,19 +10429,19 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (!DEVICE && !seq && fid_nofk(FID_IO_bind)) {
       u64 _t_2 = task_node(e, FID_IO_bind, WL_CONT, WL_IDX, 0);
       e.mem[_t_2 + 0] = term_clo(FID_IO_print, _nd_1);
-      e.mem[_t_2 + 1] = term_clo(FID_cli_print_c367, _nd_2);
+      e.mem[_t_2 + 1] = term_clo(FID_cli_print_c363, _nd_2);
       e.mem[_t_2 + 2] = _x_2;
       return term_tsk(FID_IO_bind, _t_2);
     }
     r0 = term_clo(FID_IO_print, _nd_1);
-    r1 = term_clo(FID_cli_print_c367, _nd_2);
+    r1 = term_clo(FID_cli_print_c363, _nd_2);
     r2 = _x_2;
     WL_JMP(FID_IO_bind);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c367)
+  WL_CASE(FID_cli_print_c363)
     Term _f_4 = r0;
     Term _x_3 = r1;
     WL_OPEN
@@ -10583,14 +10489,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               STK(0) = _f_2;
               STK(1) = _f_6;
               STK(2) = _f_7;
-              STK(3) = FID_cli_args_k369;
+              STK(3) = FID_cli_args_k365;
               WL_PUSHN(4);
             } else {
-              u64 _t_0 = task_node(e, FID_cli_args_k369, WL_CONT, WL_IDX, 1);
+              u64 _t_0 = task_node(e, FID_cli_args_k365, WL_CONT, WL_IDX, 1);
               e.mem[_t_0 + 0] = _f_2;
               e.mem[_t_0 + 1] = _f_6;
               e.mem[_t_0 + 2] = _f_7;
-              WL_CONT = term_tsk(FID_cli_args_k369, _t_0);
+              WL_CONT = term_tsk(FID_cli_args_k365, _t_0);
               WL_IDX = 3;
             }
             if (!DEVICE && !seq && fid_nofk(FID_U32_read)) {
@@ -10633,7 +10539,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k369)
+  WL_CASE(FID_cli_args_k365)
     WL_POPN(3);
     Term _f_8 = STK(0);
     Term _f_9 = STK(1);
@@ -10643,13 +10549,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_0 = 0;
     Term _o_2[1];
-    if (spin_86(e, _o_2, _f_8, term_ctr(CID_SCon, STAT_OFF + 440)) == 0) {
+    if (spin_87(e, _o_2, _f_8, term_ctr(CID_SCon, STAT_OFF + 440)) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_2[0];
     u32 _v_2 = 0;
     Term _o_3[1];
-    if (spin_86(e, _o_3, _f_8, term_ctr(CID_SCon, STAT_OFF + 448)) == 0) {
+    if (spin_87(e, _o_3, _f_8, term_ctr(CID_SCon, STAT_OFF + 448)) == 0) {
       return 0;
     }
     term_sink(e, _f_8);
@@ -10660,11 +10566,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           if (term_aux(_f_10) == CID_Nil) {
             if (seq) {
               WL_ROOM(1, 0);
-              STK(0) = FID_cli_args_k370;
+              STK(0) = FID_cli_args_k366;
               WL_PUSHN(1);
             } else {
-              u64 _t_2 = task_node(e, FID_cli_args_k370, WL_CONT, WL_IDX, 1);
-              WL_CONT = term_tsk(FID_cli_args_k370, _t_2);
+              u64 _t_2 = task_node(e, FID_cli_args_k366, WL_CONT, WL_IDX, 1);
+              WL_CONT = term_tsk(FID_cli_args_k366, _t_2);
               WL_IDX = 0;
             }
             if (!DEVICE && !seq && fid_nofk(FID_ffi)) {
@@ -10717,12 +10623,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           if (seq) {
             WL_ROOM(2, 0);
             STK(0) = _f_10;
-            STK(1) = FID_cli_args_k371;
+            STK(1) = FID_cli_args_k367;
             WL_PUSHN(2);
           } else {
-            u64 _t_4 = task_node(e, FID_cli_args_k371, WL_CONT, WL_IDX, 1);
+            u64 _t_4 = task_node(e, FID_cli_args_k367, WL_CONT, WL_IDX, 1);
             e.mem[_t_4 + 0] = _f_10;
-            WL_CONT = term_tsk(FID_cli_args_k371, _t_4);
+            WL_CONT = term_tsk(FID_cli_args_k367, _t_4);
             WL_IDX = 1;
           }
           if (!DEVICE && !seq && fid_nofk(FID_open)) {
@@ -10761,7 +10667,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k370)
+  WL_CASE(FID_cli_args_k366)
     Term _h_2 = r0;
     WL_OPEN
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
@@ -10774,7 +10680,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k371)
+  WL_CASE(FID_cli_args_k367)
     WL_POPN(1);
     Term _f_13 = STK(0);
     u32 _h_3 = r0;
@@ -10786,11 +10692,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_cli_args_k372;
+      STK(0) = FID_cli_args_k368;
       WL_PUSHN(1);
     } else {
-      u64 _t_6 = task_node(e, FID_cli_args_k372, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_cli_args_k372, _t_6);
+      u64 _t_6 = task_node(e, FID_cli_args_k368, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_cli_args_k368, _t_6);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_steps)) {
@@ -10816,7 +10722,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k372)
+  WL_CASE(FID_cli_args_k368)
     Term _h_9 = r0;
     WL_OPEN
     r0 = 1;
@@ -10837,17 +10743,17 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (!DEVICE && !seq && fid_nofk(FID_Clo_apply)) {
       u64 _t_3 = task_node(e, FID_Clo_apply, WL_CONT, WL_IDX, 0);
       e.mem[_t_3 + 0] = _m_0;
-      e.mem[_t_3 + 1] = term_clo(FID_IO_bind_c376, _nd_0);
+      e.mem[_t_3 + 1] = term_clo(FID_IO_bind_c372, _nd_0);
       return term_tsk(FID_Clo_apply, _t_3);
     }
     r0 = _m_0;
-    r1 = term_clo(FID_IO_bind_c376, _nd_0);
+    r1 = term_clo(FID_IO_bind_c372, _nd_0);
     WL_JMP(FID_Clo_apply);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_IO_bind_c376)
+  WL_CASE(FID_IO_bind_c372)
     Term _f_1 = r0;
     Term _k_1 = r1;
     Term _x_0 = r2;
@@ -10855,12 +10761,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _k_1;
-      STK(1) = FID_IO_bind_k377;
+      STK(1) = FID_IO_bind_k373;
       WL_PUSHN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_IO_bind_k377, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_IO_bind_k373, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _k_1;
-      WL_CONT = term_tsk(FID_IO_bind_k377, _t_0);
+      WL_CONT = term_tsk(FID_IO_bind_k373, _t_0);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_Clo_apply)) {
@@ -10876,7 +10782,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_IO_bind_k377)
+  WL_CASE(FID_IO_bind_k373)
     WL_POPN(1);
     Term _k_2 = STK(0);
     Term _h_0 = r0;
@@ -10896,40 +10802,40 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_main)
     WL_OPEN
-    r0 = term_clo(FID_main_c379, 0);
+    r0 = term_clo(FID_main_c375, 0);
     WL_RETN(1);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c379)
+  WL_CASE(FID_main_c375)
     Term _x_0 = r0;
     WL_OPEN
     if (!DEVICE && !seq && fid_nofk(FID_IO_bind)) {
       u64 _t_3 = task_node(e, FID_IO_bind, WL_CONT, WL_IDX, 0);
       e.mem[_t_3 + 0] = term_clo(FID_IO_args, 0);
-      e.mem[_t_3 + 1] = term_clo(FID_main_c380, 0);
+      e.mem[_t_3 + 1] = term_clo(FID_main_c376, 0);
       e.mem[_t_3 + 2] = _x_0;
       return term_tsk(FID_IO_bind, _t_3);
     }
     r0 = term_clo(FID_IO_args, 0);
-    r1 = term_clo(FID_main_c380, 0);
+    r1 = term_clo(FID_main_c376, 0);
     r2 = _x_0;
     WL_JMP(FID_IO_bind);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c380)
+  WL_CASE(FID_main_c376)
     Term _x_1 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_main_k381;
+      STK(0) = FID_main_k377;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_main_k381, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_main_k381, _t_0);
+      u64 _t_0 = task_node(e, FID_main_k377, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_main_k377, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_args)) {
@@ -10943,7 +10849,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_k381)
+  WL_CASE(FID_main_k377)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
@@ -10956,18 +10862,18 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r0 = _h_1;
       WL_JMP(FID_cli_print);
     } else {
-      r0 = term_clo(FID_main_c382, 0);
+      r0 = term_clo(FID_main_c378, 0);
       WL_RETN(1);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c382)
+  WL_CASE(FID_main_c378)
     Term _x_2 = r0;
     WL_OPEN
     Term _o_0[1];
-    if (spin_87(e, _o_0, 2ull, term_ctr(CID_SCon, STAT_OFF + 594), _x_2) == 0) {
+    if (spin_88(e, _o_0, 2ull, term_ctr(CID_SCon, STAT_OFF + 594), _x_2) == 0) {
       return 0;
     }
     r0 = _o_0[0];

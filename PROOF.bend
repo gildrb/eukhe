@@ -11301,6 +11301,20 @@ def delete_only_below(+t: List<&2, Tr.Ent>, +good: {Tr.sound(t) == True{} : Bool
 # nodes before them never go (`tc.drops_ge`). The plan merges two sorted
 # lists; the merge is diff (`tc.diff_m`).
 
+# the keys of the nodes that prune.go removes from s, in order: the walk
+# of a delete with its gone keys as a list (the core keeps them in a key
+# map, `Tr.drops.s`; `tc.drops` shows the two walks drop the same keys)
+def tc.dgo(s: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool) -> List<&2, Nat>:
+  match s:
+    case Nil{}:
+      Nil{}
+    case +e <> +rest:
+      match hit:
+        case True{}:
+          Tr.Ent.k(e) <> tc.dgo(rest, Tr.Ent.k(e) <> gone, Tr.gone.at(rest, Tr.Ent.k(e) <> gone))
+        case False{}:
+          tc.dgo(rest, gone, Tr.gone.at(rest, gone))
+
 # Numbers
 
 def tc.lt_le(a: Nat, b: Nat, c: Nat, +ab: {Nat.is_lt(a, b) == True{} : Bool}, +cb: {Nat.is_lt(c, b) == False{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
@@ -11967,10 +11981,10 @@ def tc.or_ff(a: Bool, b: Bool, ha: {a == False{} : Bool}, hb: {b == False{} : Bo
 def tc.nall_cons(+k: Nat, +gone: List<&2, Nat>, +x: Nat, +kx: {Nat.is_lt(k, x) == False{} : Bool}, +ng: {tc.nall(gone, x) == True{} : Bool}) -> {tc.nall(k <> gone, x) == True{} : Bool}:
   tree.pt.and_t(Bool.not(Nat.is_lt(k, x)), tc.nall(gone, x), pt.not_t(Nat.is_lt(k, x), kx), ng)
 
-def tc.dg_ge(hit: Bool, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +X: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +ih1: {Tr.drops.go(r, gone, Tr.gone.at(r, gone)) == Tr.drops.go(X, gone, Tr.gone.at(X, gone)) : List<&2, Nat>}, ih2: {Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == Tr.drops.go(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(e <> X, gone, hit) : List<&2, Nat>}:
+def tc.dg_ge(hit: Bool, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +X: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +ih1: {tc.dgo(r, gone, Tr.gone.at(r, gone)) == tc.dgo(X, gone, Tr.gone.at(X, gone)) : List<&2, Nat>}, ih2: {tc.dgo(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == tc.dgo(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {tc.dgo(e <> r, gone, hit) == tc.dgo(e <> X, gone, hit) : List<&2, Nat>}:
   match hit:
     case True{}:
-      Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)), Tr.drops.go(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)), ih2)
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, tc.dgo(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)), tc.dgo(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)), ih2)
     case False{}:
       ih1
 
@@ -12349,12 +12363,12 @@ def tc.kept_ge(+e: Tr.Ent, +x: Nat, c: Bool, +ec: {Nat.is_eq(Tr.Ent.k(e), x) == 
       +px = pt.not_f(Nat.is_lt(Tr.Ent.p(e), x), h)
       tc.nlt_up(Tr.Ent.p(e), x, Tr.Ent.k(e), pk, px)
 
-def tc.fd_at(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(e <> r, gone) == hit : Bool}, +x: Nat, c: Bool, +ec: {Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))) == c : Bool}, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, e <> r) == True{} : Bool}, +pk: {Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)) == True{} : Bool}, +ih1: {Tr.drops.go(r, gone, Tr.gone.at(r, gone)) == Tr.drops.go(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}, ih2: {Nat.is_lt(Tr.Ent.k(e), x) == False{} : Bool} -> {Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == Tr.drops.go(tc.fx(r, x), Tr.Ent.k(e) <> gone, Tr.gone.at(tc.fx(r, x), Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(tc.fx.at(c, e, tc.fx(r, x)), gone, Tr.gone.at(tc.fx.at(c, e, tc.fx(r, x)), gone)) : List<&2, Nat>}:
+def tc.fd_at(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(e <> r, gone) == hit : Bool}, +x: Nat, c: Bool, +ec: {Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))) == c : Bool}, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, e <> r) == True{} : Bool}, +pk: {Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)) == True{} : Bool}, +ih1: {tc.dgo(r, gone, Tr.gone.at(r, gone)) == tc.dgo(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}, ih2: {Nat.is_lt(Tr.Ent.k(e), x) == False{} : Bool} -> {tc.dgo(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == tc.dgo(tc.fx(r, x), Tr.Ent.k(e) <> gone, Tr.gone.at(tc.fx(r, x), Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {tc.dgo(e <> r, gone, hit) == tc.dgo(tc.fx.at(c, e, tc.fx(r, x)), gone, Tr.gone.at(tc.fx.at(c, e, tc.fx(r, x)), gone)) : List<&2, Nat>}:
   match c:
     case True{}:
       +G = Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e)))
       +kx = tc.kept_ge(e, x, Nat.is_eq(Tr.Ent.k(e), x), {==}, ec, pk)
-      %Equal.sym(Bool, G, hit, eh) : {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(e <> tc.fx(r, x), gone, _) : List<&2, Nat>}
+      %Equal.sym(Bool, G, hit, eh) : {tc.dgo(e <> r, gone, hit) == tc.dgo(e <> tc.fx(r, x), gone, _) : List<&2, Nat>}
       tc.dg_ge(hit, e, r, tc.fx(r, x), gone, ih1, ih2(kx))
     case False{}:
       +ne = pt.or_l(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x)), ec)
@@ -12363,12 +12377,12 @@ def tc.fd_at(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, 
       +np = tc.elem_none(gone, x, Tr.Ent.p(e), ng, px)
       +o = tc.or_ff(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e)), nk, np)
       +hf = Equal.trans(Bool, hit, Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))), False{}, Equal.sym(Bool, Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))), hit, eh), o)
-      %Equal.sym(Bool, hit, False{}, hf) : {Tr.drops.go(e <> r, gone, _) == Tr.drops.go(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}
+      %Equal.sym(Bool, hit, False{}, hf) : {tc.dgo(e <> r, gone, _) == tc.dgo(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}
       ih1
 
 # a delete's walk over the nodes it may remove drops the keys of the walk
 # over every node
-def tc.drops_fx(s: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(s, gone) == hit : Bool}, +x: Nat, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, s) == True{} : Bool}, +st: {Tr.sorted(s) == True{} : Bool}, +dk: {tc.desc(s) == True{} : Bool}) -> {Tr.drops.go(s, gone, hit) == Tr.drops.go(tc.fx(s, x), gone, Tr.gone.at(tc.fx(s, x), gone)) : List<&2, Nat>}:
+def tc.drops_fx(s: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(s, gone) == hit : Bool}, +x: Nat, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, s) == True{} : Bool}, +st: {Tr.sorted(s) == True{} : Bool}, +dk: {tc.desc(s) == True{} : Bool}) -> {tc.dgo(s, gone, hit) == tc.dgo(tc.fx(s, x), gone, Tr.gone.at(tc.fx(s, x), gone)) : List<&2, Nat>}:
   match s:
     case Nil{}:
       {==}
@@ -12400,7 +12414,7 @@ def tc.lost_skip(r: List<&2, Tr.Ent>, +e: Tr.Ent, +P: List<&2, Tr.Ent>, +ar: {Tr
       %Equal.sym(Bool, Tr.has(e <> P, Tr.Ent.k(f)), Tr.has(P, Tr.Ent.k(f)), pt.has_miss(e, P, Tr.Ent.k(f), ne)) : {Laws.tree.lost.at(_, Tr.Ent.k(f), Laws.tree.lost(r2, e <> P)) == Laws.tree.lost.at(Tr.has(P, Tr.Ent.k(f)), Tr.Ent.k(f), Laws.tree.lost(r2, P)) : List<&2, Nat>}
       tc.lost_at_cong(Tr.has(P, Tr.Ent.k(f)), Tr.Ent.k(f), Laws.tree.lost(r2, e <> P), Laws.tree.lost(r2, P), ih)
 
-def tc.lost_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {Laws.tree.lost(t, Tr.prune.go(t, gone, hit)) == Tr.drops.go(t, gone, hit) : List<&2, Nat>}:
+def tc.lost_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {Laws.tree.lost(t, Tr.prune.go(t, gone, hit)) == tc.dgo(t, gone, hit) : List<&2, Nat>}:
   match t:
     case Nil{}:
       {==}
@@ -12414,14 +12428,14 @@ def tc.lost_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr
           +aq = pt.above_prune_go(r, g2, Tr.gone.at(r, g2), Tr.Ent.k(e), ar, sr)
           +sq = pt.sorted_prune_go(r, g2, Tr.gone.at(r, g2), sr)
           +nh = pt.has_below(Q, Tr.Ent.k(e), aq, sq)
-          %Equal.sym(Bool, Tr.has(Q, Tr.Ent.k(e)), False{}, nh) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, Q)) == Tr.Ent.k(e) <> Tr.drops.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Nat>}
-          Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, Laws.tree.lost(r, Q), Tr.drops.go(r, g2, Tr.gone.at(r, g2)), tc.lost_drops(r, g2, Tr.gone.at(r, g2), sr))
+          %Equal.sym(Bool, Tr.has(Q, Tr.Ent.k(e)), False{}, nh) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, Q)) == Tr.Ent.k(e) <> tc.dgo(r, g2, Tr.gone.at(r, g2)) : List<&2, Nat>}
+          Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, Laws.tree.lost(r, Q), tc.dgo(r, g2, Tr.gone.at(r, g2)), tc.lost_drops(r, g2, Tr.gone.at(r, g2), sr))
         case False{}:
           +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
           +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
           +Q = Tr.prune.go(r, gone, Tr.gone.at(r, gone))
-          %Equal.sym(Bool, Tr.has(e <> Q, Tr.Ent.k(e)), True{}, pt.has_head(e, Q)) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, e <> Q)) == Tr.drops.go(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
-          Equal.trans(List<&2, Nat>, Laws.tree.lost(r, e <> Q), Laws.tree.lost(r, Q), Tr.drops.go(r, gone, Tr.gone.at(r, gone)), tc.lost_skip(r, e, Q, ar, sr), tc.lost_drops(r, gone, Tr.gone.at(r, gone), sr))
+          %Equal.sym(Bool, Tr.has(e <> Q, Tr.Ent.k(e)), True{}, pt.has_head(e, Q)) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, e <> Q)) == tc.dgo(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
+          Equal.trans(List<&2, Nat>, Laws.tree.lost(r, e <> Q), Laws.tree.lost(r, Q), tc.dgo(r, gone, Tr.gone.at(r, gone)), tc.lost_skip(r, e, Q, ar, sr), tc.lost_drops(r, gone, Tr.gone.at(r, gone), sr))
 
 # every key of ks is above k
 def tc.gtall(ks: List<&2, Nat>, +k: Nat) -> Bool:
@@ -12431,7 +12445,7 @@ def tc.gtall(ks: List<&2, Nat>, +k: Nat) -> Bool:
     case +z <> rest:
       Bool.and(Nat.is_lt(k, z), tc.gtall(rest, k))
 
-def tc.drops_gt(r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +k: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {tc.gtall(Tr.drops.go(r, gone, hit), k) == True{} : Bool}:
+def tc.drops_gt(r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +k: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {tc.gtall(tc.dgo(r, gone, hit), k) == True{} : Bool}:
   match r:
     case Nil{}:
       {==}
@@ -12442,7 +12456,7 @@ def tc.drops_gt(r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +k: Nat, +
           +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
           +ar2 = pt.above_lt(k, Tr.Ent.k(f), r2, ar, af)
           +g2 = {Tr.Ent.k(f) <> gone : List<&2, Nat>}
-          tree.pt.and_t(Nat.is_lt(k, Tr.Ent.k(f)), tc.gtall(Tr.drops.go(r2, g2, Tr.gone.at(r2, g2)), k), ar, tc.drops_gt(r2, g2, Tr.gone.at(r2, g2), k, ar2, sr2))
+          tree.pt.and_t(Nat.is_lt(k, Tr.Ent.k(f)), tc.gtall(tc.dgo(r2, g2, Tr.gone.at(r2, g2)), k), ar, tc.drops_gt(r2, g2, Tr.gone.at(r2, g2), k, ar2, sr2))
         case False{}:
           +af = tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
           +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
@@ -12473,7 +12487,7 @@ def tc.unset_above(r: List<&2, Tr.Ent>, +k: Nat, +ar: {Tr.above(k, r) == True{} 
       Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => f <> ys, Tr.unset(r2, k), r2, tc.unset_above(r2, k, pt.above_lt(k, Tr.Ent.k(f), r2, ar, af), sr2))
 
 # unsetting the keys a walk drops is the walk's prune
-def tc.unsets_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {tc.unsets(Tr.drops.go(t, gone, hit), t) == Tr.prune.go(t, gone, hit) : List<&2, Tr.Ent>}:
+def tc.unsets_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {tc.unsets(tc.dgo(t, gone, hit), t) == Tr.prune.go(t, gone, hit) : List<&2, Tr.Ent>}:
   match t:
     case Nil{}:
       {==}
@@ -12483,14 +12497,14 @@ def tc.unsets_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {
           +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
           +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
           +g2 = {Tr.Ent.k(e) <> gone : List<&2, Nat>}
-          +D = Tr.drops.go(r, g2, Tr.gone.at(r, g2))
+          +D = tc.dgo(r, g2, Tr.gone.at(r, g2))
           %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), Tr.Ent.k(e)), True{}, Equal.sym(Bool, True{}, Nat.is_eq(Tr.Ent.k(e), Tr.Ent.k(e)), pt.eq_refl(Tr.Ent.k(e)))) : {tc.unsets(D, Tr.unset.go(e <> r, Tr.Ent.k(e), _)) == Tr.prune.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Tr.Ent>}
           %Equal.sym(List<&2, Tr.Ent>, Tr.unset(r, Tr.Ent.k(e)), r, tc.unset_above(r, Tr.Ent.k(e), ar, sr)) : {tc.unsets(D, _) == Tr.prune.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Tr.Ent>}
           tc.unsets_drops(r, g2, Tr.gone.at(r, g2), sr)
         case False{}:
           +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
           +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
-          +D = Tr.drops.go(r, gone, Tr.gone.at(r, gone))
+          +D = tc.dgo(r, gone, Tr.gone.at(r, gone))
           +gt = tc.drops_gt(r, gone, Tr.gone.at(r, gone), Tr.Ent.k(e), ar, sr)
           Equal.trans(List<&2, Tr.Ent>, tc.unsets(D, e <> r), e <> tc.unsets(D, r), e <> Tr.prune.go(r, gone, Tr.gone.at(r, gone)), tc.unsets_cons(D, e, r, gt), Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => e <> ys, tc.unsets(D, r), Tr.prune.go(r, gone, Tr.gone.at(r, gone)), tc.unsets_drops(r, gone, Tr.gone.at(r, gone), sr)))
 
@@ -12617,16 +12631,91 @@ def tc.keep_case_ans(b: Bool, +m: Tr.KMap, +n: Tr.KMap) -> {Pair.snd(Tr.KMap, Tr
     case False{}:
       {==}
 
+# The gone map
+# the gone keys of a list, as the gone map holds them
+def tc.bld(gone: List<&2, Nat>) -> List<&2, Tr.Ent>:
+  match gone:
+    case Nil{}:
+      Nil{}
+    case k <> rest:
+      Tr.set(tc.bld(rest), Tr.Ent{k, 0n, 0n})
+
+def tc.has_set.go(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +y: Nat, b: Bool, eb: {Nat.is_eq(Tr.Ent.k(e), y) == b : Bool}) -> {Tr.has(Tr.set(t, e), y) == Bool.or(b, Tr.has(t, y)) : Bool}:
+  match b:
+    case True{}:
+      %pt.eq_true(Tr.Ent.k(e), y, eb) : {Tr.has(Tr.set(t, e), _) == True{} : Bool}
+      Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Maybe.is_some(&2, Tr.Ent, z), Tr.get(Tr.set(t, e), Tr.Ent.k(e)), Some{e}, pt.get_set_same(t, e))
+    case False{}:
+      Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Maybe.is_some(&2, Tr.Ent, z), Tr.get(Tr.set(t, e), y), Tr.get(t, y), pt.get_set_other(t, e, y, eb))
+
+# a set holds its key and every key it held
+def tc.has_set(+t: List<&2, Tr.Ent>, +e: Tr.Ent, +y: Nat) -> {Tr.has(Tr.set(t, e), y) == Bool.or(Nat.is_eq(Tr.Ent.k(e), y), Tr.has(t, y)) : Bool}:
+  tc.has_set.go(t, e, y, Nat.is_eq(Tr.Ent.k(e), y), {==})
+
+# the gone keys hold exactly the keys of the gone list
+def tc.bld_has(gone: List<&2, Nat>, +y: Nat) -> {Tr.has(tc.bld(gone), y) == Tr.elem(gone, y) : Bool}:
+  match gone:
+    case Nil{}:
+      {==}
+    case +k <> +rest:
+      Equal.trans(Bool, Tr.has(Tr.set(tc.bld(rest), Tr.Ent{k, 0n, 0n}), y), Bool.or(Nat.is_eq(k, y), Tr.has(tc.bld(rest), y)), Bool.or(Nat.is_eq(k, y), Tr.elem(rest, y)), tc.has_set(tc.bld(rest), Tr.Ent{k, 0n, 0n}, y), Equal.cong(Bool, Bool, z => Bool.or(Nat.is_eq(k, y), z), Tr.has(tc.bld(rest), y), Tr.elem(rest, y), tc.bld_has(rest, y)))
+
+# the gone map holds what the gone list holds
+def tc.ghas(+g: Tr.KMap, +gone: List<&2, Nat>, +y: Nat, +bt: {tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.KMap.has(g, y) == Tr.elem(gone, y) : Bool}:
+  Equal.trans(Bool, Tr.KMap.has(g, y), Tr.has(Tr.KMap.read(g), y), Tr.elem(gone, y), tc.has(g, y, bt), Equal.trans(Bool, Tr.has(Tr.KMap.read(g), y), Tr.has(tc.bld(gone), y), Tr.elem(gone, y), Equal.cong(List<&2, Tr.Ent>, Bool, z => Tr.has(z, y), Tr.KMap.read(g), tc.bld(gone), rg), tc.bld_has(gone, y)))
+
+# the gone test of the map is the gone test of the list
+def tc.gin(s: List<&2, Tr.Ent>, +g: Tr.KMap, +gone: List<&2, Nat>, +bt: {tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.gone.in(s, g) == Tr.gone.at(s, gone) : Bool}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> r:
+      %Equal.sym(Bool, Tr.KMap.has(g, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.k(e)), tc.ghas(g, gone, Tr.Ent.k(e), bt, rg)) : {Bool.or(_, Tr.KMap.has(g, Tr.Ent.p(e))) == Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))) : Bool}
+      %Equal.sym(Bool, Tr.KMap.has(g, Tr.Ent.p(e)), Tr.elem(gone, Tr.Ent.p(e)), tc.ghas(g, gone, Tr.Ent.p(e), bt, rg)) : {Bool.or(Tr.elem(gone, Tr.Ent.k(e)), _) == Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))) : Bool}
+      {==}
+
+# a key joins the gone map as it joins the gone list
+def tc.gone_of(+hs: List<&2, Nat>, +g: Tr.KMap, +gone: List<&2, Nat>, +k: Nat, +bt: {tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.KMap.read(Tr.gone.of(hs, g, k)) == tc.bld(k <> gone) : List<&2, Tr.Ent>}:
+  Equal.trans(List<&2, Tr.Ent>, Tr.KMap.read(Tr.KMap.set(g, hs, Tr.Ent{k, 0n, 0n})), Tr.set(Tr.KMap.read(g), Tr.Ent{k, 0n, 0n}), tc.bld(k <> gone), tc.set_read(g, hs, Tr.Ent{k, 0n, 0n}, bt), Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, z => Tr.set(z, Tr.Ent{k, 0n, 0n}), Tr.KMap.read(g), tc.bld(gone), rg))
+
+# the walk over the gone map drops what the walk over the gone list drops
+def tc.ds(s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +g: Tr.KMap, +gone: List<&2, Nat>, hit: Bool, +bt: {tc.bst(g) == True{} : Bool}, +rg: {Tr.KMap.read(g) == tc.bld(gone) : List<&2, Tr.Ent>}) -> {Tr.drops.s(s, hs, g, hit) == tc.dgo(s, gone, hit) : List<&2, Nat>}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      match hit:
+        case True{}:
+          +k = Tr.Ent.k(e)
+          +g2 = Tr.gone.of(hs, g, k)
+          +gn = {k <> gone : List<&2, Nat>}
+          +bt2 = tc.set_bst(g, hs, Tr.Ent{k, 0n, 0n}, bt)
+          +rg2 = tc.gone_of(hs, g, gone, k, bt, rg)
+          %Equal.sym(Bool, Tr.gone.in(r, g2), Tr.gone.at(r, gn), tc.gin(r, g2, gn, bt2, rg2)) : {k <> Tr.drops.s(r, hs, g2, _) == k <> tc.dgo(r, gn, Tr.gone.at(r, gn)) : List<&2, Nat>}
+          Equal.cong(List<&2, Nat>, List<&2, Nat>, z => k <> z, Tr.drops.s(r, hs, g2, Tr.gone.at(r, gn)), tc.dgo(r, gn, Tr.gone.at(r, gn)), tc.ds(r, hs, g2, gn, Tr.gone.at(r, gn), bt2, rg2))
+        case False{}:
+          %Equal.sym(Bool, Tr.gone.in(r, g), Tr.gone.at(r, gone), tc.gin(r, g, gone, bt, rg)) : {Tr.drops.s(r, hs, g, _) == tc.dgo(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
+          tc.ds(r, hs, g, gone, Tr.gone.at(r, gone), bt, rg)
+
+# a delete's walk with the gone map drops what the walk with the gone list
+# [x] drops
+def tc.drops(+s: List<&2, Tr.Ent>, +hs: List<&2, Nat>, +x: Nat) -> {Tr.drops(s, hs, x) == tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}:
+  +g = Tr.gone.of(hs, Tr.KNil{}, x)
+  +bt = tc.set_bst(Tr.KNil{}, hs, Tr.Ent{x, 0n, 0n}, {==})
+  +rg = tc.gone_of(hs, Tr.KNil{}, Nil{}, x, {==}, {==})
+  %Equal.sym(Bool, Tr.gone.in(s, g), Tr.gone.at(s, [x]), tc.gin(s, g, [x], bt, rg)) : {Tr.drops.s(s, hs, g, _) == tc.dgo(s, [x], Tr.gone.at(s, [x])) : List<&2, Nat>}
+  tc.ds(s, hs, g, [x], Tr.gone.at(s, [x]), bt, rg)
+
 # the keys a delete of x cuts on the map are the keys the walk drops
-def tc.del_keys(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Tr.drops.go(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x], Tr.gone.at(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x])) == Tr.drops.go(Tr.KMap.read(m), [x], Tr.gone.at(Tr.KMap.read(m), [x])) : List<&2, Nat>}:
+def tc.del_keys(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {tc.dgo(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x], Tr.gone.at(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x])) == tc.dgo(Tr.KMap.read(m), [x], Tr.gone.at(Tr.KMap.read(m), [x])) : List<&2, Nat>}:
   +t = Tr.KMap.read(m)
   +U = Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x))
   +rf = Equal.trans(List<&2, Tr.Ent>, U, List.append(&2, Tr.Ent, tc.fx(t, x), Nil{}), tc.fx(t, x), tc.ups_read(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x), {==}, {==}, bt, mk), tc.app_nil(tc.fx(t, x)))
   +ng = tree.pt.and_t(Bool.not(Nat.is_lt(x, x)), True{}, pt.not_t(Nat.is_lt(x, x), pt.lt_irrefl(x)), {==})
   +g = tree.pt.and_t(Bool.or(Nat.is_eq(x, x), Tr.above(x, t)), True{}, pt.or_tl(Nat.is_eq(x, x), Tr.above(x, t), Equal.sym(Bool, True{}, Nat.is_eq(x, x), pt.eq_refl(x))), {==})
   +dk = tc.desc_of(t, t, tree.pt.and_r(Tr.sorted(t), Tr.rooted(t), sd))
-  %Equal.sym(List<&2, Tr.Ent>, U, tc.fx(t, x), rf) : {Tr.drops.go(_, [x], Tr.gone.at(_, [x])) == Tr.drops.go(t, [x], Tr.gone.at(t, [x])) : List<&2, Nat>}
-  Equal.sym(List<&2, Nat>, Tr.drops.go(t, [x], Tr.gone.at(t, [x])), Tr.drops.go(tc.fx(t, x), [x], Tr.gone.at(tc.fx(t, x), [x])), tc.drops_fx(t, [x], Tr.gone.at(t, [x]), {==}, x, ng, g, tc.sorted_read(m, bt), dk))
+  %Equal.sym(List<&2, Tr.Ent>, U, tc.fx(t, x), rf) : {tc.dgo(_, [x], Tr.gone.at(_, [x])) == tc.dgo(t, [x], Tr.gone.at(t, [x])) : List<&2, Nat>}
+  Equal.sym(List<&2, Nat>, tc.dgo(t, [x], Tr.gone.at(t, [x])), tc.dgo(tc.fx(t, x), [x], Tr.gone.at(tc.fx(t, x), [x])), tc.drops_fx(t, [x], Tr.gone.at(t, [x]), {==}, x, ng, g, tc.sorted_read(m, bt), dk))
 
 def tc.rec_read(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))) == Tr.apply(Tr.KMap.read(m), r) : List<&2, Tr.Ent>}:
   match r:
@@ -12644,10 +12733,11 @@ def tc.rec_read(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == T
             case 1n++y:
               +t = Tr.KMap.read(m)
               +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
-              +KS = Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y]))
-              +D = Tr.drops.go(t, [1n+y], Tr.gone.at(t, [1n+y]))
+              +KS = Tr.drops(F, hs, 1n+y)
+              +K2 = tc.dgo(F, [1n+y], Tr.gone.at(F, [1n+y]))
+              +D = tc.dgo(t, [1n+y], Tr.gone.at(t, [1n+y]))
               +s1 = tc.drop_read(KS, m, bt)
-              +s2 = Equal.cong(List<&2, Nat>, List<&2, Tr.Ent>, z => tc.unsets(z, t), KS, D, tc.del_keys(m, 1n+y, bt, mk, sd))
+              +s2 = Equal.cong(List<&2, Nat>, List<&2, Tr.Ent>, z => tc.unsets(z, t), KS, D, Equal.trans(List<&2, Nat>, KS, K2, D, tc.drops(F, hs, 1n+y), tc.del_keys(m, 1n+y, bt, mk, sd)))
               +s3 = tc.unsets_drops(t, [1n+y], Tr.gone.at(t, [1n+y]), tc.sorted_read(m, bt))
               Equal.trans(List<&2, Tr.Ent>, Tr.KMap.read(Tr.KMap.drop(KS, m)), tc.unsets(KS, t), Tr.prune(t, 1n+y), s1, Equal.trans(List<&2, Tr.Ent>, tc.unsets(KS, t), tc.unsets(D, t), Tr.prune(t, 1n+y), s2, s3))
     case Tr.Rewind{+ops}:
@@ -12669,7 +12759,7 @@ def tc.rec_bst(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == Tr
               bt
             case 1n++y:
               +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
-              tc.drop_bst(Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y])), m, bt)
+              tc.drop_bst(Tr.drops(F, hs, 1n+y), m, bt)
     case Tr.Rewind{+ops}:
       +n = Tr.KMap.patch(ops, hs, m)
       tc.keep_case_bst(Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n), m, n, bt, tc.patch_bst(ops, hs, m, bt))
@@ -12690,9 +12780,9 @@ def tc.rec_ans(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == Tr
             case 1n++y:
               +t = Tr.KMap.read(m)
               +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
-              +KS = Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y]))
-              +D = Tr.drops.go(t, [1n+y], Tr.gone.at(t, [1n+y]))
-              +s1 = tc.del_keys(m, 1n+y, bt, mk, sd)
+              +KS = Tr.drops(F, hs, 1n+y)
+              +D = tc.dgo(t, [1n+y], Tr.gone.at(t, [1n+y]))
+              +s1 = Equal.trans(List<&2, Nat>, KS, tc.dgo(F, [1n+y], Tr.gone.at(F, [1n+y])), D, tc.drops(F, hs, 1n+y), tc.del_keys(m, 1n+y, bt, mk, sd))
               +s2 = Equal.sym(List<&2, Nat>, Laws.tree.lost(t, Tr.prune(t, 1n+y)), D, tc.lost_drops(t, [1n+y], Tr.gone.at(t, [1n+y]), tc.sorted_read(m, bt)))
               Equal.cong(List<&2, Nat>, Tr.Ans, z => Tr.Cut{z}, KS, Laws.tree.lost(t, Tr.prune(t, 1n+y)), Equal.trans(List<&2, Nat>, KS, D, Laws.tree.lost(t, Tr.prune(t, 1n+y)), s1, s2))
     case Tr.Rewind{+ops}:
@@ -12735,7 +12825,7 @@ def tc.rec_mpok(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +mk: {tc.mpok(m) == 
               mk
             case 1n++y:
               +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
-              tc.drop_mpok(Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y])), m, mk)
+              tc.drop_mpok(Tr.drops(F, hs, 1n+y), m, mk)
     case Tr.Rewind{+ops}:
       +n = Tr.KMap.patch(ops, hs, m)
       tc.keep_case_bst2(Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n), m, n, mk, tc.patch_mpok(ops, hs, m, mk))
