@@ -60,7 +60,9 @@ def cap.of(w: String) -> Maybe<&2, Nat>:
 def show.end(e: Jb.End) -> String:
   match e:
     case Jb.Exited{c}:
-      String.append("exited:", Nat.show(c))
+      match c:
+        case Jb.Code{hi, lo}:
+          String.append("exited:", U32.show(lo))
     case Jb.Killed{}:
       "killed"
 
@@ -143,7 +145,7 @@ def line(h: String, +ws: List<&2, String>, +s: St) -> St:
     case SCon{'o', r}:
       see(Jb.Out{arg(ws, 1n)}, s)
     case SCon{'e', r}:
-      see(Jb.Quit{0n}, s)
+      see(Jb.Quit{Jb.Code{0, 0}}, s)
     case SCon{'s', r}:
       St{St.cap(s), St.j(s), True{}, St.es(s), ""}
     case SCon{'d', r}:
