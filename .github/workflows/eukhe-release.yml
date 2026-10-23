@@ -74,7 +74,9 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse --verify --quiet "${SHA}^{commit}")" || { echo "::error::${SHA} is not a commit of this repository"; exit 1; }
-          git rev-list --first-parent HEAD | grep -qx "${sha}" || { echo "::error::${sha} is not a first-parent commit of main"; exit 1; }
+          # grep reads all of rev-list (no -q): an early exit would end
+          # rev-list by SIGPIPE, and pipefail would fail the check.
+          git rev-list --first-parent HEAD | grep -Fx "${sha}" > /dev/null || { echo "::error::${sha} is not a first-parent commit of main"; exit 1; }
           [[ "$(git log -1 --format=%s "${sha}")" == "nix: release.json for "* ]] && { echo "::error::${sha} is the nix/release.json bookkeeping commit"; exit 1; }
           git ls-remote --tags --refs origin > "${RUNNER_TEMP}/tags"
           released="$(awk -v sha="${sha}" '$1 == sha && $2 ~ /^refs\/tags\/eukhe-v/ { sub(/^refs\/tags\//, "", $2); print $2 }' "${RUNNER_TEMP}/tags")"
