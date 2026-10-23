@@ -51,12 +51,12 @@ cargo test -p eukhe-core --lib memory::compactor::bridge
 | `bend/optchat.bend` | Model: nodes, view, due, push, fit, sawtooth, compaction view, work queue. |
 | `bend/spec.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
 | `LAWS.bend` | Every eukhe law as open claims, one section per area. |
-| `PROOF.bend` | One proof per law (`Laws.<law>`) and every lemma, one section per area. |
+| `PROOF.bend` | Imports only; `proof/<area>/<law>.bend` one law's proof, `proof/<area>/base.bend` and `proof/base.bend` shared lemmas. |
 | `bend/bridge.bend` | Runs the model on a scenario file; built with `bend bend/bridge.bend -o <binary>`. |
 | `memory/chat/bridge.rs` | Bridge test. |
 
 - Node index `i`: binary, lowest bit first; parent = drop lowest bit. All merge-order arithmetic on bits. Kernel numbers are unary, so this keeps bounded proofs (law d) in fuel.
-- Universal proofs read bit lists by value (`Bits.val`); compare, add, shift agree with values (`PROOF.bend` section `agree`).
+- Universal proofs read bit lists by value (`Bits.val`); compare, add, shift agree with values (`proof/optchat/push_agrees_always.bend`).
 
 Lists, not arrays:
 
@@ -93,14 +93,14 @@ Universal: every input. Bounded: computed for named inputs.
 | `context_ends_at_node` | §4 | Compaction view ends at its node; only built lines. | Universal |
 | `context_is_prefix` | §4 | Compaction's view is a prefix of the compaction view. | Universal |
 
-`push_agrees_always` (`PROOF.bend` section `agree`): under push alone Taelin's list is a bijective binary counter. Keep bits `d_j` (newest first): `T = sum (1 + d_j)·2^j`; entry j = one line of level `j + d_j`. Push's list (`pa.GE`) and view (`pa.GV`) are functions of the digits; each step takes both to the next count:
+`push_agrees_always` (`proof/optchat/push_agrees_always.bend`): under push alone Taelin's list is a bijective binary counter. Keep bits `d_j` (newest first): `T = sum (1 + d_j)·2^j`; entry j = one line of level `j + d_j`. Push's list (`pa.GE`) and view (`pa.GV`) are functions of the digits; each step takes both to the next count:
 
 - Push = digit increment: 0 absorbs, 1 carries (`pa.push_ge`).
 - View lines start at push's states (`pa.same_lines`).
 - Fit makes exactly the carry's merge (`pa.step`). Lowest digit 1: view = higher digits' view one level up + new line; due order between lifted lines is the same (T + 2 doubles), so step = lifted step (`pa.fit_lift`). Lowest digit 0: pair (line 0, new line) is due exactly 1; every older line ends at most `2^(l+1) - 2` messages before its view ends (`pa.Good`), so due < 1 (`pa.old_one`); later pairs cannot merge (levels differ by one). With push's length as budget this one merge is all; all digits 1: push's list grows, fit merges nothing.
 
 - Bounded law kept: independent computed proof. `first` agrees with push at 481 of 20,001 steps, as gist says (`O.agree.count(O.First{}, 20001n)`).
-- Kernel runs out of fuel on 20,001 steps, so `PROOF.bend` section `push` splits into 20 chunks of 1,000 steps + 1 step, joined by an induction lemma. Each chunk starts from a written-out state, checked by computation. Each join names remaining steps as a literal (`20001n`, `19001n`, …, `1001n`): checker compares a sum with a literal ≤ 1,000 steps deep. 20 nested sums vs `20001n` recurse 20,001 frames and overflow the checker's JavaScript stack in some runs.
+- Kernel runs out of fuel on 20,001 steps, so `proof/optchat/push_agrees.bend` splits into 20 chunks of 1,000 steps + 1 step, joined by an induction lemma. Each chunk starts from a written-out state, checked by computation. Each join names remaining steps as a literal (`20001n`, `19001n`, …, `1001n`): checker compares a sum with a literal ≤ 1,000 steps deep. 20 nested sums vs `20001n` recurse 20,001 frames and overflow the checker's JavaScript stack in some runs.
 - Timing (this machine): `bend PROOF.bend` ~30 s; `--verdict` ~2 min 15 s.
 
 ### What is trusted

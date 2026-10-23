@@ -1,0 +1,45 @@
+# eukhe: the proof of LAW run_retry_counts_down
+
+import Base
+import ../../bend/run.bend as Rn
+import ../../LAWS.bend as Laws
+import ./base.bend as LA
+
+def rk.apred(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.a(Rn.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p)) == Nat.sub(m, 1n+x) : Nat}:
+  match m x:
+    case 0n x:
+      {==}
+    case 1n+v 0n:
+      LA.rk.sub0(v)
+    case 1n+v 1n+y:
+      rk.apred(cfg, r, c, n, p, v, y)
+
+def rk.sub_succ(+v: Nat, +s: Nat, +e: {Nat.is_le(s, v) == True{} : Bool}) -> {1n+Nat.sub(v, s) == Nat.sub(1n+v, s) : Nat}:
+  match v s:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      LA.rk.absurd({1n+Nat.sub(0n, 1n+y) == Nat.sub(1n, 1n+y) : Nat}, e)
+    case 1n+u 0n:
+      {==}
+    case 1n+u 1n+y:
+      rk.sub_succ(u, y, e)
+
+def rk.ra(+retries: Nat, +b: Nat, +notes: Nat, +e: {Nat.is_le(notes, b) == True{} : Bool}) -> {Nat.sub(retries, 1n+Nat.sub(Nat.sub(1n+b, 1n), notes)) == Nat.sub(retries, Nat.sub(Nat.sub(2n+b, 1n), notes)) : Nat}:
+  %LA.rk.sub0(b) : {Nat.sub(retries, 1n+Nat.sub(_, notes)) == Nat.sub(retries, Nat.sub(1n+b, notes)) : Nat}
+  %rk.sub_succ(b, notes, e) : {Nat.sub(retries, 1n+Nat.sub(b, notes)) == Nat.sub(retries, _) : Nat}
+  {==}
+
+def rk.run_retry_counts_down(+l: Rn.Lim, +t: Rn.At, +e: {Nat.is_le(1n+Rn.At.notes(t), Rn.At.attempt(t)) == True{} : Bool}, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.retry(Rn.Lim.cfg(l), True{}, r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Laws.rust.retried_next(t)) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          match attempt:
+            case 0n:
+              LA.rk.absurd({Rn.St.a(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(0n, 1n), notes)), Nat.sub(most, notes), p)) == Nat.sub(retries, Nat.sub(Nat.sub(1n, 1n), notes)) : Nat}, e)
+            case 1n++b:
+              Equal.trans(Nat, Rn.St.a(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(most, notes), p)), Nat.sub(retries, 1n+Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(retries, Nat.sub(Nat.sub(2n+b, 1n), notes)), rk.apred(Rn.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(most, notes), p, retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), rk.ra(retries, b, notes, e))
+
+def Laws.run_retry_counts_down(l, t, e, r, c, p):
+  rk.run_retry_counts_down(l, t, e, r, c, p)

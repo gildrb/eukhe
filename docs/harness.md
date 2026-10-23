@@ -30,7 +30,7 @@ A call builds one chat-memory line (message summary or merge of two lines).
 4. Empty or thinking-only reply: a try, never a failure; ends the tries.
 5. Provider error, or model call past `CALL_DEADLINE` (10 min, incl. slot wait and session-request preemptions): call fails. After `FAILURES` (3) failed calls the node is built from its input cut to `NODE` bytes (no read: the failed call's input). Only its save can fail. Disk failure (input read, line save, cut save) counts no failure; node stays.
 
-Model: `line`, `Pend.after`, fold `Pend.run` in `bend/compactor.bend`. Proofs: `PROOF.bend` section `compactor`. Universal: every input, reply list, try count, outcome sequence.
+Model: `line`, `Pend.after`, fold `Pend.run` in `bend/compactor.bend`. Proofs: `proof/compactor/`. Universal: every input, reply list, try count, outcome sequence.
 
 | Law | Says |
 | --- | --- |
@@ -54,7 +54,7 @@ A turn waits until every line before its message is summarized (gist rule 47).
 2. Each pending node is built after bounded counted outcomes (saved line, failed call H1.5); the wait ends.
 3. Last guard: `memory.settleTimeoutMs` (default 20 s; `0`/unset = default). On fire the turn proceeds; an unbuilt line shows its input cut to `NODE`. Never an error.
 
-Model: need-first queue `cands.need`, stop `St.wait` in `bend/optchat.bend`; settle in `bend/compactor.bend`: view line `Made` or `Owed{n}` (failures left); measure = Σ `n + 1` over pending. A pending call ends `Built`, `Failed`, `Disk` or `Stopped`; only the first two count. Proofs: `PROOF.bend` section `compactor`. Universal; `need_progress` from an empty chat after any events.
+Model: need-first queue `cands.need`, stop `St.wait` in `bend/optchat.bend`; settle in `bend/compactor.bend`: view line `Made` or `Owed{n}` (failures left); measure = Σ `n + 1` over pending. A pending call ends `Built`, `Failed`, `Disk` or `Stopped`; only the first two count. Proofs: `proof/compactor/`. Universal; `need_progress` from an empty chat after any events.
 
 | Law | Says |
 | --- | --- |
@@ -85,7 +85,7 @@ Tie: `memory::chat::bridge` prints the waiting queue (`n=`) after every event: R
 3. Free slot + eligible request: taken at once (no lost wake-up).
 4. Interactive waits only for interactive requests ahead.
 
-Model: `bend/admission.bend`, one provider, per ticket. State: limit, queue limit, per-ticket class and status (`Queued`, `Granted` uncollected, `Held`, `Preempted`, `Ended`) in ticket order. Rust queues = queued entries per class; counters = entry counts. Ops as Rust: admit (either class), waiter poll, permit drop, waiter drop, new limits; only release/drop run the grant loop; admit grants only the new ticket. Proofs: `PROOF.bend` sections `admission`, `admission_wait` (H3.4). Universal: step laws any state/op; history laws any state reachable from a new controller.
+Model: `bend/admission.bend`, one provider, per ticket. State: limit, queue limit, per-ticket class and status (`Queued`, `Granted` uncollected, `Held`, `Preempted`, `Ended`) in ticket order. Rust queues = queued entries per class; counters = entry counts. Ops as Rust: admit (either class), waiter poll, permit drop, waiter drop, new limits; only release/drop run the grant loop; admit grants only the new ticket. Proofs: `proof/admission/` (H3.4). Universal: step laws any state/op; history laws any state reachable from a new controller.
 
 | Law | Says |
 | --- | --- |
@@ -133,9 +133,9 @@ Model: `bend/run.bend`. Phases: prepare, call (request/poll), compact (overflow 
 - reply: `after_reply`; turn-ending message via `Ended::reply` (model `Ended.reply`): calls if any, any stop reason; else text; else noted error. Noted spends a note, transient a retry;
 - round end: `Rounds::finish`, `RoundEnd::reset` (control stops uncounted; queued reset ends only after the round counted: cap first).
 
-Proofs: `PROOF.bend` section `run`. Measure `M`, lexicographic as one mixed-radix number: rounds left, compactions, retries+notes (one budget per generation), deferred-job ms left (poll = 1 ms), phase. Each live input lowers it ≥ 1; start = `bound(cfg)`. Universal (any limits, inputs).
+Proofs: `proof/run/`. Measure `M`, lexicographic as one mixed-radix number: rounds left, compactions, retries+notes (one budget per generation), deferred-job ms left (poll = 1 ms), phase. Each live input lowers it ≥ 1; start = `bound(cfg)`. Universal (any limits, inputs).
 
-Requests (`Reqs`, H4.7) sit beside phases: request = logged-context version + note attempt (0: none). Logged context only grows (counted round adds calls/results, compaction its entry): a version names one context. Sent when prepare ends in a call. Noted reply (`Error{retryable, noted}`, `noted`) cuts it, note moves to next attempt; other errors keep the note. Proofs: `PROOF.bend` section `retry`; invariant: each cut request is from an older context, or this context with an earlier attempt and different note.
+Requests (`Reqs`, H4.7) sit beside phases: request = logged-context version + note attempt (0: none). Logged context only grows (counted round adds calls/results, compaction its entry): a version names one context. Sent when prepare ends in a call. Noted reply (`Error{retryable, noted}`, `noted`) cuts it, note moves to next attempt; other errors keep the note. Proofs: `proof/run/`; invariant: each cut request is from an older context, or this context with an earlier attempt and different note.
 
 | Law | Says |
 | --- | --- |
@@ -176,7 +176,7 @@ Stuck: reasoning to the output limit; tool calls as text markup; same calls with
 
 ≤ 4 same rounds run in a row (old H4.3 guard: 6). Non-repeat calls always run.
 
-Model: `bend/run.bend` section Recoveries, caps `RCfg{long, leak, redirect, repeat}` (production 3, 2, 2, 5). `Rec.step` reads one reply (`Out`: length stop, leaked calls, run calls, other noted reply, user message, answer, other) → act (`Pass`, `Exec`, `Redo`, `Stand`, `Quit`) + next recoveries. `Act.reply` maps acts to H4 replies: `Redo` noted error, `Exec` calls, `Stand` text, `Quit` non-noted error; so all H4 laws (true for every reply) hold with recoveries. Laws: `LAWS.bend` section `recover`. Proofs: `PROOF.bend` section `recover`. Universal (any caps, replies, state).
+Model: `bend/run.bend` section Recoveries, caps `RCfg{long, leak, redirect, repeat}` (production 3, 2, 2, 5). `Rec.step` reads one reply (`Out`: length stop, leaked calls, run calls, other noted reply, user message, answer, other) → act (`Pass`, `Exec`, `Redo`, `Stand`, `Quit`) + next recoveries. `Act.reply` maps acts to H4 replies: `Redo` noted error, `Exec` calls, `Stand` text, `Quit` non-noted error; so all H4 laws (true for every reply) hold with recoveries. Laws: `LAWS.bend` section `recover`. Proofs: `proof/run/`. Universal (any caps, replies, state).
 
 | Law | Says |
 | --- | --- |
@@ -207,7 +207,7 @@ Tie: `recover` calls `decide.recover` of `bend/run.bend` (recoveries `Rec` readi
 3. `CHILD_POLL_FAILURES` (5) failed polls in a row while the worker lives or restarts: unreachable. Pause doubles per failure (2 s, 4 s, ... 32 s; ~1 minute), per polling session: reopened parent polls at once (only a poll reveals an interruption while down). Gone worker settles at once (`worker-exited`). Stalled/unreachable: run aborted, agent stopped via the `rlm` kill path (plain kill: worker released, session kept, later prompt wakes it).
 4. Delivered once: resend keeps request id; parent drops known ids. Rule: submit; wait until settled; end once placed; resubmit under the next id only once withdrawn (parent abort/close, input withdrawal). ≤ 1 live submission (queued or placed); withdrawal losing to placement leaves it placed; ≤ 1 resubmission per withdrawal. Closing parent admits nothing; report stays owed, reopened session delivers. Aborting the owing task submits nothing: hands the report (same ids, withdrawals so far) to a new report-phase task the abort cannot reach, so every withdrawal, even one racing the abort, gets the next id.
 
-Model: `bend/child.bend`. Clock `W`: no-progress ms left (`left`), failed polls left (`tries`); `look` = one-poll verdict. Task (`St`, `step`) vs adversary: polls (any reading, delay), deliveries/withdrawals of any submission id, parent aborts, closes, reopens, task aborts, deletes, any order. Inbox keeps each submission's fate (queued, withdrawn, placed), read by id. Proofs: `PROOF.bend` section `child`. Universal.
+Model: `bend/child.bend`. Clock `W`: no-progress ms left (`left`), failed polls left (`tries`); `look` = one-poll verdict. Task (`St`, `step`) vs adversary: polls (any reading, delay), deliveries/withdrawals of any submission id, parent aborts, closes, reopens, task aborts, deletes, any order. Inbox keeps each submission's fate (queued, withdrawn, placed), read by id. Proofs: `proof/child/`. Universal.
 
 | Law | Says |
 | --- | --- |
@@ -248,7 +248,7 @@ Each wait races event, deadline, cancel; first wins; ends exactly once.
 
 `bash.defaultTimeoutMs`: no rule; no session installs durable `bash` (`eukhe-durable/src/tools/bash.rs` has no product caller). Shell runs via the `ipython` kernel's `bash()`: cell blocks ≤ `toolBlockingBudgetMs`, then a detached job (`durable/rlm/tool.rs`); `jobs.wait` clamped to that budget.
 
-Models: `bend/wait.bend` (event, ticks, cancel, one at a time, any order; deadline = ticks or none); `bend/lease.bend` (asks, releases, stops, crashes any order; key = arrival order). Proofs: `PROOF.bend` sections `wait`, `lease`. Universal.
+Models: `bend/wait.bend` (event, ticks, cancel, one at a time, any order; deadline = ticks or none); `bend/lease.bend` (asks, releases, stops, crashes any order; key = arrival order). Proofs: `proof/wait/` and `proof/lease/`. Universal.
 
 | Law | Says |
 | --- | --- |

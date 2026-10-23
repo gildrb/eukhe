@@ -62,7 +62,7 @@ Layout: live area = vertical stack (`stack::stack_rows`, model `vstack`) above t
 
 Components: tool cards (ipython, bash, generic) build an element tree (`element.rs`: `Text`, `Row`, `Column`, `Inset`, `Panel` with title, status, fill, children). One renderer draws panel header, status icons (animated working icon too), fill, padding, semantic colors. No card draws its own chrome.
 
-Model: `bend/screen.bend`, run by the compiled Bend core (`eukhe-bend`, entry `bend/ffi_screen.bend`): ledger, pace, stack and paint decision are the model, one core call each per frame (paint decision: one more per failed check). Laws: `LAWS.bend` section (S8) and section `screen: the entry`. Proofs: `PROOF.bend` sections `screen`, `screen: the entry`. Free inputs: any blocks, growths, finals, flushes, resizes in any order; any chunk sizes and frames; any check results; any child heights. Rust saturates every count it sends at the wire's largest Nat (10^14 - 1): a lag or minimum at its largest (`terminal.streamPace`) reveals as one past every backlog would.
+Model: `bend/screen.bend`, run by the compiled Bend core (`eukhe-bend`, entry `bend/ffi_screen.bend`): ledger, pace, stack and paint decision are the model, one core call each per frame (paint decision: one more per failed check). Laws: `LAWS.bend` section (S8) and section `screen: the entry`. Proofs: `proof/screen/`. Free inputs: any blocks, growths, finals, flushes, resizes in any order; any chunk sizes and frames; any check results; any child heights. Rust saturates every count it sends at the wire's largest Nat (10^14 - 1): a lag or minimum at its largest (`terminal.streamPace`) reveals as one past every backlog would.
 
 | Law | Says |
 | --- | --- |
@@ -125,7 +125,7 @@ A slash command alone on the prompt, cursor at its end: the path rules decide (B
 - Lines longer than 4096 chars: no menu, Enter submits as typed; `resolve` up to the wire's string bound.
 - Unknown suggestion: Rust edit distance over the children of the path (`find_slash_command_suggestion`).
 
-Laws: `LAWS.bend` section `commands` (R1-R14), proofs `proof/command_*.bend` (imported from `PROOF.bend`). Code: `eukhe-tui/src/command_paths.rs` (table, codec, calls), `autocomplete.rs` (`path_suggestions`, `slash_path_at`), `editor/autocomplete.rs` (`apply_path_key`, `ghost_hint`), `editor/input.rs` (Tab/Enter arms), `session_ui/commands.rs` (`handle_slash`: `Unknown`/`Opens`/`Runs`). Tests: `command_paths::tests`, `editor::path_key_tests`, `autocomplete::tests`.
+Laws: `LAWS.bend` section `commands` (R1-R14), proofs `proof/command/` (imported from `PROOF.bend`). Code: `eukhe-tui/src/command_paths.rs` (table, codec, calls), `autocomplete.rs` (`path_suggestions`, `slash_path_at`), `editor/autocomplete.rs` (`apply_path_key`, `ghost_hint`), `editor/input.rs` (Tab/Enter arms), `session_ui/commands.rs` (`handle_slash`: `Unknown`/`Opens`/`Runs`). Tests: `command_paths::tests`, `editor::path_key_tests`, `autocomplete::tests`.
 
 #### Turn visibility
 
@@ -188,7 +188,7 @@ Setting `theme` (`/settings`); empty = `eukhe` everywhere. Name resolves by the 
 
 #### Laws
 
-`LAWS.bend` section `themes` (T1), model `bend/theme.bend`, `bend/color.bend`; proved in `PROOF.bend` section `themes`:
+`LAWS.bend` section `themes` (T1), model `bend/theme.bend`, `bend/color.bend`; proved in `proof/theme/` and `proof/color/`:
 
 - Empty name → default theme; name → first valid theme having it; unknown name → default theme with warning.
 - Loaded file is valid; a valid file's palette defines every token.
@@ -214,7 +214,7 @@ Status line: context usage of the daemon-served window (`contextUsage.contextWin
 
 #### Laws
 
-`LAWS.bend` section `tui_color` (T3), model `bend/tui_color.bend` with `bend/theme.bend` theme tables; proved in `PROOF.bend` section `tui_color`:
+`LAWS.bend` section `tui_color` (T3), model `bend/tui_color.bend` with `bend/theme.bend` theme tables; proved in `proof/tui_color/` and `proof/theme/`:
 
 - Ramp: one rung per level. Any ladder length: each channel moves from `effortLow` toward `effortHigh`, never back. Ladder length ≤ widest channel distance of the ends: all rungs distinct. Each shipped theme: rungs distinct for any ladder of the level vocabulary.
 - Each band: a window fraction in (0, 1], above the previous band. More tokens, same window: never a lower band. Band depends only on the used fraction: same fraction of a k-times window, same band.

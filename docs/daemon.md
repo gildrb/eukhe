@@ -4,7 +4,7 @@ Shared rules (what a law secures, adversary): [harness.md](harness.md).
 
 ### D1. Supervisor
 
-The daemon is a supervisor: one worker process per active session. Laws: `LAWS.bend` section `supervisor`. Proofs: `PROOF.bend` section `supervisor`. Bridge: `crates/eukhe-daemon/src/supervision_bridge.rs` runs Rust and each model on the same scenarios; transcripts must match.
+The daemon is a supervisor: one worker process per active session. Laws: `LAWS.bend` section `supervisor`. Proofs: `proof/supervise/`, `proof/launcher/`, `proof/revive/` and `proof/orphan/`. Bridge: `crates/eukhe-daemon/src/supervision_bridge.rs` runs Rust and each model on the same scenarios; transcripts must match.
 
 | Rule | Rust | Model | Law |
 |---|---|---|---|

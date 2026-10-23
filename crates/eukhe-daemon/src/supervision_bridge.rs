@@ -1,5 +1,5 @@
 //! The D1 bridges: the supervisor code its Bend models abstract (`LAWS.bend`
-//! section `supervisor`, proved in `PROOF.bend` section `supervisor`) and
+//! section `supervisor`, proved in `proof/supervise/`, `proof/launcher/`, `proof/revive/` and `proof/orphan/`) and
 //! the models run the same scenarios and must print the same transcript,
 //! byte for byte.
 //!

@@ -155,7 +155,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    8. The read is of one whole file, as text: no `[path#TAG]` header, no selector, lines are not edit anchors.
 
 Model: `bend/tools.bend`. Laws: `LAWS.bend` section (S7). Proofs:
-`PROOF.bend` section `tools`. Every input is free: any tools that join and
+`proof/tools/`. Every input is free: any tools that join and
 quit, any schemas, any paths, any scripts, any auto set, any answers of
 the user.
 
@@ -265,7 +265,7 @@ requests) share it, so they cannot judge a path differently.
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
 links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
 `run` and `guarded`). Laws: `LAWS.bend` section `path_policy`.
-Proofs: `PROOF.bend` section `path_policy`. Every input is free: any
+Proofs: `proof/path_policy/`. Every input is free: any
 symlinks (loops too), any policy, any paths, any auto set, any answers.
 
 | Law | Says |
@@ -293,7 +293,7 @@ A step's effects: every effect of every part (S7 item 8); auto set rules: S7 ite
 Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 `within`, `join`, `Part{own, secret}`, `part.effs`, `parts.effs`,
 `parts.secret`, `exec`). Laws: `LAWS.bend` section
-`shell_classification`. Proofs: `PROOF.bend` section `shell`.
+`shell_classification`. Proofs: `proof/tools/`.
 
 | Law | Says |
 | --- | --- |
@@ -324,7 +324,7 @@ ungated one.
 
 Model: `bend/runners.bend` (`registry`, the tools a default session
 installs, in install order; `cell`, the gate of one call). Laws:
-`LAWS.bend` section `runners`. Proofs: `PROOF.bend` section `runners`.
+`LAWS.bend` section `runners`. Proofs: `proof/runners/`.
 
 | Law | Says |
 | --- | --- |
@@ -369,7 +369,7 @@ that asks up to its root: no client, clients that leave, clients that
 answer, the gateway alone, clients that leave while the gateway stays;
 `fate`, what becomes of a step with given effects; `default_auto`;
 `gate`, the auto set before the route). Laws:
-`LAWS.bend` section `approvals`. Proofs: `PROOF.bend` section `approvals`.
+`LAWS.bend` section `approvals`. Proofs: `proof/approvals/`.
 
 | Law | Says |
 | --- | --- |
@@ -456,8 +456,7 @@ functions `read()`, `write()`, `edit()`, `grep()`, `glob()` (crate
 
 Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 `bend/doc_lines.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
-`LAWS.bend` section `documents`. Proofs: `PROOF.bend` sections `documents`
-and `doc_lines`.
+`LAWS.bend` section `documents`. Proofs: `proof/doc_seen/`, `proof/doc_search/`, `proof/doc_commit/`, `proof/doc_tags/` and `proof/doc_lines/`.
 
 | Law | Says |
 | --- | --- |

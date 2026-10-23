@@ -51,7 +51,7 @@ One command language for cfg files, the `/set` family and key binds. Line = comm
    - Unreadable `binds.cfg` or unwritable import: warning at startup and `/reload`.
 6. `/cvar save` writes the agent's `persist` sets to `agents/<name>.cfg`; read back as profile, same values.
 
-Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs: `PROOF.bend` section `cvar`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds.
+Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs: `proof/cvar/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds.
 
 | Law | Says |
 | --- | --- |
@@ -108,7 +108,7 @@ Documents: `settings.json` (global, project), `mcp-connections.json`, `auth.json
 6. `mcpServers` entry is a unit: a project entry replaces the same-named global entry, never takes its URL or credential. `kernelTransport` is a unit too.
 7. Sessions directory, one precedence for every reader (CLI, dashboard, gateway, daemon; `settings::resolve_session_dir`): `--session-dir`, `EUKHE_SESSION_DIR` (or legacy `EUKHE_CODING_AGENT_SESSION_DIR`), `sessionDir` setting, `<agent dir>/sessions`.
 
-Model: `bend/config.bend`. Laws: `LAWS.bend` section `config`. Proofs: `PROOF.bend` section `config`.
+Model: `bend/config.bend`. Laws: `LAWS.bend` section `config`. Proofs: `proof/config/`.
 
 | Law | Says |
 | --- | --- |
@@ -155,7 +155,7 @@ After each final answer the agent loop asks a stack of Directors what to do. Dir
 7. Reminder and forced-call entry points: session slash commands `/remind <text>`, `/force <tool> [--tries <n>]` (TUI sends via daemon); kernel host request `directors.push` (Python REPL `goal.remind(text)`, `goal.force_tool(tool, tries=1)`). Forced call: 1 budget, `tries` 1 by default.
 8. Stack = conversation document `eukhe.directors`, rewindable: fork or branch move starts from the stack at its fork entry (rewind drops later Directors, restores removed ones). Resume reads the stored stack. Document is a state tree node (S1) under its conversation.
 
-Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs: `PROOF.bend` section `director`. Every verdict free: the adversary picks each layer's verdict each step.
+Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs: `proof/director/`. Every verdict free: the adversary picks each layer's verdict each step.
 
 | Law | Says |
 | --- | --- |
@@ -199,7 +199,7 @@ Not modelled (tied by tests): session state → verdict map (S5.4), `begin` (S5.
 
    Default 3: continuation 1 may only state a plan, 2 carries the note asking for one concrete step, 3 shows the model did not act. Without the check, an active goal with no token budget got up to `directors.maxSteps` (200) answer-only continuations (e.g. "waiting for the build"), each a full-context request. Reply with no text and no tool call = model error (H4.7); the check counts work, not replies.
 
-Model: `bend/progress.bend` (`work`, `check`, `goal`, `judge`). Laws (`LAWS.bend` section `progress`): `goal_stops_without_progress` (cap-many consecutive continuations with only previously seen acts stop the goal from any count), `goal_progress_continues` (a continuation with a never-seen act clears the count); laws of `judge` (the check the Rust loop runs on the ledger's counts): `goal_first_check_starts`, `goal_judge_is_check`, `goal_judge_counts_work` (count grew exactly when the session did new work), `goal_judge_held`, `goal_judge_top_stops` (count held within the wire's largest Nat; a count there stops a goal with no new work); `goal_entry` (section `core_w6`: the core's entry answers the encoded `judge` on the request Rust writes). Proofs: `PROOF.bend` section `progress`.
+Model: `bend/progress.bend` (`work`, `check`, `goal`, `judge`). Laws (`LAWS.bend` section `progress`): `goal_stops_without_progress` (cap-many consecutive continuations with only previously seen acts stop the goal from any count), `goal_progress_continues` (a continuation with a never-seen act clears the count); laws of `judge` (the check the Rust loop runs on the ledger's counts): `goal_first_check_starts`, `goal_judge_is_check`, `goal_judge_counts_work` (count grew exactly when the session did new work), `goal_judge_held`, `goal_judge_top_stops` (count held within the wire's largest Nat; a count there stops a goal with no new work); `goal_entry` (section `core_w6`: the core's entry answers the encoded `judge` on the request Rust writes). Proofs: `proof/progress/`.
 
 Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`), `durable/goals/state.rs` (`stall_check`: `judge`, run as the compiled Bend core, `bend/ffi_progress.bend`), `durable/goals/hooks.rs` (`goal_check`, work read in `on_yield`, pause and row in `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
 

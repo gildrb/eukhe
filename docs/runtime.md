@@ -38,7 +38,7 @@ Jobs: work that runs long (a user bash, or an `ipython` cell whose call outlived
    - The session waits for the killed jobs' ends, at most the blocking budget. The response names jobs that ended in time (`stoppedJobs`) and jobs not yet ended (`stoppingJobs`).
 7. While a job runs, the system prompt has section `running-jobs`: the number and ids of the state tree's job nodes. Absent when no job runs.
 
-Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`). Laws: `LAWS.bend` section (S2). Proofs: `PROOF.bend` section `job`. Every law is universal: every event is free (any output size, exit, kill or tick, in any order; any cap or the opt-out; any budget; any tool call stream; any job table).
+Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`). Laws: `LAWS.bend` section (S2). Proofs: `proof/job/`. Every law is universal: every event is free (any output size, exit, kill or tick, in any order; any cap or the opt-out; any budget; any tool call stream; any job table).
 
 | Law | Says |
 | --- | --- |
@@ -149,7 +149,7 @@ Example (`settings.json`; an untrusted project scope cannot set it):
 4. The session blocking budget (S2, `toolBlockingBudgetMs`) bounds the call. The kernel runs a synchronous function on its own daemon thread; a hanging function costs that thread: the call answers `timeout`, and the kernel serves the next cells and calls. The `dyn` result keeps the S2 output limits.
 5. An `async def` function runs on the kernel event loop, not a thread. If it blocks without `await`, the whole kernel stops until it returns: cells and calls wait, and its timeout cannot fire. Do blocking work in a synchronous function.
 
-Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`, `plan`). Laws: `LAWS.bend` section (S3). Proofs: `PROOF.bend` section `sandbox`. Every input is free: any frames of any length and kind, any limits, any parent, base and child workspaces.
+Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`, `plan`). Laws: `LAWS.bend` section (S3). Proofs: `proof/sandbox/`. Every input is free: any frames of any length and kind, any limits, any parent, base and child workspaces.
 
 | Law | Says |
 | --- | --- |
@@ -191,7 +191,7 @@ Part of G1 (path policy). Only the user running eukhe reaches eukhe's state. A s
    - The user's files (written by the tools) keep the umask.
 4. Working dir. A session create must name one; a reopen naming none uses the dir the saved session recorded. It must exist and be a directory, else the create fails with `a session needs a working directory`, `working directory <path> is gone` or `working directory <path> is not a directory`. No path substitutes `/` or the supervisor's working dir. The supervisor starts each worker in its session's working dir; if that dir is gone at a restart, the restart fails.
 
-Model: `bend/fsmode.bend`. Laws: `LAWS.bend` section `fsmode`: `socket_dir_owned`, `socket_dir_progress`, `socket_dir_created`, `socket_dir_created_used`, `peer_same_uid`, `peer_own_accepted`, `private_on_create`, `cwd_is_explicit`, `cwd_none_refused`, `cwd_gone_refused`, `cwd_file_refused`, `cwd_dir_opens`. Proofs: `PROOF.bend` section `fsmode`.
+Model: `bend/fsmode.bend`. Laws: `LAWS.bend` section `fsmode`: `socket_dir_owned`, `socket_dir_progress`, `socket_dir_created`, `socket_dir_created_used`, `peer_same_uid`, `peer_own_accepted`, `private_on_create`, `cwd_is_explicit`, `cwd_none_refused`, `cwd_gone_refused`, `cwd_file_refused`, `cwd_dir_opens`. Proofs: `proof/fsmode/`.
 
 Bridge: `fsmode_bridge::the_local_access_code_equals_the_bend_model` (eukhe-daemon) runs the real code against `bend/bridge_fsmode.bend`: generated socket dirs (missing, user dirs in nine modes, a link, a file, system dirs of another uid), 64 generated uid pairs, the mode of each dir and file the real creation paths make in a new home (daemon start dirs, socket dir, auth store, a worker's session, an import, a fork), and 48 generated creates (no cwd, empty cwd, missing path, a file, a dir). Not modelled: the peer check reads the uid from the kernel; the bridge drives the rule (`peer_verdict`), not a second user.
 
@@ -210,7 +210,7 @@ eukhe kernel install --check  # show its state; no network request
 4. `EUKHE_KERNEL_PYTHON` names a user Python: eukhe installs nothing; `--check` shows that Python.
 5. One process at a time sets up a venv, holding the bootstrap lock (`kernel-venv.bootstrap.lock`, a file published with `link(2)`). An attempt writes a candidate file (`kernel-venv.bootstrap.lock.candidate-<pid>-<uuid>`) and removes it on every path. If a process stops inside an attempt, the next acquire removes the candidates and set-aside stale locks (`.stale-<pid>-<uuid>`) of each process that is gone. A live process's file stays.
 
-Model: `bend/kernel_local.bend`. Laws: `LAWS.bend` section `kernel_local`: `kernel_session_never_downloads`, `kernel_download_only_on_install`, `kernel_fetch_verified_before_use`, `kernel_setup_runs`, `kernel_install_fetches`, `kernel_missing_spares_tools`, `kernel_missing_names_install`, `kernel_lock_attempt_leaves_none`, `kernel_lock_sweep_removes_dead`, `kernel_lock_sweep_keeps_live`. Proofs: `PROOF.bend` section `kernel_local`.
+Model: `bend/kernel_local.bend`. Laws: `LAWS.bend` section `kernel_local`: `kernel_session_never_downloads`, `kernel_download_only_on_install`, `kernel_fetch_verified_before_use`, `kernel_setup_runs`, `kernel_install_fetches`, `kernel_missing_spares_tools`, `kernel_missing_names_install`, `kernel_lock_attempt_leaves_none`, `kernel_lock_sweep_removes_dead`, `kernel_lock_sweep_keeps_live`. Proofs: `proof/kernel_local/`.
 
 Code: `eukhe-core/src/kernel/bootstrap/setup.rs` (`setup_step`: venv found and setup give the step), `venv.rs` (`venv_build_commands`, `skill_install_args`), `mod.rs` (`ensure_kernel_python` for a session, `install_kernel_python` for the command, `format_setup_failure`), `dir_lock.rs` (`try_acquire_dir_lock`, `sweep_leftovers`), `eukhe-cli/src/kernel_command.rs`.
 
