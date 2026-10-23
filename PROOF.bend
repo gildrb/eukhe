@@ -67,6 +67,9 @@ import ./bend/default_model.bend as Dm
 import ./bend/config.bend as Cf
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_effort.bend as FEf
+import ./bend/ffi_infer.bend as FIn
+import ./bend/ffi_facts.bend as FFx
 
 # ---- cover ----
 
@@ -36235,3 +36238,613 @@ def Laws.wire_err_example(text):
 
 def Laws.wire_end_exact(s):
   {==}
+
+# ---- core entries ----
+
+# Place after PROOF.bend section wire: the proofs use its Laws.wire_*
+# fills and wr_and_l / wr_and_r. Every lemma here is turned around
+# ({Got{x, rest} == get(put(x, rest))}) so that it rewrites a decoder of an
+# encoding into its value.
+
+# a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
+def pc.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+# a Bool reads back (Laws.wire_bool_round_trip, turned around)
+def pc.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
+  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest))
+
+# a list of Nats that fits reads back (Laws.wire_list_round_trip, turned around)
+def pc.nats(+xs: List<&2, Nat>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Nat, xs)), Laws.wire_nats_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)) : Wr.Dec<List<&2, Nat>>}:
+  Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, rest)), Wr.Got{xs, rest}, Laws.wire_list_round_trip(xs, rest, h))
+
+# a Maybe<Nat> that fits reads back (the same codec in ffi_infer and ffi_facts)
+
+def pc.i_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {Laws.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FIn.get_mnat(FIn.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %pc.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FIn.get_mnat.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+def pc.f_mnat(+m: Maybe<&2, Nat>, +rest: String, h: {Laws.core_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mnat(FFx.put_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %pc.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FFx.get_mnat.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+# (effort)
+# --------
+
+# the seq of FEf reads back a then b (the two decoders in turn)
+def pc.seqFEf(~A: Data, ~B: Data, ~get: String -> Wr.Dec<B>, +a: A, +r: String, +b: B, +r2: String, d: Wr.Dec<A>,
+  h1: {Wr.Got{a, r} == d : Wr.Dec<A>}, h2: {Wr.Got{b, r2} == get(r) : Wr.Dec<B>}) ->
+  {Wr.Got{FEf.P2{a, b}, r2} == FEf.seq(~A, ~B, ~get, d) : Wr.Dec<FEf.P2<A, B>>}:
+  %h1 : {Wr.Got{FEf.P2{a, b}, r2} == FEf.seq(~A, ~B, ~get, _) : Wr.Dec<FEf.P2<A, B>>}
+  %h2 : {Wr.Got{FEf.P2{a, b}, r2} == FEf.seq.fin(~A, ~B, a, _) : Wr.Dec<FEf.P2<A, B>>}
+  {==}
+
+# a Ef.Lv reads back
+def pc.e_lv(+x: Ef.Lv, +rest: String) -> {Wr.Got{x, rest} == FEf.get_lv(FEf.put_lv(x, rest)) : Wr.Dec<Ef.Lv>}:
+  match x:
+    case Ef.Off{}:
+      {==}
+    case Ef.Minimal{}:
+      {==}
+    case Ef.Low{}:
+      {==}
+    case Ef.Medium{}:
+      {==}
+    case Ef.High{}:
+      {==}
+    case Ef.Xhigh{}:
+      {==}
+    case Ef.Max{}:
+      {==}
+
+# a Ef.Ent reads back
+def pc.e_ent(+x: Ef.Ent, +rest: String) -> {Wr.Got{x, rest} == FEf.get_ent(FEf.put_ent(x, rest)) : Wr.Dec<Ef.Ent>}:
+  match x:
+    case Ef.Missing{}:
+      {==}
+    case Ef.Null{}:
+      {==}
+    case Ef.Wire{}:
+      {==}
+
+# a Ef.Dir reads back
+def pc.e_dir(+x: Ef.Dir, +rest: String) -> {Wr.Got{x, rest} == FEf.get_dir(FEf.put_dir(x, rest)) : Wr.Dec<Ef.Dir>}:
+  match x:
+    case Ef.Forward{}:
+      {==}
+    case Ef.Backward{}:
+      {==}
+
+# a map reads back
+def pc.e_map(+m: Ef.LvMap, +rest: String) -> {Wr.Got{m, rest} == FEf.get_map(FEf.put_map(m, rest)) : Wr.Dec<Ef.LvMap>}:
+  match m:
+    case Ef.LvMap{+o, +mi, +lo, +me, +hi, +xh, +mx}:
+      +r6 = FEf.put_ent(mx, rest)
+      +r5 = FEf.put_ent(xh, r6)
+      +r4 = FEf.put_ent(hi, r5)
+      +r3 = FEf.put_ent(me, r4)
+      +r2 = FEf.put_ent(lo, r3)
+      +r1 = FEf.put_ent(mi, r2)
+      +r0 = FEf.put_ent(o, r1)
+      +d0 = FEf.get_ent(r0)
+      +e0 = pc.e_ent(o, r1)
+      +d1 = FEf.seq(~Ef.Ent, ~Ef.Ent, ~FEf.get_ent, d0)
+      +e1 = pc.seqFEf(~Ef.Ent, ~Ef.Ent, ~FEf.get_ent, o, r1, mi, r2, d0, e0, pc.e_ent(mi, r2))
+      +d2 = FEf.seq(~FEf.P2<Ef.Ent, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, d1)
+      +e2 = pc.seqFEf(~FEf.P2<Ef.Ent, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, FEf.P2{o, mi}, r2, lo, r3, d1, e1, pc.e_ent(lo, r3))
+      +d3 = FEf.seq(~FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, d2)
+      +e3 = pc.seqFEf(~FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, FEf.P2{FEf.P2{o, mi}, lo}, r3, me, r4, d2, e2, pc.e_ent(me, r4))
+      +d4 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, d3)
+      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, FEf.P2{FEf.P2{FEf.P2{o, mi}, lo}, me}, r4, hi, r5, d3, e3, pc.e_ent(hi, r5))
+      +d5 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, d4)
+      +e5 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, FEf.P2{FEf.P2{FEf.P2{FEf.P2{o, mi}, lo}, me}, hi}, r5, xh, r6, d4, e4, pc.e_ent(xh, r6))
+      +d6 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, d5)
+      +e6 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<FEf.P2<Ef.Ent, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, Ef.Ent>, ~Ef.Ent, ~FEf.get_ent, FEf.P2{FEf.P2{FEf.P2{FEf.P2{FEf.P2{o, mi}, lo}, me}, hi}, xh}, r6, mx, rest, d5, e5, pc.e_ent(mx, rest))
+      %e6 : {Wr.Got{Ef.LvMap{o, mi, lo, me, hi, xh, mx}, rest} == FEf.get_map.of(_) : Wr.Dec<Ef.LvMap>}
+      {==}
+
+# a Maybe<LvMap> reads back
+def pc.e_mmap(+m: Maybe<&2, Ef.LvMap>, +rest: String) -> {Wr.Got{m, rest} == FEf.get_mmap(FEf.put_mmap(m, rest)) : Wr.Dec<Maybe<&2, Ef.LvMap>>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %pc.e_map(x, rest) : {Wr.Got{Some{x}, rest} == FEf.get_mmap.some(_) : Wr.Dec<Maybe<&2, Ef.LvMap>>}
+      {==}
+
+# the items of xs, then rest (Ef.Lv)
+def pc.e_lv_items(xs: List<&2, Ef.Lv>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FEf.put_lv(x, pc.e_lv_items(t, rest))
+
+def pc.e_lv_put_go(xs: List<&2, Ef.Lv>, -rest: String) ->
+  {Wr.put_list.go(~Ef.Lv, ~FEf.put_lv, xs, rest) == (List.length(&2, Ef.Lv, xs), pc.e_lv_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Ef.Lv, ~FEf.put_lv, t, rest), (List.length(&2, Ef.Lv, t), pc.e_lv_items(t, rest)), pc.e_lv_put_go(t, rest)) : {Wr.put_list.step(~Ef.Lv, ~FEf.put_lv, x, _) == (1n+List.length(&2, Ef.Lv, t), FEf.put_lv(x, pc.e_lv_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def pc.e_lv_put(+xs: List<&2, Ef.Lv>, -rest: String) ->
+  {Wr.put_list(~Ef.Lv, ~FEf.put_lv, xs, rest) == Wr.put_nat(List.length(&2, Ef.Lv, xs), pc.e_lv_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Ef.Lv, ~FEf.put_lv, xs, rest), (List.length(&2, Ef.Lv, xs), pc.e_lv_items(xs, rest)), pc.e_lv_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Ef.Lv, xs), pc.e_lv_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pc.e_lv_go_rt(+t: List<&2, Ef.Lv>, +x: Ef.Lv, +rest: String) ->
+  {Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, List.length(&2, Ef.Lv, t), FEf.get_lv(FEf.put_lv(x, pc.e_lv_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Ef.Lv>>}:
+  match t:
+    case Nil{}:
+      %pc.e_lv(x, rest) : {Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ef.Lv>>}
+      {==}
+    case Con{+y, +u}:
+      %pc.e_lv(x, FEf.put_lv(y, pc.e_lv_items(u, rest))) : {Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, 1n+List.length(&2, Ef.Lv, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ef.Lv>>}
+      %Equal.sym(Wr.Dec<List<&2, Ef.Lv>>, Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, List.length(&2, Ef.Lv, u), FEf.get_lv(FEf.put_lv(y, pc.e_lv_items(u, rest)))), Wr.Got{y <> u, rest}, pc.e_lv_go_rt(u, y, rest)) : {Wr.get_list.cons(Ef.Lv, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ef.Lv>>}
+      {==}
+
+# a list whose length fits reads back
+def pc.e_lvs(+xs: List<&2, Ef.Lv>, +rest: String, h: {Laws.wire_fits(List.length(&2, Ef.Lv, xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~Ef.Lv, ~FEf.get_lv, Wr.put_list(~Ef.Lv, ~FEf.put_lv, xs, rest)) : Wr.Dec<List<&2, Ef.Lv>>}:
+  match xs:
+    case Nil{}:
+      %pc.nat(0n, rest, h) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      %Equal.sym(String, Wr.put_list(~Ef.Lv, ~FEf.put_lv, x <> t, r), Wr.put_nat(List.length(&2, Ef.Lv, x <> t), pc.e_lv_items(x <> t, r)), pc.e_lv_put(x <> t, r)) : {Wr.Got{x <> t, r} == Wr.get_list(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
+      %pc.nat(List.length(&2, Ef.Lv, x <> t), pc.e_lv_items(x <> t, r), h) : {Wr.Got{x <> t, r} == Wr.get_list.start(~Ef.Lv, ~FEf.get_lv, _) : Wr.Dec<List<&2, Ef.Lv>>}
+      Equal.sym(Wr.Dec<List<&2, Ef.Lv>>, Wr.get_list.go(~Ef.Lv, ~FEf.get_lv, List.length(&2, Ef.Lv, t), FEf.get_lv(FEf.put_lv(x, pc.e_lv_items(t, r)))), Wr.Got{x <> t, r}, pc.e_lv_go_rt(t, x, r))
+
+# the facts that fit read back
+def pc.e_facts(+f: FEf.Facts, +rest: String, h: {Laws.core_facts_fit(f) == True{} : Bool}) -> {Wr.Got{f, rest} == FEf.get_facts(FEf.put_facts(f, rest)) : Wr.Dec<FEf.Facts>}:
+  match f:
+    case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_lvs_fit(reasoning), Laws.core_lvs_fit(plain), hhh)
+      +r5 = FEf.put_lvs(plain, rest)
+      +r4 = FEf.put_lvs(reasoning, r5)
+      +r3 = FEf.put_mmap(rule, r4)
+      +r2 = FEf.put_mmap(explicit, r3)
+      +r1 = Wr.put_bool(by_map, r2)
+      +r0 = Wr.put_bool(flag, r1)
+      +d0 = Wr.get_bool(r0)
+      +e0 = pc.bool(flag, r1)
+      +d1 = FEf.seq(~Bool, ~Bool, ~Wr.get_bool, d0)
+      +e1 = pc.seqFEf(~Bool, ~Bool, ~Wr.get_bool, flag, r1, by_map, r2, d0, e0, pc.bool(by_map, r2))
+      +d2 = FEf.seq(~FEf.P2<Bool, Bool>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, d1)
+      +e2 = pc.seqFEf(~FEf.P2<Bool, Bool>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, FEf.P2{flag, by_map}, r2, explicit, r3, d1, e1, pc.e_mmap(explicit, r3))
+      +d3 = FEf.seq(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, d2)
+      +e3 = pc.seqFEf(~FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, ~Maybe<&2, Ef.LvMap>, ~FEf.get_mmap, FEf.P2{FEf.P2{flag, by_map}, explicit}, r3, rule, r4, d2, e2, pc.e_mmap(rule, r4))
+      +d4 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d3)
+      +e4 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, r4, reasoning, r5, d3, e3, pc.e_lvs(reasoning, r5, wr_and_l(Laws.core_lvs_fit(reasoning), Laws.core_lvs_fit(plain), hhh)))
+      +d5 = FEf.seq(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, d4)
+      +e5 = pc.seqFEf(~FEf.P2<FEf.P2<FEf.P2<FEf.P2<Bool, Bool>, Maybe<&2, Ef.LvMap>>, Maybe<&2, Ef.LvMap>>, List<&2, Ef.Lv>>, ~List<&2, Ef.Lv>, ~FEf.get_lvs, FEf.P2{FEf.P2{FEf.P2{FEf.P2{flag, by_map}, explicit}, rule}, reasoning}, r5, plain, rest, d4, e4, pc.e_lvs(plain, rest, hh0))
+      %e5 : {Wr.Got{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}, rest} == FEf.get_facts.of(_) : Wr.Dec<FEf.Facts>}
+      {==}
+
+# a ladder request that fits reads back
+def pc.e_req(+q: FEf.Req, +rest: String, h: {Laws.core_effort_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FEf.get_req(FEf.put_req(q, rest)) : Wr.Dec<FEf.Req>}:
+  match q:
+    case FEf.Offered{+f}:
+      %pc.e_facts(f, rest, h) : {Wr.Got{FEf.Offered{f}, rest} == FEf.get_offered.of(_) : Wr.Dec<FEf.Req>}
+      {==}
+    case FEf.Clamp{+f, +l}:
+      +hhh = h
+      +r1 = FEf.put_lv(l, rest)
+      +r0 = FEf.put_facts(f, r1)
+      +d0 = FEf.get_facts(r0)
+      +e0 = pc.e_facts(f, r1, hhh)
+      +d1 = FEf.seq(~FEf.Facts, ~Ef.Lv, ~FEf.get_lv, d0)
+      +e1 = pc.seqFEf(~FEf.Facts, ~Ef.Lv, ~FEf.get_lv, f, r1, l, rest, d0, e0, pc.e_lv(l, rest))
+      %e1 : {Wr.Got{FEf.Clamp{f, l}, rest} == FEf.get_clamp.of(_) : Wr.Dec<FEf.Req>}
+      {==}
+    case FEf.Cycle{+f, +l, +d}:
+      +hhh = h
+      +r2 = FEf.put_dir(d, rest)
+      +r1 = FEf.put_lv(l, r2)
+      +r0 = FEf.put_facts(f, r1)
+      +d0 = FEf.get_facts(r0)
+      +e0 = pc.e_facts(f, r1, hhh)
+      +d1 = FEf.seq(~FEf.Facts, ~Ef.Lv, ~FEf.get_lv, d0)
+      +e1 = pc.seqFEf(~FEf.Facts, ~Ef.Lv, ~FEf.get_lv, f, r1, l, r2, d0, e0, pc.e_lv(l, r2))
+      +d2 = FEf.seq(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, ~FEf.get_dir, d1)
+      +e2 = pc.seqFEf(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, ~FEf.get_dir, FEf.P2{f, l}, r2, d, rest, d1, e1, pc.e_dir(d, rest))
+      %e2 : {Wr.Got{FEf.Cycle{f, l, d}, rest} == FEf.get_cycle.of(_) : Wr.Dec<FEf.Req>}
+      {==}
+
+def Laws.core_effort_round_trip(q, rest, h):
+  Equal.sym(Wr.Dec<FEf.Req>, Wr.Got{q, rest}, FEf.get_req(FEf.put_req(q, rest)), pc.e_req(q, rest, h))
+
+def Laws.core_effort_offered(f, h):
+  match f:
+    case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
+      %pc.e_req(FEf.Offered{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}}, "", h) : {FEf.ffi.go(_) == Wr.put_list(~Ef.Lv, ~FEf.put_lv, Ef.offered(Laws.core_effort_model(FEf.Facts{flag, by_map, explicit, rule, reasoning, plain})), "") : String}
+      {==}
+
+def Laws.core_effort_clamp(f, l, h):
+  match f:
+    case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
+      %pc.e_req(FEf.Clamp{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}, l}, "", h) : {FEf.ffi.go(_) == FEf.put_lv(Ef.clamp(Laws.core_effort_model(FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}), l), "") : String}
+      {==}
+
+def Laws.core_effort_cycle(f, l, d, h):
+  match f:
+    case FEf.Facts{+flag, +by_map, +explicit, +rule, +reasoning, +plain}:
+      %pc.e_req(FEf.Cycle{FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}, l, d}, "", h) : {FEf.ffi.go(_) == FEf.put_mlv(Ef.cycle(Laws.core_effort_model(FEf.Facts{flag, by_map, explicit, rule, reasoning, plain}), l, d), "") : String}
+      {==}
+
+def Laws.core_effort_malformed(s, h):
+  %Equal.sym(Wr.Dec<FEf.Req>, FEf.get_req(s), Wr.Bad{}, h) : {FEf.ffi.go(_) == Wr.err("ladder request: malformed") : String}
+  {==}
+
+def Laws.core_effort_left_over(q, c, rest, h):
+  %pc.e_req(q, SCon{c, rest}, h) : {FEf.ffi.go(_) == Wr.err("ladder request: input left over") : String}
+  {==}
+
+def Laws.core_effort_req_example():
+  ({==}, {==})
+
+def Laws.core_effort_reply_example():
+  ({==}, {==})
+
+def Laws.core_effort_malformed_example():
+  ({==}, {==})
+
+# (infer)
+# -------
+
+# the seq of FIn reads back a then b (the two decoders in turn)
+def pc.seqFIn(~A: Data, ~B: Data, ~get: String -> Wr.Dec<B>, +a: A, +r: String, +b: B, +r2: String, d: Wr.Dec<A>,
+  h1: {Wr.Got{a, r} == d : Wr.Dec<A>}, h2: {Wr.Got{b, r2} == get(r) : Wr.Dec<B>}) ->
+  {Wr.Got{FIn.P2{a, b}, r2} == FIn.seq(~A, ~B, ~get, d) : Wr.Dec<FIn.P2<A, B>>}:
+  %h1 : {Wr.Got{FIn.P2{a, b}, r2} == FIn.seq(~A, ~B, ~get, _) : Wr.Dec<FIn.P2<A, B>>}
+  %h2 : {Wr.Got{FIn.P2{a, b}, r2} == FIn.seq.fin(~A, ~B, a, _) : Wr.Dec<FIn.P2<A, B>>}
+  {==}
+
+# a tool that fits reads back
+def pc.i_tool(+t: If.Tool, +rest: String, h: {Laws.core_tool_fits(t) == True{} : Bool}) -> {Wr.Got{t, rest} == FIn.get_tool(FIn.put_tool(t, rest)) : Wr.Dec<If.Tool>}:
+  match t:
+    case If.Tool{+i, +p}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.wire_fits(i), Laws.wire_fits(p), hhh)
+      +r1 = Wr.put_nat(p, rest)
+      +r0 = Wr.put_nat(i, r1)
+      +d0 = Wr.get_nat(r0)
+      +e0 = pc.nat(i, r1, wr_and_l(Laws.wire_fits(i), Laws.wire_fits(p), hhh))
+      +d1 = FIn.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
+      +e1 = pc.seqFIn(~Nat, ~Nat, ~Wr.get_nat, i, r1, p, rest, d0, e0, pc.nat(p, rest, hh0))
+      %e1 : {Wr.Got{If.Tool{i, p}, rest} == FIn.get_tool.of(_) : Wr.Dec<If.Tool>}
+      {==}
+
+# the items of xs, then rest (If.Tool)
+def pc.i_tool_items(xs: List<&2, If.Tool>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FIn.put_tool(x, pc.i_tool_items(t, rest))
+
+def pc.i_tool_put_go(xs: List<&2, If.Tool>, -rest: String) ->
+  {Wr.put_list.go(~If.Tool, ~FIn.put_tool, xs, rest) == (List.length(&2, If.Tool, xs), pc.i_tool_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~If.Tool, ~FIn.put_tool, t, rest), (List.length(&2, If.Tool, t), pc.i_tool_items(t, rest)), pc.i_tool_put_go(t, rest)) : {Wr.put_list.step(~If.Tool, ~FIn.put_tool, x, _) == (1n+List.length(&2, If.Tool, t), FIn.put_tool(x, pc.i_tool_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def pc.i_tool_put(+xs: List<&2, If.Tool>, -rest: String) ->
+  {Wr.put_list(~If.Tool, ~FIn.put_tool, xs, rest) == Wr.put_nat(List.length(&2, If.Tool, xs), pc.i_tool_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~If.Tool, ~FIn.put_tool, xs, rest), (List.length(&2, If.Tool, xs), pc.i_tool_items(xs, rest)), pc.i_tool_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, If.Tool, xs), pc.i_tool_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pc.i_tool_go_rt(+t: List<&2, If.Tool>, +x: If.Tool, +rest: String,
+  +hf: {Laws.core_tools_fit(x <> t) == True{} : Bool}) ->
+  {Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, If.Tool>>}:
+  match t:
+    case Nil{}:
+      %pc.i_tool(x, rest, wr_and_l(Laws.core_tool_fits(x), True{}, hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, If.Tool>>}
+      {==}
+    case Con{+y, +u}:
+      %pc.i_tool(x, FIn.put_tool(y, pc.i_tool_items(u, rest)), wr_and_l(Laws.core_tool_fits(x), Laws.core_tools_fit(y <> u), hf)) : {Wr.get_list.go(~If.Tool, ~FIn.get_tool, 1n+List.length(&2, If.Tool, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      %Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, u), FIn.get_tool(FIn.put_tool(y, pc.i_tool_items(u, rest)))), Wr.Got{y <> u, rest}, pc.i_tool_go_rt(u, y, rest, wr_and_r(Laws.core_tool_fits(x), Laws.core_tools_fit(y <> u), hf))) : {Wr.get_list.cons(If.Tool, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, If.Tool>>}
+      {==}
+
+# a list that fits, of a length that fits, reads back
+def pc.i_tools(+xs: List<&2, If.Tool>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, If.Tool, xs)), Laws.core_tools_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~If.Tool, ~FIn.get_tool, Wr.put_list(~If.Tool, ~FIn.put_tool, xs, rest)) : Wr.Dec<List<&2, If.Tool>>}:
+  match xs:
+    case Nil{}:
+      %pc.nat(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h)) : {Wr.Got{Nil{}, rest} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~If.Tool, ~FIn.put_tool, x <> t, r), Wr.put_nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r)), pc.i_tool_put(x <> t, r)) : {Wr.Got{x <> t, r} == Wr.get_list(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      %pc.nat(List.length(&2, If.Tool, x <> t), pc.i_tool_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, If.Tool, x <> t)), Laws.core_tools_fit(x <> t), hh)) : {Wr.Got{x <> t, r} == Wr.get_list.start(~If.Tool, ~FIn.get_tool, _) : Wr.Dec<List<&2, If.Tool>>}
+      Equal.sym(Wr.Dec<List<&2, If.Tool>>, Wr.get_list.go(~If.Tool, ~FIn.get_tool, List.length(&2, If.Tool, t), FIn.get_tool(FIn.put_tool(x, pc.i_tool_items(t, r)))), Wr.Got{x <> t, r}, pc.i_tool_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, If.Tool, x <> t)), Laws.core_tools_fit(x <> t), hh)))
+
+# a strict plan request that fits reads back
+def pc.i_req(+q: FIn.Req, +rest: String, h: {Laws.core_infer_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FIn.get_req(FIn.put_req(q, rest)) : Wr.Dec<FIn.Req>}:
+  match q:
+    case FIn.Req{+cap, +ts, +need}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_mfits(cap), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need))), hhh)
+      +hh1 = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need)), hh0)
+      +r2 = Wr.put_list(~Nat, ~Wr.put_nat, need, rest)
+      +r1 = Wr.put_list(~If.Tool, ~FIn.put_tool, ts, r2)
+      +r0 = FIn.put_mnat(cap, r1)
+      +d0 = FIn.get_mnat(r0)
+      +e0 = pc.i_mnat(cap, r1, wr_and_l(Laws.core_mfits(cap), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need))), hhh))
+      +d1 = FIn.seq(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, d0)
+      +e1 = pc.seqFIn(~Maybe<&2, Nat>, ~List<&2, If.Tool>, ~FIn.get_tools, cap, r1, ts, r2, d0, e0, pc.i_tools(ts, r2, wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, If.Tool, ts)), Laws.core_tools_fit(ts)), Bool.and(Laws.wire_fits(List.length(&2, Nat, need)), Laws.wire_nats_fit(need)), hh0)))
+      +d2 = FIn.seq(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, d1)
+      +e2 = pc.seqFIn(~FIn.P2<Maybe<&2, Nat>, List<&2, If.Tool>>, ~List<&2, Nat>, ~FIn.get_ids, FIn.P2{cap, ts}, r2, need, rest, d1, e1, pc.nats(need, rest, hh1))
+      %e2 : {Wr.Got{FIn.Req{cap, ts, need}, rest} == FIn.get_req.of(_) : Wr.Dec<FIn.Req>}
+      {==}
+
+def Laws.core_infer_round_trip(q, rest, h):
+  Equal.sym(Wr.Dec<FIn.Req>, Wr.Got{q, rest}, FIn.get_req(FIn.put_req(q, rest)), pc.i_req(q, rest, h))
+
+def Laws.core_infer_answers(cap, ts, need, h):
+  %pc.i_req(FIn.Req{cap, ts, need}, "", h) : {FIn.ffi.go(_) == FIn.put_plan(If.plan(cap, ts, need), "") : String}
+  {==}
+
+def Laws.core_infer_malformed(s, h):
+  %Equal.sym(Wr.Dec<FIn.Req>, FIn.get_req(s), Wr.Bad{}, h) : {FIn.ffi.go(_) == Wr.err("strict plan request: malformed") : String}
+  {==}
+
+def Laws.core_infer_left_over(q, c, rest, h):
+  %pc.i_req(q, SCon{c, rest}, h) : {FIn.ffi.go(_) == Wr.err("strict plan request: input left over") : String}
+  {==}
+
+def Laws.core_infer_req_example():
+  ({==}, {==})
+
+def Laws.core_infer_reply_example():
+  {==}
+
+def Laws.core_infer_malformed_example():
+  ({==}, {==})
+
+# (facts)
+# -------
+
+# the seq of FFx reads back a then b (the two decoders in turn)
+def pc.seqFFx(~A: Data, ~B: Data, ~get: String -> Wr.Dec<B>, +a: A, +r: String, +b: B, +r2: String, d: Wr.Dec<A>,
+  h1: {Wr.Got{a, r} == d : Wr.Dec<A>}, h2: {Wr.Got{b, r2} == get(r) : Wr.Dec<B>}) ->
+  {Wr.Got{FFx.P2{a, b}, r2} == FFx.seq(~A, ~B, ~get, d) : Wr.Dec<FFx.P2<A, B>>}:
+  %h1 : {Wr.Got{FFx.P2{a, b}, r2} == FFx.seq(~A, ~B, ~get, _) : Wr.Dec<FFx.P2<A, B>>}
+  %h2 : {Wr.Got{FFx.P2{a, b}, r2} == FFx.seq.fin(~A, ~B, a, _) : Wr.Dec<FFx.P2<A, B>>}
+  {==}
+
+# a Fx.ELv reads back
+def pc.f_elv(+x: Fx.ELv, +rest: String) -> {Wr.Got{x, rest} == FFx.get_elv(FFx.put_elv(x, rest)) : Wr.Dec<Fx.ELv>}:
+  match x:
+    case Fx.EMinimal{}:
+      {==}
+    case Fx.ELow{}:
+      {==}
+    case Fx.EMedium{}:
+      {==}
+    case Fx.EHigh{}:
+      {==}
+    case Fx.EXhigh{}:
+      {==}
+    case Fx.EMax{}:
+      {==}
+
+# a Fx.Lv reads back
+def pc.f_lv(+x: Fx.Lv, +rest: String) -> {Wr.Got{x, rest} == FFx.get_lv(FFx.put_lv(x, rest)) : Wr.Dec<Fx.Lv>}:
+  match x:
+    case Fx.Minimal{}:
+      {==}
+    case Fx.Low{}:
+      {==}
+    case Fx.Medium{}:
+      {==}
+    case Fx.High{}:
+      {==}
+
+# the user's budgets that fit read back
+def pc.f_customs(+c: Fx.Customs, +rest: String, h: {Laws.core_customs_fit(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FFx.get_customs(FFx.put_customs(c, rest)) : Wr.Dec<Fx.Customs>}:
+  match c:
+    case Fx.Customs{+mi, +lo, +me, +hi}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_mfits(mi), Bool.and(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi))), hhh)
+      +hh1 = wr_and_r(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi)), hh0)
+      +hh2 = wr_and_r(Laws.core_mfits(me), Laws.core_mfits(hi), hh1)
+      +r3 = FFx.put_mnat(hi, rest)
+      +r2 = FFx.put_mnat(me, r3)
+      +r1 = FFx.put_mnat(lo, r2)
+      +r0 = FFx.put_mnat(mi, r1)
+      +d0 = FFx.get_mnat(r0)
+      +e0 = pc.f_mnat(mi, r1, wr_and_l(Laws.core_mfits(mi), Bool.and(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi))), hhh))
+      +d1 = FFx.seq(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d0)
+      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Maybe<&2, Nat>, ~FFx.get_mnat, mi, r1, lo, r2, d0, e0, pc.f_mnat(lo, r2, wr_and_l(Laws.core_mfits(lo), Bool.and(Laws.core_mfits(me), Laws.core_mfits(hi)), hh0)))
+      +d2 = FFx.seq(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, pc.f_mnat(me, r3, wr_and_l(Laws.core_mfits(me), Laws.core_mfits(hi), hh1)))
+      +d3 = FFx.seq(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, d2)
+      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Maybe<&2, Nat>>, Maybe<&2, Nat>>, ~Maybe<&2, Nat>, ~FFx.get_mnat, FFx.P2{FFx.P2{mi, lo}, me}, r3, hi, rest, d2, e2, pc.f_mnat(hi, rest, hh2))
+      %e3 : {Wr.Got{Fx.Customs{mi, lo, me, hi}, rest} == FFx.get_customs.of(_) : Wr.Dec<Fx.Customs>}
+      {==}
+
+# a budget table that fits reads back
+def pc.f_budgets(+b: Fx.Budgets, +rest: String, h: {Laws.core_budgets_fit(b) == True{} : Bool}) -> {Wr.Got{b, rest} == FFx.get_budgets(FFx.put_budgets(b, rest)) : Wr.Dec<Fx.Budgets>}:
+  match b:
+    case Fx.Budgets{+mi, +lo, +me, +hi}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.wire_fits(mi), Bool.and(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi))), hhh)
+      +hh1 = wr_and_r(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi)), hh0)
+      +hh2 = wr_and_r(Laws.wire_fits(me), Laws.wire_fits(hi), hh1)
+      +r3 = Wr.put_nat(hi, rest)
+      +r2 = Wr.put_nat(me, r3)
+      +r1 = Wr.put_nat(lo, r2)
+      +r0 = Wr.put_nat(mi, r1)
+      +d0 = Wr.get_nat(r0)
+      +e0 = pc.nat(mi, r1, wr_and_l(Laws.wire_fits(mi), Bool.and(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi))), hhh))
+      +d1 = FFx.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
+      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, mi, r1, lo, r2, d0, e0, pc.nat(lo, r2, wr_and_l(Laws.wire_fits(lo), Bool.and(Laws.wire_fits(me), Laws.wire_fits(hi)), hh0)))
+      +d2 = FFx.seq(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{mi, lo}, r2, me, r3, d1, e1, pc.nat(me, r3, wr_and_l(Laws.wire_fits(me), Laws.wire_fits(hi), hh1)))
+      +d3 = FFx.seq(~FFx.P2<FFx.P2<Nat, Nat>, Nat>, ~Nat, ~Wr.get_nat, d2)
+      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Nat, Nat>, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{mi, lo}, me}, r3, hi, rest, d2, e2, pc.nat(hi, rest, hh2))
+      %e3 : {Wr.Got{Fx.Budgets{mi, lo, me, hi}, rest} == FFx.get_budgets.of(_) : Wr.Dec<Fx.Budgets>}
+      {==}
+
+# a Maybe<Budgets> that fits reads back
+def pc.f_mbudgets(+m: Maybe<&2, Fx.Budgets>, +rest: String, h: {Laws.core_mbudgets_fit(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FFx.get_mbudgets(FFx.put_mbudgets(m, rest)) : Wr.Dec<Maybe<&2, Fx.Budgets>>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+b}:
+      %pc.f_budgets(b, rest, h) : {Wr.Got{Some{b}, rest} == FFx.get_mbudgets.some(_) : Wr.Dec<Maybe<&2, Fx.Budgets>>}
+      {==}
+
+# a budget request that fits reads back
+def pc.f_req(+q: FFx.Req, +rest: String, h: {Laws.core_facts_req_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FFx.get_req(FFx.put_req(q, rest)) : Wr.Dec<FFx.Req>}:
+  match q:
+    case FFx.Level{+l, +c, +d}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_customs_fit(c), Laws.core_budgets_fit(d), hhh)
+      +r2 = FFx.put_budgets(d, rest)
+      +r1 = FFx.put_customs(c, r2)
+      +r0 = FFx.put_elv(l, r1)
+      +d0 = FFx.get_elv(r0)
+      +e0 = pc.f_elv(l, r1)
+      +d1 = FFx.seq(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, d0)
+      +e1 = pc.seqFFx(~Fx.ELv, ~Fx.Customs, ~FFx.get_customs, l, r1, c, r2, d0, e0, pc.f_customs(c, r2, wr_and_l(Laws.core_customs_fit(c), Laws.core_budgets_fit(d), hhh)))
+      +d2 = FFx.seq(~FFx.P2<Fx.ELv, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Fx.ELv, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.P2{l, c}, r2, d, rest, d1, e1, pc.f_budgets(d, rest, hh0))
+      %e2 : {Wr.Got{FFx.Level{l, c, d}, rest} == FFx.get_level.of(_) : Wr.Dec<FFx.Req>}
+      {==}
+    case FFx.Room{+b, +m, +a}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.wire_fits(b), Bool.and(Laws.wire_fits(m), Laws.wire_fits(a)), hhh)
+      +hh1 = wr_and_r(Laws.wire_fits(m), Laws.wire_fits(a), hh0)
+      +r2 = Wr.put_nat(a, rest)
+      +r1 = Wr.put_nat(m, r2)
+      +r0 = Wr.put_nat(b, r1)
+      +d0 = Wr.get_nat(r0)
+      +e0 = pc.nat(b, r1, wr_and_l(Laws.wire_fits(b), Bool.and(Laws.wire_fits(m), Laws.wire_fits(a)), hhh))
+      +d1 = FFx.seq(~Nat, ~Nat, ~Wr.get_nat, d0)
+      +e1 = pc.seqFFx(~Nat, ~Nat, ~Wr.get_nat, b, r1, m, r2, d0, e0, pc.nat(m, r2, wr_and_l(Laws.wire_fits(m), Laws.wire_fits(a), hh0)))
+      +d2 = FFx.seq(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Nat, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{b, m}, r2, a, rest, d1, e1, pc.nat(a, rest, hh1))
+      %e2 : {Wr.Got{FFx.Room{b, m, a}, rest} == FFx.get_room.of(_) : Wr.Dec<FFx.Req>}
+      {==}
+    case FFx.Adjust{+base, +mm, +l, +c, +d, +a}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_mfits(base), Bool.and(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)))), hhh)
+      +hh1 = wr_and_r(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a))), hh0)
+      +hh2 = wr_and_r(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)), hh1)
+      +hh3 = wr_and_r(Laws.core_budgets_fit(d), Laws.wire_fits(a), hh2)
+      +r5 = Wr.put_nat(a, rest)
+      +r4 = FFx.put_budgets(d, r5)
+      +r3 = FFx.put_customs(c, r4)
+      +r2 = FFx.put_elv(l, r3)
+      +r1 = Wr.put_nat(mm, r2)
+      +r0 = FFx.put_mnat(base, r1)
+      +d0 = FFx.get_mnat(r0)
+      +e0 = pc.f_mnat(base, r1, wr_and_l(Laws.core_mfits(base), Bool.and(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)))), hhh))
+      +d1 = FFx.seq(~Maybe<&2, Nat>, ~Nat, ~Wr.get_nat, d0)
+      +e1 = pc.seqFFx(~Maybe<&2, Nat>, ~Nat, ~Wr.get_nat, base, r1, mm, r2, d0, e0, pc.nat(mm, r2, wr_and_l(Laws.wire_fits(mm), Bool.and(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a))), hh0)))
+      +d2 = FFx.seq(~FFx.P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~FFx.get_elv, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~FFx.get_elv, FFx.P2{base, mm}, r2, l, r3, d1, e1, pc.f_elv(l, r3))
+      +d3 = FFx.seq(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~FFx.get_customs, d2)
+      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~FFx.get_customs, FFx.P2{FFx.P2{base, mm}, l}, r3, c, r4, d2, e2, pc.f_customs(c, r4, wr_and_l(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Laws.wire_fits(a)), hh1)))
+      +d4 = FFx.seq(~FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, d3)
+      +e4 = pc.seqFFx(~FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~FFx.get_budgets, FFx.P2{FFx.P2{FFx.P2{base, mm}, l}, c}, r4, d, r5, d3, e3, pc.f_budgets(d, r5, wr_and_l(Laws.core_budgets_fit(d), Laws.wire_fits(a), hh2)))
+      +d5 = FFx.seq(~FFx.P2<FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~Wr.get_nat, d4)
+      +e5 = pc.seqFFx(~FFx.P2<FFx.P2<FFx.P2<FFx.P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{FFx.P2{FFx.P2{base, mm}, l}, c}, d}, r5, a, rest, d4, e4, pc.nat(a, rest, hh3))
+      %e5 : {Wr.Got{FFx.Adjust{base, mm, l, c, d, a}, rest} == FFx.get_adjust.of(_) : Wr.Dec<FFx.Req>}
+      {==}
+    case FFx.Google{+rule, +c, +l}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_mbudgets_fit(rule), Laws.core_customs_fit(c), hhh)
+      +r2 = FFx.put_lv(l, rest)
+      +r1 = FFx.put_customs(c, r2)
+      +r0 = FFx.put_mbudgets(rule, r1)
+      +d0 = FFx.get_mbudgets(r0)
+      +e0 = pc.f_mbudgets(rule, r1, wr_and_l(Laws.core_mbudgets_fit(rule), Laws.core_customs_fit(c), hhh))
+      +d1 = FFx.seq(~Maybe<&2, Fx.Budgets>, ~Fx.Customs, ~FFx.get_customs, d0)
+      +e1 = pc.seqFFx(~Maybe<&2, Fx.Budgets>, ~Fx.Customs, ~FFx.get_customs, rule, r1, c, r2, d0, e0, pc.f_customs(c, r2, hh0))
+      +d2 = FFx.seq(~FFx.P2<Maybe<&2, Fx.Budgets>, Fx.Customs>, ~Fx.Lv, ~FFx.get_lv, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Maybe<&2, Fx.Budgets>, Fx.Customs>, ~Fx.Lv, ~FFx.get_lv, FFx.P2{rule, c}, r2, l, rest, d1, e1, pc.f_lv(l, rest))
+      %e2 : {Wr.Got{FFx.Google{rule, c, l}, rest} == FFx.get_google.of(_) : Wr.Dec<FFx.Req>}
+      {==}
+    case FFx.Aux{+c, +d, +a, +top}:
+      +hhh = h
+      +hh0 = wr_and_r(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top))), hhh)
+      +hh1 = wr_and_r(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top)), hh0)
+      +hh2 = wr_and_r(Laws.wire_fits(a), Laws.wire_fits(top), hh1)
+      +r3 = Wr.put_nat(top, rest)
+      +r2 = Wr.put_nat(a, r3)
+      +r1 = FFx.put_budgets(d, r2)
+      +r0 = FFx.put_customs(c, r1)
+      +d0 = FFx.get_customs(r0)
+      +e0 = pc.f_customs(c, r1, wr_and_l(Laws.core_customs_fit(c), Bool.and(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top))), hhh))
+      +d1 = FFx.seq(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, d0)
+      +e1 = pc.seqFFx(~Fx.Customs, ~Fx.Budgets, ~FFx.get_budgets, c, r1, d, r2, d0, e0, pc.f_budgets(d, r2, wr_and_l(Laws.core_budgets_fit(d), Bool.and(Laws.wire_fits(a), Laws.wire_fits(top)), hh0)))
+      +d2 = FFx.seq(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, d1)
+      +e2 = pc.seqFFx(~FFx.P2<Fx.Customs, Fx.Budgets>, ~Nat, ~Wr.get_nat, FFx.P2{c, d}, r2, a, r3, d1, e1, pc.nat(a, r3, wr_and_l(Laws.wire_fits(a), Laws.wire_fits(top), hh1)))
+      +d3 = FFx.seq(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, d2)
+      +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{c, d}, a}, r3, top, rest, d2, e2, pc.nat(top, rest, hh2))
+      %e3 : {Wr.Got{FFx.Aux{c, d, a, top}, rest} == FFx.get_aux.of(_) : Wr.Dec<FFx.Req>}
+      {==}
+
+def Laws.core_facts_round_trip(q, rest, h):
+  Equal.sym(Wr.Dec<FFx.Req>, Wr.Got{q, rest}, FFx.get_req(FFx.put_req(q, rest)), pc.f_req(q, rest, h))
+
+def Laws.core_facts_level(l, c, d, h):
+  %pc.f_req(FFx.Level{l, c, d}, "", h) : {FFx.ffi.go(_) == Wr.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "") : String}
+  {==}
+
+def Laws.core_facts_room(b, m, a, h):
+  %pc.f_req(FFx.Room{b, m, a}, "", h) : {FFx.ffi.go(_) == Wr.put_nat(Fx.room(b, m, a), "") : String}
+  {==}
+
+def Laws.core_facts_adjust(base, mm, l, c, d, a, h):
+  %pc.f_req(FFx.Adjust{base, mm, l, c, d, a}, "", h) : {FFx.ffi.go(_) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a), "") : String}
+  {==}
+
+def Laws.core_facts_google(rule, c, l, h):
+  %pc.f_req(FFx.Google{rule, c, l}, "", h) : {FFx.ffi.go(_) == FFx.put_gb(Fx.gbudget(rule, c, l), "") : String}
+  {==}
+
+def Laws.core_facts_aux(c, d, a, top, h):
+  %pc.f_req(FFx.Aux{c, d, a, top}, "", h) : {FFx.ffi.go(_) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
+  {==}
+
+def Laws.core_facts_malformed(s, h):
+  %Equal.sym(Wr.Dec<FFx.Req>, FFx.get_req(s), Wr.Bad{}, h) : {FFx.ffi.go(_) == Wr.err("budget request: malformed") : String}
+  {==}
+
+def Laws.core_facts_left_over(q, c, rest, h):
+  %pc.f_req(q, SCon{c, rest}, h) : {FFx.ffi.go(_) == Wr.err("budget request: input left over") : String}
+  {==}
+
+def Laws.core_facts_req_example():
+  ({==}, {==})
+
+def Laws.core_facts_reply_example():
+  ({==}, {==})
+
+def Laws.core_facts_malformed_example():
+  ({==}, {==})

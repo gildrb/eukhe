@@ -290,6 +290,74 @@ def get_req.go(d: W.Dec<Nat>) -> W.Dec<Req>:
 def get_req(s: String) -> W.Dec<Req>:
   get_req.go(W.get_nat(s))
 
+# Encoding
+# --------
+# The request as Rust's `Writer` spells it (`api/simple_options.rs`): the
+# inverse of get_req, used by the laws (LAWS.bend `core entries`).
+
+def put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, rest)
+    case Some{n}:
+      W.put_nat(1n, W.put_nat(n, rest))
+
+def put_elv(l: Fx.ELv, rest: String) -> String:
+  match l:
+    case Fx.EMinimal{}:
+      W.put_nat(0n, rest)
+    case Fx.ELow{}:
+      W.put_nat(1n, rest)
+    case Fx.EMedium{}:
+      W.put_nat(2n, rest)
+    case Fx.EHigh{}:
+      W.put_nat(3n, rest)
+    case Fx.EXhigh{}:
+      W.put_nat(4n, rest)
+    case Fx.EMax{}:
+      W.put_nat(5n, rest)
+
+def put_lv(l: Fx.Lv, rest: String) -> String:
+  match l:
+    case Fx.Minimal{}:
+      W.put_nat(0n, rest)
+    case Fx.Low{}:
+      W.put_nat(1n, rest)
+    case Fx.Medium{}:
+      W.put_nat(2n, rest)
+    case Fx.High{}:
+      W.put_nat(3n, rest)
+
+def put_customs(c: Fx.Customs, rest: String) -> String:
+  match c:
+    case Fx.Customs{mi, lo, me, hi}:
+      put_mnat(mi, put_mnat(lo, put_mnat(me, put_mnat(hi, rest))))
+
+def put_budgets(b: Fx.Budgets, rest: String) -> String:
+  match b:
+    case Fx.Budgets{mi, lo, me, hi}:
+      W.put_nat(mi, W.put_nat(lo, W.put_nat(me, W.put_nat(hi, rest))))
+
+def put_mbudgets(m: Maybe<&2, Fx.Budgets>, rest: String) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, rest)
+    case Some{b}:
+      W.put_nat(1n, put_budgets(b, rest))
+
+def put_req(q: Req, rest: String) -> String:
+  match q:
+    case Level{l, c, d}:
+      W.put_nat(0n, put_elv(l, put_customs(c, put_budgets(d, rest))))
+    case Room{b, m, a}:
+      W.put_nat(1n, W.put_nat(b, W.put_nat(m, W.put_nat(a, rest))))
+    case Adjust{base, mm, l, c, d, a}:
+      W.put_nat(2n, put_mnat(base, W.put_nat(mm, put_elv(l, put_customs(c, put_budgets(d, W.put_nat(a, rest)))))))
+    case Google{rule, c, l}:
+      W.put_nat(3n, put_mbudgets(rule, put_customs(c, put_lv(l, rest))))
+    case Aux{c, d, a, top}:
+      W.put_nat(4n, put_customs(c, put_budgets(d, W.put_nat(a, W.put_nat(top, rest)))))
+
 # Replies
 # -------
 

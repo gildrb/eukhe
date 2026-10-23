@@ -489,8 +489,8 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_infer_needs_at 90
 #define FID_infer_needs_go 91
 #define FID_infer_needs_go_k196 92
-#define FID_wire_put_list_go_1 93
-#define FID_wire_put_list_go_1_k200 94
+#define FID_wire_put_list_go_2 93
+#define FID_wire_put_list_go_2_k200 94
 #define FID_ffi_facts_seq_2 95
 #define FID_ffi_facts_seq_2_k202 96
 #define FID_ffi_facts_seq_1 97
@@ -530,8 +530,8 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_infer_strict_of 131
 #define FID_infer_strict_of_k294 132
 #define FID_infer_strict_of_k295 133
-#define FID_wire_put_list_1 134
-#define FID_wire_put_list_1_k302 135
+#define FID_wire_put_list_2 134
+#define FID_wire_put_list_2_k302 135
 #define FID_ffi_facts_get_customs 136
 #define FID_ffi_facts_get_customs_k305 137
 #define FID_ffi_facts_get_customs_k306 138
@@ -832,7 +832,7 @@ CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 
 
 #define WL_ALL e, sp, seq, rn, r0, r1, r2, r3, r4, r5, rp, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22, r23, r24
 
-#define WL_TABLE WL_X(FID_ffi_effort_get_ent) WL_X(FID_ffi_effort_get_ent_k9) WL_X(FID_ffi_effort_seq_5) WL_X(FID_ffi_effort_seq_5_k11) WL_X(FID_ffi_effort_seq_4) WL_X(FID_ffi_effort_seq_4_k13) WL_X(FID_ffi_effort_seq_3) WL_X(FID_ffi_effort_seq_3_k15) WL_X(FID_ffi_effort_seq_2) WL_X(FID_ffi_effort_seq_2_k17) WL_X(FID_ffi_effort_seq_1) WL_X(FID_ffi_effort_seq_1_k19) WL_X(FID_ffi_effort_seq_0) WL_X(FID_ffi_effort_seq_0_k21) WL_X(FID_infer_tmerge_go) WL_X(FID_infer_tmerge_go_k25) WL_X(FID_infer_tmerge_go_k26) WL_X(FID_infer_tmerge_go_k27) WL_X(FID_infer_tmerge_go_k28) WL_X(FID_ffi_effort_get_map) WL_X(FID_ffi_effort_get_map_k31) WL_X(FID_ffi_effort_get_map_k32) WL_X(FID_ffi_effort_get_map_k33) WL_X(FID_ffi_effort_get_map_k34) WL_X(FID_ffi_effort_get_map_k35) WL_X(FID_ffi_effort_get_map_k36) WL_X(FID_ffi_effort_get_map_k37) WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k40) WL_X(FID_wire_get_list_go_0_k41) WL_X(FID_infer_tpush) WL_X(FID_infer_tpush_k45) WL_X(FID_List_append) WL_X(FID_List_append_k59) WL_X(FID_infer_lad_fill_e) WL_X(FID_infer_lad_fill_e_k62) WL_X(FID_infer_tbuild) WL_X(FID_infer_tbuild_k67) WL_X(FID_infer_tsort) WL_X(FID_infer_tsort_k70) WL_X(FID_infer_tsort_k71) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k83) WL_X(FID_effort_in_at) WL_X(FID_effort_scan) WL_X(FID_effort_scan_k97) WL_X(FID_effort_find_go) WL_X(FID_effort_find_go_k99) WL_X(FID_infer_lad_fill) WL_X(FID_infer_lad_fill_k105) WL_X(FID_infer_lad_fill_k106) WL_X(FID_infer_lad_fill_k107) WL_X(FID_infer_lad_fill_k108) WL_X(FID_infer_lad_fill_k109) WL_X(FID_infer_lad_fill_k110) WL_X(FID_infer_lad_fill_k111) WL_X(FID_ffi_infer_seq_0) WL_X(FID_ffi_infer_seq_0_k115) WL_X(FID_List_take) WL_X(FID_List_take_k120) WL_X(FID_infer_rank) WL_X(FID_infer_rank_k122) WL_X(FID_infer_elem) WL_X(FID_infer_elem_k124) WL_X(FID_infer_ids) WL_X(FID_infer_ids_k127) WL_X(FID_ffi_facts_seq_3) WL_X(FID_ffi_facts_seq_3_k139) WL_X(FID_wire_take) WL_X(FID_wire_take_k149) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k151) WL_X(FID_ffi_effort_get_mmap) WL_X(FID_ffi_effort_get_mmap_k159) WL_X(FID_ffi_effort_get_mmap_k160) WL_X(FID_ffi_effort_get_lvs) WL_X(FID_ffi_effort_get_lvs_k164) WL_X(FID_ffi_effort_get_lvs_k165) WL_X(FID_effort_has) WL_X(FID_effort_has_k171) WL_X(FID_infer_lad_map) WL_X(FID_ffi_infer_get_tool) WL_X(FID_ffi_infer_get_tool_k183) WL_X(FID_ffi_infer_get_tool_k184) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k186) WL_X(FID_wire_get_list_go_1_k187) WL_X(FID_wire_get_list_go_2) WL_X(FID_wire_get_list_go_2_k189) WL_X(FID_wire_get_list_go_2_k190) WL_X(FID_infer_needs_at) WL_X(FID_infer_needs_go) WL_X(FID_infer_needs_go_k196) WL_X(FID_wire_put_list_go_1) WL_X(FID_wire_put_list_go_1_k200) WL_X(FID_ffi_facts_seq_2) WL_X(FID_ffi_facts_seq_2_k202) WL_X(FID_ffi_facts_seq_1) WL_X(FID_ffi_facts_seq_1_k204) WL_X(FID_ffi_facts_seq_0) WL_X(FID_ffi_facts_seq_0_k206) WL_X(FID_ffi_facts_get_lv) WL_X(FID_ffi_facts_get_lv_k215) WL_X(FID_ffi_facts_get_budgets) WL_X(FID_ffi_facts_get_budgets_k229) WL_X(FID_ffi_facts_get_budgets_k230) WL_X(FID_ffi_facts_get_budgets_k231) WL_X(FID_ffi_facts_get_budgets_k232) WL_X(FID_wire_value) WL_X(FID_wire_value_k249) WL_X(FID_ffi_effort_get_dir) WL_X(FID_ffi_effort_get_dir_k256) WL_X(FID_ffi_effort_get_lv) WL_X(FID_ffi_effort_get_lv_k259) WL_X(FID_ffi_effort_seq_9) WL_X(FID_ffi_effort_seq_9_k263) WL_X(FID_ffi_effort_seq_8) WL_X(FID_ffi_effort_seq_8_k265) WL_X(FID_ffi_effort_seq_7) WL_X(FID_ffi_effort_seq_7_k267) WL_X(FID_ffi_effort_seq_6) WL_X(FID_ffi_effort_seq_6_k269) WL_X(FID_effort_clamp_in) WL_X(FID_effort_clamp_in_k274) WL_X(FID_effort_clamp_in_k275) WL_X(FID_effort_clamp_in_k276) WL_X(FID_effort_clamp_in_k277) WL_X(FID_effort_offer) WL_X(FID_effort_offer_k284) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k286) WL_X(FID_infer_strict_of) WL_X(FID_infer_strict_of_k294) WL_X(FID_infer_strict_of_k295) WL_X(FID_wire_put_list_1) WL_X(FID_wire_put_list_1_k302) WL_X(FID_ffi_facts_get_customs) WL_X(FID_ffi_facts_get_customs_k305) WL_X(FID_ffi_facts_get_customs_k306) WL_X(FID_ffi_facts_get_customs_k307) WL_X(FID_ffi_facts_get_customs_k308) WL_X(FID_ffi_facts_seq_17) WL_X(FID_ffi_facts_seq_17_k310) WL_X(FID_ffi_facts_seq_16) WL_X(FID_ffi_facts_seq_16_k312) WL_X(FID_ffi_facts_seq_15) WL_X(FID_ffi_facts_seq_15_k314) WL_X(FID_ffi_facts_get_mbudgets) WL_X(FID_ffi_facts_get_mbudgets_k317) WL_X(FID_ffi_facts_get_mbudgets_k318) WL_X(FID_ffi_facts_seq_14) WL_X(FID_ffi_facts_seq_14_k320) WL_X(FID_ffi_facts_seq_13) WL_X(FID_ffi_facts_seq_13_k322) WL_X(FID_ffi_facts_get_mnat) WL_X(FID_ffi_facts_get_mnat_k325) WL_X(FID_ffi_facts_get_mnat_k326) WL_X(FID_ffi_facts_seq_12) WL_X(FID_ffi_facts_seq_12_k328) WL_X(FID_ffi_facts_seq_11) WL_X(FID_ffi_facts_seq_11_k330) WL_X(FID_ffi_facts_seq_10) WL_X(FID_ffi_facts_seq_10_k332) WL_X(FID_ffi_facts_seq_9) WL_X(FID_ffi_facts_seq_9_k334) WL_X(FID_ffi_facts_seq_8) WL_X(FID_ffi_facts_seq_8_k336) WL_X(FID_ffi_facts_seq_5) WL_X(FID_ffi_facts_seq_5_k339) WL_X(FID_ffi_facts_seq_4) WL_X(FID_ffi_facts_seq_4_k341) WL_X(FID_ffi_facts_get_elv) WL_X(FID_ffi_facts_get_elv_k344) WL_X(FID_ffi_facts_seq_7) WL_X(FID_ffi_facts_seq_7_k346) WL_X(FID_ffi_facts_seq_6) WL_X(FID_ffi_facts_seq_6_k348) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k361) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k364) WL_X(FID_wire_get_nat_go_k365) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k367) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k372) WL_X(FID_ffi_effort_seq_12) WL_X(FID_ffi_effort_seq_12_k378) WL_X(FID_ffi_effort_seq_11) WL_X(FID_ffi_effort_seq_11_k381) WL_X(FID_ffi_effort_get_facts) WL_X(FID_ffi_effort_get_facts_k384) WL_X(FID_ffi_effort_get_facts_k385) WL_X(FID_ffi_effort_get_facts_k386) WL_X(FID_ffi_effort_get_facts_k387) WL_X(FID_effort_cycle) WL_X(FID_effort_cycle_k390) WL_X(FID_effort_cycle_k391) WL_X(FID_effort_clamp) WL_X(FID_effort_clamp_k394) WL_X(FID_ffi_effort_model) WL_X(FID_ffi_effort_model_k397) WL_X(FID_effort_offered) WL_X(FID_wire_get_list_2) WL_X(FID_wire_get_list_2_k407) WL_X(FID_wire_get_list_2_k408) WL_X(FID_infer_plan) WL_X(FID_infer_plan_k410) WL_X(FID_infer_plan_k411) WL_X(FID_infer_plan_k412) WL_X(FID_infer_plan_k413) WL_X(FID_U32_show_go) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k440) WL_X(FID_ffi_infer_get_tools) WL_X(FID_ffi_infer_get_tools_k467) WL_X(FID_ffi_infer_get_tools_k468) WL_X(FID_ffi_infer_get_ids) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k501) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k506) WL_X(FID_ffi_infer_get_mnat) WL_X(FID_ffi_infer_get_mnat_k528) WL_X(FID_ffi_infer_get_mnat_k529) WL_X(FID_ffi_infer_seq_2) WL_X(FID_ffi_infer_seq_2_k531) WL_X(FID_ffi_infer_seq_1) WL_X(FID_ffi_infer_seq_1_k533) WL_X(FID_U32_show) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k542) WL_X(FID_ffi_facts_get_req) WL_X(FID_ffi_facts_get_req_k544) WL_X(FID_ffi_facts_get_req_k545) WL_X(FID_ffi_facts_get_req_k546) WL_X(FID_ffi_facts_get_req_k547) WL_X(FID_ffi_facts_get_req_k548) WL_X(FID_ffi_facts_get_req_k549) WL_X(FID_ffi_facts_get_req_k550) WL_X(FID_ffi_facts_get_req_k551) WL_X(FID_ffi_facts_get_req_k552) WL_X(FID_ffi_facts_get_req_k553) WL_X(FID_ffi_facts_get_req_k554) WL_X(FID_ffi_facts_get_req_k555) WL_X(FID_ffi_facts_get_req_k556) WL_X(FID_ffi_facts_get_req_k557) WL_X(FID_ffi_facts_get_req_k558) WL_X(FID_ffi_facts_get_req_k559) WL_X(FID_ffi_facts_get_req_k560) WL_X(FID_ffi_facts_get_req_k561) WL_X(FID_ffi_facts_get_req_k562) WL_X(FID_ffi_facts_get_req_k563) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k566) WL_X(FID_wire_get_nat_k567) WL_X(FID_ffi_effort_get_req) WL_X(FID_ffi_effort_get_req_k575) WL_X(FID_ffi_effort_get_req_k576) WL_X(FID_ffi_effort_get_req_k577) WL_X(FID_ffi_effort_get_req_k578) WL_X(FID_ffi_effort_get_req_k579) WL_X(FID_ffi_effort_get_req_k580) WL_X(FID_ffi_effort_get_req_k581) WL_X(FID_ffi_infer_get_req) WL_X(FID_ffi_infer_get_req_k591) WL_X(FID_ffi_infer_get_req_k592) WL_X(FID_ffi_infer_get_req_k593) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k600) WL_X(FID_ffi_echo_step_k601) WL_X(FID_ffi_echo_step_k602) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k629) WL_X(FID_ffi_echo_open_k630) WL_X(FID_step_go) WL_X(FID_step_go_k633) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k636) WL_X(FID_ffi_go_k637) WL_X(FID_ffi_go_k638) WL_X(FID_ffi_go_k639) WL_X(FID_ffi_go_k640) WL_X(FID_ffi_go_k641) WL_X(FID_ffi_go_k642) WL_X(FID_ffi_go_k643) WL_X(FID_ffi_go_k644) WL_X(FID_ffi_go_k645) WL_X(FID_ffi_go_k646) WL_X(FID_ffi_go_k647) WL_X(FID_ffi_go_k648) WL_X(FID_ffi_go_k649) WL_X(FID_ffi_go_k650) WL_X(FID_ffi_go_k651) WL_X(FID_ffi_go_k652) WL_X(FID_ffi_go_k653) WL_X(FID_open_go) WL_X(FID_open_go_k657) WL_X(FID_step) WL_X(FID_step_k659) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k663) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k668) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k670) WL_X(FID_cli_steps_k671) WL_X(FID_cli_steps_k672) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c684) WL_X(FID_cli_print_c685) WL_X(FID_cli_print_c686) WL_X(FID_cli_args) WL_X(FID_cli_args_k688) WL_X(FID_cli_args_k689) WL_X(FID_cli_args_k690) WL_X(FID_cli_args_k691) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c695) WL_X(FID_IO_bind_k696) WL_X(FID_main) WL_X(FID_main_c698) WL_X(FID_main_c699) WL_X(FID_main_k700) WL_X(FID_main_c701) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
+#define WL_TABLE WL_X(FID_ffi_effort_get_ent) WL_X(FID_ffi_effort_get_ent_k9) WL_X(FID_ffi_effort_seq_5) WL_X(FID_ffi_effort_seq_5_k11) WL_X(FID_ffi_effort_seq_4) WL_X(FID_ffi_effort_seq_4_k13) WL_X(FID_ffi_effort_seq_3) WL_X(FID_ffi_effort_seq_3_k15) WL_X(FID_ffi_effort_seq_2) WL_X(FID_ffi_effort_seq_2_k17) WL_X(FID_ffi_effort_seq_1) WL_X(FID_ffi_effort_seq_1_k19) WL_X(FID_ffi_effort_seq_0) WL_X(FID_ffi_effort_seq_0_k21) WL_X(FID_infer_tmerge_go) WL_X(FID_infer_tmerge_go_k25) WL_X(FID_infer_tmerge_go_k26) WL_X(FID_infer_tmerge_go_k27) WL_X(FID_infer_tmerge_go_k28) WL_X(FID_ffi_effort_get_map) WL_X(FID_ffi_effort_get_map_k31) WL_X(FID_ffi_effort_get_map_k32) WL_X(FID_ffi_effort_get_map_k33) WL_X(FID_ffi_effort_get_map_k34) WL_X(FID_ffi_effort_get_map_k35) WL_X(FID_ffi_effort_get_map_k36) WL_X(FID_ffi_effort_get_map_k37) WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k40) WL_X(FID_wire_get_list_go_0_k41) WL_X(FID_infer_tpush) WL_X(FID_infer_tpush_k45) WL_X(FID_List_append) WL_X(FID_List_append_k59) WL_X(FID_infer_lad_fill_e) WL_X(FID_infer_lad_fill_e_k62) WL_X(FID_infer_tbuild) WL_X(FID_infer_tbuild_k67) WL_X(FID_infer_tsort) WL_X(FID_infer_tsort_k70) WL_X(FID_infer_tsort_k71) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k83) WL_X(FID_effort_in_at) WL_X(FID_effort_scan) WL_X(FID_effort_scan_k97) WL_X(FID_effort_find_go) WL_X(FID_effort_find_go_k99) WL_X(FID_infer_lad_fill) WL_X(FID_infer_lad_fill_k105) WL_X(FID_infer_lad_fill_k106) WL_X(FID_infer_lad_fill_k107) WL_X(FID_infer_lad_fill_k108) WL_X(FID_infer_lad_fill_k109) WL_X(FID_infer_lad_fill_k110) WL_X(FID_infer_lad_fill_k111) WL_X(FID_ffi_infer_seq_0) WL_X(FID_ffi_infer_seq_0_k115) WL_X(FID_List_take) WL_X(FID_List_take_k120) WL_X(FID_infer_rank) WL_X(FID_infer_rank_k122) WL_X(FID_infer_elem) WL_X(FID_infer_elem_k124) WL_X(FID_infer_ids) WL_X(FID_infer_ids_k127) WL_X(FID_ffi_facts_seq_3) WL_X(FID_ffi_facts_seq_3_k139) WL_X(FID_wire_take) WL_X(FID_wire_take_k149) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k151) WL_X(FID_ffi_effort_get_mmap) WL_X(FID_ffi_effort_get_mmap_k159) WL_X(FID_ffi_effort_get_mmap_k160) WL_X(FID_ffi_effort_get_lvs) WL_X(FID_ffi_effort_get_lvs_k164) WL_X(FID_ffi_effort_get_lvs_k165) WL_X(FID_effort_has) WL_X(FID_effort_has_k171) WL_X(FID_infer_lad_map) WL_X(FID_ffi_infer_get_tool) WL_X(FID_ffi_infer_get_tool_k183) WL_X(FID_ffi_infer_get_tool_k184) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k186) WL_X(FID_wire_get_list_go_1_k187) WL_X(FID_wire_get_list_go_2) WL_X(FID_wire_get_list_go_2_k189) WL_X(FID_wire_get_list_go_2_k190) WL_X(FID_infer_needs_at) WL_X(FID_infer_needs_go) WL_X(FID_infer_needs_go_k196) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k200) WL_X(FID_ffi_facts_seq_2) WL_X(FID_ffi_facts_seq_2_k202) WL_X(FID_ffi_facts_seq_1) WL_X(FID_ffi_facts_seq_1_k204) WL_X(FID_ffi_facts_seq_0) WL_X(FID_ffi_facts_seq_0_k206) WL_X(FID_ffi_facts_get_lv) WL_X(FID_ffi_facts_get_lv_k215) WL_X(FID_ffi_facts_get_budgets) WL_X(FID_ffi_facts_get_budgets_k229) WL_X(FID_ffi_facts_get_budgets_k230) WL_X(FID_ffi_facts_get_budgets_k231) WL_X(FID_ffi_facts_get_budgets_k232) WL_X(FID_wire_value) WL_X(FID_wire_value_k249) WL_X(FID_ffi_effort_get_dir) WL_X(FID_ffi_effort_get_dir_k256) WL_X(FID_ffi_effort_get_lv) WL_X(FID_ffi_effort_get_lv_k259) WL_X(FID_ffi_effort_seq_9) WL_X(FID_ffi_effort_seq_9_k263) WL_X(FID_ffi_effort_seq_8) WL_X(FID_ffi_effort_seq_8_k265) WL_X(FID_ffi_effort_seq_7) WL_X(FID_ffi_effort_seq_7_k267) WL_X(FID_ffi_effort_seq_6) WL_X(FID_ffi_effort_seq_6_k269) WL_X(FID_effort_clamp_in) WL_X(FID_effort_clamp_in_k274) WL_X(FID_effort_clamp_in_k275) WL_X(FID_effort_clamp_in_k276) WL_X(FID_effort_clamp_in_k277) WL_X(FID_effort_offer) WL_X(FID_effort_offer_k284) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k286) WL_X(FID_infer_strict_of) WL_X(FID_infer_strict_of_k294) WL_X(FID_infer_strict_of_k295) WL_X(FID_wire_put_list_2) WL_X(FID_wire_put_list_2_k302) WL_X(FID_ffi_facts_get_customs) WL_X(FID_ffi_facts_get_customs_k305) WL_X(FID_ffi_facts_get_customs_k306) WL_X(FID_ffi_facts_get_customs_k307) WL_X(FID_ffi_facts_get_customs_k308) WL_X(FID_ffi_facts_seq_17) WL_X(FID_ffi_facts_seq_17_k310) WL_X(FID_ffi_facts_seq_16) WL_X(FID_ffi_facts_seq_16_k312) WL_X(FID_ffi_facts_seq_15) WL_X(FID_ffi_facts_seq_15_k314) WL_X(FID_ffi_facts_get_mbudgets) WL_X(FID_ffi_facts_get_mbudgets_k317) WL_X(FID_ffi_facts_get_mbudgets_k318) WL_X(FID_ffi_facts_seq_14) WL_X(FID_ffi_facts_seq_14_k320) WL_X(FID_ffi_facts_seq_13) WL_X(FID_ffi_facts_seq_13_k322) WL_X(FID_ffi_facts_get_mnat) WL_X(FID_ffi_facts_get_mnat_k325) WL_X(FID_ffi_facts_get_mnat_k326) WL_X(FID_ffi_facts_seq_12) WL_X(FID_ffi_facts_seq_12_k328) WL_X(FID_ffi_facts_seq_11) WL_X(FID_ffi_facts_seq_11_k330) WL_X(FID_ffi_facts_seq_10) WL_X(FID_ffi_facts_seq_10_k332) WL_X(FID_ffi_facts_seq_9) WL_X(FID_ffi_facts_seq_9_k334) WL_X(FID_ffi_facts_seq_8) WL_X(FID_ffi_facts_seq_8_k336) WL_X(FID_ffi_facts_seq_5) WL_X(FID_ffi_facts_seq_5_k339) WL_X(FID_ffi_facts_seq_4) WL_X(FID_ffi_facts_seq_4_k341) WL_X(FID_ffi_facts_get_elv) WL_X(FID_ffi_facts_get_elv_k344) WL_X(FID_ffi_facts_seq_7) WL_X(FID_ffi_facts_seq_7_k346) WL_X(FID_ffi_facts_seq_6) WL_X(FID_ffi_facts_seq_6_k348) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k361) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k364) WL_X(FID_wire_get_nat_go_k365) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k367) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k372) WL_X(FID_ffi_effort_seq_12) WL_X(FID_ffi_effort_seq_12_k378) WL_X(FID_ffi_effort_seq_11) WL_X(FID_ffi_effort_seq_11_k381) WL_X(FID_ffi_effort_get_facts) WL_X(FID_ffi_effort_get_facts_k384) WL_X(FID_ffi_effort_get_facts_k385) WL_X(FID_ffi_effort_get_facts_k386) WL_X(FID_ffi_effort_get_facts_k387) WL_X(FID_effort_cycle) WL_X(FID_effort_cycle_k390) WL_X(FID_effort_cycle_k391) WL_X(FID_effort_clamp) WL_X(FID_effort_clamp_k394) WL_X(FID_ffi_effort_model) WL_X(FID_ffi_effort_model_k397) WL_X(FID_effort_offered) WL_X(FID_wire_get_list_2) WL_X(FID_wire_get_list_2_k407) WL_X(FID_wire_get_list_2_k408) WL_X(FID_infer_plan) WL_X(FID_infer_plan_k410) WL_X(FID_infer_plan_k411) WL_X(FID_infer_plan_k412) WL_X(FID_infer_plan_k413) WL_X(FID_U32_show_go) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k440) WL_X(FID_ffi_infer_get_tools) WL_X(FID_ffi_infer_get_tools_k467) WL_X(FID_ffi_infer_get_tools_k468) WL_X(FID_ffi_infer_get_ids) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k501) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k506) WL_X(FID_ffi_infer_get_mnat) WL_X(FID_ffi_infer_get_mnat_k528) WL_X(FID_ffi_infer_get_mnat_k529) WL_X(FID_ffi_infer_seq_2) WL_X(FID_ffi_infer_seq_2_k531) WL_X(FID_ffi_infer_seq_1) WL_X(FID_ffi_infer_seq_1_k533) WL_X(FID_U32_show) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k542) WL_X(FID_ffi_facts_get_req) WL_X(FID_ffi_facts_get_req_k544) WL_X(FID_ffi_facts_get_req_k545) WL_X(FID_ffi_facts_get_req_k546) WL_X(FID_ffi_facts_get_req_k547) WL_X(FID_ffi_facts_get_req_k548) WL_X(FID_ffi_facts_get_req_k549) WL_X(FID_ffi_facts_get_req_k550) WL_X(FID_ffi_facts_get_req_k551) WL_X(FID_ffi_facts_get_req_k552) WL_X(FID_ffi_facts_get_req_k553) WL_X(FID_ffi_facts_get_req_k554) WL_X(FID_ffi_facts_get_req_k555) WL_X(FID_ffi_facts_get_req_k556) WL_X(FID_ffi_facts_get_req_k557) WL_X(FID_ffi_facts_get_req_k558) WL_X(FID_ffi_facts_get_req_k559) WL_X(FID_ffi_facts_get_req_k560) WL_X(FID_ffi_facts_get_req_k561) WL_X(FID_ffi_facts_get_req_k562) WL_X(FID_ffi_facts_get_req_k563) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k566) WL_X(FID_wire_get_nat_k567) WL_X(FID_ffi_effort_get_req) WL_X(FID_ffi_effort_get_req_k575) WL_X(FID_ffi_effort_get_req_k576) WL_X(FID_ffi_effort_get_req_k577) WL_X(FID_ffi_effort_get_req_k578) WL_X(FID_ffi_effort_get_req_k579) WL_X(FID_ffi_effort_get_req_k580) WL_X(FID_ffi_effort_get_req_k581) WL_X(FID_ffi_infer_get_req) WL_X(FID_ffi_infer_get_req_k591) WL_X(FID_ffi_infer_get_req_k592) WL_X(FID_ffi_infer_get_req_k593) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k600) WL_X(FID_ffi_echo_step_k601) WL_X(FID_ffi_echo_step_k602) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k629) WL_X(FID_ffi_echo_open_k630) WL_X(FID_step_go) WL_X(FID_step_go_k633) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k636) WL_X(FID_ffi_go_k637) WL_X(FID_ffi_go_k638) WL_X(FID_ffi_go_k639) WL_X(FID_ffi_go_k640) WL_X(FID_ffi_go_k641) WL_X(FID_ffi_go_k642) WL_X(FID_ffi_go_k643) WL_X(FID_ffi_go_k644) WL_X(FID_ffi_go_k645) WL_X(FID_ffi_go_k646) WL_X(FID_ffi_go_k647) WL_X(FID_ffi_go_k648) WL_X(FID_ffi_go_k649) WL_X(FID_ffi_go_k650) WL_X(FID_ffi_go_k651) WL_X(FID_ffi_go_k652) WL_X(FID_ffi_go_k653) WL_X(FID_open_go) WL_X(FID_open_go_k657) WL_X(FID_step) WL_X(FID_step_k659) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k663) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k668) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k670) WL_X(FID_cli_steps_k671) WL_X(FID_cli_steps_k672) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c684) WL_X(FID_cli_print_c685) WL_X(FID_cli_print_c686) WL_X(FID_cli_args) WL_X(FID_cli_args_k688) WL_X(FID_cli_args_k689) WL_X(FID_cli_args_k690) WL_X(FID_cli_args_k691) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c695) WL_X(FID_IO_bind_k696) WL_X(FID_main) WL_X(FID_main_c698) WL_X(FID_main_c699) WL_X(FID_main_k700) WL_X(FID_main_c701) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
 #define MAIN_FID FID_main
 #define MAIN_PURE 0
 #define BLK_SHR 0
@@ -10880,7 +10880,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_1)
+  WL_CASE(FID_wire_put_list_go_2)
     Term _xs_0 = r0;
     Term _rest_0 = r1;
     WL_OPEN
@@ -10898,26 +10898,26 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_put_list_go_1_k200;
+        STK(1) = FID_wire_put_list_go_2_k200;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_1_k200, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k200, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_put_list_go_1_k200, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_2_k200, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
       r1 = _rest_0;
       _xs_0 = r0;
       _rest_0 = r1;
-      WL_AGAIN(FID_wire_put_list_go_1);
+      WL_AGAIN(FID_wire_put_list_go_2);
     }
     WL_SPUN
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_1_k200)
+  WL_CASE(FID_wire_put_list_go_2_k200)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -12427,33 +12427,33 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_1)
+  WL_CASE(FID_wire_put_list_2)
     Term _xs_0 = r0;
     Term _rest_0 = r1;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_1_k302;
+      STK(0) = FID_wire_put_list_2_k302;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_1_k302, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_1_k302, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_list_2_k302, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_2_k302, _t_0);
       WL_IDX = 0;
     }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_1)) {
-      u64 _t_1 = task_node(e, FID_wire_put_list_go_1, WL_CONT, WL_IDX, 0);
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_2)) {
+      u64 _t_1 = task_node(e, FID_wire_put_list_go_2, WL_CONT, WL_IDX, 0);
       e.mem[_t_1 + 0] = _xs_0;
       e.mem[_t_1 + 1] = _rest_0;
-      return term_tsk(FID_wire_put_list_go_1, _t_1);
+      return term_tsk(FID_wire_put_list_go_2, _t_1);
     }
     r0 = _xs_0;
     r1 = _rest_0;
-    WL_JMP(FID_wire_put_list_go_1);
+    WL_JMP(FID_wire_put_list_go_2);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_1_k302)
+  WL_CASE(FID_wire_put_list_2_k302)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
@@ -18892,15 +18892,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_CONT = term_tsk(FID_ffi_go_k638, _t_4);
         WL_IDX = 0;
       }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
-        u64 _t_5 = task_node(e, FID_wire_put_list_1, WL_CONT, WL_IDX, 0);
+      if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_2)) {
+        u64 _t_5 = task_node(e, FID_wire_put_list_2, WL_CONT, WL_IDX, 0);
         e.mem[_t_5 + 0] = _h_7;
         e.mem[_t_5 + 1] = _rest_0;
-        return term_tsk(FID_wire_put_list_1, _t_5);
+        return term_tsk(FID_wire_put_list_2, _t_5);
       }
       r0 = _h_7;
       r1 = _rest_0;
-      WL_JMP(FID_wire_put_list_1);
+      WL_JMP(FID_wire_put_list_2);
     } else {
       Term _rest_1 = term_pak(CID_SNil, 0);
       Term _v_1 = 0;
@@ -19544,15 +19544,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           WL_CONT = term_tsk(FID_ffi_go_k651, _t_30);
           WL_IDX = 4;
         }
-        if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
-          u64 _t_31 = task_node(e, FID_wire_put_list_1, WL_CONT, WL_IDX, 0);
+        if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_2)) {
+          u64 _t_31 = task_node(e, FID_wire_put_list_2, WL_CONT, WL_IDX, 0);
           e.mem[_t_31 + 0] = _h_80;
           e.mem[_t_31 + 1] = term_pak(CID_SNil, 0);
-          return term_tsk(FID_wire_put_list_1, _t_31);
+          return term_tsk(FID_wire_put_list_2, _t_31);
         }
         r0 = _h_80;
         r1 = term_pak(CID_SNil, 0);
-        WL_JMP(FID_wire_put_list_1);
+        WL_JMP(FID_wire_put_list_2);
       } else {
         term_sink(e, _h_80);
         Term _fb_0[2];
