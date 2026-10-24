@@ -670,6 +670,9 @@ import ./proof/skill_load/skill_ffi_example.bend as PSkillFfiExample
 import ./proof/skill_load/skill_diag_kinds.bend as PSkillDiagKinds
 import ./proof/skill_load/skill_distinct_example.bend as PSkillDistinctExample
 import ./proof/skill_load/skill_ffi_malformed_exact.bend as PSkillFfiMalformedExact
+import ./proof/skill_load/skill_loaded_exact.bend as PSkillLoadedExact
+import ./proof/skill_load/skill_in_first_example.bend as PSkillInFirstExample
+import ./proof/skill_load/skill_in_later_example.bend as PSkillInLaterExample
 import ./proof/kernel_local/kernel_session_never_downloads.bend as PKernelSessionNeverDownloads
 import ./proof/kernel_local/kernel_download_only_on_install.bend as PKernelDownloadOnlyOnInstall
 import ./proof/kernel_local/kernel_fetch_verified_before_use.bend as PKernelFetchVerifiedBeforeUse

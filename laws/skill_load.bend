@@ -53,6 +53,37 @@ law skill_distinct_example:
   {Sk.distinct([Sk.Cand{0n, Sk.Good{}}, Sk.Cand{1n, Sk.Unreadable{}}]) == True{} : Bool} &
   {Sk.distinct([Sk.Cand{0n, Sk.Good{}}, Sk.Cand{0n, Sk.Malformed{}}]) == False{} : Bool}
 
+# the paths of the candidates that load, in order
+def loaded_spec(cs: List<&2, Sk.Cand>) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Sk.Cand{p, o} <> rest:
+      match o:
+        case Sk.Good{}:
+          p <> loaded_spec(rest)
+        case Sk.Unreadable{}:
+          loaded_spec(rest)
+        case Sk.Malformed{}:
+          loaded_spec(rest)
+        case Sk.Incomplete{}:
+          loaded_spec(rest)
+
+# LAW skill_loaded_exact: exactly the candidates that read well load, in order
+law skill_loaded_exact:
+  for cs: List<&2, Sk.Cand>
+  {Sk.loaded(cs) == loaded_spec(cs) : List<&2, Nat>}
+
+# LAW skill_in_first_example: witness: a candidate is in a list it heads (so skill_failure_reported is not vacuous)
+law skill_in_first_example:
+  exs i: Sk.In(Sk.Cand{0n, Sk.Good{}}, [Sk.Cand{0n, Sk.Good{}}])
+  {Sk.Cand.path(Sk.Cand{0n, Sk.Good{}}) == 0n : Nat}
+
+# LAW skill_in_later_example: witness: a candidate is in a list that holds it after another
+law skill_in_later_example:
+  exs i: Sk.In(Sk.Cand{1n, Sk.Unreadable{}}, [Sk.Cand{0n, Sk.Good{}}, Sk.Cand{1n, Sk.Unreadable{}}])
+  {Sk.Cand.path(Sk.Cand{1n, Sk.Unreadable{}}) == 1n : Nat}
+
 # (L5) The checks of a skill file and a template, and the entry Rust calls
 # -----------------------------------------------------------------------
 # crates/eukhe-core/src/skills: `load_skill_from_file` (the skill's name,
