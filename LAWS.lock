@@ -1143,6 +1143,7 @@
     "laws/wait.bend::wait_entry_example": "173e3b3234c329fe28976739444511661acc05c7c6057fa4efaa4d6583da84bc",
     "laws/wait.bend::wait_entry_malformed_exact": "3124d057dd162202258d53d66ed2d7f50199fdd3f19b308b57b399b596fe58d6",
     "laws/wait.bend::wait_entry_reads": "0ccdc3f6797680308a909bae2f9a2407eb15097ce41105d5c3bb5adcb74cc57b",
+    "laws/wait.bend::wait_go_exact": "9bdcf71dc12ff1caa56de19253c77ee2c7ee046b5d3700dfab062bed2da7892a",
     "laws/wait.bend::wait_poll_refines": "917f3a76c73f8f8372b9db1fc529543e742898a66d041984c0800106443f1dfe",
     "laws/wire.bend::wire_bool_exact": "29038fe8f3b1b334b99d3785a2bee68848f93414113e5c89aaf887b57e007589",
     "laws/wire.bend::wire_bool_example": "a7d5f487e6b60ff829b949088a75def5ffb651af53766596def1848e1277ad12",
@@ -1269,7 +1270,7 @@
     "laws/tools.bend": "9db040d3736225b49ae79ef5198c1a059f493e3398c2517cc904ca3ea7e90656",
     "laws/tree.bend": "377e3edf22d507566f40843ea2b8bfa7a9067c0e8684ef59ce5e4d59bda0068b",
     "laws/tui_color.bend": "4cfc516632dfcd6ad1c7853199f5ab0297807b1cb330d45ef64164a4123c82f8",
-    "laws/wait.bend": "4b1940d1119a7802ef846d284eb36f089bba16f6a3fba405d402ff83fc7771b0",
+    "laws/wait.bend": "c69f0430876479242209a54a5ac2b559066e798e0b153745980586af65820a1a",
     "laws/wire.bend": "eddbcb8f15ad21aff72d927e4410670df0993165f77b5c04645c5dc6b96cf001",
     "laws/workflow.bend": "cbc9e48f859d05e99f6d11d188436a947b937a5f4f19b269f5df866d6e5cabfd"
   },

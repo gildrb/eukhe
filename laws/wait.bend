@@ -189,3 +189,56 @@ law wait_entry_malformed_exact:
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law wait_entry_example:
   {[FWt.ffi("TTT"), FWt.ffi("FTT"), FWt.ffi("FFT"), FWt.ffi("FFF"), FWt.ffi("TF"), FWt.ffi("TFFx")] == ["1,", "2,", "3,", "0,", SCon{'E', SCon{' ', "wait: malformed poll"}}, SCon{'E', SCon{' ', "wait: malformed poll"}}] : List<&2, String>}
+
+# (H6) The walk the poll laws read, pinned
+# ----------------------------------------
+# wait_poll_refines and the wait_entry_* laws read the model's walk
+# `Wt.go`; the laws above pin only `Wt.run`. A fresh adversary filled `go`
+# to hold a fired cancel until the next tick (poll `FTF` answered `0,`):
+# `go` is pinned here against a walk written from H6.
+
+# the ends a wait in state w reports while it sees xs: an open wait ends
+# at the first event, cancel, or tick that passes its deadline, with that
+# end, and reports nothing after; an ended wait reports nothing
+# the end e, when it comes to an open wait
+def go_spec.at(w: Wt.W, e: Wt.End) -> List<&2, Wt.End>:
+  match w:
+    case Wt.Over{}:
+      Nil{}
+    case Wt.Open{left}:
+      [e]
+
+def go_spec(xs: List<&2, Wt.Sig>, w: Wt.W) -> List<&2, Wt.End>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          go_spec.at(w, Wt.Arrived{})
+        case Wt.Cancel{}:
+          go_spec.at(w, Wt.Cancelled{})
+        case Wt.Tick{}:
+          match w:
+            case Wt.Over{}:
+              Nil{}
+            case Wt.Open{left}:
+              match left:
+                case None{}:
+                  go_spec(rest, Wt.Open{None{}})
+                case Some{m}:
+                  match m:
+                    case 0n:
+                      [Wt.Expired{}]
+                    case 1n+q:
+                      go_spec(rest, Wt.Open{Some{q}})
+
+# LAW wait_go_exact: the model's walk is the walk of H6: from any state, over any signals, it
+# reports exactly the first end (the event, the cancel, the tick that passes the deadline) and
+# nothing after it, and nothing from an ended wait
+# EXCLUDES: a fired cancel or a ready event held for later, an end reported twice, an end after
+#   the wait ended, a deadline passed a tick late or early
+law wait_go_exact:
+  for +xs: List<&2, Wt.Sig>
+  for +w: Wt.W
+  {Wt.go(xs, w) == go_spec(xs, w) : List<&2, Wt.End>}

@@ -80,6 +80,7 @@ import ./proof/wait/wait_entry_answers.bend as PWaitEntryAnswers
 import ./proof/wait/wait_entry_reads.bend as PWaitEntryReads
 import ./proof/wait/wait_entry_malformed_exact.bend as PWaitEntryMalformedExact
 import ./proof/wait/wait_entry_example.bend as PWaitEntryExample
+import ./proof/wait/wait_go_exact.bend as PWaitGoExact
 import ./proof/lease/base.bend as LALease
 import ./proof/lease/lease_fifo.bend as PLeaseFifo
 import ./proof/lease/lease_never_idle.bend as PLeaseNeverIdle
