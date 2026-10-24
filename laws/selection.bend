@@ -810,6 +810,18 @@ law selection_ffi_left_over:
   for more: {String.is_empty(rest) == False{} : Bool}
   {F.step(F.Live{s}, sl_spell_ev(e, rest)) == (F.Live{s}, Wr.err("selection: input left over")) : F.St & String}
 
+# LAW selection_ffi_error_keeps_the_state (compiled core): every input the stepper answers with
+# the error form (malformed anywhere, a bad tag or wrap in any row, left
+# over text) keeps the state it was given
+# EXCLUDES: a malformed release that drops the selection being made, so
+#   the next Esc is not spent and aborts the run with a selection shown
+#   (a blind adversary's gap: a bad wrap tag in the second release row)
+law selection_ffi_error_keeps_the_state:
+  for +s: M.St
+  for +str: String
+  for bad: {LawsBase.wire_opens_err(Pair.snd(F.St, String, F.step(F.Live{s}, str))) == True{} : Bool}
+  {Pair.fst(F.St, String, F.step(F.Live{s}, str)) == F.Live{s} : F.St}
+
 # LAW selection_ffi_reads_only_events (compiled core): every text the stepper answers with no
 # error is the spelling of an input that fits, and the answer is the
 # model's step on it

@@ -1419,6 +1419,7 @@ import ./proof/selection/selection_ffi_decides.bend as PSelectionFfiDecides
 import ./proof/selection/selection_ffi_open.bend as PSelectionFfiOpen
 import ./proof/selection/selection_ffi_example.bend as PSelectionFfiExample
 import ./proof/selection/selection_ffi_left_over.bend as PSelectionFfiLeftOver
+import ./proof/selection/selection_ffi_error_keeps_the_state.bend as PSelectionFfiErrorKeepsTheState
 import ./proof/selection/selection_ffi_reads_only_events.bend as PSelectionFfiReadsOnlyEvents
 import ./proof/selection/selection_ffi_unknown_event.bend as PSelectionFfiUnknownEvent
 import ./proof/selection/selection_ffi_unknown_wrap.bend as PSelectionFfiUnknownWrap
