@@ -4,9 +4,10 @@
 #    model, a host), for a target id of that layer, directive d has value
 #    v. A query names a family, a model and a host. The compiler rejects
 #    a rule with an unknown directive, and two rules of one layer, target
-#    and directive with different values (ambiguous precedence). A lookup
-#    takes the rule of the highest layer that applies: host over model
-#    over family. No rule that applies: the answer is Unknown.
+#    and directive with different values (ambiguous precedence), and says
+#    why for each rule (`verdicts`). A lookup takes the rule of the highest
+#    layer that applies: host over model over family. No rule that
+#    applies: the answer is Unknown. bend/ffi_quirks.bend runs it.
 # 2. A forced tool call. Every attempt carries a soft prompt. The first
 #    attempt sets the native flag only when the provider supports it and
 #    it is free (no cache cost). Each retry sets the flag when the provider
@@ -209,6 +210,78 @@ def is_known(a: Ans) -> Bool:
       True{}
     case Unknown{}:
       False{}
+
+# The verdict on each rule of a rulebook (what the compiler reports): its
+# directive is unknown, or it clashes with a later rule (the index of the
+# first such rule), or it is fine. Every verdict is fine exactly when the
+# rulebook compiles.
+type Verdict is Data:
+  Fine{}
+  Unheard{}
+  ClashAt{at: Nat}
+
+# r clashes with the first rule of rs
+def clash.head(+r: Rule, rs: List<&2, Rule>) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      clash(r, s)
+
+# the index of the first rule of rs that clashes with r, the first being
+# at index i; hit is clash.head(r, rs)
+def clash.go(rs: List<&2, Rule>, +r: Rule, i: Nat, hit: Bool) -> Maybe<&2, Nat>:
+  match rs:
+    case Nil{}:
+      None{}
+    case s <> +rest:
+      match hit:
+        case True{}:
+          Some{i}
+        case False{}:
+          clash.go(rest, r, 1n+i, clash.head(r, rest))
+
+# the verdict on a rule: known says its directive is known, c is the first
+# later rule it clashes with
+def verdict(known: Bool, c: Maybe<&2, Nat>) -> Verdict:
+  match known:
+    case False{}:
+      Unheard{}
+    case True{}:
+      match c:
+        case None{}:
+          Fine{}
+        case Some{j}:
+          ClashAt{j}
+
+# the verdicts on the rules of rs, the first being at index i
+def verdicts.go(rs: List<&2, Rule>, +known: List<&2, Nat>, +i: Nat) -> List<&2, Verdict>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case +r <> +rest:
+      verdict(elem(known, Rule.dir(r)), clash.go(rest, r, 1n+i, clash.head(r, rest))) <> verdicts.go(rest, known, 1n+i)
+
+# the verdict on each rule of rs, in order
+def verdicts(+known: List<&2, Nat>, rs: List<&2, Rule>) -> List<&2, Verdict>:
+  verdicts.go(rs, known, 0n)
+
+def Verdict.fine(v: Verdict) -> Bool:
+  match v:
+    case Fine{}:
+      True{}
+    case Unheard{}:
+      False{}
+    case ClashAt{j}:
+      False{}
+
+# every verdict of vs is fine
+def fine_all(vs: List<&2, Verdict>) -> Bool:
+  match vs:
+    case Nil{}:
+      True{}
+    case v <> rest:
+      Bool.and(Verdict.fine(v), fine_all(rest))
 
 # 2. A forced tool call
 # ---------------------

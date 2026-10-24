@@ -17,6 +17,7 @@ import ./laws/cvar.bend as Cvar
 import ./laws/cvar_layers.bend as CvarLayers
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer
+import ./laws/quirks.bend as Quirks
 import ./laws/tools.bend as Tools
 import ./laws/screen.bend as Screen
 import ./laws/tiny.bend as Tiny

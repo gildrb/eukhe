@@ -7,6 +7,7 @@ pub mod cvar;
 pub mod cvar_layers;
 pub mod frames;
 pub mod fsmode;
+pub mod quirks;
 pub mod retry;
 pub mod runners;
 pub mod semver;
