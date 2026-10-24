@@ -1,26 +1,24 @@
-//! The bridge between the harness's waits and their Bend models
-//! (`bend/wait.bend`, `bend/lease.bend`, whose laws `PROOF.bend` proves):
-//! the Rust code and the models run the same scenarios and must print the
-//! same transcript, byte for byte (`bridge/bridge_wait.bend` documents the
-//! format).
+//! The bridge between [`race`]'s interleaving and the wait model
+//! (`bend/wait.bend` `run`, whose laws `PROOF.bend` proves): the race on
+//! paused tokio time and the model run the same scenarios and must print
+//! the same transcript, byte for byte (`bridge/bridge_wait.bend` documents
+//! the format).
 //!
-//! - The wait: [`race`] on paused tokio time, against an event (a oneshot),
-//!   a deadline of whole ticks, and a cancel signal, polled once after
-//!   each signal of the scenario.
-//! - The lease: [`Turns`] taking asks, releases, stops (the waiter's reply
-//!   receiver dropped) and crashes (its connection closed).
+//! Each poll's end is the compiled core's (`wait_poll_refines`); what this
+//! checks is the rest, which is no decision: how an event (a oneshot), a
+//! deadline of whole ticks and a cancel signal wake the race, and that a
+//! race polled once after each signal of a scenario ends exactly when and
+//! how the model's wait ends.
 
-use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::task::Poll;
 use std::time::Duration;
 
-use eukhe_chord::context::{race, AbortController, Exits, Raced};
+use eukhe_chord::context::AbortController;
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use tokio::sync::oneshot;
 
-use super::{Origin, Turns};
-use crate::memory::service::Outcome;
+use super::{race, Exits, Raced};
 
 /// One tick of the wait model.
 const TICK: Duration = Duration::from_millis(10);
@@ -100,70 +98,6 @@ fn wait_scenario(
     }
 }
 
-#[derive(Clone, Copy)]
-enum LeaseEvent {
-    Ask(u64),
-    Release(u64),
-    Stop(u64),
-    Crash(u64),
-}
-
-fn lease_scenario(name: String, script: &[LeaseEvent]) -> Scenario {
-    let mut turns = Turns::default();
-    let mut origins: Vec<u64> = Vec::new();
-    let mut replies: HashMap<u64, oneshot::Receiver<Outcome>> = HashMap::new();
-    let mut events = "l".to_owned();
-    let mut transcript = String::new();
-    for event in script {
-        match *event {
-            LeaseEvent::Ask(origin) => {
-                write!(events, "\na {origin}").unwrap();
-                let key = u64::try_from(origins.len()).unwrap();
-                let (reply, receiver) = oneshot::channel();
-                origins.push(origin);
-                replies.insert(key, receiver);
-                turns.acquire(Origin::Connection(origin), key, reply);
-            }
-            LeaseEvent::Release(key) => {
-                write!(events, "\nr {key}").unwrap();
-                let origin = usize::try_from(key)
-                    .ok()
-                    .and_then(|at| origins.get(at).copied())
-                    .unwrap_or(0);
-                turns.release(Origin::Connection(origin), key);
-            }
-            LeaseEvent::Stop(key) => {
-                write!(events, "\ns {key}").unwrap();
-                replies.remove(&key);
-            }
-            LeaseEvent::Crash(origin) => {
-                write!(events, "\nc {origin}").unwrap();
-                turns.closed(origin);
-            }
-        }
-        let holder = turns
-            .holder
-            .map_or_else(|| "-".to_owned(), |holder| holder.lease.to_string());
-        let queue: Vec<String> = turns
-            .waiting
-            .iter()
-            .map(|(key, reply)| {
-                if reply.is_closed() {
-                    format!("{}!", key.lease)
-                } else {
-                    key.lease.to_string()
-                }
-            })
-            .collect();
-        writeln!(transcript, "h={holder} q={}", queue.join(",")).unwrap();
-    }
-    Scenario {
-        name,
-        events,
-        transcript,
-    }
-}
-
 fn scenarios() -> Vec<Scenario> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
@@ -214,25 +148,10 @@ fn scenarios() -> Vec<Scenario> {
             &signals,
         ));
     }
-    for at in 0..200 {
-        let mut asked = 0;
-        let script: Vec<LeaseEvent> = (0..30)
-            .map(|_| match rng.range(0, 9) {
-                0..=3 => {
-                    asked += 1;
-                    LeaseEvent::Ask(rng.range(0, 3))
-                }
-                4..=5 => LeaseEvent::Release(rng.range(0, asked + 1)),
-                6..=7 => LeaseEvent::Stop(rng.range(0, asked + 1)),
-                _ => LeaseEvent::Crash(rng.range(0, 3)),
-            })
-            .collect();
-        scenarios.push(lease_scenario(format!("lease {at}"), &script));
-    }
     scenarios
 }
 
 #[test]
-fn the_waits_equal_their_bend_models() {
+fn the_race_equals_the_wait_model() {
     compare("bridge/bridge_wait.bend", scenarios());
 }
