@@ -15,6 +15,7 @@
 mod bridge;
 mod decide;
 mod engine;
+mod tags;
 #[cfg(test)]
 mod tests;
 
@@ -442,35 +443,50 @@ pub(crate) fn grep_with(
     let mut page = page_files(std::mem::take(&mut searched.found), request, scope);
 
     between();
+    let kept: Vec<Option<(Vec<u8>, FileRead)>> = page
+        .files
+        .iter()
+        .map(|file| searched.kept.remove(&file.absolute))
+        .collect();
+    let scans: Vec<tags::Scan> = kept
+        .iter()
+        .flatten()
+        .map(|(bytes, read)| match read {
+            FileRead::Partial => tags::Scan::Part,
+            FileRead::Whole => tags::Scan::Whole {
+                utf8: std::str::from_utf8(bytes).is_ok(),
+            },
+        })
+        .collect();
+    let mut fates = tags::fates(&scans).into_iter();
     let mut untagged = Tally::default();
-    for file in &mut page.files {
-        let Some((bytes, read)) = searched.kept.remove(&file.absolute) else {
+    for (file, kept) in page.files.iter_mut().zip(kept) {
+        let Some((bytes, _)) = kept else {
             continue;
         };
-        match read {
-            FileRead::Partial => untagged.add(|| {
+        match fates.next() {
+            Some(tags::Fate::Tagged) => {
+                store.saw_bytes(&file.absolute, &bytes);
+                let text = lf_text(&String::from_utf8_lossy(&bytes));
+                file.tag = Some(store.record(&file.absolute, &text, None));
+            }
+            Some(tags::Fate::NotUtf8) => {
+                store.saw_bytes(&file.absolute, &bytes);
+                untagged.add(|| {
+                    format!(
+                        "{} ({}: `edit` works on UTF-8 only; `write` replaces it as UTF-8)",
+                        file.path,
+                        crate::text::encoding_name(&bytes)
+                    )
+                });
+            }
+            Some(tags::Fate::OverLimit) | None => untagged.add(|| {
                 format!(
                     "{} (over {}: `edit` cannot change it; read it in ranges, then change it with `write` (whole file) or `bash`)",
                     file.path,
                     format_bytes(limits.max_file_bytes)
                 )
             }),
-            FileRead::Whole => {
-                store.saw_bytes(&file.absolute, &bytes);
-                match std::str::from_utf8(&bytes) {
-                    Ok(text) => {
-                        let text = lf_text(text);
-                        file.tag = Some(store.record(&file.absolute, &text, None));
-                    }
-                    Err(_) => untagged.add(|| {
-                        format!(
-                            "{} ({}: `edit` works on UTF-8 only; `write` replaces it as UTF-8)",
-                            file.path,
-                            crate::text::encoding_name(&bytes)
-                        )
-                    }),
-                }
-            }
         }
     }
 

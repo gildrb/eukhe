@@ -1135,6 +1135,13 @@ import ./proof/doc_rows/rows_entry_exact.bend as PRowsEntryExact
 import ./proof/doc_rows/rows_entry_example.bend as PRowsEntryExample
 import ./proof/doc_rows/rows_req_fits_example.bend as PRowsReqFitsExample
 import ./proof/doc_tags/tag_names_shown_text.bend as PTagNamesShownText
+import ./proof/doc_tags/base.bend as LADocTags
+import ./proof/doc_tags/grep_tag_fates_spec.bend as PGrepTagFatesSpec
+import ./proof/doc_tags/tags_entry_answers.bend as PTagsEntryAnswers
+import ./proof/doc_tags/tags_entry_reads.bend as PTagsEntryReads
+import ./proof/doc_tags/tags_entry_exact.bend as PTagsEntryExact
+import ./proof/doc_tags/tags_entry_refuses.bend as PTagsEntryRefuses
+import ./proof/doc_tags/tags_entry_example.bend as PTagsEntryExample
 import ./proof/doc_seen/base.bend as LADocSeen
 import ./proof/doc_seen/edit_only_seen_lines.bend as PEditOnlySeenLines
 import ./proof/doc_seen/edit_seen_applies.bend as PEditSeenApplies

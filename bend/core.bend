@@ -16,6 +16,7 @@ import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
 import ./ffi_doc_seen.bend as ffi_doc_seen
+import ./ffi_doc_tags.bend as ffi_doc_tags
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
@@ -136,6 +137,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tiny_elect.ffi(input)
     case 101:
       ffi_dash.ffi(input)
+    case 102:
+      ffi_doc_tags.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -11,9 +11,11 @@
 # result (`later`). Grep records the searched buffer, not the disk, so its
 # tag names the text its rows come from.
 #
-# The bridge (bridge/bridge_doc_tags.bend with
-# crates/eukhe-docs/src/grep/bridge.rs) runs the real grep with a rewrite
-# of the file between the search and the record, and compares.
+# Grep's choice for each file it shows (`fate`) runs as the compiled core
+# (bend/ffi_doc_tags.bend, called from crates/eukhe-docs/src/grep/mod.rs):
+# a file searched whole and UTF-8 is tagged with the text grep searched
+# (what `show` records); one searched in part or not UTF-8 gets no tag.
+# Rust hashes and records the searched text it is told to.
 
 import Base
 
@@ -85,3 +87,39 @@ def from_text(+t: List<&2, Nat>, rs: List<&2, Row>) -> Bool:
       match r:
         case Row{n, x}:
           Bool.and(is_line(t, n, x), from_text(t, more))
+
+# Grep's tags
+# -----------
+
+# how grep searched a file it shows
+type Scan is Data:
+  Part{}             # in part: the file is over the size limit
+  Whole{utf8: Bool}  # whole; its bytes are UTF-8, or not
+
+# what grep does with the tag of a file it shows
+type Fate is Data:
+  Tagged{}     # record the searched text: the tag names it
+  OverLimit{}  # no tag: searched in part
+  NotUtf8{}    # no tag: the text is not UTF-8
+
+def fate.whole(u: Bool) -> Fate:
+  match u:
+    case True{}:
+      Tagged{}
+    case False{}:
+      NotUtf8{}
+
+def fate(s: Scan) -> Fate:
+  match s:
+    case Part{}:
+      OverLimit{}
+    case Whole{u}:
+      fate.whole(u)
+
+# the fate of each file of a page, in order
+def fates(ss: List<&2, Scan>) -> List<&2, Fate>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      fate(s) <> fates(rest)
