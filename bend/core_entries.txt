@@ -42,6 +42,7 @@
 38 skill_load
 40 doc_search
 41 doc_rows
+42 doc_glob
 50 shell
 51 tool_surface
 52 runners

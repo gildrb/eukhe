@@ -3,10 +3,13 @@
 //!
 //! Ported from omp `crates/tools/src/glob.rs` (request, ranking, rendering)
 //! and `crates/envd/src/tool_search.rs` (`glob_blocking`: targets and walk).
+//! The ranking and the pages run as the compiled Bend core
+//! ([`ranking`]: `bend/ffi_doc_glob.bend`); this module walks, reads times,
+//! spells paths, and renders.
+
+mod ranking;
 
 use std::{
-    cmp,
-    collections::HashSet,
     fmt::Write as _,
     fs,
     num::NonZeroUsize,
@@ -17,6 +20,7 @@ use std::{
 
 use globset::GlobBuilder;
 
+use self::ranking::{Page, Ranking};
 use crate::{
     gate::{Access, AccessGate},
     notice::{Notice, NoticeKind, Tally},
@@ -27,8 +31,6 @@ use crate::{
     },
 };
 
-/// Maximum number of paths one `glob` returns; also the default.
-pub const MAX_GLOB_LIMIT: usize = 200;
 /// Maximum time allotted to the traversal.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -43,7 +45,8 @@ pub struct GlobRequest {
     pub hidden: bool,
     /// Respect `.gitignore`, `.ignore`, git excludes, and the global gitignore.
     pub gitignore: bool,
-    /// Paths returned, at most [`MAX_GLOB_LIMIT`] (the default).
+    /// Paths returned, at most 200 (the default; `bend/doc_glob.bend`
+    /// `most`).
     pub limit: Option<NonZeroUsize>,
     /// Ranked paths to skip before the returned ones; pages a long result.
     pub skip: u64,
@@ -180,10 +183,6 @@ fn glob_until(
     gate: &dyn AccessGate,
     timeout: Duration,
 ) -> Result<GlobOutput, GlobError> {
-    let limit = request
-        .limit
-        .map_or(MAX_GLOB_LIMIT, NonZeroUsize::get)
-        .min(MAX_GLOB_LIMIT);
     let raw = normalize_path_input(&request.path);
     if raw.is_empty() {
         return Err(GlobError::EmptyPath);
@@ -258,10 +257,7 @@ fn glob_until(
     }
 
     let deadline = Instant::now() + timeout;
-    let skip = usize::try_from(request.skip).unwrap_or(usize::MAX);
-    let keep = skip.saturating_add(limit);
-    let mut matches = Vec::new();
-    let mut truncated = false;
+    let mut ranking = Ranking::open(request.skip, request.limit);
     let mut timed_out = false;
     let mut excluded = Tally::default();
     let mut unreadable = Tally::default();
@@ -272,22 +268,19 @@ fn glob_until(
         }
         if !target.is_dir {
             let metadata = fs::metadata(&target.canonical).map_err(workspace_error)?;
-            matches.push(GlobMatch {
-                path: display_path(
+            let modified_ms = modified_ms(&metadata);
+            ranking.meet(modified_ms, || {
+                display_path(
                     &root,
                     &target.canonical,
                     target.visible_root.as_deref(),
                     &target.canonical,
-                )?,
-                modified_ms: modified_ms(&metadata),
-                is_dir: false,
-            });
+                )
+            })?;
             continue;
         }
         let pattern = target.pattern.as_deref().unwrap_or("**/*");
-        let outcome = walk_target(&root, &target, pattern, request, keep, deadline)?;
-        matches.extend(outcome.matches);
-        truncated |= outcome.truncated;
+        let outcome = walk_target(&root, &target, pattern, request, &mut ranking, deadline)?;
         excluded.absorb(outcome.excluded);
         unreadable.absorb(outcome.unreadable);
         if outcome.timed_out {
@@ -295,23 +288,11 @@ fn glob_until(
             break;
         }
     }
-
-    matches.sort_by(|left, right| compare_rank(right, left));
-    let mut seen = HashSet::with_capacity(matches.len());
-    matches.retain(|entry| seen.insert(entry.path.clone()));
-    let ranked = matches.len();
-    let past_end = skip > 0 && skip >= ranked && ranked > 0;
-    matches.drain(..skip.min(ranked));
-    if matches.len() > limit {
-        truncated = true;
-        matches.truncate(limit);
-    }
-    // A walk that kept only its best `skip + limit` paths also had more.
-    let next_skip = truncated.then(|| {
-        request
-            .skip
-            .saturating_add(u64::try_from(limit).unwrap_or(u64::MAX))
-    });
+    let Page {
+        matches,
+        next_skip,
+        past_end,
+    } = ranking.page();
 
     let mut notices = Vec::new();
     if timed_out {
@@ -329,10 +310,10 @@ fn glob_until(
             ),
         ));
     }
-    if past_end {
+    if let Some(ranked) = past_end {
         notices.push(Notice::warn(
             NoticeKind::RangeOutOfBounds,
-            format!("skip={skip} is past the end of {ranked} paths"),
+            format!("skip={} is past the end of {ranked} paths", request.skip),
         ));
     }
     if let Some(next_skip) = next_skip {
@@ -375,7 +356,7 @@ fn glob_until(
         matches,
         missing_paths,
         timed_out,
-        truncated: truncated || timed_out,
+        truncated: next_skip.is_some() || timed_out,
         skip: request.skip,
         next_skip,
         notices,
@@ -430,8 +411,6 @@ fn parse_find_pattern(input: &str) -> (String, Option<String>) {
 }
 
 struct WalkOutcome {
-    matches: Vec<GlobMatch>,
-    truncated: bool,
     timed_out: bool,
     /// `.git` and `node_modules` entries the walk did not enter.
     excluded: Tally,
@@ -441,14 +420,14 @@ struct WalkOutcome {
 
 #[allow(
     clippy::too_many_lines,
-    reason = "one walk: build, filter, rank, and count the skipped entries"
+    reason = "one walk: build, filter, feed the ranking, and count the skipped entries"
 )]
 fn walk_target(
     root: &Path,
     target: &Target,
     pattern: &str,
     request: &GlobRequest,
-    keep: usize,
+    ranking: &mut Ranking,
     deadline: Instant,
 ) -> Result<WalkOutcome, GlobError> {
     let pattern_matcher = GlobBuilder::new(pattern)
@@ -502,7 +481,6 @@ fn walk_target(
             }
             kept
         });
-    let mut matches = Vec::with_capacity(keep.saturating_add(1));
     let mut timed_out = false;
     let mut unreadable = Tally::default();
     for entry in builder.build() {
@@ -527,65 +505,29 @@ fn walk_target(
             continue;
         }
         let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
-        let mut path = display_path(
-            root,
-            &target.canonical,
-            target.visible_root.as_deref(),
-            entry.path(),
-        )?;
-        if is_dir {
-            path.push('/');
-        }
         let modified_ms = entry
             .metadata()
             .map_or(0, |metadata| modified_ms(&metadata));
-        retain_ranked(
-            &mut matches,
-            GlobMatch {
-                path,
-                modified_ms,
-                is_dir,
-            },
-            keep,
-        );
+        ranking.meet(modified_ms, || {
+            let mut path = display_path(
+                root,
+                &target.canonical,
+                target.visible_root.as_deref(),
+                entry.path(),
+            )?;
+            if is_dir {
+                path.push('/');
+            }
+            Ok(path)
+        })?;
     }
     timed_out |= Instant::now() >= deadline;
-    matches.sort_by(|left, right| compare_rank(right, left));
-    let truncated = matches.len() > keep;
-    matches.truncate(keep);
     let excluded = std::mem::take(&mut *excluded.lock().unwrap_or_else(PoisonError::into_inner));
     Ok(WalkOutcome {
-        matches,
-        truncated,
         timed_out,
         excluded,
         unreadable,
     })
-}
-
-/// Keeps the `limit + 1` best-ranked matches seen so far.
-fn retain_ranked(matches: &mut Vec<GlobMatch>, candidate: GlobMatch, limit: usize) {
-    if matches.len() < limit.saturating_add(1) {
-        matches.push(candidate);
-        return;
-    }
-    let Some((worst, _)) = matches
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| compare_rank(left, right))
-    else {
-        return;
-    };
-    if compare_rank(&candidate, &matches[worst]).is_gt() {
-        matches[worst] = candidate;
-    }
-}
-
-/// Newer ranks higher; at equal times the lexically smaller path does.
-fn compare_rank(left: &GlobMatch, right: &GlobMatch) -> cmp::Ordering {
-    left.modified_ms
-        .cmp(&right.modified_ms)
-        .then_with(|| right.path.cmp(&left.path))
 }
 
 fn display_path(
@@ -645,7 +587,5 @@ fn workspace_error(error: impl std::fmt::Display) -> GlobError {
     }
 }
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;

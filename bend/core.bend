@@ -15,6 +15,7 @@ import ./ffi_dash.bend as ffi_dash
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_commit.bend as ffi_doc_commit
+import ./ffi_doc_glob.bend as ffi_doc_glob
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
@@ -183,6 +184,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  DocGlob{s: ffi_doc_glob.St}
   AuthFlight{s: ffi_auth_flight.St}
   Unknown{}
 
@@ -221,6 +223,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (DocGlob{s}, reply)
+
 def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -242,6 +249,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 42:
+      open.doc_glob(ffi_doc_glob.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
     case _:
@@ -287,6 +296,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (DocGlob{s}, reply)
+
 def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -308,6 +322,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case DocGlob{s}:
+      step.doc_glob(ffi_doc_glob.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case Unknown{}:
@@ -333,6 +349,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case DocGlob{s}:
       Unit{}
     case AuthFlight{s}:
       Unit{}

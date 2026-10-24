@@ -59,6 +59,7 @@ import ./laws/doc_rows.bend as DocRows
 import ./laws/doc_tags.bend as DocTags
 import ./laws/doc_seen.bend as DocSeen
 import ./laws/doc_search.bend as DocSearch
+import ./laws/doc_glob.bend as DocGlob
 import ./laws/config.bend as Config
 import ./laws/default_model.bend as DefaultModel
 import ./laws/workflow.bend as Workflow

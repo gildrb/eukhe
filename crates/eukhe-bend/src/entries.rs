@@ -88,6 +88,8 @@ pub enum Entry {
     DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
+    /// `bend/ffi_doc_glob.bend`: a stepper.
+    DocGlob = 42,
     /// `bend/ffi_shell.bend`: a call.
     Shell = 50,
     /// `bend/ffi_tool_surface.bend`: a call.
@@ -158,6 +160,7 @@ impl Entry {
         Entry::SkillLoad,
         Entry::DocSearch,
         Entry::DocRows,
+        Entry::DocGlob,
         Entry::Shell,
         Entry::ToolSurface,
         Entry::Runners,

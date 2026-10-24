@@ -323,28 +323,28 @@ fn external_absolute_directory_keeps_its_absolute_spelling() {
     );
 }
 
+/// The page comes from the compiled core (`bend/ffi_doc_glob.bend`), which
+/// never asks to spell a path that can no longer be on the page.
 #[test]
-fn ranked_retention_keeps_newest_then_lexical() {
-    let mut matches = Vec::new();
-    for (path, modified_ms) in [("b", 1), ("c", 2), ("a", 2)] {
-        retain_ranked(
-            &mut matches,
-            GlobMatch {
-                path: path.to_owned(),
-                modified_ms,
-                is_dir: false,
-            },
-            1,
-        );
+fn the_page_comes_from_the_compiled_core() {
+    let mut ranking = ranking::Ranking::open(1, NonZeroUsize::new(1));
+    let mut spelled = Vec::new();
+    for (path, modified_ms) in [("b", 5), ("a", 5), ("c", 9), ("old", 1)] {
+        ranking
+            .meet(modified_ms, || {
+                spelled.push(path);
+                Ok(path.to_owned())
+            })
+            .expect("spelled");
     }
-    matches.sort_by(|left, right| compare_rank(right, left));
-    assert_eq!(
-        matches
-            .iter()
-            .map(|entry| entry.path.as_str())
-            .collect::<Vec<_>>(),
-        ["a", "c"]
-    );
+    let page = ranking.page();
+    let shown: Vec<&str> = page
+        .matches
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!((shown, page.next_skip), (vec!["a"], Some(2)));
+    assert!(!spelled.contains(&"old"));
 }
 
 #[test]

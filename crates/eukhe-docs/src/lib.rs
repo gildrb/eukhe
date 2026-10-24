@@ -48,7 +48,7 @@ mod write;
 pub use documents::Documents;
 pub use error::{EditError, EditResult};
 pub use gate::{Access, AccessGate};
-pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
+pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest};
 pub use grep::{ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest};
 pub use hashline::{
     apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
