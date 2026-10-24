@@ -61,4 +61,5 @@ import ./laws/doc_search.bend as DocSearch
 import ./laws/config.bend as Config
 import ./laws/default_model.bend as DefaultModel
 import ./laws/workflow.bend as Workflow
-import ./laws/command.bend as Command
+import ./laws/command/paths.bend as Command
+import ./laws/command/entry.bend as CommandEntry

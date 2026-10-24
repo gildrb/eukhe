@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ./logic/nat.bend as LLogicNat
 
 # the model's same is cmd_eq

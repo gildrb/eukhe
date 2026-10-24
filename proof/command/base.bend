@@ -10,7 +10,8 @@ import Base
 import ../../bend/command.bend as Cmd
 import ../../bend/ffi_command.bend as FCmd
 import ../../bend/wire.bend as Wr
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
+import ../../laws/command/entry.bend as CommandEntry
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/bool.bend as LBool
@@ -752,18 +753,18 @@ def cfr_ss_put(+xs: List<&2, String>, -rest: String) -> {Wr.put_list(~String, ~W
   {==}
 
 # the item loop reads back x then t
-def cfr_ss_go_rt(+t: List<&2, String>, +x: String, +rest: String, +hf: {Command.cmd_strs_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, t), Wr.get_str(Wr.put_str(x, cfr_ss_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, String>>}:
+def cfr_ss_go_rt(+t: List<&2, String>, +x: String, +rest: String, +hf: {CommandEntry.cmd_strs_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, t), Wr.get_str(Wr.put_str(x, cfr_ss_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, String>>}:
   match t:
     case Nil{}:
       %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Wire.wire_str_round_trip(x, rest, LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(x)), True{}, hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, String>>}
       {==}
     case Con{+y, +u}:
-      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{x, Wr.put_str(y, cfr_ss_items(u, rest))}, Wire.wire_str_round_trip(x, Wr.put_str(y, cfr_ss_items(u, rest)), LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 1n+List.length(&2, String, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
-      %Equal.sym(Wr.Dec<List<&2, String>>, Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, u), Wr.get_str(Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{y <> u, rest}, cfr_ss_go_rt(u, y, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(String.length(x)), Command.cmd_strs_all(y <> u), hf))) : {Wr.get_list.cons(String, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{x, Wr.put_str(y, cfr_ss_items(u, rest))}, Wire.wire_str_round_trip(x, Wr.put_str(y, cfr_ss_items(u, rest)), LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(x)), CommandEntry.cmd_strs_all(y <> u), hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 1n+List.length(&2, String, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<List<&2, String>>, Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, u), Wr.get_str(Wr.put_str(y, cfr_ss_items(u, rest)))), Wr.Got{y <> u, rest}, cfr_ss_go_rt(u, y, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(String.length(x)), CommandEntry.cmd_strs_all(y <> u), hf))) : {Wr.get_list.cons(String, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
       {==}
 
 # a list of strings that fits reads back
-def cfr_strs_rt(+xs: List<&2, String>, +rest: String, h: {Command.cmd_strs_fit(xs) == True{} : Bool}) -> {FCmd.get_strs(FCmd.put_strs(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}:
+def cfr_strs_rt(+xs: List<&2, String>, +rest: String, h: {CommandEntry.cmd_strs_fit(xs) == True{} : Bool}) -> {FCmd.get_strs(FCmd.put_strs(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}:
   match xs:
     case Nil{}:
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, {==})) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, String>>}
@@ -772,5 +773,5 @@ def cfr_strs_rt(+xs: List<&2, String>, +rest: String, h: {Command.cmd_strs_fit(x
       +r = rest
       +hh = h
       %Equal.sym(String, Wr.put_list(~String, ~Wr.put_str, x <> t, r), Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)), cfr_ss_put(x <> t, r)) : {Wr.get_list(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r))), Wr.Got{List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
-      cfr_ss_go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, String, x <> t)), Command.cmd_strs_all(x <> t), hh))
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r))), Wr.Got{List.length(&2, String, x <> t), cfr_ss_items(x <> t, r)}, Wire.wire_nat_round_trip(List.length(&2, String, x <> t), cfr_ss_items(x <> t, r), LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, String, x <> t)), CommandEntry.cmd_strs_all(x <> t), hh))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
+      cfr_ss_go_rt(t, x, r, LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, String, x <> t)), CommandEntry.cmd_strs_all(x <> t), hh))

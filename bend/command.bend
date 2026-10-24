@@ -94,10 +94,6 @@ type Out is Data:
 # Words
 # -----
 
-# the space between two words
-def space() -> Nat:
-  32n
-
 def low.pick(b: Bool, c: Nat) -> Nat:
   match b:
     case True{}:

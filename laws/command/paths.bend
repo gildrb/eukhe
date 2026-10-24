@@ -1,10 +1,7 @@
 # eukhe: the laws of area command
 
 import Base
-import ../bend/command.bend as Cmd
-import ../bend/ffi_command.bend as FCmd
-import ../bend/wire.bend as Wr
-import ./base.bend as LawsBase
+import ../../bend/command.bend as Cmd
 
 # ---- commands ----
 
@@ -52,7 +49,17 @@ import ./base.bend as LawsBase
 #                                     command_memory_model_keys_example
 #   R14 the entry reads every request that fits back whole, answers the
 #       model, refuses input left over and malformed input; every reply
-#       reads back                    command_ffi_*
+#       reads back                    command_ffi_* (laws/command/entry.bend)
+#   R15 spaces: a space before the first word, or a second space after
+#       a declared path, changes nothing the line resolves to or the menu
+#       it shows; a trailing space after a declared path changes nothing
+#       it resolves to; the first word after a leading space shows no
+#       menu; rows and keys act on a line with any spacing as on its
+#       single-spaced form, and Enter keeps the line as typed
+#                                     command_space_*, command_menu_space_*,
+#                                     command_*_row_any_spacing
+#   R16 a selected row below argument text, an unknown word or a stray
+#       first word is ignored         command_row_ignored_off_path
 #
 # Not pinned here: the fuzzy ranking of the command names (the
 # interface's), the descriptions and usage hints the menu shows (the
@@ -442,6 +449,42 @@ def cmd_example_goal() -> List<&2, Nat>:
 def cmd_example_table() -> List<&2, Cmd.Ent>:
   [Cmd.Ent{[cmd_example_memory()], [], True{}, False{}, False{}}, Cmd.Ent{[cmd_example_memory(), cmd_example_view()], [], True{}, True{}, False{}}, Cmd.Ent{[cmd_example_memory(), cmd_example_model()], [], True{}, True{}, False{}}, Cmd.Ent{[cmd_example_goal()], [], True{}, True{}, True{}}]
 
+# n spaces
+def cmd_spaces(n: Nat) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+m:
+      32n <> cmd_spaces(m)
+
+# the words of ws after the first: each after a space and its run of
+# extra spaces, the next of gs (none once gs is used up)
+def cmd_loose.sep(ws: List<&2, List<&2, Nat>>, gs: List<&2, Nat>) -> List<&2, Nat>:
+  match ws gs:
+    case Nil{} Nil{}:
+      Nil{}
+    case Nil{} Con{g, more}:
+      Nil{}
+    case Con{w, rest} Nil{}:
+      32n <> List.append(&2, Nat, w, cmd_loose.sep(rest, Nil{}))
+    case Con{w, rest} Con{g, more}:
+      32n <> List.append(&2, Nat, cmd_spaces(g), List.append(&2, Nat, w, cmd_loose.sep(rest, more)))
+
+# a line typed loosely: the words of ws, the first after the run of
+# spaces the first of gs gives it, each later one after a space and its
+# run of extra spaces (the next of gs); none once gs is used up, so
+# cmd_loose(ws, []) is cmd_render(ws)
+def cmd_loose(ws: List<&2, List<&2, Nat>>, gs: List<&2, Nat>) -> List<&2, Nat>:
+  match ws gs:
+    case Nil{} Nil{}:
+      Nil{}
+    case Nil{} Con{g, more}:
+      cmd_spaces(g)
+    case Con{w, rest} Nil{}:
+      List.append(&2, Nat, w, cmd_loose.sep(rest, Nil{}))
+    case Con{w, rest} Con{g, more}:
+      List.append(&2, Nat, cmd_spaces(g), List.append(&2, Nat, w, cmd_loose.sep(rest, more)))
+
 # Laws: paths
 # -----------
 
@@ -644,149 +687,158 @@ law command_stale_row_ignored:
   for stale: {cmd_row(t, i, q) == False{} : Bool}
   {Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.Row{i}, k) == Cmd.key(t, cmd_render(List.append(&2, List<&2, Nat>, q, [p])), Cmd.NoRow{}, k) : Cmd.Out}
 
-# The entry (bend/ffi_command.bend)
-# ---------------------------------
+# LAW command_row_ignored_off_path: a selected row is ignored below
+# argument text, an unknown word or a stray first word (whatever the
+# spacing): Tab and Enter act as with no row
+# EXCLUDES: a stale row that completes or submits a command after the
+#   argument text of /goal, after /memory x, or after a typo first word
+law command_row_ignored_off_path:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +w: List<&2, Nat>
+  for +more: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +gs: List<&2, Nat>
+  for +i: Nat
+  for +k: Cmd.Press
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_typed(w) == True{} : Bool}
+  for after: {cmd_all_spaceless(more) == True{} : Bool}
+  for last: {cmd_spaceless(p) == True{} : Bool}
+  for miss: {cmd_takes(t, q, cmd_lower(w)) == False{} : Bool}
+  {Cmd.key(t, List.append(&2, Nat, cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), cmd_sep(List.append(&2, List<&2, Nat>, more, [p]))), Cmd.Row{i}, k) == Cmd.key(t, List.append(&2, Nat, cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), cmd_sep(List.append(&2, List<&2, Nat>, more, [p]))), Cmd.NoRow{}, k) : Cmd.Out}
 
-# every string of xs fits the wire
-def cmd_strs_all(xs: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{+x, rest}:
-      Bool.and(LawsBase.wire_fits(String.length(x)), cmd_strs_all(rest))
+# Laws: spaces
+# ------------
 
-# every string of xs fits the wire, and so does their count
-def cmd_strs_fit(+xs: List<&2, String>) -> Bool:
-  Bool.and(LawsBase.wire_fits(List.length(&2, String, xs)), cmd_strs_all(xs))
+# LAW command_space_lead: a space before the first word changes nothing
+# the line resolves to
+# EXCLUDES: `/ memory` read as no command, or as a stray word
+law command_space_lead:
+  for +t: List<&2, Cmd.Ent>
+  for +line: List<&2, Nat>
+  {Cmd.resolve(t, 32n <> line) == Cmd.resolve(t, line) : Cmd.Res}
 
-def cmd_ent_fits(e: FCmd.EntW) -> Bool:
-  match e:
-    case FCmd.EntW{p, a, r, f, g}:
-      Bool.and(cmd_strs_fit(p), cmd_strs_fit(a))
+# LAW command_space_gap: after a declared path, two spaces resolve as one
+# (argument text starts at its first word, not at an empty one)
+# EXCLUDES: `/memory  model` that runs nothing, runs /memory, or reads the
+#   empty word as argument text
+law command_space_gap:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +line: List<&2, Nat>
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_path(t, q) == True{} : Bool}
+  {Cmd.resolve(t, List.append(&2, Nat, cmd_render(q), 32n <> 32n <> line)) == Cmd.resolve(t, List.append(&2, Nat, cmd_render(q), 32n <> line)) : Cmd.Res}
 
-def cmd_ents_all(t: List<&2, FCmd.EntW>) -> Bool:
-  match t:
-    case Nil{}:
-      True{}
-    case Con{e, rest}:
-      Bool.and(cmd_ent_fits(e), cmd_ents_all(rest))
+# LAW command_space_trailing: a space after a declared path changes
+# nothing it resolves to
+# EXCLUDES: `/memory ` run with an empty text, or read as unknown
+law command_space_trailing:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_path(t, q) == True{} : Bool}
+  {Cmd.resolve(t, List.append(&2, Nat, cmd_render(q), [32n])) == Cmd.resolve(t, cmd_render(q)) : Cmd.Res}
 
-def cmd_sel_fits(x: Cmd.Sel) -> Bool:
-  match x:
-    case Cmd.NoRow{}:
-      True{}
-    case Cmd.Row{i}:
-      LawsBase.wire_fits(i)
+# LAW command_menu_space_lead: a space before a line of two or more words
+# changes nothing its menu
+# EXCLUDES: `/ memory ` that hides memory's children, or shows others
+law command_menu_space_lead:
+  for +t: List<&2, Cmd.Ent>
+  for +line: List<&2, Nat>
+  for two: {cmd_spaceless(line) == False{} : Bool}
+  {Cmd.menu(t, 32n <> line) == Cmd.menu(t, line) : Cmd.Menu}
 
-def cmd_query_fits(q: FCmd.Query) -> Bool:
-  match q:
-    case FCmd.QResolve{l}:
-      LawsBase.wire_fits(String.length(l))
-    case FCmd.QMenu{l}:
-      LawsBase.wire_fits(String.length(l))
-    case FCmd.QKey{l, x, k}:
-      Bool.and(LawsBase.wire_fits(String.length(l)), cmd_sel_fits(x))
+# LAW command_menu_space_lead_word: a first word after a leading space
+# shows no menu (the command names show only while the line starts with
+# its first word)
+# EXCLUDES: a children menu, or the names, below `/ mem`
+law command_menu_space_lead_word:
+  for +t: List<&2, Cmd.Ent>
+  for +p: List<&2, Nat>
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  {Cmd.menu(t, 32n <> p) == Cmd.Shut{} : Cmd.Menu}
 
-# every count, length and place of a request fits the wire
-def cmd_req_fits(r: FCmd.Req) -> Bool:
-  match r:
-    case FCmd.Req{+t, q}:
-      Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, FCmd.EntW, t)), cmd_ents_all(t)), cmd_query_fits(q))
+# LAW command_menu_space_gap: after a declared path, two spaces show the
+# menu one shows
+# EXCLUDES: `/memory  ` that hides memory's children, or lists them for
+#   an empty word as argument text
+law command_menu_space_gap:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +line: List<&2, Nat>
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_path(t, q) == True{} : Bool}
+  {Cmd.menu(t, List.append(&2, Nat, cmd_render(q), 32n <> 32n <> line)) == Cmd.menu(t, List.append(&2, Nat, cmd_render(q), 32n <> line)) : Cmd.Menu}
 
-def cmd_res_fits(r: FCmd.ResW) -> Bool:
-  match r:
-    case FCmd.RunsW{p, a}:
-      Bool.and(cmd_strs_fit(p), LawsBase.wire_fits(String.length(a)))
-    case FCmd.OpensW{p}:
-      cmd_strs_fit(p)
-    case FCmd.UnknownW{p, w}:
-      Bool.and(cmd_strs_fit(p), LawsBase.wire_fits(String.length(w)))
-    case FCmd.NoCmdW{}:
-      True{}
+# LAW command_tab_row_any_spacing: Tab on a row that is a child of the
+# typed path completes it as on the single-spaced line
+# (command_tab_completes_row), whatever spaces lead the line or stand
+# between its words
+# EXCLUDES: `/memory  mo` + Tab that keeps the line or completes another
+#   path
+law command_tab_row_any_spacing:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +gs: List<&2, Nat>
+  for +i: Nat
+  for +e: Cmd.Ent
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
+  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, Cmd.Tab{}) == cmd_tab(t, e) : Cmd.Out}
 
-def cmd_menu_fits(m: FCmd.MenuW) -> Bool:
-  match m:
-    case FCmd.NamesW{}:
-      True{}
-    case FCmd.KidsW{p, +xs}:
-      Bool.and(cmd_strs_fit(p), Bool.and(LawsBase.wire_fits(List.length(&2, Nat, xs)), LawsBase.wire_nats_fit(xs)))
-    case FCmd.ShutW{}:
-      True{}
+# LAW command_enter_row_any_spacing: Enter on a row that is a child of
+# the typed path acts as on the single-spaced line
+# (command_enter_on_row), whatever the spacing; a line it submits as
+# typed keeps its spaces
+# EXCLUDES: `/memory  mo` + Enter that runs /memory, or submits a
+#   rewritten line
+law command_enter_row_any_spacing:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +gs: List<&2, Nat>
+  for +i: Nat
+  for +e: Cmd.Ent
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for at: {List.get(&2, Cmd.Ent, t, i) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for child: {cmd_is_kid(q, cmd_ent_path(e)) == True{} : Bool}
+  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, Cmd.Enter{}) == cmd_enter(t, e, p, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs)) : Cmd.Out}
 
-def cmd_out_fits(o: FCmd.OutW) -> Bool:
-  match o:
-    case FCmd.OutW{l, a, b}:
-      LawsBase.wire_fits(String.length(l))
+# LAW command_stale_row_any_spacing: a selected place that holds no child
+# of the typed path acts as no row, whatever the spacing
+# EXCLUDES: a stale selection on a loosely typed line that completes or
+#   runs another command
+law command_stale_row_any_spacing:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +gs: List<&2, Nat>
+  for +i: Nat
+  for +k: Cmd.Press
+  for ok: {cmd_wf(t) == True{} : Bool}
+  for on: {cmd_walks(t, q) == True{} : Bool}
+  for word: {cmd_spaceless(p) == True{} : Bool}
+  for stale: {cmd_row(t, i, q) == False{} : Bool}
+  {Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.Row{i}, k) == Cmd.key(t, cmd_loose(List.append(&2, List<&2, Nat>, q, [p]), gs), Cmd.NoRow{}, k) : Cmd.Out}
 
-# LAW command_ffi_round_trip: every request that fits the wire reads back
-# as itself, and its reading consumes exactly its encoding
-# EXCLUDES: a name, flag, line, row or key lost, swapped or misread on
-#   the way to the model
-law command_ffi_round_trip:
-  for +r: FCmd.Req
-  for +rest: String
-  for h: {cmd_req_fits(r) == True{} : Bool}
-  {FCmd.get_req(FCmd.put_req(r, rest)) == Wr.Got{r, rest} : Wr.Dec<FCmd.Req>}
+# LAW command_spacing_example: anchor: in the example table, ` memory
+# model` and `memory  model` run memory model, `memory ` runs memory,
+# `goal  a  b` keeps its text's spaces, `/ mem` shows no menu, and
+# `memory  mo` + Enter on the model row completes and submits `memory model`
+law command_spacing_example:
+  {[Cmd.resolve(cmd_example_table(), 32n <> List.append(&2, Nat, cmd_example_memory(), 32n <> cmd_example_model())), Cmd.resolve(cmd_example_table(), List.append(&2, Nat, cmd_example_memory(), 32n <> 32n <> cmd_example_model())), Cmd.resolve(cmd_example_table(), List.append(&2, Nat, cmd_example_memory(), [32n])), Cmd.resolve(cmd_example_table(), List.append(&2, Nat, cmd_example_goal(), [32n, 32n, 97n, 32n, 32n, 98n]))] == [Cmd.Runs{[cmd_example_memory(), cmd_example_model()], Nil{}}, Cmd.Runs{[cmd_example_memory(), cmd_example_model()], Nil{}}, Cmd.Runs{[cmd_example_memory()], Nil{}}, Cmd.Runs{[cmd_example_goal()], [97n, 32n, 32n, 98n]}] : List<&2, Cmd.Res>} & {(Cmd.menu(cmd_example_table(), [32n, 109n, 101n, 109n]), Cmd.key(cmd_example_table(), List.append(&2, Nat, cmd_example_memory(), [32n, 32n, 109n, 111n]), Cmd.Row{2n}, Cmd.Enter{})) == (Cmd.Shut{}, Cmd.Out{List.append(&2, Nat, cmd_example_memory(), 32n <> cmd_example_model()), False{}, True{}}) : Cmd.Menu & Cmd.Out}
 
-# LAW command_ffi_answers: the entry answers a request with the model's
-# answer about the table it carries
-# EXCLUDES: an entry that answers another question, another table, or a
-#   default
-law command_ffi_answers:
-  for +r: FCmd.Req
-  for h: {cmd_req_fits(r) == True{} : Bool}
-  {FCmd.ffi(FCmd.put_req(r, "")) == FCmd.ffi.run(r) : String}
-
-# LAW command_ffi_left_over: a request with input left over after it is
-# refused
-# EXCLUDES: trailing input read as part of a request, or ignored
-law command_ffi_left_over:
-  for +r: FCmd.Req
-  for +rest: String
-  for h: {cmd_req_fits(r) == True{} : Bool}
-  for more: {String.is_empty(rest) == False{} : Bool}
-  {FCmd.ffi(FCmd.put_req(r, rest)) == Wr.err("command: input left over") : String}
-
-# LAW command_ffi_malformed: a malformed request answers the error form,
-# never an answer
-# EXCLUDES: a default answer (a run, a menu) for input the entry cannot
-#   read
-law command_ffi_malformed:
-  for +s: String
-  for bad: {FCmd.get_req(s) == Wr.Bad{} : Wr.Dec<FCmd.Req>}
-  {FCmd.ffi(s) == Wr.err("command: malformed request") : String}
-
-# LAW command_ffi_res_round_trip: every resolve reply that fits reads
-# back as itself (Rust's Reader reads the same grammar)
-# EXCLUDES: two answers with one encoding, an answer Rust misreads
-law command_ffi_res_round_trip:
-  for +x: FCmd.ResW
-  for +rest: String
-  for h: {cmd_res_fits(x) == True{} : Bool}
-  {FCmd.get_res(FCmd.put_res(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
-
-# LAW command_ffi_menu_round_trip: every menu reply that fits reads back
-# as itself
-# EXCLUDES: two menus with one encoding, a menu Rust misreads
-law command_ffi_menu_round_trip:
-  for +x: FCmd.MenuW
-  for +rest: String
-  for h: {cmd_menu_fits(x) == True{} : Bool}
-  {FCmd.get_menu(FCmd.put_menu(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
-
-# LAW command_ffi_out_round_trip: every key reply that fits reads back as
-# itself
-# EXCLUDES: a new line, menu flag or submit flag Rust misreads
-law command_ffi_out_round_trip:
-  for +x: FCmd.OutW
-  for +rest: String
-  for h: {cmd_out_fits(x) == True{} : Bool}
-  {FCmd.get_out(FCmd.put_out(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
-
-# LAW command_ffi_witness: a request that fits exists, a malformed one
-# exists, and input can be left over
-law command_ffi_witness:
-  exs r: FCmd.Req
-  exs s: String
-  exs rest: String
-  {(cmd_req_fits(r), (FCmd.get_req(s), String.is_empty(rest))) == (True{}, (Wr.Bad{}, False{})) : Bool & (Wr.Dec<FCmd.Req> & Bool)}
+# LAW command_premises_witness: witness: the premises of the laws above
+# hold for real inputs (the example table, its paths and words)
+# EXCLUDES: a vacuous law whose premises no table, path or word meets
+law command_premises_witness:
+  {Bool.and(cmd_wf(cmd_example_table()), Bool.and(cmd_path(cmd_example_table(), [cmd_example_memory()]), cmd_walks(cmd_example_table(), [cmd_example_memory()]))) == True{} : Bool} & {(cmd_free(cmd_example_table(), [cmd_example_memory()]), cmd_free(cmd_example_table(), [cmd_example_goal()])) == (False{}, True{}) : Bool & Bool} & {Bool.and(cmd_typed([120n]), Bool.and(cmd_all_spaceless([[120n], []]), cmd_spaceless([109n]))) == True{} : Bool} & {cmd_spaceless([109n, 32n]) == False{} : Bool} & {cmd_takes(cmd_example_table(), [cmd_example_memory()], cmd_lower([88n])) == False{} : Bool} & {cmd_is_kid([cmd_example_memory()], cmd_ent_path(Cmd.Ent{[cmd_example_memory(), cmd_example_view()], [], True{}, True{}, False{}})) == True{} : Bool} & {cmd_row(cmd_example_table(), 9n, [cmd_example_memory()]) == False{} : Bool}

@@ -8,7 +8,7 @@
 import Base
 import ../../bend/ffi_command.bend as FCmd
 import ../../bend/wire.bend as Wr
-import ../../laws/command.bend as Command
+import ../../laws/command/entry.bend as Command
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool

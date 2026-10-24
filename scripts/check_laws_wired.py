@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """check_laws_wired.py [ROOT]: the layout of the laws (AGENTS.md, Tests).
 
-Every law lives in LAWS.bend or in a file of laws/ that LAWS.bend imports,
+Every law lives in LAWS.bend or in a file of laws/ that LAWS.bend imports
+(laws/<area>.bend, or laws/<area>/<section>.bend once the area's file
+passes 1,000 lines),
 and every proof and proof lemma in a file of proof/ that PROOF.bend
 imports (the Bend Bank layout: proof/<area>/<law>.bend per law,
 proof/<area>/base.bend and proof/base.bend for shared lemmas):
@@ -9,7 +11,8 @@ proof/<area>/base.bend and proof/base.bend for shared lemmas):
 - every law has a fill `def <Alias>.NAME(` in a proof/ file PROOF.bend
   imports, where <Alias> is that file's name for the law's file;
 - a file proof/<area>/<x>.bend but base.bend fills law <x>; when <x> lives
-  in laws/<a>.bend, <area> is <a> (the folders a file past 1,000 lines
+  in laws/<a>.bend or laws/<a>/<section>.bend, <area> is <a> (the folders
+  a file past 1,000 lines
   becomes, proof/base/, proof/<area>/base/ and proof/<area>/<law>/, hold
   lemmas);
 - no laws/ file but those LAWS.bend imports; no proof*.bend file but
@@ -50,6 +53,11 @@ def fills_of(text: str, alias: str) -> set[str]:
     return set(re.findall(rf"^def {re.escape(alias)}\.(\w+)\(", text, re.M))
 
 
+def area_of(law_file: Path, laws_dir: Path) -> str:
+    """The area of a laws/ file: <a> for laws/<a>.bend and laws/<a>/<section>.bend."""
+    return Path(law_file.relative_to(laws_dir).parts[0]).stem
+
+
 def gaps_of(root: Path) -> list[str]:
     root = root.resolve()
     laws_path = (root / "LAWS.bend").resolve()
@@ -60,7 +68,7 @@ def gaps_of(root: Path) -> list[str]:
     if not laws_path.exists() or not proof_path.exists():
         return gaps + ["LAWS.bend and PROOF.bend must both exist at the root"]
     # the files that may declare laws: LAWS.bend and the laws/ files it imports
-    law_files = [laws_path] + [p for p in imports(laws_path.read_text(), laws_path) if p.parent == laws_dir]
+    law_files = [laws_path] + [p for p in imports(laws_path.read_text(), laws_path) if laws_dir in p.parents]
     home = {}  # law -> the file that declares it
     for lf in law_files:
         if not lf.exists():
@@ -82,7 +90,7 @@ def gaps_of(root: Path) -> list[str]:
             continue
         rel = f.relative_to(root).as_posix()
         text = f.read_text()
-        if rf.parent == laws_dir and rf not in law_files:
+        if laws_dir in rf.parents and rf not in law_files:
             gaps.append(f"{rel}: LAWS.bend does not import it")
         if f.name.lower().startswith("proof"):
             gaps.append(f"{rel}: every proof and proof lemma lives in a proof/ file")
@@ -102,8 +110,9 @@ def gaps_of(root: Path) -> list[str]:
             law = rf.stem
             if law not in mine:
                 gaps.append(f"{rel}: does not fill law {law}")
-            elif home[law].parent == laws_dir and home[law].stem != rf.parent.name:
-                gaps.append(f"{rel}: law {law} lives in laws/{home[law].stem}.bend; its proof in proof/{home[law].stem}/")
+            elif home[law].parent != root and area_of(home[law], laws_dir) != rf.parent.name:
+                a = area_of(home[law], laws_dir)
+                gaps.append(f"{rel}: law {law} lives in {home[law].relative_to(root).as_posix()}; its proof in proof/{a}/")
     for n in sorted(set(home) - filled):
         gaps.append(f"{home[n].relative_to(root).as_posix()}: law {n} has no fill in a proof/ file PROOF.bend imports")
     return gaps

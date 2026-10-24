@@ -204,3 +204,61 @@ law wire_err_example:
 law wire_end_exact:
   for +s: String
   {Wr.end(s) == String.is_empty(s) : Bool}
+
+# Lists of strings, and the spec spellers
+# ---------------------------------------
+
+# LAW wire_strs_spells (R1): a list of strings is spelled LawsBase.wire_spell_strs: its count, then each string
+# EXCLUDES: items in another order, a count after the items, a separator
+law wire_strs_spells:
+  for +xs: List<&2, String>
+  for rest: String
+  {Wr.put_list(~String, ~Wr.put_str, xs, rest) == LawsBase.wire_spell_strs(xs, rest) : String}
+
+# LAW wire_nats_spells (R1): a list of Nats is spelled LawsBase.wire_spell_nats: its count, then each Nat
+# EXCLUDES: items in another order, a count after the items, a separator
+law wire_nats_spells:
+  for +xs: List<&2, Nat>
+  for rest: String
+  {Wr.put_list(~Nat, ~Wr.put_nat, xs, rest) == LawsBase.wire_spell_nats(xs, rest) : String}
+
+# LAW wire_strs_round_trip (R1): a list of strings that fits reads back, and the rest is untouched
+# EXCLUDES: a lost, added, reordered or changed string, a wrong count
+law wire_strs_round_trip:
+  for +xs: List<&2, String>
+  for rest: String
+  for h: {LawsBase.wire_strs_fit(xs) == True{} : Bool}
+  {Wr.get_list(~String, ~Wr.get_str, LawsBase.wire_spell_strs(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}
+
+# LAW wire_strs_exact (R2): a decoded list of strings is exactly its spelling: any other input is Bad{}
+# EXCLUDES: a count larger than the strings accepted, a short string
+#   padded, a default
+law wire_strs_exact:
+  for +s: String
+  for +xs: List<&2, String>
+  for +rest: String
+  for h: {Wr.get_list(~String, ~Wr.get_str, s) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}
+  {s == LawsBase.wire_spell_strs(xs, rest) : String}
+
+# LAW wire_str_decoded_fits (R3): a decoded string fits the wire: its length has at most 14 digits
+# EXCLUDES: a string read with a length the wire cannot carry
+law wire_str_decoded_fits:
+  for +s: String
+  for +a: String
+  for +rest: String
+  for h: {Wr.get_str(s) == Wr.Got{a, rest} : Wr.Dec<String>}
+  {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+
+# LAW wire_strs_decoded_fit (R3): a decoded list of strings fits the wire: its count and every string
+# EXCLUDES: a list read with a count or a string the wire cannot carry
+law wire_strs_decoded_fit:
+  for +s: String
+  for +xs: List<&2, String>
+  for +rest: String
+  for h: {Wr.get_list(~String, ~Wr.get_str, s) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}
+  {LawsBase.wire_strs_fit(xs) == True{} : Bool}
+
+# LAW wire_strs_example (R1): anchor: a list of strings is its count, then each string (its length, then its chars)
+# EXCLUDES: strings with no length, a count of chars instead of strings
+law wire_strs_example:
+  {Wr.put_list(~String, ~Wr.put_str, ["ab", "c"], "") == "2,2,ab1,c" : String}

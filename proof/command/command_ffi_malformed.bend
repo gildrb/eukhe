@@ -6,7 +6,7 @@
 import Base
 import ../../bend/ffi_command.bend as FCmd
 import ../../bend/wire.bend as Wr
-import ../../laws/command.bend as Command
+import ../../laws/command/entry.bend as Command
 
 def Command.command_ffi_malformed(s, bad):
   Equal.cong(Wr.Dec<FCmd.Req>, String, d => FCmd.ffi.go(d), FCmd.get_req(s), Wr.Bad{}, bad)
