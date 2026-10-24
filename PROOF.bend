@@ -1406,6 +1406,7 @@ import ./proof/selection/sel_release_copies/row.bend as LASelectionRow
 import ./proof/selection/sel_release_copies.bend as PSelReleaseCopies
 import ./proof/selection/sel_copy_anchor_to_head.bend as PSelCopyAnchorToHead
 import ./proof/selection/sel_wrap_joins.bend as PSelWrapJoins
+import ./proof/selection/sel_wrap_trailing_blanks_example.bend as PSelWrapTrailingBlanksExample
 import ./proof/selection/sel_release_copies_once.bend as PSelReleaseCopiesOnce
 import ./proof/selection/sel_click_copies_nothing.bend as PSelClickCopiesNothing
 import ./proof/selection/sel_single_press.bend as PSelSinglePress

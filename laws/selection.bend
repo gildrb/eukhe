@@ -129,14 +129,27 @@ def sl_brk(w: M.Wrap) -> Bool:
     case M.Cont{}:
       False{}
 
-def sl_next_brk(rest: List<&2, M.Row>) -> Bool:
-  match rest:
+# xs holds no glyph
+def sl_blank(xs: List<&2, SlGl>) -> Bool:
+  match xs:
     case Nil{}:
       True{}
-    case Con{row, more}:
+    case Con{x, more}:
+      False{}
+
+# the rows after a row (rows i on) add nothing but blanks to its line of
+# the copy: each later row of the copy that continues the line keeps no
+# glyph once its trailing blanks are dropped (a row past b's row, or one
+# that starts a line, ends the look)
+def sl_tail_blank(rows: List<&2, M.Row>, +i: Nat, +a: M.Cell, +b: M.Cell) -> Bool:
+  match rows:
+    case Nil{}:
+      True{}
+    case Con{row, +rest}:
       match row:
         case M.Row{w, gs}:
-          sl_brk(w)
+          +R = Nat.add(i, sl_row_of(a))
+          Bool.or(Bool.or(Nat.is_lt(sl_row_of(b), R), sl_brk(w)), Bool.and(sl_blank(sl_keep(sl_pick(gs, 0n, 0n, R, a, b), True{})), sl_tail_blank(rest, 1n+i, a, b)))
 
 def sl_nl.k(b: Bool) -> List<&2, SlTok>:
   match b:
@@ -154,8 +167,8 @@ def sl_nl(i: Nat, w: M.Wrap) -> List<&2, SlTok>:
     case 1n+p:
       sl_nl.k(sl_brk(w))
 
-# row i (row id R) of the copy from a to b; ends: the row ends a line of
-# the copy (the last row, or the next does not continue it)
+# row i (row id R) of the copy from a to b; ends: the row ends its line of
+# the copy (the last row, or every later row of its line adds only blanks)
 def sl_row(row: M.Row, +i: Nat, R: Nat, a: M.Cell, b: M.Cell, ends: Bool) -> List<&2, SlTok>:
   match row:
     case M.Row{w, gs}:
@@ -175,12 +188,13 @@ def sl_rows(rows: List<&2, M.Row>, +i: Nat, +a: M.Cell, +b: M.Cell) -> List<&2, 
       Nil{}
     case Con{row, +rest}:
       +R = Nat.add(i, sl_row_of(a))
-      sl_rows.k(Nat.is_le(R, sl_row_of(b)), sl_row(row, i, R, a, b, Bool.or(Nat.is_eq(R, sl_row_of(b)), sl_next_brk(rest))), sl_rows(rest, 1n+i, a, b))
+      sl_rows.k(Nat.is_le(R, sl_row_of(b)), sl_row(row, i, R, a, b, Bool.or(Nat.is_eq(R, sl_row_of(b)), sl_tail_blank(rest, 1n+i, a, b))), sl_rows(rest, 1n+i, a, b))
 
 # the text a range copies over the release rows: in reading order every
 # glyph with a cell in the range (a wide glyph once), rows joined by a
 # newline unless a row continues the row above, a line's trailing blanks
-# dropped
+# dropped (a line: its rows joined across soft wraps, wherever the wrap
+# falls; blanks inside the line stay)
 def sl_copy(r: M.Rng, rows: List<&2, M.Row>) -> List<&2, SlTok>:
   match r:
     case M.Rng{a, b}:
@@ -550,6 +564,16 @@ law sel_wrap_joins:
   for +conts: List<&2, M.Row>
   for wrapped: {sl_all_cont(conts) == True{} : Bool}
   {sl_copied_nls(sl_copied(M.step(M.St{m, last}, M.EvRelease{row <> conts}))) == 0n : Nat}
+
+# LAW sel_wrap_trailing_blanks_example: anchor: a soft-wrapped line "a "
+# whose continuation row holds only blanks copies "a" (the line's trailing
+# blanks go wherever the wrap falls), and a blank inside a wrapped line
+# ("a " then "b") stays
+# EXCLUDES: trailing blanks kept on a row whose continuation adds only
+#   blanks (a blind audit's gap), a blank inside the line dropped at the
+#   wrap
+law sel_wrap_trailing_blanks_example:
+  {sl_copied(M.step(M.St{M.Selecting{M.Cell{0n, 0n}, M.Cell{1n, 1n}}, None{}}, M.EvRelease{[M.Row{M.Head{}, [1n, 0n]}, M.Row{M.Cont{}, [0n, 0n]}]})) == Some{[SlG{0n, 0n}]} : Maybe<&2, List<&2, SlTok>>} & {sl_copied(M.step(M.St{M.Selecting{M.Cell{0n, 0n}, M.Cell{1n, 0n}}, None{}}, M.EvRelease{[M.Row{M.Head{}, [1n, 0n]}, M.Row{M.Cont{}, [1n]}]})) == Some{[SlG{0n, 0n}, SlG{0n, 1n}, SlG{1n, 0n}]} : Maybe<&2, List<&2, SlTok>>}
 
 # LAW sel_release_copies_once: after a release, another release copies nothing
 # EXCLUDES: a second copy of one selection (a stray release report)

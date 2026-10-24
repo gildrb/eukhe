@@ -421,20 +421,30 @@ def not_cont(w: Wrap) -> Bool:
     case Cont{}:
       False{}
 
-# the rows after a row end its line: the next one does not continue it
-def ends(rest: List<&2, Row>) -> Bool:
-  match rest:
+# a row keeps no glyph but blanks up to column `to` (None: the row's end)
+def blank_to(gs: List<&2, Nat>, +to: Maybe<&2, Nat>) -> Bool:
+  Nat.is_eq(row_nb(gs, 0n, 0n, to, True{}), 0n)
+
+# the rows after a row add only blanks to its line: each later row of the
+# copy that continues the line keeps no glyph but blanks (k: rows before
+# the copy's last, which ends at column c2)
+def rest_blank(rows: List<&2, Row>, k: Nat, +c2: Nat) -> Bool:
+  match rows:
     case Nil{}:
       True{}
     case Con{row, more}:
       match row:
         case Row{w, gs}:
-          not_cont(w)
+          match k:
+            case 0n:
+              Bool.or(not_cont(w), blank_to(gs, Some{c2}))
+            case 1n+m:
+              Bool.or(not_cont(w), Bool.and(blank_to(gs, None{}), rest_blank(more, m, c2)))
 
 # the piece of row i: its glyphs from the one that reaches column `from`
 # to the last that starts at or before `to`, the trailing blanks dropped
-# when the row ends a line of the copy, after a newline unless it is the
-# first or continues the row above
+# when the row ends its line of the copy (rest_blank), after a newline
+# unless it is the first or continues the row above
 def piece(row: Row, i: Nat, +from: Maybe<&2, Nat>, +to: Maybe<&2, Nat>, +trim: Bool, first: Bool) -> Piece:
   match row:
     case Row{w, +gs}:
@@ -452,8 +462,8 @@ def copy.go(rows: List<&2, Row>, +i: Nat, k: Nat, from: Maybe<&2, Nat>, +c2: Nat
       match k:
         case 0n:
           [piece(row, i, from, Some{c2}, True{}, first)]
-        case 1n+m:
-          piece(row, i, from, None{}, ends(rest), first) <> copy.go(rest, 1n+i, m, None{}, c2, False{})
+        case 1n++m:
+          piece(row, i, from, None{}, rest_blank(rest, m, c2), first) <> copy.go(rest, 1n+i, m, None{}, c2, False{})
 
 def copy.rows(below: Bool, rows: List<&2, Row>, k: Nat, c1: Nat, c2: Nat) -> List<&2, Piece>:
   match below:

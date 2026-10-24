@@ -346,6 +346,39 @@ mod tests {
         assert!(!s.step(&Event::Esc).eat);
     }
 
+    /// A soft-wrapped line "a " whose continuation row is all blanks
+    /// copies "a": the line's trailing blanks go wherever the wrap falls;
+    /// a blank inside a wrapped line ("a " then "b") stays.
+    #[test]
+    fn a_wrapped_line_drops_its_trailing_blanks_across_the_wrap() {
+        use crate::soft_wrap::RowWrap;
+        let wrapped = |head: &str, cont: &str| {
+            let mut head_row = row(head);
+            head_row.wrap = RowWrap::Head;
+            let mut cont_row = row(cont);
+            cont_row.wrap = RowWrap::Continuation;
+            [head_row, cont_row]
+        };
+        let at = |row, col| Cell { row, col };
+        let copy = |rows: &[Row], end: Cell| {
+            let mut s = Selection::open();
+            s.step(&Event::Press {
+                at: at(0, 0),
+                time: 0,
+                row: &rows[0],
+            });
+            s.step(&Event::Drag {
+                at: end,
+                lo: 0,
+                hi: 9,
+            });
+            let pieces = s.step(&Event::Release { rows }).copy.expect("copies");
+            copy_text(&pieces, rows)
+        };
+        assert_eq!(copy(&wrapped("a ", "  "), at(1, 1)), "a");
+        assert_eq!(copy(&wrapped("a ", "b"), at(1, 0)), "a b");
+    }
+
     #[test]
     fn wide_glyphs_and_blanks_cross_as_widths() {
         let r = row("a 你");

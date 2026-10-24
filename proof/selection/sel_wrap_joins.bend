@@ -53,7 +53,7 @@ def swj.conts(rows: List<&2, M.Row>, +i: Nat, +a: M.Cell, +b: M.Cell, hc: {Selec
               LS.ls.absurd({Selection.sl_nls(Selection.sl_rows(M.Row{M.Head{}, gs} <> rest, 1n+i, a, b)) == 0n : Nat}, hc)
             case M.Cont{}:
               +R = Nat.add(1n+i, Selection.sl_row_of(a))
-              +T = Bool.or(Nat.is_eq(R, Selection.sl_row_of(b)), Selection.sl_next_brk(rest))
+              +T = Bool.or(Nat.is_eq(R, Selection.sl_row_of(b)), Selection.sl_tail_blank(rest, 2n+i, a, b))
               +TOKS = Selection.sl_toks(Selection.sl_keep(Selection.sl_pick(gs, 0n, 0n, R, a, b), T), 1n+i)
               swj.k(Nat.is_le(R, Selection.sl_row_of(b)), TOKS, Selection.sl_rows(rest, 2n+i, a, b), swj.toks(Selection.sl_keep(Selection.sl_pick(gs, 0n, 0n, R, a, b), T), 1n+i), swj.conts(rest, 1n+i, a, b, hc))
 
@@ -63,7 +63,7 @@ def swj.copy(r: M.Rng, row: M.Row, +conts: List<&2, M.Row>, hc: {Selection.sl_al
       match row:
         case M.Row{w, +gs}:
           +R = Nat.add(0n, Selection.sl_row_of(a))
-          +T = Bool.or(Nat.is_eq(R, Selection.sl_row_of(b)), Selection.sl_next_brk(conts))
+          +T = Bool.or(Nat.is_eq(R, Selection.sl_row_of(b)), Selection.sl_tail_blank(conts, 1n, a, b))
           swj.k(Nat.is_le(R, Selection.sl_row_of(b)), Selection.sl_toks(Selection.sl_keep(Selection.sl_pick(gs, 0n, 0n, R, a, b), T), 0n), Selection.sl_rows(conts, 1n, a, b), swj.toks(Selection.sl_keep(Selection.sl_pick(gs, 0n, 0n, R, a, b), T), 0n), swj.conts(conts, 0n, a, b, hc))
 
 def swj.mode(m: M.Mode, +row: M.Row, +conts: List<&2, M.Row>, hc: {Selection.sl_all_cont(conts) == True{} : Bool}) -> {Selection.sl_copied_nls(Selection.sl_release_copy(m, row <> conts)) == 0n : Nat}:
