@@ -84,6 +84,8 @@ pub enum Entry {
     Fsmode = 37,
     /// `bend/ffi_skill_load.bend`: a call.
     SkillLoad = 38,
+    /// `bend/ffi_doc_search.bend`: a call and a stepper.
+    DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
 }
@@ -130,6 +132,7 @@ impl Entry {
         Entry::Launcher,
         Entry::Fsmode,
         Entry::SkillLoad,
+        Entry::DocSearch,
         Entry::DocRows,
     ];
 

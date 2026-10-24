@@ -41,3 +41,4 @@
 37 fsmode
 38 skill_load
 41 doc_rows
+40 doc_search

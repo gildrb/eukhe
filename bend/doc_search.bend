@@ -1,5 +1,9 @@
-# doc_search: the models of what grep searched and of the pages of grep
-# and glob (crates/eukhe-docs/src/grep/mod.rs, crates/eukhe-docs/src/glob.rs).
+# doc_search: the rules of what grep searched, of grep's pages and of the
+# matches a page keeps (crates/eukhe-docs/src/grep/mod.rs). They run as the
+# compiled core through bend/ffi_doc_search.bend: grep's walk is its
+# stepper (one entry at a time, between the file reads), the page and the
+# match limit its calls. The glob's pages (bend/doc_glob.bend) are the
+# pages here.
 #
 # Grep: the walk meets a list of entries, in walk order. An entry is a
 # file the search opens (with its number of matches in the part searched,
@@ -8,17 +12,15 @@
 # walk error). The search keeps at most P matches of a file and at most
 # REM matches in all; when REM gets to 0, it opens no more files. Each
 # entry ends in exactly one class; a file with more matches than it kept
-# is cut. The matching files are paged: K files after the first S.
+# is cut. The matching files are paged: K files after the first S. A file
+# of a line-ranged root fetches enough matches to reach the last line its
+# ranges select.
 #
 # Pages: a page of a list is the K items after the first S. When an item
 # follows the page, the continuation is S + K.
 #
-# Glob: the paths, newest first and then by name, are paged.
-#
-# The bridges (bridge/bridge_doc_search.bend,
-# crates/eukhe-docs/src/grep/bridge_accounts.rs and
-# crates/eukhe-docs/src/glob/bridge.rs) run the real code on generated
-# trees and compare.
+# The match limit: at most L matches of the page, taken one per file per
+# round, in file order.
 
 import Base
 
@@ -44,6 +46,84 @@ def next(ps: List<&2, Nat>, +s: Nat, k: Nat) -> Maybe<&2, Nat>:
     case 1n+j:
       +c = Nat.add(s, 1n+j)
       next.put(List.drop(&2, Nat, ps, c), c)
+
+# the numbers 0 to t - 1, from i on: the matching files of a search, in
+# walk order
+def upto.go(t: Nat, +i: Nat) -> List<&2, Nat>:
+  match t:
+    case 0n:
+      Nil{}
+    case 1n+u:
+      i <> upto.go(u, 1n+i)
+
+def upto(t: Nat) -> List<&2, Nat>:
+  upto.go(t, 0n)
+
+# the skip is past the end of a list that is not empty
+def past(ps: List<&2, Nat>, s: Nat) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case h <> t:
+      List.is_empty(&2, Nat, List.drop(&2, Nat, h <> t, s))
+
+# grep's continuation: a scope of one file (multi False) has none
+def grep.next(multi: Bool, ps: List<&2, Nat>, +s: Nat, k: Nat) -> Maybe<&2, Nat>:
+  match multi:
+    case True{}:
+      next(ps, s, k)
+    case False{}:
+      None{}
+
+# grep's skip past the end: a scope of one file has no skip
+def grep.past(multi: Bool, ps: List<&2, Nat>, s: Nat) -> Bool:
+  match multi:
+    case True{}:
+      past(ps, s)
+    case False{}:
+      False{}
+
+# Grep's scope
+# ------------
+
+# matches kept of a file when the scope can hold several files
+def multi_cap() -> Nat:
+  20n
+
+# matches kept when the scope is one file
+def single_cap() -> Nat:
+  200n
+
+# files on a page when no match limit is asked
+def files_page() -> Nat:
+  20n
+
+# the scope of a search: several files (multi), the matches a file keeps
+# (P), the matching files skipped (S) and shown (K) on a page
+type Scope is Data:
+  Scope{multi: Bool, p: Nat, s: Nat, k: Nat}
+
+def scope.of(multi: Bool, skip: Nat, k: Nat) -> Scope:
+  match multi:
+    case True{}:
+      Scope{True{}, multi_cap(), skip, k}
+    case False{}:
+      Scope{False{}, single_cap(), 0n, k}
+
+# a page of the match limit and one more file, else files_page()
+def scope.k(lim: Maybe<&2, Nat>) -> Nat:
+  match lim:
+    case None{}:
+      files_page()
+    case Some{l}:
+      1n+l
+
+# the scope of a path of `roots` roots, `dirs` of them directories, with
+# the skip asked and the match limit asked (None: no limit): several files
+# when there is more than one root or a directory root; one file keeps no
+# skip
+def scope(roots: Nat, dirs: Nat, skip: Nat, lim: Maybe<&2, Nat>) -> Scope:
+  scope.of(Bool.or(Nat.is_lt(1n, roots), Nat.is_lt(0n, dirs)), skip, scope.k(lim))
 
 # Grep
 # ----
@@ -175,25 +255,60 @@ def run(es: List<&2, Ent>, +p: Nat, +s: Nat, +k: Nat, +rem: Nat, +n: Nat) -> Lis
     case +e <> rest:
       out(e, p, s, k, rem, n) <> run(rest, p, s, k, left(e, p, rem), seen(e, rem, n))
 
-# the matching files, in walk order
-def hits(os: List<&2, Out>) -> List<&2, Nat>:
-  match os:
+# the matches an entry keeps, with REM left: at most P of a file, at most
+# REM in all (left(e, p, rem) is rem less these)
+def kept(e: Ent, +p: Nat, +rem: Nat) -> Nat:
+  match e:
+    case Ent{i, f}:
+      match f:
+        case Opened{h, big}:
+          Nat.min(h, Nat.min(p, rem))
+        case Skip{why}:
+          0n
+
+# the matches each entry keeps, in walk order
+def keeps(es: List<&2, Ent>, +p: Nat, +rem: Nat) -> List<&2, Nat>:
+  match es:
     case Nil{}:
       Nil{}
-    case o <> rest:
-      match o:
-        case Out{i, c, t, pa}:
-          match c:
-            case NoMatch{}:
-              hits(rest)
-            case Shown{}:
-              i <> hits(rest)
-            case PagedOut{}:
-              i <> hits(rest)
-            case Unsearched{}:
-              hits(rest)
-            case Skipped{w}:
-              hits(rest)
+    case +e <> rest:
+      kept(e, p, rem) <> keeps(rest, p, left(e, p, rem))
+
+# Line ranges
+# -----------
+
+# a range of lines a root selects: from its start, to its end or open
+type Range is Data:
+  Range{start: Nat, stop: Maybe<&2, Nat>}
+
+# the last line a range needs: its end, or `base` lines from its start
+def reach(r: Range, +base: Nat) -> Nat:
+  match r:
+    case Range{a, z}:
+      match z:
+        case None{}:
+          Nat.add(Nat.sub(a, 1n), base)
+        case Some{e}:
+          e
+
+# the last line any of the ranges needs; 0 for none
+def reach.top(rs: List<&2, Range>, +base: Nat) -> Nat:
+  match rs:
+    case Nil{}:
+      0n
+    case r <> t:
+      Nat.max(reach(r, base), reach.top(t, base))
+
+# the matches the search fetches from a file, P a file at most and REM in
+# all left: one more than the file can keep (so a cut shows); a file of
+# line-ranged roots: enough to reach the last line they need (a file of
+# MAXB bytes has no more lines than that), and never fewer than P + 1
+def fetch(rs: List<&2, Range>, +p: Nat, +rem: Nat, +maxb: Nat) -> Nat:
+  match rs:
+    case Nil{}:
+      1n+Nat.min(p, rem)
+    case r <> t:
+      Nat.max(1n+p, Nat.min(reach.top(r <> t, 1n+p), 1n+maxb))
 
 # Accounts and notices
 # --------------------
@@ -371,8 +486,107 @@ def nodup(xs: List<&2, Nat>) -> Bool:
     case +x <> +rest:
       Bool.and(Bool.not(mem(x, rest)), nodup(rest))
 
-# Glob
-# ----
+# The match limit
+# ---------------
+
+# whether a file gives a match: it has one in this round and the budget
+# is not spent
+def rr.bit(has: Bool, b: Nat) -> Nat:
+  match has:
+    case True{}:
+      match b:
+        case 0n:
+          0n
+        case 1n+c:
+          1n
+    case False{}:
+      0n
+
+# round r: each file with more than r matches gives one, in file order,
+# while the budget b lasts
+def rr.give(cs: List<&2, Nat>, +r: Nat, +b: Nat) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> t:
+      +g = rr.bit(Nat.is_lt(r, c), b)
+      g <> rr.give(t, r, Nat.sub(b, g))
+
+def rr.zeros(cs: List<&2, Nat>) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> t:
+      0n <> rr.zeros(t)
+
+# two lists of counts, file by file
+def rr.add(xs: List<&2, Nat>, ys: List<&2, Nat>) -> List<&2, Nat>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> xt:
+      match ys:
+        case Nil{}:
+          Nil{}
+        case y <> yt:
+          Nat.add(x, y) <> rr.add(xt, yt)
+
+# the most matches of a file
+def rr.top(cs: List<&2, Nat>) -> Nat:
+  match cs:
+    case Nil{}:
+      0n
+    case c <> t:
+      Nat.max(c, rr.top(t))
+
+# rounds r, r + 1, ... (f of them) with budget b
+def rr.go(f: Nat, +cs: List<&2, Nat>, +r: Nat, +b: Nat) -> List<&2, Nat>:
+  match f:
+    case 0n:
+      rr.zeros(cs)
+    case 1n+g:
+      match b:
+        case 0n:
+          rr.zeros(cs)
+        case 1n+c:
+          +gs = rr.give(cs, r, 1n+c)
+          rr.add(gs, rr.go(g, cs, 1n+r, Nat.sub(1n+c, sum(gs))))
+
+# the matches each file of the page keeps under a limit of L: one per
+# file per round, in file order, L in all (a round past the most matches
+# of a file gives none)
+def rr(+cs: List<&2, Nat>, l: Nat) -> List<&2, Nat>:
+  rr.go(rr.top(cs), cs, 0n, l)
+
+# whether the limit cuts matches: the page has more than L
+def rr.cut(cs: List<&2, Nat>, l: Nat) -> Bool:
+  Nat.is_lt(l, sum(cs))
+
+# Glob and the walk's matching files, for the bridge
+# --------------------------------------------------
+# Glob's ranking and paging still run in Rust (crates/eukhe-docs/src/glob.rs);
+# bridge/bridge_doc_search.bend runs this model against it
+# (crates/eukhe-docs/src/glob/bridge.rs). Not part of the compiled entry.
+
+# the matching files, in walk order
+def hits(os: List<&2, Out>) -> List<&2, Nat>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      match o:
+        case Out{i, c, t, pa}:
+          match c:
+            case NoMatch{}:
+              hits(rest)
+            case Shown{}:
+              i <> hits(rest)
+            case PagedOut{}:
+              i <> hits(rest)
+            case Unsearched{}:
+              hits(rest)
+            case Skipped{w}:
+              hits(rest)
 
 # a path the glob matches: its name and when it changed
 type Path is Data:

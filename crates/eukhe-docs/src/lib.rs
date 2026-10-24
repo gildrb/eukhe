@@ -48,10 +48,7 @@ pub use documents::Documents;
 pub use error::{EditError, EditResult};
 pub use gate::{Access, AccessGate};
 pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
-pub use grep::{
-    ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest,
-    DEFAULT_FILE_LIMIT,
-};
+pub use grep::{ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest};
 pub use hashline::{
     apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
     HashlineOutcome, Published, WriteOp, WriteRequest, HASHLINE_DESCRIPTION,

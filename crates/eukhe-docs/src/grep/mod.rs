@@ -3,16 +3,17 @@
 //! Every shown file is snapshotted in the session [`EditStore`] from the
 //! exact bytes that were searched, so its tag names the text its rows come
 //! from. The caller records the rows that reach the model as seen
-//! ([`GrepFile::rows`]). Every walked file is accounted for
 //! ([`GrepAccount`]), and each class of skipped or cut files gets a notice.
+//! Every rule of the search (its scope, what each file of the walk becomes,
+//! the page, the match limit) is decided by the compiled Bend core
+//! (`decide`); this module walks, reads, matches, records and renders.
 //! Ported from omp `crates/tools/src/grep.rs` (request, paging, rendering)
 //! and `crates/envd/src/tool_search.rs` (roots, targets); the per-call match
 //! cap is omp v1's `totalMatchLimit` (`packages/coding-agent/src/tools/grep.ts`).
 
 #[cfg(test)]
 mod bridge;
-#[cfg(test)]
-mod bridge_accounts;
+mod decide;
 mod engine;
 #[cfg(test)]
 mod tests;
@@ -45,12 +46,6 @@ use crate::{
 
 use engine::{FileRead, FileSearcher, RegexOptions};
 
-/// Files shown per page of a multi-file search; `skip` pages further.
-pub const DEFAULT_FILE_LIMIT: usize = 20;
-/// Matches kept per file when the scope can hold several files.
-const MULTI_FILE_PER_FILE_MATCHES: usize = 20;
-/// Matches kept when the scope is one file.
-const SINGLE_FILE_MATCHES: usize = 200;
 /// Matches kept across all files; files after the cap are not searched.
 const INTERNAL_TOTAL_CAP: u64 = 2_000;
 /// Wall-clock budget of one search.
@@ -326,8 +321,8 @@ struct Cut {
 #[derive(Default)]
 struct Searched {
     found: Vec<FileHit>,
-    /// The searched bytes of each file that can be on the requested page,
-    /// and whether that is the whole file.
+    /// The searched bytes of each file on the requested page, and whether
+    /// that is the whole file.
     kept: HashMap<PathBuf, (Vec<u8>, FileRead)>,
     no_match: u64,
     /// Files after the total cap, never opened.
@@ -337,14 +332,27 @@ struct Searched {
     partial: Tally,
 }
 
+impl Searched {
+    /// Count a file the walk left out of the matches; `name` names it.
+    fn leave(&mut self, left: decide::Left, name: impl FnOnce() -> String) {
+        match left {
+            decide::Left::NotSearched => self.unsearched += 1,
+            decide::Left::Binary => self.binary.add(name),
+            decide::Left::Unreadable => self.unreadable.add(name),
+        }
+    }
+}
+
 /// One page of matching files.
 struct Page {
     files: Vec<GrepFile>,
     cuts: Vec<Option<Cut>>,
     total_files: u64,
     skip: u64,
-    next_skip: u64,
-    file_limit_reached: bool,
+    /// The skip of the next page, when a matching file follows this one.
+    next: Option<u64>,
+    /// The skip is past the end of the matching files.
+    past: bool,
     match_limit_reached: bool,
 }
 
@@ -415,37 +423,23 @@ pub(crate) fn grep_with(
             paths: missing_paths,
         });
     }
-    let multi_scope = roots.len() > 1
-        || targets.iter().any(|scoped| match scoped.target {
+    let dirs = targets
+        .iter()
+        .filter(|scoped| match scoped.target {
             Target::File(_) => false,
             Target::Directory { .. } => true,
-        });
-    let per_file_cap = if multi_scope {
-        MULTI_FILE_PER_FILE_MATCHES
-    } else {
-        SINGLE_FILE_MATCHES
-    };
-    let skip = if multi_scope { request.skip } else { 0 };
-    let window = request
-        .limit
-        .map_or(DEFAULT_FILE_LIMIT, |limit| limit.get().saturating_add(1));
-    let collected = collect_files(&root, &targets, request, deadline)?;
-    let mut searched = search_files(
-        &root,
-        &collected.files,
-        request,
-        limits,
-        per_file_cap,
-        (skip, window),
-        deadline,
-    )?;
-    let mut page = page_files(
-        std::mem::take(&mut searched.found),
-        request,
-        skip,
-        window,
-        multi_scope,
+        })
+        .count();
+    let scope = decide::scope(
+        roots.len(),
+        dirs,
+        request.skip,
+        request.limit.map(NonZeroUsize::get),
     );
+    let multi_scope = scope.multi;
+    let collected = collect_files(&root, &targets, request, deadline)?;
+    let mut searched = search_files(&root, &collected.files, request, limits, scope, deadline)?;
+    let mut page = page_files(std::mem::take(&mut searched.found), request, scope);
 
     between();
     let mut untagged = Tally::default();
@@ -514,7 +508,7 @@ pub(crate) fn grep_with(
         total_files_lower_bound: searched.unsearched > 0,
         multi_scope,
         skip: page.skip,
-        file_limit_reached: page.file_limit_reached,
+        file_limit_reached: page.next.is_some(),
         match_limit_reached: page.match_limit_reached,
         account,
         notices,
@@ -621,13 +615,12 @@ fn notices(facts: &Noticed<'_>) -> Vec<Notice> {
     }
     let (skip, total_files) = (page.skip, page.total_files);
     let suffix = if searched.unsearched > 0 { "+" } else { "" };
-    if page.files.is_empty() && multi_scope && skip > 0 && total_files > 0 && skip >= total_files {
+    if page.past {
         notices.push(Notice::warn(
             NoticeKind::RangeOutOfBounds,
             format!("skip={skip} is past the end of {total_files}{suffix} files"),
         ));
-    } else if page.file_limit_reached {
-        let next_skip = page.next_skip;
+    } else if let Some(next_skip) = page.next {
         notices.push(Notice {
             continuation: Some(format!("skip={next_skip}")),
             omitted: Some(Omitted {
@@ -702,22 +695,16 @@ fn collect_files(
     Ok(collected)
 }
 
-/// Searches each file once, in order. A file keeps at most `per_file_cap`
-/// matches and the total keeps at most `limits.total_matches`; files after
-/// the total cap are not searched. A file whose search found more matches
-/// than it kept is cut. The searched bytes of the matching files whose
-/// order falls in `page` (`skip`, `window`) are kept for the store.
-#[allow(
-    clippy::too_many_lines,
-    reason = "one loop that classifies each file into exactly one account class"
-)]
+/// Searches the files in order, each once, as the core's walk decides
+/// ([`decide::Walk`]): whether a file is searched, how many matches it
+/// fetches and keeps, whether it is cut, on the page or searched in part.
+/// The searched bytes of each file on the page are kept for the store.
 fn search_files(
     root: &Path,
     files: &[Queued],
     request: &GrepRequest,
     limits: GrepLimits,
-    per_file_cap: usize,
-    (skip, window): (u64, usize),
+    scope: decide::Scope,
     deadline: Instant,
 ) -> Result<Searched, GrepError> {
     let options = RegexOptions::for_pattern(&request.pattern, request.ignore_case);
@@ -728,46 +715,40 @@ fn search_files(
         options,
         DEFAULT_MAX_COLUMN,
     );
-    let per_file_cap = u64::try_from(per_file_cap).unwrap_or(u64::MAX);
-    let page_end = skip.saturating_add(u64::try_from(window).unwrap_or(u64::MAX));
+    let mut walk = decide::Walk::open(
+        scope,
+        limits.total_matches,
+        files.len(),
+        limits.max_file_bytes,
+    );
     let mut searched = Searched::default();
-    let mut remaining = limits.total_matches;
-    let mut matching = 0_u64;
     let mut buffer = Vec::new();
-    for (index, Queued { path, ranges }) in files.iter().enumerate() {
-        if remaining == 0 {
-            searched.unsearched = u64::try_from(files.len() - index).unwrap_or(u64::MAX);
-            break;
-        }
+    for Queued { path, ranges } in files {
+        let fetch = match walk.ask(ranges) {
+            decide::Ask::Stop { left } => {
+                searched.unsearched = left;
+                break;
+            }
+            decide::Ask::Fetch(fetch) => fetch,
+        };
         if Instant::now() >= deadline {
             return Err(GrepError::TimedOut);
         }
         let read = match engine::read_file(path, &mut buffer, limits.max_file_bytes) {
             Ok(read) => read,
             Err(error) => {
-                searched
-                    .unreadable
-                    .add(|| format!("{} ({error})", shown_path(root, path)));
+                let left = walk.skipped(decide::Skip::Unreadable);
+                searched.leave(left, || format!("{} ({error})", shown_path(root, path)));
                 continue;
             }
         };
         // The searcher drops a UTF-8 BOM itself (BOM sniffing), so row 1
         // is the same text as read's row 1.
         if buffer.contains(&0) {
-            searched.binary.add(|| shown_path(root, path));
+            let left = walk.skipped(decide::Skip::Binary);
+            searched.leave(left, || shown_path(root, path));
             continue;
         }
-        match read {
-            FileRead::Partial => searched.partial.add(|| shown_path(root, path)),
-            FileRead::Whole => {}
-        }
-        let cap = per_file_cap.min(remaining);
-        let fetch = if ranges.is_empty() {
-            cap.saturating_add(1)
-        } else {
-            let baseline = per_file_cap.saturating_add(1);
-            baseline.max(range_fetch(ranges, baseline, limits.max_file_bytes))
-        };
         let hits = file_searcher
             .search(&regex, &buffer, fetch)
             .map_err(workspace_error)?;
@@ -780,49 +761,39 @@ fn search_files(
                 matched.context_after.retain(inside);
             }
         }
-        if matches.is_empty() {
-            searched.no_match += 1;
-            continue;
-        }
         let found = matches.len();
-        let keep = usize::try_from(cap).unwrap_or(usize::MAX).min(found);
-        matches.truncate(keep);
-        remaining -= u64::try_from(keep).unwrap_or(u64::MAX);
-        let absolute = eukhe_types::path_policy::real_path(path);
-        if (skip..page_end).contains(&matching) {
-            searched
-                .kept
-                .insert(absolute.clone(), (std::mem::take(&mut buffer), read));
+        let big = match read {
+            FileRead::Partial => true,
+            FileRead::Whole => false,
+        };
+        let said = walk.opened(found, big);
+        if said.partial {
+            searched.partial.add(|| shown_path(root, path));
         }
-        matching += 1;
-        searched.found.push(FileHit {
-            path: display_path(root, &absolute)?,
-            absolute,
-            matches,
-            cut: (found > keep).then_some(Cut {
-                found,
-                more: hits.limit_reached,
-            }),
-        });
+        match said.class {
+            decide::Class::NoMatch => searched.no_match += 1,
+            decide::Class::Left(left) => searched.leave(left, || shown_path(root, path)),
+            decide::Class::Shown | decide::Class::PagedOut => {
+                matches.truncate(said.kept);
+                let absolute = eukhe_types::path_policy::real_path(path);
+                if said.class == decide::Class::Shown {
+                    searched
+                        .kept
+                        .insert(absolute.clone(), (std::mem::take(&mut buffer), read));
+                }
+                searched.found.push(FileHit {
+                    path: display_path(root, &absolute)?,
+                    absolute,
+                    matches,
+                    cut: said.cut.then_some(Cut {
+                        found,
+                        more: hits.limit_reached,
+                    }),
+                });
+            }
+        }
     }
     Ok(searched)
-}
-
-/// Matches to fetch from one file of a line-ranged root so that every match
-/// up to the last selected line is reached; an open range keeps
-/// `baseline` past its start (omp `fetch_budgets`). A file of `max_bytes`
-/// bytes has no more lines than that.
-fn range_fetch(ranges: &[LineRange], baseline: u64, max_bytes: u64) -> u64 {
-    ranges
-        .iter()
-        .map(|range| {
-            range
-                .end_line
-                .unwrap_or_else(|| range.start_line.saturating_sub(1).saturating_add(baseline))
-        })
-        .max()
-        .unwrap_or(0)
-        .min(max_bytes.saturating_add(1))
 }
 
 /// Peel a line selector off one root: the path to search and its ranges
@@ -852,24 +823,17 @@ fn parse_root(original: &str) -> Result<(&str, Vec<LineRange>), GrepError> {
     Ok((split.path, ranges))
 }
 
-/// Cuts the requested page from the matching files in search order:
-/// `window` files from `skip`, with `limit` matches taken round-robin.
-fn page_files(
-    found: Vec<FileHit>,
-    request: &GrepRequest,
-    skip: u64,
-    window: usize,
-    multi_scope: bool,
-) -> Page {
-    let total = found.len();
-    let total_files = u64::try_from(total).unwrap_or(u64::MAX);
-    let start = usize::try_from(skip).unwrap_or(usize::MAX).min(total);
-    let end = start.saturating_add(window).min(total);
-    let file_limit_reached = multi_scope && end < total;
-    let (mut files, mut cuts): (Vec<GrepFile>, Vec<Option<Cut>>) = found
-        .into_iter()
-        .skip(start)
-        .take(end - start)
+/// The requested page of the matching files in search order, as the core
+/// decides it ([`decide::page`]), with the match limit's matches
+/// ([`decide::limit`]).
+fn page_files(found: Vec<FileHit>, request: &GrepRequest, scope: decide::Scope) -> Page {
+    let total_files = u64::try_from(found.len()).unwrap_or(u64::MAX);
+    let decided = decide::page(scope, found.len());
+    let mut found: Vec<Option<FileHit>> = found.into_iter().map(Some).collect();
+    let (mut files, mut cuts): (Vec<GrepFile>, Vec<Option<Cut>>) = decided
+        .files
+        .iter()
+        .filter_map(|&at| found.get_mut(at).and_then(Option::take))
         .map(|hit| {
             (
                 GrepFile {
@@ -883,21 +847,25 @@ fn page_files(
             )
         })
         .unzip();
-    let next_skip = skip.saturating_add(u64::try_from(files.len()).unwrap_or(u64::MAX));
     let match_limit_reached = request.limit.is_some_and(|limit| {
-        let cut = select_round_robin(&mut files, limit.get());
-        // The first round takes one match of each file in order, so the
-        // files it drops are the last ones.
-        cuts.truncate(files.len());
+        let counts: Vec<usize> = files.iter().map(|file| file.matches.len()).collect();
+        let (cut, kept) = decide::limit(limit.get(), &counts);
+        for (file, keep) in files.iter_mut().zip(&kept) {
+            file.matches.truncate(*keep);
+        }
+        // A file the limit leaves without a match is not shown.
+        let mut shown = kept.iter().map(|keep| *keep > 0);
+        cuts.retain(|_| shown.next().unwrap_or(false));
+        files.retain(|file| !file.matches.is_empty());
         cut
     });
     Page {
         files,
         cuts,
         total_files,
-        skip,
-        next_skip,
-        file_limit_reached,
+        skip: scope.skip,
+        next: decided.next,
+        past: decided.past,
         match_limit_reached,
     }
 }
@@ -961,44 +929,6 @@ fn resolve_target(root: &Path, input: &str) -> Result<Option<Target>, GrepError>
         Err(error) if is_missing(&error) => Ok(None),
         Err(error) => Err(workspace_error(error)),
     }
-}
-
-/// Keeps at most `limit` matches, taken one per file per round in file
-/// order; drops files left without matches. Returns whether matches were cut.
-fn select_round_robin(files: &mut Vec<GrepFile>, limit: usize) -> bool {
-    let select_limit = limit.saturating_add(1);
-    let mut taken = vec![0_usize; files.len()];
-    let mut selected = 0_usize;
-    let mut last = None;
-    let mut round = 0_usize;
-    'rounds: loop {
-        let mut added = false;
-        for (index, file) in files.iter().enumerate() {
-            if round >= file.matches.len() {
-                continue;
-            }
-            taken[index] += 1;
-            selected += 1;
-            last = Some(index);
-            added = true;
-            if selected >= select_limit {
-                break 'rounds;
-            }
-        }
-        if !added {
-            break;
-        }
-        round += 1;
-    }
-    let cut = selected > limit;
-    if let (true, Some(index)) = (cut, last) {
-        taken[index] -= 1;
-    }
-    for (file, keep) in files.iter_mut().zip(&taken) {
-        file.matches.truncate(*keep);
-    }
-    files.retain(|file| !file.matches.is_empty());
-    cut
 }
 
 /// The model-facing text of `files` and, per file, the rows it shows.

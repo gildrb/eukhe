@@ -505,9 +505,13 @@ Lines run as the compiled Bend core: Rust scans a file into its projection (`tex
 | `continuation_progresses` | continuation page not empty (S8.9) |
 | `continuation_contiguous` | continuation = next part of the list: none left out, none twice (S8.9) |
 | `continuation_disjoint` | page and continuation share no item (S8.9) |
+| `search_scope_answers` | scope: several files iff more than one root or a directory root; 20 matches a file and the skip asked, else 200 and no skip; page = match limit + 1 files, else 20 (S8.9) |
+| `grep_walk_spec`, `grep_keeps_spec`, `fetch_reaches` | each walked file's class, cut, kept matches and fetch are the spec's (S8.9) |
+| `page_is_window`, `next_is_more`, `past_is_beyond`, `grep_scope_pages`, `limit_round_robin`, `limit_cuts` | page, continuation, past-the-end notice, match limit: exactly the spec's (S8.9) |
+| `search_walk_runs`, `search_*_answers`, `search_*_refuses`, `search_shut_refuses` | grep's compiled entry and walk stepper answer each request with the rule's decision; malformed input gets the error form (S8.9) |
 
 Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`, `write_file`, sweep), `hashline/mod.rs` (`apply_hashline`, `commit`), `hashline/patcher.rs`, `hashline/seen.rs` (seen guard), `hashline/apply.rs` (line origins, `persist`), `text.rs` (scan, carry, write decision), `read/mod.rs`, `read/view.rs` (read gate and view), `grep/`, `glob.rs`, `store.rs` (`saw_bytes`), `eukhe-core/src/durable/documents/tool.rs` (`bounded`), `requests.rs` (`Cut`, `Done::mark_seen`).
 
-Ties: `write::bridge` (multi-file edit with injected faults and conflicts; write tool vs writes by another program; move; sweep with live locks), `text::tests::the_scan_is_the_projection` (the scan is the projection the laws state), `grep::bridge` (read and grep show the same rows on random bytes with `\r`, `\n`, `\r\n`, BOM; file changes between search and record), `grep::bridge_accounts`, `glob::bridge` (generated trees; every continuation followed once), `durable::documents::bridge` (long read cut by the output bound; edits at anchors in and around the cut).
+Ties: `write::bridge` (multi-file edit with injected faults and conflicts; write tool vs writes by another program; move; sweep with live locks), `text::tests::the_scan_is_the_projection` (the scan is the projection the laws state), `grep::bridge` (read and grep show the same rows on random bytes with `\r`, `\n`, `\r\n`, BOM; file changes between search and record), `grep::decide::tests` (grep's decisions come from the compiled core), `glob::bridge` (generated trees; every continuation followed once), `durable::documents::bridge` (long read cut by the output bound; edits at anchors in and around the cut).
 
 Not modelled: notice text bytes; line model of a stale edit's rebase (maps lines through a line diff).

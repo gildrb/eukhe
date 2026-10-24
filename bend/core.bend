@@ -13,6 +13,7 @@ import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_rows.bend as ffi_doc_rows
+import ./ffi_doc_search.bend as ffi_doc_search
 import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
@@ -125,6 +126,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_fsmode.ffi(input)
     case 38:
       ffi_skill_load.ffi(input)
+    case 40:
+      ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
     case _:
@@ -143,6 +146,7 @@ type State is Type:
   Tree{s: ffi_tree.St}
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
+  DocSearch{s: ffi_doc_search.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -175,6 +179,11 @@ def open.log(r: ffi_log.St & String) -> State & String:
     case (s, reply):
       (Log{s}, reply)
 
+def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (DocSearch{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -189,6 +198,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.notice(ffi_notice.open(input))
     case 33:
       open.log(ffi_log.open(input))
+    case 40:
+      open.doc_search(ffi_doc_search.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -227,6 +238,11 @@ def step.log(r: ffi_log.St & String) -> State & String:
     case (s, reply):
       (Log{s}, reply)
 
+def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (DocSearch{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -241,6 +257,8 @@ def step.go(state: State, input: String) -> State & String:
       step.notice(ffi_notice.step(s, input))
     case Log{s}:
       step.log(ffi_log.step(s, input))
+    case DocSearch{s}:
+      step.doc_search(ffi_doc_search.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -262,6 +280,8 @@ def close.go(state: State) -> Unit:
     case Notice{s}:
       Unit{}
     case Log{s}:
+      Unit{}
+    case DocSearch{s}:
       Unit{}
     case Unknown{}:
       Unit{}
