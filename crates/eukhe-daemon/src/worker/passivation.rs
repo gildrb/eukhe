@@ -5,7 +5,10 @@
 //! wake — and each park re-checks both: a parent-owned child with no
 //! work releases its kernel (the next kernel use revives it from the
 //! flushed snapshot), and an idle unattached root session under a live
-//! threshold asks the supervisor for the graceful stop. Both are
+//! threshold asks the supervisor for the graceful stop. Both read the one
+//! work set ([`super::run_gate::background_work`]): a running kernel
+//! `bash()` handle or detached cell holds the release as it holds the
+//! stop, and its settlement wakes a run whose end parks again. Both are
 //! best-effort: a rejected or failed ask leaves the worker resident and
 //! the next park re-arms.
 
@@ -163,20 +166,7 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
                 core.active_session_id.clone(),
             )
         };
-        // The settled-child kernel release (best-effort: a failed dispose
-        // leaves nothing behind — the entry is gone either way, so a
-        // later use boots fresh).
-        if child_release_due(gates) {
-            let release = context
-                .session
-                .get()
-                .and_then(|hosted| hosted.main().ok().map(|main| (hosted, main.id())));
-            if let Some((hosted, conversation)) = release {
-                if !has_registered_job(&context.scheduled, &active_session_id) {
-                    release_settled_kernel(hosted.deps(), conversation).await;
-                }
-            }
-        }
+        release_settled_child_kernel(&context, gates, &active_session_id).await;
         // The idle window: the fire re-checks everything fresh (the TS
         // fresh-snapshot fence).
         let eviction = SettingsManager::create(std::path::Path::new(&cwd), &context.agent_dir)
@@ -191,6 +181,34 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
                 maybe_request_idle_passivation(&context, cwd.clone()).await;
             }
         }
+    }
+}
+
+/// The settled-child kernel release of one park (best-effort: a failed
+/// dispose leaves nothing behind — the entry is gone either way, so a
+/// later use boots fresh). The release disposes the kernel, which ends
+/// every `bash()` handle and detached cell it runs, so the idle
+/// passivation's work set holds it: a child with background work keeps
+/// its kernel, and the run its job's settlement wakes parks again and
+/// releases then.
+async fn release_settled_child_kernel(
+    context: &ParkContext,
+    gates: ParkGates,
+    active_session_id: &str,
+) {
+    if !child_release_due(gates) || has_registered_job(&context.scheduled, active_session_id) {
+        return;
+    }
+    if super::run_gate::background_work(&context.session, &context.user_bash).await
+        == crate::work_gate::Work::Ongoing
+    {
+        return;
+    }
+    let Some(hosted) = context.session.get() else {
+        return;
+    };
+    if let Ok(main) = hosted.main() {
+        release_settled_kernel(hosted.deps(), main.id()).await;
     }
 }
 
@@ -344,6 +362,84 @@ mod tests {
         assert_eq!(
             idle_window(gates(1, 0, false, false), 0, 0, IdleEviction::Minutes(5)),
             None
+        );
+    }
+
+    /// Regression: a parked child whose kernel ran a background `bash()`
+    /// command (a long build) released its kernel at the park, and the
+    /// dispose killed the command (`exit -15`). The release holds while
+    /// the kernel has background work; once the command settled and the
+    /// run its notice woke parked, the release goes through.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parked_child_keeps_its_kernel_while_a_background_job_runs() {
+        const SESSION: &str = "child-background-job";
+        let gate_dir = tempfile::tempdir().expect("tempdir");
+        let gate = gate_dir.path().join("gate");
+        let command = format!("while [ ! -f '{}' ]; do sleep 0.05; done", gate.display());
+        let cell = format!("from rlm import bash\nbuild = bash({command:?})");
+        let (dir, worker) = crate::durable_test_support::created_worker_with(
+            SESSION,
+            serde_json::json!([
+                { "content": [{ "type": "toolCall", "name": "ipython", "arguments": { "code": cell }, "id": "call-1" }] },
+                "started",
+                "settled",
+            ]),
+            serde_json::json!({ "rlmDepth": 1 }),
+        )
+        .await;
+        let context = ParkContext {
+            core: Arc::clone(&worker.core),
+            session: worker.session.clone(),
+            user_bash: Arc::clone(&worker.user_bash),
+            input_pauses: worker.input_pauses.clone(),
+            scheduled: Arc::clone(&worker.scheduled),
+            link: Arc::new(SupervisorLink::new(PathBuf::new())),
+            worker_token: "token".to_owned(),
+            agent_dir: dir.path().join("agent"),
+            park_notify: Arc::clone(&worker.park_notify),
+        };
+        let park = || {
+            let core = lock(&worker.core);
+            let gates = ParkGates::of(&core, false, false);
+            assert!(child_release_due(gates), "the child parked: {gates:?}");
+            gates
+        };
+        let jobs = || {
+            let hosted = worker.session.get().expect("a hosted session");
+            let main = hosted.main().expect("main conversation");
+            eukhe_core::durable::rlm::kernel_background_jobs(hosted.deps(), main.id())
+        };
+        let idle = |payload: serde_json::Value| {
+            let worker = Arc::clone(&worker);
+            async move {
+                let idle = worker.dispatch("wait_for_idle", &payload).await;
+                assert!(idle.success, "wait_for_idle: {idle:?}");
+            }
+        };
+
+        let prompt = worker
+            .dispatch("prompt", &serde_json::json!({ "message": "build" }))
+            .await;
+        assert!(prompt.success, "prompt: {prompt:?}");
+        idle(serde_json::json!({})).await;
+        assert_eq!(jobs(), 1, "the build runs in the child's kernel");
+        release_settled_child_kernel(&context, park(), SESSION).await;
+        assert_eq!(jobs(), 1, "the park kept the kernel and its build");
+
+        std::fs::write(&gate, "").expect("open the gate");
+        idle(serde_json::json!({ "waitForRlmQuiescence": true, "waitForBackgroundJobs": true }))
+            .await;
+        release_settled_child_kernel(&context, park(), SESSION).await;
+        let listed = worker
+            .dispatch(
+                "list_kernel_bash",
+                &serde_json::json!({ "activeSessionId": SESSION }),
+            )
+            .await;
+        assert_eq!(
+            listed.error.as_deref(),
+            Some("Kernel is not running"),
+            "the settled child released its kernel: {listed:?}"
         );
     }
 }
