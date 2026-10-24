@@ -1024,6 +1024,10 @@
     "laws/tokens.bend::tokens_paired": "427678176d9d15a814a13630f5f3bd0a5153f68eae46a7440b4ebf1c47a3f1c6",
     "laws/tokens.bend::tokens_space_ascends": "8ad3b0d69ad009997566005dea38f6b937f1c7dfbc2ca918400c0888b8e7bed4",
     "laws/tokens.bend::tokens_type_ascends": "88c5633deb3169a97db72ec850a7f2cb3f51e4f8c1af66c7fb7540d00bb1d475",
+    "laws/tool_surface.bend::tool_surface_ffi_answers": "c91c38524b5d8fd3d05b6223c5423c4f17d84db75c18eafe1573875e40e4c78e",
+    "laws/tool_surface.bend::tool_surface_ffi_exact": "d8360762b872e994c8eee95de6392de6f658a2765ce9c39b1f2f1c480532fd80",
+    "laws/tool_surface.bend::tool_surface_ffi_example": "6e7cc94e46a50557fc203028087ca63ae9f59e77544d3da6b8ba4250552422f5",
+    "laws/tool_surface.bend::tool_surface_ffi_left_over": "35dd9d0214b59817945e78f65dd43225920bcdee9c1364e600687120e36758d0",
     "laws/tools.bend::auto_needs_every_effect": "cb050ddb2d5dbb1a4b157119011b947dfffa70d8e3786f1ff0bc7be7502234fb",
     "laws/tools.bend::auto_never_sensitive": "f1dbd6952054eee406723f77e924ce29b12c1f5d59a8bb1ce542eddada61a7f8",
     "laws/tools.bend::auto_runs_within": "f8eac26910bcae2de45dd31151844b31686ad45aaac233261c019547a9baff70",
@@ -1167,7 +1171,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "3573b20793253b511b1a998638d38742af0681aa6b074ef44d3cca8512f43279",
+    "LAWS.bend": "f2a535fd2328f5a1aab157445b74d1fec8ccfc5422205d94ed9c2c2b6f77a139",
     "laws/admission.bend": "848617737e0db43b23f7330adc23c0256f6bfbe6a2f008b68f7512a842fb7e1c",
     "laws/approvals.bend": "e49f3e3fe6763e3b0df74aa21b5722acd44fd2cb19bbad02c7e163175b5e5cd9",
     "laws/auth_flight.bend": "b32d55da850f675608d7594e8cac61401e7704ad92e92c74324f5ce3b5de950f",
@@ -1222,6 +1226,7 @@
     "laws/theme.bend": "fa5c82b63534813fe113cd96f96ff6e0c19d0855aea85e7f560be301b3b674a9",
     "laws/tiny.bend": "4373943c08ff6c464fe2ed40403d579e971d9403bff94b9051135a475ad63ea7",
     "laws/tokens.bend": "5a0e98809bc5926dd1ab5306bc10dc7748aec0fb352c83c8f9ed6c121ba5cdac",
+    "laws/tool_surface.bend": "3f899840e839a277d15f9ee723e976681bb9c8f569c5a2e31cb3e3ef512fd525",
     "laws/tools.bend": "9db040d3736225b49ae79ef5198c1a059f493e3398c2517cc904ca3ea7e90656",
     "laws/tree.bend": "377e3edf22d507566f40843ea2b8bfa7a9067c0e8684ef59ce5e4d59bda0068b",
     "laws/tui_color.bend": "4cfc516632dfcd6ad1c7853199f5ab0297807b1cb330d45ef64164a4123c82f8",
