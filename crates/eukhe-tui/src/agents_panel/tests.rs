@@ -376,6 +376,15 @@ fn the_block_shows_while_anything_runs() {
 }
 
 fn texts(panel: &AgentsPanel, mode: PinnedAgents, anchor: Instant) -> Vec<String> {
+    texts_from(panel, mode, ExpandReach::AfterFocus("alt+a"), anchor)
+}
+
+fn texts_from(
+    panel: &AgentsPanel,
+    mode: PinnedAgents,
+    expand_reach: ExpandReach<'_>,
+    anchor: Instant,
+) -> Vec<String> {
     let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
     render_agents_panel(
         panel,
@@ -385,6 +394,7 @@ fn texts(panel: &AgentsPanel, mode: PinnedAgents, anchor: Instant) -> Vec<String
             focused: false,
             open_key: "alt+a",
             expand_key: "space",
+            expand_reach,
             frame: 0,
             now: anchor,
             now_ms: ms(NOW),
@@ -434,11 +444,41 @@ fn the_rows_render_and_collapse() {
     ];
     assert_eq!(texts(&panel, PinnedAgents::Full, anchor), full);
     let mut collapsed = full[..4].to_vec();
-    collapsed.push("   ... 2 more (space: expand)".to_string());
+    collapsed.push("   ... 2 more (alt+a, space: expand)".to_string());
     assert_eq!(texts(&panel, PinnedAgents::Collapsed, anchor), collapsed);
     assert_eq!(
         texts(&panel, PinnedAgents::Off, anchor),
         Vec::<String>::new()
+    );
+}
+
+/// The "N more" row names only keys that expand the block from where the
+/// keys go: the expand key while the dock holds the focus; from the
+/// editor (where a space is text) the focus key first; nothing while the
+/// dock refuses the focus. It once said `space: expand` from the editor,
+/// where Space only typed a space.
+#[test]
+fn the_more_row_names_only_keys_that_work() {
+    let anchor = Instant::now();
+    let panel = built(anchor);
+    let more = |reach| {
+        texts_from(&panel, PinnedAgents::Collapsed, reach, anchor)
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        [
+            ExpandReach::Focused,
+            ExpandReach::AfterFocus("alt+a"),
+            ExpandReach::Blocked
+        ]
+        .map(more),
+        [
+            "   ... 2 more (space: expand)".to_string(),
+            "   ... 2 more (alt+a, space: expand)".to_string(),
+            "   ... 2 more".to_string(),
+        ]
     );
 }
 

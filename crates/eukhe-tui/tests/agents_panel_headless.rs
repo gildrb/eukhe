@@ -1,7 +1,8 @@
 //! Headless e2e for the pinned agents block: a running subagent shows
 //! above the composer with its model, reasoning level, phase, current
 //! tool, context use, and spend, straight from the roster the client
-//! subscribed to; when a roster push says it stopped, the block goes.
+//! subscribed to; when a roster push says it stopped, the block goes. A
+//! collapsed block names the keys that expand it from where the keys go.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
@@ -11,6 +12,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,
     SessionSelection, UiMode,
@@ -53,26 +55,37 @@ fn worker(running: bool) -> Value {
     })
 }
 
-fn roster() -> Value {
-    json!([
-        {
-            "agentId": "s1",
-            "status": "idle",
-            "summary": {
-                "sessionId": "sess-1",
-                "activeSessionId": "s1",
-                "sessionName": "lead",
-                "runtimeKind": "top-level",
-            },
+/// The lead session's roster row, then `children`.
+fn roster(children: impl IntoIterator<Item = Value>) -> Value {
+    let mut rows = vec![json!({
+        "agentId": "s1",
+        "status": "idle",
+        "summary": {
+            "sessionId": "sess-1",
+            "activeSessionId": "s1",
+            "sessionName": "lead",
+            "runtimeKind": "top-level",
         },
-        worker(true),
-    ])
+    })];
+    rows.extend(children);
+    Value::Array(rows)
 }
 
-/// Serve one connection: the hello, the attach snapshot, the roster with
-/// the running worker, and an empty success for everything else; the
-/// message to `worker-1` is followed by the roster push that settles it.
-fn serve(listener: &UnixListener) {
+/// One more running subagent, `worker-<n>`.
+fn helper(n: u32) -> Value {
+    let mut row = worker(true);
+    row["agentId"] = json!(format!("c{n}"));
+    row["summary"]["sessionId"] = json!(format!("c{n}"));
+    row["summary"]["activeSessionId"] = json!(format!("c{n}-live"));
+    row["summary"]["sessionName"] = json!(format!("worker-{n}"));
+    row["summary"]["rlmChildId"] = json!(format!("sub-c{n}"));
+    row
+}
+
+/// Serve one connection: the hello, the attach snapshot, `roster`, and an
+/// empty success for everything else; the message to `worker-1` is
+/// followed by the roster push that settles it.
+fn serve(listener: &UnixListener, roster: &Value) {
     let (stream, _) = listener.accept().expect("accept");
     let mut writer = stream.try_clone().expect("clone mock socket");
     let mut reader = BufReader::new(stream);
@@ -100,7 +113,7 @@ fn serve(listener: &UnixListener) {
         let command_type = command["type"].as_str().unwrap_or_default().to_string();
         let data = match command_type.as_str() {
             "attach" => attach_data(),
-            "roster_subscribe" => json!({ "roster": roster() }),
+            "roster_subscribe" => json!({ "roster": roster }),
             _ => json!({}),
         };
         write_json(
@@ -206,7 +219,7 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("tui.sock");
     let listener = UnixListener::bind(&socket).expect("bind mock socket");
-    let handle = std::thread::spawn(move || serve(&listener));
+    let handle = std::thread::spawn(move || serve(&listener, &roster([worker(true)])));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -250,5 +263,69 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
     assert!(
         !last.contains("worker-1  qwen3.8-27b:high"),
         "the block is gone once nothing runs:\n{last}"
+    );
+}
+
+fn key(code: KeyCode, modifiers: KeyModifiers) -> HeadlessStep {
+    HeadlessStep::Key(KeyEvent::new(code, modifiers))
+}
+
+/// The user's case: five running subagents fold to three rows and "2
+/// more". From the editor (a draft in it) Space is text, so the row names
+/// the focus key first; once the dock holds the focus, Space expands.
+/// Before the fix the row said `space: expand` from the editor too, where
+/// Space only typed a space.
+#[test]
+fn the_collapsed_block_names_keys_that_expand_it() {
+    std::env::remove_var("TMUX");
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("tui.sock");
+    let listener = UnixListener::bind(&socket).expect("bind mock socket");
+    let handle = std::thread::spawn(move || {
+        serve(
+            &listener,
+            &roster([worker(true), helper(2), helper(3), helper(4), helper(5)]),
+        );
+    });
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let wait = |needle: &str| HeadlessStep::WaitRender {
+        needle: needle.to_string(),
+        timeout_ms: 10_000,
+    };
+    let plan = HeadlessPlan {
+        steps: vec![
+            wait("Agents  5 running"),
+            wait("... 2 more (Alt+A, Space: expand)"),
+            key(KeyCode::Char('h'), KeyModifiers::NONE),
+            key(KeyCode::Char(' '), KeyModifiers::NONE),
+            key(KeyCode::Char('i'), KeyModifiers::NONE),
+            wait("> h i"),
+            wait("... 2 more (Alt+A, Space: expand)"),
+            key(KeyCode::Char('a'), KeyModifiers::ALT),
+            wait("... 2 more (Space: expand)"),
+            key(KeyCode::Char(' '), KeyModifiers::NONE),
+            HeadlessStep::WaitGone {
+                needle: "2 more".to_string(),
+                timeout_ms: 10_000,
+            },
+            wait("worker-5"),
+        ],
+        width: 160,
+        height: 40,
+    };
+    let frames = runtime
+        .block_on(run_interactive(options(socket), UiMode::Headless(plan)))
+        .expect("interactive run")
+        .frames;
+    handle.join().expect("mock supervisor finished");
+    assert!(
+        frames
+            .iter()
+            .all(|frame| !frame.contains("timed out waiting")),
+        "every render condition held:\n{}",
+        frames.join("\n---frame---\n")
     );
 }

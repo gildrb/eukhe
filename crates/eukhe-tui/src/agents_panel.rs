@@ -134,6 +134,20 @@ pub struct AgentsPanel {
     pub jobs: Vec<JobRow>,
 }
 
+/// How the expand key reaches the block from where the keys go now: the
+/// "N more" row names only keys that work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExpandReach<'a> {
+    /// The dock holds the focus: the expand key toggles the block.
+    Focused,
+    /// The editor holds the keys (a space there is text): this key hands
+    /// the focus to the dock first.
+    AfterFocus(&'a str),
+    /// The dock refuses the focus now (the armed exit hint, or the
+    /// streaming follow-up hint over a draft): no key expands the block.
+    Blocked,
+}
+
 /// What a render of the block needs besides its content.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PanelView<'a> {
@@ -147,6 +161,8 @@ pub(crate) struct PanelView<'a> {
     pub(crate) open_key: &'a str,
     /// The key that expands or collapses the block.
     pub(crate) expand_key: &'a str,
+    /// How the expand key reaches the block now.
+    pub(crate) expand_reach: ExpandReach<'a>,
     pub(crate) frame: usize,
     pub(crate) now: Instant,
     pub(crate) now_ms: u64,
@@ -388,8 +404,15 @@ pub(crate) fn render_agents_panel(
     };
     rows.truncate(total - hidden);
     if hidden > 0 {
+        let keys = match view.expand_reach {
+            ExpandReach::Focused => format!(" ({}: expand)", view.expand_key),
+            ExpandReach::AfterFocus(focus_key) => {
+                format!(" ({focus_key}, {}: expand)", view.expand_key)
+            }
+            ExpandReach::Blocked => String::new(),
+        };
         rows.push(vec![Span::styled(
-            format!("   {ELLIPSIS} {hidden} more ({}: expand)", view.expand_key),
+            format!("   {ELLIPSIS} {hidden} more{keys}"),
             theme.fg_style(ThemeColor::Muted),
         )]);
     }

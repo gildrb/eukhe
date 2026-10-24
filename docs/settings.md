@@ -57,7 +57,7 @@ More settings:
 |`terminal.streamPace.lag`|`3`|Each frame shows backlog / (`1 + lag`)|
 |`terminal.showSpeed`|`true`|Status-line speed: `prefill <elapsed>s` (or `prefill p/n tokens` from llama.cpp), `decode N tok/s`, after the reply `prefill X tok/s (TTFT Ys) · decode Z tok/s`|
 |`terminal.fullscreen`|`true`|Alternate screen (transcript window above the dock, wheel scrolling); `false` = inline, transcript in scrollback|
-|`terminal.pinnedAgents`|`collapsed`|Agents block above the composer while a subagent or job runs: `off`, `collapsed` (three rows + `... N more`), `full`. Dock focused (Alt+A): Space expands/collapses; Enter (or Alt+A) opens the agents view|
+|`terminal.pinnedAgents`|`collapsed`|Agents block above the composer while a subagent or job runs: `off`, `collapsed` (three rows + `... N more`), `full`. Dock focused (Alt+A): Space expands/collapses; Enter (or Alt+A) opens the agents view. The `... N more` row names the keys that expand it from where the keys go: `(space: expand)` with the dock focused, `(alt+a, space: expand)` from the editor (where Space is text), none while the dock refuses the focus (the armed exit hint, or a draft while a turn streams)|
 |`terminal.stuckAfterSecs`|`60`|Seconds without activity (event, token, tool output) before a running subagent's row shows `no activity for ...` in warning color; `0` off|
 
 ## Model roles

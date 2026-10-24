@@ -66,9 +66,21 @@ impl AgentView {
         let kb = self.editor.keybindings();
         let open_key = kb.key_text("app.subagents.focus");
         let expand_key = kb.key_text("app.subagents.pinned");
-        let focused = self.chrome.activity.as_ref().is_some_and(|dock| {
+        let dock = self.chrome.activity.as_ref();
+        let focused = dock.is_some_and(|dock| {
             dock.focused && dock.selected == crate::chrome::ActivityGroup::Subagents
         });
+        // The expand key toggles the block only while the dock holds the
+        // focus (whatever group it rests on); from the editor a space is
+        // text, and the focus key comes first, unless the tray override
+        // refuses the hand-off (session_ui `focus_subagents_summary`).
+        let expand_reach = if dock.is_some_and(|dock| dock.focused) {
+            crate::agents_panel::ExpandReach::Focused
+        } else if self.chrome.tray_override.is_some() {
+            crate::agents_panel::ExpandReach::Blocked
+        } else {
+            crate::agents_panel::ExpandReach::AfterFocus(&open_key)
+        };
         crate::agents_panel::render_agents_panel(
             &self.agents_panel,
             &crate::agents_panel::PanelView {
@@ -77,6 +89,7 @@ impl AgentView {
                 focused,
                 open_key: &open_key,
                 expand_key: &expand_key,
+                expand_reach,
                 frame: self.pulse_frame,
                 now: std::time::Instant::now(),
                 now_ms: crate::agents_view_state::now_ms(),
