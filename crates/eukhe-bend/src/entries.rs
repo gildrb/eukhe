@@ -90,6 +90,8 @@ pub enum Entry {
     DocRows = 41,
     /// `bend/ffi_compactor.bend`: a call.
     Compactor = 70,
+    /// `bend/ffi_model_facts.bend`: a call.
+    ModelFacts = 71,
     /// `bend/ffi_tokens.bend`: a call.
     Tokens = 78,
 }
@@ -139,6 +141,7 @@ impl Entry {
         Entry::DocSearch,
         Entry::DocRows,
         Entry::Compactor,
+        Entry::ModelFacts,
         Entry::Tokens,
     ];
 

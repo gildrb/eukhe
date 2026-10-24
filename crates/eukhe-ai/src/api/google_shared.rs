@@ -156,7 +156,7 @@ static GEMINI_MAJOR_VERSION: LazyLock<Regex> = LazyLock::new(|| {
 /// `thinkingLevelMap`; this only selects the Google wire format.
 #[must_use]
 pub fn uses_google_thinking_level(model: &Model) -> bool {
-    Quirks::of(model).google_thinking_level().unwrap_or(false)
+    eukhe_bend::rules::model_facts::flag(Quirks::of(model).google_thinking_level(), false)
 }
 
 /// TS `toGoogleThinkingLevel`.

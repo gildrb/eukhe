@@ -26,6 +26,7 @@ import ./ffi_job.bend as ffi_job
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
+import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
@@ -134,6 +135,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_rows.ffi(input)
     case 70:
       ffi_compactor.ffi(input)
+    case 71:
+      ffi_model_facts.ffi(input)
     case 78:
       ffi_tokens.ffi(input)
     case _:

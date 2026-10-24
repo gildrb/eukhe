@@ -43,4 +43,5 @@
 41 doc_rows
 40 doc_search
 70 compactor
+71 model_facts
 78 tokens

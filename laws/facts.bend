@@ -143,8 +143,8 @@ law core_facts_malformed_example:
 # inside the model's limits, and where a fact moved from code into data the
 # data gives the answers the code gave. Each law is an open claim about the
 # model in bend/facts.bend; PROOF.bend proves them (as Facts.<law>)
-# with the lemmas of proof/facts/; bridge/bridge_facts.bend runs the
-# model against the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
+# with the lemmas of proof/facts/. The decisions run as the compiled core
+# (entry bend/ffi_model_facts.bend, laws at the end of this file).
 
 # (S6.10.1) Decisions are rulebook lookups
 # ----------------------------------------
@@ -422,3 +422,165 @@ law facts_cache_write_1h_own_rate:
   for +input: Nat
   for +write: Nat
   {Fx.rate_1h(None{}, input, write) == write : Nat}
+
+# (S6.10) The model's terms the entry bend/ffi_model_facts.bend calls
+# ------------------------------------------------------------------
+
+# The model's own terms, independently: a known flag is true exactly at
+# 1, an unknown one takes the wire API's default; the effort is the map's
+# wire value at the level, else 2 (low) at minimal and low, 3 at medium, 4
+# at high, xhigh and max; the price is the first row of the model that
+# prices the tier, else the first row of every model that does, else none
+def flag_spec(a: If.Ans, d: Bool) -> Bool:
+  match a:
+    case If.Known{v}:
+      match v:
+        case 0n:
+          False{}
+        case 1n+k:
+          match k:
+            case 0n:
+              True{}
+            case 1n+j:
+              False{}
+    case If.Unknown{}:
+      d
+
+def effort_spec.dflt(l: Fx.ELv) -> Nat:
+  match l:
+    case Fx.EMinimal{}:
+      2n
+    case Fx.ELow{}:
+      2n
+    case Fx.EMedium{}:
+      3n
+    case Fx.EHigh{}:
+      4n
+    case Fx.EXhigh{}:
+      4n
+    case Fx.EMax{}:
+      4n
+
+def effort_spec.at(m: Fx.EMap, l: Fx.ELv) -> Maybe<&2, Maybe<&2, Nat>>:
+  match m:
+    case Fx.EMap{mi, lo, me, hi, xh, mx}:
+      match l:
+        case Fx.EMinimal{}:
+          mi
+        case Fx.ELow{}:
+          lo
+        case Fx.EMedium{}:
+          me
+        case Fx.EHigh{}:
+          hi
+        case Fx.EXhigh{}:
+          xh
+        case Fx.EMax{}:
+          mx
+
+def effort_spec.of(e: Maybe<&2, Maybe<&2, Nat>>, d: Nat) -> Nat:
+  match e:
+    case None{}:
+      d
+    case Some{w}:
+      Maybe.default(&2, Nat, w, d)
+
+def effort_spec(+m: Fx.EMap, +l: Fx.ELv) -> Nat:
+  effort_spec.of(effort_spec.at(m, l), effort_spec.dflt(l))
+
+def price_spec.pick(hit: Bool, k: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      Some{k}
+    case False{}:
+      later
+
+def price_spec.exact(+m: Nat, rm: Maybe<&2, Nat>) -> Bool:
+  match rm:
+    case None{}:
+      False{}
+    case Some{x}:
+      Nat.is_eq(x, m)
+
+def price_spec.wide(rm: Maybe<&2, Nat>) -> Bool:
+  match rm:
+    case None{}:
+      True{}
+    case Some{x}:
+      False{}
+
+# the first row of the model m that prices the tier t
+def price_spec.of_model(rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
+  match rows:
+    case Nil{}:
+      None{}
+    case r <> more:
+      match r:
+        case Fx.PRow{rm, rt, k}:
+          price_spec.pick(Bool.and(price_spec.exact(m, rm), Nat.is_eq(rt, t)), k, price_spec.of_model(more, m, t))
+
+# the first row of every model that prices the tier t
+def price_spec.of_all(rows: List<&2, Fx.PRow>, +t: Nat) -> Maybe<&2, Nat>:
+  match rows:
+    case Nil{}:
+      None{}
+    case r <> more:
+      match r:
+        case Fx.PRow{rm, rt, k}:
+          price_spec.pick(Bool.and(price_spec.wide(rm), Nat.is_eq(rt, t)), k, price_spec.of_all(more, t))
+
+def price_spec.or(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match a:
+    case None{}:
+      b
+    case Some{k}:
+      Some{k}
+
+def price_spec(+rows: List<&2, Fx.PRow>, +m: Nat, +t: Nat) -> Maybe<&2, Nat>:
+  price_spec.or(price_spec.of_model(rows, m, t), price_spec.of_all(rows, t))
+
+# LAW facts_flag_exact: a flag decision is exactly: a known answer is true only when it is 1, an unknown one takes the wire API's default
+law facts_flag_exact:
+  for a: If.Ans
+  for d: Bool
+  {Fx.flag(a, d) == flag_spec(a, d) : Bool}
+
+# LAW facts_effort_exact: the Bedrock effort is exactly the map's wire value at the level, else low at minimal and low, medium at medium, high at high, xhigh and max (a null entry takes the default too)
+law facts_effort_exact:
+  for +m: Fx.EMap
+  for +l: Fx.ELv
+  {Fx.effort(m, l) == effort_spec(m, l) : Nat}
+
+# LAW facts_price_exact: a tier's multiplier is exactly the first row of the model that prices the tier, else the first row of every model that does, else none
+law facts_price_exact:
+  for +rows: List<&2, Fx.PRow>
+  for +m: Nat
+  for +t: Nat
+  {Fx.price(rows, m, t) == price_spec(rows, m, t) : Maybe<&2, Nat>}
+
+def customs_spec(c: Fx.Customs, l: Fx.Lv) -> Maybe<&2, Nat>:
+  match c:
+    case Fx.Customs{mi, lo, me, hi}:
+      match l:
+        case Fx.Minimal{}:
+          mi
+        case Fx.Low{}:
+          lo
+        case Fx.Medium{}:
+          me
+        case Fx.High{}:
+          hi
+
+# LAW facts_customs_at_exact: the user's budget of a level is exactly the user's budget written for that level (minimal, low, medium, high), never another level's
+law facts_customs_at_exact:
+  for c: Fx.Customs
+  for l: Fx.Lv
+  {Fx.Customs.at(c, l) == customs_spec(c, l) : Maybe<&2, Nat>}
+
+# LAW facts_aux_exact: an auxiliary call's output cap is exactly the high budget (the user's, else the default) plus the answer's tokens, held at the top
+law facts_aux_exact:
+  for c: Fx.Customs
+  for d: Fx.Budgets
+  for +a: Nat
+  for +top: Nat
+  {Fx.aux(c, d, a, top) == Fx.aux_cap.within(Maybe.default(&2, Nat, customs_spec(c, Fx.High{}), Fx.Budgets.at(d, Fx.High{})), a, top) : Nat}

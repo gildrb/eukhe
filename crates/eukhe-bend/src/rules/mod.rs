@@ -5,6 +5,7 @@
 pub mod compactor;
 pub mod cvar;
 pub mod fsmode;
+pub mod model_facts;
 pub mod retry;
 pub mod semver;
 pub mod tokens;

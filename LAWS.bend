@@ -50,6 +50,7 @@ import ./laws/runners.bend as Runners
 import ./laws/approvals.bend as Approvals
 import ./laws/wire.bend as Wire
 import ./laws/facts.bend as Facts
+import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
 import ./laws/dash.bend as Dash
 import ./laws/doc_commit.bend as DocCommit

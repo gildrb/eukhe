@@ -5,6 +5,7 @@
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
+use eukhe_bend::rules::model_facts::{self, Effort, Level, MapEntry};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
     ModelThinkingLevel, ProviderEnv, StopReason, ThinkingLevel, Tool, UserContent,
@@ -41,18 +42,37 @@ const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-
 /// in its map (`xhigh: "xhigh"`).
 #[must_use]
 pub fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
-    let mapped = thinking_level_map(model)
-        .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
-        .and_then(Option::as_ref);
-    if let Some(mapped) = mapped {
-        return mapped.clone();
+    let map = thinking_level_map(model);
+    let entry = |at: ModelThinkingLevel| match map.and_then(|map| map.get(&at)) {
+        None => MapEntry::Missing,
+        Some(None) => MapEntry::Null,
+        Some(Some(_)) => MapEntry::Wire,
+    };
+    let entries = [
+        entry(ModelThinkingLevel::Minimal),
+        entry(ModelThinkingLevel::Low),
+        entry(ModelThinkingLevel::Medium),
+        entry(ModelThinkingLevel::High),
+        entry(ModelThinkingLevel::Xhigh),
+        entry(ModelThinkingLevel::Max),
+    ];
+    let at = match level {
+        ThinkingLevel::Minimal => Level::Minimal,
+        ThinkingLevel::Low => Level::Low,
+        ThinkingLevel::Medium => Level::Medium,
+        ThinkingLevel::High => Level::High,
+        ThinkingLevel::Xhigh => Level::Xhigh,
+        ThinkingLevel::Max => Level::Max,
+    };
+    match model_facts::effort(entries, at) {
+        Effort::Mapped => map
+            .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
+            .and_then(Option::clone)
+            .unwrap_or_default(),
+        Effort::Low => "low".to_owned(),
+        Effort::Medium => "medium".to_owned(),
+        Effort::High => "high".to_owned(),
     }
-    match level {
-        ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-        ThinkingLevel::Medium => "medium",
-        ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
-    }
-    .to_owned()
 }
 
 /// TS `resolveCacheRetention`: defaults to `short`; `PI_CACHE_RETENTION=long`
@@ -87,9 +107,8 @@ pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
 /// `AWS_BEDROCK_FORCE_CACHE=1`.
 #[must_use]
 pub fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
-    Quirks::of(model).prompt_caching().unwrap_or_else(|| {
-        get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1")
-    })
+    let forced = get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1");
+    model_facts::flag(Quirks::of(model).prompt_caching(), forced)
 }
 
 /// TS `supportsThinkingSignature`: only Claude accepts
@@ -538,7 +557,7 @@ pub(crate) fn build_additional_model_request_fields(
     let mut result = JsonObject::new();
     if adaptive {
         let use_block_binding =
-            !is_gov_cloud && Quirks::of(model).thinking_block_binding().unwrap_or(false);
+            !is_gov_cloud && model_facts::flag(Quirks::of(model).thinking_block_binding(), false);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
         if let Some(display) = display {
