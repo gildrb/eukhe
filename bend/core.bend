@@ -47,6 +47,7 @@ import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
+import ./ffi_tui_color.bend as ffi_tui_color
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -146,6 +147,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 63:
+      ffi_tui_color.ffi(input)
     case 64:
       ffi_cvar_layers.ffi(input)
     case _:

@@ -216,8 +216,8 @@ Status line: context usage of the daemon-served window (`contextUsage.contextWin
 
 `laws/tui_color.bend`, `laws/theme.bend` (T3), model `bend/tui_color.bend` with `bend/theme/bundled.bend` theme tables; proved in `proof/tui_color/` and `proof/theme/`:
 
-- Ramp: one rung per level. Any ladder length: each channel moves from `effortLow` toward `effortHigh`, never back. Ladder length ≤ widest channel distance of the ends: all rungs distinct. Each shipped theme: rungs distinct for any ladder of the level vocabulary.
-- Each band: a window fraction in (0, 1], above the previous band. More tokens, same window: never a lower band. Band depends only on the used fraction: same fraction of a k-times window, same band.
-- Every terminal UI color role resolves in every valid theme's palette and paints a color in every shipped theme.
+- Ramp: one rung per level. Every rung exactly as above (rung k + 1 of n, per channel). Any ladder length: each channel moves from `effortLow` toward `effortHigh`, never back. Ladder length ≤ widest channel distance of the ends: all rungs distinct. Each shipped theme: rungs distinct for any ladder of the level vocabulary.
+- Each band: a window fraction in (0, 1], above the previous band. The band is exactly the count of the shares 1/2, 7/10, 9/10 reached (unknown window: 0). More tokens, same window: never a lower band. Band depends only on the used fraction: same fraction of a k-times window, same band.
+- Every terminal UI color role resolves in every valid theme's palette and paints a color in every shipped theme. The roles are 58 distinct tokens: every token but `foreground` colors exactly one slot.
 
-Bridge test `crates/eukhe-tui/src/theme/bridge.rs`: Rust ramp, shipped ramps, bands, roles vs `bridge/bridge_tui_color.bend`.
+The terminal UI runs the model: entry `bend/ffi_tui_color.bend` (core entry 63, Rust `eukhe_bend::rules::tui_color`) answers the ramp, the band and the roles; `crates/eukhe-tui` paints them (roles once per process, each ramp length once per theme, the band per status line). Entry laws (`laws/tui_color.bend`, section entry): each request answers the model's ramp, band or roles; the band holds for every token count and window the wire carries (no product past the window: no runtime overflow); a ramp with a channel above 255 or more than 255 rungs, input left after a request, and every other malformed input answer their exact error forms.

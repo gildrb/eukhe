@@ -178,34 +178,16 @@ fn context_counts_and_tones_follow_omp() {
     .map(format_count)
     .collect();
     assert_eq!(counts, ["999", "1.5K", "10K", "128K", "1M", "2.5M", "1B"]);
-    let tones = [
-        context_color(0, 128_000),
-        context_color(63_999, 128_000),
-        context_color(64_000, 128_000),
-        context_color(89_600, 128_000),
-        context_color(115_200, 128_000),
-        // A 1M window turns at the same shares: 16% of it (160K tokens,
-        // above the old absolute 150K level) is still dim.
-        context_color(160_000, 1_000_000),
-        context_color(500_000, 1_000_000),
-        context_color(700_000, 1_000_000),
-        context_color(900_000, 1_000_000),
-        // An unknown window reaches no band.
-        context_color(2_000, 0),
-    ];
+    // One count per band (the core decides the band; laws/tui_color.bend
+    // pins it): each band paints its tone.
+    let tones = [0, 64_000, 89_600, 115_200].map(|tokens| context_color(tokens, 128_000));
     assert_eq!(
         tones,
         [
             ThemeColor::Dim,
-            ThemeColor::Dim,
             ThemeColor::Warning,
             ThemeColor::ContextHigh,
             ThemeColor::Error,
-            ThemeColor::Dim,
-            ThemeColor::Warning,
-            ThemeColor::ContextHigh,
-            ThemeColor::Error,
-            ThemeColor::Dim,
         ]
     );
     let unknown_window = ContextUsage {

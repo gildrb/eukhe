@@ -5,42 +5,10 @@ import ../../bend/tui_color.bend as TC
 import ../../laws/tui_color.bend as TuiColor
 import ./base.bend as LA
 
-def pu.add_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
-  match a:
-    case 0n:
-      {==}
-    case 1n+p:
-      %pu.add_assoc(p, b, c) : {1n+Nat.add(Nat.add(p, b), c) == 1n+_ : Nat}
-      {==}
-
-def pu.mul_add_r(+x: Nat, +y: Nat, +c: Nat) -> {Nat.mul(Nat.add(x, y), c) == Nat.add(Nat.mul(x, c), Nat.mul(y, c)) : Nat}:
-  match x:
-    case 0n:
-      {==}
-    case 1n+p:
-      %Equal.sym(Nat, Nat.mul(Nat.add(p, y), c), Nat.add(Nat.mul(p, c), Nat.mul(y, c)), pu.mul_add_r(p, y, c)) : {Nat.add(c, _) == Nat.add(Nat.add(c, Nat.mul(p, c)), Nat.mul(y, c)) : Nat}
-      Equal.sym(Nat, Nat.add(Nat.add(c, Nat.mul(p, c)), Nat.mul(y, c)), Nat.add(c, Nat.add(Nat.mul(p, c), Nat.mul(y, c))), pu.add_assoc(c, Nat.mul(p, c), Nat.mul(y, c)))
-
-def pu.mul_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.mul(Nat.mul(a, b), c) == Nat.mul(a, Nat.mul(b, c)) : Nat}:
-  match a:
-    case 0n:
-      {==}
-    case 1n+p:
-      %Equal.sym(Nat, Nat.mul(Nat.add(b, Nat.mul(p, b)), c), Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)), pu.mul_add_r(b, Nat.mul(p, b), c)) : {_ == Nat.add(Nat.mul(b, c), Nat.mul(p, Nat.mul(b, c))) : Nat}
-      %pu.mul_assoc(p, b, c) : {Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)) == Nat.add(Nat.mul(b, c), _) : Nat}
-      {==}
-
-def pu.mul_zero_r(+k: Nat) -> {Nat.mul(k, 0n) == 0n : Nat}:
-  match k:
-    case 0n:
-      {==}
-    case 1n+p:
-      pu.mul_zero_r(p)
-
 def pu.pos(+k: Nat, +w: Nat) -> {Nat.is_lt(0n, Nat.mul(1n+k, w)) == Nat.is_lt(0n, w) : Bool}:
   match w:
     case 0n:
-      %Equal.sym(Nat, Nat.mul(k, 0n), 0n, pu.mul_zero_r(k)) : {Nat.is_lt(0n, _) == Nat.is_lt(0n, 0n) : Bool}
+      %Equal.sym(Nat, Nat.mul(k, 0n), 0n, LA.pu.mul_zero_r(k)) : {Nat.is_lt(0n, _) == Nat.is_lt(0n, 0n) : Bool}
       {==}
     case 1n+v:
       {==}
@@ -69,8 +37,8 @@ def pu.reach_scale(+f: TC.Frac, +k: Nat, +t: Nat, +w: Nat) -> {TC.reached(f, Nat
       +kk = {1n+k : Nat}
       +rhs = Bool.and(Nat.is_lt(0n, w), Nat.is_le(Nat.mul(w, num), Nat.mul(t, den)))
       %Equal.sym(Bool, Nat.is_lt(0n, Nat.mul(kk, w)), Nat.is_lt(0n, w), pu.pos(k, w)) : {Bool.and(_, Nat.is_le(Nat.mul(Nat.mul(kk, w), num), Nat.mul(Nat.mul(kk, t), den))) == rhs : Bool}
-      %Equal.sym(Nat, Nat.mul(Nat.mul(kk, w), num), Nat.mul(kk, Nat.mul(w, num)), pu.mul_assoc(kk, w, num)) : {Bool.and(Nat.is_lt(0n, w), Nat.is_le(_, Nat.mul(Nat.mul(kk, t), den))) == rhs : Bool}
-      %Equal.sym(Nat, Nat.mul(Nat.mul(kk, t), den), Nat.mul(kk, Nat.mul(t, den)), pu.mul_assoc(kk, t, den)) : {Bool.and(Nat.is_lt(0n, w), Nat.is_le(Nat.mul(kk, Nat.mul(w, num)), _)) == rhs : Bool}
+      %Equal.sym(Nat, Nat.mul(Nat.mul(kk, w), num), Nat.mul(kk, Nat.mul(w, num)), LA.pu.mul_assoc(kk, w, num)) : {Bool.and(Nat.is_lt(0n, w), Nat.is_le(_, Nat.mul(Nat.mul(kk, t), den))) == rhs : Bool}
+      %Equal.sym(Nat, Nat.mul(Nat.mul(kk, t), den), Nat.mul(kk, Nat.mul(t, den)), LA.pu.mul_assoc(kk, t, den)) : {Bool.and(Nat.is_lt(0n, w), Nat.is_le(Nat.mul(kk, Nat.mul(w, num)), _)) == rhs : Bool}
       %Equal.sym(Bool, Nat.is_le(Nat.mul(kk, Nat.mul(w, num)), Nat.mul(kk, Nat.mul(t, den))), Nat.is_le(Nat.mul(w, num), Nat.mul(t, den)), pu.cancel(k, Nat.mul(w, num), Nat.mul(t, den))) : {Bool.and(Nat.is_lt(0n, w), _) == rhs : Bool}
       {==}
 
