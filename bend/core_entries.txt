@@ -45,3 +45,6 @@
 70 compactor
 71 model_facts
 78 tokens
+73 infer_force
+74 infer_guard
+75 infer_threshold

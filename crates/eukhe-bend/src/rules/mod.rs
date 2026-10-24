@@ -5,6 +5,9 @@
 pub mod compactor;
 pub mod cvar;
 pub mod fsmode;
+pub mod infer_force;
+pub mod infer_guard;
+pub mod infer_threshold;
 pub mod model_facts;
 pub mod retry;
 pub mod semver;

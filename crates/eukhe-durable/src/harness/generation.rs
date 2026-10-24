@@ -39,6 +39,7 @@ use eukhe_ai::utils::retry::{
 };
 use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
+use eukhe_bend::rules::infer_force::{self, Offer, Reply as ForceReply, Step as ForceStep};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -53,7 +54,7 @@ use self::decide::{
     Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
-use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
+use self::force::{soft_prompt, Forcing};
 use self::leak::{scan, Leak};
 use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
@@ -616,10 +617,17 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             timestamp: timestamp(runtime.now()?)?,
         }));
     }
-    if let Some(force) = force
-        .as_ref()
-        .filter(|force| force.escalation.flag(forced + 1))
-    {
+    // The native flag of this request: the compiled core decides
+    // (`infer_force::flag`, law `infer_force_steps`).
+    if let Some(force) = force.as_ref().filter(|force| {
+        infer_force::flag(
+            forced,
+            Offer {
+                native: force.escalation.native,
+                free: force.escalation.free,
+            },
+        )
+    }) {
         options.tool_choice = Some(ToolChoice::Tool(force.forced.tool.clone()));
     }
     // The retry after a stall (M3) has twice the idle deadline it stalled
@@ -877,12 +885,9 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 /// Which threshold compaction preparation starts before its request (spec
 /// §8.3): [`threshold_for`] the request's input `tokens`, and only when
 /// range selection finds a cut. `tokens` runs only when the policy and the
-/// window let the check run. The caller starts a background one only while
-/// no compaction is listed.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "TS compares token counts as doubles"
-)]
+/// window let the check run (else no context is over a threshold, law
+/// `infer_threshold_over_exact`). The caller starts a background one only
+/// while no compaction is listed.
 fn threshold_compaction(
     view: &ContextView,
     context_window: u64,
@@ -892,7 +897,7 @@ fn threshold_compaction(
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    threshold_for(tokens() as f64, context_window, policy)
+    threshold_for(tokens(), context_window, policy)
         .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
 }
 
@@ -1441,7 +1446,7 @@ async fn classify(
         } else {
             ForceReply::Missed
         };
-        match force.escalation.after(tries, reply) {
+        match infer_force::after(forced, force.escalation.retries, reply) {
             ForceStep::Called => {}
             step @ (ForceStep::Retry | ForceStep::Failed) => {
                 let tool = &force.forced.tool;

@@ -92,6 +92,12 @@ pub enum Entry {
     Compactor = 70,
     /// `bend/ffi_model_facts.bend`: a call.
     ModelFacts = 71,
+    /// `bend/ffi_infer_force.bend`: a call.
+    InferForce = 73,
+    /// `bend/ffi_infer_guard.bend`: a stepper.
+    InferGuard = 74,
+    /// `bend/ffi_infer_threshold.bend`: a call.
+    InferThreshold = 75,
     /// `bend/ffi_tokens.bend`: a call.
     Tokens = 78,
 }
@@ -142,6 +148,9 @@ impl Entry {
         Entry::DocRows,
         Entry::Compactor,
         Entry::ModelFacts,
+        Entry::InferForce,
+        Entry::InferGuard,
+        Entry::InferThreshold,
         Entry::Tokens,
     ];
 

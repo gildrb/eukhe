@@ -22,6 +22,9 @@ import ./ffi_facts.bend as ffi_facts
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
+import ./ffi_infer_force.bend as ffi_infer_force
+import ./ffi_infer_guard.bend as ffi_infer_guard
+import ./ffi_infer_threshold.bend as ffi_infer_threshold
 import ./ffi_job.bend as ffi_job
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
@@ -137,6 +140,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_compactor.ffi(input)
     case 71:
       ffi_model_facts.ffi(input)
+    case 73:
+      ffi_infer_force.ffi(input)
+    case 75:
+      ffi_infer_threshold.ffi(input)
     case 78:
       ffi_tokens.ffi(input)
     case _:
@@ -156,6 +163,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  InferGuard{s: ffi_infer_guard.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -193,6 +201,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (InferGuard{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -209,6 +222,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 74:
+      open.infer_guard(ffi_infer_guard.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -252,6 +267,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (InferGuard{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -268,6 +288,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case InferGuard{s}:
+      step.infer_guard(ffi_infer_guard.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -291,6 +313,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case InferGuard{s}:
       Unit{}
     case Unknown{}:
       Unit{}

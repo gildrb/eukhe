@@ -23,14 +23,17 @@
 //! lines; the complete lines of every block count in one sequence, in
 //! arrival order.
 //!
-//! The guard keeps the last `k / 4` chunks and one counter per period: the
-//! counter of period `p` is how many chunks in a row, up to the newest,
-//! each equal the chunk `p` before it. The last `k` chunks are periodic
-//! with period `p` exactly when that counter is at least `k - p`. Its
-//! memory is thus bounded by `k / 4` chunks, whatever the stream's length.
+//! The decision runs as the compiled core (`eukhe_bend::rules::infer_guard`,
+//! a stepper whose guard stays in the Bend heap; laws `infer_guard_feed_exact`
+//! and `infer_guard_steps`): this file cuts the deltas into chunks and gives
+//! each distinct chunk of an attempt an id (equal chunks, equal ids), which
+//! is all the guard reads. Both sides keep memory in proportion to the
+//! attempt's output: one id per distinct line here, one per line in the
+//! guard.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
+use eukhe_bend::rules::infer_guard::Guard;
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_types::pi_ai::AssistantMessageEvent;
 
@@ -64,21 +67,15 @@ pub struct RepetitionCut {
 /// period of at most `max(1, k / 4)`, cuts the stream (a `k` of at most 1
 /// cuts at the first chunk). A stream with no such window of `k` chunks is
 /// never cut. Stop feeding it at the first cut.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RepetitionGuard {
     limit: u32,
-    /// The longest period checked: `max(1, limit / 4)`.
-    periods: usize,
     /// The partial last line of each content block, by content index.
     partial: HashMap<usize, String>,
-    /// The last chunks, newest first; at most `periods` of them.
-    history: VecDeque<String>,
-    /// The counter of each period `q + 1`, for every period that has a
-    /// chunk in `history` to compare with: how many chunks in a row, up to
-    /// the newest, each equal the chunk `q + 1` before them (model
-    /// `cycle(seen, q)`).
-    counters: Vec<u32>,
-    chunks: u64,
+    /// The id of each distinct chunk read: the order it first came in.
+    ids: HashMap<String, u64>,
+    /// The guard, in the compiled core.
+    core: Guard,
 }
 
 impl RepetitionGuard {
@@ -87,11 +84,9 @@ impl RepetitionGuard {
     pub fn new(limit: u32) -> Self {
         Self {
             limit,
-            periods: usize::try_from((limit / 4).max(1)).unwrap_or(usize::MAX),
             partial: HashMap::new(),
-            history: VecDeque::new(),
-            counters: Vec::new(),
-            chunks: 0,
+            ids: HashMap::new(),
+            core: Guard::new(limit),
         }
     }
 
@@ -133,35 +128,20 @@ impl RepetitionGuard {
             if line.trim().is_empty() {
                 continue;
             }
-            self.chunks += 1;
-            // A period with no chunk that far back has a counter of 0; it
-            // completes a window only when `limit <= period`, which a
-            // period of at most `max(1, limit / 4)` allows only for a
-            // `limit` of at most 1: that window is this chunk alone.
-            let mut period = (self.limit <= 1).then_some(1);
-            for ((seen, counter), p) in self.history.iter().zip(&mut self.counters).zip(1u32..) {
-                *counter = if *seen == line {
-                    counter.saturating_add(1)
-                } else {
-                    0
-                };
-                if period.is_none() && self.limit.saturating_sub(p) <= *counter {
-                    period = Some(p);
-                }
-            }
-            if let Some(period) = period {
+            let seen = self.ids.get(&line).copied();
+            // A new chunk takes the next id: a stream holds far fewer than
+            // `NAT_MAX` (10^14) distinct lines.
+            let id = seen.unwrap_or_else(|| u64::try_from(self.ids.len()).unwrap_or(u64::MAX));
+            if let Some(cut) = self.core.feed(id) {
                 return Some(RepetitionCut {
-                    chunks: self.chunks,
-                    period,
+                    chunks: cut.chunks,
+                    period: cut.period,
                     line,
                 });
             }
-            if self.history.len() < self.periods {
-                self.counters.push(0);
-            } else {
-                self.history.pop_back();
+            if seen.is_none() {
+                self.ids.insert(line, id);
             }
-            self.history.push_front(line);
         }
     }
 }

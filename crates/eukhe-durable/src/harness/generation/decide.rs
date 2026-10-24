@@ -15,6 +15,7 @@
 
 use std::num::NonZeroU32;
 
+use eukhe_bend::rules::infer_threshold::{self, whole, Over};
 use eukhe_bend::wire::Writer;
 use serde::{Deserialize, Serialize};
 
@@ -340,29 +341,33 @@ pub(crate) enum Threshold {
 /// Which threshold compaction a context of `tokens` is over (spec §8.3):
 /// [`Threshold::Blocking`] when `tokens > contextWindow - reserveTokens`,
 /// [`Threshold::Background`] when `tokens > blocking - margin` with a
-/// positive margin ([`BackgroundMargin`]). None when the policy is disabled
-/// or the window is unknown (`0`). Whether a cut exists is the caller's.
+/// positive margin ([`BackgroundMargin`](crate::harness::types::BackgroundMargin)).
+/// None when the policy is disabled or the window is unknown (`0`). Whether
+/// a cut exists is the caller's. The compiled core decides
+/// (`eukhe_bend::rules::infer_threshold`, law `infer_threshold_over_exact`)
+/// on the reserve and the margin in tokens rounded up ([`whole`]): a whole
+/// token count is compared strictly, so that is exact for a whole reserve
+/// (every setting eukhe writes) and any margin; a fractional reserve with a
+/// fractional margin may start background compaction one token early.
 #[expect(
     clippy::cast_precision_loss,
-    reason = "TS compares token counts as doubles; blocking may be negative"
+    reason = "a percentage margin is a share of the window in f64 tokens"
 )]
 pub(crate) fn threshold_for(
-    tokens: f64,
+    tokens: u64,
     context_window: u64,
     policy: &CompactionPolicy,
 ) -> Option<Threshold> {
-    if !policy.enabled || context_window == 0 {
-        return None;
-    }
-    let window = context_window as f64;
-    let blocking = window - policy.reserve_tokens;
-    let margin = policy.background.tokens(window);
-    if tokens > blocking {
-        Some(Threshold::Blocking)
-    } else if margin > 0.0 && tokens > blocking - margin {
-        Some(Threshold::Background)
-    } else {
-        None
+    let compaction = infer_threshold::Compaction {
+        enabled: policy.enabled,
+        window: context_window,
+        reserve: whole(policy.reserve_tokens),
+        margin: whole(policy.background.tokens(context_window as f64)),
+    };
+    match compaction.over(tokens) {
+        Over::Under => None,
+        Over::Background => Some(Threshold::Background),
+        Over::Blocking => Some(Threshold::Blocking),
     }
 }
 
