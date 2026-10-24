@@ -6,16 +6,19 @@
 //! over-long line gets the cut follow-up in the SAME conversation.
 //!
 //! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
-//! model replies (docs/harness.md H1; the decision is `line` in
-//! `bend/compactor.bend`): at most [`TRIES`] model calls; the first line
-//! that fits wins; an empty or thinking-only reply, or a follow-up not
-//! shorter than the best line, ends the tries; then the best line, else
-//! the input, cut to [`NODE`] bytes. Only a provider error (or a model
-//! call past [`CALL_DEADLINE`]) fails the call.
+//! model replies (docs/harness.md H1): the compiled Bend core decides each
+//! step (`line.open`, `line.step` of `bend/compactor.bend`, through
+//! `eukhe_bend::rules::compactor`) from the replies' lengths; this file
+//! moves the texts. At most [`TRIES`] model calls; the first line that
+//! fits wins; an empty or thinking-only reply, or a follow-up not shorter
+//! than the best line, ends the tries; then the best line, else the input,
+//! cut to [`NODE`] bytes. Only a provider error (or a model call past
+//! [`CALL_DEADLINE`]) fails the call.
 
 use std::future::Future;
 use std::pin::Pin;
 
+use eukhe_bend::rules::compactor::{open, Fin, Next, Reply};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, CacheBreakpoint, Context, Message, StopReason,
     TextContent, UserContent, UserContentBlock, UserMessage,
@@ -23,7 +26,7 @@ use eukhe_types::pi_ai::{
 
 use super::prompts::cut_follow_up;
 use super::saved::CompactionPrompt;
-use super::{cut, view, CALL_DEADLINE, FAILURES, NODE, TRIES};
+use super::{cut, view, CALL_DEADLINE, NODE, TRIES};
 
 /// The future one summarizer call returns.
 pub type SummarizerFuture =
@@ -124,154 +127,76 @@ pub(crate) async fn build_line(
         })],
         tools: (!prompt.tools.is_empty()).then(|| prompt.tools.clone()),
     };
-    let mut line = Line::open(TRIES);
+    let mut next = open(TRIES);
     // The shortest reply so far: each follow-up must be shorter.
     let mut best = String::new();
     loop {
+        let line = match next {
+            Next::Ends { fin, .. } => {
+                return ended(fin, "", &best, &request.input)
+                    .ok_or_else(|| anyhow::anyhow!("the compactor's line failed with no reply"));
+            }
+            Next::Asks(line) => line,
+        };
         let call = summarizer.complete(context.clone(), std::mem::take(&mut started));
-        let reply = tokio::time::timeout(CALL_DEADLINE, call)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "the compactor model did not answer within {} s",
-                    CALL_DEADLINE.as_secs()
-                )
-            })??;
-        if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) {
-            anyhow::bail!(
-                "the compactor model stopped with {:?}: {}",
-                reply.stop_reason,
-                reply.error_message.as_deref().unwrap_or("no error message")
-            );
-        }
+        let reply = match tokio::time::timeout(CALL_DEADLINE, call).await {
+            Err(_) => Err(anyhow::anyhow!(
+                "the compactor model did not answer within {} s",
+                CALL_DEADLINE.as_secs()
+            )),
+            Ok(Err(error)) => Err(error),
+            Ok(Ok(reply))
+                if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) =>
+            {
+                Err(anyhow::anyhow!(
+                    "the compactor model stopped with {:?}: {}",
+                    reply.stop_reason,
+                    reply.error_message.as_deref().unwrap_or("no error message")
+                ))
+            }
+            Ok(Ok(reply)) => Ok(reply),
+        };
+        let reply = match reply {
+            Ok(reply) => reply,
+            Err(error) => {
+                next = line.read(NODE, Reply::Erred);
+                if let Next::Ends { fin, .. } = next {
+                    return ended(fin, "", &best, &request.input).ok_or(error);
+                }
+                continue;
+            }
+        };
         let text = reply_text(&reply);
         let said = text.trim();
-        match line.read(said) {
-            Read::Ends(Fin::Whole) => return Ok(said.to_string()),
-            Read::Ends(Fin::CutReply) => return Ok(cut(said).to_string()),
-            Read::Ends(Fin::CutBest) => return Ok(cut(&best).to_string()),
-            Read::Ends(Fin::CutInput) => return Ok(cut(&request.input).to_string()),
-            Read::Asks(next) => {
-                line = next;
-                best = said.to_string();
-                // The request's end moves to the follow-up: one end mark only.
-                unmark_request_end(&mut context.messages);
-                context.messages.push(Message::Assistant(reply));
-                context.messages.push(Message::User(UserMessage {
-                    content: UserContent::Blocks(vec![text_block(
-                        cut_follow_up(&best),
-                        Some(CacheBreakpoint::Ephemeral),
-                    )]),
-                    timestamp,
-                }));
-            }
+        next = line.read(NODE, Reply::Says(said.len()));
+        if let Next::Ends { fin, .. } = next {
+            return ended(fin, said, &best, &request.input)
+                .ok_or_else(|| anyhow::anyhow!("the compactor's line failed on a reply"));
         }
+        best = said.to_string();
+        // The request's end moves to the follow-up: one end mark only.
+        unmark_request_end(&mut context.messages);
+        context.messages.push(Message::Assistant(reply));
+        context.messages.push(Message::User(UserMessage {
+            content: UserContent::Blocks(vec![text_block(
+                cut_follow_up(&best),
+                Some(CacheBreakpoint::Ephemeral),
+            )]),
+            timestamp,
+        }));
     }
 }
 
-/// A line being written (`Lst` of `bend/compactor.bend`): the calls it may
-/// still make, and the length of the shortest reply so far (each follow-up
-/// must be shorter). The owner keeps the replies' texts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Line {
-    left: usize,
-    best: Option<usize>,
-}
-
-/// How a line ends (`Fin`): the reply just read, whole, or cut to [`NODE`]
-/// bytes (the last try); the shortest reply before it cut so; the input cut
-/// so.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fin {
-    Whole,
-    CutReply,
-    CutBest,
-    CutInput,
-}
-
-/// What a reply did to a line (`Next`): it ends, or the follow-up goes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Read {
-    Ends(Fin),
-    Asks(Line),
-}
-
-impl Line {
-    /// A line of at most `tries` model calls (`line.open`).
-    fn open(tries: usize) -> Line {
-        Line {
-            left: tries,
-            best: None,
-        }
-    }
-
-    /// The decision on one reply's text, thinking dropped and trimmed
-    /// (`line.step`): a reply within [`NODE`] bytes is the line; an empty
-    /// one, or one not shorter than the best, ends the line with the best
-    /// (else the input) cut; else the follow-up goes while calls are left,
-    /// and the last reply ends it cut.
-    fn read(self, said: &str) -> Read {
-        let len = said.len();
-        let cut_end = if self.best.is_some() {
-            Fin::CutBest
-        } else {
-            Fin::CutInput
-        };
-        if len == 0 {
-            return Read::Ends(cut_end);
-        }
-        if len <= NODE {
-            return Read::Ends(Fin::Whole);
-        }
-        if self.best.is_some_and(|best| len >= best) {
-            return Read::Ends(cut_end);
-        }
-        match self.left.saturating_sub(1) {
-            0 => Read::Ends(Fin::CutReply),
-            left => Read::Asks(Line {
-                left,
-                best: Some(len),
-            }),
-        }
-    }
-}
-
-/// A node not built yet, as the failure cap counts it (H1.5; `Pend` in
-/// `bend/compactor.bend`): built, or owing its line with the failed calls
-/// it has left before the cap builds it from its input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Pend {
-    Made,
-    Owed(u32),
-}
-
-/// How a call of a node ended without its line (`Outcome` in
-/// `bend/compactor.bend`; its `Built`, a saved line, and `Stopped`, a call
-/// a waiting turn stopped, never reach the cap).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CallEnd {
-    /// The model call failed: a provider error, or past [`CALL_DEADLINE`].
-    Failed,
-    /// The disk failed: the node's input could not be read, or a line not
-    /// saved.
-    Disk,
-}
-
-impl Pend {
-    /// A node none of whose calls failed yet.
-    pub(crate) const UNTRIED: Pend = Pend::Owed(FAILURES - 1);
-
-    /// The node after a call ended so: the failure with none left builds it
-    /// from its input (the cap), any other failure counts down, and the disk
-    /// changes nothing.
-    pub(crate) fn after(self, end: CallEnd) -> Pend {
-        match (self, end) {
-            (Pend::Made, CallEnd::Failed | CallEnd::Disk) | (Pend::Owed(0), CallEnd::Failed) => {
-                Pend::Made
-            }
-            (Pend::Owed(left @ 1..), CallEnd::Failed) => Pend::Owed(left - 1),
-            (Pend::Owed(left), CallEnd::Disk) => Pend::Owed(left),
-        }
+/// The line a line's end stands for: the reply just read (`said`), whole
+/// or cut to [`NODE`] bytes, the shortest reply before it or the node's
+/// input cut so; none when the call failed.
+fn ended(fin: Fin, said: &str, best: &str, input: &str) -> Option<String> {
+    match fin {
+        Fin::Whole => Some(said.to_string()),
+        Fin::CutReply => Some(cut(said).to_string()),
+        Fin::CutBest => Some(cut(best).to_string()),
+        Fin::CutInput => Some(cut(input).to_string()),
+        Fin::Lost => None,
     }
 }
 
@@ -313,7 +238,5 @@ fn reply_text(reply: &AssistantMessage) -> String {
         .collect()
 }
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 pub(crate) mod tests;
