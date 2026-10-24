@@ -802,6 +802,8 @@ import ./proof/launcher/launcher_ffi_answers.bend as PLauncherFfiAnswers
 import ./proof/launcher/launcher_ffi_malformed.bend as PLauncherFfiMalformed
 import ./proof/launcher/launcher_ffi_example.bend as PLauncherFfiExample
 import ./proof/launcher/launcher_stop_counts_runs.bend as PLauncherStopCountsRuns
+import ./proof/launcher/launcher_step_exact.bend as PLauncherStepExact
+import ./proof/launcher/launcher_closed_gate_waits_example.bend as PLauncherClosedGateWaitsExample
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates

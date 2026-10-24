@@ -174,3 +174,16 @@ def la.adopt_n(n: Nat) -> {FLa.put_adoption(La.adoption(0n, Some{n}), "") == Wr.
       {==}
     case 1n+p:
       {==}
+
+# the runs a stop finds are the laws' count
+def la.busy(ws: List<&2, La.Wk>) -> {La.busy_count(ws) == Launcher.busy_spec(ws) : Nat}:
+  match ws:
+    case Nil{}:
+      {==}
+    case La.Wk{b, c} <> t:
+      match b:
+        case True{}:
+          %la.busy(t) : {1n+La.busy_count(t) == 1n+_ : Nat}
+          {==}
+        case False{}:
+          la.busy(t)

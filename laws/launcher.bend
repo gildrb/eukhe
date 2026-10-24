@@ -290,3 +290,103 @@ def busy_spec(ws: List<&2, La.Wk>) -> Nat:
 law launcher_stop_counts_runs:
   for ws: List<&2, La.Wk>
   {La.busy_count(ws) == busy_spec(ws) : Nat}
+
+# The whole replacement, step by step
+# -----------------------------------
+# idle_shutdown_never_aborts runs bend/launcher.bend's own simulation
+# (`run`, `step`); this pins that simulation to the rule itself, so the
+# law is about the gate the entry answers (a run starts only at an open
+# gate, a quiesce closes only an idle worker's gate, ...).
+
+# what an operation does to its worker (a commit touches none)
+def wk_spec(op: La.Op, w: La.Wk) -> La.Wk:
+  match op:
+    case La.Prompt{i}:
+      match w:
+        case La.Wk{b, c}:
+          match c:
+            case True{}:
+              La.Wk{b, True{}}
+            case False{}:
+              La.Wk{True{}, False{}}
+    case La.Finish{i}:
+      match w:
+        case La.Wk{b, c}:
+          La.Wk{False{}, c}
+    case La.Quiesce{i}:
+      match w:
+        case La.Wk{b, c}:
+          match b:
+            case True{}:
+              La.Wk{True{}, c}
+            case False{}:
+              La.Wk{False{}, True{}}
+    case La.Release{i}:
+      match w:
+        case La.Wk{b, c}:
+          La.Wk{b, False{}}
+    case La.Commit{}:
+      w
+
+# the workers after op on worker i (no worker i: unchanged)
+def at_spec(op: La.Op, i: Nat, ws: List<&2, La.Wk>) -> List<&2, La.Wk>:
+  match i:
+    case 0n:
+      match ws:
+        case Nil{}:
+          Nil{}
+        case w <> t:
+          wk_spec(op, w) <> t
+    case 1n+j:
+      match ws:
+        case Nil{}:
+          Nil{}
+        case w <> t:
+          w <> at_spec(op, j, t)
+
+# every gate is closed
+def closed_spec(ws: List<&2, La.Wk>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case La.Wk{b, c} <> t:
+      Bool.and(c, closed_spec(t))
+
+def commit_spec(ok: Bool, +ws: List<&2, La.Wk>, a: Nat) -> La.St:
+  match ok:
+    case True{}:
+      La.St{ws, Nat.add(busy_spec(ws), a), True{}}
+    case False{}:
+      La.St{ws, a, False{}}
+
+# one step: a stopped daemon changes nothing; a commit stops it only when
+# every gate is closed, and aborts every run it finds; any other operation
+# changes its worker as wk_spec says
+def step_spec(s: La.St, op: La.Op) -> La.St:
+  match s:
+    case La.St{+ws, a, d}:
+      match d:
+        case True{}:
+          La.St{ws, a, True{}}
+        case False{}:
+          match op:
+            case La.Prompt{+i}:
+              La.St{at_spec(La.Prompt{i}, i, ws), a, False{}}
+            case La.Finish{+i}:
+              La.St{at_spec(La.Finish{i}, i, ws), a, False{}}
+            case La.Quiesce{+i}:
+              La.St{at_spec(La.Quiesce{i}, i, ws), a, False{}}
+            case La.Release{+i}:
+              La.St{at_spec(La.Release{i}, i, ws), a, False{}}
+            case La.Commit{}:
+              commit_spec(closed_spec(ws), ws, a)
+
+# LAW launcher_step_exact: each step of the replacement's simulation is the rule: a run starts only at an open gate, a run end clears the run, a quiesce closes an idle worker's gate and leaves a busy one's as it was, a release opens the gate, a commit stops the daemon only when every gate is closed (aborting the runs it finds), a stopped daemon changes nothing, and no other worker changes
+law launcher_step_exact:
+  for +s: La.St
+  for +op: La.Op
+  {La.step(s, op) == step_spec(s, op) : La.St}
+
+# LAW launcher_closed_gate_waits_example: anchor: an idle worker quiesced, then prompted, does not start the run
+law launcher_closed_gate_waits_example:
+  {La.run([False{}], [La.Quiesce{0n}, La.Prompt{0n}]) == La.St{[La.Wk{False{}, True{}}], 0n, False{}} : La.St}
