@@ -28,7 +28,9 @@ async fn spawn_fake_supervisor(
     roster: Value,
     ticket_response: Option<Value>,
 ) -> RelayLog {
-    let listener = bind_transport(&socket).await.unwrap();
+    let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+        .await
+        .unwrap();
     let relays = RelayLog::default();
     let relay_log = Arc::clone(&relays);
     tokio::spawn(async move {
@@ -386,7 +388,9 @@ async fn self_target_is_refused() {
 async fn direct_ticket_delivers_to_the_target_worker_socket() {
     let dir = tempfile::TempDir::new().unwrap();
     let worker_socket = dir.path().join("worker.sock");
-    let listener = bind_transport(&worker_socket).await.unwrap();
+    let listener = bind_transport(&worker_socket, eukhe_bend::rules::fsmode::peer_verdict)
+        .await
+        .unwrap();
     let received = Arc::new(std::sync::Mutex::new(Vec::<(String, Value)>::new()));
     let recorded = Arc::clone(&received);
     tokio::spawn(async move {

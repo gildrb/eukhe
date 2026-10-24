@@ -864,6 +864,9 @@ import ./proof/tui_color/tui_roles_shipped.bend as PTuiRolesShipped
 import ./proof/fsmode/base.bend as LAFsmode
 import ./proof/fsmode/socket_dir_owned.bend as PSocketDirOwned
 import ./proof/fsmode/socket_dir_progress.bend as PSocketDirProgress
+import ./proof/fsmode/fsmode_ffi_answers.bend as PFsmodeFfiAnswers
+import ./proof/fsmode/fsmode_ffi_malformed.bend as PFsmodeFfiMalformed
+import ./proof/fsmode/fsmode_ffi_example.bend as PFsmodeFfiExample
 import ./proof/fsmode/socket_dir_created.bend as PSocketDirCreated
 import ./proof/fsmode/socket_dir_created_used.bend as PSocketDirCreatedUsed
 import ./proof/fsmode/peer_same_uid.bend as PPeerSameUid

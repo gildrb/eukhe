@@ -277,7 +277,12 @@ impl Worker {
             self.listener_closed.notify_one();
             return Err(error);
         }
-        let listener = match bind_transport(&self.config.socket_path).await {
+        let listener = match bind_transport(
+            &self.config.socket_path,
+            eukhe_bend::rules::fsmode::peer_verdict,
+        )
+        .await
+        {
             Ok(listener) => listener,
             Err(error) => {
                 let error = error.context(format!(

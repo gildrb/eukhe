@@ -1,10 +1,11 @@
 # fsmode: who reaches eukhe's own state (docs/runtime.md "Local access").
-# Four small decisions the Rust code makes, each as one function:
+# Four small decisions, each as one function, run as this code (entry
+# bend/ffi_fsmode.bend):
 #
 # - socket_dir: the check of the dir that holds the daemon sockets
 #   (crates/eukhe-daemon/src/platform/paths.rs `prepare_socket_dir`).
 # - peer: the peer rule of every socket listener
-#   (crates/eukhe-types/src/platform/access.rs `peer_verdict`).
+#   (crates/eukhe-types/src/platform/transport.rs, the rule it is given).
 # - made: the mode of each file and dir eukhe creates under its home
 #   (eukhe_types::platform::access PRIVATE_FILE_MODE / PRIVATE_DIR_MODE,
 #   used by the daemon's `ensure_dir`, the socket dir, the auth store and
@@ -168,3 +169,84 @@ def open(c: Cwd) -> Open:
       NotDir{p}
     case DirCwd{p}:
       Opened{p}
+
+# What Rust reads
+# ---------------
+
+# the bit of weight w (a power of two) is set in the permission bits m
+def bit(+m: Nat, w: Nat) -> Bool:
+  Nat.is_eq(Nat.mod(Nat.div(m, w), 2n), 1n)
+
+# the socket dir as Rust finds it: what symlink_metadata found, the uid
+# that owns it, this process's uid and its permission bits (mode & 0o7777;
+# for a missing dir the numbers are 0): a group or other user may write in
+# it when the group-write (0o020) or other-write (0o002) bit is set
+def look(k: Node, +uid: Nat, +own: Nat, +m: Nat) -> Seen:
+  Seen{k, Nat.is_eq(uid, own), Bool.or(bit(m, 16n), bit(m, 2n))}
+
+# why the check refuses a socket dir
+type Why is Data:
+  WhyLink{}
+  WhyNotDir{}
+  WhyOwner{}
+  WhyMode{}
+
+def why.dir(mine: Bool) -> Why:
+  match mine:
+    case True{}:
+      WhyMode{}
+    case False{}:
+      WhyOwner{}
+
+# the reason of a refused dir (the first check it fails: a link, not a
+# dir, another owner, a loose mode)
+def why(d: Seen) -> Why:
+  match d:
+    case Seen{k, mine, loose}:
+      match k:
+        case Missing{}:
+          WhyNotDir{}
+        case Dir{}:
+          why.dir(mine)
+        case Link{}:
+          WhyLink{}
+        case Other{}:
+          WhyNotDir{}
+
+# what metadata finds at a named working dir
+type Stat is Data:
+  Absent{}
+  AFile{}
+  ADir{}
+
+def cwd.named(empty: Bool, s: Stat) -> Cwd:
+  match empty:
+    case True{}:
+      NoCwd{}
+    case False{}:
+      match s:
+        case Absent{}:
+          GoneCwd{0n}
+        case AFile{}:
+          FileCwd{0n}
+        case ADir{}:
+          DirCwd{0n}
+
+# the working dir a create names, as Rust reads it: none, or a path and
+# what metadata finds there; an empty path names none. The path itself
+# is the number 0 (Rust keeps it; the decision reads only whether it is
+# empty)
+def cwd.of(m: Maybe<&2, String>, s: Stat) -> Cwd:
+  match m:
+    case None{}:
+      NoCwd{}
+    case Some{p}:
+      cwd.named(String.is_empty(p), s)
+
+# what Rust asks: the check of a socket dir, the peer rule, the mode of
+# what eukhe creates, the working dir of a create
+type Ask is Data:
+  AskDir{k: Node, uid: Nat, own: Nat, mode: Nat}
+  AskPeer{peer: Nat, own: Nat}
+  AskMade{k: Made}
+  AskCwd{cwd: Maybe<&2, String>, s: Stat}

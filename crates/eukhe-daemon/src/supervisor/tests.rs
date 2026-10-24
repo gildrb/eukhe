@@ -427,9 +427,12 @@ async fn worker_probe_accepts_a_live_socket() {
     let dir = std::env::temp_dir().join(format!("pa-probe-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("live.sock");
-    let listener = eukhe_types::platform::transport::bind_transport(&socket)
-        .await
-        .unwrap();
+    let listener = eukhe_types::platform::transport::bind_transport(
+        &socket,
+        eukhe_bend::rules::fsmode::peer_verdict,
+    )
+    .await
+    .unwrap();
     let deadline = worker_connect_deadline();
     probe_worker_socket("worker-abc", &socket, deadline)
         .await

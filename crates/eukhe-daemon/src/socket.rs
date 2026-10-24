@@ -417,7 +417,9 @@ mod tests {
         let socket = dir.path().join("daemon.sock");
         // The owner's own bind, closed exactly like the exit sequences
         // close it before their cleanup.
-        let owner = bind_transport(&socket).await.unwrap();
+        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         drop(owner);
         // The poisoned capture: the successor binds the path after the
         // owner's file is renamed aside, and the "captured" identity is
@@ -425,7 +427,9 @@ mod tests {
         // bind->capture window stores exactly this).
         let aside = dir.path().join("owner.sock");
         std::fs::rename(&socket, &aside).unwrap();
-        let successor = bind_transport(&socket).await.unwrap();
+        let successor = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let poisoned = socket_identity(&socket).unwrap();
         cleanup_socket_path_after_close(&socket, Some(poisoned.clone()));
         assert!(
@@ -447,7 +451,9 @@ mod tests {
     async fn exit_cleanup_after_close_unlinks_the_dead_still_ours_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let owner = bind_transport(&socket).await.unwrap();
+        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let identity = socket_identity(&socket).unwrap();
         drop(owner);
         cleanup_socket_path_after_close(&socket, Some(identity));
@@ -462,7 +468,9 @@ mod tests {
     async fn exit_cleanup_off_linux_preserves_the_dead_file_until_the_next_bind() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let owner = bind_transport(&socket).await.unwrap();
+        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let identity = socket_identity(&socket).unwrap();
         drop(owner);
         cleanup_socket_path_after_close(&socket, Some(identity));
@@ -484,7 +492,9 @@ mod tests {
     async fn exit_cleanup_preserves_a_backlogged_successor_with_a_matching_identity() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let owner = bind_transport(&socket).await.unwrap();
+        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         drop(owner);
         let aside = dir.path().join("owner.sock");
         std::fs::rename(&socket, &aside).unwrap();
@@ -531,7 +541,9 @@ mod tests {
         let deep = dir.path().join("a".repeat(80)).join("b".repeat(80));
         std::fs::create_dir_all(&deep).unwrap();
         let socket = deep.join("daemon.sock");
-        let owner = bind_transport(&socket).await.unwrap();
+        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let identity = socket_identity(&socket).unwrap();
         drop(owner);
         cleanup_socket_path_after_close(&socket, Some(identity));
@@ -563,7 +575,9 @@ mod tests {
     async fn live_listener_is_never_unlinked() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let listener = bind_transport(&socket).await.unwrap();
+        let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let error = prepare_socket_path(&socket).await.unwrap_err();
         assert!(error.to_string().contains("already in use"), "{error}");
         // The live socket file survives untouched and still accepts.
@@ -580,7 +594,7 @@ mod tests {
         assert!(socket.exists());
         prepare_socket_path(&socket).await.unwrap();
         assert!(!socket.exists(), "stale socket file must be unlinked");
-        bind_transport(&socket)
+        bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
             .await
             .expect("bind after stale cleanup");
     }
@@ -589,7 +603,9 @@ mod tests {
     async fn unlink_refuses_a_live_listener_even_when_marked_stale() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let listener = bind_transport(&socket).await.unwrap();
+        let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let stale = socket_identity(&socket).unwrap();
         let error = unlink_stale_socket(&socket, stale).await.unwrap_err();
         assert!(error.to_string().contains("already in use"), "{error}");
@@ -703,7 +719,9 @@ mod tests {
         let dead = worker_socket_path(&supervisor, "dead00000000");
         bind_stale_socket(&dead);
         let live = worker_socket_path(&supervisor, "live00000000");
-        let _live_listener = bind_transport(&live).await.unwrap();
+        let _live_listener = bind_transport(&live, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .unwrap();
         let held = worker_socket_path(&supervisor, "held00000000");
         bind_stale_socket(&held);
         let held_lock = eukhe_core::platform::LockDir::path_for(&held);

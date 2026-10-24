@@ -68,7 +68,7 @@ pub(super) async fn claim(dir: &Path) -> anyhow::Result<Claim> {
 }
 
 async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
-    match bind_transport(lock).await {
+    match bind_transport(lock, eukhe_bend::rules::fsmode::peer_verdict).await {
         Ok(listener) => {
             crate::platform::restrict_file(lock)?;
             return Ok(Claim::Owned(listener));
@@ -88,7 +88,8 @@ async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => return Err(error.into()),
                 }
-                let listener = bind_transport(lock).await?;
+                let listener =
+                    bind_transport(lock, eukhe_bend::rules::fsmode::peer_verdict).await?;
                 crate::platform::restrict_file(lock)?;
                 Ok(Claim::Owned(listener))
             }

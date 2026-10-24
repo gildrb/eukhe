@@ -3,5 +3,6 @@
 //! format, calling its entry and decoding the reply.
 
 pub mod cvar;
+pub mod fsmode;
 pub mod retry;
 pub mod semver;

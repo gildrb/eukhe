@@ -80,6 +80,8 @@ pub enum Entry {
     KernelLocal = 35,
     /// `bend/ffi_launcher.bend`: a call.
     Launcher = 36,
+    /// `bend/ffi_fsmode.bend`: a call.
+    Fsmode = 37,
 }
 
 impl Entry {
@@ -122,6 +124,7 @@ impl Entry {
         Entry::Staging,
         Entry::KernelLocal,
         Entry::Launcher,
+        Entry::Fsmode,
     ];
 
     /// The id `bend/core.bend` dispatches on.

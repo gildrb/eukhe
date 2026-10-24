@@ -107,7 +107,12 @@ fn every_request_to_a_remote_owner_but_the_lease_has_a_reply_deadline() {
 #[tokio::test(start_paused = true)]
 async fn a_stuck_owner_fails_the_request_at_its_reply_deadline() {
     let dir = tempfile::tempdir().unwrap();
-    let _stuck = bind_transport(&dir.path().join("lock")).await.unwrap();
+    let _stuck = bind_transport(
+        &dir.path().join("lock"),
+        eukhe_bend::rules::fsmode::peer_verdict,
+    )
+    .await
+    .unwrap();
     let memory = Memory::open(dir.path(), Scripted::with(Vec::new()))
         .await
         .unwrap();

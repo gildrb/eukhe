@@ -22,9 +22,12 @@ struct FakeWorkerSocket {
 async fn bind_fake_worker(
     socket_path: &Path,
 ) -> Box<dyn eukhe_types::platform::transport::TransportListener> {
-    eukhe_types::platform::transport::bind_transport(socket_path)
-        .await
-        .expect("bind fake worker socket")
+    eukhe_types::platform::transport::bind_transport(
+        socket_path,
+        eukhe_bend::rules::fsmode::peer_verdict,
+    )
+    .await
+    .expect("bind fake worker socket")
 }
 
 /// Accept the connection `connect_worker` dials (its probe already

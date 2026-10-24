@@ -46,30 +46,34 @@ pub trait TransportListener: Send + Sync {
     fn accept(&self) -> AcceptFuture<'_>;
 }
 
-/// Every accepted connection passes the peer rule
-/// ([`super::access::peer_verdict`]): a peer of another uid (or one whose
+/// A bound socket whose accept applies a peer rule.
+struct PeerListener {
+    listener: tokio::net::UnixListener,
+    peers: super::access::PeerRule,
+}
+
+/// Every accepted connection passes the listener's peer rule (the one
+/// [`bind_transport`] was given): a peer the rule drops (or one whose
 /// credentials cannot be read) is closed before a frame is read, with a
 /// warning, and the accept waits for the next peer. This one place covers
 /// the supervisor socket and every worker socket.
-impl TransportListener for tokio::net::UnixListener {
+impl TransportListener for PeerListener {
     fn accept(&self) -> AcceptFuture<'_> {
         Box::pin(async move {
             let own_uid = super::access::current_uid();
             loop {
-                let (stream, _address) = self.accept().await?;
+                let (stream, _address) = self.listener.accept().await?;
                 match stream.peer_cred() {
-                    Ok(credentials) => {
-                        match super::access::peer_verdict(credentials.uid(), own_uid) {
-                            super::access::PeerVerdict::Accept => {
-                                return Ok(Box::new(stream) as Box<dyn TransportStream>);
-                            }
-                            super::access::PeerVerdict::Drop => tracing::warn!(
-                                peer_uid = credentials.uid(),
-                                own_uid,
-                                "dropped a socket peer of another uid"
-                            ),
+                    Ok(credentials) => match (self.peers)(credentials.uid(), own_uid) {
+                        super::access::PeerVerdict::Accept => {
+                            return Ok(Box::new(stream) as Box<dyn TransportStream>);
                         }
-                    }
+                        super::access::PeerVerdict::Drop => tracing::warn!(
+                            peer_uid = credentials.uid(),
+                            own_uid,
+                            "dropped a socket peer of another uid"
+                        ),
+                    },
                     Err(error) => tracing::warn!(
                         %error,
                         "dropped a socket peer whose credentials cannot be read"
@@ -166,16 +170,20 @@ impl UnixSocketAddress {
     }
 }
 
-/// Bind a listening endpoint at `path` (a socket file on Unix).
+/// Bind a listening endpoint at `path` (a socket file on Unix) whose
+/// accept applies `peers` to each connected peer.
 ///
 /// # Errors
 ///
 /// Returns an error if `path` cannot be turned into a kernel-valid socket
 /// address or if binding the listener fails.
-pub async fn bind_transport(path: &Path) -> Result<Box<dyn TransportListener>> {
+pub async fn bind_transport(
+    path: &Path,
+    peers: super::access::PeerRule,
+) -> Result<Box<dyn TransportListener>> {
     let address = UnixSocketAddress::new(path)?;
     let listener = tokio::net::UnixListener::bind(address.effective())?;
-    Ok(Box::new(listener))
+    Ok(Box::new(PeerListener { listener, peers }))
 }
 
 /// Connect to the endpoint at `path` asynchronously.
@@ -277,6 +285,12 @@ mod tests {
     use super::*;
     use std::os::unix::fs::FileTypeExt;
 
+    /// These tests bind but never accept through the listener: its peer
+    /// rule never runs.
+    fn never_accepts(_: u32, _: u32) -> super::super::access::PeerVerdict {
+        super::super::access::PeerVerdict::Drop
+    }
+
     /// A directory whose full path length is exactly `target` bytes.
     ///
     /// The ambient `TMPDIR` can already be deep (this very harness keeps long
@@ -314,7 +328,7 @@ mod tests {
         let _ = std::fs::remove_file(&socket);
         assert!(socket.as_os_str().len() > MAX_SUN_PATH);
 
-        bind_transport(&socket)
+        bind_transport(&socket, never_accepts)
             .await
             .expect("bind through the limit");
         assert!(std::fs::symlink_metadata(&socket)
@@ -323,7 +337,7 @@ mod tests {
             .is_socket());
         // A second bind on the live socket must fail (address in use), not
         // silently re-anchor somewhere else.
-        assert!(bind_transport(&socket).await.is_err());
+        assert!(bind_transport(&socket, never_accepts).await.is_err());
         std::fs::remove_file(&socket).expect("cleanup for rebind");
 
         let listener =
@@ -353,7 +367,7 @@ mod tests {
         let name = "x".repeat(MAX_SUN_PATH - dir.as_os_str().len() - 1);
         let socket = dir.join(name);
         assert_eq!(socket.as_os_str().len(), MAX_SUN_PATH);
-        bind_transport(&socket)
+        bind_transport(&socket, never_accepts)
             .await
             .expect("bind at exactly the limit");
         let _ = std::fs::remove_file(&socket);
@@ -364,7 +378,7 @@ mod tests {
         let dir = dir_of_exact_len("toolong", 120);
         let socket = dir.join("n".repeat(120));
         assert!(socket.as_os_str().len() > MAX_SUN_PATH);
-        let error = bind_transport(&socket)
+        let error = bind_transport(&socket, never_accepts)
             .await
             .err()
             .expect("no short address exists");

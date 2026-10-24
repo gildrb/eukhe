@@ -16,6 +16,7 @@ import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
@@ -118,6 +119,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_kernel_local.ffi(input)
     case 36:
       ffi_launcher.ffi(input)
+    case 37:
+      ffi_fsmode.ffi(input)
     case _:
       W.err("unknown entry")
 

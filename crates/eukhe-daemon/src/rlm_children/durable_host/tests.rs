@@ -160,7 +160,9 @@ async fn fake_supervisor(shared: Shared) -> std::path::PathBuf {
 
 /// Serve the fake supervisor on `socket`.
 async fn serve_fake_supervisor(shared: Shared, socket: &Path) {
-    let listener = bind_transport(socket).await.unwrap();
+    let listener = bind_transport(socket, eukhe_bend::rules::fsmode::peer_verdict)
+        .await
+        .unwrap();
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
             let shared = Arc::clone(&shared);

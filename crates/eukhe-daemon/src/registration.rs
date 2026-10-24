@@ -444,7 +444,9 @@ mod tests {
         // Let at least one failed attempt land (backoff path coverage).
         tokio::time::sleep(Duration::from_millis(300)).await;
 
-        let listener = bind_transport(&supervisor_socket).await.expect("bind");
+        let listener = bind_transport(&supervisor_socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .expect("bind");
         // First registration: full identity, no session id yet.
         let stream = tokio::time::timeout(Duration::from_secs(5), listener.accept())
             .await
@@ -523,7 +525,9 @@ mod tests {
         let config = test_config(dir.path(), &supervisor_socket);
         let handle = start(&config).expect("registration starts");
 
-        let listener = bind_transport(&supervisor_socket).await.expect("bind");
+        let listener = bind_transport(&supervisor_socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .expect("bind");
         let stream = tokio::time::timeout(Duration::from_secs(5), listener.accept())
             .await
             .expect("registration within bounded window")
@@ -579,7 +583,9 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let supervisor_socket = dir.path().join("supervisor.sock");
         let config = test_config(dir.path(), &supervisor_socket);
-        let listener = bind_transport(&supervisor_socket).await.expect("bind");
+        let listener = bind_transport(&supervisor_socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .expect("bind");
         let handle = start(&config).expect("registration starts");
 
         let refusal = tombstoned_registration_refusal("abc123def456");
@@ -643,7 +649,9 @@ mod tests {
         let supervisor_socket = dir.path().join("supervisor.sock");
         let config = test_config(dir.path(), &supervisor_socket);
         let handle = start(&config).expect("registration starts");
-        let listener = bind_transport(&supervisor_socket).await.expect("bind");
+        let listener = bind_transport(&supervisor_socket, eukhe_bend::rules::fsmode::peer_verdict)
+            .await
+            .expect("bind");
 
         // The supervisor refuses the identity for good: the loop must
         // resolve the retirement signal and stop registering.

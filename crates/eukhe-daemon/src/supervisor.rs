@@ -356,14 +356,17 @@ impl Supervisor {
         // the accept loop makes it exit on entry) and a later signal
         // force-exits.
         tokio::spawn(crate::signal_drain::install(Arc::clone(&self)));
-        let listener = bind_transport(&self.options.socket_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "bind supervisor socket {}",
-                    self.options.socket_path.display()
-                )
-            })?;
+        let listener = bind_transport(
+            &self.options.socket_path,
+            eukhe_bend::rules::fsmode::peer_verdict,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "bind supervisor socket {}",
+                self.options.socket_path.display()
+            )
+        })?;
         socket::bind_capture_gap().await;
         // Capture the bound file's identity before anything can replace
         // it (TS daemon-supervisor.ts:879, between `listen` and
