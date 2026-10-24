@@ -14,6 +14,7 @@ import ../bend/tui_color.bend as TC
 import ../bend/ffi_theme.bend as FTh
 import ../spec/theme_wire.bend as Tw
 import ../spec/theme_read.bend as Tr
+import ../spec/theme_rules.bend as Ts
 
 # ---- themes ----
 
@@ -819,6 +820,66 @@ def th.ls() -> List<&2, TChoice.Ld>:
 # EXCLUDES: a reading of the laws above that the human did not mean
 law theme_pick_example:
   {[TChoice.pick(th.ls(), "dusk"), TChoice.pick(th.ls(), "mist")] == [TChoice.Pick{TName.Res{3, False{}}, None{}, [TChoice.Clash{3n, 0n}], [1n, 2n]}, TChoice.Pick{TName.Res{0, True{}}, Some{TChoice.FailedAt{1n}}, [TChoice.Clash{3n, 0n}], [2n]}] : List<&2, TChoice.Pick>}
+
+# (T1) The rules' helpers, pinned
+# --------------------------------
+# The laws above read these helpers of the model; here each is the
+# meaning spec/theme_rules.bend states.
+
+# LAW theme_hit_spec (R5): a candidate advertises a name only when it is valid and its name is
+# exactly that name
+# EXCLUDES: a prefix, case-folded or substring match of a name
+law theme_hit_spec:
+  for src: List<&2, TName.Cand>
+  for +n: String
+  {TName.hit(src, n) == Ts.has(src, n) : Bool}
+
+# LAW theme_prefix_example (R5): anchor: "d" names no theme (dark starts with it): the default
+# theme, with the warning "not found"
+# EXCLUDES: a name matched by prefix
+law theme_prefix_example:
+  {TChoice.pick([], "d") == TChoice.Pick{TName.Res{0, True{}}, Some{TChoice.NoTheme{}}, [], []} : TChoice.Pick} & {FTh.ffi("1,1,d0,") == "0,T1,1,0,0,0,0," : String}
+
+# LAW theme_concrete_spec (R4): a value paints nothing for the terminal default, its xterm-256
+# color for an index, itself for a written color
+# EXCLUDES: a file's own background, export page or foreground ignored
+law theme_concrete_spec:
+  for v: TFile.Val
+  {TToken.concrete(v) == Ts.concrete(v) : Maybe<&2, Co.Rgb>}
+
+# LAW theme_light_spec (R4): a file is light when its background is (Co.light), and its
+# background is the completed one
+# EXCLUDES: a constant mode, a mode from another color than the background
+law theme_light_spec:
+  for +nm: String
+  for +cols: List<&2, TFile.Ent>
+  for +pg: Maybe<&2, Co.Rgb>
+  for +cd: Maybe<&2, Co.Rgb>
+  for +io: Maybe<&2, Co.Rgb>
+  {TPalette.light(TFile.Th{nm, cols, pg, cd, io}) == Co.light(TPalette.background(cols, pg)) : Bool} & {TPalette.bg(TFile.Th{nm, cols, pg, cd, io}) == TPalette.background(cols, pg) : Co.Rgb}
+
+# LAW theme_light_example (R4): anchor: a file with a white background is light, one with a
+# black background dark
+# EXCLUDES: a constant mode
+law theme_light_example:
+  {[TPalette.light(TFile.Th{"w", [TFile.Ent{57, TFile.Hex{Co.Rgb{255, 255, 255}}}], None{}, None{}, None{}}), TPalette.light(TFile.Th{"b", [TFile.Ent{57, TFile.Hex{Co.Rgb{0, 0, 0}}}], None{}, None{}, None{}})] == [True{}, False{}] : List<&2, Bool>}
+
+# LAW theme_legible_spec (R4): a table is legible exactly when every ink token meets its
+# contrast on its surface (the pairs of spec/theme_rules.bend), for every
+# table
+# EXCLUDES: an empty or shortened pair list, a constant legibility test
+#   (theme_shipped_legible made vacuous)
+law theme_legible_spec:
+  for +xs: List<&2, Co.Rgb>
+  {TBundled.legible(xs) == Ts.legible(xs) : Bool}
+
+# LAW theme_status_distinct_spec (R4): the status test is exactly: accent, success, warning and
+# error pairwise distinct in a 256-color terminal, for every table
+# EXCLUDES: a constant status test (theme_shipped_status_distinct made
+#   vacuous), other tokens compared
+law theme_status_distinct_spec:
+  for +xs: List<&2, Co.Rgb>
+  {TBundled.status_distinct(xs) == Ts.status_distinct(xs) : Bool}
 
 # (T1) The compiled entry
 # -----------------------

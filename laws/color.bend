@@ -412,6 +412,51 @@ law color_contrast_spec:
   for +den: U32
   {Co.contrast_ge(a, b, num, den) == th.contrast(a, b, num, den) : Bool}
 
+# x is a code from lo to hi
+def th.within(+x: U32, lo: U32, hi: U32) -> Bool:
+  Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
+
+def th.hexv.up(upper: Bool, +x: U32) -> Maybe<&2, U32>:
+  match upper:
+    case True{}:
+      Some{(x - 55 : U32)}
+    case False{}:
+      None{}
+
+def th.hexv.low(lower: Bool, +x: U32) -> Maybe<&2, U32>:
+  match lower:
+    case True{}:
+      Some{(x - 87 : U32)}
+    case False{}:
+      th.hexv.up(th.within(x, 65, 70), x)
+
+def th.hexv.dec(digit: Bool, +x: U32) -> Maybe<&2, U32>:
+  match digit:
+    case True{}:
+      Some{(x - 48 : U32)}
+    case False{}:
+      th.hexv.low(th.within(x, 97, 102), x)
+
+# the value of a hex digit: '0'-'9' (codes 48-57) are 0-9, 'a'-'f'
+# (97-102) and 'A'-'F' (65-70) are 10-15; every other char is none
+def th.hexv(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      th.hexv.dec(th.within(x, 48, 57), x)
+
+# LAW color_hexd_spec (R1): every char reads as a hex digit exactly as the spec says: 0-9,
+# a-f, A-F their values, every other char none
+# EXCLUDES: a char outside the three ranges read as a digit (a "#hhhhhh"
+#   read as a color), a digit's value off
+law color_hexd_spec:
+  for c: Char
+  {Co.hexd(c) == th.hexv(c) : Maybe<&2, U32>}
+
+# LAW color_hex_letters_example (R1): anchor: "#hhhhhh" and "#GGGGGG" are no colors
+# EXCLUDES: letters past f read as digits
+law color_hex_letters_example:
+  {[Co.hex("#hhhhhh"), Co.hex("#GGGGGG")] == [None{}, None{}] : List<&2, Maybe<&2, Co.Rgb>>}
+
 def th.ansi16() -> List<&2, Co.Rgb>:
   [Co.Rgb{0, 0, 0}, Co.Rgb{128, 0, 0}, Co.Rgb{0, 128, 0}, Co.Rgb{128, 128, 0}, Co.Rgb{0, 0, 128}, Co.Rgb{128, 0, 128}, Co.Rgb{0, 128, 128}, Co.Rgb{192, 192, 192}, Co.Rgb{128, 128, 128}, Co.Rgb{255, 0, 0}, Co.Rgb{0, 255, 0}, Co.Rgb{255, 255, 0}, Co.Rgb{0, 0, 255}, Co.Rgb{255, 0, 255}, Co.Rgb{0, 255, 255}, Co.Rgb{255, 255, 255}]
 
