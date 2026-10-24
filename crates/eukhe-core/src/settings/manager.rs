@@ -18,7 +18,9 @@ use super::cvar::{
 };
 use super::load::load_document;
 use super::merge::{deep_merge, migrate};
-use super::persist::{edit_path, read_document, DocRead, KeyEdit, Persisted, Shadow};
+use super::persist::{
+    edit_document, edit_read, read_document, DocRead, KeyEdit, Persisted, Shadow,
+};
 use super::storage::{SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
 use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
@@ -60,9 +62,9 @@ pub struct SettingsManager {
     global_load_error: Option<String>,
 }
 
-/// A change of a settings document: it returns whether it changed the
-/// document, or why it cannot apply.
-type DocumentEdit<'a> = dyn FnMut(&mut Map<String, Value>) -> Result<bool, String> + 'a;
+/// A change of a settings document read under its lock: the document to
+/// write (`None`: it changed nothing), or why it cannot apply.
+type DocumentEdit<'a> = dyn FnMut(DocRead) -> Result<Option<Map<String, Value>>, String> + 'a;
 
 /// One loaded scope.
 struct ScopeLoad {
@@ -391,13 +393,12 @@ impl SettingsManager {
     ///
     /// A file cannot be locked, read, parsed or written.
     pub fn clear_global(&mut self, decls: &[&Decl]) -> Result<()> {
-        self.write_scope(SettingsScope::Global, &mut |document| {
-            let mut changed = false;
-            for decl in decls {
-                let path: Vec<&str> = decl.id.split('.').collect();
-                changed |= edit_path(document, &path, KeyEdit::Remove)?.is_some();
-            }
-            Ok(changed)
+        self.write_scope(SettingsScope::Global, &mut |read| {
+            let edits = decls
+                .iter()
+                .map(|decl| (decl.id.split('.').collect(), KeyEdit::Remove))
+                .collect();
+            edit_document(read, edits)
         })?;
         let ids: Vec<&str> = decls.iter().map(|decl| decl.id).collect();
         self.storage
@@ -466,11 +467,11 @@ impl SettingsManager {
     // -- persistence ---------------------------------------------------------
 
     /// The read/modify/write of one scope's `settings.json` under its lock:
-    /// read the document on disk now, apply `edit` (which returns whether
-    /// it changed the document), write the result, and load it. A document
-    /// that cannot be read or parsed is never written. Every key that
-    /// `edit` does not touch keeps its value, a key that failed to load
-    /// included.
+    /// read the document on disk now, let `edit` change it (through the
+    /// compiled core, [`edit_document`]), write the result, and load it. A
+    /// document that cannot be read or parsed is never written. Every key
+    /// that `edit` does not touch keeps its value, a key that failed to
+    /// load included.
     ///
     /// # Errors
     ///
@@ -487,22 +488,20 @@ impl SettingsManager {
             .with_lock(scope, &mut |current| {
                 failure = None;
                 written = None;
-                let mut document = match read_document(current.as_deref()) {
-                    DocRead::Missing => Map::new(),
-                    DocRead::Parsed(document) => document,
+                let read = match read_document(current.as_deref()) {
                     DocRead::Broken(reason) => {
-                        failure = Some(format!("the settings file does not parse: {reason}"));
-                        return None;
+                        DocRead::Broken(format!("the settings file does not parse: {reason}"))
                     }
+                    read @ (DocRead::Missing | DocRead::Parsed(_)) => read,
                 };
-                match edit(&mut document) {
-                    Ok(true) => {}
-                    Ok(false) => return None,
+                let document = match edit(read) {
+                    Ok(Some(document)) => document,
+                    Ok(None) => return None,
                     Err(reason) => {
                         failure = Some(reason);
                         return None;
                     }
-                }
+                };
                 match serde_json::to_string_pretty(&document) {
                     Ok(text) => {
                         written = Some(document);
@@ -563,14 +562,13 @@ impl SettingsManager {
         value: &Value,
     ) -> Result<Persisted> {
         let path: Vec<&str> = decl.id.split('.').collect();
-        let mut probe = Map::new();
-        edit_path(&mut probe, &path, KeyEdit::Set(value.clone()))
+        let (probe, _) = edit_read(DocRead::Missing, &path, &KeyEdit::Set(value.clone()))
             .map_err(|error| anyhow!(error))?;
         if let Some(error) = load_document(&probe).rejected.into_iter().next() {
             return Err(anyhow!(error));
         }
-        self.write_scope(scope, &mut |document| {
-            edit_path(document, &path, KeyEdit::Set(value.clone())).map(|_| true)
+        self.write_scope(scope, &mut |read| {
+            edit_document(read, vec![(path.clone(), KeyEdit::Set(value.clone()))])
         })?;
         Ok(self.persisted(&[(decl, value)]))
     }
@@ -646,26 +644,28 @@ impl SettingsManager {
         model: &str,
     ) -> Result<Persisted> {
         let key = format!("{provider}/{model}");
-        self.write_scope(SettingsScope::Global, &mut |document| {
+        self.write_scope(SettingsScope::Global, &mut |read| {
             let mut recent = vec![key.clone()];
-            if let Some(Value::Array(items)) = document.get("recentModels") {
-                recent.extend(
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter(|item| *item != key)
-                        .map(str::to_string),
-                );
+            if let DocRead::Parsed(document) = &read {
+                if let Some(Value::Array(items)) = document.get("recentModels") {
+                    recent.extend(
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .filter(|item| *item != key)
+                            .map(str::to_string),
+                    );
+                }
             }
             recent.truncate(RECENT_MODELS_LIMIT);
-            edit_path(
-                document,
-                &["defaultProvider"],
-                KeyEdit::Set(provider.into()),
-            )?;
-            edit_path(document, &["defaultModel"], KeyEdit::Set(model.into()))?;
-            edit_path(document, &["recentModels"], KeyEdit::Set(recent.into()))?;
-            Ok(true)
+            edit_document(
+                read,
+                vec![
+                    (vec!["defaultProvider"], KeyEdit::Set(provider.into())),
+                    (vec!["defaultModel"], KeyEdit::Set(model.into())),
+                    (vec!["recentModels"], KeyEdit::Set(recent.into())),
+                ],
+            )
         })?;
         Ok(self.persisted(&[
             (&table::DEFAULT_PROVIDER, &Value::from(provider)),
@@ -803,8 +803,11 @@ impl SettingsManager {
     /// The global settings file cannot be read, parsed or written, or its
     /// `mcpServers` is not an object.
     pub fn set_global_mcp_server(&mut self, name: &str, entry: &Value) -> Result<()> {
-        self.write_scope(SettingsScope::Global, &mut |document| {
-            edit_path(document, &["mcpServers", name], KeyEdit::Set(entry.clone())).map(|_| true)
+        self.write_scope(SettingsScope::Global, &mut |read| {
+            edit_document(
+                read,
+                vec![(vec!["mcpServers", name], KeyEdit::Set(entry.clone()))],
+            )
         })
     }
 
@@ -815,9 +818,10 @@ impl SettingsManager {
     /// The global settings file cannot be read, parsed or written.
     pub fn remove_global_mcp_server(&mut self, name: &str) -> Result<bool> {
         let mut removed = false;
-        self.write_scope(SettingsScope::Global, &mut |document| {
-            removed = edit_path(document, &["mcpServers", name], KeyEdit::Remove)?.is_some();
-            Ok(removed)
+        self.write_scope(SettingsScope::Global, &mut |read| {
+            let document = edit_document(read, vec![(vec!["mcpServers", name], KeyEdit::Remove)])?;
+            removed = document.is_some();
+            Ok(document)
         })?;
         Ok(removed)
     }

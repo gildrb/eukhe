@@ -8,6 +8,7 @@ import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_command.bend as ffi_command
+import ./ffi_config.bend as ffi_config
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
@@ -130,6 +131,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 60:
+      ffi_config.ffi(input)
     case _:
       W.err("unknown entry")
 

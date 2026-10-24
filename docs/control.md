@@ -108,7 +108,7 @@ Documents: `settings.json` (global, project), `mcp-connections.json`, `auth.json
 6. `mcpServers` entry is a unit: a project entry replaces the same-named global entry, never takes its URL or credential. `kernelTransport` is a unit too.
 7. Sessions directory, one precedence for every reader (CLI, dashboard, gateway, daemon; `settings::resolve_session_dir`): `--session-dir`, `EUKHE_SESSION_DIR` (or legacy `EUKHE_CODING_AGENT_SESSION_DIR`), `sessionDir` setting, `<agent dir>/sessions`.
 
-Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs: `proof/config/`.
+Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.bend`, entry 60, `eukhe_bend::rules::config`). Laws: `laws/config.bend` (spec helpers `spec/config.bend`). Proofs: `proof/config/`.
 
 | Law | Says |
 | --- | --- |
@@ -124,10 +124,24 @@ Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs: `proof/config/`.
 | `trusted_project_applies` | Trusted project's item applies. |
 | `project_entry_never_merges` | Project MCP entry applies whole (S4b.6). |
 | `global_entry_kept` | Global entry the project does not name stays whole. |
+| `rmw_keeps_place` | Write keeps every key in its place: a set of a present key keeps the order, a new key goes last, a delete drops only its key (S4b.1). |
+| `rmw_missing_is_empty` | Missing file is edited as the empty document (S4b.1). |
+| `leaf_lists_exact` | Leaves applied = the good ones, leaves named = the rest, each in document order (S4b.3). |
+| `limits_exact` | Each asked provider's limit, in order: unset/absent/0 no limit, n is n, malformed or not a map caps at 1 (S4b.4). |
+| `merge_finds_exact` | Each asked name: the project entry whole, else the global one whole, else none (S4b.6). |
+| `trust_classify_exact` | A project key is what the first rule of the table whose path prefixes it says; no rule: code (S4b.5). |
+| `trust_table_example` | The table, pinned: nested retry counts are limits, other `retry` keys a preference, unknown keys code. |
+| `trust_applies_exact` | Trusted: every key but a global-only one applies; untrusted: only preferences. |
+| `trust_project_exact` | The project keys that apply are exactly those whose scope applies, in order, with their values. |
+| `trust_withheld_exact` | Trust warning names each withheld key once, in key order, by its rule's name. |
+| `config_ffi_answers` | Every request Rust writes is answered with the model's decision as Rust reads it. |
+| `config_ffi_reads_spelled` | The laws' reader reads every spelled request back whole. |
+| `config_ffi_malformed_exact` | Input that is not exactly one request gets exactly `E config: malformed request`. |
+| `config_ffi_example`, `config_ffi_refuses_example` | Anchors: request and reply bytes, refused inputs. |
 
 Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `laws/default_model.bend`.
 
-Tie: `settings::bridge::the_rust_config_code_equals_the_bend_model` vs `bridge/bridge_config.bend`, byte for byte, 360 generated scenarios: each writer over missing, valid, invalid, unreadable, other-version files; setters after another writer's change; documents with good, wrong-typed, undeclared leaves; `providerMaxInFlight` values; projects under each trust; global and project `mcpServers` entries.
+Tie: the Rust reads and writes the files and sends the facts (keys and values as places, project leaves as paths) to the compiled core: `eukhe_bend::rules::config::{rmw, leaves, limits, project, merge}` (entry 60); `rules::config::tests::the_codec_carries_each_question_through_the_core` checks the core is reached and the glue maps places back.
 
 Regression tests: `add_refuses_a_settings_file_that_does_not_parse`, `a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`, `another_version_is_refused_and_never_rewritten`, `set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`, `a_bad_leaf_drops_only_itself_and_is_named`, `a_setting_a_cfg_file_shadows_says_so`, `a_project_mcp_entry_never_takes_global_credentials`.
 

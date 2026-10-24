@@ -10,40 +10,58 @@ use super::*;
 
 impl AuthStorage {
     /// TS `updatePrimeInferenceCredential`: one locked read/modify/write of
-    /// the prime-inference credential; an update returning `None` leaves
-    /// the document untouched. `true` when the locked run completed (TS
-    /// returns normally; a write failure throws, so the callers must not
-    /// treat a failed run as applied).
+    /// the prime-inference credential (the compiled core decides the write:
+    /// `edit_storage_data`); an update returning `None` leaves the document
+    /// untouched. A document that failed to load reads as broken. `true`
+    /// when the locked run completed (TS returns normally; a write failure
+    /// throws, so the callers must not treat a failed run as applied).
     fn update_prime_inference_credential(
         &mut self,
         update: impl FnOnce(Option<AuthCredential>) -> Option<AuthCredential>,
     ) -> bool {
-        if self.load_error.is_some() {
+        if self.load_error.is_some()
+            && config::rmw(
+                config::Read::<String, serde_json::Value>::Broken,
+                config::Edit::Delete(PRIME_INFERENCE_PROVIDER_ID.to_string()),
+            )
+            .is_none()
+        {
             return false;
         }
         let mut update = Some(update);
         let result = self.storage.with_lock(&mut |current| {
-            let mut data = parse_storage_data(current.as_deref())?;
-            let existing = data.credential(PRIME_INFERENCE_PROVIDER_ID);
-            let Some(credential) =
-                (update.take().expect("the lock runs the update once"))(existing)
-            else {
-                return Ok(((), None));
-            };
-            data.insert(PRIME_INFERENCE_PROVIDER_ID, &credential);
-            // TS writes `primeTeam: null` explicitly for the personal
-            // account (`{ ...credential, primeTeam: null }`); the
-            // declarative serde skips a `None` field, so the prime write
-            // restores the key. The generic `set` keeps the TS omit
-            // shape for other providers' keys.
-            if let Some(serde_json::Value::Object(map)) =
-                data.0.get_mut(PRIME_INFERENCE_PROVIDER_ID)
-            {
-                map.entry("primeTeam")
-                    .or_insert_with(|| serde_json::Value::Null);
+            let mut failure = None;
+            let data = edit_storage_data(current.as_deref(), |data| {
+                let existing = data.credential(PRIME_INFERENCE_PROVIDER_ID);
+                let credential = (update.take().expect("the lock runs the update once"))(existing)?;
+                let mut entry = match serde_json::to_value(&credential) {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        failure = Some(error);
+                        return None;
+                    }
+                };
+                // TS writes `primeTeam: null` explicitly for the personal
+                // account (`{ ...credential, primeTeam: null }`); the
+                // declarative serde skips a `None` field, so the prime write
+                // restores the key. The generic `set` keeps the TS omit
+                // shape for other providers' keys.
+                if let serde_json::Value::Object(map) = &mut entry {
+                    map.entry("primeTeam")
+                        .or_insert_with(|| serde_json::Value::Null);
+                }
+                Some(config::Edit::Set(
+                    PRIME_INFERENCE_PROVIDER_ID.to_string(),
+                    entry,
+                ))
+            })?;
+            if let Some(error) = failure {
+                return Err(error.into());
             }
-            let content = serde_json::to_string_pretty(&data.0)?;
-            Ok(((), Some(content)))
+            let content = data
+                .map(|data| serde_json::to_string_pretty(&data.0))
+                .transpose()?;
+            Ok(((), content))
         });
         if let Err(error) = result {
             self.errors.push(error.to_string());

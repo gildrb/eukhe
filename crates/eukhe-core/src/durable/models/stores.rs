@@ -15,13 +15,15 @@ use eukhe_ai::providers::prime_inference::{
 };
 use eukhe_ai::utils::abort::{operation_signal, race_with_abort_signal};
 use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
+use eukhe_bend::rules::config;
 use eukhe_types::pi_ai::ProviderEnv;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 
 use crate::auth::resolve_config_value::resolve_config_value;
 use crate::auth::{
-    parse_storage_data, AuthStorageBackend, FileAuthStorageBackend, PrimeTeamCredential,
+    edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
+    PrimeTeamCredential,
 };
 
 pub(super) fn thrown(message: String) -> Thrown {
@@ -53,21 +55,36 @@ fn read_document(backend: &FileAuthStorageBackend) -> Result<Map<String, Value>,
 }
 
 /// Locked read-modify-write of the document. `update` sees the parsed
-/// document and returns whether to write it back.
+/// document (an empty one when the file is missing or does not parse) and
+/// returns the edit of one entry it makes, if any; the compiled core
+/// decides what to write ([`edit_storage_data`]).
 fn update_document<T>(
     backend: &FileAuthStorageBackend,
-    mut update: impl FnMut(&mut Map<String, Value>) -> Result<(bool, T), String>,
+    mut update: impl FnMut(
+        &Map<String, Value>,
+    ) -> Result<(Option<config::Edit<String, Value>>, T), String>,
 ) -> Result<T, String> {
     let mut outcome = None;
     backend
         .with_lock(&mut |current| {
-            let mut document = parse_storage_data(current.as_deref())?.0;
-            let (write, value) = update(&mut document).map_err(anyhow::Error::msg)?;
-            outcome = Some(value);
-            if !write {
-                return Ok(((), None));
+            let mut failure = None;
+            let data = edit_storage_data(current.as_deref(), |data| match update(&data.0) {
+                Ok((edit, value)) => {
+                    outcome = Some(value);
+                    edit
+                }
+                Err(error) => {
+                    failure = Some(error);
+                    None
+                }
+            })?;
+            if let Some(error) = failure {
+                anyhow::bail!(error);
             }
-            Ok(((), Some(serde_json::to_string_pretty(&document)?)))
+            let content = data
+                .map(|data| serde_json::to_string_pretty(&data.0))
+                .transpose()?;
+            Ok(((), content))
         })
         .map_err(|error| format!("{error:#}"))?;
     outcome.ok_or_else(|| "the locked update did not run".to_owned())
@@ -318,10 +335,12 @@ impl CredentialStore for AuthJsonCredentialStore {
                     if document.get(&write_id) != previous.as_ref() {
                         // Another writer changed the entry while `f` ran
                         // (a peer's refresh): its newer credential stands.
-                        return Ok((false, Some(document.get(&write_id).cloned())));
+                        return Ok((None, Some(document.get(&write_id).cloned())));
                     }
-                    document.insert(write_id.clone(), entry.clone());
-                    Ok((true, None))
+                    Ok((
+                        Some(config::Edit::Set(write_id.clone(), entry.clone())),
+                        None,
+                    ))
                 })
                 .map_err(|error| format!("auth.json: {error}"))
             })
@@ -350,7 +369,10 @@ impl CredentialStore for AuthJsonCredentialStore {
             task_signal.throw_if_aborted()?;
             blocking(move || {
                 update_document(&backend, |document| {
-                    Ok((document.shift_remove(&id).is_some(), ()))
+                    let edit = document
+                        .contains_key(&id)
+                        .then(|| config::Edit::Delete(id.clone()));
+                    Ok((edit, ()))
                 })
                 .map_err(|error| format!("auth.json: {error}"))
             })
@@ -553,15 +575,12 @@ mod tests {
         let modify: ModifyFn = Box::new(move |_current| {
             Box::pin(async move {
                 // A peer process refreshes while this refresh runs.
-                update_document(&FileAuthStorageBackend::new(&peer_path), |document| {
-                    document.insert(
-                        "anthropic".to_owned(),
-                        json!({
-                            "type": "oauth", "access": "peer-access", "refresh": "peer-refresh",
-                            "expires": 1_900_000_000_000_u64
-                        }),
-                    );
-                    Ok((true, ()))
+                update_document(&FileAuthStorageBackend::new(&peer_path), |_| {
+                    let peer = json!({
+                        "type": "oauth", "access": "peer-access", "refresh": "peer-refresh",
+                        "expires": 1_900_000_000_000_u64
+                    });
+                    Ok((Some(config::Edit::Set("anthropic".to_owned(), peer)), ()))
                 })
                 .unwrap();
                 Ok(Some(Credential::OAuth(OAuthCredential::new(
@@ -608,9 +627,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.json");
         let backend = FileAuthStorageBackend::new(&path);
-        let add_b = |document: &mut Map<String, Value>| {
-            document.insert("b".to_owned(), json!({ "type": "api_key", "key": "kb" }));
-            Ok((true, ()))
+        let add_b = |_: &Map<String, Value>| {
+            let entry = json!({ "type": "api_key", "key": "kb" });
+            Ok((Some(config::Edit::Set("b".to_owned(), entry)), ()))
         };
         // Invalid JSON: refused, the file is unchanged.
         let broken = r#"{ "a": { "type": "api_key", "key": "ka" },"#;

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
 use anyhow::Result;
+use eukhe_bend::rules::config;
 
 use super::flight::RefreshFlights;
 use super::types::AuthStorageData;
@@ -361,6 +362,48 @@ pub fn parse_storage_data(content: Option<&str>) -> Result<AuthStorageData> {
         anyhow::bail!("Invalid auth storage: expected a JSON object");
     };
     Ok(AuthStorageData(map))
+}
+
+/// One locked write of the auth document `content` (read under the lock;
+/// `None` or empty: no document): `decide` picks the edit of one provider's
+/// entry from the document as read (an empty one when it is missing or
+/// does not parse), and the compiled core decides what to write
+/// (`laws/config.bend`: a document that does not parse is never written,
+/// every other entry stays). `Ok(None)`: `decide` picked no edit.
+///
+/// # Errors
+///
+/// The content is not valid JSON or its root is not a JSON object (the
+/// core refuses the edit; with no edit the read's error stands).
+pub fn edit_storage_data(
+    content: Option<&str>,
+    decide: impl FnOnce(&AuthStorageData) -> Option<config::Edit<String, serde_json::Value>>,
+) -> Result<Option<AuthStorageData>> {
+    let (data, read, broken) = match content.filter(|content| !content.is_empty()) {
+        None => (AuthStorageData::default(), config::Read::Missing, None),
+        Some(content) => match parse_storage_data(Some(content)) {
+            Ok(data) => {
+                let read = config::Read::Parsed(data.0.clone().into_iter().collect());
+                (data, read, None)
+            }
+            Err(error) => (
+                AuthStorageData::default(),
+                config::Read::Broken,
+                Some(error),
+            ),
+        },
+    };
+    let Some(edit) = decide(&data) else {
+        return match broken {
+            Some(error) => Err(error),
+            None => Ok(None),
+        };
+    };
+    match (config::rmw(read, edit), broken) {
+        (Some(written), _) => Ok(Some(AuthStorageData(written.into_iter().collect()))),
+        (None, Some(error)) => Err(error),
+        (None, None) => anyhow::bail!("the compiled core refused a readable auth document"),
+    }
 }
 
 #[cfg(test)]

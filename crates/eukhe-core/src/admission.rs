@@ -78,34 +78,64 @@ impl AdmissionLimits {
     }
 
     /// Limits from the `providerMaxInFlight` value as written, read entry
-    /// by entry so that a malformed limit fails closed
-    /// (`laws/config.bend` `limit_malformed_fails_closed`): a whole number
-    /// is the provider's limit (`0` unlimited); any other entry caps its
-    /// provider at [`MALFORMED_IN_FLIGHT_LIMIT`]; a value that is neither
-    /// a map nor `null` (unset) caps every provider at it. The settings
-    /// load names each malformed value.
+    /// by entry; the compiled core decides each provider's limit
+    /// (`laws/config.bend` `limit_malformed_fails_closed`,
+    /// `limit_number_applies`): a whole number is the provider's limit
+    /// (`0` unlimited; a count past `u32::MAX` is `u32::MAX`), any other
+    /// entry caps its provider at [`MALFORMED_IN_FLIGHT_LIMIT`], a value
+    /// that is neither a map nor `null` (unset) caps every provider at it.
+    /// The settings load names each malformed value.
     #[must_use]
     pub fn from_setting(max_in_flight: &serde_json::Value, max_queued: Option<u32>) -> Self {
+        use eukhe_bend::rules::config::{limits, InFlight, Lim, Val};
         use serde_json::Value;
-        let mut limits = Self::new(None, max_queued);
-        match max_in_flight {
-            Value::Null => {}
-            Value::Object(entries) => {
-                for (provider, entry) in entries {
-                    let limit = match entry.as_u64().map(u32::try_from) {
-                        Some(Ok(limit)) => NonZeroU32::new(limit),
-                        Some(Err(_)) => NonZeroU32::new(u32::MAX),
-                        None => Some(MALFORMED_IN_FLIGHT_LIMIT),
-                    };
-                    if let Some(limit) = limit {
-                        limits.max_in_flight.insert(provider.clone(), limit);
-                    }
-                }
-            }
+        let providers: Vec<&String> = match max_in_flight {
+            Value::Object(entries) => entries.keys().collect(),
+            Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::Array(_) => Vec::new(),
+        };
+        let slots: Vec<(u64, Val)> = match max_in_flight {
+            Value::Object(entries) => entries
+                .values()
+                .zip(0u64..)
+                .map(|(entry, place)| {
+                    let value = entry.as_u64().map_or(Val::Malformed, |n| {
+                        Val::Num(u32::try_from(n).unwrap_or(u32::MAX))
+                    });
+                    (place, value)
+                })
+                .collect(),
+            Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::Array(_) => Vec::new(),
+        };
+        let in_flight = match max_in_flight {
+            Value::Null => InFlight::Unset,
+            Value::Object(_) => InFlight::Map(&slots),
             Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
-                limits.other_providers = Some(MALFORMED_IN_FLIGHT_LIMIT);
+                InFlight::NotMap
+            }
+        };
+        // Every named provider, then one no entry names (the place after
+        // the last): its limit is every other provider's.
+        let places: Vec<u64> = (0u64..).take(providers.len() + 1).collect();
+        let answers = limits(in_flight, &places);
+        let limit = |answer: Option<&Lim>| match answer {
+            Some(Lim::Unlimited) | None => None,
+            Some(Lim::Cap(n)) => Some(NonZeroU32::MIN.saturating_add(n.saturating_sub(1))),
+        };
+        let mut limits = Self::new(None, max_queued);
+        for (provider, answer) in providers.into_iter().zip(&answers) {
+            if let Some(cap) = limit(Some(answer)) {
+                limits.max_in_flight.insert(provider.clone(), cap);
             }
         }
+        limits.other_providers = limit(answers.last());
         limits
     }
 

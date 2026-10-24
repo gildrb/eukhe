@@ -4,7 +4,7 @@ import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
 import ../base/logic/bool.bend as LLogicBool
-import ./base.bend as LA
+import ./base/config.bend as LA
 
 # Trust
 # -----
@@ -30,6 +30,8 @@ def pcf.untrusted_changes_nothing_guarded(+g: List<&2, Cf.Entry>, items: List<&2
             case Cf.Prompt{}:
               pcf.untrusted_changes_nothing_guarded(g, rest, k, h)
             case Cf.Credential{}:
+              pcf.untrusted_changes_nothing_guarded(g, rest, k, h)
+            case Cf.Code{}:
               pcf.untrusted_changes_nothing_guarded(g, rest, k, h)
 
 def Config.untrusted_changes_nothing_guarded(g, items, k, h):

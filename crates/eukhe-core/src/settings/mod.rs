@@ -1,8 +1,6 @@
 //! Settings subsystem: typed settings documents, global/project storage,
 //! legacy migrations, the cvar layers (`cvar`, `cfg`), and the manager.
 
-#[cfg(test)]
-mod bridge;
 pub(crate) mod cfg;
 pub mod cvar;
 pub(crate) mod getters;

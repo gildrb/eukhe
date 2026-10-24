@@ -2,6 +2,10 @@
 
 import Base
 import ../bend/config.bend as Cf
+import ../bend/ffi_config.bend as FC
+import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
+import ../spec/config.bend as CS
 
 # ---- config ----
 
@@ -134,3 +138,638 @@ law global_entry_kept:
   for +n: Nat
   for h: {Cf.has(p, n) == False{} : Bool}
   {Cf.find(Cf.merge(g, p), n) == Cf.find(g, n) : Maybe<&2, List<&2, Cf.Entry>>}
+
+# (H1) The order of a written document
+# ------------------------------------
+
+# the keys of d, in order
+def cf_keys(d: List<&2, Cf.Entry>) -> List<&2, Nat>:
+  match d:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      match e:
+        case Cf.Entry{k, v}:
+          k <> cf_keys(t)
+
+# k is one of ks
+def cf_mem(ks: List<&2, Nat>, +k: Nat) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case x <> t:
+      Bool.or(Nat.is_eq(x, k), cf_mem(t, k))
+
+def cf_drop.keep(same: Bool, x: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match same:
+    case True{}:
+      rest
+    case False{}:
+      x <> rest
+
+# ks without k
+def cf_drop(ks: List<&2, Nat>, +k: Nat) -> List<&2, Nat>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      cf_drop.keep(Nat.is_eq(x, k), x, cf_drop(t, k))
+
+def cf_keys_set(there: Bool, ks: List<&2, Nat>, k: Nat) -> List<&2, Nat>:
+  match there:
+    case True{}:
+      ks
+    case False{}:
+      List.append(&2, Nat, ks, [k])
+
+# the keys after edit e of a document of keys ks: a set keeps every key
+# in its place and puts a new key last; a delete drops its key
+def cf_keys_after(+ks: List<&2, Nat>, e: Cf.Edit) -> List<&2, Nat>:
+  match e:
+    case Cf.Set{+k, v}:
+      cf_keys_set(cf_mem(ks, k), ks, k)
+    case Cf.Del{k}:
+      cf_drop(ks, k)
+
+def cf_written_keys(w: Cf.Write) -> Maybe<&2, List<&2, Nat>>:
+  match w:
+    case Cf.Refused{}:
+      None{}
+    case Cf.Wrote{d}:
+      Some{cf_keys(d)}
+
+# LAW rmw_keeps_place: a write keeps every key in its place: a set of a key the document
+# has keeps the order of the keys, a set of a new key puts it last, a
+# delete drops only its key
+# EXCLUDES: a setter that moves its key to the front or the end of a
+#   settings.json the user ordered, a delete that reorders the rest
+law rmw_keeps_place:
+  for +d: List<&2, Cf.Entry>
+  for +e: Cf.Edit
+  {cf_written_keys(Cf.rmw(Cf.Parsed{d}, e)) == Some{cf_keys_after(cf_keys(d), e)} : Maybe<&2, List<&2, Nat>>}
+
+# LAW rmw_missing_is_empty: only a missing file reads as the empty document: an edit of it
+# writes what the same edit of the empty document writes
+# EXCLUDES: a missing file refused, or written over a default document
+law rmw_missing_is_empty:
+  for e: Cf.Edit
+  {Cf.rmw(Cf.Missing{}, e) == Cf.rmw(Cf.Parsed{Nil{}}, e) : Cf.Write}
+
+def cf_put_v(same: Bool, v: Nat, w: Nat) -> Nat:
+  match same:
+    case True{}:
+      v
+    case False{}:
+      w
+
+# d with every entry of key k holding v, each in its place
+def cf_replace(d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> List<&2, Cf.Entry>:
+  match d:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      match e:
+        case Cf.Entry{+j, w}:
+          Cf.Entry{j, cf_put_v(Nat.is_eq(j, k), v, w)} <> cf_replace(t, k, v)
+
+def cf_set_in(there: Bool, d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> List<&2, Cf.Entry>:
+  match there:
+    case True{}:
+      cf_replace(d, k, v)
+    case False{}:
+      List.append(&2, Cf.Entry, d, [Cf.Entry{k, v}])
+
+def cf_without.keep(drop: Bool, e: Cf.Entry, rest: List<&2, Cf.Entry>) -> List<&2, Cf.Entry>:
+  match drop:
+    case True{}:
+      rest
+    case False{}:
+      e <> rest
+
+# d without the entries of key k
+def cf_without(d: List<&2, Cf.Entry>, +k: Nat) -> List<&2, Cf.Entry>:
+  match d:
+    case Nil{}:
+      Nil{}
+    case e <> t:
+      match e:
+        case Cf.Entry{+j, w}:
+          cf_without.keep(Nat.is_eq(j, k), Cf.Entry{j, w}, cf_without(t, k))
+
+# the document d after edit e
+def cf_edited(+d: List<&2, Cf.Entry>, e: Cf.Edit) -> List<&2, Cf.Entry>:
+  match e:
+    case Cf.Set{+k, v}:
+      cf_set_in(cf_mem(cf_keys(d), k), d, k, v)
+    case Cf.Del{k}:
+      cf_without(d, k)
+
+# LAW rmw_written_exact: a write over a document it read writes exactly that document
+# with the edit applied: a set gives every entry of its key the new value
+# in its place, or puts a new entry last; a delete drops every entry of
+# its key; no other entry changes, moves, appears or goes
+# EXCLUDES: a set that changes only the first of two entries of its key,
+#   a value written to another key, an entry dropped or added beside the
+#   edit
+law rmw_written_exact:
+  for +d: List<&2, Cf.Entry>
+  for e: Cf.Edit
+  {Cf.rmw(Cf.Parsed{d}, e) == Cf.Wrote{cf_edited(d, e)} : Cf.Write}
+
+# (H3) The leaves, in order
+# -------------------------
+
+def cf_good(o: Cf.Outcome) -> Bool:
+  match o:
+    case Cf.Good{}:
+      True{}
+    case Cf.BadType{}:
+      False{}
+    case Cf.Undeclared{}:
+      False{}
+
+def cf_paths.put(b: Bool, p: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
+    case True{}:
+      p <> rest
+    case False{}:
+      rest
+
+# the paths of the leaves whose outcome is good, in order
+def cf_good_paths(ls: List<&2, Cf.Leaf>) -> List<&2, Nat>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case l <> t:
+      match l:
+        case Cf.Leaf{p, o}:
+          cf_paths.put(cf_good(o), p, cf_good_paths(t))
+
+# the paths of the leaves whose outcome is not good, in order
+def cf_bad_paths(ls: List<&2, Cf.Leaf>) -> List<&2, Nat>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case l <> t:
+      match l:
+        case Cf.Leaf{p, o}:
+          cf_paths.put(Bool.not(cf_good(o)), p, cf_bad_paths(t))
+
+# LAW leaf_lists_exact: the leaves that apply are exactly the good ones and the leaves named
+# are exactly the others, each list in the document's order
+# EXCLUDES: a diagnostic list in another order (the Rust names the
+#   reported places in the order given), a leaf lost or listed twice
+law leaf_lists_exact:
+  for +ls: List<&2, Cf.Leaf>
+  {Cf.applied(ls) == cf_good_paths(ls) : List<&2, Nat>} & {Cf.reported(ls) == cf_bad_paths(ls) : List<&2, Nat>}
+
+# (H4) The limit of every provider
+# --------------------------------
+
+def cf_lim_of(n: Nat) -> Cf.Lim:
+  match n:
+    case 0n:
+      Cf.Unlimited{}
+    case 1n+q:
+      Cf.Cap{1n+q}
+
+def cf_lim_val(v: Cf.Val) -> Cf.Lim:
+  match v:
+    case Cf.Num{n}:
+      cf_lim_of(n)
+    case Cf.Malformed{}:
+      Cf.Cap{1n}
+
+def cf_slot_lim.pick(here: Bool, v: Cf.Val, later: Cf.Lim) -> Cf.Lim:
+  match here:
+    case True{}:
+      cf_lim_val(v)
+    case False{}:
+      later
+
+# the limit of the first slot of provider p: no slot is no limit
+def cf_slot_lim(es: List<&2, Cf.Slot>, +p: Nat) -> Cf.Lim:
+  match es:
+    case Nil{}:
+      Cf.Unlimited{}
+    case x <> t:
+      match x:
+        case Cf.Slot{q, v}:
+          cf_slot_lim.pick(Nat.is_eq(q, p), v, cf_slot_lim(t, p))
+
+# the limit of provider p: unset is no limit, not a map caps at 1
+def cf_limit(s: Cf.InFlight, +p: Nat) -> Cf.Lim:
+  match s:
+    case Cf.Unset{}:
+      Cf.Unlimited{}
+    case Cf.Entries{es}:
+      cf_slot_lim(es, p)
+    case Cf.NotMap{}:
+      Cf.Cap{1n}
+
+def cf_limits(+s: Cf.InFlight, qs: List<&2, Nat>) -> List<&2, Cf.Lim>:
+  match qs:
+    case Nil{}:
+      Nil{}
+    case q <> t:
+      cf_limit(s, q) <> cf_limits(s, t)
+
+# LAW limits_exact: the limits of providers qs are, in order, each provider's: unset or no
+# entry is no limit, 0 is no limit, a whole number n is n, a malformed
+# entry or a value that is not a map caps at 1
+# EXCLUDES: an absent provider capped, an unset value read as a cap, a
+#   limit answered for another provider or in another order
+law limits_exact:
+  for +s: Cf.InFlight
+  for qs: List<&2, Nat>
+  {Cf.limits(s, qs) == cf_limits(s, qs) : List<&2, Cf.Lim>}
+
+# (M7) The merged entries of every name
+# -------------------------------------
+
+def cf_find.pick(here: Bool, fs: List<&2, Cf.Entry>, later: Maybe<&2, List<&2, Cf.Entry>>) -> Maybe<&2, List<&2, Cf.Entry>>:
+  match here:
+    case True{}:
+      Some{fs}
+    case False{}:
+      later
+
+def cf_find(es: List<&2, Cf.Named>, +n: Nat) -> Maybe<&2, List<&2, Cf.Entry>>:
+  match es:
+    case Nil{}:
+      None{}
+    case x <> t:
+      match x:
+        case Cf.Named{m, fs}:
+          cf_find.pick(Nat.is_eq(m, n), fs, cf_find(t, n))
+
+def cf_or(m: Maybe<&2, List<&2, Cf.Entry>>, other: Maybe<&2, List<&2, Cf.Entry>>) -> Maybe<&2, List<&2, Cf.Entry>>:
+  match m:
+    case None{}:
+      other
+    case Some{fs}:
+      Some{fs}
+
+# for each name of qs: the project's entry of that name, else the
+# global one, else none
+def cf_merged(+g: List<&2, Cf.Named>, +p: List<&2, Cf.Named>, qs: List<&2, Nat>) -> List<&2, Maybe<&2, List<&2, Cf.Entry>>>:
+  match qs:
+    case Nil{}:
+      Nil{}
+    case +q <> t:
+      cf_or(cf_find(p, q), cf_find(g, q)) <> cf_merged(g, p, t)
+
+# LAW merge_finds_exact: the entry of each name asked, in order, is the project's entry of
+# that name whole, else the global one whole, else none
+# EXCLUDES: fields of a global entry mixed into a project entry, a global
+#   entry lost, an entry answered for another name or in another order
+law merge_finds_exact:
+  for +g: List<&2, Cf.Named>
+  for +p: List<&2, Cf.Named>
+  for qs: List<&2, Nat>
+  {Cf.finds(Cf.merge(g, p), qs) == cf_merged(g, p, qs) : List<&2, Maybe<&2, List<&2, Cf.Entry>>>}
+
+# (M3) Project keys by name
+# -------------------------
+
+# path a is a prefix of path b, name by name
+def cf_prefix(a: List<&2, String>, b: List<&2, String>) -> Bool:
+  match a:
+    case Nil{}:
+      True{}
+    case x <> xs:
+      match b:
+        case Nil{}:
+          False{}
+        case y <> ys:
+          Bool.and(String.eq(x, y), cf_prefix(xs, ys))
+
+def cf_join.go(xs: List<&2, String>, x: String) -> String:
+  match xs:
+    case Nil{}:
+      x
+    case y <> ys:
+      String.append(x, SCon{'.', cf_join.go(ys, y)})
+
+# the names of p joined by '.'
+def cf_join(p: List<&2, String>) -> String:
+  match p:
+    case Nil{}:
+      ""
+    case x <> xs:
+      cf_join.go(xs, x)
+
+def cf_head(p: List<&2, String>) -> String:
+  match p:
+    case Nil{}:
+      ""
+    case x <> xs:
+      x
+
+def cf_hit.pick(here: Bool, q: List<&2, String>, s: Cf.Scope, later: Cf.Hit) -> Cf.Hit:
+  match here:
+    case True{}:
+      Cf.Hit{cf_join(q), s}
+    case False{}:
+      later
+
+# the hit of path p: the first rule of rs whose path is a prefix of p;
+# none: code, named by p's first name
+def cf_hit(rs: List<&2, Cf.Rule>, +p: List<&2, String>) -> Cf.Hit:
+  match rs:
+    case Nil{}:
+      Cf.Hit{cf_head(p), Cf.Proj{Cf.Code{}}}
+    case r <> t:
+      match r:
+        case Cf.Rule{+q, s}:
+          cf_hit.pick(cf_prefix(q, p), q, s, cf_hit(t, p))
+
+def cf_rule(p: List<&2, String>, c: Cf.Class) -> Cf.Rule:
+  Cf.Rule{p, Cf.Proj{c}}
+
+# the table: what each key of a settings document (and each project
+# prompt file) is, nested rules first; every key it does not name is
+# code
+def cf_rules() -> List<&2, Cf.Rule>:
+  [
+    cf_rule(["retry", "maxRetries"], Cf.Limit{}),
+    cf_rule(["retry", "failover", "maxRetries"], Cf.Limit{}),
+    cf_rule(["onboardingShown"], Cf.Pref{}),
+    cf_rule(["onboardingCompleted"], Cf.Pref{}),
+    cf_rule(["defaultProvider"], Cf.Pref{}),
+    cf_rule(["defaultModel"], Cf.Pref{}),
+    cf_rule(["subagentDefaultModel"], Cf.Pref{}),
+    cf_rule(["recentModels"], Cf.Pref{}),
+    cf_rule(["auxiliaryModel"], Cf.Pref{}),
+    cf_rule(["defaultThinkingLevel"], Cf.Pref{}),
+    cf_rule(["defaultServiceTier"], Cf.Pref{}),
+    cf_rule(["rlmMaxDepth"], Cf.Pref{}),
+    cf_rule(["providerMaxInFlight"], Cf.Pref{}),
+    cf_rule(["providerMaxQueued"], Cf.Pref{}),
+    cf_rule(["idleEvictionMinutes"], Cf.Pref{}),
+    cf_rule(["sessionArchiveMaxAgeDays"], Cf.Pref{}),
+    cf_rule(["sessionArchiveMaxSessions"], Cf.Pref{}),
+    cf_rule(["transport"], Cf.Pref{}),
+    cf_rule(["steeringMode"], Cf.Pref{}),
+    cf_rule(["followUpMode"], Cf.Pref{}),
+    cf_rule(["theme"], Cf.Pref{}),
+    cf_rule(["compaction"], Cf.Pref{}),
+    cf_rule(["memory"], Cf.Pref{}),
+    cf_rule(["autoRefine"], Cf.Pref{}),
+    cf_rule(["branchSummary"], Cf.Pref{}),
+    cf_rule(["retry"], Cf.Pref{}),
+    cf_rule(["providerBackupModel"], Cf.Pref{}),
+    cf_rule(["imageModel"], Cf.Pref{}),
+    cf_rule(["prompts"], Cf.Pref{}),
+    cf_rule(["themes"], Cf.Pref{}),
+    cf_rule(["enableSkillCommands"], Cf.Pref{}),
+    cf_rule(["enableBuiltinSkills"], Cf.Pref{}),
+    cf_rule(["terminal"], Cf.Pref{}),
+    cf_rule(["images"], Cf.Pref{}),
+    cf_rule(["enabledModels"], Cf.Pref{}),
+    cf_rule(["treeFilterMode"], Cf.Pref{}),
+    cf_rule(["chatDetail"], Cf.Pref{}),
+    cf_rule(["editorPaddingX"], Cf.Pref{}),
+    cf_rule(["autocompleteMaxVisible"], Cf.Pref{}),
+    cf_rule(["showHardwareCursor"], Cf.Pref{}),
+    cf_rule(["markdown"], Cf.Pref{}),
+    cf_rule(["workflow"], Cf.Pref{}),
+    cf_rule(["warnings"], Cf.Pref{}),
+    cf_rule(["requestTiming"], Cf.Pref{}),
+    cf_rule(["modelRoles"], Cf.Pref{}),
+    cf_rule(["titles"], Cf.Pref{}),
+    cf_rule(["tts"], Cf.Pref{}),
+    cf_rule(["stt"], Cf.Pref{}),
+    cf_rule(["subagentMaxConcurrency"], Cf.Limit{}),
+    cf_rule(["subagentStallMs"], Cf.Limit{}),
+    cf_rule(["toolBlockingBudgetMs"], Cf.Limit{}),
+    cf_rule(["maxToolRounds"], Cf.Limit{}),
+    cf_rule(["autonomous"], Cf.Limit{}),
+    cf_rule(["directors"], Cf.Limit{}),
+    cf_rule(["thinkingBudgets"], Cf.Limit{}),
+    cf_rule(["SYSTEM.md"], Cf.Prompt{}),
+    cf_rule(["APPEND_SYSTEM.md"], Cf.Prompt{}),
+    cf_rule(["mcpServers"], Cf.Credential{}),
+    cf_rule(["kernelTransport"], Cf.Credential{}),
+    cf_rule(["providers"], Cf.Credential{}),
+    Cf.Rule{["trustedProjects"], Cf.GlobalOnly{}},
+    Cf.Rule{["gateway"], Cf.GlobalOnly{}},
+    Cf.Rule{["ssh"], Cf.GlobalOnly{}}
+  ]
+
+# LAW trust_classify_exact: a key is what the first rule of the table (cf_rules) whose path
+# is a prefix of the key's path says, named by that rule's path joined by
+# '.'; a key no rule names is code (withheld from an untrusted project),
+# named by its first name
+# EXCLUDES: a parent rule chosen over the nested rule before it, a match
+#   on a name that only starts like the rule's, an unknown key taken for
+#   a preference, a warning that names a leaf instead of its rule, a rule
+#   of the table changed, added, dropped or moved
+law trust_classify_exact:
+  for +p: List<&2, String>
+  {Cf.classify(p) == cf_hit(cf_rules(), p) : Cf.Hit}
+
+# LAW trust_table_example: anchor: the table is cf_rules; the nested retry counts are
+# limits, a nested key under `retry` a preference, a name that only
+# starts like a rule's and an unknown key code
+# EXCLUDES: a key moved to another class, a limit or credential
+#   admitted from an untrusted project, a preference withheld
+law trust_table_example:
+  {Cf.rules() == cf_rules() : List<&2, Cf.Rule>} &
+  {Cf.classify(["retry", "maxRetries"]) == Cf.Hit{"retry.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
+  {Cf.classify(["retry", "failover", "maxRetries"]) == Cf.Hit{"retry.failover.maxRetries", Cf.Proj{Cf.Limit{}}} : Cf.Hit} &
+  {Cf.classify(["retry", "failover", "enabled"]) == Cf.Hit{"retry", Cf.Proj{Cf.Pref{}}} : Cf.Hit} &
+  {Cf.classify(["mcpServers", "github", "url"]) == Cf.Hit{"mcpServers", Cf.Proj{Cf.Credential{}}} : Cf.Hit} &
+  {Cf.classify(["gateway", "signal", "account"]) == Cf.Hit{"gateway", Cf.GlobalOnly{}} : Cf.Hit} &
+  {Cf.classify(["SYSTEM.md"]) == Cf.Hit{"SYSTEM.md", Cf.Proj{Cf.Prompt{}}} : Cf.Hit} &
+  {Cf.classify(["shellPath"]) == Cf.Hit{"shellPath", Cf.Proj{Cf.Code{}}} : Cf.Hit} &
+  {Cf.classify(["themex"]) == Cf.Hit{"themex", Cf.Proj{Cf.Code{}}} : Cf.Hit} &
+  {Cf.classify(["unknownKey", "x"]) == Cf.Hit{"unknownKey", Cf.Proj{Cf.Code{}}} : Cf.Hit}
+
+# a key of scope s applies from a project of trust t: a trusted project's
+# every key but a global-only one, an untrusted project's preferences
+def cf_pref_only(c: Cf.Class) -> Bool:
+  match c:
+    case Cf.Pref{}:
+      True{}
+    case Cf.Limit{}:
+      False{}
+    case Cf.Prompt{}:
+      False{}
+    case Cf.Credential{}:
+      False{}
+    case Cf.Code{}:
+      False{}
+
+def cf_applies(t: Cf.Trust, s: Cf.Scope) -> Bool:
+  match t:
+    case Cf.Trusted{}:
+      match s:
+        case Cf.GlobalOnly{}:
+          False{}
+        case Cf.Proj{c}:
+          True{}
+    case Cf.Untrusted{}:
+      match s:
+        case Cf.GlobalOnly{}:
+          False{}
+        case Cf.Proj{c}:
+          cf_pref_only(c)
+
+# LAW trust_applies_exact: a trusted project applies every key but a global-only one; an
+# untrusted project applies only its preferences
+# EXCLUDES: a global-only key taken from a trusted project, a limit,
+#   prompt, credential or code key taken from an untrusted one
+law trust_applies_exact:
+  for +t: Cf.Trust
+  for s: Cf.Scope
+  {Cf.applies(t, s) == cf_applies(t, s) : Bool}
+
+def cf_project.put(ok: Bool, k: Nat, v: Nat, rest: List<&2, Cf.Entry>) -> List<&2, Cf.Entry>:
+  match ok:
+    case True{}:
+      Cf.Entry{k, v} <> rest
+    case False{}:
+      rest
+
+def cf_scope(h: Cf.Hit) -> Cf.Scope:
+  match h:
+    case Cf.Hit{n, s}:
+      s
+
+# the keys of ks that apply under t, in order, as entries, over g
+def cf_project(+t: Cf.Trust, g: List<&2, Cf.Entry>, ks: List<&2, Cf.PKey>) -> List<&2, Cf.Entry>:
+  match ks:
+    case Nil{}:
+      g
+    case x <> rest:
+      match x:
+        case Cf.PKey{k, +p, v}:
+          cf_project.put(cf_applies(t, cf_scope(cf_hit(cf_rules(), p))), k, v, cf_project(t, g, rest))
+
+# LAW trust_project_exact: the values that apply from a project are exactly its keys whose
+# scope applies under its trust, each with its value, in the document's
+# order, before the global values
+# EXCLUDES: a withheld key applied, an admitted key dropped, a key given
+#   another key's value, keys reordered
+law trust_project_exact:
+  for +t: Cf.Trust
+  for g: List<&2, Cf.Entry>
+  for ks: List<&2, Cf.PKey>
+  {Cf.project(t, g, ks) == cf_project(t, g, ks) : List<&2, Cf.Entry>}
+
+def cf_names.put(ok: Bool, n: String, rest: List<&2, String>) -> List<&2, String>:
+  match ok:
+    case True{}:
+      rest
+    case False{}:
+      n <> rest
+
+def cf_names.hit(+t: Cf.Trust, h: Cf.Hit, rest: List<&2, String>) -> List<&2, String>:
+  match h:
+    case Cf.Hit{n, s}:
+      cf_names.put(cf_applies(t, s), n, rest)
+
+# the name of each key of ks that does not apply under t, in order
+def cf_names(+t: Cf.Trust, ks: List<&2, Cf.PKey>) -> List<&2, String>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      match x:
+        case Cf.PKey{k, +p, v}:
+          cf_names.hit(t, cf_hit(cf_rules(), p), cf_names(t, rest))
+
+def cf_seen(ns: List<&2, String>, +n: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case x <> t:
+      Bool.or(String.eq(x, n), cf_seen(t, n))
+
+def cf_once.add(seen: Bool, n: String, acc: List<&2, String>) -> List<&2, String>:
+  match seen:
+    case True{}:
+      acc
+    case False{}:
+      List.append(&2, String, acc, [n])
+
+# acc, then each name of ns not named before, in order
+def cf_once(ns: List<&2, String>, +acc: List<&2, String>) -> List<&2, String>:
+  match ns:
+    case Nil{}:
+      acc
+    case +n <> t:
+      cf_once(t, cf_once.add(cf_seen(acc, n), n, acc))
+
+# LAW trust_withheld_exact: the warning names each key that does not apply, once, in the
+# order the keys come, by the name its rule gives
+# EXCLUDES: a withheld key the warning does not name, a name of a key
+#   that applies, a name twice
+law trust_withheld_exact:
+  for +t: Cf.Trust
+  for ks: List<&2, Cf.PKey>
+  {Cf.withheld(t, ks) == cf_once(cf_names(t, ks), Nil{}) : List<&2, String>}
+
+# The entry (bend/ffi_config.bend)
+# --------------------------------
+# R1: every request Rust writes (the grammar in the entry's header, every
+#     Nat, length and count within the wire) is answered with the model's
+#     decision, spelled as Rust reads it: no field lost, swapped or
+#     invented. R2: any input that is not exactly one request (an unknown
+#     tag, a malformed field, input left over) is answered with exactly
+#     the error form "config: malformed request", never a decision.
+
+# LAW config_ffi_answers: every request Rust writes, every number, length and count within
+# the wire, is answered with the model's decision spelled as Rust reads
+# it: the write, the leaves that apply and those named, the limits, the
+# keys that apply and the withheld names, the merged entries
+# EXCLUDES: a field misread, swapped or dropped; a request answered with
+#   another request's rule, a default, or a reply spelled otherwise
+law config_ffi_answers:
+  for +a: FC.Ask
+  for fits: {CS.cf_fit_ask(a) == True{} : Bool}
+  {FC.ffi(CS.cf_w_ask(a)) == CS.cf_w_reply(a) : String}
+
+# LAW config_ffi_reads_spelled: the laws' reader reads every spelled request that fits the
+# wire back whole, so config_ffi_malformed_exact refuses only what Rust
+# never writes
+# EXCLUDES: a reader (and so an entry) that refuses a request Rust writes
+law config_ffi_reads_spelled:
+  for +a: FC.Ask
+  for fits: {CS.cf_fit_ask(a) == True{} : Bool}
+  {CS.cf_read(CS.cf_w_ask(a)) == Some{a} : Maybe<&2, FC.Ask>}
+
+# LAW config_ffi_malformed_exact: every input that is not exactly one request (an unknown
+# tag, a malformed field, input left over) gets exactly the error form
+# 'E ', then "config: malformed request"
+# EXCLUDES: a decision made on input that is no request, another error
+#   text, a reply Rust would read as a value
+law config_ffi_malformed_exact:
+  for +s: String
+  for no: {CS.cf_read(s) == None{} : Maybe<&2, FC.Ask>}
+  {FC.ffi(s) == SCon{'E', SCon{' ', "config: malformed request"}} : String}
+
+# LAW config_ffi_example: anchor: the strings Rust sends and the replies it reads: a set
+# over a parsed document, a broken read, a delete over a missing file,
+# leaves, limits, an untrusted project, a merge
+# EXCLUDES: tags in another order, a field order other than Rust's
+law config_ffi_example:
+  {FC.ffi("0,1,2,0,0,1,1,0,0,7,") == "1,2,0,7,1,1," : String} &
+  {FC.ffi("0,1,2,0,0,1,1,0,2,7,") == "1,3,0,0,1,1,2,7," : String} &
+  {FC.ffi("0,2,0,0,7,") == "0," : String} &
+  {FC.ffi("0,0,1,3,") == "1,0," : String} &
+  {FC.ffi("1,3,0,0,1,1,2,2,") == "1,0,2,1,2," : String} &
+  {FC.ffi("2,1,2,0,0,5,1,1,3,0,1,2,") == "3,1,5,1,1,0," : String} &
+  {FC.ffi("2,2,2,0,9,") == "2,1,1,1,1," : String} &
+  {FC.ffi("3,1,3,0,1,5,theme0,1,2,5,retry10,maxRetries1,2,1,7,unknown2,") == "1,0,0,2,16,retry.maxRetries7,unknown" : String} &
+  {FC.ffi("4,1,0,1,0,1,1,0,1,0,2,2,0,1,") == "2,1,1,0,2,0," : String}
+
+# LAW config_ffi_refuses_example: witness: an unknown tag, a bad outcome tag and input left
+# over get the error form
+# EXCLUDES: a vacuous config_ffi_malformed_exact
+law config_ffi_refuses_example:
+  {CS.cf_read("5,") == None{} : Maybe<&2, FC.Ask>} &
+  {CS.cf_read("1,1,0,3,") == None{} : Maybe<&2, FC.Ask>} &
+  {CS.cf_read("0,2,0,0,7,x") == None{} : Maybe<&2, FC.Ask>} &
+  {FC.ffi("0,2,0,0,7,x") == SCon{'E', SCon{' ', "config: malformed request"}} : String}

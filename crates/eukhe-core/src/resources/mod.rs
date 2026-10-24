@@ -75,6 +75,7 @@ pub fn load_project_context_files(cwd: &Path, agent_dir: &Path) -> Vec<ContextFi
 pub(crate) mod resolution;
 
 use anyhow::{Context, Result};
+use eukhe_bend::rules::config;
 
 use crate::packages::BundledSkillsDir;
 use crate::prompts::{PromptOrigin, SourcedPrompt};
@@ -437,10 +438,11 @@ fn read_explicit_prompt(
     }
 }
 
-/// The discovered file of `slot`: `<cwd>/.eukhe/<name>` when the project is
-/// trusted, else `<agentDir>/<name>`. An untrusted project file goes into
-/// `withheld`. A file whose presence cannot be checked is an error
-/// diagnostic.
+/// The discovered file of `slot`: `<cwd>/.eukhe/<name>` when the project's
+/// trust lets it apply (the compiled core decides: `config::project` of
+/// the key of its file name), else `<agentDir>/<name>`. A withheld project
+/// file goes into `withheld`. A file whose presence cannot be checked is
+/// an error diagnostic.
 fn discover_prompt_file(
     request: &SystemPromptRequest<'_>,
     slot: PromptSlot,
@@ -464,9 +466,17 @@ fn discover_prompt_file(
         .join(crate::settings::CONFIG_DIR_NAME)
         .join(slot.file_name());
     if exists(&project) {
-        match request.trust {
-            TrustLevel::Trusted => return Some(project),
-            TrustLevel::Untrusted => withheld.push(project),
+        let trust = match request.trust {
+            TrustLevel::Trusted => config::Trust::Trusted,
+            TrustLevel::Untrusted => config::Trust::Untrusted,
+        };
+        let key = vec![(vec![slot.file_name().to_string()], ())];
+        let (applied, _) =
+            eukhe_bend::expect_core(eukhe_bend::Entry::Config, config::project(trust, key));
+        if applied.is_empty() {
+            withheld.push(project);
+        } else {
+            return Some(project);
         }
     }
     let global = request.agent_dir.join(slot.file_name());
