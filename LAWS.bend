@@ -52,6 +52,8 @@ import ./laws/approvals.bend as Approvals
 import ./laws/wire.bend as Wire
 import ./laws/facts.bend as Facts
 import ./laws/retry.bend as Retry
+import ./laws/retry_idle.bend as RetryIdle
+import ./laws/retry_ffi.bend as RetryFfi
 import ./laws/dash.bend as Dash
 import ./laws/doc_commit.bend as DocCommit
 import ./laws/doc_lines.bend as DocLines

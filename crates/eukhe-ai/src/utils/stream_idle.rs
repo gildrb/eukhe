@@ -16,8 +16,10 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use eukhe_bend::rules::retry::{idle_armed, idle_wake, IdleClock, Wake};
+use eukhe_bend::Entry;
 use eukhe_chord::context::{AbortController, AbortSignal};
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{sleep, Duration, Instant};
 
 use super::sleep::timer_duration;
 use super::stream_failure::{stream_stalled_failure, ProviderError};
@@ -71,14 +73,21 @@ impl StreamClock {
         }
     }
 
-    /// When the stream stalls unless it shows life first; while held, one
-    /// timeout from now.
-    fn deadline(&self, timeout: Duration) -> Instant {
-        let life = self.life();
-        match life.holds {
-            0 => life.last + timeout,
-            _ => Instant::now() + timeout,
-        }
+    /// What the timer of a deadline of `timeout_us` does now: the compiled
+    /// core decides (`R.idle.wake`) from the hold and the time since the
+    /// stream last showed life.
+    fn wake(&self, timeout_us: u64) -> Wake {
+        let (clock, since) = {
+            let life = self.life();
+            let clock = if life.holds == 0 {
+                IdleClock::Free
+            } else {
+                IdleClock::Held
+            };
+            (clock, Instant::now().saturating_duration_since(life.last))
+        };
+        let since_us = u64::try_from(since.as_micros()).unwrap_or(u64::MAX);
+        eukhe_bend::expect_core(Entry::RetryIdle, idle_wake(clock, since_us, timeout_us))
     }
 }
 
@@ -100,7 +109,7 @@ impl Drop for ClockHold {
 #[derive(Debug)]
 pub(crate) struct StreamIdle {
     timeout_ms: f64,
-    timeout: Duration,
+    timeout_us: u64,
     clock: StreamClock,
     stall: AbortController,
 }
@@ -120,8 +129,9 @@ impl StreamIdle {
         let timeout_ms = request
             .stream_idle_timeout_ms
             .unwrap_or(DEFAULT_STREAM_IDLE_TIMEOUT_MS);
-        // `0`, a negative value, and NaN disable the deadline.
-        if timeout_ms.is_nan() || timeout_ms <= 0.0 {
+        // The compiled core decides (`R.idle.arm`): `0`, a negative value,
+        // and NaN disable the deadline.
+        if !eukhe_bend::expect_core(Entry::RetryIdle, idle_armed(timeout_ms)) {
             return None;
         }
         let stall = AbortController::new();
@@ -143,37 +153,35 @@ impl StreamIdle {
             });
             *observer = Some(watched);
         }
+        let timeout = timer_duration(timeout_ms);
         Some(Self {
             timeout_ms,
-            timeout: timer_duration(timeout_ms),
+            timeout_us: u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
             clock,
             stall,
         })
     }
 
-    /// Record a stream event.
+    /// Record a stream event: a plain store of the time (no core call).
     pub(crate) fn touch(&self) {
         self.clock.touch();
     }
 
-    fn deadline(&self) -> Instant {
-        self.clock.deadline(self.timeout)
-    }
-
     /// Run `work` unless the stream stays silent past the deadline first
     /// (`None`; `work` is dropped). Events recorded while `work` runs move
-    /// the deadline.
+    /// the deadline. Each time the timer fires (and once at the start) the
+    /// compiled core decides: the stream stalled, or sleep that long more.
     pub(crate) async fn within<T>(&self, work: impl Future<Output = T>) -> Option<T> {
         tokio::pin!(work);
         loop {
+            let pause = match self.clock.wake(self.timeout_us) {
+                Wake::Stall => return None,
+                Wake::Sleep(us) => Duration::from_micros(us),
+            };
             tokio::select! {
                 biased;
                 value = &mut work => return Some(value),
-                () = sleep_until(self.deadline()) => {
-                    if self.deadline() <= Instant::now() {
-                        return None;
-                    }
-                }
+                () = sleep(pause) => {}
             }
         }
     }

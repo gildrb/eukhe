@@ -34,6 +34,7 @@ import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
+import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
@@ -138,6 +139,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_job_rewind.ffi(input)
     case 81:
       ffi_job_wait.ffi(input)
+    case 84:
+      ffi_retry_idle.ffi(input)
     case 86:
       ffi_wait.ffi(input)
     case _:

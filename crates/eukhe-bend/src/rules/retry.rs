@@ -1,10 +1,13 @@
 //! The retry decisions (`bend/retry.bend`, entry `bend/ffi_retry.bend`;
 //! `laws/retry.bend`): the classifier of a failed request, the
 //! wait before a retry, the failover walk over a provider chain, and the
-//! idle deadline after a stall. Each function encodes its input, calls
-//! [`Entry::Retry`] and decodes the reply; every number is saturated at the
-//! wire's largest Nat ([`NAT_MAX`]) first, where the laws state the model's
-//! answer does not change (or saturates with it).
+//! idle deadline after a stall; and the stream-idle deadline's decisions
+//! (entry `bend/ffi_retry_idle.bend`; `laws/retry_idle.bend`): whether it
+//! is armed, and what its timer does when it fires. Each function encodes
+//! its input, calls [`Entry::Retry`] or [`Entry::RetryIdle`] and decodes
+//! the reply; every number is saturated at the wire's largest Nat
+//! ([`NAT_MAX`]) first, where the laws state the model's answer does not
+//! change (or saturates with it).
 
 use crate::wire::{Reader, Writer, NAT_MAX};
 use crate::{call, Entry, Error};
@@ -216,12 +219,102 @@ pub fn idle_after_stall(idle_ms: u64) -> Result<u64, Error> {
     Ok(idle)
 }
 
+/// Whether `stream_idle_timeout_ms` arms the stream-idle deadline
+/// (`R.idle.arm`, entry `bend/ffi_retry_idle.bend`): NaN, a negative
+/// number and 0 disable it. The facts of the number go to the core: NaN,
+/// negative, its whole part (saturated at [`NAT_MAX`]), a fraction.
+///
+/// # Errors
+///
+/// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
+pub fn idle_armed(timeout_ms: f64) -> Result<bool, Error> {
+    let magnitude = timeout_ms.abs();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a whole, non-negative f64 saturates into u64; the wire saturates it once more"
+    )]
+    let whole = (magnitude.trunc() as u64).min(NAT_MAX);
+    let mut request = Writer::new();
+    request
+        .tag(0)
+        .bool(timeout_ms.is_nan())
+        .bool(timeout_ms < 0.0)
+        .nat(whole)
+        .bool(magnitude.fract() != 0.0);
+    let reply = call(Entry::RetryIdle, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    let armed = reply.bool()?;
+    reply.end()?;
+    Ok(armed)
+}
+
+/// What the stream-idle deadline's timer does when it fires (`R.Wake`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wake {
+    /// The stream stalled.
+    Stall,
+    /// Sleep this many us more from now.
+    Sleep(u64),
+}
+
+/// The timer's decision (`R.idle.wake`): it fired `since_us` after the
+/// stream last showed life, under a deadline of `deadline_us`; `held`:
+/// a hold stops the clock. `since_us` saturates at [`NAT_MAX`], where the
+/// stream has stalled under every deadline the wire carries.
+///
+/// # Errors
+///
+/// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
+pub fn idle_wake(clock: IdleClock, since_us: u64, deadline_us: u64) -> Result<Wake, Error> {
+    let mut request = Writer::new();
+    request
+        .tag(1)
+        .bool(clock == IdleClock::Held)
+        .nat(since_us.min(NAT_MAX))
+        .nat(deadline_us);
+    let reply = call(Entry::RetryIdle, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    let wake = if reply.tag_of(2, "a Wake")? == 0 {
+        Wake::Stall
+    } else {
+        Wake::Sleep(reply.nat()?)
+    };
+    reply.end()?;
+    Ok(wake)
+}
+
+/// Whether a hold stops the stream's clock when its timer fires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdleClock {
+    /// No hold: the clock runs from the stream's last life.
+    Free,
+    /// At least one hold is alive.
+    Held,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        idle_after_stall, next_switch, retryable, wait, Cause, Facts, Policy, Switch, Tried, Wait,
-        WaitInput,
+        idle_after_stall, idle_armed, idle_wake, next_switch, retryable, wait, Cause, Facts,
+        IdleClock, Policy, Switch, Tried, Wait, WaitInput, Wake,
     };
+
+    #[test]
+    fn the_idle_deadline_decisions_run_in_the_core() {
+        assert_eq!(
+            [0.5, 0.0, -1.0, f64::NAN].map(|ms| idle_armed(ms).unwrap()),
+            [true, false, false, false]
+        );
+        assert_eq!(
+            [
+                idle_wake(IdleClock::Free, 250, 1000).unwrap(),
+                idle_wake(IdleClock::Free, u64::MAX, 1000).unwrap(),
+                idle_wake(IdleClock::Held, 4000, 1000).unwrap(),
+            ],
+            [Wake::Sleep(750), Wake::Stall, Wake::Sleep(1000)]
+        );
+    }
 
     #[test]
     fn the_codec_carries_each_decision_through_the_core() {

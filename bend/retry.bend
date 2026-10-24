@@ -23,11 +23,15 @@
 #    `StreamIdle::within`): a stream with no event for the deadline ends
 #    as stalled, never later than its last event plus the deadline.
 #
-# laws/retry.bend states the laws; PROOF.bend proves them (as Retry.<law>)
-# with the lemmas of proof/retry/.
+# laws/retry.bend states the laws (laws/retry_idle.bend those of 6's
+# entry); PROOF.bend proves them (as Retry.<law>, RetryIdle.<law>) with
+# the lemmas of proof/retry/ and proof/retry_idle/.
 # Decisions 1, 2, 3 and 5 run compiled (bend/ffi_retry.bend, crate
 # eukhe-bend); 4 runs compiled as bend/run/decision.bend's (bend/ffi_run.bend);
-# bridge/bridge_retry.bend runs 6 against the Rust code.
+# 6's decisions (whether a deadline is armed, what its timer does when it
+# fires: `idle.arm`, `idle.wake`) run compiled (bend/ffi_retry_idle.bend);
+# bridge/bridge_retry.bend runs `idle` against the Rust timer loop, the
+# race of an event and the timer on tokio.
 
 import Base
 
@@ -732,3 +736,33 @@ def idle.life(gs: List<&2, Nat>, +d: Nat) -> Nat:
       0n
     case +g <> rest:
       idle.life.sel(Nat.is_gt(g, d), 0n, idle.life.go(rest, d, g))
+
+# What the deadline's timer decides when it fires (`StreamIdle::within`):
+# the stream stalled, or the timer sleeps `us` more from now
+type Wake is Data:
+  WakeStall{}
+  WakeSleep{us: Nat}
+
+def idle.wake.sel(early: Bool, left: Nat) -> Wake:
+  match early:
+    case True{}:
+      WakeSleep{left}
+    case False{}:
+      WakeStall{}
+
+# the timer of a deadline of d fires `since` after the stream last showed
+# life: a held clock (`StreamClock::hold`) sleeps a whole deadline from
+# now; a free one has stalled once d has passed since that life, and else
+# sleeps what is left of d
+def idle.wake(held: Bool, +since: Nat, +d: Nat) -> Wake:
+  match held:
+    case True{}:
+      WakeSleep{d}
+    case False{}:
+      idle.wake.sel(Nat.is_gt(d, since), Nat.sub(d, since))
+
+# whether a deadline of `stream_idle_timeout_ms` is armed, from the facts
+# of the number Rust reads: NaN, negative, its whole part and whether it
+# has a fraction. NaN, a negative number and 0 disable the deadline.
+def idle.arm(nan: Bool, neg: Bool, whole: Nat, frac: Bool) -> Bool:
+  Bool.and(Bool.not(Bool.or(nan, neg)), Bool.or(Nat.is_gt(whole, 0n), frac))

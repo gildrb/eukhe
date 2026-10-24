@@ -46,3 +46,4 @@
 81 job_wait
 85 lease
 86 wait
+84 retry_idle
