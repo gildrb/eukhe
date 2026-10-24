@@ -4,9 +4,11 @@ import * as stylex from "@stylexjs/stylex";
 // here, and only here. The lint rule eukhe/token-literals (lint/tokens.ts)
 // fails `vp check` on a color, length, duration, easing, layer, weight or
 // opacity written in another file under src/; src/tokens.test.ts does the
-// same for global.css. bend/tokens.bend holds the same table, and
-// laws/tokens.bend states its rules (T2): src/tokens.test.ts
-// checks that the two tables are equal.
+// same for global.css. The palettes, the spacing, the type sizes and line
+// heights and the layers are written by the compiled Bend core from
+// bend/tokens.bend (laws/tokens.bend states their rules, T2): each marked
+// block below is its answer (`make dashboard-tokens` writes them; the
+// eukhe-bend test rules::tokens checks the file holds them).
 
 /**
  * Breakpoints: phone < 768, tablet 768–1023 (the phone layout, a wider
@@ -33,6 +35,7 @@ export const media = stylex.defineConsts({
  * CSS, so they write `bg` again; src/tokens.test.ts checks that they agree.
  */
 export const lightPalette = stylex.defineConsts({
+  // block lightPalette: written by the compiled core from bend/tokens.bend (`make dashboard-tokens`)
   bg: "#ffffff",
   sidebar: "#f9f9f9",
   raised: "#ffffff",
@@ -50,9 +53,11 @@ export const lightPalette = stylex.defineConsts({
   shadowFar: "rgb(0 0 0 / 0.1)",
   shadowDrawer: "rgb(0 0 0 / 0.2)",
   shadowLatest: "rgb(0 0 0 / 0.12)",
+  // end of block lightPalette
 });
 
 export const darkPalette = stylex.defineConsts({
+  // block darkPalette: written by the compiled core from bend/tokens.bend (`make dashboard-tokens`)
   bg: "#212121",
   sidebar: "#181818",
   raised: "#2a2a2a",
@@ -70,6 +75,7 @@ export const darkPalette = stylex.defineConsts({
   shadowFar: "rgb(0 0 0 / 0.4)",
   shadowDrawer: "rgb(0 0 0 / 0.2)",
   shadowLatest: "rgb(0 0 0 / 0.12)",
+  // end of block darkPalette
 });
 
 const pair = (light: string, dark: string) => `light-dark(${light}, ${dark})`;
@@ -109,6 +115,7 @@ export const shadows = stylex.defineVars({
 
 /** The 4px grid, with the half steps a few tight spots use. */
 export const space = stylex.defineConsts({
+  // block space: written by the compiled core from bend/tokens.bend (`make dashboard-tokens`)
   x025: "1px",
   x05: "2px",
   x1: "4px",
@@ -121,6 +128,7 @@ export const space = stylex.defineConsts({
   x6: "24px",
   x8: "32px",
   x12: "48px",
+  // end of block space
 });
 
 /** The only radii: 4 inline code, 8 controls and rows, 14 menus and the send button, 18 bubbles and dialogs, 22 the composer. */
@@ -150,17 +158,21 @@ export const fonts = stylex.defineConsts({
   prose: '"liga" 1, "calt" 1',
 });
 
-/** Sizes, ascending (tiny, small, text, title), then line heights, ascending. */
+/**
+ * Sizes, ascending (tiny, small, text, title), then line heights, ascending
+ * (`blockLine`: small text in blocks: thinking, tool output, code).
+ */
 export const type = stylex.defineConsts({
+  // block type: written by the compiled core from bend/tokens.bend (`make dashboard-tokens`)
   tiny: "13px",
   small: "14px",
   text: "16px",
   title: "19px",
   smallLine: "20px",
-  /** Small text in blocks: thinking, tool output, code. */
   blockLine: "22px",
   textLine: "24px",
   proseLine: "26px",
+  // end of block type
   titleTracking: "-0.01em",
   /** Inline code, relative to its text. */
   inlineCode: "0.875em",
@@ -219,12 +231,14 @@ export const size = stylex.defineConsts({
 
 /** The stacking order, bottom to top. */
 export const layer = stylex.defineConsts({
+  // block layer: written by the compiled core from bend/tokens.bend (`make dashboard-tokens`)
   topbar: 10,
   latest: 20,
   overlay: 40,
   popover: 50,
   tooltip: 60,
   skip: 70,
+  // end of block layer
 });
 
 export const motion = stylex.defineConsts({

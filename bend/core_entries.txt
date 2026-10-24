@@ -43,3 +43,4 @@
 41 doc_rows
 40 doc_search
 70 compactor
+78 tokens

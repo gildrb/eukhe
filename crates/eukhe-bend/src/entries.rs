@@ -90,6 +90,8 @@ pub enum Entry {
     DocRows = 41,
     /// `bend/ffi_compactor.bend`: a call.
     Compactor = 70,
+    /// `bend/ffi_tokens.bend`: a call.
+    Tokens = 78,
 }
 
 impl Entry {
@@ -137,6 +139,7 @@ impl Entry {
         Entry::DocSearch,
         Entry::DocRows,
         Entry::Compactor,
+        Entry::Tokens,
     ];
 
     /// The id `bend/core.bend` dispatches on.

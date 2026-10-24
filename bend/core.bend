@@ -40,6 +40,7 @@ import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
+import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
@@ -133,6 +134,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_rows.ffi(input)
     case 70:
       ffi_compactor.ffi(input)
+    case 78:
+      ffi_tokens.ffi(input)
     case _:
       W.err("unknown entry")
 

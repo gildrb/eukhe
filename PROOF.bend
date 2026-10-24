@@ -629,6 +629,9 @@ import ./proof/tokens/tokens_legible.bend as PTokensLegible
 import ./proof/tokens/tokens_layers_ordered.bend as PTokensLayersOrdered
 import ./proof/tokens/tokens_space_ascends.bend as PTokensSpaceAscends
 import ./proof/tokens/tokens_type_ascends.bend as PTokensTypeAscends
+import ./proof/tokens/tokens_ffi_blocks.bend as PTokensFfiBlocks
+import ./proof/tokens/tokens_ffi_malformed_exact.bend as PTokensFfiMalformedExact
+import ./proof/tokens/tokens_ffi_example.bend as PTokensFfiExample
 import ./proof/progress/base.bend as LAProgress
 import ./proof/progress/child_repeat_is_no_work.bend as PChildRepeatIsNoWork
 import ./proof/progress/child_loop_is_a_stall.bend as PChildLoopIsAStall
