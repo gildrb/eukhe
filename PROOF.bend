@@ -1245,6 +1245,8 @@ import ./proof/doc_search/search_limit_answers.bend as PSearchLimitAnswers
 import ./proof/doc_search/search_scope_answers.bend as PSearchScopeAnswers
 import ./proof/doc_search/grep_account_exact.bend as PGrepAccountExact
 import ./proof/doc_search/search_list_tests_exact.bend as PSearchListTestsExact
+import ./proof/doc_search/search_note_count_exact.bend as PSearchNoteCountExact
+import ./proof/doc_search/search_cuts_exact.bend as PSearchCutsExact
 import ./proof/doc_search/search_open_answers.bend as PSearchOpenAnswers
 import ./proof/doc_search/search_ask_stops.bend as PSearchAskStops
 import ./proof/doc_search/search_ask_fetches.bend as PSearchAskFetches

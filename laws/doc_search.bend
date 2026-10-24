@@ -827,3 +827,51 @@ law search_list_tests_exact:
   for +x: Nat
   for +xs: List<&2, Nat>
   {Sr.mem(x, xs) == ds_mem(x, xs) : Bool} & {Sr.nodup(xs) == ds_nodup(xs) : Bool}
+
+# how many entries of os the notice n reports: those skipped for its
+# reason, those not searched, those searched in part
+def ds_note_n(+os: List<&2, Sr.Out>, n: Sr.Note) -> Nat:
+  match n:
+    case Sr.NSkip{w}:
+      ds_n(os, Nat.add(4n, ds_why(w)))
+    case Sr.NPartial{}:
+      ds_partials(os)
+    case Sr.NUnsearched{}:
+      ds_n(os, 3n)
+
+# LAW search_note_count_exact: the count a notice reads off a result's
+# account is the number of entries of the notice's class: those skipped
+# for its reason, those not searched, those searched in part
+# EXCLUDES: grep_notes_every_gap made circular by a notice that reads
+#   another class's counter (a symlink notice that counts excluded
+#   directories: no notice for a skipped symlink, a symlink notice for a
+#   tree with only node_modules)
+law search_note_count_exact:
+  for +os: List<&2, Sr.Out>
+  for +n: Sr.Note
+  {Sr.Note.count(Sr.account(os), n) == ds_note_n(os, n) : Nat}
+
+def ds_cut_if(b: Bool, i: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
+    case True{}:
+      i <> rest
+    case False{}:
+      rest
+
+# the shown entries whose matches were cut, in walk order
+def ds_cuts(os: List<&2, Sr.Out>) -> List<&2, Nat>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> t:
+      match o:
+        case Sr.Out{i, c, cut, pa}:
+          ds_cut_if(Bool.and(Nat.is_eq(ds_class(c), 1n), cut), i, ds_cuts(t))
+
+# LAW search_cuts_exact: the files with a cut notice are exactly the shown
+# files whose matches were cut, in walk order
+# EXCLUDES: a cut notice for a file that was not cut or not shown (the
+#   converse grep_notes_every_cut does not state)
+law search_cuts_exact:
+  for +os: List<&2, Sr.Out>
+  {Sr.cuts(os) == ds_cuts(os) : List<&2, Nat>}
