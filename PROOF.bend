@@ -637,6 +637,11 @@ import ./proof/tokens/tokens_ascends_exact.bend as PTokensAscendsExact
 import ./proof/tokens/tokens_find_exact.bend as PTokensFindExact
 import ./proof/tokens/tokens_readable_exact.bend as PTokensReadableExact
 import ./proof/tokens/tokens_pairs_exact.bend as PTokensPairsExact
+import ./proof/tokens/tokens_ink_opaque.bend as PTokensInkOpaque
+import ./proof/tokens/tokens_names_exact.bend as PTokensNamesExact
+import ./proof/tokens/tokens_channels_in_range.bend as PTokensChannelsInRange
+import ./proof/tokens/tokens_scale_keys_distinct.bend as PTokensScaleKeysDistinct
+import ./proof/tokens/tokens_scale_keys_plain.bend as PTokensScaleKeysPlain
 import ./proof/progress/base.bend as LAProgress
 import ./proof/progress/child_repeat_is_no_work.bend as PChildRepeatIsNoWork
 import ./proof/progress/child_loop_is_a_stall.bend as PChildLoopIsAStall

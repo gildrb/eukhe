@@ -286,3 +286,154 @@ law tokens_readable_exact:
 # LAW tokens_pairs_exact: the pairs that must be legible are exactly: primary, secondary and danger text on every ground; tertiary on the grounds and as a caption on the fills; the ground's color on the primary, secondary and danger fills
 law tokens_pairs_exact:
   {Tk.pairs() == [Tk.Ink{Tk.Primary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Surface{}, Tk.Caption{}}, Tk.Ink{Tk.Tertiary{}, Tk.Hover{}, Tk.Caption{}}, Tk.Ink{Tk.Bg{}, Tk.Primary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Secondary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Danger{}, Tk.Prose{}}] : List<&2, Tk.Ink>}
+
+# the tone has an opaque color (alpha 100) in the palette
+def opaque_spec(m: Maybe<&2, Tk.Col>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{c}:
+      match c:
+        case Tk.Col{x, a}:
+          U32.is_eq(a, 100)
+
+# both tones of every pair are opaque in the palette es
+def inks_opaque(+es: List<&2, Tk.Entry>, ps: List<&2, Tk.Ink>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case Tk.Ink{fg, bg, n} <> rest:
+      Bool.and(Bool.and(opaque_spec(find_spec(fg, es)), opaque_spec(find_spec(bg, es))), inks_opaque(es, rest))
+
+# LAW tokens_ink_opaque: in both modes both tones of every pair that must be legible are opaque, so the contrast the legibility law computes on their colors is the contrast the user sees (a tint over the ground would read lighter)
+law tokens_ink_opaque:
+  for m: Tk.Mode
+  {inks_opaque(Tk.palette(m), Tk.pairs()) == True{} : Bool}
+
+# the key of each color token in tokens.stylex.ts (the web app reads the
+# tokens by these keys)
+def name_spec(t: Tk.Tone) -> String:
+  match t:
+    case Tk.Bg{}:
+      "bg"
+    case Tk.Sidebar{}:
+      "sidebar"
+    case Tk.Raised{}:
+      "raised"
+    case Tk.Surface{}:
+      "surface"
+    case Tk.Hover{}:
+      "hover"
+    case Tk.Primary{}:
+      "primary"
+    case Tk.Secondary{}:
+      "secondary"
+    case Tk.Tertiary{}:
+      "tertiary"
+    case Tk.Hairline{}:
+      "hairline"
+    case Tk.Scrim{}:
+      "scrim"
+    case Tk.Danger{}:
+      "danger"
+    case Tk.Selection{}:
+      "selection"
+    case Tk.Scrollbar{}:
+      "scrollbar"
+    case Tk.ShadowNear{}:
+      "shadowNear"
+    case Tk.ShadowFar{}:
+      "shadowFar"
+    case Tk.ShadowDrawer{}:
+      "shadowDrawer"
+    case Tk.ShadowLatest{}:
+      "shadowLatest"
+
+# LAW tokens_names_exact: every color token is written under its own key (bg, sidebar, raised, surface, hover, primary, secondary, tertiary, hairline, scrim, danger, selection, scrollbar, shadowNear, shadowFar, shadowDrawer, shadowLatest), never another token's
+law tokens_names_exact:
+  for t: Tk.Tone
+  {Tk.Tone.name(t) == name_spec(t) : String}
+
+# every channel of every entry is a byte (0..255) and every alpha at most 100
+def channels_ok(es: List<&2, Tk.Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case Tk.Entry{t, c} <> rest:
+      match c:
+        case Tk.Col{rgb, a}:
+          match rgb:
+            case Co.Rgb{r, g, b}:
+              Bool.and(Bool.and(U32.is_le(r, 255), Bool.and(U32.is_le(g, 255), Bool.and(U32.is_le(b, 255), U32.is_le(a, 100)))), channels_ok(rest))
+
+# LAW tokens_channels_in_range: in both modes every color's channels are bytes (0..255) and its alpha at most 100 hundredths, so each renders as a valid #rrggbb or rgb(R G B / 0.A)
+law tokens_channels_in_range:
+  for m: Tk.Mode
+  {channels_ok(Tk.palette(m)) == True{} : Bool}
+
+# the step names of xs
+def step_names(xs: List<&2, Tk.Step>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Tk.Step{n, v} <> rest:
+      n <> step_names(rest)
+
+# no name of ns equals n
+def name_absent(+n: String, ns: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(Bool.not(String.eq(x, n)), name_absent(n, rest))
+
+# the names of ns are distinct
+def names_distinct(ns: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +n <> +rest:
+      Bool.and(name_absent(n, rest), names_distinct(rest))
+
+# LAW tokens_scale_keys_distinct: every generated block writes each key once: the spacing steps, the layers, and the type sizes with the line heights (one block) have distinct names
+law tokens_scale_keys_distinct:
+  {Bool.and(names_distinct(step_names(Tk.space())), Bool.and(names_distinct(step_names(Tk.layers())), names_distinct(step_names(List.append(&2, Tk.Step, Tk.sizes(), Tk.lines()))))) == True{} : Bool}
+
+# c is an ASCII letter
+def ident.letter(+x: U32) -> Bool:
+  Bool.or(Bool.and(U32.is_le(65, x), U32.is_le(x, 90)), Bool.and(U32.is_le(97, x), U32.is_le(x, 122)))
+
+# c is an ASCII letter or digit
+def ident.char(c: Char) -> Bool:
+  match c:
+    case Chr{+x}:
+      Bool.or(ident.letter(x), Bool.and(U32.is_le(48, x), U32.is_le(x, 57)))
+
+def ident.rest(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(ident.char(c), ident.rest(t))
+
+# s is a plain identifier: a letter, then letters and digits (the key and
+# the property name the web app reads are then the same text)
+def ident(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      match c:
+        case Chr{x}:
+          Bool.and(ident.letter(x), ident.rest(t))
+
+def idents(ns: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case n <> rest:
+      Bool.and(ident(n), idents(rest))
+
+# LAW tokens_scale_keys_plain: every scale step name (spacing, layers, type sizes, line heights) is a plain identifier, a letter then letters and digits, so distinct names are distinct keys of the generated blocks
+law tokens_scale_keys_plain:
+  {idents(step_names(List.append(&2, Tk.Step, Tk.space(), List.append(&2, Tk.Step, Tk.layers(), List.append(&2, Tk.Step, Tk.sizes(), Tk.lines()))))) == True{} : Bool}
