@@ -596,6 +596,13 @@ import ./proof/theme/theme_pick_quiet.bend as PThemePickQuiet
 import ./proof/theme/theme_pick_broken.bend as PThemePickBroken
 import ./proof/theme/theme_pick_clashes.bend as PThemePickClashes
 import ./proof/theme/theme_pick_example.bend as PThemePickExample
+import ./proof/theme/theme_hit_spec.bend as PThemeHitSpec
+import ./proof/theme/theme_prefix_example.bend as PThemePrefixExample
+import ./proof/theme/theme_concrete_spec.bend as PThemeConcreteSpec
+import ./proof/theme/theme_light_spec.bend as PThemeLightSpec
+import ./proof/theme/theme_light_example.bend as PThemeLightExample
+import ./proof/theme/theme_legible_spec.bend as PThemeLegibleSpec
+import ./proof/theme/theme_status_distinct_spec.bend as PThemeStatusDistinctSpec
 import ./proof/theme/theme_sources_order.bend as PThemeSourcesOrder
 import ./proof/theme/theme_builtin_before_custom_example.bend as PThemeBuiltinBeforeCustomExample
 import ./proof/theme/theme_ffi_answers.bend as PThemeFfiAnswers
@@ -629,6 +636,8 @@ import ./proof/color/color_dist_spec.bend as PColorDistSpec
 import ./proof/color/color_to256_spec.bend as PColorTo256Spec
 import ./proof/color/color_to256_example.bend as PColorTo256Example
 import ./proof/color/color_contrast_spec.bend as PColorContrastSpec
+import ./proof/color/color_hexd_spec.bend as PColorHexdSpec
+import ./proof/color/color_hex_letters_example.bend as PColorHexLettersExample
 import ./proof/color/base.bend as LAColor
 import ./proof/color/color_ffi_answers.bend as PColorFfiAnswers
 import ./proof/color/color_ffi_malformed_exact.bend as PColorFfiMalformedExact
