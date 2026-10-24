@@ -12,6 +12,7 @@ import ./laws/child.bend as Child
 import ./laws/admission.bend as Admission
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
+import ./laws/job_step.bend as JobStep
 import ./laws/sandbox.bend as Sandbox
 import ./laws/cvar.bend as Cvar
 import ./laws/director.bend as Director

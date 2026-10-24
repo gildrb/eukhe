@@ -272,6 +272,17 @@ import ./proof/job/job_wait_polls_at_rest.bend as PJobWaitPollsAtRest
 import ./proof/job/job_wait_entry_answers.bend as PJobWaitEntryAnswers
 import ./proof/job/job_wait_entry_malformed_exact.bend as PJobWaitEntryMalformedExact
 import ./proof/job/job_wait_entry_example.bend as PJobWaitEntryExample
+import ./proof/job_step/base.bend as LAJobStep
+import ./proof/job_step/job_ends_of_exact.bend as PJobEndsOfExact
+import ./proof/job_step/job_step_exit_exact.bend as PJobStepExitExact
+import ./proof/job_step/job_step_tick_exact.bend as PJobStepTickExact
+import ./proof/job_step/job_step_ended_exact.bend as PJobStepEndedExact
+import ./proof/job_step/job_step_out_live.bend as PJobStepOutLive
+import ./proof/job_step/job_step_out_counts.bend as PJobStepOutCounts
+import ./proof/job_step/job_step_optout_keeps.bend as PJobStepOptoutKeeps
+import ./proof/job_step/job_step_out_fits.bend as PJobStepOutFits
+import ./proof/job_step/job_step_out_fills.bend as PJobStepOutFills
+import ./proof/job_step/job_step_out_full.bend as PJobStepOutFull
 import ./proof/sandbox/base.bend as LASandbox
 import ./proof/sandbox/proto_one_reply_each.bend as PProtoOneReplyEach
 import ./proof/sandbox/proto_runs_only_accepted.bend as PProtoRunsOnlyAccepted
