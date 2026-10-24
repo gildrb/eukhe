@@ -164,9 +164,7 @@ pub fn responses_tool_choice(choice: &ToolChoice) -> JsonValue {
 /// "all_turns"`; the requests of every other model carry neither field.
 #[must_use]
 pub fn supports_explicit_cache_breakpoints(model: &Model) -> bool {
-    Quirks::of(model)
-        .explicit_cache_breakpoints()
-        .unwrap_or(false)
+    eukhe_bend::rules::model_facts::flag(Quirks::of(model).explicit_cache_breakpoints(), false)
 }
 
 /// eukhe addition: pin `reasoning.context: "all_turns"` in the request's

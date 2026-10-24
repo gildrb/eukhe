@@ -1,5 +1,6 @@
-//! `threshold_for`: which threshold compaction a context size is over
-//! (spec §8.3; `bend/infer.bend` §5, law `compact_starts_early`).
+//! `threshold_for`: the policy as the compiled core reads it (the
+//! decision itself is pinned by `laws/infer_threshold.bend`), and the keep
+//! window.
 
 use crate::harness::generation::decide::{threshold_for, Threshold};
 use crate::harness::types::{BackgroundMargin, CompactionPolicy, ThresholdTokens};
@@ -15,21 +16,20 @@ const EARLY: CompactionPolicy = CompactionPolicy {
     token_count: ThresholdTokens::Estimate,
 };
 
-fn over(sizes: &[f64], window: u64, policy: &CompactionPolicy) -> Vec<Option<Threshold>> {
+fn over(sizes: &[u64], window: u64, policy: &CompactionPolicy) -> Vec<Option<Threshold>> {
     sizes
         .iter()
         .map(|&tokens| threshold_for(tokens, window, policy))
         .collect()
 }
 
+/// The margin is a tenth of the window, the reserve and the margin go to
+/// the core in tokens: background strictly above 163616, blocking strictly
+/// above 183616.
 #[test]
 fn a_window_percent_margin_starts_background_strictly_above_its_threshold() {
     assert_eq!(
-        over(
-            &[0.0, 163_616.0, 163_617.0, 183_616.0, 183_617.0],
-            WINDOW,
-            &EARLY
-        ),
+        over(&[0, 163_616, 163_617, 183_616, 183_617], WINDOW, &EARLY),
         vec![
             None,
             None,
@@ -38,57 +38,6 @@ fn a_window_percent_margin_starts_background_strictly_above_its_threshold() {
             Some(Threshold::Blocking),
         ]
     );
-}
-
-#[test]
-fn a_token_margin_starts_background_that_many_tokens_below_blocking() {
-    let policy = CompactionPolicy {
-        background: BackgroundMargin::Tokens(32768.0),
-        ..EARLY
-    };
-    assert_eq!(
-        over(&[150_848.0, 150_849.0, 183_617.0], WINDOW, &policy),
-        vec![None, Some(Threshold::Background), Some(Threshold::Blocking)]
-    );
-}
-
-#[test]
-fn a_zero_margin_only_blocks() {
-    let sizes = [183_616.0, 183_617.0];
-    let expected = vec![None, Some(Threshold::Blocking)];
-    for background in [
-        BackgroundMargin::Tokens(0.0),
-        BackgroundMargin::WindowPercent(0.0),
-    ] {
-        let policy = CompactionPolicy {
-            background,
-            ..EARLY
-        };
-        assert_eq!(over(&sizes, WINDOW, &policy), expected);
-    }
-}
-
-#[test]
-fn a_disabled_policy_or_an_unknown_window_never_compacts() {
-    let disabled = CompactionPolicy {
-        enabled: false,
-        ..EARLY
-    };
-    assert_eq!(over(&[183_617.0], WINDOW, &disabled), vec![None]);
-    assert_eq!(over(&[183_617.0], 0, &EARLY), vec![None]);
-}
-
-/// Law `compact_starts_early`: when each turn grows the context by at most
-/// the margin, the first turn over a threshold is over the background one,
-/// before any turn over the blocking one.
-#[test]
-fn growth_within_the_margin_starts_background_before_blocking() {
-    for step in [1_000.0, 7_919.0, 19_999.0, 20_000.0] {
-        let first = (0_u32..)
-            .map(|turn| f64::from(turn) * step)
-            .find_map(|tokens| threshold_for(tokens, WINDOW, &EARLY));
-        assert_eq!(first, Some(Threshold::Background), "step {step}");
-    }
 }
 
 /// `keep_window`: the keep window is at most half the size where automatic

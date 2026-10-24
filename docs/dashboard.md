@@ -30,13 +30,12 @@ One source for every presentation value: `ui/src/tokens.stylex.ts` (colors, leng
 - Never repeat a value. Lint rule `eukhe/token-literals` (`ui/lint/tokens.mjs`) fails `vp check` (file, line) on a literal under `ui/src`: color, non-zero length, duration, easing, or a number for z-index, font weight, opacity, line height, Radix offset.
 - `global.css` (document root, selection, scroll bars) uses `page` variables (`--page-*`); `src/tokens.test.ts` fails on a literal there.
 - `index.html`, `public/manifest.webmanifest`, `public/theme.js` cannot read CSS and repeat the theme color; `src/tokens.test.ts` checks it equals the palette's `bg`.
-- `bend/tokens.bend` holds the same tables. `laws/tokens.bend` (T2):
+- The palettes, the spacing, the type sizes and line heights, and the layers come from `bend/tokens.bend`: the compiled core (entry `bend/ffi_tokens.bend`) writes the marked blocks of `tokens.stylex.ts`. Change a value in `bend/tokens.bend`, then `make bend-core` and `make dashboard-tokens`; the `eukhe-bend` test `rules::tokens::tests::the_dashboard_token_file_holds_the_cores_tables` fails while the file differs. `laws/tokens.bend` (T2):
   - each color token has a light and a dark value;
   - both modes: text color vs ground meets minimum contrast (4.5:1 text, 3:1 captions on fills);
   - layers strictly ordered;
-  - spacing scale, type sizes, line heights ascend.
-
-  `src/tokens.test.ts` runs `bridge/bridge_tokens.bend` and checks its tables equal `tokens.stylex.ts`; skipped without `bend` unless `EUKHE_REQUIRE_BEND` is set.
+  - spacing scale, type sizes, line heights ascend;
+  - the entry answers exactly those tables as the file's lines (`tokens_ffi_blocks`).
 
 ## Run
 

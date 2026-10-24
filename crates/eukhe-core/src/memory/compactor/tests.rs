@@ -201,31 +201,6 @@ async fn over_long_lines_get_the_cut_and_the_shortest_cut_wins() {
     );
 }
 
-/// A follow-up not shorter than the best line ends the tries: the model
-/// gets no closer (H1.2). The best line, cut, wins.
-#[tokio::test]
-async fn a_follow_up_not_shorter_ends_the_tries() {
-    let summarizer = Scripted::with(vec![
-        Ok(reply(&"x".repeat(1300))),
-        Ok(reply(&"y".repeat(1290))),
-        Ok(reply(&"z".repeat(1290))),
-        Ok(reply("fits")),
-    ]);
-    let line = line_of(summarizer.as_ref()).await.unwrap();
-    assert_eq!((line, summarizer.requests().len()), ("y".repeat(NODE), 3));
-}
-
-/// A line within [`NODE`] ends the retries.
-#[tokio::test]
-async fn a_line_at_the_limit_ends_the_retries() {
-    let summarizer = Scripted::with(vec![
-        Ok(reply(&"x".repeat(NODE + 1))),
-        Ok(reply(&"y".repeat(NODE))),
-    ]);
-    let line = line_of(summarizer.as_ref()).await.unwrap();
-    assert_eq!((line, summarizer.requests().len()), ("y".repeat(NODE), 2));
-}
-
 /// A failed reply fails the call; an empty or thinking-only reply is a
 /// try that ends the call with the input, cut to [`NODE`] bytes (H1.4).
 #[tokio::test]

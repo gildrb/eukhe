@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::bound;
 use eukhe_types::output::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use futures::future::BoxFuture;
 use tokio::sync::{oneshot, Notify};
@@ -92,8 +93,6 @@ pub struct OutputSlice {
     pub dropped_lines: usize,
 }
 
-const NEWLINE: u8 = 0x0a;
-
 fn is_invalid_output(c: char) -> bool {
     matches!(c, '\x00'..='\x08' | '\x0b'..='\x1f' | '\u{fff9}'..='\u{fffb}')
 }
@@ -105,165 +104,51 @@ pub fn sanitize_output(text: &str) -> String {
     text.chars().filter(|&c| !is_invalid_output(c)).collect()
 }
 
+/// The cap of `limits` in the compiled core.
+fn cap_of(limits: &OutputLimits) -> bound::Cap {
+    bound::Cap {
+        bytes: limits.max_bytes,
+        lines: limits.max_lines,
+        tail: limits.retain == OutputRetain::Tail,
+    }
+}
+
 /// Bound `text` to whole lines within the limits: the first lines for
 /// `head`, the last lines for `tail`. The result is an exact slice, trailing
 /// newline included. A single line longer than `max_bytes` is cut at the
-/// byte limit on a character boundary.
+/// byte limit on a character boundary. The compiled core decides the
+/// window (`bend/bound.bend` `slice`).
 #[must_use]
 pub fn bound_output(text: &str, limits: &OutputLimits) -> OutputSlice {
-    let bytes = text.as_bytes();
-    let (from, to) = match limits.retain {
-        OutputRetain::Head => head_range(bytes, limits),
-        OutputRetain::Tail => tail_range(bytes, limits),
-    };
-    let kept = &text[from..to];
+    let window = bound::slice(text, cap_of(limits));
+    let kept = &text[window.from..window.to];
     OutputSlice {
         text: kept.to_owned(),
         bytes: kept.len(),
-        dropped_bytes: bytes.len() - kept.len(),
-        dropped_lines: line_count(bytes) - line_count(kept.as_bytes()),
+        dropped_bytes: window.dropped_bytes,
+        dropped_lines: window.dropped_lines,
     }
-}
-
-fn index_of(bytes: &[u8], from: usize) -> Option<usize> {
-    bytes
-        .get(from..)?
-        .iter()
-        .position(|&b| b == NEWLINE)
-        .map(|i| i + from)
-}
-
-/// JS `lastIndexOf(NEWLINE, from)`: searches at or before `from` (clamped).
-fn last_index_of(bytes: &[u8], from: usize) -> Option<usize> {
-    if bytes.is_empty() {
-        return None;
-    }
-    let end = from.min(bytes.len() - 1);
-    bytes[..=end].iter().rposition(|&b| b == NEWLINE)
-}
-
-fn head_range(bytes: &[u8], limits: &OutputLimits) -> (usize, usize) {
-    if limits.max_lines == 0 || limits.max_bytes == 0 {
-        return (0, 0);
-    }
-    let mut end = bytes.len();
-    let mut lines = 0;
-    let mut index = index_of(bytes, 0);
-    while let Some(at) = index {
-        lines += 1;
-        if lines == limits.max_lines {
-            end = at + 1;
-            break;
-        }
-        index = index_of(bytes, at + 1);
-    }
-    if end > limits.max_bytes {
-        end = match last_index_of(bytes, limits.max_bytes - 1) {
-            None => character_end(bytes, limits.max_bytes),
-            Some(newline) => newline + 1,
-        };
-    }
-    (0, end)
-}
-
-fn tail_range(bytes: &[u8], limits: &OutputLimits) -> (usize, usize) {
-    let length = bytes.len();
-    if limits.max_lines == 0 || limits.max_bytes == 0 {
-        return (length, length);
-    }
-    // A trailing newline ends the last line rather than starting another.
-    let last = if bytes.last() == Some(&NEWLINE) {
-        length.checked_sub(2)
-    } else {
-        length.checked_sub(1)
-    };
-    let mut start = 0;
-    let mut lines = 1;
-    let mut index = last.and_then(|last| last_index_of(bytes, last));
-    while let Some(at) = index {
-        if lines == limits.max_lines {
-            start = at + 1;
-            break;
-        }
-        lines += 1;
-        index = if at == 0 {
-            None
-        } else {
-            last_index_of(bytes, at - 1)
-        };
-    }
-    if length - start > limits.max_bytes {
-        let from = length - limits.max_bytes;
-        // JS `indexOf(NEWLINE, from - 1)`; a negative start searches from 0.
-        let newline = index_of(bytes, from.saturating_sub(1));
-        // The first line starting inside the byte window, or a cut of the last
-        // line when it alone is too long.
-        start = match newline {
-            Some(newline) if newline + 1 < length => newline + 1,
-            _ => character_start(bytes, from),
-        };
-    }
-    (start, length)
-}
-
-/// The last character boundary at or before `index`.
-#[must_use]
-pub fn character_end(bytes: &[u8], index: usize) -> usize {
-    let mut end = index;
-    while end > 0 && (bytes.get(end).copied().unwrap_or(0) & 0xc0) == 0x80 {
-        end -= 1;
-    }
-    end
-}
-
-/// The first character boundary at or after `index`.
-fn character_start(bytes: &[u8], index: usize) -> usize {
-    let mut start = index;
-    while start < bytes.len() && (bytes[start] & 0xc0) == 0x80 {
-        start += 1;
-    }
-    start
-}
-
-fn line_count(bytes: &[u8]) -> usize {
-    if bytes.is_empty() {
-        return 0;
-    }
-    #[expect(clippy::naive_bytecount, reason = "no dependency for one byte count")]
-    let newlines = bytes.iter().filter(|&&b| b == NEWLINE).count();
-    newlines + usize::from(bytes.last() != Some(&NEWLINE))
-}
-
-#[derive(Debug, Clone)]
-struct StoredChunk {
-    text: String,
-    bytes: usize,
-    newlines: usize,
 }
 
 /// Bounded running output of one tool call. Accepting a chunk costs time
-/// proportional to the chunk: head retention stops storing once the window
-/// is full, and tail retention drops stored text the window no longer needs
-/// when it snapshots. Counts of the whole stream are kept so the dropped
-/// totals stay exact. Under [`Truncation::Off`] it keeps everything.
-#[derive(Debug, Clone)]
+/// proportional to the chunk: the compiled core (`bend/bound.bend`, the
+/// stream) counts the whole stream and decides what is stored: head
+/// retention stops storing once the window is full, and tail retention
+/// trims the stored text to what every later window still needs. Under
+/// [`Truncation::Off`] it keeps everything.
+#[derive(Debug)]
 pub struct OutputBuffer {
-    truncation: Truncation,
+    /// The bounder of the output; `None` under the opt-out.
+    bound: Option<bound::Stream>,
     /// Decoder of byte chunks. A string chunk or a skip ends an incomplete
     /// character of earlier bytes (it becomes U+FFFD); the next byte chunk
     /// then starts a new character. Only a byte-order mark at the very start
     /// of the output is dropped, never a U+FEFF later in it.
     decoder: Utf8Decoder,
     started: bool,
-    /// Stored chunks: for head the start of the stream, for tail a suffix
-    /// that still contains the next window.
-    chunks: Vec<StoredChunk>,
-    stored_bytes: usize,
-    stored_newlines: usize,
-    full: bool,
-    total_bytes: usize,
-    total_newlines: usize,
-    ends_with_newline: bool,
+    /// The stored output: for head the start of the stream, for tail an end
+    /// that still holds every later window, all of it under the opt-out.
+    stored: String,
 }
 
 /// Error of [`OutputBuffer::push`] with a skip under head retention.
@@ -275,25 +160,21 @@ impl OutputBuffer {
     #[must_use]
     pub fn new(truncation: Truncation) -> Self {
         Self {
-            truncation,
+            bound: truncation
+                .limits()
+                .map(|limits| bound::Stream::open(cap_of(&limits))),
             decoder: Utf8Decoder::new(),
             started: false,
-            chunks: Vec::new(),
-            stored_bytes: 0,
-            stored_newlines: 0,
-            full: false,
-            total_bytes: 0,
-            total_newlines: 0,
-            ends_with_newline: true,
+            stored: String::new(),
         }
     }
 
-    /// Bytes currently held; bounded by the limits plus one chunk. Only the
-    /// tests read it (TS exposes it as a getter no caller uses).
+    /// Bytes currently held; bounded by twice the limits plus one chunk.
+    /// Only the tests read it (TS exposes it as a getter no caller uses).
     #[cfg(test)]
     #[must_use]
     pub fn stored_bytes(&self) -> usize {
-        self.stored_bytes
+        self.stored.len()
     }
 
     /// Accept a chunk; returns whether anything was accepted. `skipped` is
@@ -327,192 +208,76 @@ impl OutputBuffer {
             text.drain(..'\u{feff}'.len_utf8());
         }
         let Some(skipped) = skipped else {
-            return Ok(self.accept(pending + &text));
+            return Ok(self.accept(&(pending + &text)));
         };
-        if !matches!(
-            self.truncation,
-            Truncation::On(OutputLimits {
-                retain: OutputRetain::Tail,
-                ..
-            })
-        ) {
+        let Some(bound) = self.bound.as_mut().filter(|bound| bound.takes_skips()) else {
             return Err(SkipRequiresTail);
+        };
+        let _accepted = Self::take(bound, &mut self.stored, &pending);
+        if bound.skip(skipped.bytes, skipped.newlines, !skipped.ends_with_newline) {
+            // Nothing stored before the skip is in a window once the text after it arrives.
+            self.stored.clear();
         }
-        self.accept(pending);
-        self.skip(skipped);
-        self.accept(text);
+        let _accepted = Self::take(bound, &mut self.stored, &text);
         Ok(true)
-    }
-
-    /// Count omitted output; nothing stored before it can be in the window
-    /// once the text after it arrives.
-    fn skip(&mut self, skipped: &ShellOutputSkip) {
-        if skipped.bytes == 0 {
-            return;
-        }
-        self.total_bytes += usize::try_from(skipped.bytes).unwrap_or(usize::MAX);
-        self.total_newlines += usize::try_from(skipped.newlines).unwrap_or(usize::MAX);
-        self.ends_with_newline = skipped.ends_with_newline;
-        self.chunks.clear();
-        self.stored_bytes = 0;
-        self.stored_newlines = 0;
     }
 
     /// Flush an incomplete trailing character as a replacement character;
     /// call when the stream ends.
     pub fn end(&mut self) {
         let text = self.decoder.finish();
-        self.accept(text);
+        self.accept(&text);
     }
 
-    fn accept(&mut self, text: String) -> bool {
+    fn accept(&mut self, text: &str) -> bool {
+        if let Some(bound) = &mut self.bound {
+            return Self::take(bound, &mut self.stored, text);
+        }
+        self.stored.push_str(text);
+        !text.is_empty()
+    }
+
+    /// Feed a text to the bounder and store it as it decides.
+    fn take(bound: &mut bound::Stream, stored: &mut String, text: &str) -> bool {
         if text.is_empty() {
             return false;
         }
-        let bytes = text.len();
-        let newlines = count_newlines(&text);
-        self.total_bytes += bytes;
-        self.total_newlines += newlines;
-        self.ends_with_newline = text.ends_with('\n');
-        if self.full {
-            return true;
-        }
-        self.chunks.push(StoredChunk {
-            text,
-            bytes,
-            newlines,
-        });
-        self.stored_bytes += bytes;
-        self.stored_newlines += newlines;
-        let limits = match self.truncation {
-            Truncation::On(limits) => limits,
-            Truncation::Off => return true,
-        };
-        if limits.retain == OutputRetain::Head {
-            // Nothing past a full window is ever needed.
-            self.full =
-                self.stored_bytes > limits.max_bytes || self.stored_newlines >= limits.max_lines;
-            return true;
-        }
-        // Drop leading chunks while the rest still holds more than a window:
-        // more than `max_bytes` bytes or `max_lines` newlines, plus one, so the
-        // window's line start can still be found. Each chunk is dropped once.
-        let mut drop = 0;
-        while self.chunks.len() - drop > 1 {
-            let first = &self.chunks[drop];
-            let bytes_after = self.stored_bytes - first.bytes;
-            let newlines_after = self.stored_newlines - first.newlines;
-            if bytes_after <= limits.max_bytes.saturating_add(1)
-                && newlines_after <= limits.max_lines.saturating_add(1)
-            {
-                break;
+        let newlines = count_newlines(text);
+        match bound.out(text.len(), newlines, !text.ends_with('\n')) {
+            bound::Act::Drop => {}
+            bound::Act::Store => stored.push_str(text),
+            bound::Act::Trim => {
+                stored.push_str(text);
+                let cut = bound.look(stored).cut;
+                stored.drain(..cut);
             }
-            drop += 1;
-            self.stored_bytes = bytes_after;
-            self.stored_newlines = newlines_after;
         }
-        self.chunks.drain(..drop);
         true
     }
 
     /// Retained, sanitized output and what the limits dropped from the whole
     /// stream.
     pub fn snapshot(&mut self) -> BoundedOutput {
-        let stored = if self.chunks.len() == 1 {
-            self.chunks[0].text.clone()
-        } else {
-            self.chunks
-                .iter()
-                .map(|chunk| chunk.text.as_str())
-                .collect::<String>()
-        };
-        let Truncation::On(limits) = self.truncation else {
-            if self.chunks.len() > 1 {
-                self.chunks = vec![StoredChunk {
-                    text: stored.clone(),
-                    bytes: self.stored_bytes,
-                    newlines: self.stored_newlines,
-                }];
-            }
+        let Some(bound) = &mut self.bound else {
             return BoundedOutput {
-                text: sanitize_output(&stored),
+                text: sanitize_output(&self.stored),
                 dropped_bytes: 0,
                 dropped_lines: 0,
             };
         };
-        let kept = bound_output(&stored, &limits);
-        let stored_lines = lines(
-            self.stored_newlines,
-            stored.is_empty() || stored.ends_with('\n'),
-        );
-        let kept_lines = stored_lines - kept.dropped_lines;
-        // Tail windows never reach back before this one, but finding a later
-        // window's first line needs what precedes it: keep the shortest suffix
-        // longer than the window by a byte or a line, as `accept` does.
-        let tail = limits.retain == OutputRetain::Tail;
-        if tail || self.chunks.len() > 1 {
-            let text = if tail {
-                tail_margin(&stored, &limits).to_owned()
-            } else {
-                stored
-            };
-            let bytes = if tail { text.len() } else { self.stored_bytes };
-            let newlines = count_newlines(&text);
-            self.chunks = if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![StoredChunk {
-                    text,
-                    bytes,
-                    newlines,
-                }]
-            };
-            self.stored_bytes = bytes;
-            self.stored_newlines = self.chunks.first().map_or(0, |chunk| chunk.newlines);
-        }
+        let look = bound.look(&self.stored);
+        let text = sanitize_output(&self.stored[look.from..look.to]);
+        self.stored.drain(..look.cut);
         BoundedOutput {
-            text: sanitize_output(&kept.text),
-            dropped_bytes: self.total_bytes - kept.bytes,
-            dropped_lines: lines(self.total_newlines, self.ends_with_newline) - kept_lines,
+            text,
+            dropped_bytes: look.dropped_bytes,
+            dropped_lines: look.dropped_lines,
         }
     }
-}
-
-/// The shortest suffix of `text` with more than `max_bytes` bytes or more
-/// than `max_lines` newlines, or all of it. The tail window of any text that
-/// ends with this suffix, followed by anything, is the same as of `text`
-/// followed by it.
-fn tail_margin<'a>(text: &'a str, limits: &OutputLimits) -> &'a str {
-    let bytes = text.as_bytes();
-    let byte_start = if bytes.len() > limits.max_bytes {
-        character_end(bytes, bytes.len() - limits.max_bytes - 1)
-    } else {
-        0
-    };
-    let mut line_start = 0;
-    let mut newlines = 0;
-    let mut index = bytes.iter().rposition(|&b| b == NEWLINE);
-    while let Some(at) = index {
-        newlines += 1;
-        if newlines > limits.max_lines {
-            line_start = at;
-            break;
-        }
-        if at == 0 {
-            break;
-        }
-        index = last_index_of(bytes, at - 1);
-    }
-    &text[byte_start.max(line_start)..]
-}
-
-/// Lines of text with `newlines` newlines; a final unterminated line counts.
-fn lines(newlines: usize, terminated: bool) -> usize {
-    newlines + usize::from(!terminated)
 }
 
 fn count_newlines(text: &str) -> usize {
-    text.bytes().filter(|&b| b == NEWLINE).count()
+    text.bytes().filter(|&b| b == b'\n').count()
 }
 
 /// Each progress commit also buys a pause proportional to what it wrote.
@@ -698,7 +463,5 @@ fn duration_ms(ms: f64) -> Duration {
     Duration::from_secs_f64(ms.max(0.0) / 1000.0)
 }
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;

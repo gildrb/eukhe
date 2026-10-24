@@ -20,8 +20,6 @@ pub mod documents;
 mod entries;
 mod env;
 mod export;
-#[cfg(test)]
-mod facts_bridge;
 mod fork;
 pub mod goals;
 mod import;

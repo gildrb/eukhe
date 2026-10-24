@@ -1,6 +1,7 @@
-//! The repetition guard: its chunking of deltas into lines, its agreement
-//! with model `guard(xs, k)` (`bend/infer.bend` §4), and `Models` cutting a
-//! looping stream with a retryable `stream_repeating` failure.
+//! The repetition guard: its chunking of deltas into lines (the decision
+//! on the chunks is the compiled core's, pinned by `laws/infer_guard.bend`),
+//! and `Models` cutting a looping stream with a retryable
+//! `stream_repeating` failure.
 
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, StopReason, TextContent};
 use serde_json::json;
@@ -40,13 +41,6 @@ fn blank_and_whitespace_lines_are_not_chunks() {
 }
 
 #[test]
-fn a_different_line_restarts_the_run() {
-    let mut guard = RepetitionGuard::new(3);
-    assert_eq!(guard.push(0, "a\na\nb\na\na\n"), None);
-    assert_eq!(guard.push(0, "a\n"), Some(cut(6, 1, "a")));
-}
-
-#[test]
 fn interleaved_blocks_keep_their_own_partial_lines_and_share_one_run() {
     let mut guard = RepetitionGuard::new(2);
     // Text (block 0) and thinking (block 1) interleave mid-line: each keeps
@@ -55,15 +49,6 @@ fn interleaved_blocks_keep_their_own_partial_lines_and_share_one_run() {
     assert_eq!(guard.push(1, "lo\n"), None);
     assert_eq!(guard.push(0, "op\n"), None);
     assert_eq!(guard.push(1, "loop\n"), Some(cut(3, 1, "loop")));
-}
-
-#[test]
-fn a_limit_of_at_most_one_cuts_at_the_first_chunk() {
-    for limit in [0, 1] {
-        let mut guard = RepetitionGuard::new(limit);
-        assert_eq!(guard.push(0, "partial"), None);
-        assert_eq!(guard.push(0, "\nnext\n"), Some(cut(1, 1, "partial")));
-    }
 }
 
 /// Regression (audit H3): a failover's sibling attempt opens with its own
@@ -93,49 +78,6 @@ fn a_new_attempt_restarts_the_guard() {
         .map(|event| repeat.watch(event).is_some())
         .collect();
     assert_eq!(cuts, [false; 6]);
-}
-
-/// A block of lines that comes four times in a row fills a window of four
-/// times its length: a period of a quarter of the window.
-#[test]
-fn a_block_repeated_four_times_is_cut() {
-    let mut guard = RepetitionGuard::new(8);
-    assert_eq!(guard.push(0, &"a\nb\n".repeat(3)), None);
-    assert_eq!(guard.push(0, "a\nb\n"), Some(cut(8, 2, "b")));
-}
-
-/// A block longer than a quarter of the window is never cut, however often
-/// it comes; with a larger window it is.
-#[test]
-fn a_cycle_longer_than_a_quarter_of_the_window_is_not_cut() {
-    let text = "a\nb\nc\n".repeat(20);
-    let mut guard = RepetitionGuard::new(8);
-    assert_eq!(guard.push(0, &text), None);
-    let mut guard = RepetitionGuard::new(12);
-    assert_eq!(guard.push(0, &text), Some(cut(12, 3, "c")));
-}
-
-/// A line that breaks the cycle starts the window again after it.
-#[test]
-fn a_single_differing_line_restarts_the_window() {
-    let mut guard = RepetitionGuard::new(8);
-    assert_eq!(
-        guard.push(0, "a\nb\na\nb\na\nb\nX\nb\na\nb\na\nb\na\nb\n"),
-        None
-    );
-    assert_eq!(guard.push(0, "a\n"), Some(cut(15, 2, "a")));
-}
-
-/// The guard keeps a quarter of the window and one counter per period, so
-/// its memory does not grow with the stream.
-#[test]
-fn the_guard_keeps_a_quarter_of_the_window() {
-    let mut guard = RepetitionGuard::new(64);
-    let cut = (0..10_000).find_map(|line| guard.push(0, &format!("line {line}\n")));
-    assert_eq!(
-        (cut, guard.history.len(), guard.counters.len()),
-        (None, 16, 16)
-    );
 }
 
 /// A loop with no newline (`abab…`) is cut into chunks of
@@ -230,58 +172,6 @@ fn the_observed_thinking_loop_is_cut_at_its_77th_line() {
         .collect();
     let got = deltas.iter().find_map(|delta| guard.push(0, delta));
     assert_eq!(got, Some(cut(77, 7, "   - @GossiTheDog")));
-}
-
-/// Model `cycle(s, q)`, `s` newest first: how many chunks, from the
-/// newest, each equal the chunk `q + 1` before them.
-fn model_cycle(s: &[u32], q: usize) -> u32 {
-    match s.split_first() {
-        Some((x, rest)) if rest.get(q) == Some(x) => 1 + model_cycle(rest, q),
-        Some(_) | None => 0,
-    }
-}
-
-/// Model `Cut`.
-#[derive(Debug, PartialEq)]
-enum Cut {
-    Whole,
-    CutAt(u64),
-}
-
-/// Model `guard(xs, k)`, transcribed: `guard.go` with `fires` over the
-/// chunks read so far, newest first, and the periods `periods(k)`.
-fn model_guard(xs: &[u32], k: u32) -> Cut {
-    let periods = (k / 4).max(1);
-    let mut seen = Vec::new();
-    for (n, x) in (1..).zip(xs) {
-        seen.insert(0, *x);
-        let fires = (0..periods)
-            .any(|q| k.saturating_sub(q + 1) <= model_cycle(&seen, usize::try_from(q).unwrap()));
-        if fires {
-            return Cut::CutAt(n);
-        }
-    }
-    Cut::Whole
-}
-
-/// Every chunk sequence over three chunk values up to length 8, against
-/// every limit up to 12 (periods up to 3): the guard fed one line per chunk
-/// cuts exactly where the model does.
-#[test]
-fn the_guard_cuts_where_the_model_does() {
-    for length in 0..=8u32 {
-        for code in 0..3u32.pow(length) {
-            let xs: Vec<u32> = (0..length).map(|at| code / 3u32.pow(at) % 3).collect();
-            for k in 0..=12 {
-                let mut guard = RepetitionGuard::new(k);
-                let got = xs
-                    .iter()
-                    .find_map(|x| guard.push(0, &format!("{x}\n")))
-                    .map_or(Cut::Whole, |cut| Cut::CutAt(cut.chunks));
-                assert_eq!(got, model_guard(&xs, k), "xs {xs:?}, k {k}");
-            }
-        }
-    }
 }
 
 fn hello() -> Context {

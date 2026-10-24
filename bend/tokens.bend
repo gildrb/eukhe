@@ -1,8 +1,7 @@
 # tokens: the dashboard's presentation tokens, the model of (T2) in
-# laws/tokens.bend. The web app writes the same values once,
-# in crates/eukhe-dashboard/ui/src/tokens.stylex.ts; its test
-# src/tokens.test.ts runs bridge/bridge_tokens.bend and checks that both
-# tables are equal.
+# laws/tokens.bend. The compiled core (entry bend/ffi_tokens.bend) writes
+# these tables into the marked blocks of
+# crates/eukhe-dashboard/ui/src/tokens.stylex.ts (`make dashboard-tokens`).
 #
 # 1. The palette. A color token (Tone) has a value in each mode (Light,
 #    Dark): an sRGB color and an alpha in hundredths (100: opaque). The

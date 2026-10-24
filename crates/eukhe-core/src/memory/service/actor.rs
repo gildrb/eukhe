@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime};
 
+use eukhe_bend::rules::compactor::{self, Pend};
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
 use eukhe_types::pi_ai::ImageContent;
 use tokio::sync::oneshot;
@@ -15,7 +16,7 @@ use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
 use crate::memory::chat::{Batch, Chat, Nodes, Step, Zoom};
-use crate::memory::compactor::{build_line, CallEnd, NodeRequest, Pend, ResponseStarted};
+use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
 use crate::memory::plan::{Budgets, Demand};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
@@ -678,7 +679,7 @@ impl Actor {
     /// chat makes no call for it.
     fn failed(&mut self, part: Part, error: &anyhow::Error, lost: Lost) {
         let failure = self.failures.entry(part).or_insert(Failure {
-            pend: Pend::UNTRIED,
+            pend: Pend::Owed(FAILURES - 1),
             error: String::new(),
             generation: 0,
         });
@@ -686,8 +687,8 @@ impl Actor {
         let (pend, generation) = (failure.pend, failure.generation);
         let mut shown = format!("{error:#}");
         let pend = match lost {
-            Lost::Disk => pend.after(CallEnd::Disk),
-            Lost::Call { mut input } => match pend.after(CallEnd::Failed) {
+            Lost::Disk => pend.after(compactor::Outcome::Disk),
+            Lost::Call { mut input } => match pend.after(compactor::Outcome::Failed) {
                 Pend::Made => {
                     input.truncate(cut(&input).len());
                     match self.save_node(part, &input) {
@@ -702,7 +703,7 @@ impl Actor {
                         }
                         Err(cannot) => {
                             shown = format!("{cannot:#}");
-                            pend.after(CallEnd::Disk)
+                            pend.after(compactor::Outcome::Disk)
                         }
                     }
                 }

@@ -51,6 +51,7 @@ import ./laws/runners.bend as Runners
 import ./laws/approvals.bend as Approvals
 import ./laws/wire.bend as Wire
 import ./laws/facts.bend as Facts
+import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
 import ./laws/dash.bend as Dash
 import ./laws/doc_commit.bend as DocCommit
@@ -66,3 +67,7 @@ import ./laws/workflow.bend as Workflow
 import ./laws/command.bend as Command
 import ./laws/shell.bend as Shell
 import ./laws/tool_surface.bend as ToolSurface
+import ./laws/infer_force.bend as InferForce
+import ./laws/infer_guard.bend as InferGuard
+import ./laws/infer_threshold.bend as InferThreshold
+import ./laws/bound.bend as Bound

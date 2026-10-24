@@ -100,6 +100,20 @@ pub enum Entry {
     Approvals = 53,
     /// `bend/ffi_frames.bend`: a call.
     Frames = 54,
+    /// `bend/ffi_compactor.bend`: a call.
+    Compactor = 70,
+    /// `bend/ffi_model_facts.bend`: a call.
+    ModelFacts = 71,
+    /// `bend/ffi_infer_force.bend`: a call.
+    InferForce = 73,
+    /// `bend/ffi_infer_guard.bend`: a stepper.
+    InferGuard = 74,
+    /// `bend/ffi_infer_threshold.bend`: a call.
+    InferThreshold = 75,
+    /// `bend/ffi_bound.bend`: a call and a stepper.
+    Bound = 76,
+    /// `bend/ffi_tokens.bend`: a call.
+    Tokens = 78,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
@@ -166,6 +180,13 @@ impl Entry {
         Entry::Runners,
         Entry::Approvals,
         Entry::Frames,
+        Entry::Compactor,
+        Entry::ModelFacts,
+        Entry::InferForce,
+        Entry::InferGuard,
+        Entry::InferThreshold,
+        Entry::Bound,
+        Entry::Tokens,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,

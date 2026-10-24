@@ -16,9 +16,9 @@
 #   has no call.
 #
 # Text is a list of characters by their UTF-8 width: lengths are bytes,
-# and a cut never splits a character. LAWS.bend states the laws (H1, H2);
-# proof/compactor/ proves them; bridge/bridge_compactor.bend runs
-# `line` on the scenarios of the Rust bridge test.
+# and a cut never splits a character. laws/compactor.bend states the laws
+# (H1, H2); proof/compactor/ proves them. `line.open`, `line.step` and
+# `Pend.after` run as the compiled core (entry bend/ffi_compactor.bend).
 
 import Base
 import ./optchat/bits.bend as OBits
@@ -95,25 +95,6 @@ def cut(t: List<&2, W>, room: Nat) -> List<&2, W>:
           W4{} <> cut(rest, r)
         case _ _:
           Nil{}
-
-# the start of t a cut of room bytes reads: every character that fits,
-# then the next one (all the compactor sends of a long input)
-def Text.lead(t: List<&2, W>, room: Nat) -> List<&2, W>:
-  match t:
-    case Nil{}:
-      Nil{}
-    case c <> rest:
-      match c room:
-        case W1{} 1n+r:
-          W1{} <> Text.lead(rest, r)
-        case W2{} 2n+r:
-          W2{} <> Text.lead(rest, r)
-        case W3{} 3n+r:
-          W3{} <> Text.lead(rest, r)
-        case W4{} 4n+r:
-          W4{} <> Text.lead(rest, r)
-        case c _:
-          [c]
 
 # A line (H1)
 # -----------

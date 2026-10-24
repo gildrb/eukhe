@@ -60,6 +60,11 @@ bend-core:
 bend-core-check:
 	python3 scripts/bend_core.py check
 
+# The token blocks of crates/eukhe-dashboard/ui/src/tokens.stylex.ts, as
+# the compiled core writes them from bend/tokens.bend (run bend-core first).
+dashboard-tokens:
+	cargo test -p eukhe-bend --lib rules::tokens::tests::regenerate_dashboard_tokens -- --ignored --exact
+
 
 # Supply-chain gates. They fail loudly when the tool is missing instead of
 # silently skipping the gate.
@@ -223,4 +228,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui

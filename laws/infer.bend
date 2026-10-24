@@ -393,8 +393,8 @@ law core_infer_malformed_example:
 # inside the model's limits, and where a fact moved from code into data the
 # data gives the answers the code gave. Each law is an open claim about the
 # model in bend/facts.bend; PROOF.bend proves them (as Infer.<law>)
-# with the lemmas of proof/facts/; bridge/bridge_facts.bend runs the
-# model against the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
+# with the lemmas of proof/facts/. The decisions run as the compiled core
+# (entry bend/ffi_model_facts.bend, laws/model_facts.bend).
 
 # (S6.10.1) Decisions are rulebook lookups
 # ----------------------------------------

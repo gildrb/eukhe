@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 
+use eukhe_bend::rules::model_facts::{tier_row, TierRow};
 use regex::Regex;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
@@ -59,28 +60,25 @@ impl<'de> Deserialize<'de> for TierPrices {
 
 /// The multiplier of the shipped `service_tier_prices` row that prices
 /// `tier` for `model` ([`TierPriceRow`]): the row of the model's provider,
-/// API and id, else the row of its provider and API without a model.
+/// API and id, else the row of its provider and API without a model (the
+/// compiled core picks the row: `eukhe_bend::rules::model_facts::tier_row`).
 /// `None` when no row prices the tier: the cost stays the base price.
 #[must_use]
 pub fn service_tier_multiplier(model: ModelKey<'_>, tier: &str) -> Option<f64> {
-    let mut provider_wide = None;
-    for row in Rulebook::shipped()
+    let rows: Vec<&TierPriceRow> = Rulebook::shipped()
         .service_tier_prices
         .0
         .iter()
-        .filter(|row| {
-            row.provider == model.provider
-                && row.api == model.api
-                && row.tiers.iter().any(|priced| priced == tier)
+        .filter(|row| row.provider == model.provider && row.api == model.api)
+        .collect();
+    let facts: Vec<TierRow> = rows
+        .iter()
+        .map(|row| TierRow {
+            model: row.model.as_ref().map(|id| id == model.id),
+            tier: row.tiers.iter().any(|priced| priced == tier),
         })
-    {
-        match &row.model {
-            Some(id) if id == model.id => return Some(row.multiplier),
-            Some(_) => {}
-            None => provider_wide = Some(row.multiplier),
-        }
-    }
-    provider_wide
+        .collect();
+    tier_row(&facts).map(|index| rows[index].multiplier)
 }
 
 /// One row of `cache_write_1h_prices` as the rulebook writes it.

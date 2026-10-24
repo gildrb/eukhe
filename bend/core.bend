@@ -6,10 +6,12 @@ import ./ffi_admission.bend as ffi_admission
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_bound.bend as ffi_bound
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_command.bend as ffi_command
+import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_dash.bend as ffi_dash
 import ./ffi_default_model.bend as ffi_default_model
@@ -28,10 +30,14 @@ import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
+import ./ffi_infer_force.bend as ffi_infer_force
+import ./ffi_infer_guard.bend as ffi_infer_guard
+import ./ffi_infer_threshold.bend as ffi_infer_threshold
 import ./ffi_job.bend as ffi_job
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
+import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
@@ -51,6 +57,7 @@ import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_elect.bend as ffi_tiny_elect
+import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
@@ -153,6 +160,18 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 70:
+      ffi_compactor.ffi(input)
+    case 71:
+      ffi_model_facts.ffi(input)
+    case 73:
+      ffi_infer_force.ffi(input)
+    case 75:
+      ffi_infer_threshold.ffi(input)
+    case 76:
+      ffi_bound.ffi(input)
+    case 78:
+      ffi_tokens.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
@@ -185,6 +204,8 @@ type State is Type:
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
   DocGlob{s: ffi_doc_glob.St}
+  InferGuard{s: ffi_infer_guard.St}
+  Bound{s: ffi_bound.St}
   AuthFlight{s: ffi_auth_flight.St}
   Unknown{}
 
@@ -228,6 +249,16 @@ def open.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
     case (s, reply):
       (DocGlob{s}, reply)
 
+def open.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (InferGuard{s}, reply)
+
+def open.bound(r: ffi_bound.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Bound{s}, reply)
+
 def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -251,6 +282,10 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.doc_search(ffi_doc_search.open(input))
     case 42:
       open.doc_glob(ffi_doc_glob.open(input))
+    case 74:
+      open.infer_guard(ffi_infer_guard.open(input))
+    case 76:
+      open.bound(ffi_bound.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
     case _:
@@ -301,6 +336,16 @@ def step.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
     case (s, reply):
       (DocGlob{s}, reply)
 
+def step.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (InferGuard{s}, reply)
+
+def step.bound(r: ffi_bound.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Bound{s}, reply)
+
 def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -324,6 +369,10 @@ def step.go(state: State, input: String) -> State & String:
       step.doc_search(ffi_doc_search.step(s, input))
     case DocGlob{s}:
       step.doc_glob(ffi_doc_glob.step(s, input))
+    case InferGuard{s}:
+      step.infer_guard(ffi_infer_guard.step(s, input))
+    case Bound{s}:
+      step.bound(ffi_bound.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case Unknown{}:
@@ -351,6 +400,10 @@ def close.go(state: State) -> Unit:
     case DocSearch{s}:
       Unit{}
     case DocGlob{s}:
+      Unit{}
+    case InferGuard{s}:
+      Unit{}
+    case Bound{s}:
       Unit{}
     case AuthFlight{s}:
       Unit{}

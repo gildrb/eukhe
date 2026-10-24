@@ -48,6 +48,13 @@
 52 runners
 53 approvals
 54 frames
+70 compactor
+71 model_facts
+73 infer_force
+74 infer_guard
+75 infer_threshold
+76 bound
+78 tokens
 90 timeouts
 91 revive
 92 auth_flight
