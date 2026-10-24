@@ -437,3 +437,35 @@ def idents(ns: List<&2, String>) -> Bool:
 # LAW tokens_scale_keys_plain: every scale step name (spacing, layers, type sizes, line heights) is a plain identifier, a letter then letters and digits, so distinct names are distinct keys of the generated blocks
 law tokens_scale_keys_plain:
   {idents(step_names(List.append(&2, Tk.Step, Tk.space(), List.append(&2, Tk.Step, Tk.layers(), List.append(&2, Tk.Step, Tk.sizes(), Tk.lines()))))) == True{} : Bool}
+
+# every alpha is at least 1 hundredth (a tint of 0 hides its color and
+# renders as 0.0)
+def alphas_visible(es: List<&2, Tk.Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case Tk.Entry{t, c} <> rest:
+      match c:
+        case Tk.Col{rgb, a}:
+          Bool.and(U32.is_le(1, a), alphas_visible(rest))
+
+# every value of xs is at most top
+def steps_at_most(xs: List<&2, Tk.Step>, +top: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Tk.Step{n, v} <> rest:
+      Bool.and(U32.is_le(v, top), steps_at_most(rest, top))
+
+# LAW tokens_alpha_visible: in both modes every color's alpha is 1 to 100 hundredths, so a tint renders as 0.A with no trailing zero and shows its color
+law tokens_alpha_visible:
+  for m: Tk.Mode
+  {alphas_visible(Tk.palette(m)) == True{} : Bool}
+
+# LAW tokens_layers_in_range: every layer is at most 2147483647, the largest z-index a browser keeps, so strictly ascending layers stay strictly ordered on screen
+law tokens_layers_in_range:
+  {steps_at_most(Tk.layers(), 2147483647) == True{} : Bool}
+
+# LAW tokens_px_in_range: every spacing step, type size and line height is at most 1048576px (2^20), well inside the lengths every browser lays out exactly, so ascending px values stay ascending on screen
+law tokens_px_in_range:
+  {steps_at_most(List.append(&2, Tk.Step, Tk.space(), List.append(&2, Tk.Step, Tk.sizes(), Tk.lines())), 1048576) == True{} : Bool}
