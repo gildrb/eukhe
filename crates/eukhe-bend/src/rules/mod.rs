@@ -4,5 +4,6 @@
 
 pub mod cvar;
 pub mod fsmode;
+pub mod quirks;
 pub mod retry;
 pub mod semver;

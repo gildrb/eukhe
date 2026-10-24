@@ -29,6 +29,7 @@ import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
+import ./ffi_quirks.bend as ffi_quirks
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
@@ -147,6 +148,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  Quirks{s: ffi_quirks.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -184,6 +186,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.quirks(r: ffi_quirks.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Quirks{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -200,6 +207,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 61:
+      open.quirks(ffi_quirks.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -243,6 +252,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.quirks(r: ffi_quirks.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Quirks{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -259,6 +273,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case Quirks{s}:
+      step.quirks(ffi_quirks.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -282,6 +298,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case Quirks{s}:
       Unit{}
     case Unknown{}:
       Unit{}

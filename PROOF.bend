@@ -345,6 +345,16 @@ import ./proof/infer/core_infer_malformed_example.bend as PCoreInferMalformedExa
 import ./proof/infer/facts_rulebook_decides.bend as PFactsRulebookDecides
 import ./proof/infer/facts_rulebook_default.bend as PFactsRulebookDefault
 import ./proof/infer/facts_only_the_rulebook_decides.bend as PFactsOnlyTheRulebookDecides
+import ./proof/quirks/base.bend as LAQuirks
+import ./proof/quirks/quirks_open_answers.bend as PQuirksOpenAnswers
+import ./proof/quirks/quirks_faults_iff_rejected.bend as PQuirksFaultsIffRejected
+import ./proof/quirks/quirks_lookup_answers.bend as PQuirksLookupAnswers
+import ./proof/quirks/quirks_open_malformed.bend as PQuirksOpenMalformed
+import ./proof/quirks/quirks_lookup_malformed.bend as PQuirksLookupMalformed
+import ./proof/quirks/quirks_shut_refuses.bend as PQuirksShutRefuses
+import ./proof/quirks/quirks_open_example.bend as PQuirksOpenExample
+import ./proof/quirks/quirks_lookup_example.bend as PQuirksLookupExample
+import ./proof/quirks/quirks_malformed_example.bend as PQuirksMalformedExample
 import ./proof/tools/base.bend as LATools
 import ./proof/tools/roster_fixed.bend as PRosterFixed
 import ./proof/tools/roster_sent_fixed.bend as PRosterSentFixed
