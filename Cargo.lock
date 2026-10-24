@@ -713,6 +713,7 @@ version = "0.10.0"
 dependencies = [
  "anyhow",
  "base64",
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-tui",
  "eukhe-types",

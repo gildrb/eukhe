@@ -111,7 +111,7 @@ Open the printed `Poros URL` plus the `#token=…` part of the dashboard link. p
 - `--allow-host` only for a forwarder you control that keeps `Host` (`tailscale serve` does).
 - `tailscale serve`, never `tailscale funnel` (public internet).
 - The socket refuses bridge and daemon-internal commands ([Protocol](#protocol)).
-- `laws/dash.bend`: pairing gate rules; `PROOF.bend` proves them on `bend/dash.bend`. Bridge test `pairing::tests::the_gate_pairs_as_its_model` runs real server and model on the same events.
+- `laws/dash.bend`: pairing gate rules; `PROOF.bend` proves them on `bend/dash.bend`. Every choice of the gate (token shape, stored token and its trim, first frame, later frames, the token file at start) runs as the compiled core (entry `bend/ffi_dash.bend`, laws `dash_*_spec`, `dash_entry_*`); Rust reads frames and the file and compares tokens in constant time. Bridge test `pairing::tests::the_gate_pairs_as_its_model` runs real server and model on the same events: it stays for the interleaving (rotations by another process between frames of open sockets).
 
 ## Caching
 

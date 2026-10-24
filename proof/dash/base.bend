@@ -280,3 +280,24 @@ def pa.quiet(evs: List<&2, Da.Ev>, +s: Da.St, +c: Nat, +st: {pa.stale(Da.St.cur(
     case +e <> +rest:
       %Equal.sym(Bool, Da.ran(c, Da.out(s, e)), False{}, pa.step_quiet(s, e, c, st, pa.or_l(Da.opens(c, e), Da.any_opens(c, rest), again))) : {Bool.or(_, Da.any_ran(c, Da.run(rest, Da.next(s, e)))) == False{} : Bool}
       pa.quiet(rest, Da.next(s, e), c, pa.step_stale(s, e, c, st, pa.or_l(Da.opens(c, e), Da.any_opens(c, rest), again)), pa.or_r(Da.opens(c, e), Da.any_opens(c, rest), again))
+
+# ---- dash entry ----
+
+# Bool.and, for the fits of the dash entry's requests
+def pe.and_l(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def pe.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      dashboard_auth.pa.absurdF({b == True{} : Bool}, h)
+
+def pe.and_tt(-a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb

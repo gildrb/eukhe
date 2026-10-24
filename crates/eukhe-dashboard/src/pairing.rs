@@ -9,6 +9,11 @@
 //! `eukhe dashboard` process takes effect at the next check of this one.
 //! The comparison is constant-time. The token never goes into a log line
 //! or an error text.
+//!
+//! Every choice (what a presented text and the file hold, whether a socket
+//! opens, whether a frame runs, what a start does with the file: section 6
+//! of `bend/dash.bend`) runs as the compiled Bend core (`bend/ffi_dash.bend`);
+//! this module reads frames and the file, compares tokens and acts.
 
 use std::fmt;
 use std::io::Write;
@@ -16,6 +21,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 use anyhow::Context;
+use eukhe_bend::wire::{Reader, WireError, Writer, STR_MAX};
+use eukhe_bend::{call, expect_core, Entry, Error};
 use subtle::ConstantTimeEq;
 
 /// The bytes of a token.
@@ -54,24 +61,6 @@ impl PairingToken {
         hex
     }
 
-    /// The token that `text` spells (64 hex digits, either case); `None`
-    /// for any other text. Only the length and the digit set decide, so
-    /// the time depends on the presented text, never on the secret.
-    pub(crate) fn parse(text: &str) -> Option<Self> {
-        let digits = text.as_bytes();
-        if digits.len() != TOKEN_BYTES * 2 {
-            return None;
-        }
-        let mut bytes = [0; TOKEN_BYTES];
-        for (byte, &[high, low]) in bytes.iter_mut().zip(digits.as_chunks::<2>().0) {
-            // One hex digit per character: `u8::from_str_radix` on a pair
-            // also takes a sign ("+a" read as 0x0a).
-            let digit = |c: u8| char::from(c).to_digit(16);
-            *byte = u8::try_from(digit(high)? * 16 + digit(low)?).ok()?;
-        }
-        Some(Self(bytes))
-    }
-
     /// Whether `other` is this token, in constant time.
     fn same(&self, other: &Self) -> bool {
         bool::from(self.0.ct_eq(&other.0))
@@ -98,29 +87,40 @@ pub enum Rotation {
 /// The file cannot be read or written, or it holds no token (rotate to
 /// replace it).
 pub fn pairing_token(path: &Path, rotation: Rotation) -> anyhow::Result<PairingToken> {
-    match rotation {
-        Rotation::Keep => match std::fs::read_to_string(path) {
-            Ok(text) => {
-                let token = PairingToken::parse(text.trim()).with_context(|| {
-                    format!(
-                        "{} holds no pairing token: run `eukhe dashboard --rotate-token` to make a new one",
-                        path.display()
-                    )
-                })?;
-                let mode = std::fs::metadata(path)
-                    .with_context(|| format!("read the mode of {}", path.display()))?
-                    .permissions()
-                    .mode();
-                if mode & 0o077 != 0 {
-                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-                        .with_context(|| format!("make {} private", path.display()))?;
-                }
-                Ok(token)
+    let disk = Disk::of(path, std::fs::read_to_string(path));
+    let mode = match &disk {
+        Disk::Text(_) => std::fs::metadata(path)
+            .with_context(|| format!("read the mode of {}", path.display()))?
+            .permissions()
+            .mode(),
+        Disk::Missing | Disk::Unreadable(_) => 0,
+    };
+    let mut writer = Writer::new();
+    writer.tag(4).tag(match rotation {
+        Rotation::Keep => 0,
+        Rotation::Rotate => 1,
+    });
+    disk.spell(&mut writer);
+    writer.nat(u64::from(mode));
+    let keep = ask(&mut writer, |reader| reader.tag_of(5, "a start choice"));
+    match (keep, disk) {
+        (0, _) => store_fresh(path),
+        (1 | 2, disk) => {
+            let token = stored(&disk).unwrap_or_else(|| inconsistent("a stored token"));
+            if keep == 2 {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                    .with_context(|| format!("make {} private", path.display()))?;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => store_fresh(path),
-            Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
-        },
-        Rotation::Rotate => store_fresh(path),
+            Ok(token)
+        }
+        (3, Disk::Unreadable(error)) => {
+            Err(error).with_context(|| format!("read {}", path.display()))
+        }
+        (3, Disk::Missing | Disk::Text(_)) => inconsistent("an unreadable file"),
+        (4.., _) => Err(anyhow::anyhow!(
+            "{} holds no pairing token: run `eukhe dashboard --rotate-token` to make a new one",
+            path.display()
+        )),
     }
 }
 
@@ -188,53 +188,173 @@ pub fn opener_page(path: &Path, url: &str) -> anyhow::Result<()> {
     write_private(path, page.as_bytes())
 }
 
-/// Why a socket's pairing failed: the text of its `unpaired` frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    /// The first frame was not a pairing, or it named no token.
+/// What reading the token file met (`Disk` in `bend/dash.bend`).
+pub(crate) enum Disk {
+    /// The file does not exist.
     Missing,
-    /// The token is not the current one (rotated, or never issued).
-    Wrong,
-    /// The server has no current token to compare with.
-    Unset,
+    /// It could not be read (or is not UTF-8).
+    Unreadable(std::io::Error),
+    /// Its text.
+    Text(String),
 }
 
-impl Refusal {
-    /// The error the tab shows. It never holds a token.
-    pub(crate) fn error(self) -> &'static str {
+impl Disk {
+    /// What a read of the file at `path` met.
+    fn of(path: &Path, read: std::io::Result<String>) -> Disk {
+        match read {
+            Ok(text) => Disk::Text(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Disk::Missing,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "could not read the pairing token");
+                Disk::Unreadable(error)
+            }
+        }
+    }
+
+    /// The token file at `path`, read now.
+    pub(crate) async fn read(path: &Path) -> Disk {
+        Disk::of(path, tokio::fs::read_to_string(path).await)
+    }
+
+    /// The file on the wire: a text longer than the wire carries is `huge`.
+    fn spell(&self, writer: &mut Writer) {
         match self {
-            Refusal::Missing => {
-                "pairing needed: open the link that `eukhe dashboard` prints"
-            }
-            Refusal::Wrong => {
-                "this pairing link is not valid any more: open the link that `eukhe dashboard` prints"
-            }
-            Refusal::Unset => {
-                "the dashboard has no pairing token: restart `eukhe dashboard`"
-            }
-        }
+            Disk::Missing => writer.tag(0),
+            Disk::Unreadable(_) => writer.tag(1),
+            Disk::Text(text) if text.chars().count() <= STR_MAX => writer.tag(2).str(text),
+            Disk::Text(_) => writer.tag(3),
+        };
     }
 }
 
-/// Whether `presented` is the current token stored at `path`. A missing
-/// or damaged file admits nothing.
-pub(crate) async fn admits(path: &Path, presented: &PairingToken) -> Result<(), Refusal> {
-    let stored = match tokio::fs::read_to_string(path).await {
-        Ok(text) => PairingToken::parse(text.trim()),
-        Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "could not read the pairing token");
-            None
+/// A presented text on the wire (`Said`): one longer than the wire
+/// carries is `overlong`.
+fn said(writer: &mut Writer, text: &str) {
+    if text.chars().count() <= STR_MAX {
+        writer.tag(0).str(text);
+    } else {
+        writer.tag(1);
+    }
+}
+
+/// The first frame of a socket (`First` in `bend/dash.bend`).
+pub(crate) enum First {
+    /// A binary frame, none in time, or the tab left.
+    NoText,
+    /// A text frame that is not a pairing.
+    NotPairing,
+    /// A pairing that presents this text.
+    Pair(String),
+}
+
+/// A reply of the compiled core that its laws rule out: only an
+/// inconsistent build answers it.
+fn inconsistent<T>(expected: &'static str) -> T {
+    expect_core(
+        Entry::Dash,
+        Err::<T, Error>(Error::Wire(WireError::Malformed { at: 0, expected })),
+    )
+}
+
+/// The compiled core's answer to the request in `writer`, read by `read`.
+fn ask<T>(writer: &mut Writer, read: impl FnOnce(&mut Reader<'_>) -> Result<T, WireError>) -> T {
+    let answer = || -> Result<T, Error> {
+        let reply = call(Entry::Dash, &writer.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let value = read(&mut reader)?;
+        reader.end()?;
+        Ok(value)
+    };
+    expect_core(Entry::Dash, answer())
+}
+
+/// A token in a reply: tag 0 and its bytes, or another of `tags` tags.
+fn read_token(reader: &mut Reader<'_>, tags: u32) -> Result<Option<PairingToken>, WireError> {
+    let bad = WireError::Malformed {
+        at: 0,
+        expected: "the 32 bytes of a token",
+    };
+    match reader.tag_of(tags, "a token")? {
+        0 => {
+            if reader.count()? != TOKEN_BYTES {
+                return Err(bad);
+            }
+            let mut bytes = [0; TOKEN_BYTES];
+            for byte in &mut bytes {
+                *byte = u8::try_from(reader.nat()?).map_err(|_| bad.clone())?;
+            }
+            Ok(Some(PairingToken(bytes)))
+        }
+        1.. => Ok(None),
+    }
+}
+
+/// The gate's answer in a reply: pass, or the text the tab shows.
+fn read_pass(reader: &mut Reader<'_>) -> Result<Result<(), String>, WireError> {
+    match reader.tag_of(2, "a pass")? {
+        0 => Ok(Ok(())),
+        1.. => Ok(Err(reader.str()?.to_owned())),
+    }
+}
+
+/// The token a presented text spells, if any.
+fn presented(text: &str) -> Option<PairingToken> {
+    let mut writer = Writer::new();
+    writer.tag(0);
+    said(&mut writer, text);
+    ask(&mut writer, |reader| read_token(reader, 3))
+}
+
+/// The token the file holds, if any.
+fn stored(disk: &Disk) -> Option<PairingToken> {
+    let mut writer = Writer::new();
+    writer.tag(1);
+    disk.spell(&mut writer);
+    ask(&mut writer, |reader| read_token(reader, 2))
+}
+
+/// Both tokens exist and are equal (in constant time).
+fn equal(presented: Option<&PairingToken>, stored: Option<&PairingToken>) -> bool {
+    presented
+        .zip(stored)
+        .is_some_and(|(presented, stored)| presented.same(stored))
+}
+
+/// Whether a socket opens on its first frame, with the token file as
+/// `disk`: the token it presented, or the text of its `unpaired` frame.
+pub(crate) fn open(first: &First, disk: &Disk) -> Result<PairingToken, String> {
+    let token = match first {
+        First::Pair(text) => presented(text),
+        First::NoText | First::NotPairing => None,
+    };
+    let mut writer = Writer::new();
+    writer.tag(2);
+    match first {
+        First::NoText => writer.tag(0),
+        First::NotPairing => writer.tag(1),
+        First::Pair(text) => {
+            writer.tag(2);
+            said(&mut writer, text);
+            &mut writer
         }
     };
-    let Some(current) = stored else {
-        tracing::warn!(path = %path.display(), "the pairing token file holds no token");
-        return Err(Refusal::Unset);
-    };
-    if current.same(presented) {
-        Ok(())
-    } else {
-        Err(Refusal::Wrong)
+    disk.spell(&mut writer);
+    writer.bool(equal(token.as_ref(), stored(disk).as_ref()));
+    match (ask(&mut writer, read_pass), token) {
+        (Ok(()), Some(token)) => Ok(token),
+        (Ok(()), None) => inconsistent("a refusal of a socket that presented no token"),
+        (Err(text), _) => Err(text),
     }
+}
+
+/// Whether a later frame of a socket paired with `presented` runs, with
+/// the token file as `disk`; `Err`: the text of its `unpaired` frame.
+pub(crate) fn admits(disk: &Disk, presented: &PairingToken) -> Result<(), String> {
+    let mut writer = Writer::new();
+    writer.tag(3);
+    disk.spell(&mut writer);
+    writer.bool(equal(Some(presented), stored(disk).as_ref()));
+    ask(&mut writer, read_pass)
 }
 
 #[cfg(test)]
@@ -559,56 +679,32 @@ mod tests {
         );
     }
 
-    #[test]
-    fn only_64_hex_digits_spell_a_token() {
-        let token = PairingToken([0xab; TOKEN_BYTES]);
-        let hex = token.secret_hex();
-        let parsed: Vec<Option<PairingToken>> = [
-            hex.clone(),
-            hex.to_uppercase(),
-            hex[..62].to_string(),
-            format!("{hex}0"),
-            format!("{}zz", &hex[..62]),
-            // Regression (laws/dashboard_policy.bend F1): a sign in a pair
-            // spelled a byte ("+a" as 0x0a).
-            format!("+a{}", &hex[2..]),
-            format!("{}é", &hex[..62]),
-            String::new(),
-        ]
-        .iter()
-        .map(|text| PairingToken::parse(text))
-        .collect();
-        assert_eq!(
-            parsed,
-            [
-                Some(token.clone()),
-                Some(token),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None
-            ]
-        );
-    }
-
+    /// The compiled core admits only the current token of the file (laws
+    /// `dash_frame_spec`, `dash_gate_spec` pin every choice).
     #[tokio::test]
     async fn only_the_current_token_is_admitted() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("dashboard-token");
-        let missing = admits(&path, &PairingToken([1; TOKEN_BYTES])).await;
+        let missing = admits(&Disk::read(&path).await, &PairingToken([1; TOKEN_BYTES]));
         let first = pairing_token(&path, Rotation::Keep).expect("made");
-        let before = admits(&path, &first).await;
+        let before = admits(&Disk::read(&path).await, &first);
+        let opened = open(&First::Pair(first.secret_hex()), &Disk::read(&path).await);
         let second = pairing_token(&path, Rotation::Rotate).expect("rotated");
         assert_eq!(
             (
                 missing,
                 before,
-                admits(&path, &first).await,
-                admits(&path, &second).await
+                opened,
+                admits(&Disk::read(&path).await, &first),
+                admits(&Disk::read(&path).await, &second)
             ),
-            (Err(Refusal::Unset), Ok(()), Err(Refusal::Wrong), Ok(()))
+            (
+                Err("the dashboard has no pairing token: restart `eukhe dashboard`".to_owned()),
+                Ok(()),
+                Ok(first),
+                Err("this pairing link is not valid any more: open the link that `eukhe dashboard` prints".to_owned()),
+                Ok(())
+            )
         );
     }
 }

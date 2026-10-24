@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::bridge::Bridge;
-use crate::pairing::{PairingToken, Refusal};
+use crate::pairing::{Disk, First};
 use crate::protocol::{Pairing, ServerFrame, OPS, PROTOCOL_VERSION};
 use crate::DashboardConfig;
 use eukhe_tui::saved_sessions::DaemonLauncher;
@@ -203,36 +203,21 @@ fn upgrade<L: DaemonLauncher>(
             }
         })
         .await;
-        let presented = match first {
+        let first = match first {
             // The tab left before it paired.
             Ok(None) => return,
             Ok(Some(Some(text))) => match serde_json::from_str::<Pairing>(text.as_str()) {
-                Ok(Pairing::Pair { token }) => match PairingToken::parse(&token) {
-                    Some(presented) => crate::pairing::admits(&config.token_path, &presented)
-                        .await
-                        .map(|()| presented),
-                    None if token.is_empty() => Err(Refusal::Missing),
-                    None => Err(Refusal::Wrong),
-                },
-                Err(_) => Err(Refusal::Missing),
+                Ok(Pairing::Pair { token }) => First::Pair(token),
+                Err(_) => First::NotPairing,
             },
             // A binary first frame, or none in time.
-            Ok(Some(None)) | Err(_) => Err(Refusal::Missing),
+            Ok(Some(None)) | Err(_) => First::NoText,
         };
-        let presented = match presented {
+        let presented = match crate::pairing::open(&first, &Disk::read(&config.token_path).await) {
             Ok(presented) => presented,
-            Err(refusal) => {
-                tracing::warn!(
-                    ?refusal,
-                    "refused a socket that did not present the pairing token"
-                );
-                close_with(
-                    socket,
-                    &ServerFrame::Unpaired {
-                        error: refusal.error(),
-                    },
-                )
-                .await;
+            Err(error) => {
+                tracing::warn!(%error, "refused a socket that did not present the pairing token");
+                close_with(socket, &ServerFrame::Unpaired { error: &error }).await;
                 return;
             }
         };

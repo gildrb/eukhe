@@ -9,6 +9,7 @@ import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_command.bend as ffi_command
 import ./ffi_cvar.bend as ffi_cvar
+import ./ffi_dash.bend as ffi_dash
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_lines.bend as ffi_doc_lines
@@ -133,6 +134,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_rows.ffi(input)
     case 100:
       ffi_tiny_elect.ffi(input)
+    case 101:
+      ffi_dash.ffi(input)
     case _:
       W.err("unknown entry")
 
