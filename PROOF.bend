@@ -355,6 +355,8 @@ import ./proof/quirks/quirks_shut_refuses.bend as PQuirksShutRefuses
 import ./proof/quirks/quirks_open_example.bend as PQuirksOpenExample
 import ./proof/quirks/quirks_lookup_example.bend as PQuirksLookupExample
 import ./proof/quirks/quirks_malformed_example.bend as PQuirksMalformedExample
+import ./proof/quirks/quirks_known_exact.bend as PQuirksKnownExact
+import ./proof/quirks/quirks_premises_example.bend as PQuirksPremisesExample
 import ./proof/tools/base.bend as LATools
 import ./proof/tools/roster_fixed.bend as PRosterFixed
 import ./proof/tools/roster_sent_fixed.bend as PRosterSentFixed

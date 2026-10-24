@@ -188,6 +188,14 @@ def spell_ans(a: If.Ans) -> String:
     case If.Known{v}:
       Wr.put_nat(1n, Wr.put_nat(v, ""))
 
+# the answer is a value
+def qs_known(a: If.Ans) -> Bool:
+  match a:
+    case If.Known{v}:
+      True{}
+    case If.Unknown{}:
+      False{}
+
 # Readers: the inputs the entry accepts, read with the wire primitives
 # --------------------------------------------------------------------
 
@@ -392,3 +400,18 @@ law quirks_lookup_example:
 # EXCLUDES: a vacuous quirks_open_malformed or quirks_lookup_malformed
 law quirks_malformed_example:
   {[read_open("1,0,4,3,1,0,5,"), read_open("1,0,3,0,1,0,"), read_open("1,0,0,x")] == [None{}, None{}, None{}] : List<&2, Maybe<&2, QsOpen>>} & {read_lookup("3,1,2,0,") == None{} : Maybe<&2, QsLookup>}
+
+# LAW quirks_known_exact: the model's is_known (which quirk_known_when_some reads) says Known
+# exactly for a Known answer
+# EXCLUDES: an is_known that always says yes, making quirk_known_when_some
+#   vacuous (a mutant's)
+law quirks_known_exact:
+  for a: If.Ans
+  {If.is_known(a) == qs_known(a) : Bool}
+
+# LAW quirks_premises_example: witness: an open and a lookup that fit the wire exist, and an
+# open with a layer tag of 3 reads as no open
+# EXCLUDES: a vacuous quirks_open_answers, quirks_lookup_answers or
+#   quirks_open_malformed
+law quirks_premises_example:
+  {open_fits([0n], [If.Rule{If.Host{}, 1n, 0n, 5n}]) == True{} : Bool} & {lookup_fits(If.Query{1n, 2n, 3n}, 0n) == True{} : Bool} & {read_open("1,0,4,3,1,0,5,") == None{} : Maybe<&2, QsOpen>}
