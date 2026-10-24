@@ -41,6 +41,7 @@ import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
+import ./ffi_tui_color.bend as ffi_tui_color
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -130,6 +131,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 63:
+      ffi_tui_color.ffi(input)
     case _:
       W.err("unknown entry")
 

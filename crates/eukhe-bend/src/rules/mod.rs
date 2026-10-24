@@ -6,3 +6,4 @@ pub mod cvar;
 pub mod fsmode;
 pub mod retry;
 pub mod semver;
+pub mod tui_color;

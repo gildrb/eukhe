@@ -1,10 +1,16 @@
 # eukhe: lemmas the proofs of area tui_color share
 
 import Base
+import ../../bend/ffi_tui_color.bend as FTC
 import ../../bend/tui_color.bend as TC
+import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
+import ../../laws/tui_color.bend as TuiColor
 import ../base/bool.bend as LBool
+import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/nat.bend as LNat
+import ../base/wire.bend as LWire
 
 def pu.absurd_tf(-A: Type, +e: {True{} == False{} : Bool}) -> A:
   %e : LLogicLogic.pu.BD(_, Unit, A)
@@ -439,3 +445,184 @@ def pu.mul_le_mono_r(+k: Nat, +x: Nat, +y: Nat, +h: {Nat.is_le(x, y) == True{} :
       {==}
     case 1n+p:
       pu.le_add_both(x, y, Nat.mul(p, x), Nat.mul(p, y), h, pu.mul_le_mono_r(p, x, y, h))
+
+# Nat arithmetic: associativity, distribution, zero
+def pu.add_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %pu.add_assoc(p, b, c) : {1n+Nat.add(Nat.add(p, b), c) == 1n+_ : Nat}
+      {==}
+
+def pu.mul_add_r(+x: Nat, +y: Nat, +c: Nat) -> {Nat.mul(Nat.add(x, y), c) == Nat.add(Nat.mul(x, c), Nat.mul(y, c)) : Nat}:
+  match x:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.mul(Nat.add(p, y), c), Nat.add(Nat.mul(p, c), Nat.mul(y, c)), pu.mul_add_r(p, y, c)) : {Nat.add(c, _) == Nat.add(Nat.add(c, Nat.mul(p, c)), Nat.mul(y, c)) : Nat}
+      Equal.sym(Nat, Nat.add(Nat.add(c, Nat.mul(p, c)), Nat.mul(y, c)), Nat.add(c, Nat.add(Nat.mul(p, c), Nat.mul(y, c))), pu.add_assoc(c, Nat.mul(p, c), Nat.mul(y, c)))
+
+def pu.mul_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.mul(Nat.mul(a, b), c) == Nat.mul(a, Nat.mul(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.mul(Nat.add(b, Nat.mul(p, b)), c), Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)), pu.mul_add_r(b, Nat.mul(p, b), c)) : {_ == Nat.add(Nat.mul(b, c), Nat.mul(p, Nat.mul(b, c))) : Nat}
+      %pu.mul_assoc(p, b, c) : {Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)) == Nat.add(Nat.mul(b, c), _) : Nat}
+      {==}
+
+def pu.mul_zero_r(+k: Nat) -> {Nat.mul(k, 0n) == 0n : Nat}:
+  match k:
+    case 0n:
+      {==}
+    case 1n+p:
+      pu.mul_zero_r(p)
+
+# The entry
+# ---------
+
+# a ramp request read back: every number fits, so each reads back and
+# the rest follows
+def tcf.dec_ramp(+lr: Nat, +lg: Nat, +lb: Nat, +hr: Nat, +hg: Nat, +hb: Nat, +n: Nat, +rest: String,
+  +fit: {TuiColor.req_fits(FTC.QRamp{TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n}) == True{} : Bool})
+  -> {FTC.get_req(TuiColor.spell_req(FTC.QRamp{TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n}, rest)) == Wr.Got{FTC.QRamp{TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n}, rest} : Wr.Dec<FTC.Req>}:
+  +pl = TuiColor.px_fits(TC.Px{lr, lg, lb})
+  +ph = TuiColor.px_fits(TC.Px{hr, hg, hb})
+  +fl = LLogicBool.wr_and_l(pl, Bool.and(ph, LawsBase.wire_fits(n)), fit)
+  +fhn = LLogicBool.wr_and_r(pl, Bool.and(ph, LawsBase.wire_fits(n)), fit)
+  +fh = LLogicBool.wr_and_l(ph, LawsBase.wire_fits(n), fhn)
+  +fn = LLogicBool.wr_and_r(ph, LawsBase.wire_fits(n), fhn)
+  +flgb = LLogicBool.wr_and_r(LawsBase.wire_fits(lr), Bool.and(LawsBase.wire_fits(lg), LawsBase.wire_fits(lb)), fl)
+  +fhgb = LLogicBool.wr_and_r(LawsBase.wire_fits(hr), Bool.and(LawsBase.wire_fits(hg), LawsBase.wire_fits(hb)), fh)
+  +x6 = Wr.put_nat(n, rest)
+  +x5 = Wr.put_nat(hb, x6)
+  +x4 = Wr.put_nat(hg, x5)
+  +x3 = Wr.put_nat(hr, x4)
+  +x2 = Wr.put_nat(lb, x3)
+  +x1 = Wr.put_nat(lg, x2)
+  +g = {Wr.Got{FTC.QRamp{TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, n}, rest} : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(lr, x1, LLogicBool.wr_and_l(LawsBase.wire_fits(lr), Bool.and(LawsBase.wire_fits(lg), LawsBase.wire_fits(lb)), fl)) : {FTC.get_ramp(FTC.get_px(_)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(lg, x2, LLogicBool.wr_and_l(LawsBase.wire_fits(lg), LawsBase.wire_fits(lb), flgb)) : {FTC.get_ramp(FTC.get_px.g(lr, _)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(lb, x3, LLogicBool.wr_and_r(LawsBase.wire_fits(lg), LawsBase.wire_fits(lb), flgb)) : {FTC.get_ramp(FTC.get_px.b(lr, lg, _)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(hr, x4, LLogicBool.wr_and_l(LawsBase.wire_fits(hr), Bool.and(LawsBase.wire_fits(hg), LawsBase.wire_fits(hb)), fh)) : {FTC.get_ramp.hi(TC.Px{lr, lg, lb}, FTC.get_px(_)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(hg, x5, LLogicBool.wr_and_l(LawsBase.wire_fits(hg), LawsBase.wire_fits(hb), fhgb)) : {FTC.get_ramp.hi(TC.Px{lr, lg, lb}, FTC.get_px.g(hr, _)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(hb, x6, LLogicBool.wr_and_r(LawsBase.wire_fits(hg), LawsBase.wire_fits(hb), fhgb)) : {FTC.get_ramp.hi(TC.Px{lr, lg, lb}, FTC.get_px.b(hr, hg, _)) == g : Wr.Dec<FTC.Req>}
+  %LWire.pw6.nat(n, rest, fn) : {FTC.get_ramp.n(TC.Px{lr, lg, lb}, TC.Px{hr, hg, hb}, _) == g : Wr.Dec<FTC.Req>}
+  {==}
+
+# a request that fits the wire reads back, and the rest follows
+def tcf.dec(+q: FTC.Req, +rest: String, +fit: {TuiColor.req_fits(q) == True{} : Bool}) -> {FTC.get_req(TuiColor.spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FTC.Req>}:
+  match q:
+    case FTC.QRamp{lo, hi, n}:
+      match lo hi:
+        case TC.Px{lr, lg, lb} TC.Px{hr, hg, hb}:
+          tcf.dec_ramp(lr, lg, lb, hr, hg, hb, n, rest, fit)
+    case FTC.QBand{+t, +w}:
+      +g = {Wr.Got{FTC.QBand{t, w}, rest} : Wr.Dec<FTC.Req>}
+      %LWire.pw6.nat(t, Wr.put_nat(w, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(t), LawsBase.wire_fits(w), fit)) : {FTC.get_band(_) == g : Wr.Dec<FTC.Req>}
+      %LWire.pw6.nat(w, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(t), LawsBase.wire_fits(w), fit)) : {FTC.get_band.w(t, _) == g : Wr.Dec<FTC.Req>}
+      {==}
+    case FTC.QRoles{}:
+      {==}
+
+# The reader, stage by stage: the entry reads every input as the laws'
+# reader does
+
+def tcf.px_b(r: Nat, g: Nat, d: Wr.Dec<Nat>) -> {TuiColor.read_px.b(r, g, d) == FTC.get_px.b(r, g, d) : Wr.Dec<TC.Px>}:
+  match d:
+    case Wr.Got{b, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def tcf.px_g(r: Nat, d: Wr.Dec<Nat>) -> {TuiColor.read_px.g(r, d) == FTC.get_px.g(r, d) : Wr.Dec<TC.Px>}:
+  match d:
+    case Wr.Got{g, s}:
+      tcf.px_b(r, g, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def tcf.px(d: Wr.Dec<Nat>) -> {TuiColor.read_px(d) == FTC.get_px(d) : Wr.Dec<TC.Px>}:
+  match d:
+    case Wr.Got{r, s}:
+      tcf.px_g(r, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def tcf.ramp_n(lo: TC.Px, hi: TC.Px, d: Wr.Dec<Nat>) -> {TuiColor.read_ramp.n(lo, hi, d) == FTC.get_ramp.n(lo, hi, d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{n, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def tcf.ramp_hi(lo: TC.Px, d: Wr.Dec<TC.Px>) -> {TuiColor.read_ramp.hi(lo, d) == FTC.get_ramp.hi(lo, d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{hi, s}:
+      tcf.ramp_n(lo, hi, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def tcf.ramp_lo(lo: TC.Px, +s: String) -> {TuiColor.read_ramp.hi(lo, TuiColor.read_px(Wr.get_nat(s))) == FTC.get_ramp.hi(lo, FTC.get_px(Wr.get_nat(s))) : Wr.Dec<FTC.Req>}:
+  %tcf.px(Wr.get_nat(s)) : {TuiColor.read_ramp.hi(lo, TuiColor.read_px(Wr.get_nat(s))) == FTC.get_ramp.hi(lo, _) : Wr.Dec<FTC.Req>}
+  tcf.ramp_hi(lo, TuiColor.read_px(Wr.get_nat(s)))
+
+def tcf.ramp(d: Wr.Dec<TC.Px>) -> {TuiColor.read_ramp(d) == FTC.get_ramp(d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{lo, s}:
+      tcf.ramp_lo(lo, s)
+    case Wr.Bad{}:
+      {==}
+
+def tcf.band_w(t: Nat, d: Wr.Dec<Nat>) -> {TuiColor.read_band.w(t, d) == FTC.get_band.w(t, d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{w, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def tcf.band(d: Wr.Dec<Nat>) -> {TuiColor.read_band(d) == FTC.get_band(d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{t, s}:
+      tcf.band_w(t, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def tcf.req_tag(t: Nat, +s: String) -> {TuiColor.read_req.tag(t, s) == FTC.get_req.tag(t, s) : Wr.Dec<FTC.Req>}:
+  match t:
+    case 0n:
+      %tcf.px(Wr.get_nat(s)) : {TuiColor.read_ramp(TuiColor.read_px(Wr.get_nat(s))) == FTC.get_ramp(_) : Wr.Dec<FTC.Req>}
+      tcf.ramp(TuiColor.read_px(Wr.get_nat(s)))
+    case 1n:
+      tcf.band(Wr.get_nat(s))
+    case 2n:
+      {==}
+    case 3n+p:
+      {==}
+
+def tcf.req(d: Wr.Dec<Nat>) -> {TuiColor.read_req.go(d) == FTC.get_req.go(d) : Wr.Dec<FTC.Req>}:
+  match d:
+    case Wr.Got{t, s}:
+      tcf.req_tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+# The replies
+# -----------
+
+# the entry's list of colors is the spec's: its count, then each color
+def tcf.rungs_go(xs: List<&2, TC.Px>) -> {Wr.put_list.go(~TC.Px, ~FTC.put_px, xs, "") == (List.length(&2, TC.Px, xs), TuiColor.spell_rungs.items(xs)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      match x:
+        case TC.Px{r, g, b}:
+          %Equal.sym(Nat & String, Wr.put_list.go(~TC.Px, ~FTC.put_px, t, ""), (List.length(&2, TC.Px, t), TuiColor.spell_rungs.items(t)), tcf.rungs_go(t)) : {Wr.put_list.step(~TC.Px, ~FTC.put_px, TC.Px{r, g, b}, _) == (1n+List.length(&2, TC.Px, t), TuiColor.spell_px(TC.Px{r, g, b}, TuiColor.spell_rungs.items(t))) : Nat & String}
+          {==}
+
+def tcf.rungs(+xs: List<&2, TC.Px>) -> {Wr.put_list(~TC.Px, ~FTC.put_px, xs, "") == TuiColor.spell_rungs(xs) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~TC.Px, ~FTC.put_px, xs, ""), (List.length(&2, TC.Px, xs), TuiColor.spell_rungs.items(xs)), tcf.rungs_go(xs)) : {Wr.put_list.fin(_) == TuiColor.spell_rungs(xs) : String}
+  {==}
+

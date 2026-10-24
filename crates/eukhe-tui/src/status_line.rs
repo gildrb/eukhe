@@ -341,39 +341,21 @@ fn context_segment(context: crate::chrome::ContextUsage, theme: &Theme) -> Line 
     ]
 }
 
-/// The usage bands (omp `getContextUsageLevel`), as fractions `num /
-/// den` of the context window that the daemon serves, lowest first: no
-/// band is a token count, so a large window and a small one turn at the
-/// same share of their size. `bend/tui_color.bend` (`bands`) models
-/// them; the T3 laws hold that they ascend in (0, 1], and that the band
-/// rises with the tokens and depends only on the fraction in use.
-const CONTEXT_BANDS: [(u64, u64); 3] = [(1, 2), (7, 10), (9, 10)];
-
-/// The tone of each band count: dim below the first band, then the tone
-/// of the highest band reached.
-const CONTEXT_TONES: [ThemeColor; CONTEXT_BANDS.len() + 1] = [
+/// The tone of each usage band (omp `getContextUsageLevel`): dim below the
+/// first band, then the tone of the highest band reached. The compiled
+/// core decides the band (`bend/tui_color.bend` `band`: the shares 1/2,
+/// 7/10 and 9/10 of the window the daemon serves; an unknown window
+/// reaches none).
+const CONTEXT_TONES: [ThemeColor; 4] = [
     ThemeColor::Dim,
     ThemeColor::Warning,
     ThemeColor::ContextHigh,
     ThemeColor::Error,
 ];
 
-/// How many usage bands `tokens` of a `window`-token context reach: band
-/// `num / den` is reached when `window * num <= tokens * den`, exactly.
-/// An unknown window (0) reaches none.
-pub(crate) fn context_band(tokens: u64, window: u64) -> usize {
-    CONTEXT_BANDS
-        .iter()
-        .filter(|(num, den)| {
-            window > 0
-                && u128::from(window) * u128::from(*num) <= u128::from(tokens) * u128::from(*den)
-        })
-        .count()
-}
-
 /// The usage tone of `tokens` in a `window`-token context.
 fn context_color(tokens: u64, window: u64) -> ThemeColor {
-    CONTEXT_TONES[context_band(tokens, window)]
+    CONTEXT_TONES[eukhe_bend::rules::tui_color::band(tokens, window)]
 }
 
 /// omp `formatNumber`: 999, 1.5K, 128K, 1M, 2.5M, 1B.
