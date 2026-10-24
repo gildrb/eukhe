@@ -1172,6 +1172,9 @@ import ./proof/doc_lines/lines_carry_is_first_end.bend as PLinesCarryIsFirstEnd
 import ./proof/doc_lines/edit_writes_new_lines.bend as PEditWritesNewLines
 import ./proof/doc_lines/grep_line_is_read_line.bend as PGrepLineIsReadLine
 import ./proof/doc_lines/persist_weaves_carry.bend as PPersistWeavesCarry
+import ./proof/doc_lines/persist_writes_with_carry.bend as PPersistWritesWithCarry
+import ./proof/doc_lines/edit_exact.bend as PEditExact
+import ./proof/doc_lines/load_holds_first_end.bend as PLoadHoldsFirstEnd
 import ./proof/doc_lines/persist_plan_refines.bend as PPersistPlanRefines
 import ./proof/doc_lines/persist_plan_example.bend as PPersistPlanExample
 import ./proof/doc_lines/lines_entry_refines.bend as PLinesEntryRefines

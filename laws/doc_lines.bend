@@ -237,6 +237,42 @@ law persist_weaves_carry:
   for +c: Dl.End
   {Dl.start(ps, c) == lines.Weave(ps, lines.Carry(lines.Owns(ps), c)) : List<&2, Dl.B>}
 
+# LAW persist_writes_with_carry: persist writes an edited file's BOM flag
+# and its pieces woven with the carry rule from the file's first ending it
+# holds (before the first new line: that ending)
+# EXCLUDES: a persist that starts the carry from LF (or another ending)
+#   instead of the file's first ending: lines put at the top of a CRLF
+#   file written with LF ("a\r\nb\r\n" with "a" put at line 0 written
+#   "a\na\r\nb\r\n"); a persist that drops or flips the BOM
+law persist_writes_with_carry:
+  for +b: Bool
+  for +c: Dl.End
+  for +ps: List<&2, Dl.Piece>
+  {Dl.persist(Dl.Ed{b, c, ps}) == Dl.Doc{b, lines.Weave(ps, lines.Carry(lines.Owns(ps), c))} : Dl.Doc}
+
+# new lines as pieces: each its text, with no ending of its own
+def lines.Fresh(xs: List<&2, List<&2, Dl.B>>) -> List<&2, Dl.Piece>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      Dl.Piece{x, None{}} <> lines.Fresh(rest)
+
+# LAW edit_exact: an edit of the lines [s, s+k) keeps the BOM flag and the
+# first ending of the file, the pieces before s and from s+k on, and puts
+# the new lines in between as pieces with no ending of their own (they
+# take the carry)
+# EXCLUDES: an edit that changes the carry or the BOM, new lines that bring
+#   an ending of their own (LF in a CRLF file), pieces lost or doubled
+law edit_exact:
+  for +b: Bool
+  for +c: Dl.End
+  for +ps: List<&2, Dl.Piece>
+  for +s: Nat
+  for +k: Nat
+  for +xs: List<&2, List<&2, Dl.B>>
+  {Dl.edit(Dl.Ed{b, c, ps}, s, k, xs) == Dl.Ed{b, c, List.append(&2, Dl.Piece, List.take(&2, Dl.Piece, ps, s), List.append(&2, Dl.Piece, lines.Fresh(xs), List.drop(&2, Dl.Piece, ps, Nat.add(s, k))))} : Dl.Ed}
+
 # LAW persist_plan_refines: the plan over runs gives, line for line, the separators of the
 # carry rule
 # EXCLUDES: a lost or doubled line in a run, a run that does not move the
@@ -372,6 +408,22 @@ law lines_carry_is_first_end:
   for +bom: Bool
   for +bs: List<&2, Dl.B>
   {Dl.carry(Dl.proj(Dl.Doc{bom, bs})) == lines.OrLf(lines.FirstEnd(bs, False{})) : Dl.End}
+
+def lines.EdHead(d: Dl.Ed) -> Bool & Dl.End:
+  match d:
+    case Dl.Ed{b, c, ps}:
+      (b, c)
+
+# LAW load_holds_first_end: a loaded file holds its BOM flag and its
+# first ending scanned byte by byte (LF when it has no `\n`), the carry
+# persist starts from
+# EXCLUDES: a load whose carry is not the file's first ending (LF for a
+#   CRLF file, the last line's ending), so new lines at the top of the file
+#   get another ending than the file's
+law load_holds_first_end:
+  for +bom: Bool
+  for +bs: List<&2, Dl.B>
+  {lines.EdHead(Dl.load(Dl.Doc{bom, bs})) == (bom, lines.OrLf(lines.FirstEnd(bs, False{}))) : Bool & Dl.End}
 
 # LAW lines_write_keeps: a whole-file write keeps the BOM of the file on
 # disk and its first ending (LF when it has none) for every line, and
