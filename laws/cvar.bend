@@ -319,3 +319,368 @@ law cvar_ffi_refused:
 # LAW cvar_fits_example: witness: a table and a command list fit
 law cvar_fits_example:
   {Bool.and(cvar_binds_fit([Cv.KeyBind{0n, [Cv.CRun{1n}, Cv.CToggle{0n}]}]), Bool.and(cvar_aliases_fit([Cv.Alias{1n, [Cv.CSet{2n, Cv.VBool{True{}}}, Cv.CGone{3n}]}]), cvar_cmds_fit([Cv.CSet{0n, Cv.VNat{7n}}]))) == True{} : Bool}
+
+# ---- cvar resolution ----
+
+# LAWS (S4, the decisions the compiled core makes for the Rust code; the
+# entry bend/ffi_cvar_layers.bend, laws/cvar_layers.bend): which
+# declaration a registry refuses first, the value of each cvar and the
+# value a layer sets, the verdict on a set and on a toggle, the sets an
+# agent writes, the config sets of a settings document. Each is pinned
+# whole to a spec written here from the requirement. Every input is free:
+# any declarations (duplicate ids, wrong defaults), any config, any family
+# with any profiles and sets (wrong types, Global cvars, undeclared ids).
+
+# Spec helpers
+# ------------
+
+def spec_id(d: Cv.Decl) -> Nat:
+  match d:
+    case Cv.Decl{i, t, c, p, r, v}:
+      i
+
+def spec_ty(d: Cv.Decl) -> Cv.Ty:
+  match d:
+    case Cv.Decl{i, t, c, p, r, v}:
+      t
+
+def spec_init(d: Cv.Decl) -> Cv.Val:
+  match d:
+    case Cv.Decl{i, t, c, p, r, v}:
+      v
+
+# the cvar may differ per agent
+def spec_local(d: Cv.Decl) -> Bool:
+  match d:
+    case Cv.Decl{i, t, c, p, r, v}:
+      match c:
+        case Cv.Global{}:
+          False{}
+        case Cv.Local{}:
+          True{}
+
+# the declaration has flag f
+def spec_flag(d: Cv.Decl, f: Cv.Flag) -> Bool:
+  match d:
+    case Cv.Decl{i, t, c, p, r, v}:
+      match f:
+        case Cv.Persist{}:
+          p
+        case Cv.Replicate{}:
+          r
+
+# the value v has type t
+def spec_typed(v: Cv.Val, t: Cv.Ty) -> Bool:
+  match v:
+    case Cv.VNat{n}:
+      match t:
+        case Cv.TNat{}:
+          True{}
+        case Cv.TBool{}:
+          False{}
+    case Cv.VBool{b}:
+      match t:
+        case Cv.TNat{}:
+          False{}
+        case Cv.TBool{}:
+          True{}
+
+def spec_find.pick(hit: Bool, d: Cv.Decl, r: Maybe<&2, Cv.Decl>) -> Maybe<&2, Cv.Decl>:
+  match hit:
+    case True{}:
+      Some{d}
+    case False{}:
+      r
+
+# the declaration of x: the first one with id x
+def spec_find(ds: List<&2, Cv.Decl>, +x: Nat) -> Maybe<&2, Cv.Decl>:
+  match ds:
+    case Nil{}:
+      None{}
+    case +d <> rest:
+      spec_find.pick(Nat.is_eq(spec_id(d), x), d, spec_find(rest, x))
+
+def spec_valid.agent(local: Bool, ok: Bool) -> Bool:
+  match local:
+    case True{}:
+      ok
+    case False{}:
+      False{}
+
+def spec_valid.at(m: Maybe<&2, Cv.Decl>, l: Cv.Layer, v: Cv.Val) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+d}:
+      match l:
+        case Cv.Config{}:
+          spec_typed(v, spec_ty(d))
+        case Cv.Agent{}:
+          spec_valid.agent(spec_local(d), spec_typed(v, spec_ty(d)))
+
+# a set counts in layer l: its cvar is declared, the value has its type,
+# and an agent layer (a profile, an agent's own sets) holds Local cvars only
+def spec_valid(+ds: List<&2, Cv.Decl>, l: Cv.Layer, s: Cv.Bind) -> Bool:
+  match s:
+    case Cv.Bind{i, v}:
+      spec_valid.at(spec_find(ds, i), l, v)
+
+def spec_last.pick(ok: Bool, v: Cv.Val, cur: Maybe<&2, Cv.Val>) -> Maybe<&2, Cv.Val>:
+  match ok:
+    case True{}:
+      Some{v}
+    case False{}:
+      cur
+
+# the value of the last set of x in ss that counts in layer l, else cur
+def spec_last(ss: List<&2, Cv.Bind>, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +x: Nat, cur: Maybe<&2, Cv.Val>) -> Maybe<&2, Cv.Val>:
+  match ss:
+    case Nil{}:
+      cur
+    case Cv.Bind{+i, +v} <> rest:
+      spec_last(rest, ds, l, x, spec_last.pick(Bool.and(Nat.is_eq(i, x), spec_valid(ds, l, Cv.Bind{i, v})), v, cur))
+
+# the agents in order, root first: each one's profile, then its own sets
+def spec_agents(fam: List<&2, Cv.Ag>, +ds: List<&2, Cv.Decl>, +x: Nat, cur: Maybe<&2, Cv.Val>) -> Maybe<&2, Cv.Val>:
+  match fam:
+    case Nil{}:
+      cur
+    case Cv.Ag{p, s} <> rest:
+      spec_agents(rest, ds, x, spec_last(s, ds, Cv.Agent{}, x, spec_last(p, ds, Cv.Agent{}, x, cur)))
+
+# the value the layers set for x: the last set that counts, over
+# config.cfg, then each agent of the family chain, root first
+def spec_layered(+ds: List<&2, Cv.Decl>, cfg: List<&2, Cv.Bind>, fam: List<&2, Cv.Ag>, +x: Nat) -> Maybe<&2, Cv.Val>:
+  spec_agents(fam, ds, x, spec_last(cfg, ds, Cv.Config{}, x, None{}))
+
+def spec_value.at(m: Maybe<&2, Cv.Decl>, l: Maybe<&2, Cv.Val>) -> Maybe<&2, Cv.Val>:
+  match m:
+    case None{}:
+      None{}
+    case Some{d}:
+      Some{Maybe.default(&2, Cv.Val, l, spec_init(d))}
+
+# the value of x for the last agent of the chain: what the layers set,
+# else its default; none for an undeclared x
+def spec_value(+ds: List<&2, Cv.Decl>, cfg: List<&2, Cv.Bind>, fam: List<&2, Cv.Ag>, +x: Nat) -> Maybe<&2, Cv.Val>:
+  spec_value.at(spec_find(ds, x), spec_layered(ds, cfg, fam, x))
+
+# x is one of ys
+def spec_mem(+x: Nat, ys: List<&2, Nat>) -> Bool:
+  match ys:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), spec_mem(x, rest))
+
+def spec_refusal.pick(dup: Bool, good: Bool, i: Nat, next: Cv.Refusal) -> Cv.Refusal:
+  match dup:
+    case True{}:
+      Cv.Twice{i}
+    case False{}:
+      match good:
+        case True{}:
+          next
+        case False{}:
+          Cv.BadInit{i}
+
+# the first declaration of xs whose id is one of seen or of an earlier
+# one, or whose default does not have its type
+def spec_refusal(xs: List<&2, Cv.Decl>, +seen: List<&2, Nat>) -> Cv.Refusal:
+  match xs:
+    case Nil{}:
+      Cv.Accept{}
+    case +d <> rest:
+      +i = spec_id(d)
+      spec_refusal.pick(spec_mem(i, seen), spec_typed(spec_init(d), spec_ty(d)), i, spec_refusal(rest, List.append(&2, Nat, seen, [i])))
+
+def spec_check.ty(ok: Bool) -> Cv.Check:
+  match ok:
+    case True{}:
+      Cv.CkFine{}
+    case False{}:
+      Cv.CkType{}
+
+def spec_check.agent(local: Bool, ok: Bool) -> Cv.Check:
+  match local:
+    case True{}:
+      spec_check.ty(ok)
+    case False{}:
+      Cv.CkGlobal{}
+
+def spec_check.at(m: Maybe<&2, Cv.Decl>, l: Cv.Layer, v: Cv.Val) -> Cv.Check:
+  match m:
+    case None{}:
+      Cv.CkUndeclared{}
+    case Some{+d}:
+      match l:
+        case Cv.Config{}:
+          spec_check.ty(spec_typed(v, spec_ty(d)))
+        case Cv.Agent{}:
+          spec_check.agent(spec_local(d), spec_typed(v, spec_ty(d)))
+
+# the verdict on a set in layer l: undeclared first, then a Global cvar
+# in an agent layer, then a value of the wrong type; else valid
+def spec_check(+ds: List<&2, Cv.Decl>, l: Cv.Layer, s: Cv.Bind) -> Cv.Check:
+  match s:
+    case Cv.Bind{i, v}:
+      spec_check.at(spec_find(ds, i), l, v)
+
+def spec_tog.flip(x: Nat, m: Maybe<&2, Cv.Val>) -> Cv.Tog:
+  match m:
+    case None{}:
+      Cv.TgNotBool{}
+    case Some{v}:
+      match v:
+        case Cv.VNat{n}:
+          Cv.TgNotBool{}
+        case Cv.VBool{b}:
+          Cv.TgFlip{Cv.Bind{x, Cv.VBool{Bool.not(b)}}}
+
+def spec_tog.agent(local: Bool, +ds: List<&2, Cv.Decl>, cfg: List<&2, Cv.Bind>, fam: List<&2, Cv.Ag>, +x: Nat) -> Cv.Tog:
+  match local:
+    case True{}:
+      spec_tog.flip(x, spec_value(ds, cfg, fam, x))
+    case False{}:
+      Cv.TgGlobal{}
+
+def spec_tog.at(m: Maybe<&2, Cv.Decl>, l: Cv.Layer, +ds: List<&2, Cv.Decl>, cfg: List<&2, Cv.Bind>, fam: List<&2, Cv.Ag>, +x: Nat) -> Cv.Tog:
+  match m:
+    case None{}:
+      Cv.TgUndeclared{}
+    case Some{d}:
+      match l:
+        case Cv.Config{}:
+          spec_tog.flip(x, spec_value(ds, cfg, fam, x))
+        case Cv.Agent{}:
+          spec_tog.agent(spec_local(d), ds, cfg, fam, x)
+
+# a toggle of x into layer l by the last agent of the chain: undeclared
+# first, then a Global cvar in an agent layer; else the set of the
+# opposite of the Bool value that agent has (inherited values included),
+# or not a Bool
+def spec_tog(+ds: List<&2, Cv.Decl>, cfg: List<&2, Cv.Bind>, fam: List<&2, Cv.Ag>, l: Cv.Layer, +x: Nat) -> Cv.Tog:
+  spec_tog.at(spec_find(ds, x), l, ds, cfg, fam, x)
+
+def spec_flag.at(m: Maybe<&2, Cv.Decl>, f: Cv.Flag) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{d}:
+      spec_flag(d, f)
+
+def spec_keep(ok: Bool, s: Cv.Bind, rest: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match ok:
+    case True{}:
+      s <> rest
+    case False{}:
+      rest
+
+# the sets of ss, in order, of cvars with flag f that count in an agent
+# layer
+def spec_written(ss: List<&2, Cv.Bind>, +ds: List<&2, Cv.Decl>, +f: Cv.Flag) -> List<&2, Cv.Bind>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case Cv.Bind{+i, +v} <> rest:
+      spec_keep(Bool.and(spec_flag.at(spec_find(ds, i), f), spec_valid(ds, Cv.Agent{}, Cv.Bind{i, v})), Cv.Bind{i, v}, spec_written(rest, ds, f))
+
+def spec_doc.src(local: Bool, merged: List<&2, Cv.Bind>, global: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match local:
+    case True{}:
+      merged
+    case False{}:
+      global
+
+def spec_doc.one(x: Nat, m: Maybe<&2, Cv.Val>, rest: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match m:
+    case None{}:
+      rest
+    case Some{v}:
+      Cv.Bind{x, v} <> rest
+
+# per declaration of xs, in order: the last set of its cvar that counts in
+# config, from merged for a Local cvar and from global for a Global one
+def spec_document(xs: List<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +merged: List<&2, Cv.Bind>, +global: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +d <> rest:
+      +x = spec_id(d)
+      spec_doc.one(x, spec_last(spec_doc.src(spec_local(d), merged, global), ds, Cv.Config{}, x, None{}), spec_document(rest, ds, merged, global))
+
+# Laws
+# ----
+
+# LAW cvar_find_exact: the declaration of a cvar is the first one with its id
+# EXCLUDES: a lookup that takes a later duplicate, or misses a declaration
+law cvar_find_exact:
+  for ds: List<&2, Cv.Decl>
+  for +x: Nat
+  {Cv.find(ds, x) == spec_find(ds, x) : Maybe<&2, Cv.Decl>}
+
+# LAW cvar_layered_exact: the value the layers set for a cvar is its last set that counts, over config.cfg, then each agent of the family, root first, each one's profile before its own sets; a set counts when its cvar is declared and the value has its type, and in a profile or an agent's sets only for a Local cvar
+# EXCLUDES: a layer skipped or read out of order, a first set winning over
+#   a later one, a Global cvar set by an agent, a value of the wrong type
+#   or of an undeclared cvar counted
+law cvar_layered_exact:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +x: Nat
+  {Cv.layered(ds, cfg, fam, x) == spec_layered(ds, cfg, fam, x) : Maybe<&2, Cv.Val>}
+
+# LAW cvar_value_exact: the value of a cvar is what the layers set, else its default; an undeclared cvar has none
+# EXCLUDES: a default that wins over a set, a value invented for an
+#   undeclared cvar, any other layering
+law cvar_value_exact:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +x: Nat
+  {Cv.value(ds, cfg, fam, x) == spec_value(ds, cfg, fam, x) : Maybe<&2, Cv.Val>}
+
+# LAW cvar_refusal_exact: a registry refuses the first declaration whose id an earlier one has (named as declared twice), else the first whose default does not have its type; it accepts a list with neither
+# EXCLUDES: a duplicate or a wrong default accepted, a good table
+#   refused, the wrong declaration or reason named
+law cvar_refusal_exact:
+  for +xs: List<&2, Cv.Decl>
+  {Cv.refusal(xs) == spec_refusal(xs, Nil{}) : Cv.Refusal}
+
+# LAW cvar_check_exact: a set of an undeclared cvar is refused as undeclared, then one of a Global cvar in an agent layer as Global, then a value of the wrong type; any other is valid
+# EXCLUDES: a Global cvar set by an agent, a wrong value accepted, a valid
+#   set refused, the wrong reason
+law cvar_check_exact:
+  for +ds: List<&2, Cv.Decl>
+  for l: Cv.Layer
+  for +s: Cv.Bind
+  {Cv.check(ds, l, s) == spec_check(ds, l, s) : Cv.Check}
+
+# LAW cvar_tog_exact: a toggle of an undeclared cvar is refused, then one of a Global cvar in an agent layer; else it sets the cvar to the opposite of the Bool value the agent has, inherited values included, or is refused when that value is not a Bool
+# EXCLUDES: a toggle that ignores the parent's value, flips a non-Bool,
+#   flips a Global cvar from an agent, or sets the same value
+law cvar_tog_exact:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for l: Cv.Layer
+  for +x: Nat
+  {Cv.tog(ds, cfg, fam, l, x) == spec_tog(ds, cfg, fam, l, x) : Cv.Tog}
+
+# LAW cvar_written_exact: an agent writes (persist) or replicates exactly its sets of cvars with that flag that count in an agent layer, in order
+# EXCLUDES: a set lost, invented, reordered, or one of a cvar without the
+#   flag, of a Global cvar or with a wrong value written
+law cvar_written_exact:
+  for ss: List<&2, Cv.Bind>
+  for +ds: List<&2, Cv.Decl>
+  for +f: Cv.Flag
+  {Cv.written(ss, ds, f) == spec_written(ss, ds, f) : List<&2, Cv.Bind>}
+
+# LAW cvar_document_exact: the config sets of a settings document are, per declaration in order, the last set of its cvar that counts in config, from the merged document for a Local cvar and from the global document alone for a Global cvar
+# EXCLUDES: a Global cvar taken from a project, a value of the wrong type
+#   kept, a declaration skipped or out of order
+law cvar_document_exact:
+  for +ds: List<&2, Cv.Decl>
+  for +merged: List<&2, Cv.Bind>
+  for +global: List<&2, Cv.Bind>
+  {Cv.document(ds, merged, global) == spec_document(ds, ds, merged, global) : List<&2, Cv.Bind>}

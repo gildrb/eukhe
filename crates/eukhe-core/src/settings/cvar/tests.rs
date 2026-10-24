@@ -57,8 +57,10 @@ fn the_table_is_a_registry() {
     assert_eq!(registry().find(STEERING_MODE.id), Some(&STEERING_MODE));
 }
 
+/// The registry request reaches the core and its refusal names the id
+/// (which declaration it refuses is pinned by `cvar_refusal_exact`).
 #[test]
-fn a_second_declaration_or_a_default_of_the_wrong_type_is_rejected() {
+fn a_registry_refusal_names_the_cvar() {
     static DUPLICATE: &[Decl] = &[FLAG, LIMIT, FLAG];
     static WRONG_DEFAULT: &[Decl] = &[
         FLAG,
@@ -67,20 +69,14 @@ fn a_second_declaration_or_a_default_of_the_wrong_type_is_rejected() {
             ..MODE
         },
     ];
-    static WRONG_TYPE: &[Decl] = &[Decl {
-        init: Init::Nat(1),
-        ..FLAG
-    }];
     assert_eq!(
         [
             Registry::new(DUPLICATE).err(),
             Registry::new(WRONG_DEFAULT).err(),
-            Registry::new(WRONG_TYPE).err(),
         ],
         [
             Some(RegistryError::Duplicate { id: "flag" }),
             Some(RegistryError::BadDefault { id: "nested.mode" }),
-            Some(RegistryError::BadDefault { id: "flag" }),
         ]
     );
 }
@@ -94,6 +90,8 @@ const EFFECTS: Decl = Decl {
     init: Init::List(&["read"]),
 };
 
+/// Rust's reading of a value's syntax (a list of choices), crossing to the
+/// core's check as a value of the cvar's type or not.
 #[test]
 fn a_choice_list_admits_only_its_options() {
     static BAD_ITEM: &[Decl] = &[Decl {
@@ -126,6 +124,10 @@ fn a_choice_list_admits_only_its_options() {
     );
 }
 
+/// The document, check and values requests reach the core, and the
+/// values they refer to (texts, numbers, defaults) map back (the layering
+/// itself is pinned by `cvar_value_exact`, `cvar_document_exact`,
+/// `cvar_check_exact`).
 #[test]
 fn layers_resolve_default_config_profile_and_sets_in_order() {
     let config = document_sets(
@@ -179,46 +181,46 @@ fn layers_resolve_default_config_profile_and_sets_in_order() {
     );
 }
 
+/// The toggle request reaches the core: each verdict maps back to its
+/// set or its error (the rule is pinned by `cvar_tog_exact`).
 #[test]
-fn a_toggle_twice_gives_back_the_value() {
+fn a_toggle_flips_a_bool_and_names_why_it_cannot() {
     let mut cvars = Cvars::new(&TEST_REGISTRY, Sets::default());
-    let before = cvars.value(&FLAG);
-    let errors = [
-        run(&mut cvars, Target::Sets, "toggle flag"),
-        run(&mut cvars, Target::Sets, "toggle limit; toggle nested.mode"),
-    ];
-    let once = cvars.value(&FLAG);
-    run(&mut cvars, Target::Sets, "toggle flag");
+    let errors = run(
+        &mut cvars,
+        Target::Sets,
+        "toggle flag; toggle limit; toggle nested.mode; toggle nope",
+    );
     assert_eq!(
-        (before.clone(), once, cvars.value(&FLAG), errors),
+        (cvars.value(&FLAG), cvars.agent().sets.clone(), errors),
         (
-            json!(false),
             json!(true),
-            before,
-            [
-                Vec::new(),
-                vec![
-                    CvarError::Global {
-                        id: "limit".to_string()
-                    },
-                    CvarError::NotBool {
-                        id: "nested.mode".to_string()
-                    }
-                ]
+            Sets(vec![set("flag", json!(true))]),
+            vec![
+                CvarError::Global {
+                    id: "limit".to_string()
+                },
+                CvarError::NotBool {
+                    id: "nested.mode".to_string()
+                },
+                CvarError::Undeclared {
+                    id: "nope".to_string()
+                },
             ]
         )
     );
 }
 
+/// The written request reaches the core and its sets map back to their
+/// ids and values (which sets is pinned by `cvar_written_exact`).
 #[test]
-fn the_written_cfg_read_back_as_a_profile_gives_the_same_persisting_values() {
+fn the_written_sets_map_back_to_their_values() {
     let mut agent = Cvars::new(&TEST_REGISTRY, Sets::default());
     run(&mut agent, Target::Sets, "set flag true; set nested.mode b");
-    let written = agent.agent().sets.written(&TEST_REGISTRY, Flag::Persist);
-    assert_eq!(written, Sets(vec![set("flag", json!(true))]));
-    let mut reread = Cvars::new(&TEST_REGISTRY, Sets::default());
-    run(&mut reread, Target::Profile, &written.render());
-    assert_eq!(reread.value(&FLAG), agent.value(&FLAG));
+    assert_eq!(
+        agent.agent().sets.written(&TEST_REGISTRY, Flag::Persist),
+        Sets(vec![set("flag", json!(true))])
+    );
 }
 
 #[test]

@@ -8,8 +8,9 @@ import ./base.bend as LA
 
 # a set that hits a persisted cvar is written
 def pv.out_hit(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +x: Nat, keeps: {Cv.flag.at(Cv.find(ds, x), Cv.Persist{}) == True{} : Bool}, +h: {Cv.hit.at([s], ds, Cv.Agent{}, x) == True{} : Bool}) -> {Cv.out.at([s], ds, Cv.Persist{}) == True{} : Bool}:
-  +ex = LA.pv.eq_true(Cv.Bind.id(s), x, LA.cvar.pv.and_l(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, Cv.Agent{}, s), h))
-  +hv = LA.cvar.pv.and_r(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, Cv.Agent{}, s), h)
+  +ha = LA.pv.hit_l(s, ds, Cv.Agent{}, x, h)
+  +ex = LA.pv.eq_true(Cv.Bind.id(s), x, LA.cvar.pv.and_l(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, Cv.Agent{}, s), ha))
+  +hv = LA.cvar.pv.and_r(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, Cv.Agent{}, s), ha)
   %Equal.sym(Nat, Cv.Bind.id(s), x, ex) : {Bool.and(Cv.flag.at(Cv.find(ds, _), Cv.Persist{}), Cv.valid(ds, Cv.Agent{}, s)) == True{} : Bool}
   LA.pv.and_t(Cv.flag.at(Cv.find(ds, x), Cv.Persist{}), Cv.valid(ds, Cv.Agent{}, s), keeps, hv)
 

@@ -51,7 +51,7 @@ One command language for cfg files, the `/set` family and key binds. Line = comm
    - Unreadable `binds.cfg` or unwritable import: warning at startup and `/reload`.
 6. `/cvar save` writes the agent's `persist` sets to `agents/<name>.cfg`; read back as profile, same values.
 
-Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `press`). Laws: `laws/cvar.bend` (S4). Proofs: `proof/cvar/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds.
+Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `tog`, `written`, `document`, `toggle`, `expand`, `press`). Laws: `laws/cvar.bend` (S4), `laws/cvar_layers.bend` (the entry). Proofs: `proof/cvar/`, `proof/cvar_layers/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds, any request text.
 
 | Law | Says |
 | --- | --- |
@@ -73,12 +73,24 @@ Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `pr
 | `bind_press_plain` | Key press runs only plain commands (S4.5). |
 | `bind_unbound_runs_nothing` | Unbound key runs nothing (S4.5). |
 | `bind_first_wins` | Key press runs the key's first bind (S4.5). |
+| `cvar_find_exact` | A cvar's declaration is the first one with its id. |
+| `cvar_layered_exact` | Value the layers set: last set that counts over config, then each agent root first, profile before own sets (S4.2). |
+| `cvar_value_exact` | Value: what the layers set, else the default; none for an undeclared cvar. |
+| `cvar_refusal_exact` | Registry refuses the first repeated id, else the first wrong default; accepts otherwise (S4.1). |
+| `cvar_check_exact` | Set verdict: undeclared, then Global in an agent layer, then wrong type; else valid. |
+| `cvar_tog_exact` | Toggle verdict: undeclared, then Global in an agent layer; else the opposite of the agent's Bool value (inherited included), or not a Bool. |
+| `cvar_written_exact` | Written/replicated sets: exactly the agent's sets of flagged cvars that count in an agent layer, in order (S4.3). |
+| `cvar_document_exact` | Config sets of `settings.json`: per declaration, a Local cvar from the merged document, a Global cvar from the global one only, when typed. |
+| `cvar_layers_ffi_answers` | The entry answers every request Rust writes with the model's decision. |
+| `cvar_layers_ffi_malformed_exact` | Any other input: exactly `E cvar_layers: malformed request`. |
+| `cvar_layers_ffi_example`, `cvar_layers_fits_example` | Anchors: Rust's request strings; a fitting request of each kind. |
 
 Code:
 
 - `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `Binds`, `ExpandError`.
 - `eukhe-bend/src/rules/cvar.rs`: `expand`, `Presses`: expansion and key presses run as the compiled model (entry `bend/ffi_cvar.bend`, laws `laws/cvar.bend`); a press table lives in the core, so a press sends only its key.
-- `eukhe-core/src/settings/cvar.rs`: `Registry`, `Cvars::value`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
+- `eukhe-bend/src/rules/cvar_layers.rs`: `refusal`, `values`, `toggle`, `check`, `written`, `document`: every resolution decision runs as the compiled model (entry `bend/ffi_cvar_layers.bend`, id 64). The model sees numbers: a cvar is its place in the table, a non-Bool value a reference Rust keeps, crossing with its cvar's type when `CvarType::admits` it (Rust reads value syntax only).
+- `eukhe-core/src/settings/cvar.rs`: `Registry` (the core's refusal), `Cvars` (keeps the layers; the core resolves every value in one call after a change, on the first read), `Cvars::check`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
 - `settings/cfg.rs`: config layer (`settings.json`, then `config.cfg` files under trust rules).
 - `settings/manager.rs`, `settings/getters.rs`: getters, all through `Cvars`.
 - `eukhe-core/src/durable/cvar_agent.rs` (session agent): `CvarAgent`, `eukhe.cvar.agent` document, `run_cvar_line`, `save_agent_cfg`.
@@ -87,7 +99,7 @@ Code:
 - Spawn carries parent family in create config (`cvarFamily`).
 - `eukhe-tui/src/session_ui/cvar.rs`: TUI sends `/set`, `/toggle`, `/alias`, `/cvar` as `cvar` lines.
 
-Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bridge/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`). Expansion and presses: no bridge, they run as the model; `rules::cvar::tests` checks the glue (names and commands to the model's numbers and back).
+No bridge: resolution, expansion and presses run as the model. `settings::cvar::tests` and `rules::cvar::tests` check the glue (ids, values and commands to the model's numbers and back), one test per request.
 
 Regression tests:
 

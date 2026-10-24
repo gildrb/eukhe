@@ -8,7 +8,7 @@ import ./base.bend as LA
 # Global cvars
 # ------------
 
-def pv.global_miss(b: Bool, +s: Cv.Bind, +ds: List<&2, Cv.Decl>, +x: Nat, +d: Cv.Decl, eb: {Nat.is_eq(Cv.Bind.id(s), x) == b : Bool}, em: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}, gl: {Cv.Decl.local(d) == False{} : Bool}) -> {Bool.and(b, Cv.valid(ds, Cv.Agent{}, s)) == False{} : Bool}:
+def pv.global_miss(b: Bool, +s: Cv.Bind, +ds: List<&2, Cv.Decl>, +x: Nat, +d: Cv.Decl, eb: {Nat.is_eq(Cv.Bind.id(s), x) == b : Bool}, em: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}, gl: {Cv.Decl.local(d) == False{} : Bool}) -> {Cv.hit.when(b, ds, Cv.Agent{}, s) == False{} : Bool}:
   match b:
     case True{}:
       %Equal.sym(Nat, Cv.Bind.id(s), x, LA.pv.eq_true(Cv.Bind.id(s), x, eb)) : {Cv.valid.at(Cv.find(ds, _), Cv.Agent{}, s) == False{} : Bool}

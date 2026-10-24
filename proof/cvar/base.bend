@@ -115,6 +115,19 @@ def pv.layer_miss(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +x: Nat, +c
   %Equal.sym(Bool, Cv.hit.at([s], ds, l, x), False{}, h) : {Cv.layer.go([s], ds, l, x, cur, _) == cur : Maybe<&2, Cv.Val>}
   {==}
 
+# the model's test of a set is the and of its two tests
+def pv.hit_and(a: Bool, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +s: Cv.Bind) -> {Cv.hit.when(a, ds, l, s) == Bool.and(a, Cv.valid(ds, l, s)) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# a set that hits x sets x and is valid
+def pv.hit_l(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +x: Nat, h: {Cv.hit.at([s], ds, l, x) == True{} : Bool}) -> {Bool.and(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, l, s)) == True{} : Bool}:
+  +a = Nat.is_eq(Cv.Bind.id(s), x)
+  Equal.trans(Bool, Bool.and(a, Cv.valid(ds, l, s)), Cv.hit.when(a, ds, l, s), True{}, Equal.sym(Bool, Cv.hit.when(a, ds, l, s), Bool.and(a, Cv.valid(ds, l, s)), pv.hit_and(a, ds, l, s)), h)
+
 # a valid set of x is valid under the declaration found for x
 def pv.valid_m(+ds: List<&2, Cv.Decl>, l: Cv.Layer, +s: Cv.Bind, +x: Nat, m: Maybe<&2, Cv.Decl>, em: {Cv.find(ds, x) == m : Maybe<&2, Cv.Decl>}, ex: {Cv.Bind.id(s) == x : Nat}, h: {Cv.valid(ds, l, s) == True{} : Bool}) -> {Cv.valid.at(m, l, s) == True{} : Bool}:
   %em : {Cv.valid.at(_, l, s) == True{} : Bool}

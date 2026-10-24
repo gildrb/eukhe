@@ -9,6 +9,7 @@ import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_command.bend as ffi_command
 import ./ffi_cvar.bend as ffi_cvar
+import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_lines.bend as ffi_doc_lines
@@ -130,6 +131,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 64:
+      ffi_cvar_layers.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -3,6 +3,7 @@
 //! format, calling its entry and decoding the reply.
 
 pub mod cvar;
+pub mod cvar_layers;
 pub mod fsmode;
 pub mod retry;
 pub mod semver;
