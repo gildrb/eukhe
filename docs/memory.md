@@ -41,7 +41,7 @@ cargo test -p eukhe-core --lib memory::chat::bridge
 cargo test -p eukhe-core --lib memory::compactor::bridge
 ```
 
-- `make ci-local` (local full gate, nightly gate) runs all of this; needs Bend 2.0.38, Lean 4.34.0 (pinned in `scripts/toolchain.env`).
+- `make ci-local` (local full gate, nightly gate) runs all of this; needs Bend 2.0.39, Lean 4.34.0 (pinned in `scripts/toolchain.env`).
 - Bridge test skips with a message without `bend`; `EUKHE_REQUIRE_BEND=1` (set in the full gate) makes it fail.
 
 ## The Bend model
@@ -105,8 +105,8 @@ Universal: every input. Bounded: computed for named inputs.
 
 ### What is trusted
 
-- Laws: theorems about `bend/optchat/`, checked by Bend 2.0.38 and its BendTT kernel (Lean 4.34.0).
-- Rust = model: finite differential test (bridge), not proof; also trusts Bend 2.0.38 compiler, runtime, clang (build the bridge binary).
+- Laws: theorems about `bend/optchat/`, checked by Bend 2.0.39 and its BendTT kernel (Lean 4.34.0).
+- Rust = model: finite differential test (bridge), not proof; also trusts Bend 2.0.39 compiler, runtime, clang (build the bridge binary).
 - Deliberate breaks, each caught, then removed:
   - Due from `first` in model: `last_merges_8_9` and `push_agrees_always` proof fail.
   - Due without shift (`t` for `T + 1` in `more_due`), or pair levels swapped in cross comparison: `push_agrees_always` proof fails.

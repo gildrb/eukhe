@@ -1,7 +1,7 @@
 // The C boundary of the compiled Bend core (crates/eukhe-bend).
 //
 // core.c is `bend bend/core.bend -o core.c` (scripts/bend_core.py, Bend
-// 2.0.38): the Bend runtime plus every def bend/core.bend reaches. This file
+// 2.0.39): the Bend runtime plus every def bend/core.bend reaches. This file
 // includes it in the same translation unit (its `main`, the debugging CLI, is
 // renamed away) and drives it with the runtime's own functions, the ones its
 // io_loop and its effects (`bend guide effects`) use. Bend makes no ABI
@@ -98,7 +98,7 @@ static u32             eb_free;   // the first free slot + 1 (0: none)
 // doubling in place when an evaluation needs more.
 #define EB_HEAP_BYTES (1ull << 29)
 
-// corpus_setup(false, 1, 0) of core.c (Bend 2.0.38) with EB_HEAP_BYTES for
+// corpus_setup(false, 1, 0) of core.c (Bend 2.0.39) with EB_HEAP_BYTES for
 // its fixed 1 << 33: the same steps in the same order.
 static u64* eb_corpus_setup(void) {
   io_gpu     = false;
@@ -118,7 +118,7 @@ static u64* eb_corpus_setup(void) {
 // millions of frames.
 #define EB_STACK_BYTES (1ull << 28)
 
-// pool_stack() of core.c (Bend 2.0.38) with EB_STACK_BYTES for its 1 << 31,
+// pool_stack() of core.c (Bend 2.0.39) with EB_STACK_BYTES for its 1 << 31,
 // the guard page kept, the signal setup left to the host.
 static Term* eb_stack(void) {
   char* p = pool_mmap(EB_STACK_BYTES + 16384);

@@ -67,7 +67,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # the headers of these sources describe an old layout: dropped
 OBSOLETE_HEADERS = {"PROOF.bend", "LAWS.bend"}
 
-# the names Base (Bend 2.0.38, `bend base`) declares: no area alias
+# the names Base (Bend 2.0.39, `bend base`) declares: no area alias
 BASE_NAMES = set("""
 ALeaf ANode App Array Audio Bool Chan Char Chr Close Cmp Con Done EQ Either
 Emit Empty Equal Event Exists Exit F32 Fail False File GT Halt IO Image Inl
