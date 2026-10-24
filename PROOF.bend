@@ -100,6 +100,9 @@ import ./proof/lease/lease_keeps_holder.bend as PLeaseKeepsHolder
 import ./proof/lease/lease_ask_waits.bend as PLeaseAskWaits
 import ./proof/lease/lease_release_ends.bend as PLeaseReleaseEnds
 import ./proof/lease/lease_hits_exact.bend as PLeaseHitsExact
+import ./proof/lease/lease_step_exact.bend as PLeaseStepExact
+import ./proof/lease/lease_run_exact.bend as PLeaseRunExact
+import ./proof/lease/lease_terms_exact.bend as PLeaseTermsExact
 import ./proof/child/base.bend as LAChild
 import ./proof/child/child_stalls_in_time.bend as PChildStallsInTime
 import ./proof/child/child_unreachable_in_time.bend as PChildUnreachableInTime

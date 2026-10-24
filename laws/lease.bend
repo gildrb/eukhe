@@ -457,3 +457,197 @@ law lease_hits_exact:
   for +o: Nat
   for +l: Bool
   {Ls.hits(e, Ls.Waiter{k, o, l}) == lw_hits(e, k, o) : Bool}
+
+# The model's code, pinned
+# ------------------------
+# The lease runs as the model (bend/lease.bend) itself, and the laws above
+# read its terms (Fifo, Busy, Kept, Freed, NotHeld) and its accessors: so
+# the model's step and accessors are pinned here against a spec written in
+# the laws, whatever those terms say.
+
+def lw_next(s: Ls.L) -> Nat:
+  match s:
+    case Ls.L{n, h, q}:
+      n
+
+def lw_holder(s: Ls.L) -> Maybe<&2, Ls.Lease>:
+  match s:
+    case Ls.L{n, h, q}:
+      h
+
+def lw_queue(s: Ls.L) -> List<&2, Ls.Waiter>:
+  match s:
+    case Ls.L{n, h, q}:
+      q
+
+def lw_hkey(h: Maybe<&2, Ls.Lease>) -> Maybe<&2, Nat>:
+  match h:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Ls.Lease{k, o}:
+          Some{k}
+
+def lw_wkey(w: Ls.Waiter) -> Nat:
+  match w:
+    case Ls.Waiter{k, o, l}:
+      k
+
+def lw_wlive(w: Ls.Waiter) -> Bool:
+  match w:
+    case Ls.Waiter{k, o, l}:
+      l
+
+def lw_keep(gone: Bool, w: Ls.Waiter, r: List<&2, Ls.Waiter>) -> List<&2, Ls.Waiter>:
+  match gone:
+    case True{}:
+      r
+    case False{}:
+      w <> r
+
+# the waiters of q that e does not end, in order
+def lw_left(+e: Ls.Ev, q: List<&2, Ls.Waiter>) -> List<&2, Ls.Waiter>:
+  match q:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{+k, +o, l}:
+          lw_keep(lw_hits(e, k, o), Ls.Waiter{k, o, l}, lw_left(e, t))
+
+def lw_dead.one(hit: Bool, k: Nat, o: Nat, l: Bool) -> Ls.Waiter:
+  match hit:
+    case True{}:
+      Ls.Waiter{k, o, False{}}
+    case False{}:
+      Ls.Waiter{k, o, l}
+
+# q with every waiter of key j dead (it stopped waiting)
+def lw_dead(+j: Nat, q: List<&2, Ls.Waiter>) -> List<&2, Ls.Waiter>:
+  match q:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{+k, o, l}:
+          lw_dead.one(Nat.is_eq(k, j), k, o, l) <> lw_dead(j, t)
+
+# the lease of the first live waiter of q
+def lw_first(q: List<&2, Ls.Waiter>) -> Maybe<&2, Ls.Lease>:
+  match q:
+    case Nil{}:
+      None{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{k, o, l}:
+          match l:
+            case True{}:
+              Some{Ls.Lease{k, o}}
+            case False{}:
+              lw_first(t)
+
+# the waiters after the first live one (the dead before it are passed over)
+def lw_rest(q: List<&2, Ls.Waiter>) -> List<&2, Ls.Waiter>:
+  match q:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{k, o, l}:
+          match l:
+            case True{}:
+              t
+            case False{}:
+              lw_rest(t)
+
+# a free lease goes to the first live waiter
+def lw_settle(n: Nat, h: Maybe<&2, Ls.Lease>, +q: List<&2, Ls.Waiter>) -> Ls.L:
+  match h:
+    case None{}:
+      Ls.L{n, lw_first(q), lw_rest(q)}
+    case Some{x}:
+      Ls.L{n, Some{x}, q}
+
+def lw_release(holds: Bool, +j: Nat, +n: Nat, h: Maybe<&2, Ls.Lease>, +q: List<&2, Ls.Waiter>) -> Ls.L:
+  match holds:
+    case True{}:
+      lw_settle(n, None{}, q)
+    case False{}:
+      lw_settle(n, h, lw_left(Ls.Release{j}, q))
+
+def lw_unless.put(hit: Bool, x: Ls.Lease) -> Maybe<&2, Ls.Lease>:
+  match hit:
+    case True{}:
+      None{}
+    case False{}:
+      Some{x}
+
+# the holder, unless it is of origin p
+def lw_unless(h: Maybe<&2, Ls.Lease>, +p: Nat) -> Maybe<&2, Ls.Lease>:
+  match h:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Ls.Lease{k, +o}:
+          lw_unless.put(Nat.is_eq(o, p), Ls.Lease{k, o})
+
+# the lease after e: an ask queues a live waiter under the next key; a
+# release of the holder's key frees the lease, any other drops the waiters
+# of that key; a stop marks the waiters of its key dead; a crash ends the
+# holder of its origin and drops its waiters; a free lease then goes to the
+# first live waiter
+def lw_step(s: Ls.L, e: Ls.Ev) -> Ls.L:
+  match s:
+    case Ls.L{+n, +h, +q}:
+      match e:
+        case Ls.Ask{o}:
+          lw_settle(1n+n, h, List.append(&2, Ls.Waiter, q, [Ls.Waiter{n, o, True{}}]))
+        case Ls.Release{+j}:
+          lw_release(lw_is(lw_hkey(h), j), j, n, h, q)
+        case Ls.Stop{j}:
+          Ls.L{n, h, lw_dead(j, q)}
+        case Ls.Crash{+p}:
+          lw_settle(n, lw_unless(h, p), lw_left(Ls.Crash{p}, q))
+
+# the lease after evs, from s
+def lw_go(evs: List<&2, Ls.Ev>, s: Ls.L) -> Ls.L:
+  match evs:
+    case Nil{}:
+      s
+    case e <> t:
+      lw_go(t, lw_step(s, e))
+
+# LAW lease_step_exact: the model's step is exactly the lease the laws
+# describe: an ask queues a live waiter under the next key, a release of
+# the holder frees it and of a waiter drops it, a stop marks its waiter
+# dead, a crash ends its origin's holder and waiters, and a free lease
+# goes to the first live waiter at once
+# EXCLUDES: any step other than this one, even one the property laws
+# above miss through a model term (Fifo, Busy, Kept, Freed, NotHeld) that
+# says less than its name
+law lease_step_exact:
+  for +s: Ls.L
+  for +e: Ls.Ev
+  {Ls.step(s, e) == lw_step(s, e) : Ls.L}
+
+# LAW lease_run_exact: the model's run of events from any lease is the
+# laws' fold of lease_step_exact's step, and it starts from a free lease
+# with no waiter and the key 0 next
+# EXCLUDES: a run that skips, repeats or reorders events, a start state
+# other than the empty lease
+law lease_run_exact:
+  for +evs: List<&2, Ls.Ev>
+  for +s: Ls.L
+  {Ls.go(evs, s) == lw_go(evs, s) : Ls.L} & {Ls.L.empty() == Ls.L{0n, None{}, Nil{}} : Ls.L}
+
+# LAW lease_terms_exact: the model's accessors the laws read are the
+# fields they name
+# EXCLUDES: an accessor that reports another key (the one an ask's reply
+# names), holder, queue or liveness than the lease holds
+law lease_terms_exact:
+  for +s: Ls.L
+  for +h: Maybe<&2, Ls.Lease>
+  for +w: Ls.Waiter
+  {Ls.L.next(s) == lw_next(s) : Nat} & {Ls.L.holder(s) == lw_holder(s) : Maybe<&2, Ls.Lease>} & {Ls.L.queue(s) == lw_queue(s) : List<&2, Ls.Waiter>} & {Ls.hkey(h) == lw_hkey(h) : Maybe<&2, Nat>} & {Ls.Waiter.key(w) == lw_wkey(w) : Nat} & {Ls.Waiter.live(w) == lw_wlive(w) : Bool}
