@@ -196,6 +196,57 @@ def qs_known(a: If.Ans) -> Bool:
     case If.Unknown{}:
       False{}
 
+# The terms the model's laws read, as a spec
+# ------------------------------------------
+
+# a layer's precedence: host over model over family
+def qs_rank(l: If.Lay) -> Nat:
+  match l:
+    case If.Fam{}:
+      0n
+    case If.Mod{}:
+      1n
+    case If.Host{}:
+      2n
+
+def qs_rule_rank(r: If.Rule) -> Nat:
+  match r:
+    case If.Rule{l, t, d, v}:
+      qs_rank(l)
+
+def qs_val(r: If.Rule) -> Nat:
+  match r:
+    case If.Rule{l, t, d, v}:
+      v
+
+# the target a query names at a layer
+def qs_target(q: If.Query, l: If.Lay) -> Nat:
+  match q:
+    case If.Query{f, m, h}:
+      match l:
+        case If.Fam{}:
+          f
+        case If.Mod{}:
+          m
+        case If.Host{}:
+          h
+
+# a rule applies to a query: its target is the one the query names at its
+# layer
+def qs_applies(q: If.Query, r: If.Rule) -> Bool:
+  match r:
+    case If.Rule{l, t, d, v}:
+      Nat.is_eq(t, qs_target(q, l))
+
+# some rule of rs applies to q with directive d at a precedence of k or
+# above
+def qs_any_at(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +k: Nat) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case +r <> rest:
+      Bool.or(Bool.and(Bool.and(qs_applies(q, r), Nat.is_eq(qs_dir(r), d)), Nat.is_le(k, qs_rule_rank(r))), qs_any_at(rest, q, d, k))
+
 # Readers: the inputs the entry accepts, read with the wire primitives
 # --------------------------------------------------------------------
 
@@ -415,3 +466,37 @@ law quirks_known_exact:
 #   quirks_open_malformed
 law quirks_premises_example:
   {open_fits([0n], [If.Rule{If.Host{}, 1n, 0n, 5n}]) == True{} : Bool} & {lookup_fits(If.Query{1n, 2n, 3n}, 0n) == True{} : Bool} & {read_open("1,0,4,3,1,0,5,") == None{} : Maybe<&2, QsOpen>}
+
+# LAW quirks_rule_terms_exact: the rank, directive and value the model's laws read of a rule
+# are the spec's: host over model over family
+# EXCLUDES: layers ranked in another order (a fresh adversary's host ranked
+#   below family and model passed quirk_highest_wins, whose rank the code
+#   defined)
+law quirks_rule_terms_exact:
+  for r: If.Rule
+  {If.Rule.rank(r) == qs_rule_rank(r) : Nat} & {If.Rule.dir(r) == qs_dir(r) : Nat} & {If.Rule.val(r) == qs_val(r) : Nat}
+
+# LAW quirks_applies_exact: a rule applies to a query exactly when its target is the one
+# the query names at its layer
+# EXCLUDES: a rule applied for another layer's target, or never applied
+law quirks_applies_exact:
+  for q: If.Query
+  for r: If.Rule
+  {If.applies(q, r) == qs_applies(q, r) : Bool}
+
+# LAW quirks_any_at_exact: the model's "some rule applies at precedence k or above" is the
+# spec's
+# EXCLUDES: quirk_highest_wins or quirk_unknown_when_none made vacuous or
+#   wrong by a test that ignores rules, layers or the directive
+law quirks_any_at_exact:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for +k: Nat
+  {If.any_at(rs, q, d, k) == qs_any_at(rs, q, d, k) : Bool}
+
+# LAW quirks_host_wins_example: anchor: with a family, a model and a host rule that all apply,
+# the host rule answers
+# EXCLUDES: a lower layer winning over a host rule
+law quirks_host_wins_example:
+  {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "4,1,2,3,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "1,9,") : FQ.St & String} & {FQ.open("1,0,12,0,1,0,5,1,2,0,7,2,3,0,9,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "T3,0,0,0,") : FQ.St & String}

@@ -357,6 +357,10 @@ import ./proof/quirks/quirks_lookup_example.bend as PQuirksLookupExample
 import ./proof/quirks/quirks_malformed_example.bend as PQuirksMalformedExample
 import ./proof/quirks/quirks_known_exact.bend as PQuirksKnownExact
 import ./proof/quirks/quirks_premises_example.bend as PQuirksPremisesExample
+import ./proof/quirks/quirks_rule_terms_exact.bend as PQuirksRuleTermsExact
+import ./proof/quirks/quirks_applies_exact.bend as PQuirksAppliesExact
+import ./proof/quirks/quirks_any_at_exact.bend as PQuirksAnyAtExact
+import ./proof/quirks/quirks_host_wins_example.bend as PQuirksHostWinsExample
 import ./proof/tools/base.bend as LATools
 import ./proof/tools/roster_fixed.bend as PRosterFixed
 import ./proof/tools/roster_sent_fixed.bend as PRosterSentFixed
