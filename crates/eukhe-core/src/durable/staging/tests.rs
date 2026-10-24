@@ -1,8 +1,12 @@
 //! The sweep of import and fork staging directories left behind.
 
 use std::fs::{File, FileTimes};
+use std::time::Duration;
 
 use super::*;
+
+/// The bound of the rule (`bend/staging.bend` `day`): a day.
+const STALE_AFTER: Duration = Duration::from_hours(24);
 
 /// Set the modification time of `path` to `age` ago.
 fn age(path: &Path, age: Duration) {

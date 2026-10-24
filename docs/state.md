@@ -100,10 +100,14 @@ Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/log.bend`, `laws/stagi
 | `list_one_location` | No name listed as both storage and legacy file. |
 | `list_import_lists_storage` | After import, the stem lists as storage. |
 | `list_import_keeps_others` | Import changes no other listing. |
+| `publish_settles`, `publish_settle_refines` | The real publish verdict: taken exactly when the rename without replacement met an entry; the model's publish. |
+| `meet_exact`, `meet_minted_*`, `sweep_stays_out_real` | What the sweep does with each entry of a listing (enter, keep, judge a leftover or an orphan lock file), by name and type. |
+| `judge_exact`, `judge_refines`, `sweep_never_live_real`, `sweep_never_young_real`, `sweep_takes_stale_free_real` | The plan for a judged entry from its lock probe and times (a day, to the nanosecond); the model's `removes`. |
+| `scan_*` (`laws/listing.bend`) | Which entry of the sessions directory is a session, under which id; one location per id; imports. |
+| `rows_*` | The listing: every candidate with a cwd and a file, once, as its entry, newest first, then by id, then by place; unread facts of skipped entries ignored. |
+| `staging_entry_*` | The entry answers the requests Rust writes with the rule's decisions, the error form to anything else. |
 
-Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`, `run_plan`, commit path, `read_lines`), `storage/jsonl/plan.rs` (the calls of the compiled core); `eukhe-core/src/durable/staging.rs` (`lock_staging`, `publish`, `sweep_stale_staging_dirs`); `platform/fs.rs` `rename_no_replace`; `durable/discovery.rs` `list_sessions`; `eukhe-daemon/src/session_archive.rs` (sweep loop).
-
-Bridges: `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model` (every target kind, 60 sweep trees, 30 sessions directories with imports).
+Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`, `run_plan`, commit path, `read_lines`), `storage/jsonl/plan.rs` (the calls of the compiled core); `eukhe-core/src/durable/staging.rs` (`lock_staging`, `publish`, `sweep_stale_staging_dirs`: the facts and the steps), `durable/staging/rule.rs` (the calls of the compiled core, entry `bend/ffi_staging.bend`); `platform/fs.rs` `rename_no_replace`; `durable/discovery.rs` `list_sessions`; `eukhe-daemon/src/session_archive.rs` (sweep loop).
 
 Crash test of the commit log's IO shell: `storage::jsonl::crash::a_crash_at_any_step_keeps_the_acknowledged_commits_and_only_commits` (real `JsonlStorage` over a file system that loses power after any step, every crash point of a three-commit epoch, 120 random histories: the log after is the log before, the acked commits, then only a prefix of the commits).
 

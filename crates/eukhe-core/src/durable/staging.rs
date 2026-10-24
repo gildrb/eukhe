@@ -7,42 +7,22 @@
 //! holds an exclusive lock on the staging lock file `<staging>.lock`
 //! ([`lock_staging`]). A process that dies mid-build leaves its staging
 //! directory (and maybe its lock file) behind, as an interrupted
-//! saved-session delete leaves its tombstone ([`TOMBSTONE_LABEL`]);
-//! [`sweep_stale_staging_dirs`] removes them. The model is
-//! `bend/staging.bend`.
+//! saved-session delete leaves its tombstone (`.<id>.deleted-<uuid>`);
+//! [`sweep_stale_staging_dirs`] removes them. The rule (the publish verdict,
+//! what the sweep enters, judges and removes) runs as compiled Bend
+//! (`bend/staging.bend`, [`rule`]); this file gathers the facts and does
+//! the steps.
 
-#[cfg(test)]
-mod bridge;
+pub(crate) mod rule;
 #[cfg(test)]
 mod tests;
 
 use std::fs::{File, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use crate::platform::fs::{rename_no_replace, sync_directory};
-
-/// How long a staging directory, a tombstone or a lock file stays untouched
-/// before the sweep takes it for a crash leftover, when no live process
-/// holds its lock. The lock is the evidence that a build runs; the age
-/// covers the moment between the creation of a lock file and its lock, and
-/// the leftovers of a build that held no lock. A staging directory lives
-/// for one import or fork: seconds, minutes for the largest sessions. A day
-/// is orders of magnitude above that, and the cost of the margin is only
-/// disk space a leftover holds until a later sweep. Tombstones share the
-/// bound for simplicity, though a rename keeps modification times: the
-/// fresh tombstone of an old session already counts as stale, and a sweep
-/// may remove it under a running delete (concurrent `remove_dir_all`s
-/// tolerate each other; the later one may find nothing left).
-const STALE_AFTER: Duration = Duration::from_hours(24);
-
-/// The infix of a saved-session tombstone, `.<id>.deleted-<uuid>`: a storage
-/// the daemon's saved-session delete renamed aside before removing it.
-const TOMBSTONE_LABEL: &str = "deleted";
-
-/// Hex digits of the simple-format uuid ending a staging directory name.
-const STAGING_ID_LEN: usize = 32;
 
 /// The suffix of the lock file beside a staging directory.
 const LOCK_SUFFIX: &str = ".lock";
@@ -61,8 +41,6 @@ pub(crate) enum StagingKind {
 }
 
 impl StagingKind {
-    const ALL: [Self; 2] = [Self::Import, Self::Fork];
-
     /// The infix of the staging directory name: `.<name>.<label>-<uuid>`.
     fn label(self) -> &'static str {
         match self {
@@ -184,12 +162,13 @@ pub(crate) async fn publish(
             }
             sync_directory(&dir).map_err(step("sync", &dir))?;
         }
-        match rename_no_replace(&staging, &target) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                return Err(PublishError::TargetExists);
-            }
+        let taken = match rename_no_replace(&staging, &target) {
+            Ok(()) => false,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => true,
             Err(error) => return Err(step("move staged storage into", &target)(error)),
+        };
+        if !rule::moved(taken) {
+            return Err(PublishError::TargetExists);
         }
         sync_directory(&parent).map_err(step("sync", &parent))
     })
@@ -218,23 +197,11 @@ pub struct StagingSweep {
     pub failed: Vec<(PathBuf, io::Error)>,
 }
 
-/// What an entry the sweep meets is.
-enum Met {
-    /// A staging directory or a tombstone.
-    Leftover,
-    /// A lock file whose staging directory is gone.
-    OrphanLock,
-    /// A directory to look inside.
-    Descend,
-    /// Anything else: kept, not entered.
-    Keep,
-}
-
 /// Remove, under each of `roots` and at every depth, the import and fork
 /// staging directories, the saved-session tombstones, and the staging lock
 /// files without their directory, that no live process holds the lock of
 /// and that nothing touched for a day: neither the entry nor any of its
-/// direct entries changed since (see [`STALE_AFTER`]). The walk enters
+/// direct entries changed since (`bend/staging.bend` `day`). The walk enters
 /// every other directory, except a storage (it holds `main.jsonl`) and a
 /// symlink. Everything else stays: held and younger leftovers (a build or a
 /// delete may be running), symlinks, other files and names. A missing root
@@ -265,6 +232,7 @@ pub fn sweep_stale_staging_dirs(roots: &[&Path]) -> io::Result<StagingSweep> {
                     continue;
                 }
             };
+            let mut listed = Vec::new();
             for entry in entries {
                 let entry = match entry {
                     Ok(entry) => entry,
@@ -274,22 +242,35 @@ pub fn sweep_stale_staging_dirs(roots: &[&Path]) -> io::Result<StagingSweep> {
                     }
                 };
                 let path = entry.path();
-                let swept = match meet(&entry) {
-                    Ok(Met::Leftover) => sweep_leftover(&path, now),
-                    Ok(Met::OrphanLock) => sweep_orphan_lock(&path, now),
-                    Ok(Met::Descend) => {
-                        pending.push(path);
+                match form(&entry) {
+                    Ok(form) => listed.push((path, entry.file_name().into_string().ok(), form)),
+                    Err(error) => sweep.failed.push((path, error)),
+                }
+            }
+            let seens: Vec<rule::Seen<'_>> = listed
+                .iter()
+                .map(|(_, name, form)| rule::Seen {
+                    name: name.as_deref(),
+                    form: *form,
+                })
+                .collect();
+            let mets = rule::meet(&seens);
+            for ((path, _, _), met) in listed.iter().zip(mets) {
+                let swept = match met {
+                    rule::Met::Leftover => sweep_judged(path, rule::Cand::Dir, now),
+                    rule::Met::Orphan => sweep_judged(path, rule::Cand::Lock, now),
+                    rule::Met::Descend => {
+                        pending.push(path.clone());
                         continue;
                     }
-                    Ok(Met::Keep) => continue,
-                    Err(error) => Err(error),
+                    rule::Met::Keep => continue,
                 };
                 match swept {
-                    Ok(true) => sweep.removed.push(path),
+                    Ok(true) => sweep.removed.push(path.clone()),
                     Ok(false) => {}
                     // Its owner published or removed it meanwhile.
                     Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => sweep.failed.push((path, error)),
+                    Err(error) => sweep.failed.push((path.clone(), error)),
                 }
             }
         }
@@ -297,32 +278,20 @@ pub fn sweep_stale_staging_dirs(roots: &[&Path]) -> io::Result<StagingSweep> {
     Ok(sweep)
 }
 
-/// What the entry is, by its name and its type (symlinks not followed).
-fn meet(entry: &std::fs::DirEntry) -> io::Result<Met> {
+/// An entry's type, symlinks not followed; a directory's `main`: it holds
+/// `main.jsonl`, a file.
+fn form(entry: &std::fs::DirEntry) -> io::Result<rule::Form> {
     let file_type = entry.file_type()?;
-    let name = entry.file_name();
-    let name = name.to_str();
-    if file_type.is_dir() {
-        if name.is_some_and(is_swept_name) {
-            return Ok(Met::Leftover);
+    Ok(if file_type.is_dir() {
+        rule::Form::Dir {
+            main: std::fs::symlink_metadata(entry.path().join(MAIN_FILE))
+                .is_ok_and(|metadata| metadata.is_file()),
         }
-        let storage = std::fs::symlink_metadata(entry.path().join(MAIN_FILE))
-            .is_ok_and(|metadata| metadata.is_file());
-        return Ok(if storage { Met::Keep } else { Met::Descend });
-    }
-    let lock = file_type.is_file()
-        && name
-            .and_then(|name| name.strip_suffix(LOCK_SUFFIX))
-            .is_some_and(is_swept_name);
-    if lock {
-        let dir = entry.path().with_extension("");
-        return Ok(match std::fs::symlink_metadata(dir) {
-            Ok(_) => Met::Keep,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Met::OrphanLock,
-            Err(error) => return Err(error),
-        });
-    }
-    Ok(Met::Keep)
+    } else if file_type.is_file() {
+        rule::Form::File
+    } else {
+        rule::Form::Other
+    })
 }
 
 /// Take the lock of `lock` when it exists: `Ok(None)` when no lock file is
@@ -340,78 +309,49 @@ fn take_lock(lock: &Path) -> io::Result<Option<File>> {
     }
 }
 
-/// Whether `modified` is a day old; a time ahead of the clock is fresh.
-fn is_stale(now: SystemTime, modified: SystemTime) -> bool {
-    now.duration_since(modified)
-        .is_ok_and(|age| age >= STALE_AFTER)
-}
-
-/// Remove the staging directory or tombstone `dir` when no live process
-/// holds its lock and it is stale; then its lock file too.
-fn sweep_leftover(dir: &Path, now: SystemTime) -> io::Result<bool> {
-    let lock = lock_path(dir);
-    let held = match take_lock(&lock) {
-        Ok(held) => held,
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+/// Probe the lock of the judged entry `path`, read its times, and do the
+/// plan the rule answers (holding the lock while it removes); whether it
+/// removed the entry.
+fn sweep_judged(path: &Path, cand: rule::Cand, now: SystemTime) -> io::Result<bool> {
+    let lock = match cand {
+        rule::Cand::Dir => lock_path(path),
+        rule::Cand::Lock => path.to_owned(),
+    };
+    let (probe, _held) = match take_lock(&lock) {
+        Ok(Some(file)) => (rule::Probe::Free, Some(file)),
+        Ok(None) => (rule::Probe::Absent, None),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => (rule::Probe::Held, None),
         Err(error) => return Err(error),
     };
-    if !is_stale(now, last_touched(dir)?) {
-        return Ok(false);
-    }
-    std::fs::remove_dir_all(dir)?;
-    if held.is_some() {
-        match std::fs::remove_file(&lock) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+    let own = std::fs::symlink_metadata(path)?.modified()?;
+    let inner = match cand {
+        rule::Cand::Dir => {
+            let mut inner = Vec::new();
+            for entry in std::fs::read_dir(path)? {
+                inner.push(entry?.metadata()?.modified()?);
+            }
+            inner
+        }
+        rule::Cand::Lock => Vec::new(),
+    };
+    match rule::judge(cand, probe, now, own, &inner) {
+        rule::Plan::Keep => Ok(false),
+        rule::Plan::RemoveDir => {
+            std::fs::remove_dir_all(path)?;
+            Ok(true)
+        }
+        rule::Plan::RemoveDirAndLock => {
+            std::fs::remove_dir_all(path)?;
+            match std::fs::remove_file(&lock) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            Ok(true)
+        }
+        rule::Plan::RemoveFile => {
+            std::fs::remove_file(path)?;
+            Ok(true)
         }
     }
-    Ok(true)
-}
-
-/// Remove the lock file `lock` of a gone staging directory when no live
-/// process holds it and it is stale.
-fn sweep_orphan_lock(lock: &Path, now: SystemTime) -> io::Result<bool> {
-    let _held = match take_lock(lock) {
-        Ok(held) => held,
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    if !is_stale(now, std::fs::symlink_metadata(lock)?.modified()?) {
-        return Ok(false);
-    }
-    std::fs::remove_file(lock)?;
-    Ok(true)
-}
-
-/// Whether `name` is one [`staging_dir`] mints or a saved-session tombstone:
-/// `.<name>.<label>-<uuid>`.
-fn is_swept_name(name: &str) -> bool {
-    let Some((target, suffix)) = name
-        .strip_prefix('.')
-        .and_then(|rest| rest.rsplit_once('.'))
-    else {
-        return false;
-    };
-    let Some((label, id)) = suffix.split_once('-') else {
-        return false;
-    };
-    !target.is_empty()
-        && (label == TOMBSTONE_LABEL
-            || StagingKind::ALL
-                .into_iter()
-                .any(|kind| kind.label() == label))
-        && id.len() == STAGING_ID_LEN
-        && id
-            .bytes()
-            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-}
-
-/// The newest modification time of `dir` and its direct entries.
-fn last_touched(dir: &Path) -> io::Result<SystemTime> {
-    let mut newest = std::fs::symlink_metadata(dir)?.modified()?;
-    for entry in std::fs::read_dir(dir)? {
-        newest = newest.max(entry?.metadata()?.modified()?);
-    }
-    Ok(newest)
 }

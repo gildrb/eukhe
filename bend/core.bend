@@ -30,6 +30,7 @@ import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tools.bend as ffi_tools
@@ -109,6 +110,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_semver.ffi(input)
     case 33:
       ffi_log.ffi(input)
+    case 34:
+      ffi_staging.ffi(input)
     case _:
       W.err("unknown entry")
 

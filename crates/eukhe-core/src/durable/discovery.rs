@@ -29,6 +29,7 @@ use eukhe_durable::types::{
 use futures::StreamExt;
 
 use super::main_conversation::{SessionState, SESSION_DOC};
+use super::staging::rule::{self, Form, Obs, Pick, Seen};
 use crate::session::discovery::{
     looks_like_session_path, match_saved_session, session_cwd_matches, SavedSessionMatch,
     SessionSelectorError,
@@ -107,52 +108,101 @@ pub enum ResolvedListing {
     Global(SessionListing),
 }
 
-/// Every session of `sessions_dir`, newest first: durable storages and the
-/// legacy files whose storage directory does not exist. Sessions without a
-/// readable cwd are skipped, as the legacy scan skips header-less files.
+/// Every session of `sessions_dir`, newest first (then by id): durable
+/// storages and the legacy files whose storage directory does not exist.
+/// Sessions without a readable cwd are skipped, as the legacy scan skips
+/// header-less files. The rule (which entry is a session, under which id,
+/// and the order) runs as compiled Bend (`bend/listing.bend`,
+/// [`rule::scan`], [`rule::rows`]); this reads the facts it needs.
 pub async fn list_sessions(sessions_dir: &Path, cx: &Context) -> Vec<SessionListing> {
     let Ok(mut entries) = tokio::fs::read_dir(sessions_dir).await else {
         return Vec::new();
     };
-    let mut durable = Vec::new();
-    let mut legacy = Vec::new();
+    let mut listed: Vec<(PathBuf, Option<String>, Form)> = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let Ok(file_type) = entry.file_type().await else {
             continue;
         };
         let path = entry.path();
-        if file_type.is_dir() {
-            let hidden = entry.file_name().to_string_lossy().starts_with('.');
-            if !hidden && is_file(&path.join(MAIN_FILE)).await {
-                durable.push(path);
+        let form = if file_type.is_dir() {
+            Form::Dir {
+                main: is_file(&path.join(MAIN_FILE)).await,
             }
-        } else if file_type.is_file()
-            && path
-                .extension()
-                .is_some_and(|extension| extension == LEGACY_EXTENSION)
-        {
-            legacy.push(path);
-        }
+        } else if file_type.is_file() {
+            Form::File
+        } else {
+            Form::Other
+        };
+        listed.push((path, entry.file_name().into_string().ok(), form));
     }
-
-    let mut listings: Vec<SessionListing> = futures::stream::iter(durable)
-        .map(|dir| durable_listing(dir, cx))
-        .buffer_unordered(LISTING_CONCURRENCY)
-        .filter_map(futures::future::ready)
+    let seens: Vec<Seen<'_>> = listed
+        .iter()
+        .map(|(_, name, form)| Seen {
+            name: name.as_deref(),
+            form: *form,
+        })
+        .collect();
+    let picks = rule::scan(&seens);
+    let candidates: Vec<(PathBuf, Pick)> = listed
+        .iter()
+        .zip(&picks)
+        .map(|((path, _, _), pick)| (path.clone(), pick.clone()))
+        .collect();
+    let facts: Vec<(Option<String>, Vec<SystemTime>)> = futures::stream::iter(candidates)
+        .map(|(path, pick)| candidate_facts(path, pick, cx))
+        .buffered(LISTING_CONCURRENCY)
         .collect()
         .await;
-    for file in legacy {
-        if let Some(listing) = legacy_listing(file).await {
-            listings.push(listing);
+    let obs: Vec<Obs<'_>> = seens
+        .iter()
+        .zip(&facts)
+        .map(|(seen, (cwd, times))| Obs {
+            seen: *seen,
+            cwd: cwd.as_deref(),
+            times: times.clone(),
+        })
+        .collect();
+    // A row is a listed candidate at its place (laws/listing.bend,
+    // `rows_are_entries`): its entry and its cwd are there.
+    rule::rows(&obs)
+        .into_iter()
+        .filter_map(|row| {
+            let (path, _, _) = listed.get(row.at)?;
+            let cwd = facts.get(row.at)?.0.clone()?;
+            let (id, location) = match row.pick {
+                Pick::Store(id) => (id, SessionLocation::Durable(path.clone())),
+                Pick::Legacy(id) => (id, SessionLocation::Legacy(path.clone())),
+                Pick::Skip => return None,
+            };
+            Some(SessionListing {
+                id,
+                location,
+                cwd,
+                modified: row.time,
+            })
+        })
+        .collect()
+}
+
+/// What the listing reads of a session candidate: its cwd (`None`: it does
+/// not read) and the modification times of its files (a storage: every
+/// file in it; a legacy file: the file). Nothing of an entry the scan skips.
+async fn candidate_facts(
+    path: PathBuf,
+    pick: Pick,
+    cx: &Context,
+) -> (Option<String>, Vec<SystemTime>) {
+    match pick {
+        Pick::Skip => (None, Vec::new()),
+        Pick::Store(_) => (read_durable_cwd(&path, cx).await, file_times(&path).await),
+        Pick::Legacy(_) => {
+            let modified = tokio::fs::metadata(&path)
+                .await
+                .ok()
+                .and_then(|metadata| metadata.modified().ok());
+            (read_legacy_cwd(path).await, modified.into_iter().collect())
         }
     }
-    listings.sort_by(|left, right| {
-        right
-            .modified
-            .cmp(&left.modified)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    listings
 }
 
 /// The newest session of `sessions_dir` whose cwd is `cwd`.
@@ -222,50 +272,6 @@ async fn is_file(path: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file())
 }
 
-async fn durable_listing(dir: PathBuf, cx: &Context) -> Option<SessionListing> {
-    let id = dir.file_name()?.to_str()?.to_owned();
-    let cwd = read_durable_cwd(&dir, cx).await?;
-    if cwd.is_empty() {
-        return None;
-    }
-    let modified = newest_mtime(&dir).await?;
-    Some(SessionListing {
-        id,
-        location: SessionLocation::Durable(dir),
-        cwd,
-        modified,
-    })
-}
-
-/// A legacy file not imported yet: its id is its file stem, the name of
-/// the storage directory every open imports it into
-/// ([`SessionLocation::storage_dir`]). When that directory exists, the
-/// session is that directory (listed as a storage, or not at all), never
-/// the file too: one session, one listing (`bend/staging.bend`).
-async fn legacy_listing(file: PathBuf) -> Option<SessionListing> {
-    let storage_dir = SessionLocation::Legacy(file.clone()).storage_dir();
-    if tokio::fs::symlink_metadata(&storage_dir).await.is_ok() {
-        return None;
-    }
-    let id = storage_dir.file_name()?.to_str()?.to_owned();
-    let header = {
-        let file = file.clone();
-        tokio::task::spawn_blocking(move || read_session_header(&file))
-            .await
-            .ok()??
-    };
-    if header.cwd.is_empty() {
-        return None;
-    }
-    let modified = tokio::fs::metadata(&file).await.ok()?.modified().ok()?;
-    Some(SessionListing {
-        id,
-        location: SessionLocation::Legacy(file),
-        cwd: header.cwd,
-        modified,
-    })
-}
-
 async fn read_legacy_cwd(file: PathBuf) -> Option<String> {
     tokio::task::spawn_blocking(move || read_session_header(&file))
         .await
@@ -273,10 +279,12 @@ async fn read_legacy_cwd(file: PathBuf) -> Option<String> {
         .map(|header| header.cwd)
 }
 
-/// The newest mtime among the files of `dir`.
-async fn newest_mtime(dir: &Path) -> Option<SystemTime> {
-    let mut entries = tokio::fs::read_dir(dir).await.ok()?;
-    let mut newest: Option<SystemTime> = None;
+/// The modification times of the files of `dir`.
+async fn file_times(dir: &Path) -> Vec<SystemTime> {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return Vec::new();
+    };
+    let mut times = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let Ok(metadata) = entry.metadata().await else {
             continue;
@@ -285,10 +293,10 @@ async fn newest_mtime(dir: &Path) -> Option<SystemTime> {
             continue;
         }
         if let Ok(modified) = metadata.modified() {
-            newest = Some(newest.map_or(modified, |newest| newest.max(modified)));
+            times.push(modified);
         }
     }
-    newest
+    times
 }
 
 /// The main conversation of a session, as [`read_main_transcript`] reads

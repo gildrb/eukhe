@@ -2,6 +2,7 @@
 
 import Base
 import ../bend/semver.bend as Sv
+import ../bend/staging.bend as Sg
 
 # x is written with at most 14 digits
 def rank_spec.short(+x: Nat) -> Bool:
@@ -101,3 +102,60 @@ def wire_mfits(m: Maybe<&2, Nat>) -> Bool:
       True{}
     case Some{x}:
       wire_fits(x)
+
+# ---- staging and listing ----
+
+# Text spec helpers of laws/staging.bend and laws/listing.bend: names
+# compared char by char, a suffix taken off.
+
+# a and b are the same text, char by char
+def text_same(a: String, b: String) -> Bool:
+  match a b:
+    case SNil{} SNil{}:
+      True{}
+    case SNil{} SCon{y, v}:
+      False{}
+    case SCon{x, u} SNil{}:
+      False{}
+    case SCon{x, u} SCon{y, v}:
+      Bool.and(Char.is_eq(x, y), text_same(u, v))
+
+# the name n is the text s
+def text_named(+s: String, n: Sg.Name) -> Bool:
+  match n:
+    case Sg.Utf{t}:
+      text_same(t, s)
+    case Sg.Raw{}:
+      False{}
+
+# an entry of es has the name s
+def text_has_name(+s: String, es: List<&2, Sg.Seen>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Sg.Seen{n, k}:
+          Bool.or(text_named(s, n), text_has_name(s, rest))
+
+def text_found(b: Bool, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match b:
+    case True{}:
+      Some{""}
+    case False{}:
+      m
+
+def text_cons(c: Char, m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{r}:
+      Some{SCon{c, r}}
+
+# s before the suffix p, when s ends with p
+def text_unsuffix(+p: String, +s: String) -> Maybe<&2, String>:
+  match s:
+    case SNil{}:
+      text_found(String.is_empty(p), None{})
+    case SCon{c, t}:
+      text_found(text_same(SCon{c, t}, p), text_cons(c, text_unsuffix(p, t)))
