@@ -1121,40 +1121,6 @@ async fn orders_publication_flushes_exactly_and_flushes_main_before_acknowledgin
     }
 }
 
-/// A commit that touches no sidecar still flushes its marker before it is
-/// acknowledged on an fsync storage, and never flushes without fsync. The
-/// first marker creates `main.jsonl`, so its directory entry is flushed too.
-#[tokio::test]
-async fn flushes_main_after_the_marker_only_with_fsync() {
-    for fsync in [false, true] {
-        let directory = temp_directory();
-        let env = InstrumentedEnv::new(&directory.path);
-        let storage = open_instrumented(&directory.path, &env, fsync).await;
-        env.clear();
-        assert_eq!(
-            commit(
-                &storage,
-                vec![
-                    json!({ "type": "conversation", "value": { "id": ROOT_CONVERSATION_ID.get() } })
-                ],
-            )
-            .await
-            .map_err(|error| error.to_string()),
-            Ok(1)
-        );
-        let expected = if fsync {
-            vec![
-                "append:main.jsonl".to_owned(),
-                "flush:main.jsonl".to_owned(),
-                format!("flush-directory:{}", basename(&directory.path)),
-            ]
-        } else {
-            vec!["append:main.jsonl".to_owned()]
-        };
-        assert_eq!(env.operations(), expected);
-    }
-}
-
 /// The directory entry of a new sidecar is durable before a marker confirms
 /// it: a failed directory flush poisons the commit before its marker.
 #[tokio::test]

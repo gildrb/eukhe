@@ -80,13 +80,17 @@ A new storage (legacy import, fork) builds in a staging directory beside its pla
 
 Listing shows storage directories (not hidden, with `main.jsonl` and a readable cwd) and legacy files `<stem>.jsonl`. A legacy file lists under its stem (the storage name every open imports it into), only while no directory has that name. So a session lists once, before and after import.
 
-Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/log.bend`, `laws/staging.bend`. Proofs: `proof/log/` and `proof/staging/`.
+Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/log.bend`, `laws/staging.bend`. Proofs: `proof/log/` and `proof/staging/`. The commit log's rules run as compiled Bend (`bend/log.bend` section "The rules", entry `bend/ffi_log.bend`, id 33): what an open does with a file (`tail`, from its length and last newline), and the plan of steps at open and per commit (`Store.open`, `Store.commit`, a stepper); `JsonlStorage` reads the facts and does the steps (`storage/jsonl/plan.rs`).
 
 | Law | Says |
 | --- | --- |
 | `log_reads_lines` | Open reads exactly the complete lines, in order; never a torn tail. |
 | `log_ack_durable` | Post-crash log = old log + all acked commits + maybe more. |
 | `log_only_commits` | Post-crash log = old log + prefix of tried commits. |
+| `log_open_cuts_the_torn_tail`, `log_open_keeps_the_complete_lines`, `log_open_refuses_odd_facts` | An open keeps a file whose bytes are all in complete lines, cuts any other to exactly the bytes of the lines open reads (`Lg.recover`); refuses facts no file has. |
+| `log_plan_runs_the_model`, `log_plan_ack_durable`, `log_plan_only_commits` | The plan of an fsync open and its commits, cut after any step, is the model's epoch (`Lg.run`): acked commits survive, only a prefix of commits is read. |
+| `log_commit_plan`, `log_open_plan` | Every commit's plan for every storage and sidecar list: records, (fsync) their flushes and a directory flush while an entry is new, marker, (fsync) its flush and a directory flush while main.jsonl's entry is new, ack. |
+| `log_ffi_*`, `log_stepper_*` | The entry answers the requests Rust writes with the rule's decisions, the error form to anything else; a refused step keeps the state. |
 | `publish_never_overwrites` | Taken name: publish fails, no change. |
 | `publish_moves` | Free name: publish moves the storage. |
 | `sweep_never_live` | Never removes a live-locked entry. |
@@ -97,9 +101,11 @@ Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/log.bend`, `laws/stagi
 | `list_import_lists_storage` | After import, the stem lists as storage. |
 | `list_import_keeps_others` | Import changes no other listing. |
 
-Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`, commit path, `read_lines`); `eukhe-core/src/durable/staging.rs` (`lock_staging`, `publish`, `sweep_stale_staging_dirs`); `platform/fs.rs` `rename_no_replace`; `durable/discovery.rs` `list_sessions`; `eukhe-daemon/src/session_archive.rs` (sweep loop).
+Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`, `run_plan`, commit path, `read_lines`), `storage/jsonl/plan.rs` (the calls of the compiled core); `eukhe-core/src/durable/staging.rs` (`lock_staging`, `publish`, `sweep_stale_staging_dirs`); `platform/fs.rs` `rename_no_replace`; `durable/discovery.rs` `list_sessions`; `eukhe-daemon/src/session_archive.rs` (sweep loop).
 
-Bridges: `storage::jsonl::bridge::the_commit_log_runs_as_its_model` (real `JsonlStorage`, power loss after any step, every crash point of a three-commit epoch, 120 random histories); `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model` (every target kind, 60 sweep trees, 30 sessions directories with imports).
+Bridges: `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model` (every target kind, 60 sweep trees, 30 sessions directories with imports).
+
+Crash test of the commit log's IO shell: `storage::jsonl::crash::a_crash_at_any_step_keeps_the_acknowledged_commits_and_only_commits` (real `JsonlStorage` over a file system that loses power after any step, every crash point of a three-commit epoch, 120 random histories: the log after is the log before, the acked commits, then only a prefix of the commits).
 
 Tests: `durable::staging::tests::publish_never_replaces_an_entry_at_the_target`, `a_held_staging_dir_is_never_swept`, `sweeps_leftovers_at_every_depth_it_owns`.
 

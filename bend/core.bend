@@ -19,6 +19,7 @@ import ./ffi_facts.bend as ffi_facts
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
+import ./ffi_log.bend as ffi_log
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
@@ -106,6 +107,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_command.ffi(input)
     case 31:
       ffi_semver.ffi(input)
+    case 33:
+      ffi_log.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -121,6 +124,7 @@ type State is Type:
   Cvar{s: ffi_cvar.St}
   Tree{s: ffi_tree.St}
   Notice{s: ffi_notice.St}
+  Log{s: ffi_log.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -148,6 +152,11 @@ def open.notice(r: ffi_notice.St & String) -> State & String:
     case (s, reply):
       (Notice{s}, reply)
 
+def open.log(r: ffi_log.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Log{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -160,6 +169,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.tree(ffi_tree.open(input))
     case 32:
       open.notice(ffi_notice.open(input))
+    case 33:
+      open.log(ffi_log.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -193,6 +204,11 @@ def step.notice(r: ffi_notice.St & String) -> State & String:
     case (s, reply):
       (Notice{s}, reply)
 
+def step.log(r: ffi_log.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Log{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -205,6 +221,8 @@ def step.go(state: State, input: String) -> State & String:
       step.tree(ffi_tree.step(s, input))
     case Notice{s}:
       step.notice(ffi_notice.step(s, input))
+    case Log{s}:
+      step.log(ffi_log.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -224,6 +242,8 @@ def close.go(state: State) -> Unit:
     case Tree{s}:
       Unit{}
     case Notice{s}:
+      Unit{}
+    case Log{s}:
       Unit{}
     case Unknown{}:
       Unit{}

@@ -1,260 +1,135 @@
-# log: the model of the commit log of a durable storage, `main.jsonl`
+# log: the rules of the commit log of a durable storage, `main.jsonl`
 # (crates/eukhe-durable/src/storage/jsonl/storage.rs, `JsonlStorage`),
-# under power loss at any point.
+# that JsonlStorage runs through the compiled core (entry
+# bend/ffi_log.bend; Rust storage/jsonl/plan.rs). The laws (laws/log.bend)
+# state they refine the model of the log under power loss (spec/log.bend).
 #
-# A file is a list of bytes; 0n is the newline that ends a line. A data
-# byte is 1n+b. A line holds the bytes 1n+b of its content b..; a commit
-# is one line. Open reads the complete lines and cuts the torn tail (the
-# bytes after the last newline).
+# `tail`: what an open does with a file (main.jsonl or a sidecar) from the
+# facts Rust reads of it: its length and where its last newline is. Rust
+# keeps the file whole, or cuts it to the bytes of its complete lines,
+# and reads the complete lines.
 #
-# One epoch is one open of the storage (with fsync on), its commits, and
-# a crash. The file system does each step in order and the crash comes
-# after the first p of them:
-#
-#   open:    flush the parent directory (the storage directory's entry)
-#   commit:  append its line, flush the file, flush the storage directory
-#            (the first commit of the epoch only: the file's entry), and
-#            then acknowledge it
-#
-# A crash keeps the flushed bytes and the first k bytes not flushed (any
-# prefix: a torn tail when k ends inside a line). When `drop` is set, a
-# crash also loses each directory entry not flushed: then the file is
-# gone unless both entries are durable. After the crash, what is on disk
-# is the start of the next epoch.
-#
-# The bridge (bridge/bridge_log.bend, crates/eukhe-durable/src/storage/
-# jsonl/bridge.rs) runs the real `JsonlStorage` over a file system that
-# crashes the same way, at every crash point, and compares.
+# `Store`, `Store.open`, `Store.commit`: the plan of the storage, the steps
+# (`Act`) JsonlStorage does, in order: at open, and per commit, from the
+# durability of the directory entries of the commit's sidecar files (Rust
+# keeps which entries it made durable) and of main.jsonl (the Store keeps
+# it). A commit is acknowledged at its plan's Ack; a step that fails
+# poisons the storage, so no later plan runs.
 
 import Base
 
-# Bytes and lines
-# ---------------
+# The open of a file
+# ------------------
 
-# the bytes of a content: each b is written as 1n+b
-def data(l: List<&2, Nat>) -> List<&2, Nat>:
-  match l:
-    case Nil{}:
-      Nil{}
-    case b <> rest:
-      (1n+b) <> data(rest)
+# what an open does with a file: keep it whole (every byte is in a
+# complete line), cut it to its first `to` bytes (the bytes after its last
+# newline are a torn tail), or refuse facts no file has (a newline at or
+# past its end)
+type Tail is Data:
+  Whole{}
+  Torn{to: Nat}
+  Odd{}
 
-# one line: its data bytes and the newline
-def line(l: List<&2, Nat>) -> List<&2, Nat>:
-  List.append(&2, Nat, data(l), [0n])
+# the complete lines end at `to`: the whole file when that is its length
+def tail.at(same: Bool, to: Nat) -> Tail:
+  match same:
+    case True{}:
+      Whole{}
+    case False{}:
+      Torn{to}
 
-# the bytes of lines
-def render(ls: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
-  match ls:
-    case Nil{}:
-      Nil{}
-    case l <> rest:
-      List.append(&2, Nat, line(l), render(rest))
+def tail.in(inside: Bool, +len: Nat, +to: Nat) -> Tail:
+  match inside:
+    case True{}:
+      tail.at(Nat.is_eq(to, len), to)
+    case False{}:
+      Odd{}
 
-# A parse: the complete lines, and the tail after the last newline
-type P is Data:
-  P{lines: List<&2, List<&2, Nat>>, tail: List<&2, Nat>}
+# the open of a file of len bytes whose last newline is at the index last
+# (None: it has none)
+def tail(+len: Nat, last: Maybe<&2, Nat>) -> Tail:
+  match last:
+    case None{}:
+      tail.at(Nat.is_eq(0n, len), 0n)
+    case Some{i}:
+      +to = {1n+i : Nat}
+      tail.in(Nat.is_le(to, len), len, to)
 
-def P.ls(p: P) -> List<&2, List<&2, Nat>>:
-  match p:
-    case P{ls, t}:
-      ls
-
-def P.tl(p: P) -> List<&2, Nat>:
-  match p:
-    case P{ls, t}:
-      t
-
-# the data byte 1n+c before a parse: it starts the first line, or the
-# tail when no line is complete
-def push(c: Nat, ls: List<&2, List<&2, Nat>>, t: List<&2, Nat>) -> P:
-  match ls:
-    case Nil{}:
-      P{Nil{}, c <> t}
-    case l <> rest:
-      P{(c <> l) <> rest, t}
-
-def byte(b: Nat, p: P) -> P:
-  match b:
-    case 0n:
-      match p:
-        case P{ls, t}:
-          P{Nil{} <> ls, t}
-    case 1n+c:
-      match p:
-        case P{ls, t}:
-          push(c, ls, t)
-
-def parse(f: List<&2, Nat>) -> P:
-  match f:
-    case Nil{}:
-      P{Nil{}, Nil{}}
-    case b <> rest:
-      byte(b, parse(rest))
-
-# what open reads: the complete lines; the torn tail is cut
-def recover(f: List<&2, Nat>) -> List<&2, List<&2, Nat>>:
-  P.ls(parse(f))
-
-# The disk
+# The plan
 # --------
 
-type Disk is Data:
-  Absent{}                      # no file (or no storage directory)
-  Present{bytes: List<&2, Nat>}
+# a step of JsonlStorage
+type Act is Data:
+  FlushParent{}         # flush the storage directory's parent (its entry)
+  AppendSide{i: Nat}    # append the records of the commit's sidecar i
+  FlushSide{i: Nat}     # flush the commit's sidecar i
+  FlushDir{}            # flush the storage directory (its files' entries)
+  AppendMain{}          # append the commit's marker to main.jsonl
+  FlushMain{}           # flush main.jsonl
+  Ack{}                 # acknowledge the commit
 
-# the log that an open of the disk reads
-def Disk.log(d: Disk) -> List<&2, List<&2, Nat>>:
-  match d:
-    case Absent{}:
-      Nil{}
-    case Present{b}:
-      recover(b)
+# the storage: fsync on, and main.jsonl's directory entry durable
+type Store is Data:
+  Store{fsync: Bool, main: Bool}
 
-# One epoch: the commits it tries, the steps done before the crash, the
-# bytes not flushed that the crash keeps, and whether it drops the
-# entries not flushed
-type Epoch is Data:
-  Epoch{cs: List<&2, List<&2, Nat>>, p: Nat, k: Nat, drop: Bool}
+# a plan: the storage after it, and its steps in order
+type Plan is Data:
+  Plan{st: Store, acts: List<&2, Act>}
 
-def Epoch.cs(e: Epoch) -> List<&2, List<&2, Nat>>:
-  match e:
-    case Epoch{cs, p, k, drop}:
-      cs
-
-# The storage while it runs: the storage directory's entry is durable
-# (de), the file's entry is durable (fe), the flushed lines, the line
-# appended and not flushed, the acknowledged commits
-type St is Data:
-  St{de: Bool, fe: Bool, log: List<&2, List<&2, Nat>>, pend: Maybe<&2, List<&2, Nat>>, acked: List<&2, List<&2, Nat>>}
-
-def St.acked(s: St) -> List<&2, List<&2, Nat>>:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      acked
-
-# open: a file that is there has durable entries (the crash before kept
-# them); its torn tail is cut
-def open(d: Disk) -> St:
-  match d:
-    case Absent{}:
-      St{False{}, False{}, Nil{}, None{}, Nil{}}
-    case Present{b}:
-      St{True{}, True{}, recover(b), None{}, Nil{}}
-
-def parent(s: St) -> St:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      St{True{}, fe, log, pend, acked}
-
-def append(c: List<&2, Nat>, s: St) -> St:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      St{de, fe, log, Some{c}, acked}
-
-def opt(m: Maybe<&2, List<&2, Nat>>) -> List<&2, List<&2, Nat>>:
-  match m:
-    case None{}:
-      Nil{}
-    case Some{l}:
-      [l]
-
-def flush(s: St) -> St:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      St{de, fe, List.append(&2, List<&2, Nat>, log, opt(pend)), None{}, acked}
-
-def dir(s: St) -> St:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      St{de, True{}, log, pend, acked}
-
-def ack(c: List<&2, Nat>, s: St) -> St:
-  match s:
-    case St{de, fe, log, pend, acked}:
-      St{de, fe, log, pend, List.append(&2, List<&2, Nat>, acked, [c])}
-
-# the commits after the first, with p steps left: append, flush, ack
-def more(cs: List<&2, List<&2, Nat>>, p: Nat, s: St) -> St:
-  match cs:
-    case Nil{}:
-      s
-    case +c <> rest:
-      match p:
-        case 0n:
-          s
-        case 1n+p1:
-          match p1:
-            case 0n:
-              append(c, s)
-            case 1n+p2:
-              more(rest, p2, ack(c, flush(append(c, s))))
-
-# the first commit, with q steps left: append, flush, flush the
-# directory, ack
-def first(cs: List<&2, List<&2, Nat>>, q: Nat, s: St) -> St:
-  match cs:
-    case Nil{}:
-      s
-    case +c <> rest:
-      match q:
-        case 0n:
-          s
-        case 1n+q1:
-          match q1:
-            case 0n:
-              append(c, s)
-            case 1n+q2:
-              match q2:
-                case 0n:
-                  flush(append(c, s))
-                case 1n+q3:
-                  more(rest, q3, ack(c, dir(flush(append(c, s)))))
-
-# an epoch's run up to the crash, after p steps
-def run(d: Disk, cs: List<&2, List<&2, Nat>>, p: Nat) -> St:
-  match p:
-    case 0n:
-      open(d)
-    case 1n+q:
-      first(cs, q, parent(open(d)))
-
-# the bytes not flushed that a crash keeps
-def cut(k: Nat, m: Maybe<&2, List<&2, Nat>>) -> List<&2, Nat>:
-  match m:
-    case None{}:
-      Nil{}
-    case Some{l}:
-      List.take(&2, Nat, line(l), k)
-
-# whether the file outlives the crash
-def keeps(drop: Bool, de: Bool, fe: Bool) -> Bool:
-  match drop:
-    case False{}:
-      True{}
+# a flush of the storage directory before rest, when an entry needs it
+def plan.dir(need: Bool, rest: List<&2, Act>) -> List<&2, Act>:
+  match need:
     case True{}:
-      Bool.and(de, fe)
-
-def stays(b: Bool, bytes: List<&2, Nat>) -> Disk:
-  match b:
-    case True{}:
-      Present{bytes}
+      FlushDir{} <> rest
     case False{}:
-      Absent{}
+      rest
 
-def crash(k: Nat, drop: Bool, s: St) -> Disk:
+# the appends of the sidecars from the i-th, then rest
+def plan.appends(ds: List<&2, Bool>, +i: Nat, rest: List<&2, Act>) -> List<&2, Act>:
+  match ds:
+    case Nil{}:
+      rest
+    case d <> more:
+      AppendSide{i} <> plan.appends(more, 1n+i, rest)
+
+# the flushes of the sidecars from the i-th, then rest
+def plan.flushes(ds: List<&2, Bool>, +i: Nat, rest: List<&2, Act>) -> List<&2, Act>:
+  match ds:
+    case Nil{}:
+      rest
+    case d <> more:
+      FlushSide{i} <> plan.flushes(more, 1n+i, rest)
+
+# some sidecar's directory entry is not durable
+def plan.fresh(ds: List<&2, Bool>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> more:
+      match d:
+        case True{}:
+          plan.fresh(more)
+        case False{}:
+          True{}
+
+# the open of a storage: with fsync, its directory's entry is made durable
+def Store.open(fsync: Bool) -> Plan:
+  match fsync:
+    case True{}:
+      Plan{Store{True{}, False{}}, [FlushParent{}]}
+    case False{}:
+      Plan{Store{False{}, False{}}, Nil{}}
+
+# a commit whose sidecar files have the durable directory entries ds (in
+# the commit's order): its records, then its marker, then the ack. With
+# fsync, every file is flushed, and the storage directory too while an
+# entry is not durable, before the marker that depends on it and before
+# the ack; main.jsonl's entry is durable after it
+def Store.commit(s: Store, +ds: List<&2, Bool>) -> Plan:
   match s:
-    case St{de, fe, log, pend, acked}:
-      stays(keeps(drop, de, fe), List.append(&2, Nat, render(log), cut(k, pend)))
-
-# the disk after an epoch
-def after(d: Disk, e: Epoch) -> Disk:
-  match e:
-    case Epoch{cs, p, k, drop}:
-      crash(k, drop, run(d, cs, p))
-
-# the commits an epoch acknowledged
-def acked(d: Disk, e: Epoch) -> List<&2, List<&2, Nat>>:
-  match e:
-    case Epoch{cs, p, k, drop}:
-      St.acked(run(d, cs, p))
+    case Store{fsync, main}:
+      match fsync:
+        case False{}:
+          Plan{Store{False{}, main}, plan.appends(ds, 0n, [AppendMain{}, Ack{}])}
+        case True{}:
+          Plan{Store{True{}, True{}}, plan.appends(ds, 0n, plan.flushes(ds, 0n, plan.dir(plan.fresh(ds), AppendMain{} <> FlushMain{} <> plan.dir(Bool.not(main), [Ack{}]))))}

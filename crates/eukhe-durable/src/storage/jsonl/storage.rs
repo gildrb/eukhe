@@ -11,6 +11,7 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use super::plan::{self, Act, Plan, Tail};
 use crate::env::{CreateDirOptions, FileError, FileErrorCode, FileKind, FileSystem, RemoveOptions};
 use crate::errors::StorageError;
 use crate::storage::{MemoryStorage, PreparedMemoryCommit};
@@ -156,6 +157,53 @@ pub struct JsonlCommitCancelledError;
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("JsonlStorage is closed")]
 struct ClosedError;
+
+/// An answer of the compiled core's rules (`bend/log.bend`) this storage
+/// cannot act on: a step that names a sidecar file or a marker the commit
+/// does not have, a commit plan with no ack, an open of a file refused or
+/// cut past its end. Only an inconsistent build answers one.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("JSONL plan: {0}")]
+struct JsonlPlanError(String);
+
+/// Why a step of a plan failed.
+enum StepFailure {
+    File(JsonlFileError),
+    Plan(JsonlPlanError),
+}
+
+impl From<JsonlFileError> for StepFailure {
+    fn from(error: JsonlFileError) -> Self {
+        StepFailure::File(error)
+    }
+}
+
+impl From<JsonlPlanError> for StepFailure {
+    fn from(error: JsonlPlanError) -> Self {
+        StepFailure::Plan(error)
+    }
+}
+
+/// What the steps of a commit's plan act on: its sidecar files, their
+/// paths, and its marker.
+struct Publish<'a> {
+    encoded: &'a EncodedCommit,
+    paths: &'a [String],
+}
+
+impl Publish<'_> {
+    /// The commit's sidecar file at `index`: its name, its records, its path.
+    fn sidecar(&self, step: Act, index: usize) -> Result<(&str, &str, &str), JsonlPlanError> {
+        let (Some((file, content)), Some(path)) =
+            (self.encoded.sidecars.get(index), self.paths.get(index))
+        else {
+            return Err(JsonlPlanError(format!(
+                "{step:?} names no sidecar file of the commit"
+            )));
+        };
+        Ok((file, content, path))
+    }
+}
 
 fn error_from_file(action: impl Into<String>, error: FileError) -> JsonlFileError {
     JsonlFileError {
@@ -593,7 +641,8 @@ struct State {
     poison: Option<Arc<JsonlStoragePoisonedError>>,
     current_only_documents: HashSet<i64>,
     live_task_sidecars: HashSet<i64>,
-    /// Files whose directory entries this fsync storage made durable.
+    /// Sidecar files whose directory entries this fsync storage made
+    /// durable (the plan keeps `main.jsonl`'s).
     durable_entries: HashSet<String>,
     /// The replayed commits, while [`CommitHistory::Keep`] keeps them.
     history: Option<Vec<HistoryCommit>>,
@@ -630,6 +679,9 @@ pub struct JsonlStorage {
     fsync: bool,
     memory: MemoryStorage,
     state: Mutex<State>,
+    /// The compiled core's plan of this storage's steps; never locked
+    /// across an `.await`.
+    plan: Mutex<Plan>,
     /// Held across each whole commit: one commit prepares against the state
     /// its predecessor applied, and none appends while another reclaims.
     commit_lock: AsyncMutex<()>,
@@ -664,16 +716,7 @@ impl JsonlStorage {
         fs.create_dir(&absolute, CreateDirOptions { recursive: true }, cx)
             .await
             .map_err(|error| failed(error_from_file("directory creation", error)))?;
-        // An fsync storage makes its own directory entry durable too: a
-        // power loss must not drop a new storage with acknowledged commits
-        // (bend/log.bend, `log_ack_durable`).
-        if options.fsync {
-            if let Some(parent) = Path::new(&absolute).parent().and_then(Path::to_str) {
-                fs.flush_directory(parent, cx).await.map_err(|error| {
-                    failed(error_from_file("flush of the parent directory", error))
-                })?;
-            }
-        }
+        let (plan, opening) = Plan::open(options.fsync).map_err(failed)?;
         let main_path = fs
             .join_path(&[absolute.as_str(), MAIN_FILE], cx)
             .await
@@ -691,8 +734,19 @@ impl JsonlStorage {
                 },
                 ..State::default()
             }),
+            plan: Mutex::new(plan),
             commit_lock: AsyncMutex::new(()),
         };
+        // An fsync storage makes its own directory entry durable too: a
+        // power loss must not drop a new storage with acknowledged commits
+        // (laws/log.bend, `log_plan_ack_durable`). An open acknowledges no
+        // commit.
+        if let Err(failure) = storage.run_plan(&opening, None, cx).await {
+            return Err(match failure {
+                StepFailure::File(error) => failed(error),
+                StepFailure::Plan(error) => failed(error),
+            });
+        }
         storage.recover(cx).await?;
         Ok(storage)
     }
@@ -741,38 +795,44 @@ impl JsonlStorage {
         )
         .await?;
 
+        // Armed before the plan: the plan marks main.jsonl's entry durable
+        // once its steps run, so a commit dropped from here on poisons.
         let publication = Publication {
             storage: self,
             settled: false,
         };
-        for ((file, content), path) in encoded.sidecars.iter().zip(&paths) {
-            if let Err(error) = self.fs.append_file(path, content.as_bytes(), cx).await {
-                return Err(self.poison(error_from_file(format!("append to {file}"), error)));
-            }
-        }
-        if self.fsync {
-            for ((file, _), path) in encoded.sidecars.iter().zip(&paths) {
-                if let Err(error) = self.fs.flush_file(path, cx).await {
-                    return Err(self.poison(error_from_file(format!("flush of {file}"), error)));
-                }
-            }
-            self.flush_new_entries(encoded.sidecars.iter().map(|(file, _)| file.as_str()), cx)
-                .await?;
-        }
-        if let Err(error) = self
-            .fs
-            .append_file(&self.main_path, encoded.marker.as_bytes(), cx)
-            .await
-        {
-            return Err(self.poison(error_from_file(format!("append to {MAIN_FILE}"), error)));
-        }
+        let durable: Vec<bool> = {
+            let state = self.lock();
+            encoded
+                .sidecars
+                .iter()
+                .map(|(file, _)| state.durable_entries.contains(file))
+                .collect()
+        };
+        let planned = self
+            .plan
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .commit(&durable);
+        let acts = match planned {
+            Ok(acts) => acts,
+            Err(error) => return Err(self.poison(error)),
+        };
+        let commit = Publish {
+            encoded: &encoded,
+            paths: &paths,
+        };
         // An fsync storage acknowledges a commit only once its marker is
         // durable; the same flush authorizes the reclamation below.
-        if self.fsync {
-            if let Err(error) = self.fs.flush_file(&self.main_path, cx).await {
-                return Err(self.poison(error_from_file(format!("flush of {MAIN_FILE}"), error)));
+        match self.run_plan(&acts, Some(&commit), cx).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(self.poison(JsonlPlanError(
+                    "a commit's plan acknowledges nothing".to_owned(),
+                )))
             }
-            self.flush_new_entries([MAIN_FILE], cx).await?;
+            Err(StepFailure::File(error)) => return Err(self.poison(error)),
+            Err(StepFailure::Plan(error)) => return Err(self.poison(error)),
         }
         let seq = prepared.apply();
         self.adopt_sidecar_state(&json_writes);
@@ -787,31 +847,80 @@ impl JsonlStorage {
         Ok(seq)
     }
 
-    /// Make the directory entries of `files` durable before the commit that
-    /// depends on them is confirmed or acknowledged, flushing the directory
-    /// when one of them is new to this storage (or was replaced since).
-    async fn flush_new_entries<'f>(
+    /// Does the steps of a plan of the compiled core in order (`Lg.Act`,
+    /// laws/log.bend): the steps of a commit act on its sidecar files and its
+    /// marker; a directory flush makes the entries of the commit's sidecar
+    /// files durable. Answers whether the plan acknowledges its commit.
+    async fn run_plan(
         &self,
-        files: impl IntoIterator<Item = &'f str>,
+        acts: &[Act],
+        commit: Option<&Publish<'_>>,
         cx: &Context,
-    ) -> Result<(), StorageError> {
-        let new_entries: Vec<&str> = {
-            let state = self.lock();
-            files
-                .into_iter()
-                .filter(|file| !state.durable_entries.contains(*file))
-                .collect()
-        };
-        if new_entries.is_empty() {
-            return Ok(());
+    ) -> Result<bool, StepFailure> {
+        let no_commit =
+            |step: Act| JsonlPlanError(format!("{step:?} acts on a commit outside one"));
+        let mut acked = false;
+        for &step in acts {
+            match step {
+                Act::FlushParent => {
+                    // The root directory has no parent and no entry.
+                    if let Some(parent) = Path::new(&self.directory).parent().and_then(Path::to_str)
+                    {
+                        self.fs.flush_directory(parent, cx).await.map_err(|error| {
+                            error_from_file("flush of the parent directory", error)
+                        })?;
+                    }
+                }
+                Act::AppendSide(index) => {
+                    let (file, content, path) = commit
+                        .ok_or_else(|| no_commit(step))?
+                        .sidecar(step, index)?;
+                    self.fs
+                        .append_file(path, content.as_bytes(), cx)
+                        .await
+                        .map_err(|error| error_from_file(format!("append to {file}"), error))?;
+                }
+                Act::FlushSide(index) => {
+                    let (file, _, path) = commit
+                        .ok_or_else(|| no_commit(step))?
+                        .sidecar(step, index)?;
+                    self.fs
+                        .flush_file(path, cx)
+                        .await
+                        .map_err(|error| error_from_file(format!("flush of {file}"), error))?;
+                }
+                Act::FlushDir => {
+                    self.fs
+                        .flush_directory(&self.directory, cx)
+                        .await
+                        .map_err(|error| {
+                            error_from_file("flush of the storage directory", error)
+                        })?;
+                    if let Some(commit) = commit {
+                        self.lock()
+                            .durable_entries
+                            .extend(commit.encoded.sidecars.iter().map(|(file, _)| file.clone()));
+                    }
+                }
+                Act::AppendMain => {
+                    let marker = &commit.ok_or_else(|| no_commit(step))?.encoded.marker;
+                    self.fs
+                        .append_file(&self.main_path, marker.as_bytes(), cx)
+                        .await
+                        .map_err(|error| {
+                            error_from_file(format!("append to {MAIN_FILE}"), error)
+                        })?;
+                }
+                Act::FlushMain => {
+                    self.fs
+                        .flush_file(&self.main_path, cx)
+                        .await
+                        .map_err(|error| error_from_file(format!("flush of {MAIN_FILE}"), error))?;
+                }
+                Act::Ack => acked = true,
+            }
         }
-        if let Err(error) = self.fs.flush_directory(&self.directory, cx).await {
-            return Err(self.poison(error_from_file("flush of the storage directory", error)));
-        }
-        self.lock()
-            .durable_entries
-            .extend(new_entries.into_iter().map(str::to_owned));
-        Ok(())
+        Ok(acked)
     }
 
     #[allow(clippy::too_many_lines)] // One switch over the TS write types.
@@ -1571,26 +1680,36 @@ async fn read_lines<T>(
         }
         Err(error) => return Err(failed(error_from_file(format!("read of {name}"), error))),
     };
-    let mut complete_size = bytes.len();
-    if complete_size > 0 && bytes[complete_size - 1] != b'\n' {
-        complete_size = bytes
-            .iter()
-            .rposition(|&byte| byte == b'\n')
-            .map_or(0, |index| index + 1);
-        fs.truncate_file(path, byte_size(complete_size), cx)
-            .await
-            .map_err(|error| {
-                failed(error_from_file(
-                    format!("torn-line truncation of {name}"),
-                    error,
-                ))
-            })?;
-    }
+    let last = bytes.iter().rposition(|&byte| byte == b'\n');
+    let complete_size = match plan::tail(bytes.len(), last).map_err(failed)? {
+        Tail::Whole => bytes.len(),
+        Tail::Torn(size) => {
+            fs.truncate_file(path, byte_size(size), cx)
+                .await
+                .map_err(|error| {
+                    failed(error_from_file(
+                        format!("torn-line truncation of {name}"),
+                        error,
+                    ))
+                })?;
+            size
+        }
+        Tail::Odd => {
+            return Err(failed(JsonlPlanError(format!(
+                "the open of {name} refused its length and last newline"
+            ))))
+        }
+    };
+    let Some(complete) = bytes.get(..complete_size) else {
+        return Err(failed(JsonlPlanError(format!(
+            "the open of {name} cut it past its end"
+        ))));
+    };
     let mut lines = Vec::new();
     let mut start = 0;
     let mut line_number = 1;
-    for end in 0..complete_size {
-        if bytes[end] != b'\n' {
+    for (end, &byte) in complete.iter().enumerate() {
+        if byte != b'\n' {
             continue;
         }
         let text = decode_line(&bytes[start..end]).map_err(|error| {

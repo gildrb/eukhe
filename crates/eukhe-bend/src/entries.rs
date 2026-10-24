@@ -72,6 +72,8 @@ pub enum Entry {
     Semver = 31,
     /// `bend/ffi_notice.bend`: a stepper.
     Notice = 32,
+    /// `bend/ffi_log.bend`: a call and a stepper.
+    Log = 33,
 }
 
 impl Entry {
@@ -110,6 +112,7 @@ impl Entry {
         Entry::Command,
         Entry::Semver,
         Entry::Notice,
+        Entry::Log,
     ];
 
     /// The id `bend/core.bend` dispatches on.

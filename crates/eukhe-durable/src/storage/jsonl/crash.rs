@@ -1,22 +1,21 @@
-//! The bridge between the commit log of [`JsonlStorage`] and its Bend model
-//! (`bend/log.bend`, whose laws `PROOF.bend` proves): both run the same
-//! scenarios and must print the same transcript, byte for byte.
+//! A crash test of the IO shell of [`JsonlStorage`]'s commit log. The
+//! compiled Bend core plans the steps (`bend/log.bend`), and the laws
+//! (`laws/log.bend`, `log_plan_runs_the_model`, `log_plan_ack_durable`,
+//! `log_plan_only_commits`) prove that plan is the model's crash-safe
+//! schedule; this test checks that the storage does those steps on real
+//! files.
 //!
-//! A scenario is a list of epochs (`bridge/bridge_log.bend` documents the
-//! events). Each epoch opens the storage with fsync over [`CrashFs`], a
-//! native file system that does the first `p` steps (appends, file
-//! flushes, directory flushes) and then loses power: every later step
-//! fails. The epoch commits until a commit fails, prints the sequences it
-//! acknowledged, and then applies the power loss to the real files: each
-//! file keeps its flushed bytes and the first `k` bytes that are not
-//! flushed; with `drop`, each directory entry not flushed goes too. A
-//! plain open then prints the sequences it reads.
-//!
-//! [`compare`] runs it (and skips without `bend`, unless
-//! `EUKHE_REQUIRE_BEND` is set).
+//! A scenario is a list of epochs. Each epoch opens the storage with
+//! fsync over [`CrashFs`], a native file system that does the first `p`
+//! steps (appends, file flushes, directory flushes) and then loses power:
+//! every later step fails. The epoch commits until a commit fails, and
+//! then applies the power loss to the real files: each file keeps its
+//! flushed bytes and the first `k` bytes that are not flushed; with
+//! `drop`, each directory entry not flushed goes too. A plain open then
+//! reads the log: the log before the epoch, then every commit the epoch
+//! acknowledged, and nothing but a prefix of the commits it appended.
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -33,7 +32,7 @@ use crate::env::{
     OpenBinaryReaderOptions, ReadTextLinesOptions, RemoveOptions, TempFileOptions, TextLineReader,
     WatchTarget,
 };
-use crate::testing::bridge::{compare, Rng, Scenario};
+use crate::testing::bridge::Rng;
 use crate::types::{Storage, StorageWrite, ROOT_CONVERSATION_ID};
 
 /// What the power loss of [`CrashFs`] knows of the files.
@@ -198,7 +197,7 @@ impl FileSystem for CrashFs {
         _content: &'a [u8],
         _cx: &'a Context,
     ) -> BoxFuture<'a, Result<(), FileError>> {
-        panic!("bend/log.bend models no write of {path}")
+        panic!("the crash test models no write of {path}")
     }
     fn append_file<'a>(
         &'a self,
@@ -280,7 +279,7 @@ impl FileSystem for CrashFs {
         _destination_path: &'a str,
         _cx: &'a Context,
     ) -> BoxFuture<'a, Result<(), FileError>> {
-        panic!("bend/log.bend models no rename of {source_path}")
+        panic!("the crash test models no rename of {source_path}")
     }
     fn file_info<'a>(
         &'a self,
@@ -346,7 +345,7 @@ impl FileSystem for CrashFs {
         _options: RemoveOptions,
         _cx: &'a Context,
     ) -> BoxFuture<'a, Result<(), FileError>> {
-        panic!("bend/log.bend models no remove of {path}")
+        panic!("the crash test models no remove of {path}")
     }
     fn create_temp_dir<'a>(
         &'a self,
@@ -401,15 +400,6 @@ async fn read_back(dir: &str) -> Vec<u64> {
     seqs
 }
 
-fn show(head: &str, seqs: &[u64]) -> String {
-    let mut text = head.to_owned();
-    for seq in seqs {
-        let _ = write!(text, " {seq}");
-    }
-    text.push('\n');
-    text
-}
-
 /// How many bytes not flushed a crash keeps.
 #[derive(Clone, Copy)]
 enum Keep {
@@ -428,16 +418,16 @@ struct Epoch {
     drop: bool,
 }
 
-/// Run `epochs` on a fresh storage; return the events and the transcript.
-async fn run(name: String, epochs: &[Epoch], rng: &mut Rng) -> Scenario {
+/// Run `epochs` on a fresh storage and check what each crash leaves (see
+/// the module docs).
+async fn run(name: &str, epochs: &[Epoch], rng: &mut Rng) {
     let root = tempfile::tempdir().expect("temp dir");
     let sessions = root.path().join("sessions");
     std::fs::create_dir(&sessions).expect("sessions dir");
     let dir = sessions.join("s");
     let dir_text = dir.to_string_lossy().into_owned();
     let main = dir.join("main.jsonl");
-    let (mut events, mut transcript) = (String::new(), String::new());
-    let mut has_root = false;
+    let mut before: Vec<u64> = Vec::new();
     let mut entry: u64 = 1000;
     for epoch in epochs {
         let fs = CrashFs::new(&sessions, epoch.steps);
@@ -454,23 +444,21 @@ async fn run(name: String, epochs: &[Epoch], rng: &mut Rng) -> Scenario {
         .await
         {
             for _ in 0..epoch.commits {
-                let value = if has_root {
+                let value = if before.is_empty() && acked.is_empty() {
+                    json!({ "type": "conversation", "value": { "id": ROOT_CONVERSATION_ID.get() } })
+                } else {
                     entry += 1;
                     let kind = "k".repeat(usize::try_from(rng.range(1, 40)).unwrap_or(1));
                     json!({
                         "type": "entry",
                         "value": { "id": entry, "conversationId": ROOT_CONVERSATION_ID.get(), "kind": kind },
                     })
-                } else {
-                    json!({ "type": "conversation", "value": { "id": ROOT_CONVERSATION_ID.get() } })
                 };
-                match storage.commit(&[write(value)], cx()).await {
-                    Ok(seq) => {
-                        has_root = true;
-                        acked.push(seq.get());
-                    }
-                    Err(_) => break,
-                }
+                // The power loss fails every later step: the epoch ends.
+                let Ok(seq) = storage.commit(&[write(value)], cx()).await else {
+                    break;
+                };
+                acked.push(seq.get());
             }
         }
         let pending = fs.unflushed(&main);
@@ -484,23 +472,33 @@ async fn run(name: String, epochs: &[Epoch], rng: &mut Rng) -> Scenario {
                 _ => rng.range(0, pending + 3),
             },
         };
-        let _ = writeln!(events, "e {} {keep} {}", epoch.steps, u8::from(epoch.drop));
-        for marker in &fs.disk().markers {
-            let value: serde_json::Value =
-                serde_json::from_slice(marker).expect("a marker is JSON");
-            let seq = value["seq"].as_u64().expect("a marker has its seq");
-            let _ = writeln!(events, "c {seq} {}", marker.len());
-        }
-        transcript.push_str(&show("a", &acked));
+        let tried: Vec<u64> = fs
+            .disk()
+            .markers
+            .iter()
+            .map(|marker| {
+                let value: serde_json::Value =
+                    serde_json::from_slice(marker).expect("a marker is JSON");
+                value["seq"].as_u64().expect("a marker has its seq")
+            })
+            .collect();
         fs.power_loss(keep, epoch.drop);
         let read = read_back(&dir_text).await;
-        has_root = !read.is_empty();
-        transcript.push_str(&show("r", &read));
-    }
-    Scenario {
-        name,
-        events,
-        transcript,
+        let point = format!(
+            "{name}: {} steps, {keep} bytes kept, drop {}",
+            epoch.steps, epoch.drop
+        );
+        let durable: Vec<u64> = before.iter().chain(&acked).copied().collect();
+        assert!(
+            read.starts_with(&durable),
+            "{point}: an acknowledged commit was lost: read {read:?}, acknowledged {durable:?}"
+        );
+        assert!(
+            read.get(before.len()..)
+                .is_some_and(|new| tried.starts_with(new)),
+            "{point}: read {read:?} is not the log before ({before:?}) then a prefix of {tried:?}"
+        );
+        before = read;
     }
 }
 
@@ -515,9 +513,8 @@ fn steps_of(commits: usize) -> usize {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_commit_log_runs_as_its_model() {
+async fn a_crash_at_any_step_keeps_the_acknowledged_commits_and_only_commits() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
-    let mut scenarios = Vec::new();
     // Every crash point of a first epoch of three commits, each with no
     // byte, a torn line or the whole line kept, with and without the
     // directory entries dropped; a second epoch then commits again.
@@ -538,8 +535,7 @@ async fn the_commit_log_runs_as_its_model() {
                         drop,
                     },
                 ];
-                let name = format!("point {steps} drop {drop}");
-                scenarios.push(run(name, &epochs, &mut rng).await);
+                run(&format!("point {steps}"), &epochs, &mut rng).await;
             }
         }
     }
@@ -559,7 +555,6 @@ async fn the_commit_log_runs_as_its_model() {
                 }
             })
             .collect();
-        scenarios.push(run(format!("random {at}"), &epochs, &mut rng).await);
+        run(&format!("random {at}"), &epochs, &mut rng).await;
     }
-    compare("bridge/bridge_log.bend", scenarios);
 }

@@ -34,3 +34,4 @@
 30 command
 31 semver
 32 notice
+33 log
