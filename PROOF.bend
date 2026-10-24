@@ -1261,3 +1261,8 @@ import ./proof/command/command_ffi_res_round_trip.bend as PCommandFfiResRoundTri
 import ./proof/command/command_ffi_menu_round_trip.bend as PCommandFfiMenuRoundTrip
 import ./proof/command/command_ffi_out_round_trip.bend as PCommandFfiOutRoundTrip
 import ./proof/command/command_ffi_witness.bend as PCommandFfiWitness
+import ./proof/shell/base.bend as LAShell
+import ./proof/shell/shell_ffi_exact.bend as PShellFfiExact
+import ./proof/shell/shell_ffi_answers.bend as PShellFfiAnswers
+import ./proof/shell/shell_ffi_left_over.bend as PShellFfiLeftOver
+import ./proof/shell/shell_ffi_example.bend as PShellFfiExample

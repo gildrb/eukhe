@@ -904,6 +904,10 @@
     "laws/semver.bend::semver_show_decimal": "9c6226dce2d6a942913aae217f3791cf958f4e2eb642ed86a0065885b62dffa2",
     "laws/semver.bend::semver_tag_roundtrip": "852d6b06a4117c5d0b2a5689fab0b2aee3ec9146c18121cfccf38bcfcea707b6",
     "laws/semver.bend::semver_title": "8b668100072c2f8454b9591e73db6fdb0b1cf28a02eb7161d0df38d6672a976b",
+    "laws/shell.bend::shell_ffi_answers": "96b4e1e99ca9eba78e686391639a2f0f533351b6edda224efb50cdb823633f08",
+    "laws/shell.bend::shell_ffi_exact": "59225978990616238b0bd1457368fc8f4a574e1dae6793f8aff2096753ff49d8",
+    "laws/shell.bend::shell_ffi_example": "b0588b72b4c3b559872333c1dc49040f79abb41057eb980a1b97085f26208100",
+    "laws/shell.bend::shell_ffi_left_over": "b45f4e9fe230122a8871ca072532178a1ea7a31f4fae541b719dd630e59147ba",
     "laws/skill_load.bend::skill_diag_kinds": "ce3c3952587656f661bba7fbb4bf26a6e28bdb7148a080f8f91bd523652cc89d",
     "laws/skill_load.bend::skill_distinct_example": "9684bd936454ad2a4c583167c2588fc62cd1c2fd95a3d6dc15eba8df84d20fc8",
     "laws/skill_load.bend::skill_failure_reported": "2d2669e8c3e5f6b5560a48d77f664c424acf92c67a9c7dfecfa4137a8eb5ca8c",
@@ -1147,7 +1151,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "cac228575421d85d0cbab70f35fba78b9e55742b12eb94ae42ce283726f754e7",
+    "LAWS.bend": "3573b20793253b511b1a998638d38742af0681aa6b074ef44d3cca8512f43279",
     "laws/admission.bend": "848617737e0db43b23f7330adc23c0256f6bfbe6a2f008b68f7512a842fb7e1c",
     "laws/approvals.bend": "de72b73db91389b165bbbbd371ab2b02e0205eef35cc73a8c15a22c6699f0c89",
     "laws/auth_flight.bend": "b32d55da850f675608d7594e8cac61401e7704ad92e92c74324f5ce3b5de950f",
@@ -1195,6 +1199,7 @@
     "laws/sandbox.bend": "37e28d7ee47ccc10b9699790cc61c129b27dc26144ff82013ab8273b05c7e62c",
     "laws/screen.bend": "6266de8e0bacec15cf8d1973e37c352e1f8e7deba149021a28fe970f8b897251",
     "laws/semver.bend": "55fddb5b8942d73bb82871356b2bd98c5f599d552dcce6d7982bd5489dcdaef8",
+    "laws/shell.bend": "9723b899757c6c01f764e4bf62a93da820806ee782b42a073b68f468551f926a",
     "laws/skill_load.bend": "9e4c1aa5e54ea2b4f66a12f64a7019b03708209ecdb282af15f40f752172a49b",
     "laws/staging.bend": "b9ba408a908c182e5f3ac023c2b22ed8feaf087a177cfe8df2d6b5661d3ac1f1",
     "laws/supervise.bend": "2ad27f0920a0c425a7f0fa6f67e89871701929c0949cbe68fe7143264e6eb903",

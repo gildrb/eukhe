@@ -169,7 +169,9 @@ async fn execute(
         .to_owned();
     // The gate: a cell outside the auto set runs only once the user
     // approves it. No kernel, job or budget before the answer.
-    if !auto_set(&runtime.deps.settings).allows(caps) {
+    if eukhe_bend::rules::shell::allows(auto_set(&runtime.deps.settings), caps)
+        == eukhe_bend::rules::shell::Gate::Asks
+    {
         let answer = match &runtime.deps.shell_approval {
             Some(sink) => {
                 let request = ShellApprovalRequest {

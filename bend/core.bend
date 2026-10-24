@@ -35,6 +35,7 @@ import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
@@ -130,6 +131,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 50:
+      ffi_shell.ffi(input)
     case _:
       W.err("unknown entry")
 

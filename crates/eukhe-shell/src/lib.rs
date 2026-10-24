@@ -2,14 +2,14 @@
 //!
 //! A script is a list of steps: simple commands, joined by `;`, newlines,
 //! `&&`, `||` and `|`. [`Shell::run`] expands each step (variables, `~`,
-//! pathname patterns), finds its effects (a set:
-//! [`eukhe_types::shell::ShellEffects`]; a command the table does not know
-//! is `Exec`, a redirection adds the effects of its target, a path the
-//! step names adds `Secret`, `Outside` or `Protected` by its class), and
-//! runs it only when the [`eukhe_types::shell::AutoSet`] allows every
-//! effect or the [`Approver`] approves it. A denial, or no answer, stops
-//! the script at that step: the steps before it ran and their effects
-//! stand, it and every later step did not run.
+//! pathname patterns), gathers the parts of each step (the command, each
+//! redirection's target, each path it names, by class: a command the
+//! table does not know is `Exec`), and runs it only when the compiled
+//! core's gate (`eukhe_bend::rules::shell`: bend/tools.bend `join` and
+//! `within`) finds every effect within the [`eukhe_types::shell::AutoSet`]
+//! or the [`Approver`] approves it. A denial, or no answer, stops the
+//! script at that step: the steps before it ran and their effects stand,
+//! it and every later step did not run.
 //!
 //! The common commands run in process with their common options (`cat`,
 //! `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`,
@@ -32,8 +32,6 @@ mod parse;
 pub mod paths;
 mod run;
 mod shown;
-#[cfg(test)]
-mod testing;
 
 pub use effect::GIT_UNTRUSTED_REPO_ARGS;
 pub use run::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, StepRun, Stream};

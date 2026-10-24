@@ -29,6 +29,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use eukhe_bend::rules::shell::Gate;
 use eukhe_docs::{Access, AccessGate};
 use eukhe_shell::Refusal;
 use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
@@ -176,7 +177,7 @@ pub(crate) struct DocumentsGate {
 impl AccessGate for DocumentsGate {
     fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), String> {
         let effects = effects(&self.policy, access, real);
-        if self.auto.allows(effects) {
+        if eukhe_bend::rules::shell::allows(self.auto, effects) == Gate::Unasked {
             return Ok(());
         }
         // The effects open the refusal, as a `bash` step's stop line names

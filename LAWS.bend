@@ -62,3 +62,4 @@ import ./laws/config.bend as Config
 import ./laws/default_model.bend as DefaultModel
 import ./laws/workflow.bend as Workflow
 import ./laws/command.bend as Command
+import ./laws/shell.bend as Shell

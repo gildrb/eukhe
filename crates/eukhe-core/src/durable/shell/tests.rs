@@ -13,6 +13,7 @@ use std::time::Duration;
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions, FauxResponseStep,
 };
+use eukhe_bend::rules::shell::{allows, Gate};
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::testing::bridge::{compare, Scenario};
@@ -322,7 +323,7 @@ async fn the_default_auto_set_is_its_model() {
     let mut events = "d\n".to_owned();
     let mut transcript = ShellEffect::ALL
         .into_iter()
-        .filter(|&effect| auto.allows(ShellEffects::of(&[effect])))
+        .filter(|&effect| allows(auto, ShellEffects::of(&[effect])) == Gate::Unasked)
         .fold("d".to_owned(), |mut line, effect| {
             write!(line, " {}", effect.code()).unwrap();
             line
@@ -338,7 +339,7 @@ async fn the_default_auto_set_is_its_model() {
             write!(events, " {}", effect.code()).unwrap();
         }
         events.push('\n');
-        let gated = if auto.allows(ShellEffects::of(&effects)) {
+        let gated = if allows(auto, ShellEffects::of(&effects)) == Gate::Unasked {
             "unasked"
         } else {
             "asks"

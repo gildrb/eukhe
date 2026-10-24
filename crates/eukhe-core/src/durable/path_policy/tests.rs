@@ -48,7 +48,10 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
         .map(|file| {
             (
                 file.clone(),
-                auto.allows(effects(&policy, Access::Write, &resolve(file))),
+                eukhe_bend::rules::shell::allows(
+                    auto,
+                    effects(&policy, Access::Write, &resolve(file)),
+                ) == eukhe_bend::rules::shell::Gate::Unasked,
             )
         })
         .collect();
