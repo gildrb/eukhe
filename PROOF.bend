@@ -419,6 +419,17 @@ import ./proof/tiny/tiny_ffi_request_round_trip.bend as PTinyFfiRequestRoundTrip
 import ./proof/tiny/tiny_ffi_answers.bend as PTinyFfiAnswers
 import ./proof/tiny/tiny_ffi_rejects_malformed.bend as PTinyFfiRejectsMalformed
 import ./proof/tiny/tiny_ffi_rejects_left_over.bend as PTinyFfiRejectsLeftOver
+import ./proof/tiny/tiny_elect_spec.bend as PTinyElectSpec
+import ./proof/tiny/tiny_shut_spec.bend as PTinyShutSpec
+import ./proof/tiny/tiny_launched_spec.bend as PTinyLaunchedSpec
+import ./proof/tiny/tiny_confirm_spec.bend as PTinyConfirmSpec
+import ./proof/tiny/tiny_bind_spec.bend as PTinyBindSpec
+import ./proof/tiny/tiny_elect_is_worker_model.bend as PTinyElectIsWorkerModel
+import ./proof/tiny/tiny_elect_entry_answers.bend as PTinyElectEntryAnswers
+import ./proof/tiny/tiny_elect_entry_reads.bend as PTinyElectEntryReads
+import ./proof/tiny/tiny_elect_entry_exact.bend as PTinyElectEntryExact
+import ./proof/tiny/tiny_elect_entry_refuses.bend as PTinyElectEntryRefuses
+import ./proof/tiny/tiny_elect_entry_example.bend as PTinyElectEntryExample
 import ./proof/effort/base.bend as LAEffort
 import ./proof/effort/effort_offered_plain.bend as PEffortOfferedPlain
 import ./proof/effort/effort_offered_null.bend as PEffortOfferedNull

@@ -172,3 +172,163 @@ def needs(es: List<&2, Ev>) -> Nat:
           1n+needs(rest)
         case Gone{}:
           needs(rest)
+
+# 3. One process's election
+# -------------------------
+# The worker of section 2 as one process meets it (crates/eukhe-tiny
+# election.rs): the process pings the worker's socket and decides from
+# what answers alone (it never sees the owner). Rust connects, pings,
+# shuts down, launches and reports; each choice below runs as the
+# compiled core (bend/ffi_tiny_elect.bend).
+
+# what a ping of the worker's socket met
+type Probe is Data:
+  Missing{}          # no socket, or a refused one: no worker
+  Unreachable{}      # the connect failed otherwise
+  Pong{tag: String}  # a worker answered with its launch tag
+  Odd{}              # a worker answered the ping with another reply
+  Garbled{}          # the answer is no line of the protocol
+  Hung{}             # the connection closed or failed on the ping
+
+# what the process does after its first ping
+type Act is Data:
+  Join{}     # a live worker has its tag: use it
+  Replace{}  # a live worker has another tag: shut it down, start one
+  Start{}    # no live worker: start one
+  Broken{}   # the socket failed or spoke out of protocol: an IO error
+
+# a and b are the same text, char by char
+def same(a: String, b: String) -> Bool:
+  match a b:
+    case SNil{} SNil{}:
+      True{}
+    case SNil{} SCon{y, v}:
+      False{}
+    case SCon{x, u} SNil{}:
+      False{}
+    case SCon{x, u} SCon{y, v}:
+      Bool.and(Char.is_eq(x, y), same(u, v))
+
+def elect.pong(s: Bool) -> Act:
+  match s:
+    case True{}:
+      Join{}
+    case False{}:
+      Replace{}
+
+# the first choice of a process with launch tag mine
+def elect(p: Probe, mine: String) -> Act:
+  match p:
+    case Missing{}:
+      Start{}
+    case Unreachable{}:
+      Broken{}
+    case Pong{t}:
+      elect.pong(same(t, mine))
+    case Odd{}:
+      Broken{}
+    case Garbled{}:
+      Broken{}
+    case Hung{}:
+      Start{}
+
+# what the shutdown of a worker of another tag heard
+type Heard is Data:
+  Bye{}    # the worker said bye
+  Other{}  # it answered with something else
+  Eof{}    # it closed first: it exited on its own meanwhile
+  Lost{}   # the connection failed otherwise
+
+type Shut is Data:
+  Down{}   # the worker is gone: start one
+  Spoke{}  # out of protocol
+  Cut{}    # an IO error
+
+def shut(h: Heard) -> Shut:
+  match h:
+    case Bye{}:
+      Down{}
+    case Other{}:
+      Spoke{}
+    case Eof{}:
+      Down{}
+    case Lost{}:
+      Cut{}
+
+# a start the process made: of a first worker, or of a replacement
+type Fresh is Data:
+  First{}
+  Again{}
+
+# how a started worker came up
+type Launch is Data:
+  Bound{}    # it bound the socket and serves
+  Adopted{}  # another worker took the socket first; the started one left
+
+# what a need that started a worker got
+def launched(f: Fresh, l: Launch) -> Got:
+  match f:
+    case First{}:
+      match l:
+        case Bound{}:
+          Started{}
+        case Adopted{}:
+          Joined{}
+    case Again{}:
+      match l:
+        case Bound{}:
+          Replaced{}
+        case Adopted{}:
+          Joined{}
+
+# what the ping after a start met, for the process
+type Check is Data:
+  Serving{}    # a worker with its tag answers: use it
+  Mistagged{}  # a worker of another tag answers: the start failed
+  Vacant{}     # no worker answers: the start failed
+  Faulty{}     # the socket failed or spoke out of protocol: an IO error
+
+def confirm.pong(s: Bool) -> Check:
+  match s:
+    case True{}:
+      Serving{}
+    case False{}:
+      Mistagged{}
+
+# the check after a start, of a process with launch tag mine
+def confirm(p: Probe, mine: String) -> Check:
+  match p:
+    case Missing{}:
+      Vacant{}
+    case Unreachable{}:
+      Faulty{}
+    case Pong{t}:
+      confirm.pong(same(t, mine))
+    case Odd{}:
+      Faulty{}
+    case Garbled{}:
+      Faulty{}
+    case Hung{}:
+      Vacant{}
+
+# what a started worker does with the socket (crates/eukhe-tiny
+# worker.rs `bind`), after its own ping of it
+type Seat is Data:
+  Adopt{}  # a live worker answers (any tag): leave it in place and exit
+  Take{}   # no live worker: remove a stale socket and bind it
+  Fault{}  # the socket failed or spoke out of protocol: an IO error
+
+def bind(p: Probe) -> Seat:
+  match p:
+    case Missing{}:
+      Take{}
+    case Unreachable{}:
+      Fault{}
+    case Pong{t}:
+      Adopt{}
+    case Odd{}:
+      Fault{}
+    case Garbled{}:
+      Fault{}
+    case Hung{}:
+      Take{}

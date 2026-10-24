@@ -15,7 +15,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::catalog::{find, CatalogModel};
-use crate::election::{probe, Probe};
+use crate::election::{probe, seat, Seat};
 use crate::engine::{Engine, EngineFactory, EngineOptions};
 use crate::paths::{Backend, TinyHome};
 use crate::protocol::{read_line, Line, Reply, Request, Response, WorkerFailure, MAX_LINE_BYTES};
@@ -241,15 +241,16 @@ pub(crate) async fn bind(
     .await
     .map_err(io::Error::other)??;
     let socket = home.socket(model.id, backend);
-    let bound = match probe(&socket).await? {
-        Probe::Live { .. } => Bound::Adopted,
-        Probe::Absent => {
+    let bound = match seat(probe(&socket).await) {
+        Seat::Adopt => Bound::Adopted,
+        Seat::Take => {
             remove_socket(&socket)?;
             Bound::Listening(Listening {
                 listener: UnixListener::bind(&socket)?,
                 socket,
             })
         }
+        Seat::Fault(error) => return Err(error),
     };
     drop(lock);
     Ok(bound)
@@ -472,6 +473,7 @@ mod tests {
     use std::sync::mpsc;
 
     use super::*;
+    use crate::election::Met;
     use crate::protocol::{
         Audio, ChatMessage, ChatReply, ChatRequest, ChatRole, SpeakRequest, StopReason,
         TranscribeRequest, Transcript,
@@ -578,9 +580,11 @@ mod tests {
     }
 
     async fn connect(socket: &std::path::Path) -> crate::election::Connection {
-        match probe(socket).await.expect("probe") {
-            Probe::Live { connection, .. } => connection,
-            Probe::Absent => panic!("no worker on {}", socket.display()),
+        match probe(socket).await {
+            Met::Pong { connection, .. } => connection,
+            Met::Missing | Met::Unreachable(_) | Met::Odd(_) | Met::Garbled(_) | Met::Hung => {
+                panic!("no worker on {}", socket.display())
+            }
         }
     }
 
