@@ -84,6 +84,8 @@ pub enum Entry {
     Fsmode = 37,
     /// `bend/ffi_skill_load.bend`: a call.
     SkillLoad = 38,
+    /// `bend/ffi_doc_rows.bend`: a call.
+    DocRows = 41,
 }
 
 impl Entry {
@@ -128,6 +130,7 @@ impl Entry {
         Entry::Launcher,
         Entry::Fsmode,
         Entry::SkillLoad,
+        Entry::DocRows,
     ];
 
     /// The id `bend/core.bend` dispatches on.

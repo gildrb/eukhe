@@ -22,8 +22,6 @@
 
 mod apply;
 mod block;
-#[cfg(test)]
-mod bridge;
 mod clipboard;
 mod endings;
 mod input;
@@ -50,10 +48,7 @@ use self::{
     patcher::{stage_patch, StagedFile, StagedOp, Workspace},
 };
 use crate::{
-    diff_string::build_compact_diff_preview,
-    error::EditError,
-    store::EditStore,
-    text::{normalize_to_lf, strip_bom},
+    diff_string::build_compact_diff_preview, error::EditError, store::EditStore, text::lf_text,
 };
 
 /// The `edit` tool description: omp's hashline prompt without the block
@@ -411,12 +406,12 @@ fn commit(mut file: StagedFile, write: Write, store: &EditStore) -> FileOutcome 
             let recorded = if written == *persisted {
                 file.after.clone()
             } else {
-                normalize_to_lf(strip_bom(&written).1).into_owned()
+                lf_text(&written)
             };
             // The lines of the new text the model saw: the lines of the
             // base it saw that the edit kept, and every line the edit
             // wrote; `None` when the session holds no seen lines of the base.
-            let before = normalize_to_lf(strip_bom(&file.before_raw).1).into_owned();
+            let before = lf_text(&file.before_raw);
             let seen = store
                 .by_content(&file.canonical, &before)
                 .and_then(|snapshot| snapshot.seen_lines)

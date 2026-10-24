@@ -54,6 +54,7 @@ import ./laws/retry.bend as Retry
 import ./laws/dash.bend as Dash
 import ./laws/doc_commit.bend as DocCommit
 import ./laws/doc_lines.bend as DocLines
+import ./laws/doc_rows.bend as DocRows
 import ./laws/doc_tags.bend as DocTags
 import ./laws/doc_seen.bend as DocSeen
 import ./laws/doc_search.bend as DocSearch

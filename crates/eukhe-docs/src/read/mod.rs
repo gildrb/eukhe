@@ -7,6 +7,7 @@
 
 mod listing;
 pub(crate) mod selector;
+mod view;
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -16,17 +17,15 @@ use eukhe_types::path_policy::{resolve, RealPath};
 use crate::gate::{Access, AccessGate};
 use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
-use crate::text::{encoding_name, format_bytes, normalize_to_lf, strip_bom};
+use crate::text::{encoding_name, format_bytes, Line, Projection};
 use crate::url::{Located, Url, UrlError};
 
 pub use listing::DirEntry;
+use selector::Selector;
 pub use selector::SelectorError;
-use selector::{LineRange, Selector};
+pub(crate) use view::line_count;
+use view::{Facts, Gate, Note, View};
 
-/// Source lines added before a range whose start was given.
-const RANGE_LEADING_CONTEXT_LINES: usize = 1;
-/// Source lines added after a range whose end was given.
-const RANGE_TRAILING_CONTEXT_LINES: usize = 3;
 /// Marker between non-contiguous spans.
 const ELLIPSIS: &str = "…";
 /// Bytes sniffed for a NUL.
@@ -279,18 +278,25 @@ fn project_path(
     let sniffed_nul = bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0);
     let utf8 = std::str::from_utf8(&bytes).is_ok();
     let utf16 = matches!(bytes.as_slice(), [0xFF, 0xFE, ..] | [0xFE, 0xFF, ..]);
-    if !selector.is_raw() {
-        if !utf8 && (utf16 || !sniffed_nul) {
+    let facts = Facts {
+        raw: selector.is_raw(),
+        utf8,
+        utf16,
+        nul: sniffed_nul,
+    };
+    match view::gate(facts) {
+        Gate::Go => {}
+        Gate::NotUtf8 => {
             return Err(ReadError::NotUtf8 {
                 display,
                 encoding: encoding_name(&bytes),
-            });
+            })
         }
-        if sniffed_nul {
+        Gate::Binary => {
             return Err(ReadError::Binary {
                 display,
                 size: format_bytes(metadata.len()),
-            });
+            })
         }
     }
     let key = open.to_path_buf();
@@ -300,25 +306,14 @@ fn project_path(
         Ok(text) => text,
         Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
     };
-    let text = normalize_to_lf(strip_bom(&raw_text).1).into_owned();
-    let mut projection = project(&text, &selector, &display);
-    let tag = (utf8 && size <= MAX_SNAPSHOT_FILE_BYTES).then(|| store.record(&key, &text, None));
-    if size > MAX_SNAPSHOT_FILE_BYTES {
-        projection.diags.push(Notice {
-            continuation: Some(format!(":1-{LARGE_FILE_RANGE_LINES}")),
-            ..Notice::warn(
-                NoticeKind::NotEditable,
-                format!(
-                    "{display} is {}, over the {} limit: it has no tag, so `edit` cannot change it. Read it in ranges; change it with `write` (whole file) or `bash`.",
-                    format_bytes(size),
-                    format_bytes(MAX_SNAPSHOT_FILE_BYTES)
-                ),
-            )
-        });
-    }
-    let (rendered, rows) = match (&tag, selector.is_raw()) {
+    let lines = Projection::of(&raw_text);
+    let text = lines.lf_text();
+    let shown = view::view(&selector, utf8, size > MAX_SNAPSHOT_FILE_BYTES, &lines);
+    let page = page(&lines, &shown, &display, size);
+    let tag = shown.tag.then(|| store.record(&key, &text, None));
+    let (rendered, rows) = match (&tag, shown.raw) {
         (Some(tag), false) => {
-            let rows = projection
+            let rows = page
                 .rows
                 .iter()
                 .map(|row| Row {
@@ -326,24 +321,24 @@ fn project_path(
                     at: row.at + 1,
                 })
                 .collect();
-            (format!("[{display}#{tag}]\n{}", projection.text), rows)
+            (format!("[{display}#{tag}]\n{}", page.text), rows)
         }
-        (None, false) => (projection.text, projection.rows),
-        (Some(_) | None, true) => (projection.text, Vec::new()),
+        (None, false) => (page.text, page.rows),
+        (Some(_) | None, true) => (page.text, Vec::new()),
     };
-    let rendered = with_notices(rendered, &projection.diags);
+    let rendered = with_notices(rendered, &page.diags);
     Ok(ReadView {
         path: display,
         absolute,
         content: ReadContent::File(FileView {
             tag,
-            total_lines: projection.total_lines,
-            shown: projection.shown,
+            total_lines: shown.total,
+            shown: page.shown,
             text,
             rows,
         }),
         rendered,
-        diags: projection.diags,
+        diags: page.diags,
     })
 }
 
@@ -379,63 +374,22 @@ pub fn display_path(path: &Path, cwd: &Path, home: Option<&Path>) -> String {
     path.to_string_lossy().into_owned()
 }
 
-struct Projection {
+fn to_usize(line: u64) -> usize {
+    usize::try_from(line).unwrap_or(usize::MAX)
+}
+
+/// What a read shows of a file, written out.
+struct Page {
     text: String,
     diags: Vec<Notice>,
-    total_lines: usize,
     shown: Vec<LineSpan>,
     /// Numbered rows, with `at` counted in `text`.
     rows: Vec<Row>,
 }
 
-/// Lines a hashline anchor can address: a final newline adds no line.
-fn addressable_lines(text: &str) -> Vec<&str> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if text.ends_with('\n') {
-        lines.pop();
-    }
-    lines
-}
-
-fn to_usize(line: u64) -> usize {
-    usize::try_from(line).unwrap_or(usize::MAX)
-}
-
-fn project(text: &str, selector: &Selector, label: &str) -> Projection {
-    let raw = selector.is_raw();
-    let lines = if raw {
-        text.split('\n').collect()
-    } else {
-        addressable_lines(text)
-    };
-    let total = lines.len();
-    match selector {
-        Selector::Lines { ranges, raw } if ranges.len() > 1 => {
-            project_ranges(&lines, ranges, *raw, label)
-        }
-        Selector::Lines { ranges, raw } => {
-            project_window(&lines, ranges.first().copied(), *raw, label)
-        }
-        Selector::Raw => Projection {
-            text: text.to_owned(),
-            diags: Vec::new(),
-            total_lines: total,
-            shown: span_of(1, total).into_iter().collect(),
-            rows: Vec::new(),
-        },
-        Selector::Whole => project_window(&lines, None, false, label),
-    }
-}
-
-fn span_of(start_line: usize, end_line: usize) -> Option<LineSpan> {
-    (end_line >= start_line).then_some(LineSpan {
-        start_line,
-        end_line,
-    })
-}
-
-/// Write the `N:TEXT` rows of `span` to `out` and record each in `rows`.
-fn numbered(lines: &[&str], span: LineSpan, out: &mut String, rows: &mut Vec<Row>) {
+/// Write the `N:TEXT` rows of lines `start..=end` to `out` and record each
+/// in `rows`.
+fn numbered(lines: &[Line<'_>], span: LineSpan, out: &mut String, rows: &mut Vec<Row>) {
     let mut at = out.bytes().filter(|byte| *byte == b'\n').count();
     for (offset, line) in lines[span.start_line - 1..span.end_line].iter().enumerate() {
         if !out.is_empty() {
@@ -447,135 +401,87 @@ fn numbered(lines: &[&str], span: LineSpan, out: &mut String, rows: &mut Vec<Row
             line: u32::try_from(number).unwrap_or(u32::MAX),
             at,
         });
-        let _infallible = write!(out, "{number}:{line}");
+        let _infallible = write!(out, "{number}:{}", line.text);
     }
 }
 
-/// One window: the whole file, or one selected range with its context
-/// lines.
-fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &str) -> Projection {
-    let total = lines.len();
-    let requested_start = range.map_or(1, |range| to_usize(range.start_line)) - 1;
-    if requested_start >= total {
-        let diag = Notice {
-            continuation: Some(":1".to_owned()),
-            ..Notice::warn(
-                NoticeKind::RangeOutOfBounds,
-                format!(
-                    "Line {} is beyond end of {label} ({total} lines total).",
-                    requested_start.saturating_add(1)
-                ),
-            )
-        };
-        return Projection {
-            text: String::new(),
-            diags: vec![diag],
-            total_lines: total,
-            shown: Vec::new(),
-            rows: Vec::new(),
-        };
-    }
-    let limit = range.and_then(|range| {
-        range
-            .end_line
-            .map(|end| to_usize(end - range.start_line).saturating_add(1))
-    });
-    let requested_end = limit.map_or(total, |limit| {
-        requested_start.saturating_add(limit).min(total)
-    });
-    let explicit_start = !raw && requested_start > 0;
-    let explicit_end = !raw && range.is_some_and(|range| range.end_line.is_some());
-    let start = if explicit_start {
-        requested_start.saturating_sub(RANGE_LEADING_CONTEXT_LINES)
-    } else {
-        requested_start
-    };
-    let end = if explicit_end {
-        requested_end
-            .saturating_add(RANGE_TRAILING_CONTEXT_LINES)
-            .min(total)
-    } else {
-        requested_end
-    };
-    let shown: Vec<LineSpan> = span_of(start + 1, end).into_iter().collect();
-    let mut rows = Vec::new();
-    let text = if raw {
-        lines[start..end].join("\n")
-    } else {
-        let mut out = String::new();
-        for span in &shown {
-            numbered(lines, *span, &mut out, &mut rows);
-        }
-        out
-    };
-    let mut diags = Vec::new();
-    if !raw && limit.is_some() && end < total {
-        let remaining = total - end;
-        diags.push(Notice {
-            continuation: Some(format!(":{}", end + 1)),
-            omitted: Some(Omitted {
-                count: remaining as u64,
-                unit: Unit::Lines,
-            }),
-            ..Notice::info(
-                NoticeKind::Pagination,
-                format!("{remaining} lines remain in {label}."),
-            )
-        });
-    }
-    Projection {
-        text,
-        diags,
-        total_lines: total,
-        shown,
-        rows,
-    }
-}
-
-fn project_ranges(lines: &[&str], ranges: &[LineRange], raw: bool, label: &str) -> Projection {
-    let total = lines.len();
-    let mut shown = Vec::with_capacity(ranges.len());
-    let mut diags = Vec::new();
-    for range in ranges {
-        let start_line = to_usize(range.start_line);
-        if start_line > total {
-            let bound = range.end_line.map_or_else(
-                || range.start_line.to_string(),
-                |end| format!("{}-{end}", range.start_line),
-            );
-            diags.push(Notice::warn(
-                NoticeKind::RangeOutOfBounds,
-                format!("Requested range {bound} is beyond end of {label} ({total} lines total)."),
-            ));
-            continue;
-        }
-        let end_line = range.end_line.map_or(total, |end| to_usize(end).min(total));
-        shown.push(LineSpan {
-            start_line,
-            end_line,
-        });
-    }
+/// The text, rows and notices of what the core decided a read of `lines`
+/// shows (`label` names the file, `size` is its size in bytes).
+fn page(lines: &Projection<'_>, shown: &View, label: &str, size: u64) -> Page {
+    let total = shown.total;
     let mut text = String::new();
     let mut rows = Vec::new();
-    for (index, span) in shown.iter().enumerate() {
-        if raw {
-            if index > 0 {
+    let mut spans = Vec::with_capacity(shown.spans.len());
+    for span in &shown.spans {
+        let span_lines = LineSpan {
+            start_line: span.start,
+            end_line: span.end,
+        };
+        spans.push(span_lines);
+        if shown.raw {
+            if span.gap {
                 let _infallible = write!(text, "\n\n{ELLIPSIS}\n\n");
             }
-            text.push_str(&lines[span.start_line - 1..span.end_line].join("\n"));
+            for (offset, line) in lines.lines[span.start - 1..span.end].iter().enumerate() {
+                if offset > 0 {
+                    text.push('\n');
+                }
+                text.push_str(line.text);
+            }
         } else {
-            if index > 0 && span.start_line > shown[index - 1].end_line + 1 {
+            if span.gap {
                 text.push('\n');
                 text.push_str(ELLIPSIS);
             }
-            numbered(lines, *span, &mut text, &mut rows);
+            numbered(&lines.lines, span_lines, &mut text, &mut rows);
         }
     }
-    Projection {
+    let diags = shown
+        .notes
+        .iter()
+        .map(|note| match *note {
+            Note::Beyond { line } => Notice {
+                continuation: Some(":1".to_owned()),
+                ..Notice::warn(
+                    NoticeKind::RangeOutOfBounds,
+                    format!("Line {line} is beyond end of {label} ({total} lines total)."),
+                )
+            },
+            Note::Remain { count, next } => Notice {
+                continuation: Some(format!(":{next}")),
+                omitted: Some(Omitted {
+                    count,
+                    unit: Unit::Lines,
+                }),
+                ..Notice::info(
+                    NoticeKind::Pagination,
+                    format!("{count} lines remain in {label}."),
+                )
+            },
+            Note::RangeBeyond { start, end } => {
+                let bound = end.map_or_else(|| start.to_string(), |end| format!("{start}-{end}"));
+                Notice::warn(
+                    NoticeKind::RangeOutOfBounds,
+                    format!("Requested range {bound} is beyond end of {label} ({total} lines total)."),
+                )
+            }
+            Note::TooBig => Notice {
+                continuation: Some(format!(":1-{LARGE_FILE_RANGE_LINES}")),
+                ..Notice::warn(
+                    NoticeKind::NotEditable,
+                    format!(
+                        "{label} is {}, over the {} limit: it has no tag, so `edit` cannot change it. Read it in ranges; change it with `write` (whole file) or `bash`.",
+                        format_bytes(size),
+                        format_bytes(MAX_SNAPSHOT_FILE_BYTES)
+                    ),
+                )
+            },
+        })
+        .collect();
+    Page {
         text,
         diags,
-        total_lines: total,
-        shown,
+        shown: spans,
         rows,
     }
 }

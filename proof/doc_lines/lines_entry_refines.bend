@@ -86,7 +86,7 @@ def fln_runs(+xs: List<&2, Dl.Run>, +rest: String, hl: {LawsBase.wire_fits(List.
 # the entry reads a request back and answers the model's separators
 def fln_entry(+rs: List<&2, Dl.Run>, +c: Dl.End, +h: {DocLines.lines.WireFits(rs) == True{} : Bool}) -> {Fdl.ffi(Fdl.put_req(rs, c, "")) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}:
   +tail = Fdl.put_end(c, "")
-  %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list(~Dl.Run, ~Fdl.get_run, Wr.put_list(~Dl.Run, ~Fdl.put_run, rs, tail)), Wr.Got{rs, tail}, fln_runs(rs, tail, LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h), LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h))) : {Fdl.run.runs(_) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
+  %Equal.sym(Wr.Dec<List<&2, Dl.Run>>, Wr.get_list(~Dl.Run, ~Fdl.get_run, Wr.put_list(~Dl.Run, ~Fdl.put_run, rs, tail)), Wr.Got{rs, tail}, fln_runs(rs, tail, LLogicBool.wr_and_l(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h), LLogicBool.wr_and_r(LawsBase.wire_fits(List.length(&2, Dl.Run, rs)), DocLines.lines.RunsFit(rs), h))) : {Fdl.run.runs(_, Wr.put_list(~Dl.Run, ~Fdl.put_run, rs, tail)) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
   %Equal.sym(Wr.Dec<Dl.End>, Fdl.get_end(tail), Wr.Got{c, ""}, fln_end(c, "")) : {Fdl.run.carry(rs, _) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
   {==}
 

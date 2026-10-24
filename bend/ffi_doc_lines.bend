@@ -1,12 +1,20 @@
-# ffi_doc_lines: the entry of the compiled Bend core for the separators an
-# edited file persists with (bend/doc_lines.bend `plan`; Rust:
-# crates/eukhe-docs hashline/endings.rs). Pure: no IO, no @unsafe, no
-# foreign effect.
+# ffi_doc_lines: the entry of the compiled Bend core for the line endings
+# of a file (bend/doc_lines.bend `plan`, `carry`, `write`; Rust:
+# crates/eukhe-docs hashline/endings.rs, text.rs). Pure: no IO, no
+# @unsafe, no foreign effect.
 #
-# Request (a record):
-#   runs   List<Run>  Run = end: Maybe<End>, n: Nat
-#   carry  End        End = Lf (tag 0) | CrLf (tag 1)
-# Reply: List<Seps>   Seps = end: End, n: Nat
+# Three requests:
+#   plan   runs: List<Run>, carry: End      Run = end: Maybe<End>, n: Nat
+#          reply: List<Seps>                Seps = end: End, n: Nat
+#   `L` then a projection                   (the carry of a loaded file)
+#          reply: End
+#   `W` then two projections                (a whole-file write: the file
+#          reply: bom: Bool, sep: End,       on disk, then the content)
+#                 warn: Bool
+# End = Lf (tag 0) | CrLf (tag 1); Maybe<End> = 0 | 1 then the End.
+# A projection is bom: Bool, then List<Line>, Line = len: Nat, end:
+# Maybe<End>. A plan request starts with a digit (its count), so the
+# entry reads it first; an input that is no plan is read as `L` or `W`.
 # A malformed request, or one with input left over, answers the wire
 # error form.
 
@@ -107,8 +115,50 @@ def put_seps(x: M.Seps, rest: String) -> String:
 def put_req(rs: List<&2, M.Run>, c: M.End, rest: String) -> String:
   W.put_list(~M.Run, ~put_run, rs, put_end(c, rest))
 
-# The request
+# Projections
 # -----------
+
+def get_line.end(n: Nat, r: W.Dec<Maybe<&2, M.End>>) -> W.Dec<M.Line>:
+  match r:
+    case W.Got{o, s}:
+      W.Got{M.Line{n, o}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_line.len(r: W.Dec<Nat>) -> W.Dec<M.Line>:
+  match r:
+    case W.Got{n, s}:
+      get_line.end(n, get_mend(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_line(s: String) -> W.Dec<M.Line>:
+  get_line.len(W.get_nat(s))
+
+def get_proj.lines(b: Bool, r: W.Dec<List<&2, M.Line>>) -> W.Dec<M.Proj>:
+  match r:
+    case W.Got{ls, s}:
+      W.Got{M.Proj{b, ls}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_proj.bom(r: W.Dec<Bool>) -> W.Dec<M.Proj>:
+  match r:
+    case W.Got{b, s}:
+      get_proj.lines(b, W.get_list(~M.Line, ~get_line, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_proj(s: String) -> W.Dec<M.Proj>:
+  get_proj.bom(W.get_bool(s))
+
+def put_kept(k: M.Kept) -> String:
+  match k:
+    case M.Kept{b, e, w}:
+      W.put_bool(b, put_end(e, W.put_bool(w, "")))
+
+# The requests
+# ------------
 
 def run.done(rs: List<&2, M.Run>, c: M.End, done: Bool) -> String:
   match done:
@@ -124,13 +174,70 @@ def run.carry(rs: List<&2, M.Run>, r: W.Dec<M.End>) -> String:
     case W.Bad{}:
       W.err("doc_lines: malformed carry")
 
-def run.runs(r: W.Dec<List<&2, M.Run>>) -> String:
+def load.done(p: M.Proj, done: Bool) -> String:
+  match done:
+    case True{}:
+      put_end(M.carry(p), "")
+    case False{}:
+      W.err("doc_lines: input left over")
+
+def load.run(r: W.Dec<M.Proj>) -> String:
+  match r:
+    case W.Got{p, s}:
+      load.done(p, W.end(s))
+    case W.Bad{}:
+      W.err("doc_lines: malformed projection")
+
+def write.done(p: M.Proj, q: M.Proj, done: Bool) -> String:
+  match done:
+    case True{}:
+      put_kept(M.write(p, q))
+    case False{}:
+      W.err("doc_lines: input left over")
+
+def write.next(p: M.Proj, r: W.Dec<M.Proj>) -> String:
+  match r:
+    case W.Got{q, s}:
+      write.done(p, q, W.end(s))
+    case W.Bad{}:
+      W.err("doc_lines: malformed projection")
+
+def write.run(r: W.Dec<M.Proj>) -> String:
+  match r:
+    case W.Got{p, s}:
+      write.next(p, get_proj(s))
+    case W.Bad{}:
+      W.err("doc_lines: malformed projection")
+
+def kind.pick(l: Bool, w: Bool, t: String) -> String:
+  match l:
+    case True{}:
+      load.run(get_proj(t))
+    case False{}:
+      match w:
+        case True{}:
+          write.run(get_proj(t))
+        case False{}:
+          W.err("doc_lines: malformed runs")
+
+# an input that is no plan: `L` (76) or `W` (87), then its projections
+def kind(input: String) -> String:
+  match input:
+    case SNil{}:
+      W.err("doc_lines: malformed runs")
+    case SCon{c, t}:
+      match c:
+        case Chr{+x}:
+          kind.pick(U32.is_eq(x, 76), U32.is_eq(x, 87), t)
+
+def run.runs(r: W.Dec<List<&2, M.Run>>, input: String) -> String:
   match r:
     case W.Got{rs, s}:
       run.carry(rs, get_end(s))
     case W.Bad{}:
-      W.err("doc_lines: malformed runs")
+      kind(input)
 
-# the entry: runs of line endings and the first carry in, the separators out
-def ffi(input: String) -> String:
-  run.runs(W.get_list(~M.Run, ~get_run, input))
+# the entry: a plan (runs of line endings and the first carry in, the
+# separators out), or the carry of a projection, or a write's decision
+def ffi(+input: String) -> String:
+  run.runs(W.get_list(~M.Run, ~get_run, input), input)

@@ -26,9 +26,7 @@ use crate::error::EditError;
 use crate::gate::{Access, AccessGate};
 use crate::hashline::{EditWriter, Published, WriteOp, WriteRequest as EditWriteRequest};
 use crate::store::EditStore;
-use crate::text::{
-    detect_line_ending, encoding_name, normalize_to_lf, restore_line_endings, strip_bom, LineEnding,
-};
+use crate::text::{self, encoding_name, LineEnding, Projection, BOM};
 
 /// An exclusive lock on one canonical path; released on drop.
 #[derive(Debug)]
@@ -373,21 +371,30 @@ pub(crate) fn write_file(
                 encoding_name(&bytes)
             ));
         }
-        let (bom, body) = strip_bom(&previous);
-        let ending = detect_line_ending(body);
-        let content = strip_bom(content).1;
-        let asked = detect_line_ending(content);
-        if body.contains('\n') && content.contains('\n') && asked != ending {
+        let asked = Projection::of(content);
+        let kept = text::kept(&Projection::of(&previous), &asked);
+        if kept.warn {
+            // A warning means the content's first ending is the other one.
+            let had = match kept.sep {
+                LineEnding::Lf => LineEnding::CrLf,
+                LineEnding::CrLf => LineEnding::Lf,
+            };
             warnings.push(format!(
                 "{display} keeps its {} line endings; the content had {}.",
-                ending_name(ending),
-                ending_name(asked)
+                ending_name(kept.sep),
+                ending_name(had)
             ));
         }
-        let persisted = format!(
-            "{bom}{}",
-            restore_line_endings(&normalize_to_lf(content), ending)
-        );
+        let mut persisted = String::with_capacity(content.len() + 3);
+        if kept.bom {
+            persisted.push_str(BOM);
+        }
+        for (at, line) in asked.lines.iter().enumerate() {
+            if at > 0 {
+                persisted.push_str(kept.sep.as_str());
+            }
+            persisted.push_str(line.text);
+        }
         (
             persisted,
             Some(permissions),
@@ -423,9 +430,10 @@ pub(crate) fn write_file(
         ));
     }
     store.saw_bytes(&canonical, persisted.as_bytes());
-    let text = normalize_to_lf(strip_bom(&persisted).1).into_owned();
+    let projection = Projection::of(&persisted);
+    let text = projection.lf_text();
     let tag = (persisted.len() as u64 <= crate::store::MAX_SNAPSHOT_FILE_BYTES).then(|| {
-        let line_count = text.split('\n').count() - usize::from(text.ends_with('\n'));
+        let line_count = crate::read::line_count(&projection);
         let seen: Vec<u32> = (1..=u32::try_from(line_count).unwrap_or(u32::MAX)).collect();
         store.reset_noop(&canonical);
         store.record(&canonical, &text, Some(&seen))

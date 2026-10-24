@@ -1,13 +1,12 @@
-//! Two bridges from grep to the documents models.
+//! Grep's rows against read's, and the bridge from grep's tags to their
+//! model.
 //!
-//! Rows (`bend/doc_lines.bend`, law `grep_line_is_read_line` of
-//! `laws/doc_search.bend`): generated bodies of content bytes, `\r`, `\n`
-//! and `\r\n` (not empty), with or without a BOM, are read with
-//! [`Documents::read`] and searched with the pattern `^`, and
-//! `bridge/bridge_doc_rows.bend` must print the same rows. A scenario line is
-//! `M BODY` (M: 1 for a BOM; BODY: `a`, `r`, `n` for each byte); it prints
-//! `r N TEXT` for each row of read, then `g N TEXT` for each row of grep
-//! (TEXT: `a` and `r` for each byte, `-` when empty).
+//! Rows: read's rows are the compiled core's decision over the scan of the
+//! file (`bend/doc_rows.bend`, law `rows_lines_are_read_rows`); grep's
+//! come from the search engine. Generated bodies of content bytes, `\r`,
+//! `\n` and `\r\n` (not empty), with or without a BOM, read with
+//! [`Documents::read`] and searched with the pattern `^`, show the same
+//! rows (the model's law `grep_line_is_read_line`, here on the real code).
 //!
 //! Tags (`bend/doc_tags.bend`, law `tag_names_shown_text`): a file holds
 //! version 1 (N1 lines) when grep searches it and version 2 (N2 lines)
@@ -22,10 +21,9 @@ use super::{grep_with, GrepLimits, GrepOutput, GrepRequest};
 use crate::read::ReadContent;
 use crate::store::EditStore;
 use crate::testing::{compare, Rng, Scenario};
-use crate::text::{normalize_to_lf, strip_bom};
+use crate::text::lf_text;
 use crate::Documents;
 
-const ROWS_MODEL: &str = "bridge/bridge_doc_rows.bend";
 const TAGS_MODEL: &str = "bridge/bridge_doc_tags.bend";
 const BOM: &str = "\u{FEFF}";
 
@@ -44,21 +42,6 @@ fn every_line(path: &str) -> GrepRequest {
     }
 }
 
-/// The text of a row as the model writes it.
-fn escaped(text: &str) -> String {
-    if text.is_empty() {
-        return "-".to_owned();
-    }
-    text.chars()
-        .map(|char| match char {
-            'a' => 'a',
-            '\r' => 'r',
-            '\n' => 'n',
-            _ => '?',
-        })
-        .collect()
-}
-
 /// `(line, text)` of each row at its place in `rendered`: the text after
 /// the row's `N:` (grep: `*N:`).
 fn rows_of(rendered: &str, rows: &[crate::read::Row]) -> Vec<(u32, String)> {
@@ -71,9 +54,8 @@ fn rows_of(rendered: &str, rows: &[crate::read::Row]) -> Vec<(u32, String)> {
         .collect()
 }
 
-/// The rows read and grep show of a file holding `bytes`, as the model
-/// prints them.
-fn read_and_grep(dir: &Path, bytes: &str) -> String {
+/// The rows read and grep show of a file holding `bytes`.
+fn read_and_grep(dir: &Path, bytes: &str) -> [Vec<(u32, String)>; 2] {
     let cwd = dir.join("w");
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::write(cwd.join("f.txt"), bytes).unwrap();
@@ -91,58 +73,36 @@ fn read_and_grep(dir: &Path, bytes: &str) -> String {
         &|| {},
     )
     .unwrap();
-    let mut printed = String::new();
-    for (line, text) in rows_of(&view.rendered, &file.rows) {
-        let _ = writeln!(printed, "r {line} {}", escaped(&text));
-    }
     let rendered = output.render();
-    for grep_file in &output.files {
-        for (line, text) in rows_of(&rendered, &grep_file.rows) {
-            let _ = writeln!(printed, "g {line} {}", escaped(&text));
-        }
-    }
-    printed
+    let grep = output
+        .files
+        .iter()
+        .flat_map(|grep_file| rows_of(&rendered, &grep_file.rows))
+        .collect();
+    [rows_of(&view.rendered, &file.rows), grep]
 }
 
-/// Read and grep show the same rows, as the model's two splitters do, on
-/// 100 scenarios of 1 to 4 bodies: lone `\r` (also before `\r\n` and at
-/// the end), mixed `\n` and `\r\n` endings, a final newline or not, a BOM.
+/// Read and grep show the same rows on 100 bodies: lone `\r` (also before
+/// `\r\n` and at the end), mixed `\n` and `\r\n` endings, a final newline or
+/// not, a BOM.
 #[test]
-fn read_and_grep_rows_equal_the_bend_model() {
+fn read_and_grep_show_the_same_rows() {
     let mut rng = Rng(0x6e9e_1a5e_7a95_0003);
     let dir = tempfile::tempdir().unwrap();
-    let scenarios = (0..100).map(|at| {
-        let mut events = Vec::new();
-        let mut transcript = String::new();
-        for index in 0..rng.range(1, 4) {
-            let bom = rng.below(2) == 1;
-            let mut body = String::new();
-            for _ in 0..rng.range(1, 10) {
-                body.push_str(match rng.below(4) {
-                    0 => "a",
-                    1 => "\r",
-                    2 => "\n",
-                    3.. => "\r\n",
-                });
-            }
-            let bytes = if bom {
-                format!("{BOM}{body}")
-            } else {
-                body.clone()
-            };
-            transcript.push_str(&read_and_grep(
-                &dir.path().join(format!("{at}-{index}")),
-                &bytes,
-            ));
-            events.push(format!("{} {}", u8::from(bom), escaped(&body)));
+    for at in 0..100 {
+        let bom = rng.below(2) == 1;
+        let mut bytes = if bom { BOM.to_owned() } else { String::new() };
+        for _ in 0..rng.range(1, 10) {
+            bytes.push_str(match rng.below(4) {
+                0 => "a",
+                1 => "\r",
+                2 => "\n",
+                3.. => "\r\n",
+            });
         }
-        Scenario {
-            name: format!("rows-{at}"),
-            events: events.join("\n"),
-            transcript,
-        }
-    });
-    compare(ROWS_MODEL, scenarios.collect::<Vec<_>>());
+        let [read, grep] = read_and_grep(&dir.path().join(at.to_string()), &bytes);
+        assert_eq!(read, grep, "{bytes:?}");
+    }
 }
 
 /// Version `v` of the file: `lines` lines `vV lI`.
@@ -187,7 +147,7 @@ fn rewritten(dir: &Path, lines: [u64; 2]) -> String {
     let tags = EditStore::new();
     let tag_of = |v: u64| {
         let text = &texts[usize::try_from(v - 1).unwrap()];
-        tags.record(&path, &normalize_to_lf(strip_bom(text).1), None)
+        tags.record(&path, &lf_text(text), None)
     };
     let rows = rows_of(&output.render(), &file.rows);
     let rows_of_version = |v: u64| {

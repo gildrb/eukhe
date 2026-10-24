@@ -84,7 +84,7 @@ impl Fixture {
     /// line seen.
     fn header(&self, name: &str) -> String {
         let text = std::fs::read_to_string(self.path(name)).unwrap();
-        let text = crate::text::normalize_to_lf(crate::text::strip_bom(&text).1).into_owned();
+        let text = crate::text::lf_text(&text);
         let lines: Vec<u32> = (1..=u32::try_from(text.split('\n').count()).unwrap()).collect();
         let tag = self.store.record(
             &eukhe_types::path_policy::real_path(&self.path(name)),

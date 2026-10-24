@@ -455,8 +455,10 @@ functions `read()`, `write()`, `edit()`, `grep()`, `glob()` (crate
     message with its path and encoding.
 
 Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
-`bend/doc_lines.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
-`laws/doc_seen.bend`, `laws/doc_search.bend`, `laws/doc_commit.bend`, `laws/doc_tags.bend`, `laws/doc_lines.bend`. Proofs: `proof/doc_seen/`, `proof/doc_search/`, `proof/doc_commit/`, `proof/doc_tags/` and `proof/doc_lines/`.
+`bend/doc_lines.bend`, `bend/doc_rows.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
+`laws/doc_seen.bend`, `laws/doc_search.bend`, `laws/doc_commit.bend`, `laws/doc_tags.bend`, `laws/doc_lines.bend`, `laws/doc_rows.bend`. Proofs: `proof/doc_seen/`, `proof/doc_search/`, `proof/doc_commit/`, `proof/doc_tags/`, `proof/doc_lines/` and `proof/doc_rows/`.
+
+Lines run as the compiled Bend core: Rust scans a file into its projection (`text.rs` `Projection`: the BOM flag, each line's length and own ending) and the core decides on it: the separators of an edit, the carry of a loaded file and what a whole-file write keeps (`bend/ffi_doc_lines.bend`), whether a read goes on and what it shows (`bend/ffi_doc_rows.bend`: lines counted, spans with context and gap markers, notices, tag).
 
 | Law | Says |
 | --- | --- |
@@ -472,10 +474,21 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `temp_sweep_removes_free` | removes every unlocked temp file of its target (S8.5) |
 | `load_persist_roundtrip` | load + write, no edit: same bytes (S8.6) |
 | `edit_keeps_untouched_bytes` | every byte outside the edited lines kept (S8.6) |
+| `edit_writes_new_lines` | an edit keeps the lines before, then exactly the new lines, then the lines after (S8.6) |
 | `grep_line_is_read_line` | `grep` and `read`: same text at the same line number (S8.6) |
 | `persist_weaves_carry` | edited file written line by line: each line but the last followed by its own ending, else the separator written before it (S8.6) |
 | `persist_plan_refines` | separator plan over runs of lines gives, line for line, that rule's separators (S8.6) |
 | `lines_entry_refines` | the plan's compiled entry reads every request back, answers the model's separators (S8.6) |
+| `lines_carry_is_first` | the carry decided from a file's projection is the first ending persist starts from (S8.6) |
+| `lines_write_keeps` | a whole-file write keeps the file's BOM and first ending, warns iff both texts have endings and they differ (S8.6) |
+| `lines_entry_answers` | the lines entry answers every request spelled from the wire primitives with the spelled decision (S8.6) |
+| `lines_entry_exact` | any input the lines entry does not refuse is the spelling of a request (S8.6) |
+| `rows_lines_are_read_rows` | the lines a read numbers are, in order and length, the model's read rows (S8.6) |
+| `rows_raw_lines_are_pieces` | a raw read counts every piece of the LF text (S8.6) |
+| `rows_gate_refuses` | a read that is not raw refuses a non-UTF-8 file, then a binary one (S8.10) |
+| `rows_view_shows` | a read shows the lines it counts, the spans with their context and gap markers, the notices and the tag of the read rule (S8.6, S8.10) |
+| `rows_entry_answers` | the read entry answers every request spelled from the wire primitives with the spelled decision (S8.6) |
+| `rows_entry_exact` | any input the read entry does not refuse is the spelling of a request (S8.6) |
 | `tag_names_shown_text` | tag names the text its rows come from (S8.7) |
 | `edit_only_seen_lines` | applies only if every anchor is seen (S8.8) |
 | `edit_seen_applies` | all anchors seen: applies (S8.8) |
@@ -493,8 +506,8 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `continuation_contiguous` | continuation = next part of the list: none left out, none twice (S8.9) |
 | `continuation_disjoint` | page and continuation share no item (S8.9) |
 
-Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`, `write_file`, sweep), `hashline/mod.rs` (`apply_hashline`, `commit`), `hashline/patcher.rs`, `hashline/seen.rs` (seen guard), `hashline/apply.rs` (line origins, `persist`), `text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs` (`saw_bytes`), `eukhe-core/src/durable/documents/tool.rs` (`bounded`), `requests.rs` (`Cut`, `Done::mark_seen`).
+Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`, `write_file`, sweep), `hashline/mod.rs` (`apply_hashline`, `commit`), `hashline/patcher.rs`, `hashline/seen.rs` (seen guard), `hashline/apply.rs` (line origins, `persist`), `text.rs` (scan, carry, write decision), `read/mod.rs`, `read/view.rs` (read gate and view), `grep/`, `glob.rs`, `store.rs` (`saw_bytes`), `eukhe-core/src/durable/documents/tool.rs` (`bounded`), `requests.rs` (`Cut`, `Done::mark_seen`).
 
-Ties: `write::bridge` (multi-file edit with injected faults and conflicts; write tool vs writes by another program; move; sweep with live locks), `hashline::bridge` (random bytes with `\r`, `\n`, `\r\n`, BOM through real read and edit), `grep::bridge` (read and grep rows; file changes between search and record), `grep::bridge_accounts`, `glob::bridge` (generated trees; every continuation followed once), `durable::documents::bridge` (long read cut by the output bound; edits at anchors in and around the cut).
+Ties: `write::bridge` (multi-file edit with injected faults and conflicts; write tool vs writes by another program; move; sweep with live locks), `text::tests::the_scan_is_the_projection` (the scan is the projection the laws state), `grep::bridge` (read and grep show the same rows on random bytes with `\r`, `\n`, `\r\n`, BOM; file changes between search and record), `grep::bridge_accounts`, `glob::bridge` (generated trees; every continuation followed once), `durable::documents::bridge` (long read cut by the output bound; edits at anchors in and around the cut).
 
 Not modelled: notice text bytes; line model of a stale edit's rebase (maps lines through a line diff).

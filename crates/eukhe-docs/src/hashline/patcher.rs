@@ -29,7 +29,7 @@ use crate::{
     path::lexical_normalize,
     rebase::rebase_content,
     store::{file_hash, payload_hash, Clipboard, EditStore},
-    text::{encoding_name, line_endings, normalize_to_lf, strip_bom, LineEnding},
+    text::{self, encoding_name, LineEnding, Projection},
 };
 
 /// Where authored paths resolve.
@@ -83,6 +83,9 @@ pub(crate) struct FileRead {
     bom: &'static str,
     /// The ending of each line that has one: one item for each `\n` of `text`.
     endings: Vec<LineEnding>,
+    /// The separator before a new line that follows no line of the file
+    /// ([`text::carry`]).
+    carry: LineEnding,
     /// BOM-stripped editable text with each CRLF made LF.
     pub(crate) text: String,
 }
@@ -109,13 +112,18 @@ impl FileRead {
                 encoding_name(error.as_bytes())
             ))
         })?;
-        let (bom, body) = strip_bom(&raw);
-        let endings = line_endings(body);
-        let text = normalize_to_lf(body).into_owned();
+        let projection = Projection::of(&raw);
+        let (bom, endings, carry, text) = (
+            projection.bom(),
+            projection.endings().collect(),
+            text::carry(&projection),
+            projection.lf_text(),
+        );
         Ok(Some(Self {
             canonical: eukhe_types::path_policy::real_path(absolute),
             bom,
             endings,
+            carry,
             text,
             raw,
         }))
@@ -137,20 +145,14 @@ impl FileRead {
                 .and_then(|origin| self.endings.get(origin))
                 .copied()
         }));
-        let seps = endings::plan(
-            &runs,
-            self.endings.first().copied().unwrap_or(LineEnding::Lf),
-        );
+        let seps = endings::plan(&runs, self.carry);
         let mut out = String::with_capacity(after.len() + self.bom.len() + separators + 1);
         out.push_str(self.bom);
         let mut lines = after.split('\n');
         for sep in seps {
             for line in lines.by_ref().take(sep.n) {
                 out.push_str(line);
-                out.push_str(match sep.end {
-                    LineEnding::Lf => "\n",
-                    LineEnding::CrLf => "\r\n",
-                });
+                out.push_str(sep.end.as_str());
             }
         }
         for line in lines {

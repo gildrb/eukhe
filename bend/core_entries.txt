@@ -40,3 +40,4 @@
 36 launcher
 37 fsmode
 38 skill_load
+41 doc_rows

@@ -20,10 +20,10 @@
 # empty piece after a final `\n`. Grep splits on `\n`, strips the `\r` of
 # each `\r\n` terminator, and shows no row after a final `\n`.
 #
-# The bridges (bridge/bridge_doc_lines.bend with
-# crates/eukhe-docs/src/hashline/bridge.rs, bridge/bridge_doc_rows.bend
-# with crates/eukhe-docs/src/grep/bridge.rs) run the real code on
-# generated files and compare.
+# Rust scans a file into its projection (`proj` below) and the compiled
+# core decides on it: the separators of an edit (`plan`), the carry of a
+# loaded file (`carry`), what a write keeps (`write`), and what a read
+# shows (bend/doc_rows.bend). The laws tie the projection to the bytes.
 
 import Base
 
@@ -444,3 +444,100 @@ def lastrow(ps: List<&2, List<&2, B>>) -> List<&2, List<&2, B>>:
 # final `\n`
 def grep_rows(bs: List<&2, B>) -> List<&2, List<&2, B>>:
   lastrow(lines(splitN(bs)))
+
+# The projection Rust scans
+# -------------------------
+# Rust does not send the bytes of a file: it scans them into their
+# projection (crates/eukhe-docs/src/text.rs `Projection`): the BOM flag
+# and each line (each piece of `load`) as its length in chars and its
+# own ending (None: the last piece). The decisions over the lines of a
+# file run on the projection (bend/ffi_doc_lines.bend `L` and `W`
+# requests, bend/doc_rows.bend).
+
+type Line is Data:
+  Line{len: Nat, end: Maybe<&2, End>}
+
+type Proj is Data:
+  Proj{bom: Bool, lines: List<&2, Line>}
+
+def proj.line(p: Piece) -> Line:
+  match p:
+    case Piece{t, en}:
+      Line{List.length(&2, B, t), en}
+
+def proj.lines(ps: List<&2, Piece>) -> List<&2, Line>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      proj.line(p) <> proj.lines(rest)
+
+# the projection of a file: what Rust's scan answers
+def proj(f: Doc) -> Proj:
+  match f:
+    case Doc{bom, bs}:
+      Proj{bom, proj.lines(pieces(split(bs)))}
+
+# the first ending among the lines (None: no line has one)
+def first_end(ls: List<&2, Line>) -> Maybe<&2, End>:
+  match ls:
+    case Nil{}:
+      None{}
+    case l <> rest:
+      match l:
+        case Line{n, en}:
+          match en:
+            case None{}:
+              first_end(rest)
+            case Some{e}:
+              Some{e}
+
+def or_lf(m: Maybe<&2, End>) -> End:
+  match m:
+    case None{}:
+      Lf{}
+    case Some{e}:
+      e
+
+# the carry of a loaded file (the separator before its first new line):
+# its first ending, else LF
+def carry(p: Proj) -> End:
+  match p:
+    case Proj{b, ls}:
+      or_lf(first_end(ls))
+
+def End.same(a: End, b: End) -> Bool:
+  match a b:
+    case Lf{} Lf{}:
+      True{}
+    case Lf{} CrLf{}:
+      False{}
+    case CrLf{} Lf{}:
+      False{}
+    case CrLf{} CrLf{}:
+      True{}
+
+# what `write` keeps of the file it replaces (write.rs): its BOM and its
+# first ending (else LF) for every line of the new content; warn: both
+# texts have line endings and the content's first one is another
+type Kept is Data:
+  Kept{bom: Bool, sep: End, warn: Bool}
+
+def warn(k: Maybe<&2, End>, a: Maybe<&2, End>) -> Bool:
+  match k:
+    case None{}:
+      False{}
+    case Some{e}:
+      match a:
+        case None{}:
+          False{}
+        case Some{f}:
+          Bool.not(End.same(e, f))
+
+# the decision of a whole-file write: prev is the file on disk, next the
+# content written over it
+def write(prev: Proj, next: Proj) -> Kept:
+  match prev next:
+    case Proj{b, ls} Proj{c, ms}:
+      +k = first_end(ls)
+      Kept{b, or_lf(k), warn(k, first_end(ms))}

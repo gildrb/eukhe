@@ -12,6 +12,7 @@ import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_lines.bend as ffi_doc_lines
+import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
@@ -124,6 +125,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_fsmode.ffi(input)
     case 38:
       ffi_skill_load.ffi(input)
+    case 41:
+      ffi_doc_rows.ffi(input)
     case _:
       W.err("unknown entry")
 

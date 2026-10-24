@@ -3,6 +3,8 @@
 import Base
 import ../bend/semver.bend as Sv
 import ../bend/staging.bend as Sg
+import ../bend/wire.bend as Wr
+import ../bend/doc_lines.bend as Dl
 
 # x is written with at most 14 digits
 def rank_spec.short(+x: Nat) -> Bool:
@@ -159,3 +161,51 @@ def text_unsuffix(+p: String, +s: String) -> Maybe<&2, String>:
       text_found(String.is_empty(p), None{})
     case SCon{c, t}:
       text_found(text_same(SCon{c, t}, p), text_cons(c, text_unsuffix(p, t)))
+
+# ---- doc lines projection ----
+
+# The spellings of the projection of a file's lines (bend/doc_lines.bend
+# `Proj`) on the wire, from the wire primitives of bend/wire.bend (the
+# requests of bend/ffi_doc_lines.bend and bend/ffi_doc_rows.bend carry
+# it): End = 0 (LF) | 1 (CRLF); Maybe<End> = 0 | 1 then the End; a line
+# is its length, then its Maybe<End>; a projection is its BOM flag, then
+# its lines (count first).
+
+def proj_spell_end(e: Dl.End, rest: String) -> String:
+  match e:
+    case Dl.Lf{}:
+      Wr.put_nat(0n, rest)
+    case Dl.CrLf{}:
+      Wr.put_nat(1n, rest)
+
+def proj_spell_mend(m: Maybe<&2, Dl.End>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{e}:
+      Wr.put_nat(1n, proj_spell_end(e, rest))
+
+def proj_spell_line(l: Dl.Line, rest: String) -> String:
+  match l:
+    case Dl.Line{n, en}:
+      Wr.put_nat(n, proj_spell_mend(en, rest))
+
+def proj_spell(p: Dl.Proj, rest: String) -> String:
+  match p:
+    case Dl.Proj{b, ls}:
+      Wr.put_bool(b, Wr.put_list(~Dl.Line, ~proj_spell_line, ls, rest))
+
+def proj_lines_fit(ls: List<&2, Dl.Line>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case l <> rest:
+      match l:
+        case Dl.Line{+n, en}:
+          Bool.and(wire_fits(n), proj_lines_fit(rest))
+
+# every number of a projection fits the wire: its count and each length
+def proj_fits(p: Dl.Proj) -> Bool:
+  match p:
+    case Dl.Proj{b, +ls}:
+      Bool.and(wire_fits(List.length(&2, Dl.Line, ls)), proj_lines_fit(ls))

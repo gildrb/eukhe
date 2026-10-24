@@ -134,33 +134,6 @@ fn non_utf8_file_is_named_with_its_encoding() {
 }
 
 #[test]
-fn selectorless_read_shows_the_whole_file_without_pagination() {
-    let lines = 405;
-    let (dir, store) = setup(&numbered_file(lines));
-    let view = read(&store, dir.path(), None, "a.rs").unwrap();
-    assert_eq!(view.rendered.lines().last().unwrap(), "405:l405");
-    assert!(view.diags.is_empty());
-    assert_eq!(
-        view.content,
-        ReadContent::File(FileView {
-            tag: Some(crate::file_hash(&numbered_file(lines))),
-            text: numbered_file(lines),
-            total_lines: lines,
-            shown: vec![LineSpan {
-                start_line: 1,
-                end_line: lines
-            }],
-            rows: (1..=lines)
-                .map(|line| Row {
-                    line: u32::try_from(line).unwrap(),
-                    at: line,
-                })
-                .collect(),
-        })
-    );
-}
-
-#[test]
 fn range_selector_adds_context_lines() {
     let (dir, store) = setup(&numbered_file(20));
     let view = read(&store, dir.path(), None, "a.rs:5-6").unwrap();

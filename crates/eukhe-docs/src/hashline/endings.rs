@@ -26,14 +26,6 @@ pub(crate) struct SepRun {
     pub(crate) n: usize,
 }
 
-/// The wire tag of an ending (model `End`: `Lf` 0, `CrLf` 1).
-fn tag(end: LineEnding) -> u32 {
-    match end {
-        LineEnding::Lf => 0,
-        LineEnding::CrLf => 1,
-    }
-}
-
 /// The separators of the runs, with `carry` before the first line (model
 /// `plan`, through `bend/ffi_doc_lines.bend`).
 pub(crate) fn plan(runs: &[EndRun], carry: LineEnding) -> Vec<SepRun> {
@@ -41,12 +33,12 @@ pub(crate) fn plan(runs: &[EndRun], carry: LineEnding) -> Vec<SepRun> {
     request.count(runs.len());
     for run in runs {
         match run.end {
-            Some(end) => request.some().tag(tag(end)),
+            Some(end) => request.some().tag(end.tag()),
             None => request.none(),
         };
         request.count(run.n);
     }
-    request.tag(tag(carry));
+    request.tag(carry.tag());
     let request = expect_core(Entry::DocLines, request.finish());
     let reply = expect_core(Entry::DocLines, eukhe_bend::call(Entry::DocLines, &request));
     expect_core(Entry::DocLines, seps(&reply))
@@ -57,14 +49,8 @@ fn seps(reply: &str) -> Result<Vec<SepRun>, WireError> {
     let mut reader = Reader::reply(reply)?;
     let seps = (0..reader.count()?)
         .map(|_| {
-            // tag_of answers 0 or 1: Lf or CrLf.
-            let end = if reader.tag_of(2, "a line ending")? == 0 {
-                LineEnding::Lf
-            } else {
-                LineEnding::CrLf
-            };
             Ok(SepRun {
-                end,
+                end: LineEnding::read(&mut reader)?,
                 n: reader.count()?,
             })
         })

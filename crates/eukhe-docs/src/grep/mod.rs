@@ -40,7 +40,7 @@ use crate::{
         has_glob_chars, is_missing, normalize_path_input, resolve_input_path, workspace_relative,
     },
     store::{EditStore, MAX_SNAPSHOT_FILE_BYTES},
-    text::{format_bytes, normalize_to_lf, strip_bom},
+    text::{format_bytes, lf_text},
 };
 
 use engine::{FileRead, FileSearcher, RegexOptions};
@@ -465,7 +465,7 @@ pub(crate) fn grep_with(
                 store.saw_bytes(&file.absolute, &bytes);
                 match std::str::from_utf8(&bytes) {
                     Ok(text) => {
-                        let text = normalize_to_lf(strip_bom(text).1);
+                        let text = lf_text(text);
                         file.tag = Some(store.record(&file.absolute, &text, None));
                     }
                     Err(_) => untagged.add(|| {
