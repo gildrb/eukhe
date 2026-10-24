@@ -31,7 +31,8 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
 };
 
 /// TS `StdinBuffer.timeout`: how long a lone `ESC` (or a half-assembled
@@ -256,10 +257,10 @@ fn ends_with_terminator(after_esc: &[u8], bel: bool) -> bool {
 }
 
 /// Classify a complete reassembled sequence before anything can reach the
-/// editor as text: wheel reports and recognized keys synthesize their
-/// crossterm event, and everything else -- other mouse reports,
-/// OSC/DCS/APC replies, focus and cursor reports, kitty replies, paste
-/// markers, unknown forms -- is consumed.
+/// editor as text: wheel and left-button reports and recognized keys
+/// synthesize their crossterm event, and everything else -- other mouse
+/// reports, OSC/DCS/APC replies, focus and cursor reports, kitty replies,
+/// paste markers, unknown forms -- is consumed.
 fn classify(pending: &PendingEscape) -> Vec<Event> {
     let bytes = pending.assembled.as_slice();
     // Mouse reports (SGR, X10, rxvt `ESC [ cb ; cx ; cy M`): their
@@ -268,17 +269,18 @@ fn classify(pending: &PendingEscape) -> Vec<Event> {
         || (bytes.starts_with(b"\x1b[M") && bytes.len() == 6)
         || (bytes.starts_with(b"\x1b[") && bytes.ends_with(b"M"));
     if mouse {
-        return sgr_wheel(bytes).into_iter().collect();
+        return sgr_mouse(bytes).into_iter().collect();
     }
     classify_key(bytes, pending.first.as_ref())
         .into_iter()
         .collect()
 }
 
-/// An SGR wheel report (`ESC [ < cb ; cx ; cy M|m`, button 4 or 5, no
-/// drag bit): crossterm's `parse_csi_sgr_mouse` event for it. `None`
-/// for every other report.
-fn sgr_wheel(bytes: &[u8]) -> Option<Event> {
+/// An SGR wheel or left-button report (`ESC [ < cb ; cx ; cy M|m`:
+/// button 4 or 5 without the drag bit, or button 0 pressed, dragged or
+/// released): crossterm's `parse_csi_sgr_mouse` event for it. `None` for
+/// every other report.
+fn sgr_mouse(bytes: &[u8]) -> Option<Event> {
     let (last, body) = bytes.strip_prefix(b"\x1b[<")?.split_last()?;
     if *last != b'M' && *last != b'm' {
         return None;
@@ -287,12 +289,16 @@ fn sgr_wheel(bytes: &[u8]) -> Option<Event> {
     let cb: u8 = fields.next()?.parse().ok()?;
     let column: u16 = fields.next()?.parse().ok()?;
     let row: u16 = fields.next()?.parse().ok()?;
-    if fields.next().is_some() || cb & 0b0010_0000 != 0 {
+    if fields.next().is_some() {
         return None;
     }
-    let kind = match (cb & 0b0000_0011) | ((cb & 0b1100_0000) >> 4) {
-        4 => MouseEventKind::ScrollUp,
-        5 => MouseEventKind::ScrollDown,
+    let drag = cb & 0b0010_0000 != 0;
+    let kind = match ((cb & 0b0000_0011) | ((cb & 0b1100_0000) >> 4), drag, *last) {
+        (4, false, _) => MouseEventKind::ScrollUp,
+        (5, false, _) => MouseEventKind::ScrollDown,
+        (0, false, b'M') => MouseEventKind::Down(MouseButton::Left),
+        (0, false, _) => MouseEventKind::Up(MouseButton::Left),
+        (0, true, b'M') => MouseEventKind::Drag(MouseButton::Left),
         _ => return None,
     };
     let mut modifiers = KeyModifiers::empty();

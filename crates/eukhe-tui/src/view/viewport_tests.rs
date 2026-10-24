@@ -171,3 +171,66 @@ fn a_transcript_that_fits_never_scrolls() {
     assert_eq!(follow[..all.len()], all[..]);
     assert!(follow[all.len()..].iter().all(String::is_empty));
 }
+
+/// The transcript text the frame paints reversed (the selection's
+/// highlight; the dock's cursor is not the transcript's).
+fn reversed(view: &mut AgentView) -> String {
+    let frame = view.compose_fullscreen(WIDTH, HEIGHT);
+    let dock = view.compose_dock(WIDTH).0.len();
+    frame.live[..HEIGHT - dock]
+        .iter()
+        .flatten()
+        .filter(|span| {
+            span.style
+                .add_modifier
+                .contains(crate::style::Modifier::REVERSED)
+        })
+        .map(|span| span.content.as_str())
+        .collect()
+}
+
+/// A drag paints the model's range over the rows it covers and its
+/// release copies the same text; Esc clears the highlight and is spent,
+/// a second Esc is not.
+#[test]
+fn a_drag_highlights_and_esc_clears_it() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
+    let mut view = view_with_messages(3);
+    let shown = window(&mut view);
+    let row = |needle: &str| {
+        let y = shown
+            .iter()
+            .position(|r| r.contains(needle))
+            .expect("shown");
+        let col = crate::width::str_width(&shown[y][..shown[y].find(needle).unwrap()]);
+        (u16::try_from(col).unwrap(), u16::try_from(y).unwrap())
+    };
+    let (c0, r0) = row("message 00");
+    let (c1, r1) = row("message 01");
+    let left = MouseButton::Left;
+    assert_eq!(
+        view.selection_mouse(MouseEventKind::Down(left), c0 + 8, r0),
+        None
+    );
+    assert_eq!(
+        view.selection_mouse(MouseEventKind::Drag(left), c1 + 6, r1),
+        None
+    );
+    let lit = reversed(&mut view);
+    assert!(
+        lit.starts_with("00") && lit.ends_with(" message"),
+        "{lit:?}"
+    );
+    let copied = view
+        .selection_mouse(MouseEventKind::Up(left), c1 + 6, r1)
+        .expect("the release copies");
+    assert!(
+        copied.starts_with("00\n") && copied.ends_with("message"),
+        "{copied:?}"
+    );
+    assert_eq!(reversed(&mut view), lit, "the release keeps it shown");
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(view.selection_key(&esc));
+    assert_eq!(reversed(&mut view), "");
+    assert!(!view.selection_key(&esc));
+}

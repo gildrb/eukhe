@@ -114,6 +114,7 @@ mod restore_notices;
 pub mod saved_sessions;
 pub mod screen_mode;
 pub(crate) mod search_input;
+mod selection;
 mod sequence_guard;
 pub mod session;
 pub mod session_open_error;

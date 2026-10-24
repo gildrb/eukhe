@@ -364,5 +364,8 @@ enum UiInput {
     /// A wheel notch over a fullscreen surface: scrolls the transcript
     /// window (inline, nothing scrolls).
     Scroll(crate::view::ScrollRequest),
+    /// A left-button press, drag or release over a fullscreen surface:
+    /// the transcript's text selection takes it.
+    Mouse(crossterm::event::MouseEvent),
     HeadlessDone,
 }

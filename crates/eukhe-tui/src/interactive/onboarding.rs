@@ -324,7 +324,8 @@ async fn drive_onboarding_pane(
                 | UiInput::SubmitAndSettle { .. }
                 | UiInput::SettleIdle
                 | UiInput::WaitIdle { .. }
-                | UiInput::Scroll(_) => {}
+                | UiInput::Scroll(_)
+                | UiInput::Mouse(_) => {}
                 UiInput::Resize => view.note_resize(),
                 }
             }

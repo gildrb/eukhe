@@ -477,6 +477,7 @@ async fn run_interactive_surface(
                         // Order-insensitive like a resize: the window moves
                         // now and the echo path stays open.
                         UiInput::Scroll(request) => {
+                            view.selection_wheel();
                             view.scroll_viewport(request);
                             opening_dirty = true;
                         }
@@ -900,6 +901,9 @@ async fn run_interactive_surface(
             } else if let Some(input) = pending.pop_front() {
                 session.dirty = true;
                 match input {
+                    // The text selection sees the key first; an Esc that
+                    // cleared a shown selection is spent there.
+                    UiInput::Key(key) if view.selection_key(&key) => {}
                     UiInput::Key(key) => {
                         match session.handle_key(key, &mut view, &mut running).await {
                             Ok(()) => {}
@@ -977,7 +981,17 @@ async fn run_interactive_surface(
                     UiInput::WaitRender { .. } | UiInput::WaitGone { .. } => {
                         unreachable!("render barrier handled above")
                     }
-                    UiInput::Scroll(request) => view.scroll_viewport(request),
+                    UiInput::Scroll(request) => {
+                        view.selection_wheel();
+                        view.scroll_viewport(request);
+                    }
+                    UiInput::Mouse(mouse) => {
+                        if let Some(text) =
+                            view.selection_mouse(mouse.kind, mouse.column, mouse.row)
+                        {
+                            session.copy_selection(&text, &mut view);
+                        }
+                    }
                     UiInput::Resize => {
                         // The editor lays its window out against the new row
                         // count. The scrollback stays as it is: the next

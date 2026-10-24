@@ -68,6 +68,9 @@ pub enum HeadlessStep {
     /// One raw key event: the verifier's window into the selector/picker
     /// surfaces (arrows, escape), which typed text cannot express.
     Key(crossterm::event::KeyEvent),
+    /// One mouse report (fullscreen): the wheel scrolls, a left-button
+    /// press, drag or release drives the transcript's text selection.
+    Mouse(crossterm::event::MouseEvent),
 }
 
 /// The headless exit gate's settle, snapshotted: the members the gate
