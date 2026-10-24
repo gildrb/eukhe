@@ -11,12 +11,16 @@
 //! same: the question reaches the nearest session up the chain with a
 //! client, and its frame names the subagent that asks. When no session up
 //! to the root answers, the step is unanswered, which the tool treats as a
-//! denial (`laws/approvals.bend`, G5).
+//! denial (`laws/approvals.bend`, G5). However a question's wait on the
+//! session's clients ends (an answer, the last detach, the step's
+//! cancellation), a `shell_approval_settled` frame tells every client to
+//! drop it; an answer to a question no longer pending is refused with
+//! [`DaemonErrorInfo::ShellApprovalGone`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_types::daemon::DaemonCommand;
+use eukhe_types::daemon::{DaemonCommand, DaemonErrorInfo};
 use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellVerdict};
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -28,6 +32,10 @@ use crate::worker::{EventPump, OutboundFrame, SessionCore};
 
 /// The private-frame `outboundType` of one shell approval question.
 pub(crate) const SHELL_APPROVAL_FRAME: &str = "shell_approval";
+
+/// The private-frame `outboundType` that drops one question from the
+/// clients.
+pub(crate) const SHELL_APPROVAL_SETTLED_FRAME: &str = "shell_approval_settled";
 
 const ANSWER_COMMAND: &str = "answer_shell_approval";
 
@@ -79,6 +87,39 @@ pub(crate) struct ShellApprovals {
     active_session_id: String,
     pending: Arc<Mutex<Pending>>,
     relay: Relay,
+}
+
+/// One question waiting on the session's clients. Dropped when the wait
+/// ends (an answer, the detach of the last interactive client, or the
+/// step's cancellation, which drops the waiting future): it removes the
+/// question and tells every client that it is settled.
+struct Waiting<'a> {
+    approvals: &'a ShellApprovals,
+    request_id: &'a str,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.approvals
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(self.request_id);
+        let outbound = DaemonOutbound::ShellApprovalSettled {
+            active_session_id: self.approvals.active_session_id.clone(),
+            request_id: self.request_id.to_owned(),
+            rest: Map::default(),
+        };
+        match serde_json::to_vec(&outbound) {
+            Ok(payload) => self
+                .approvals
+                .events
+                .send(OutboundFrame::shell_approval_settled(payload)),
+            Err(error) => {
+                tracing::error!(%error, "the shell approval settled frame does not serialize");
+            }
+        }
+    }
 }
 
 impl ShellApprovals {
@@ -142,12 +183,10 @@ impl ShellApprovals {
                 match Attendance::of(&core) {
                     Attendance::Interactive => {
                         let (sender, receiver) = oneshot::channel();
-                        let mut pending =
-                            self.pending.lock().unwrap_or_else(PoisonError::into_inner);
-                        // A step whose wait was cancelled leaves a closed
-                        // slot behind.
-                        pending.retain(|_, slot| !slot.is_closed());
-                        pending.insert(request.request_id.clone(), sender);
+                        self.pending
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .insert(request.request_id.clone(), sender);
                         receiver
                     }
                     // The gateway shows no question, so no one waits: a
@@ -166,6 +205,10 @@ impl ShellApprovals {
                     Attendance::Nobody => break,
                 }
             };
+            let waiting = Waiting {
+                approvals: self,
+                request_id: &request.request_id,
+            };
             // The question may be routed again: the frame keeps its own
             // copy.
             let outbound = DaemonOutbound::ShellApproval {
@@ -181,7 +224,9 @@ impl ShellApprovals {
                     return ShellAnswer::Unanswered;
                 }
             }
-            match receiver.await {
+            let verdict = receiver.await;
+            drop(waiting);
+            match verdict {
                 Ok(ShellVerdict::Approve) => return ShellAnswer::Approve,
                 Ok(ShellVerdict::Deny) => return ShellAnswer::Deny,
                 // The last interactive client detached: route it again.
@@ -276,7 +321,7 @@ impl ShellApprovals {
                 None,
                 ANSWER_COMMAND,
                 &format!("No pending shell approval: {request_id}"),
-                None,
+                Some(DaemonErrorInfo::ShellApprovalGone),
             ),
         }
     }
@@ -403,7 +448,12 @@ mod tests {
         let unknown = approvals.answer(&json!({ "requestId": "r9", "verdict": "deny" }));
         assert_eq!(
             unknown,
-            response_failure(None, ANSWER_COMMAND, "No pending shell approval: r9", None)
+            response_failure(
+                None,
+                ANSWER_COMMAND,
+                "No pending shell approval: r9",
+                Some(DaemonErrorInfo::ShellApprovalGone)
+            )
         );
         let denied = approvals.answer(&json!({ "requestId": "r1", "verdict": "deny" }));
         assert_eq!(denied, response_success(None, ANSWER_COMMAND, None));
@@ -411,7 +461,67 @@ mod tests {
         let again = approvals.answer(&json!({ "requestId": "r1", "verdict": "approve" }));
         assert_eq!(
             again,
-            response_failure(None, ANSWER_COMMAND, "No pending shell approval: r1", None)
+            response_failure(
+                None,
+                ANSWER_COMMAND,
+                "No pending shell approval: r1",
+                Some(DaemonErrorInfo::ShellApprovalGone)
+            )
         );
+    }
+
+    /// The frames after the question: `shell_approval_settled` ones.
+    async fn settled_frame(receiver: &mut Receiver<Arc<OutboundFrame>>) -> Value {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), receiver.recv())
+            .await
+            .expect("frame in time")
+            .expect("frame");
+        assert_eq!(frame.outbound_type, SHELL_APPROVAL_SETTLED_FRAME);
+        serde_json::from_slice(&frame.payload).unwrap()
+    }
+
+    /// Every end of a question's wait tells the clients to drop it: the
+    /// answer of one client (the others still show it), and a step whose
+    /// wait was cancelled (the run aborted), whose question no one may
+    /// answer any more. Before the fix the clients kept the cancelled
+    /// question and each answer to it failed with an error.
+    #[tokio::test]
+    async fn every_end_of_a_wait_settles_the_question_for_the_clients() {
+        let approvals = approvals(&["tui", "dashboard"]);
+        let mut frames = approvals.events.subscribe();
+        let settled = |request_id: &str| {
+            json!({
+                "type": "shell_approval_settled",
+                "activeSessionId": "sess-1",
+                "requestId": request_id,
+            })
+        };
+        let asking = tokio::spawn({
+            let approvals = approvals.clone();
+            async move { approvals.ask(request("r1")).await }
+        });
+        next_frame(&mut frames).await;
+        approvals.answer(&json!({ "requestId": "r1", "verdict": "approve" }));
+        assert_eq!(asking.await.unwrap(), ShellAnswer::Approve);
+        assert_eq!(settled_frame(&mut frames).await, settled("r1"));
+
+        let cancelled = tokio::spawn({
+            let approvals = approvals.clone();
+            async move { approvals.ask(request("119:0")).await }
+        });
+        next_frame(&mut frames).await;
+        cancelled.abort();
+        assert!(cancelled.await.unwrap_err().is_cancelled());
+        assert_eq!(settled_frame(&mut frames).await, settled("119:0"));
+        assert_eq!(
+            approvals.answer(&json!({ "requestId": "119:0", "verdict": "approve" })),
+            response_failure(
+                None,
+                ANSWER_COMMAND,
+                "No pending shell approval: 119:0",
+                Some(DaemonErrorInfo::ShellApprovalGone)
+            )
+        );
+        assert!(approvals.pending.lock().unwrap().is_empty());
     }
 }

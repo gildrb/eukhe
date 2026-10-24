@@ -34,6 +34,7 @@ mod errors;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use errors::is_shell_approval_gone;
 use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, DirectRequestError};
 pub use errors::{
     is_connect_failure, is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable,
@@ -120,6 +121,13 @@ pub enum DaemonClientEvent {
         request: eukhe_types::shell::ShellApprovalRequest,
         agent: Option<String>,
     },
+    /// `shell_approval_settled`: the session no longer waits on the
+    /// question `request_id` (a client answered it, its step ended, or it
+    /// went elsewhere): the client drops it, shown or queued.
+    ShellApprovalSettled {
+        active_session_id: String,
+        request_id: String,
+    },
     /// `roster_update`: live roster deltas for subscribers (the agents
     /// view): changed entries upsert by agent id, `removed` deletes, and
     /// `resync` replaces the whole roster.
@@ -187,6 +195,8 @@ struct InboundFrame<'a> {
     request: Option<&'a RawValue>,
     #[serde(borrow, default)]
     agent: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    request_id: Option<&'a RawValue>,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -262,6 +272,10 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
             active_session_id: decode_string(frame.active_session_id),
             request,
             agent: decode(frame.agent),
+        }),
+        "shell_approval_settled" => Some(DaemonClientEvent::ShellApprovalSettled {
+            active_session_id: decode_string(frame.active_session_id),
+            request_id: decode_string(frame.request_id),
         }),
         "session_list_item" => Some(DaemonClientEvent::SessionListItem {
             session: decode(frame.session).unwrap_or(Value::Null),

@@ -179,6 +179,18 @@ pub fn is_kernel_not_running(error: &anyhow::Error) -> bool {
     })
 }
 
+/// Whether the error is the daemon's refusal of an answer to a shell
+/// approval question it no longer holds
+/// ([`DaemonErrorInfo::ShellApprovalGone`]: another client answered it,
+/// its step ended, or it went elsewhere): nothing is left to answer.
+pub(crate) fn is_shell_approval_gone(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<RequestRejected>()
+            .is_some_and(|rejected| rejected.error_info == Some(DaemonErrorInfo::ShellApprovalGone))
+    })
+}
+
 /// Unwrap a settled response into its `data`, surfacing the daemon
 /// refusal as a typed [`RequestRejected`] on failure.
 pub(super) fn response_data_or_error(name: &str, response: DaemonResponse) -> Result<Value> {

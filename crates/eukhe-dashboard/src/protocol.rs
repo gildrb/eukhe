@@ -159,6 +159,10 @@ pub(crate) enum ServerFrame<'a> {
     /// The bound session's `bash` tool asks whether one step may run; the
     /// tab answers with `run` `answer_shell_approval`.
     Approval { request: &'a ShellApprovalRequest },
+    /// The bound session no longer waits on question `request_id` (a
+    /// client answered it, its step ended, or it went elsewhere): the tab
+    /// drops its card.
+    ApprovalSettled { request_id: &'a str },
     /// The bound session moved (a worker replacement), lost its worker
     /// link, or closed: the tab opens it again.
     Resync { reason: String },

@@ -918,6 +918,16 @@ impl Tab {
                     self.send(&ServerFrame::Approval { request: &request });
                 }
             }
+            DaemonClientEvent::ShellApprovalSettled {
+                active_session_id,
+                request_id,
+            } => {
+                if binding.active_session_id() == Some(active_session_id.as_str()) {
+                    self.send(&ServerFrame::ApprovalSettled {
+                        request_id: &request_id,
+                    });
+                }
+            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,
@@ -1024,6 +1034,10 @@ mod tests {
         let lost = |active_session_id: &str| DaemonClientEvent::DirectLinkLost {
             active_session_id: active_session_id.to_string(),
         };
+        let settled = |active_session_id: &str| DaemonClientEvent::ShellApprovalSettled {
+            active_session_id: active_session_id.to_string(),
+            request_id: format!("r-{active_session_id}"),
+        };
         for news in [
             // Already in the snapshot the tab holds.
             event("s1", 3),
@@ -1033,6 +1047,8 @@ mod tests {
             event("s1", 0),
             approval("s2"),
             approval("s1"),
+            settled("s2"),
+            settled("s1"),
             lost("s2"),
             lost("s1"),
             // Unbound now: the tab opens the session again first.
@@ -1058,6 +1074,7 @@ mod tests {
                     "type": "approval",
                     "request": { "requestId": "r-s1", "step": 1, "command": "make", "effects": ["exec"] },
                 }),
+                json!({ "type": "approval_settled", "requestId": "r-s1" }),
                 json!({ "type": "resync", "reason": "the link to the session's worker was lost" }),
             ]
         );

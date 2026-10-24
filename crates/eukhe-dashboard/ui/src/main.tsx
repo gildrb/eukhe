@@ -9,7 +9,7 @@ import { applyTheme, reloadState } from "./lib/actions.ts";
 import { fmt } from "./lib/format.ts";
 import { connect, onFrame, onReady } from "./lib/link.ts";
 import { chatHref, currentRoute, navigate } from "./lib/router.ts";
-import { addApproval, bind, opening, refreshSessions, settleApprovals } from "./lib/session.ts";
+import { addApproval, approvalSettled, bind, opening, refreshSessions } from "./lib/session.ts";
 import { store } from "./lib/store.ts";
 import { derivePhase, reduce, type PhaseName } from "./lib/turn.ts";
 
@@ -24,11 +24,7 @@ onFrame("event", (frame) => {
   const session = reduce(state.session, frame.event, Date.now());
   store.set({ session: frame.cursor ? { ...session, cursor: frame.cursor } : session });
   switch (frame.event.type) {
-    case "tool_execution_end":
-      settleApprovals();
-      break;
     case "agent_end":
-      settleApprovals();
       // Context usage and message counts carry no event: re-read them when a turn ends.
       void reloadState().catch(() => {});
       void refreshSessions().catch(() => {});
@@ -44,6 +40,7 @@ onFrame("event", (frame) => {
   }
 });
 onFrame("approval", (frame) => addApproval(frame.request));
+onFrame("approval_settled", (frame) => approvalSettled(frame.requestId));
 onFrame("resync", () => {
   void bind(currentRoute().sessionId ?? store.get().session?.id ?? null, true).catch(() => {});
 });

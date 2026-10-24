@@ -839,6 +839,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | DaemonClientEvent::SessionListProgress { .. }
             | DaemonClientEvent::SideQuestionEvent { .. }
             | DaemonClientEvent::ShellApproval { .. }
+            | DaemonClientEvent::ShellApprovalSettled { .. }
             | DaemonClientEvent::RosterUpdate { .. }
             | DaemonClientEvent::StateTreeUpdate { .. }
             | DaemonClientEvent::HeartbeatsChanged => {}

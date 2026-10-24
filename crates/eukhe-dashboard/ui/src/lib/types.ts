@@ -169,6 +169,7 @@ export type ServerFrame =
   | { type: "failure"; id: number; error: string }
   | { type: "event"; event: SessionEvent; cursor?: Cursor }
   | { type: "approval"; request: ApprovalRequest }
+  | { type: "approval_settled"; requestId: string }
   | { type: "resync"; reason: string }
   | { type: "unavailable"; error: string }
   | { type: "unpaired"; error: string };

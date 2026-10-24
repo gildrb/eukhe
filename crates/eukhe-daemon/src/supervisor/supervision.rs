@@ -871,6 +871,7 @@ impl Supervisor {
                         }
                     } else if outbound_type == "side_question_event"
                         || outbound_type == crate::shell_approval::SHELL_APPROVAL_FRAME
+                        || outbound_type == crate::shell_approval::SHELL_APPROVAL_SETTLED_FRAME
                     {
                         let Ok(SessionAddress { active_session_id }) =
                             serde_json::from_slice(&frame.payload)

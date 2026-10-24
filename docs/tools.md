@@ -117,6 +117,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    The question (every other step, before it runs):
    - It shows the step exactly as it runs: each control or bidi character in a word is escaped (`$'…'`); the prompt keeps each line whole; Enter alone answers no.
    - The worker sends a `shell_approval` frame (`effects`: the names) to the attached clients. The first `answer_shell_approval` (approve or deny) is the answer.
+   - When the session stops waiting on a question (a client answered it, its step ended or was cancelled, or every interactive client detached and it went elsewhere), the worker sends `shell_approval_settled` (`requestId`): every client drops it, shown or queued. An answer to a question no longer pending is refused with error code `shell_approval_gone`; the TUI shows one muted note, no error.
    - Who answers (phone gateway, no client, parent chain): G5. No answer is a denial.
    - The shell asks about the steps of a pipeline in order before any of them runs.
    - A denial stops the script at that step. Earlier steps ran and their changes stay. The denied step, the rest of its pipeline and all later steps do not run.

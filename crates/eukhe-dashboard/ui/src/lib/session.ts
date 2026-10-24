@@ -160,15 +160,12 @@ export function addApproval(asked: ApprovalRequest): void {
   });
 }
 
-/** Requests the agent moved past were answered by another client: say so briefly, then drop them. */
-export function settleApprovals(): void {
-  const moved = store.get().approvals.filter((item) => item.status === "pending");
-  for (const item of moved) setApproval(item.requestId, "elsewhere");
-  if (moved.length) {
-    setTimeout(() => {
-      for (const item of moved) dropApproval(item.requestId);
-    }, ELSEWHERE_SHOWN_MS);
-  }
+/** The session no longer waits on a request (an `approval_settled` frame): one still pending was settled elsewhere, so say so briefly, then drop it; one this tab is answering goes when its answer returns. */
+export function approvalSettled(requestId: string): void {
+  const settled = store.get().approvals.find((item) => item.requestId === requestId);
+  if (settled?.status !== "pending") return;
+  setApproval(requestId, "elsewhere");
+  setTimeout(() => dropApproval(requestId), ELSEWHERE_SHOWN_MS);
 }
 
 /** Answer one request; one answered elsewhere shows for a moment, then goes. */

@@ -299,6 +299,27 @@ impl SessionUi {
                     }
                 }
             }
+            // The session no longer waits on a question: drop it, queued
+            // or open (an open one gives way to the next).
+            DaemonClientEvent::ShellApprovalSettled {
+                active_session_id,
+                request_id,
+            } => {
+                if active_session_id == self.active_session_id {
+                    self.shell_approvals
+                        .retain(|(_, request, _)| request.request_id != request_id);
+                    if matches!(
+                        &self.pending_confirm,
+                        Some(super::PendingConfirm::ShellApproval { request_id: shown, .. })
+                            if *shown == request_id
+                    ) {
+                        self.pending_confirm = None;
+                        view.confirm = None;
+                        self.open_next_shell_approval(view);
+                    }
+                    self.dirty = true;
+                }
+            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,

@@ -1,7 +1,7 @@
 // The tab's WebSocket to the dashboard bridge (src/protocol.rs): the
 // pairing frame first (the kept token, lib/pairing.ts), then numbered
 // requests answered by `reply`/`failure`, and pushed frames (`hello`,
-// `event`, `approval`, `resync`, `unavailable`, `unpaired`). Reconnects with
+// `event`, `approval`, `approval_settled`, `resync`, `unavailable`, `unpaired`). Reconnects with
 // backoff, and at once when the tab comes back (iOS suspends hidden
 // sockets). With no token, or after `unpaired`, it waits for a new one.
 

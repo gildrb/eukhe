@@ -170,8 +170,10 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    /// Send the user's verdict on one step question; a failure (another
-    /// client answered first, the session detached) lands as an error row.
+    /// Send the user's verdict on one step question. A question the
+    /// session no longer holds (another client answered first, its step
+    /// ended) leaves one muted note; any other failure lands as an error
+    /// row.
     async fn answer_shell_approval(
         &mut self,
         active_session_id: String,
@@ -179,7 +181,7 @@ impl SessionUi {
         verdict: ShellVerdict,
         view: &mut AgentView,
     ) {
-        if let Err(error) = self
+        match self
             .bounded_request(
                 Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
                 DaemonCommand::AnswerShellApproval {
@@ -192,7 +194,15 @@ impl SessionUi {
             )
             .await
         {
-            self.error_row(&format!("Shell approval not sent: {error:#}"), view);
+            Ok(_) => {}
+            Err(error) if crate::daemon_client::is_shell_approval_gone(&error) => {
+                view.push_entry(crate::chat::ChatEntry::Status {
+                    text: "That shell step question was already settled.".to_string(),
+                    kind: StatusKind::Info,
+                });
+                self.dirty = true;
+            }
+            Err(error) => self.error_row(&format!("Shell approval not sent: {error:#}"), view),
         }
     }
 

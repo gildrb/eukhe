@@ -81,6 +81,11 @@ pub enum DaemonErrorInfo {
     /// or a worker that could not answer: nothing stopped, every session
     /// keeps running.
     DaemonBusy,
+    /// `answer_shell_approval` named a question the session no longer
+    /// holds: a client answered it first, its step ended, or every
+    /// interactive client detached. Nothing to answer; the client drops
+    /// its panel (the `shell_approval_settled` frame usually beat it).
+    ShellApprovalGone,
     /// A `code` this build does not know (a newer daemon's typed
     /// refusal): forwards-compatibility — the unknown code must degrade
     /// to the plain refusal message that rides the same response instead
@@ -334,6 +339,17 @@ pub enum DaemonOutbound {
         request: crate::shell::ShellApprovalRequest,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native, advertised by the `shell_approval` capability: the
+    /// question `request_id` of the session is no longer pending (a
+    /// client answered it, its step ended or was cancelled, or every
+    /// interactive client detached and it went elsewhere): every client
+    /// drops it. Unsequenced, like `shell_approval`.
+    ShellApprovalSettled {
+        active_session_id: String,
+        request_id: String,
         #[serde(flatten)]
         rest: JsonMap,
     },

@@ -60,6 +60,17 @@ impl OutboundFrame {
         }
     }
 
+    /// `shell_approval_settled`: a `bash` step's question is no longer
+    /// pending, for the supervisor to route to the session's attached
+    /// clients.
+    pub(crate) fn shell_approval_settled(payload: Vec<u8>) -> Self {
+        OutboundFrame {
+            payload,
+            outbound_type: crate::shell_approval::SHELL_APPROVAL_SETTLED_FRAME,
+            seq: 0,
+        }
+    }
+
     /// `state_tree_update`: new state tree records, for the supervisor to
     /// route to the subscribed client connections.
     pub(crate) fn state_tree_update(payload: Vec<u8>) -> Self {
