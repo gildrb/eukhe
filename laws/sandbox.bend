@@ -228,6 +228,29 @@ law frames_admit_serves_accepted:
   for +k: Nat
   {Sb.Verdict.serve(Sb.admit(max, True{}, len, Sb.Named{Sb.elem(allowed, k)})) == Sb.accepts(max, allowed, Sb.Frame{i, len, k}) : Bool}
 
+# a verdict serves the frame: only Serve does
+def serve_spec(v: Sb.Verdict) -> Bool:
+  match v:
+    case Sb.Serve{}:
+      True{}
+    case Sb.Duplicate{}:
+      False{}
+    case Sb.Oversize{}:
+      False{}
+    case Sb.Kindless{}:
+      False{}
+    case Sb.NotServed{}:
+      False{}
+
+# LAW frames_verdict_serve_exact: a verdict serves its frame exactly when it is Serve
+# EXCLUDES: a duplicate, oversized, typeless or unserved frame read as
+#   served through `Verdict.serve` (frames_admit_serves_accepted reads
+#   through it; a fresh blind adversary's `serve` of Duplicate and
+#   Kindless passed every other law)
+law frames_verdict_serve_exact:
+  for v: Sb.Verdict
+  {Sb.Verdict.serve(v) == serve_spec(v) : Bool}
+
 # Spec spellers
 # -------------
 
