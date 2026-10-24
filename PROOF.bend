@@ -686,11 +686,13 @@ import ./proof/log/log_commit_plan.bend as PLogCommitPlan
 import ./proof/log/log_open_plan.bend as PLogOpenPlan
 import ./proof/log/log_ffi_answers_the_open.bend as PLogFfiAnswersTheOpen
 import ./proof/log/log_ffi_reads_only_requests.bend as PLogFfiReadsOnlyRequests
+import ./proof/log/log_ffi_reads_only_fitting_requests.bend as PLogFfiReadsOnlyFittingRequests
 import ./proof/log/log_stepper_open.bend as PLogStepperOpen
 import ./proof/log/log_stepper_open_reads_only_a_bool.bend as PLogStepperOpenReadsOnlyABool
 import ./proof/log/log_stepper_open_refused_shuts.bend as PLogStepperOpenRefusedShuts
 import ./proof/log/log_stepper_commit.bend as PLogStepperCommit
 import ./proof/log/log_stepper_reads_only_commits.bend as PLogStepperReadsOnlyCommits
+import ./proof/log/log_stepper_reads_only_fitting_commits.bend as PLogStepperReadsOnlyFittingCommits
 import ./proof/log/log_stepper_refusal_keeps_the_state.bend as PLogStepperRefusalKeepsTheState
 import ./proof/log/log_stepper_shut_refuses.bend as PLogStepperShutRefuses
 import ./proof/log/log_fits_example.bend as PLogFitsExample

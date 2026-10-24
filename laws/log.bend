@@ -466,6 +466,17 @@ law log_ffi_reads_only_requests:
   exs last: Maybe<&2, Nat>
   {s == log_spell_req(len, last) : String}
 
+# LAW log_ffi_reads_only_fitting_requests (R4): an input the entry answers with no error form is the
+# spelling of a request whose numbers fit the wire
+# EXCLUDES: a decoder that reads a number of 15 digits or more (a length
+#   or a last newline past the wire: misread, or past the runtime's Nat)
+law log_ffi_reads_only_fitting_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FLg.ffi(s)) == False{} : Bool}
+  exs len: Nat
+  exs last: Maybe<&2, Nat>
+  {s == log_spell_req(len, last) : String} & {Bool.and(LawsBase.wire_fits(len), log_last_fits(last)) == True{} : Bool}
+
 # LAW log_stepper_open (R4): the stepper opens fsync, as Rust writes it, with the open's
 # plan: its storage and the spelling of its steps
 # EXCLUDES: a stepper that answers or keeps anything but the rule's plan
@@ -509,6 +520,16 @@ law log_stepper_reads_only_commits:
   for ok: {LawsBase.wire_opens_err(log_reply(FLg.step(st, s))) == False{} : Bool}
   exs ds: List<&2, Bool>
   {s == log_spell_sides(ds) : String}
+
+# LAW log_stepper_reads_only_fitting_commits (R4): an event the stepper answers with no error form is
+# the spelling of a commit whose count fits the wire
+# EXCLUDES: a decoder that reads a count of 15 digits or more
+law log_stepper_reads_only_fitting_commits:
+  for +st: FLg.St
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(log_reply(FLg.step(st, s))) == False{} : Bool}
+  exs ds: List<&2, Bool>
+  {s == log_spell_sides(ds) : String} & {LawsBase.wire_fits(List.length(&2, Bool, ds)) == True{} : Bool}
 
 # LAW log_stepper_refusal_keeps_the_state (R4): a refused event keeps the stepper's state
 # EXCLUDES: a malformed event that marks main.jsonl's entry durable or
