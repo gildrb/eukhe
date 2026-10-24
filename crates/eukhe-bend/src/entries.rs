@@ -68,6 +68,8 @@ pub enum Entry {
     PathPolicy = 29,
     /// `bend/ffi_command.bend`: a call.
     Command = 30,
+    /// `bend/ffi_semver.bend`: a call.
+    Semver = 31,
 }
 
 impl Entry {
@@ -104,6 +106,7 @@ impl Entry {
         Entry::GatewayWidth,
         Entry::PathPolicy,
         Entry::Command,
+        Entry::Semver,
     ];
 
     /// The id `bend/core.bend` dispatches on.

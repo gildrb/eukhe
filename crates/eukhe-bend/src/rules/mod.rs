@@ -4,3 +4,4 @@
 
 pub mod cvar;
 pub mod retry;
+pub mod semver;

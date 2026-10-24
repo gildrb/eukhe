@@ -27,6 +27,7 @@ import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
+import ./ffi_semver.bend as ffi_semver
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tools.bend as ffi_tools
@@ -102,6 +103,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_path_policy.ffi(input)
     case 30:
       ffi_command.ffi(input)
+    case 31:
+      ffi_semver.ffi(input)
     case _:
       W.err("unknown entry")
 

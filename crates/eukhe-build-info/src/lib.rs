@@ -56,28 +56,18 @@ mod tests {
         assert_eq!(VERSION, concat!(env!("CARGO_PKG_VERSION"), "-dev"));
     }
 
+    /// The release check runs as the compiled Bend model
+    /// (`laws/semver.bend` pins the rule): one answer of each kind.
     #[test]
     fn a_release_build_names_a_release_of_the_workspace_series() {
-        let checked = [
-            "0.10.7",
-            "0.10.0",
-            "0.11.0",
-            "0.10.07",
-            "0.10",
-            "0.10.7-dev",
-            "",
-        ]
-        .map(|release| product_version("0.10.0", Some(release)));
+        let checked =
+            ["0.10.7", "0.11.0", "0.10.07"].map(|release| product_version("0.10.0", Some(release)));
         assert_eq!(
             checked,
             [
                 Ok("0.10.7".to_string()),
-                Ok("0.10.0".to_string()),
                 Err("EUKHE_RELEASE_VERSION 0.11.0 is not of the series of the workspace version 0.10.0".to_string()),
                 Err("EUKHE_RELEASE_VERSION \"0.10.07\" is not a version major.minor.patch".to_string()),
-                Err("EUKHE_RELEASE_VERSION \"0.10\" is not a version major.minor.patch".to_string()),
-                Err("EUKHE_RELEASE_VERSION \"0.10.7-dev\" is not a version major.minor.patch".to_string()),
-                Err("EUKHE_RELEASE_VERSION \"\" is not a version major.minor.patch".to_string()),
             ]
         );
     }

@@ -571,6 +571,10 @@ dependencies = [
 [[package]]
 name = "eukhe-build-info"
 version = "0.10.0"
+dependencies = [
+ "eukhe-bend",
+ "toml",
+]
 
 [[package]]
 name = "eukhe-chord"

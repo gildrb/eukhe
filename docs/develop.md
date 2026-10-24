@@ -33,7 +33,7 @@ Hooks (`.pre-commit-config.yaml`) run under `nice -n 10` and unset `RUSTUP_TOOLC
 
 A systemd user timer runs `scripts/ci_nightly.sh run` at 02:30 UTC: full gate (`make ci-local`) on `origin/main` in the gate worktree (`<repo>-ci` beside the checkout, e.g. `~/Repos/eukhe-ci`).
 
-Full gate: fmt; workspace cargo check and clippy; every test unit in 8 parallel shards, clean env, `EUKHE_REQUIRE_BEND=1`; eukhe-runtime suite; dashboard UI (`web/` up to date); `bend PROOF.bend` and `--verdict`; release-version bridge; cargo-deny; gitleaks on commits since the last release.
+Full gate: fmt; workspace cargo check and clippy; every test unit in 8 parallel shards, clean env, `EUKHE_REQUIRE_BEND=1`; eukhe-runtime suite; dashboard UI (`web/` up to date); `bend PROOF.bend` and `--verdict`; cargo-deny; gitleaks on commits since the last release.
 
 - Green: releases that commit (`gh workflow run eukhe-release.yml -f sha=<commit>`).
 - Red: no release; a test-breaking commit never ships.
@@ -61,5 +61,5 @@ GitHub runs one workflow: the release.
 - Version: next patch of the `Cargo.toml` series (`[workspace.package] version = "X.Y.0"`): 1 + highest patch among tags `eukhe-vX.Y.P`, or 0 for a series' first release.
 - Tag `eukhe-v<version>`, title `Eukhe v<version>`, marked latest, pinned for the flake in `nix/release.json`.
 - New series: set the workspace version to the next `X.Y.0` (e.g. `0.11.0`, `1.0.0`).
-- Stops the release: a workspace version not `X.Y.0`, or a tag of a newer series.
-- `scripts/release/next_version.py` computes it; rule = model `bend/semver.bend`; laws `laws/semver.bend` (R1), proved in `PROOF.bend`; `scripts/release/test_next_version.py` runs script and model on the same cases.
+- Stops the release: a workspace version not `X.Y.0`, a tag of a newer series, or a version number of more than 6 digits.
+- `eukhe-next-version` (crate `eukhe-build-info`) computes it: the rule `bend/semver.bend` runs as compiled Bend (entry `bend/ffi_semver.bend`, `eukhe_bend::rules::semver`); laws `laws/semver.bend` (R1 the rule, R2 the entry), proved in `PROOF.bend`. The build script checks `EUKHE_RELEASE_VERSION` with the same rule.

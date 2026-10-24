@@ -1,7 +1,9 @@
 # eukhe: the laws of area semver
 
 import Base
+import ../bend/ffi_semver.bend as FSv
 import ../bend/replace.bend as Rp
+import ../bend/wire.bend as Wr
 import ../bend/semver.bend as Sv
 import ./base.bend as LawsBase
 
@@ -13,9 +15,9 @@ import ./base.bend as LawsBase
 
 # (R1) Release versions
 # ---------------------
-# docs/develop.md "Releases", the model in bend/semver.bend; the script
-# scripts/release/next_version.py implements it and its bridge test runs
-# both on the same cases. Every input is free: any version, any tags (any
+# docs/develop.md "Releases", the model in bend/semver.bend; it runs as
+# compiled Bend through the entry of section entry (R2). Every input is
+# free: any version, any tags (any
 # text, in any order: other series, other prefixes, no version at all),
 # any workspace version.
 
@@ -171,6 +173,124 @@ law semver_parse_patch_example:
 law semver_parse_two_fields_example:
   {Sv.Ver.parse("0.10") == None{} : Maybe<&2, Sv.Ver>}
 
+# LAW semver_parse_exact: a text reads as a version only when it is that version written
+# EXCLUDES: a reader that accepts a leading zero, a sign, a space or any
+#   other symbol, an empty field, two or four fields, digits in another
+#   order (semver_roundtrip alone lets each pass)
+law semver_parse_exact:
+  for +s: String
+  for +v: Sv.Ver
+  for h: {Sv.Ver.parse(s) == Some{v} : Maybe<&2, Sv.Ver>}
+  {s == Sv.Ver.show(v) : String}
+
+# LAW semver_in_series_exact: a version is of the series of another when both majors and both minors are equal
+# EXCLUDES: a series check that ignores the major or the minor, or reads
+#   the patch
+law semver_in_series_exact:
+  for a1: Nat
+  for b1: Nat
+  for c1: Nat
+  for a2: Nat
+  for b2: Nat
+  for c2: Nat
+  {Sv.Ver.in_series(Sv.Ver{a1, b1, c1}, Sv.Ver{a2, b2, c2}) == Bool.and(Nat.is_eq(a1, a2), Nat.is_eq(b1, b2)) : Bool}
+
+# The next patch, by the spec: the highest patch among the version tags
+# of the series a.b (Nat.max of Base), plus one; 0 when there is none.
+
+def top_spec.keep(hit: Bool, +p: Nat, acc: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      match acc:
+        case None{}:
+          Some{p}
+        case Some{q}:
+          Some{Nat.max(p, q)}
+    case False{}:
+      acc
+
+def top_spec.add(m: Maybe<&2, Sv.Ver>, +a: Nat, +b: Nat, acc: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      acc
+    case Some{v}:
+      match v:
+        case Sv.Ver{x, y, p}:
+          top_spec.keep(Bool.and(Nat.is_eq(a, x), Nat.is_eq(b, y)), p, acc)
+
+def top_spec(+a: Nat, +b: Nat, tags: List<&2, String>) -> Maybe<&2, Nat>:
+  match tags:
+    case Nil{}:
+      None{}
+    case t <> r:
+      top_spec.add(Sv.Tag.ver(t), a, b, top_spec(a, b, r))
+
+def next_spec(m: Maybe<&2, Nat>) -> Nat:
+  match m:
+    case None{}:
+      0n
+    case Some{p}:
+      1n+p
+
+# LAW semver_next_exact: the next release of the series a.b is a.b.(1 + the highest patch of its tags), a.b.0 without one
+# EXCLUDES: a next release that skips a patch or repeats one, reads the
+#   tags of another series, or keeps the workspace version's patch (the
+#   laws of the order and of newness alone let a release skip ahead)
+law semver_next_exact:
+  for +a: Nat
+  for +b: Nat
+  for c: Nat
+  for +tags: List<&2, String>
+  {Sv.Rel.next(Sv.Ver{a, b, c}, tags) == Sv.Ver{a, b, next_spec(top_spec(a, b, tags))} : Sv.Ver}
+
+# every tag that names a version names one older than n
+def newest_spec.of(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{v}:
+      Sv.Ver.lt(v, n)
+
+def newest_spec(+n: Sv.Ver, tags: List<&2, String>) -> Bool:
+  match tags:
+    case Nil{}:
+      True{}
+    case t <> r:
+      Bool.and(newest_spec.of(Sv.Tag.ver(t), n), newest_spec(n, r))
+
+def release_rule.newest(ok: Bool, n: Sv.Ver) -> Maybe<&2, Sv.Ver>:
+  match ok:
+    case True{}:
+      Some{n}
+    case False{}:
+      None{}
+
+def release_rule.at(+a: Nat, +b: Nat, c: Nat, +tags: List<&2, String>) -> Maybe<&2, Sv.Ver>:
+  match c:
+    case 0n:
+      +n = {Sv.Ver{a, b, next_spec(top_spec(a, b, tags))} : Sv.Ver}
+      release_rule.newest(newest_spec(n, tags), n)
+    case 1n+z:
+      None{}
+
+def release_rule(m: Maybe<&2, Sv.Ver>, +tags: List<&2, String>) -> Maybe<&2, Sv.Ver>:
+  match m:
+    case None{}:
+      None{}
+    case Some{v}:
+      match v:
+        case Sv.Ver{a, b, c}:
+          release_rule.at(a, b, c, tags)
+
+# LAW semver_release_exact: a commit releases exactly when its workspace version is X.Y.0 and the next release is newer than every version tag
+# EXCLUDES: no release where one is due (semver_release_newest and the
+#   refusals only bound the release from one side), a release past a
+#   newer tag
+law semver_release_exact:
+  for c: String
+  for +tags: List<&2, String>
+  {Sv.Rel.release(c, tags) == release_rule(Sv.Ver.parse(c), tags) : Maybe<&2, Sv.Ver>}
+
 # The decimal writer of the spec, independent of the model: a number's
 # text is the text of the number before it with its last digit raised,
 # a 9 becoming 0 and carrying left. It works on the text written last
@@ -270,3 +390,282 @@ def rank_spec.in_range(xs: List<&2, Nat>) -> Bool:
 law replace_rank_in_range:
   for +s: String
   {rank_spec.in_range(Rp.rank(s)) == True{} : Bool}
+
+# ---- entry ----
+
+# LAWS (R2): the entry of the compiled Bend core that runs the release
+# rule (bend/ffi_semver.bend, called by crates/eukhe-build-info: the
+# release script `eukhe-next-version` and the build script's check of
+# EUKHE_RELEASE_VERSION). Each law is an open claim about FSv.ffi, the
+# function the core runs, stated with spec spellers built only from the
+# wire primitives of bend/wire.bend (their round trips: laws/wire.bend).
+
+# (R2) The entry
+# --------------
+# A request is a release question (the workspace version and the
+# repository's tags) or a series question (the workspace version and a
+# release version). The entry answers it with the model's decision
+# (Sv.Rel.release, Sv.Rel.next, Sv.Ver.parse, Sv.Ver.in_series) and, for
+# no release, why. The model reads numbers in unary: a request whose read
+# texts hold 7 digits in a row (the workspace version, a release version,
+# a tag `eukhe-v...`; other tags are never read) answers the error form.
+# Every other input answers the error form. Every input is free: any
+# texts, any tags, in any order.
+
+# Spec spellers
+# -------------
+
+def spell_tags(ts: List<&2, String>, rest: String) -> String:
+  Wr.put_list(~String, ~Wr.put_str, ts, rest)
+
+# the release question: tag 0, the workspace version, the tags
+def spell_release(c: String, ts: List<&2, String>) -> String:
+  Wr.put_nat(0n, Wr.put_str(c, spell_tags(ts, "")))
+
+# the series question: tag 1, the workspace version, the release version
+def spell_series(w: String, r: String) -> String:
+  Wr.put_nat(1n, Wr.put_str(w, Wr.put_str(r, "")))
+
+def spell_req(q: FSv.Req) -> String:
+  match q:
+    case FSv.QRelease{c, ts}:
+      spell_release(c, ts)
+    case FSv.QSeries{w, r}:
+      spell_series(w, r)
+
+# a version's text, written by the spec's decimal writer
+def show_spec(v: Sv.Ver) -> String:
+  match v:
+    case Sv.Ver{a, b, c}:
+      String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})})
+
+# a release: tag 3, its version, its tag `eukhe-v<version>`, its title
+# `Eukhe v<version>`
+def spell_rel(+v: Sv.Ver) -> String:
+  +t = show_spec(v)
+  Wr.put_nat(3n, Wr.put_str(t, Wr.put_str(String.append("eukhe-v", t), Wr.put_str(String.append("Eukhe v", t), ""))))
+
+# the version tags among ts that n is not newer than, in their order
+def newer_spec.pick(le: Bool, t: String, rest: List<&2, String>) -> List<&2, String>:
+  match le:
+    case True{}:
+      t <> rest
+    case False{}:
+      rest
+
+def newer_spec.keep(m: Maybe<&2, Sv.Ver>, +n: Sv.Ver, t: String, rest: List<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      rest
+    case Some{v}:
+      newer_spec.pick(Sv.Ver.le(n, v), t, rest)
+
+def newer_spec(+n: Sv.Ver, ts: List<&2, String>) -> List<&2, String>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case +t <> r:
+      newer_spec.keep(Sv.Tag.ver(t), n, t, newer_spec(n, r))
+
+# why the workspace version X.Y.c gives no release: not X.Y.0 (tag 1), or
+# the next release X.Y.P is not newer than every version tag (tag 2, its
+# version, the tags it is not newer than)
+def why_spec.patch(a: Nat, b: Nat, c: Nat, +ts: List<&2, String>) -> String:
+  match c:
+    case 0n:
+      +n = Sv.Rel.next(Sv.Ver{a, b, 0n}, ts)
+      Wr.put_nat(2n, Wr.put_str(show_spec(n), spell_tags(newer_spec(n, ts), "")))
+    case 1n+z:
+      Wr.put_nat(1n, "")
+
+# why there is no release: the workspace version is no version (tag 0), ...
+def why_spec(m: Maybe<&2, Sv.Ver>, +ts: List<&2, String>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{v}:
+      match v:
+        case Sv.Ver{a, b, c}:
+          why_spec.patch(a, b, c, ts)
+
+def release_spec.of(r: Maybe<&2, Sv.Ver>, c: String, +ts: List<&2, String>) -> String:
+  match r:
+    case Some{v}:
+      spell_rel(v)
+    case None{}:
+      why_spec(Sv.Ver.parse(c), ts)
+
+# the reply to the release question: the release, else why there is none
+def release_spec(+c: String, +ts: List<&2, String>) -> String:
+  release_spec.of(Sv.Rel.release(c, ts), c, ts)
+
+def series_spec.in(b: Bool) -> String:
+  match b:
+    case True{}:
+      Wr.put_nat(2n, "")
+    case False{}:
+      Wr.put_nat(1n, "")
+
+def series_spec.of(r: Maybe<&2, Sv.Ver>, w: Maybe<&2, Sv.Ver>) -> String:
+  match r:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{v}:
+      match w:
+        case None{}:
+          Wr.put_nat(1n, "")
+        case Some{s}:
+          series_spec.in(Sv.Ver.in_series(s, v))
+
+# the reply to the series question: 0 the release is no version, 1 it is
+# not of the workspace's series (or the workspace version is no version),
+# 2 it is
+def series_spec(w: String, r: String) -> String:
+  series_spec.of(Sv.Ver.parse(r), Sv.Ver.parse(w))
+
+# a char the model reads as a digit
+def digit_spec.of(y: Sv.Sym) -> Bool:
+  match y:
+    case Sv.Digit{d}:
+      True{}
+    case Sv.Dot{}:
+      False{}
+    case Sv.Other{}:
+      False{}
+
+# s starts with n digits
+def run_spec(n: Nat, s: String) -> Bool:
+  match n:
+    case 0n:
+      True{}
+    case 1n+m:
+      match s:
+        case SNil{}:
+          False{}
+        case SCon{c, t}:
+          Bool.and(digit_spec.of(Sv.Sym.of(c)), run_spec(m, t))
+
+# s holds 7 digits in a row
+def seven_spec(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+c, +t}:
+      Bool.or(run_spec(7n, SCon{c, t}), seven_spec(t))
+
+def seven_tag.of(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{r}:
+      seven_spec(r)
+
+# a tag the model reads (`eukhe-v...`) whose version holds 7 digits in a row
+def seven_tag(t: String) -> Bool:
+  seven_tag.of(Sv.Tag.strip(t))
+
+def seven_tags(ts: List<&2, String>) -> Bool:
+  match ts:
+    case Nil{}:
+      False{}
+    case t <> r:
+      Bool.or(seven_tag(t), seven_tags(r))
+
+# every string of ts fits the wire
+def strs_all(ts: List<&2, String>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case +t <> r:
+      Bool.and(LawsBase.wire_fits(String.length(t)), strs_all(r))
+
+# the release question fits the wire: each text and the count of tags
+def release_fits(c: String, +ts: List<&2, String>) -> Bool:
+  Bool.and(LawsBase.wire_fits(String.length(c)), Bool.and(LawsBase.wire_fits(List.length(&2, String, ts)), strs_all(ts)))
+
+def series_fits(w: String, r: String) -> Bool:
+  Bool.and(LawsBase.wire_fits(String.length(w)), LawsBase.wire_fits(String.length(r)))
+
+# the refusal of a request with 7 digits in a row
+def long_err() -> String:
+  Wr.err("semver: a version number of more than 6 digits")
+
+# LAW semver_ffi_release: the release question answers the model's release, else why there is none
+# EXCLUDES: a reply that is not the model's (another version, tag or title,
+#   a swapped reason, a lost or invented tag in the list of newer tags, tags
+#   in another order), a release when the model has none, a field of the
+#   request lost, swapped or misread
+law semver_ffi_release:
+  for +c: String
+  for +ts: List<&2, String>
+  for fit: {release_fits(c, ts) == True{} : Bool}
+  for few: {Bool.or(seven_spec(c), seven_tags(ts)) == False{} : Bool}
+  {FSv.ffi(spell_release(c, ts)) == release_spec(c, ts) : String}
+
+# LAW semver_ffi_release_long: a release question whose read texts hold 7 digits in a row is refused
+# EXCLUDES: a slow or stopped evaluation (the unary model on a huge number),
+#   a default release, a refusal of a tag the model never reads
+law semver_ffi_release_long:
+  for +c: String
+  for +ts: List<&2, String>
+  for fit: {release_fits(c, ts) == True{} : Bool}
+  for many: {Bool.or(seven_spec(c), seven_tags(ts)) == True{} : Bool}
+  {FSv.ffi(spell_release(c, ts)) == long_err() : String}
+
+# LAW semver_ffi_series: the series question answers whether the release version is of the workspace's series
+# EXCLUDES: a release of another series (or no version) accepted, a release
+#   of the series refused, the workspace and release versions swapped
+law semver_ffi_series:
+  for +w: String
+  for +r: String
+  for fit: {series_fits(w, r) == True{} : Bool}
+  for few: {Bool.or(seven_spec(w), seven_spec(r)) == False{} : Bool}
+  {FSv.ffi(spell_series(w, r)) == series_spec(w, r) : String}
+
+# LAW semver_ffi_series_long: a series question whose versions hold 7 digits in a row is refused
+# EXCLUDES: a slow or stopped evaluation, a default answer
+law semver_ffi_series_long:
+  for +w: String
+  for +r: String
+  for fit: {series_fits(w, r) == True{} : Bool}
+  for many: {Bool.or(seven_spec(w), seven_spec(r)) == True{} : Bool}
+  {FSv.ffi(spell_series(w, r)) == long_err() : String}
+
+# LAW semver_ffi_exact: every input the entry answers with a value (not the error form) is a spelled request
+# EXCLUDES: a default answer to a malformed request (an unknown tag, a
+#   short string, a wrong count, input left over)
+law semver_ffi_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FSv.ffi(s)) == False{} : Bool}
+  exs q: FSv.Req
+  {s == spell_req(q) : String}
+
+# LAW semver_ffi_release_example: anchor: the exact bytes Rust sends for 0.10.0 with the tags eukhe-v0.10.3 and v1.2.3, and the release 0.10.4
+# EXCLUDES: another spelling of the request or of the release
+law semver_ffi_release_example:
+  {FSv.ffi("0,6,0.10.02,13,eukhe-v0.10.36,v1.2.3") == "3,6,0.10.413,eukhe-v0.10.413,Eukhe v0.10.4" : String}
+
+# LAW semver_ffi_behind_example: anchor: a tag of a newer series stops the release and is named
+# EXCLUDES: a release past a newer series, the newer tag left out
+law semver_ffi_behind_example:
+  {FSv.ffi("0,6,0.10.02,13,eukhe-v0.11.313,eukhe-v0.10.3") == "2,6,0.10.41,13,eukhe-v0.11.3" : String}
+
+# LAW semver_ffi_why_example: anchor: a workspace version 0.10.2 is no series start, 0.10 no version
+# EXCLUDES: the two reasons swapped
+law semver_ffi_why_example:
+  {FSv.ffi("0,6,0.10.20,") == "1," : String} & {FSv.ffi("0,4,0.100,") == "0," : String}
+
+# LAW semver_ffi_series_example: anchor: 0.10.7 is of the series 0.10.0, 0.11.7 is not, 0.10.07 is no version
+# EXCLUDES: a series check that ignores the minor number or reads a leading zero
+law semver_ffi_series_example:
+  {FSv.ffi("1,6,0.10.06,0.10.7") == "2," : String} & {FSv.ffi("1,6,0.10.06,0.11.7") == "1," : String} & {FSv.ffi("1,6,0.10.07,0.10.07") == "0," : String}
+
+# LAW semver_ffi_long_example: anchor: a tag eukhe-v0.10.1234567 is refused, a tag build-12345678 is never read
+# EXCLUDES: a vacuous semver_ffi_release_long; a refusal of tags the model does not read
+law semver_ffi_long_example:
+  {FSv.ffi("0,6,0.10.01,19,eukhe-v0.10.1234567") == long_err() : String} & {FSv.ffi("0,6,0.10.01,14,build-12345678") == "3,6,0.10.013,eukhe-v0.10.013,Eukhe v0.10.0" : String}
+
+# LAW semver_ffi_malformed_example: anchor: an unknown tag and input left over are refused
+# EXCLUDES: a default answer to a request Rust never sends
+law semver_ffi_malformed_example:
+  {LawsBase.wire_opens_err(FSv.ffi("2,")) == True{} : Bool} & {LawsBase.wire_opens_err(FSv.ffi("0,6,0.10.00,x")) == True{} : Bool}

@@ -200,12 +200,6 @@ package:
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
 
-# The release-version rule (scripts/release/next_version.py) and its bridge
-# to the Bend model bend/semver.bend (needs bend; the full gate's laws run
-# it with EUKHE_REQUIRE_BEND=1).
-release-version-gates:
-	python3 scripts/release/test_next_version.py
-
 # The kernel venv's hash-locked requirements: eukhe-runtime/uv.lock exported
 # to eukhe-runtime/requirements-kernel.txt (the only file the venv bootstrap
 # installs from). runtime-lock re-resolves (network) and re-exports;
@@ -229,4 +223,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui

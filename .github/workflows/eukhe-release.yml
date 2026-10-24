@@ -9,8 +9,8 @@
 # tag and is not the nix/release.json bookkeeping commit, else the run
 # fails. The build jobs build that exact commit. The version is the next
 # patch of the workspace series (Cargo.toml X.Y.0 at that commit):
-# scripts/release/next_version.py, the rule bend/semver.bend models and
-# laws/semver.bend (R1, Release versions) proves. The release notes are
+# `eukhe-next-version` (crate eukhe-build-info) runs the rule bend/semver.bend
+# as compiled Bend; laws/semver.bend (R1, R2) proves it. The release notes are
 # the first-parent commit subjects since the previous `eukhe-v*` tag,
 # grouped by area without the internal ones (scripts/release/
 # release_notes.py). The release is tagged `eukhe-v<version>`, titled
@@ -67,6 +67,14 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      # The release rule runs as compiled Bend (crates/eukhe-bend, called by
+      # eukhe-next-version). The runner image ships rustup; refusing to
+      # continue without it keeps the job off any curl | sh install path.
+      - name: Install Rust (runner rustup; toolchain from rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          command -v rustup >/dev/null || { echo "::error::rustup is not preinstalled on ${RUNNER_OS}"; exit 1; }
+          rustup toolchain install --no-self-update
       - id: version
         name: Check the named commit and compute its version (the next patch of the workspace series)
         env:
@@ -87,7 +95,8 @@ jobs:
           previous="$(git describe --tags --abbrev=0 --match 'eukhe-v*' --first-parent "${sha}" 2>/dev/null || true)"
           echo "releasing ${sha} (previous release: ${previous:-none})"
           git checkout --quiet --detach "${sha}"
-          cut -f2 "${RUNNER_TEMP}/tags" | sed 's|^refs/tags/||' | python3 scripts/release/next_version.py > "${RUNNER_TEMP}/version"
+          cargo build --locked --quiet -p eukhe-build-info --bin eukhe-next-version
+          cut -f2 "${RUNNER_TEMP}/tags" | sed 's|^refs/tags/||' | target/debug/eukhe-next-version > "${RUNNER_TEMP}/version"
           cat "${RUNNER_TEMP}/version"
           {
             cat "${RUNNER_TEMP}/version"

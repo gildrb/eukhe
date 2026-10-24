@@ -1,7 +1,7 @@
-# semver: the model of eukhe's release versions (laws/semver.bend R1,
-# docs/develop.md "Releases"). scripts/release/next_version.py implements it; its bridge
-# test (scripts/release/test_next_version.py, with bridge/bridge_semver.bend)
-# runs both on the same cases.
+# semver: eukhe's release versions (laws/semver.bend R1, docs/develop.md
+# "Releases"). The rule runs as compiled Bend (entry bend/ffi_semver.bend,
+# laws/semver.bend R2): `eukhe-next-version` computes a release with it and
+# crates/eukhe-build-info's build script checks EUKHE_RELEASE_VERSION.
 #
 # 1. Numbers. A number is written in decimal without leading zeros: "0",
 #    "7", "10", never "", "07" or "+7". Num.show writes one; Num.read
@@ -24,7 +24,8 @@
 #    it); else there is none and the script fails.
 #
 # A number is unary underneath (Nat): the model reads and writes any
-# number, and runs fast on small ones (the bridge's).
+# number, and runs fast on small ones; the entry refuses a number of more
+# than 6 digits.
 
 import Base
 
@@ -192,32 +193,16 @@ type Sym is Data:
   Dot{}
   Other{}
 
-def Sym.of(c: Char) -> Sym:
-  match c:
-    case '0':
-      Digit{D0{}}
-    case '1':
-      Digit{D1{}}
-    case '2':
-      Digit{D2{}}
-    case '3':
-      Digit{D3{}}
-    case '4':
-      Digit{D4{}}
-    case '5':
-      Digit{D5{}}
-    case '6':
-      Digit{D6{}}
-    case '7':
-      Digit{D7{}}
-    case '8':
-      Digit{D8{}}
-    case '9':
-      Digit{D9{}}
-    case '.':
-      Dot{}
-    case _:
-      Other{}
+def Sym.when(hit: Bool, y: Sym, miss: Sym) -> Sym:
+  match hit:
+    case True{}:
+      y
+    case False{}:
+      miss
+
+# the symbol of a char: one compare per symbol, on the char's code
+def Sym.of(+c: Char) -> Sym:
+  Sym.when(Char.is_eq(c, '0'), Digit{D0{}}, Sym.when(Char.is_eq(c, '1'), Digit{D1{}}, Sym.when(Char.is_eq(c, '2'), Digit{D2{}}, Sym.when(Char.is_eq(c, '3'), Digit{D3{}}, Sym.when(Char.is_eq(c, '4'), Digit{D4{}}, Sym.when(Char.is_eq(c, '5'), Digit{D5{}}, Sym.when(Char.is_eq(c, '6'), Digit{D6{}}, Sym.when(Char.is_eq(c, '7'), Digit{D7{}}, Sym.when(Char.is_eq(c, '8'), Digit{D8{}}, Sym.when(Char.is_eq(c, '9'), Digit{D9{}}, Sym.when(Char.is_eq(c, '.'), Dot{}, Other{})))))))))))
 
 def Sym.list(s: String) -> List<&2, Sym>:
   match s:

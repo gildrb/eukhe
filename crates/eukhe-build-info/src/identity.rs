@@ -2,6 +2,8 @@
 //! includes this file (`#[path]`) and applies them to what it finds (the
 //! environment, git, the source files); the crate's tests check them.
 
+use eukhe_bend::rules::semver::{series, Series};
+
 /// Commit hashes are shortened to this many characters.
 pub(crate) const SHORT_COMMIT_LEN: usize = 12;
 
@@ -10,44 +12,26 @@ pub(crate) const DEV_SUFFIX: &str = "-dev";
 
 /// The product version of a build of workspace version `workspace`
 /// (`X.Y.Z`, the series `X.Y`). A release build names its release
-/// (`release`, from `EUKHE_RELEASE_VERSION`): a canonical `X.Y.P` of the
-/// workspace's series (`scripts/release/next_version.py` computes it). Any
+/// (`release`, from `EUKHE_RELEASE_VERSION`): a version of the
+/// workspace's series (`eukhe-next-version` computes it; the rule runs as
+/// its compiled Bend model, `eukhe_bend::rules::semver::series`). Any
 /// other build is `<workspace>-dev`, so it never claims a release.
 pub(crate) fn product_version(workspace: &str, release: Option<&str>) -> Result<String, String> {
     let Some(release) = release else {
         return Ok(format!("{workspace}{DEV_SUFFIX}"));
     };
-    let Some((major, minor, _)) = parse(release) else {
-        return Err(format!(
+    match series(workspace, release) {
+        Ok(Series::Of) => Ok(release.to_string()),
+        Ok(Series::NoVersion) => Err(format!(
             "EUKHE_RELEASE_VERSION {release:?} is not a version major.minor.patch"
-        ));
-    };
-    match parse(workspace) {
-        Some((series_major, series_minor, _)) if (series_major, series_minor) == (major, minor) => {
-            Ok(release.to_string())
-        }
-        Some(_) | None => Err(format!(
+        )),
+        Ok(Series::Other) => Err(format!(
             "EUKHE_RELEASE_VERSION {release} is not of the series of the workspace version {workspace}"
         )),
+        Err(error) => Err(format!(
+            "EUKHE_RELEASE_VERSION {release:?} against the workspace version {workspace}: {error}"
+        )),
     }
-}
-
-/// The three numbers of a version `major.minor.patch`, each decimal
-/// without leading zeros (`bend/semver.bend`); `None` for any other text.
-fn parse(text: &str) -> Option<(u64, u64, u64)> {
-    let mut fields = text.split('.').map(|field| {
-        let canonical = field == "0"
-            || (!field.is_empty()
-                && !field.starts_with('0')
-                && field.bytes().all(|byte| byte.is_ascii_digit()));
-        if canonical {
-            field.parse::<u64>().ok()
-        } else {
-            None
-        }
-    });
-    let version = (fields.next()??, fields.next()??, fields.next()??);
-    fields.next().is_none().then_some(version)
 }
 
 /// What a build was compiled from.

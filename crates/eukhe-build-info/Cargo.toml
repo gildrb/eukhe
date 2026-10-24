@@ -6,5 +6,18 @@ license.workspace = true
 publish.workspace = true
 description = "This build's identity: the product version and the source commit it was compiled from."
 
+[dependencies]
+# The release-version rule runs as its compiled Bend model
+# (`eukhe_bend::rules::semver`): the release script `eukhe-next-version`
+# and the tests of `src/identity.rs`.
+eukhe-bend.workspace = true
+# `eukhe-next-version` reads the workspace version of Cargo.toml.
+toml.workspace = true
+
+[build-dependencies]
+# build.rs checks EUKHE_RELEASE_VERSION against the workspace series with
+# the same rule (`src/identity.rs`).
+eukhe-bend.workspace = true
+
 [lints]
 workspace = true
