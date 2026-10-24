@@ -67,6 +67,7 @@
     "laws/auth_flight.bend::flight_step_example": "d8104c8589e3f5cb2d07db1e9241e04c2a60939a8165e4012109f695a104c4c8",
     "laws/auth_flight.bend::flight_step_malformed_exact": "30ae733c7bc5e64dcc69a6223dcfd5f94f5a4760a1d64a7cef185271a69cc70a",
     "laws/auth_flight.bend::flight_step_reads": "3f19610509fecde1aaaa22210dca08ada399ec0122bc193e12e6b8bd589d1013",
+    "laws/auth_flight.bend::flight_store_terms_exact": "23cd9036c1fbeb8c81415e5bbec1d1c9b9d088b7364e4ab883ab258875b6f930",
     "laws/auth_flight.bend::flight_terms_exact": "d24b9f5855ce57b7f3fe34bea7d81ff56f1fd942ff4421a466d405a2400e8718",
     "laws/aux_fallback.bend::afw_answers_gate": "5d959170a5d0a3f599bd1a5eaf0da847ec9e649851effb92e9102cb387dc60cf",
     "laws/aux_fallback.bend::afw_answers_pass": "ad87c64f9d4341857c6568dd02c04204dd6050961d481e3f946b53f42e116dfa",

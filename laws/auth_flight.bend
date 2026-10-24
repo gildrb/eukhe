@@ -298,6 +298,15 @@ law flight_step_exact:
 law flight_new_example:
   {F.St.new() == F.St{F.W{F.Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}} : F.St}
 
+# LAW flight_store_terms_exact: the store's accessors the A1 laws read (flight_after_end_served's
+# premise) are its fields: the stored credential and whether it is fresh
+# EXCLUDES: flight_after_end_served made vacuous by a `Sto.fresh` that is
+#   never True
+law flight_store_terms_exact:
+  for +c: Nat
+  for +f: Bool
+  {F.Sto.fresh(F.Sto{c, f}) == f : Bool} & {F.Sto.c(F.Sto{c, f}) == c : Nat}
+
 # (A1) The decisions of the Rust refresh, run as compiled Bend
 # ------------------------------------------------------------
 # The Rust refresh (crates/eukhe-core/src/auth/flight.rs) runs each caller

@@ -563,6 +563,7 @@ import ./proof/auth_flight/flight_terms_exact.bend as PFlightTermsExact
 import ./proof/auth_flight/flight_land_ends.bend as PFlightLandEnds
 import ./proof/auth_flight/flight_step_exact.bend as PFlightStepExact
 import ./proof/auth_flight/flight_new_example.bend as PFlightNewExample
+import ./proof/auth_flight/flight_store_terms_exact.bend as PFlightStoreTermsExact
 import ./proof/auth_flight/base/entry.bend as LAAuthFlightEntry
 import ./proof/auth_flight/flight_ffi_answers.bend as PFlightFfiAnswers
 import ./proof/auth_flight/flight_ffi_reads.bend as PFlightFfiReads
