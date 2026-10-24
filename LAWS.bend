@@ -66,3 +66,4 @@ import ./laws/workflow.bend as Workflow
 import ./laws/command.bend as Command
 import ./laws/shell.bend as Shell
 import ./laws/tool_surface.bend as ToolSurface
+import ./laws/selection.bend as Selection
