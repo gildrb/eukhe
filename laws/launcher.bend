@@ -2,6 +2,9 @@
 
 import Base
 import ../bend/launcher.bend as La
+import ../bend/ffi_launcher.bend as FLa
+import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 
 # The orphan entry of the compiled core (bend/ffi_orphan.bend)
 
@@ -19,3 +22,271 @@ law adopt_same_build:
   for +w: Maybe<&2, Nat>
   for adopted: {La.adoption(sup, w) == La.Adopt{} : La.Adoption}
   {w == Some{sup} : Maybe<&2, Nat>}
+
+# The decisions exactly, and the entry Rust calls
+# -----------------------------------------------
+# A run start at a worker's gate, a worker's quiesce and the supervisor's
+# commit (crates/eukhe-daemon/src/work_gate.rs `WorkGate`,
+# `idle_shutdown_commits`) and the adoption verdict
+# (`supervisor/adoption.rs` `adoption_verdict`) run as
+# bend/launcher.bend through the entry bend/ffi_launcher.bend. The
+# spellers and the reader below are the wire grammar of that entry
+# written with the wire primitives alone (laws/wire.bend proves their
+# round trips); they never call the entry's own codec. Rust numbers the
+# builds of an adoption by equality, as `adoption` reads them: 0 the
+# supervisor's build, 1 another.
+
+# Terms
+# -----
+
+# the gate after a quiesce: a busy worker's gate stays as it was, an idle
+# worker's closes
+def closed_after(busy: Bool, closed: Bool) -> Bool:
+  match busy:
+    case True{}:
+      closed
+    case False{}:
+      True{}
+
+# every answer is quiesced
+def all_quiesced(xs: List<&2, Bool>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case a <> t:
+      Bool.and(a, all_quiesced(t))
+
+# the adoption of a worker that reports build w: adopt (0) only the
+# supervisor's build, else replace (1)
+def adopt_spec(w: Maybe<&2, Nat>) -> Nat:
+  match w:
+    case None{}:
+      1n
+    case Some{b}:
+      match b:
+        case 0n:
+          0n
+        case 1n+p:
+          1n
+
+# Spellers
+
+def spell_bools(xs: List<&2, Bool>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case a <> t:
+      Wr.put_bool(a, spell_bools(t, rest))
+
+# the request Rust writes for a
+def spell_ask(a: La.Ask) -> String:
+  match a:
+    case La.AskPrompt{c}:
+      Wr.put_nat(0n, Wr.put_bool(c, ""))
+    case La.AskQuiesce{b, c}:
+      Wr.put_nat(1n, Wr.put_bool(b, Wr.put_bool(c, "")))
+    case La.AskCommit{+xs}:
+      Wr.put_nat(2n, Wr.put_nat(List.length(&2, Bool, xs), spell_bools(xs, "")))
+    case La.AskAdopt{w}:
+      match w:
+        case None{}:
+          Wr.put_nat(3n, Wr.put_nat(0n, ""))
+        case Some{n}:
+          Wr.put_nat(3n, Wr.put_nat(1n, Wr.put_nat(n, "")))
+
+# every number of a fits the wire
+def ask_fits(a: La.Ask) -> Bool:
+  match a:
+    case La.AskPrompt{c}:
+      True{}
+    case La.AskQuiesce{b, c}:
+      True{}
+    case La.AskCommit{xs}:
+      LawsBase.wire_fits(List.length(&2, Bool, xs))
+    case La.AskAdopt{w}:
+      match w:
+        case None{}:
+          True{}
+        case Some{n}:
+          LawsBase.wire_fits(n)
+
+# the reply to a: a run starts only at an open gate; a quiesce answers the
+# gate after it, then whether the worker quiesced (it held no work); the
+# commit happens only when every worker quiesced; the adoption's verdict
+def spell_answer(a: La.Ask) -> String:
+  match a:
+    case La.AskPrompt{c}:
+      Wr.put_bool(Bool.not(c), "")
+    case La.AskQuiesce{+b, c}:
+      Wr.put_bool(closed_after(b, c), Wr.put_bool(Bool.not(b), ""))
+    case La.AskCommit{xs}:
+      Wr.put_bool(all_quiesced(xs), "")
+    case La.AskAdopt{w}:
+      Wr.put_nat(adopt_spec(w), "")
+
+# Reader: the requests the entry accepts, read with the wire primitives
+
+def read_prompt(r: Wr.Dec<Bool>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{c, s}:
+      Wr.Got{La.AskPrompt{c}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_quiesce.closed(b: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{c, s}:
+      Wr.Got{La.AskQuiesce{b, c}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_quiesce(r: Wr.Dec<Bool>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{b, s}:
+      read_quiesce.closed(b, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_answers.cons(a: Bool, r: Wr.Dec<List<&2, Bool>>) -> Wr.Dec<List<&2, Bool>>:
+  match r:
+    case Wr.Got{xs, s}:
+      Wr.Got{a <> xs, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# n more answers after the one cur answers
+def read_answers(n: Nat, cur: Wr.Dec<Bool>) -> Wr.Dec<List<&2, Bool>>:
+  match n:
+    case 0n:
+      match cur:
+        case Wr.Got{a, s}:
+          Wr.Got{[a], s}
+        case Wr.Bad{}:
+          Wr.Bad{}
+    case 1n+m:
+      match cur:
+        case Wr.Got{a, s}:
+          read_answers.cons(a, read_answers(m, Wr.get_bool(s)))
+        case Wr.Bad{}:
+          Wr.Bad{}
+
+def read_commit.answers(r: Wr.Dec<List<&2, Bool>>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{xs, s}:
+      Wr.Got{La.AskCommit{xs}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_commit(r: Wr.Dec<Nat>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      match n:
+        case 0n:
+          Wr.Got{La.AskCommit{Nil{}}, s}
+        case 1n+m:
+          read_commit.answers(read_answers(m, Wr.get_bool(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_adopt.some(r: Wr.Dec<Nat>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{La.AskAdopt{Some{b}}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_adopt.tag(t: Nat, s: String) -> Wr.Dec<La.Ask>:
+  match t:
+    case 0n:
+      Wr.Got{La.AskAdopt{None{}}, s}
+    case 1n:
+      read_adopt.some(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def read_adopt(r: Wr.Dec<Nat>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      read_adopt.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.tag(t: Nat, s: String) -> Wr.Dec<La.Ask>:
+  match t:
+    case 0n:
+      read_prompt(Wr.get_bool(s))
+    case 1n:
+      read_quiesce(Wr.get_bool(s))
+    case 2n:
+      read_commit(Wr.get_nat(s))
+    case 3n:
+      read_adopt(Wr.get_nat(s))
+    case 4n+p:
+      Wr.Bad{}
+
+def read_ask.go(r: Wr.Dec<Nat>) -> Wr.Dec<La.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      read_ask.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_ask.end(whole: Bool, a: La.Ask) -> Maybe<&2, La.Ask>:
+  match whole:
+    case True{}:
+      Some{a}
+    case False{}:
+      None{}
+
+def read_ask.whole(r: Wr.Dec<La.Ask>) -> Maybe<&2, La.Ask>:
+  match r:
+    case Wr.Got{a, s}:
+      read_ask.end(Wr.end(s), a)
+    case Wr.Bad{}:
+      None{}
+
+# the request s is, when s is exactly one request
+def read_ask(s: String) -> Maybe<&2, La.Ask>:
+  read_ask.whole(read_ask.go(Wr.get_nat(s)))
+
+# Laws
+# ----
+
+# LAW launcher_ffi_answers: on every request Rust writes, the entry answers: a run starts only at an open gate; a quiesce closes the gate of a worker with no work and answers quiesced, and leaves a busy worker's gate as it was with the answer busy; the supervisor commits an idle shutdown only when every worker quiesced; a worker is adopted only when it reports the supervisor's build
+law launcher_ffi_answers:
+  for +a: La.Ask
+  for fits: {ask_fits(a) == True{} : Bool}
+  {FLa.ffi(spell_ask(a)) == spell_answer(a) : String}
+
+# LAW launcher_ffi_malformed: every input that is not exactly one request gets the error form
+law launcher_ffi_malformed:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, La.Ask>}
+  {LawsBase.wire_opens_err(FLa.ffi(s)) == True{} : Bool}
+
+# LAW launcher_ffi_example: anchor: the strings Rust sends: a run start at a closed gate, a quiesce of a busy worker at an open gate, a commit with one busy answer, the adoption of a worker of another build and of the supervisor's; input left over is refused
+law launcher_ffi_example:
+  {FLa.ffi("0,T") == "F" : String} &
+  {FLa.ffi("1,TF") == "FF" : String} &
+  {FLa.ffi("2,3,TFT") == "F" : String} &
+  {FLa.ffi("3,1,1,") == "1," : String} &
+  {FLa.ffi("3,1,0,") == "0," : String} &
+  {read_ask("0,TT") == None{} : Maybe<&2, La.Ask>} &
+  {LawsBase.wire_opens_err(FLa.ffi("0,TT")) == True{} : Bool}
+
+# the runs a stop finds: one per worker with a run
+def busy_spec(ws: List<&2, La.Wk>) -> Nat:
+  match ws:
+    case Nil{}:
+      0n
+    case La.Wk{b, c} <> t:
+      match b:
+        case True{}:
+          Nat.add(1n, busy_spec(t))
+        case False{}:
+          busy_spec(t)
+
+# LAW launcher_stop_counts_runs: a stop counts as aborted exactly the runs it finds, one per worker with a run (so idle_shutdown_never_aborts reads a true count)
+law launcher_stop_counts_runs:
+  for ws: List<&2, La.Wk>
+  {La.busy_count(ws) == busy_spec(ws) : Nat}

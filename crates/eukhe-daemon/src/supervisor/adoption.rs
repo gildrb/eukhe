@@ -21,8 +21,9 @@ fn recorded_process_alive(
     alive != Some(false) && (expected.is_none() || observed.is_none() || expected == observed)
 }
 
-/// Whether a supervisor keeps a live worker it finds (law
-/// `adopt_same_build`, `laws/launcher.bend` D1; the model in bend/launcher.bend).
+/// Whether a supervisor keeps a live worker it finds (the compiled core's
+/// `adoption` of bend/launcher.bend; laws `adopt_same_build` and
+/// `launcher_ffi_answers` in `laws/launcher.bend`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Adoption {
     /// The worker runs this supervisor's build: it is adopted.
@@ -35,8 +36,10 @@ pub(crate) enum Adoption {
 
 /// The adoption verdict for a worker that reports `worker_build` (`None`:
 /// a worker that reports no build) to a supervisor of `supervisor_build`.
+/// The core reads builds only for equality, so the request names the
+/// worker's build by whether it is the supervisor's.
 pub(crate) fn adoption_verdict(supervisor_build: &str, worker_build: Option<&str>) -> Adoption {
-    if worker_build == Some(supervisor_build) {
+    if crate::work_gate::adopts(worker_build.map(|build| build == supervisor_build)) {
         Adoption::Adopt
     } else {
         Adoption::Replace

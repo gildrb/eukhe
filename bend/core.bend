@@ -20,6 +20,7 @@ import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
 import ./ffi_kernel_local.bend as ffi_kernel_local
+import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
@@ -115,6 +116,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_staging.ffi(input)
     case 35:
       ffi_kernel_local.ffi(input)
+    case 36:
+      ffi_launcher.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -1,5 +1,5 @@
 //! The D1 bridges: the supervisor code its Bend models abstract (`laws/supervise.bend`,
-//! `laws/launcher.bend`, `laws/revive.bend`, `laws/orphan.bend`, proved in `proof/supervise/`, `proof/launcher/`, `proof/revive/` and `proof/orphan/`) and
+//! `laws/revive.bend`, proved in `proof/supervise/` and `proof/revive/`) and
 //! the models run the same scenarios and must print the same transcript,
 //! byte for byte.
 //!
@@ -7,11 +7,10 @@
 //!   expressions: no core call can replace them).
 //! - [`busy_evidence_fresh`] on the refresh schedule against
 //!   `bridge/bridge_revive.bend`.
-//! - [`WorkGate`], [`idle_shutdown_commits`] and [`adoption_verdict`]
-//!   against `bridge/bridge_launcher.bend`.
 //!
-//! The restart budget and the orphan exit run as their compiled models
-//! (`bend/ffi_supervise.bend`, `bend/ffi_orphan.bend`): no bridge.
+//! The restart budget, the orphan exit and the replacement's gate, commit
+//! and adoption run as their compiled models (`bend/ffi_supervise.bend`,
+//! `bend/ffi_orphan.bend`, `bend/ffi_launcher.bend`): no bridge.
 //!
 //! Each `bridge/bridge_*.bend` file documents its events and its output.
 //! [`compare`] runs them (and skips without `bend`, unless
@@ -30,7 +29,6 @@ use eukhe_types::daemon::timing::{
 };
 
 use crate::revival_gate::busy_evidence_fresh;
-use crate::supervisor::adoption::{adoption_verdict, Adoption};
 use crate::timeouts::{
     BUSY_REFRESH_MS, HARNESS_CLOSE_MS, LAUNCHER_DRAIN_MARGIN_MS, LAUNCHER_SHUTDOWN_WAIT_MS,
     QUIESCE_ANSWER_MS, QUIESCE_HOLD_MS, RESTART_CRASH_LOOP_MS, RESTART_GIVE_UP_AFTER,
@@ -38,7 +36,6 @@ use crate::timeouts::{
     REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS, RLM_CHILD_KILL_TIMEOUT_MS, STOP_GRACE_MS,
     SUPERVISOR_DRAIN_MS, WORKER_KILL_VERIFY_MS, WORKER_TERM_GRACE_MS,
 };
-use crate::work_gate::{idle_shutdown_commits, Admission, QuiesceAnswer, Work, WorkGate};
 
 /// The revival model counts time in seconds.
 const REVIVE_UNIT_MS: u64 = 1_000;
@@ -111,114 +108,4 @@ fn the_revival_runs_as_its_model() {
             transcript,
         }],
     );
-}
-
-fn bits(items: &[(bool, WorkGate)], pick: impl Fn(&(bool, WorkGate)) -> bool) -> String {
-    items
-        .iter()
-        .map(|item| if pick(item) { '1' } else { '0' })
-        .collect()
-}
-
-/// One operation of a replacement scenario.
-#[derive(Clone, Copy)]
-enum Op {
-    Prompt,
-    Finish,
-    Quiesce,
-    Release,
-    Commit,
-}
-
-fn replacement_scenario(rng: &mut Rng) -> Scenario {
-    let count = rng.range(1, 4);
-    let mut workers: Vec<(bool, WorkGate)> = (0..count)
-        .map(|_| (rng.chance(50), WorkGate::default()))
-        .collect();
-    let mut events = String::from("w");
-    for (busy, _) in &workers {
-        write!(events, " {}", u8::from(*busy)).unwrap();
-    }
-    events.push('\n');
-    let mut transcript = String::new();
-    let mut stopped = false;
-    let mut aborted = 0u64;
-    let ops = [Op::Prompt, Op::Finish, Op::Quiesce, Op::Release, Op::Commit];
-    for _ in 0..rng.range(5, 30) {
-        // One past the last worker too: the model and the code both
-        // ignore an operation on a worker that does not exist.
-        let index = rng.range(0, count);
-        let op = rng.pick(&ops).unwrap();
-        match op {
-            Op::Prompt => writeln!(events, "p {index}").unwrap(),
-            Op::Finish => writeln!(events, "f {index}").unwrap(),
-            Op::Quiesce => writeln!(events, "q {index}").unwrap(),
-            Op::Release => writeln!(events, "r {index}").unwrap(),
-            Op::Commit => events.push_str("c\n"),
-        }
-        let worker = workers.get_mut(usize::try_from(index).unwrap());
-        if !stopped {
-            match (op, worker) {
-                (Op::Prompt, Some((busy, gate))) => {
-                    if gate.admission() == Admission::Open {
-                        *busy = true;
-                    }
-                }
-                (Op::Finish, Some((busy, _))) => *busy = false,
-                (Op::Quiesce, Some((busy, gate))) => {
-                    gate.quiesce(if *busy { Work::Ongoing } else { Work::Idle });
-                }
-                (Op::Release, Some((_, gate))) => gate.release(),
-                (Op::Prompt | Op::Finish | Op::Quiesce | Op::Release, None) => {}
-                (Op::Commit, _) => {
-                    let answers = workers.iter().map(|(_, gate)| match gate.admission() {
-                        Admission::Quiesced => QuiesceAnswer::Quiesced,
-                        Admission::Open => QuiesceAnswer::Busy,
-                    });
-                    if idle_shutdown_commits(answers) {
-                        aborted += workers.iter().filter(|(busy, _)| *busy).count() as u64;
-                        stopped = true;
-                    }
-                }
-            }
-        }
-        writeln!(
-            transcript,
-            "o {} {} {} {aborted}",
-            bits(&workers, |(busy, _)| *busy),
-            bits(&workers, |(_, gate)| gate.admission()
-                == Admission::Quiesced),
-            u8::from(stopped)
-        )
-        .unwrap();
-    }
-    for _ in 0..3 {
-        let supervisor = rng.range(0, 3);
-        let worker = rng.chance(80).then(|| rng.range(0, 3));
-        let verdict = adoption_verdict(
-            &format!("build-{supervisor}"),
-            worker.map(|build| format!("build-{build}")).as_deref(),
-        );
-        let shown = worker.map_or_else(|| "-".to_owned(), |build| build.to_string());
-        writeln!(events, "a {supervisor} {shown}").unwrap();
-        let name = match verdict {
-            Adoption::Adopt => "adopt",
-            Adoption::Replace => "replace",
-        };
-        writeln!(transcript, "a {name}").unwrap();
-    }
-    Scenario {
-        name: format!("replacement of {count} workers"),
-        events,
-        transcript,
-    }
-}
-
-/// Prompts, run ends, quiesces, releases and commits in any order, and
-/// adoptions of workers of any build.
-#[test]
-fn the_replacement_runs_as_its_model() {
-    let mut rng = Rng(0x1d1e_5407);
-    let scenarios: Vec<Scenario> = (0..60).map(|_| replacement_scenario(&mut rng)).collect();
-    compare("bridge/bridge_launcher.bend", scenarios);
 }

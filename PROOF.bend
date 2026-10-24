@@ -797,6 +797,11 @@ import ./proof/orphan/orphan_ffi_malformed.bend as POrphanFfiMalformed
 import ./proof/orphan/orphan_ffi_left_over.bend as POrphanFfiLeftOver
 import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
 import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
+import ./proof/launcher/base.bend as LALauncher
+import ./proof/launcher/launcher_ffi_answers.bend as PLauncherFfiAnswers
+import ./proof/launcher/launcher_ffi_malformed.bend as PLauncherFfiMalformed
+import ./proof/launcher/launcher_ffi_example.bend as PLauncherFfiExample
+import ./proof/launcher/launcher_stop_counts_runs.bend as PLauncherStopCountsRuns
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates

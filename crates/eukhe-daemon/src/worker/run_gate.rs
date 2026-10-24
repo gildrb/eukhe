@@ -1,4 +1,5 @@
-//! The worker's run-start gate (the model is bend/launcher.bend). An idle
+//! The worker's run-start gate (its decisions run as the compiled Bend
+//! core, `bend/ffi_launcher.bend`; see `crate::work_gate`). An idle
 //! shutdown quiesces it: an idle worker closes the gate, and every run
 //! start waits at a closed gate. Each run start passes the gate with a
 //! [`RunAdmission`]; while one lives, a quiesce answers busy, so a run that
@@ -20,7 +21,7 @@ use tokio::sync::Notify;
 use super::durable_host::bridge::inbox_previews;
 use super::{response_failure, response_success, DaemonResponse, SessionCore, Worker};
 use crate::timeouts::QUIESCE_HOLD_MS;
-use crate::work_gate::{Admission, QuiesceAnswer, Work, WorkGate};
+use crate::work_gate::{QuiesceAnswer, Work, WorkGate};
 
 /// The run-start gate on the session core.
 #[derive(Default)]
@@ -79,14 +80,13 @@ impl RunAdmission {
     /// [`Quiesced`] while a quiesce holds the gate closed.
     pub(crate) fn try_enter(core: &Arc<Mutex<SessionCore>>) -> Result<Self, Quiesced> {
         let mut locked = lock(core);
-        match locked.run_gate.gate.admission() {
-            Admission::Open => {
-                locked.run_gate.admissions += 1;
-                Ok(Self {
-                    core: Arc::clone(core),
-                })
-            }
-            Admission::Quiesced => Err(Quiesced),
+        if locked.run_gate.gate.admits() {
+            locked.run_gate.admissions += 1;
+            Ok(Self {
+                core: Arc::clone(core),
+            })
+        } else {
+            Err(Quiesced)
         }
     }
 }

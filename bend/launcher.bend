@@ -1,9 +1,9 @@
-# launcher: the model of a daemon replacement (docs/daemon.md D1): the
-# idle shutdown and the adoption of live workers. The Rust code is
-# crates/eukhe-daemon/src/work_gate.rs (`WorkGate`, `idle_shutdown_commits`)
-# and `supervisor/adoption.rs` `adoption_verdict`; the bridge
-# (bridge/bridge_launcher.bend, crates/eukhe-daemon/src/supervision_bridge.rs)
-# runs both on the same operations.
+# launcher: a daemon replacement (docs/daemon.md D1): the idle shutdown
+# and the adoption of live workers. The decisions the Rust code makes run
+# as this code (entry bend/ffi_launcher.bend): a run start at a worker's
+# gate, a worker's quiesce, the supervisor's commit of an idle shutdown
+# (crates/eukhe-daemon/src/work_gate.rs `WorkGate`, `idle_shutdown_commits`)
+# and the adoption verdict (`supervisor/adoption.rs` `adoption_verdict`).
 #
 # The idle shutdown: any operations, in any order, on any workers. A
 # prompt starts a run on a worker whose gate is open (a closed gate refuses
@@ -167,3 +167,48 @@ def adoption(+sup: Nat, w: Maybe<&2, Nat>) -> Adoption:
       Replace{}
     case Some{b}:
       adopt.put(Nat.is_eq(b, sup))
+
+# The decisions Rust asks for
+# ---------------------------
+
+def Wk.busy(w: Wk) -> Bool:
+  match w:
+    case Wk{b, c}:
+      b
+
+def Wk.closed(w: Wk) -> Bool:
+  match w:
+    case Wk{b, c}:
+      c
+
+# a prompt at an idle worker whose gate is closed (True) or open starts a
+# run
+def admits(closed: Bool) -> Bool:
+  Wk.busy(prompt(Wk{False{}, closed}))
+
+# a worker's answer to a quiesce: it quiesced (True) when the quiesce
+# closes its open gate, that is, when it holds no work
+def quiesce.answer(busy: Bool) -> Bool:
+  Wk.closed(quiesce(Wk{busy, False{}}))
+
+# the gates of workers that answered as: closed for each that quiesced
+def gates(xs: List<&2, Bool>) -> List<&2, Wk>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case a <> t:
+      Wk{False{}, a} <> gates(t)
+
+# the supervisor commits an idle shutdown on these answers
+def commits(xs: List<&2, Bool>) -> Bool:
+  all_closed(gates(xs))
+
+# what Rust asks: a run start at a gate closed or not; a quiesce of a
+# worker busy or not at a gate closed or not; the commit on the workers'
+# answers; the adoption of a worker that reports a build (0: the
+# supervisor's, numbered as in `adoption`) or none
+type Ask is Data:
+  AskPrompt{closed: Bool}
+  AskQuiesce{busy: Bool, closed: Bool}
+  AskCommit{answers: List<&2, Bool>}
+  AskAdopt{worker: Maybe<&2, Nat>}
