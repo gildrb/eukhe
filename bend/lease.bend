@@ -1,8 +1,8 @@
 # lease: the model of the chat's root-turn lease (docs/harness.md, H6):
-# one holder, then the waiters in the order they asked. The Rust code is
-# `Turns` in crates/eukhe-core/src/memory/service/turn.rs; the bridge
-# (bridge/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs)
-# runs both on the same events.
+# one holder, then the waiters in the order they asked. It runs as the
+# compiled Bend core: the owner's `Turns`
+# (crates/eukhe-core/src/memory/service/turn.rs) keeps one state of the
+# stepper bend/ffi_lease.bend, feeds it each event and acts on `answer`.
 #
 # A waiter asks (it gets the next key, so keys are the order of arrival);
 # the holder or a waiter releases; a waiter stops waiting (its reply is
@@ -189,6 +189,100 @@ def go(evs: List<&2, Ev>, s: L) -> L:
 
 def run(evs: List<&2, Ev>) -> L:
   go(evs, L.empty())
+
+# What eukhe acts on
+# ------------------
+
+# After an event: the lease to grant (the holder, when the event made it
+# the holder) and the leases the event ended (held or waited for before,
+# neither after), whose replies the owner drops.
+type Answer is Data:
+  Answer{grant: Maybe<&2, Nat>, ended: List<&2, Nat>}
+
+def grant.new(same: Bool, k: Nat) -> Maybe<&2, Nat>:
+  match same:
+    case True{}:
+      None{}
+    case False{}:
+      Some{k}
+
+def grant.free(after: Maybe<&2, Lease>) -> Maybe<&2, Nat>:
+  match after:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Lease{k, o}:
+          Some{k}
+
+def grant.held(+j: Nat, after: Maybe<&2, Lease>) -> Maybe<&2, Nat>:
+  match after:
+    case None{}:
+      None{}
+    case Some{x}:
+      match x:
+        case Lease{+k, o}:
+          grant.new(Nat.is_eq(j, k), k)
+
+# the holder after an event, when it did not hold before
+def grant(before: Maybe<&2, Lease>, after: Maybe<&2, Lease>) -> Maybe<&2, Nat>:
+  match before:
+    case None{}:
+      grant.free(after)
+    case Some{y}:
+      match y:
+        case Lease{j, p}:
+          grant.held(j, after)
+
+def keys.queue(q: List<&2, Waiter>) -> List<&2, Nat>:
+  match q:
+    case Nil{}:
+      Nil{}
+    case w <> t:
+      match w:
+        case Waiter{k, o, l}:
+          k <> keys.queue(t)
+
+# the keys of the holder and the waiters, in order
+def keys(s: L) -> List<&2, Nat>:
+  match s:
+    case L{n, h, q}:
+      match h:
+        case None{}:
+          keys.queue(q)
+        case Some{x}:
+          match x:
+            case Lease{k, o}:
+              k <> keys.queue(q)
+
+def has(+k: Nat, ks: List<&2, Nat>) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case j <> t:
+      Bool.or(Nat.is_eq(j, k), has(k, t))
+
+def ended.put(gone: Bool, k: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
+  match gone:
+    case True{}:
+      k <> r
+    case False{}:
+      r
+
+# the keys of ks that are not in kept, in order
+def ended(+kept: List<&2, Nat>, ks: List<&2, Nat>) -> List<&2, Nat>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case +k <> t:
+      ended.put(Bool.not(has(k, kept)), k, ended(kept, t))
+
+def answer.of(+before: L, +after: L) -> L & Answer:
+  (after, Answer{grant(L.holder(before), L.holder(after)), ended(keys(after), keys(before))})
+
+# the state after e, and what eukhe acts on
+def answer(+s: L, e: Ev) -> L & Answer:
+  answer.of(s, step(s, e))
 
 # What the laws speak of
 # ----------------------

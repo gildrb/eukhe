@@ -92,6 +92,10 @@ pub enum Entry {
     JobRewind = 80,
     /// `bend/ffi_job_wait.bend`: a call.
     JobWait = 81,
+    /// `bend/ffi_lease.bend`: a stepper.
+    Lease = 85,
+    /// `bend/ffi_wait.bend`: a call.
+    Wait = 86,
 }
 
 impl Entry {
@@ -140,6 +144,8 @@ impl Entry {
         Entry::DocRows,
         Entry::JobRewind,
         Entry::JobWait,
+        Entry::Lease,
+        Entry::Wait,
     ];
 
     /// The id `bend/core.bend` dispatches on.

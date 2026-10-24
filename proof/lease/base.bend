@@ -2,6 +2,10 @@
 
 import Base
 import ../../bend/lease.bend as Ls
+import ../../bend/ffi_lease.bend as FLs
+import ../../bend/wire.bend as Wr
+import ../../laws/lease.bend as Lease
+import ../base/wire.bend as LWire
 
 # ---- lease ----
 
@@ -288,3 +292,255 @@ def pl.inv_go(evs: List<&2, Ls.Ev>, +s: Ls.L, inv: pl.Inv(s)) -> pl.Inv(Ls.go(ev
 
 def pl.inv_run(+evs: List<&2, Ls.Ev>) -> pl.Inv(Ls.run(evs)):
   pl.inv_go(evs, Ls.L.empty(), (Unit{}, (Unit{}, Unit{})))
+
+# The entry (bend/ffi_lease.bend)
+# -------------------------------
+# The entry reads every input as the laws' reader does (`le.read`); a
+# read event moves the lease by the model's step and its reply is the
+# laws' spelling (`le.reply`): the model's grant, keys and ended keys are
+# the laws' (`le.grant`, `le.keys`, `le.ended`).
+
+def le.and_l(a: Bool, b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def le.and_r(a: Bool, b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      lease.pl.absurdF({b == True{} : Bool}, h)
+
+def le.MD(m: Maybe<&2, Ls.Ev>, G: Type) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      G
+
+# None is not Some
+def le.none_some(-A: Type, -e: Ls.Ev, h: {None{} == Some{e} : Maybe<&2, Ls.Ev>}) -> A:
+  %h : le.MD(_, A)
+  Unit{}
+
+def le.get(m: Maybe<&2, Ls.Ev>, d: Ls.Ev) -> Ls.Ev:
+  match m:
+    case None{}:
+      d
+    case Some{x}:
+      x
+
+# Some is injective
+def le.some_inj(+a: Ls.Ev, +b: Ls.Ev, h: {Some{a} == Some{b} : Maybe<&2, Ls.Ev>}) -> {a == b : Ls.Ev}:
+  Equal.cong(Maybe<&2, Ls.Ev>, Ls.Ev, m => le.get(m, a), Some{a}, Some{b}, h)
+
+# Reading
+
+def le.ask(d: Wr.Dec<Nat>) -> {Lease.lw_read.ev(d, 0n) == FLs.get_ev.ask(d) : Wr.Dec<Ls.Ev>}:
+  match d:
+    case Wr.Got{x, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def le.release(d: Wr.Dec<Nat>) -> {Lease.lw_read.ev(d, 1n) == FLs.get_ev.release(d) : Wr.Dec<Ls.Ev>}:
+  match d:
+    case Wr.Got{x, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def le.crash(d: Wr.Dec<Nat>) -> {Lease.lw_read.ev(d, 2n) == FLs.get_ev.crash(d) : Wr.Dec<Ls.Ev>}:
+  match d:
+    case Wr.Got{x, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def le.other(d: Wr.Dec<Nat>, p: Nat) -> {Lease.lw_read.ev(d, 3n+p) == Wr.Bad{} : Wr.Dec<Ls.Ev>}:
+  match d:
+    case Wr.Got{x, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def le.tag(t: Nat, +s: String) -> {Lease.lw_read.ev(Wr.get_nat(s), t) == FLs.get_ev.tag(t, s) : Wr.Dec<Ls.Ev>}:
+  match t:
+    case 0n:
+      le.ask(Wr.get_nat(s))
+    case 1n:
+      le.release(Wr.get_nat(s))
+    case 2n:
+      le.crash(Wr.get_nat(s))
+    case 3n+p:
+      le.other(Wr.get_nat(s), p)
+
+# the entry reads every input as the laws' reader does
+def le.read(r: Wr.Dec<Nat>) -> {Lease.lw_read.go(r) == FLs.get_ev.go(r) : Wr.Dec<Ls.Ev>}:
+  match r:
+    case Wr.Got{t, s}:
+      le.tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+# The reply
+
+def le.put_grant(m: Maybe<&2, Nat>, rest: String) -> {FLs.put_grant(m, rest) == Lease.lw_spell_grant(m, rest) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{k}:
+      {==}
+
+def le.grant_new(b: Bool, k: Nat) -> {Ls.grant.new(b, k) == Lease.lw_grant.new(b, k) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def le.grant_held(+j: Nat, h2: Maybe<&2, Ls.Lease>) -> {Ls.grant.held(j, h2) == Lease.lw_grant(Ls.hkey(h2), Some{j}) : Maybe<&2, Nat>}:
+  match h2:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Ls.Lease{+k, o}:
+          le.grant_new(Nat.is_eq(j, k), k)
+
+def le.grant_free(h2: Maybe<&2, Ls.Lease>) -> {Ls.grant.free(h2) == Lease.lw_grant(Ls.hkey(h2), None{}) : Maybe<&2, Nat>}:
+  match h2:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Ls.Lease{k, o}:
+          {==}
+
+# the model's grant is the laws'
+def le.grant(h: Maybe<&2, Ls.Lease>, +h2: Maybe<&2, Ls.Lease>) -> {Ls.grant(h, h2) == Lease.lw_grant(Ls.hkey(h2), Ls.hkey(h)) : Maybe<&2, Nat>}:
+  match h:
+    case None{}:
+      le.grant_free(h2)
+    case Some{y}:
+      match y:
+        case Ls.Lease{j, p}:
+          le.grant_held(j, h2)
+
+def le.keys_queue(q: List<&2, Ls.Waiter>) -> {Ls.keys.queue(q) == Lease.lw_keys.queue(q) : List<&2, Nat>}:
+  match q:
+    case Nil{}:
+      {==}
+    case w <> t:
+      match w:
+        case Ls.Waiter{k, o, l}:
+          %le.keys_queue(t) : {k <> Ls.keys.queue(t) == k <> _ : List<&2, Nat>}
+          {==}
+
+# the model's keys are the laws'
+def le.keys(s: Ls.L) -> {Ls.keys(s) == Lease.lw_keys(s) : List<&2, Nat>}:
+  match s:
+    case Ls.L{n, h, q}:
+      match h:
+        case None{}:
+          le.keys_queue(q)
+        case Some{x}:
+          match x:
+            case Ls.Lease{k, o}:
+              %le.keys_queue(q) : {k <> Ls.keys.queue(q) == k <> _ : List<&2, Nat>}
+              {==}
+
+def le.has(+k: Nat, ks: List<&2, Nat>) -> {Ls.has(k, ks) == Lease.lw_in(k, ks) : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case j <> t:
+      %le.has(k, t) : {Bool.or(Nat.is_eq(j, k), Ls.has(k, t)) == Bool.or(Nat.is_eq(j, k), _) : Bool}
+      {==}
+
+def le.ended_put(b: Bool, k: Nat, r: List<&2, Nat>) -> {Ls.ended.put(Bool.not(b), k, r) == Lease.lw_ended.put(b, k, r) : List<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the model's ended keys are the laws'
+def le.ended(+kept: List<&2, Nat>, ks: List<&2, Nat>) -> {Ls.ended(kept, ks) == Lease.lw_ended(kept, ks) : List<&2, Nat>}:
+  match ks:
+    case Nil{}:
+      {==}
+    case +k <> +t:
+      %le.ended(kept, t) : {Ls.ended.put(Bool.not(Ls.has(k, kept)), k, Ls.ended(kept, t)) == Lease.lw_ended.put(Lease.lw_in(k, kept), k, _) : List<&2, Nat>}
+      %le.has(k, kept) : {Ls.ended.put(Bool.not(Ls.has(k, kept)), k, Ls.ended(kept, t)) == Lease.lw_ended.put(_, k, Ls.ended(kept, t)) : List<&2, Nat>}
+      le.ended_put(Ls.has(k, kept), k, Ls.ended(kept, t))
+
+# what the entry spells for the model's answer is the laws' answer
+def le.answer(+s: Ls.L, +s2: Ls.L) -> {FLs.put_answer(Ls.Answer{Ls.grant(Ls.L.holder(s), Ls.L.holder(s2)), Ls.ended(Ls.keys(s2), Ls.keys(s))}) == Lease.lw_answer(s, s2) : String}:
+  +g = Ls.grant(Ls.L.holder(s), Ls.L.holder(s2))
+  +d = Ls.ended(Ls.keys(s2), Ls.keys(s))
+  %le.grant(Ls.L.holder(s), Ls.L.holder(s2)) : {FLs.put_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, d, "")) == Lease.lw_spell_grant(_, Wr.put_list(~Nat, ~Wr.put_nat, Lease.lw_ended(Lease.lw_keys(s2), Lease.lw_keys(s)), "")) : String}
+  %le.keys(s2) : {FLs.put_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, d, "")) == Lease.lw_spell_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, Lease.lw_ended(_, Lease.lw_keys(s)), "")) : String}
+  %le.keys(s) : {FLs.put_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, d, "")) == Lease.lw_spell_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, Lease.lw_ended(Ls.keys(s2), _), "")) : String}
+  %le.ended(Ls.keys(s2), Ls.keys(s)) : {FLs.put_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, d, "")) == Lease.lw_spell_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, _, "")) : String}
+  le.put_grant(g, Wr.put_list(~Nat, ~Wr.put_nat, d, ""))
+
+# a read event: the model's step, the laws' reply
+def le.reply(+s: Ls.L, +e: Ls.Ev) -> {FLs.step.reply(e, Ls.L.next(s), Ls.answer(s, e)) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}:
+  match e:
+    case Ls.Ask{+o}:
+      +s2 = Ls.step(s, Ls.Ask{o})
+      %le.answer(s, s2) : {FLs.step.reply(Ls.Ask{o}, Ls.L.next(s), Ls.answer(s, Ls.Ask{o})) == (FLs.Live{s2}, Wr.put_nat(Ls.L.next(s), _)) : FLs.St & String}
+      {==}
+    case Ls.Release{+k}:
+      +s2 = Ls.step(s, Ls.Release{k})
+      %le.answer(s, s2) : {FLs.step.reply(Ls.Release{k}, Ls.L.next(s), Ls.answer(s, Ls.Release{k})) == (FLs.Live{s2}, _) : FLs.St & String}
+      {==}
+    case Ls.Stop{+k}:
+      +s2 = Ls.step(s, Ls.Stop{k})
+      %le.answer(s, s2) : {FLs.step.reply(Ls.Stop{k}, Ls.L.next(s), Ls.answer(s, Ls.Stop{k})) == (FLs.Live{s2}, _) : FLs.St & String}
+      {==}
+    case Ls.Crash{+o}:
+      +s2 = Ls.step(s, Ls.Crash{o})
+      %le.answer(s, s2) : {FLs.step.reply(Ls.Crash{o}, Ls.L.next(s), Ls.answer(s, Ls.Crash{o})) == (FLs.Live{s2}, _) : FLs.St & String}
+      {==}
+
+# an event the laws' reader reads whole steps the entry as the model
+def le.got(+s: Ls.L, d: Wr.Dec<Ls.Ev>, +e: Ls.Ev, got: {Lease.lw_read.whole(d) == Some{e} : Maybe<&2, Ls.Ev>}) -> {FLs.step.ev(s, d) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}:
+  match d:
+    case Wr.Got{+x, rest}:
+      match rest:
+        case SNil{}:
+          %le.some_inj(x, e, got) : {FLs.step.end(True{}, s, x) == (FLs.Live{Ls.step(s, _)}, Lease.lw_reply(s, _)) : FLs.St & String}
+          le.reply(s, x)
+        case SCon{c, t}:
+          le.none_some({(FLs.Live{s}, FLs.fail()) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}, e, got)
+    case Wr.Bad{}:
+      le.none_some({(FLs.Live{s}, FLs.fail()) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}, e, got)
+
+# an input the laws' reader reads whole steps the entry as the model
+def le.reads(+s: Ls.L, +i: String, +e: Ls.Ev, got: {Lease.lw_read(i) == Some{e} : Maybe<&2, Ls.Ev>}) -> {FLs.step(FLs.Live{s}, i) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}:
+  %le.read(Wr.get_nat(i)) : {FLs.step.ev(s, _) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}
+  le.got(s, Lease.lw_read.go(Wr.get_nat(i)), e, got)
+
+# the laws' reader reads back every event the owner spells
+def le.rt(+e: Ls.Ev, fits: {Lease.lw_fits(e) == True{} : Bool}) -> {Lease.lw_read(Lease.lw_spell_ev(e)) == Some{e} : Maybe<&2, Ls.Ev>}:
+  match e:
+    case Ls.Ask{+o}:
+      %LWire.pw6.nat(o, "", fits) : {Lease.lw_read.whole(Lease.lw_read.ev(_, 0n)) == Some{Ls.Ask{o}} : Maybe<&2, Ls.Ev>}
+      {==}
+    case Ls.Release{+k}:
+      %LWire.pw6.nat(k, "", fits) : {Lease.lw_read.whole(Lease.lw_read.ev(_, 1n)) == Some{Ls.Release{k}} : Maybe<&2, Ls.Ev>}
+      {==}
+    case Ls.Stop{k}:
+      lease.pl.absurdF({Lease.lw_read(Lease.lw_spell_ev(Ls.Stop{k})) == Some{Ls.Stop{k}} : Maybe<&2, Ls.Ev>}, fits)
+    case Ls.Crash{+o}:
+      %LWire.pw6.nat(o, "", fits) : {Lease.lw_read.whole(Lease.lw_read.ev(_, 2n)) == Some{Ls.Crash{o}} : Maybe<&2, Ls.Ev>}
+      {==}
+
+# every event the owner sends steps the entry as the model
+def le.answers(+s: Ls.L, +e: Ls.Ev, fits: {Lease.lw_fits(e) == True{} : Bool}) -> {FLs.step(FLs.Live{s}, Lease.lw_spell_ev(e)) == (FLs.Live{Ls.step(s, e)}, Lease.lw_reply(s, e)) : FLs.St & String}:
+  le.reads(s, Lease.lw_spell_ev(e), e, le.rt(e, fits))

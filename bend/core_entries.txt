@@ -44,3 +44,5 @@
 40 doc_search
 80 job_rewind
 81 job_wait
+85 lease
+86 wait

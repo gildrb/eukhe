@@ -26,6 +26,7 @@ import ./ffi_job_rewind.bend as ffi_job_rewind
 import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
+import ./ffi_lease.bend as ffi_lease
 import ./ffi_log.bend as ffi_log
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
@@ -43,6 +44,7 @@ import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
+import ./ffi_wait.bend as ffi_wait
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -136,6 +138,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_job_rewind.ffi(input)
     case 81:
       ffi_job_wait.ffi(input)
+    case 86:
+      ffi_wait.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -153,6 +157,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  Lease{s: ffi_lease.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -190,6 +195,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.lease(r: ffi_lease.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Lease{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -206,6 +216,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 85:
+      open.lease(ffi_lease.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -249,6 +261,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.lease(r: ffi_lease.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Lease{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -265,6 +282,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case Lease{s}:
+      step.lease(ffi_lease.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -288,6 +307,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case Lease{s}:
       Unit{}
     case Unknown{}:
       Unit{}

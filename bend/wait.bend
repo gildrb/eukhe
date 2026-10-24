@@ -4,9 +4,11 @@
 # picks; the first one ends it, and nothing after that changes the end.
 #
 # Time is counted in ticks. A deadline of d ticks passes on the d-th
-# tick; a deadline of 0 has passed before anything happens. The Rust race
-# (`eukhe_chord::context::race`) is checked against this model by the
-# bridge (bridge/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs).
+# tick; a deadline of 0 has passed before anything happens. eukhe's race
+# (crates/eukhe-core/src/memory/service/race.rs) takes each poll's end
+# from `poll` below, run as the compiled Bend core (bend/ffi_wait.bend);
+# the bridge (bridge/bridge_wait.bend, memory/service/race/bridge.rs)
+# checks its interleaving on tokio's clock against `run`.
 
 import Base
 
@@ -100,6 +102,33 @@ def run(dl: Maybe<&2, Nat>, xs: List<&2, Sig>) -> List<&2, End>:
           [Expired{}]
         case 1n+m:
           go(xs, Open{Some{m}})
+
+# The race at one poll
+# --------------------
+
+# What the race finds at one poll: its event is ready, its cancel fired,
+# its deadline passed. More than one can be ready at once.
+type Polled is Data:
+  Polled{work: Bool, cancel: Bool, late: Bool}
+
+# The end of the race at a poll: the event first, then the cancel, then
+# the deadline (None: nothing ends it yet)
+def poll(r: Polled) -> Maybe<&2, End>:
+  match r:
+    case Polled{w, c, l}:
+      match w:
+        case True{}:
+          Some{Arrived{}}
+        case False{}:
+          match c:
+            case True{}:
+              Some{Cancelled{}}
+            case False{}:
+              match l:
+                case True{}:
+                  Some{Expired{}}
+                case False{}:
+                  None{}
 
 # What the laws speak of
 # ----------------------
