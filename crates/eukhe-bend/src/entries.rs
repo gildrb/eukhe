@@ -82,6 +82,8 @@ pub enum Entry {
     Launcher = 36,
     /// `bend/ffi_fsmode.bend`: a call.
     Fsmode = 37,
+    /// `bend/ffi_skill_load.bend`: a call.
+    SkillLoad = 38,
 }
 
 impl Entry {
@@ -125,6 +127,7 @@ impl Entry {
         Entry::KernelLocal,
         Entry::Launcher,
         Entry::Fsmode,
+        Entry::SkillLoad,
     ];
 
     /// The id `bend/core.bend` dispatches on.

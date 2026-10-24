@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use super::check::template_description;
 use super::diagnostics::ResourceDiagnostic;
 use super::frontmatter::parse_frontmatter;
 use super::{create_synthetic_source_info, skill_markdown_name, SourceInfo, SourceScope};
@@ -171,23 +172,15 @@ fn load_template_from_file(
         .trim_end_matches(".md")
         .to_string();
 
-    let mut description = frontmatter
-        .get("description")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default()
-        .to_string();
-    if description.is_empty() {
-        if let Some(first_line) = body.lines().map(str::trim).find(|line| !line.is_empty()) {
-            // JS slice(0, 60) counts UTF-16 code units; keep chars for parity
-            // on the common ASCII case.
-            let chars: Vec<char> = first_line.chars().collect();
-            if chars.len() > 60 {
-                description = chars[..60].iter().collect::<String>() + "...";
-            } else {
-                description = first_line.to_string();
-            }
-        }
-    }
+    // The frontmatter's description, else the body's first line that is
+    // not blank, trimmed and cut to 60 chars: the compiled core's.
+    let description = template_description(
+        frontmatter
+            .get("description")
+            .and_then(|value| value.as_str()),
+        &body,
+    )
+    .map_err(|error| failed(format!("prompt template not checked: {error}")))?;
     let argument_hint = frontmatter
         .get("argument-hint")
         .and_then(|value| value.as_str())

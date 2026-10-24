@@ -1,7 +1,6 @@
 //! Skill discovery, validation, and prompt formatting. Port of core/skills.ts.
 
-#[cfg(all(test, unix))]
-mod bridge;
+mod check;
 pub mod diagnostics;
 pub mod discovery;
 pub mod frontmatter;
@@ -11,11 +10,6 @@ pub mod prompt_templates;
 use std::path::PathBuf;
 
 use serde::Serialize;
-
-/// Max name length per the Agent Skills spec.
-pub const MAX_NAME_LENGTH: usize = 64;
-/// Max description length per the Agent Skills spec.
-pub const MAX_DESCRIPTION_LENGTH: usize = 1024;
 
 pub use diagnostics::{ResourceCollision, ResourceDiagnostic};
 pub use discovery::load_skills_from_dir;
@@ -125,54 +119,6 @@ impl Skill {
     }
 }
 
-pub(crate) fn validate_name(name: &str, parent_dir_name: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-    if name != parent_dir_name {
-        errors.push(format!(
-            "name \"{name}\" does not match parent directory \"{parent_dir_name}\""
-        ));
-    }
-    if name.len() > MAX_NAME_LENGTH {
-        errors.push(format!(
-            "name exceeds {MAX_NAME_LENGTH} characters ({})",
-            name.len()
-        ));
-    }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        || name.is_empty()
-    {
-        errors.push(
-            "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
-                .to_string(),
-        );
-    }
-    if name.starts_with('-') || name.ends_with('-') {
-        errors.push("name must not start or end with a hyphen".to_string());
-    }
-    if name.contains("--") {
-        errors.push("name must not contain consecutive hyphens".to_string());
-    }
-    errors
-}
-
-pub(crate) fn validate_description(description: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-    if description.trim().is_empty() {
-        errors.push("description is required".to_string());
-    } else if description.len() > MAX_DESCRIPTION_LENGTH {
-        errors.push(format!(
-            "description exceeds {MAX_DESCRIPTION_LENGTH} characters ({})",
-            description.len()
-        ));
-    }
-    errors
-}
-
-pub(crate) use validate_description as validate_skill_description;
-pub(crate) use validate_name as validate_skill_name;
-
 /// Format skills for a system prompt (Agent Skills XML standard).
 /// Skills with disableModelInvocation are excluded.
 #[must_use]
@@ -264,23 +210,6 @@ pub fn expand_skill_command<'a>(text: &str, skills: &'a [Skill]) -> (String, Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn name_validation_rules() {
-        assert!(validate_name("web-search", "web-search").is_empty());
-        assert!(!validate_name("web_search", "web_search").is_empty());
-        assert!(!validate_name("-lead", "-lead").is_empty());
-        assert!(!validate_name("a--b", "a--b").is_empty());
-        assert!(!validate_name("web", "other").is_empty());
-    }
-
-    #[test]
-    fn description_validation_rules() {
-        assert_eq!(validate_description(""), vec!["description is required"]);
-        assert!(validate_description("ok").is_empty());
-        let long = "x".repeat(MAX_DESCRIPTION_LENGTH + 1);
-        assert_eq!(validate_description(&long).len(), 1);
-    }
 
     fn temp_skill(name: &str, dir: &std::path::Path) -> Skill {
         let file_path = dir.join("SKILL.md");

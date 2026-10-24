@@ -663,6 +663,13 @@ import ./proof/aux_fallback/afw_ffi_example.bend as PAfwFfiExample
 import ./proof/aux_fallback/afw_malformed_example.bend as PAfwMalformedExample
 import ./proof/skill_load/skill_failure_reported.bend as PSkillFailureReported
 import ./proof/skill_load/skill_loaded_not_failed.bend as PSkillLoadedNotFailed
+import ./proof/skill_load/base.bend as LASkillLoad
+import ./proof/skill_load/skill_ffi_answers.bend as PSkillFfiAnswers
+import ./proof/skill_load/skill_ffi_malformed.bend as PSkillFfiMalformed
+import ./proof/skill_load/skill_ffi_example.bend as PSkillFfiExample
+import ./proof/skill_load/skill_diag_kinds.bend as PSkillDiagKinds
+import ./proof/skill_load/skill_distinct_example.bend as PSkillDistinctExample
+import ./proof/skill_load/skill_ffi_malformed_exact.bend as PSkillFfiMalformedExact
 import ./proof/kernel_local/kernel_session_never_downloads.bend as PKernelSessionNeverDownloads
 import ./proof/kernel_local/kernel_download_only_on_install.bend as PKernelDownloadOnlyOnInstall
 import ./proof/kernel_local/kernel_fetch_verified_before_use.bend as PKernelFetchVerifiedBeforeUse

@@ -4,13 +4,11 @@ use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
+use super::check::check_skill;
 use super::diagnostics::ResourceDiagnostic;
 use super::frontmatter::parse_frontmatter;
 use super::skill_markdown_name;
-use super::{
-    create_synthetic_source_info, validate_skill_description, validate_skill_name, Skill,
-    SkillKind, SkillPythonMetadata, SourceScope,
-};
+use super::{create_synthetic_source_info, Skill, SkillKind, SkillPythonMetadata, SourceScope};
 
 /// Sources that pick up a synthetic scope.
 fn scope_for_source(source: &str) -> SourceScope {
@@ -97,37 +95,26 @@ pub(crate) fn load_skill_from_file(
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
-
-    let description = frontmatter
-        .get("description")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default()
-        .to_string();
-    for error in validate_skill_description(&description) {
-        diagnostics.push(ResourceDiagnostic::Warning {
-            message: error,
-            path: Some(file_path.display().to_string()),
-        });
-    }
-
-    // TS `frontmatter.name || parentDirName`: a falsy name (missing or the
-    // empty string) falls back to the parent directory name.
-    let name = frontmatter
-        .get("name")
-        .and_then(|value| value.as_str())
-        .filter(|name| !name.is_empty())
-        .map_or_else(|| parent_dir_name.clone(), str::to_string);
-
-    for error in validate_skill_name(&name, &parent_dir_name) {
-        diagnostics.push(ResourceDiagnostic::Warning {
-            message: error,
-            path: Some(file_path.display().to_string()),
-        });
-    }
-
-    if description.trim().is_empty() {
+    let text = |key: &str| frontmatter.get(key).and_then(|value| value.as_str());
+    let warning = |message: String| ResourceDiagnostic::Warning {
+        message,
+        path: Some(file_path.display().to_string()),
+    };
+    // The name (TS `frontmatter.name || parentDirName`), whether the skill
+    // loads and its messages are the compiled core's.
+    let check = match check_skill(text("name"), &parent_dir_name, text("description")) {
+        Ok(check) => check,
+        Err(error) => {
+            diagnostics.push(warning(format!("skill file not checked: {error}")));
+            return (None, diagnostics);
+        }
+    };
+    diagnostics.extend(check.messages.into_iter().map(warning));
+    if !check.loaded {
         return (None, diagnostics);
     }
+    let name = check.name;
+    let description = text("description").unwrap_or_default().to_string();
 
     let python = if file_path.file_name().is_some_and(|n| n == "SKILL.md") {
         detect_python_skill(skill_dir, &name, &mut diagnostics)

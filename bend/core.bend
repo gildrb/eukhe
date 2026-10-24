@@ -33,6 +33,7 @@ import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
@@ -121,6 +122,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_launcher.ffi(input)
     case 37:
       ffi_fsmode.ffi(input)
+    case 38:
+      ffi_skill_load.ffi(input)
     case _:
       W.err("unknown entry")
 
