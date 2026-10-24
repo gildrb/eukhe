@@ -430,3 +430,9 @@ law fsmode_ffi_example:
   {FFs.ffi("3,1,4,/tmp1,") == "3," : String} &
   {read_ask("1,5,5,x") == None{} : Maybe<&2, Fs.Ask>} &
   {LawsBase.wire_opens_err(FFs.ffi("1,5,5,x")) == True{} : Bool}
+
+# LAW fsmode_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "fsmode: malformed request" (the text Rust's Reader reports)
+law fsmode_ffi_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
+  {FFs.ffi(s) == SCon{'E', SCon{' ', "fsmode: malformed request"}} : String}

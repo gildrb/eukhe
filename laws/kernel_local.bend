@@ -621,3 +621,9 @@ law kernel_answer_exact:
   for t: KL.Tool
   for k: KL.Kernel
   {KL.answer(t, k) == answer_spec(t, k) : KL.Answer}
+
+# LAW kernel_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "kernel_local: malformed request" (the text Rust's Reader reports)
+law kernel_ffi_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, KL.Ask>}
+  {FKL.ffi(s) == SCon{'E', SCon{' ', "kernel_local: malformed request"}} : String}

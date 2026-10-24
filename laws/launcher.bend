@@ -390,3 +390,9 @@ law launcher_step_exact:
 # LAW launcher_closed_gate_waits_example: anchor: an idle worker quiesced, then prompted, does not start the run
 law launcher_closed_gate_waits_example:
   {La.run([False{}], [La.Quiesce{0n}, La.Prompt{0n}]) == La.St{[La.Wk{False{}, True{}}], 0n, False{}} : La.St}
+
+# LAW launcher_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "launcher: malformed request" (the text Rust's Reader reports)
+law launcher_ffi_malformed_exact:
+  for +s: String
+  for no: {read_ask(s) == None{} : Maybe<&2, La.Ask>}
+  {FLa.ffi(s) == SCon{'E', SCon{' ', "launcher: malformed request"}} : String}
