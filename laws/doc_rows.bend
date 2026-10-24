@@ -171,7 +171,7 @@ def rows.Ranges.step(+raw: Bool, +prev: Maybe<&2, Nat>, +st: Nat, +m: Maybe<&2, 
     case (+sp, +ns):
       +en = Maybe.default(&2, Nat, m, t)
       +last = Nat.min(en, t)
-      +gap = Bool.and(Maybe.is_some(&2, Nat, prev), Bool.or(raw, Nat.is_lt(Nat.add(Maybe.default(&2, Nat, prev, 0n), 1n), st)))
+      +gap = Bool.and(Maybe.is_some(&2, Nat, prev), Bool.or(raw, Bool.not(Nat.is_eq(Nat.add(Maybe.default(&2, Nat, prev, 0n), 1n), st))))
       rows.Pick(List<&2, Dr.Span> & List<&2, Dr.Note>, Nat.is_lt(t, st), (sp, Dr.RangeBeyond{st, m} <> ns), (Dr.Span{st, last, gap} <> sp, ns))
 
 # the end of the span a range shows (None: it starts past the end)
@@ -253,6 +253,62 @@ law rows_view_shows:
 law rows_view_example:
   for b: Bool
   {[Dr.view(Dr.Lines{[Dr.Range{4n, Some{5n}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]}), Dr.view(Dr.Lines{[Dr.Range{12n, None{}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]}), Dr.view(Dr.Lines{[Dr.Range{2n, Some{3n}}, Dr.Range{5n, None{}}, Dr.Range{20n, Some{30n}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]})] == [Dr.View{9n, False{}, [Dr.Span{3n, 8n, False{}}], [Dr.Remain{1n, 9n}], True{}}, Dr.View{1n, False{}, Nil{}, [Dr.Beyond{12n}], True{}}, Dr.View{9n, False{}, [Dr.Span{2n, 3n, False{}}, Dr.Span{5n, 9n, True{}}], [Dr.RangeBeyond{20n, Some{30n}}], True{}}] : List<&2, Dr.View>}
+
+# the gap marker a span after the span that ended at prev (None: the
+# first span) gets: none for the first; else one when the read is raw or
+# the span does not start right after line prev
+def rows.Marked(raw: Bool, prev: Maybe<&2, Nat>, s: Nat) -> Bool:
+  match prev:
+    case None{}:
+      False{}
+    case Some{pe}:
+      Bool.or(raw, Bool.not(Nat.is_eq(Nat.add(pe, 1n), s)))
+
+def rows.Same(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+# every span of sps, after the span that ended at prev, has exactly the
+# gap marker rows.Marked gives it
+def rows.Marks(sps: List<&2, Dr.Span>, +raw: Bool, prev: Maybe<&2, Nat>) -> Bool:
+  match sps:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      match x:
+        case Dr.Span{s, e, g}:
+          Bool.and(rows.Same(g, rows.Marked(raw, prev, s)), rows.Marks(rest, raw, Some{e}))
+
+def rows.Spans(v: Dr.View) -> List<&2, Dr.Span>:
+  match v:
+    case Dr.View{t, raw, sp, ns, tag}:
+      sp
+
+# LAW rows_gap_marks_every_jump: in every read, the first span shown has
+# no gap marker and every later span has one exactly when it does not
+# start right after the span shown before it (a later span, an earlier one
+# or an overlapping one; raw: every later span)
+# EXCLUDES: ranges given backwards (5-6 then 1-2) or overlapping (1-5 then
+# 3-6) shown with no marker between them; a marker between adjacent spans;
+# a marker before the first span
+law rows_gap_marks_every_jump:
+  for +s: Dr.Sel
+  for +utf8: Bool
+  for +over: Bool
+  for +p: Dl.Proj
+  {rows.Marks(rows.Spans(Dr.view(s, utf8, over, p)), rows.Raw(s), None{}) == True{} : Bool}
+
+# LAW rows_gap_example (anchor): a 9-line file read at 5-6 then 1-2 shows
+# 5-6, a gap, 1-2; at 1-5 then 3-6 it shows 1-5, a gap, 3-6; at 1-2 then
+# 3-4 it shows 1-2 and 3-4 with no gap
+# EXCLUDES: the old rule (a marker only before a span past the one
+# before), which shows the first two with no marker
+law rows_gap_example:
+  for b: Bool
+  {[rows.Spans(Dr.view(Dr.Lines{[Dr.Range{5n, Some{6n}}, Dr.Range{1n, Some{2n}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]})), rows.Spans(Dr.view(Dr.Lines{[Dr.Range{1n, Some{5n}}, Dr.Range{3n, Some{6n}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]})), rows.Spans(Dr.view(Dr.Lines{[Dr.Range{1n, Some{2n}}, Dr.Range{3n, Some{4n}}], False{}}, True{}, False{}, Dl.Proj{b, [Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{1n, Some{Dl.Lf{}}}, Dl.Line{0n, None{}}]}))] == [[Dr.Span{5n, 6n, False{}}, Dr.Span{1n, 2n, True{}}], [Dr.Span{1n, 5n, False{}}, Dr.Span{3n, 6n, True{}}], [Dr.Span{1n, 2n, False{}}, Dr.Span{3n, 4n, False{}}]] : List<&2, List<&2, Dr.Span>>}
 
 # The entry
 # ---------

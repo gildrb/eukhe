@@ -9218,7 +9218,17 @@ INLINE Term spin_162(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3) {
       if (_raw_2 == 1) {
         o[0] = 1;
       } else {
-        o[0] = (nat_chk(e, _prev_5 + 1) < _s_0);
+        u32 _v_5 = 0;
+        Term _o_3[1];
+        if (spin_44(e, _o_3, nat_chk(e, _prev_5 + 1), _s_0) == 0) {
+          return 0;
+        }
+        _v_5 = (u32)_o_3[0];
+        Term _o_4[1];
+        if (spin_26(e, _o_4, _v_5) == 0) {
+          return 0;
+        }
+        o[0] = (u32)_o_4[0];
       }
     }
   break;
@@ -9238,19 +9248,19 @@ INLINE Term spin_163(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, Term 
   Term _r_1 = r7;
   WL_SPIN
     if (_past_2 == 1) {
-      Term _o_4[2];
-      if (spin_87(e, _o_4, 2, _st_0, _m_2, _m_3, _r_0, _r_1) == 0) {
+      Term _o_6[2];
+      if (spin_87(e, _o_6, 2, _st_0, _m_2, _m_3, _r_0, _r_1) == 0) {
         return 0;
       }
-      o[0] = _o_4[0];
-      o[1] = _o_4[1];
+      o[0] = _o_6[0];
+      o[1] = _o_6[1];
     } else {
-      Term _o_5[2];
-      if (spin_88(e, _o_5, _st_0, _en_0, _gap_0, _r_0, _r_1) == 0) {
+      Term _o_7[2];
+      if (spin_88(e, _o_7, _st_0, _en_0, _gap_0, _r_0, _r_1) == 0) {
         return 0;
       }
-      o[0] = _o_5[0];
-      o[1] = _o_5[1];
+      o[0] = _o_7[0];
+      o[1] = _o_7[1];
     }
   break;
   }
@@ -66957,17 +66967,17 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     u32 _v_4 = 0;
-    Term _o_3[1];
-    if (spin_162(e, _o_3, _prev_2, _prev_3, _raw_1, _f_5) == 0) {
+    Term _o_5[1];
+    if (spin_162(e, _o_5, _prev_2, _prev_3, _raw_1, _f_5) == 0) {
       return 0;
     }
-    _v_4 = (u32)_o_3[0];
-    Term _o_6[2];
-    if (spin_163(e, _o_6, _past_1, _f_5, _f_6, _f_7, _v_3, _v_4, _h_0, _h_1) == 0) {
+    _v_4 = (u32)_o_5[0];
+    Term _o_8[2];
+    if (spin_163(e, _o_8, _past_1, _f_5, _f_6, _f_7, _v_3, _v_4, _h_0, _h_1) == 0) {
       return 0;
     }
-    r0 = _o_6[0];
-    r1 = _o_6[1];
+    r0 = _o_8[0];
+    r1 = _o_8[1];
     WL_RETN(2);
   }}
 #endif

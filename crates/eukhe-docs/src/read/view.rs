@@ -239,4 +239,33 @@ mod tests {
             }
         );
     }
+
+    /// Ranges given backwards or overlapping get a gap marker between their
+    /// spans; adjacent ranges get none (the old rule marked only a span
+    /// that started past the one before).
+    #[test]
+    fn a_span_that_does_not_follow_the_one_before_gets_a_gap_marker() {
+        let lines = Projection::of("1\n2\n3\n4\n5\n6\n7\n8\n9\n");
+        let range = |start_line, end| LineRange {
+            start_line,
+            end_line: Some(end),
+        };
+        let span = |start, end, gap| Span { start, end, gap };
+        let spans = |ranges: Vec<LineRange>| {
+            let selector = Selector::Lines { ranges, raw: false };
+            view(&selector, true, false, &lines).spans
+        };
+        assert_eq!(
+            [
+                spans(vec![range(5, 6), range(1, 2)]),
+                spans(vec![range(1, 5), range(3, 6)]),
+                spans(vec![range(1, 2), range(3, 4)]),
+            ],
+            [
+                vec![span(5, 6, false), span(1, 2, true)],
+                vec![span(1, 5, false), span(3, 6, true)],
+                vec![span(1, 2, false), span(3, 4, false)],
+            ]
+        );
+    }
 }

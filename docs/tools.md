@@ -461,7 +461,7 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 
 The writer's choices run as the compiled Bend core (`bend/ffi_doc_commit.bend`): the check of an edit (the first file that changed or whose `MV` destination exists stops it), what each publish did (landed, with which warning, or failed: stop), the reply of an edit (an error only when a publish failed and none landed; an untried file names the file that failed first), whether `write()` may replace its target, the seen versions (the last 8 digests), the temporary files' prefix and which of them a sweep removes. Rust locks, reads, compares bytes, hashes (xxh64 digests stay Rust), publishes and removes. Grep's tag choice for each shown file (tag a whole UTF-8 file with the searched text; no tag over the limit or for another encoding) runs as `bend/ffi_doc_tags.bend`. The walk's hiding of temporary names keeps the prefix as a constant (`scope.rs`, pinned by `commit_prefix_spec`).
 
-Lines run as the compiled Bend core: Rust scans a file into its projection (`text.rs` `Projection`: the BOM flag, each line's length and own ending) and the core decides on it: the separators of an edit, the carry of a loaded file and what a whole-file write keeps (`bend/ffi_doc_lines.bend`), whether a read goes on and what it shows (`bend/ffi_doc_rows.bend`: lines counted, spans with context and gap markers, notices, tag).
+Lines run as the compiled Bend core: Rust scans a file into its projection (`text.rs` `Projection`: the BOM flag, each line's length and own ending) and the core decides on it: the separators of an edit, the carry of a loaded file and what a whole-file write keeps (`bend/ffi_doc_lines.bend`), whether a read goes on and what it shows (`bend/ffi_doc_rows.bend`: lines counted, spans with context and gap markers, notices, tag). A selector's ranges reach the core sorted and merged (`read/selector.rs`: `:5-6,1-2` reads 1-2 then 5-6; `:1-5,3-8` reads 1-8 as one range); the core shows the ranges it gets in their order, with a gap marker before every span but the first that does not start right after the span before it.
 
 | Law | Says |
 | --- | --- |
@@ -490,6 +490,7 @@ Lines run as the compiled Bend core: Rust scans a file into its projection (`tex
 | `rows_raw_lines_are_pieces` | a raw read counts every piece of the LF text (S8.6) |
 | `rows_gate_refuses` | a read that is not raw refuses a non-UTF-8 file, then a binary one (S8.10) |
 | `rows_view_shows` | a read shows the lines it counts, the spans with their context and gap markers, the notices and the tag of the read rule (S8.6, S8.10) |
+| `rows_gap_marks_every_jump` | the first span has no gap marker; every later span has one iff it does not start right after the span before (later, earlier or overlapping; raw: every later span) (S8.6) |
 | `rows_entry_answers` | the read entry answers every request spelled from the wire primitives with the spelled decision (S8.6) |
 | `rows_entry_exact` | any input the read entry does not refuse is the spelling of a request (S8.6) |
 | `tag_names_shown_text` | tag names the text its rows come from (S8.7) |

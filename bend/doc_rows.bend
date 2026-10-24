@@ -20,10 +20,13 @@
 # start past line 1 also shows the line before it; a range with an end
 # also shows the 3 lines after it (not raw). A range with an end that
 # stops before the last line gets the notice of the lines that remain.
-# Ranges (two or more): each range in order; a range that starts past the
-# end is dropped with its notice; the others are cut at the end of the
-# file. A gap marker comes before a span that does not follow the one
-# before it (raw: before every span but the first).
+# Ranges (two or more): each range in the order given (the read tool's
+# selector sorts and merges them first: crates/eukhe-docs/src/read/
+# selector.rs); a range that starts past the end is dropped with its
+# notice; the others are cut at the end of the file. A gap marker comes
+# before every span but the first that does not start right after the
+# span before it: a later span, an earlier one or an overlapping one
+# (raw: before every span but the first).
 
 import Base
 import ./doc_lines.bend as Dl
@@ -223,7 +226,7 @@ def ranges.gap(prev: Maybe<&2, Nat>, raw: Bool, +s: Nat) -> Bool:
         case True{}:
           True{}
         case False{}:
-          Nat.is_lt(1n+pe, s)
+          Bool.not(Nat.is_eq(1n+pe, s))
 
 def ranges.cons(+sp: Span, r: List<&2, Span> & List<&2, Note>) -> List<&2, Span> & List<&2, Note>:
   match r:

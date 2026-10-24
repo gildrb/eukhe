@@ -1189,6 +1189,8 @@ import ./proof/doc_rows/rows_raw_lines_are_pieces.bend as PRowsRawLinesArePieces
 import ./proof/doc_rows/rows_gate_refuses.bend as PRowsGateRefuses
 import ./proof/doc_rows/rows_view_shows.bend as PRowsViewShows
 import ./proof/doc_rows/rows_view_example.bend as PRowsViewExample
+import ./proof/doc_rows/rows_gap_marks_every_jump.bend as PRowsGapMarksEveryJump
+import ./proof/doc_rows/rows_gap_example.bend as PRowsGapExample
 import ./proof/doc_rows/rows_entry_answers.bend as PRowsEntryAnswers
 import ./proof/doc_rows/rows_entry_exact.bend as PRowsEntryExact
 import ./proof/doc_rows/rows_entry_example.bend as PRowsEntryExample
