@@ -98,6 +98,8 @@ pub enum Entry {
     InferGuard = 74,
     /// `bend/ffi_infer_threshold.bend`: a call.
     InferThreshold = 75,
+    /// `bend/ffi_bound.bend`: a call and a stepper.
+    Bound = 76,
     /// `bend/ffi_tokens.bend`: a call.
     Tokens = 78,
 }
@@ -151,6 +153,7 @@ impl Entry {
         Entry::InferForce,
         Entry::InferGuard,
         Entry::InferThreshold,
+        Entry::Bound,
         Entry::Tokens,
     ];
 

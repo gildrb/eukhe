@@ -3,6 +3,7 @@
 
 use std::fmt::Write as _;
 
+use eukhe_bend::rules::bound;
 use eukhe_chord::json::from_json;
 use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{
@@ -118,18 +119,21 @@ pub(crate) fn tool_unavailable_message<'a>(
     }
 }
 
-/// The Harness's truncation diagnostic: what `retain` dropped from the
-/// output.
+/// The Harness's truncation diagnostic of an output that `retain` cut by
+/// `dropped_bytes` bytes and `dropped_lines` lines, while the result still
+/// holds that output (`still`): none when the compiled core gives no notice
+/// (`bend/bound.bend` `notice`).
 pub(super) fn truncated(
     dropped_lines: u64,
     dropped_bytes: u64,
     retain: OutputRetain,
-) -> ToolDiagnostic {
-    let at = match retain {
-        OutputRetain::Head => OmittedAt::End,
-        OutputRetain::Tail => OmittedAt::Start,
+    still: bool,
+) -> Option<ToolDiagnostic> {
+    let at = match bound::notice(retain == OutputRetain::Tail, dropped_bytes, still)? {
+        bound::At::End => OmittedAt::End,
+        bound::At::Start => OmittedAt::Start,
     };
-    ToolDiagnostic {
+    Some(ToolDiagnostic {
         severity: ToolDiagnosticSeverity::Warn,
         code: Some("truncated".to_owned()),
         message: "Output truncated.".to_owned(),
@@ -140,7 +144,7 @@ pub(super) fn truncated(
         }),
         artifact: None,
         lines: None,
-    }
+    })
 }
 
 /// An error result from the call's last progress (its partial output,
@@ -155,11 +159,12 @@ pub(super) fn from_slot(
     let mut diagnostics = slot
         .and_then(|slot| slot.diagnostics.clone())
         .unwrap_or_default();
-    let dropped_bytes = slot.and_then(|slot| slot.dropped_bytes).unwrap_or(0);
-    if dropped_bytes > 0 {
-        let dropped_lines = slot.and_then(|slot| slot.dropped_lines).unwrap_or(0);
-        diagnostics.push(truncated(dropped_lines, dropped_bytes, retain));
-    }
+    diagnostics.extend(truncated(
+        slot.and_then(|slot| slot.dropped_lines).unwrap_or(0),
+        slot.and_then(|slot| slot.dropped_bytes).unwrap_or(0),
+        retain,
+        true,
+    ));
     diagnostics.push(tool_diagnostic(code, message));
     let output = match slot.and_then(|slot| slot.output.as_deref()) {
         None | Some("") => Vec::new(),

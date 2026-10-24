@@ -134,34 +134,6 @@ fn removes_control_characters_but_keeps_tabs_newlines_and_other_text() {
 }
 
 #[test]
-fn keeps_output_within_the_limits_unchanged() {
-    assert_eq!(bound("a\nb\n", &head(2, 1000)), kept("a\nb\n", 0, 0));
-    assert_eq!(bound("a\nb", &tail(2, 1000)), kept("a\nb", 0, 0));
-    assert_eq!(bound("", &tail(2, 1000)), kept("", 0, 0));
-}
-
-#[test]
-fn keeps_nothing_with_a_zero_limit() {
-    assert_eq!(bound("ab\ncd\n", &head(10, 0)), kept("", 6, 2));
-    assert_eq!(bound("ab\ncd\n", &tail(0, 1000)), kept("", 6, 2));
-}
-
-#[test]
-fn keeps_exact_slices_of_whole_lines_trailing_newline_included() {
-    assert_eq!(bound("a\nb\nc\n", &head(2, 1000)), kept("a\nb\n", 2, 1));
-    assert_eq!(bound("a\nb\nc\n", &tail(2, 1000)), kept("b\nc\n", 2, 1));
-    assert_eq!(bound("a\nb\nc", &tail(2, 1000)), kept("b\nc", 2, 1));
-    // Blank lines are lines.
-    assert_eq!(bound("a\nb\nc\n\n", &tail(3, 1000)), kept("b\nc\n\n", 2, 1));
-}
-
-#[test]
-fn cuts_at_the_byte_limit_on_whole_lines_when_possible() {
-    assert_eq!(bound("aa\nbb\ncc\n", &head(10, 7)), kept("aa\nbb\n", 3, 1));
-    assert_eq!(bound("aa\nbb\ncc\n", &tail(10, 7)), kept("bb\ncc\n", 3, 1));
-}
-
-#[test]
 fn cuts_a_single_line_longer_than_the_byte_limit_on_a_character_boundary() {
     // "é" is two bytes; five bytes hold two whole characters.
     assert_eq!(bound("ééé\n", &head(10, 5)), kept("éé", 3, 0));

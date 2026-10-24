@@ -4,6 +4,7 @@ import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_bound.bend as ffi_bound
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
@@ -144,6 +145,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_infer_force.ffi(input)
     case 75:
       ffi_infer_threshold.ffi(input)
+    case 76:
+      ffi_bound.ffi(input)
     case 78:
       ffi_tokens.ffi(input)
     case _:
@@ -164,6 +167,7 @@ type State is Type:
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
   InferGuard{s: ffi_infer_guard.St}
+  Bound{s: ffi_bound.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -206,6 +210,11 @@ def open.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
     case (s, reply):
       (InferGuard{s}, reply)
 
+def open.bound(r: ffi_bound.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Bound{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -224,6 +233,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.doc_search(ffi_doc_search.open(input))
     case 74:
       open.infer_guard(ffi_infer_guard.open(input))
+    case 76:
+      open.bound(ffi_bound.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -272,6 +283,11 @@ def step.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
     case (s, reply):
       (InferGuard{s}, reply)
 
+def step.bound(r: ffi_bound.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Bound{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -290,6 +306,8 @@ def step.go(state: State, input: String) -> State & String:
       step.doc_search(ffi_doc_search.step(s, input))
     case InferGuard{s}:
       step.infer_guard(ffi_infer_guard.step(s, input))
+    case Bound{s}:
+      step.bound(ffi_bound.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -315,6 +333,8 @@ def close.go(state: State) -> Unit:
     case DocSearch{s}:
       Unit{}
     case InferGuard{s}:
+      Unit{}
+    case Bound{s}:
       Unit{}
     case Unknown{}:
       Unit{}

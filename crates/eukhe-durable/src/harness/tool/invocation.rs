@@ -673,22 +673,20 @@ async fn final_result(
         Truncation::On(limits) => {
             // The retained output's truncation applies only while afterTool kept that output.
             if let Some(retained) = &retained {
-                if retained.dropped_bytes > 0 && last.output.as_ref() == Some(&output) {
-                    harness.push(truncated(
-                        retained.dropped_lines as u64,
-                        retained.dropped_bytes as u64,
-                        limits.retain,
-                    ));
-                }
-            }
-            let bounded = bound_content(content, &limits);
-            if bounded.dropped_bytes > 0 {
-                harness.push(truncated(
-                    bounded.dropped_lines as u64,
-                    bounded.dropped_bytes as u64,
+                harness.extend(truncated(
+                    retained.dropped_lines as u64,
+                    retained.dropped_bytes as u64,
                     limits.retain,
+                    last.output.as_ref() == Some(&output),
                 ));
             }
+            let bounded = bound_content(content, &limits);
+            harness.extend(truncated(
+                bounded.dropped_lines as u64,
+                bounded.dropped_bytes as u64,
+                limits.retain,
+                true,
+            ));
             bounded.content
         }
         Truncation::Off => content,
