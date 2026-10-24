@@ -877,6 +877,9 @@ import ./proof/fsmode/fsmode_ffi_answers.bend as PFsmodeFfiAnswers
 import ./proof/fsmode/fsmode_ffi_malformed.bend as PFsmodeFfiMalformed
 import ./proof/fsmode/fsmode_ffi_example.bend as PFsmodeFfiExample
 import ./proof/fsmode/fsmode_ffi_malformed_exact.bend as PFsmodeFfiMalformedExact
+import ./proof/fsmode/fsmode_socket_dir_exact.bend as PFsmodeSocketDirExact
+import ./proof/fsmode/fsmode_safe_exact.bend as PFsmodeSafeExact
+import ./proof/fsmode/fsmode_modes_exact.bend as PFsmodeModesExact
 import ./proof/fsmode/socket_dir_created.bend as PSocketDirCreated
 import ./proof/fsmode/socket_dir_created_used.bend as PSocketDirCreatedUsed
 import ./proof/fsmode/peer_same_uid.bend as PPeerSameUid

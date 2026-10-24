@@ -436,3 +436,76 @@ law fsmode_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
   {FFs.ffi(s) == SCon{'E', SCon{' ', "fsmode: malformed request"}} : String}
+
+# The model's own terms, pinned
+# -----------------------------
+# The laws above (socket_dir_owned, private_on_create, ...) read the model's
+# own predicates (Seen.safe, Mode.loose, dir_mode, made_mode); these pin
+# each of them to its meaning.
+
+# a digit with any bit set
+def set_spec(d: Nat) -> Bool:
+  match d:
+    case 0n:
+      False{}
+    case 1n+p:
+      True{}
+
+# the verdict on what the check found: a missing dir is created 0700; a
+# dir is used only when this uid owns it and no group or other user may
+# write in it; anything else is refused
+def socket_dir_spec(d: Fs.Seen) -> Fs.Verdict:
+  match d:
+    case Fs.Seen{k, mine, loose}:
+      match k:
+        case Fs.Missing{}:
+          Fs.Create{Fs.Mode{7n, 0n, 0n}}
+        case Fs.Dir{}:
+          match mine:
+            case True{}:
+              match loose:
+                case True{}:
+                  Fs.Refuse{}
+                case False{}:
+                  Fs.Use{}
+            case False{}:
+              Fs.Refuse{}
+        case Fs.Link{}:
+          Fs.Refuse{}
+        case Fs.Other{}:
+          Fs.Refuse{}
+
+# LAW fsmode_socket_dir_exact: the socket-dir verdict is exactly: a missing dir is created with mode 0700, a dir this uid owns that no group or other user may write in is used, everything else (a link, another file, another owner, a loose mode) is refused
+law fsmode_socket_dir_exact:
+  for d: Fs.Seen
+  {Fs.socket_dir(d) == socket_dir_spec(d) : Fs.Verdict}
+
+# a real dir this uid owns that no group or other user may write in
+def safe_spec(d: Fs.Seen) -> Bool:
+  match d:
+    case Fs.Seen{k, mine, loose}:
+      match k:
+        case Fs.Missing{}:
+          False{}
+        case Fs.Dir{}:
+          match mine:
+            case True{}:
+              Bool.not(loose)
+            case False{}:
+              False{}
+        case Fs.Link{}:
+          False{}
+        case Fs.Other{}:
+          False{}
+
+# LAW fsmode_safe_exact: a socket dir is safe exactly when it is a real dir (not a link, not missing, not another file), this uid owns it, and no group or other user may write in it
+law fsmode_safe_exact:
+  for d: Fs.Seen
+  {Fs.Seen.safe(d) == safe_spec(d) : Bool}
+
+# LAW fsmode_modes_exact: eukhe creates a dir with mode 0700 and a file with 0600; a mode is loose exactly when its group or other digit has a bit set
+law fsmode_modes_exact:
+  for u: Nat
+  for g: Nat
+  for o: Nat
+  {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
