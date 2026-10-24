@@ -94,6 +94,8 @@ pub enum Entry {
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
     DocTags = 102,
+    /// `bend/ffi_doc_commit.bend`: a call.
+    DocCommit = 103,
 }
 
 impl Entry {
@@ -143,6 +145,7 @@ impl Entry {
         Entry::TinyElect,
         Entry::Dash,
         Entry::DocTags,
+        Entry::DocCommit,
     ];
 
     /// The id `bend/core.bend` dispatches on.

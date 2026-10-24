@@ -49,7 +49,9 @@ fn whole_small_file_has_header_and_rows_and_records_no_seen_lines() {
     assert_eq!(
         (
             snapshot.seen_lines,
-            store.has_seen_bytes(&key, raw.as_bytes())
+            store
+                .seen_digests(&key)
+                .contains(&crate::store::digest(raw.as_bytes()))
         ),
         (None, true)
     );
@@ -104,7 +106,9 @@ fn file_over_the_size_limit_reads_with_a_not_editable_notice() {
     );
     assert!(view.rendered.starts_with("1:first\n"));
     let key = eukhe_types::path_policy::real_path(&dir.path().join("a.rs"));
-    assert!(store.has_seen_bytes(&key, text.as_bytes()));
+    assert!(store
+        .seen_digests(&key)
+        .contains(&crate::store::digest(text.as_bytes())));
 }
 
 /// A NUL-free file that is not UTF-8 is named with its encoding, not
@@ -130,7 +134,9 @@ fn non_utf8_file_is_named_with_its_encoding() {
     };
     assert_eq!((raw.rendered.as_str(), &file.tag), ("caf\u{FFFD}\n", &None));
     let key = eukhe_types::path_policy::real_path(&dir.path().join("latin.txt"));
-    assert!(store.has_seen_bytes(&key, b"caf\xE9\n"));
+    assert!(store
+        .seen_digests(&key)
+        .contains(&crate::store::digest(b"caf\xE9\n")));
 }
 
 #[test]

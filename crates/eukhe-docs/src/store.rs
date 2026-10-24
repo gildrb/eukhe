@@ -126,7 +126,7 @@ struct PathHistory {
     versions: Vec<Snapshot>,
     /// Digests of the raw bytes the session saw of this path, newest
     /// first: what `write` may replace.
-    seen_bytes: Vec<u64>,
+    seen_bytes: Vec<String>,
     touched: u64,
 }
 
@@ -140,11 +140,10 @@ impl PathHistory {
     }
 }
 
-/// Raw-byte digests kept per path: the versions `write` may replace.
-const SEEN_BYTES_PER_PATH: usize = 8;
-
-fn bytes_digest(bytes: &[u8]) -> u64 {
-    twox_hash::XxHash64::oneshot(0, bytes)
+/// The digest of raw bytes (xxh64, 16 hex digits): what names a version
+/// the session saw.
+pub(crate) fn digest(bytes: &[u8]) -> String {
+    format!("{:016x}", twox_hash::XxHash64::oneshot(0, bytes))
 }
 
 struct StoreState {
@@ -239,9 +238,10 @@ impl EditStore {
 
     /// Record that the session saw `bytes`, the raw content of the file at
     /// canonical `path` (a read, a search, or its own write): `write` may
-    /// replace that version.
+    /// replace that version. The versions kept are the compiled core's
+    /// choice (`seen` of `bend/doc_commit.bend`).
     pub fn saw_bytes(&self, path: &Path, bytes: &[u8]) {
-        let digest = bytes_digest(bytes);
+        let digest = digest(bytes);
         let mut state = self.inner.lock();
         state.clock = state.clock.wrapping_add(1);
         let touched = state.clock;
@@ -250,23 +250,21 @@ impl EditStore {
             .entry(path.to_owned())
             .or_insert_with(|| PathHistory::new(touched));
         history.touched = touched;
-        history.seen_bytes.retain(|seen| *seen != digest);
-        history.seen_bytes.insert(0, digest);
-        history.seen_bytes.truncate(SEEN_BYTES_PER_PATH);
+        history.seen_bytes = crate::commit::seen(&digest, &history.seen_bytes);
         evict(&mut state);
     }
 
-    /// Whether the session saw `bytes` as the content of `path` (see
-    /// [`EditStore::saw_bytes`]).
+    /// The digests of the versions of `path` the session saw, newest first
+    /// (see [`EditStore::saw_bytes`]).
     #[must_use]
-    pub fn has_seen_bytes(&self, path: &Path, bytes: &[u8]) -> bool {
-        let digest = bytes_digest(bytes);
+    pub(crate) fn seen_digests(&self, path: &Path) -> Vec<String> {
         let mut state = self.inner.lock();
         touch(&mut state, path);
         state
             .histories
             .get(path)
-            .is_some_and(|history| history.seen_bytes.contains(&digest))
+            .map(|history| history.seen_bytes.clone())
+            .unwrap_or_default()
     }
 
     /// Union displayed lines into the most recent version matching a tag.

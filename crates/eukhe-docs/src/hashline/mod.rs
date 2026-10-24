@@ -229,6 +229,10 @@ pub fn section_paths(input: &str) -> Result<Vec<String>, EditError> {
 /// Returns the model-facing parse, anchor, stale-tag, or seen-line error; a
 /// no-op repeated `NOOP_HARD_LIMIT` times; or the writer's error when no
 /// file landed.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one edit in order: split, stage, write, the core's reply, commit, render"
+)]
 pub fn apply_hashline(
     input: &str,
     options: &HashlineOptions<'_>,
@@ -258,33 +262,64 @@ pub fn apply_hashline(
     }
     .into_iter();
     drop(requests);
+    // What became of each staged file; the reply is the core's choice
+    // (`answer` of bend/doc_commit.bend). The engine knows only whether a
+    // write landed: the warning's kind does not enter the reply.
+    let mut by_file: Vec<Option<Published>> = Vec::with_capacity(staged.len());
+    let fates: Vec<crate::commit::Fate> = staged
+        .iter()
+        .map(|file| match file.op {
+            StagedOp::Noop { .. } => {
+                by_file.push(None);
+                crate::commit::Fate::Noop
+            }
+            StagedOp::Update { .. } | StagedOp::Delete => {
+                let Some(write) = published.next() else {
+                    by_file.push(None);
+                    return crate::commit::Fate::Untried;
+                };
+                let outcome = match &write {
+                    Published::Landed { .. } => {
+                        crate::commit::Outcome::Lands(crate::commit::Warn::None)
+                    }
+                    Published::Failed(_) => crate::commit::Outcome::Fails,
+                };
+                by_file.push(Some(write));
+                crate::commit::Fate::Wrote(outcome)
+            }
+        })
+        .collect();
+    let (notes, partial) = match crate::commit::answer(&fates) {
+        crate::commit::Verdict::Failure => {
+            let first = by_file.into_iter().flatten().find_map(|write| match write {
+                Published::Failed(error) => Some(error),
+                Published::Landed { .. } => None,
+            });
+            return Err(first.unwrap_or_else(|| crate::commit::inconsistent("a failed write")));
+        }
+        crate::commit::Verdict::Summary { notes, partial } => (notes, partial),
+    };
+    let displays: Vec<String> = staged.iter().map(|file| file.display.clone()).collect();
     let mut files = Vec::with_capacity(staged.len());
-    let mut first_failure = None;
-    for file in staged {
-        let write = match file.op {
-            StagedOp::Noop { .. } => Write::Unneeded,
-            StagedOp::Update { .. } | StagedOp::Delete => match published.next() {
-                Some(Published::Landed { written, warning }) => Write::Landed { written, warning },
-                Some(Published::Failed(error)) => {
-                    let reason = error.to_string();
-                    first_failure.get_or_insert(error);
-                    Write::NotWritten(reason)
-                }
-                None => Write::NotWritten(format!(
-                    "not tried: the write of {} failed first",
-                    files
-                        .iter()
-                        .rev()
-                        .find_map(|outcome: &FileOutcome| match outcome.change {
-                            FileChange::NotWritten { .. } => Some(outcome.display.as_str()),
-                            FileChange::Updated
-                            | FileChange::Moved { .. }
-                            | FileChange::Deleted
-                            | FileChange::Unchanged => None,
-                        })
-                        .unwrap_or("an earlier file")
-                )),
-            },
+    for ((file, write), note) in staged.into_iter().zip(by_file).zip(notes) {
+        let write = match (note, write) {
+            (crate::commit::Note::Untouched, _) => Write::Unneeded,
+            (crate::commit::Note::Written, Some(Published::Landed { written, warning })) => {
+                Write::Landed { written, warning }
+            }
+            (crate::commit::Note::Unwritten, Some(Published::Failed(error))) => {
+                Write::NotWritten(error.to_string())
+            }
+            (crate::commit::Note::Skipped(at), None) => Write::NotWritten(format!(
+                "not tried: the write of {} failed first",
+                displays[at]
+            )),
+            (
+                crate::commit::Note::Written
+                | crate::commit::Note::Unwritten
+                | crate::commit::Note::Skipped(_),
+                _,
+            ) => crate::commit::inconsistent("a note the write allows"),
         };
         files.push(commit(file, write, store));
     }
@@ -296,18 +331,13 @@ pub fn apply_hashline(
         })
         .map(|file| file.display.as_str())
         .collect();
-    if let Some(error) = first_failure {
-        if landed.is_empty() {
-            return Err(error);
-        }
-    }
     let not_written: Vec<&str> = files
         .iter()
         .filter(|file| matches!(file.change, FileChange::NotWritten { .. }))
         .map(|file| file.display.as_str())
         .collect();
     let mut texts: Vec<String> = Vec::with_capacity(files.len() + 1);
-    if !not_written.is_empty() {
+    if partial {
         texts.push(format!(
             "Applied to {}; NOT applied to {}. The applied files have the new tags below; \
              re-read the others before you edit them again.",

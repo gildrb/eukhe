@@ -12,6 +12,7 @@ import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_dash.bend as ffi_dash
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
+import ./ffi_doc_commit.bend as ffi_doc_commit
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
@@ -139,6 +140,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_dash.ffi(input)
     case 102:
       ffi_doc_tags.ffi(input)
+    case 103:
+      ffi_doc_commit.ffi(input)
     case _:
       W.err("unknown entry")
 

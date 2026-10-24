@@ -665,7 +665,9 @@ fn tag_names_the_searched_text_when_the_file_changes_before_the_record() {
         (
             output.files[0].tag.clone(),
             store.head(absolute).map(|head| head.text.to_string()),
-            store.has_seen_bytes(absolute, searched.as_bytes()),
+            store
+                .seen_digests(absolute)
+                .contains(&crate::store::digest(searched.as_bytes())),
         ),
         (
             Some(file_hash("one\nneedle\n")),
