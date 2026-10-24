@@ -384,7 +384,7 @@ impl SessionUi {
             .map_or_else(eukhe_theme::ThemeSources::default, |settings| {
                 settings.theme_sources()
             })
-            .available_names();
+            .available_names(crate::theme_rules::THEME_RULES);
         let rows = crate::settings_menu::settings_menu_rows(&values);
         view.settings_menu = Some(crate::settings_menu::SettingsMenu::new(rows));
         self.dirty = true;

@@ -37,7 +37,7 @@ async fn export_to(input: &Path, out: &Path) -> anyhow::Result<String> {
     export_from_path(
         input,
         Some(out.to_str().expect("utf-8")),
-        &eukhe_theme::Palette::default_theme(),
+        &eukhe_theme::Palette::default_theme(crate::theme_rules::THEME_RULES),
         cx(),
     )
     .await

@@ -153,7 +153,7 @@ Laws (draft): `LAWS.bend` section `turn_visibility`, model `bend/turn_visibility
 
 ### T1. Themes
 
-One theme source for the terminal UI and HTML export (`/export`, `eukhe session export`). Crate `eukhe-theme`: theme files, validator, name resolver, color math; both surfaces call the same functions.
+One theme source for the terminal UI and HTML export (`/export`, `eukhe session export`). Crate `eukhe-theme` reads the theme files and words the warnings; every decision (validation, completion, name resolution, color math) runs in the compiled Bend core (entries `bend/ffi_theme.bend`, `bend/ffi_color.bend`; `eukhe-bend` `rules::theme`, `rules::color`), passed into `eukhe-theme` as `ThemeRules` by `eukhe-core` and `eukhe-tui`; both surfaces call the same rules.
 
 #### The theme file
 
@@ -196,7 +196,9 @@ Setting `theme` (`/settings`); empty = `eukhe` everywhere. Name resolves by the 
 - Each shipped theme: text tokens ≥ 4.5:1 against their background; non-text tokens (borders, rules, effort ramp ends) ≥ 3:1. User and custom message texts measured on their own surfaces. Contrast: exact integer comparison.
 - Each shipped theme: status colors (accent, success, warning, error) distinct in a 256-color terminal.
 
-Bridge test `crates/eukhe-core/src/export_html/theme_bridge.rs`: Rust and model on the same scenarios; model tables equal theme files; resolution, validation, luminance, contrast, 256-color mapping agree.
+- Entries: every request Rust writes is answered with the rules' decision (a file's palette and the color each token paints; one load: the pick, the clashes that warn, how each file read, the picked palette; a shipped table; the xterm-256 index, light or dark, the palette); any other input gets exactly the error form (laws `theme_ffi_*`, `color_ffi_*`).
+
+Tie: the rules are the model (compiled core); no bridge. `crates/eukhe-core/src/theme_rules.rs` tests check that the bundled theme files paint the model's shipped tables, and resolution end to end over real files.
 
 ### T3. Terminal colors
 

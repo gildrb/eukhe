@@ -88,6 +88,10 @@ pub enum Entry {
     DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
+    /// `bend/ffi_theme.bend`: a call.
+    Theme = 62,
+    /// `bend/ffi_color.bend`: a call.
+    Color = 67,
 }
 
 impl Entry {
@@ -134,6 +138,8 @@ impl Entry {
         Entry::SkillLoad,
         Entry::DocSearch,
         Entry::DocRows,
+        Entry::Theme,
+        Entry::Color,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -1,6 +1,15 @@
-use super::*;
+//! The theme rules end to end: the bundled files paint the model's shipped
+//! tables, and names resolve over real files through the compiled core.
 
-const DUSK_APPLE: &str = include_str!("../../tests/fixtures/dusk-apple-theme.json");
+use std::path::Path;
+
+use eukhe_theme::{
+    ColorValue, Mode, Palette, ResolvedPalette, Rgb, ThemeSources, Token, BUILTIN_THEME_NAMES,
+};
+
+use super::THEME_RULES;
+
+const DUSK_APPLE: &str = include_str!("../../../eukhe-theme/tests/fixtures/dusk-apple-theme.json");
 
 fn write(path: &Path, content: &str) {
     std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
@@ -14,11 +23,78 @@ fn custom_dir_sources(dir: &Path) -> ThemeSources {
     }
 }
 
+fn parse(raw: &str) -> Palette {
+    Palette::parse(raw, THEME_RULES).expect("a valid theme")
+}
+
 fn default_with(warnings: Vec<String>) -> ResolvedPalette {
     ResolvedPalette {
-        palette: Palette::default_theme(),
+        palette: Palette::default_theme(THEME_RULES),
         warnings,
     }
+}
+
+/// The bundled files paint the tables the laws check (legible, status
+/// colors distinct): `bend/theme/bundled.bend` holds them.
+#[test]
+fn the_bundled_files_paint_the_shipped_tables() {
+    for (index, name) in (0..).zip(BUILTIN_THEME_NAMES) {
+        let palette = Palette::builtin(name, THEME_RULES).expect("builtin");
+        let paints: Vec<[u8; 3]> = Token::ALL
+            .iter()
+            .map(|token| palette.rgb(*token).channels())
+            .collect();
+        assert_eq!(paints, eukhe_bend::rules::theme::shipped(index), "{name}");
+    }
+}
+
+/// The builtins load with their names, modes and backgrounds.
+#[test]
+fn builtins_load_with_their_modes() {
+    let modes: Vec<(String, Mode, Rgb)> = BUILTIN_THEME_NAMES
+        .iter()
+        .map(|name| {
+            let palette = Palette::builtin(name, THEME_RULES).expect("builtin");
+            (
+                palette.name().to_string(),
+                palette.mode(),
+                palette.rgb(Token::Background),
+            )
+        })
+        .collect();
+    assert_eq!(
+        modes,
+        [
+            ("eukhe".to_string(), Mode::Dark, Rgb::new(0x05, 0x05, 0x06)),
+            ("dark".to_string(), Mode::Dark, Rgb::new(0x18, 0x18, 0x1e)),
+            ("light".to_string(), Mode::Light, Rgb::new(0xf8, 0xf8, 0xf8)),
+        ]
+    );
+}
+
+/// The JSON a file holds reaches the rules: variables, an index, the
+/// terminal default and a light background.
+#[test]
+fn a_file_decodes_into_the_rules() {
+    let mut value: serde_json::Value = serde_json::from_str(DUSK_APPLE).expect("json");
+    value["colors"]["accent"] = serde_json::Value::from(4);
+    value["colors"]["text"] = serde_json::Value::from("");
+    value["colors"]["background"] = serde_json::Value::from("#fafafa");
+    let palette = parse(&value.to_string());
+    assert_eq!(
+        (
+            palette.value(Token::Accent),
+            palette.rgb(Token::Accent),
+            palette.value(Token::Text),
+            palette.mode()
+        ),
+        (
+            ColorValue::Indexed(4),
+            Rgb::new(0, 0, 128),
+            ColorValue::Default,
+            Mode::Light
+        )
+    );
 }
 
 /// A custom-directory file resolves by the name it advertises, not by its
@@ -26,12 +102,11 @@ fn default_with(warnings: Vec<String>) -> ResolvedPalette {
 #[test]
 fn a_custom_theme_resolves_by_its_json_name() {
     let dir = tempfile::tempdir().expect("temp dir");
-    let path = dir.path().join("renamed.json");
-    write(&path, DUSK_APPLE);
+    write(&dir.path().join("renamed.json"), DUSK_APPLE);
     assert_eq!(
-        custom_dir_sources(dir.path()).resolve("dusk-apple"),
+        custom_dir_sources(dir.path()).resolve("dusk-apple", THEME_RULES),
         ResolvedPalette {
-            palette: Palette::parse(DUSK_APPLE).expect("dusk-apple is valid"),
+            palette: parse(DUSK_APPLE),
             warnings: Vec::new(),
         }
     );
@@ -46,24 +121,12 @@ fn an_invalid_theme_warns_and_falls_back_to_the_default() {
         &DUSK_APPLE.replacen("\"accent\": \"accent\"", "\"accent\": \"nope\"", 1),
     );
     assert_eq!(
-        custom_dir_sources(dir.path()).resolve("dusk-apple"),
+        custom_dir_sources(dir.path()).resolve("dusk-apple", THEME_RULES),
         default_with(vec![format!(
             "Theme \"dusk-apple\" unavailable, using \"eukhe\": Invalid theme {}: color \
              \"accent\": Variable reference not found: nope",
             path.display()
         )])
-    );
-}
-
-#[test]
-fn a_missing_theme_warns_and_falls_back_to_the_default() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    assert_eq!(
-        custom_dir_sources(dir.path()).resolve("dusk-apple"),
-        default_with(vec![
-            "Theme \"dusk-apple\" unavailable, using \"eukhe\": Theme not found: dusk-apple"
-                .to_string()
-        ])
     );
 }
 
@@ -86,17 +149,20 @@ fn registered_files_resolve_by_their_json_name() {
         malformed.display()
     );
     assert_eq!(
-        [sources.resolve("dusk-apple"), sources.resolve("")],
+        [
+            sources.resolve("dusk-apple", THEME_RULES),
+            sources.resolve("", THEME_RULES)
+        ],
         [
             ResolvedPalette {
-                palette: Palette::parse(DUSK_APPLE).expect("theme loads"),
+                palette: parse(DUSK_APPLE),
                 warnings: vec![malformed_warning.clone()],
             },
             default_with(vec![malformed_warning]),
         ]
     );
     assert_eq!(
-        sources.available_names(),
+        sources.available_names(THEME_RULES),
         ["dark", "dusk-apple", "eukhe", "light"]
     );
 }
@@ -110,7 +176,6 @@ fn the_first_file_with_a_name_wins() {
     let first = dir.path().join("a.json");
     let second = dir.path().join("b.json");
     let same = dir.path().join("c.json");
-    let dark = Palette::builtin("dark").expect("dark");
     let registered_dark = DUSK_APPLE.replacen("\"name\": \"dusk-apple\"", "\"name\": \"dark\"", 1);
     write(&first, &registered_dark);
     write(&second, &registered_dark.replacen("#c4a77d", "#c4a77e", 1));
@@ -119,12 +184,15 @@ fn the_first_file_with_a_name_wins() {
         registered: vec![first.clone(), second.clone(), same],
         ..ThemeSources::default()
     }
-    .resolve("dark");
-    assert_ne!(resolved.palette, dark);
+    .resolve("dark", THEME_RULES);
+    assert_ne!(
+        resolved.palette,
+        Palette::builtin("dark", THEME_RULES).expect("dark")
+    );
     assert_eq!(
         resolved,
         ResolvedPalette {
-            palette: Palette::parse(&registered_dark).expect("valid"),
+            palette: parse(&registered_dark),
             warnings: vec![format!(
                 "Theme name \"dark\" collision: {} (using {})",
                 second.display(),
@@ -143,9 +211,9 @@ fn a_missing_registered_path_warns() {
             registered: vec![missing.clone()],
             ..ThemeSources::default()
         }
-        .resolve("dark"),
+        .resolve("dark", THEME_RULES),
         ResolvedPalette {
-            palette: Palette::builtin("dark").expect("dark"),
+            palette: Palette::builtin("dark", THEME_RULES).expect("dark"),
             warnings: vec![format!("Theme path does not exist: {}", missing.display())],
         }
     );
@@ -159,9 +227,8 @@ fn a_name_never_reaches_outside_the_sources() {
     let themes = dir.path().join("themes");
     std::fs::create_dir_all(&themes).expect("themes dir");
     write(&dir.path().join("escaped.json"), DUSK_APPLE);
-    let resolved = custom_dir_sources(&themes).resolve("../escaped");
     assert_eq!(
-        resolved,
+        custom_dir_sources(&themes).resolve("../escaped", THEME_RULES),
         default_with(vec![
             "Theme \"../escaped\" unavailable, using \"eukhe\": Theme not found: ../escaped"
                 .to_string()

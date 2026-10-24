@@ -29,7 +29,7 @@ pub fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, String> {
     let theme = eukhe_core::settings::SettingsManager::create(cwd, agent_dir)
         .get_theme()
         .unwrap_or_default();
-    let resolved = sources.resolve(&theme);
+    let resolved = sources.resolve(&theme, eukhe_core::theme_rules::THEME_RULES);
     for warning in &resolved.warnings {
         eprintln!("Warning: {warning}");
     }

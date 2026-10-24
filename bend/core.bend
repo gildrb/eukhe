@@ -7,6 +7,7 @@ import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
+import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_default_model.bend as ffi_default_model
@@ -38,6 +39,7 @@ import ./ffi_semver.bend as ffi_semver
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_theme.bend as ffi_theme
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
@@ -130,6 +132,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 62:
+      ffi_theme.ffi(input)
+    case 67:
+      ffi_color.ffi(input)
     case _:
       W.err("unknown entry")
 
