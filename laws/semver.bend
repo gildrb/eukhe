@@ -54,6 +54,19 @@ law semver_le_total:
   for v: Sv.Ver
   {Bool.or(Sv.Ver.le(u, v), Sv.Ver.le(v, u)) == True{} : Bool}
 
+# LAW semver_le_exact: u is v or older exactly when u's major is lower, or equal with a lower minor, or both equal with a patch at most v's
+# EXCLUDES: another total order (minor before major, patch first, any
+#   order the laws of order alone let pass): a release below a tag of a
+#   newer series
+law semver_le_exact:
+  for +a1: Nat
+  for +b1: Nat
+  for +c1: Nat
+  for +a2: Nat
+  for +b2: Nat
+  for +c2: Nat
+  {Sv.Ver.le(Sv.Ver{a1, b1, c1}, Sv.Ver{a2, b2, c2}) == Bool.or(Nat.is_lt(a1, a2), Bool.and(Nat.is_eq(a1, a2), Bool.or(Nat.is_lt(b1, b2), Bool.and(Nat.is_eq(b1, b2), Nat.is_le(c1, c2))))) : Bool}
+
 # LAW semver_next_newer: the next release is newer than every tag of its series
 law semver_next_newer:
   for s: Sv.Ver

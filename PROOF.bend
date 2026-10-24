@@ -518,6 +518,7 @@ import ./proof/semver/semver_le_refl.bend as PSemverLeRefl
 import ./proof/semver/semver_le_antisym.bend as PSemverLeAntisym
 import ./proof/semver/semver_le_trans.bend as PSemverLeTrans
 import ./proof/semver/semver_le_total.bend as PSemverLeTotal
+import ./proof/semver/semver_le_exact.bend as PSemverLeExact
 import ./proof/semver/semver_next_newer.bend as PSemverNextNewer
 import ./proof/semver/semver_next_not_tagged.bend as PSemverNextNotTagged
 import ./proof/semver/semver_next_tag_new.bend as PSemverNextTagNew
