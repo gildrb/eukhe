@@ -362,6 +362,17 @@ law lines_carry_is_first:
   for +bs: List<&2, Dl.B>
   {Dl.carry(Dl.proj(Dl.Doc{bom, bs})) == Dl.first(Dl.split(bs)) : Dl.End}
 
+# LAW lines_carry_is_first_end: the carry the entry decides from a file's projection is its
+# first ending scanned byte by byte (a `\n`, CRLF when a `\r` comes right
+# before it), LF when the file has no `\n`
+# EXCLUDES: the carry of another line than the first (the last line's
+#   ending), which lines_carry_is_first lets through when the model's own
+#   load agrees with it
+law lines_carry_is_first_end:
+  for +bom: Bool
+  for +bs: List<&2, Dl.B>
+  {Dl.carry(Dl.proj(Dl.Doc{bom, bs})) == lines.OrLf(lines.FirstEnd(bs, False{})) : Dl.End}
+
 # LAW lines_write_keeps: a whole-file write keeps the BOM of the file on
 # disk and its first ending (LF when it has none) for every line, and
 # warns exactly when both texts have a `\n` and their first endings differ

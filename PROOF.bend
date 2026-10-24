@@ -1085,6 +1085,7 @@ import ./proof/doc_lines/base.bend as LADocLines
 import ./proof/doc_lines/load_persist_roundtrip.bend as PLoadPersistRoundtrip
 import ./proof/doc_lines/edit_keeps_untouched_bytes.bend as PEditKeepsUntouchedBytes
 import ./proof/doc_lines/edit_cut_points_exact.bend as PEditCutPointsExact
+import ./proof/doc_lines/lines_carry_is_first_end.bend as PLinesCarryIsFirstEnd
 import ./proof/doc_lines/edit_writes_new_lines.bend as PEditWritesNewLines
 import ./proof/doc_lines/grep_line_is_read_line.bend as PGrepLineIsReadLine
 import ./proof/doc_lines/persist_weaves_carry.bend as PPersistWeavesCarry

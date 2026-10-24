@@ -320,6 +320,7 @@
     "laws/doc_lines.bend::edit_writes_new_lines": "c8be95045f71bdcb565fc10813a9ecc575164aade481df303b05e0e473e92a8d",
     "laws/doc_lines.bend::grep_line_is_read_line": "76a6bb8ee37e78005b353e7214347f7ac29ffe2e7c196bc730d630ed3609da7a",
     "laws/doc_lines.bend::lines_carry_is_first": "3b524d0b244f308a6c4b32cb618ce0a151eb08481de3fb379708b182ff9160ae",
+    "laws/doc_lines.bend::lines_carry_is_first_end": "fe95f725cda128fab6a85b71f7a46076f678eb2134ce223d9f6ba798152b8fde",
     "laws/doc_lines.bend::lines_entry_answers": "aac49bc1f7a882a4a21653c27d892f2ceda5fff61b1e50af70d3ea0fd16527d1",
     "laws/doc_lines.bend::lines_entry_exact": "8fad3e168b660f85afa30138ba7171bd7545d1850834783905705d5dd3ae9744",
     "laws/doc_lines.bend::lines_entry_example": "653ab137e8c43f90caebfae31819eebf849d580ee87c4003152265a1d1339108",
