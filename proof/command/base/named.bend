@@ -20,6 +20,7 @@ import ../../base/list.bend as LList
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/logic/logic.bend as LLogicLogic
 import ../../base/logic/nat.bend as LLogicNat
+import ../../base/nat.bend as LNat
 import ../base.bend as LA
 import ./space.bend as LACommandSpace
 import ../command_enter_without_row.bend as PCommandEnterWithoutRow
@@ -184,23 +185,23 @@ def nm_path(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat
   nm_path.at(Command.cmd_lookup(t, qx), t, q, x, e, {==}, hit)
 
 # the canonical last name of a named entry is a name
-def nm_canon_name(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +e: Cmd.Ent, ok: {Command.cmd_wf(t) == True{} : Bool}, hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}, first: {Command.cmd_lookup(t, Command.cmd_ent_path(e)) == Some{e} : Maybe<&2, Cmd.Ent>}) -> {Command.cmd_name_ok(Command.cmd_last(Command.cmd_ent_path(e))) == True{} : Bool}:
+def nm_canon_name(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +e: Cmd.Ent, -e1: Cmd.Ent, ok: {Command.cmd_wf(t) == True{} : Bool}, hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}, first: {Command.cmd_lookup(t, Command.cmd_ent_path(e)) == Some{e1} : Maybe<&2, Cmd.Ent>}) -> {Command.cmd_name_ok(Command.cmd_last(Command.cmd_ent_path(e))) == True{} : Bool}:
   +pe = Command.cmd_ent_path(e)
   +y = Command.cmd_last(pe)
   +qy = List.append(&2, List<&2, Nat>, q, [y])
-  +d = Equal.cong(Maybe<&2, Cmd.Ent>, Bool, m => Command.cmd_some(m), Command.cmd_lookup(t, pe), Some{e}, first)
+  +d = Equal.cong(Maybe<&2, Cmd.Ent>, Bool, m => Command.cmd_some(m), Command.cmd_lookup(t, pe), Some{e1}, first)
   +np = LA.cb_decl_names(t, pe, ok, d)
   +nq = Equal.trans(Bool, Command.cmd_names_ok(qy), Command.cmd_names_ok(pe), True{}, Equal.cong(List<&2, List<&2, Nat>>, Bool, z => Command.cmd_names_ok(z), qy, pe, Equal.sym(List<&2, List<&2, Nat>>, pe, qy, nm_path(t, q, w, e, hit))), np)
   LA.cb_names_last(q, y, nq)
 
-# ... and names e below q
-def nm_canon_hit(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +e: Cmd.Ent, +ok: {Command.cmd_wf(t) == True{} : Bool}, +hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}, +first: {Command.cmd_lookup(t, Command.cmd_ent_path(e)) == Some{e} : Maybe<&2, Cmd.Ent>}) -> {CommandNamed.cmd_named(t, q, Command.cmd_last(Command.cmd_ent_path(e))) == Some{e} : Maybe<&2, Cmd.Ent>}:
+# ... and names the first entry of that path below q
+def nm_canon_hit(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +e: Cmd.Ent, +e1: Cmd.Ent, +ok: {Command.cmd_wf(t) == True{} : Bool}, +hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}, +first: {Command.cmd_lookup(t, Command.cmd_ent_path(e)) == Some{e1} : Maybe<&2, Cmd.Ent>}) -> {CommandNamed.cmd_named(t, q, Command.cmd_last(Command.cmd_ent_path(e))) == Some{e1} : Maybe<&2, Cmd.Ent>}:
   +pe = Command.cmd_ent_path(e)
   +y = Command.cmd_last(pe)
   +qy = List.append(&2, List<&2, Nat>, q, [y])
-  +lk = Equal.trans(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, qy), Command.cmd_lookup(t, pe), Some{e}, Equal.cong(List<&2, List<&2, Nat>>, Maybe<&2, Cmd.Ent>, z => Command.cmd_lookup(t, z), qy, pe, Equal.sym(List<&2, List<&2, Nat>>, pe, qy, nm_path(t, q, w, e, hit))), first)
-  %Equal.sym(List<&2, Nat>, Command.cmd_lower(y), y, LA.cb_name_low(y, nm_canon_name(t, q, w, e, ok, hit, first))) : {CommandNamed.cmd_named.at(Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [_])), t, q, _) == Some{e} : Maybe<&2, Cmd.Ent>}
-  %Equal.sym(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, qy), Some{e}, lk) : {CommandNamed.cmd_named.at(_, t, q, y) == Some{e} : Maybe<&2, Cmd.Ent>}
+  +lk = Equal.trans(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, qy), Command.cmd_lookup(t, pe), Some{e1}, Equal.cong(List<&2, List<&2, Nat>>, Maybe<&2, Cmd.Ent>, z => Command.cmd_lookup(t, z), qy, pe, Equal.sym(List<&2, List<&2, Nat>>, pe, qy, nm_path(t, q, w, e, hit))), first)
+  %Equal.sym(List<&2, Nat>, Command.cmd_lower(y), y, LA.cb_name_low(y, nm_canon_name(t, q, w, e, e1, ok, hit, first))) : {CommandNamed.cmd_named.at(Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [_])), t, q, _) == Some{e1} : Maybe<&2, Cmd.Ent>}
+  %Equal.sym(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, qy), Some{e1}, lk) : {CommandNamed.cmd_named.at(_, t, q, y) == Some{e1} : Maybe<&2, Cmd.Ent>}
   {==}
 
 # ---- the walk of a line ----
@@ -560,3 +561,186 @@ def nm_off_pre(+t: List<&2, Cmd.Ent>, pre: List<&2, Nat>, h: {CommandNamed.cmd_b
       LLogicLogic.cb_absurd({nm_top(Cmd.walk(Cmd.words(Nil{}), t, Cmd.Top{})) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
     case Con{+c, +r}:
       nm_off_at(Nat.is_eq(c, 32n), c, r, t, h, x => nm_off_pre(t, r, x))
+
+# ---- tables that declare a path twice ----
+
+def nm_decl_at(b: Bool, -c: Cmd.Ent, -m: Maybe<&2, Cmd.Ent>, h: {Command.cmd_some(m) == True{} : Bool}) -> {Command.cmd_some(Command.cmd_first.at(b, c, m)) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# a path declared in rest is declared below one more entry
+def nm_decl_cons(+c: Cmd.Ent, rest: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, h: {Command.cmd_declared(rest, p) == True{} : Bool}) -> {Command.cmd_declared(c <> rest, p) == True{} : Bool}:
+  nm_decl_at(Command.cmd_path_eq(Command.cmd_ent_path(c), p), c, Command.cmd_lookup(rest, p), h)
+
+# an entry's own path is declared
+def nm_decl_self(+c: Cmd.Ent, rest: List<&2, Cmd.Ent>) -> {Command.cmd_declared(c <> rest, Command.cmd_ent_path(c)) == True{} : Bool}:
+  +pc = Command.cmd_ent_path(c)
+  %Equal.sym(Bool, Command.cmd_path_eq(pc, pc), True{}, LNat.cb_path_refl(pc)) : {Command.cmd_some(Command.cmd_first.at(_, c, Command.cmd_lookup(rest, pc))) == True{} : Bool}
+  {==}
+
+# m is none, or an entry whose path t declares
+def nm_decm(t: List<&2, Cmd.Ent>, m: Maybe<&2, Cmd.Ent>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{e}:
+      Command.cmd_declared(t, Command.cmd_ent_path(e))
+
+def nm_decm_cons(+c: Cmd.Ent, rest: List<&2, Cmd.Ent>, m: Maybe<&2, Cmd.Ent>, h: {nm_decm(rest, m) == True{} : Bool}) -> {nm_decm(c <> rest, m) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{e}:
+      nm_decl_cons(c, rest, Command.cmd_ent_path(e), h)
+
+def nm_decm_at(b: Bool, +c: Cmd.Ent, rest: List<&2, Cmd.Ent>, -m: Maybe<&2, Cmd.Ent>, ih: {nm_decm(c <> rest, m) == True{} : Bool}) -> {nm_decm(c <> rest, Command.cmd_first.at(b, c, m)) == True{} : Bool}:
+  match b:
+    case True{}:
+      nm_decl_self(c, rest)
+    case False{}:
+      ih
+
+# the first child with an alias is an entry of the table
+def nm_alias_decm(t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>) -> {nm_decm(t, CommandNamed.cmd_alias_ent(t, q, x)) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case Con{+c, +rest}:
+      nm_decm_at(CommandNamed.cmd_alias_hit(q, x, c), c, rest, CommandNamed.cmd_alias_ent(rest, q, x), nm_decm_cons(c, rest, CommandNamed.cmd_alias_ent(rest, q, x), nm_alias_decm(rest, q, x)))
+
+# the entry lookup finds for p has the path p, so its path is declared
+def nm_lookup_decm(+t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, m: Maybe<&2, Cmd.Ent>, +hm: {Command.cmd_lookup(t, p) == m : Maybe<&2, Cmd.Ent>}) -> {nm_decm(t, m) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+c}:
+      +fit = Equal.trans(Bool, LA.cb_fits(Some{c}, p), LA.cb_fits(Command.cmd_lookup(t, p), p), True{}, Equal.cong(Maybe<&2, Cmd.Ent>, Bool, z => LA.cb_fits(z, p), Some{c}, Command.cmd_lookup(t, p), Equal.sym(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, p), Some{c}, hm)), LA.cb_lookup_fits(t, p))
+      %Equal.sym(List<&2, List<&2, Nat>>, Command.cmd_ent_path(c), p, LLogicNat.cb_path_eq(Command.cmd_ent_path(c), p, fit)) : {Command.cmd_some(Command.cmd_lookup(t, _)) == True{} : Bool}
+      %Equal.sym(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, p), Some{c}, hm) : {Command.cmd_some(_) == True{} : Bool}
+      {==}
+
+def nm_named_decm.at(m: Maybe<&2, Cmd.Ent>, +t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, hm: {Command.cmd_lookup(t, List.append(&2, List<&2, Nat>, q, [x])) == m : Maybe<&2, Cmd.Ent>}) -> {nm_decm(t, CommandNamed.cmd_named.at(m, t, q, x)) == True{} : Bool}:
+  match m:
+    case None{}:
+      nm_alias_decm(t, q, x)
+    case Some{+c}:
+      nm_lookup_decm(t, List.append(&2, List<&2, Nat>, q, [x]), Some{c}, hm)
+
+# a named entry's path is declared
+def nm_named_decl(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, -e: Cmd.Ent, hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}) -> {Command.cmd_declared(t, Command.cmd_ent_path(e)) == True{} : Bool}:
+  +x = Command.cmd_lower(w)
+  +qx = List.append(&2, List<&2, Nat>, q, [x])
+  %hit : {nm_decm(t, _) == True{} : Bool}
+  nm_named_decm.at(Command.cmd_lookup(t, qx), t, q, x, {==})
+
+# the first entry of a named entry's path has that path
+def nm_first_path(+t: List<&2, Cmd.Ent>, +e: Cmd.Ent, +e1: Cmd.Ent, first: {Command.cmd_lookup(t, Command.cmd_ent_path(e)) == Some{e1} : Maybe<&2, Cmd.Ent>}) -> {Cmd.Ent.path(e1) == Cmd.Ent.path(e) : List<&2, List<&2, Nat>>}:
+  +pe = Command.cmd_ent_path(e)
+  +fit = Equal.trans(Bool, LA.cb_fits(Some{e1}, pe), LA.cb_fits(Command.cmd_lookup(t, pe), pe), True{}, Equal.cong(Maybe<&2, Cmd.Ent>, Bool, z => LA.cb_fits(z, pe), Some{e1}, Command.cmd_lookup(t, pe), Equal.sym(Maybe<&2, Cmd.Ent>, Command.cmd_lookup(t, pe), Some{e1}, first)), LA.cb_lookup_fits(t, pe))
+  Equal.trans(List<&2, List<&2, Nat>>, Cmd.Ent.path(e1), pe, Cmd.Ent.path(e), LA.cb_found(e1, pe, fit), Equal.sym(List<&2, List<&2, Nat>>, Cmd.Ent.path(e), pe, LA.cb_ent_path(e)))
+
+# a declared path has a first entry
+def nm_first.of(m: Maybe<&2, Cmd.Ent>, h: {Command.cmd_some(m) == True{} : Bool}) -> Cmd.Ent:
+  match m:
+    case None{}:
+      LLogicLogic.cb_absurd(Cmd.Ent, h)
+    case Some{e}:
+      e
+
+def nm_first.eq(m: Maybe<&2, Cmd.Ent>, h: {Command.cmd_some(m) == True{} : Bool}) -> {m == Some{nm_first.of(m, h)} : Maybe<&2, Cmd.Ent>}:
+  match m:
+    case None{}:
+      LLogicLogic.cb_absurd({None{} == Some{nm_first.of(None{}, h)} : Maybe<&2, Cmd.Ent>}, h)
+    case Some{e}:
+      {==}
+
+# ---- flags ----
+
+def nm_flag_eq(a: Bool, b: Bool, h: {CommandNamed.cmd_flag_eq(a, b) == True{} : Bool}) -> {a == b : Bool}:
+  match a b:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      LLogicLogic.cb_absurd({True{} == False{} : Bool}, h)
+    case False{} True{}:
+      LLogicLogic.cb_absurd({False{} == True{} : Bool}, h)
+    case False{} False{}:
+      {==}
+
+def nm_alike_run(a: Cmd.Ent, b: Cmd.Ent, h: {CommandNamed.cmd_alike(a, b) == True{} : Bool}) -> {Cmd.Ent.run(a) == Cmd.Ent.run(b) : Bool}:
+  match a b:
+    case Cmd.Ent{p, x, +r, f, g} Cmd.Ent{p2, x2, +r2, f2, g2}:
+      nm_flag_eq(r, r2, LLogicBool.cb_and_l(CommandNamed.cmd_flag_eq(r, r2), CommandNamed.cmd_flag_eq(f, f2), h))
+
+def nm_alike_free(a: Cmd.Ent, b: Cmd.Ent, h: {CommandNamed.cmd_alike(a, b) == True{} : Bool}) -> {Cmd.Ent.free(a) == Cmd.Ent.free(b) : Bool}:
+  match a b:
+    case Cmd.Ent{p, x, +r, +f, g} Cmd.Ent{p2, x2, +r2, +f2, g2}:
+      nm_flag_eq(f, f2, LLogicBool.cb_and_r(CommandNamed.cmd_flag_eq(r, r2), CommandNamed.cmd_flag_eq(f, f2), h))
+
+# two entries of one path that run bare and take text alike finish any
+# walk alike
+def nm_finish_alike(ys: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +e: Cmd.Ent, +e1: Cmd.Ent, +hr: {Cmd.Ent.run(e1) == Cmd.Ent.run(e) : Bool}, +hf: {Cmd.Ent.free(e1) == Cmd.Ent.free(e) : Bool}, +hp: {Cmd.Ent.path(e1) == Cmd.Ent.path(e) : List<&2, List<&2, Nat>>}) -> {Cmd.finish(Cmd.walk(ys, t, Cmd.Walk{p, e}), t) == Cmd.finish(Cmd.walk(ys, t, Cmd.Walk{p, e1}), t) : Cmd.Res}:
+  match ys:
+    case Nil{}:
+      %hr : {Cmd.finish.at(Bool.or(_, Bool.not(Cmd.kids.any(t, Cmd.Ent.path(e)))), p) == Cmd.finish.at(Bool.or(Cmd.Ent.run(e1), Bool.not(Cmd.kids.any(t, Cmd.Ent.path(e1)))), p) : Cmd.Res}
+      %hp : {Cmd.finish.at(Bool.or(Cmd.Ent.run(e1), Bool.not(Cmd.kids.any(t, _))), p) == Cmd.finish.at(Bool.or(Cmd.Ent.run(e1), Bool.not(Cmd.kids.any(t, Cmd.Ent.path(e1)))), p) : Cmd.Res}
+      {==}
+    case Con{w, rest}:
+      match w:
+        case Nil{}:
+          nm_finish_alike(rest, t, p, e, e1, hr, hf, hp)
+        case Con{+c, +r}:
+          %hf : {Cmd.finish(Cmd.walk(rest, t, Cmd.step.walk(Cmd.search(t, p, Cmd.lows(c <> r)), p, _, c <> r)), t) == Cmd.finish(Cmd.walk(rest, t, Cmd.step.walk(Cmd.search(t, p, Cmd.lows(c <> r)), p, Cmd.Ent.free(e1), c <> r)), t) : Cmd.Res}
+          {==}
+
+# after a miss the menu is shut, whatever follows
+def nm_miss_shut(f: Bool, rest: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, x: List<&2, Nat>) -> {Cmd.menu.at(Cmd.walk(rest, t, Cmd.step.miss(f, p, w)), t, x) == Cmd.Shut{} : Cmd.Menu}:
+  match f:
+    case True{}:
+      %Equal.sym(Cmd.St, Cmd.walk(rest, t, Cmd.Rest{p, [w]}), Cmd.Rest{p, List.append(&2, List<&2, Nat>, [w], rest)}, LA.cb_walk_rest(rest, t, p, [w])) : {Cmd.menu.at(_, t, x) == Cmd.Shut{} : Cmd.Menu}
+      {==}
+    case False{}:
+      %Equal.sym(Cmd.St, Cmd.walk(rest, t, Cmd.Lost{p, w}), Cmd.Lost{p, w}, LA.cb_walk_lost(rest, t, p, w)) : {Cmd.menu.at(_, t, x) == Cmd.Shut{} : Cmd.Menu}
+      {==}
+
+def nm_menu_sw(m: Maybe<&2, Cmd.Ent>, f1: Bool, f2: Bool, rest: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +x: List<&2, Nat>) -> {Cmd.menu.at(Cmd.walk(rest, t, Cmd.step.walk(m, p, f1, w)), t, x) == Cmd.menu.at(Cmd.walk(rest, t, Cmd.step.walk(m, p, f2, w)), t, x) : Cmd.Menu}:
+  match m:
+    case None{}:
+      +rr = rest
+      Equal.trans(Cmd.Menu, Cmd.menu.at(Cmd.walk(rr, t, Cmd.step.miss(f1, p, w)), t, x), Cmd.Shut{}, Cmd.menu.at(Cmd.walk(rr, t, Cmd.step.miss(f2, p, w)), t, x), nm_miss_shut(f1, rr, t, p, w, x), Equal.sym(Cmd.Menu, Cmd.menu.at(Cmd.walk(rr, t, Cmd.step.miss(f2, p, w)), t, x), Cmd.Shut{}, nm_miss_shut(f2, rr, t, p, w, x)))
+    case Some{e}:
+      {==}
+
+# the menu of a walk from a path does not depend on the path's entry
+def nm_menu_walk_any(d: List<&2, List<&2, Nat>>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, +e: Cmd.Ent, +e1: Cmd.Ent) -> {Cmd.menu.at(Cmd.walk(d, t, Cmd.Walk{p, e}), t, x) == Cmd.menu.at(Cmd.walk(d, t, Cmd.Walk{p, e1}), t, x) : Cmd.Menu}:
+  match d:
+    case Nil{}:
+      {==}
+    case Con{w, rest}:
+      match w:
+        case Nil{}:
+          nm_menu_walk_any(rest, t, p, x, e, e1)
+        case Con{+c, +r}:
+          nm_menu_sw(Cmd.search(t, p, Cmd.lows(c <> r)), Cmd.Ent.free(e), Cmd.Ent.free(e1), rest, t, p, c <> r, x)
+
+def nm_menu_after_any(c: List<&2, List<&2, Nat>> & List<&2, Nat>, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +e: Cmd.Ent, +e1: Cmd.Ent) -> {nm_menu_after(c, t, Cmd.Walk{p, e}) == nm_menu_after(c, t, Cmd.Walk{p, e1}) : Cmd.Menu}:
+  match c:
+    case (d, x):
+      nm_menu_walk_any(d, t, p, x, e, e1)
+
+# a finished walk at an entry's own path
+def nm_finish_at(b: Bool, -p: List<&2, List<&2, Nat>>) -> {Cmd.finish.at(b, p) == Command.cmd_ended.at(b, p) : Cmd.Res}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def nm_finish_ent(+t: List<&2, Cmd.Ent>, e: Cmd.Ent) -> {Cmd.finish(Cmd.Walk{Cmd.Ent.path(e), e}, t) == CommandNamed.cmd_ent_ended(t, e) : Cmd.Res}:
+  match e:
+    case Cmd.Ent{+p, a, +r, f, g}:
+      %LA.cb_kids_any(t, p) : {Cmd.finish.at(Bool.or(r, Bool.not(Cmd.kids.any(t, p))), p) == Command.cmd_ended.at(Bool.or(r, Bool.not(_)), p) : Cmd.Res}
+      nm_finish_at(Bool.or(r, Bool.not(Cmd.kids.any(t, p))), p)

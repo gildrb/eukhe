@@ -1288,9 +1288,13 @@ import ./proof/command/command_ffi_malformed_unless_request.bend as PCommandFfiM
 import ./proof/command/base/space.bend as LACommandSpace
 import ./proof/command/base/named.bend as LACommandNamed
 import ./proof/command/command_named_example.bend as PCommandNamedExample
+import ./proof/command/command_named_dup_example.bend as PCommandNamedDupExample
 import ./proof/command/command_named_premises_witness.bend as PCommandNamedPremisesWitness
 import ./proof/command/command_named_word_resolves.bend as PCommandNamedWordResolves
 import ./proof/command/command_named_word_menu.bend as PCommandNamedWordMenu
+import ./proof/command/command_named_word_ends.bend as PCommandNamedWordEnds
+import ./proof/command/command_named_word_menu_any.bend as PCommandNamedWordMenuAny
+import ./proof/command/command_named_word_resolves_alike.bend as PCommandNamedWordResolvesAlike
 import ./proof/command/command_key_follows_menu.bend as PCommandKeyFollowsMenu
 import ./proof/command/command_row_ignored_shut_menu.bend as PCommandRowIgnoredShutMenu
 import ./proof/command/command_blank_runs_nothing.bend as PCommandBlankRunsNothing
