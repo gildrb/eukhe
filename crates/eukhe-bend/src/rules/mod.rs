@@ -5,5 +5,6 @@
 pub mod cvar;
 pub mod fsmode;
 pub mod retry;
+pub mod runners;
 pub mod semver;
 pub mod shell;

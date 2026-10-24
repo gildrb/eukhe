@@ -1,14 +1,11 @@
-//! The runners of code against their Bend model (`bend/runners.bend`, the
-//! (G4) laws of `laws/runners.bend`). The registry bridge dumps every tool
-//! a session installs (its name, caps and gate) and the gate bridge runs
-//! one `ipython` call on each scenario (an auto set, an asker): both print
-//! what `bridge/bridge_runners.bend` prints, byte for byte.
+//! The runners of code: the registry a session installs against the
+//! compiled core's (`bend/runners.bend` `registry`, entry
+//! `bend/ffi_runners.bend`), and the `ipython` gate on a real kernel.
 
-use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::runners::{self, ChatMemory, Covered};
 use eukhe_durable::harness::types::RegistryReader;
-use eukhe_durable::testing::bridge::{compare, Scenario};
 use eukhe_types::pi_ai::ToolResultMessage;
 use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
 use futures::FutureExt;
@@ -31,61 +28,35 @@ const UNANSWERED: &str = "ipython did not run (exec): it needs the user's approv
 answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is \
 not secret; or use read-only steps.";
 
-/// Who answers a scenario's question (bend/runners.bend `Asker`).
+/// Who answers a call's question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asker {
     NoClient,
-    Silent,
     Deny,
-    Approve,
 }
 
-impl Asker {
-    /// The asker's code in the events (`bridge/bridge_runners.bend` `p`).
-    fn code(self) -> u8 {
-        match self {
-            Self::NoClient => 0,
-            Self::Silent => 1,
-            Self::Deny => 2,
-            Self::Approve => 3,
-        }
-    }
-}
-
-/// The effect codes of `effects`, each after a space.
-fn codes(effects: impl IntoIterator<Item = ShellEffect>) -> String {
-    effects
-        .into_iter()
-        .fold(String::new(), |mut codes, effect| {
-            write!(codes, " {}", effect.code()).expect("a String takes every write");
-            codes
-        })
-}
-
-/// Every tool of the session's registry, one line each:
-/// `NAME caps E E ... gate none|step|call`.
-fn dump(session: &EukheSession) -> String {
+/// Every tool of the session's registry: its name, caps and gate.
+fn dump(session: &EukheSession) -> Vec<(String, ShellEffects, Covered)> {
     session
         .registry()
         .snapshot()
         .tools()
         .iter()
-        .fold(String::new(), |mut dump, installed| {
+        .map(|installed| {
             let tool = &installed.tool;
             let (caps, gate) = match tool.extra::<Runner>() {
                 Some(runner) => (
                     runner.caps,
                     match runner.gate {
-                        Gate::EachStep => "step",
-                        Gate::EachCall => "call",
+                        Gate::EachStep => Covered::EachStep,
+                        Gate::EachCall => Covered::EachCall,
                     },
                 ),
-                None => (ShellEffects::NONE, "none"),
+                None => (ShellEffects::NONE, Covered::Ungated),
             };
-            writeln!(dump, "{} caps{} gate {gate}", tool.name, codes(caps.iter()))
-                .expect("a String takes every write");
-            dump
+            (tool.name.clone(), caps, gate)
         })
+        .collect()
 }
 
 /// A chat memory compactor with no model (the registry test sends no turn).
@@ -101,11 +72,13 @@ impl Summarizer for NoModel {
     }
 }
 
+/// The real registry of a session without and with chat memory is the
+/// compiled core's (`registry`, whose laws `gate_covers_every_runner` and
+/// `ipython_gated_each_call` pin it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_registry_is_its_model() {
     let fixture = Fixture::new();
     let classic = fixture.open_configured(|_| {}).await;
-    let classic = dump(&classic);
     let fixture = Fixture::new();
     let memory = Memory::open(fixture.dir.path().join("chat"), Arc::new(NoModel))
         .await
@@ -113,20 +86,15 @@ async fn the_registry_is_its_model() {
     let chat = fixture
         .open_configured(move |config| config.memory = Some(memory))
         .await;
-    compare(
-        "bridge/bridge_runners.bend",
-        [
-            Scenario {
-                name: "registry".to_owned(),
-                events: "r 0\n".to_owned(),
-                transcript: classic,
-            },
-            Scenario {
-                name: "chat registry".to_owned(),
-                events: "r 1\n".to_owned(),
-                transcript: dump(&chat),
-            },
-        ],
+    let model = |chat| {
+        runners::registry(chat)
+            .into_iter()
+            .map(|tool| (tool.name, tool.caps, tool.gate))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        (dump(&classic), dump(&chat)),
+        (model(ChatMemory::Off), model(ChatMemory::On))
     );
 }
 
@@ -153,18 +121,13 @@ async fn call(
         seen.lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request);
-        std::future::ready(match asker {
-            Asker::NoClient | Asker::Silent => ShellAnswer::Unanswered,
-            Asker::Deny => ShellAnswer::Deny,
-            Asker::Approve => ShellAnswer::Approve,
-        })
-        .boxed()
+        std::future::ready(ShellAnswer::Deny).boxed()
     });
     let session = fixture
         .open_configured(move |config| {
             config.shell_approval = match asker {
                 Asker::NoClient => None,
-                Asker::Silent | Asker::Deny | Asker::Approve => Some(sink),
+                Asker::Deny => Some(sink),
             };
         })
         .await;
@@ -177,47 +140,6 @@ async fn call(
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     (all.remove(0), questions)
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_ipython_gate_runs_as_its_model() {
-    let _kernel = kernel_test_lock().await;
-    let read = [ShellEffect::Read];
-    let granted = [ShellEffect::Read, ShellEffect::Write, ShellEffect::Net];
-    let exec = [ShellEffect::Read, ShellEffect::Exec];
-    let plan: [(&[ShellEffect], Asker); 12] = [
-        (&[], Asker::NoClient),
-        (&[], Asker::Deny),
-        (&read, Asker::NoClient),
-        (&read, Asker::Silent),
-        (&read, Asker::Deny),
-        (&read, Asker::Approve),
-        (&granted, Asker::NoClient),
-        (&granted, Asker::Silent),
-        (&granted, Asker::Deny),
-        (&granted, Asker::Approve),
-        (&exec, Asker::NoClient),
-        (&exec, Asker::Deny),
-    ];
-    let mut scenarios = Vec::new();
-    for (at, (auto, asker)) in plan.into_iter().enumerate() {
-        let fixture = Fixture::new();
-        let (result, asked) = call(&fixture, auto, asker, "print('cell ran')").await;
-        let text = result_text(&result);
-        let end = match text.as_str() {
-            DENIED => "denied",
-            UNANSWERED => "unanswered",
-            "cell ran\n" => "ran",
-            other => panic!("an unexpected result: {other:?}"),
-        };
-        let codes = codes(auto.iter().copied());
-        scenarios.push(Scenario {
-            name: format!("gate {at}"),
-            events: format!("a{codes}\np {}\ng\n", asker.code()),
-            transcript: format!("asked {}\nend {end}\n", asked.len()),
-        });
-    }
-    compare("bridge/bridge_runners.bend", scenarios);
 }
 
 /// Regression (audit C1): an `ipython` cell ran unasked whatever the auto

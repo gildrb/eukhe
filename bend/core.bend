@@ -32,6 +32,7 @@ import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
+import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_semver.bend as ffi_semver
@@ -133,6 +134,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_rows.ffi(input)
     case 50:
       ffi_shell.ffi(input)
+    case 52:
+      ffi_runners.ffi(input)
     case _:
       W.err("unknown entry")
 

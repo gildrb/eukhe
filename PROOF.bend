@@ -1266,3 +1266,8 @@ import ./proof/shell/shell_ffi_exact.bend as PShellFfiExact
 import ./proof/shell/shell_ffi_answers.bend as PShellFfiAnswers
 import ./proof/shell/shell_ffi_left_over.bend as PShellFfiLeftOver
 import ./proof/shell/shell_ffi_example.bend as PShellFfiExample
+import ./proof/runners/base/entry.bend as LARunnersEntry
+import ./proof/runners/runners_ffi_exact.bend as PRunnersFfiExact
+import ./proof/runners/runners_ffi_answers.bend as PRunnersFfiAnswers
+import ./proof/runners/runners_ffi_left_over.bend as PRunnersFfiLeftOver
+import ./proof/runners/runners_ffi_example.bend as PRunnersFfiExample

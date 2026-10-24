@@ -6,9 +6,10 @@
 //! own (documents, goals, children).
 //!
 //! Every way to declare a runner is gated: a tool that runs code and is
-//! not gated cannot be written as a [`Runner`]. The registry bridge test
-//! (`runner/tests.rs`) dumps every tool of a session's registry with its
-//! runner and requires the dump to be the model's registry, byte for byte.
+//! not gated cannot be written as a [`Runner`]. The registry test
+//! (`runner/tests.rs`) requires every tool of a session's registry, with
+//! its runner, to be the compiled core's registry
+//! (`eukhe_bend::rules::runners::registry`).
 
 #[cfg(test)]
 mod tests;

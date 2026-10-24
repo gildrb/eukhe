@@ -337,7 +337,7 @@ installs, in install order; `cell`, the gate of one call). Laws:
 
 Code: `eukhe-core/src/durable/runner.rs` (`Runner`, `Gate`), `durable/rlm/tool.rs` (`ipython` gate), `durable/shell.rs` (`bash` runner).
 
-Tie: `durable::runner::tests` vs `bridge/bridge_runners.bend`: `the_registry_is_its_model` (every tool of an opened session: name, caps, gate vs `registry`); `the_ipython_gate_runs_as_its_model` (one real `ipython` call per auto set and asker: no client, no answer, deny, approve; asked? end? vs `cell`).
+Runs as the compiled core: entry `bend/ffi_runners.bend` (id 52), Rust `eukhe_bend::rules::runners`. The `ipython` tool asks the core whether a cell runs unasked (`within`) and, after the session's approval sink answered (or with none attached), how the call ends (`cell`); Rust only picks the refusal text the answer names. Laws: `laws/runners.bend` section runners entry (`runners_ffi_exact`, `runners_ffi_answers`, `runners_ffi_left_over`, `runners_ffi_example`). `durable::runner::tests::the_registry_is_its_model`: every tool of an opened session (name, caps, gate), without and with chat memory, equals the core's `registry`.
 
 Test: `a_cell_runs_only_within_the_auto_set_or_approved`.
 

@@ -32,6 +32,8 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
+use eukhe_bend::rules::runners::{self, Asker, Ended};
+use eukhe_bend::rules::shell::{self as gate, Said};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::harness::define::define_tool;
@@ -42,6 +44,7 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_shell::Refusal;
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
 use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
@@ -167,12 +170,12 @@ async fn execute(
         .and_then(PiJsonValue::as_str)
         .ok_or_else(|| SessionError::error("ipython tool requires a code string"))?
         .to_owned();
-    // The gate: a cell outside the auto set runs only once the user
-    // approves it. No kernel, job or budget before the answer.
-    if eukhe_bend::rules::shell::allows(auto_set(&runtime.deps.settings), caps)
-        == eukhe_bend::rules::shell::Gate::Asks
-    {
-        let answer = match &runtime.deps.shell_approval {
+    // The gate (the compiled core, bend/runners.bend `within`, `cell`): a
+    // cell outside the auto set runs only once the user approves it. No
+    // kernel, job or budget before the answer.
+    let auto = auto_set(&runtime.deps.settings);
+    if runners::within(auto, caps) == gate::Gate::Asks {
+        let (asker, answer) = match &runtime.deps.shell_approval {
             Some(sink) => {
                 let request = ShellApprovalRequest {
                     request_id: format!("{}:cell", api.task_id()),
@@ -180,19 +183,32 @@ async fn execute(
                     command: eukhe_shell::visible(&code),
                     effects: caps,
                 };
-                tokio::select! {
+                let answer = tokio::select! {
                     answer = sink(request) => answer,
                     () = call_aborted(cx) => {
                         return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
                     }
-                }
+                };
+                let asker = match answer {
+                    ShellAnswer::Approve => Asker::Says(Said::Yes),
+                    ShellAnswer::Deny | ShellAnswer::GatewayRefused => Asker::Says(Said::No),
+                    ShellAnswer::Unanswered => Asker::Silent,
+                };
+                (asker, answer)
             }
-            None => ShellAnswer::Unanswered,
+            None => (Asker::NoClient, ShellAnswer::Unanswered),
         };
-        if let Some(refusal) = RefusalText::of_answer(answer) {
+        let refusal = match runners::cell(auto, caps, asker) {
+            Ended::RanUnasked | Ended::RanApproved => None,
+            Ended::Denied if answer == ShellAnswer::GatewayRefused => Some(Refusal::GatewayRefused),
+            Ended::Denied => Some(Refusal::Denied),
+            Ended::Unanswered => Some(Refusal::Unanswered),
+        };
+        if let Some(refusal) = refusal {
             return Ok(error_result(format!(
-                "ipython did not run ({}): {refusal}",
-                caps.names()
+                "ipython did not run ({}): {}",
+                caps.names(),
+                RefusalText::of(refusal)
             )));
         }
     }
