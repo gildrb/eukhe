@@ -186,3 +186,29 @@ def re.value(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.
   %re.find(ds, x) : {Cv.value.at(Cv.find(ds, x), ds, cfg, fam, x) == Cvar.spec_value.at(_, Cvar.spec_layered(ds, cfg, fam, x)) : Maybe<&2, Cv.Val>}
   %re.layered(ds, cfg, fam, x) : {Cv.value.at(Cv.find(ds, x), ds, cfg, fam, x) == Cvar.spec_value.at(Cv.find(ds, x), _) : Maybe<&2, Cv.Val>}
   re.value_at(Cv.find(ds, x), ds, cfg, fam, x)
+
+# Ids
+# ---
+
+def re.mem_go(b: Bool, +d: Cv.Decl, +r: List<&2, Cv.Decl>, +x: Nat, ih: {Maybe.is_some(&2, Cv.Decl, Cv.find(r, x)) == Cvar.spec_mem(x, Cvar.spec_ids(r)) : Bool}) -> {Maybe.is_some(&2, Cv.Decl, Cv.find.go(d <> r, x, b)) == Bool.or(b, Cvar.spec_mem(x, Cvar.spec_ids(r))) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# x is taken in ds exactly when it is one of their ids
+def re.mem(ds: List<&2, Cv.Decl>, +x: Nat) -> {Maybe.is_some(&2, Cv.Decl, Cv.find(ds, x)) == Cvar.spec_mem(x, Cvar.spec_ids(ds)) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case Cv.Decl{+i, +t, +c, +p, +r, +v} <> +rest:
+      re.mem_go(Nat.is_eq(i, x), Cv.Decl{i, t, c, p, r, v}, rest, x, re.mem(rest, x))
+
+# the ids of ds then d
+def re.ids_snoc(ds: List<&2, Cv.Decl>, +d: Cv.Decl) -> {Cvar.spec_ids(List.append(&2, Cv.Decl, ds, [d])) == List.append(&2, Nat, Cvar.spec_ids(ds), [Cvar.spec_id(d)]) : List<&2, Nat>}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +h <> +r:
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, t => Cvar.spec_id(h) <> t, Cvar.spec_ids(List.append(&2, Cv.Decl, r, [d])), List.append(&2, Nat, Cvar.spec_ids(r), [Cvar.spec_id(d)]), re.ids_snoc(r, d))

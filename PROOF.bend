@@ -279,6 +279,7 @@ import ./proof/cvar/cvar_check_exact.bend as PCvarCheckExact
 import ./proof/cvar/cvar_tog_exact.bend as PCvarTogExact
 import ./proof/cvar/cvar_written_exact.bend as PCvarWrittenExact
 import ./proof/cvar/cvar_document_exact.bend as PCvarDocumentExact
+import ./proof/cvar/cvar_terms_exact.bend as PCvarTermsExact
 import ./proof/cvar_layers/base.bend as LACvarLayers
 import ./proof/cvar_layers/cvar_layers_ffi_answers.bend as PCvarLayersFfiAnswers
 import ./proof/cvar_layers/cvar_layers_ffi_malformed_exact.bend as PCvarLayersFfiMalformedExact

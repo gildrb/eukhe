@@ -81,6 +81,7 @@ Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `to
 | `cvar_tog_exact` | Toggle verdict: undeclared, then Global in an agent layer; else the opposite of the agent's Bool value (inherited included), or not a Bool. |
 | `cvar_written_exact` | Written/replicated sets: exactly the agent's sets of flagged cvars that count in an agent layer, in order (S4.3). |
 | `cvar_document_exact` | Config sets of `settings.json`: per declaration, a Local cvar from the merged document, a Global cvar from the global one only, when typed. |
+| `cvar_terms_exact` | The predicates the laws above read (`unique`, `all_typed`, `typed.at`, `all_flag`, `Exp.plain`) mean what they say. |
 | `cvar_layers_ffi_answers` | The entry answers every request Rust writes with the model's decision. |
 | `cvar_layers_ffi_malformed_exact` | Any other input: exactly `E cvar_layers: malformed request`. |
 | `cvar_layers_ffi_example`, `cvar_layers_fits_example` | Anchors: Rust's request strings; a fitting request of each kind. |

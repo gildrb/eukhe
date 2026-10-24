@@ -599,15 +599,23 @@ def spec_doc.one(x: Nat, m: Maybe<&2, Cv.Val>, rest: List<&2, Cv.Bind>) -> List<
     case Some{v}:
       Cv.Bind{x, v} <> rest
 
-# per declaration of xs, in order: the last set of its cvar that counts in
-# config, from merged for a Local cvar and from global for a Global one
-def spec_document(xs: List<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +merged: List<&2, Cv.Bind>, +global: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+def spec_doc.first(seen: Bool, x: Nat, m: Maybe<&2, Cv.Val>, rest: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match seen:
+    case True{}:
+      rest
+    case False{}:
+      spec_doc.one(x, m, rest)
+
+# per declaration of xs, in order, whose id is not one of seen nor of an
+# earlier one: the last set of its cvar that counts in config, from merged
+# for a Local cvar and from global for a Global one
+def spec_document(xs: List<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +merged: List<&2, Cv.Bind>, +global: List<&2, Cv.Bind>, +seen: List<&2, Nat>) -> List<&2, Cv.Bind>:
   match xs:
     case Nil{}:
       Nil{}
     case +d <> rest:
       +x = spec_id(d)
-      spec_doc.one(x, spec_last(spec_doc.src(spec_local(d), merged, global), ds, Cv.Config{}, x, None{}), spec_document(rest, ds, merged, global))
+      spec_doc.first(spec_mem(x, seen), x, spec_last(spec_doc.src(spec_local(d), merged, global), ds, Cv.Config{}, x, None{}), spec_document(rest, ds, merged, global, List.append(&2, Nat, seen, [x])))
 
 # Laws
 # ----
@@ -640,7 +648,7 @@ law cvar_value_exact:
   for +x: Nat
   {Cv.value(ds, cfg, fam, x) == spec_value(ds, cfg, fam, x) : Maybe<&2, Cv.Val>}
 
-# LAW cvar_refusal_exact: a registry refuses the first declaration whose id an earlier one has (named as declared twice), else the first whose default does not have its type; it accepts a list with neither
+# LAW cvar_refusal_exact: a registry refuses the first declaration, in order, that repeats an earlier id (named as declared twice) or has a default not of its type (named as a bad default; a declaration that does both is named as declared twice); it accepts a list with neither
 # EXCLUDES: a duplicate or a wrong default accepted, a good table
 #   refused, the wrong declaration or reason named
 law cvar_refusal_exact:
@@ -676,11 +684,106 @@ law cvar_written_exact:
   for +f: Cv.Flag
   {Cv.written(ss, ds, f) == spec_written(ss, ds, f) : List<&2, Cv.Bind>}
 
-# LAW cvar_document_exact: the config sets of a settings document are, per declaration in order, the last set of its cvar that counts in config, from the merged document for a Local cvar and from the global document alone for a Global cvar
-# EXCLUDES: a Global cvar taken from a project, a value of the wrong type
-#   kept, a declaration skipped or out of order
+# LAW cvar_document_exact: the config sets of a settings document are, per cvar in the order of its first declaration, the last set of it that counts in config, from the merged document when that first declaration is Local and from the global document alone when it is Global; a later declaration of the same id adds nothing
+# EXCLUDES: a Global cvar taken from a project (also through a later Local
+#   declaration of its id), a value of the wrong type kept, a declaration
+#   skipped, repeated or out of order
 law cvar_document_exact:
   for +ds: List<&2, Cv.Decl>
   for +merged: List<&2, Cv.Bind>
   for +global: List<&2, Cv.Bind>
-  {Cv.document(ds, merged, global) == spec_document(ds, ds, merged, global) : List<&2, Cv.Bind>}
+  {Cv.document(ds, merged, global) == spec_document(ds, ds, merged, global, Nil{}) : List<&2, Cv.Bind>}
+
+# The model's own terms, pinned
+# -----------------------------
+# The laws of S4 above read the model's predicates (unique, all_typed,
+# typed.at, all_flag, Exp.plain); these pin each to its meaning.
+
+# the ids of ds, in order
+def spec_ids(ds: List<&2, Cv.Decl>) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case d <> rest:
+      spec_id(d) <> spec_ids(rest)
+
+# no id of ds is the id of a later one
+def spec_unique(ds: List<&2, Cv.Decl>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case +d <> +rest:
+      Bool.and(Bool.not(spec_mem(spec_id(d), spec_ids(rest))), spec_unique(rest))
+
+# every default of ds has its declaration's type
+def spec_all_typed(ds: List<&2, Cv.Decl>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case +d <> rest:
+      Bool.and(spec_typed(spec_init(d), spec_ty(d)), spec_all_typed(rest))
+
+# a value has its declaration's type; no declaration, no value
+def spec_typed_at(m: Maybe<&2, Cv.Decl>, v: Maybe<&2, Cv.Val>) -> Bool:
+  match m:
+    case None{}:
+      match v:
+        case None{}:
+          True{}
+        case Some{y}:
+          False{}
+    case Some{d}:
+      match v:
+        case None{}:
+          False{}
+        case Some{y}:
+          spec_typed(y, spec_ty(d))
+
+# every set of ss is of a declared cvar with flag f
+def spec_all_flag(ss: List<&2, Cv.Bind>, +ds: List<&2, Cv.Decl>, +f: Cv.Flag) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case Cv.Bind{i, v} <> rest:
+      Bool.and(spec_flag.at(spec_find(ds, i), f), spec_all_flag(rest, ds, f))
+
+# no command of cs runs an alias (a run, or a run of a missing alias)
+def spec_plain(cs: List<&2, Cv.Cmd>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      match c:
+        case Cv.CSet{i, v}:
+          spec_plain(rest)
+        case Cv.CToggle{i}:
+          spec_plain(rest)
+        case Cv.CRun{n}:
+          False{}
+        case Cv.CGone{n}:
+          False{}
+
+# an expansion is plain: its commands run no alias; an error is plain
+def spec_exp_plain(e: Cv.Exp) -> Bool:
+  match e:
+    case Cv.Flat{cs}:
+      spec_plain(cs)
+    case Cv.Cycle{n}:
+      True{}
+    case Cv.Unknown{n}:
+      True{}
+
+# LAW cvar_terms_exact: the model's predicates mean what the laws above read them as: unique holds when no declaration's id is the id of a later one, all_typed when every default has its type, typed.at when a value has its declaration's type (and an undeclared cvar has no value), all_flag when every set is of a declared cvar with the flag, Exp.plain when an expansion's commands run no alias (an error expansion is plain)
+# EXCLUDES: a constant or input-ignoring predicate that makes
+#   cvar_registry_unique, cvar_registry_typed, cvar_value_typed,
+#   cvar_written_flagged, alias_expands_fully or bind_press_plain hold
+#   vacuously
+law cvar_terms_exact:
+  for +ds: List<&2, Cv.Decl>
+  for m: Maybe<&2, Cv.Decl>
+  for v: Maybe<&2, Cv.Val>
+  for ss: List<&2, Cv.Bind>
+  for +es: List<&2, Cv.Decl>
+  for +f: Cv.Flag
+  for e: Cv.Exp
+  {Cv.unique(ds) == spec_unique(ds) : Bool} & {Cv.all_typed(ds) == spec_all_typed(ds) : Bool} & {Cv.typed.at(m, v) == spec_typed_at(m, v) : Bool} & {Cv.all_flag(ss, es, f) == spec_all_flag(ss, es, f) : Bool} & {Cv.Exp.plain(e) == spec_exp_plain(e) : Bool}

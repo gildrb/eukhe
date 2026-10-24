@@ -745,16 +745,26 @@ def doc.one(x: Nat, m: Maybe<&2, Val>, rest: List<&2, Bind>) -> List<&2, Bind>:
     case Some{v}:
       Bind{x, v} <> rest
 
-def document.go(xs: List<&2, Decl>, +ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>) -> List<&2, Bind>:
+# the set of x, unless an earlier declaration has its id (taken)
+def doc.first(taken: Bool, x: Nat, m: Maybe<&2, Val>, rest: List<&2, Bind>) -> List<&2, Bind>:
+  match taken:
+    case True{}:
+      rest
+    case False{}:
+      doc.one(x, m, rest)
+
+# the declarations xs after the ones before
+def document.go(xs: List<&2, Decl>, +ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>, +before: List<&2, Decl>) -> List<&2, Bind>:
   match xs:
     case Nil{}:
       Nil{}
     case +d <> rest:
       +x = Decl.id(d)
-      doc.one(x, layer(doc.pick(Decl.local(d), merged, global), ds, Config{}, x, None{}), document.go(rest, ds, merged, global))
+      doc.first(Maybe.is_some(&2, Decl, find(before, x)), x, layer(doc.pick(Decl.local(d), merged, global), ds, Config{}, x, None{}), document.go(rest, ds, merged, global, List.append(&2, Decl, before, [d])))
 
-# the config layer of a settings document: per declaration in order, the
-# last valid set of its cvar in the merged document (a Local cvar) or in
-# the global one alone (a Global cvar), when there is one
+# the config layer of a settings document: per cvar, in the order of its
+# first declaration, the last valid set of it in the merged document (its
+# first declaration Local) or in the global one alone (Global), when
+# there is one; a later declaration of the same id adds nothing
 def document(+ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>) -> List<&2, Bind>:
-  document.go(ds, ds, merged, global)
+  document.go(ds, ds, merged, global, Nil{})
