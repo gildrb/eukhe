@@ -9,7 +9,7 @@ use super::{
     Duration, Ordering, Path, PathBuf, ResidentWorker, Result, RouteAdmission, Supervisor, Value,
     WorkerRegistration,
 };
-use crate::timeouts::STOP_GRACE_MS;
+use crate::timeouts;
 
 /// An unobservable start identity does not prove that a live pid was recycled.
 /// Only an observed mismatch proves the descriptor's process is gone.
@@ -735,7 +735,7 @@ impl Supervisor {
                     resident,
                     "worker_handover",
                     json!({}),
-                    STOP_GRACE_MS,
+                    timeouts::derived().stop_grace_ms,
                     RouteAdmission::Control,
                 )
                 .await,
@@ -746,7 +746,7 @@ impl Supervisor {
         let exited = handed_over
             && matches!(
                 tokio::time::timeout(
-                    Duration::from_millis(STOP_GRACE_MS),
+                    Duration::from_millis(timeouts::derived().stop_grace_ms),
                     eukhe_core::platform::process::wait_for_exit(pid),
                 )
                 .await,

@@ -1,7 +1,7 @@
 use super::restart_budget::{RestartBudget, RestartVerdict};
 use super::sessions::{saved_session_row, saved_session_summary};
 use super::*;
-use crate::timeouts::{RESTART_GIVE_UP_AFTER, RESTART_WINDOW_MS};
+use crate::timeouts::{self, RESTART_GIVE_UP_AFTER};
 
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
@@ -14,8 +14,9 @@ use proptest::test_runner::RngSeed;
 fn failures_wider_than_the_window_never_give_up() {
     let base = std::time::Instant::now();
     let mut budget = RestartBudget::default();
+    let window_ms = timeouts::derived().restart_window_ms;
     let verdicts: Vec<RestartVerdict> = (0..20u64)
-        .map(|k| budget.on_failure(base + Duration::from_millis((RESTART_WINDOW_MS + 1) * k)))
+        .map(|k| budget.on_failure(base + Duration::from_millis((window_ms + 1) * k)))
         .collect();
     let first = RestartVerdict::Relaunch {
         failure: 1,

@@ -323,7 +323,7 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
     // the shutdown route's, one stop grace each), and the whole stop
     // stayed bounded by the two graces, the TERM grace, the SIGKILL
     // verify, and a margin for the test's own scheduling.
-    let graces = Duration::from_millis(2 * eukhe_daemon::timeouts::STOP_GRACE_MS);
+    let graces = Duration::from_millis(2 * eukhe_daemon::timeouts::derived().stop_grace_ms);
     let escalation = Duration::from_millis(
         eukhe_daemon::timeouts::WORKER_TERM_GRACE_MS
             + eukhe_daemon::timeouts::WORKER_KILL_VERIFY_MS,

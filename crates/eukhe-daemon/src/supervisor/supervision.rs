@@ -11,7 +11,7 @@ use super::{
 };
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
-use crate::timeouts::{RESTART_GIVE_UP_AFTER, STOP_GRACE_MS};
+use crate::timeouts::{self, RESTART_GIVE_UP_AFTER};
 use std::borrow::Cow;
 
 /// The routing fields of a worker `session_event` frame, read straight off
@@ -417,7 +417,7 @@ impl Supervisor {
                     resident,
                     "shutdown",
                     json!({}),
-                    STOP_GRACE_MS,
+                    timeouts::derived().stop_grace_ms,
                     RouteAdmission::Control,
                 )
                 .await;

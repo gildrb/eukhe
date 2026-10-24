@@ -97,7 +97,7 @@ pub(crate) const WORKER_REQUEST_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// The route budget of a client command: turn-long waits ride TS's 24 h
 /// worker-request budget, a kill rides the stop grace
-/// ([`crate::timeouts::STOP_GRACE_MS`]), everything else is a short
+/// ([`crate::timeouts::Derived::stop_grace_ms`]), everything else is a short
 /// control route.
 pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
     if matches!(
@@ -115,7 +115,7 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
     ) {
         WORKER_REQUEST_TIMEOUT_MS
     } else if matches!(command, DaemonCommand::Kill { .. }) {
-        crate::timeouts::STOP_GRACE_MS
+        crate::timeouts::derived().stop_grace_ms
     } else {
         ROUTE_TIMEOUT_MS
     }

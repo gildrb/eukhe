@@ -4,7 +4,7 @@
 //! supervisor spawn, and the startup poll window with its timing consts.
 
 use anyhow::Context as _;
-use eukhe_daemon::timeouts::LAUNCHER_SHUTDOWN_WAIT_MS;
+use eukhe_daemon::timeouts;
 use eukhe_tui::daemon_build::{
     kept_daemon_notice, older_client_notice, replacement_verdict, Build, Caller, Relation,
     Replacement,
@@ -368,7 +368,8 @@ async fn stop_socket_holder(socket_path: &Path, why: &str) -> Result<()> {
 
 /// Wait until nothing accepts connections on the socket (bounded).
 async fn wait_for_socket_gone(socket_path: &Path) -> bool {
-    let deadline = Instant::now() + Duration::from_millis(LAUNCHER_SHUTDOWN_WAIT_MS);
+    let deadline =
+        Instant::now() + Duration::from_millis(timeouts::derived().launcher_shutdown_wait_ms);
     while Instant::now() < deadline {
         if !eukhe_daemon::socket::can_connect(socket_path, Duration::from_millis(250)).await {
             return true;

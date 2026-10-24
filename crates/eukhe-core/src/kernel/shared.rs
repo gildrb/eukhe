@@ -22,15 +22,10 @@ pub const SNAPSHOT_EXECUTION_TIMEOUT_MS: u64 = 5_000;
 pub const KERNEL_TERM_GRACE_MS: u64 = 2_000;
 /// After SIGKILL, the teardown waits this long for the exit it reports.
 pub const KERNEL_KILL_VERIFY_MS: u64 = 1_000;
-/// The longest kernel teardown: the snapshot flush, the host-request drain,
-/// the shutdown send, its reply, the exit wait, then SIGTERM and SIGKILL.
-/// The daemon's stop grace is derived from this sum
-/// (`eukhe-daemon` `timeouts`; law `timeouts_ordered`).
-pub const KERNEL_TEARDOWN_TOTAL_MS: u64 = SNAPSHOT_EXECUTION_TIMEOUT_MS
-    + HOST_REQUEST_SHUTDOWN_TIMEOUT_MS
-    + 3 * KERNEL_SHUTDOWN_TIMEOUT_MS
-    + KERNEL_TERM_GRACE_MS
-    + KERNEL_KILL_VERIFY_MS;
+// The longest kernel teardown (the snapshot flush, the host-request drain,
+// the shutdown send, its reply, the exit wait, then SIGTERM and SIGKILL)
+// is derived from the values above by the compiled core (`eukhe-daemon`
+// `timeouts::derived`; laws `timeouts_ordered`, `timeouts_ffi_answers`).
 /// Restore deserializes everything a snapshot serializes: bounded like the repair step.
 pub const RESTORE_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 /// The provisioner's runtime bootstrap imports the runtime and skills in one

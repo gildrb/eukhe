@@ -88,6 +88,12 @@ pub enum Entry {
     DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
+    /// `bend/ffi_timeouts.bend`: a call.
+    Timeouts = 90,
+    /// `bend/ffi_revive.bend`: a call.
+    Revive = 91,
+    /// `bend/ffi_auth_flight.bend`: a call and a stepper.
+    AuthFlight = 92,
 }
 
 impl Entry {
@@ -134,6 +140,9 @@ impl Entry {
         Entry::SkillLoad,
         Entry::DocSearch,
         Entry::DocRows,
+        Entry::Timeouts,
+        Entry::Revive,
+        Entry::AuthFlight,
     ];
 
     /// The id `bend/core.bend` dispatches on.
