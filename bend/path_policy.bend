@@ -15,11 +15,11 @@
 #    path that loops is never Inside.
 # 3. The gate. An access's effects (codes: read 0, write 1, exec 2, net
 #    3, outside 4, protected 5, secret 6) run without a question only when
-#    the auto set holds each of them and each is grantable (below 4);
+#    the auto set holds each of them and each is grantable (below 6);
 #    else only the user's yes runs them.
 # 4. The store. An agent's writes through any paths, each judged by the
 #    gate on its real path, with answers that are never yes, leave every
-#    guarded (protected or secret) location as it was.
+#    secret location as it was.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters).
@@ -435,9 +435,9 @@ def effs(c: Cls, a: Acc) -> List<&2, Nat>:
     case Wr{}:
       write_of(c)
 
-# the user may put effect e in the auto set (read, write, exec, net)
+# the user may put effect e in the auto set: every effect but secret (6)
 def grantable(e: Nat) -> Bool:
-  Nat.is_lt(e, 4n)
+  Nat.is_lt(e, 6n)
 
 # every effect is in the auto set and grantable
 def allows(+auto: List<&2, Nat>, es: List<&2, Nat>) -> Bool:
@@ -581,10 +581,10 @@ def keep.pick(keep: Bool, c: Cell, rest: List<&2, Cell>) -> List<&2, Cell>:
     case False{}:
       rest
 
-# the cells at guarded locations: eukhe's config and the secrets
-def guarded(cs: List<&2, Cell>, +pol: Pol) -> List<&2, Cell>:
+# the cells at secret locations
+def secrets(cs: List<&2, Cell>, +pol: Pol) -> List<&2, Cell>:
   match cs:
     case Nil{}:
       Nil{}
     case +c <> rest:
-      keep.pick(Cls.guarded(class_of(pol, Cell.at(c))), c, guarded(rest, pol))
+      keep.pick(Cls.secret(class_of(pol, Cell.at(c))), c, secrets(rest, pol))

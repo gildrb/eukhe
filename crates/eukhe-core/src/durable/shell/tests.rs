@@ -294,8 +294,8 @@ fn every_refusal_text_names_what_failed_and_the_next_step() {
                 ),
                 Some(
                     "it needs the user's approval, and no client answered. Ask the user to attach \
-a client, or to allow its effect in shell.autoEffects if that is write, exec or net; or use \
-read-only steps."
+a client, or to allow its effect in shell.autoEffects if that is not secret; or use read-only \
+steps."
                         .to_owned()
                 ),
                 Some(
@@ -356,13 +356,13 @@ async fn the_default_auto_set_is_its_model() {
     session.close(cx()).await.expect("close");
 }
 
-/// Regression: the default auto set was `read` alone, so in a session
-/// whose user set none, with no client to answer, the first write
-/// stopped the script unanswered. Now a write in the workspace and a run
-/// of a program run unasked; a write outside the workspace still asks,
-/// and unanswered it stops the script there.
+/// Regression: the default auto set held only read, write, exec and net,
+/// so in a session whose user set none, a write outside the workspace
+/// asked, and a subagent writing its notes to /tmp stopped every turn
+/// for a yes. Now every effect but secret runs unasked: with no client
+/// to answer, the whole script runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn with_no_auto_set_only_the_write_outside_the_workspace_asks() {
+async fn with_no_auto_set_a_write_outside_the_workspace_runs_unasked() {
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
         bash(
@@ -392,15 +392,15 @@ async fn with_no_auto_set_only_the_write_outside_the_workspace_asks() {
             read(work.join("four.txt")),
         ),
         (
-            vec!["$ echo one >one.txt\n$ sh -c 'echo two > two.txt'\n[stopped at step 2 \
-(read+write+outside): `echo three >../three.txt` and the steps after it did not run: it needs the \
-user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in \
-shell.autoEffects if that is write, exec or net; or use read-only steps.]\n"
-                .to_owned()],
+            vec![
+                "$ echo one >one.txt\n$ sh -c 'echo two > two.txt'\n$ echo three >../three.txt\n$ \
+echo four >four.txt\n"
+                    .to_owned()
+            ],
             Some("one\n".to_owned()),
             Some("two\n".to_owned()),
-            None,
-            None,
+            Some("three\n".to_owned()),
+            Some("four\n".to_owned()),
         )
     );
     session.close(cx()).await.expect("close");

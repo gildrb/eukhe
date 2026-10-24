@@ -224,15 +224,15 @@ law auto_needs_every_effect:
   for out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}
   {Tl.auto.at(auto, s) == False{} : Bool}
 
-# LAW auto_never_sensitive: a write outside the workspace (4), a write to a protected place (5)
-# and a read of a secret (6) never run without a question, whatever the
-# auto set holds
+# LAW auto_never_sensitive (changed 2026-10-23 by the user: no prompts, like omp): a read or a
+# write of a secret (6) never runs without a question, whatever the auto
+# set holds
 law auto_never_sensitive:
   for +s: Tl.Step
   for +auto: List<&2, Nat>
   for +c: Nat
   for has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}
-  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  for held: {Nat.is_le(6n, c) == True{} : Bool}
   {Tl.auto.at(auto, s) == False{} : Bool}
 
 # LAW composed_needs_every_part: a step made of parts runs without a question only when every effect
@@ -305,54 +305,57 @@ law gateway_runs_the_rest:
 # session with no settings and compares, with bridge/bridge_approvals.bend,
 # the effects it holds and `gate` on every step of one to seven effects.
 
-# LAW default_auto_is_grantable: the auto set of a session whose user sets none holds exactly the
-# grantable effects: read, write, exec and net
+# LAW default_auto_is_grantable (changed 2026-10-23 by the user: no prompts, like omp): the auto
+# set of a session whose user sets none holds exactly the grantable
+# effects: every effect but secret
 law default_auto_is_grantable:
   for +c: Nat
   {Tl.elem(Am.default_auto(), c) == Tl.grantable(c) : Bool}
 
-# LAW never_auto_is_routed: a step with an effect that no auto set may hold (4: a write
-# outside the workspace, 5: a protected write, 6: a secret) never runs
-# unasked through the auto set, in any session: its question goes its
-# route
+# LAW never_auto_is_routed (changed 2026-10-23 by the user: no prompts, like omp): a step with a
+# secret (6), which no auto set may hold, never runs unasked through the
+# auto set, in any session: its question goes its route
 law never_auto_is_routed:
   for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
   for +c: Nat
   for has: {Tl.elem(es, c) == True{} : Bool}
-  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  for held: {Nat.is_le(6n, c) == True{} : Bool}
   for +ds: List<&2, Am.Desk>
   {Am.gate(auto, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}
 
-# LAW never_auto_asks_the_client: so in a session whose client answers (the TUI, the dashboard), such
-# a step asks that client, and its answer decides
+# LAW never_auto_asks_the_client (changed 2026-10-23 by the user: no prompts, like omp): so in a
+# session whose client answers (the TUI, the dashboard), such a step asks
+# that client, and its answer decides
 law never_auto_asks_the_client:
   for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
   for +c: Nat
   for has: {Tl.elem(es, c) == True{} : Bool}
-  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  for held: {Nat.is_le(6n, c) == True{} : Bool}
   for +yes: Bool
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Says{yes} <> above) == Am.Routed{Am.Out{[0n], Am.Answered{0n, yes}}, Am.yes.fate(yes)} : Am.Gated}
 
-# LAW outside_runs_only_by_the_gateway: in a session whose only clients are the phone gateway, a write
-# outside the workspace that is not protected and touches no secret runs,
-# and only by the gateway rule, never through the auto set
+# LAW outside_runs_only_by_the_gateway (changed 2026-10-23 by the user: no prompts, like omp): in a
+# session whose only clients are the phone gateway and whose auto set
+# lacks outside (4), a write outside the workspace that is not protected
+# and touches no secret runs, and only by the gateway rule
 law outside_runs_only_by_the_gateway:
   for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
   for outside: {Tl.elem(es, 4n) == True{} : Bool}
+  for off: {Tl.elem(auto, 4n) == False{} : Bool}
   for not_protected: {Tl.elem(es, 5n) == False{} : Bool}
   for not_secret: {Tl.elem(es, 6n) == False{} : Bool}
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.Runs{}} : Am.Gated}
 
-# LAW guarded_refused_from_the_phone: and there a protected write or a secret is refused at once,
-# whatever the auto set
+# LAW guarded_refused_from_the_phone (changed 2026-10-23 by the user: no prompts, like omp): and
+# there a step with a secret is refused at once, whatever the auto set
 law guarded_refused_from_the_phone:
   for +auto: List<&2, Nat>
   for +es: List<&2, Nat>
-  for guarded: {Bool.or(Tl.elem(es, 5n), Tl.elem(es, 6n)) == True{} : Bool}
+  for secret: {Tl.elem(es, 6n) == True{} : Bool}
   for +above: List<&2, Am.Desk>
   {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.GatewayRefused{}} : Am.Gated}

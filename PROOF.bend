@@ -777,10 +777,10 @@ import ./proof/path_policy/path_inside_is_safe.bend as PPathInsideIsSafe
 import ./proof/path_policy/path_ancestor_guarded.bend as PPathAncestorGuarded
 import ./proof/path_policy/path_judge_class.bend as PPathJudgeClass
 import ./proof/path_policy/path_judge_holds.bend as PPathJudgeHolds
-import ./proof/path_policy/gate_write_auto_only_inside.bend as PGateWriteAutoOnlyInside
+import ./proof/path_policy/gate_write_auto_never_secret.bend as PGateWriteAutoNeverSecret
 import ./proof/path_policy/gate_secret_read_needs_yes.bend as PGateSecretReadNeedsYes
 import ./proof/path_policy/gate_yes_runs.bend as PGateYesRuns
-import ./proof/path_policy/config_needs_yes.bend as PConfigNeedsYes
+import ./proof/path_policy/secrets_need_yes.bend as PSecretsNeedYes
 import ./proof/path_policy/path_policy_ffi_request_round_trip.bend as PPathPolicyFfiRequestRoundTrip
 import ./proof/path_policy/path_policy_ffi_answers.bend as PPathPolicyFfiAnswers
 import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicyFfiRejectsMalformed

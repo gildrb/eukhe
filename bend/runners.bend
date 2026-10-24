@@ -12,7 +12,7 @@
 #
 # Effect codes (crates/eukhe-types/src/shell.rs, `ShellEffect::code`):
 # 0 read, 1 write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret. Only
-# 0 to 3 are grantable: an auto set never holds 4, 5 or 6.
+# 0 to 5 are grantable: an auto set never holds 6.
 
 import Base
 
@@ -138,9 +138,9 @@ def find(+ts: List<&2, Tool>, +n: String) -> Maybe<&2, Tool>:
 # 2. The cell gate
 # ----------------
 
-# an effect the auto set may hold
+# an effect the auto set may hold: every effect but secret (6)
 def grantable(c: Nat) -> Bool:
-  Nat.is_lt(c, 4n)
+  Nat.is_lt(c, 6n)
 
 # every cap is in the auto set (the auto set keeps only grantable effects)
 def within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:

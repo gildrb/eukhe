@@ -72,8 +72,8 @@ def pl.gate_no(s: Tl.Step, r: Tl.Ran) -> {Nil{} == Tl.Ran.steps(Tl.gate(False{},
 # join of the parts (`ps.elem_app_l`, `ps.elem_app_r`, by induction on the
 # parts before it). A step with one effect that is not within the auto set
 # is not within it (`ps.within_out`, by induction on its effects, with the
-# head test as a parameter). Codes 4, 5 and 6 are not grantable
-# (`ps.big`, four levels of literal match). The gate reads `within` of
+# head test as a parameter). Code 6 (secret) is not grantable
+# (`ps.big`, six levels of literal match). The gate reads `within` of
 # the head step: a rewrite with it runs the step free, or with no answer
 # denies it.
 
@@ -237,8 +237,8 @@ def ps.within_out(effs: List<&2, Nat>, +auto: List<&2, Nat>, +c: Nat, has: {Tl.e
 def ps.auto_needs_every_effect(+s: Tl.Step, +auto: List<&2, Nat>, +c: Nat, has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}, out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}) -> {Tl.auto.at(auto, s) == False{} : Bool}:
   ps.within_out(Tl.Step.effs(s), auto, c, has, out)
 
-# codes 4 and above are not grantable
-def ps.big(c: Nat, h: {Nat.is_le(4n, c) == True{} : Bool}) -> {Tl.grantable(c) == False{} : Bool}:
+# codes 6 and above are not grantable
+def ps.big(c: Nat, h: {Nat.is_le(6n, c) == True{} : Bool}) -> {Tl.grantable(c) == False{} : Bool}:
   match c:
     case 0n:
       shell.ps.absurdF({Tl.grantable(0n) == False{} : Bool}, h)
@@ -255,14 +255,22 @@ def ps.big(c: Nat, h: {Nat.is_le(4n, c) == True{} : Bool}) -> {Tl.grantable(c) =
                 case 0n:
                   shell.ps.absurdF({Tl.grantable(3n) == False{} : Bool}, h)
                 case 1n+e:
-                  {==}
+                  match e:
+                    case 0n:
+                      shell.ps.absurdF({Tl.grantable(4n) == False{} : Bool}, h)
+                    case 1n+f:
+                      match f:
+                        case 0n:
+                          shell.ps.absurdF({Tl.grantable(5n) == False{} : Bool}, h)
+                        case 1n+g:
+                          {==}
 
-# a code of 4 and above is not within any auto set
-def ps.out_big(+c: Nat, +auto: List<&2, Nat>, h: {Nat.is_le(4n, c) == True{} : Bool}) -> {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}:
+# a code of 6 and above is not within any auto set
+def ps.out_big(+c: Nat, +auto: List<&2, Nat>, h: {Nat.is_le(6n, c) == True{} : Bool}) -> {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}:
   %Equal.sym(Bool, Tl.grantable(c), False{}, ps.big(c, h)) : {Bool.and(_, Tl.elem(auto, c)) == False{} : Bool}
   {==}
 
-def ps.auto_never_sensitive(+s: Tl.Step, +auto: List<&2, Nat>, +c: Nat, has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}, held: {Nat.is_le(4n, c) == True{} : Bool}) -> {Tl.auto.at(auto, s) == False{} : Bool}:
+def ps.auto_never_sensitive(+s: Tl.Step, +auto: List<&2, Nat>, +c: Nat, has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}, held: {Nat.is_le(6n, c) == True{} : Bool}) -> {Tl.auto.at(auto, s) == False{} : Bool}:
   ps.auto_needs_every_effect(s, auto, c, has, ps.out_big(c, auto, held))
 
 def approvals.pa.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -289,7 +297,7 @@ def pa.gate_routed(w: Bool, +es: List<&2, Nat>, +ds: List<&2, Am.Desk>, h: {w ==
     case False{}:
       {==}
 
-def pa.never_auto(+auto: List<&2, Nat>, +es: List<&2, Nat>, +c: Nat, has: {Tl.elem(es, c) == True{} : Bool}, held: {Nat.is_le(4n, c) == True{} : Bool}, +ds: List<&2, Am.Desk>) -> {Am.gate(auto, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}:
+def pa.never_auto(+auto: List<&2, Nat>, +es: List<&2, Nat>, +c: Nat, has: {Tl.elem(es, c) == True{} : Bool}, held: {Nat.is_le(6n, c) == True{} : Bool}, +ds: List<&2, Am.Desk>) -> {Am.gate(auto, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}:
   pa.gate_routed(Tl.within(es, auto), es, ds, ps.auto_never_sensitive(Tl.Step{0n, es}, auto, c, has, held))
 
 # the gateway's outcome as the gate gives it

@@ -49,13 +49,13 @@ def pp.demote_inside(c: Pp.Cls, looped: Bool, h: {Pp.demote(c, looped) == Pp.Ins
 def pp.yes_clash(-A: Type, ans: Pp.Ans, ran: {Pp.Ans.yes(ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> A:
   LLogicLogic.pp.absurd(A, Equal.trans(Bool, True{}, Pp.Ans.yes(ans), False{}, Equal.sym(Bool, Pp.Ans.yes(ans), True{}, ran), no))
 
-def pp.gate_write_auto_only_inside(c: Pp.Cls, +auto: List<&2, Nat>, +ans: Pp.Ans, ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> {c == Pp.Inside{} : Pp.Cls}:
+def pp.gate_write_auto_never_secret(c: Pp.Cls, +auto: List<&2, Nat>, +ans: Pp.Ans, ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> {Pp.Cls.secret(c) == False{} : Bool}:
   match c:
     case Pp.Inside{}:
       {==}
     case Pp.Outside{}:
-      pp.yes_clash({Pp.Outside{} == Pp.Inside{} : Pp.Cls}, ans, ran, no)
+      {==}
     case Pp.Protected{}:
-      pp.yes_clash({Pp.Protected{} == Pp.Inside{} : Pp.Cls}, ans, ran, no)
+      {==}
     case Pp.Secret{}:
-      pp.yes_clash({Pp.Secret{} == Pp.Inside{} : Pp.Cls}, ans, ran, no)
+      pp.yes_clash({True{} == False{} : Bool}, ans, ran, no)

@@ -29,7 +29,7 @@ const DENIED: &str =
 /// What an unanswered cell's call says.
 const UNANSWERED: &str = "ipython did not run (exec): it needs the user's approval, and no client \
 answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is \
-write, exec or net; or use read-only steps.";
+not secret; or use read-only steps.";
 
 /// Who answers a scenario's question (bend/runners.bend `Asker`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

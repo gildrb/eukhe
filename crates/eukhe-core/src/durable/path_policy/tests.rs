@@ -8,8 +8,8 @@ use eukhe_types::shell::{AutoSet, ShellEffect};
 use super::*;
 
 /// Regression (audit C2): every file the settings loaders read, and the
-/// auth store, is Protected or Secret, so no agent write to it runs
-/// without the user's yes, whatever `shell.autoEffects` holds.
+/// auth store, is Protected or Secret, so for a user whose auto set lacks
+/// `protected` no agent write to it runs without the user's yes.
 #[test]
 fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
     let dir = tempfile::tempdir().unwrap();
@@ -36,7 +36,13 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
         cwd.join(".git/hooks/pre-commit"),
         cwd.join("sub/.eukhe/settings.json"),
     ]);
-    let auto = AutoSet::new(ShellEffect::ALL);
+    let auto = AutoSet::new([
+        ShellEffect::Read,
+        ShellEffect::Write,
+        ShellEffect::Exec,
+        ShellEffect::Net,
+        ShellEffect::Outside,
+    ]);
     let unasked: Vec<(PathBuf, bool)> = files
         .iter()
         .map(|file| {
@@ -106,8 +112,8 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
         (
             Err(
                 "(write+outside) it needs the user's approval, and no client answered. Ask the \
-user to attach a client, or to allow its effect in shell.autoEffects if that is write, exec or \
-net; or use read-only steps."
+user to attach a client, or to allow its effect in shell.autoEffects if that is not secret; or \
+use read-only steps."
                     .to_owned()
             ),
             false

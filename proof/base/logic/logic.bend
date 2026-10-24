@@ -592,11 +592,10 @@ def pu.absurd_ft(-A: Type, +e: {False{} == True{} : Bool}) -> A:
 # a prefix, and a link's target starts from `/` or from the link's
 # directory (`pp.go_lf`). The class picks Secret first and Inside last
 # (`pp.pick_inside`, `pp.pick_guarded`); `demote` only moves Inside to
-# Outside. A gated effect (outside, protected, secret: code 4 and up) is
-# never grantable, so a write that is not Inside, or a read of a secret,
-# reduces to the user's answer. A write that runs without a yes is Inside,
-# so its real location is not guarded, and a write there leaves every
-# guarded cell as it was (`pp.guarded_set`).
+# Outside. Secret (code 6) is never grantable, so a write to a secret,
+# or a read of one, reduces to the user's answer. A write that runs
+# without a yes is not Secret, so its real location is no secret, and a
+# write there leaves every secret cell as it was (`pp.secrets_set`).
 
 # Logic
 # -----

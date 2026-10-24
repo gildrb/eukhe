@@ -72,12 +72,15 @@ impl ShellEffect {
         }
     }
 
-    /// Whether the user's auto set may hold the effect.
+    /// Whether the user's auto set may hold the effect: every effect but
+    /// [`Self::Secret`] (bend/tools.bend `grantable`).
     #[must_use]
     pub fn grantable(self) -> bool {
         match self {
-            Self::Read | Self::Write | Self::Exec | Self::Net => true,
-            Self::Outside | Self::Protected | Self::Secret => false,
+            Self::Read | Self::Write | Self::Exec | Self::Net | Self::Outside | Self::Protected => {
+                true
+            }
+            Self::Secret => false,
         }
     }
 }
@@ -174,7 +177,6 @@ impl<'de> Deserialize<'de> for ShellEffects {
 
 /// The effects whose steps run without asking: the grantable effects the
 /// user allows (`shell.autoEffects`). It never holds
-/// [`ShellEffect::Outside`], [`ShellEffect::Protected`] or
 /// [`ShellEffect::Secret`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AutoSet(ShellEffects);
@@ -254,12 +256,12 @@ mod tests {
     }
 
     #[test]
-    fn the_auto_set_never_allows_an_effect_that_always_asks() {
+    fn the_auto_set_never_allows_a_secret() {
         let auto = AutoSet::new(ShellEffect::ALL);
         let allowed: Vec<bool> = ShellEffect::ALL
             .into_iter()
             .map(|effect| auto.allows(ShellEffects::of(&[ShellEffect::Read, effect])))
             .collect();
-        assert_eq!(allowed, [true, true, true, true, false, false, false]);
+        assert_eq!(allowed, [true, true, true, true, true, true, false]);
     }
 }

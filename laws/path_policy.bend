@@ -81,16 +81,16 @@ law path_judge_holds:
   for +r: Pp.Res
   {Pp.Judged.holds(Pp.judge(pol, r)) == Bool.or(Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(r)), Pp.any_ancestor(Pp.Pol.secret(pol), Pp.Res.at(r))) : Bool}
 
-# LAW gate_write_auto_only_inside: a write runs without the user's yes only Inside the workspace:
-# never Outside, never to eukhe's config or credentials, never to a
-# secret, whatever the auto set holds
-law gate_write_auto_only_inside:
+# LAW gate_write_auto_never_secret (changed 2026-10-23 by the user: no prompts, like omp): a write
+# without the user's yes never lands on a secret, whatever the auto set
+# holds
+law gate_write_auto_never_secret:
   for c: Pp.Cls
   for +auto: List<&2, Nat>
   for ans: Pp.Ans
   for ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}
   for no: {Pp.Ans.yes(ans) == False{} : Bool}
-  {c == Pp.Inside{} : Pp.Cls}
+  {Pp.Cls.secret(c) == False{} : Bool}
 
 # LAW gate_secret_read_needs_yes: a read of a secret (a read or a list of one, a search of a
 # directory that holds one) runs only on the user's yes, whatever the auto
@@ -111,19 +111,18 @@ law gate_yes_runs:
   for +auto: List<&2, Nat>
   {Pp.runs(c, a, auto, Pp.Yes{}) == True{} : Bool}
 
-# LAW config_needs_yes: no sequence of agent writes through any paths, each judged by the
-# gate on its real path and landing there, without a yes of the user,
-# changes a guarded location: eukhe's config (where the auto set,
-# ssh.hosts and mcpServers live) and the secrets stay as they were,
-# whatever the auto set holds
-law config_needs_yes:
+# LAW secrets_need_yes (changed 2026-10-23 by the user: no prompts, like omp): no sequence of
+# agent writes through any paths, each judged by the gate on its real
+# path and landing there, without a yes of the user, changes a secret:
+# the secrets stay as they were, whatever the auto set holds
+law secrets_need_yes:
   for es: List<&2, Pp.Put>
   for +pol: Pp.Pol
   for +ls: List<&2, Pp.Link>
   for +auto: List<&2, Nat>
   for +cs: List<&2, Pp.Cell>
   for no: {Pp.any_yes(es) == False{} : Bool}
-  {Pp.guarded(Pp.run(es, pol, ls, auto, cs), pol) == Pp.guarded(cs, pol) : List<&2, Pp.Cell>}
+  {Pp.secrets(Pp.run(es, pol, ls, auto, cs), pol) == Pp.secrets(cs, pol) : List<&2, Pp.Cell>}
 
 # LAW path_policy_ffi_request_round_trip (compiled core): the path judgment entry (bend/ffi_path_policy.bend) reads back
 # a policy and a resolved path as Rust writes it, and leaves what follows untouched

@@ -297,7 +297,7 @@ fn with_no_client_attached_a_gated_step_is_refused_unanswered() {
             dir.path().join("approved.txt").exists(),
         ),
         (
-            "[stopped at step 0 (read+write): `echo one >approved.txt` and the steps after it did not run: it needs the user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is write, exec or net; or use read-only steps.]\n"
+            "[stopped at step 0 (read+write): `echo one >approved.txt` and the steps after it did not run: it needs the user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is not secret; or use read-only steps.]\n"
                 .to_owned(),
             0,
             false,

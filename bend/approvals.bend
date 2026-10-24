@@ -151,9 +151,9 @@ def named(k: Nat) -> Bool:
       True{}
 
 # The auto set of a session whose user sets none (`shell.autoEffects`):
-# read, write, exec and net
+# every effect but secret
 def default_auto() -> List<&2, Nat>:
-  [0n, 1n, 2n, 3n]
+  [0n, 1n, 2n, 3n, 4n, 5n]
 
 def guard(g: Bool) -> Fate:
   match g:

@@ -224,7 +224,7 @@ def Step.effs(s: Step) -> List<&2, Nat>:
     case Step{i, e}:
       e
 
-# an auto set may hold effect c: read, write, exec or net
+# an auto set may hold effect c: every effect but secret (6)
 def grantable(c: Nat) -> Bool:
   match c:
     case 0n:
@@ -242,7 +242,15 @@ def grantable(c: Nat) -> Bool:
                 case 0n:
                   True{}
                 case 1n+e:
-                  False{}
+                  match e:
+                    case 0n:
+                      True{}
+                    case 1n+f:
+                      match f:
+                        case 0n:
+                          True{}
+                        case 1n+g:
+                          False{}
 
 # every effect of effs may be in an auto set and is in auto
 def within(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:

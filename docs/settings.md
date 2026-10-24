@@ -49,7 +49,7 @@ More settings:
 
 |Key|Default|Effect|
 |---|---|---|
-|`shell.autoEffects`|`["read", "write", "exec", "net"]`|Effects of a `bash` step (an `ipython` cell is `exec`) that run without approval. Always ask: write outside the workspace, protected write, secret read or write. Effect not listed: asks the attached client; no answer = deny. Only the phone gateway attached: runs at once, but protected or secret steps are refused. Not settable by an agent or untrusted project|
+|`shell.autoEffects`|`["read", "write", "exec", "net", "outside", "protected"]`|Effects of a `bash` step (an `ipython` cell is `exec`), or of a document access, that run without approval. Always asks: secret read or write (credential stores: `auth.json`, `~/.ssh`, `~/.aws`, ...); `secret` is not accepted. Effect not listed: asks the attached client; no answer = deny. Only the phone gateway attached: runs at once, but secret steps, and protected steps the list lacks, are refused. Not settable by an agent or untrusted project|
 |`kernelTransport`|none|Python kernel via a wrapper, e.g. `{"argvPrefix":["docker","exec","-i","box"],"pathMap":[{"sandbox":"/work","host":"/home/me/project"}]}`; `"command":"shell"` for ssh; none = local process. Not settable by an agent or untrusted project|
 |`ssh.hosts`|`[]`|Hosts `ssh://host/path` reads may reach, as in the URL (`box`, `user@box`); read-only, via your `ssh` and `~/.ssh/config` (global only)|
 |`titles.generate`|`true`|Title from the first message via the `tiny` role; a name you gave stays|

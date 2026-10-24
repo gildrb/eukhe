@@ -1,11 +1,10 @@
 //! `eukhe.shell`: the `bash` tool (`bash@1`, docs/tools.md S7). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. A step whose effects are all in the auto set (the
-//! `shell.autoEffects` setting, default every grantable effect: `read`,
-//! `write`, `exec`, `net`) runs unasked; every other step runs only when
-//! the user approves it through the session's [`ShellApprovalSink`] (the
-//! daemon asks the attached client). A write outside the workspace, to a
-//! protected place, or a read of a secret (the session's
+//! `shell.autoEffects` setting, default every grantable effect: all but
+//! `secret`) runs unasked; every other step runs only when the user
+//! approves it through the session's [`ShellApprovalSink`] (the daemon
+//! asks the attached client). A read or write of a secret (the session's
 //! [`PathPolicy`](eukhe_types::path_policy::PathPolicy)) always asks. A
 //! denial, no answer, or the refusal of a session that runs only from the
 //! phone gateway (docs/tools.md G5) stops the script at that step, and the
@@ -125,7 +124,7 @@ impl RefusalText {
                 what: "it needs the user's approval, and no client answered",
                 next:
                     "Ask the user to attach a client, or to allow its effect in shell.autoEffects \
-if that is write, exec or net; or use read-only steps",
+if that is not secret; or use read-only steps",
             },
             Refusal::GatewayRefused => Self {
                 what: "the session runs only from the phone gateway, and from there a step that \
@@ -306,6 +305,8 @@ pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
                 "write" => Some(ShellEffect::Write),
                 "exec" => Some(ShellEffect::Exec),
                 "net" => Some(ShellEffect::Net),
+                "outside" => Some(ShellEffect::Outside),
+                "protected" => Some(ShellEffect::Protected),
                 unknown => {
                     tracing::warn!(unknown, "shell.autoEffects holds an unknown effect");
                     None

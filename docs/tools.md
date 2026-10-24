@@ -109,9 +109,9 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
 
    The auto set:
    - A step runs immediately only when each of its effects is in the auto set.
-   - The auto set is the Local cvar `shell.autoEffects` (S4): a list of effect names from read, write, exec, net. Default all four (`["read", "write", "exec", "net"]`, law `default_auto_is_grantable`).
-   - Outside, protected and secret are never in it: a step with one of them always asks (law `never_auto_is_routed`). A user who narrows the auto set is asked about the steps it no longer holds.
-   - A name other than the four is a typed error when the value is set.
+   - The auto set is the Local cvar `shell.autoEffects` (S4): a list of effect names from read, write, exec, net, outside, protected. Default all six (law `default_auto_is_grantable`): nothing asks but a secret.
+   - Secret is never in it: a step that reads or writes a secret always asks (law `never_auto_is_routed`). A user who narrows the auto set is asked about the steps it no longer holds.
+   - A name other than the six is a typed error when the value is set.
    - The cvar is an execution gate, so an untrusted project cannot set it.
 
    The question (every other step, before it runs):
@@ -123,7 +123,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    - The result gives the output and exit status of each step that ran, and how the script ended: finished, exited, or refused at step N (`denied`, `unanswered` or `gateway_refused`).
    - One renderer (`durable/shell.rs` `RefusalText`) writes the text of a refused step, of a cell that did not run and of a document access that did not run: `<what failed>. <next step>.` Next steps:
      - Denied: do not try it again unless the user asks for it.
-     - Unanswered: ask the user to attach a client, or to allow its effect in `shell.autoEffects` if that is write, exec or net; or use read-only steps.
+     - Unanswered: ask the user to attach a client, or to allow its effect in `shell.autoEffects` if that is not secret; or use read-only steps.
      - Gateway refused: ask the user to run it from the eukhe TUI or the dashboard.
    - Shell state (`cd`, `export`) lasts for one call only.
 
@@ -245,9 +245,9 @@ requests) share it, so they cannot judge a path differently.
    The access then occurs on that real path. The gate judges the
    resolution as given and does not resolve again: a second resolution can
    lose a loop. An access runs without a question only when the auto set
-   (`shell.autoEffects`, S7 item 8) holds each of its effects; outside,
-   protected and secret are never in it. Thus:
-   - a write runs without a question only Inside, and only when the auto set holds write;
+   (`shell.autoEffects`, S7 item 8) holds each of its effects; secret is
+   never in it. Thus:
+   - a write runs without a question when the auto set holds its effects, and never to a secret;
    - a read of a secret always asks;
    - each other access asks when the auto set does not hold all its effects.
 
@@ -274,11 +274,11 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `path_secret_wins` | real path under a secret entry: Secret (G1.2) |
 | `path_inside_is_safe` | Inside only if: no loop, no secret covers it, no rule protects it, no ancestor of an entry, a root holds it (G1.2) |
 | `path_ancestor_guarded` | ancestor of a protected or secret entry: Protected or Secret (G1.2) |
-| `gate_write_auto_only_inside` | write without a yes: only Inside (G1.6) |
+| `gate_write_auto_never_secret` | write without a yes: never to a secret (G1.6) |
 | `gate_secret_read_needs_yes` | secret read: only on a yes (G1.6) |
 | `gate_yes_runs` | a yes runs each access (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
-| `config_needs_yes` | no agent write sequence without a yes changes a protected or secret location (G1.6, G1.7) |
+| `secrets_need_yes` | no agent write sequence without a yes changes a secret (G1.6, G1.7) |
 
 Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`, `PathPolicy`, `PathRule`, `MAX_LINKS`), `eukhe-shell/src/paths.rs` (`judge`: class and holds-a-secret of a resolved path, run as compiled model `judge`, entry `bend/ffi_path_policy.bend`, request laws `path_policy_ffi_*`; each path component crosses as an id), `eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`), `eukhe-shell/src/run.rs` (step path effects: one `judge_path` per path).
 
@@ -300,7 +300,7 @@ Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 | `secret_needs_a_secret_path` | secret only if a part names a path that is or holds a secret |
 | `secret_path_gives_secret` | such a part gives its step secret |
 | `auto_needs_every_effect` | one effect outside the auto set, or ungrantable: asks |
-| `auto_never_sensitive` | outside, protected or secret: always asks, any auto set |
+| `auto_never_sensitive` | secret: always asks, any auto set |
 | `composed_needs_every_part` | unasked only if every effect of every part is within the auto set |
 | `auto_runs_within` | within the auto set: runs, uses no answer |
 | `held_needs_a_yes` | not within: runs only on a yes; else the script stops there |
@@ -382,11 +382,11 @@ answer, the gateway alone, clients that leave while the gateway stays;
 | `gateway_runs_the_rest` | gateway rule runs every other step unasked |
 | `left_to_the_gateway` | interactive clients leave it unanswered, gateway stays: gateway rule, not up the chain |
 | `gateway_rules_a_subagent` | subagent question reaching a gateway-only session: fares as that session's own step |
-| `default_auto_is_grantable` | no user setting: auto set = read, write, exec, net |
-| `never_auto_is_routed` | outside, protected or secret never run unasked via the auto set; the question takes its route |
+| `default_auto_is_grantable` | no user setting: auto set = every effect but secret |
+| `never_auto_is_routed` | secret never runs unasked via the auto set; the question takes its route |
 | `never_auto_asks_the_client` | answering client (TUI, dashboard): it is asked; its answer decides |
-| `outside_runs_only_by_the_gateway` | phone only: an outside write, not protected, no secret, runs, only by the gateway rule |
-| `guarded_refused_from_the_phone` | phone only: protected write or secret refused at once, any auto set |
+| `outside_runs_only_by_the_gateway` | phone only, auto set without outside: an outside write, not protected, no secret, runs, only by the gateway rule |
+| `guarded_refused_from_the_phone` | phone only: secret refused at once, any auto set |
 
 Code: `eukhe-daemon/src/shell_approval.rs` (`ShellApprovals::ask`, `relay`), `worker.rs` (relay over the supervisor link), `worker/connection.rs` (client kind at attach), `supervisor/routing.rs` (relay budget), `eukhe-tui/src/session_ui/settings.rs` (prompt), `eukhe-gateway/src/link.rs` (attaches as `gateway`), `eukhe-core/src/settings/cvar/table.rs` (`SHELL_AUTO_EFFECTS`, default auto set).
 
@@ -395,7 +395,7 @@ Ties:
 - `durable::shell::tests::the_default_auto_set_is_its_model`: real default auto set vs the same model: effects held; whether the gate runs each of the 127 steps of 1 to 7 effects unasked.
 
 Tests:
-- `with_no_auto_set_only_the_write_outside_the_workspace_asks`: no client; write and program run run; outside write stops the script unanswered.
+- `with_no_auto_set_a_write_outside_the_workspace_runs_unasked`: no client; write, program run and outside write all run.
 - `rlm_child_approval_e2e::a_subagent_step_runs_when_the_root_client_approves`: real supervisor; root with attached client; subagent `bash` write under auto set `read`.
 - `shell_approval_e2e::a_phone_only_session_runs_steps_unasked_and_refuses_a_protected_write`: real supervisor, client attached as `gateway`, auto set `read`; write and program run run unasked by the gateway rule; `.eukhe/settings.json` write refused at once with the gateway message.
 
