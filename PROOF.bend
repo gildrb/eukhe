@@ -632,6 +632,11 @@ import ./proof/tokens/tokens_type_ascends.bend as PTokensTypeAscends
 import ./proof/tokens/tokens_ffi_blocks.bend as PTokensFfiBlocks
 import ./proof/tokens/tokens_ffi_malformed_exact.bend as PTokensFfiMalformedExact
 import ./proof/tokens/tokens_ffi_example.bend as PTokensFfiExample
+import ./proof/tokens/tokens_palette_tones.bend as PTokensPaletteTones
+import ./proof/tokens/tokens_ascends_exact.bend as PTokensAscendsExact
+import ./proof/tokens/tokens_find_exact.bend as PTokensFindExact
+import ./proof/tokens/tokens_readable_exact.bend as PTokensReadableExact
+import ./proof/tokens/tokens_pairs_exact.bend as PTokensPairsExact
 import ./proof/progress/base.bend as LAProgress
 import ./proof/progress/child_repeat_is_no_work.bend as PChildRepeatIsNoWork
 import ./proof/progress/child_loop_is_a_stall.bend as PChildLoopIsAStall

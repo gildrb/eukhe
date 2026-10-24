@@ -151,3 +151,138 @@ law tokens_ffi_example:
   {String.take(FT.ffi("0,"), 86n) == "5,12,lightPalette17,16,  bg: \"#ffffff\",21,  sidebar: \"#f9f9f9\",20,  raised: \"#ffffff\"," : String} &
   {FT.ffi("1,") == SCon{'E', SCon{' ', "tokens: malformed request"}} : String} &
   {FT.ffi("0,0,") == SCon{'E', SCon{' ', "tokens: malformed request"}} : String}
+
+# the tones of a palette, in order
+def palette_tones(es: List<&2, Tk.Entry>) -> List<&2, Tk.Tone>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case Tk.Entry{t, c} <> rest:
+      t <> palette_tones(rest)
+
+# LAW tokens_palette_tones: each mode's palette lists every color token exactly once, in the order of lightPalette (bg .. shadowLatest), so every generated block holds every tone
+law tokens_palette_tones:
+  for m: Tk.Mode
+  {palette_tones(Tk.palette(m)) == [Tk.Bg{}, Tk.Sidebar{}, Tk.Raised{}, Tk.Surface{}, Tk.Hover{}, Tk.Primary{}, Tk.Secondary{}, Tk.Tertiary{}, Tk.Hairline{}, Tk.Scrim{}, Tk.Danger{}, Tk.Selection{}, Tk.Scrollbar{}, Tk.ShadowNear{}, Tk.ShadowFar{}, Tk.ShadowDrawer{}, Tk.ShadowLatest{}] : List<&2, Tk.Tone>}
+
+# each value of xs is below the next one
+def ascends_spec(xs: List<&2, Tk.Step>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Tk.Step{n, v} <> rest:
+      match rest:
+        case Nil{}:
+          True{}
+        case Tk.Step{+m, +w} <> more:
+          Bool.and(U32.is_lt(v, w), ascends_spec(Tk.Step{m, w} <> more))
+
+# LAW tokens_ascends_exact: the ordering the scale laws read is exactly: every step's value is below the next step's
+law tokens_ascends_exact:
+  for xs: List<&2, Tk.Step>
+  {Tk.ascends(xs) == ascends_spec(xs) : Bool}
+
+# A tone's place in the palette type
+def idx_spec(t: Tk.Tone) -> Nat:
+  match t:
+    case Tk.Bg{}:
+      0n
+    case Tk.Sidebar{}:
+      1n
+    case Tk.Raised{}:
+      2n
+    case Tk.Surface{}:
+      3n
+    case Tk.Hover{}:
+      4n
+    case Tk.Primary{}:
+      5n
+    case Tk.Secondary{}:
+      6n
+    case Tk.Tertiary{}:
+      7n
+    case Tk.Hairline{}:
+      8n
+    case Tk.Scrim{}:
+      9n
+    case Tk.Danger{}:
+      10n
+    case Tk.Selection{}:
+      11n
+    case Tk.Scrollbar{}:
+      12n
+    case Tk.ShadowNear{}:
+      13n
+    case Tk.ShadowFar{}:
+      14n
+    case Tk.ShadowDrawer{}:
+      15n
+    case Tk.ShadowLatest{}:
+      16n
+
+# the color of tone t in a palette: its first entry
+def find_spec.at(hit: Bool, c: Tk.Col, later: Maybe<&2, Tk.Col>) -> Maybe<&2, Tk.Col>:
+  match hit:
+    case True{}:
+      Some{c}
+    case False{}:
+      later
+
+def find_spec(+t: Tk.Tone, xs: List<&2, Tk.Entry>) -> Maybe<&2, Tk.Col>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Tk.Entry{k, c} <> rest:
+      find_spec.at(Nat.is_eq(idx_spec(k), idx_spec(t)), c, find_spec(t, rest))
+
+# the contrast a pair needs as num/den: text 9/2 (4.5:1), a caption 3/1
+def num_spec(n: Tk.Need) -> U32:
+  match n:
+    case Tk.Prose{}:
+      9
+    case Tk.Caption{}:
+      3
+
+def den_spec(n: Tk.Need) -> U32:
+  match n:
+    case Tk.Prose{}:
+      2
+    case Tk.Caption{}:
+      1
+
+def readable_spec.of(fg: Maybe<&2, Tk.Col>, bg: Maybe<&2, Tk.Col>, +n: Tk.Need) -> Bool:
+  match fg:
+    case None{}:
+      False{}
+    case Some{a}:
+      match a:
+        case Tk.Col{x, ax}:
+          match bg:
+            case None{}:
+              False{}
+            case Some{b}:
+              match b:
+                case Tk.Col{y, by}:
+                  Co.contrast_ge(x, y, num_spec(n), den_spec(n))
+
+# a pair is readable in m: both tones have a color and their contrast meets the need
+def readable_spec(+m: Tk.Mode, p: Tk.Ink) -> Bool:
+  match p:
+    case Tk.Ink{fg, bg, n}:
+      readable_spec.of(find_spec(fg, Tk.palette(m)), find_spec(bg, Tk.palette(m)), n)
+
+# LAW tokens_find_exact: the color of a tone the legibility laws read is exactly its first entry in the palette
+law tokens_find_exact:
+  for +t: Tk.Tone
+  for xs: List<&2, Tk.Entry>
+  {Tk.find(t, xs) == find_spec(t, xs) : Maybe<&2, Tk.Col>}
+
+# LAW tokens_readable_exact: a pair is readable exactly when both tones have a color and their contrast is at least 9/2 for text, 3/1 for a caption
+law tokens_readable_exact:
+  for +m: Tk.Mode
+  for p: Tk.Ink
+  {Tk.readable(m, p) == readable_spec(m, p) : Bool}
+
+# LAW tokens_pairs_exact: the pairs that must be legible are exactly: primary, secondary and danger text on every ground; tertiary on the grounds and as a caption on the fills; the ground's color on the primary, secondary and danger fills
+law tokens_pairs_exact:
+  {Tk.pairs() == [Tk.Ink{Tk.Primary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Surface{}, Tk.Caption{}}, Tk.Ink{Tk.Tertiary{}, Tk.Hover{}, Tk.Caption{}}, Tk.Ink{Tk.Bg{}, Tk.Primary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Secondary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Danger{}, Tk.Prose{}}] : List<&2, Tk.Ink>}
