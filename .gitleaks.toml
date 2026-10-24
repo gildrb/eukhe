@@ -10,3 +10,9 @@ paths = [
   '''^crates/eukhe-ai/src/api/bedrock_converse_stream/credentials/tests\.rs$''',
   '''^eukhe-runtime/test/test_bash\.py$''',
 ]
+
+[[allowlists]]
+description = "LAWS.lock: law names (some contain 'secret') with content hashes, not credentials"
+paths = [
+  '''^LAWS\.lock$''',
+]
