@@ -70,6 +70,8 @@ pub enum Entry {
     Command = 30,
     /// `bend/ffi_semver.bend`: a call.
     Semver = 31,
+    /// `bend/ffi_notice.bend`: a stepper.
+    Notice = 32,
 }
 
 impl Entry {
@@ -107,6 +109,7 @@ impl Entry {
         Entry::PathPolicy,
         Entry::Command,
         Entry::Semver,
+        Entry::Notice,
     ];
 
     /// The id `bend/core.bend` dispatches on.

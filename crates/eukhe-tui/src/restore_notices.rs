@@ -5,80 +5,111 @@
 //! restart, a session rebind) and each transcript refetch rebuilds the
 //! transcript from every stored message. The view records each restore
 //! notice it shows and does not show a recorded notice again. Thus each
-//! restore shows its notice once, after any number of attaches
-//! (`laws/notice.bend` `notice_shown_once` and `notice_per_restore`,
-//! the model `bend/notice.bend`).
+//! restore shows its notice once, after any number of attaches.
+//!
+//! The rule runs as compiled Bend: `bend/notice.bend`, a stepper behind
+//! `bend/ffi_notice.bend` whose state (the record) stays in the Bend heap;
+//! `laws/notice.bend` pins it. This file only spells each message (its
+//! role, or its custom kind and stored timestamp) and each ask on the wire.
 
-use std::collections::{HashMap, HashSet};
-
-use eukhe_types::custom_type::CustomType;
+use eukhe_bend::wire::{Reader, Writer};
+use eukhe_bend::{expect_core, Entry, Error, Stepper};
 use eukhe_types::session::AgentMessage;
 
-/// The restore notices a view showed: for each session id, the stored
-/// timestamps of its notices. A notice's timestamp is the time its entry
-/// was stored: it is the same in each transcript and each live event of
-/// the session.
-#[derive(Debug, Default)]
+/// The restore notices a view showed (session id and stored timestamp of
+/// each), held by the compiled rule. A notice's timestamp is the time its
+/// entry was stored: it is the same in each transcript and each live event
+/// of the session.
+#[derive(Debug)]
 pub(crate) struct RestoreNotices {
-    shown: HashMap<String, HashSet<u64>>,
+    record: Stepper,
 }
 
-/// The stored timestamp of `message` when it is a restore notice.
-fn restore_stamp(message: &AgentMessage) -> Option<u64> {
+impl Default for RestoreNotices {
+    fn default() -> Self {
+        let opened = (|| -> Result<Stepper, Error> {
+            let (record, reply) = Stepper::open(Entry::Notice, "")?;
+            Reader::reply(&reply)?.end()?;
+            Ok(record)
+        })();
+        RestoreNotices {
+            record: expect_core(Entry::Notice, opened),
+        }
+    }
+}
+
+/// `message` on the wire: 0 for any role but a custom message; 1, its
+/// kind and its stored timestamp (decimal) for a custom message.
+fn put_message(w: &mut Writer, message: &AgentMessage) {
     match message {
-        AgentMessage::Custom(custom) => (custom.custom_type
-            == CustomType::IpythonStateRestored.as_str())
-        .then_some(custom.timestamp),
+        AgentMessage::Custom(custom) => {
+            w.tag(1)
+                .str(&custom.custom_type)
+                .str(&custom.timestamp.to_string());
+        }
         AgentMessage::User(_)
         | AgentMessage::Assistant(_)
         | AgentMessage::ToolResult(_)
         | AgentMessage::BashExecution(_)
         | AgentMessage::BranchSummary(_)
-        | AgentMessage::CompactionSummary(_) => None,
+        | AgentMessage::CompactionSummary(_) => {
+            w.tag(0);
+        }
     }
 }
 
 impl RestoreNotices {
     /// Whether the view shows `message` of the session `session_id`: each
     /// message, but not a restore notice that the view showed before.
-    pub(crate) fn shows(&self, session_id: &str, message: &AgentMessage) -> bool {
-        restore_stamp(message).is_none_or(|stamp| {
-            !self
-                .shown
-                .get(session_id)
-                .is_some_and(|shown| shown.contains(&stamp))
-        })
+    ///
+    /// # Panics
+    ///
+    /// Only on an inconsistent build (see [`expect_core`]).
+    pub(crate) fn shows(&mut self, session_id: &str, message: &AgentMessage) -> bool {
+        let shown = (|| -> Result<bool, Error> {
+            let mut ask = Writer::new();
+            ask.tag(0).str(session_id);
+            put_message(&mut ask, message);
+            let reply = self.record.step(&ask.finish()?)?;
+            let mut reply = Reader::reply(&reply)?;
+            let shown = reply.bool()?;
+            reply.end()?;
+            Ok(shown)
+        })();
+        expect_core(Entry::Notice, shown)
     }
 
     /// Record the restore notices in `messages` of the session
     /// `session_id`: the view shows them now.
+    ///
+    /// # Panics
+    ///
+    /// Only on an inconsistent build (see [`expect_core`]).
     pub(crate) fn record<'a>(
         &mut self,
         session_id: &str,
         messages: impl IntoIterator<Item = &'a AgentMessage>,
     ) {
-        for stamp in messages.into_iter().filter_map(restore_stamp) {
-            match self.shown.get_mut(session_id) {
-                Some(shown) => {
-                    shown.insert(stamp);
-                }
-                None => {
-                    self.shown
-                        .insert(session_id.to_owned(), HashSet::from([stamp]));
-                }
+        let noted = (|| -> Result<(), Error> {
+            let messages: Vec<&AgentMessage> = messages.into_iter().collect();
+            let mut ask = Writer::new();
+            ask.tag(1).str(session_id).count(messages.len());
+            for message in messages {
+                put_message(&mut ask, message);
             }
-        }
+            let reply = self.record.step(&ask.finish()?)?;
+            Reader::reply(&reply)?.end()?;
+            Ok(())
+        })();
+        expect_core(Entry::Notice, noted);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Write as _;
-
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{compare, Rng, Scenario};
 
     const SESSION: &str = "session-1";
 
@@ -99,80 +130,15 @@ mod tests {
             .expect("a user message")
     }
 
-    /// Restores, live notices and attaches in any order. The stored
-    /// transcript holds the notices among user messages; each attach
-    /// rebuilds it the way `attach_session` and `rebuild_transcript` do.
-    fn scenario(rng: &mut Rng) -> Scenario {
-        let mut notices = RestoreNotices::default();
-        let mut stored: Vec<AgentMessage> = Vec::new();
-        let mut stamps: Vec<u64> = Vec::new();
-        let mut shown: Vec<u64> = Vec::new();
-        let mut events = String::new();
-        let mut transcript = String::new();
-        for _ in 0..rng.range(1, 30) {
-            match rng.below(3) {
-                0 => {
-                    let stamp = 1_000 + stored.len() as u64;
-                    events.push_str("r\n");
-                    stored.push(user(stamp));
-                    stored.push(notice(stamp + 1));
-                    stamps.push(stamp + 1);
-                    shown.push(0);
-                }
-                1 => {
-                    events.push_str("l\n");
-                    if let Some(&newest) = stamps.last() {
-                        let message = notice(newest);
-                        if notices.shows(SESSION, &message) {
-                            notices.record(SESSION, [&message]);
-                            *shown.last_mut().expect("a stored notice") += 1;
-                        }
-                    }
-                }
-                _ => {
-                    events.push_str("c\n");
-                    let mut messages = stored.clone();
-                    messages.retain(|message| notices.shows(SESSION, message));
-                    notices.record(SESSION, &messages);
-                    for stamp in messages.iter().filter_map(restore_stamp) {
-                        let index = stamps
-                            .iter()
-                            .position(|stored| *stored == stamp)
-                            .expect("a stored notice");
-                        shown[index] += 1;
-                    }
-                }
-            }
-            transcript.push('s');
-            for count in &shown {
-                write!(transcript, " {count}").unwrap();
-            }
-            transcript.push('\n');
-        }
-        Scenario {
-            name: format!("{} restores", stamps.len()),
-            events,
-            transcript,
-        }
-    }
-
-    /// Restores, live notices and attaches in any order.
+    /// The calls reach the compiled rule: a recorded notice no longer shows
+    /// for its session, and still shows for another.
     #[test]
-    fn the_restore_notices_run_as_their_model() {
-        let mut rng = Rng(0x0de5_7012);
-        let scenarios: Vec<Scenario> = (0..60).map(|_| scenario(&mut rng)).collect();
-        compare("bridge/bridge_notice.bend", scenarios);
-    }
-
-    /// A rebuild shows the notices the view did not show yet, and the
-    /// notices of another session stay apart.
-    #[test]
-    fn a_rebuild_shows_only_the_new_notices() {
+    fn the_record_runs_as_the_compiled_rule() {
         let mut notices = RestoreNotices::default();
-        notices.record(SESSION, [&notice(5)]);
-        let mut messages = vec![user(1), notice(5), user(6), notice(7)];
-        messages.retain(|message| notices.shows(SESSION, message));
-        assert_eq!(messages, vec![user(1), user(6), notice(7)]);
+        assert!(notices.shows(SESSION, &notice(5)));
+        notices.record(SESSION, [&user(1), &notice(5)]);
+        assert!(!notices.shows(SESSION, &notice(5)));
+        assert!(notices.shows(SESSION, &user(1)));
         assert!(notices.shows("session-2", &notice(5)));
     }
 }
