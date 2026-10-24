@@ -82,7 +82,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
 |`eukhe-bend`|Compiled Bend core: every rule with a Bend model, compiled by Bend into `c/core.c` (generated, committed), called through one C entry (`c/shim.c`, `src/ffi.rs`: the only `unsafe`); wire format (`src/wire.rs`, `WIRE.md`); typed rule wrappers over shared vocabulary (`src/rules/`; may depend on `eukhe-types` only)|`eukhe-types`|
-|`eukhe-theme`|Single theme source and resolver (TUI, HTML export): theme files, validation, name resolution, color math|none|
+|`eukhe-theme`|Single theme source and resolver (TUI, HTML export): theme files, their decoding, the palette, the resolver; its decisions (validation, name resolution, color math) come from the compiled core, passed in as `ThemeRules`|none|
 |`eukhe-build-info`|This build's identity (`build.rs`): version (the release, or `<series>-dev`) and source (commit, `.dirty.<hash>`, or `src.<hash>`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`|

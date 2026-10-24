@@ -1,8 +1,10 @@
 //! The terminal theme: a resolved [`eukhe_theme::Palette`] rendered as
-//! terminal styles per color slot. The theme files, their validation and
-//! name resolution live in `eukhe-theme` (the resolver the HTML export
-//! shares; [`crate::theme_catalog`] mounts it). Colors render as truecolor
-//! or 256-color ANSI depending on `COLORTERM`/`TERM`.
+//! terminal styles per color slot. The theme files and name resolution
+//! live in `eukhe-theme` (the resolver the HTML export shares;
+//! [`crate::theme_catalog`] mounts it), its rules and the 256-color
+//! quantization in the compiled core ([`crate::theme_rules`],
+//! `eukhe_bend::rules::color`). Colors render as truecolor or 256-color
+//! ANSI depending on `COLORTERM`/`TERM`.
 //!
 //! This module is the only place that makes a [`Color`]: its value is
 //! private, so the compiler refuses a color literal in any other module.
@@ -65,9 +67,8 @@ impl Color {
     fn known_rgb(self) -> Option<Rgb> {
         match self.0 {
             Paint::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
-            Paint::Indexed(index) => {
-                (!eukhe_theme::is_terminal_defined(index)).then(|| eukhe_theme::ansi256(index))
-            }
+            Paint::Indexed(index) => (!eukhe_theme::is_terminal_defined(index))
+                .then(|| Rgb::from_channels(eukhe_bend::rules::color::ansi256(index))),
             Paint::Reset => None,
         }
     }
@@ -334,7 +335,7 @@ pub fn detect_color_mode() -> ColorMode {
 fn to_terminal_color(color: Color, mode: ColorMode) -> Color {
     match (color.0, mode) {
         (Paint::Rgb(r, g, b), ColorMode::Color256) => {
-            Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(r, g, b))))
+            Color(Paint::Indexed(eukhe_bend::rules::color::to256([r, g, b])))
         }
         (Paint::Rgb(..) | Paint::Indexed(_) | Paint::Reset, ColorMode::TrueColor)
         | (Paint::Indexed(_) | Paint::Reset, ColorMode::Color256) => color,
@@ -469,8 +470,8 @@ impl Theme {
     /// statically.
     #[must_use]
     pub fn builtin(name: &str, mode: ColorMode) -> Theme {
-        let palette =
-            Palette::builtin(name).unwrap_or_else(|| panic!("{name} is not a builtin theme"));
+        let palette = Palette::builtin(name, crate::theme_rules::THEME_RULES)
+            .unwrap_or_else(|| panic!("{name} is not a builtin theme"));
         Theme::from_palette(&palette, mode)
     }
 
@@ -784,12 +785,23 @@ fn span_with(span: crate::Span, modifier: Modifier) -> crate::Span {
 pub(crate) fn theme_with_colors(overrides: &serde_json::Value, mode: ColorMode) -> Theme {
     let mut colors: serde_json::Map<String, serde_json::Value> = Token::ALL
         .into_iter()
-        .filter(|token| token.presence() == eukhe_theme::Presence::Required)
+        .filter(|token| {
+            // The optional tokens: a file may leave them to their fallbacks.
+            !matches!(
+                token,
+                Token::RefinementHeader
+                    | Token::RefinementSummary
+                    | Token::MdBody
+                    | Token::Background
+                    | Token::Foreground
+            )
+        })
         .map(|token| (token.name().to_string(), serde_json::Value::from("")))
         .collect();
     colors.extend(overrides.as_object().expect("an object").clone());
     let file = serde_json::json!({ "name": "custom", "colors": colors });
-    let palette = Palette::parse(&file.to_string()).expect("a valid theme");
+    let palette =
+        Palette::parse(&file.to_string(), crate::theme_rules::THEME_RULES).expect("a valid theme");
     Theme::from_palette(&palette, mode)
 }
 
@@ -857,7 +869,7 @@ mod tests {
             ],
             [
                 Color(Paint::Rgb(25, 5, 6)),
-                Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(25, 5, 6)))),
+                Color(Paint::Indexed(eukhe_bend::rules::color::to256([25, 5, 6]))),
                 Color(Paint::Rgb(221, 221, 221)),
                 Color(Paint::Rgb(25, 25, 26)),
             ]

@@ -6,8 +6,9 @@ import ./palette.bend as TPalette
 
 # Shipped themes
 # --------------
-# The color every token of each bundled theme paints (Palette::rgb), as
-# the bridge test reads them from crates/eukhe-theme/themes/*.json.
+# The color every token of each bundled theme paints (Palette::rgb); a
+# Rust test (crates/eukhe-core/src/theme_rules.rs) checks that
+# crates/eukhe-theme/themes/*.json paint these.
 
 type Shipped is Data:
   Eukhe{}

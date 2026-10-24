@@ -1,12 +1,11 @@
 # color: the color math of the themes (crates/eukhe-theme/src/color.rs,
 # laws in laws/color.bend, docs/interface.md Themes). Every function here
-# is on U32 and exact; the bridge test in eukhe-core
-# (crates/eukhe-core/src/export_html/theme_bridge.rs) runs the Rust
-# functions and this model on the same inputs.
+# is on U32 and exact; it runs as the compiled entry bend/ffi_color.bend
+# (and inside bend/ffi_theme.bend).
 #
 # - lin(c): the sRGB channel c (0..255) linearized, in units of 1/10000,
-#   rounded to nearest. A table: the Rust function computes it, and the
-#   bridge pins all 256 entries.
+#   rounded to nearest. A table: laws/color.bend pins all 256 entries to
+#   the sRGB transfer function, rounded.
 # - lum(c): the WCAG relative luminance, 2126·R + 7152·G + 722·B over the
 #   linear channels, in units of 1/1e8.
 # - contrast_ge(a, b, num, den): the WCAG contrast ratio of a and b,
@@ -207,20 +206,25 @@ def dist(+a: Rgb, +b: Rgb) -> U32:
 def to256.pick(gray: Bool, +gi: U32, +ci: U32) -> U32:
   sel(gray, (232 + gi : U32), ci)
 
+# the weighted lightness of the grays 8, 18, .. 238, the targets a color's
+# own weighted lightness picks its gray slot by
+def gray.targets() -> List<&2, U32>:
+  [8000, 18000, 28000, 38000, 48000, 58000, 68000, 78000, 88000, 98000, 108000, 118000, 128000, 138000, 148000, 158000, 168000, 178000, 188000, 198000, 208000, 218000, 228000, 238000]
+
+# the index of the color r g b given the cube level indices ri gi bi and
+# its gray slot: the gray when the color is near-neutral (spread below 10)
+# and that gray is strictly closer than the cube color
+def to256.of(+r: U32, +g: U32, +b: U32, +ri: U32, +gi: U32, +bi: U32, +slot: U32) -> U32:
+  +cube = {Rgb{at(levels(), ri), at(levels(), gi), at(levels(), bi)} : Rgb}
+  +gv = at(grays(), slot)
+  +gray = {Rgb{gv, gv, gv} : Rgb}
+  +spread = (U32.max(r, U32.max(g, b)) - U32.min(r, U32.min(g, b)) : U32)
+  to256.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(dist(Rgb{r, g, b}, gray), dist(Rgb{r, g, b}, cube))), slot, (16 + 36 * ri + 6 * gi + bi : U32))
+
 def to256(+c: Rgb) -> U32:
   match c:
-    case Rgb{r, g, b}:
-      +ri = near(r, levels())
-      +gi = near(g, levels())
-      +bi = near(b, levels())
-      +cube = {Rgb{at(levels(), ri), at(levels(), gi), at(levels(), bi)} : Rgb}
-      +lightness = (299 * r + 587 * g + 114 * b : U32)
-      +slot = near(lightness, [8000, 18000, 28000, 38000, 48000, 58000, 68000, 78000, 88000, 98000, 108000, 118000, 128000, 138000, 148000, 158000, 168000, 178000, 188000, 198000, 208000, 218000, 228000, 238000])
-      +gv = at(grays(), slot)
-      +gray = {Rgb{gv, gv, gv} : Rgb}
-      +spread = (U32.max(r, U32.max(g, b)) - U32.min(r, U32.min(g, b)) : U32)
-      +ci = (16 + 36 * ri + 6 * gi + bi : U32)
-      to256.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(dist(Rgb{r, g, b}, gray), dist(Rgb{r, g, b}, cube))), slot, ci)
+    case Rgb{+r, +g, +b}:
+      to256.of(r, g, b, near(r, levels()), near(g, levels()), near(b, levels()), near((299 * r + 587 * g + 114 * b : U32), gray.targets()))
 
 # Color text
 # ----------

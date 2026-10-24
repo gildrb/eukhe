@@ -100,10 +100,14 @@ pub enum Entry {
     Frames = 54,
     /// `bend/ffi_quirks.bend`: a stepper.
     Quirks = 61,
+    /// `bend/ffi_theme.bend`: a call.
+    Theme = 62,
     /// `bend/ffi_tui_color.bend`: a call.
     TuiColor = 63,
     /// `bend/ffi_cvar_layers.bend`: a call.
     CvarLayers = 64,
+    /// `bend/ffi_color.bend`: a call.
+    Color = 67,
 }
 
 impl Entry {
@@ -156,8 +160,10 @@ impl Entry {
         Entry::Approvals,
         Entry::Frames,
         Entry::Quirks,
+        Entry::Theme,
         Entry::TuiColor,
         Entry::CvarLayers,
+        Entry::Color,
     ];
 
     /// The id `bend/core.bend` dispatches on.

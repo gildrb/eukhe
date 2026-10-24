@@ -8,6 +8,7 @@ import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
+import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
@@ -44,6 +45,7 @@ import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_theme.bend as ffi_theme
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
@@ -148,10 +150,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 62:
+      ffi_theme.ffi(input)
     case 63:
       ffi_tui_color.ffi(input)
     case 64:
       ffi_cvar_layers.ffi(input)
+    case 67:
+      ffi_color.ffi(input)
     case _:
       W.err("unknown entry")
 
