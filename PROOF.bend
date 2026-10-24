@@ -361,6 +361,8 @@ import ./proof/quirks/quirks_rule_terms_exact.bend as PQuirksRuleTermsExact
 import ./proof/quirks/quirks_applies_exact.bend as PQuirksAppliesExact
 import ./proof/quirks/quirks_any_at_exact.bend as PQuirksAnyAtExact
 import ./proof/quirks/quirks_host_wins_example.bend as PQuirksHostWinsExample
+import ./proof/quirks/quirks_verdicts_exact.bend as PQuirksVerdictsExact
+import ./proof/quirks/quirks_fine_all_exact.bend as PQuirksFineAllExact
 import ./proof/tools/base.bend as LATools
 import ./proof/tools/roster_fixed.bend as PRosterFixed
 import ./proof/tools/roster_sent_fixed.bend as PRosterSentFixed

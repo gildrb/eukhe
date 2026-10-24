@@ -247,6 +247,42 @@ def qs_any_at(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +k: Nat) -> Bool:
     case +r <> rest:
       Bool.or(Bool.and(Bool.and(qs_applies(q, r), Nat.is_eq(qs_dir(r), d)), Nat.is_le(k, qs_rule_rank(r))), qs_any_at(rest, q, d, k))
 
+# The model's verdicts, as a spec
+# -------------------------------
+
+def qs_verdict(known: Bool, p: Maybe<&2, Nat>) -> If.Verdict:
+  match known:
+    case False{}:
+      If.Unheard{}
+    case True{}:
+      match p:
+        case None{}:
+          If.Fine{}
+        case Some{j}:
+          If.ClashAt{j}
+
+# the verdicts on the rules of rs, the first at index i
+def qs_verdicts(rs: List<&2, If.Rule>, +known: List<&2, Nat>, +i: Nat) -> List<&2, If.Verdict>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case +r <> +rest:
+      qs_verdict(qs_mem(known, qs_dir(r)), qs_partner(rest, r, 1n+i)) <> qs_verdicts(rest, known, 1n+i)
+
+# every verdict of vs is fine
+def qs_fine_all(vs: List<&2, If.Verdict>) -> Bool:
+  match vs:
+    case Nil{}:
+      True{}
+    case v <> rest:
+      match v:
+        case If.Fine{}:
+          qs_fine_all(rest)
+        case If.Unheard{}:
+          False{}
+        case If.ClashAt{j}:
+          False{}
+
 # Readers: the inputs the entry accepts, read with the wire primitives
 # --------------------------------------------------------------------
 
@@ -500,3 +536,20 @@ law quirks_any_at_exact:
 # EXCLUDES: a lower layer winning over a host rule
 law quirks_host_wins_example:
   {FQ.step(FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "4,1,2,3,0,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "1,9,") : FQ.St & String} & {FQ.open("1,0,12,0,1,0,5,1,2,0,7,2,3,0,9,") == (FQ.Book{[If.Rule{If.Fam{}, 1n, 0n, 5n}, If.Rule{If.Mod{}, 2n, 0n, 7n}, If.Rule{If.Host{}, 3n, 0n, 9n}]}, "T3,0,0,0,") : FQ.St & String}
+
+# LAW quirks_verdicts_exact: the model's verdicts are the spec's: for each rule in order, an
+# unknown directive, else the index of the first later rule it clashes
+# with, else fine
+# EXCLUDES: a model verdict off by one or pointing at another rule (a fresh
+#   adversary's clash search from the rule itself passed every law whose
+#   entry did not call the model)
+law quirks_verdicts_exact:
+  for +known: List<&2, Nat>
+  for +rs: List<&2, If.Rule>
+  {If.verdicts(known, rs) == qs_verdicts(rs, known, 0n) : List<&2, If.Verdict>}
+
+# LAW quirks_fine_all_exact: the model's "every verdict is fine" is the spec's
+# EXCLUDES: a rulebook kept (or refused) by a test that ignores a verdict
+law quirks_fine_all_exact:
+  for vs: List<&2, If.Verdict>
+  {If.fine_all(vs) == qs_fine_all(vs) : Bool}
