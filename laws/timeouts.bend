@@ -283,3 +283,13 @@ law timeouts_ffi_malformed_exact:
 law timeouts_ffi_example:
   {FT.ffi("5,5,5,2,1,2,2,1,2,300,1500,60,30,5,205,5,30,120,5,") == "28,30,33,35,65,300,1800,35,900," : String} &
   {FT.ffi("5,5,5,2,1,2,2,1,2,300,1500,60,30,5,205,5,30,120,5,x") == Wr.err("timeouts: malformed request") : String}
+
+# LAW timeouts_values_are_model: the derived values the entry answers are the model's
+# derivation (bend/supervise.bend Tm), of which timeouts_ordered proves the
+# order: the teardown, stop grace, drain, launcher wait, child kill, lost
+# window, max age, quiesce hold and restart window, for any base values
+# EXCLUDES: an entry whose values are not the ones timeouts_ordered is
+#   proved of (that law would then say nothing about the timeouts that run)
+law timeouts_values_are_model:
+  for +t: Su.Tm
+  {tw_values(t) == [Su.Tm.teardown(t), Su.Tm.stop_grace(t), Su.Tm.drain(t), Su.Tm.launcher_wait(t), Su.Tm.child_kill(t), Su.Tm.lost(t), Su.Tm.max_age(t), Su.Tm.quiesce_hold(t), Su.Tm.window(t)] : List<&2, Nat>}

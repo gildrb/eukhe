@@ -286,6 +286,20 @@ law revive_veto_ages_as_model:
   for +k: Nat
   {Rv.veto(Rv.Facts{False{}, False{}, None{}, Rv.Stamp{at}, Nat.add(at, a), m, k}) == Rv.veto.fresh(Rv.fresh(m, a)) : Rv.Veto}
 
+# LAW revive_ffi_ages_as_model: the entry itself judges a stamp a ms before the boot (no other
+# veto) by the busy-evidence model's freshness (Rv.fresh, which
+# revive_after_refresh speaks of): it revives (0) exactly when
+# Rv.fresh(m, a), and answers stale (5) otherwise
+# EXCLUDES: an entry whose freshness is not the one revive_after_refresh is
+#   proved of (that law would then say nothing about the boots that run)
+law revive_ffi_ages_as_model:
+  for +at: Nat
+  for +a: Nat
+  for +m: Nat
+  for +k: Nat
+  for fits: {rv_fits(Rv.Facts{False{}, False{}, None{}, Rv.Stamp{at}, Nat.add(at, a), m, k}) == True{} : Bool}
+  {FR.ffi(rv_spell(Rv.Facts{False{}, False{}, None{}, Rv.Stamp{at}, Nat.add(at, a), m, k})) == rv_reply.fresh(Rv.fresh(m, a)) : String}
+
 # LAW revive_ffi_example: anchor: the strings Rust writes and the replies it reads: a fresh
 # stamp revives, a live lease (pid 77) and the give-up verdict veto, a stamp
 # past the skew is stale, a missing stamp is no evidence, the skew's and the
