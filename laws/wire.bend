@@ -61,6 +61,16 @@ law wire_nat_not_err:
 law wire_nat_example:
   {Wr.put_nat(42n, "x") == "42,x" : String}
 
+# LAW wire_nat_decimal (R1): a Nat is spelled as its decimal digits, most
+# significant first, each the char of code 48 + the digit, then ','
+# EXCLUDES: a writer and reader that agree on a wrong digit table (3 and
+#   4 swapped both ways passes every round trip), a digit order or base
+#   both sides share
+law wire_nat_decimal:
+  for +n: Nat
+  for rest: String
+  {Wr.put_nat(n, rest) == LawsBase.wire_dec(n, rest) : String}
+
 # LAW wire_nat_zero_example (R1): anchor: 0 is one digit
 # EXCLUDES: an empty spelling of 0
 law wire_nat_zero_example:

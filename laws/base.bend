@@ -63,6 +63,30 @@ def wire_nats_fit(xs: List<&2, Nat>) -> Bool:
     case Con{+x, t}:
       Bool.and(wire_fits(x), wire_nats_fit(t))
 
+# the char of the decimal digit d: the char of code 48 + d (no table)
+def wire_dec_char(d: Nat) -> Char:
+  Chr{U32.from_nat(Nat.add(48n, d))}
+
+# the decimal digits of n before acc, most significant first, by repeated
+# division by 10; none when n is 0 (the caller wrote the lowest digit).
+# The fuel f bounds the digits (f >= n is enough).
+def wire_dec.go(f: Nat, n: Nat, acc: String) -> String:
+  match f:
+    case 0n:
+      acc
+    case 1n+g:
+      match n:
+        case 0n:
+          acc
+        case 1n+p:
+          +m = {1n+p : Nat}
+          wire_dec.go(g, Nat.div(m, 10n), SCon{wire_dec_char(Nat.mod(m, 10n)), acc})
+
+# a Nat on the wire: its decimal digits (0 is "0"), then ',', then rest
+def wire_dec(n: Nat, rest: String) -> String:
+  +m = n
+  wire_dec.go(m, Nat.div(m, 10n), SCon{wire_dec_char(Nat.mod(m, 10n)), SCon{',', rest}})
+
 # s starts with the char 'E' (the error form of a reply)
 def wire_opens_err(s: String) -> Bool:
   match s:

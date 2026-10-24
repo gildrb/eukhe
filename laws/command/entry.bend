@@ -20,6 +20,8 @@ import ../base.bend as LawsBase
 #                                      command_ffi_spelled_left_over
 #   R14c every answer that is not the error form answers exactly the one
 #        request the input spells      command_ffi_reads_only_requests
+#   R14h every answer but the malformed error comes from an input that
+#        begins with a spelled request   command_ffi_malformed_unless_request
 #   R14d a query, row or key tag the grammar does not name is malformed
 #                                      command_ffi_unknown_query,
 #                                      command_ffi_unknown_row,
@@ -28,6 +30,10 @@ import ../base.bend as LawsBase
 #   R14f a reply tag the reply grammar does not name reads as no reply
 #        (one spelling per answer)    command_ffi_unknown_res,
 #                                     command_ffi_unknown_menu
+#   R14g the reply readers read every reply the reply grammar spells
+#                                     command_ffi_res_reads_spelled,
+#                                     command_ffi_menu_reads_spelled,
+#                                     command_ffi_out_reads_spelled
 # The requests and replies of these laws are spelled with the spec
 # spellers below and those of laws/base.bend, never with the entry's own
 # encoders.
@@ -302,6 +308,36 @@ def cmd_spell_out(o: Cmd.Out) -> String:
     case Cmd.Out{l, a, b}:
       Wr.put_str(cmd_text(l), Wr.put_bool(a, Wr.put_bool(b, "")))
 
+# the replies as the wire carries them (what Rust's Reader reads): a
+# resolution, tag 0 runs (path, text), 1 opens (path), 2 unknown (path,
+# word), 3 no command
+def cmd_spell_resw(x: FCmd.ResW, rest: String) -> String:
+  match x:
+    case FCmd.RunsW{p, a}:
+      Wr.put_nat(0n, LawsBase.wire_spell_strs(p, Wr.put_str(a, rest)))
+    case FCmd.OpensW{p}:
+      Wr.put_nat(1n, LawsBase.wire_spell_strs(p, rest))
+    case FCmd.UnknownW{p, w}:
+      Wr.put_nat(2n, LawsBase.wire_spell_strs(p, Wr.put_str(w, rest)))
+    case FCmd.NoCmdW{}:
+      Wr.put_nat(3n, rest)
+
+# a menu: tag 0 the command names, 1 the children (path, places), 2 none
+def cmd_spell_menuw(m: FCmd.MenuW, rest: String) -> String:
+  match m:
+    case FCmd.NamesW{}:
+      Wr.put_nat(0n, rest)
+    case FCmd.KidsW{p, xs}:
+      Wr.put_nat(1n, LawsBase.wire_spell_strs(p, LawsBase.wire_spell_nats(xs, rest)))
+    case FCmd.ShutW{}:
+      Wr.put_nat(2n, rest)
+
+# a key's answer: the new line, open, submit
+def cmd_spell_outw(o: FCmd.OutW, rest: String) -> String:
+  match o:
+    case FCmd.OutW{l, a, b}:
+      Wr.put_str(l, Wr.put_bool(a, Wr.put_bool(b, rest)))
+
 # the spelling of the model's answer to question q about table t
 def cmd_spell_answer(+t: List<&2, Cmd.Ent>, q: FCmd.Query) -> String:
   match q:
@@ -358,6 +394,19 @@ law command_ffi_reads_only_requests:
   exs r: FCmd.Req
   {(s, (cmd_req_fits(r), FCmd.ffi(s))) == (cmd_spell_req(r, ""), (True{}, cmd_spell_reply(r))) : String & (Bool & String)}
 
+# LAW command_ffi_malformed_unless_request: an input that does not begin
+# with a spelled request that fits answers the malformed error: any other
+# answer (a reply, or the left-over error) comes from an input that is a
+# spelled request that fits, then possibly more
+# EXCLUDES: the left-over error, another error text, or a reply, for input
+#   that holds no request (` 0,0,0,` answered "input left over")
+law command_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FCmd.ffi(s), Wr.err("command: malformed request")) == False{} : Bool}
+  exs r: FCmd.Req
+  exs rest: String
+  {(s, cmd_req_fits(r)) == (cmd_spell_req(r, rest), True{}) : String & Bool}
+
 # LAW command_ffi_unknown_query: after a table, a question tag past 2
 # (resolve, menu, key) is malformed, whatever follows
 # EXCLUDES: an unknown question answered as a resolve, a menu or a key
@@ -409,6 +458,37 @@ law command_ffi_unknown_menu:
   for +n: Nat
   for +rest: String
   {FCmd.get_menu(Wr.put_nat(3n+n, rest)) == Wr.Bad{} : Wr.Dec<FCmd.MenuW>}
+
+# LAW command_ffi_res_reads_spelled: the resolve reply reader reads every
+# reply the reply grammar spells back as itself, the rest untouched
+# EXCLUDES: a reader that swaps the tags or fields of a resolution (a run
+#   read as a menu, the path read as the text), so Rust and the laws read
+#   one reply apart (the round trip alone pins only the entry's own pair)
+law command_ffi_res_reads_spelled:
+  for +x: FCmd.ResW
+  for +rest: String
+  for h: {cmd_res_fits(x) == True{} : Bool}
+  {FCmd.get_res(cmd_spell_resw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
+
+# LAW command_ffi_menu_reads_spelled: the menu reply reader reads every
+# reply the reply grammar spells back as itself, the rest untouched
+# EXCLUDES: a reader that swaps the menu tags, the path and the places
+law command_ffi_menu_reads_spelled:
+  for +x: FCmd.MenuW
+  for +rest: String
+  for h: {cmd_menu_fits(x) == True{} : Bool}
+  {FCmd.get_menu(cmd_spell_menuw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
+
+# LAW command_ffi_out_reads_spelled: the key reply reader reads every
+# reply the reply grammar spells back as itself (the line, then open,
+# then submit), the rest untouched
+# EXCLUDES: a reader that swaps open and submit (Tab read as a submit),
+#   or loses the line
+law command_ffi_out_reads_spelled:
+  for +x: FCmd.OutW
+  for +rest: String
+  for h: {cmd_out_fits(x) == True{} : Bool}
+  {FCmd.get_out(cmd_spell_outw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
 
 # LAW command_ffi_example: anchor: the exact strings Rust sends and reads
 # for the example table: `memory model` runs memory model; the menu of

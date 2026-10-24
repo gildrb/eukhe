@@ -954,6 +954,7 @@ import ./proof/wire/wire_nat_too_long.bend as PWireNatTooLong
 import ./proof/wire/wire_too_long_exists.bend as PWireTooLongExists
 import ./proof/wire/wire_nat_not_err.bend as PWireNatNotErr
 import ./proof/wire/wire_nat_example.bend as PWireNatExample
+import ./proof/wire/wire_nat_decimal.bend as PWireNatDecimal
 import ./proof/wire/wire_nat_zero_example.bend as PWireNatZeroExample
 import ./proof/wire/wire_nat_leading_zero_example.bend as PWireNatLeadingZeroExample
 import ./proof/wire/wire_nat_unterminated_example.bend as PWireNatUnterminatedExample
@@ -1279,7 +1280,11 @@ import ./proof/command/command_ffi_unknown_row.bend as PCommandFfiUnknownRow
 import ./proof/command/command_ffi_unknown_press.bend as PCommandFfiUnknownPress
 import ./proof/command/command_ffi_unknown_res.bend as PCommandFfiUnknownRes
 import ./proof/command/command_ffi_unknown_menu.bend as PCommandFfiUnknownMenu
+import ./proof/command/command_ffi_res_reads_spelled.bend as PCommandFfiResReadsSpelled
+import ./proof/command/command_ffi_menu_reads_spelled.bend as PCommandFfiMenuReadsSpelled
+import ./proof/command/command_ffi_out_reads_spelled.bend as PCommandFfiOutReadsSpelled
 import ./proof/command/command_ffi_reads_only_requests.bend as PCommandFfiReadsOnlyRequests
+import ./proof/command/command_ffi_malformed_unless_request.bend as PCommandFfiMalformedUnlessRequest
 import ./proof/command/base/space.bend as LACommandSpace
 import ./proof/command/base/named.bend as LACommandNamed
 import ./proof/command/command_named_example.bend as PCommandNamedExample
