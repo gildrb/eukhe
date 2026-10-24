@@ -1281,6 +1281,14 @@ import ./proof/command/command_ffi_unknown_res.bend as PCommandFfiUnknownRes
 import ./proof/command/command_ffi_unknown_menu.bend as PCommandFfiUnknownMenu
 import ./proof/command/command_ffi_reads_only_requests.bend as PCommandFfiReadsOnlyRequests
 import ./proof/command/base/space.bend as LACommandSpace
+import ./proof/command/base/named.bend as LACommandNamed
+import ./proof/command/command_named_example.bend as PCommandNamedExample
+import ./proof/command/command_named_premises_witness.bend as PCommandNamedPremisesWitness
+import ./proof/command/command_named_word_resolves.bend as PCommandNamedWordResolves
+import ./proof/command/command_named_word_menu.bend as PCommandNamedWordMenu
+import ./proof/command/command_key_follows_menu.bend as PCommandKeyFollowsMenu
+import ./proof/command/command_row_ignored_shut_menu.bend as PCommandRowIgnoredShutMenu
+import ./proof/command/command_blank_runs_nothing.bend as PCommandBlankRunsNothing
 import ./proof/command/command_space_lead.bend as PCommandSpaceLead
 import ./proof/command/command_tab_row_any_spacing.bend as PCommandTabRowAnySpacing
 import ./proof/command/command_enter_row_any_spacing.bend as PCommandEnterRowAnySpacing

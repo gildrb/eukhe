@@ -63,3 +63,4 @@ import ./laws/default_model.bend as DefaultModel
 import ./laws/workflow.bend as Workflow
 import ./laws/command/paths.bend as Command
 import ./laws/command/entry.bend as CommandEntry
+import ./laws/command/named.bend as CommandNamed
