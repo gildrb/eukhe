@@ -653,6 +653,23 @@ law semver_ffi_exact:
   exs q: FSv.Req
   {s == spell_req(q) : String}
 
+# a request fits the wire: each text and the count of tags
+def req_fits(q: FSv.Req) -> Bool:
+  match q:
+    case FSv.QRelease{c, +ts}:
+      release_fits(c, ts)
+    case FSv.QSeries{w, r}:
+      series_fits(w, r)
+
+# LAW semver_ffi_exact_fits: every input the entry answers with a value is a spelled request that fits the wire
+# EXCLUDES: a decoder that reads a length or a count of 15 digits or more
+#   (misread, or past the runtime's Nat)
+law semver_ffi_exact_fits:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FSv.ffi(s)) == False{} : Bool}
+  exs q: FSv.Req
+  {s == spell_req(q) : String} & {req_fits(q) == True{} : Bool}
+
 # LAW semver_ffi_release_example: anchor: the exact bytes Rust sends for 0.10.0 with the tags eukhe-v0.10.3 and v1.2.3, and the release 0.10.4
 # EXCLUDES: another spelling of the request or of the release
 law semver_ffi_release_example:

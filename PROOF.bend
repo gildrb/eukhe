@@ -543,6 +543,7 @@ import ./proof/semver/semver_ffi_release_long.bend as PSemverFfiReleaseLong
 import ./proof/semver/semver_ffi_series.bend as PSemverFfiSeries
 import ./proof/semver/semver_ffi_series_long.bend as PSemverFfiSeriesLong
 import ./proof/semver/semver_ffi_exact.bend as PSemverFfiExact
+import ./proof/semver/semver_ffi_exact_fits.bend as PSemverFfiExactFits
 import ./proof/semver/semver_ffi_release_example.bend as PSemverFfiReleaseExample
 import ./proof/semver/semver_ffi_behind_example.bend as PSemverFfiBehindExample
 import ./proof/semver/semver_ffi_why_example.bend as PSemverFfiWhyExample
