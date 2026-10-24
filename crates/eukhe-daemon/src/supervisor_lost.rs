@@ -11,10 +11,11 @@
 //! and the registration link shows the worker to the new supervisor.
 //!
 //! When the socket stays unreachable for the lost-exit window (default
-//! [`WORKER_LOST_EXIT_DEFAULT_MS`]; [`orphan_decision`], the compiled Bend
-//! model `bend/ffi_orphan.bend`, gives work in flight one
-//! more window), the worker exits. The exit never aborts work that can
-//! resume (the law `orphan_never_aborts_resumable`, `laws/orphan.bend`):
+//! [`crate::timeouts::Derived::worker_lost_exit_default_ms`];
+//! [`orphan_decision`], the compiled Bend model `bend/ffi_orphan.bend`,
+//! gives work in flight one more window), the worker exits. The exit never
+//! aborts work that can resume (the law `orphan_never_aborts_resumable`,
+//! `laws/orphan.bend`):
 //!
 //! - Without work ([`OrphanExit::Close`]), the worker closes its session
 //!   and records it idle.
@@ -32,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eukhe_bend::wire::NAT_MAX;
-use eukhe_types::daemon::timing::{WORKER_LOST_EXIT_DEFAULT_MS, WORKER_SUPERVISOR_CHECK_MS};
+use eukhe_types::daemon::timing::WORKER_SUPERVISOR_CHECK_MS;
 
 use crate::work_gate::{orphan_decision, orphan_exit, OrphanExit};
 use crate::worker::{Worker, WORKER_SUPERVISOR_LOST_EXIT_MS_ENV};
@@ -55,7 +56,10 @@ fn lost_exit_ms() -> u64 {
 fn lost_exit_ms_from(raw: Option<&str>) -> u64 {
     raw.and_then(|raw| raw.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
-        .map_or(WORKER_LOST_EXIT_DEFAULT_MS, |value| value as u64)
+        .map_or(
+            crate::timeouts::derived().worker_lost_exit_default_ms,
+            |value| value as u64,
+        )
 }
 
 /// Whether the supervisor socket accepts connections (TS
@@ -197,17 +201,10 @@ mod tests {
             Some("15000.5"),
         ]
         .map(lost_exit_ms_from);
+        let default = crate::timeouts::derived().worker_lost_exit_default_ms;
         assert_eq!(
             parsed,
-            [
-                WORKER_LOST_EXIT_DEFAULT_MS,
-                WORKER_LOST_EXIT_DEFAULT_MS,
-                WORKER_LOST_EXIT_DEFAULT_MS,
-                WORKER_LOST_EXIT_DEFAULT_MS,
-                0,
-                15_000,
-                15_000,
-            ]
+            [default, default, default, default, 0, 15_000, 15_000]
         );
     }
 

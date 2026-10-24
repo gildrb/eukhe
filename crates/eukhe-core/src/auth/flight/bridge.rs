@@ -1,8 +1,15 @@
-//! The bridge between the refresh flights ([`Leg::advance`],
-//! [`FlightBook::advance`]) and their Bend model (`bend/auth_flight.bend`,
-//! whose laws `laws/auth_flight.bend` states and `PROOF.bend` proves): both
-//! run the same interleavings and must print the same transcript, byte for
-//! byte.
+//! The bridge between the Rust refresh's dispatch of the flights and their
+//! Bend model (`bend/auth_flight.bend`, whose laws `laws/auth_flight.bend`
+//! states and `PROOF.bend` proves): both run the same interleavings and
+//! must print the same transcript, byte for byte.
+//!
+//! What follows each step ([`Leg::advance`], [`FlightBook::advance`]) is
+//! the compiled core's decision, pinned by the entry laws. What this
+//! bridge checks is what stays in the Rust: the interleaving of callers
+//! over those decisions (which steps take the book, a waiting caller's
+//! retries, the outcomes the Rust keeps for each landed flight and hands
+//! to its joiners, the book's numbering and forgetting of flights) against
+//! the model's single-provider world.
 //!
 //! A scenario is a list of events (`bridge/bridge_auth_flight.bend` documents
 //! the format): callers arrive and take their steps in any order, fetches
@@ -140,7 +147,7 @@ struct Run {
 impl Run {
     fn new() -> Self {
         Run {
-            book: FlightBook::default(),
+            book: FlightBook::new(),
             doc: Doc::new(),
             legs: Vec::new(),
             events: String::new(),
@@ -150,7 +157,7 @@ impl Run {
 
     /// A new world: a new book, the store holds credential 0, expired.
     fn reset(&mut self) {
-        self.book = FlightBook::default();
+        self.book = FlightBook::new();
         self.doc = Doc::new();
         self.legs.clear();
         self.events.push_str("9\n");

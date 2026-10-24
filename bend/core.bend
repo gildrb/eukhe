@@ -4,6 +4,7 @@ import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_approvals.bend as ffi_approvals
+import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
@@ -33,6 +34,7 @@ import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
+import ./ffi_revive.bend as ffi_revive
 import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
@@ -42,6 +44,7 @@ import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
@@ -145,6 +148,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 90:
+      ffi_timeouts.ffi(input)
+    case 91:
+      ffi_revive.ffi(input)
+    case 92:
+      ffi_auth_flight.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -162,6 +171,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  AuthFlight{s: ffi_auth_flight.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -199,6 +209,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (AuthFlight{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -215,6 +230,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 92:
+      open.auth_flight(ffi_auth_flight.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -258,6 +275,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (AuthFlight{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -274,6 +296,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case AuthFlight{s}:
+      step.auth_flight(ffi_auth_flight.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -297,6 +321,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case AuthFlight{s}:
       Unit{}
     case Unknown{}:
       Unit{}

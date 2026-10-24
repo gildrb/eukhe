@@ -13,7 +13,7 @@ use super::{
     TypedCreateRejection, Value,
 };
 use crate::protocol::{response_failure, response_success, DaemonResponse};
-use crate::timeouts::STOP_GRACE_MS;
+use crate::timeouts;
 use eukhe_types::daemon::StopOutcome;
 
 /// Explicit model selection from a session's create config (the wire
@@ -840,7 +840,8 @@ impl Supervisor {
     }
 
     /// ADR 0011's stop boundary, shared by every stop: the cooperative
-    /// `shutdown` request gets [`STOP_GRACE_MS`] on the control plane (no
+    /// `shutdown` request gets the stop grace
+    /// ([`timeouts::Derived::stop_grace_ms`]) on the control plane (no
     /// in-flight permit, so a saturated worker is still asked), then
     /// [`Self::retire_worker_after_stop`] escalates against a process that
     /// is still alive. A worker wedged in a run never holds the stop past
@@ -855,7 +856,7 @@ impl Supervisor {
                 resident,
                 "shutdown",
                 json!({}),
-                STOP_GRACE_MS,
+                timeouts::derived().stop_grace_ms,
                 RouteAdmission::Control,
             )
             .await
@@ -881,8 +882,9 @@ impl Supervisor {
             (true, true) => StopOutcome::Settled,
             (true, false) => {
                 self.log_line(&format!(
-                    "session worker {} missed the {STOP_GRACE_MS}ms stop grace and was killed with its process group; the effects of its in-flight work are unknown",
-                    resident.worker_id
+                    "session worker {} missed the {}ms stop grace and was killed with its process group; the effects of its in-flight work are unknown",
+                    resident.worker_id,
+                    timeouts::derived().stop_grace_ms
                 ));
                 StopOutcome::ForcedEffectsUnknown
             }
@@ -1228,7 +1230,8 @@ mod tests {
         assert_eq!(outcome, StopOutcome::ForcedEffectsUnknown);
         // The grace, the SIGTERM grace, and slack for the kill itself.
         assert!(
-            elapsed < Duration::from_millis(STOP_GRACE_MS) + Duration::from_secs(5),
+            elapsed
+                < Duration::from_millis(timeouts::derived().stop_grace_ms) + Duration::from_secs(5),
             "the stop outlived its grace: {elapsed:?}"
         );
         assert!(!crate::lease::is_process_alive(pid).unwrap_or(true));

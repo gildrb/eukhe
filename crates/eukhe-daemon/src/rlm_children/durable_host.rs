@@ -28,7 +28,7 @@ use super::{
     UnpinnedChildModel, Value, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS,
     WATCH_SETTLE_GRACE_MS,
 };
-use crate::timeouts::RLM_CHILD_KILL_TIMEOUT_MS;
+use crate::timeouts;
 
 /// Resolve the child model with the daemon `allowedModels` allowlist
 /// enforced (the parent's cwd scopes the settings read), refusing a model
@@ -176,7 +176,11 @@ impl SupervisorChildSessionsInner {
             return Ok(());
         }
         match self
-            .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, make)
+            .durable_command(
+                &request.session_id,
+                timeouts::derived().rlm_child_kill_timeout_ms,
+                make,
+            )
             .await
         {
             Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
@@ -706,16 +710,18 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // The `rlmLedgerDelete` marker tells the supervisor this kill is
             // a delete (a plain stop must not tombstone the child).
             let killed = this
-                .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
-                    DaemonCommand::Kill {
+                .durable_command(
+                    &request.session_id,
+                    timeouts::derived().rlm_child_kill_timeout_ms,
+                    |selector| DaemonCommand::Kill {
                         id: None,
                         active_session_id: selector.to_owned(),
                         rest: Map::from_iter([
                             ("rlmLedgerDelete".to_owned(), json!("user")),
                             ("rlmChildId".to_owned(), json!(request.rlm_child_id)),
                         ]),
-                    }
-                })
+                    },
+                )
                 .await;
             match killed {
                 // Already gone: a rerun of a delete that completed.
@@ -916,13 +922,15 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // rerun after the record does not stop a child woken since.
             if !workspace.is_handed_back() {
                 let killed = this
-                    .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
-                        DaemonCommand::Kill {
+                    .durable_command(
+                        &request.session_id,
+                        timeouts::derived().rlm_child_kill_timeout_ms,
+                        |selector| DaemonCommand::Kill {
                             id: None,
                             active_session_id: selector.to_owned(),
                             rest: Map::default(),
-                        }
-                    })
+                        },
+                    )
                     .await;
                 match killed {
                     // Already gone: an ended worker, or a rerun after the kill.
@@ -966,17 +974,21 @@ impl SupervisorChildSessions {
         for session_id in session_ids {
             let killed = self
                 .inner
-                .durable_command(session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
-                    let mut rest = Map::new();
-                    if let Some(marker) = reason.wire_marker() {
-                        rest.insert("rlmCloseReason".to_owned(), json!(marker));
-                    }
-                    DaemonCommand::Kill {
-                        id: None,
-                        active_session_id: selector.to_owned(),
-                        rest,
-                    }
-                })
+                .durable_command(
+                    session_id,
+                    timeouts::derived().rlm_child_kill_timeout_ms,
+                    |selector| {
+                        let mut rest = Map::new();
+                        if let Some(marker) = reason.wire_marker() {
+                            rest.insert("rlmCloseReason".to_owned(), json!(marker));
+                        }
+                        DaemonCommand::Kill {
+                            id: None,
+                            active_session_id: selector.to_owned(),
+                            rest,
+                        }
+                    },
+                )
                 .await;
             match killed {
                 Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {

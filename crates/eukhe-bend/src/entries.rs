@@ -98,6 +98,12 @@ pub enum Entry {
     Approvals = 53,
     /// `bend/ffi_frames.bend`: a call.
     Frames = 54,
+    /// `bend/ffi_timeouts.bend`: a call.
+    Timeouts = 90,
+    /// `bend/ffi_revive.bend`: a call.
+    Revive = 91,
+    /// `bend/ffi_auth_flight.bend`: a call and a stepper.
+    AuthFlight = 92,
 }
 
 impl Entry {
@@ -149,6 +155,9 @@ impl Entry {
         Entry::Runners,
         Entry::Approvals,
         Entry::Frames,
+        Entry::Timeouts,
+        Entry::Revive,
+        Entry::AuthFlight,
     ];
 
     /// The id `bend/core.bend` dispatches on.

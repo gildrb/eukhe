@@ -15,7 +15,7 @@
 use std::time::{Duration, Instant};
 
 use crate::timeouts::{
-    RESTART_BASE_BACKOFF_MS, RESTART_GIVE_UP_AFTER, RESTART_MAX_BACKOFF_MS, RESTART_WINDOW_MS,
+    self, RESTART_BASE_BACKOFF_MS, RESTART_GIVE_UP_AFTER, RESTART_MAX_BACKOFF_MS,
 };
 
 /// What the supervisor does after a worker failure.
@@ -38,13 +38,16 @@ pub(crate) struct RestartCfg {
     pub(crate) max_backoff_ms: u64,
 }
 
-/// The supervisor's budget configuration.
-pub(crate) const RESTART_CFG: RestartCfg = RestartCfg {
-    give_up_after: RESTART_GIVE_UP_AFTER as u64,
-    window_ms: RESTART_WINDOW_MS,
-    base_backoff_ms: RESTART_BASE_BACKOFF_MS,
-    max_backoff_ms: RESTART_MAX_BACKOFF_MS,
-};
+/// The supervisor's budget configuration (its window is derived by the
+/// compiled core, `timeouts::derived`).
+pub(crate) fn restart_cfg() -> RestartCfg {
+    RestartCfg {
+        give_up_after: u64::from(RESTART_GIVE_UP_AFTER),
+        window_ms: timeouts::derived().restart_window_ms,
+        base_backoff_ms: RESTART_BASE_BACKOFF_MS,
+        max_backoff_ms: RESTART_MAX_BACKOFF_MS,
+    }
+}
 
 /// The decision on a failure `gap_ms` after the last one, from the ages
 /// (ms, newest first, relative to the last failure) of the failures in
@@ -115,8 +118,9 @@ impl RestartBudget {
             u64::try_from(now.saturating_duration_since(epoch).as_millis()).unwrap_or(u64::MAX);
         // A gap of a whole window drops every age, so the gap saturates at
         // the window: exact, and inside the Bend core's Nat range.
-        let gap_ms = now_ms.saturating_sub(last_ms).min(RESTART_CFG.window_ms);
-        let (ages, verdict) = decide(RESTART_CFG, &self.ages, gap_ms);
+        let cfg = restart_cfg();
+        let gap_ms = now_ms.saturating_sub(last_ms).min(cfg.window_ms);
+        let (ages, verdict) = decide(cfg, &self.ages, gap_ms);
         self.clock = Some((epoch, now_ms));
         self.ages = ages;
         verdict

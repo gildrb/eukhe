@@ -122,5 +122,3 @@ pub(crate) mod workflow_activity;
 pub(crate) mod durable_test_support;
 #[cfg(test)]
 mod local_access_tests;
-#[cfg(test)]
-mod supervision_bridge;

@@ -1,15 +1,25 @@
 //! The OAuth refresh of an expired stored credential as a state machine:
 //! one token fetch in flight per provider and document, its outcome given
 //! to every caller that joined it, and the credential stored before the
-//! flight ends. Each caller takes its refresh one [`Leg`] at a time:
-//! [`Leg::advance`] takes the steps that read, fetch and write,
-//! [`FlightBook::advance`] the steps on the flights. The model is
-//! `bend/auth_flight.bend`, its laws `laws/auth_flight.bend`; the bridge
-//! test (`flight/bridge.rs`) runs both on the same interleavings.
+//! flight ends. Each caller takes its refresh one [`Leg`] at a time.
+//!
+//! What follows each step is the compiled Bend core's decision
+//! (`bend/ffi_auth_flight.bend` over `bend/auth_flight.bend` section The
+//! decisions the Rust takes; laws `flight_ffi_*`, `flight_step_*` and
+//! `flight_next_*_is_model`, `laws/auth_flight.bend`): [`Leg::advance`]
+//! reads, fetches or writes and asks the core's call which leg follows;
+//! [`FlightBook::advance`] asks the document's book, the core's stepper.
+//! The Rust keeps the bytes (the credentials, the failures, a landed
+//! flight's outcome under its number) and the interleaving: the threads,
+//! the book's mutex and condvar, the unwind that lands a flight. The bridge
+//! test (`flight/bridge.rs`) runs that dispatch over the core's decisions
+//! and the model on the same interleavings.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{Entry, Stepper};
 
 use super::types::AuthCredential;
 
@@ -67,101 +77,259 @@ pub(crate) trait RefreshIo {
     fn store(&mut self, credential: AuthCredential) -> Outcome;
 }
 
+/// What a read, fetch or write found (the core's `Io`), with what it
+/// found: the credential or the failure the next leg carries.
+enum Found {
+    LoadFresh(AuthCredential),
+    LoadExpired,
+    LoadFailed(String),
+    CheckFresh(FlightId, AuthCredential),
+    CheckExpired(FlightId),
+    FetchOk(FlightId, AuthCredential),
+    FetchFailed(FlightId, String),
+    Stored(FlightId, Outcome),
+}
+
+/// A reply of the core that the request cannot give: an inconsistent build.
+fn inconsistent(expected: &'static str) -> eukhe_bend::Error {
+    WireError::Malformed { at: 0, expected }.into()
+}
+
 impl Leg {
     /// Take this leg's step that reads, fetches or writes. A step on the
     /// flights leaves the leg as it is.
     fn advance(self, io: &mut impl RefreshIo) -> Leg {
-        match self {
+        let found = match self {
             Leg::Load => match io.load() {
-                Ok(Some(credential)) => Leg::Done(Ok(credential)),
-                Ok(None) => Leg::Board,
-                Err(cause) => Leg::Done(Err(cause)),
+                Ok(Some(credential)) => Found::LoadFresh(credential),
+                Ok(None) => Found::LoadExpired,
+                Err(cause) => Found::LoadFailed(cause),
             },
             Leg::Check(flight) => match io.check() {
-                Some(credential) => Leg::Land(flight, Ok(credential)),
-                None => Leg::Fetch(flight),
+                Some(credential) => Found::CheckFresh(flight, credential),
+                None => Found::CheckExpired(flight),
             },
             Leg::Fetch(flight) => match io.fetch() {
-                Ok(credential) => Leg::Store(flight, credential),
-                Err(cause) => Leg::Land(flight, Err(cause)),
+                Ok(credential) => Found::FetchOk(flight, credential),
+                Err(cause) => Found::FetchFailed(flight, cause),
             },
-            Leg::Store(flight, credential) => Leg::Land(flight, io.store(credential)),
-            Leg::Board | Leg::Land(..) | Leg::Wait(_) | Leg::Done(_) => self,
-        }
+            Leg::Store(flight, credential) => Found::Stored(flight, io.store(credential)),
+            Leg::Board | Leg::Land(..) | Leg::Wait(_) | Leg::Done(_) => return self,
+        };
+        eukhe_bend::expect_core(Entry::AuthFlight, follow(found))
     }
 }
 
-/// A provider's flight in flight, and how many callers joined it.
-struct Flying {
-    flight: FlightId,
-    joiners: usize,
+/// The leg after a step that found `found`: the core's call decides it;
+/// the leg carries what was found. A flight number is the book's, so it
+/// fits the wire.
+fn follow(found: Found) -> Result<Leg, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    let carried = match found {
+        Found::LoadFresh(credential) => {
+            request.tag(0);
+            Some(Ok(credential))
+        }
+        Found::LoadExpired => {
+            request.tag(1);
+            None
+        }
+        Found::LoadFailed(cause) => {
+            request.tag(2);
+            Some(Err(cause))
+        }
+        Found::CheckFresh(FlightId(flight), credential) => {
+            request.tag(3).nat(flight);
+            Some(Ok(credential))
+        }
+        Found::CheckExpired(FlightId(flight)) => {
+            request.tag(4).nat(flight);
+            None
+        }
+        Found::FetchOk(FlightId(flight), credential) => {
+            request.tag(5).nat(flight);
+            Some(Ok(credential))
+        }
+        Found::FetchFailed(FlightId(flight), cause) => {
+            request.tag(6).nat(flight);
+            Some(Err(cause))
+        }
+        Found::Stored(FlightId(flight), outcome) => {
+            request.tag(7).nat(flight);
+            Some(outcome)
+        }
+    };
+    let reply = eukhe_bend::call(Entry::AuthFlight, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let leg = match reader.tag_of(5, "the leg after a step")? {
+        0 => Leg::Board,
+        1 => Leg::Fetch(FlightId(reader.nat()?)),
+        2 => {
+            let flight = FlightId(reader.nat()?);
+            match carried {
+                Some(Ok(credential)) => Leg::Store(flight, credential),
+                Some(Err(_)) | None => return Err(inconsistent("a store of a fetched credential")),
+            }
+        }
+        3 => {
+            let flight = FlightId(reader.nat()?);
+            Leg::Land(
+                flight,
+                carried.ok_or_else(|| inconsistent("a land on what a step found"))?,
+            )
+        }
+        // `tag_of` answers a tag below 5: this is 4.
+        _ => Leg::Done(carried.ok_or_else(|| inconsistent("a refresh done with what it found"))?),
+    };
+    reader.end()?;
+    Ok(leg)
 }
 
-/// A landed flight's outcome, until each of its joiners took it.
-struct Landed {
-    outcome: Outcome,
-    waiting: usize,
+/// The book's answer to one event (the core's `BOut`).
+enum Answer {
+    Lead(FlightId),
+    Join(FlightId),
+    Kept,
+    Dropped,
+    NotYet,
+    Take,
+    TakeLast,
+    // Only the tests ask how many joined (`RefreshFlights::wait_for_joiners`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    Joiners(Option<u64>),
 }
 
-/// The flights of one document.
-#[derive(Default)]
+/// The flights of one document: the book in the compiled core (who is in
+/// flight, who joined, which landed outcome still waits for a joiner, the
+/// next flight's number), and the outcomes it keeps, under their flight.
 struct FlightBook {
-    flying: HashMap<String, Flying>,
-    landed: HashMap<FlightId, Landed>,
-    started: u64,
+    core: Stepper,
+    landed: HashMap<FlightId, Outcome>,
 }
 
 impl FlightBook {
+    /// An empty book.
+    fn new() -> Self {
+        FlightBook {
+            core: eukhe_bend::expect_core(Entry::AuthFlight, open_book()),
+            landed: HashMap::new(),
+        }
+    }
+
     /// Take this leg's step on the flights of `provider`. A step that
     /// reads, fetches or writes leaves the leg as it is.
     fn advance(&mut self, provider: &str, leg: Leg) -> Leg {
-        match leg {
-            Leg::Board => match self.flying.entry(provider.to_owned()) {
-                Entry::Occupied(mut flying) => {
-                    flying.get_mut().joiners += 1;
-                    Leg::Wait(flying.get().flight)
+        eukhe_bend::expect_core(Entry::AuthFlight, self.advance_call(provider, leg))
+    }
+
+    fn advance_call(&mut self, provider: &str, leg: Leg) -> Result<Leg, eukhe_bend::Error> {
+        Ok(match leg {
+            Leg::Board => {
+                let mut event = Writer::new();
+                event.tag(0).str(provider);
+                match self.ask(event)? {
+                    Answer::Lead(flight) => Leg::Check(flight),
+                    Answer::Join(flight) => Leg::Wait(flight),
+                    Answer::Kept
+                    | Answer::Dropped
+                    | Answer::NotYet
+                    | Answer::Take
+                    | Answer::TakeLast
+                    | Answer::Joiners(_) => return Err(inconsistent("a lead or a join")),
                 }
-                Entry::Vacant(free) => {
-                    let flight = FlightId(self.started);
-                    self.started += 1;
-                    free.insert(Flying { flight, joiners: 0 });
-                    Leg::Check(flight)
-                }
-            },
+            }
             Leg::Land(flight, outcome) => {
-                if let Some(flying) = self.flying.remove(provider) {
-                    if flying.joiners > 0 {
-                        self.landed.insert(
-                            flight,
-                            Landed {
-                                outcome: outcome.clone(),
-                                waiting: flying.joiners,
-                            },
-                        );
+                let mut event = Writer::new();
+                event.tag(1).str(provider).nat(flight.0);
+                match self.ask(event)? {
+                    Answer::Kept => {
+                        self.landed.insert(flight, outcome.clone());
+                    }
+                    Answer::Dropped => {}
+                    Answer::Lead(_)
+                    | Answer::Join(_)
+                    | Answer::NotYet
+                    | Answer::Take
+                    | Answer::TakeLast
+                    | Answer::Joiners(_) => {
+                        return Err(inconsistent("a kept or a dropped outcome"))
                     }
                 }
                 Leg::Done(outcome)
             }
-            Leg::Wait(flight) => match self.landed.entry(flight) {
-                Entry::Vacant(_) => Leg::Wait(flight),
-                Entry::Occupied(mut landed) if landed.get().waiting > 1 => {
-                    landed.get_mut().waiting -= 1;
-                    Leg::Done(landed.get().outcome.clone())
+            Leg::Wait(flight) => {
+                let mut event = Writer::new();
+                event.tag(2).nat(flight.0);
+                match self.ask(event)? {
+                    Answer::NotYet => Leg::Wait(flight),
+                    Answer::Take => Leg::Done(
+                        self.landed
+                            .get(&flight)
+                            .cloned()
+                            .ok_or_else(|| inconsistent("a kept outcome"))?,
+                    ),
+                    Answer::TakeLast => Leg::Done(
+                        self.landed
+                            .remove(&flight)
+                            .ok_or_else(|| inconsistent("a kept outcome"))?,
+                    ),
+                    Answer::Lead(_)
+                    | Answer::Join(_)
+                    | Answer::Kept
+                    | Answer::Dropped
+                    | Answer::Joiners(_) => return Err(inconsistent("an outcome or a wait")),
                 }
-                Entry::Occupied(landed) => Leg::Done(landed.remove().outcome),
-            },
+            }
             Leg::Load | Leg::Check(_) | Leg::Fetch(_) | Leg::Store(..) | Leg::Done(_) => leg,
-        }
+        })
     }
+
+    /// The book's answer to `event`.
+    fn ask(&mut self, mut event: Writer) -> Result<Answer, eukhe_bend::Error> {
+        let reply = self.core.step(&event.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let answer = match reader.tag_of(8, "an answer of the flight book")? {
+            0 => Answer::Lead(FlightId(reader.nat()?)),
+            1 => Answer::Join(FlightId(reader.nat()?)),
+            2 => Answer::Kept,
+            3 => Answer::Dropped,
+            4 => Answer::NotYet,
+            5 => Answer::Take,
+            6 => Answer::TakeLast,
+            // `tag_of` answers a tag below 8: this is 7.
+            _ => Answer::Joiners(if reader.maybe()? {
+                Some(reader.nat()?)
+            } else {
+                None
+            }),
+        };
+        reader.end()?;
+        Ok(answer)
+    }
+}
+
+/// The core's stepper on an empty book (its reply is empty).
+fn open_book() -> Result<Stepper, eukhe_bend::Error> {
+    let (core, reply) = Stepper::open(Entry::AuthFlight, "")?;
+    Reader::reply(&reply)?.end()?;
+    Ok(core)
 }
 
 /// The refresh flights of one auth document, shared by every thread that
 /// refreshes through it: the [`FlightBook`] under a mutex, and a condvar
 /// that tells waiting callers the book changed.
-#[derive(Default)]
 pub struct RefreshFlights {
     book: Mutex<FlightBook>,
     changed: Condvar,
+}
+
+impl Default for RefreshFlights {
+    fn default() -> Self {
+        RefreshFlights {
+            book: Mutex::new(FlightBook::new()),
+            changed: Condvar::new(),
+        }
+    }
 }
 
 impl RefreshFlights {
@@ -217,9 +385,15 @@ impl RefreshFlights {
 #[cfg(test)]
 impl RefreshFlights {
     /// Block until `provider`'s flight in flight has `joiners` joiners.
-    pub(crate) fn wait_for_joiners(&self, provider: &str, joiners: usize) {
+    pub(crate) fn wait_for_joiners(&self, provider: &str, joiners: u64) {
         let mut book = self.book();
-        while book.flying.get(provider).map(|flying| flying.joiners) != Some(joiners) {
+        loop {
+            let mut event = Writer::new();
+            event.tag(3).str(provider);
+            let answer = eukhe_bend::expect_core(Entry::AuthFlight, book.ask(event));
+            if matches!(answer, Answer::Joiners(Some(n)) if n == joiners) {
+                return;
+            }
             book = self
                 .changed
                 .wait(book)

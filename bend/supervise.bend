@@ -2,10 +2,11 @@
 # timeouts (docs/daemon.md D1). The restart budget runs compiled as the
 # Rust rule: `restart_budget::decide`
 # (crates/eukhe-daemon/src/supervisor/restart_budget.rs) calls `decide`
-# through bend/ffi_supervise.bend. The timeouts are the constants of
-# crates/eukhe-daemon/src/timeouts.rs, eukhe-types daemon/timing.rs and
-# eukhe-core kernel/shared.rs; the bridge (bridge/bridge_supervise.bend,
-# crates/eukhe-daemon/src/supervision_bridge.rs) prints the same constants.
+# through bend/ffi_supervise.bend. The timeouts run compiled too:
+# `eukhe_daemon::timeouts::derived` writes the base values (the constants
+# of crates/eukhe-daemon/src/timeouts.rs, eukhe-types daemon/timing.rs and
+# eukhe-core kernel/shared.rs) to bend/ffi_timeouts.bend and reads the
+# derived values (section Timeouts).
 #
 # A worker fails again and again. Each failure comes g ms after the one
 # before it (a gap; the monotonic clock never runs back, so a gap is a

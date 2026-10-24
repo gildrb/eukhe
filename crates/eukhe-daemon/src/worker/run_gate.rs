@@ -5,9 +5,9 @@
 //! [`RunAdmission`]; while one lives, a quiesce answers busy, so a run that
 //! passed the gate before it closed is never lost to the stop.
 //!
-//! The gate opens again on `worker_release`, or by itself after
-//! [`QUIESCE_HOLD_MS`]: a worker whose supervisor died while it decided
-//! does not stay quiesced.
+//! The gate opens again on `worker_release`, or by itself after the
+//! quiesce hold ([`timeouts::Derived::quiesce_hold_ms`]): a worker whose
+//! supervisor died while it decided does not stay quiesced.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -20,7 +20,7 @@ use tokio::sync::Notify;
 
 use super::durable_host::bridge::inbox_previews;
 use super::{response_failure, response_success, DaemonResponse, SessionCore, Worker};
-use crate::timeouts::QUIESCE_HOLD_MS;
+use crate::timeouts;
 use crate::work_gate::{QuiesceAnswer, Work, WorkGate};
 
 /// The run-start gate on the session core.
@@ -151,7 +151,8 @@ impl Worker {
             Work::Idle => {
                 let held = Arc::clone(&self.core);
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(QUIESCE_HOLD_MS)).await;
+                    tokio::time::sleep(Duration::from_millis(timeouts::derived().quiesce_hold_ms))
+                        .await;
                     let mut core = lock(&held);
                     if core.run_gate.epoch == epoch {
                         core.run_gate.open();

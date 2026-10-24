@@ -13,14 +13,15 @@ import ./base.bend as LawsBase
 # docs/daemon.md D1: the supervisor, its workers, a lost supervisor, a
 # daemon replacement, the attaches after a restart. The models are
 # bend/supervise.bend (the restart budget and the timeouts),
-# bend/revive.bend (busy evidence), bend/orphan.bend (a lost supervisor's
-# worker), bend/launcher.bend (the idle shutdown and adoption),
-# bend/replace.bend (the launcher's replacement verdict) and
+# bend/revive.bend (busy evidence and the revival veto), bend/orphan.bend
+# (a lost supervisor's worker), bend/launcher.bend (the idle shutdown and
+# adoption), bend/replace.bend (the launcher's replacement verdict) and
 # bend/notice.bend (the kernel restore notices a view shows); the bridge
-# tests crates/eukhe-daemon/src/supervision_bridge.rs and
-# crates/eukhe-tui/src/restore_notices.rs run the Rust code and each
-# model on the same scenarios; the replacement verdict runs as its model
-# (the compiled core, section `replace: the entry`). Every input is free: any configuration, any
+# test crates/eukhe-tui/src/restore_notices.rs runs the Rust code and its
+# model on the same scenarios; the restart budget, the timeouts
+# (laws/timeouts.bend), the revival veto (laws/revive.bend), the orphan
+# exit and the replacement verdict run as their models (the compiled
+# core). Every input is free: any configuration, any
 # gaps between failures, any run length, any events and operations in any
 # order, any builds.
 
