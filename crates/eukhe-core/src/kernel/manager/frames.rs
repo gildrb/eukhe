@@ -24,6 +24,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::ops::ControlFlow;
 
+use eukhe_bend::rules::frames::{self, Id, Length, Typed, Verdict};
 use serde_json::Value;
 
 use crate::kernel::protocol::{parse_event, Event};
@@ -229,7 +230,9 @@ impl Gate {
     }
 
     /// Decide on `frame`; `serves` says whether the host serves a host
-    /// request type.
+    /// request type. A host request's verdict is the compiled core's
+    /// (`eukhe_bend::rules::frames::admit`, bend/sandbox.bend `admit`):
+    /// this reads its facts (its id fresh or seen, its length, its type).
     pub(crate) fn admit(
         &mut self,
         frame: RawFrame<'_>,
@@ -242,31 +245,21 @@ impl Gate {
                 };
                 match parse_event(line) {
                     Ok(Event::HostRequest { id, data }) => {
-                        if !self.fresh(&id) {
-                            return Admission::Refuse {
-                                refusal: Refusal::DuplicateId { id: id.clone() },
-                                id,
-                            };
-                        }
+                        let fresh = if self.fresh(&id) { Id::Fresh } else { Id::Seen };
                         let kind = data
                             .as_object()
                             .and_then(|map| map.get("type"))
                             .and_then(Value::as_str)
-                            .filter(|kind| !kind.is_empty());
-                        match kind {
-                            Some(kind) if serves(kind) => {
-                                Admission::Serve(Event::HostRequest { id, data })
-                            }
-                            Some(kind) => Admission::Refuse {
-                                refusal: Refusal::KindNotServed {
-                                    kind: kind.to_string(),
-                                },
-                                id,
-                            },
-                            None => Admission::Refuse {
-                                id,
-                                refusal: Refusal::NoKind,
-                            },
+                            .filter(|kind| !kind.is_empty())
+                            .map(str::to_owned);
+                        let typed = match &kind {
+                            Some(kind) if serves(kind) => Typed::Served,
+                            Some(_) => Typed::NotServed,
+                            None => Typed::Unnamed,
+                        };
+                        match frames::admit(self.max, fresh, Length::Bytes(bytes.len()), typed) {
+                            Verdict::Serve => Admission::Serve(Event::HostRequest { id, data }),
+                            verdict => self.refuse(verdict, id, kind),
                         }
                     }
                     Ok(event) => Admission::Serve(event),
@@ -276,14 +269,16 @@ impl Gate {
             RawFrame::Oversize(head) => {
                 let (kind, id) = frame_header(head);
                 match (kind, id) {
-                    (Some("host_request"), Some(id)) if self.fresh(id) => Admission::Refuse {
-                        id: id.to_string(),
-                        refusal: Refusal::Oversize { max: self.max },
-                    },
-                    (Some("host_request"), Some(id)) => Admission::Refuse {
-                        id: id.to_string(),
-                        refusal: Refusal::DuplicateId { id: id.to_string() },
-                    },
+                    (Some("host_request"), Some(id)) => {
+                        let fresh = if self.fresh(id) { Id::Fresh } else { Id::Seen };
+                        // The type of an oversized frame is not read.
+                        match frames::admit(self.max, fresh, Length::PastLimit, Typed::Unnamed) {
+                            Verdict::Serve => unreachable!(
+                                "the compiled core never serves a frame past the limit"
+                            ),
+                            verdict => self.refuse(verdict, id.to_string(), None),
+                        }
+                    }
                     (Some(kind @ ("stdout" | "stderr" | "display")), _) => {
                         Admission::Drop(ProtocolFault::Oversize {
                             kind: kind.to_string(),
@@ -297,6 +292,18 @@ impl Gate {
                 }
             }
         }
+    }
+
+    /// The one error reply of a refused host request `id` of type `kind`
+    /// (the callers serve a [`Verdict::Serve`] and never refuse it).
+    fn refuse(&self, verdict: Verdict, id: String, kind: Option<String>) -> Admission {
+        let refusal = match (verdict, kind) {
+            (Verdict::Duplicate, _) => Refusal::DuplicateId { id: id.clone() },
+            (Verdict::Oversize, _) => Refusal::Oversize { max: self.max },
+            (Verdict::NotServed, Some(kind)) => Refusal::KindNotServed { kind },
+            (Verdict::Serve | Verdict::Kindless | Verdict::NotServed, _) => Refusal::NoKind,
+        };
+        Admission::Refuse { id, refusal }
     }
 }
 
@@ -322,9 +329,6 @@ fn frame_header(head: &[u8]) -> (Option<&str>, Option<&str>) {
         .filter(|id| !id.is_empty() && !id.contains('\\'));
     (Some(kind), id)
 }
-
-#[cfg(test)]
-mod bridge;
 
 #[cfg(test)]
 mod tests {

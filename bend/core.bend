@@ -3,6 +3,7 @@
 import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
+import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
@@ -19,6 +20,7 @@ import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
@@ -33,13 +35,16 @@ import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
+import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tiny.bend as ffi_tiny
+import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
@@ -131,6 +136,16 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 50:
+      ffi_shell.ffi(input)
+    case 51:
+      ffi_tool_surface.ffi(input)
+    case 52:
+      ffi_runners.ffi(input)
+    case 53:
+      ffi_approvals.ffi(input)
+    case 54:
+      ffi_frames.ffi(input)
     case 64:
       ffi_cvar_layers.ffi(input)
     case _:

@@ -8,15 +8,15 @@
 //! display-only row the user sees.
 
 #[cfg(test)]
-mod bridge;
-#[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_ai::utils::validation::validate_tool_arguments;
+use eukhe_bend::rules::tool_surface;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::define_tool;
 use eukhe_durable::harness::types::{
@@ -66,49 +66,78 @@ or it did not do what its description says. Arguments: `tool` (the tool's name),
 `description` (what went wrong). The user sees the report.";
 
 /// The session's dynamic tools: the host tools that joined after the roster
-/// was fixed, by name, in join order. They are reached only through `dyn`;
-/// none ever joins the roster.
+/// was fixed, reached only through `dyn`; none ever joins the roster. Which
+/// tools `dyn` reaches is the compiled core's decision (bend/tools.bend
+/// `step`, `dyn_call`); this keeps the registrations, in first-join order.
 #[derive(Clone, Default)]
 pub struct ToolSurface {
-    joined: Arc<Mutex<IndexMap<String, Arc<ToolRegistration>>>>,
+    inner: Arc<Mutex<Surface>>,
+}
+
+/// The registrations and the dynamic tools as the model keeps them.
+#[derive(Default)]
+struct Surface {
+    /// Each name's number on the model's side.
+    ids: HashMap<String, u64>,
+    /// The latest registration of each joined tool, by number.
+    tools: IndexMap<u64, Arc<ToolRegistration>>,
+    /// The model's dynamic tools (`Sess.dyn`).
+    dynamic: Vec<u64>,
+}
+
+impl Surface {
+    /// The number of the tool named `name`.
+    fn id(&mut self, name: &str) -> u64 {
+        let next = self.ids.len() as u64;
+        *self.ids.entry(name.to_owned()).or_insert(next)
+    }
 }
 
 impl ToolSurface {
-    /// Make `tool` reachable through `dyn`; a joined tool with its name is
+    fn surface(&self) -> std::sync::MutexGuard<'_, Surface> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `tool` joins: `dyn` reaches it; a joined tool with its name is
     /// replaced.
     pub fn join(&self, tool: Arc<ToolRegistration>) {
-        self.joined
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(tool.name.clone(), tool);
+        let mut surface = self.surface();
+        let id = surface.id(&tool.name);
+        surface.dynamic = tool_surface::join(&surface.dynamic, id);
+        surface.tools.insert(id, tool);
     }
 
-    /// `dyn` no longer reaches the tool named `name`.
+    /// The tool named `name` quits: `dyn` no longer reaches it.
     pub fn quit(&self, name: &str) {
-        self.joined
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .shift_remove(name);
+        let mut surface = self.surface();
+        let id = surface.id(name);
+        surface.dynamic = tool_surface::quit(&surface.dynamic, id);
+        if !tool_surface::reaches(&surface.dynamic, id) {
+            surface.tools.shift_remove(&id);
+        }
     }
 
-    /// The joined tool named `name`.
+    /// The joined tool named `name`, when `dyn` reaches it.
     #[must_use]
     pub fn tool(&self, name: &str) -> Option<Arc<ToolRegistration>> {
-        self.joined
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(name)
-            .cloned()
+        let surface = self.surface();
+        let id = *surface.ids.get(name)?;
+        if tool_surface::reaches(&surface.dynamic, id) {
+            surface.tools.get(&id).cloned()
+        } else {
+            None
+        }
     }
 
-    /// The joined tools, in join order.
+    /// The tools `dyn` reaches, in first-join order.
     #[must_use]
     pub fn joined(&self) -> Vec<Arc<ToolRegistration>> {
-        self.joined
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .values()
-            .cloned()
+        let surface = self.surface();
+        surface
+            .tools
+            .iter()
+            .filter(|(&id, _)| tool_surface::reaches(&surface.dynamic, id))
+            .map(|(_, tool)| Arc::clone(tool))
             .collect()
     }
 }

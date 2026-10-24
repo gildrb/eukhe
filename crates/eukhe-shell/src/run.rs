@@ -1,5 +1,6 @@
 //! The interpreter: runs a script step by step through the approval gate
-//! (the model's `exec`, bend/tools.bend part 4).
+//! (the model's `exec`, bend/tools.bend part 4, decided by the compiled
+//! core: `eukhe_bend::rules::shell`).
 //!
 //! A pipeline's commands run together, joined by OS pipes (bounded by the
 //! kernel's pipe buffer): an external command is a child process in its
@@ -17,6 +18,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use eukhe_bend::rules::shell::{self as gate, Answered, Gate, Part, Said};
 use eukhe_types::path_policy::{PathClass, PathPolicy};
 use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
 use tokio::io::AsyncReadExt as _;
@@ -152,6 +154,7 @@ struct Planned {
     /// The step as it will run, for people.
     command: String,
     effects: ShellEffects,
+    gate: Gate,
 }
 
 /// Where a command's fd 1 or fd 2 goes.
@@ -305,12 +308,16 @@ impl Shell {
             Err(unsupported) => {
                 tracing::debug!(why = unsupported.0, "the script runs in the external shell");
                 // One step: the external shell runs every command the
-                // script holds, so the step has each one's effects.
-                let mut effects = ShellEffects::of(&[ShellEffect::Exec]);
+                // script holds, so the step has each one's parts.
+                let mut parts = vec![Part {
+                    own: ShellEffects::of(&[ShellEffect::Exec]),
+                    names_secret: false,
+                }];
                 for part in parse::parts(script) {
                     let (assigns, mut argv, redirects) = self.expand(&part);
-                    effects = effects.union(self.effects(&assigns, &mut argv, &redirects, paths));
+                    parts.extend(self.parts(&assigns, &mut argv, &redirects, paths));
                 }
+                let (effects, gate) = gate::step(auto, &parts);
                 let argv = vec![
                     self.external.display().to_string(),
                     "-c".to_string(),
@@ -328,10 +335,9 @@ impl Shell {
                     redirects: Vec::new(),
                     command,
                     effects,
+                    gate,
                 };
-                let end = self
-                    .pipeline(vec![whole], auto, approver, sink, &mut steps)
-                    .await;
+                let end = self.pipeline(vec![whole], approver, sink, &mut steps).await;
                 return Ran {
                     steps,
                     end: end.unwrap_or(End::Finished {
@@ -341,11 +347,8 @@ impl Shell {
             }
         };
         for chain in &list {
-            let planned = self.plan(&chain.first, steps.len() as u64, paths);
-            if let Some(end) = self
-                .pipeline(planned, auto, approver, sink, &mut steps)
-                .await
-            {
+            let planned = self.plan(&chain.first, steps.len() as u64, auto, paths);
+            if let Some(end) = self.pipeline(planned, approver, sink, &mut steps).await {
                 return Ran { steps, end };
             }
             for (link, pipeline) in &chain.rest {
@@ -354,11 +357,8 @@ impl Shell {
                     Link::Or => self.status != 0,
                 };
                 if runs {
-                    let planned = self.plan(pipeline, steps.len() as u64, paths);
-                    if let Some(end) = self
-                        .pipeline(planned, auto, approver, sink, &mut steps)
-                        .await
-                    {
+                    let planned = self.plan(pipeline, steps.len() as u64, auto, paths);
+                    if let Some(end) = self.pipeline(planned, approver, sink, &mut steps).await {
                         return Ran { steps, end };
                     }
                 }
@@ -410,35 +410,45 @@ impl Shell {
         (assigns, argv, redirects)
     }
 
-    /// Every effect of one expanded command (bend/tools.bend `part.effs`
-    /// and `join`): the command's own ([`classify`], which also makes a
-    /// `git` step that is not `Exec` run with the untrusted-repository
-    /// arguments), each redirection's (a write to, a read of the target's
-    /// class), and the paths it names: a word that is a secret or holds
-    /// one adds `Secret`, and so does the working directory when the
+    /// The parts of one expanded command (bend/tools.bend `Part`; the
+    /// compiled core joins their effects): the command's own effects
+    /// ([`classify`], which also makes a `git` step that is not `Exec` run
+    /// with the untrusted-repository arguments), each redirection's (a
+    /// write to, a read of the target's class: a secret target names a
+    /// secret), and the paths it names: a word that is a secret or holds
+    /// one names a secret, and so does the working directory when the
     /// command reads it because it names no path ([`reads_cwd`]); for a
-    /// command that writes, a word outside the workspace adds `Outside`,
-    /// a protected one `Protected`.
-    fn effects(
+    /// command that writes, a word outside the workspace is `Outside`, a
+    /// protected one `Protected`, a secret one names a secret.
+    fn parts(
         &self,
         assigns: &[(String, String)],
         argv: &mut Vec<String>,
         redirects: &[(u32, RedirectOp, String)],
         paths: &PathPolicy,
-    ) -> ShellEffects {
+    ) -> Vec<Part> {
         let cwd_read = reads_cwd(argv);
-        let mut effects = classify(assigns, argv);
+        let mut parts = vec![Part {
+            own: classify(assigns, argv),
+            names_secret: false,
+        }];
         for (_, op, target) in redirects {
-            let class = || crate::paths::judge_path(paths, &self.cwd.join(target)).class;
-            match op {
-                RedirectOp::Read(_) => effects = effects.union(ShellEffects::read_of(class())),
+            let own = match op {
+                RedirectOp::Read(_) => ShellEffects::read_of,
                 RedirectOp::Write(_) | RedirectOp::Append(_) if target != "/dev/null" => {
-                    effects = effects.union(ShellEffects::write_to(class()));
+                    ShellEffects::write_to
                 }
-                RedirectOp::Write(_) | RedirectOp::Append(_) | RedirectOp::Dup(_) => {}
-            }
+                RedirectOp::Write(_) | RedirectOp::Append(_) | RedirectOp::Dup(_) => continue,
+            };
+            let class = crate::paths::judge_path(paths, &self.cwd.join(target)).class;
+            parts.push(Part {
+                own: own(class),
+                names_secret: class == PathClass::Secret,
+            });
         }
-        let writes = effects.contains(ShellEffect::Write);
+        let writes = parts
+            .iter()
+            .any(|part| part.own.contains(ShellEffect::Write));
         // An operand, or the value of `--option=value`.
         let named = argv
             .iter()
@@ -449,30 +459,42 @@ impl Shell {
             });
         for word in named {
             let judged = crate::paths::judge_path(paths, &self.cwd.join(word));
-            if judged.holds_secret {
-                effects.insert(ShellEffect::Secret);
-            }
-            if writes {
-                match judged.class {
-                    PathClass::Inside => {}
-                    PathClass::Outside => effects.insert(ShellEffect::Outside),
-                    PathClass::Protected => effects.insert(ShellEffect::Protected),
-                    PathClass::Secret => effects.insert(ShellEffect::Secret),
+            let (own, written_secret) = match (writes, judged.class) {
+                (false, _) | (true, PathClass::Inside) => (ShellEffects::NONE, false),
+                (true, PathClass::Outside) => (ShellEffects::of(&[ShellEffect::Outside]), false),
+                (true, PathClass::Protected) => {
+                    (ShellEffects::of(&[ShellEffect::Protected]), false)
                 }
-            }
+                (true, PathClass::Secret) => (ShellEffects::NONE, true),
+            };
+            parts.push(Part {
+                own,
+                names_secret: judged.holds_secret || written_secret,
+            });
         }
-        if cwd_read && crate::paths::judge_path(paths, &self.cwd).holds_secret {
-            effects.insert(ShellEffect::Secret);
+        if cwd_read {
+            parts.push(Part {
+                own: ShellEffects::NONE,
+                names_secret: crate::paths::judge_path(paths, &self.cwd).holds_secret,
+            });
         }
-        effects
+        parts
     }
 
-    /// Expand and classify a pipeline's commands, numbered from `first`.
-    fn plan(&self, pipeline: &Pipeline, first: u64, paths: &PathPolicy) -> Vec<Planned> {
+    /// Expand and classify a pipeline's commands, numbered from `first`,
+    /// each gated under `auto`.
+    fn plan(
+        &self,
+        pipeline: &Pipeline,
+        first: u64,
+        auto: AutoSet,
+        paths: &PathPolicy,
+    ) -> Vec<Planned> {
         let mut planned = Vec::with_capacity(pipeline.commands.len());
         for (step, command) in (first..).zip(&pipeline.commands) {
             let (assigns, mut argv, redirects) = self.expand(command);
-            let effects = self.effects(&assigns, &mut argv, &redirects, paths);
+            let (effects, gate) =
+                gate::step(auto, &self.parts(&assigns, &mut argv, &redirects, paths));
             let mut words: Vec<String> = assigns
                 .iter()
                 .map(|(name, value)| format!("{name}={}", quote(value)))
@@ -505,6 +527,7 @@ impl Shell {
                 redirects,
                 command: words.join(" "),
                 effects,
+                gate,
             });
         }
         planned
@@ -516,34 +539,39 @@ impl Shell {
     async fn pipeline(
         &mut self,
         planned: Vec<Planned>,
-        auto: AutoSet,
         approver: &impl Approver,
         sink: &impl Sink,
         steps: &mut Vec<StepRun>,
     ) -> Option<End> {
         let mut approvals = Vec::with_capacity(planned.len());
         for stage in &planned {
-            let approval = if auto.allows(stage.effects) {
-                Approval::Auto
-            } else {
-                let ask = Ask {
-                    step: stage.step,
-                    command: stage.command.clone(),
-                    effects: stage.effects,
-                };
-                match approver.approve(ask).await {
-                    Answer::Approve => Approval::Approved,
-                    refused @ (Answer::Deny | Answer::Unanswered | Answer::GatewayRefused) => {
-                        return Some(End::Refused {
-                            step: stage.step,
-                            command: stage.command.clone(),
-                            effects: stage.effects,
-                            refusal: match refused {
-                                Answer::Unanswered => Refusal::Unanswered,
-                                Answer::GatewayRefused => Refusal::GatewayRefused,
-                                Answer::Approve | Answer::Deny => Refusal::Denied,
-                            },
-                        });
+            let approval = match stage.gate {
+                Gate::Unasked => Approval::Auto,
+                Gate::Asks => {
+                    let ask = Ask {
+                        step: stage.step,
+                        command: stage.command.clone(),
+                        effects: stage.effects,
+                    };
+                    let answer = approver.approve(ask).await;
+                    let said = match answer {
+                        Answer::Approve => Said::Yes,
+                        Answer::Deny | Answer::Unanswered | Answer::GatewayRefused => Said::No,
+                    };
+                    match gate::answered(stage.step, said) {
+                        Answered::Runs => Approval::Approved,
+                        Answered::Stops { step } => {
+                            return Some(End::Refused {
+                                step,
+                                command: stage.command.clone(),
+                                effects: stage.effects,
+                                refusal: match answer {
+                                    Answer::Unanswered => Refusal::Unanswered,
+                                    Answer::GatewayRefused => Refusal::GatewayRefused,
+                                    Answer::Approve | Answer::Deny => Refusal::Denied,
+                                },
+                            });
+                        }
                     }
                 }
             };

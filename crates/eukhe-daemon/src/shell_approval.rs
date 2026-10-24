@@ -20,8 +20,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::approvals::{self, Here, Next, Parent};
+use eukhe_bend::rules::shell::Said;
 use eukhe_types::daemon::{DaemonCommand, DaemonErrorInfo};
-use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellVerdict};
+use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellVerdict};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -71,6 +73,22 @@ impl Attendance {
             Self::Interactive
         }
     }
+
+    /// The attendance as the compiled core reads it.
+    fn here(self) -> Here {
+        match self {
+            Self::Interactive => Here::Clients,
+            Self::GatewayOnly => Here::GatewayOnly,
+            Self::Nobody => Here::Nobody,
+        }
+    }
+}
+
+/// The session `core` is a child of, if any.
+fn parent_of(core: &SessionCore) -> Option<String> {
+    core.parent_session_id
+        .clone()
+        .or_else(|| core.parent_active_session_id.clone())
 }
 
 /// Sends one `relay_shell_approval` command and answers its response: the
@@ -163,25 +181,35 @@ impl ShellApprovals {
     }
 
     /// Ask this session's attached clients (a frame naming `agent`, the
-    /// subagent that asks, when the question came up from a child). When
-    /// its clients are all the phone gateway, answer by the gateway rule
-    /// at once. When none is attached, hand the question to the parent
-    /// session. A question whose interactive clients all detach before an
+    /// subagent that asks, when the question came up from a child), end
+    /// the question here, or hand it to the parent session, as the
+    /// compiled core decides for the session (`eukhe_bend::rules::
+    /// approvals::next`: the gateway rule when its clients are all the
+    /// phone gateway; the parent when none is attached; no answer at a
+    /// root). A question whose interactive clients all detach before an
     /// answer is routed again. [`ShellAnswer::Unanswered`] when the frame
-    /// does not serialize (logged), when the session has no parent, or
-    /// when the relay fails (logged).
+    /// does not serialize (logged) or when the relay fails (logged).
     async fn route(&self, request: ShellApprovalRequest, agent: Option<String>) -> ShellAnswer {
-        loop {
+        let (parent, agent) = loop {
             let receiver = {
                 // The attendance check and the insert hold the core lock,
                 // the lock the detach paths hold while they drop the
-                // pending answers: a question is answered by the gateway
-                // rule or goes up the chain at once, or waits here until
-                // an answer, or the detach of the last interactive client,
-                // which routes it again.
+                // pending answers: a question ends here or goes up the
+                // chain at once, or waits here until an answer, or the
+                // detach of the last interactive client, which routes it
+                // again.
                 let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
-                match Attendance::of(&core) {
-                    Attendance::Interactive => {
+                let parent = parent_of(&core);
+                let next = approvals::next(
+                    Attendance::of(&core).here(),
+                    request.effects,
+                    match parent {
+                        Some(_) => Parent::Above,
+                        None => Parent::Root,
+                    },
+                );
+                match (next, parent) {
+                    (Next::Show, _) => {
                         let (sender, receiver) = oneshot::channel();
                         self.pending
                             .lock()
@@ -189,20 +217,28 @@ impl ShellApprovals {
                             .insert(request.request_id.clone(), sender);
                         receiver
                     }
-                    // The gateway shows no question, so no one waits: a
-                    // step runs, unless it writes a protected path or
-                    // reads or writes a secret.
-                    Attendance::GatewayOnly => {
-                        let guarded = request.effects.contains(ShellEffect::Protected)
-                            || request.effects.contains(ShellEffect::Secret);
-                        return if guarded {
+                    (Next::Ends(answer), _) => {
+                        if answer == ShellAnswer::GatewayRefused {
                             tracing::info!(effects = %request.effects.names(), "the gateway rule refused a step");
-                            ShellAnswer::GatewayRefused
-                        } else {
-                            ShellAnswer::Approve
-                        };
+                        }
+                        return answer;
                     }
-                    Attendance::Nobody => break,
+                    (Next::Relay, Some(parent)) => {
+                        // The subagent that asks: the first session of the
+                        // chain.
+                        let agent = agent.unwrap_or_else(|| {
+                            core.session_name
+                                .clone()
+                                .or_else(|| core.rlm_child_id.clone())
+                                .unwrap_or_else(|| self.active_session_id.clone())
+                        });
+                        break (parent, agent);
+                    }
+                    (Next::Relay, None) => {
+                        unreachable!(
+                            "the compiled core relays only the question of a session with a parent"
+                        )
+                    }
                 }
             };
             let waiting = Waiting {
@@ -227,35 +263,20 @@ impl ShellApprovals {
             let verdict = receiver.await;
             drop(waiting);
             match verdict {
-                Ok(ShellVerdict::Approve) => return ShellAnswer::Approve,
-                Ok(ShellVerdict::Deny) => return ShellAnswer::Deny,
+                Ok(ShellVerdict::Approve) => {
+                    return approvals::answered(request.effects, Said::Yes)
+                }
+                Ok(ShellVerdict::Deny) => return approvals::answered(request.effects, Said::No),
                 // The last interactive client detached: route it again.
                 Err(_) => {}
             }
-        }
-        let command = {
-            let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
-            // A root session has no one above it: no answer.
-            let Some(parent) = core
-                .parent_session_id
-                .clone()
-                .or_else(|| core.parent_active_session_id.clone())
-            else {
-                return ShellAnswer::Unanswered;
-            };
-            DaemonCommand::RelayShellApproval {
-                id: None,
-                active_session_id: parent,
-                request,
-                // The subagent that asks: the first session of the chain.
-                agent: agent.unwrap_or_else(|| {
-                    core.session_name
-                        .clone()
-                        .or_else(|| core.rlm_child_id.clone())
-                        .unwrap_or_else(|| self.active_session_id.clone())
-                }),
-                rest: Map::default(),
-            }
+        };
+        let command = DaemonCommand::RelayShellApproval {
+            id: None,
+            active_session_id: parent,
+            request,
+            agent,
+            rest: Map::default(),
         };
         let command = match serde_json::to_value(&command) {
             Ok(command) => command,

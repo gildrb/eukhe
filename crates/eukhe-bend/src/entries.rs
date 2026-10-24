@@ -88,6 +88,16 @@ pub enum Entry {
     DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
+    /// `bend/ffi_shell.bend`: a call.
+    Shell = 50,
+    /// `bend/ffi_tool_surface.bend`: a call.
+    ToolSurface = 51,
+    /// `bend/ffi_runners.bend`: a call.
+    Runners = 52,
+    /// `bend/ffi_approvals.bend`: a call.
+    Approvals = 53,
+    /// `bend/ffi_frames.bend`: a call.
+    Frames = 54,
     /// `bend/ffi_cvar_layers.bend`: a call.
     CvarLayers = 64,
 }
@@ -136,6 +146,11 @@ impl Entry {
         Entry::SkillLoad,
         Entry::DocSearch,
         Entry::DocRows,
+        Entry::Shell,
+        Entry::ToolSurface,
+        Entry::Runners,
+        Entry::Approvals,
+        Entry::Frames,
         Entry::CvarLayers,
     ];
 

@@ -1,7 +1,11 @@
 # bridge_approvals: runs the model of where an approval question goes
-# (bend/approvals.bend) on an events file and prints what happened, line
-# for line as the Rust bridge test prints the real approvals of a chain of
-# sessions (crates/eukhe-daemon/src/shell_approval/bridge.rs). Build it
+# (bend/approvals.bend `route`) on an events file and prints what
+# happened, line for line as the Rust bridge test prints the real
+# approvals of a chain of sessions (crates/eukhe-daemon/src/
+# shell_approval/bridge.rs). Each session's own decision runs in Rust as
+# the compiled core (bend/ffi_approvals.bend); this bridge checks the
+# interleaving: the relay over the supervisor, clients that leave, the
+# first answer. Build it
 # with
 #
 #   bend bridge/bridge_approvals.bend -o <out>
@@ -16,10 +20,6 @@
 #                  that approve), 4 (the phone gateway alone) or 5
 #                  (clients that leave without an answer while the phone
 #                  gateway stays)
-#   d              the default auto set (crates/eukhe-core/src/durable/
-#                  shell/tests.rs `the_default_auto_set_is_its_model`)
-#   a C C ...      the gate of a step with the effects of the codes C, in
-#                  a session whose user sets no auto set
 #
 # A question prints one line per session that showed it, in order,
 #
@@ -30,10 +30,6 @@
 #
 #   end approve K | end deny K | end unanswered
 #   end ruled run | end ruled refuse      (a gateway rule answered)
-#
-# A `d` prints `d` and the default auto set's codes, each after a space;
-# an `a` prints `a unasked` (the step runs, no one is asked) or `a asks`
-# (its question goes its route).
 
 import Base
 import ../bend/approvals.bend as Am
@@ -91,20 +87,6 @@ def show.bool(b: Bool) -> String:
     case False{}:
       "0"
 
-def show.codes(cs: List<&2, Nat>) -> String:
-  match cs:
-    case Nil{}:
-      ""
-    case +c <> rest:
-      String.concat([" ", Nat.show(c), show.codes(rest)])
-
-def show.gated(g: Am.Gated) -> String:
-  match g:
-    case Am.Unasked{}:
-      "a unasked\n"
-    case Am.Routed{o, f}:
-      "a asks\n"
-
 def show.shown(ks: List<&2, Nat>) -> String:
   match ks:
     case Nil{}:
@@ -150,17 +132,11 @@ def ask(ws: List<&2, String>) -> String:
       show.out(codes(String.split(w, ',')), Am.route(desks(rest)))
 
 # one word h and the words after it: a `q` line asks with the chain of
-# the words after it; a `d` line shows the default auto set; an `a` line
-# gates a step with the codes after it under the default auto set, in a
-# session with no client
+# the words after it
 def word(h: String, rest: List<&2, String>) -> String:
   match h:
     case SCon{'q', r}:
       ask(rest)
-    case SCon{'d', r}:
-      String.concat(["d", show.codes(Am.default_auto()), "\n"])
-    case SCon{'a', r}:
-      show.gated(Am.gate(Am.default_auto(), codes(rest), [Am.Away{}]))
     case r:
       ""
 
