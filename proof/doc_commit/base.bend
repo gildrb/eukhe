@@ -2,6 +2,8 @@
 
 import Base
 import ../../bend/doc_commit.bend as Cm
+import ../../laws/base.bend as LawsBase
+import ../../laws/doc_commit.bend as DocCommit
 
 # ---- documents ----
 
@@ -57,3 +59,66 @@ def pc.kept(+pre: List<&2, Cm.Temp>, +n: Cm.Temp, +post: List<&2, Cm.Temp>, no: 
   %pc.sweep_app(pre, n <> post) : {_ == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
   %no : {List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep.put(n, Cm.sweep(post), _)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
   {==}
+
+# The writer's choices
+# --------------------
+
+def dcw.BT(b: Bool, G: Type) -> Type:
+  match b:
+    case True{}:
+      Unit
+    case False{}:
+      G
+
+# True is not False
+def dcw.tf(-G: Type, e: {True{} == False{} : Bool}) -> G:
+  %e : dcw.BT(_, G)
+  Unit{}
+
+# False is not True
+def dcw.ft(-G: Type, e: {False{} == True{} : Bool}) -> G:
+  dcw.tf(G, Equal.sym(Bool, False{}, True{}, e))
+
+def dcw.and_l(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def dcw.and_r(a: Bool, +b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      dcw.ft({b == True{} : Bool}, h)
+
+def dcw.and_tt(-a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb
+
+# the code's char-by-char comparison is the spec's text_same
+def dcw.same(a: String, b: String) -> {Cm.same(a, b) == LawsBase.text_same(a, b) : Bool}:
+  match a b:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{y, v}:
+      {==}
+    case SCon{x, u} SNil{}:
+      {==}
+    case SCon{x, u} SCon{y, v}:
+      %dcw.same(u, v) : {Bool.and(Char.is_eq(x, y), Cm.same(u, v)) == Bool.and(Char.is_eq(x, y), _) : Bool}
+      {==}
+
+# the code's prefix test is the spec's
+def dcw.starts(p: String, s: String) -> {Cm.starts(p, s) == DocCommit.sp_starts(p, s) : Bool}:
+  match p:
+    case SNil{}:
+      {==}
+    case SCon{c, q}:
+      match s:
+        case SNil{}:
+          {==}
+        case SCon{d, t}:
+          %dcw.starts(q, t) : {Bool.and(Char.is_eq(c, d), Cm.starts(q, t)) == Bool.and(Char.is_eq(c, d), _) : Bool}
+          {==}

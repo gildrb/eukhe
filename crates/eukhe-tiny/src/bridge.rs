@@ -1,8 +1,14 @@
 //! The bridge from the tiny-model service's worker election to its Bend
 //! model (`bend/tiny.bend`, docs/inference.md S9): generated needs run
 //! through the Rust code, and `bridge/bridge_tiny.bend` must print the same
-//! transcript, byte for byte. (The pick runs as the compiled model itself:
-//! `roles::pick`.)
+//! transcript, byte for byte. Every choice of one process (join, replace,
+//! start, a shutdown's answer, a launch's outcome, the check after a start,
+//! a started worker's seat) runs as the compiled core
+//! (`bend/ffi_tiny_elect.bend`, laws `tiny_elect_*` and the specs of
+//! laws/tiny.bend), as does the pick (`roles::pick`). What stays here is
+//! the interleaving only: several processes and workers on one socket over
+//! time, exits and crashes between needs, against the worker model
+//! (`step`, `got`).
 //!
 //! Part `w`: each line is a need `n P TAG` (process P needs the model with
 //! launch tag `tTAG`) or an exit `g`. A need is a real request through the
@@ -23,7 +29,7 @@ use tokio::task::JoinHandle;
 
 use crate::catalog::CatalogModel;
 use crate::client::TinyError;
-use crate::election::{self, probe, Got, Launched, Launcher, Probe, BACKEND};
+use crate::election::{self, probe, Got, Launched, Launcher, Met, BACKEND};
 use crate::paths::TinyHome;
 use crate::protocol::{ChatMessage, ChatRequest, ChatRole, Reply, Request, Response};
 use crate::testing::{compare, Echo, Rng, Scenario, ECHO};
@@ -134,7 +140,7 @@ async fn run(events: &[Event]) -> String {
             }
             Event::Shutdown => {
                 transcript.push('-');
-                if let Probe::Live { mut connection, .. } = probe(&socket).await.unwrap() {
+                if let Met::Pong { mut connection, .. } = probe(&socket).await {
                     let bye = connection.call(&Request::Shutdown).await.unwrap();
                     assert_eq!(bye, Response::Ok { reply: Reply::Bye });
                     let exit = current(&workers).unwrap().await.unwrap().unwrap();
@@ -143,22 +149,23 @@ async fn run(events: &[Event]) -> String {
             }
             Event::Crash => {
                 transcript.push('-');
-                if matches!(probe(&socket).await.unwrap(), Probe::Live { .. }) {
+                if matches!(probe(&socket).await, Met::Pong { .. }) {
                     let worker = current(&workers).unwrap();
                     worker.abort();
                     assert!(worker.await.unwrap_err().is_cancelled());
                 }
             }
         }
-        match probe(&socket).await.unwrap() {
-            Probe::Live { tag: live, .. } => writeln!(
+        match probe(&socket).await {
+            Met::Pong { tag: live, .. } => writeln!(
                 transcript,
                 " w {} {}",
                 owner.map_or_else(|| "?".to_owned(), |owner| owner.to_string()),
                 live.trim_start_matches('t')
             )
             .unwrap(),
-            Probe::Absent => transcript.push_str(" none\n"),
+            Met::Missing | Met::Hung => transcript.push_str(" none\n"),
+            Met::Unreachable(_) | Met::Odd(_) | Met::Garbled(_) => panic!("the socket failed"),
         }
     }
     for worker in std::mem::take(&mut *workers.lock().unwrap_or_else(PoisonError::into_inner)) {

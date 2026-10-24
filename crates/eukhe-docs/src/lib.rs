@@ -23,6 +23,7 @@
 //! The hashline edit grammar, store, and messages are ported from omp
 //! (`can1357/oh-my-pi`, MIT; see `THIRD-PARTY-NOTICES`).
 
+mod commit;
 mod diff;
 mod diff_string;
 mod documents;

@@ -11,6 +11,11 @@
 //! (a fixed length, so a long target name still fits) and its writer holds
 //! an OS lock on it while it lives. Each write of a target first removes the
 //! target's temporary files whose lock it can take: a crash left them.
+//!
+//! Every choice (the check of an edit, what a publish did, the write tool's
+//! base, the temporary files' prefix and which a sweep removes) runs as the
+//! compiled Bend core ([`crate::commit`]); this module locks, reads,
+//! compares, publishes and removes.
 
 use std::fs::{File, OpenOptions, Permissions};
 use std::io::Write as _;
@@ -49,41 +54,53 @@ pub(crate) fn lock(lock_dir: &Path, canonical: &Path) -> std::io::Result<PathLoc
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// The name prefix of every temporary file; grep and glob hide these names.
-pub(crate) const TEMP_PREFIX: &str = ".eukhe-tmp-";
-
-/// The name prefix of the temporary files of `target`:
-/// `.eukhe-tmp-<xxh64 of its file name>-`.
-pub(crate) fn temp_prefix(target: &Path) -> String {
+/// The digest of `target`'s file name, which names its temporary files.
+fn name_digest(target: &Path) -> String {
     let name = target
         .file_name()
         .map_or(&[][..], |name| name.as_encoded_bytes());
-    format!("{TEMP_PREFIX}{:016x}-", XxHash64::oneshot(0, name))
+    format!("{:016x}", XxHash64::oneshot(0, name))
 }
 
-/// Remove the temporary files of `target` that no live writer holds. The
-/// caller holds the path lock of `target`.
-fn sweep_temps(directory: &Path, prefix: &str) {
+/// The name prefix of the temporary files of `target` (the core's
+/// [`crate::commit::prefix`]).
+#[cfg(test)]
+pub(crate) fn temp_prefix(target: &Path) -> String {
+    crate::commit::prefix(&name_digest(target))
+}
+
+/// Remove the temporary files of the target whose file name has the digest
+/// `digest` that no live writer holds, as the core's sweep chooses. The
+/// caller holds the path lock of the target. Rust lists only the entries
+/// whose names start with `prefix` (the core's prefix: a lock is probed
+/// only by opening the file) and probes their locks; the core chooses
+/// which of them go.
+fn sweep_temps(directory: &Path, digest: &str, prefix: &str) {
     // The sweep only cleans up: a directory it cannot list, or a file it
     // cannot open or remove, stays for a later sweep.
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;
     };
+    let mut probed = Vec::new();
     for entry in entries.flatten() {
-        if !entry
-            .file_name()
-            .as_encoded_bytes()
-            .starts_with(prefix.as_bytes())
-        {
+        let name = entry.file_name();
+        if !name.as_encoded_bytes().starts_with(prefix.as_bytes()) {
             continue;
         }
         let path = entry.path();
         let Ok(file) = File::open(&path) else {
             continue;
         };
-        if file.try_lock().is_ok() {
-            let _left_for_a_later_sweep = std::fs::remove_file(&path);
-        }
+        // A lock taken here is kept until the removal (the handle lives).
+        let held = file.try_lock().is_err();
+        probed.push((name.to_string_lossy().into_owned(), held, path, file));
+    }
+    let facts: Vec<(String, bool)> = probed
+        .iter()
+        .map(|(name, held, _, _)| (name.clone(), *held))
+        .collect();
+    for at in crate::commit::gone(digest, &facts) {
+        let _left_for_a_later_sweep = std::fs::remove_file(&probed[at].2);
     }
 }
 
@@ -144,8 +161,9 @@ pub(crate) fn publish(
     faults: &dyn Faults,
 ) -> std::io::Result<Placed> {
     let directory = target.parent().unwrap_or(Path::new("."));
-    let prefix = temp_prefix(target);
-    sweep_temps(directory, &prefix);
+    let digest = name_digest(target);
+    let prefix = crate::commit::prefix(&digest);
+    sweep_temps(directory, &digest, &prefix);
     let temp = directory.join(format!(
         "{prefix}{}-{}",
         std::process::id(),
@@ -348,19 +366,25 @@ pub(crate) fn write_file(
     let unseen = || WriteError::Unseen {
         display: display.to_owned(),
     };
-    match (base, &existing) {
-        (Base::Seen, None) => {}
-        (Base::Seen, Some((bytes, _))) => {
-            if !store.has_seen_bytes(&canonical, bytes) {
-                return Err(unseen());
-            }
-        }
-        (Base::Bytes(_), None) => return Err(changed()),
-        (Base::Bytes(expected), Some((bytes, _))) => {
-            if bytes.as_slice() != expected {
-                return Err(changed());
-            }
-        }
+    let seen = store.seen_digests(&canonical);
+    let digest = existing
+        .as_ref()
+        .map(|(bytes, _)| crate::store::digest(bytes));
+    let disk = match (&existing, &digest) {
+        (Some((bytes, _)), Some(digest)) => crate::commit::Disk::Present {
+            digest,
+            expected: matches!(base, Base::Bytes(expected) if bytes.as_slice() == expected),
+        },
+        (None, _) | (_, None) => crate::commit::Disk::Absent,
+    };
+    let on = match base {
+        Base::Seen => crate::commit::Base::OnSeen(&seen),
+        Base::Bytes(_) => crate::commit::Base::OnBytes,
+    };
+    match crate::commit::gate(&on, &disk) {
+        crate::commit::Gate::Proceed => {}
+        crate::commit::Gate::Unseen => return Err(unseen()),
+        crate::commit::Gate::Stale => return Err(changed()),
     }
     let mut warnings = Vec::new();
     let (persisted, permissions, disposition, mode) = if let Some((bytes, permissions)) = existing {
@@ -424,7 +448,12 @@ pub(crate) fn write_file(
         std::io::ErrorKind::AlreadyExists => unseen(),
         _ => io(error),
     })?;
-    if let Some(error) = placed.unsynced {
+    let landed = crate::commit::outcome(crate::commit::Pub::Updated(crate::commit::Placed::Yes {
+        synced: placed.unsynced.is_none(),
+    }));
+    if let (crate::commit::Outcome::Lands(crate::commit::Warn::Sync), Some(error)) =
+        (landed, &placed.unsynced)
+    {
         warnings.push(format!(
             "{display} was written, but its directory sync failed: {error}"
         ));
@@ -519,36 +548,56 @@ impl LockedWriter<'_> {
     }
 
     /// Phase 2 of one request: publish it; its real paths are `allowed`,
-    /// locked and checked, and `permissions` are the source file's.
+    /// locked and checked, and `permissions` are the source file's. What
+    /// the publish did is the core's choice ([`crate::commit::outcome`]).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one publish in order: place, remove the source, the core's outcome"
+    )]
     fn publish(
         &self,
         request: &EditWriteRequest<'_>,
         allowed: &Allowed,
         permissions: Permissions,
     ) -> Published {
+        use crate::commit::{outcome, Outcome, Placed as Spot, Pub, Warn};
         let source = &allowed.source;
         let display = request.display;
-        let landed = |written: &str, unsynced: Option<std::io::Error>| Published::Landed {
-            written: written.to_owned(),
-            warning: unsynced.map(|error| {
-                format!("{display} was written, but its directory sync failed: {error}")
-            }),
+        let spot = |placed: &Option<Placed>| match placed {
+            Some(placed) => Spot::Yes {
+                synced: placed.unsynced.is_none(),
+            },
+            None => Spot::No,
         };
-        match request.op {
-            WriteOp::Update { content, .. } => match publish(
-                source,
-                content.as_bytes(),
-                Some(permissions),
-                Publish::Replace,
-                self.faults,
-            ) {
-                Ok(placed) => landed(content, placed.unsynced),
-                Err(error) => Published::Failed(io_error(display, source, error)),
-            },
-            WriteOp::Delete { .. } => match std::fs::remove_file(source) {
-                Ok(()) => landed("", None),
-                Err(error) => Published::Failed(io_error(display, source, error)),
-            },
+        let mut failure = None;
+        let mut remove_warning = None;
+        let (facts, written, placed) = match request.op {
+            WriteOp::Update { content, .. } => {
+                let placed = match publish(
+                    source,
+                    content.as_bytes(),
+                    Some(permissions),
+                    Publish::Replace,
+                    self.faults,
+                ) {
+                    Ok(placed) => Some(placed),
+                    Err(error) => {
+                        failure = Some(io_error(display, source, error));
+                        None
+                    }
+                };
+                (Pub::Updated(spot(&placed)), content, placed)
+            }
+            WriteOp::Delete { .. } => {
+                let removed = match std::fs::remove_file(source) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        failure = Some(io_error(display, source, error));
+                        false
+                    }
+                };
+                (Pub::Deleted { removed }, "", None)
+            }
             WriteOp::Move {
                 destination,
                 destination_display,
@@ -559,41 +608,73 @@ impl LockedWriter<'_> {
                     .target
                     .clone()
                     .unwrap_or_else(|| real_path(destination));
-                if let Some(parent) = target.parent() {
-                    if let Err(error) = std::fs::create_dir_all(parent) {
-                        return Published::Failed(io_error(destination_display, parent, error));
+                let parent = target
+                    .parent()
+                    .map(|parent| (parent, std::fs::create_dir_all(parent)));
+                let placed = match parent {
+                    Some((parent, Err(error))) => {
+                        failure = Some(io_error(destination_display, parent, error));
+                        None
                     }
-                }
-                let placed = match publish(
-                    &target,
-                    content.as_bytes(),
-                    Some(permissions),
-                    Publish::Create,
-                    self.faults,
-                ) {
-                    Ok(placed) => placed,
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                        return Published::Failed(destination_taken(display, destination_display));
-                    }
-                    Err(error) => {
-                        return Published::Failed(io_error(destination_display, &target, error))
-                    }
-                };
-                let removed = self
-                    .faults
-                    .inject(source, Stage::RemoveSource)
-                    .and_then(|()| std::fs::remove_file(source));
-                match removed {
-                    Ok(()) => landed(content, placed.unsynced),
-                    Err(error) => Published::Landed {
-                        written: content.to_owned(),
-                        warning: Some(format!(
-                            "{display} was copied to {destination_display}, but it could not be \
-                             removed: {error}. Remove it with a REM edit."
-                        )),
+                    Some((_, Ok(()))) | None => match publish(
+                        &target,
+                        content.as_bytes(),
+                        Some(permissions),
+                        Publish::Create,
+                        self.faults,
+                    ) {
+                        Ok(placed) => Some(placed),
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                            failure = Some(destination_taken(display, destination_display));
+                            None
+                        }
+                        Err(error) => {
+                            failure = Some(io_error(destination_display, &target, error));
+                            None
+                        }
                     },
-                }
+                };
+                let removed = match &placed {
+                    Some(_) => match self
+                        .faults
+                        .inject(source, Stage::RemoveSource)
+                        .and_then(|()| std::fs::remove_file(source))
+                    {
+                        Ok(()) => true,
+                        Err(error) => {
+                            remove_warning = Some(format!(
+                                "{display} was copied to {destination_display}, but it could not be \
+                                 removed: {error}. Remove it with a REM edit."
+                            ));
+                            false
+                        }
+                    },
+                    None => true,
+                };
+                (
+                    Pub::Moved {
+                        placed: spot(&placed),
+                        removed,
+                    },
+                    content,
+                    placed,
+                )
             }
+        };
+        let sync_warning = placed
+            .and_then(|placed| placed.unsynced)
+            .map(|error| format!("{display} was written, but its directory sync failed: {error}"));
+        match (outcome(facts), failure) {
+            (Outcome::Lands(warn), _) => Published::Landed {
+                written: written.to_owned(),
+                warning: match warn {
+                    Warn::None => None,
+                    Warn::Sync => sync_warning,
+                    Warn::Remove => remove_warning,
+                },
+            },
+            (Outcome::Fails, Some(error)) => Published::Failed(error),
+            (Outcome::Fails, None) => crate::commit::inconsistent("a landed publish"),
         }
     }
 }
@@ -613,16 +694,12 @@ fn destination_taken(display: &str, destination: &str) -> EditError {
     ))
 }
 
-/// Fail unless `canonical` still holds `before_raw`; return its permissions.
-fn compare(canonical: &Path, display: &str, before_raw: &str) -> Result<Permissions, EditError> {
-    permissions_if_unchanged(canonical, before_raw.as_bytes())
-        .map_err(|source| io_error(display, canonical, source))?
-        .ok_or_else(|| {
-            EditError::apply(format!(
-                "Edit rejected for {display}: the file changed on disk while the edit was being \
-                 applied. Nothing was written. Re-read the file and retry."
-            ))
-        })
+/// The rejection of an edit whose file `display` changed since staging.
+fn changed_on_disk(display: &str) -> EditError {
+    EditError::apply(format!(
+        "Edit rejected for {display}: the file changed on disk while the edit was being \
+         applied. Nothing was written. Re-read the file and retry."
+    ))
 }
 
 impl EditWriter for LockedWriter<'_> {
@@ -657,11 +734,12 @@ impl EditWriter for LockedWriter<'_> {
         }
         let _locks = self.lock_all(&pairs)?;
         let mut checked = Vec::with_capacity(requests.len());
+        let mut mets = Vec::with_capacity(requests.len());
         for (request, paths) in requests.iter().zip(&allowed) {
             let source = &paths.source;
-            let permissions = match request.op {
+            let (before_raw, taken) = match request.op {
                 WriteOp::Update { before_raw, .. } | WriteOp::Delete { before_raw } => {
-                    compare(source, request.display, before_raw)?
+                    (before_raw, false)
                 }
                 WriteOp::Move {
                     before_raw,
@@ -669,25 +747,46 @@ impl EditWriter for LockedWriter<'_> {
                     destination_display,
                     ..
                 } => {
-                    let permissions = compare(source, request.display, before_raw)?;
                     let target = paths
                         .target
                         .clone()
                         .unwrap_or_else(|| real_path(destination));
-                    match std::fs::symlink_metadata(&target) {
-                        Ok(_) => {
-                            return Err(destination_taken(request.display, destination_display))
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    let taken = match std::fs::symlink_metadata(&target) {
+                        Ok(_) => true,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
                         Err(error) => return Err(io_error(destination_display, &target, error)),
-                    }
-                    permissions
+                    };
+                    (before_raw, taken)
                 }
             };
+            let permissions = permissions_if_unchanged(source, before_raw.as_bytes())
+                .map_err(|error| io_error(request.display, source, error))?;
+            mets.push(crate::commit::Met {
+                changed: permissions.is_none(),
+                taken,
+            });
             checked.push(permissions);
+        }
+        if let Some((at, why)) = crate::commit::check(&mets) {
+            let request = &requests[at];
+            return Err(match (why, request.op) {
+                (
+                    crate::commit::Why::Taken,
+                    WriteOp::Move {
+                        destination_display,
+                        ..
+                    },
+                ) => destination_taken(request.display, destination_display),
+                (crate::commit::Why::Changed, _)
+                | (crate::commit::Why::Taken, WriteOp::Update { .. } | WriteOp::Delete { .. }) => {
+                    changed_on_disk(request.display)
+                }
+            });
         }
         let mut published = Vec::with_capacity(requests.len());
         for ((request, paths), permissions) in requests.iter().zip(&allowed).zip(checked) {
+            let permissions =
+                permissions.unwrap_or_else(|| crate::commit::inconsistent("a checked file"));
             let result = self.publish(request, paths, permissions);
             let failed = match &result {
                 Published::Landed { .. } => false,
@@ -702,7 +801,5 @@ impl EditWriter for LockedWriter<'_> {
     }
 }
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;

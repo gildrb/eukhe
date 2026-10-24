@@ -210,9 +210,10 @@ impl Bridge {
             tokio::select! {
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        if let Err(refusal) = crate::pairing::admits(&tab.config.token_path, &presented).await {
-                            tracing::warn!(?refusal, "the tab's pairing token is not current; closing its socket");
-                            let unpaired = ServerFrame::Unpaired { error: refusal.error() }.to_text();
+                        let disk = crate::pairing::Disk::read(&tab.config.token_path).await;
+                        if let Err(error) = crate::pairing::admits(&disk, &presented) {
+                            tracing::warn!(%error, "the tab's pairing token is not current; closing its socket");
+                            let unpaired = ServerFrame::Unpaired { error: &error }.to_text();
                             if let Err(error) = sink.send(Message::text(unpaired)).await {
                                 tracing::debug!(%error, "telling the tab failed");
                             }

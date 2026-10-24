@@ -13,7 +13,7 @@ use tokio::process::Child;
 
 use super::{spawn_detached, TinyError, WorkerLauncher};
 use crate::catalog::{find, CatalogModel};
-use crate::election::{self, probe, Got, Launched, Launcher, Probe, BACKEND};
+use crate::election::{self, probe, Got, Launched, Launcher, Met, BACKEND};
 use crate::engine::EngineOptions;
 use crate::paths::TinyHome;
 use crate::protocol::{ChatMessage, ChatReply, ChatRequest, ChatRole, Reply, Request, StopReason};
@@ -149,9 +149,10 @@ fn echoed(text: &str) -> Reply {
 }
 
 async fn live_tag(socket: &Path) -> Option<String> {
-    match probe(socket).await.unwrap() {
-        Probe::Live { tag, .. } => Some(tag),
-        Probe::Absent => None,
+    match probe(socket).await {
+        Met::Pong { tag, .. } => Some(tag),
+        Met::Missing | Met::Hung => None,
+        Met::Unreachable(_) | Met::Odd(_) | Met::Garbled(_) => panic!("the socket failed"),
     }
 }
 

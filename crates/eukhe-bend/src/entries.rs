@@ -104,6 +104,14 @@ pub enum Entry {
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a call and a stepper.
     AuthFlight = 92,
+    /// `bend/ffi_tiny_elect.bend`: a call.
+    TinyElect = 100,
+    /// `bend/ffi_dash.bend`: a call.
+    Dash = 101,
+    /// `bend/ffi_doc_tags.bend`: a call.
+    DocTags = 102,
+    /// `bend/ffi_doc_commit.bend`: a call.
+    DocCommit = 103,
 }
 
 impl Entry {
@@ -158,6 +166,10 @@ impl Entry {
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
+        Entry::TinyElect,
+        Entry::Dash,
+        Entry::DocTags,
+        Entry::DocCommit,
     ];
 
     /// The id `bend/core.bend` dispatches on.

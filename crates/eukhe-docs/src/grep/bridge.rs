@@ -1,5 +1,5 @@
-//! Grep's rows against read's, and the bridge from grep's tags to their
-//! model.
+//! Grep's rows against read's, and grep's tags on a file rewritten during
+//! the search.
 //!
 //! Rows: read's rows are the compiled core's decision over the scan of the
 //! file (`bend/doc_rows.bend`, law `rows_lines_are_read_rows`); grep's
@@ -8,11 +8,11 @@
 //! [`Documents::read`] and searched with the pattern `^`, show the same
 //! rows (the model's law `grep_line_is_read_line`, here on the real code).
 //!
-//! Tags (`bend/doc_tags.bend`, law `tag_names_shown_text`): a file holds
-//! version 1 (N1 lines) when grep searches it and version 2 (N2 lines)
-//! when grep records it ([`grep_with`]'s `between`). A scenario line is
-//! `N1 N2`; it prints `t V` (the versions whose text has the tag of the
-//! result) and `r V` (the versions whose lines are the rows).
+//! Tags (`bend/doc_tags.bend`, laws `tag_names_shown_text` and
+//! `grep_tag_fates_spec`; the choice runs as the compiled core,
+//! `bend/ffi_doc_tags.bend`): a file holds version 1 when grep searches it
+//! and version 2 when grep records it ([`grep_with`]'s `between`); the tag
+//! and the rows name version 1, the searched text.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -20,11 +20,10 @@ use std::path::Path;
 use super::{grep_with, GrepLimits, GrepOutput, GrepRequest};
 use crate::read::ReadContent;
 use crate::store::EditStore;
-use crate::testing::{compare, Rng, Scenario};
+use crate::testing::Rng;
 use crate::text::lf_text;
 use crate::Documents;
 
-const TAGS_MODEL: &str = "bridge/bridge_doc_tags.bend";
 const BOM: &str = "\u{FEFF}";
 
 /// A request for every line of `path`.
@@ -165,26 +164,19 @@ fn rewritten(dir: &Path, lines: [u64; 2]) -> String {
     )
 }
 
-/// The tag of a grep result names the version its rows come from, as the
-/// model's result does, when the file is rewritten between the search and
-/// the record, on 30 scenarios of 1 to 3 rewrites of 1 to 12 lines.
+/// The tag of a grep result and its rows name the searched version when
+/// the file is rewritten between the search and the record, on 30
+/// rewrites of 1 to 12 lines.
 #[test]
-fn a_grep_tag_names_the_searched_text_as_the_bend_model() {
+fn a_grep_tag_names_the_searched_text() {
     let mut rng = Rng(0x7a95_5ea2_c4ed_0002);
     let dir = tempfile::tempdir().unwrap();
-    let scenarios = (0..30).map(|at| {
-        let mut events = Vec::new();
-        let mut transcript = String::new();
-        for index in 0..rng.range(1, 3) {
-            let lines = [rng.range(1, 12), rng.range(1, 12)];
-            transcript.push_str(&rewritten(&dir.path().join(format!("{at}-{index}")), lines));
-            events.push(format!("{} {}", lines[0], lines[1]));
-        }
-        Scenario {
-            name: format!("tags-{at}"),
-            events: events.join("\n"),
-            transcript,
-        }
-    });
-    compare(TAGS_MODEL, scenarios.collect::<Vec<_>>());
+    for at in 0..30 {
+        let lines = [rng.range(1, 12), rng.range(1, 12)];
+        assert_eq!(
+            rewritten(&dir.path().join(at.to_string()), lines),
+            "t 1\nr 1\n",
+            "{lines:?}"
+        );
+    }
 }

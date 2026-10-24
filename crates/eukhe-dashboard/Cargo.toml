@@ -12,6 +12,8 @@ eukhe-types = { path = "../eukhe-types" }
 eukhe-build-info = { path = "../eukhe-build-info" }
 # The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
 eukhe-tui = { path = "../eukhe-tui" }
+# The pairing choices run as the compiled Bend core (bend/ffi_dash.bend).
+eukhe-bend.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
