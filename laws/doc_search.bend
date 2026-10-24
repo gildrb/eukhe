@@ -507,6 +507,29 @@ law search_scope_answers:
   for h: {ds_fits([2n, roots, dirs, skip, ds_opt(lim)]) == True{} : Bool}
   {FDs.ffi(ds_spell([2n, roots, dirs, skip, ds_opt(lim)])) == ds_spell(ds_scope(roots, dirs, skip, lim)) : String}
 
+# the spec of grep's scope as the model's record: several files when the
+# path has more than one root or a directory root; then 20 matches a file
+# and the skip asked, else 200 and no skip; a page of the match limit + 1
+# files, else 20
+def ds_scope_rule(roots: Nat, dirs: Nat, +skip: Nat, lim: Maybe<&2, Nat>) -> Sr.Scope:
+  +m = Bool.or(Nat.is_lt(1n, roots), Nat.is_lt(0n, dirs))
+  Sr.Scope{m, ds_nat_if(m, 20n, 200n), ds_nat_if(m, skip, 0n), ds_page_size(lim)}
+
+# LAW search_scope_rule: the model's scope rule (Sr.scope) of roots, dirs,
+# skip and match limit is the spec's scope: several files with more than
+# one root or a directory root, 20 matches a file and the skip asked; one
+# file: 200 and no skip; a page of the match limit + 1 files, 20 without
+# a limit
+# EXCLUDES: a rule that ignores directory roots (or any input) while the
+#   compiled entry computes the scope inline, so the model and the entry
+#   disagree
+law search_scope_rule:
+  for +roots: Nat
+  for +dirs: Nat
+  for +skip: Nat
+  for +lim: Maybe<&2, Nat>
+  {Sr.scope(roots, dirs, skip, lim) == ds_scope_rule(roots, dirs, skip, lim) : Sr.Scope}
+
 # the spec reader: whether s is exactly the spelling of a list of Nats,
 # nothing after it, of the shape a call (ds_call_ok), an open
 # (ds_open_ok) or an event (ds_event_ok) needs
