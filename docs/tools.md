@@ -390,9 +390,11 @@ answer, the gateway alone, clients that leave while the gateway stays;
 
 Code: `eukhe-daemon/src/shell_approval.rs` (`ShellApprovals::ask`, `relay`), `worker.rs` (relay over the supervisor link), `worker/connection.rs` (client kind at attach), `supervisor/routing.rs` (relay budget), `eukhe-tui/src/session_ui/settings.rs` (prompt), `eukhe-gateway/src/link.rs` (attaches as `gateway`), `eukhe-core/src/settings/cvar/table.rs` (`SHELL_AUTO_EFFECTS`, default auto set).
 
+Runs as the compiled core: entry `bend/ffi_approvals.bend` (id 53), Rust `eukhe_bend::rules::approvals`, called by `ShellApprovals::route` at each session a question reaches: what the session does (`next`: show it to its interactive clients; end it by the gateway rule when its clients are all the phone gateway; relay it to its parent when no client is attached; no answer at a root), what its clients' answer makes of the step (`answered`), and the default auto set (`default_auto`). Laws: `laws/approvals.bend` section approvals entry (`approvals_ffi_exact`, `approvals_ffi_answers`, `approvals_ffi_left_over`, `approvals_ffi_example`). What stays in Rust is the interleaving (the relay over the supervisor, clients that detach, the first answer wins), checked by the bridge.
+
 Ties:
-- `shell_approval::bridge::the_approval_route_is_its_model` vs `bridge/bridge_approvals.bend`: every chain of up to 3 sessions with a write, a program run, a protected write, a secret read, plus generated longer ones, on real `ShellApprovals` relaying through each parent's real handler; compares which sessions showed the question, whether each frame names the subagent, the end.
-- `durable::shell::tests::the_default_auto_set_is_its_model`: real default auto set vs the same model: effects held; whether the gate runs each of the 127 steps of 1 to 7 effects unasked.
+- `shell_approval::bridge::the_approval_route_is_its_model` vs `bridge/bridge_approvals.bend` (`route`): every chain of up to 3 sessions with a write, a program run, a protected write, a secret read, plus generated longer ones, on real `ShellApprovals` relaying through each parent's real handler; compares which sessions showed the question, whether each frame names the subagent, the end.
+- `durable::shell::tests::the_default_auto_set_is_its_model`: the real default auto set equals the core's `default_auto`.
 
 Tests:
 - `with_no_auto_set_a_write_outside_the_workspace_runs_unasked`: no client; write, program run and outside write all run.

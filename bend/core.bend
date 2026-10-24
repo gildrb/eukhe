@@ -3,6 +3,7 @@
 import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
+import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
@@ -136,6 +137,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_shell.ffi(input)
     case 52:
       ffi_runners.ffi(input)
+    case 53:
+      ffi_approvals.ffi(input)
     case _:
       W.err("unknown entry")
 

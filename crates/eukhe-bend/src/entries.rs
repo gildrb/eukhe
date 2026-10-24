@@ -92,6 +92,8 @@ pub enum Entry {
     Shell = 50,
     /// `bend/ffi_runners.bend`: a call.
     Runners = 52,
+    /// `bend/ffi_approvals.bend`: a call.
+    Approvals = 53,
 }
 
 impl Entry {
@@ -140,6 +142,7 @@ impl Entry {
         Entry::DocRows,
         Entry::Shell,
         Entry::Runners,
+        Entry::Approvals,
     ];
 
     /// The id `bend/core.bend` dispatches on.

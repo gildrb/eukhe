@@ -203,3 +203,40 @@ def gate.by(w: Bool, +es: List<&2, Nat>, ds: List<&2, Desk>) -> Gated:
 # that heads the chain ds
 def gate(+auto: List<&2, Nat>, +es: List<&2, Nat>, ds: List<&2, Desk>) -> Gated:
   gate.by(Tl.within(es, auto), es, ds)
+
+# One session's decision (crates/eukhe-daemon/src/shell_approval.rs
+# `route`, run as the compiled core): who answers a question of the
+# session now
+type Here is Data:
+  Nobody{}       # no client is attached
+  GatewayOnly{}  # clients are attached, and all are the phone gateway
+  Clients{}      # an interactive client is attached
+
+# What the session does with the question
+type Next is Data:
+  Show{}         # a frame to its clients: their answer, or their leaving, decides
+  Relay{}        # hand it to the parent session (`relay_shell_approval`)
+  Ends{f: Fate}  # it ends here: the step fares f
+
+# a session with no client: up to its parent, else no one answers
+def next.alone(+es: List<&2, Nat>, parent: Bool) -> Next:
+  match parent:
+    case True{}:
+      Relay{}
+    case False{}:
+      Ends{fate(es, Out.end(route(Nil{})))}
+
+# what a session that is h, with a parent or not, does with the question
+# of a step with the effects es
+def next(+es: List<&2, Nat>, h: Here, parent: Bool) -> Next:
+  match h:
+    case Nobody{}:
+      next.alone(es, parent)
+    case GatewayOnly{}:
+      Ends{fate(es, Out.end(route([Phone{}])))}
+    case Clients{}:
+      Show{}
+
+# what the answer yes of a session's clients makes of the step
+def answered(+es: List<&2, Nat>, yes: Bool) -> Fate:
+  fate(es, Out.end(route([Says{yes}])))

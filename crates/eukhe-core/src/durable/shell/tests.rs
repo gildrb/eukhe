@@ -1,10 +1,9 @@
 //! The `bash` tool under the S2 limits: its output bounded by the call's
 //! truncation (whole under the opt-out), and a script past the blocking
 //! budget detached as a job whose end settles it and whose kill stops it.
-//! The gate's refusal texts, and the default auto set against its model
-//! (`bend/approvals.bend` `default_auto`).
+//! The gate's refusal texts, and the default auto set against the
+//! compiled core's (`bend/approvals.bend` `default_auto`).
 
-use std::fmt::Write as _;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,12 +12,10 @@ use std::time::Duration;
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions, FauxResponseStep,
 };
-use eukhe_bend::rules::shell::{allows, Gate};
+use eukhe_bend::rules::approvals;
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
-use eukhe_durable::testing::bridge::{compare, Scenario};
 use eukhe_types::pi_ai::{JsonObject, StopReason};
-use eukhe_types::shell::ShellEffects;
 use serde_json::{json, Value};
 
 use super::*;
@@ -310,49 +307,16 @@ reads or writes a secret never runs. Ask the user to run it from the eukhe TUI o
     );
 }
 
-/// The auto set of a session whose user sets no `shell.autoEffects`
-/// against its model (`bend/approvals.bend` `default_auto`, laws
-/// `default_auto_is_grantable` and `never_auto_is_routed`): the effects
-/// it holds, and for each of the 127 steps of one to seven effects
-/// whether the gate runs it unasked.
+/// The auto set of a session whose user sets no `shell.autoEffects` is
+/// the compiled core's default (`bend/approvals.bend` `default_auto`, law
+/// `default_auto_is_grantable`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_default_auto_set_is_its_model() {
     let fixture = Fixture::new();
     let session = fixture.open_configured(|_| {}).await;
-    let auto = auto_set(&session.deps().settings);
-    let mut events = "d\n".to_owned();
-    let mut transcript = ShellEffect::ALL
-        .into_iter()
-        .filter(|&effect| allows(auto, ShellEffects::of(&[effect])) == Gate::Unasked)
-        .fold("d".to_owned(), |mut line, effect| {
-            write!(line, " {}", effect.code()).unwrap();
-            line
-        });
-    transcript.push('\n');
-    for mask in 1u8..1 << ShellEffect::ALL.len() {
-        let effects: Vec<ShellEffect> = ShellEffect::ALL
-            .into_iter()
-            .filter(|&effect| mask & 1 << effect.code() != 0)
-            .collect();
-        events.push('a');
-        for effect in &effects {
-            write!(events, " {}", effect.code()).unwrap();
-        }
-        events.push('\n');
-        let gated = if allows(auto, ShellEffects::of(&effects)) == Gate::Unasked {
-            "unasked"
-        } else {
-            "asks"
-        };
-        writeln!(transcript, "a {gated}").unwrap();
-    }
-    compare(
-        "bridge/bridge_approvals.bend",
-        [Scenario {
-            name: "the default auto set".to_owned(),
-            events,
-            transcript,
-        }],
+    assert_eq!(
+        auto_set(&session.deps().settings),
+        approvals::default_auto()
     );
     session.close(cx()).await.expect("close");
 }

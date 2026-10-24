@@ -1271,3 +1271,8 @@ import ./proof/runners/runners_ffi_exact.bend as PRunnersFfiExact
 import ./proof/runners/runners_ffi_answers.bend as PRunnersFfiAnswers
 import ./proof/runners/runners_ffi_left_over.bend as PRunnersFfiLeftOver
 import ./proof/runners/runners_ffi_example.bend as PRunnersFfiExample
+import ./proof/approvals/base/entry.bend as LAApprovalsEntry
+import ./proof/approvals/approvals_ffi_exact.bend as PApprovalsFfiExact
+import ./proof/approvals/approvals_ffi_answers.bend as PApprovalsFfiAnswers
+import ./proof/approvals/approvals_ffi_left_over.bend as PApprovalsFfiLeftOver
+import ./proof/approvals/approvals_ffi_example.bend as PApprovalsFfiExample
