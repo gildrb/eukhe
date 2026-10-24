@@ -42,3 +42,5 @@
 38 skill_load
 41 doc_rows
 40 doc_search
+80 job_rewind
+81 job_wait

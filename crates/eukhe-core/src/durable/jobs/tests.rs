@@ -24,7 +24,8 @@ use tokio::sync::mpsc;
 
 use super::tree::{write_records, JobRecord, JOB_DOC};
 use super::{
-    wait_until, Job, JobEnd, JobEvent, JobKind, JobSpec, JobState, JobTable, Wait, JOB_DOC_KIND,
+    lock, wait_until, Job, JobEnd, JobEvent, JobKind, JobSpec, JobState, JobTable, Wait,
+    JOB_DOC_KIND,
 };
 
 fn capped(max_bytes: usize) -> Truncation {
@@ -150,23 +151,41 @@ fn the_opt_out_keeps_every_byte() {
     );
 }
 
+/// A rewind sends the kill to the running jobs that started after its
+/// target entry was committed, as the compiled core decides (entry
+/// `job_rewind`); an entry the table did not see, or no target, stops
+/// every running job.
 #[test]
-fn a_rewind_kills_the_running_jobs_the_target_does_not_hold() {
+fn a_rewind_kills_the_running_jobs_that_started_after_its_target() {
     let table = JobTable::default();
     let kills = Arc::new(AtomicUsize::new(0));
-    let kept = start(&table, "bash-kept", Truncation::default(), &kills);
-    let orphan = start(&table, "bash-orphan", Truncation::default(), &kills);
+    let _first = start(&table, "bash-first", Truncation::default(), &kills);
+    lock(&table.entries).last = Some(Seq::from_number(4));
+    let _before = start(&table, "bash-before", Truncation::default(), &kills);
+    {
+        let mut entries = lock(&table.entries);
+        entries
+            .commits
+            .insert(EntryId::from_number(7), Seq::from_number(5));
+        entries.last = Some(Seq::from_number(5));
+    }
+    let _orphan = start(&table, "bash-orphan", Truncation::default(), &kills);
     let ended = start(&table, "bash-ended", Truncation::default(), &kills);
     ended.record(JobEvent::Exited(0));
-    let stopped: Vec<JobId> = table
-        .rewind(|job| job.id().as_str() == "bash-kept")
-        .iter()
-        .map(|job| job.id().clone())
-        .collect();
-    assert_eq!(stopped, vec![JobId::new("bash-orphan").expect("id")]);
+    let stopped = |target: Option<EntryId>| -> Vec<String> {
+        table
+            .rewind_to(target)
+            .iter()
+            .map(|job| job.id().as_str().to_owned())
+            .collect()
+    };
+    assert_eq!(stopped(Some(EntryId::from_number(7))), vec!["bash-orphan"]);
     // The kill is the owner's signal; the owner reports the end.
     assert_eq!(kills.load(Ordering::SeqCst), 1);
-    assert!(kept.is_running() && orphan.is_running());
+    let every = vec!["bash-first", "bash-before", "bash-orphan"];
+    assert_eq!(stopped(Some(EntryId::from_number(9))), every);
+    assert_eq!(stopped(None), every);
+    assert_eq!(kills.load(Ordering::SeqCst), 7);
 }
 
 /// A job that starts after its run wrote output (a detached cell or

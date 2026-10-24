@@ -88,6 +88,10 @@ pub enum Entry {
     DocSearch = 40,
     /// `bend/ffi_doc_rows.bend`: a call.
     DocRows = 41,
+    /// `bend/ffi_job_rewind.bend`: a call.
+    JobRewind = 80,
+    /// `bend/ffi_job_wait.bend`: a call.
+    JobWait = 81,
 }
 
 impl Entry {
@@ -134,6 +138,8 @@ impl Entry {
         Entry::SkillLoad,
         Entry::DocSearch,
         Entry::DocRows,
+        Entry::JobRewind,
+        Entry::JobWait,
     ];
 
     /// The id `bend/core.bend` dispatches on.

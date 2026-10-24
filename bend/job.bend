@@ -9,8 +9,10 @@
 # counts the rest as dropped; None (the explicit opt-out) keeps all.
 # Truncation is on by default: the Rust default is Some.
 #
-# The Rust jobs (crates/eukhe-core/src/durable/jobs/) are checked against
-# this model by the bridge (bridge/bridge_job.bend).
+# The Rust jobs (crates/eukhe-core/src/durable/jobs/) run `feed`, `kills`
+# and `poll` as the compiled Bend core (ffi_job, ffi_job_rewind,
+# ffi_job_wait); the bridge (bridge/bridge_job.bend) ties only the
+# interleaving of a blocking wait to `wait`.
 
 import Base
 
@@ -509,3 +511,68 @@ def kept(js: List<&2, Slot>, ks: List<&2, Slot>, +keep: List<&2, Nat>) -> Bool:
       False{}
     case +j <> jr +k <> kr:
       Bool.and(Bool.or(Bool.not(elem(keep, Slot.id(j))), Bool.and(Nat.is_eq(Slot.id(j), Slot.id(k)), b.eq(Slot.running(j), Slot.running(k)))), kept(jr, kr, keep))
+
+# The rewind the Rust table runs
+# ------------------------------
+# The Rust table (JobTable::rewind_to) knows of each job whether it runs
+# and `after`: the commit of the last entry the table saw when the job
+# started (None: no entry since the session opened). A rewind to the
+# session just after its target entry knows that entry's commit (None: no
+# target, or an entry the table did not see, committed before the session
+# opened, so before every job). The target tree holds a job exactly when
+# the job started before the target entry was committed; the rewind sends
+# the kill to every other running job (ffi_job_rewind).
+
+type Seen is Data:
+  Seen{running: Bool, after: Maybe<&2, Nat>}
+
+# the tree just after the entry committed at target holds the job that
+# started after the commit `after`
+def held(target: Maybe<&2, Nat>, after: Maybe<&2, Nat>) -> Bool:
+  match target:
+    case None{}:
+      False{}
+    case Some{t}:
+      match after:
+        case None{}:
+          True{}
+        case Some{a}:
+          Nat.is_lt(a, t)
+
+# a rewind to target sends the kill to a job that runs and that the
+# target tree does not hold
+def kill.of(target: Maybe<&2, Nat>, s: Seen) -> Bool:
+  match s:
+    case Seen{r, a}:
+      Bool.and(r, Bool.not(held(target, a)))
+
+# the kill a rewind to target sends each job of js, in order
+def kills(js: List<&2, Seen>, +target: Maybe<&2, Nat>) -> List<&2, Bool>:
+  match js:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      kill.of(target, s) <> kills(rest, target)
+
+# A blocking call, poll by poll
+# -----------------------------
+# The Rust wait (wait_until) is polled. At each poll it knows whether its
+# deadline passed (`due`) and whether the job's end is ready, and decides
+# (ffi_job_wait): a passed deadline detaches, even when the end is ready;
+# else a ready end settles; else the call waits for the next poll.
+
+type Turn is Data:
+  Waits{}
+  Settles{}
+  Detaches{}
+
+def poll(due: Bool, ready: Bool) -> Turn:
+  match due:
+    case True{}:
+      Detaches{}
+    case False{}:
+      match ready:
+        case True{}:
+          Settles{}
+        case False{}:
+          Waits{}

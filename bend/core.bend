@@ -22,6 +22,8 @@ import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
+import ./ffi_job_rewind.bend as ffi_job_rewind
+import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
@@ -130,6 +132,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_search.ffi(input)
     case 41:
       ffi_doc_rows.ffi(input)
+    case 80:
+      ffi_job_rewind.ffi(input)
+    case 81:
+      ffi_job_wait.ffi(input)
     case _:
       W.err("unknown entry")
 
