@@ -4,6 +4,7 @@
 
 pub mod approvals;
 pub mod cvar;
+pub mod frames;
 pub mod fsmode;
 pub mod retry;
 pub mod runners;

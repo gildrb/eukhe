@@ -125,6 +125,68 @@ def oks(fs: List<&2, Frame>, +max: Nat, +allowed: List<&2, Nat>) -> Nat:
     case +f <> rest:
       Nat.add(one(accepts(max, allowed, f)), oks(rest, max, allowed))
 
+# The gate of one host-request frame, as the Rust host runs it
+# (crates/eukhe-core/src/kernel/manager/frames.rs `Gate::admit`, through
+# the compiled core): Rust reads the frame's facts (its id is fresh or
+# seen before, its length, its type and whether the host serves that
+# type); the gate refuses a repeated id first, then a frame longer than
+# `max`, then a frame with no type or of a type the host does not serve,
+# and serves the rest.
+type Typed is Data:
+  Unnamed{}            # no type (or not a string, or empty)
+  Named{served: Bool}  # a type, and whether the host serves it
+
+type Verdict is Data:
+  Serve{}
+  Duplicate{}
+  Oversize{}
+  Kindless{}
+  NotServed{}
+
+def admit.kind(k: Typed) -> Verdict:
+  match k:
+    case Unnamed{}:
+      Kindless{}
+    case Named{s}:
+      match s:
+        case True{}:
+          Serve{}
+        case False{}:
+          NotServed{}
+
+# fits: the frame is within the limit
+def admit.size(fits: Bool, k: Typed) -> Verdict:
+  match fits:
+    case True{}:
+      admit.kind(k)
+    case False{}:
+      Oversize{}
+
+def admit.fresh(fresh: Bool, +max: Nat, +len: Nat, k: Typed) -> Verdict:
+  match fresh:
+    case True{}:
+      admit.size(Nat.is_le(len, max), k)
+    case False{}:
+      Duplicate{}
+
+# the verdict on a host-request frame of `len` bytes under the limit
+# `max`, whose id is fresh or not, of the type k
+def admit(+max: Nat, fresh: Bool, +len: Nat, k: Typed) -> Verdict:
+  admit.fresh(fresh, max, len, k)
+
+def Verdict.serve(v: Verdict) -> Bool:
+  match v:
+    case Serve{}:
+      True{}
+    case Duplicate{}:
+      False{}
+    case Oversize{}:
+      False{}
+    case Kindless{}:
+      False{}
+    case NotServed{}:
+      False{}
+
 # 2. A copy-on-write workspace
 # ----------------------------
 # A workspace maps paths to contents: None is no file.

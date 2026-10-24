@@ -1276,3 +1276,12 @@ import ./proof/approvals/approvals_ffi_exact.bend as PApprovalsFfiExact
 import ./proof/approvals/approvals_ffi_answers.bend as PApprovalsFfiAnswers
 import ./proof/approvals/approvals_ffi_left_over.bend as PApprovalsFfiLeftOver
 import ./proof/approvals/approvals_ffi_example.bend as PApprovalsFfiExample
+import ./proof/sandbox/base/frames.bend as LASandboxFrames
+import ./proof/sandbox/frames_admit_seen.bend as PFramesAdmitSeen
+import ./proof/sandbox/frames_admit_oversize.bend as PFramesAdmitOversize
+import ./proof/sandbox/frames_admit_within.bend as PFramesAdmitWithin
+import ./proof/sandbox/frames_admit_serves_accepted.bend as PFramesAdmitServesAccepted
+import ./proof/sandbox/frames_ffi_exact.bend as PFramesFfiExact
+import ./proof/sandbox/frames_ffi_answers.bend as PFramesFfiAnswers
+import ./proof/sandbox/frames_ffi_left_over.bend as PFramesFfiLeftOver
+import ./proof/sandbox/frames_ffi_example.bend as PFramesFfiExample
