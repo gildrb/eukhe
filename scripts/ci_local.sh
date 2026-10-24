@@ -13,8 +13,8 @@
 #                                 from prek), in this worktree: rustfmt,
 #                                 their secrets scan, clippy and `cargo
 #                                 test` on the crates they touch, and `bend
-#                                 PROOF.bend`. No lock: every worktree
-#                                 pushes at any time.
+#                                 PROOF.bend` when a Bend input changed. No
+#                                 lock: every worktree pushes at any time.
 #   scripts/ci_local.sh full      `make ci-local`: the full gate, on the
 #                                 current tree.
 #
@@ -105,14 +105,31 @@ docs_only() {
 }
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
-# files, the agent rules and docs/. (scripts/release/ and README.md stay
-# code: eukhe-cli's packaging tests run and copy them.)
+# files, the agent rules, docs/, and the laws and proofs (the proofs gate
+# checks them; the bridge drivers import only bend/). (scripts/release/ and
+# README.md stay code: eukhe-cli's packaging tests run and copy them.)
 outside_crates() {
   case "$1" in
     "" | .github/* | nix/* | docs/* | scripts/ci_* | scripts/test_ci_* | \
-      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock) return 0 ;;
+      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock | \
+      LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# A change the proofs gate must check: a Bend file, the generated core and
+# its entry list, or the scripts and toolchain pin the gate runs.
+bend_touched() {
+  local path old p
+  while IFS=$'\t' read -r path old; do
+    for p in "${path}" "${old}"; do
+      case "${p}" in
+        *.bend | bend/* | crates/eukhe-bend/* | scripts/bend_core.py | \
+          scripts/check_laws_wired.py | scripts/toolchain.env) return 0 ;;
+      esac
+    done
+  done <<<"$1"
+  return 1
 }
 
 # The crates a change touches and their reverse dependencies
@@ -167,12 +184,36 @@ tests_touched() {
 
 proofs() {
   local out
+  if ! bend_touched "$1"; then
+    echo "proofs skipped: no Bend input changed"
+    return 0
+  fi
   out="$(mktemp)"
   python3 scripts/check_laws_wired.py .
   python3 scripts/bend_core.py check
   bend PROOF.bend | tee "${out}"
   grep -qx 'ALL PROOFS CHECK' "${out}"
   rm -f "${out}"
+}
+
+# The laws against the committed LAWS.lock (the bend skill's `gate.py
+# --lock-only`, seconds), when a law, a spec helper or the lock changed: a
+# law changed without the user's re-lock fails here. BEND_SKILL: the skill
+# directory (default ~/.agents/skills/bend).
+laws_lock() {
+  local skill="${BEND_SKILL:-${HOME}/.agents/skills/bend}" path old p hit=1
+  while IFS=$'\t' read -r path old; do
+    for p in "${path}" "${old}"; do
+      case "${p}" in
+        LAWS.bend | LAWS.lock | laws/* | spec/*) hit=0 ;;
+      esac
+    done
+  done <<<"$1"
+  if (( hit )); then
+    echo "lock skipped: no law or lock changed"
+    return 0
+  fi
+  python3 "${skill}/scripts/gate.py" . --lock-only
 }
 
 secrets_staged() {
@@ -338,7 +379,8 @@ case "${mode}" in
     gate fmt cargo fmt --all --check
     CI_LOCAL_SECRETS_RANGE="${base}..${to}" gate secrets secrets_range
     gate "clippy (touched crates)" clippy_touched "${rows}"
-    gate proofs proofs
+    gate proofs proofs "${rows}"
+    gate "laws lock" laws_lock "${rows}"
     gate "tests (touched crates)" tests_touched "${rows}"
     ;;
   *)

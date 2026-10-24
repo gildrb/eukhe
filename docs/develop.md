@@ -22,7 +22,7 @@ Hooks (`.pre-commit-config.yaml`) run under `nice -n 10` and unset `RUSTUP_TOOLC
 |Hook|Command|Checks|
 |---|---|---|
 |pre-commit|`make ci-fast`|Staged change: `cargo fmt`; gitleaks on the staged diff (skipped with a note if not installed); clippy `-D warnings` on touched crates + dependents (`scripts/ci_pr_crates.py`; a path outside `crates/<crate>/` selects the workspace)|
-|pre-push|`scripts/ci_local.sh pre-push`|Pushed commits, in the pushing worktree: `cargo fmt`; gitleaks on them; clippy and `cargo test --no-fail-fast` on touched crates + dependents; `scripts/check_laws_wired.py`; `bend PROOF.bend`|
+|pre-push|`scripts/ci_local.sh pre-push`|Pushed commits, in the pushing worktree: `cargo fmt`; gitleaks on them; clippy and `cargo test --no-fail-fast` on touched crates + dependents (`laws/`, `proof/`, `LAWS.bend`, `PROOF.bend`, `LAWS.lock`, docs, CI and agent files select no crate); `scripts/check_laws_wired.py`, `bend_core.py check` and `bend PROOF.bend` only when a Bend input changed (`*.bend`, `bend/`, `crates/eukhe-bend/`, the gate scripts, `scripts/toolchain.env`); `gate.py --lock-only` of the bend skill (`$BEND_SKILL`, default `~/.agents/skills/bend`) when a law or `LAWS.lock` changed|
 
 - Push from a worktree at the pushed commit. No lock; any worktree pushes any time.
 - Skip: a push changing only Markdown in `docs/` or the repo root skips pre-push.
