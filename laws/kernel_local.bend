@@ -627,3 +627,142 @@ law kernel_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, KL.Ask>}
   {FKL.ffi(s) == SCon{'E', SCon{' ', "kernel_local: malformed request"}} : String}
+
+# The model's own terms, pinned
+# -----------------------------
+# The laws of K1.1-K1.3 read the model's own predicates and counters
+# (acts.fetching, acts.runs, acts.verified, own_left, sweep, lefts.dead,
+# lefts.live); these pin each of them to its meaning.
+
+# some action fetches
+def fetching_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          True{}
+        case KL.Offline{}:
+          fetching_spec(t)
+        case KL.Check{}:
+          fetching_spec(t)
+        case KL.Run{}:
+          fetching_spec(t)
+
+# some action starts the kernel
+def runs_spec(xs: List<&2, KL.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          runs_spec(t)
+        case KL.Offline{}:
+          runs_spec(t)
+        case KL.Check{}:
+          runs_spec(t)
+        case KL.Run{}:
+          True{}
+
+# every fetch is hashed, and every start comes after a check that follows
+# the last fetch before it (clean: no fetch since the last check)
+def verified_spec(xs: List<&2, KL.Act>, clean: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      match x:
+        case KL.Fetch{h}:
+          match h:
+            case True{}:
+              verified_spec(t, False{})
+            case False{}:
+              False{}
+        case KL.Offline{}:
+          verified_spec(t, clean)
+        case KL.Check{}:
+          verified_spec(t, True{})
+        case KL.Run{}:
+          match clean:
+            case True{}:
+              verified_spec(t, True{})
+            case False{}:
+              False{}
+
+# an attempt leaves a candidate of its own only when its process died in it
+def own_left_spec(e: KL.End) -> Nat:
+  match e:
+    case KL.Got{}:
+      0n
+    case KL.Busy{}:
+      0n
+    case KL.Freed{}:
+      0n
+    case KL.Crash{}:
+      1n
+
+def sweep_spec.cons(b: Bool, l: KL.Left, t: List<&2, KL.Left>) -> List<&2, KL.Left>:
+  match b:
+    case True{}:
+      l <> t
+    case False{}:
+      t
+
+# the files the sweep keeps, in order
+def sweep_spec(ls: List<&2, KL.Left>) -> List<&2, KL.Left>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> t:
+      sweep_spec.cons(keep_spec(l), l, sweep_spec(t))
+
+# 1 for a leftover of a dead attempt: a candidate or a set-aside lock of a
+# dead owner
+def dead_one(l: KL.Left) -> Nat:
+  match l:
+    case KL.Left{k, o}:
+      match k:
+        case KL.Cand{}:
+          match o:
+            case KL.Alive{}:
+              0n
+            case KL.Dead{}:
+              1n
+        case KL.Aside{}:
+          match o:
+            case KL.Alive{}:
+              0n
+            case KL.Dead{}:
+              1n
+        case KL.Foreign{}:
+          0n
+
+# the leftovers of dead attempts
+def dead_spec(ls: List<&2, KL.Left>) -> Nat:
+  match ls:
+    case Nil{}:
+      0n
+    case l <> t:
+      Nat.add(dead_one(l), dead_spec(t))
+
+# the files the sweep must keep
+def live_spec(ls: List<&2, KL.Left>) -> Nat:
+  match ls:
+    case Nil{}:
+      0n
+    case l <> t:
+      Nat.add(Nat.sub(1n, dead_one(l)), live_spec(t))
+
+# LAW kernel_terms_exact: the model's predicates mean what the laws above read them as: a list fetches when some action is a fetch, runs when some action is the start, is verified when every fetch is hashed and every start follows a check after the last fetch; an attempt leaves its own candidate only when its process died inside it
+law kernel_terms_exact:
+  for xs: List<&2, KL.Act>
+  for c: Bool
+  for e: KL.End
+  {KL.acts.fetching(xs) == fetching_spec(xs) : Bool} & {KL.acts.runs(xs) == runs_spec(xs) : Bool} & {KL.acts.verified(xs, c) == verified_spec(xs, c) : Bool} & {KL.own_left(e) == own_left_spec(e) : Nat}
+
+# LAW kernel_sweep_terms_exact: the model's sweep keeps exactly the files whose verdict is keep, in order, and its counts are the dead attempts' leftovers and the files to keep
+law kernel_sweep_terms_exact:
+  for ls: List<&2, KL.Left>
+  {KL.sweep(ls) == sweep_spec(ls) : List<&2, KL.Left>} & {KL.lefts.dead(ls) == dead_spec(ls) : Nat} & {KL.lefts.live(ls) == live_spec(ls) : Nat}

@@ -396,3 +396,25 @@ law launcher_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, La.Ask>}
   {FLa.ffi(s) == SCon{'E', SCon{' ', "launcher: malformed request"}} : String}
+
+def adoption_spec.pick(same: Bool) -> La.Adoption:
+  match same:
+    case True{}:
+      La.Adopt{}
+    case False{}:
+      La.Replace{}
+
+# a worker of no build is replaced; one of build b is adopted exactly when
+# b is the supervisor's
+def adoption_spec(+sup: Nat, w: Maybe<&2, Nat>) -> La.Adoption:
+  match w:
+    case None{}:
+      La.Replace{}
+    case Some{b}:
+      adoption_spec.pick(Nat.is_eq(b, sup))
+
+# LAW launcher_adoption_exact: for every supervisor build, a worker that reports no build is replaced, and one that reports a build is adopted exactly when it is the supervisor's (adopt_same_build is one direction of this)
+law launcher_adoption_exact:
+  for +sup: Nat
+  for w: Maybe<&2, Nat>
+  {La.adoption(sup, w) == adoption_spec(sup, w) : La.Adoption}

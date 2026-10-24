@@ -689,6 +689,8 @@ import ./proof/kernel_local/kernel_ffi_example.bend as PKernelFfiExample
 import ./proof/kernel_local/kernel_start_exact.bend as PKernelStartExact
 import ./proof/kernel_local/kernel_answer_exact.bend as PKernelAnswerExact
 import ./proof/kernel_local/kernel_ffi_malformed_exact.bend as PKernelFfiMalformedExact
+import ./proof/kernel_local/kernel_terms_exact.bend as PKernelTermsExact
+import ./proof/kernel_local/kernel_sweep_terms_exact.bend as PKernelSweepTermsExact
 import ./proof/log/base.bend as LALog
 import ./proof/log/log_reads_lines.bend as PLogReadsLines
 import ./proof/log/log_ack_durable.bend as PLogAckDurable
@@ -813,6 +815,7 @@ import ./proof/launcher/launcher_stop_counts_runs.bend as PLauncherStopCountsRun
 import ./proof/launcher/launcher_step_exact.bend as PLauncherStepExact
 import ./proof/launcher/launcher_closed_gate_waits_example.bend as PLauncherClosedGateWaitsExample
 import ./proof/launcher/launcher_ffi_malformed_exact.bend as PLauncherFfiMalformedExact
+import ./proof/launcher/launcher_adoption_exact.bend as PLauncherAdoptionExact
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates
