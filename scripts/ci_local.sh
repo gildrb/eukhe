@@ -377,6 +377,12 @@ case "${mode}" in
     gate "bend version" check_bend
     gate fmt cargo fmt --all --check
     CI_LOCAL_SECRETS_RANGE="${base}..${to}" gate secrets secrets_range
+    # A push to a branch other than main (an integration branch) stops here:
+    # main's push runs the rest once, when the branch merges.
+    if [[ -n "${PRE_COMMIT_REMOTE_BRANCH:-}" && "${PRE_COMMIT_REMOTE_BRANCH}" != "refs/heads/main" ]]; then
+      echo "pre-push: ${PRE_COMMIT_REMOTE_BRANCH} is not main: clippy, proofs, lock and tests run when it merges into main"
+      exit 0
+    fi
     gate "clippy (touched crates)" clippy_touched "${rows}"
     gate proofs proofs "${rows}"
     gate "laws lock" laws_lock "${rows}"

@@ -25,6 +25,7 @@ Hooks (`.pre-commit-config.yaml`) run under `nice -n 10` and unset `RUSTUP_TOOLC
 |pre-push|`scripts/ci_local.sh pre-push`|Pushed commits, in the pushing worktree: `cargo fmt`; gitleaks on them; clippy and `cargo test --no-fail-fast` on touched crates + dependents (`laws/`, `proof/`, `LAWS.bend`, `PROOF.bend`, `LAWS.lock`, docs, CI and agent files select no crate); `scripts/check_laws_wired.py`, `bend_core.py check` and `bend PROOF.bend` only when a Bend input changed (`*.bend`, `bend/`, `crates/eukhe-bend/`, the gate scripts, `scripts/toolchain.env`); `gate.py --lock-only` of the bend skill (`$BEND_SKILL`, default `~/.agents/skills/bend`) when a law or `LAWS.lock` changed|
 
 - Push from a worktree at the pushed commit. No lock; any worktree pushes any time.
+- A push to a branch other than `main` (an integration branch) runs only `cargo fmt` and the secrets scan; the rest of pre-push runs when it merges into `main`.
 - Skip: a push changing only Markdown in `docs/` or the repo root skips pre-push.
 - Needs bend and Lean at `scripts/toolchain.env` versions, cargo-deny, uv, npm, gitleaks.
 - A failed gate prints its name; fix, rerun.
