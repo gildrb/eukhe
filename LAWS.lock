@@ -1093,6 +1093,7 @@
     "laws/tokens.bend::tokens_scale_keys_plain": "0fb9ef3cc7988db4e3a5403d0f51242d9ecd5ba5492fe9e0e67c1cc0951c39b6",
     "laws/tokens.bend::tokens_space_ascends": "8ad3b0d69ad009997566005dea38f6b937f1c7dfbc2ca918400c0888b8e7bed4",
     "laws/tokens.bend::tokens_type_ascends": "88c5633deb3169a97db72ec850a7f2cb3f51e4f8c1af66c7fb7540d00bb1d475",
+    "laws/tokens.bend::tokens_type_in_range": "616f9c46519af0e05f69c519be192dc0aab60af3efecb32c33dc01805ddd2097",
     "laws/tools.bend::auto_needs_every_effect": "cb050ddb2d5dbb1a4b157119011b947dfffa70d8e3786f1ff0bc7be7502234fb",
     "laws/tools.bend::auto_never_sensitive": "f1dbd6952054eee406723f77e924ce29b12c1f5d59a8bb1ce542eddada61a7f8",
     "laws/tools.bend::auto_runs_within": "f8eac26910bcae2de45dd31151844b31686ad45aaac233261c019547a9baff70",

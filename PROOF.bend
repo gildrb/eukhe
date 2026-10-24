@@ -645,6 +645,7 @@ import ./proof/tokens/tokens_scale_keys_plain.bend as PTokensScaleKeysPlain
 import ./proof/tokens/tokens_alpha_visible.bend as PTokensAlphaVisible
 import ./proof/tokens/tokens_layers_in_range.bend as PTokensLayersInRange
 import ./proof/tokens/tokens_px_in_range.bend as PTokensPxInRange
+import ./proof/tokens/tokens_type_in_range.bend as PTokensTypeInRange
 import ./proof/progress/base.bend as LAProgress
 import ./proof/progress/child_repeat_is_no_work.bend as PChildRepeatIsNoWork
 import ./proof/progress/child_loop_is_a_stall.bend as PChildLoopIsAStall

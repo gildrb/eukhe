@@ -469,3 +469,7 @@ law tokens_layers_in_range:
 # LAW tokens_px_in_range: every spacing step, type size and line height is at most 1048576px (2^20), well inside the lengths every browser lays out exactly, so ascending px values stay ascending on screen
 law tokens_px_in_range:
   {steps_at_most(List.append(&2, Tk.Step, Tk.space(), List.append(&2, Tk.Step, Tk.sizes(), Tk.lines())), 1048576) == True{} : Bool}
+
+# LAW tokens_type_in_range: every type size and line height is at most 10000px, the largest font size a browser renders, so ascending sizes stay ascending on screen
+law tokens_type_in_range:
+  {steps_at_most(List.append(&2, Tk.Step, Tk.sizes(), Tk.lines()), 10000) == True{} : Bool}
