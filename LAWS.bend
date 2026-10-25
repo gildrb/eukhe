@@ -21,7 +21,9 @@ import ./laws/infer.bend as Infer
 import ./laws/quirks.bend as Quirks
 import ./laws/tools.bend as Tools
 import ./laws/screen.bend as Screen
-import ./laws/tiny.bend as Tiny
+import ./laws/tiny/pick.bend as Tiny
+import ./laws/tiny/elect.bend as TinyElect
+import ./laws/tiny/run.bend as TinyRun
 import ./laws/effort.bend as Effort
 import ./laws/run.bend as Run
 import ./laws/semver.bend as Semver

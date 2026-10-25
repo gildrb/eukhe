@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/pick.bend as Tiny
 import ./base.bend as LA
 
 def pn.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:

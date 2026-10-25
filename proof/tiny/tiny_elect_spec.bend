@@ -6,7 +6,7 @@
 import Base
 import ../../bend/tiny.bend as Tn
 import ../../laws/base.bend as LawsBase
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/elect.bend as Tiny
 import ./base.bend as LA
 
 def te.elect_pong(b: Bool) -> {Tn.elect.pong(b) == Tiny.sp_pong(b, Tn.Join{}, Tn.Replace{}) : Tn.Act}:

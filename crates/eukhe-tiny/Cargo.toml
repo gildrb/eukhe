@@ -8,8 +8,8 @@ description = "Local tiny models: the pinned catalog, the explicit download, the
 
 [dependencies]
 eukhe-build-info = { path = "../eukhe-build-info" }
-# The pick and the election's choices run as the compiled Bend core
-# (bend/ffi_tiny.bend, bend/ffi_tiny_elect.bend).
+# The pick and the election's run (and a started worker's seat) run as the
+# compiled Bend core (bend/ffi_tiny.bend, bend/ffi_tiny_run.bend).
 eukhe-bend.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

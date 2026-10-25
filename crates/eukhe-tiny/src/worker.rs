@@ -15,7 +15,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::catalog::{find, CatalogModel};
-use crate::election::{probe, seat, Seat};
+use crate::election::{seat, Seated};
 use crate::engine::{Engine, EngineFactory, EngineOptions};
 use crate::paths::{Backend, TinyHome};
 use crate::protocol::{read_line, Line, Reply, Request, Response, WorkerFailure, MAX_LINE_BYTES};
@@ -214,9 +214,9 @@ pub(crate) enum Exit {
 }
 
 /// Binds the socket of `model` on `backend` under `home`, unless a live
-/// worker answers on it: under the bind lock (`flock`), held across the
-/// check and the bind only. A stale socket is removed first. Creates the
-/// run dir and makes it 0700.
+/// worker answers on it, as the seat run decides ([`seat`]): the probe and
+/// the bind run under the bind lock (`flock`), held across them only. A
+/// stale socket is removed first. Creates the run dir and makes it 0700.
 ///
 /// # Errors
 ///
@@ -229,31 +229,29 @@ pub(crate) async fn bind(
 ) -> io::Result<Bound> {
     home.create_run_dir()?;
     let lock_path = home.bind_lock(model.id, backend);
-    let lock = tokio::task::spawn_blocking(move || {
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(lock_path)?;
-        file.lock()?;
-        Ok::<_, io::Error>(file)
-    })
-    .await
-    .map_err(io::Error::other)??;
     let socket = home.socket(model.id, backend);
-    let bound = match seat(probe(&socket).await) {
-        Seat::Adopt => Bound::Adopted,
-        Seat::Take => {
-            remove_socket(&socket)?;
-            Bound::Listening(Listening {
-                listener: UnixListener::bind(&socket)?,
-                socket,
-            })
-        }
-        Seat::Fault(error) => return Err(error),
+    let take_lock = || async move {
+        tokio::task::spawn_blocking(move || {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(lock_path)?;
+            file.lock()?;
+            Ok::<_, io::Error>(file)
+        })
+        .await
+        .map_err(io::Error::other)?
     };
-    drop(lock);
-    Ok(bound)
+    match seat(&socket, take_lock).await? {
+        Seated::Adopt => Ok(Bound::Adopted),
+        Seated::Take(lock) => {
+            remove_socket(&socket)?;
+            let listener = UnixListener::bind(&socket)?;
+            drop(lock);
+            Ok(Bound::Listening(Listening { listener, socket }))
+        }
+    }
 }
 
 fn remove_socket(socket: &std::path::Path) -> io::Result<()> {
@@ -473,7 +471,7 @@ mod tests {
     use std::sync::mpsc;
 
     use super::*;
-    use crate::election::Met;
+    use crate::election::{probe, Met};
     use crate::protocol::{
         Audio, ChatMessage, ChatReply, ChatRequest, ChatRole, SpeakRequest, StopReason,
         TranscribeRequest, Transcript,

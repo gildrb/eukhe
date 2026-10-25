@@ -8,7 +8,7 @@
 import Base
 import ../../bend/tiny.bend as Tn
 import ../../laws/base.bend as LawsBase
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/elect.bend as Tiny
 import ./base.bend as LA
 
 def te.need_pong(c: Bool) -> {Tiny.sp_need(Tn.elect.pong(c)) == [Tn.need.g(c)] : List<&2, Tn.Got>}:

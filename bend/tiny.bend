@@ -177,9 +177,8 @@ def needs(es: List<&2, Ev>) -> Nat:
 # -------------------------
 # The worker of section 2 as one process meets it (crates/eukhe-tiny
 # election.rs): the process pings the worker's socket and decides from
-# what answers alone (it never sees the owner). Rust connects, pings,
-# shuts down, launches and reports; each choice below runs as the
-# compiled core (bend/ffi_tiny_elect.bend).
+# what answers alone (it never sees the owner). Each choice below is a
+# step of the run of section 4.
 
 # what a ping of the worker's socket met
 type Probe is Data:
@@ -332,3 +331,205 @@ def bind(p: Probe) -> Seat:
       Fault{}
     case Hung{}:
       Take{}
+
+# 4. The run of one process
+# -------------------------
+# The election of section 3 as the compiled core runs it
+# (bend/ffi_tiny_run.bend, a stepper; crates/eukhe-tiny election.rs and
+# worker.rs): Rust waits for what it was told to do to finish (a ping
+# answered, a shutdown answered, a launch ended, the bind lock taken)
+# and sends each outcome as it arrives; the run decides what it means
+# and what Rust does next. A need opens a run with the process's launch
+# tag; a started worker opens a seat run.
+
+# what Rust saw: the outcome of the last thing it did
+type Seen is Data:
+  Pinged{p: Probe}     # a ping of the socket met p
+  ShutHeard{h: Heard}  # a shutdown was answered so
+  Came{l: Launch}      # a launch ended: the started worker came up so
+  NoSpawn{}            # a launch failed before the worker came up
+  Locked{}             # the bind lock is held
+
+# why a run failed
+type Why is Data:
+  WhyIo{}         # the socket failed or spoke out of protocol
+  WhyProtocol{}   # a shutdown was answered out of protocol
+  WhyMistagged{}  # after a start, a worker of another tag answers
+  WhyVacant{}     # after a start, no worker answers
+  WhySpawn{}      # the launch failed
+
+# what Rust does next
+type Do is Data:
+  DoPing{}          # connect to the socket and ping it
+  DoShutdown{}      # send a shutdown on the connection the ping opened
+  DoLaunch{}        # launch a worker
+  DoUse{g: Got}     # done: serve the need on the connection the ping opened
+  DoFail{why: Why}  # done: the need fails so
+  DoLock{}          # take the bind lock (a seat run)
+  DoAdopt{}         # done: leave the live worker in place, release the lock
+  DoTake{}          # done: remove a stale socket, bind it, release the lock
+  DoFault{}         # done: the socket failed, release the lock
+  DoNothing{}       # the run awaits no such outcome: nothing to do
+
+# what the run waits for
+type Phase is Data:
+  Probing{}            # the first ping
+  Shutting{}           # the shutdown of a worker of another tag
+  Launching{f: Fresh}  # a start of a first worker or a replacement
+  Checking{g: Got}     # the ping after a start that got g
+  Locking{}            # the bind lock (a seat run)
+  Seating{}            # the ping under the bind lock (a seat run)
+  Over{}               # nothing: the run ended
+
+# a run: the process's launch tag (empty in a seat run) and its phase
+type Run is Data:
+  Run{mine: String, ph: Phase}
+
+# a need of a process with launch tag mine: its first ping
+def need(mine: String) -> Run & Do:
+  (Run{mine, Probing{}}, DoPing{})
+
+# a started worker's seat: the bind lock first
+def seat() -> Run & Do:
+  (Run{"", Locking{}}, DoLock{})
+
+def run.elect(+mine: String, a: Act) -> Run & Do:
+  match a:
+    case Join{}:
+      (Run{mine, Over{}}, DoUse{Joined{}})
+    case Replace{}:
+      (Run{mine, Shutting{}}, DoShutdown{})
+    case Start{}:
+      (Run{mine, Launching{First{}}}, DoLaunch{})
+    case Broken{}:
+      (Run{mine, Over{}}, DoFail{WhyIo{}})
+
+def run.shut(+mine: String, x: Shut) -> Run & Do:
+  match x:
+    case Down{}:
+      (Run{mine, Launching{Again{}}}, DoLaunch{})
+    case Spoke{}:
+      (Run{mine, Over{}}, DoFail{WhyProtocol{}})
+    case Cut{}:
+      (Run{mine, Over{}}, DoFail{WhyIo{}})
+
+def run.check(+mine: String, g: Got, c: Check) -> Run & Do:
+  match c:
+    case Serving{}:
+      (Run{mine, Over{}}, DoUse{g})
+    case Mistagged{}:
+      (Run{mine, Over{}}, DoFail{WhyMistagged{}})
+    case Vacant{}:
+      (Run{mine, Over{}}, DoFail{WhyVacant{}})
+    case Faulty{}:
+      (Run{mine, Over{}}, DoFail{WhyIo{}})
+
+def run.seat(+mine: String, x: Seat) -> Run & Do:
+  match x:
+    case Adopt{}:
+      (Run{mine, Over{}}, DoAdopt{})
+    case Take{}:
+      (Run{mine, Over{}}, DoTake{})
+    case Fault{}:
+      (Run{mine, Over{}}, DoFault{})
+
+def run.probing(+mine: String, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      run.elect(mine, elect(p, mine))
+    case ShutHeard{h}:
+      (Run{mine, Probing{}}, DoNothing{})
+    case Came{l}:
+      (Run{mine, Probing{}}, DoNothing{})
+    case NoSpawn{}:
+      (Run{mine, Probing{}}, DoNothing{})
+    case Locked{}:
+      (Run{mine, Probing{}}, DoNothing{})
+
+def run.shutting(+mine: String, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      (Run{mine, Shutting{}}, DoNothing{})
+    case ShutHeard{h}:
+      run.shut(mine, shut(h))
+    case Came{l}:
+      (Run{mine, Shutting{}}, DoNothing{})
+    case NoSpawn{}:
+      (Run{mine, Shutting{}}, DoNothing{})
+    case Locked{}:
+      (Run{mine, Shutting{}}, DoNothing{})
+
+def run.launching(+mine: String, f: Fresh, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      (Run{mine, Launching{f}}, DoNothing{})
+    case ShutHeard{h}:
+      (Run{mine, Launching{f}}, DoNothing{})
+    case Came{l}:
+      (Run{mine, Checking{launched(f, l)}}, DoPing{})
+    case NoSpawn{}:
+      (Run{mine, Over{}}, DoFail{WhySpawn{}})
+    case Locked{}:
+      (Run{mine, Launching{f}}, DoNothing{})
+
+def run.checking(+mine: String, g: Got, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      run.check(mine, g, confirm(p, mine))
+    case ShutHeard{h}:
+      (Run{mine, Checking{g}}, DoNothing{})
+    case Came{l}:
+      (Run{mine, Checking{g}}, DoNothing{})
+    case NoSpawn{}:
+      (Run{mine, Checking{g}}, DoNothing{})
+    case Locked{}:
+      (Run{mine, Checking{g}}, DoNothing{})
+
+def run.locking(+mine: String, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      (Run{mine, Locking{}}, DoNothing{})
+    case ShutHeard{h}:
+      (Run{mine, Locking{}}, DoNothing{})
+    case Came{l}:
+      (Run{mine, Locking{}}, DoNothing{})
+    case NoSpawn{}:
+      (Run{mine, Locking{}}, DoNothing{})
+    case Locked{}:
+      (Run{mine, Seating{}}, DoPing{})
+
+def run.seating(+mine: String, s: Seen) -> Run & Do:
+  match s:
+    case Pinged{p}:
+      run.seat(mine, bind(p))
+    case ShutHeard{h}:
+      (Run{mine, Seating{}}, DoNothing{})
+    case Came{l}:
+      (Run{mine, Seating{}}, DoNothing{})
+    case NoSpawn{}:
+      (Run{mine, Seating{}}, DoNothing{})
+    case Locked{}:
+      (Run{mine, Seating{}}, DoNothing{})
+
+def run.at(+mine: String, ph: Phase, s: Seen) -> Run & Do:
+  match ph:
+    case Probing{}:
+      run.probing(mine, s)
+    case Shutting{}:
+      run.shutting(mine, s)
+    case Launching{f}:
+      run.launching(mine, f, s)
+    case Checking{g}:
+      run.checking(mine, g, s)
+    case Locking{}:
+      run.locking(mine, s)
+    case Seating{}:
+      run.seating(mine, s)
+    case Over{}:
+      (Run{mine, Over{}}, DoNothing{})
+
+# one outcome: the run after it, and what Rust does next
+def step_run(r: Run, s: Seen) -> Run & Do:
+  match r:
+    case Run{mine, ph}:
+      run.at(mine, ph, s)

@@ -7,8 +7,6 @@
 //! `eukhe tiny-models download`. The inference itself is an [`Engine`]
 //! (eukhe-tiny-onnx); this crate does not link a runtime.
 
-#[cfg(test)]
-mod bridge;
 mod catalog;
 mod client;
 mod download;
