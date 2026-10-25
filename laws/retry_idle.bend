@@ -354,3 +354,49 @@ law retry_idle_entry_example:
 # EXCLUDES: a vacuous ask_fits or positive premise
 law retry_idle_req_fits_example:
   {[ask_fits(idle.AskArm{False{}, False{}, 300n, False{}}), ask_fits(idle.AskWake{False{}, 250n, 1000n})] == [True{}, True{}] : List<&2, Bool>} & {drive.run([3n, 2n], 5n) == Some{R.IdleClose{5n}} : Maybe<&2, R.Idle>}
+
+# The model the bridge reads, pinned
+# ----------------------------------
+# idle_wake_refines ties the timer's decisions to `R.idle` only for
+# deadlines above 0, and no law fixed `R.idle` itself: a second fresh
+# adversary (SpecCheckRetry) filled it to read a deadline of 0 as none
+# (`R.idle([5n], 0n)` closing at 5 instead of stalling at 0), and every
+# law checked. `R.idle` is the oracle the bridge test runs the real timer
+# loop against, so it is pinned here for every deadline.
+
+# the end when the event g after the one at last is past the deadline d
+def idle_spec.at(late: Bool, +d: Nat, +last: Nat, then: R.Idle) -> R.Idle:
+  match late:
+    case True{}:
+      R.IdleStall{Nat.add(last, d)}
+    case False{}:
+      then
+
+# the events after the one at last, each its gap after the one before:
+# the stream stalls d after the last event before the first gap above d,
+# or closes at its last event
+def idle_spec.go(gs: List<&2, Nat>, +d: Nat, +last: Nat) -> R.Idle:
+  match gs:
+    case Nil{}:
+      R.IdleClose{last}
+    case +g <> rest:
+      idle_spec.at(Nat.is_gt(g, d), d, last, idle_spec.go(rest, d, Nat.add(last, g)))
+
+# a stream armed at 0 whose events come gs apart (R3); with no event it
+# stalls at d
+def idle_spec(gs: List<&2, Nat>, +d: Nat) -> R.Idle:
+  match gs:
+    case Nil{}:
+      R.IdleStall{d}
+    case +g <> rest:
+      idle_spec.go(g <> rest, d, 0n)
+
+# LAW idle_exact: for every deadline (0 too) and every gaps, the model the bridge reads ends a
+# stream as R3 says: a stall d after the last event before the first gap above d, a stall at d
+# with no event, else a close at the last event
+# EXCLUDES: a model that reads some deadline as none, stalls early or late, or closes a stalled
+#   stream (the bridge would then check the timer loop against a wrong oracle)
+law idle_exact:
+  for +gs: List<&2, Nat>
+  for +d: Nat
+  {R.idle(gs, d) == idle_spec(gs, d) : R.Idle}

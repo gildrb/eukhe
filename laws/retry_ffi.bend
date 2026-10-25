@@ -393,3 +393,11 @@ law retry_ffi_entry_trailing_exact:
 # EXCLUDES: another spelling of the requests or replies Rust reads
 law retry_ffi_entry_example:
   {[Fr.ffi("0,FF1,429,0,F"), Fr.ffi("1,10,4,60,95,0,"), Fr.ffi("2,3,3,0,0,1,0,2,0,8,10,200,"), Fr.ffi("3,30,"), Fr.ffi("4,"), Fr.ffi("3,30,x")] == ["T", "0,35,", "1,0,10,", "60,", "E retry: malformed request", "E retry: input left after the request"] : List<&2, String>}
+
+# LAW retry_length_exact: the model's `length` of the providers tried, which the laws' request
+# fit (`rs.req_fits`) reads, is the number of providers tried
+# EXCLUDES: a fit check that a wrong `length` makes refuse a request Rust sends (or accept one
+#   past the wire), which a second fresh adversary noted no law pinned
+law retry_length_exact:
+  for +ts: List<&2, R.Tried>
+  {R.length(ts) == List.length(&2, R.Tried, ts) : Nat}

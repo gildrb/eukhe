@@ -1174,11 +1174,13 @@ import ./proof/retry_idle/retry_idle_entry_answers.bend as PRetryIdleEntryAnswer
 import ./proof/retry_idle/retry_idle_entry_malformed_exact.bend as PRetryIdleEntryMalformedExact
 import ./proof/retry_idle/retry_idle_entry_example.bend as PRetryIdleEntryExample
 import ./proof/retry_idle/retry_idle_req_fits_example.bend as PRetryIdleReqFitsExample
+import ./proof/retry_idle/idle_exact.bend as PIdleExact
 import ./proof/retry_ffi/base.bend as LARetryFfi
 import ./proof/retry_ffi/retry_ffi_entry_answers.bend as PRetryFfiEntryAnswers
 import ./proof/retry_ffi/retry_ffi_entry_malformed_exact.bend as PRetryFfiEntryMalformedExact
 import ./proof/retry_ffi/retry_ffi_entry_trailing_exact.bend as PRetryFfiEntryTrailingExact
 import ./proof/retry_ffi/retry_ffi_entry_example.bend as PRetryFfiEntryExample
+import ./proof/retry_ffi/retry_length_exact.bend as PRetryLengthExact
 import ./proof/dash/base.bend as LADash
 import ./proof/dash/dash_frame_runs_only_current.bend as PDashFrameRunsOnlyCurrent
 import ./proof/dash/dash_current_frame_runs.bend as PDashCurrentFrameRuns
