@@ -1096,11 +1096,6 @@ fn invalid_ignore_rule_is_reported_and_ignores_its_whole_directory() {
     fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
 
     let result = fixture.manager.resolve().unwrap();
-    let glob_error = globset::GlobBuilder::new("team/secret-skill[")
-        .literal_separator(true)
-        .backslash_escape(true)
-        .build()
-        .unwrap_err();
     assert_eq!(
         (
             package_paths(&result),
@@ -1109,10 +1104,10 @@ fn invalid_ignore_rule_is_reported_and_ignores_its_whole_directory() {
         (
             vec![good],
             vec![ResourceDiagnostic::Warning {
-                message: format!(
-                    "ignore rule \"secret-skill[\" is not a valid glob, so every path under \
-                     its directory is ignored: {glob_error}"
-                ),
+                message: "ignore rule \"secret-skill[\" is not a valid glob, so every path under \
+                     its directory is ignored: error parsing glob 'team/secret-skill[': unclosed \
+                     character class; missing ']'"
+                    .to_string(),
                 path: Some(ignore_file.display().to_string()),
             }],
         ),

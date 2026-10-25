@@ -16,6 +16,7 @@ pub mod doc_plan;
 pub mod error_body;
 pub mod frames;
 pub mod fsmode;
+pub mod glob;
 pub mod goal_text;
 pub mod infer_force;
 pub mod infer_guard;

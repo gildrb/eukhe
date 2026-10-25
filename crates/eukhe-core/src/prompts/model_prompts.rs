@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Component, Path};
 
+use eukhe_bend::rules::glob::{self, GlobOptions};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_types::session::CustomMessage;
 use serde::Deserialize;
 
@@ -42,18 +44,21 @@ struct ModelPromptsDoc {
     rule: Vec<Rule>,
 }
 
+/// A rule's patterns are globs globset accepts, with literal separators,
+/// matched case-insensitively (the compiled core decides).
 struct ParsedRule {
-    patterns: Vec<globset::GlobMatcher>,
+    patterns: Vec<String>,
     files: Vec<String>,
 }
 
-fn compile_pattern(pattern: &str) -> Result<globset::GlobMatcher, String> {
-    globset::GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .case_insensitive(true)
-        .build()
+const RULE_GLOB: GlobOptions = GlobOptions {
+    literal_separator: true,
+    case_insensitive: true,
+};
+
+fn compile_pattern(pattern: &str) -> Result<(), String> {
+    expect_core(Entry::Glob, glob::check(pattern))
         .map_err(|error| format!("pattern {pattern:?}: {error}"))
-        .map(|glob| glob.compile_matcher())
 }
 
 fn parse_layer(toml_text: &str, source: &str) -> (Vec<ParsedRule>, Vec<String>) {
@@ -67,7 +72,7 @@ fn parse_layer(toml_text: &str, source: &str) -> (Vec<ParsedRule>, Vec<String>) 
         let mut patterns = Vec::new();
         for pattern in rule.r#match {
             match compile_pattern(&pattern) {
-                Ok(matcher) => patterns.push(matcher),
+                Ok(()) => patterns.push(pattern),
                 Err(error) => errors.push(format!("{source}: {error}")),
             }
         }
@@ -110,11 +115,17 @@ fn selector_segments(selector: &str) -> Vec<&str> {
     selector.split('/').collect()
 }
 
-fn rule_applies(rule: &ParsedRule, segments: &[&str]) -> bool {
-    rule.patterns.iter().any(|matcher| {
-        (1..=segments.len())
-            .any(|count| matcher.is_match(segments[segments.len() - count..].join("/")))
-    })
+/// Per rule, whether one of its patterns matches the selector's final
+/// segments (any number of them, joined by `/`); one core call for all.
+fn rules_applying(rules: &[&ParsedRule], segments: &[&str]) -> Vec<bool> {
+    let texts: Vec<String> = (1..=segments.len())
+        .map(|count| segments[segments.len() - count..].join("/"))
+        .collect();
+    let patterns: Vec<Vec<&str>> = rules
+        .iter()
+        .map(|rule| rule.patterns.iter().map(String::as_str).collect())
+        .collect();
+    expect_core(Entry::Glob, glob::match_rules(RULE_GLOB, &patterns, &texts))
 }
 
 // Check the file type before opening: opening a FIFO can wait forever for a writer.
@@ -225,11 +236,13 @@ fn resolve_model_prompts(
     }
 
     let mut included: Vec<&str> = Vec::new();
-    for rule in shipped_rules.iter().chain(user_rules.iter()) {
-        if segments
-            .as_deref()
-            .is_some_and(|segments| rule_applies(rule, segments))
-        {
+    let rules: Vec<&ParsedRule> = shipped_rules.iter().chain(user_rules.iter()).collect();
+    let applying = segments.as_deref().map_or_else(
+        || vec![false; rules.len()],
+        |segments| rules_applying(&rules, segments),
+    );
+    for (rule, applies) in rules.iter().zip(applying) {
+        if applies {
             for name in &rule.files {
                 if !included.contains(&name.as_str()) {
                     included.push(name.as_str());
@@ -339,8 +352,8 @@ mod tests {
             let (rules, _) =
                 parse_layer(&format!("[[rule]]\nmatch = [{pattern:?}]\nfiles = []"), "t");
             assert_eq!(
-                rule_applies(&rules[0], &selector_segments(selector)),
-                expected,
+                rules_applying(&[&rules[0]], &selector_segments(selector)),
+                [expected],
                 "pattern {pattern:?} against {selector:?}"
             );
         }

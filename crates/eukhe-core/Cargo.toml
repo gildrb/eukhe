@@ -50,7 +50,6 @@ sha1 = "0.10"
 sha2 = "0.10"
 getrandom = "0.3"
 url = "2"
-globset = "0.4"
 toml.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 unicode-normalization = "0.1"

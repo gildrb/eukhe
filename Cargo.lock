@@ -649,7 +649,6 @@ dependencies = [
  "fancy-regex",
  "futures",
  "getrandom 0.3.4",
- "globset",
  "ignore",
  "jiff",
  "libc",

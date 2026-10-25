@@ -1,6 +1,8 @@
 //! Model resolution, scoping, and CLI selection. Port of model-resolver.ts.
 
 use eukhe_ai::quirks::provider_default_model;
+use eukhe_bend::rules::glob::{self, GlobOptions};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_types::ai::{Model, PRIME_INFERENCE_PROVIDER_ID};
 use eukhe_types::pi_ai::ModelThinkingLevel;
 
@@ -250,16 +252,24 @@ fn fuzzy_exact<'a>(pattern: &str, available_models: &'a [Model]) -> Option<&'a M
         .or_else(|| fuzzy_match_model(pattern, available_models))
 }
 
-/// Glob match (`?*[]` patterns, case-insensitive) against provider/id and id.
-fn glob_matches(pattern: &str, model: &Model) -> bool {
-    let full_id = format!("{}/{}", model.provider, model.id);
-    let matcher = globset::Glob::new(pattern)
-        .ok()
-        .and_then(|glob| glob.compile_matcher().into());
-    match matcher {
-        Some(matcher) => matcher.is_match(&full_id) || matcher.is_match(&model.id),
-        None => false,
-    }
+/// The models a glob (`?*[]` patterns, globset defaults) matches, as
+/// written or lowercased, against provider/id or id; the compiled core
+/// decides every model in one call.
+fn glob_matching<'a>(pattern: &str, available_models: &'a [Model]) -> Vec<&'a Model> {
+    let patterns = [pattern.to_lowercase(), pattern.to_string()];
+    let groups: Vec<Vec<String>> = available_models
+        .iter()
+        .map(|model| vec![format!("{}/{}", model.provider, model.id), model.id.clone()])
+        .collect();
+    let hits = expect_core(
+        Entry::Glob,
+        glob::match_groups(GlobOptions::default(), &patterns, &groups),
+    );
+    available_models
+        .iter()
+        .zip(hits)
+        .filter_map(|(model, hit)| hit.then_some(model))
+        .collect()
 }
 
 /// Resolve model patterns to scoped models: exact/fuzzy for plain patterns,
@@ -278,13 +288,7 @@ pub fn resolve_model_scope_from_models(
                 }
                 _ => (pattern.as_str(), None),
             };
-            let matching: Vec<&Model> = available_models
-                .iter()
-                .filter(|model| {
-                    let case_fold = glob_pattern.to_lowercase();
-                    glob_matches(&case_fold, model) || glob_matches(glob_pattern, model)
-                })
-                .collect();
+            let matching = glob_matching(glob_pattern, available_models);
             if matching.is_empty() {
                 eprintln!("Warning: No models match pattern \"{pattern}\"");
                 continue;
