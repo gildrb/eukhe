@@ -2219,3 +2219,11 @@ import ./proof/glob/glob_parse_example.bend as PGlobParseExample
 import ./proof/glob/glob_rules.bend as PGlobRules
 import ./proof/glob/glob_parse_plain.bend as PGlobParsePlain
 import ./proof/glob/glob_utf8_example.bend as PGlobUtf8Example
+import ./proof/glob/glob_utf8_boundary_example.bend as PGlobUtf8BoundaryExample
+import ./proof/glob/glob_bytes.bend as PGlobBytes
+import ./proof/glob/glob_star_example.bend as PGlobStarExample
+import ./proof/glob/glob_group_class_example.bend as PGlobGroupClassExample
+import ./proof/glob/glob_error_order_example.bend as PGlobErrorOrderExample
+import ./proof/glob/glob_check.bend as PGlobCheck
+import ./proof/glob/glob_parse_edge_example.bend as PGlobParseEdgeExample
+import ./proof/glob/glob_parse_edge_nosep_example.bend as PGlobParseEdgeNosepExample

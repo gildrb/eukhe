@@ -1,5 +1,5 @@
 # ffi_glob: the entry of the compiled Bend core for glob patterns
-# (bend/glob.bend; Rust: eukhe-bend rules/glob.rs). Grammar:
+# (bend/glob/; Rust: eukhe-bend rules/glob.rs). Grammar:
 # crates/eukhe-bend/WIRE.md.
 #
 #   request  0, pattern (String)                  whether globset refuses it
@@ -32,7 +32,9 @@
 
 import Base
 import ./wire.bend as W
-import ./glob.bend as G
+import ./glob/parse.bend as GParse
+import ./glob/items.bend as GItems
+import ./glob/queries.bend as GQuery
 
 # A request of the entry
 type Req is Data:
@@ -157,20 +159,20 @@ def get_req(s: String) -> W.Dec<Req>:
 # The entry
 # ---------
 
-def put_err(e: G.Err, rest: String) -> String:
+def put_err(e: GParse.Err, rest: String) -> String:
   match e:
-    case G.EClass{}:
+    case GParse.EClass{}:
       W.put_nat(0n, rest)
-    case G.ERange{lo, hi}:
-      W.put_nat(1n, W.put_nat(U32.to_nat(G.code(lo)), W.put_nat(U32.to_nat(G.code(hi)), rest)))
-    case G.EUnopened{}:
+    case GParse.ERange{lo, hi}:
+      W.put_nat(1n, W.put_nat(U32.to_nat(GParse.code(lo)), W.put_nat(U32.to_nat(GParse.code(hi)), rest)))
+    case GParse.EUnopened{}:
       W.put_nat(2n, rest)
-    case G.EUnclosed{}:
+    case GParse.EUnclosed{}:
       W.put_nat(3n, rest)
-    case G.EEscape{}:
+    case GParse.EEscape{}:
       W.put_nat(4n, rest)
 
-def put_check(m: Maybe<&2, G.Err>) -> String:
+def put_check(m: Maybe<&2, GParse.Err>) -> String:
   match m:
     case None{}:
       W.put_nat(0n, "")
@@ -181,15 +183,15 @@ def put_check(m: Maybe<&2, G.Err>) -> String:
 def answer(q: Req) -> String:
   match q:
     case QCheck{p}:
-      put_check(G.check(p))
+      put_check(GQuery.check(p))
     case QMatch{sep, fold, ps, ss, ks}:
-      W.put_list(~Bool, ~W.put_bool, G.match_groups(G.Opts{sep, fold}, ps, ss, ks), "")
+      W.put_list(~Bool, ~W.put_bool, GQuery.match_groups(GItems.Opts{sep, fold}, ps, ss, ks), "")
     case QAllow{sel, ps}:
-      W.put_bool(G.allowed(sel, ps), "")
+      W.put_bool(GQuery.allowed(sel, ps), "")
     case QRules{sep, fold, ps, ss, ks}:
-      W.put_list(~Bool, ~W.put_bool, G.rules(ks, G.Opts{sep, fold}, ps, ss), "")
+      W.put_list(~Bool, ~W.put_bool, GQuery.rules(ks, GItems.Opts{sep, fold}, ps, ss), "")
     case QIgnore{ps, cs, es}:
-      W.put_list(~Bool, ~W.put_bool, G.ignored(ps, cs, es), "")
+      W.put_list(~Bool, ~W.put_bool, GQuery.ignored(ps, cs, es), "")
 
 def ffi.done(q: Req, end: Bool) -> String:
   match end:

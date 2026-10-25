@@ -1,4 +1,4 @@
-//! Glob patterns (`bend/glob.bend`, entry `bend/ffi_glob.bend`;
+//! Glob patterns (`bend/glob/`, entry `bend/ffi_glob.bend`;
 //! `laws/glob.bend`): the patterns of the `globset` crate 0.4.20 as eukhe
 //! used it (`\` escapes, `{a,b}` alternates, `[..]` classes, `**`
 //! segments; `empty_alternates` and `allow_unclosed_class` off), matched
@@ -199,7 +199,9 @@ pub enum IgnoreRule {
 }
 
 /// An entry of [`ignored`]: a root-relative path, and whether it is a
-/// directory.
+/// directory. The wire marks a directory with a trailing `/`, so one
+/// trailing `/` of the path is dropped, and a file's path must not end in
+/// `/` once it is dropped (a walk's relative paths never do).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IgnoreEntry<'a> {
     pub path: &'a str,
