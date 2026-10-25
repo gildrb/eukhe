@@ -317,4 +317,64 @@ mod tests {
             )
         );
     }
+
+    /// The text a user reads for each cause (`laws/stream_failure.bend`
+    /// `sp_text`): the Rust tag tables must name the cause the core names.
+    const fn cause_text(kind: StreamFailureKind) -> &'static str {
+        match kind {
+            StreamFailureKind::Refusal => "Model refused to respond",
+            StreamFailureKind::Safety => "Response blocked by provider safety filters",
+            StreamFailureKind::PaymentRequired => "Provider requires payment",
+            StreamFailureKind::Overloaded => "Provider overloaded",
+            StreamFailureKind::RateLimit => "Provider rate limit exceeded",
+            StreamFailureKind::ServerError => "Provider server error",
+            StreamFailureKind::Auth => "Provider authentication failed",
+            StreamFailureKind::Permission => "Provider denied access to the requested resource",
+            StreamFailureKind::InvalidRequest => "Provider rejected the request",
+            StreamFailureKind::MalformedResponse => "Provider returned a malformed response",
+            StreamFailureKind::StreamDrop => "Provider dropped the response stream",
+            StreamFailureKind::StreamStalled => "Provider stream stalled",
+            StreamFailureKind::StreamRepeating => "Provider stream repeating",
+            StreamFailureKind::Unknown => "Provider stream failed",
+        }
+    }
+
+    /// Every cause and block reaches the core under its own tag, and every
+    /// tag the core answers reads back as the cause it was sent for: a
+    /// swapped row of `kind_tag`, `KINDS` or `dropped`'s table fails here.
+    #[test]
+    fn the_tag_tables_name_what_the_core_names() {
+        let sent: Vec<(StreamFailureKind, String)> = KINDS
+            .iter()
+            .map(|&kind| {
+                (
+                    KINDS[kind_tag(kind) as usize],
+                    message(&Qualified {
+                        kind,
+                        provider_error_type: None,
+                        status: None,
+                        detail: None,
+                        request_id: None,
+                    }),
+                )
+            })
+            .collect();
+        let expected: Vec<(StreamFailureKind, String)> = KINDS
+            .iter()
+            .map(|&kind| (kind, cause_text(kind).to_owned()))
+            .collect();
+        assert_eq!(sent, expected);
+        let drop = |detail: &str| {
+            format!("Provider dropped the response stream (stream_drop): the stream ended {detail}")
+        };
+        assert_eq!(
+            [Block::Thinking, Block::Text, Block::ToolCall, Block::None].map(dropped),
+            [
+                drop("inside a thinking block before the stop signal"),
+                drop("inside a text block before the stop signal"),
+                drop("inside a tool-call block before the stop signal"),
+                drop("before any response content or stop signal"),
+            ]
+        );
+    }
 }
