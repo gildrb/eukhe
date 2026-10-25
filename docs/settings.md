@@ -71,6 +71,7 @@ More settings:
 |`auxiliary`|`auxiliaryModel`|catalog models|session model|
 |`image`|`imageModel`|catalog models with image input|session model|
 |`subagent`|`subagentDefaultModel`|catalog models|parent's model|
+|`worker`|`workerModel`|catalog models|main's model|
 |`gateway`|`gateway.signal.model`|catalog models|gateway session's model|
 |`titles`|`modelRoles.tiny`|local models of the role; signed-in provider models|first available of its chain|
 |`judge`|`modelRoles.judge`|same as `titles`|same|

@@ -403,7 +403,8 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
         wait_for("Model for Chat"),
         key(KeyCode::Enter),
         wait_for("Model: "),
-        // Titles: clear it; it falls back.
+        // Titles (seven rows below chat): clear it; it falls back.
+        key(KeyCode::Down),
         key(KeyCode::Down),
         key(KeyCode::Down),
         key(KeyCode::Down),
