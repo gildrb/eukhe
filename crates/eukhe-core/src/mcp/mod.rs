@@ -18,7 +18,6 @@ mod oauth_discovery;
 mod oauth_http;
 mod probe;
 mod service_catalog;
-mod url_checks;
 
 pub use catalog_views::{
     mcp_credential_field_prompt_label, mcp_paste_credential, McpPasteCredential,

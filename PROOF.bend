@@ -1862,3 +1862,12 @@ import ./proof/config/config_ffi_reads_spelled.bend as PConfigFfiReadsSpelled
 import ./proof/config/config_ffi_malformed_exact.bend as PConfigFfiMalformedExact
 import ./proof/config/config_ffi_example.bend as PConfigFfiExample
 import ./proof/config/config_ffi_refuses_example.bend as PConfigFfiRefusesExample
+import ./proof/mcp_url/base.bend as LAMcpUrl
+import ./proof/mcp_url/mcp_url_spec.bend as PMcpUrlSpec
+import ./proof/mcp_url/mcp_url_refuses_example.bend as PMcpUrlRefusesExample
+import ./proof/mcp_url/mcp_url_passes_example.bend as PMcpUrlPassesExample
+import ./proof/mcp_url/mcp_url_entry_answers.bend as PMcpUrlEntryAnswers
+import ./proof/mcp_url/mcp_url_entry_exact.bend as PMcpUrlEntryExact
+import ./proof/mcp_url/mcp_url_entry_refuses.bend as PMcpUrlEntryRefuses
+import ./proof/mcp_url/mcp_url_entry_left_over.bend as PMcpUrlEntryLeftOver
+import ./proof/mcp_url/mcp_url_entry_example.bend as PMcpUrlEntryExample

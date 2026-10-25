@@ -11,8 +11,6 @@
 
 use serde::Deserialize;
 
-use super::url_checks::is_literal_private_or_loopback_host;
-
 /// Envelope of the plugins catalog (`catalog.v2.json`): exactly `version`,
 /// `counts`, `entries`.
 #[derive(Debug, Clone, Deserialize)]
@@ -341,7 +339,16 @@ fn require_https_url(entry_id: &str, field: &str, url: &str) -> Result<String, S
             safe_entry_id(entry_id)
         ));
     }
-    if is_literal_private_or_loopback_host(parsed.host_str().unwrap_or_default()) {
+    let refused = eukhe_bend::rules::mcp_url::literal_private_or_loopback(
+        parsed.host_str().unwrap_or_default(),
+    )
+    .map_err(|error| {
+        format!(
+            "catalog entry {}: {field} host could not be checked: {error}",
+            safe_entry_id(entry_id)
+        )
+    })?;
+    if refused {
         return Err(format!(
             "catalog entry {}: {field} must not be a literal loopback, private, link-local or unspecified endpoint",
             safe_entry_id(entry_id)
@@ -582,6 +589,29 @@ mod tests {
 
     fn parse(bytes: &[u8]) -> PluginsCatalog {
         parse_plugins_catalog(bytes).expect("catalog parses")
+    }
+
+    /// Regression: an IPv4-mapped loopback endpoint is refused. The url
+    /// crate spells `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`, which the
+    /// Rust check passed (its mapped test could never hold); the compiled
+    /// core (`laws/mcp_url.bend`) refuses it, like the plain loopback, and
+    /// a public host passes.
+    #[test]
+    fn mapped_loopback_endpoints_are_refused() {
+        let check = |url: &str| require_https_url("svc", "url", url);
+        let refused = "catalog entry svc: url must not be a literal loopback, private, link-local or unspecified endpoint".to_string();
+        assert_eq!(
+            [
+                check("https://[::ffff:127.0.0.1]/mcp"),
+                check("https://127.0.0.1/mcp"),
+                check("https://mcp.linear.app/mcp"),
+            ],
+            [
+                Err(refused.clone()),
+                Err(refused),
+                Ok("https://mcp.linear.app/mcp".to_string()),
+            ]
+        );
     }
 
     /// A long id whose 64th byte falls inside a multi-byte char truncates

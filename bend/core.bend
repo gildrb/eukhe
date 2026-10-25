@@ -47,6 +47,7 @@ import ./ffi_job.bend as ffi_job
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
+import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
@@ -236,6 +237,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_retry_note.ffi(input)
     case 264:
       ffi_doc_plan.ffi(input)
+    case 290:
+      ffi_mcp_url.ffi(input)
     case _:
       W.err("unknown entry")
 
