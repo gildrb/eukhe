@@ -53,7 +53,7 @@ import ../../bend/refine_plan.bend as Rp
 #     requires a dag or machine object in arguments`; else valid.
 # R4: a proposal's apply (Rust `apply_refinement_proposal`), each edit in
 #     order, its id the computed id (none: empty): an invalid edit is a row
-#     with its action (none: create), its kind (none: memory), the id and
+#     with its action (none, or an edit without a kind: create), its kind (none: memory), the id and
 #     the validation message, not applied, no before. A valid edit's entry
 #     is the one of its kind and id as the earlier edits of the proposal
 #     left it (an earlier written or removed entry: the last such edit's
