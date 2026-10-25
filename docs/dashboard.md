@@ -110,6 +110,7 @@ Open the printed `Poros URL` plus the `#token=…` part of the dashboard link. p
 - `--allow-host` only for a forwarder you control that keeps `Host` (`tailscale serve` does).
 - `tailscale serve`, never `tailscale funnel` (public internet).
 - The socket refuses bridge and daemon-internal commands ([Protocol](#protocol)).
+- The `Host` and `Origin` checks and the `run` command list run as the compiled core: `bend/dash_access.bend` (entry `bend/ffi_dash_access.bend`, laws `laws/dash_access.bend`) and `bend/dash_policy.bend` (entry `bend/ffi_dash_policy.bend`, laws `laws/dash_policy.bend`); Rust only reads the headers and the command's `type`.
 - `laws/dash.bend`: pairing gate rules; `PROOF.bend` proves them on `bend/dash.bend`. Every choice of the gate (token shape, stored token and its trim, first frame, later frames, the token file at start) runs as the compiled core (entry `bend/ffi_dash.bend`, laws `dash_*_spec`, `dash_entry_*`); Rust reads frames and the file and compares tokens in constant time. Bridge test `pairing::tests::the_gate_pairs_as_its_model` runs real server and model on the same events: it stays for the interleaving (rotations by another process between frames of open sockets).
 
 ## Caching
@@ -173,7 +174,7 @@ Page's first frame: `{op: "pair", token}` (token from the link). Answer:
 
 `command`: a daemon command, `type` in snake case, fields in camel case, no `activeSessionId` (the server sets the bound session's id, overriding the page).
 
-Allowed (list: `crates/eukhe-dashboard/src/command_policy.rs`):
+Allowed (list: `bend/dash_policy.bend`, laws `laws/dash_policy.bend`; any `type` not listed is refused):
 
 - bound-session controls and inspection: model, thinking, service tier, steering and follow-up modes, auto-compaction, auto-retry, cvars, compaction, retry, queue, `bash` approval answers, session name, fork, trees, prompts, memory, statistics;
 - catalog commands `list_saved_sessions`, `rename_saved_session`, `cron_list`, `heartbeats_list`, sent without session id (daemon answers for all sessions).

@@ -499,7 +499,7 @@ impl Tab {
                         .with_context(|| format!("read the {kind:?} command"))
                 };
                 let addressed = read(addressed)?;
-                match verdict(&addressed) {
+                match verdict(&kind) {
                     Verdict::Bound => self.client.request_ok(addressed).await.map(Answer::Data),
                     // A catalog command names its sessions itself: with no
                     // session id the supervisor answers for every session
