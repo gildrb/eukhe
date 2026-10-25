@@ -5,7 +5,10 @@ import ../../bend/ffi_retry_idle.bend as Fi
 import ../../bend/retry.bend as R
 import ../../bend/wire.bend as Wr
 import ../../laws/retry_idle.bend as RetryIdle
+import ../../laws/wire.bend as Wire
+import ../../laws/base.bend as LawsBase
 import ../base/logic/logic.bend as LLogicLogic
+import ./idle_wake_exact.bend as PIdleWakeExact
 
 # Nat facts
 # ---------
@@ -208,8 +211,56 @@ def ri.drive(rest: List<&2, Nat>, +g: Nat, +d: Nat, +last: Nat, +k: Nat, +hk: {N
       %Equal.sym(RetryIdle.Arrive, RetryIdle.arrive(g, d, last, k), ri.arr(g, d, last, k), ri.arrive(g, d, last, k, hk)) : {RetryIdle.drive.sel(_, h <> t, Nat.add(last, g), RetryIdle.drive(h <> t, d, Nat.add(last, g), RetryIdle.arrive.left(_))) == Some{R.idle.go(g <> (h <> t), d, last)} : Maybe<&2, R.Idle>}
       ri.m_cons(Nat.is_gt(g, d), g, h, t, d, last, k, ih)
 
-# The entry
-# ---------
+# The stepper (bend/ffi_retry_idle.bend)
+# --------------------------------------
+
+def ri.BD(b: Bool, t: Type, f: Type) -> Type:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      f
+
+def ri.absurd(-G: Type, h: {False{} == True{} : Bool}) -> G:
+  %h : ri.BD(_, G, Unit)
+  Unit{}
+
+def ri.and_l(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def ri.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      ri.absurd({b == True{} : Bool}, h)
+
+def ri.MD(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      G
+
+# None is not Some
+def ri.none_some(-A: Data, -G: Type, -x: A, h: {None{} == Some{x} : Maybe<&2, A>}) -> G:
+  %h : ri.MD(A, _, G)
+  Unit{}
+
+def ri.get(-A: Data, m: Maybe<&2, A>, d: A) -> A:
+  match m:
+    case None{}:
+      d
+    case Some{x}:
+      x
+
+# Some is injective
+def ri.some_inj(-A: Data, +a: A, +b: A, h: {Some{a} == Some{b} : Maybe<&2, A>}) -> {a == b : A}:
+  Equal.cong(Maybe<&2, A>, A, m => ri.get(A, m, a), Some{a}, Some{b}, h)
 
 def ri.bool_rt(b: Bool, rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
   match b:
@@ -218,90 +269,110 @@ def ri.bool_rt(b: Bool, rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_
     case False{}:
       {==}
 
-def ri.put_wake(w: R.Wake) -> {Fi.put_wake(w) == RetryIdle.spell_wake(w) : String}:
+def ri.nat_rt(+n: Nat, rest: String, fits: {LawsBase.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Wire.wire_nat_round_trip(n, rest, fits))
+
+def ri.put_wake(w: R.Wake) -> {RetryIdle.spell_wake(w) == Fi.put_wake(w) : String}:
   match w:
     case R.WakeStall{}:
       {==}
     case R.WakeSleep{us}:
       {==}
 
-# the laws' reader, its requests turned into the entry's
-def ri.req(a: RetryIdle.idle.Ask) -> Fi.Req:
-  match a:
-    case RetryIdle.idle.AskArm{nan, neg, whole, frac}:
-      Fi.QArm{nan, neg, whole, frac}
-    case RetryIdle.idle.AskWake{held, since, d}:
-      Fi.QWake{held, since, d}
-
-def ri.conv(r: Wr.Dec<RetryIdle.idle.Ask>) -> Wr.Dec<Fi.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{ri.req(a), s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ri.rq_arm_frac(nan: Bool, neg: Bool, whole: Nat, r: Wr.Dec<Bool>) -> {ri.conv(RetryIdle.read_arm.frac(nan, neg, whole, r)) == Fi.get_arm.frac(nan, neg, whole, r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{frac, s}:
+# the stepper spells its replies as the laws do
+def ri.reply(m: Maybe<&2, R.Wake>) -> {RetryIdle.spell_reply(m) == Fi.put_reply(m) : String}:
+  match m:
+    case None{}:
       {==}
-    case Wr.Bad{}:
+    case Some{w}:
+      %ri.put_wake(w) : {Wr.put_nat(1n, RetryIdle.spell_wake(w)) == Wr.put_nat(1n, _) : String}
       {==}
 
-def ri.rq_arm_whole(nan: Bool, neg: Bool, r: Wr.Dec<Nat>) -> {ri.conv(RetryIdle.read_arm.whole(nan, neg, r)) == Fi.get_arm.whole(nan, neg, r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{whole, s}:
-      ri.rq_arm_frac(nan, neg, whole, Wr.get_bool(s))
-    case Wr.Bad{}:
+# the reply of a step is the laws' spelling of the model's step
+def ri.reply_pair(p: R.IdleSt & Maybe<&2, R.Wake>) -> {Fi.reply(p) == (Fi.Live{RetryIdle.ri_mst(p)}, RetryIdle.spell_reply(RetryIdle.ri_mans(p))) : Fi.St & String}:
+  match p:
+    case (s, m):
+      %ri.reply(m) : {(Fi.Live{s}, _) == (Fi.Live{s}, RetryIdle.spell_reply(m)) : Fi.St & String}
       {==}
 
-def ri.rq_arm_neg(nan: Bool, r: Wr.Dec<Bool>) -> {ri.conv(RetryIdle.read_arm.neg(nan, r)) == Fi.get_arm.neg(nan, r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{neg, s}:
-      ri.rq_arm_whole(nan, neg, Wr.get_nat(s))
-    case Wr.Bad{}:
+# The model's step, as section 6 states it
+# ----------------------------------------
+
+def ri.fired(+d: Nat, +last: Nat, +holds: Nat, w: R.Wake) -> {R.idle.fired(d, last, holds, w) == RetryIdle.step_spec.fire(d, last, holds, w) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match w:
+    case R.WakeStall{}:
+      {==}
+    case R.WakeSleep{us}:
       {==}
 
-def ri.rq_arm(r: Wr.Dec<Bool>) -> {ri.conv(RetryIdle.read_arm(r)) == Fi.get_arm(r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{nan, s}:
-      ri.rq_arm_neg(nan, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def ri.rq_wake_d(held: Bool, since: Nat, r: Wr.Dec<Nat>) -> {ri.conv(RetryIdle.read_wake.d(held, since, r)) == Fi.get_wake.d(held, since, r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{d, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
-def ri.rq_wake_since(held: Bool, r: Wr.Dec<Nat>) -> {ri.conv(RetryIdle.read_wake.since(held, r)) == Fi.get_wake.since(held, r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{since, s}:
-      ri.rq_wake_d(held, since, Wr.get_nat(s))
-    case Wr.Bad{}:
-      {==}
-
-def ri.rq_wake(r: Wr.Dec<Bool>) -> {ri.conv(RetryIdle.read_wake(r)) == Fi.get_wake(r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{held, s}:
-      ri.rq_wake_since(held, Wr.get_nat(s))
-    case Wr.Bad{}:
-      {==}
-
-def ri.rq_tag(t: Nat, s: String) -> {ri.conv(RetryIdle.read_ask.tag(t, s)) == Fi.get_req.tag(t, s) : Wr.Dec<Fi.Req>}:
-  match t:
+def ri.fire(+d: Nat, +last: Nat, holds: Nat, +now: Nat) -> {R.idle.fired(d, last, holds, R.idle.wake(R.idle.held(holds), Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, holds, RetryIdle.wake_spec(Nat.is_gt(holds, 0n), Nat.sub(now, last), d)) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match holds:
     case 0n:
-      ri.rq_arm(Wr.get_bool(s))
-    case 1n:
-      ri.rq_wake(Wr.get_bool(s))
-    case 2n+p:
+      %RetryIdle.idle_wake_exact(False{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 0n, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      ri.fired(d, last, 0n, R.idle.wake(False{}, Nat.sub(now, last), d))
+    case 1n+p:
+      %RetryIdle.idle_wake_exact(True{}, Nat.sub(now, last), d) : {R.idle.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d)) == RetryIdle.step_spec.fire(d, last, 1n+p, _) : R.IdleSt & Maybe<&2, R.Wake>}
+      ri.fired(d, last, 1n+p, R.idle.wake(True{}, Nat.sub(now, last), d))
+
+def ri.drop(holds: Nat) -> {R.idle.drop(holds) == Nat.sub(holds, 1n) : Nat}:
+  match holds:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.sym(Nat, Nat.sub(p, 0n), p, ri.sub_zero(p))
+
+def ri.live(+d: Nat, +last: Nat, e: R.IdleEv, +holds: Nat) -> {R.idle.live(d, last, holds, e) == RetryIdle.step_spec.live(d, last, holds, e) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match e:
+    case R.IdleLife{now}:
+      {==}
+    case R.IdleHold{}:
+      {==}
+    case R.IdleFree{now}:
+      %ri.drop(holds) : {(R.IdleSt{d, Nat.max(last, now), R.idle.drop(holds), False{}}, None{}) == (R.IdleSt{d, Nat.max(last, now), _, False{}}, None{}) : R.IdleSt & Maybe<&2, R.Wake>}
+      {==}
+    case R.IdleFire{now}:
+      ri.fire(d, last, holds, now)
+
+# the model's step is the laws' step_spec
+def ri.step(s: R.IdleSt, e: R.IdleEv) -> {R.idle.step(s, e) == RetryIdle.step_spec(s, e) : R.IdleSt & Maybe<&2, R.Wake>}:
+  match s:
+    case R.IdleSt{d, last, holds, over}:
+      match over:
+        case True{}:
+          {==}
+        case False{}:
+          ri.live(d, last, e, holds)
+
+# The entry's step
+# ----------------
+
+# a spelled event that fits is read whole: the stepper runs the model's step
+def ri.ev(s: R.IdleSt, e: R.IdleEv, fits: {RetryIdle.ev_fits(e) == True{} : Bool}) -> {Fi.step(Fi.Live{s}, RetryIdle.spell_ev(e)) == Fi.reply(R.idle.step(s, e)) : Fi.St & String}:
+  match e:
+    case R.IdleLife{now}:
+      %ri.nat_rt(now, "", fits) : {Fi.step.ev(s, Fi.get_ev.life(_)) == Fi.reply(R.idle.step(s, R.IdleLife{now})) : Fi.St & String}
+      {==}
+    case R.IdleHold{}:
+      {==}
+    case R.IdleFree{now}:
+      %ri.nat_rt(now, "", fits) : {Fi.step.ev(s, Fi.get_ev.free(_)) == Fi.reply(R.idle.step(s, R.IdleFree{now})) : Fi.St & String}
+      {==}
+    case R.IdleFire{now}:
+      %ri.nat_rt(now, "", fits) : {Fi.step.ev(s, Fi.get_ev.fire(_)) == Fi.reply(R.idle.step(s, R.IdleFire{now})) : Fi.St & String}
       {==}
 
-# the entry reads every input as the laws' reader does
-def ri.rq(r: Wr.Dec<Nat>) -> {ri.conv(RetryIdle.read_ask.go(r)) == Fi.get_req.go(r) : Wr.Dec<Fi.Req>}:
-  match r:
-    case Wr.Got{t, s}:
-      ri.rq_tag(t, s)
-    case Wr.Bad{}:
-      {==}
+# every spelled event that fits moves the stepper as the model
+def ri.model(+s: R.IdleSt, +e: R.IdleEv, fits: {RetryIdle.ev_fits(e) == True{} : Bool}) -> {Fi.step(Fi.Live{s}, RetryIdle.spell_ev(e)) == (Fi.Live{RetryIdle.ri_mst(R.idle.step(s, e))}, RetryIdle.spell_reply(RetryIdle.ri_mans(R.idle.step(s, e)))) : Fi.St & String}:
+  Equal.trans(Fi.St & String, Fi.step(Fi.Live{s}, RetryIdle.spell_ev(e)), Fi.reply(R.idle.step(s, e)), (Fi.Live{RetryIdle.ri_mst(R.idle.step(s, e))}, RetryIdle.spell_reply(RetryIdle.ri_mans(R.idle.step(s, e)))), ri.ev(s, e, fits), ri.reply_pair(R.idle.step(s, e)))
+
+# The entry's open
+# ----------------
+
+# a spelled open that fits is read whole, one field at a time
+def ri.open_spelled(+nan: Bool, +neg: Bool, +whole: Nat, +frac: Bool, +d: Nat, +fits: {Bool.and(LawsBase.wire_fits(whole), LawsBase.wire_fits(d)) == True{} : Bool}) -> {Fi.open(RetryIdle.spell_open(nan, neg, whole, frac, d)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}:
+  %ri.bool_rt(nan, Wr.put_bool(neg, Wr.put_nat(whole, Wr.put_bool(frac, Wr.put_nat(d, ""))))) : {Fi.open.go(Fi.get_open.go(_)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
+  %ri.bool_rt(neg, Wr.put_nat(whole, Wr.put_bool(frac, Wr.put_nat(d, "")))) : {Fi.open.go(Fi.get_open.neg(nan, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
+  %ri.nat_rt(whole, Wr.put_bool(frac, Wr.put_nat(d, "")), ri.and_l(LawsBase.wire_fits(whole), LawsBase.wire_fits(d), fits)) : {Fi.open.go(Fi.get_open.whole(nan, neg, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
+  %ri.bool_rt(frac, Wr.put_nat(d, "")) : {Fi.open.go(Fi.get_open.frac(nan, neg, whole, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
+  %ri.nat_rt(d, "", ri.and_r(LawsBase.wire_fits(whole), LawsBase.wire_fits(d), fits)) : {Fi.open.go(Fi.get_open.d(nan, neg, whole, frac, _)) == Fi.open.end(True{}, Fi.Open{nan, neg, whole, frac, d}) : Fi.St & String}
+  {==}

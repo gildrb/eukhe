@@ -221,8 +221,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_cron.ffi(input)
     case 83:
       ffi_work.ffi(input)
-    case 84:
-      ffi_retry_idle.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
@@ -294,6 +292,7 @@ type State is Type:
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
   Work{s: ffi_work.St}
+  RetryIdle{s: ffi_retry_idle.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
   WaitRace{s: ffi_wait_race.St}
@@ -364,6 +363,11 @@ def open.work(r: ffi_work.St & String) -> State & String:
     case (s, reply):
       (Work{s}, reply)
 
+def open.retry_idle(r: ffi_retry_idle.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (RetryIdle{s}, reply)
+
 def open.lease(r: ffi_lease.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -407,6 +411,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.bound(ffi_bound.open(input))
     case 83:
       open.work(ffi_work.open(input))
+    case 84:
+      open.retry_idle(ffi_retry_idle.open(input))
     case 85:
       open.lease(ffi_lease.open(input))
     case 92:
@@ -486,6 +492,11 @@ def step.work(r: ffi_work.St & String) -> State & String:
     case (s, reply):
       (Work{s}, reply)
 
+def step.retry_idle(r: ffi_retry_idle.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (RetryIdle{s}, reply)
+
 def step.lease(r: ffi_lease.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -529,6 +540,8 @@ def step.go(state: State, input: String) -> State & String:
       step.bound(ffi_bound.step(s, input))
     case Work{s}:
       step.work(ffi_work.step(s, input))
+    case RetryIdle{s}:
+      step.retry_idle(ffi_retry_idle.step(s, input))
     case Lease{s}:
       step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
@@ -570,6 +583,8 @@ def close.go(state: State) -> Unit:
     case Bound{s}:
       Unit{}
     case Work{s}:
+      Unit{}
+    case RetryIdle{s}:
       Unit{}
     case Lease{s}:
       Unit{}

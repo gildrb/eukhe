@@ -1282,6 +1282,15 @@ import ./proof/retry_idle/retry_idle_entry_malformed_exact.bend as PRetryIdleEnt
 import ./proof/retry_idle/retry_idle_entry_example.bend as PRetryIdleEntryExample
 import ./proof/retry_idle/retry_idle_req_fits_example.bend as PRetryIdleReqFitsExample
 import ./proof/retry_idle/idle_exact.bend as PIdleExact
+import ./proof/retry_idle/idle_step_exact.bend as PIdleStepExact
+import ./proof/retry_idle/idle_open_exact.bend as PIdleOpenExact
+import ./proof/retry_idle/idle_step_is_model.bend as PIdleStepIsModel
+import ./proof/retry_idle/idle_only_fires_answer.bend as PIdleOnlyFiresAnswer
+import ./proof/retry_idle/idle_fire_exact.bend as PIdleFireExact
+import ./proof/retry_idle/idle_stalls_once.bend as PIdleStallsOnce
+import ./proof/retry_idle/idle_step_refines.bend as PIdleStepRefines
+import ./proof/retry_idle/retry_idle_entry_reads.bend as PRetryIdleEntryReads
+import ./proof/retry_idle/retry_idle_open_reads.bend as PRetryIdleOpenReads
 import ./proof/retry_ffi/base.bend as LARetryFfi
 import ./proof/retry_ffi/retry_ffi_entry_answers.bend as PRetryFfiEntryAnswers
 import ./proof/retry_ffi/retry_ffi_entry_malformed_exact.bend as PRetryFfiEntryMalformedExact

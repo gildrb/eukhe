@@ -1,98 +1,119 @@
-# ffi_retry_idle: the stream-idle deadline's decisions of the compiled Bend
-# core (bend/retry.bend section 6) behind one entry, `ffi`. A request names
-# its decision and carries its input (crates/eukhe-bend/WIRE.md is the
-# grammar):
+# ffi_retry_idle: the stepper of the compiled Bend core for the
+# stream-idle deadline of one watched stream (bend/retry.bend section 6;
+# crates/eukhe-ai/src/utils/stream_idle.rs `StreamIdle`): its state is the
+# model's IdleSt, kept in the Bend heap. The codec is the wire format of
+# bend/wire.bend (crates/eukhe-bend/WIRE.md):
 #
-#   tag 0  arm    the facts of stream_idle_timeout_ms: NaN, negative,
-#                 its whole part, a fraction      -> Bool (armed)
-#   tag 1  wake   the clock held, the time since the stream last
-#                 showed life, the deadline        -> a Wake
+#   open    the facts of stream_idle_timeout_ms (NaN: Bool, negative:
+#           Bool, its whole part: Nat, a fraction: Bool), then the
+#           deadline in us: Nat                     reply: Maybe<Wake>
+#           (None: no deadline is armed; Some: the timer's first decision)
+#   step    an event: 0, now (life) | 1 (a hold starts) | 2, now (a hold
+#           ends) | 3, now (the timer fired)        reply: Maybe<Wake>
+#           (None: nothing to do)
+#   Wake    0 (the stream stalled) | 1, us (sleep us more from now)
 #
-# A Wake is WakeStall (tag 0) or WakeSleep (tag 1, then the time to sleep).
-# Malformed input, and input left after the request, answer the error
-# form, never a default. laws/retry_idle.bend states the laws of this
-# entry; PROOF.bend proves them. Pure: no IO, no @unsafe.
+# An open that arms nothing, or a malformed one, opens the shut state,
+# which answers every step with the error form; a malformed event, or one
+# with input left over, answers the error form and keeps the state.
+# laws/retry_idle.bend pins the entry. Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W
 import ./retry.bend as R
 
-# A request of the entry
-type Req is Data:
-  QArm{nan: Bool, neg: Bool, whole: Nat, frac: Bool}
-  QWake{held: Bool, since: Nat, d: Nat}
-
-# Decoding
+# The open
 # --------
 
-def get_arm.frac(nan: Bool, neg: Bool, whole: Nat, r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{frac, s}:
-      W.Got{QArm{nan, neg, whole, frac}, s}
-    case W.Bad{}:
-      W.Bad{}
+type Open is Data:
+  Open{nan: Bool, neg: Bool, whole: Nat, frac: Bool, d: Nat}
 
-def get_arm.whole(nan: Bool, neg: Bool, r: W.Dec<Nat>) -> W.Dec<Req>:
-  match r:
-    case W.Got{whole, s}:
-      get_arm.frac(nan, neg, whole, W.get_bool(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_arm.neg(nan: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{neg, s}:
-      get_arm.whole(nan, neg, W.get_nat(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_arm(r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{nan, s}:
-      get_arm.neg(nan, W.get_bool(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_wake.d(held: Bool, since: Nat, r: W.Dec<Nat>) -> W.Dec<Req>:
+def get_open.d(nan: Bool, neg: Bool, whole: Nat, frac: Bool, r: W.Dec<Nat>) -> W.Dec<Open>:
   match r:
     case W.Got{d, s}:
-      W.Got{QWake{held, since, d}, s}
+      W.Got{Open{nan, neg, whole, frac, d}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_wake.since(held: Bool, r: W.Dec<Nat>) -> W.Dec<Req>:
+def get_open.frac(nan: Bool, neg: Bool, whole: Nat, r: W.Dec<Bool>) -> W.Dec<Open>:
   match r:
-    case W.Got{since, s}:
-      get_wake.d(held, since, W.get_nat(s))
+    case W.Got{frac, s}:
+      get_open.d(nan, neg, whole, frac, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_wake(r: W.Dec<Bool>) -> W.Dec<Req>:
+def get_open.whole(nan: Bool, neg: Bool, r: W.Dec<Nat>) -> W.Dec<Open>:
   match r:
-    case W.Got{held, s}:
-      get_wake.since(held, W.get_nat(s))
+    case W.Got{whole, s}:
+      get_open.frac(nan, neg, whole, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
+def get_open.neg(nan: Bool, r: W.Dec<Bool>) -> W.Dec<Open>:
+  match r:
+    case W.Got{neg, s}:
+      get_open.whole(nan, neg, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_open.go(r: W.Dec<Bool>) -> W.Dec<Open>:
+  match r:
+    case W.Got{nan, s}:
+      get_open.neg(nan, W.get_bool(s))
+    case W.Bad{}:
+      W.Bad{}
+
+# the open at the start of s
+def get_open(s: String) -> W.Dec<Open>:
+  get_open.go(W.get_bool(s))
+
+# The events
+# ----------
+
+def get_ev.life(r: W.Dec<Nat>) -> W.Dec<R.IdleEv>:
+  match r:
+    case W.Got{now, s}:
+      W.Got{R.IdleLife{now}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.free(r: W.Dec<Nat>) -> W.Dec<R.IdleEv>:
+  match r:
+    case W.Got{now, s}:
+      W.Got{R.IdleFree{now}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.fire(r: W.Dec<Nat>) -> W.Dec<R.IdleEv>:
+  match r:
+    case W.Got{now, s}:
+      W.Got{R.IdleFire{now}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.tag(t: Nat, s: String) -> W.Dec<R.IdleEv>:
   match t:
     case 0n:
-      get_arm(W.get_bool(s))
+      get_ev.life(W.get_nat(s))
     case 1n:
-      get_wake(W.get_bool(s))
-    case 2n+u:
+      W.Got{R.IdleHold{}, s}
+    case 2n:
+      get_ev.free(W.get_nat(s))
+    case 3n:
+      get_ev.fire(W.get_nat(s))
+    case 4n+p:
       W.Bad{}
 
-def get_req.go(r: W.Dec<Nat>) -> W.Dec<Req>:
+def get_ev.go(r: W.Dec<Nat>) -> W.Dec<R.IdleEv>:
   match r:
     case W.Got{t, s}:
-      get_req.tag(t, s)
+      get_ev.tag(t, s)
     case W.Bad{}:
       W.Bad{}
 
-# the request at the start of s
-def get_req(s: String) -> W.Dec<Req>:
-  get_req.go(W.get_nat(s))
+# the event at the start of s
+def get_ev(s: String) -> W.Dec<R.IdleEv>:
+  get_ev.go(W.get_nat(s))
 
 # Replies
 # -------
@@ -104,31 +125,73 @@ def put_wake(w: R.Wake) -> String:
     case R.WakeSleep{us}:
       W.put_nat(1n, W.put_nat(us, ""))
 
-# the reply of a request: the model's decision, encoded
-def answer(q: Req) -> String:
-  match q:
-    case QArm{nan, neg, whole, frac}:
-      W.put_bool(R.idle.arm(nan, neg, whole, frac), "")
-    case QWake{held, since, d}:
-      put_wake(R.idle.wake(held, since, d))
+def put_reply(m: Maybe<&2, R.Wake>) -> String:
+  match m:
+    case None{}:
+      W.put_nat(0n, "")
+    case Some{w}:
+      W.put_nat(1n, put_wake(w))
+
+# The stepper
+# -----------
+
+# a watched stream's deadline, or none (unarmed or refused)
+type St is Data:
+  Live{s: R.IdleSt}
+  Shut{}
+
+def reply(r: R.IdleSt & Maybe<&2, R.Wake>) -> St & String:
+  (s, m) = r
+  (Live{s}, put_reply(m))
+
+def open.armed(armed: Bool, +d: Nat) -> St & String:
+  match armed:
+    case True{}:
+      reply(R.idle.open(d))
+    case False{}:
+      (Shut{}, put_reply(None{}))
+
+def open.end(done: Bool, o: Open) -> St & String:
+  match done:
+    case True{}:
+      match o:
+        case Open{nan, neg, whole, frac, d}:
+          open.armed(R.idle.arm(nan, neg, whole, frac), d)
+    case False{}:
+      (Shut{}, W.err("retry_idle: malformed open"))
+
+def open.go(r: W.Dec<Open>) -> St & String:
+  match r:
+    case W.Got{o, s}:
+      open.end(W.end(s), o)
+    case W.Bad{}:
+      (Shut{}, W.err("retry_idle: malformed open"))
+
+# open: the deadline the facts arm, and its timer's first decision
+def open(input: String) -> St & String:
+  open.go(get_open(input))
 
 def fail() -> String:
-  W.err("retry_idle: malformed request")
+  W.err("retry_idle: malformed event")
 
-def run.end(whole: Bool, q: Req) -> String:
-  match whole:
+def step.end(done: Bool, +s: R.IdleSt, e: R.IdleEv) -> St & String:
+  match done:
     case True{}:
-      answer(q)
+      reply(R.idle.step(s, e))
     case False{}:
-      fail()
+      (Live{s}, fail())
 
-def run(r: W.Dec<Req>) -> String:
+def step.ev(s: R.IdleSt, r: W.Dec<R.IdleEv>) -> St & String:
   match r:
-    case W.Got{q, s}:
-      run.end(W.end(s), q)
+    case W.Got{e, rest}:
+      step.end(W.end(rest), s, e)
     case W.Bad{}:
-      fail()
+      (Live{s}, fail())
 
-# the entry: decode the request, answer the model's decision
-def ffi(input: String) -> String:
-  run(get_req(input))
+# step: one event of the stream's life; the reply is what the timer does
+def step(st: St, input: String) -> St & String:
+  match st:
+    case Live{s}:
+      step.ev(s, get_ev(input))
+    case Shut{}:
+      (Shut{}, W.err("retry_idle: no deadline"))

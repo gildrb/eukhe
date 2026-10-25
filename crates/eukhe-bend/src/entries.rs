@@ -136,7 +136,7 @@ pub enum Entry {
     Cron = 82,
     /// `bend/ffi_work.bend`: a call and a stepper.
     Work = 83,
-    /// `bend/ffi_retry_idle.bend`: a call.
+    /// `bend/ffi_retry_idle.bend`: a stepper.
     RetryIdle = 84,
     /// `bend/ffi_lease.bend`: a stepper.
     Lease = 85,

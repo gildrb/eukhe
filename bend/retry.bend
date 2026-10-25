@@ -28,10 +28,9 @@
 # the lemmas of proof/retry/ and proof/retry_idle/.
 # Decisions 1, 2, 3 and 5 run compiled (bend/ffi_retry.bend, crate
 # eukhe-bend); 4 runs compiled as bend/run/decision.bend's (bend/ffi_run.bend);
-# 6's decisions (whether a deadline is armed, what its timer does when it
-# fires: `idle.arm`, `idle.wake`) run compiled (bend/ffi_retry_idle.bend);
-# bridge/bridge_retry.bend runs `idle` against the Rust timer loop, the
-# race of an event and the timer on tokio.
+# 6 runs compiled as the stepper of bend/ffi_retry_idle.bend: Rust sends
+# each event of a watched stream's life as it comes (`idle.step`) and
+# sleeps or stalls as it answers.
 
 import Base
 
@@ -766,3 +765,72 @@ def idle.wake(held: Bool, +since: Nat, +d: Nat) -> Wake:
 # has a fraction. NaN, a negative number and 0 disable the deadline.
 def idle.arm(nan: Bool, neg: Bool, whole: Nat, frac: Bool) -> Bool:
   Bool.and(Bool.not(Bool.or(nan, neg)), Bool.or(Nat.is_gt(whole, 0n), frac))
+
+# The deadline of one stream, as a stepper
+# ----------------------------------------
+# Rust (`StreamIdle`) holds no clock of its own: it sends each event of
+# the stream's life as it comes, with its time in us since the deadline
+# was armed, and acts on the answer. The stepper keeps the deadline, the
+# stream's latest life, the holds alive and whether the stream stalled.
+# Events may come in any order (from several threads): the latest life is
+# the latest time any life reported.
+
+# What happens to a watched stream
+type IdleEv is Data:
+  IdleLife{now: Nat}  # the stream showed life (a provider event)
+  IdleHold{}          # a hold of its clock starts (`StreamClock::hold`)
+  IdleFree{now: Nat}  # a hold ends: the clock runs again from now
+  IdleFire{now: Nat}  # the deadline's timer fired
+
+# The deadline d, the stream's latest life, the holds alive, stalled
+type IdleSt is Data:
+  IdleSt{d: Nat, last: Nat, holds: Nat, over: Bool}
+
+def idle.held(holds: Nat) -> Bool:
+  match holds:
+    case 0n:
+      False{}
+    case 1n+p:
+      True{}
+
+def idle.drop(holds: Nat) -> Nat:
+  match holds:
+    case 0n:
+      0n
+    case 1n+p:
+      p
+
+# a fire's decision: a stall ends the stream's deadline
+def idle.fired(+d: Nat, +last: Nat, +holds: Nat, w: Wake) -> IdleSt & Maybe<&2, Wake>:
+  match w:
+    case WakeStall{}:
+      (IdleSt{d, last, holds, True{}}, Some{WakeStall{}})
+    case WakeSleep{us}:
+      (IdleSt{d, last, holds, False{}}, Some{WakeSleep{us}})
+
+def idle.live(+d: Nat, +last: Nat, +holds: Nat, e: IdleEv) -> IdleSt & Maybe<&2, Wake>:
+  match e:
+    case IdleLife{now}:
+      (IdleSt{d, Nat.max(last, now), holds, False{}}, None{})
+    case IdleHold{}:
+      (IdleSt{d, last, 1n+holds, False{}}, None{})
+    case IdleFree{now}:
+      (IdleSt{d, Nat.max(last, now), idle.drop(holds), False{}}, None{})
+    case IdleFire{now}:
+      idle.fired(d, last, holds, idle.wake(idle.held(holds), Nat.sub(now, last), d))
+
+# one event: the state after it, and what the timer does (None: nothing;
+# a stall, or a sleep of us from now)
+def idle.step(s: IdleSt, e: IdleEv) -> IdleSt & Maybe<&2, Wake>:
+  match s:
+    case IdleSt{d, last, holds, over}:
+      match over:
+        case True{}:
+          (IdleSt{d, last, holds, True{}}, None{})
+        case False{}:
+          idle.live(d, last, holds, e)
+
+# a deadline of d us armed at 0, and its timer's first decision: the
+# arming is a fire at 0
+def idle.open(+d: Nat) -> IdleSt & Maybe<&2, Wake>:
+  idle.step(IdleSt{d, 0n, 0n, False{}}, IdleFire{0n})
