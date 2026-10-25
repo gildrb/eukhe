@@ -58,6 +58,7 @@ import ./laws/dash_policy.bend as DashPolicy
 import ./laws/dash_access.bend as DashAccess
 import ./laws/gateway_answer.bend as GatewayAnswer
 import ./laws/gateway_backoff.bend as GatewayBackoff
+import ./laws/slash_suggest.bend as SlashSuggest
 import ./laws/doc_commit.bend as DocCommit
 import ./laws/doc_lines.bend as DocLines
 import ./laws/doc_rows.bend as DocRows

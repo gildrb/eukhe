@@ -16,5 +16,6 @@ pub mod retry;
 pub mod runners;
 pub mod semver;
 pub mod shell;
+pub mod slash;
 pub mod tokens;
 pub mod tool_surface;

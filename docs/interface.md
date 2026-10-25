@@ -132,7 +132,7 @@ A slash command alone on the prompt, cursor at its end: the path rules decide (B
 - `menu(line)`: first word: command names (Rust fuzzy ranking); later: children of the typed path with the typed prefix, any case, table order; none below argument text or an unknown word.
 - `key(line, row, Tab|Enter)`: Tab on a row: its path, a space when it has children or expects text, its children open. Enter on a row typed in full: submit when it runs bare, else its children open. Enter on a row typed in part: complete, then descend (children), wait (text expected) or submit. No row: Tab opens the line's menu; Enter submits unless `Opens`. A row that is not a child of the typed path counts as no row.
 - Lines longer than 4096 chars: no menu, Enter submits as typed; `resolve` up to the wire's string bound.
-- Unknown suggestion: Rust edit distance over the children of the path (`find_slash_command_suggestion`).
+- Unknown suggestion: the compiled core's nearest child of the path (`eukhe_bend::rules::slash::suggestion`, `bend/slash_suggest.bend`, laws `laws/slash_suggest.bend`).
 
 Laws: `laws/command.bend` (R1-R14), proofs `proof/command/` (imported from `PROOF.bend`). Code: `eukhe-tui/src/command_paths.rs` (table, codec, calls), `autocomplete.rs` (`path_suggestions`, `slash_path_at`), `editor/autocomplete.rs` (`apply_path_key`, `ghost_hint`), `editor/input.rs` (Tab/Enter arms), `session_ui/commands.rs` (`handle_slash`: `Unknown`/`Opens`/`Runs`). Tests: `command_paths::tests`, `editor::path_key_tests`, `autocomplete::tests`.
 

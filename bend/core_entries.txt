@@ -67,3 +67,4 @@
 201 dash_access
 202 gateway_answer
 203 gateway_backoff
+204 slash_suggest

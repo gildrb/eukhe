@@ -57,6 +57,7 @@ import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
+import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_timeouts.bend as ffi_timeouts
@@ -199,6 +200,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_gateway_answer.ffi(input)
     case 203:
       ffi_gateway_backoff.ffi(input)
+    case 204:
+      ffi_slash_suggest.ffi(input)
     case _:
       W.err("unknown entry")
 

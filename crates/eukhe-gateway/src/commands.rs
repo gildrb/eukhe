@@ -3,8 +3,6 @@
 //! Signal has no command menu, so a lone `/` lists the commands, a prefix
 //! lists the commands it starts, and a near miss names the closest.
 
-use eukhe_types::slash_commands::find_slash_command_suggestion;
-
 /// A phone command (case-insensitive name, exact argument count).
 pub(crate) enum PhoneCommand {
     Help,
@@ -153,7 +151,7 @@ fn suggest(name: &str) -> String {
         return lines.join("\n");
     }
     let names: Vec<&str> = COMMANDS.iter().map(|spec| spec.name).collect();
-    match find_slash_command_suggestion(name, &names) {
+    match eukhe_bend::rules::slash::suggestion(name, &names) {
         Some(closest) => format!(
             "No command /{name}. Did you mean /{closest}?\nNot sent to the agent. Send / for all commands."
         ),

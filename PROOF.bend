@@ -1227,6 +1227,16 @@ import ./proof/gateway_backoff/gateway_backoff_entry_exact.bend as PGatewayBacko
 import ./proof/gateway_backoff/gateway_backoff_entry_refuses.bend as PGatewayBackoffEntryRefuses
 import ./proof/gateway_backoff/gateway_backoff_entry_example.bend as PGatewayBackoffEntryExample
 import ./proof/gateway_backoff/gateway_backoff_entry_capped.bend as PGatewayBackoffEntryCapped
+import ./proof/slash_suggest/base.bend as LASlashSuggest
+import ./proof/slash_suggest/slash_suggest_distance.bend as PSlashSuggestDistance
+import ./proof/slash_suggest/slash_suggest_spec.bend as PSlashSuggestSpec
+import ./proof/slash_suggest/slash_suggest_example.bend as PSlashSuggestExample
+import ./proof/slash_suggest/slash_suggest_distance_example.bend as PSlashSuggestDistanceExample
+import ./proof/slash_suggest/slash_suggest_entry_answers.bend as PSlashSuggestEntryAnswers
+import ./proof/slash_suggest/slash_suggest_entry_reads.bend as PSlashSuggestEntryReads
+import ./proof/slash_suggest/slash_suggest_entry_exact.bend as PSlashSuggestEntryExact
+import ./proof/slash_suggest/slash_suggest_entry_refuses.bend as PSlashSuggestEntryRefuses
+import ./proof/slash_suggest/slash_suggest_entry_example.bend as PSlashSuggestEntryExample
 import ./proof/gateway_answer/base.bend as LAGatewayAnswer
 import ./proof/gateway_answer/gateway_answer_spec.bend as PGatewayAnswerSpec
 import ./proof/gateway_answer/gateway_answer_example.bend as PGatewayAnswerExample
