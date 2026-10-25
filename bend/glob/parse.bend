@@ -385,13 +385,6 @@ def norm(st: St, +c: Char) -> St:
 type Took is Data:
   Took{st: St, used: Bool}
 
-def star2.ext(st: St, t: Bool) -> Took:
-  match t:
-    case True{}:
-      Took{st, True{}}
-    case False{}:
-      Took{st, False{}}
-
 def star2.sfx_other(cur: Br, outer: List<&2, Open>, prev: Maybe<&2, Char>, bad: Maybe<&2, Err>, closer: Bool) -> Took:
   match closer:
     case True{}:

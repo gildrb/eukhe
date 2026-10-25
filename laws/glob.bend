@@ -53,15 +53,33 @@ import ./base.bend as LawsBase
 #     in order, each group as many as its size; a group past the texts
 #     takes those left), whether a pattern globset accepts matches one of
 #     its texts; a refused pattern matches nothing.
+# R5b (rules): a rules query answers, for each rule (the patterns in
+#     order, each rule as many as its size; a rule past the patterns takes
+#     those left), whether one of its patterns globset accepts matches one
+#     of the texts; a refused pattern matches nothing.
+# R5c (ignore): an ignore query holds rules (a text and a code each, in
+#     the order the ignore files give them; a text past the codes or a
+#     code past the texts is dropped) and entries (a path; a trailing `/`
+#     marks a directory and is not part of the path). Code below 8: a glob
+#     (literal_separator on, no fold), bit 1 anchored (matched against the
+#     whole path) else matched against the whole path or any text after a
+#     `/` of it, bit 2 negated, bit 4 directories only (a file skips it);
+#     a matching glob decides: ignored, kept when negated. Code 8: the
+#     text is a prefix; it decides, ignored, every path that starts with
+#     it (char by char, not by path component). Any other code decides
+#     nothing. The last rule that decides wins; none deciding: not
+#     ignored. The answer has one entry per entry, in order.
 # R6 (allowlist): a model allowlist allows a selector when one of its
 #     patterns does: the pattern trimmed of Unicode White_Space; a blank
 #     one never; one with `*`, `?` or `[` as a glob (no option set) of the
 #     selector or of its bare id (the text after the selector's first
 #     `/`, the selector itself with none); any other when it equals one of
 #     them. An empty list allows nothing.
-# R7 (entry): bend/ffi_glob.bend reads the request its header spells and
-#     answers R1's error, R5's, R5b's or R5c's answers or R6's answer, spelled per
-#     WIRE.md; any other input answers `E glob: malformed request`.
+# R7 (entry): bend/ffi_glob.bend reads the request its header comment
+#     spells (tags, field order, error tags 0-4, a range error's two chars
+#     as code points) and answers R1's error, R5's, R5b's or R5c's answers
+#     or R6's answer, spelled in the wire format of WIRE.md; any other
+#     input answers `E glob: malformed request`.
 
 # Spec helpers
 # ------------
@@ -744,6 +762,82 @@ law glob_parse_error_example:
 # EXCLUDES: a text matched by code points, a wrong byte split
 law glob_utf8_example:
   {[GItems.utf8(97, Nil{}), GItems.utf8(233, Nil{}), GItems.utf8(8364, Nil{}), GItems.utf8(128512, Nil{})] == [[97], [195, 169], [226, 130, 172], [240, 159, 152, 128]] : List<&2, List<&2, U32>>}
+
+# the group query of one pattern against one text, literal separators,
+# no fold (the examples below)
+def sp_sep1(p: String, t: String) -> List<&2, Bool>:
+  GQuery.match_groups(GItems.Opts{True{}, False{}}, [p], [t], [1n])
+
+# R1: the error a parse answers, or none
+def sp_check(r: Result<&2, &2, GParse.Err, GParse.Glob>) -> Maybe<&2, GParse.Err>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{g}:
+      None{}
+
+# LAW glob_check (R1, R7): a pattern's error query answers exactly the
+# parser's error, for every pattern, and none for a pattern it accepts
+# EXCLUDES: an error query that reads the pattern another way than the
+#   matcher's parse, a refused pattern answered as accepted
+law glob_check:
+  for p: String
+  {GQuery.check(p) == sp_check(GParse.parse(p)) : Maybe<&2, GParse.Err>}
+
+# LAW glob_parse_edge_example (R1, R2): anchor: inputs that tell globset's
+# parser from near-miss parsers (found by mutation), literal separators
+# EXCLUDES: `/**` before a char read as a suffix, a char after a leading
+#   `**` skipped, `**` after a group's `,` or `{` read as two stars, `^`
+#   not negating, a repeated `/**/` read as a suffix, `*` crossing `/`,
+#   a `-` added to a negated class, `]` first read as a close
+law glob_parse_edge_example:
+  {[sp_sep1("a/**b", "a/x/yb"), sp_sep1("**a", "xb"), sp_sep1("{a,**/b}", "b"), sp_sep1("{**/b}", "b"), sp_sep1("[^a]", "b"), sp_sep1("a/**/**/b", "a/xb"), sp_sep1("*", "/a"), sp_sep1("**/-*{,}**", "}"), sp_sep1("{a,b}**/[!a]*", "a,b"), sp_sep1("*/**a", "/}"), sp_sep1("**,**", "^"), sp_sep1("a[!a]", "a-"), sp_sep1("[]],b]", ","), sp_sep1("a/**b", "a/xb")] == [[False{}], [False{}], [True{}], [True{}], [True{}], [False{}], [False{}], [False{}], [False{}], [False{}], [False{}], [True{}], [False{}], [True{}]] : List<&2, List<&2, Bool>>}
+
+# LAW glob_parse_edge_nosep_example (R1, R2): anchor: the same, without
+# literal separators
+# EXCLUDES: a char after `**` skipped, a group product lost after `**`
+law glob_parse_edge_nosep_example:
+  {[GQuery.match_groups(GItems.Opts{False{}, False{}}, ["**[a-c],a{,}**"], ["a/b"], [1n]), GQuery.match_groups(GItems.Opts{False{}, False{}}, ["**/**.**"], ["/a!"], [1n]), GQuery.match_groups(GItems.Opts{False{}, False{}}, ["**^"], ["b"], [1n]), GQuery.match_groups(GItems.Opts{False{}, False{}}, ["[!a]**/"], [","], [1n])] == [[False{}], [False{}], [False{}], [False{}]] : List<&2, List<&2, Bool>>}
+
+# LAW glob_utf8_boundary_example (R2): anchor: the UTF-8 bytes at each
+# length's edges (127/128, 2047/2048, 65535/65536, the last char), and
+# `?` taking one byte of a three- or four-byte char
+# EXCLUDES: an off-by-one at a length boundary
+law glob_utf8_boundary_example:
+  {([GItems.utf8(127, Nil{}), GItems.utf8(128, Nil{}), GItems.utf8(2047, Nil{}), GItems.utf8(2048, Nil{}), GItems.utf8(65535, Nil{}), GItems.utf8(65536, Nil{}), GItems.utf8(1114111, Nil{})], [sp_sep1("??", SCon{Chr{2048}, SNil{}}), sp_sep1("?", SCon{Chr{128512}, SNil{}}), sp_sep1("??", SCon{Chr{2047}, SNil{}})]) == ([[127], [194, 128], [223, 191], [224, 160, 128], [239, 191, 191], [240, 144, 128, 128], [244, 143, 191, 191]], [[False{}], [False{}], [True{}]]) : List<&2, List<&2, U32>> & List<&2, List<&2, Bool>>}
+
+# LAW glob_bytes (R4): the bytes of every text are the UTF-8 bytes of its
+# chars in order
+# EXCLUDES: a text matched by code points, chars reordered or skipped
+law glob_bytes:
+  for c: Char
+  for t: String
+  {(GItems.bytes(SCon{c, t}), GItems.bytes("")) == (GItems.utf8(Char.to_u32(c), GItems.bytes(t)), Nil{}) : List<&2, U32> & List<&2, U32>}
+
+# LAW glob_star_example (R1, R2): anchor: `**` in a group branch, before a
+# group's `,`, not before `/`, after `/` before a char, repeated, and the
+# lone `**/` (literal separators)
+# EXCLUDES: the `**` rules read for the whole pattern instead of the
+#   branch, a suffix only before `}`, a recursive token where globset
+#   reads two stars, a lone `**` decided on the expansion
+law glob_star_example:
+  {[sp_sep1("x{**/a}", "xa"), sp_sep1("x{**/a}", "xb/a"), sp_sep1("{a/**,b}", "a/x/y"), sp_sep1("**a", "x/a"), sp_sep1("a/**b", "a/xb"), sp_sep1("**/**", "a"), sp_sep1("a/**/**", "a/b/c"), sp_sep1("{**/}", "a"), sp_sep1("**/{}", "a"), sp_sep1("**/", "a")] == [[True{}], [True{}], [True{}], [False{}], [True{}], [True{}], [True{}], [False{}], [False{}], [True{}]] : List<&2, List<&2, Bool>>}
+
+# LAW glob_group_class_example (R1): anchor: a branch whose regex is an
+# empty group, nested groups, `,` after a group, a range chained past
+# its end, `-` as a range end, `\` and `]` first in a class
+# EXCLUDES: a branch dropped by token count, a nested product lost, `,`
+#   read as a branch outside a group, a chained range cut, `\` read as an
+#   escape in a class, `]` first only after `!`
+law glob_group_class_example:
+  {[sp_sep1("{a,{,}}b", "b"), sp_sep1("{a,{b,c}}d", "cd"), sp_sep1("{a,b},c", "a,c"), sp_sep1("{a,b},c", "b,c"), sp_sep1("[a-c-e]", "d"), sp_sep1("[--0]", "/"), sp_sep1("[\\]]", "\\]"), sp_sep1("[]a]", "]")] == [[False{}], [True{}], [True{}], [True{}], [True{}], [True{}], [True{}], [True{}]] : List<&2, List<&2, Bool>>}
+
+# LAW glob_error_order_example (R1): anchor: errors in a class, an escape
+# or a class inside an open group, an unopened `}` before a later error
+# EXCLUDES: an open group reported before an earlier error, `-` refused
+#   as a range end, `\` escaping inside a class
+law glob_error_order_example:
+  {[GQuery.check("[z--]"), GQuery.check("[]"), GQuery.check("[a\\"), GQuery.check("{a\\"), GQuery.check("{[a"), GQuery.check("a}["), GQuery.check("{a,b}}")] == [Some{GParse.ERange{'z', '-'}}, Some{GParse.EClass{}}, Some{GParse.EClass{}}, Some{GParse.EEscape{}}, Some{GParse.EClass{}}, Some{GParse.EUnopened{}}, Some{GParse.EUnopened{}}] : List<&2, Maybe<&2, GParse.Err>>}
 
 # LAW glob_match_example (R1-R4): anchor: the cases of the Rust tests
 # EXCLUDES: a matcher that drifts from globset
