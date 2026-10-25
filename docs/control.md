@@ -138,6 +138,9 @@ Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.
 | `config_ffi_reads_spelled` | The laws' reader reads every spelled request back whole. |
 | `config_ffi_malformed_exact` | Input that is not exactly one request gets exactly `E config: malformed request`. |
 | `config_ffi_example`, `config_ffi_refuses_example` | Anchors: request and reply bytes, refused inputs. |
+| `rmw_written_exact` | Write over a read document is exactly that document with the one edit applied (S4b.1). |
+| `save_exact`, `save_refuses_broken_example` | Setter writes exactly the on-disk document with its key set; over an unreadable file it writes nothing (S4b.1-2). |
+| `set_exact`, `lookup_exact`, `kept_exact`, `touches_exact`, `listed_exact`, `leaf_path_exact`, `leaf_in_exact`, `distinct_exact`, `slot_exact`, `val_limit_exact`, `limit_exact`, `malformed_at_exact`, `effective_exact`, `only_guarded_exact`, `has_exact`, `find_exact`, `finds_exact`, `merge_find_exact` | Each model helper a law reads equals an independent restatement (`spec/config_rules.bend`), so no law holds by two helpers wrong together. |
 
 Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `laws/default_model.bend`.
 

@@ -6,6 +6,7 @@ import ../bend/ffi_config.bend as FC
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ../spec/config.bend as CS
+import ../spec/config_rules.bend as CR
 
 # ---- config ----
 
@@ -773,3 +774,180 @@ law config_ffi_refuses_example:
   {CS.cf_read("1,1,0,3,") == None{} : Maybe<&2, FC.Ask>} &
   {CS.cf_read("0,2,0,0,7,x") == None{} : Maybe<&2, FC.Ask>} &
   {FC.ffi("0,2,0,0,7,x") == SCon{'E', SCon{' ', "config: malformed request"}} : String}
+
+# The helpers the laws read, each pinned
+# --------------------------------------
+# Every model function a law or spec helper reads is fixed by an exact law
+# against a restatement that does not call it (spec/config_rules.bend or
+# the helpers above), so no law holds by a pair of helpers wrong together.
+
+# what a setter writes over the read r: the read document with key k set
+# to v; nothing over a read that failed
+def cf_saved(r: Cf.Read, +k: Nat, +v: Nat) -> Cf.Write:
+  match r:
+    case Cf.Missing{}:
+      Cf.Wrote{cf_edited(Nil{}, Cf.Set{k, v})}
+    case Cf.Parsed{+d}:
+      Cf.Wrote{cf_edited(d, Cf.Set{k, v})}
+    case Cf.Broken{}:
+      Cf.Refused{}
+
+# LAW save_exact: a setter writes exactly the document it read on disk with its key set,
+# whatever copy it loaded; over a document it could not read it writes
+# nothing; over a missing file it writes the one entry
+# EXCLUDES: a setter that writes its loaded copy over an unreadable file,
+#   a setter that writes its loaded copy at all
+law save_exact:
+  for loaded: List<&2, Cf.Entry>
+  for r: Cf.Read
+  for +k: Nat
+  for +v: Nat
+  {Cf.save(loaded, r, k, v) == cf_saved(r, k, v) : Cf.Write}
+
+# LAW save_refuses_broken_example: anchor: a setter with a loaded copy refuses an unreadable
+# file, writes the disk's document (not the copy) with its key set in
+# place, and writes a missing file as the one entry
+# EXCLUDES: a vacuous save_exact
+law save_refuses_broken_example:
+  {Cf.save([Cf.Entry{1n, 5n}], Cf.Broken{}, 2n, 7n) == Cf.Refused{} : Cf.Write} &
+  {Cf.save([Cf.Entry{1n, 5n}], Cf.Parsed{[Cf.Entry{3n, 1n}, Cf.Entry{1n, 4n}]}, 1n, 9n) == Cf.Wrote{[Cf.Entry{3n, 1n}, Cf.Entry{1n, 9n}]} : Cf.Write} &
+  {Cf.save([Cf.Entry{1n, 5n}], Cf.Missing{}, 2n, 7n) == Cf.Wrote{[Cf.Entry{2n, 7n}]} : Cf.Write}
+
+# LAW set_exact: a set of key k to v is the document with every entry of k holding v in
+# its place, or a new entry last
+# EXCLUDES: settings_save_preserves holding by a wrong set and a save wrong alike
+law set_exact:
+  for +d: List<&2, Cf.Entry>
+  for +k: Nat
+  for +v: Nat
+  {Cf.set(d, k, v) == cf_edited(d, Cf.Set{k, v}) : List<&2, Cf.Entry>}
+
+# LAW lookup_exact: the value of a key is the value of its first entry, none without one
+# EXCLUDES: rmw_keeps_others holding by a lookup that ignores the document
+law lookup_exact:
+  for d: List<&2, Cf.Entry>
+  for +j: Nat
+  {Cf.lookup(d, j) == CR.cr_lookup(d, j) : Maybe<&2, Nat>}
+
+# LAW kept_exact: the value of a key in a write is its value in the written document, none
+# when nothing was written
+# EXCLUDES: rmw_applies_change holding by a kept that answers the set value
+law kept_exact:
+  for w: Cf.Write
+  for +j: Nat
+  {Cf.kept(w, j) == CR.cr_kept(w, j) : Maybe<&2, Nat>}
+
+# LAW touches_exact: an edit touches exactly the key it names
+# EXCLUDES: rmw_keeps_others made vacuous by an edit that touches every key
+law touches_exact:
+  for e: Cf.Edit
+  for +j: Nat
+  {Cf.touches(e, j) == Nat.is_eq(CR.cr_edit_key(e), j) : Bool}
+
+# LAW listed_exact: a number is listed exactly when it is one of the list's
+# EXCLUDES: leaf_applied_or_reported holding by a listed that is always true
+law listed_exact:
+  for ns: List<&2, Nat>
+  for +n: Nat
+  {Cf.listed(ns, n) == CR.cr_listed(ns, n) : Bool}
+
+# LAW leaf_path_exact: a leaf's path is the path it carries
+# EXCLUDES: the leaf laws read at a path the leaf does not have
+law leaf_path_exact:
+  for l: Cf.Leaf
+  {Cf.Leaf.path(l) == CR.cr_path(l) : Nat}
+
+# LAW leaf_in_exact: a leaf is in a list exactly when it is one of its leaves
+# EXCLUDES: leaf_applied_or_reported made vacuous by an empty membership
+law leaf_in_exact:
+  for +l: Cf.Leaf
+  for ls: List<&2, Cf.Leaf>
+  {Cf.In(l, ls) == CR.cr_in(l, ls) : Type}
+
+# LAW distinct_exact: leaves are distinct exactly when no two share a path
+# EXCLUDES: leaf_not_both made vacuous by a distinct that is never true
+law distinct_exact:
+  for ls: List<&2, Cf.Leaf>
+  {Cf.distinct(ls) == CR.cr_distinct(ls) : Bool}
+
+# LAW slot_exact: a provider's slot is the value of its first slot, none without one
+# EXCLUDES: limit_number_applies holding by a slot that never answers
+law slot_exact:
+  for es: List<&2, Cf.Slot>
+  for +p: Nat
+  {Cf.slot(es, p) == CR.cr_slot(es, p) : Maybe<&2, Cf.Val>}
+
+# LAW val_limit_exact: a slot's limit: 0 is no limit, a whole n is n, a malformed one 1
+# EXCLUDES: limit_number_applies holding by a limit and a val_limit wrong alike
+law val_limit_exact:
+  for v: Cf.Val
+  {Cf.val_limit(v) == cf_lim_val(v) : Cf.Lim}
+
+# LAW limit_exact: a provider's limit: unset or no slot is no limit, its first slot's
+# limit, a value that is not a map caps at 1
+# EXCLUDES: the one-provider limit laws holding by a wrong limit
+law limit_exact:
+  for s: Cf.InFlight
+  for +p: Nat
+  {Cf.limit(s, p) == cf_limit(s, p) : Cf.Lim}
+
+# LAW malformed_at_exact: a provider's limit is malformed exactly when its first slot is
+# malformed or the value is not a map
+# EXCLUDES: limit_malformed_fails_closed made vacuous by a malformed_at that is never true
+law malformed_at_exact:
+  for s: Cf.InFlight
+  for +p: Nat
+  {Cf.malformed_at(s, p) == CR.cr_malformed_at(s, p) : Bool}
+
+# LAW effective_exact: the values that apply are the items the trust keeps (every item
+# when trusted, the preferences when not), in order, before the global ones
+# EXCLUDES: the trust laws holding by an effective that drops or adds items
+law effective_exact:
+  for +t: Cf.Trust
+  for g: List<&2, Cf.Entry>
+  for items: List<&2, Cf.Item>
+  {Cf.effective(t, g, items) == CR.cr_effective(t, g, items) : List<&2, Cf.Entry>}
+
+# LAW only_guarded_exact: a key is guarded exactly when no item is a preference of it
+# EXCLUDES: untrusted_changes_nothing_guarded made vacuous by a premise never true
+law only_guarded_exact:
+  for items: List<&2, Cf.Item>
+  for +k: Nat
+  {Cf.only_guarded(items, k) == CR.cr_only_guarded(items, k) : Bool}
+
+# LAW has_exact: a map has a name exactly when one of its entries has it
+# EXCLUDES: the merge laws made vacuous or misapplied by a wrong has
+law has_exact:
+  for es: List<&2, Cf.Named>
+  for +n: Nat
+  {Cf.has(es, n) == CR.cr_has(es, n) : Bool}
+
+# LAW find_exact: the entry of a name is the first entry of that name, none without one
+# EXCLUDES: project_entry_never_merges holding by a find that ignores the map
+law find_exact:
+  for es: List<&2, Cf.Named>
+  for +n: Nat
+  {Cf.find(es, n) == cf_find(es, n) : Maybe<&2, List<&2, Cf.Entry>>}
+
+def cf_finds(+es: List<&2, Cf.Named>, qs: List<&2, Nat>) -> List<&2, Maybe<&2, List<&2, Cf.Entry>>>:
+  match qs:
+    case Nil{}:
+      Nil{}
+    case q <> t:
+      cf_find(es, q) <> cf_finds(es, t)
+
+# LAW finds_exact: the entries of names qs are, in order, the entry of each
+# EXCLUDES: an answer for another name or in another order
+law finds_exact:
+  for +es: List<&2, Cf.Named>
+  for qs: List<&2, Nat>
+  {Cf.finds(es, qs) == cf_finds(es, qs) : List<&2, Maybe<&2, List<&2, Cf.Entry>>>}
+
+# LAW merge_find_exact: in the merged map a name's entry is the project's entry whole,
+# else the global one whole, else none
+# EXCLUDES: a merged map whose entries only finds reads right
+law merge_find_exact:
+  for +g: List<&2, Cf.Named>
+  for p: List<&2, Cf.Named>
+  for +n: Nat
+  {Cf.find(Cf.merge(g, p), n) == cf_or(cf_find(p, n), cf_find(g, n)) : Maybe<&2, List<&2, Cf.Entry>>}

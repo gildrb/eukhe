@@ -3,6 +3,7 @@
 import Base
 import ../../../bend/config.bend as Cf
 import ../../../laws/config.bend as Config
+import ../../../spec/config_rules.bend as CR
 import ../../base/logic/logic.bend as LLogicLogic
 import ../../base/nat.bend as LNat
 import ../../base/logic/nat.bend as LLogicNat
@@ -286,3 +287,171 @@ def pcf.applies(t: Cf.Trust, s: Cf.Scope) -> {Cf.applies(t, s) == Config.cf_appl
               {==}
         case Cf.GlobalOnly{}:
           {==}
+
+# The model's helpers are the laws' restatements
+# ----------------------------------------------
+
+def pcf.wx.pv(b: Bool, v: Nat, w: Nat) -> {Cf.pick_v(b, v, w) == Config.cf_put_v(b, v, w) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the model's replace is the laws'
+def pcf.wx.rep(d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.replace(d, k, v) == Config.cf_replace(d, k, v) : List<&2, Cf.Entry>}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +t:
+      match e:
+        case Cf.Entry{+j, +w}:
+          %pcf.wx.pv(Nat.is_eq(j, k), v, w) : {Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> Cf.replace(t, k, v) == Cf.Entry{j, _} <> Config.cf_replace(t, k, v) : List<&2, Cf.Entry>}
+          %pcf.wx.rep(t, k, v) : {Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> Cf.replace(t, k, v) == Cf.Entry{j, Cf.pick_v(Nat.is_eq(j, k), v, w)} <> _ : List<&2, Cf.Entry>}
+          {==}
+
+# d has key k when its keys hold k
+def pcf.wx.has(d: List<&2, Cf.Entry>, +k: Nat) -> {Cf.has_key(d, k) == Config.cf_mem(Config.cf_keys(d), k) : Bool}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +rest:
+      match e:
+        case Cf.Entry{+j, v}:
+          %pcf.wx.has(rest, k) : {Bool.or(Nat.is_eq(j, k), Cf.has_key(rest, k)) == Bool.or(Nat.is_eq(j, k), _) : Bool}
+          {==}
+
+def pcf.wx.del.step(b: Bool, +j: Nat, +w: Nat, r: List<&2, Cf.Entry>, x: List<&2, Cf.Entry>, ih: {r == x : List<&2, Cf.Entry>}) -> {Cf.keep(b, Cf.Entry{j, w}, r) == Config.cf_without.keep(b, Cf.Entry{j, w}, x) : List<&2, Cf.Entry>}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      %ih : {Cf.Entry{j, w} <> r == Cf.Entry{j, w} <> _ : List<&2, Cf.Entry>}
+      {==}
+
+# the model's delete is the laws'
+def pcf.wx.del(d: List<&2, Cf.Entry>, +k: Nat) -> {Cf.del(d, k) == Config.cf_without(d, k) : List<&2, Cf.Entry>}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +t:
+      match e:
+        case Cf.Entry{+j, w}:
+          pcf.wx.del.step(Nat.is_eq(j, k), j, w, Cf.del(t, k), Config.cf_without(t, k), pcf.wx.del(t, k))
+
+def pcf.wx.set(b: Bool, +d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.set.go(b, d, k, v) == Config.cf_set_in(b, d, k, v) : List<&2, Cf.Entry>}:
+  match b:
+    case True{}:
+      pcf.wx.rep(d, k, v)
+    case False{}:
+      {==}
+
+# a set is the laws' edit of a Set
+def pcf.set_spec(+d: List<&2, Cf.Entry>, +k: Nat, +v: Nat) -> {Cf.set(d, k, v) == Config.cf_edited(d, Cf.Set{k, v}) : List<&2, Cf.Entry>}:
+  %pcf.wx.has(d, k) : {Cf.set.go(Cf.has_key(d, k), d, k, v) == Config.cf_set_in(_, d, k, v) : List<&2, Cf.Entry>}
+  pcf.wx.set(Cf.has_key(d, k), d, k, v)
+
+def pcf.lim.val(v: Cf.Val) -> {Cf.val_limit(v) == Config.cf_lim_val(v) : Cf.Lim}:
+  match v:
+    case Cf.Num{n}:
+      match n:
+        case 0n:
+          {==}
+        case 1n+q:
+          {==}
+    case Cf.Malformed{}:
+      {==}
+
+def pcf.lim.pick(b: Bool, v: Cf.Val, m: Maybe<&2, Cf.Val>, l: Cf.Lim, ih: {Cf.slot_limit(m) == l : Cf.Lim}) -> {Cf.slot_limit(Cf.slot.pick(b, v, m)) == Config.cf_slot_lim.pick(b, v, l) : Cf.Lim}:
+  match b:
+    case True{}:
+      pcf.lim.val(v)
+    case False{}:
+      ih
+
+def pcf.lim.slots(es: List<&2, Cf.Slot>, +p: Nat) -> {Cf.slot_limit(Cf.slot(es, p)) == Config.cf_slot_lim(es, p) : Cf.Lim}:
+  match es:
+    case Nil{}:
+      {==}
+    case x <> +rest:
+      match x:
+        case Cf.Slot{q, v}:
+          pcf.lim.pick(Nat.is_eq(q, p), v, Cf.slot(rest, p), Config.cf_slot_lim(rest, p), pcf.lim.slots(rest, p))
+
+def pcf.lim.one(s: Cf.InFlight, +p: Nat) -> {Cf.limit(s, p) == Config.cf_limit(s, p) : Cf.Lim}:
+  match s:
+    case Cf.Unset{}:
+      {==}
+    case Cf.Entries{es}:
+      pcf.lim.slots(es, p)
+    case Cf.NotMap{}:
+      {==}
+
+def pcf.limit(s: Cf.InFlight, +p: Nat) -> {Cf.limit(s, p) == Config.cf_limit(s, p) : Cf.Lim}:
+  pcf.lim.one(s, p)
+
+def pcf.mf.pick(b: Bool, fs: List<&2, Cf.Entry>, x: Maybe<&2, List<&2, Cf.Entry>>, y: Maybe<&2, List<&2, Cf.Entry>>, ih: {x == y : Maybe<&2, List<&2, Cf.Entry>>}) -> {Cf.find.pick(b, fs, x) == Config.cf_find.pick(b, fs, y) : Maybe<&2, List<&2, Cf.Entry>>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# the model's find is the laws' restatement
+def pcf.mf.find(es: List<&2, Cf.Named>, +n: Nat) -> {Cf.find(es, n) == Config.cf_find(es, n) : Maybe<&2, List<&2, Cf.Entry>>}:
+  match es:
+    case Nil{}:
+      {==}
+    case e <> +rest:
+      match e:
+        case Cf.Named{+m, fs}:
+          pcf.mf.pick(Nat.is_eq(m, n), fs, Cf.find(rest, n), Config.cf_find(rest, n), pcf.mf.find(rest, n))
+
+def pcf.mf.first(b: Bool, fs: List<&2, Cf.Entry>, x: Maybe<&2, List<&2, Cf.Entry>>, y: Maybe<&2, List<&2, Cf.Entry>>, z: Maybe<&2, List<&2, Cf.Entry>>, ih: {x == Config.cf_or(y, z) : Maybe<&2, List<&2, Cf.Entry>>}) -> {Cf.find.pick(b, fs, x) == Config.cf_or(Config.cf_find.pick(b, fs, y), z) : Maybe<&2, List<&2, Cf.Entry>>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# a name in the merged map: the project's entry, else the global one
+def pcf.mf.merged(+g: List<&2, Cf.Named>, p: List<&2, Cf.Named>, +n: Nat) -> {Cf.find(Cf.merge(g, p), n) == Config.cf_or(Config.cf_find(p, n), Config.cf_find(g, n)) : Maybe<&2, List<&2, Cf.Entry>>}:
+  match p:
+    case Nil{}:
+      pcf.mf.find(g, n)
+    case e <> +rest:
+      match e:
+        case Cf.Named{+m, fs}:
+          pcf.mf.first(Nat.is_eq(m, n), fs, Cf.find(Cf.merge(g, rest), n), Config.cf_find(rest, n), Config.cf_find(g, n), pcf.mf.merged(g, rest, n))
+
+def pcf.lk.pick(b: Bool, v: Nat, x: Maybe<&2, Nat>, y: Maybe<&2, Nat>, ih: {x == y : Maybe<&2, Nat>}) -> {Cf.pick(b, v, x) == CR.cr_first(b, v, y) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def pcf.lookup(d: List<&2, Cf.Entry>, +j: Nat) -> {Cf.lookup(d, j) == CR.cr_lookup(d, j) : Maybe<&2, Nat>}:
+  match d:
+    case Nil{}:
+      {==}
+    case e <> +t:
+      match e:
+        case Cf.Entry{k, v}:
+          pcf.lk.pick(Nat.is_eq(k, j), v, Cf.lookup(t, j), CR.cr_lookup(t, j), pcf.lookup(t, j))
+
+def pcf.sl.pick(b: Bool, v: Cf.Val, x: Maybe<&2, Cf.Val>, y: Maybe<&2, Cf.Val>, ih: {x == y : Maybe<&2, Cf.Val>}) -> {Cf.slot.pick(b, v, x) == CR.cr_slot.pick(b, v, y) : Maybe<&2, Cf.Val>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def pcf.slot(es: List<&2, Cf.Slot>, +p: Nat) -> {Cf.slot(es, p) == CR.cr_slot(es, p) : Maybe<&2, Cf.Val>}:
+  match es:
+    case Nil{}:
+      {==}
+    case x <> +t:
+      match x:
+        case Cf.Slot{q, v}:
+          pcf.sl.pick(Nat.is_eq(q, p), v, Cf.slot(t, p), CR.cr_slot(t, p), pcf.slot(t, p))
