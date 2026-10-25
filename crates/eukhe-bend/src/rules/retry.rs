@@ -1,16 +1,16 @@
 //! The retry decisions (`bend/retry.bend`, entry `bend/ffi_retry.bend`;
 //! `laws/retry.bend`): the classifier of a failed request, the
 //! wait before a retry, the failover walk over a provider chain, and the
-//! idle deadline after a stall; and the stream-idle deadline's decisions
-//! (entry `bend/ffi_retry_idle.bend`; `laws/retry_idle.bend`): whether it
-//! is armed, and what its timer does when it fires. Each function encodes
-//! its input, calls [`Entry::Retry`] or [`Entry::RetryIdle`] and decodes
-//! the reply; every number is saturated at the wire's largest Nat
-//! ([`NAT_MAX`]) first, where the laws state the model's answer does not
-//! change (or saturates with it).
+//! idle deadline after a stall; and the stream-idle deadline of one
+//! watched stream ([`Idle`], the stepper `bend/ffi_retry_idle.bend`;
+//! `laws/retry_idle.bend`). Each function encodes its input, calls
+//! [`Entry::Retry`] or steps [`Entry::RetryIdle`] and decodes the reply;
+//! every number is saturated at the wire's largest Nat ([`NAT_MAX`])
+//! first, where the laws state the model's answer does not change (or
+//! saturates with it).
 
-use crate::wire::{Reader, Writer, NAT_MAX};
-use crate::{call, Entry, Error};
+use crate::wire::{Reader, WireError, Writer, NAT_MAX};
+use crate::{call, expect_core, Entry, Error, Stepper};
 
 /// The kind a stream failure recorded, in the order of `Cause` in
 /// `bend/retry.bend` (its wire tag).
@@ -219,36 +219,6 @@ pub fn idle_after_stall(idle_ms: u64) -> Result<u64, Error> {
     Ok(idle)
 }
 
-/// Whether `stream_idle_timeout_ms` arms the stream-idle deadline
-/// (`R.idle.arm`, entry `bend/ffi_retry_idle.bend`): NaN, a negative
-/// number and 0 disable it. The facts of the number go to the core: NaN,
-/// negative, its whole part (saturated at [`NAT_MAX`]), a fraction.
-///
-/// # Errors
-///
-/// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
-pub fn idle_armed(timeout_ms: f64) -> Result<bool, Error> {
-    let magnitude = timeout_ms.abs();
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a whole, non-negative f64 saturates into u64; the wire saturates it once more"
-    )]
-    let whole = (magnitude.trunc() as u64).min(NAT_MAX);
-    let mut request = Writer::new();
-    request
-        .tag(0)
-        .bool(timeout_ms.is_nan())
-        .bool(timeout_ms < 0.0)
-        .nat(whole)
-        .bool(magnitude.fract() != 0.0);
-    let reply = call(Entry::RetryIdle, &request.finish()?)?;
-    let mut reply = Reader::reply(&reply)?;
-    let armed = reply.bool()?;
-    reply.end()?;
-    Ok(armed)
-}
-
 /// What the stream-idle deadline's timer does when it fires (`R.Wake`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wake {
@@ -258,61 +228,144 @@ pub enum Wake {
     Sleep(u64),
 }
 
-/// The timer's decision (`R.idle.wake`): it fired `since_us` after the
-/// stream last showed life, under a deadline of `deadline_us`; `held`:
-/// a hold stops the clock. `since_us` saturates at [`NAT_MAX`], where the
-/// stream has stalled under every deadline the wire carries.
-///
-/// # Errors
-///
-/// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
-pub fn idle_wake(clock: IdleClock, since_us: u64, deadline_us: u64) -> Result<Wake, Error> {
-    let mut request = Writer::new();
-    request
-        .tag(1)
-        .bool(clock == IdleClock::Held)
-        .nat(since_us.min(NAT_MAX))
-        .nat(deadline_us);
-    let reply = call(Entry::RetryIdle, &request.finish()?)?;
-    let mut reply = Reader::reply(&reply)?;
-    let wake = if reply.tag_of(2, "a Wake")? == 0 {
-        Wake::Stall
+/// The stream-idle deadline of one watched stream, kept in the compiled
+/// core (`R.idle.step`): its deadline, the stream's latest life, the
+/// holds of its clock alive, and whether it stalled. The caller sends each
+/// event of the stream's life as it comes, with its time in us since the
+/// deadline was armed (saturated at [`NAT_MAX`], where every deadline has
+/// passed), and acts on the answer; only a fire answers. The laws hold for
+/// every order of events (`idle_fire_exact`, `idle_stalls_once`).
+#[derive(Debug)]
+pub struct Idle {
+    stepper: Stepper,
+}
+
+impl Idle {
+    /// Arm the deadline of `deadline_us` us that `stream_idle_timeout_ms`
+    /// selects (`R.idle.arm`: NaN, a negative number and 0 disable it:
+    /// `None`), and the timer's first decision. The facts of the number go
+    /// to the core: NaN, negative, its whole part (saturated at
+    /// [`NAT_MAX`]), a fraction.
+    #[must_use]
+    pub fn arm(timeout_ms: f64, deadline_us: u64) -> Option<(Self, Wake)> {
+        let magnitude = timeout_ms.abs();
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a whole, non-negative f64 saturates into u64; the wire saturates it once more"
+        )]
+        let whole = (magnitude.trunc() as u64).min(NAT_MAX);
+        let request = expect_core(
+            Entry::RetryIdle,
+            Writer::new()
+                .bool(timeout_ms.is_nan())
+                .bool(timeout_ms < 0.0)
+                .nat(whole)
+                .bool(magnitude.fract() != 0.0)
+                .nat(deadline_us.min(NAT_MAX))
+                .finish(),
+        );
+        let (stepper, reply) =
+            expect_core(Entry::RetryIdle, Stepper::open(Entry::RetryIdle, &request));
+        expect_core(Entry::RetryIdle, read_answer(&reply)).map(|first| (Idle { stepper }, first))
+    }
+
+    /// The stream showed life at `now_us`.
+    pub fn life(&mut self, now_us: u64) {
+        self.quiet(Writer::new().tag(0).nat(now_us.min(NAT_MAX)));
+    }
+
+    /// A hold of the stream's clock starts.
+    pub fn hold(&mut self) {
+        self.quiet(Writer::new().tag(1));
+    }
+
+    /// A hold of the stream's clock ends at `now_us`.
+    pub fn free(&mut self, now_us: u64) {
+        self.quiet(Writer::new().tag(2).nat(now_us.min(NAT_MAX)));
+    }
+
+    /// The deadline's timer fired at `now_us`: what it does now; `None`:
+    /// nothing (the deadline had already stalled).
+    pub fn fire(&mut self, now_us: u64) -> Option<Wake> {
+        let reply = self.step(Writer::new().tag(3).nat(now_us.min(NAT_MAX)));
+        expect_core(Entry::RetryIdle, read_answer(&reply))
+    }
+
+    /// Send an event that answers nothing to do (`idle_only_fires_answer`).
+    fn quiet(&mut self, event: &mut Writer) {
+        let reply = self.step(event);
+        expect_core(Entry::RetryIdle, read_nothing(&reply));
+    }
+
+    fn step(&mut self, event: &mut Writer) -> String {
+        let event = expect_core(Entry::RetryIdle, event.finish());
+        expect_core(Entry::RetryIdle, self.stepper.step(&event))
+    }
+}
+
+/// A reply: nothing to do, or the timer's decision.
+fn read_answer(reply: &str) -> Result<Option<Wake>, WireError> {
+    let mut r = Reader::reply(reply)?;
+    let wake = if r.maybe()? {
+        Some(if r.tag_of(2, "a Wake")? == 0 {
+            Wake::Stall
+        } else {
+            Wake::Sleep(r.nat()?)
+        })
     } else {
-        Wake::Sleep(reply.nat()?)
+        None
     };
-    reply.end()?;
+    r.end()?;
     Ok(wake)
 }
 
-/// Whether a hold stops the stream's clock when its timer fires.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IdleClock {
-    /// No hold: the clock runs from the stream's last life.
-    Free,
-    /// At least one hold is alive.
-    Held,
+/// The reply to an event that is not a fire: nothing to do.
+fn read_nothing(reply: &str) -> Result<(), WireError> {
+    let mut r = Reader::reply(reply)?;
+    if r.maybe()? {
+        return Err(WireError::Malformed {
+            at: 0,
+            expected: "nothing to do",
+        });
+    }
+    r.end()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        idle_after_stall, idle_armed, idle_wake, next_switch, retryable, wait, Cause, Facts,
-        IdleClock, Policy, Switch, Tried, Wait, WaitInput, Wake,
+        idle_after_stall, next_switch, retryable, wait, Cause, Facts, Idle, Policy, Switch, Tried,
+        Wait, WaitInput, Wake,
     };
 
+    /// The compiled core is reached: which timeouts arm, and a fire after
+    /// a life, during a hold and past the deadline (the rule itself is
+    /// pinned by `laws/retry_idle.bend`).
     #[test]
-    fn the_idle_deadline_decisions_run_in_the_core() {
+    fn the_idle_deadline_runs_in_the_core() {
         assert_eq!(
-            [0.5, 0.0, -1.0, f64::NAN].map(|ms| idle_armed(ms).unwrap()),
-            [true, false, false, false]
+            [0.0, -1.0, f64::NAN].map(|ms| Idle::arm(ms, 1000).is_some()),
+            [false, false, false]
         );
+        let (mut idle, first) = Idle::arm(0.5, 1000).unwrap();
+        idle.life(250);
+        let after_life = idle.fire(1000);
+        idle.hold();
+        let held = idle.fire(5000);
+        idle.free(5000);
+        let fires = [after_life, held, idle.fire(6000), idle.fire(7000)];
         assert_eq!(
-            [
-                idle_wake(IdleClock::Free, 250, 1000).unwrap(),
-                idle_wake(IdleClock::Free, u64::MAX, 1000).unwrap(),
-                idle_wake(IdleClock::Held, 4000, 1000).unwrap(),
-            ],
-            [Wake::Sleep(750), Wake::Stall, Wake::Sleep(1000)]
+            (first, fires),
+            (
+                Wake::Sleep(1000),
+                [
+                    Some(Wake::Sleep(250)),
+                    Some(Wake::Sleep(1000)),
+                    Some(Wake::Stall),
+                    None
+                ]
+            )
         );
     }
 

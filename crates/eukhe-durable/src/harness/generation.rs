@@ -14,8 +14,6 @@ mod force;
 mod leak;
 mod note;
 mod repeat;
-#[cfg(test)]
-mod retry_bridge;
 mod round;
 mod stream;
 #[cfg(test)]

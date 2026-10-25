@@ -1,18 +1,18 @@
 //! A wait with every exit (docs/harness.md H6): an event raced against a
-//! deadline and a cancel signal. At each poll the race gathers what is
-//! ready and the compiled Bend core decides which ends it
-//! (`eukhe_bend::rules::wait`, `bend/wait.bend` `poll`): the event, then
-//! the cancel, then the deadline. How tokio's wakeups make up the polls is
-//! checked on tokio's paused clock against the wait model by [`bridge`].
+//! deadline and a cancel signal. The race holds no rule: the wait is a
+//! stepper of the compiled Bend core (`eukhe_bend::rules::wait`,
+//! `bend/ffi_wait_race.bend`). The race opens it with its deadline, sends what
+//! it finds ready at each poll, and ends on the end the stepper answers;
+//! its laws (`wait_*` in `laws/wait.bend`) hold for every order of polls.
 
 #[cfg(test)]
-mod bridge;
+mod tests;
 
 use std::future::{pending, poll_fn, Future};
 use std::pin::pin;
 use std::task::Poll;
 
-use eukhe_bend::rules::wait::{end, End, Ready};
+use eukhe_bend::rules::wait::{Deadline, End, Ready, Wait};
 use eukhe_chord::context::{AbortReason, AbortSignal};
 
 /// The exits of a [`race`] besides the awaited event.
@@ -40,9 +40,18 @@ pub(super) enum Raced<T> {
 /// ends exactly once, and the losers are dropped: dropping `work` must end
 /// the work it waits for, or leave it safe to finish alone. A deadline
 /// already passed or a signal already aborted ends the wait at its first
-/// poll unless the event is ready by then. Its laws: `wait_*` in
-/// `laws/wait.bend`.
+/// poll unless the event is ready by then.
 pub(super) async fn race<F: Future>(work: F, exits: Exits) -> Raced<F::Output> {
+    let (mut wait, opened) = Wait::open(match exits.deadline {
+        Some(_) => Deadline::Set,
+        None => Deadline::Never,
+    });
+    // What came, kept: a finished future is not polled again.
+    let mut output = None;
+    let mut reason = None;
+    if let Some(end) = opened {
+        return raced(end, &mut output, &mut reason);
+    }
     let mut work = pin!(work);
     let mut deadline = pin!(async {
         match exits.deadline {
@@ -56,9 +65,6 @@ pub(super) async fn race<F: Future>(work: F, exits: Exits) -> Raced<F::Output> {
             None => pending().await,
         }
     });
-    // What came, kept: a finished future is not polled again.
-    let mut output = None;
-    let mut reason = None;
     let mut late = false;
     poll_fn(|cx| {
         if output.is_none() {
@@ -79,20 +85,27 @@ pub(super) async fn race<F: Future>(work: F, exits: Exits) -> Raced<F::Output> {
             cancel: reason.is_some(),
             deadline: late,
         };
-        match end(ready) {
+        match wait.poll(ready) {
             None => Poll::Pending,
-            Some(End::Work) => Poll::Ready(Raced::Done(
-                output
-                    .take()
-                    .expect("the core ends a race on its event only once it is ready"),
-            )),
-            Some(End::Cancel) => Poll::Ready(Raced::Cancelled(
-                reason
-                    .take()
-                    .expect("the core ends a race on its cancel only once it fired"),
-            )),
-            Some(End::Deadline) => Poll::Ready(Raced::Expired),
+            Some(end) => Poll::Ready(raced(end, &mut output, &mut reason)),
         }
     })
     .await
+}
+
+/// The race's end `end`, with what it brought.
+fn raced<T>(end: End, output: &mut Option<T>, reason: &mut Option<AbortReason>) -> Raced<T> {
+    match end {
+        End::Work => Raced::Done(
+            output
+                .take()
+                .expect("the core ends a race on its event only once it is ready"),
+        ),
+        End::Cancel => Raced::Cancelled(
+            reason
+                .take()
+                .expect("the core ends a race on its cancel only once it fired"),
+        ),
+        End::Deadline => Raced::Expired,
+    }
 }

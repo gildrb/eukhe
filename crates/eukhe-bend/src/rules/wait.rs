@@ -1,13 +1,15 @@
-//! The end of a race at one poll (docs/harness.md H6): the model
-//! `bend/wait.bend` `poll`, entry `bend/ffi_wait.bend`.
+//! A wait with every exit (docs/harness.md H6): the model
+//! `bend/wait.bend`, stepper entry `bend/ffi_wait_race.bend`.
 //!
-//! A race polls its event, its cancel and its deadline together; more
-//! than one can be ready at a poll. The core decides which ends the race:
-//! the event, then the cancel, then the deadline (`wait_poll_refines` in
-//! `laws/wait.bend`).
+//! The wait lives in the compiled core. Its race opens it with its
+//! deadline, sends what it finds ready at each poll, and ends on the end
+//! the stepper answers: the event, then the cancel, then the deadline
+//! (`wait_poll_refines` in `laws/wait.bend`), never a second one
+//! (`wait_entry_once`), whatever order the polls come in
+//! (`wait_step_is_model`).
 
 use crate::wire::{Reader, WireError, Writer};
-use crate::{call, expect_core, Entry};
+use crate::{expect_core, Entry, Stepper};
 
 /// What a race found ready at one poll.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -31,29 +33,66 @@ pub enum End {
     Deadline,
 }
 
-/// What ends the race that found `ready` at a poll; `None`: nothing yet.
-#[must_use]
-pub fn end(ready: Ready) -> Option<End> {
-    let request = expect_core(
-        Entry::Wait,
-        Writer::new()
-            .bool(ready.work)
-            .bool(ready.cancel)
-            .bool(ready.deadline)
-            .finish(),
-    );
-    let reply = expect_core(Entry::Wait, call(Entry::Wait, &request));
-    expect_core(Entry::Wait, read_end(&reply))
+/// The deadline a wait opens with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Deadline {
+    /// The wait has none.
+    Never,
+    /// One instant: the wait's one tick is its timer firing.
+    Set,
 }
 
+/// One wait, kept in the compiled core.
+#[derive(Debug)]
+pub struct Wait {
+    stepper: Stepper,
+}
+
+impl Wait {
+    /// A wait with `deadline`, and the end its open answers.
+    #[must_use]
+    pub fn open(deadline: Deadline) -> (Self, Option<End>) {
+        let mut request = Writer::new();
+        match deadline {
+            Deadline::Never => request.none(),
+            Deadline::Set => request.some().nat(1),
+        };
+        let request = expect_core(Entry::WaitRace, request.finish());
+        let (stepper, reply) =
+            expect_core(Entry::WaitRace, Stepper::open(Entry::WaitRace, &request));
+        (
+            Wait { stepper },
+            expect_core(Entry::WaitRace, read_end(&reply)),
+        )
+    }
+
+    /// The end the poll that found `ready` brings; `None`: none yet.
+    pub fn poll(&mut self, ready: Ready) -> Option<End> {
+        let request = expect_core(
+            Entry::WaitRace,
+            Writer::new()
+                .bool(ready.work)
+                .bool(ready.cancel)
+                .bool(ready.deadline)
+                .finish(),
+        );
+        let reply = expect_core(Entry::WaitRace, self.stepper.step(&request));
+        expect_core(Entry::WaitRace, read_end(&reply))
+    }
+}
+
+/// The ends of a reply: none, or one.
 fn read_end(reply: &str) -> Result<Option<End>, WireError> {
     let mut r = Reader::reply(reply)?;
-    let end = match r.tag_of(4, "a race's end")? {
-        0 => None,
-        1 => Some(End::Work),
-        2 => Some(End::Cancel),
-        // `tag_of` answers a tag below 4: this is 3.
-        _ => Some(End::Deadline),
+    let end = if r.maybe()? {
+        Some(match r.tag_of(3, "a race's end")? {
+            0 => End::Work,
+            1 => End::Deadline,
+            // `tag_of` answers a tag below 3: this is 2.
+            _ => End::Cancel,
+        })
+    } else {
+        None
     };
     r.end()?;
     Ok(end)
@@ -61,33 +100,26 @@ fn read_end(reply: &str) -> Result<Option<End>, WireError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{end, End, Ready};
+    use super::{Deadline, End, Ready, Wait};
 
-    /// The compiled core is reached (the order is pinned by
+    /// The compiled core is reached: the open, an empty poll, then the
+    /// event and the cancel ready at once (the rule itself is pinned by
     /// `laws/wait.bend`).
     #[test]
-    fn the_race_end_runs_in_the_core() {
-        let all = Ready {
-            work: true,
-            cancel: true,
-            deadline: true,
-        };
-        assert_eq!(
-            [
-                end(all),
-                end(Ready { work: false, ..all }),
-                end(Ready {
-                    deadline: true,
-                    ..Ready::default()
-                }),
-                end(Ready::default()),
-            ],
-            [
-                Some(End::Work),
-                Some(End::Cancel),
-                Some(End::Deadline),
-                None
-            ]
-        );
+    fn the_wait_runs_in_the_core() {
+        let (mut wait, opened) = Wait::open(Deadline::Set);
+        let polls = [
+            wait.poll(Ready::default()),
+            wait.poll(Ready {
+                work: true,
+                cancel: true,
+                deadline: false,
+            }),
+            wait.poll(Ready {
+                deadline: true,
+                ..Ready::default()
+            }),
+        ];
+        assert_eq!((opened, polls), (None, [None, Some(End::Work), None]));
     }
 }

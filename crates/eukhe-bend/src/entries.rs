@@ -136,12 +136,10 @@ pub enum Entry {
     Cron = 82,
     /// `bend/ffi_work.bend`: a call and a stepper.
     Work = 83,
-    /// `bend/ffi_retry_idle.bend`: a call.
+    /// `bend/ffi_retry_idle.bend`: a stepper.
     RetryIdle = 84,
     /// `bend/ffi_lease.bend`: a stepper.
     Lease = 85,
-    /// `bend/ffi_wait.bend`: a call.
-    Wait = 86,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
@@ -200,6 +198,8 @@ pub enum Entry {
     RefinePlan = 295,
     /// `bend/ffi_glob.bend`: a call.
     Glob = 380,
+    /// `bend/ffi_wait_race.bend`: a stepper.
+    WaitRace = 420,
 }
 
 impl Entry {
@@ -272,7 +272,6 @@ impl Entry {
         Entry::Work,
         Entry::RetryIdle,
         Entry::Lease,
-        Entry::Wait,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
@@ -302,6 +301,7 @@ impl Entry {
         Entry::PackageSource,
         Entry::RefinePlan,
         Entry::Glob,
+        Entry::WaitRace,
     ];
 
     /// The id `bend/core.bend` dispatches on.

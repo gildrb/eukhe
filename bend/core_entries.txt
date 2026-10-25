@@ -68,7 +68,6 @@
 83 work
 84 retry_idle
 85 lease
-86 wait
 90 timeouts
 91 revive
 92 auth_flight
@@ -98,3 +97,4 @@
 294 package_source
 295 refine_plan
 380 glob
+420 wait_race

@@ -2,8 +2,9 @@
 
 import Base
 import ../bend/wait.bend as Wt
-import ../bend/ffi_wait.bend as FWt
+import ../bend/ffi_wait_race.bend as FWt
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 
 # (H6) Every other wait has an exit
 # ---------------------------------
@@ -46,19 +47,20 @@ law wait_cancel_wins:
   for calm: {Wt.exits(dl, pre) == False{} : Bool}
   {Wt.run(dl, List.append(&2, Wt.Sig, pre, Wt.Cancel{} <> post)) == [Wt.Cancelled{}] : List<&2, Wt.End>}
 
-# (H6.1) The race at one poll runs as the compiled Bend core
-# ---------------------------------------------------------
-# eukhe's race (crates/eukhe-core/src/memory/service/race.rs `race`)
-# polls its event, its cancel and its deadline together and asks the
-# entry bend/ffi_wait.bend which of what it found ready ends the race. At
-# one poll more than one can be ready; the race takes them as if they
-# came in this order: the event, the cancel, then the tick that passes
-# the deadline. How tokio's wakeups make up the polls (the interleaving)
-# is not a decision: the bridge (bridge/bridge_wait.bend) checks it on
-# tokio's paused clock against `Wt.run`.
+# (H6.1) The race runs the wait as a stepper of the compiled Bend core
+# --------------------------------------------------------------------
+# eukhe's race (crates/eukhe-core/src/memory/service/race.rs `race`) has
+# no rule of its own: it opens the stepper bend/ffi_wait_race.bend with its
+# deadline (none, or one instant: a wait of one tick), polls its event,
+# its cancel and its deadline together, sends what it found ready, and
+# ends at the first end the stepper answers. More than one can be ready
+# at a poll; the wait takes them as if they came in this order: the
+# event, the cancel, then the tick that passes the deadline. However
+# tokio's wakeups order the polls, they are the stepper's input: the laws
+# below hold for every sequence of polls.
 #
-# The laws below speak of the entry through a speller and a reader built
-# from the wire's primitives (bend/wire.bend), not through its own codec.
+# The laws speak of the entry through a speller and a reader built from
+# the wire's primitives (bend/wire.bend), not through its own codec.
 
 def ww_sig(b: Bool, x: Wt.Sig, rest: List<&2, Wt.Sig>) -> List<&2, Wt.Sig>:
   match b:
@@ -74,17 +76,21 @@ def ww_sigs(r: Wt.Polled) -> List<&2, Wt.Sig>:
     case Wt.Polled{w, c, l}:
       ww_sig(w, Wt.Arrive{}, ww_sig(c, Wt.Cancel{}, ww_sig(l, Wt.Tick{}, Nil{})))
 
-def ww_first(es: List<&2, Wt.End>) -> Maybe<&2, Wt.End>:
-  match es:
+# the signals of every poll of ps, in order
+def ww_flat(ps: List<&2, Wt.Polled>) -> List<&2, Wt.Sig>:
+  match ps:
     case Nil{}:
-      None{}
-    case e <> t:
-      Some{e}
+      Nil{}
+    case p <> rest:
+      List.append(&2, Wt.Sig, ww_sigs(p), ww_flat(rest))
 
-# the end the model reports when those signals come to an open wait whose
-# deadline passes on its next tick (None: it reports none)
-def ww_end(r: Wt.Polled) -> Maybe<&2, Wt.End>:
-  ww_first(Wt.go(ww_sigs(r), Wt.Open{Some{0n}}))
+# the wait after it sees xs, one signal at a time (Wt.next)
+def ww_after(xs: List<&2, Wt.Sig>, w: Wt.W) -> Wt.W:
+  match xs:
+    case Nil{}:
+      w
+    case s <> rest:
+      ww_after(rest, Wt.next(w, s))
 
 # a poll as the race writes it: three Bools
 def ww_spell(r: Wt.Polled) -> String:
@@ -92,20 +98,34 @@ def ww_spell(r: Wt.Polled) -> String:
     case Wt.Polled{w, c, l}:
       Wr.put_bool(w, Wr.put_bool(c, Wr.put_bool(l, "")))
 
-# an end as the race reads it: 0 none, 1 the event, 2 the cancel, 3 the
-# deadline
-def ww_spell_end(m: Maybe<&2, Wt.End>) -> String:
-  match m:
+# a deadline as the race writes it: Maybe<Nat>
+def ww_spell_dl(dl: Maybe<&2, Nat>) -> String:
+  match dl:
     case None{}:
       Wr.put_nat(0n, "")
-    case Some{e}:
-      match e:
-        case Wt.Arrived{}:
-          Wr.put_nat(1n, "")
-        case Wt.Cancelled{}:
-          Wr.put_nat(2n, "")
-        case Wt.Expired{}:
-          Wr.put_nat(3n, "")
+    case Some{d}:
+      Wr.put_nat(1n, Wr.put_nat(d, ""))
+
+# an end as the race reads it: 0 the event, 1 the deadline, 2 the cancel
+def ww_spell_end(e: Wt.End, rest: String) -> String:
+  match e:
+    case Wt.Arrived{}:
+      Wr.put_nat(0n, rest)
+    case Wt.Expired{}:
+      Wr.put_nat(1n, rest)
+    case Wt.Cancelled{}:
+      Wr.put_nat(2n, rest)
+
+def ww_spell_ends.items(es: List<&2, Wt.End>) -> String:
+  match es:
+    case Nil{}:
+      ""
+    case e <> rest:
+      ww_spell_end(e, ww_spell_ends.items(rest))
+
+# the ends of a reply: their count, then each end
+def ww_spell_ends(+es: List<&2, Wt.End>) -> String:
+  Wr.put_nat(List.length(&2, Wt.End, es), ww_spell_ends.items(es))
 
 def ww_read.late(w: Bool, c: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Wt.Polled>:
   match r:
@@ -146,49 +166,238 @@ def ww_read.whole(d: Wr.Dec<Wt.Polled>) -> Maybe<&2, Wt.Polled>:
 def ww_read(s: String) -> Maybe<&2, Wt.Polled>:
   ww_read.whole(ww_read.go(Wr.get_bool(s)))
 
-# LAW wait_poll_refines: the end of the race at a poll is the end the
-# wait model reports when what the poll found ready comes in the order
-# event, cancel, deadline: the event wins over the cancel and the
-# deadline, the cancel over the deadline, and nothing ends a poll that
-# found nothing ready
+def ww_read_dl.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{d, s}:
+      Wr.Got{Some{d}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ww_read_dl.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      ww_read_dl.some(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def ww_read_dl.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      ww_read_dl.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ww_read_dl.end(whole: Bool, dl: Maybe<&2, Nat>) -> Maybe<&2, Maybe<&2, Nat>>:
+  match whole:
+    case True{}:
+      Some{dl}
+    case False{}:
+      None{}
+
+def ww_read_dl.whole(d: Wr.Dec<Maybe<&2, Nat>>) -> Maybe<&2, Maybe<&2, Nat>>:
+  match d:
+    case Wr.Got{dl, s}:
+      ww_read_dl.end(Wr.end(s), dl)
+    case Wr.Bad{}:
+      None{}
+
+# the deadline s is, when s is exactly one deadline
+def ww_read_dl(s: String) -> Maybe<&2, Maybe<&2, Nat>>:
+  ww_read_dl.whole(ww_read_dl.go(Wr.get_nat(s)))
+
+def ww_state(r: FWt.St & String) -> FWt.St:
+  (s, x) = r
+  s
+
+def ww_reply(r: FWt.St & String) -> String:
+  (s, x) = r
+  x
+
+# the stepper after it is sent the polls ps, spelled
+def ww_feed(ps: List<&2, Wt.Polled>, st: FWt.St) -> FWt.St:
+  match ps:
+    case Nil{}:
+      st
+    case p <> rest:
+      ww_feed(rest, ww_state(FWt.step(st, ww_spell(p))))
+
+# the stepper as opened with the deadline dl, spelled
+def ww_opened(dl: Maybe<&2, Nat>) -> FWt.St:
+  ww_state(FWt.open(ww_spell_dl(dl)))
+
+def ww_new.go(done: List<&2, Wt.End>, later: List<&2, Wt.End>) -> List<&2, Wt.End>:
+  match done:
+    case Nil{}:
+      later
+    case e <> t:
+      Nil{}
+
+# the ends the poll p brings after the polls pre to a wait with deadline
+# dl: what the model's run reports over the signals up to p, when it
+# reported nothing before p; else nothing
+def ww_new(+dl: Maybe<&2, Nat>, +pre: List<&2, Wt.Polled>, p: Wt.Polled) -> List<&2, Wt.End>:
+  ww_new.go(Wt.run(dl, ww_flat(pre)), Wt.run(dl, List.append(&2, Wt.Sig, ww_flat(pre), ww_sigs(p))))
+
+# the deadline the race opens with: one instant (a wait of one tick), or
+# none
+def ww_race_dl(armed: Bool) -> Maybe<&2, Nat>:
+  match armed:
+    case True{}:
+      Some{1n}
+    case False{}:
+      None{}
+
+# the end of a race's first poll, written from H6.1 alone: the event wins
+# over the cancel and the deadline, the cancel over the deadline; the
+# deadline ends it only when it has one; nothing ready ends nothing
+def ww_prio.late(l: Bool, armed: Bool) -> List<&2, Wt.End>:
+  match l armed:
+    case True{} True{}:
+      [Wt.Expired{}]
+    case True{} False{}:
+      Nil{}
+    case False{} armed:
+      Nil{}
+
+def ww_prio(armed: Bool, r: Wt.Polled) -> List<&2, Wt.End>:
+  match r:
+    case Wt.Polled{w, c, l}:
+      match w c:
+        case True{} c:
+          [Wt.Arrived{}]
+        case False{} True{}:
+          [Wt.Cancelled{}]
+        case False{} False{}:
+          ww_prio.late(l, armed)
+
+# LAW wait_poll_refines: the race opened as eukhe opens it (a deadline of
+# one instant, or none) ends at its first poll as H6.1 says: the event wins
+# over the cancel and the deadline, the cancel over the deadline, the
+# deadline only when there is one, and nothing ends a poll that found
+# nothing ready
 # EXCLUDES: another priority (a deadline or a cancel that beats a ready
-# event), an end with nothing ready, a ready signal ignored
+# event), an end with nothing ready, a ready signal ignored (a lost
+# wake-up: the race would wait on a finished future)
 law wait_poll_refines:
+  for +armed: Bool
   for +r: Wt.Polled
-  {Wt.poll(r) == ww_end(r) : Maybe<&2, Wt.End>}
+  {ww_reply(FWt.step(ww_opened(ww_race_dl(armed)), ww_spell(r))) == ww_spell_ends(ww_prio(armed, r)) : String}
 
-# LAW wait_entry_answers: every poll the race spells (three Bools from the
-# wire's primitives) answers the spelled end the model gives
+# LAW wait_step_is_model: the stepper opened with any deadline and sent any
+# polls, in any order, answers each poll with the ends the model's run
+# reports at that poll: the run over the signals of every poll so far,
+# when it had reported nothing before; else nothing
+# EXCLUDES: an end reported twice or at a later poll, an end lost, an
+# end other than the model's, a stepper whose state drifts from the
+# model's wait (the bridge's transcript, restated over every order)
+law wait_step_is_model:
+  for +dl: Maybe<&2, Nat>
+  for +pre: List<&2, Wt.Polled>
+  for +p: Wt.Polled
+  for fits: {LawsBase.wire_mfits(dl) == True{} : Bool}
+  {ww_reply(FWt.step(ww_feed(pre, ww_opened(dl)), ww_spell(p))) == ww_spell_ends(ww_new(dl, pre, p)) : String}
+
+# LAW wait_entry_once: whatever polls come between, a race that answered
+# an end answers no end again
+# EXCLUDES: a second end (a wait that ends twice, a double wake-up), an
+# ended wait revived by a later event
+law wait_entry_once:
+  for +dl: Maybe<&2, Nat>
+  for +pre: List<&2, Wt.Polled>
+  for +p: Wt.Polled
+  for +mid: List<&2, Wt.Polled>
+  for +q: Wt.Polled
+  for fits: {LawsBase.wire_mfits(dl) == True{} : Bool}
+  for ended: {String.eq(ww_reply(FWt.step(ww_feed(pre, ww_opened(dl)), ww_spell(p))), "0,") == False{} : Bool}
+  {ww_reply(FWt.step(ww_feed(List.append(&2, Wt.Polled, pre, p <> mid), ww_opened(dl)), ww_spell(q))) == "0," : String}
+
+# LAW wait_entry_calm: in every state, a poll that found nothing ready
+# ends nothing and leaves the wait as it was
+# EXCLUDES: a wake-up that ends the wait or moves its deadline
+law wait_entry_calm:
+  for +w: Wt.W
+  {FWt.step(FWt.Live{w}, ww_spell(Wt.Polled{False{}, False{}, False{}})) == (FWt.Live{w}, "0,") : FWt.St & String}
+
+# LAW wait_entry_answers: in every state, every poll the race spells (three
+# Bools from the wire's primitives) moves the wait as the model does, one
+# signal at a time in the race's order, and answers the spelled ends the
+# model's walk reports
 # EXCLUDES: a field misread or swapped (event, cancel, deadline), an end
-# other than the model's, a reply in another spelling
+# other than the model's, a reply in another spelling, a state that is not
+# the model's
 law wait_entry_answers:
+  for +w: Wt.W
   for +r: Wt.Polled
-  {FWt.ffi(ww_spell(r)) == ww_spell_end(ww_end(r)) : String}
+  {FWt.step(FWt.Live{w}, ww_spell(r)) == (FWt.Live{ww_after(ww_sigs(r), w)}, ww_spell_ends(Wt.go(ww_sigs(r), w))) : FWt.St & String}
 
-# LAW wait_entry_reads: an input the laws' reader reads as exactly one
-# poll answers the spelled end the model gives
+# LAW wait_entry_reads: in every state, an input the laws' reader reads as
+# exactly one poll is answered as that poll spelled
 # EXCLUDES: an input read otherwise by the entry than by the wire's grammar
 law wait_entry_reads:
+  for +w: Wt.W
   for +i: String
   for +r: Wt.Polled
   for got: {ww_read(i) == Some{r} : Maybe<&2, Wt.Polled>}
-  {FWt.ffi(i) == ww_spell_end(ww_end(r)) : String}
+  {FWt.step(FWt.Live{w}, i) == FWt.step(FWt.Live{w}, ww_spell(r)) : FWt.St & String}
 
-# LAW wait_entry_malformed_exact: an input the laws' reader does not read
-# as exactly one poll (a short or bad Bool, input left over) answers
-# exactly the error form 'E ' + "wait: malformed poll"
-# EXCLUDES: a guessed poll, a default end, another error text
+# LAW wait_entry_malformed_exact: in every state, an input the laws'
+# reader does not read as exactly one poll (a short or bad Bool, input
+# left over) keeps the wait and answers exactly the error form 'E ' +
+# "wait: malformed poll"
+# EXCLUDES: a guessed poll, a default end, a wait moved by garbage,
+# another error text
 law wait_entry_malformed_exact:
+  for +w: Wt.W
   for +i: String
   for no: {ww_read(i) == None{} : Maybe<&2, Wt.Polled>}
-  {FWt.ffi(i) == SCon{'E', SCon{' ', "wait: malformed poll"}} : String}
+  {FWt.step(FWt.Live{w}, i) == (FWt.Live{w}, SCon{'E', SCon{' ', "wait: malformed poll"}}) : FWt.St & String}
+
+# LAW wait_entry_open: the open with a deadline that fits the wire answers
+# the spelled ends the model's run reports before any signal: the expiry
+# of a deadline of 0, else nothing
+# EXCLUDES: a deadline of 0 that waits, a wait that ends at its open
+law wait_entry_open:
+  for +dl: Maybe<&2, Nat>
+  for fits: {LawsBase.wire_mfits(dl) == True{} : Bool}
+  {ww_reply(FWt.open(ww_spell_dl(dl))) == ww_spell_ends(Wt.run(dl, Nil{})) : String}
+
+# LAW wait_entry_open_reads: an open input the laws' reader reads as
+# exactly one deadline (the reader reads no Nat past the wire) opens as
+# that deadline spelled
+# EXCLUDES: an open read otherwise by the entry than by the wire's grammar
+law wait_entry_open_reads:
+  for +i: String
+  for +dl: Maybe<&2, Nat>
+  for got: {ww_read_dl(i) == Some{dl} : Maybe<&2, Maybe<&2, Nat>>}
+  for fits: {LawsBase.wire_mfits(dl) == True{} : Bool}
+  {FWt.open(i) == FWt.open(ww_spell_dl(dl)) : FWt.St & String}
+
+# LAW wait_entry_open_malformed_exact: an open input the laws' reader does
+# not read as exactly one deadline opens the refused state and answers
+# exactly the error form 'E ' + "wait: malformed open"
+# EXCLUDES: a default deadline (none, or expired) for garbage
+law wait_entry_open_malformed_exact:
+  for +i: String
+  for no: {ww_read_dl(i) == None{} : Maybe<&2, Maybe<&2, Nat>>}
+  {FWt.open(i) == (FWt.Shut{}, SCon{'E', SCon{' ', "wait: malformed open"}}) : FWt.St & String}
+
+# LAW wait_entry_shut: a refused open answers every step with exactly the
+# error form 'E ' + "wait: the open was refused"
+# EXCLUDES: a refused stepper that ends a wait
+law wait_entry_shut:
+  for +i: String
+  {FWt.step(FWt.Shut{}, i) == (FWt.Shut{}, SCon{'E', SCon{' ', "wait: the open was refused"}}) : FWt.St & String}
 
 # LAW wait_entry_example: anchor: the bytes the race sends and the replies:
-# all three ready, the cancel and the deadline, the deadline alone,
-# nothing, a short poll, input left over
+# opens with no deadline, an expired one, one tick, a bad tag, input left
+# over; on one tick all three ready, the cancel and the deadline, the
+# deadline alone, nothing, a short poll, input left over; the deadline
+# with none; an event after the cancel; a step of a refused open
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law wait_entry_example:
-  {[FWt.ffi("TTT"), FWt.ffi("FTT"), FWt.ffi("FFT"), FWt.ffi("FFF"), FWt.ffi("TF"), FWt.ffi("TFFx")] == ["1,", "2,", "3,", "0,", SCon{'E', SCon{' ', "wait: malformed poll"}}, SCon{'E', SCon{' ', "wait: malformed poll"}}] : List<&2, String>}
+  {[ww_reply(FWt.open("0,")), ww_reply(FWt.open("1,0,")), ww_reply(FWt.open("1,1,")), ww_reply(FWt.open("2,")), ww_reply(FWt.open("0,x"))] == ["0,", "1,1,", "0,", SCon{'E', SCon{' ', "wait: malformed open"}}, SCon{'E', SCon{' ', "wait: malformed open"}}] : List<&2, String>} & {[ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "TTT")), ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "FTT")), ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "FFT")), ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "FFF")), ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "TF")), ww_reply(FWt.step(ww_state(FWt.open("1,1,")), "TFFx")), ww_reply(FWt.step(ww_state(FWt.open("0,")), "FFT")), ww_reply(FWt.step(ww_state(FWt.step(ww_state(FWt.open("1,1,")), "FTF")), "TFF")), ww_reply(FWt.step(ww_state(FWt.open("2,")), "TFF"))] == ["1,0,", "1,2,", "1,1,", "0,", SCon{'E', SCon{' ', "wait: malformed poll"}}, SCon{'E', SCon{' ', "wait: malformed poll"}}, "0,", "0,", SCon{'E', SCon{' ', "wait: the open was refused"}}] : List<&2, String>}
 
 # (H6) The walk the poll laws read, pinned
 # ----------------------------------------
