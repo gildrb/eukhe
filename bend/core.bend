@@ -49,6 +49,7 @@ import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
+import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
@@ -202,6 +203,7 @@ type State is Type:
   Tree{s: ffi_tree.St}
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
+  Selection{s: ffi_selection.St}
   DocSearch{s: ffi_doc_search.St}
   DocGlob{s: ffi_doc_glob.St}
   InferGuard{s: ffi_infer_guard.St}
@@ -238,6 +240,11 @@ def open.log(r: ffi_log.St & String) -> State & String:
   match r:
     case (s, reply):
       (Log{s}, reply)
+
+def open.selection(r: ffi_selection.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Selection{s}, reply)
 
 def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
   match r:
@@ -278,6 +285,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.notice(ffi_notice.open(input))
     case 33:
       open.log(ffi_log.open(input))
+    case 39:
+      open.selection(ffi_selection.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
     case 42:
@@ -326,6 +335,11 @@ def step.log(r: ffi_log.St & String) -> State & String:
     case (s, reply):
       (Log{s}, reply)
 
+def step.selection(r: ffi_selection.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Selection{s}, reply)
+
 def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -365,6 +379,8 @@ def step.go(state: State, input: String) -> State & String:
       step.notice(ffi_notice.step(s, input))
     case Log{s}:
       step.log(ffi_log.step(s, input))
+    case Selection{s}:
+      step.selection(ffi_selection.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
     case DocGlob{s}:
@@ -396,6 +412,8 @@ def close.go(state: State) -> Unit:
     case Notice{s}:
       Unit{}
     case Log{s}:
+      Unit{}
+    case Selection{s}:
       Unit{}
     case DocSearch{s}:
       Unit{}

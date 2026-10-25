@@ -223,9 +223,10 @@ fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_guard: ExitG
             // widthChanged/heightChanged); the loop replays the history at
             // the new size.
             crossterm::event::Event::Resize(..) => ui_tx.send(UiInput::Resize).is_ok(),
-            // Wheel reports arrive only while a fullscreen surface has
-            // reporting on; every other mouse event and the focus
-            // reports carry nothing the surface reads.
+            // Wheel and button reports arrive only while a fullscreen
+            // surface has reporting on: the wheel scrolls, the buttons go
+            // to the text selection; the focus reports carry nothing the
+            // surface reads.
             crossterm::event::Event::Mouse(mouse) => {
                 match crate::screen_mode::wheel_scroll(mouse) {
                     Some(direction) => ui_tx
@@ -233,7 +234,7 @@ fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_guard: ExitG
                             direction,
                         )))
                         .is_ok(),
-                    None => true,
+                    None => ui_tx.send(UiInput::Mouse(mouse)).is_ok(),
                 }
             }
             crossterm::event::Event::FocusGained | crossterm::event::Event::FocusLost => true,
@@ -342,6 +343,17 @@ impl Renderer {
                             }
                             HeadlessStep::Key(key) => {
                                 if ui_tx.send(UiInput::Key(key)).is_err() {
+                                    return;
+                                }
+                            }
+                            HeadlessStep::Mouse(mouse) => {
+                                let input = match crate::screen_mode::wheel_scroll(mouse) {
+                                    Some(direction) => UiInput::Scroll(
+                                        crate::view::ScrollRequest::wheel(direction),
+                                    ),
+                                    None => UiInput::Mouse(mouse),
+                                };
+                                if ui_tx.send(input).is_err() {
                                     return;
                                 }
                             }

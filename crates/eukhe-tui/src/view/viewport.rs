@@ -80,6 +80,10 @@ pub(crate) struct Viewport {
     /// The terminal changed size or the chat was replaced: the next
     /// fullscreen frame paints in full.
     pub(super) stale: bool,
+    /// The last frame's transcript window: where a mouse cell lands.
+    shown: Option<select::Shown>,
+    /// The in-app text selection (`viewport_select.rs`).
+    select: select::Select,
 }
 
 impl Viewport {
@@ -129,6 +133,17 @@ impl Blocks<'_> {
 
     fn len(&mut self, block: usize) -> usize {
         self.rows(block).len()
+    }
+
+    /// The transcript row id of `at`: rows counted from the first.
+    fn id(&mut self, at: RowAt) -> usize {
+        (0..at.block).map(|block| self.len(block)).sum::<usize>() + at.row
+    }
+
+    /// Up to `count` rows from the row with id `id` on.
+    fn rows_by_id(&mut self, id: usize, count: usize) -> Vec<Line> {
+        let at = self.down(RowAt { block: 0, row: 0 }, id);
+        self.collect(at, count)
     }
 
     /// One past the last row.
@@ -289,45 +304,63 @@ impl AgentView {
 
     /// The transcript window: exactly `window` rows.
     fn transcript_window(&mut self, width: usize, window: usize) -> Vec<Line> {
+        let pending = std::mem::take(&mut self.viewport.pending);
+        let mut position = self.viewport.position;
+        let mut select = std::mem::take(&mut self.viewport.select);
+        let (mut rows, shown) = self.with_blocks(width, |blocks| {
+            for request in pending {
+                position = blocks.scroll(position, request, window);
+            }
+            if let Position::Anchored(at) = position {
+                if blocks.rows_from(at) <= window {
+                    position = Position::Follow;
+                }
+            }
+            let (mut rows, top) = match position {
+                Position::Anchored(_) | Position::Follow if window == 0 => {
+                    (Vec::new(), RowAt { block: 0, row: 0 })
+                }
+                Position::Follow => {
+                    let top = blocks.up(blocks.end(), window);
+                    (blocks.collect(top, window), top)
+                }
+                Position::Anchored(at) => (blocks.collect(at, window - 1), at),
+            };
+            let shown = select::Shown {
+                top,
+                rows: rows.len(),
+                width,
+            };
+            select.paint(blocks, shown, &mut rows);
+            if let (Position::Anchored(at), true) = (position, window > 0) {
+                let below = blocks.rows_from(at) - (window - 1);
+                rows.push(blocks.view.more_below_row(below, width));
+            }
+            (rows, shown)
+        });
+        crate::screen_mode::fill_height(&mut rows, window);
+        self.viewport.select = select;
+        self.viewport.shown = Some(shown);
+        self.viewport.position = position;
+        rows
+    }
+
+    /// Run `f` over this frame's blocks at `width` (the settled rows
+    /// cached, the live entries and the tail rendered now).
+    fn with_blocks<R>(&mut self, width: usize, f: impl FnOnce(&mut Blocks<'_>) -> R) -> R {
         let mut live: Vec<Vec<Line>> = (self.viewport.settled_entries()..self.chat.len())
             .map(|index| self.render_entry_at(index, width))
             .collect();
         live.push(self.render_transcript_tail(width));
         let mut settled = std::mem::take(&mut self.viewport.settled);
-        let pending = std::mem::take(&mut self.viewport.pending);
-        let mut position = self.viewport.position;
-        let mut blocks = Blocks {
+        let out = f(&mut Blocks {
             view: self,
             width,
             settled: &mut settled,
             live,
-        };
-        for request in pending {
-            position = blocks.scroll(position, request, window);
-        }
-        if let Position::Anchored(at) = position {
-            if blocks.rows_from(at) <= window {
-                position = Position::Follow;
-            }
-        }
-        let mut rows = match position {
-            Position::Anchored(_) | Position::Follow if window == 0 => Vec::new(),
-            Position::Follow => {
-                let top = blocks.up(blocks.end(), window);
-                blocks.collect(top, window)
-            }
-            Position::Anchored(at) => {
-                let content = window - 1;
-                let mut rows = blocks.collect(at, content);
-                let below = blocks.rows_from(at) - content;
-                rows.push(self.more_below_row(below, width));
-                rows
-            }
-        };
-        crate::screen_mode::fill_height(&mut rows, window);
+        });
         self.viewport.settled = settled;
-        self.viewport.position = position;
-        rows
+        out
     }
 
     /// The dim `v N more below` row under a scrolled-up window.
@@ -347,6 +380,9 @@ impl AgentView {
         )]
     }
 }
+
+#[path = "viewport_select.rs"]
+mod select;
 
 #[cfg(test)]
 #[path = "viewport_tests.rs"]

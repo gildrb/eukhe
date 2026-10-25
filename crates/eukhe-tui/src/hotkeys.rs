@@ -161,7 +161,8 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
 | `{viewport_page_up}` / `{viewport_page_down}` | Scroll transcript by page |
 | `{viewport_top}` | Scroll to top |
 | `{viewport_bottom}` | Scroll to bottom and follow output |
-| mouse wheel | Scroll transcript |"
+| mouse wheel | Scroll transcript |
+| mouse drag | Select transcript text; release copies (double click: word, triple: row; Esc clears; Shift+drag: terminal selection) |"
     );
     hotkeys
 }

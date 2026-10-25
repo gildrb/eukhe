@@ -56,10 +56,10 @@ fn leaks(outputs: &[Event]) -> Vec<Event> {
 /// Every byte-offset split of one mouse report: a split at the `ESC`
 /// byte commits the `Esc` and types the body, which the guard
 /// reassembles and consumes whole (no output at all) -- except a wheel
-/// report, which it decodes into the scroll event crossterm's own parse
-/// produces; any later split is held across reads by crossterm itself,
-/// which parses the whole report and the guard passes that mouse event
-/// through unchanged.
+/// or left-button report, which it decodes into the event crossterm's
+/// own parse produces; any later split is held across reads by
+/// crossterm itself, which parses the whole report and the guard passes
+/// that mouse event through unchanged.
 fn assert_every_split_is_consumed_or_passed(stream: &[u8]) {
     let whole = read_projection(stream, &[]);
     assert!(
@@ -67,17 +67,22 @@ fn assert_every_split_is_consumed_or_passed(stream: &[u8]) {
         "{stream:?} parses as one mouse event: {whole:?}"
     );
     assert_eq!(run_guard(whole.clone()), whole, "{stream:?} unsplit");
-    let wheel = matches!(
-        whole.as_slice(),
-        [Event::Mouse(CtMouse {
-            kind: CtMouseKind::ScrollUp | CtMouseKind::ScrollDown,
-            ..
-        })]
-    );
+    let decoded = stream.starts_with(b"\x1b[<")
+        && matches!(
+            whole.as_slice(),
+            [Event::Mouse(CtMouse {
+                kind: CtMouseKind::ScrollUp
+                    | CtMouseKind::ScrollDown
+                    | CtMouseKind::Down(crossterm::event::MouseButton::Left)
+                    | CtMouseKind::Up(crossterm::event::MouseButton::Left)
+                    | CtMouseKind::Drag(crossterm::event::MouseButton::Left),
+                ..
+            })]
+        );
     for split in 1..stream.len() {
         let events = read_projection(stream, &[split]);
         let outputs = run_guard(events.clone());
-        let expected = if split == 1 && !wheel {
+        let expected = if split == 1 && !decoded {
             Vec::new()
         } else {
             whole.clone()
@@ -484,7 +489,11 @@ fn a_report_final_m_arriving_shifted_is_still_consumed() {
         char_press('2'),
         Event::Key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT)),
     ];
-    assert_eq!(run_guard(events), Vec::new());
+    // The reassembled left press decodes to the press crossterm parses.
+    assert_eq!(
+        run_guard(events),
+        read_projection(sgr(0, 13, 2, true).as_bytes(), &[])
+    );
 }
 
 /// THE RACE, MADE DETERMINISTIC: a read ending right after the `ESC`
@@ -501,8 +510,8 @@ fn the_committed_esc_split_never_leaks_a_report() {
 }
 
 /// A drag stream with one committed-`ESC` boundary inside one report:
-/// that report is consumed and the rest pass through as the mouse
-/// events crossterm parsed, so no stray text interrupts the stream.
+/// the guard reassembles that report and decodes it, so the selection
+/// sees the whole drag and no stray text interrupts the stream.
 #[test]
 fn a_drag_burst_with_one_bad_boundary_never_leaks() {
     let stream: String = [
@@ -517,20 +526,27 @@ fn a_drag_burst_with_one_bad_boundary_never_leaks() {
     let second_start = stream.find("\x1b[<32;14;2").expect("drag report in stream");
     let events = read_projection(stream.as_bytes(), &[second_start + 1]);
     let outputs = run_guard(events);
-    let mut expected = read_projection(stream.as_bytes(), &[]);
+    let expected = read_projection(stream.as_bytes(), &[]);
     assert_eq!(expected.len(), 5, "one mouse event per report");
-    expected.remove(1);
     assert_eq!(outputs, expected);
 }
 
 /// The same split, doubled: the report body itself spans three reads
-/// and is still consumed whole.
+/// and is still reassembled whole -- a left drag decodes to its event, a
+/// middle-button drag is consumed.
 #[test]
-fn a_report_split_across_three_reads_is_consumed() {
-    let report = sgr(32, 20, 5, true);
-    let mid = report.find(';').expect("field separator");
-    let events = read_projection(report.as_bytes(), &[1, mid, mid + 3]);
-    assert_eq!(run_guard(events), Vec::new());
+fn a_report_split_across_three_reads_is_reassembled() {
+    for (button, decoded) in [(32, true), (33, false)] {
+        let report = sgr(button, 20, 5, true);
+        let mid = report.find(';').expect("field separator");
+        let events = read_projection(report.as_bytes(), &[1, mid, mid + 3]);
+        let expected = if decoded {
+            read_projection(report.as_bytes(), &[])
+        } else {
+            Vec::new()
+        };
+        assert_eq!(run_guard(events), expected);
+    }
 }
 
 /// A wheel report split anywhere -- the committed-`ESC` boundary, the

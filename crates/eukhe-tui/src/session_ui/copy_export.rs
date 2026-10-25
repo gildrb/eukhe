@@ -46,6 +46,21 @@ impl SessionUi {
         Ok(())
     }
 
+    /// Copy a selection (an editor cut/copy, or the fullscreen
+    /// transcript's text selection) through the shared platform/tmux/OSC
+    /// 52 chain; a headless run's buffer sink records the request.
+    pub(crate) fn copy_selection(&mut self, text: &str, view: &mut AgentView) {
+        match crate::clipboard::copy_to_clipboard(text, &mut self.osc_sink) {
+            Ok(crate::clipboard::CopyOutcome::Confirmed) => {
+                self.toast("Copied selection to clipboard", view);
+            }
+            Ok(crate::clipboard::CopyOutcome::Requested) => {
+                self.toast(crate::clipboard::CLIPBOARD_REQUESTED, view);
+            }
+            Err(message) => self.error_row(&message, view),
+        }
+    }
+
     // ------------------------------------------------------------------
     // Session export (/export)
     // ------------------------------------------------------------------

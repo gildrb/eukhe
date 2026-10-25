@@ -18,6 +18,15 @@ Transcript:
 8. New transcript (session switch, `/new`, fork or tree move, reconnect resync, `/reload`, transcript rebuild) = new model run, not an edit. Scrollback keeps the old transcript. If the old one has entries there, the new first frame writes one dim separator row naming the break (new session, reconnected, or transcript rebuilt) and the session; new history commits below. Splash-only scrollback: no separator. A session's new transcript omits previously shown kernel restore notices: each restore shows its notice once ([daemon.md](daemon.md) D1).
 9. After first paint the inline terminal never clears screen or scrollback (no `ESC[2J`, no `ESC[3J`). Fullscreen repaints its own alternate screen (no scrollback). No user command redraws the full screen: the protocol has no exception.
 
+Text selection (fullscreen): the alternate screen turns on SGR button and drag reporting (`?1000h` `?1002h` `?1006h`), so the terminal's own drag selection is off; eukhe selects instead. Shift+drag still gives the terminal's native selection (most terminals bypass mouse reporting with Shift held).
+
+1. Left press starts at a cell; drag moves the head and paints the range reversed; release copies it through the clipboard chain (platform tool, else OSC 52) and toasts `Copied selection to clipboard`. A plain click copies nothing.
+2. Double click (same cell, within 400 ms) picks the word under it, triple click the row; a drag after the pick extends it.
+3. A drag on the row past the transcript's last shown row (the `more below` row, the dock) scrolls one row down per drag report; dragging up scrolls only when the window's top row is off screen, which a terminal cannot report (row 0 is the top edge), so upward scrolling uses the wheel before the drag.
+4. Copied text: soft-wrapped rows join with no newline; other rows end with a newline; trailing blanks of a line are dropped; a wide glyph copies once.
+5. Any key, a wheel notch, or a change of the text under the range clears it. Esc that clears a shown range is spent (the app does not see it); with nothing shown Esc acts as usual.
+6. The model (`bend/selection.bend`, entry `bend/ffi_selection.bend`, laws `laws/selection.bend`) decides all of the above; Rust (`crates/eukhe-tui/src/selection.rs`, `view/viewport_select.rs`) maps screen cells to transcript row ids, sends each row as glyph widths and its soft-wrap kind, paints the range and joins the copied pieces.
+
 Pacing (streamed assistant text):
 
 - Per frame: at least `min` more backlog characters (if backlog), or `1/(1+lag)` of backlog if more.

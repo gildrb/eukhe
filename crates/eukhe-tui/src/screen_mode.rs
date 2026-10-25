@@ -3,7 +3,10 @@
 //! Inline, a surface paints into the normal screen and finished output
 //! goes into native scrollback. Fullscreen, every surface paints a
 //! screen-sized frame into the alternate screen (`?1049h`) with SGR
-//! wheel reporting on (`?1000h` + `?1006h`, no motion modes). The
+//! button and drag reporting on (`?1000h` + `?1002h` + `?1006h`, no
+//! hover motion): the wheel scrolls and a left-button drag selects text
+//! (crates/eukhe-tui/src/selection.rs; Shift+drag keeps the terminal's
+//! own selection). The
 //! alternate screen is process-global state: a handoff between two
 //! fullscreen surfaces keeps it (the next surface repaints everything),
 //! and every exit route leaves it ([`leave_alt_screen`] runs in the
@@ -45,9 +48,10 @@ static ALT_SCREEN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 const ALT_SCREEN_ON: &str = "\x1b[?1049h";
 const ALT_SCREEN_OFF: &str = "\x1b[?1049l";
-/// Button reporting (the wheel is a button) in SGR encoding.
-const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1006h";
-const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1000l";
+/// Button reporting (the wheel is a button) and button-held motion
+/// (drags, for the in-app text selection) in SGR encoding.
+const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 /// Start a synchronized update, clear the screen, and home the cursor:
 /// the origin a fresh [`crate::inline_term::InlineTerminal`] paints a
 /// full frame from (its paint ends the update, so the clear and the new
@@ -215,7 +219,7 @@ impl SurfaceTerminal {
 }
 
 /// The scroll step of a wheel event, `None` for every other mouse
-/// event (buttons, drags, and motion are never acted on).
+/// event (buttons and drags go to the text selection instead).
 pub(crate) fn wheel_scroll(event: crossterm::event::MouseEvent) -> Option<WheelDirection> {
     use crossterm::event::MouseEventKind;
     match event.kind {
@@ -266,8 +270,8 @@ mod tests {
         first.clear(&mut out).expect("handoff");
         let first_text = String::from_utf8(std::mem::take(&mut out)).expect("utf8");
         assert_eq!(first_text.matches("\x1b[?1049h").count(), 1);
-        assert!(first_text.contains("\x1b[?1000h\x1b[?1006h"));
-        assert!(!first_text.contains("\x1b[?1003h") && !first_text.contains("\x1b[?1002h"));
+        assert!(first_text.contains("\x1b[?1000h\x1b[?1002h\x1b[?1006h"));
+        assert!(!first_text.contains("\x1b[?1003h"));
         // One row plus five blank ones: five row breaks; the handoff
         // leaves the alternate screen on.
         assert!(first_text.contains("agents"));
@@ -285,7 +289,7 @@ mod tests {
         assert!(leave_alt_screen(&mut out));
         assert_eq!(
             String::from_utf8(out).expect("utf8"),
-            "\x1b[?1006l\x1b[?1000l\x1b[?1049l"
+            "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l"
         );
         assert!(!leave_alt_screen(&mut Vec::new()));
     }
