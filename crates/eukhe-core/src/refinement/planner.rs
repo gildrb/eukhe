@@ -1,6 +1,9 @@
 //! The refine planner: proposal parsing, edit validation, application, and
-//! rollback. Port of the apply half of core/refinement/refinement.ts.
+//! rollback. Port of the apply half of core/refinement/refinement.ts. The
+//! decisions run as the compiled core (`eukhe_bend::rules::refine_plan`):
+//! Rust reads the JSON, gives the facts, and mutates the state as told.
 
+use eukhe_bend::rules::refine_plan as rule;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -15,7 +18,6 @@ pub const AUTO_REFINE_REVIEW_SYSTEM_PROMPT: &str = "You are Eukhe's automatic /r
 /// Output caps (reasoning off shares the model's output budget with JSON).
 pub const REFINEMENT_MAX_OUTPUT_TOKENS: u64 = 32_000;
 pub const AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS: u64 = 4_096;
-pub const REFINEMENT_CONTEXT_OVERHEAD_TOKENS: u64 = 1_024;
 
 pub const TRUNCATED_JSON_ERROR: &str = "the model stopped before completing its JSON object. This usually means the output budget was exhausted; retry with a smaller request.";
 
@@ -53,40 +55,23 @@ pub struct RefinementProposal {
 }
 
 /// Whether a JSON candidate ends mid-value (unterminated string, unclosed
-/// object/array): a truncated reply, as opposed to a malformed-but-balanced one.
-#[must_use]
-pub fn is_incomplete_json(candidate: &str) -> bool {
-    let mut depth = 0i64;
-    let mut in_string = false;
-    let mut escaped = false;
-    for char in candidate.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if in_string {
-            if char == '\\' {
-                escaped = true;
-            } else if char == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match char {
-            '"' => in_string = true,
-            '{' | '[' => depth += 1,
-            '}' | ']' => depth -= 1,
-            _ => {}
-        }
-    }
-    in_string || depth > 0
+/// object/array): a truncated reply, as opposed to a malformed-but-balanced
+/// one. The compiled core scans it (`bend/refine_plan.bend`, R7).
+///
+/// # Errors
+///
+/// The candidate is longer than the compiled core reads (the wire's
+/// longest string), so it cannot be scanned.
+pub fn is_incomplete_json(candidate: &str) -> Result<bool, String> {
+    rule::incomplete(candidate)
+        .map_err(|error| format!("the model's reply could not be checked for truncation: {error}"))
 }
 
 fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
     match serde_json::from_str::<serde_json::Value>(candidate) {
         Ok(value) => Ok(value),
         Err(error) => {
-            if is_incomplete_json(candidate) {
+            if is_incomplete_json(candidate)? {
                 Err(TRUNCATED_JSON_ERROR.to_string())
             } else {
                 Err(format!("the model did not return valid JSON: {error}"))
@@ -125,7 +110,7 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
             return parse_json_candidate(&trimmed[start..]);
         }
     }
-    if is_incomplete_json(trimmed) {
+    if is_incomplete_json(trimmed)? {
         return Err(TRUNCATED_JSON_ERROR.to_string());
     }
     Err("Refiner did not return a JSON object".to_string())
@@ -135,29 +120,28 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
 /// apply-time validation.
 #[must_use]
 pub fn normalize_refinement_proposal(value: &serde_json::Value) -> RefinementProposal {
-    let record = value.as_object().cloned().unwrap_or_default();
-    let string_field = |key: &str, fallback: &str| -> String {
+    let record = value.as_object();
+    let text = |key: &str| {
         record
-            .get(key)
-            .and_then(|value| value.as_str())
-            .unwrap_or(fallback)
-            .to_string()
+            .and_then(|record| record.get(key))
+            .and_then(serde_json::Value::as_str)
     };
+    let texts = rule::norm(text("summary"), text("rationale"), text("expectedOutcome"));
     let edits = record
-        .get("edits")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|edit| {
-            edit.as_object()?;
-            serde_json::from_value::<RefinementEdit>(edit.clone()).ok()
+        .and_then(|record| record.get("edits"))
+        .and_then(serde_json::Value::as_array)
+        .map(|edits| {
+            edits
+                .iter()
+                .filter(|edit| edit.is_object())
+                .filter_map(|edit| serde_json::from_value::<RefinementEdit>(edit.clone()).ok())
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
     RefinementProposal {
-        summary: string_field("summary", "Refined continual harness state"),
-        rationale: string_field("rationale", ""),
-        expected_outcome: string_field("expectedOutcome", ""),
+        summary: texts.summary,
+        rationale: texts.rationale,
+        expected_outcome: texts.outcome,
         edits,
     }
 }
@@ -174,119 +158,6 @@ pub fn parse_proposal(text: &str) -> Result<RefinementProposal, String> {
         return Err("Refiner JSON must be an object".to_string());
     }
     Ok(normalize_refinement_proposal(&value))
-}
-
-fn slug(raw: &str, fallback: &str) -> String {
-    let mut normalized = String::new();
-    for char in raw.trim().to_lowercase().chars() {
-        if char.is_ascii_lowercase() || char.is_ascii_digit() {
-            normalized.push(char);
-        } else if !normalized.ends_with('_') {
-            normalized.push('_');
-        }
-    }
-    let normalized = normalized.trim_matches('_').to_string();
-    let truncated: String = normalized.chars().take(80).collect();
-    if truncated.is_empty() {
-        fallback.to_string()
-    } else {
-        truncated
-    }
-}
-
-/// Validation errors mirror the TS messages exactly.
-fn validate_edit(edit: &RefinementEdit, computed_id: Option<&str>) -> Option<String> {
-    let Some(action) = edit.action else {
-        return Some("unsupported action".to_string());
-    };
-    let Some(kind) = edit.kind else {
-        return Some("unsupported kind".to_string());
-    };
-    match action {
-        RefinementAction::Create | RefinementAction::Update | RefinementAction::Delete => {}
-    }
-    match kind {
-        RefinementKind::Prompt
-        | RefinementKind::Memory
-        | RefinementKind::Skill
-        | RefinementKind::Subagent
-        | RefinementKind::Factory => {}
-    }
-    if kind == RefinementKind::Prompt
-        && (edit.id.as_deref() == Some("base_system_prompt")
-            || computed_id == Some("base_system_prompt"))
-    {
-        return Some("base system prompt is not editable".to_string());
-    }
-    if action != RefinementAction::Create && edit.id.is_none() {
-        return Some(format!("{action:?} requires id").to_lowercase());
-    }
-    if action != RefinementAction::Delete && (edit.title.is_none() || edit.content.is_none()) {
-        return Some(format!("{action:?} requires title and content").to_lowercase());
-    }
-    if action != RefinementAction::Delete && kind == RefinementKind::Skill {
-        if edit.arguments.is_none() {
-            return Some(format!("{action:?} skill requires arguments").to_lowercase());
-        }
-        let Some(reference) = &edit.reference else {
-            return Some(format!("{action:?} skill requires python reference").to_lowercase());
-        };
-        if reference.get("type").and_then(|value| value.as_str()) != Some("python") {
-            return Some(format!("{action:?} skill reference.type must be python").to_lowercase());
-        }
-        let has_import = reference
-            .get("import")
-            .and_then(|value| value.as_str())
-            .is_some_and(|import| !import.is_empty())
-            || reference
-                .get("python_import")
-                .and_then(|value| value.as_str())
-                .is_some_and(|import| !import.is_empty());
-        let has_callable = reference
-            .get("callable")
-            .and_then(|value| value.as_str())
-            .is_some_and(|callable| !callable.is_empty())
-            || reference
-                .get("call_pattern")
-                .and_then(|value| value.as_str())
-                .is_some_and(|callable| !callable.is_empty());
-        if !has_import {
-            return Some(format!("{action:?} skill requires python import").to_lowercase());
-        }
-        if !has_callable {
-            return Some(
-                format!("{action:?} skill requires callable or call_pattern").to_lowercase(),
-            );
-        }
-    }
-    if action != RefinementAction::Delete
-        && kind == RefinementKind::Factory
-        && (action == RefinementAction::Create || edit.arguments.is_some())
-    {
-        // Structural check only: the kernel validator (`rlm.factory`) enforces
-        // the full machine semantics at write time; do not reimplement it here.
-        // A create requires its spec; an update may omit `arguments` entirely
-        // and keep the stored spec (apply preserves `before.arguments`),
-        // exactly like update_factory treats dag/machine.
-        let arguments = edit.arguments.as_ref();
-        // JSON null is treated as absent, exactly like the kernel's Python
-        // writers (arguments.get("machine") returning None): a supplied
-        // "machine": null never counts as the machine form.
-        let dag = arguments
-            .and_then(|args| args.get("dag"))
-            .filter(|value| !value.is_null());
-        let machine = arguments
-            .and_then(|args| args.get("machine"))
-            .filter(|value| !value.is_null());
-        if dag.is_some() && machine.is_some() {
-            return Some("pass either dag or machine form, not both".to_string());
-        }
-        let spec = machine.or(dag);
-        if !matches!(spec, Some(serde_json::Value::Object(_))) {
-            return Some("factory entry requires a dag or machine object in arguments".to_string());
-        }
-    }
-    None
 }
 
 fn now_iso() -> String {
@@ -312,199 +183,86 @@ pub struct ApplyOptions {
 }
 
 /// Apply a proposal to the state (mutating entries and recording the event).
-///
-/// # Panics
-///
-/// The internal unwraps cannot fire: an edit without an action is rejected
-/// by validation first, and the empty state pre-populates every per-kind
-/// entry map.
+/// The compiled core decides each edit (`bend/refine_plan.bend`: its id,
+/// validation, the baseline, factory and memory gates, and the entry's
+/// presence as the proposal's earlier edits left it) and the change lines;
+/// Rust gives it the facts and mutates the state as it says.
 pub fn apply_refinement_proposal(
     state: &mut HarnessState,
     proposal: &RefinementProposal,
     options: ApplyOptions,
 ) -> super::RefinementResult {
-    let mut applied_edits: Vec<AppliedRefinementEdit> = Vec::new();
-    let mut proposal_modified_keys: std::collections::HashSet<String> =
-        std::collections::HashSet::default();
-    for edit in &proposal.edits {
-        let computed_id = edit.id.clone().or_else(|| {
-            (edit.action == Some(RefinementAction::Create)).then(|| {
-                slug(
-                    edit.title
-                        .as_deref()
-                        .unwrap_or(kind_name(edit.kind.unwrap_or(RefinementKind::Memory))),
-                    kind_name(edit.kind.unwrap_or(RefinementKind::Memory)),
-                )
-            })
-        });
-        let id = computed_id.clone().unwrap_or_default();
-        let validation_error = validate_edit(edit, computed_id.as_deref());
-        let Some(kind) = edit.kind else {
-            let mut row = AppliedRefinementEdit::planned(
-                edit,
-                RefinementAction::Create,
-                RefinementKind::Memory,
-                id.clone(),
-            );
-            row.error = validation_error;
-            applied_edits.push(row);
-            continue;
-        };
-        if let Some(error) = validation_error {
-            let mut row = AppliedRefinementEdit::planned(
-                edit,
-                edit.action.unwrap_or(RefinementAction::Create),
-                kind,
-                id.clone(),
-            );
-            row.error = Some(error);
-            applied_edits.push(row);
-            continue;
-        }
-        let action = edit.action.unwrap();
-        let records = state.entries.get_mut(&kind).unwrap();
-        let before = records.get(&id).cloned();
-        let entry_key = format!("{}:{id}", kind_name(kind));
-        let baseline = options.baseline_state.as_ref().and_then(|baseline| {
-            baseline
-                .entries
-                .get(&kind)
-                .and_then(|entries| entries.get(&id).cloned())
-        });
-        if options.baseline_state.is_some()
-            && !proposal_modified_keys.contains(&entry_key)
-            && serde_json::to_value(&before).ok() != serde_json::to_value(&baseline).ok()
-        {
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-            row.before = before;
-            row.error = Some("entry changed during refinement planning".to_string());
-            applied_edits.push(row);
-            continue;
-        }
-        // The opt-in gate, the host-side mirror of the kernel writers'
-        // one refusal (`require_factory_enabled`): while `factory.enabled`
-        // is off, a refinement cannot author or re-author factory entries,
-        // exactly like every kernel factory write. The refusal precedes
-        // the create/update existence checks, so the disabled message is
-        // unconditional while off. A delete is not authoring: cleanup
-        // stays available, the gate's documented split.
-        if kind == RefinementKind::Factory
-            && action != RefinementAction::Delete
-            && !options.factory_enabled
-        {
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-            row.before = before;
-            row.error = Some(super::FACTORY_DISABLED_MESSAGE.to_string());
-            applied_edits.push(row);
-            continue;
-        }
-        // A chat-memory session's harness holds tools only: every memory
-        // or prompt-note edit refuses, deletes included (the session has no
-        // such entries to manage).
-        if !options.memory.holds(kind) {
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-            row.before = before;
-            row.error = Some(super::CHAT_MEMORY_MESSAGE.to_string());
-            applied_edits.push(row);
-            continue;
-        }
-        if action == RefinementAction::Delete {
-            if before.is_none() {
-                let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-                row.error = Some("entry not found".to_string());
-                applied_edits.push(row);
-                continue;
-            }
-            records.remove(&id);
-            proposal_modified_keys.insert(entry_key);
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id);
-            row.before = before;
-            row.applied = true;
-            applied_edits.push(row);
-            continue;
-        }
-        if action == RefinementAction::Create && before.is_some() {
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-            row.before = before;
-            row.error = Some("entry already exists".to_string());
-            applied_edits.push(row);
-            continue;
-        }
-        if action == RefinementAction::Update && before.is_none() {
-            let mut row = AppliedRefinementEdit::planned(edit, action, kind, id.clone());
-            row.error = Some("entry not found".to_string());
-            applied_edits.push(row);
-            continue;
-        }
-        let after = HarnessEntry {
-            id: id.clone(),
-            kind,
-            title: edit
-                .title
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.title.clone()))
-                .unwrap_or_else(|| id.clone()),
-            content: edit
-                .content
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.content.clone()))
-                .unwrap_or_default(),
-            path: edit
-                .path
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.path.clone()))
-                .unwrap_or_else(|| "general".to_string()),
-            scope: before
-                .as_ref()
-                .and_then(|entry| entry.scope)
-                .or(options.scope)
-                .or(Some(HarnessScope::Local)),
-            reference: edit
-                .reference
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.reference.clone()))
-                .unwrap_or_default(),
-            arguments: edit
-                .arguments
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.arguments.clone()))
-                .unwrap_or_default(),
-            metadata: edit
-                .metadata
-                .clone()
-                .or_else(|| before.as_ref().map(|entry| entry.metadata.clone()))
-                .unwrap_or_default(),
-            source: "refine".to_string(),
-            created_at: before
-                .as_ref()
-                .map_or_else(now_iso, |entry| entry.created_at.clone()),
-            updated_at: now_iso(),
-            version: before.as_ref().map_or(1, |entry| entry.version + 1),
-        };
-        records.insert(id.clone(), after.clone());
-        proposal_modified_keys.insert(entry_key);
-        let mut row = AppliedRefinementEdit::planned(edit, action, kind, id);
-        row.before = before;
-        row.after = Some(after);
-        row.applied = true;
-        applied_edits.push(row);
-    }
-    let changes: Vec<String> = applied_edits
+    let held = |edit: &RefinementEdit| edit.kind.is_none_or(|kind| options.memory.holds(kind));
+    let unstored: Vec<rule::Ed> = proposal
+        .edits
         .iter()
-        .filter(|edit| edit.applied)
-        .map(|edit| {
-            format!(
-                "{} {}:{}",
-                action_name(edit.action),
-                kind_name(edit.kind),
-                edit.id
-            )
+        .map(|edit| edit_facts(edit, false, false, held(edit)))
+        .collect();
+    let ids = rule::ids(&unstored);
+    let facts: Vec<rule::Ed> = proposal
+        .edits
+        .iter()
+        .zip(&ids)
+        .map(|(edit, id)| {
+            let (exists, differs) = match (edit.kind, id) {
+                (Some(kind), Some(id)) => {
+                    let stored = state.entries.get(&kind).and_then(|entries| entries.get(id));
+                    let differs = options.baseline_state.as_ref().is_some_and(|baseline| {
+                        let planned = baseline
+                            .entries
+                            .get(&kind)
+                            .and_then(|entries| entries.get(id));
+                        serde_json::to_value(stored).ok() != serde_json::to_value(planned).ok()
+                    });
+                    (stored.is_some(), differs)
+                }
+                _ => (false, false),
+            };
+            edit_facts(edit, exists, differs, held(edit))
         })
         .collect();
+    let plan = rule::plan(
+        rule::Opts {
+            factory: options.factory_enabled,
+            baseline: options.baseline_state.is_some(),
+        },
+        &facts,
+    );
+    let mut applied_edits: Vec<AppliedRefinementEdit> = Vec::with_capacity(plan.rows.len());
+    for (edit, row) in proposal.edits.iter().zip(plan.rows) {
+        let kind = kind_of(row.comp);
+        let mut applied =
+            AppliedRefinementEdit::planned(edit, action_of(row.verb), kind, row.id.clone());
+        match row.out {
+            rule::Out::Invalid(error) => applied.error = Some(error),
+            rule::Out::Refused(error) => {
+                applied.before = state
+                    .entries
+                    .get(&kind)
+                    .and_then(|entries| entries.get(&row.id))
+                    .cloned();
+                applied.error = Some(error);
+            }
+            rule::Out::Removed => {
+                applied.before = state.entries.entry(kind).or_default().remove(&row.id);
+                applied.applied = true;
+            }
+            rule::Out::Written => {
+                let records = state.entries.entry(kind).or_default();
+                let before = records.get(&row.id).cloned();
+                let after = written_entry(edit, &row.id, kind, before.as_ref(), options.scope);
+                records.insert(row.id, after.clone());
+                applied.before = before;
+                applied.after = Some(after);
+                applied.applied = true;
+            }
+        }
+        applied_edits.push(applied);
+    }
     state.refinements.push(HarnessRefinementEvent {
         id: options.id.clone(),
         trigger: proposal.summary.clone(),
-        changes,
+        changes: plan.changes,
         evidence: proposal.rationale.clone(),
         outcome: proposal.expected_outcome.clone(),
         created_at: now_iso(),
@@ -521,77 +279,188 @@ pub fn apply_refinement_proposal(
     }
 }
 
+/// The entry an applied create or update writes: each field the edit's,
+/// else the stored entry's, else its default.
+fn written_entry(
+    edit: &RefinementEdit,
+    id: &str,
+    kind: RefinementKind,
+    before: Option<&HarnessEntry>,
+    scope: Option<HarnessScope>,
+) -> HarnessEntry {
+    HarnessEntry {
+        id: id.to_string(),
+        kind,
+        title: edit
+            .title
+            .clone()
+            .or_else(|| before.map(|entry| entry.title.clone()))
+            .unwrap_or_else(|| id.to_string()),
+        content: edit
+            .content
+            .clone()
+            .or_else(|| before.map(|entry| entry.content.clone()))
+            .unwrap_or_default(),
+        path: edit
+            .path
+            .clone()
+            .or_else(|| before.map(|entry| entry.path.clone()))
+            .unwrap_or_else(|| "general".to_string()),
+        scope: before
+            .and_then(|entry| entry.scope)
+            .or(scope)
+            .or(Some(HarnessScope::Local)),
+        reference: edit
+            .reference
+            .clone()
+            .or_else(|| before.map(|entry| entry.reference.clone()))
+            .unwrap_or_default(),
+        arguments: edit
+            .arguments
+            .clone()
+            .or_else(|| before.map(|entry| entry.arguments.clone()))
+            .unwrap_or_default(),
+        metadata: edit
+            .metadata
+            .clone()
+            .or_else(|| before.map(|entry| entry.metadata.clone()))
+            .unwrap_or_default(),
+        source: "refine".to_string(),
+        created_at: before.map_or_else(now_iso, |entry| entry.created_at.clone()),
+        updated_at: now_iso(),
+        version: before.map_or(1, |entry| entry.version + 1),
+    }
+}
+
+/// The facts of an edit the core decides on: the JSON fields it reads
+/// (the reference's strings, the arguments' spec keys) and its entry's.
+fn edit_facts(edit: &RefinementEdit, exists: bool, differs: bool, held: bool) -> rule::Ed {
+    let text = |map: &serde_json::Map<String, serde_json::Value>, key: &str| {
+        map.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    let spec_key = |map: &serde_json::Map<String, serde_json::Value>, key: &str| match map.get(key)
+    {
+        None => rule::Val::Missing,
+        Some(serde_json::Value::Null) => rule::Val::Null,
+        Some(serde_json::Value::Object(_)) => rule::Val::Object,
+        Some(_) => rule::Val::Other,
+    };
+    rule::Ed {
+        verb: edit.action.map(verb_of),
+        comp: edit.kind.map(comp_of),
+        id: edit.id.clone(),
+        title: edit.title.clone(),
+        content: edit.content.is_some(),
+        pyref: edit.reference.as_ref().map(|reference| rule::Pyref {
+            ty: text(reference, "type"),
+            import: text(reference, "import"),
+            python_import: text(reference, "python_import"),
+            callable: text(reference, "callable"),
+            call_pattern: text(reference, "call_pattern"),
+        }),
+        args: edit.arguments.as_ref().map(|arguments| rule::Args {
+            dag: spec_key(arguments, "dag"),
+            machine: spec_key(arguments, "machine"),
+        }),
+        exists,
+        differs,
+        held,
+    }
+}
+
 /// The proposal that reverts a previously applied result.
 #[must_use]
 pub fn rollback_proposal(target: &super::RefinementResult) -> RefinementProposal {
-    let mut edits: Vec<RefinementEdit> = Vec::new();
-    for edit in target.applied_edits.iter().rev() {
-        if !edit.applied {
-            continue;
-        }
-        if let Some(before) = &edit.before {
-            edits.push(RefinementEdit {
-                action: Some(if edit.after.is_some() {
-                    RefinementAction::Update
-                } else {
-                    RefinementAction::Create
-                }),
-                kind: Some(edit.kind),
-                id: Some(edit.id.clone()),
-                title: Some(before.title.clone()),
-                content: Some(before.content.clone()),
-                path: Some(before.path.clone()),
-                reference: Some(before.reference.clone()),
-                arguments: Some(before.arguments.clone()),
-                metadata: Some(before.metadata.clone()),
-                reason: Some(format!("Rollback {}", target.id)),
-            });
-        } else if edit.after.is_some() {
-            edits.push(RefinementEdit {
-                action: Some(RefinementAction::Delete),
-                kind: Some(edit.kind),
-                id: Some(edit.id.clone()),
-                reason: Some(format!("Rollback {}", target.id)),
-                ..Default::default()
-            });
-        }
-    }
+    let rows: Vec<rule::Was> = target
+        .applied_edits
+        .iter()
+        .map(|edit| rule::Was {
+            applied: edit.applied,
+            before: edit.before.is_some(),
+            after: edit.after.is_some(),
+        })
+        .collect();
+    let back = rule::back(&target.id, &rows);
+    let edits = back
+        .picks
+        .iter()
+        .map(|pick| {
+            // The core's index is below the row count (checked on read).
+            let row = &target.applied_edits[pick.at];
+            // A restore has a before; a delete carries no fields.
+            let before = row
+                .before
+                .as_ref()
+                .filter(|_| pick.verb != rule::Verb::Delete);
+            RefinementEdit {
+                action: Some(action_of(pick.verb)),
+                kind: Some(row.kind),
+                id: Some(row.id.clone()),
+                title: before.map(|entry| entry.title.clone()),
+                content: before.map(|entry| entry.content.clone()),
+                path: before.map(|entry| entry.path.clone()),
+                reference: before.map(|entry| entry.reference.clone()),
+                arguments: before.map(|entry| entry.arguments.clone()),
+                metadata: before.map(|entry| entry.metadata.clone()),
+                reason: Some(back.reason.clone()),
+            }
+        })
+        .collect();
     RefinementProposal {
-        summary: format!("Rollback refinement {}", target.id),
-        rationale: format!(
-            "Restores continual harness state snapshots from refinement {}.",
-            target.id
-        ),
-        expected_outcome: "Faulty refinement edits are reverted.".to_string(),
+        summary: back.summary,
+        rationale: back.rationale,
+        expected_outcome: back.outcome,
         edits,
     }
 }
 
-fn action_name(action: RefinementAction) -> &'static str {
+fn verb_of(action: RefinementAction) -> rule::Verb {
     match action {
-        RefinementAction::Create => "create",
-        RefinementAction::Update => "update",
-        RefinementAction::Delete => "delete",
+        RefinementAction::Create => rule::Verb::Create,
+        RefinementAction::Update => rule::Verb::Update,
+        RefinementAction::Delete => rule::Verb::Delete,
     }
 }
 
-fn kind_name(kind: RefinementKind) -> &'static str {
+fn action_of(verb: rule::Verb) -> RefinementAction {
+    match verb {
+        rule::Verb::Create => RefinementAction::Create,
+        rule::Verb::Update => RefinementAction::Update,
+        rule::Verb::Delete => RefinementAction::Delete,
+    }
+}
+
+fn comp_of(kind: RefinementKind) -> rule::Comp {
     match kind {
-        RefinementKind::Prompt => "prompt",
-        RefinementKind::Memory => "memory",
-        RefinementKind::Skill => "skill",
-        RefinementKind::Subagent => "subagent",
-        RefinementKind::Factory => "factory",
+        RefinementKind::Prompt => rule::Comp::Prompt,
+        RefinementKind::Memory => rule::Comp::Memory,
+        RefinementKind::Skill => rule::Comp::Skill,
+        RefinementKind::Subagent => rule::Comp::Subagent,
+        RefinementKind::Factory => rule::Comp::Factory,
     }
 }
 
-/// Byte-based input token bound (one token per UTF-8 byte).
-fn refinement_input_token_bound(text: &str) -> u64 {
-    text.len() as u64
+fn kind_of(comp: rule::Comp) -> RefinementKind {
+    match comp {
+        rule::Comp::Prompt => RefinementKind::Prompt,
+        rule::Comp::Memory => RefinementKind::Memory,
+        rule::Comp::Skill => RefinementKind::Skill,
+        rule::Comp::Subagent => RefinementKind::Subagent,
+        rule::Comp::Factory => RefinementKind::Factory,
+    }
+}
+
+/// A length in UTF-8 bytes (one token per byte), for the core.
+fn byte_len(text: &str) -> u64 {
+    u64::try_from(text.len()).unwrap_or(u64::MAX)
 }
 
 /// Fit the refinement request into the model context: trim conversation from
-/// the front (binary search) and clamp output tokens.
+/// the front (binary search) and clamp output tokens. The compiled core walks
+/// the search (`bend/refine_plan.bend`, R8); Rust builds and measures each
+/// prompt it asks for.
 ///
 /// # Errors
 ///
@@ -604,59 +473,56 @@ pub fn refinement_request(
     build_prompt: &dyn Fn(&str) -> String,
     output_reserve: u64,
 ) -> anyhow::Result<(u64, String)> {
-    let system_reserve =
-        refinement_input_token_bound(system_prompt) + REFINEMENT_CONTEXT_OVERHEAD_TOKENS;
-    let input_budget = model.context_window.saturating_sub(
-        model
-            .max_tokens
-            .min(output_reserve)
-            .min(model.context_window / 2),
-    );
-    let mut user_prompt = build_prompt(conversation_text);
-    if system_reserve + refinement_input_token_bound(&user_prompt) > input_budget
-        && !conversation_text.is_empty()
-    {
-        let prompt_for_length = |length: usize| -> String {
-            let start = conversation_text.len().saturating_sub(length);
-            // Avoid splitting a UTF-8 sequence (the TS surrogate skip).
-            let mut start = start.min(conversation_text.len());
-            while start < conversation_text.len() && !conversation_text.is_char_boundary(start) {
-                start += 1;
-            }
-            build_prompt(&format!(
-                "[Earlier conversation omitted to fit the model context.]\n{}",
-                &conversation_text[start..]
-            ))
-        };
-        let mut low = 0usize;
-        let mut high = conversation_text.len();
-        while low < high {
-            let length = (low + high).div_ceil(2);
-            if system_reserve + refinement_input_token_bound(&prompt_for_length(length))
-                <= input_budget
-            {
-                low = length;
-            } else {
-                high = length - 1;
-            }
+    let window = rule::Win {
+        window: model.context_window,
+        max: model.max_tokens,
+        reserve: output_reserve,
+        system: byte_len(system_prompt),
+    };
+    let conversation = byte_len(conversation_text);
+    let prompt_for_length = |length: u64| -> String {
+        let length = usize::try_from(length).unwrap_or(usize::MAX);
+        let start = conversation_text.len().saturating_sub(length);
+        // Avoid splitting a UTF-8 sequence (the TS surrogate skip).
+        let mut start = start.min(conversation_text.len());
+        while start < conversation_text.len() && !conversation_text.is_char_boundary(start) {
+            start += 1;
         }
-        user_prompt = prompt_for_length(low);
+        build_prompt(&format!(
+            "[Earlier conversation omitted to fit the model context.]\n{}",
+            &conversation_text[start..]
+        ))
+    };
+    let mut user_prompt = build_prompt(conversation_text);
+    let mut search = rule::Search::Full;
+    loop {
+        match rule::fit(window, conversation, search, byte_len(&user_prompt)) {
+            rule::Step::Try { len, next } => {
+                user_prompt = prompt_for_length(len);
+                search = next;
+            }
+            rule::Step::Fits(max_tokens) => return Ok((max_tokens, user_prompt)),
+            rule::Step::NoRoom(text) => anyhow::bail!("{text}"),
+        }
     }
-    let max_tokens = model.max_tokens.min(
-        model
-            .context_window
-            .saturating_sub(system_reserve + refinement_input_token_bound(&user_prompt)),
-    );
-    if max_tokens == 0 {
-        anyhow::bail!("Refinement prompt leaves no room for output in the model's context window; retry with a smaller request.");
-    }
-    Ok((max_tokens, user_prompt))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::empty_harness_state;
     use super::*;
+
+    /// A reply past the wire's longest string is an error the refine run
+    /// reports, not a panic of the compiled-core call.
+    #[test]
+    fn a_reply_too_long_to_scan_is_an_error() {
+        let reply = "[".repeat(eukhe_bend::wire::STR_MAX + 1);
+        let error = extract_json_object(&reply).unwrap_err();
+        assert!(
+            error.starts_with("the model's reply could not be checked for truncation: "),
+            "{error}"
+        );
+    }
 
     fn create_memory_edit(id: &str, title: &str, content: &str) -> RefinementEdit {
         RefinementEdit {
@@ -690,14 +556,67 @@ mod tests {
         );
     }
 
+    fn stored_entry(kind: RefinementKind, id: &str) -> HarnessEntry {
+        HarnessEntry {
+            id: id.to_string(),
+            kind,
+            title: "Stored".to_string(),
+            content: "Stored.".to_string(),
+            path: "general".to_string(),
+            scope: Some(HarnessScope::Local),
+            reference: serde_json::Map::default(),
+            arguments: serde_json::Map::default(),
+            metadata: serde_json::Map::default(),
+            source: "refine".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            version: 1,
+        }
+    }
+
+    /// The row error of one edit applied with the factory opt-in on, its
+    /// entry stored or not: Rust's reading of the edit's JSON fields (the
+    /// reference strings, the spec keys, null as absent), end to end
+    /// through the core.
+    fn error_of(edit: &RefinementEdit, stored: bool) -> Option<String> {
+        let mut state = empty_harness_state();
+        if stored {
+            let (kind, id) = (edit.kind.unwrap(), edit.id.clone().unwrap());
+            state
+                .entries
+                .get_mut(&kind)
+                .unwrap()
+                .insert(id.clone(), stored_entry(kind, &id));
+        }
+        let result = apply_refinement_proposal(
+            &mut state,
+            &RefinementProposal {
+                edits: vec![edit.clone()],
+                ..Default::default()
+            },
+            ApplyOptions {
+                id: "r1".to_string(),
+                rollback_of: None,
+                scope: None,
+                baseline_state: None,
+                factory_enabled: true,
+                memory: crate::refinement::HarnessMemory::Harness,
+            },
+        );
+        result.applied_edits[0].error.clone()
+    }
+
     #[test]
     fn validation_rules() {
         // Unsupported action.
         let mut edit = create_memory_edit("m", "t", "c");
         edit.action = None;
-        assert!(validate_edit(&edit, None).is_some());
+        assert_eq!(
+            error_of(&edit, false).as_deref(),
+            Some("unsupported action")
+        );
         // base_system_prompt is not editable.
-        let mut prompt_edit = RefinementEdit {
+        let prompt_edit = RefinementEdit {
             action: Some(RefinementAction::Update),
             kind: Some(RefinementKind::Prompt),
             id: Some("base_system_prompt".to_string()),
@@ -706,8 +625,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            validate_edit(&prompt_edit, None),
-            Some("base system prompt is not editable".to_string())
+            error_of(&prompt_edit, true).as_deref(),
+            Some("base system prompt is not editable")
         );
         // Skill edits require python reference + arguments + callable.
         let mut skill_edit = RefinementEdit {
@@ -717,31 +636,51 @@ mod tests {
             content: Some("Does things".into()),
             ..Default::default()
         };
-        assert!(validate_edit(&skill_edit, None)
-            .unwrap()
-            .contains("skill requires arguments"));
+        assert_eq!(
+            error_of(&skill_edit, false).as_deref(),
+            Some("create skill requires arguments")
+        );
         skill_edit.arguments = Some(serde_json::Map::default());
-        assert!(validate_edit(&skill_edit, None)
-            .unwrap()
-            .contains("skill requires python reference"));
+        assert_eq!(
+            error_of(&skill_edit, false).as_deref(),
+            Some("create skill requires python reference")
+        );
         skill_edit.reference = Some(
             serde_json::from_value(
                 serde_json::json!({ "type": "python", "import": "pkg.mod", "callable": "run" }),
             )
             .unwrap(),
         );
-        assert_eq!(validate_edit(&skill_edit, None), None);
-        // Wrong reference type.
+        assert_eq!(error_of(&skill_edit, false), None);
+        // A python_import and a call_pattern stand in for import and callable.
+        skill_edit.reference = Some(
+            serde_json::from_value(serde_json::json!({
+                "type": "python", "import": "", "python_import": "pkg", "call_pattern": "await run()"
+            }))
+            .unwrap(),
+        );
+        assert_eq!(error_of(&skill_edit, false), None);
+        // Wrong reference type; a non-string import is no import.
         skill_edit.reference = Some(
             serde_json::from_value(
                 serde_json::json!({ "type": "shell", "import": "pkg.mod", "callable": "run" }),
             )
             .unwrap(),
         );
-        assert!(validate_edit(&skill_edit, None)
-            .unwrap()
-            .contains("reference.type must be python"));
-        prompt_edit.id = Some("x".to_string());
+        assert_eq!(
+            error_of(&skill_edit, false).as_deref(),
+            Some("create skill reference.type must be python")
+        );
+        skill_edit.reference = Some(
+            serde_json::from_value(
+                serde_json::json!({ "type": "python", "import": 7, "callable": "run" }),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            error_of(&skill_edit, false).as_deref(),
+            Some("create skill requires python import")
+        );
     }
 
     #[test]
@@ -763,60 +702,61 @@ mod tests {
         };
         // A dag object passes.
         edit.arguments = Some(serde_json::from_value(serde_json::json!({ "dag": dag })).unwrap());
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, false), None);
         // A machine object passes.
         edit.arguments =
             Some(serde_json::from_value(serde_json::json!({ "machine": machine })).unwrap());
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, false), None);
         // Both forms at once are rejected with the kernel wording.
         edit.arguments = Some(
             serde_json::from_value(serde_json::json!({ "dag": dag, "machine": machine })).unwrap(),
         );
         assert_eq!(
-            validate_edit(&edit, None),
-            Some("pass either dag or machine form, not both".to_string())
+            error_of(&edit, false).as_deref(),
+            Some("pass either dag or machine form, not both")
         );
         // Neither form (or a non-object spec) is rejected.
         edit.arguments = Some(serde_json::Map::default());
         assert_eq!(
-            validate_edit(&edit, None),
-            Some("factory entry requires a dag or machine object in arguments".to_string())
+            error_of(&edit, false).as_deref(),
+            Some("factory entry requires a dag or machine object in arguments")
         );
         edit.arguments = Some(
             serde_json::from_value(serde_json::json!({ "machine": "not an object" })).unwrap(),
         );
         assert_eq!(
-            validate_edit(&edit, None),
-            Some("factory entry requires a dag or machine object in arguments".to_string())
+            error_of(&edit, false).as_deref(),
+            Some("factory entry requires a dag or machine object in arguments")
         );
         edit.arguments = None;
-        assert!(validate_edit(&edit, None)
-            .unwrap()
-            .contains("requires a dag or machine object"));
+        assert_eq!(
+            error_of(&edit, false).as_deref(),
+            Some("factory entry requires a dag or machine object in arguments")
+        );
         // Delete edits carry no spec requirement.
         edit.action = Some(RefinementAction::Delete);
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, true), None);
         // An update that omits `arguments` keeps the stored spec (apply
         // preserves `before.arguments`), exactly like update_factory.
         edit.action = Some(RefinementAction::Update);
         edit.arguments = None;
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, true), None);
         // An update that does supply arguments gets the same shape checks.
         edit.arguments =
             Some(serde_json::from_value(serde_json::json!({ "machine": machine })).unwrap());
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, true), None);
         // JSON null is absent, exactly like the kernel's Python writers: a
         // valid dag with "machine": null is a dag-form edit, not both forms.
         edit.arguments = Some(
             serde_json::from_value(serde_json::json!({ "dag": dag, "machine": null })).unwrap(),
         );
-        assert_eq!(validate_edit(&edit, None), None);
+        assert_eq!(error_of(&edit, true), None);
         edit.arguments = Some(
             serde_json::from_value(serde_json::json!({ "dag": dag, "machine": machine })).unwrap(),
         );
         assert_eq!(
-            validate_edit(&edit, None),
-            Some("pass either dag or machine form, not both".to_string())
+            error_of(&edit, true).as_deref(),
+            Some("pass either dag or machine form, not both")
         );
     }
 

@@ -42,6 +42,7 @@ import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
 import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
+import ./ffi_goal_text.bend as ffi_goal_text
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
@@ -58,9 +59,12 @@ import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
+import ./ffi_package_source.bend as ffi_package_source
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
+import ./ffi_redirect_input.bend as ffi_redirect_input
+import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
@@ -273,6 +277,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_mcp_url.ffi(input)
     case 291:
       ffi_slash_args.ffi(input)
+    case 292:
+      ffi_goal_text.ffi(input)
+    case 293:
+      ffi_redirect_input.ffi(input)
+    case 294:
+      ffi_package_source.ffi(input)
+    case 295:
+      ffi_refine_plan.ffi(input)
     case _:
       W.err("unknown entry")
 

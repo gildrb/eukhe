@@ -56,25 +56,10 @@ pub fn should_announce(
     }
 }
 
-/// TS `formatGoalUsage`: the token budget usage, or wall-clock seconds.
-#[must_use]
-pub fn format_goal_usage(goal: &GoalState) -> Option<String> {
-    if let Some(budget) = goal.token_budget {
-        return Some(format!("{} / {} tokens", goal.tokens_used, budget));
-    }
-    if goal.time_used_seconds == 0 {
-        return None;
-    }
-    Some(format!("{}s", goal.time_used_seconds))
-}
-
 /// TS `formatGoalStatus` + `formatGoalDetailSuffix`: the status-row text for
 /// one goal state at the given terminal width.
 #[must_use]
 pub fn format_goal_status(goal: &GoalState, columns: usize) -> String {
-    let usage_text = format_goal_usage(goal)
-        .map(|usage| format!(" ({usage})"))
-        .unwrap_or_default();
     match goal.status {
         GoalStatus::Idle => "No active goal".to_string(),
         GoalStatus::Active => match &goal.objective {
@@ -92,6 +77,10 @@ pub fn format_goal_status(goal: &GoalState, columns: usize) -> String {
             None => "Goal paused (/goal resume)".to_string(),
         },
         GoalStatus::BudgetLimited => {
+            // TS `formatGoalUsage`: the compiled core's usage line.
+            let usage_text = eukhe_bend::rules::goal_text::usage(goal)
+                .map(|usage| format!(" ({usage})"))
+                .unwrap_or_default();
             let prefix = format!("Goal budget limited{usage_text}");
             match &goal.last_reason {
                 Some(reason) => format!(

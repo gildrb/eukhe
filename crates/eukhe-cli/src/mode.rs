@@ -208,22 +208,14 @@ pub fn runtime_config_from_args(
     session_dir: Option<PathBuf>,
     app_mode: AppMode,
 ) -> Result<RuntimeConfig, String> {
-    // isLocalPath: only npm:/git:/github:/http(s):/ssh: sources are not local;
-    // everything else resolves against the session cwd (utils/paths.ts).
-    let is_local_path = |value: &str| {
-        let trimmed = value.trim();
-        !(trimmed.starts_with("npm:")
-            || trimmed.starts_with("git:")
-            || trimmed.starts_with("github:")
-            || trimmed.starts_with("http:")
-            || trimmed.starts_with("https:")
-            || trimmed.starts_with("ssh:"))
-    };
+    // isLocalPath (the compiled core's): only npm:/git:/github:/http(s):/ssh:
+    // sources are not local; everything else resolves against the session
+    // cwd (utils/paths.ts).
     let resolve_cli_path = |paths: &[String]| -> Vec<PathBuf> {
         paths
             .iter()
             .map(|value| {
-                if is_local_path(value) {
+                if eukhe_bend::rules::package_source::is_local(value) {
                     if std::path::Path::new(value).is_absolute() {
                         PathBuf::from(value)
                     } else {
