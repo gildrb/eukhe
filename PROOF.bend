@@ -1862,3 +1862,12 @@ import ./proof/config/config_ffi_reads_spelled.bend as PConfigFfiReadsSpelled
 import ./proof/config/config_ffi_malformed_exact.bend as PConfigFfiMalformedExact
 import ./proof/config/config_ffi_example.bend as PConfigFfiExample
 import ./proof/config/config_ffi_refuses_example.bend as PConfigFfiRefusesExample
+import ./proof/cache_marks/base.bend as LACacheMarks
+import ./proof/cache_marks/cache_marks_excess.bend as PCacheMarksExcess
+import ./proof/cache_marks/cache_marks_grant.bend as PCacheMarksGrant
+import ./proof/cache_marks/cache_marks_example.bend as PCacheMarksExample
+import ./proof/cache_marks/cache_marks_entry_reads.bend as PCacheMarksEntryReads
+import ./proof/cache_marks/cache_marks_entry_answers.bend as PCacheMarksEntryAnswers
+import ./proof/cache_marks/cache_marks_entry_exact.bend as PCacheMarksEntryExact
+import ./proof/cache_marks/cache_marks_entry_refuses.bend as PCacheMarksEntryRefuses
+import ./proof/cache_marks/cache_marks_entry_example.bend as PCacheMarksEntryExample

@@ -7,6 +7,7 @@ import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_bound.bend as ffi_bound
+import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
@@ -226,6 +227,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_slash_suggest.ffi(input)
     case 205:
       ffi_gateway_commands.ffi(input)
+    case 230:
+      ffi_cache_marks.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:

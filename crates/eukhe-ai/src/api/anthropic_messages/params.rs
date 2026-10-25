@@ -15,7 +15,7 @@ use super::{
     get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
     CLAUDE_CODE_SYSTEM_PROMPT,
 };
-use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
+use crate::api::cache_breakpoints::{has_cache_breakpoint, placed_marks};
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
@@ -651,7 +651,7 @@ fn get_beta_features(
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
 /// optional system, last-tool, and OAuth identity marks take the slots left,
-/// in that order ([`CacheMarkBudget`]).
+/// in that order (`eukhe_bend::rules::cache_marks::grant`).
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `buildParams` body.
 pub(crate) fn build_params(
     model: &Model,
@@ -734,13 +734,17 @@ pub(crate) fn build_params(
         converted.messages
     };
 
-    let mut budget = CacheMarkBudget::after_message_marks(&wire_messages, "cache_control");
     let tool_cache_control = cache_control
         .as_ref()
         .filter(|_| compat.supports_cache_control_on_tools);
-    let system_mark = cache_control.is_some() && !initial_system_text.is_empty() && budget.take();
-    let tools_mark = tool_cache_control.is_some() && !request_tools.is_empty() && budget.take();
-    let identity_mark = cache_control.is_some() && is_oauth_token && budget.take();
+    let [system_mark, tools_mark, identity_mark] = eukhe_bend::rules::cache_marks::grant(
+        placed_marks(&wire_messages, "cache_control"),
+        [
+            cache_control.is_some() && !initial_system_text.is_empty(),
+            tool_cache_control.is_some() && !request_tools.is_empty(),
+            cache_control.is_some() && is_oauth_token,
+        ],
+    );
 
     let mut params = JsonObject::new();
     params.insert("model".into(), model.id.clone().into());

@@ -8,7 +8,7 @@ use super::convert::{
     convert_messages, convert_tools, request_strict_plan, ConvertCompletionsMessagesOptions,
 };
 use super::OpenAICompletionsOptions;
-use crate::api::cache_breakpoints::CacheMarkBudget;
+use crate::api::cache_breakpoints::placed_marks;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::simple_options::{
     clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
@@ -585,7 +585,7 @@ pub(crate) fn get_compat_cache_control(
 /// tool, and the last conversation message's text.
 ///
 /// eukhe addition: the end mark is placed first and the system and tool
-/// marks only take the slots the [`CacheMarkBudget`] has left after the
+/// marks only take the slots `eukhe_bend::rules::cache_marks::grant` leaves after the
 /// explicitly marked user blocks. Without marked blocks every mark fits and
 /// the result equals the TS output.
 fn apply_anthropic_cache_control(
@@ -594,21 +594,21 @@ fn apply_anthropic_cache_control(
     cache_control: &JsonValue,
 ) {
     add_cache_control_to_last_conversation_message(messages, cache_control);
-    let mut budget = CacheMarkBudget::after_message_marks(messages, "cache_control");
-    if let Some(system) = messages
+    let placed = placed_marks(messages, "cache_control");
+    let system = messages
         .iter_mut()
-        .find(|message| matches!(role(message), Some("system" | "developer")))
-    {
-        if budget.take() {
-            add_cache_control_to_text_content(system, cache_control);
-        }
+        .find(|message| matches!(role(message), Some("system" | "developer")));
+    let last_tool = tools.and_then(|tools| tools.last_mut());
+    let [system_mark, tool_mark] =
+        eukhe_bend::rules::cache_marks::grant(placed, [system.is_some(), last_tool.is_some()]);
+    if let Some(system) = system.filter(|_| system_mark) {
+        add_cache_control_to_text_content(system, cache_control);
     }
-    if let Some(last_tool) = tools.and_then(|tools| tools.last_mut()) {
-        if budget.take() {
-            if let Some(last_tool) = last_tool.as_object_mut() {
-                last_tool.insert("cache_control".into(), cache_control.clone());
-            }
-        }
+    if let Some(last_tool) = last_tool
+        .filter(|_| tool_mark)
+        .and_then(JsonValue::as_object_mut)
+    {
+        last_tool.insert("cache_control".into(), cache_control.clone());
     }
 }
 
