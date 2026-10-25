@@ -1,14 +1,17 @@
 # eukhe: the laws of area glob
 
 import Base
-import ../bend/glob.bend as G
+import ../bend/glob/parse.bend as GParse
+import ../bend/glob/items.bend as GItems
+import ../bend/glob/match.bend as GMatch
+import ../bend/glob/queries.bend as GQuery
 import ../bend/ffi_glob.bend as FG
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
 # (G1) Glob patterns
 # ------------------
-# bend/glob.bend: the glob patterns eukhe matches paths and model names
+# bend/glob/: the glob patterns eukhe matches paths and model names
 # with, in place of the Rust `globset` crate 0.4.20 (GlobBuilder with
 # backslash_escape on, empty_alternates and allow_unclosed_class off;
 # literal_separator and case_insensitive per caller). Every pattern,
@@ -29,7 +32,7 @@ import ./base.bend as LawsBase
 #     group last. A group branch whose regex is empty is dropped; a group
 #     with no branch left matches the empty text. Pinned by
 #     glob_parse_plain and glob_parse_example, and by a differential run
-#     against globset (bend/glob.bend header); the rest of R1 is trusted.
+#     against globset 0.4.20 (commit 539e4f490); the rest of R1 is trusted.
 # R2 (regex): the pattern means globset's regex of its tokens: a char its
 #     UTF-8 bytes; `?` one byte (not `/` with literal_separator), `*` any
 #     run of such bytes; a recursive prefix the empty text, `/`, or any
@@ -64,13 +67,13 @@ import ./base.bend as LawsBase
 # ------------
 
 # R3: byte x is in one of the ranges
-def sp_in(rs: List<&2, G.BR>, +x: U32) -> Bool:
+def sp_in(rs: List<&2, GItems.BR>, +x: U32) -> Bool:
   match rs:
     case Nil{}:
       False{}
     case r <> t:
       match r:
-        case G.BR{lo, hi}:
+        case GItems.BR{lo, hi}:
           Bool.or(Bool.and(U32.is_le(lo, x), U32.is_le(x, hi)), sp_in(t, x))
 
 def sp_is_upper(+x: U32) -> Bool:
@@ -97,7 +100,7 @@ def sp_other_case.up(+x: U32, up: Bool) -> U32:
 def sp_other_case(+x: U32) -> U32:
   sp_other_case.up(x, sp_is_upper(x))
 
-def sp_set(+rs: List<&2, G.BR>, +x: U32, fold: Bool) -> Bool:
+def sp_set(+rs: List<&2, GItems.BR>, +x: U32, fold: Bool) -> Bool:
   match fold:
     case True{}:
       Bool.or(sp_in(rs, x), sp_in(rs, sp_other_case(x)))
@@ -105,13 +108,13 @@ def sp_set(+rs: List<&2, G.BR>, +x: U32, fold: Bool) -> Bool:
       sp_in(rs, x)
 
 # R3: byte x is of the class k
-def sp_bc(k: G.BC, +x: U32) -> Bool:
+def sp_bc(k: GItems.BC, +x: U32) -> Bool:
   match k:
-    case G.BAny{}:
+    case GItems.BAny{}:
       True{}
-    case G.BNotSl{}:
+    case GItems.BNotSl{}:
       Bool.not(U32.is_eq(x, 47))
-    case G.BSet{neg, fold, rs}:
+    case GItems.BSet{neg, fold, rs}:
       match neg:
         case True{}:
           Bool.not(sp_set(rs, x, fold))
@@ -119,7 +122,7 @@ def sp_bc(k: G.BC, +x: U32) -> Bool:
           sp_set(rs, x, fold)
 
 # R4: the byte text, whole, matches the items its
-def sp_lang(bs: List<&2, U32>, its: List<&2, G.It>) -> Bool:
+def sp_lang(bs: List<&2, U32>, its: List<&2, GItems.It>) -> Bool:
   match bs:
     case Nil{}:
       match its:
@@ -127,9 +130,9 @@ def sp_lang(bs: List<&2, U32>, its: List<&2, G.It>) -> Bool:
           True{}
         case i <> k:
           match i:
-            case G.One{c}:
+            case GItems.One{c}:
               False{}
-            case G.Star{c}:
+            case GItems.Star{c}:
               sp_lang(Nil{}, k)
     case +x <> +t:
       match its:
@@ -137,13 +140,13 @@ def sp_lang(bs: List<&2, U32>, its: List<&2, G.It>) -> Bool:
           False{}
         case i <> +k:
           match i:
-            case G.One{c}:
+            case GItems.One{c}:
               Bool.and(sp_bc(c, x), sp_lang(t, k))
-            case G.Star{+c}:
-              Bool.or(sp_lang(x <> t, k), Bool.and(sp_bc(c, x), sp_lang(t, G.Star{c} <> k)))
+            case GItems.Star{+c}:
+              Bool.or(sp_lang(x <> t, k), Bool.and(sp_bc(c, x), sp_lang(t, GItems.Star{c} <> k)))
 
 # R4: one of the alternatives matches the byte text whole
-def sp_any(+bs: List<&2, U32>, xs: List<&2, List<&2, G.It>>) -> Bool:
+def sp_any(+bs: List<&2, U32>, xs: List<&2, List<&2, GItems.It>>) -> Bool:
   match xs:
     case Nil{}:
       False{}
@@ -151,160 +154,160 @@ def sp_any(+bs: List<&2, U32>, xs: List<&2, List<&2, G.It>>) -> Bool:
       Bool.or(sp_lang(bs, a), sp_any(bs, r))
 
 # R2: one byte of the set rs (ASCII case folded with fold)
-def sp_one(neg: Bool, fold: Bool, rs: List<&2, G.BR>) -> G.It:
-  G.One{G.BSet{neg, fold, rs}}
+def sp_one(neg: Bool, fold: Bool, rs: List<&2, GItems.BR>) -> GItems.It:
+  GItems.One{GItems.BSet{neg, fold, rs}}
 
-def sp_slash() -> G.It:
-  sp_one(False{}, False{}, [G.BR{47, 47}])
+def sp_slash() -> GItems.It:
+  sp_one(False{}, False{}, [GItems.BR{47, 47}])
 
 # R2: a char: one item per UTF-8 byte
-def sp_lit(bs: List<&2, U32>, +fold: Bool) -> List<&2, G.It>:
+def sp_lit(bs: List<&2, U32>, +fold: Bool) -> List<&2, GItems.It>:
   match bs:
     case Nil{}:
       Nil{}
     case +b <> r:
-      sp_one(False{}, fold, [G.BR{b, b}]) <> sp_lit(r, fold)
+      sp_one(False{}, fold, [GItems.BR{b, b}]) <> sp_lit(r, fold)
 
 # R2: each byte as a range of itself, then rest
-def sp_each(bs: List<&2, U32>, rest: List<&2, G.BR>) -> List<&2, G.BR>:
+def sp_each(bs: List<&2, U32>, rest: List<&2, GItems.BR>) -> List<&2, GItems.BR>:
   match bs:
     case Nil{}:
       rest
     case +b <> r:
-      G.BR{b, b} <> sp_each(r, rest)
+      GItems.BR{b, b} <> sp_each(r, rest)
 
 # R2: the bytes of a range lo..hi whose lo has the bytes b <> r (lo's
 # last byte to hi's first byte hb <> ht), then rest
-def sp_span(r: List<&2, U32>, +b: U32, hb: List<&2, U32>, rest: List<&2, G.BR>) -> List<&2, G.BR>:
+def sp_span(r: List<&2, U32>, +b: U32, hb: List<&2, U32>, rest: List<&2, GItems.BR>) -> List<&2, GItems.BR>:
   match r:
     case Nil{}:
       match hb:
         case Nil{}:
-          G.BR{b, b} <> rest
+          GItems.BR{b, b} <> rest
         case h <> t:
-          G.BR{b, h} <> sp_each(t, rest)
+          GItems.BR{b, h} <> sp_each(t, rest)
     case c <> t:
-      G.BR{b, b} <> sp_span(t, c, hb, rest)
+      GItems.BR{b, b} <> sp_span(t, c, hb, rest)
 
-def sp_range.k(lo: List<&2, U32>, hi: List<&2, U32>, rest: List<&2, G.BR>) -> List<&2, G.BR>:
+def sp_range.k(lo: List<&2, U32>, hi: List<&2, U32>, rest: List<&2, GItems.BR>) -> List<&2, GItems.BR>:
   match lo:
     case Nil{}:
       rest
     case b <> r:
       sp_span(r, b, hi, rest)
 
-def sp_range.same(same: Bool, +lo: U32, +hi: U32, rest: List<&2, G.BR>) -> List<&2, G.BR>:
+def sp_range.same(same: Bool, +lo: U32, +hi: U32, rest: List<&2, GItems.BR>) -> List<&2, GItems.BR>:
   match same:
     case True{}:
-      sp_each(G.utf8(lo, Nil{}), rest)
+      sp_each(GItems.utf8(lo, Nil{}), rest)
     case False{}:
-      sp_range.k(G.utf8(lo, Nil{}), G.utf8(hi, Nil{}), rest)
+      sp_range.k(GItems.utf8(lo, Nil{}), GItems.utf8(hi, Nil{}), rest)
 
 # R2: a class's ranges as bytes
-def sp_ranges(rs: List<&2, G.Rg>) -> List<&2, G.BR>:
+def sp_ranges(rs: List<&2, GParse.Rg>) -> List<&2, GItems.BR>:
   match rs:
     case Nil{}:
       Nil{}
     case r <> t:
       match r:
-        case G.Rg{lo, hi}:
-          +l = G.code(lo)
-          +h = G.code(hi)
+        case GParse.Rg{lo, hi}:
+          +l = GParse.code(lo)
+          +h = GParse.code(hi)
           sp_range.same(U32.is_eq(l, h), l, h, sp_ranges(t))
 
 # R2: the class of `?` and `*`: every byte but `/` with literal_separator
-def sp_byte(sep: Bool) -> G.BC:
+def sp_byte(sep: Bool) -> GItems.BC:
   match sep:
     case True{}:
-      G.BNotSl{}
+      GItems.BNotSl{}
     case False{}:
-      G.BAny{}
+      GItems.BAny{}
 
 # R2: the alternatives of one token
-def sp_tok(o: G.Opts, t: G.Tok) -> List<&2, List<&2, G.It>>:
+def sp_tok(o: GItems.Opts, t: GParse.Tok) -> List<&2, List<&2, GItems.It>>:
   match o:
-    case G.Opts{sep, +fold}:
+    case GItems.Opts{sep, +fold}:
       match t:
-        case G.TLit{c}:
-          [sp_lit(G.utf8(G.code(c), Nil{}), fold)]
-        case G.TAny{}:
-          [[G.One{sp_byte(sep)}]]
-        case G.TZom{}:
-          [[G.Star{sp_byte(sep)}]]
-        case G.TRPre{}:
-          [Nil{}, [sp_slash()], [G.Star{G.BAny{}}, sp_slash()]]
-        case G.TRSuf{}:
-          [[sp_slash(), G.Star{G.BAny{}}]]
-        case G.TRZom{}:
-          [[sp_slash()], [sp_slash(), G.Star{G.BAny{}}, sp_slash()]]
-        case G.TCls{neg, rs}:
+        case GParse.TLit{c}:
+          [sp_lit(GItems.utf8(GParse.code(c), Nil{}), fold)]
+        case GParse.TAny{}:
+          [[GItems.One{sp_byte(sep)}]]
+        case GParse.TZom{}:
+          [[GItems.Star{sp_byte(sep)}]]
+        case GParse.TRPre{}:
+          [Nil{}, [sp_slash()], [GItems.Star{GItems.BAny{}}, sp_slash()]]
+        case GParse.TRSuf{}:
+          [[sp_slash(), GItems.Star{GItems.BAny{}}]]
+        case GParse.TRZom{}:
+          [[sp_slash()], [sp_slash(), GItems.Star{GItems.BAny{}}, sp_slash()]]
+        case GParse.TCls{neg, rs}:
           [[sp_one(neg, fold, sp_ranges(rs))]]
 
 # R2: each alternative a after each alternative of the rest bs
-def sp_then(+a: List<&2, G.It>, bs: List<&2, List<&2, G.It>>) -> List<&2, List<&2, G.It>>:
+def sp_then(+a: List<&2, GItems.It>, bs: List<&2, List<&2, GItems.It>>) -> List<&2, List<&2, GItems.It>>:
   match bs:
     case Nil{}:
       Nil{}
     case b <> r:
-      List.append(&2, G.It, a, b) <> sp_then(a, r)
+      List.append(&2, GItems.It, a, b) <> sp_then(a, r)
 
-def sp_prod(as: List<&2, List<&2, G.It>>, +bs: List<&2, List<&2, G.It>>) -> List<&2, List<&2, G.It>>:
+def sp_prod(as: List<&2, List<&2, GItems.It>>, +bs: List<&2, List<&2, GItems.It>>) -> List<&2, List<&2, GItems.It>>:
   match as:
     case Nil{}:
       Nil{}
     case a <> r:
-      List.append(&2, List<&2, G.It>, sp_then(a, bs), sp_prod(r, bs))
+      List.append(&2, List<&2, GItems.It>, sp_then(a, bs), sp_prod(r, bs))
 
 # R2: the alternatives of a token list
-def sp_seq(+o: G.Opts, ts: List<&2, G.Tok>) -> List<&2, List<&2, G.It>>:
+def sp_seq(+o: GItems.Opts, ts: List<&2, GParse.Tok>) -> List<&2, List<&2, GItems.It>>:
   match ts:
     case Nil{}:
       [Nil{}]
     case t <> r:
       sp_prod(sp_tok(o, t), sp_seq(o, r))
 
-def sp_alts(+o: G.Opts, xs: List<&2, List<&2, G.Tok>>) -> List<&2, List<&2, G.It>>:
+def sp_alts(+o: GItems.Opts, xs: List<&2, List<&2, GParse.Tok>>) -> List<&2, List<&2, GItems.It>>:
   match xs:
     case Nil{}:
       Nil{}
     case a <> r:
-      List.append(&2, List<&2, G.It>, sp_seq(o, a), sp_alts(o, r))
+      List.append(&2, List<&2, GItems.It>, sp_seq(o, a), sp_alts(o, r))
 
 # R2: the alternatives of a parsed pattern
-def sp_items(o: G.Opts, g: G.Glob) -> List<&2, List<&2, G.It>>:
+def sp_items(o: GItems.Opts, g: GParse.Glob) -> List<&2, List<&2, GItems.It>>:
   match g:
-    case G.Glob{xs, solo}:
+    case GParse.Glob{xs, solo}:
       match solo:
         case True{}:
-          [[G.Star{G.BAny{}}]]
+          [[GItems.Star{GItems.BAny{}}]]
         case False{}:
           sp_alts(o, xs)
 
 # R5: the alternatives of the patterns globset accepts
-def sp_compile.r(+o: G.Opts, r: Result<&2, &2, G.Err, G.Glob>, rest: List<&2, List<&2, G.It>>) -> List<&2, List<&2, G.It>>:
+def sp_compile.r(+o: GItems.Opts, r: Result<&2, &2, GParse.Err, GParse.Glob>, rest: List<&2, List<&2, GItems.It>>) -> List<&2, List<&2, GItems.It>>:
   match r:
     case Fail{e}:
       rest
     case Done{g}:
-      List.append(&2, List<&2, G.It>, sp_items(o, g), rest)
+      List.append(&2, List<&2, GItems.It>, sp_items(o, g), rest)
 
-def sp_compile(+o: G.Opts, ps: List<&2, String>) -> List<&2, List<&2, G.It>>:
+def sp_compile(+o: GItems.Opts, ps: List<&2, String>) -> List<&2, List<&2, GItems.It>>:
   match ps:
     case Nil{}:
       Nil{}
     case p <> r:
-      sp_compile.r(o, G.parse(p), sp_compile(o, r))
+      sp_compile.r(o, GParse.parse(p), sp_compile(o, r))
 
 # R5: one of the texts matches one of the alternatives
-def sp_hit(ss: List<&2, String>, +xs: List<&2, List<&2, G.It>>) -> Bool:
+def sp_hit(ss: List<&2, String>, +xs: List<&2, List<&2, GItems.It>>) -> Bool:
   match ss:
     case Nil{}:
       False{}
     case s <> r:
-      Bool.or(sp_any(G.bytes(s), xs), sp_hit(r, xs))
+      Bool.or(sp_any(GItems.bytes(s), xs), sp_hit(r, xs))
 
 # R5: per group of the sizes ks, one of its texts matches
-def sp_groups(ks: List<&2, Nat>, +xs: List<&2, List<&2, G.It>>, +ss: List<&2, String>) -> List<&2, Bool>:
+def sp_groups(ks: List<&2, Nat>, +xs: List<&2, List<&2, GItems.It>>, +ss: List<&2, String>) -> List<&2, Bool>:
   match ks:
     case Nil{}:
       Nil{}
@@ -312,7 +315,7 @@ def sp_groups(ks: List<&2, Nat>, +xs: List<&2, List<&2, G.It>>, +ss: List<&2, St
       sp_hit(List.take(&2, String, ss, k), xs) <> sp_groups(r, xs, List.drop(&2, String, ss, k))
 
 # R5b: per rule of the sizes ks, one of its patterns matches a text
-def sp_rules(ks: List<&2, Nat>, +o: G.Opts, +ps: List<&2, String>, +ss: List<&2, String>) -> List<&2, Bool>:
+def sp_rules(ks: List<&2, Nat>, +o: GItems.Opts, +ps: List<&2, String>, +ss: List<&2, String>) -> List<&2, Bool>:
   match ks:
     case Nil{}:
       Nil{}
@@ -348,10 +351,10 @@ def sp_suffixes(s: String) -> List<&2, String>:
     case SCon{c, +t}:
       sp_suffixes.k(U32.is_eq(Char.to_u32(c), 47), t, sp_suffixes(t))
 
-def sp_glob_rule.hit(anchored: Bool, +path: String, +xs: List<&2, List<&2, G.It>>) -> Bool:
+def sp_glob_rule.hit(anchored: Bool, +path: String, +xs: List<&2, List<&2, GItems.It>>) -> Bool:
   match anchored:
     case True{}:
-      sp_any(G.bytes(path), xs)
+      sp_any(GItems.bytes(path), xs)
     case False{}:
       sp_hit(path <> sp_suffixes(path), xs)
 
@@ -368,7 +371,7 @@ def sp_glob_rule.k(skip: Bool, hit: Bool, negated: Bool) -> Maybe<&2, Bool>:
           None{}
 
 def sp_glob_rule(+c: Nat, +p: String, +path: String, +dir: Bool) -> Maybe<&2, Bool>:
-  +xs = sp_compile(G.Opts{True{}, False{}}, [p])
+  +xs = sp_compile(GItems.Opts{True{}, False{}}, [p])
   sp_glob_rule.k(Bool.and(Nat.is_eq(Nat.div(c, 4n), 1n), Bool.not(dir)), sp_glob_rule.hit(Nat.is_eq(Nat.mod(c, 2n), 1n), path, xs), Nat.is_eq(Nat.mod(Nat.div(c, 2n), 2n), 1n))
 
 def sp_prefix_rule(under: Bool) -> Maybe<&2, Bool>:
@@ -500,18 +503,18 @@ def sp_bare.go(s: String, +orig: String) -> String:
 def sp_bare(+s: String) -> String:
   sp_bare.go(s, s)
 
-def sp_allow.g(r: Result<&2, &2, G.Err, G.Glob>, +sel: String) -> Bool:
+def sp_allow.g(r: Result<&2, &2, GParse.Err, GParse.Glob>, +sel: String) -> Bool:
   match r:
     case Fail{e}:
       False{}
     case Done{g}:
-      +xs = {sp_items(G.Opts{False{}, False{}}, g) : List<&2, List<&2, G.It>>}
-      Bool.or(sp_any(G.bytes(sel), xs), sp_any(G.bytes(sp_bare(sel)), xs))
+      +xs = {sp_items(GItems.Opts{False{}, False{}}, g) : List<&2, List<&2, GItems.It>>}
+      Bool.or(sp_any(GItems.bytes(sel), xs), sp_any(GItems.bytes(sp_bare(sel)), xs))
 
 def sp_allow.w(w: Bool, +sel: String, +p: String) -> Bool:
   match w:
     case True{}:
-      sp_allow.g(G.parse(p), sel)
+      sp_allow.g(GParse.parse(p), sel)
     case False{}:
       Bool.or(String.eq(p, sel), String.eq(p, sp_bare(sel)))
 
@@ -545,12 +548,12 @@ def sp_plain(s: String) -> Bool:
       Bool.and(Bool.not(Bool.or(U32.is_eq(x, 42), Bool.or(U32.is_eq(x, 63), Bool.or(U32.is_eq(x, 91), Bool.or(U32.is_eq(x, 123), Bool.or(U32.is_eq(x, 125), Bool.or(U32.is_eq(x, 44), U32.is_eq(x, 92)))))))), sp_plain(t))
 
 # R1: the literal tokens of s
-def sp_lits(s: String) -> List<&2, G.Tok>:
+def sp_lits(s: String) -> List<&2, GParse.Tok>:
   match s:
     case SNil{}:
       Nil{}
     case SCon{c, t}:
-      G.TLit{c} <> sp_lits(t)
+      GParse.TLit{c} <> sp_lits(t)
 
 # R7: the spelling of a request and of its reply
 
@@ -567,20 +570,20 @@ def sp_w_req(q: FG.Req, rest: String) -> String:
     case FG.QIgnore{ps, cs, es}:
       Wr.put_nat(4n, LawsBase.wire_spell_strs(ps, LawsBase.wire_spell_nats(cs, LawsBase.wire_spell_strs(es, rest))))
 
-def sp_w_err(e: G.Err) -> String:
+def sp_w_err(e: GParse.Err) -> String:
   match e:
-    case G.EClass{}:
+    case GParse.EClass{}:
       Wr.put_nat(0n, "")
-    case G.ERange{lo, hi}:
+    case GParse.ERange{lo, hi}:
       Wr.put_nat(1n, Wr.put_nat(U32.to_nat(Char.to_u32(lo)), Wr.put_nat(U32.to_nat(Char.to_u32(hi)), "")))
-    case G.EUnopened{}:
+    case GParse.EUnopened{}:
       Wr.put_nat(2n, "")
-    case G.EUnclosed{}:
+    case GParse.EUnclosed{}:
       Wr.put_nat(3n, "")
-    case G.EEscape{}:
+    case GParse.EEscape{}:
       Wr.put_nat(4n, "")
 
-def sp_w_check(r: Result<&2, &2, G.Err, G.Glob>) -> String:
+def sp_w_check(r: Result<&2, &2, GParse.Err, GParse.Glob>) -> String:
   match r:
     case Fail{e}:
       Wr.put_nat(1n, sp_w_err(e))
@@ -600,13 +603,13 @@ def sp_w_bools(+xs: List<&2, Bool>) -> String:
 def sp_w_reply(q: FG.Req) -> String:
   match q:
     case FG.QCheck{p}:
-      sp_w_check(G.parse(p))
+      sp_w_check(GParse.parse(p))
     case FG.QMatch{sep, fold, ps, ss, ks}:
-      sp_w_bools(sp_groups(ks, sp_compile(G.Opts{sep, fold}, ps), ss))
+      sp_w_bools(sp_groups(ks, sp_compile(GItems.Opts{sep, fold}, ps), ss))
     case FG.QAllow{sel, ps}:
       Wr.put_bool(sp_allowed(sel, ps), "")
     case FG.QRules{sep, fold, ps, ss, ks}:
-      sp_w_bools(sp_rules(ks, G.Opts{sep, fold}, ps, ss))
+      sp_w_bools(sp_rules(ks, GItems.Opts{sep, fold}, ps, ss))
     case FG.QIgnore{ps, cs, es}:
       sp_w_bools(sp_ignored(ps, cs, es))
 
@@ -632,9 +635,9 @@ def sp_fit_req(q: FG.Req) -> Bool:
 #   that folds a byte that is no ASCII letter or misses one case, a range
 #   read with its ends excluded
 law glob_class:
-  for k: G.BC
+  for k: GItems.BC
   for +x: U32
-  {G.bc(k, x) == sp_bc(k, x) : Bool}
+  {GMatch.bc(k, x) == sp_bc(k, x) : Bool}
 
 # LAW glob_full (R4): the table matcher answers, for every byte text and
 # list of items, what the split of R4 answers
@@ -643,8 +646,8 @@ law glob_class:
 #   a star whose class is not checked
 law glob_full:
   for +bs: List<&2, U32>
-  for +its: List<&2, G.It>
-  {G.full(bs, its) == sp_lang(bs, its) : Bool}
+  for +its: List<&2, GItems.It>
+  {GMatch.full(bs, its) == sp_lang(bs, its) : Bool}
 
 # LAW glob_items (R2): every parsed pattern, under every option, means
 # globset's regex of its tokens
@@ -653,40 +656,40 @@ law glob_full:
 #   per char instead of per byte, a fold applied when not asked, the lone
 #   `**` read as a recursive prefix
 law glob_items:
-  for o: G.Opts
-  for g: G.Glob
-  {G.items(o, g) == sp_items(o, g) : List<&2, List<&2, G.It>>}
+  for o: GItems.Opts
+  for g: GParse.Glob
+  {GItems.items(o, g) == sp_items(o, g) : List<&2, List<&2, GItems.It>>}
 
 # LAW glob_matches (R2, R4): every parsed pattern matches every text
 # exactly when one of its regex alternatives matches the text's bytes
 # EXCLUDES: an alternative skipped, a text matched by chars instead of
 #   bytes
 law glob_matches:
-  for +o: G.Opts
-  for +g: G.Glob
+  for +o: GItems.Opts
+  for +g: GParse.Glob
   for +s: String
-  {G.matches(o, g, s) == sp_any(G.bytes(s), sp_items(o, g)) : Bool}
+  {GMatch.matches(o, g, s) == sp_any(GItems.bytes(s), sp_items(o, g)) : Bool}
 
 # LAW glob_groups (R5): every group query answers R5
 # EXCLUDES: a refused pattern that matches, a group that takes another
 #   group's texts, a group answered by its first text only, a missing or
 #   extra answer
 law glob_groups:
-  for +o: G.Opts
+  for +o: GItems.Opts
   for +ps: List<&2, String>
   for +ss: List<&2, String>
   for +ks: List<&2, Nat>
-  {G.match_groups(o, ps, ss, ks) == sp_groups(ks, sp_compile(o, ps), ss) : List<&2, Bool>}
+  {GQuery.match_groups(o, ps, ss, ks) == sp_groups(ks, sp_compile(o, ps), ss) : List<&2, Bool>}
 
 # LAW glob_rules (R5b): every rules query answers R5b
 # EXCLUDES: a rule that takes another rule's patterns, a refused pattern
 #   that matches, a missing or extra answer
 law glob_rules:
   for +ks: List<&2, Nat>
-  for +o: G.Opts
+  for +o: GItems.Opts
   for +ps: List<&2, String>
   for +ss: List<&2, String>
-  {G.rules(ks, o, ps, ss) == sp_rules(ks, o, ps, ss) : List<&2, Bool>}
+  {GQuery.rules(ks, o, ps, ss) == sp_rules(ks, o, ps, ss) : List<&2, Bool>}
 
 # LAW glob_ignored (R5c): every ignore query answers R5c
 # EXCLUDES: the first rule deciding instead of the last, a negated rule
@@ -698,13 +701,13 @@ law glob_ignored:
   for +ps: List<&2, String>
   for +cs: List<&2, Nat>
   for +es: List<&2, String>
-  {G.ignored(ps, cs, es) == sp_ignored(ps, cs, es) : List<&2, Bool>}
+  {GQuery.ignored(ps, cs, es) == sp_ignored(ps, cs, es) : List<&2, Bool>}
 
 # LAW glob_ignore_example (R5c): anchor: an unanchored name at any depth,
 # an anchored glob, a directory-only rule, a negated rule, a prefix rule
 # EXCLUDES: an ignore matcher that drifts from the Rust one it replaced
 law glob_ignore_example:
-  {G.ignored(["venv", "a/*.md", "x", "keep.md", "sub/"], [0n, 1n, 4n, 2n, 8n], ["venv/", "x/venv", "a/b.md", "a/c/b.md", "keep.md", "venv", "sub/z", "x/", "x"]) == [True{}, True{}, True{}, False{}, False{}, True{}, True{}, True{}, False{}] : List<&2, Bool>}
+  {GQuery.ignored(["venv", "a/*.md", "x", "keep.md", "sub/"], [0n, 1n, 4n, 2n, 8n], ["venv/", "x/venv", "a/b.md", "a/c/b.md", "keep.md", "venv", "sub/z", "x/", "x"]) == [True{}, True{}, True{}, False{}, False{}, True{}, True{}, True{}, False{}] : List<&2, Bool>}
 
 # LAW glob_allowed (R6): every allowlist decides every selector as R6
 # says
@@ -715,7 +718,7 @@ law glob_ignore_example:
 law glob_allowed:
   for +sel: String
   for +ps: List<&2, String>
-  {G.allowed(sel, ps) == sp_allowed(sel, ps) : Bool}
+  {GQuery.allowed(sel, ps) == sp_allowed(sel, ps) : Bool}
 
 # LAW glob_parse_plain (R1): a pattern with no special char parses to its
 # chars as literals, one alternative
@@ -724,33 +727,33 @@ law glob_allowed:
 law glob_parse_plain:
   for +s: String
   for h: {sp_plain(s) == True{} : Bool}
-  {G.parse(s) == Done{G.Glob{[sp_lits(s)], False{}}} : Result<&2, &2, G.Err, G.Glob>}
+  {GParse.parse(s) == Done{GParse.Glob{[sp_lits(s)], False{}}} : Result<&2, &2, GParse.Err, GParse.Glob>}
 
 # LAW glob_parse_example (R1): anchor: each construct and each error
 # EXCLUDES: a parser that drifts from globset
 law glob_parse_example:
-  {[G.parse("a?*"), G.parse("**/a"), G.parse("a/**"), G.parse("a/**/b"), G.parse("**"), G.parse("a**"), G.parse("[!]a-]"), G.parse("[a-]"), G.parse("\\*,"), G.parse("{a,}b"), G.parse("{,}"), G.parse("{a,b/**}")] == [Done{G.Glob{[[G.TLit{'a'}, G.TAny{}, G.TZom{}]], False{}}}, Done{G.Glob{[[G.TRPre{}, G.TLit{'a'}]], False{}}}, Done{G.Glob{[[G.TLit{'a'}, G.TRSuf{}]], False{}}}, Done{G.Glob{[[G.TLit{'a'}, G.TRZom{}, G.TLit{'b'}]], False{}}}, Done{G.Glob{[[G.TRPre{}]], True{}}}, Done{G.Glob{[[G.TLit{'a'}, G.TZom{}, G.TZom{}]], False{}}}, Done{G.Glob{[[G.TCls{True{}, [G.Rg{']', ']'}, G.Rg{'a', 'a'}, G.Rg{'-', '-'}]}]], False{}}}, Done{G.Glob{[[G.TCls{False{}, [G.Rg{'a', 'a'}, G.Rg{'-', '-'}]}]], False{}}}, Done{G.Glob{[[G.TLit{'*'}, G.TLit{','}]], False{}}}, Done{G.Glob{[[G.TLit{'a'}, G.TLit{'b'}]], False{}}}, Done{G.Glob{[Nil{}], False{}}}, Done{G.Glob{[[G.TLit{'a'}], [G.TLit{'b'}, G.TRSuf{}]], False{}}}] : List<&2, Result<&2, &2, G.Err, G.Glob>>}
+  {[GParse.parse("a?*"), GParse.parse("**/a"), GParse.parse("a/**"), GParse.parse("a/**/b"), GParse.parse("**"), GParse.parse("a**"), GParse.parse("[!]a-]"), GParse.parse("[a-]"), GParse.parse("\\*,"), GParse.parse("{a,}b"), GParse.parse("{,}"), GParse.parse("{a,b/**}")] == [Done{GParse.Glob{[[GParse.TLit{'a'}, GParse.TAny{}, GParse.TZom{}]], False{}}}, Done{GParse.Glob{[[GParse.TRPre{}, GParse.TLit{'a'}]], False{}}}, Done{GParse.Glob{[[GParse.TLit{'a'}, GParse.TRSuf{}]], False{}}}, Done{GParse.Glob{[[GParse.TLit{'a'}, GParse.TRZom{}, GParse.TLit{'b'}]], False{}}}, Done{GParse.Glob{[[GParse.TRPre{}]], True{}}}, Done{GParse.Glob{[[GParse.TLit{'a'}, GParse.TZom{}, GParse.TZom{}]], False{}}}, Done{GParse.Glob{[[GParse.TCls{True{}, [GParse.Rg{']', ']'}, GParse.Rg{'a', 'a'}, GParse.Rg{'-', '-'}]}]], False{}}}, Done{GParse.Glob{[[GParse.TCls{False{}, [GParse.Rg{'a', 'a'}, GParse.Rg{'-', '-'}]}]], False{}}}, Done{GParse.Glob{[[GParse.TLit{'*'}, GParse.TLit{','}]], False{}}}, Done{GParse.Glob{[[GParse.TLit{'a'}, GParse.TLit{'b'}]], False{}}}, Done{GParse.Glob{[Nil{}], False{}}}, Done{GParse.Glob{[[GParse.TLit{'a'}], [GParse.TLit{'b'}, GParse.TRSuf{}]], False{}}}] : List<&2, Result<&2, &2, GParse.Err, GParse.Glob>>}
 
 # LAW glob_parse_error_example (R1): anchor: each error, the first met
 # EXCLUDES: an error read as another, a refused pattern accepted
 law glob_parse_error_example:
-  {[G.check("a["), G.check("[z-a]"), G.check("a}"), G.check("{a"), G.check("a\\"), G.check("[b-a]}")] == [Some{G.EClass{}}, Some{G.ERange{'z', 'a'}}, Some{G.EUnopened{}}, Some{G.EUnclosed{}}, Some{G.EEscape{}}, Some{G.ERange{'b', 'a'}}] : List<&2, Maybe<&2, G.Err>>}
+  {[GQuery.check("a["), GQuery.check("[z-a]"), GQuery.check("a}"), GQuery.check("{a"), GQuery.check("a\\"), GQuery.check("[b-a]}")] == [Some{GParse.EClass{}}, Some{GParse.ERange{'z', 'a'}}, Some{GParse.EUnopened{}}, Some{GParse.EUnclosed{}}, Some{GParse.EEscape{}}, Some{GParse.ERange{'b', 'a'}}] : List<&2, Maybe<&2, GParse.Err>>}
 
 # LAW glob_utf8_example (R2): anchor: the UTF-8 bytes of a char of one,
 # two, three and four bytes
 # EXCLUDES: a text matched by code points, a wrong byte split
 law glob_utf8_example:
-  {[G.utf8(97, Nil{}), G.utf8(233, Nil{}), G.utf8(8364, Nil{}), G.utf8(128512, Nil{})] == [[97], [195, 169], [226, 130, 172], [240, 159, 152, 128]] : List<&2, List<&2, U32>>}
+  {[GItems.utf8(97, Nil{}), GItems.utf8(233, Nil{}), GItems.utf8(8364, Nil{}), GItems.utf8(128512, Nil{})] == [[97], [195, 169], [226, 130, 172], [240, 159, 152, 128]] : List<&2, List<&2, U32>>}
 
 # LAW glob_match_example (R1-R4): anchor: the cases of the Rust tests
 # EXCLUDES: a matcher that drifts from globset
 law glob_match_example:
-  {[G.match_groups(G.Opts{True{}, False{}}, ["*.rs", "**/*.md", "??", "[a"], ["src/main.rs", "main.rs", "a/b/c.md", "é", "README.MD", "x"], [1n, 1n, 1n, 1n, 2n]), G.match_groups(G.Opts{True{}, True{}}, ["*.md"], ["README.MD"], [1n]), G.match_groups(G.Opts{False{}, False{}}, ["{,a}b", "a/**"], ["b", "a"], [1n, 1n])] == [[False{}, True{}, True{}, True{}, False{}], [True{}], [False{}, False{}]] : List<&2, List<&2, Bool>>}
+  {[GQuery.match_groups(GItems.Opts{True{}, False{}}, ["*.rs", "**/*.md", "??", "[a"], ["src/main.rs", "main.rs", "a/b/c.md", "é", "README.MD", "x"], [1n, 1n, 1n, 1n, 2n]), GQuery.match_groups(GItems.Opts{True{}, True{}}, ["*.md"], ["README.MD"], [1n]), GQuery.match_groups(GItems.Opts{False{}, False{}}, ["{,a}b", "a/**"], ["b", "a"], [1n, 1n])] == [[False{}, True{}, True{}, True{}, False{}], [True{}], [False{}, False{}]] : List<&2, List<&2, Bool>>}
 
 # LAW glob_allow_example (R6): anchor: the cases of the Rust tests
 # EXCLUDES: an allowlist that drifts from the Rust one it replaced
 law glob_allow_example:
-  {[G.allowed("p/i/g", ["p/i/g"]), G.allowed("p/i/g", ["i/g"]), G.allowed("p/i/g", ["g"]), G.allowed("p/i/g", ["p/*"]), G.allowed("p/i/g", [" i/* "]), G.allowed("z/g", ["p/*"]), G.allowed("z/g5", ["z/g?"]), G.allowed("p/i/g", []), G.allowed("p/i/g", ["  "]), G.allowed("p/i/g", ["["])] == [True{}, True{}, False{}, True{}, True{}, False{}, True{}, False{}, False{}, False{}] : List<&2, Bool>}
+  {[GQuery.allowed("p/i/g", ["p/i/g"]), GQuery.allowed("p/i/g", ["i/g"]), GQuery.allowed("p/i/g", ["g"]), GQuery.allowed("p/i/g", ["p/*"]), GQuery.allowed("p/i/g", [" i/* "]), GQuery.allowed("z/g", ["p/*"]), GQuery.allowed("z/g5", ["z/g?"]), GQuery.allowed("p/i/g", []), GQuery.allowed("p/i/g", ["  "]), GQuery.allowed("p/i/g", ["["])] == [True{}, True{}, False{}, True{}, True{}, False{}, True{}, False{}, False{}, False{}] : List<&2, Bool>}
 
 # Laws: the entry (R7)
 # --------------------

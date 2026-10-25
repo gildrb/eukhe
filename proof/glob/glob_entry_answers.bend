@@ -3,7 +3,6 @@
 # PROOF: the spelled request reads back whole with nothing left (ge.req), so the entry answers the model's decision, which is the spec's (glob_groups, glob_allowed; a check spells parse's error).
 
 import Base
-import ../../bend/glob.bend as G
 import ../../bend/ffi_glob.bend as FG
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase

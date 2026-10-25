@@ -7,7 +7,9 @@
 # field's exactness law).
 
 import Base
-import ../../../bend/glob.bend as G
+import ../../../bend/glob/parse.bend as GParse
+import ../../../bend/glob/items.bend as GItems
+import ../../../bend/glob/queries.bend as GQuery
 import ../../../bend/ffi_glob.bend as FG
 import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
@@ -105,22 +107,22 @@ def ge.req(q: FG.Req, +rest: String, h: {Glob.sp_fit_req(q) == True{} : Bool}) -
 # The answer
 # ----------
 
-def ge.err(e: G.Err) -> {FG.put_err(e, "") == Glob.sp_w_err(e) : String}:
+def ge.err(e: GParse.Err) -> {FG.put_err(e, "") == Glob.sp_w_err(e) : String}:
   match e:
-    case G.EClass{}:
+    case GParse.EClass{}:
       {==}
-    case G.ERange{lo, hi}:
+    case GParse.ERange{lo, hi}:
       match lo hi:
         case Chr{x} Chr{y}:
           {==}
-    case G.EUnopened{}:
+    case GParse.EUnopened{}:
       {==}
-    case G.EUnclosed{}:
+    case GParse.EUnclosed{}:
       {==}
-    case G.EEscape{}:
+    case GParse.EEscape{}:
       {==}
 
-def ge.check(r: Result<&2, &2, G.Err, G.Glob>) -> {FG.put_check(G.check.r(r)) == Glob.sp_w_check(r) : String}:
+def ge.check(r: Result<&2, &2, GParse.Err, GParse.Glob>) -> {FG.put_check(GQuery.check.r(r)) == Glob.sp_w_check(r) : String}:
   match r:
     case Fail{+e}:
       %Equal.sym(String, FG.put_err(e, ""), Glob.sp_w_err(e), ge.err(e)) : {Wr.put_nat(1n, _) == Glob.sp_w_check(Fail{e}) : String}
@@ -144,26 +146,26 @@ def ge.bools(+xs: List<&2, Bool>) -> {Wr.put_list(~Bool, ~Wr.put_bool, xs, "") =
 def ge.reply(q: FG.Req) -> {FG.answer(q) == Glob.sp_w_reply(q) : String}:
   match q:
     case FG.QCheck{p}:
-      ge.check(G.parse(p))
+      ge.check(GParse.parse(p))
     case FG.QMatch{+sep, +fold, +ps, +ss, +ks}:
-      +o = {G.Opts{sep, fold} : G.Opts}
-      %Equal.sym(List<&2, Bool>, G.match_groups(o, ps, ss, ks), Glob.sp_groups(ks, Glob.sp_compile(o, ps), ss), Glob.glob_groups(o, ps, ss, ks)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QMatch{sep, fold, ps, ss, ks}) : String}
+      +o = {GItems.Opts{sep, fold} : GItems.Opts}
+      %Equal.sym(List<&2, Bool>, GQuery.match_groups(o, ps, ss, ks), Glob.sp_groups(ks, Glob.sp_compile(o, ps), ss), Glob.glob_groups(o, ps, ss, ks)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QMatch{sep, fold, ps, ss, ks}) : String}
       ge.bools(Glob.sp_groups(ks, Glob.sp_compile(o, ps), ss))
     case FG.QAllow{+sel, +ps}:
-      %Equal.sym(Bool, G.allowed(sel, ps), Glob.sp_allowed(sel, ps), Glob.glob_allowed(sel, ps)) : {Wr.put_bool(_, "") == Glob.sp_w_reply(FG.QAllow{sel, ps}) : String}
+      %Equal.sym(Bool, GQuery.allowed(sel, ps), Glob.sp_allowed(sel, ps), Glob.glob_allowed(sel, ps)) : {Wr.put_bool(_, "") == Glob.sp_w_reply(FG.QAllow{sel, ps}) : String}
       {==}
     case FG.QRules{+sep, +fold, +ps, +ss, +ks}:
-      +o = {G.Opts{sep, fold} : G.Opts}
-      %Equal.sym(List<&2, Bool>, G.rules(ks, o, ps, ss), Glob.sp_rules(ks, o, ps, ss), Glob.glob_rules(ks, o, ps, ss)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QRules{sep, fold, ps, ss, ks}) : String}
+      +o = {GItems.Opts{sep, fold} : GItems.Opts}
+      %Equal.sym(List<&2, Bool>, GQuery.rules(ks, o, ps, ss), Glob.sp_rules(ks, o, ps, ss), Glob.glob_rules(ks, o, ps, ss)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QRules{sep, fold, ps, ss, ks}) : String}
       ge.bools(Glob.sp_rules(ks, o, ps, ss))
     case FG.QIgnore{+ps, +cs, +es}:
-      %Equal.sym(List<&2, Bool>, G.ignored(ps, cs, es), Glob.sp_ignored(ps, cs, es), Glob.glob_ignored(ps, cs, es)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QIgnore{ps, cs, es}) : String}
+      %Equal.sym(List<&2, Bool>, GQuery.ignored(ps, cs, es), Glob.sp_ignored(ps, cs, es), Glob.glob_ignored(ps, cs, es)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == Glob.sp_w_reply(FG.QIgnore{ps, cs, es}) : String}
       ge.bools(Glob.sp_ignored(ps, cs, es))
 
 # Answers are values
 # ------------------
 
-def ge.check_ok(m: Maybe<&2, G.Err>) -> {LawsBase.wire_opens_err(FG.put_check(m)) == False{} : Bool}:
+def ge.check_ok(m: Maybe<&2, GParse.Err>) -> {LawsBase.wire_opens_err(FG.put_check(m)) == False{} : Bool}:
   match m:
     case None{}:
       Wire.wire_nat_not_err(0n, "")
@@ -173,15 +175,15 @@ def ge.check_ok(m: Maybe<&2, G.Err>) -> {LawsBase.wire_opens_err(FG.put_check(m)
 def ge.answer_ok(q: FG.Req) -> {LawsBase.wire_opens_err(FG.answer(q)) == False{} : Bool}:
   match q:
     case FG.QCheck{p}:
-      ge.check_ok(G.check(p))
+      ge.check_ok(GQuery.check(p))
     case FG.QMatch{sep, fold, ps, ss, ks}:
-      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, G.match_groups(G.Opts{sep, fold}, ps, ss, ks), ""))
+      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, GQuery.match_groups(GItems.Opts{sep, fold}, ps, ss, ks), ""))
     case FG.QAllow{sel, ps}:
-      Wire.wire_bool_not_err(G.allowed(sel, ps), "")
+      Wire.wire_bool_not_err(GQuery.allowed(sel, ps), "")
     case FG.QRules{sep, fold, ps, ss, ks}:
-      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, G.rules(ks, G.Opts{sep, fold}, ps, ss), ""))
+      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, GQuery.rules(ks, GItems.Opts{sep, fold}, ps, ss), ""))
     case FG.QIgnore{ps, cs, es}:
-      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, G.ignored(ps, cs, es), ""))
+      LE.dcw.fin_ok(Wr.put_list.go(~Bool, ~Wr.put_bool, GQuery.ignored(ps, cs, es), ""))
 
 # Exactness
 # ---------

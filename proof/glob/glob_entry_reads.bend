@@ -3,7 +3,6 @@
 # PROOF: the request's tag, then each field by its wire round trip (every count and length fits by the premise), so each decoder stage hands the next exactly the rest after its field.
 
 import Base
-import ../../bend/glob.bend as G
 import ../../bend/ffi_glob.bend as FG
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
