@@ -1912,7 +1912,11 @@ import ./proof/text_pat/text_pat_example.bend as PTextPatExample
 import ./proof/overflow/base.bend as LAOverflow
 import ./proof/overflow/overflow_decides.bend as POverflowDecides
 import ./proof/overflow/overflow_recoverable.bend as POverflowRecoverable
+import ./proof/overflow/overflow_message_decides.bend as POverflowMessageDecides
+import ./proof/overflow/overflow_message_found.bend as POverflowMessageFound
+import ./proof/overflow/overflow_message_calm.bend as POverflowMessageCalm
 import ./proof/overflow/overflow_message_example.bend as POverflowMessageExample
+import ./proof/overflow/overflow_message_context_example.bend as POverflowMessageContextExample
 import ./proof/overflow/overflow_usage_example.bend as POverflowUsageExample
 import ./proof/overflow/overflow_entry_reads.bend as POverflowEntryReads
 import ./proof/overflow/overflow_entry_answers.bend as POverflowEntryAnswers

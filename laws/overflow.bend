@@ -231,13 +231,67 @@ law overflow_recoverable:
   for +output: Nat
   {O.recoverable(st, desired, output) == sp_recoverable(st, desired, output) : Bool}
 
-# LAW overflow_message_example (R1, R2): anchor: messages of the Rust
-# tests, shortened: Ollama, z.ai (two spellings, folded case), Together AI,
-# a proxy, DS4 with commas, a crash, a calm throttling message, Cerebras'
+# LAW overflow_message_decides (R1, R2): whether every message reads as an
+# overflow from every provider is the spec's
+# EXCLUDES: an error message tested another way than the reply's (a
+#   pattern, the calm test, the fold or Cerebras' provider dropped or
+#   changed only in the message test)
+law overflow_message_decides:
+  for +msg: String
+  for +provider: String
+  {O.message_overflow(msg, provider) == sp_message(msg, provider) : Bool}
+
+# LAW overflow_message_found (R1, R2): a message is an overflow, from every
+# provider, when its folded text holds, anywhere, a part that matches an
+# alternative of an overflow pattern and no calm pattern is found in it:
+# whatever text comes before and after that part, in any case
+# EXCLUDES: a pattern looked for only at the start or the end of a message,
+#   text around the part that hides it, a case-sensitive search, an
+#   alternative or a pattern of the table skipped, a provider that changes
+#   an overflow pattern's answer
+law overflow_message_found:
+  for +msg: String
+  for +provider: String
+  for +a: String
+  for +u: String
+  for +b: String
+  for +pre: List<&2, Tp.Pat>
+  for +apre: List<&2, List<&2, Tp.It>>
+  for +its: List<&2, Tp.It>
+  for +apost: List<&2, List<&2, Tp.It>>
+  for +post: List<&2, Tp.Pat>
+  for +hp: {sp_overflow_pats() == List.append(&2, Tp.Pat, pre, Tp.Pat{False{}, List.append(&2, List<&2, Tp.It>, apre, its <> apost)} <> post) : List<&2, Tp.Pat>}
+  for +hf: {TextPat.sp_fold(msg) == String.append(a, String.append(u, b)) : String}
+  for +hu: {TextPat.sp_lang(u, its) == True{} : Bool}
+  for +hn: {String.is_empty(u) == False{} : Bool}
+  for hc: {TextPat.sp_any(TextPat.sp_fold(msg), sp_calm_pats()) == False{} : Bool}
+  {O.message_overflow(msg, provider) == True{} : Bool}
+
+# LAW overflow_message_calm (R1): a message in whose folded text a calm
+# pattern is found is no overflow, from every provider, whatever overflow
+# pattern it holds too
+# EXCLUDES: an overflow pattern that wins over a rate limit or a throttling
+#   message, a calm pattern looked for case-sensitively
+law overflow_message_calm:
+  for +msg: String
+  for +provider: String
+  for hc: {TextPat.sp_any(TextPat.sp_fold(msg), sp_calm_pats()) == True{} : Bool}
+  {O.message_overflow(msg, provider) == False{} : Bool}
+
+# LAW overflow_message_example (R1, R2): anchor: short messages of the Rust
+# tests (the text around a pattern is overflow_message_found's): z.ai (two
+# spellings, folded case), a crash, a calm throttling message, Cerebras'
 # bodyless 400 only for Cerebras
 # EXCLUDES: a pattern table that drifts from the regexes it replaced
 law overflow_message_example:
-  {[O.message_overflow("400 prompt too long; exceeded max context length", "ollama"), O.message_overflow("Prompt too long", "zai"), O.message_overflow("Prompt exceeds max length", "zai"), O.message_overflow("The input (5 tokens) is longer than the model's context length (2 tokens).", "x"), O.message_overflow("exceeds model's maximum context length (26).", "x"), O.message_overflow("Prompt has 5,958 tokens, but the configured context size is 2,560 tokens", "x"), O.message_overflow("500 model runner crashed", "ollama"), O.message_overflow("Throttling error: Too many tokens", "x"), O.message_overflow("400 status code (no body)", "cerebras"), O.message_overflow("400 status code (no body)", "opencode-go")] == [True{}, True{}, True{}, True{}, True{}, True{}, False{}, False{}, True{}, False{}] : List<&2, Bool>}
+  {[O.message_overflow("Prompt too long", "zai"), O.message_overflow("PROMPT exceeds max length", "zai"), O.message_overflow("model runner crashed", "ollama"), O.message_overflow("Throttling error: too many tokens", "x"), O.message_overflow("400 status code (no body)", "cerebras"), O.message_overflow("400 status code (no body)", "opencode-go")] == [True{}, True{}, False{}, False{}, True{}, False{}] : List<&2, Bool>}
+
+# LAW overflow_message_context_example (R1, R2): anchor: the context-length
+# messages of the Rust tests, cut to the pattern: Together AI, a proxy, DS4
+# with commas
+# EXCLUDES: a pattern table that drifts from the regexes it replaced
+law overflow_message_context_example:
+  {[O.message_overflow("input (5 tokens) is longer than the model's context length (2 tokens)", "x"), O.message_overflow("exceeds model's maximum context length (26)", "x"), O.message_overflow("prompt has 5,958 tokens, but the configured context size is 2,560 tokens", "x")] == [True{}, True{}, True{}] : List<&2, Bool>}
 
 # LAW overflow_usage_example (R3, R4): anchor: a silent overflow, a length
 # stop at 99% and just below it, windows of 150 and 99, a length stop with
