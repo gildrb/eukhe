@@ -55,14 +55,36 @@ Tools:
 - zoom("Name") gives an agent's whole chat
 - date(id) gives the date and time of message id"#;
 
-/// The turns (§5 "# Turns"), without the computers paragraph.
-const TURNS: &str = r#"# Turns
+/// The turns (§5 "# Turns"), without the computers paragraph: its head
+/// (who does the work), then the rest.
+const TURNS_HEAD: &str = r"# Turns
 
 Do the user's tasks yourself, with your tools, following the user's instructions
 at the end of this prompt: who they are, how their files are organized and how
-they want work done. Use subagents only when the user asks for them.
+they want work done. Use subagents only when the user asks for them.";
 
-The view is your memory, and its latest word on a thing is the truth. Whenever
+/// Main's turns head in the `main-worker` shape (docs/usage.md, main and
+/// worker): the route of each message is the tool main chooses.
+const MAIN_TURNS_HEAD: &str = r#"# Turns
+
+You talk with the user; your worker does the work. Keep your turns short and
+never run long work yourself: you have read-only tools (read, grep, glob, zoom,
+date) and the worker tools. Follow the user's instructions at the end of this
+prompt: who they are, how their files are organized and how they want work done.
+Route each new message by the tool you choose:
+- a question about status, results or the code: answer it yourself, from
+  worker_status, zoom("worker") and your read-only tools; leave the worker alone
+- context, a clarification or an idea for the running work: worker_forward with
+  kind "context" (the worker folds it in and keeps its course)
+- a change of course for the running work: worker_forward with kind "redirect"
+  (the worker re-plans)
+- new work: worker_assign (with fresh: true for unrelated work while the worker
+  is busy)
+- chat: answer it yourself
+The user's messages reach the worker word for word: never restate them; a note
+carries only what the user did not say."#;
+
+const TURNS_TAIL: &str = r#"The view is your memory, and its latest word on a thing is the truth. Whenever
 you need any information, first find its latest mention in the view and zoom
 until you have it whole, before any other source, and before you act, guess or
 ask. Never grep or search memories manually; zoom is your only
@@ -74,6 +96,17 @@ and computer tasks run in the background; each one's report reaches you as a
 message starting "[Name]", between your tool calls or as a new turn. Never wait
 for one (no sleep, no polling): go on, or end your turn and tell the user what
 is running."#;
+
+/// The worker's doctrine (`sessionShape` `main-worker`), after the
+/// subagent opening.
+const WORKER: &str = r#"You are the worker: main talks with the user and hands you the work. A task
+reaches you as "[task from parent]". The user's messages reach you through main,
+word for word. "[context from user via main]" adds information: fold it in and
+keep your course unless it contradicts your plan.
+"[redirect from user via main]" changes course: re-plan from it.
+"[note from main]" marks main's own words. Keep working between messages; never
+stop to wait for one. Report your results, and anything the user must decide,
+with agent_message.send(message, receiver_role="parent")."#;
 
 /// The compactions (§5 "# Compactions").
 const COMPACTIONS: &str = r#"# Compactions
@@ -142,7 +175,14 @@ fn ruler() -> String {
 /// (§5). The user's own instructions follow it.
 #[must_use]
 pub fn memory_system_layer() -> String {
-    format!("{INTRO}\n\n{VIEW_DOC}\n\n{TURNS}\n\n{COMPACTIONS}")
+    format!("{INTRO}\n\n{VIEW_DOC}\n\n{TURNS_HEAD}\n\n{TURNS_TAIL}\n\n{COMPACTIONS}")
+}
+
+/// Main's memory layer in the `main-worker` shape: the memory layer with
+/// the routing doctrine in place of "do the user's tasks yourself".
+#[must_use]
+pub fn main_system_layer() -> String {
+    format!("{INTRO}\n\n{VIEW_DOC}\n\n{MAIN_TURNS_HEAD}\n\n{TURNS_TAIL}\n\n{COMPACTIONS}")
 }
 
 /// A subagent's static memory layer: the subagent prompt, then how to
@@ -150,6 +190,13 @@ pub fn memory_system_layer() -> String {
 #[must_use]
 pub fn subagent_system_layer() -> String {
     format!("{SUBAGENT}\n\n{VIEW_DOC}")
+}
+
+/// The worker's static memory layer: the subagent prompt, the worker
+/// doctrine, then how to read the view.
+#[must_use]
+pub fn worker_system_layer() -> String {
+    format!("{SUBAGENT}\n\n{WORKER}\n\n{VIEW_DOC}")
 }
 
 /// The compaction task for message `id` (§4, verbatim).

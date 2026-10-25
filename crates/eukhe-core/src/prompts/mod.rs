@@ -21,5 +21,5 @@ pub mod system_prompt;
 
 pub use system_prompt::{
     build_system_prompt, system_prompt_breakdown, BuildSystemPromptOptions, PromptOrigin,
-    PromptSegment, SegmentKind, SourcedPrompt, SystemPromptBreakdown, REFINE_SKILL_NAME,
+    PromptSegment, SegmentKind, ShapeRole, SourcedPrompt, SystemPromptBreakdown, REFINE_SKILL_NAME,
 };

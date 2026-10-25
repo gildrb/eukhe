@@ -809,6 +809,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         daemonless: true,
         generic_mcp_servers: deps.generic_mcp_servers.clone(),
         memory: None,
+        shape_role: crate::prompts::ShapeRole::Alone,
     });
     assert!(expected.contains("Project instructions."));
     assert!(expected.contains("Appended."));
@@ -860,6 +861,7 @@ fn section_keys_follow_the_breakdown_order() {
                 daemonless: true,
                 generic_mcp_servers: vec!["docs".to_owned()],
                 memory,
+                shape_role: crate::prompts::ShapeRole::Alone,
             });
             let keys = crate::durable::section_keys(memory);
             let mut positions = breakdown.segments.iter().map(|segment| {

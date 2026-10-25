@@ -129,7 +129,11 @@ mod tests {
 
     /// The chat-memory session's layers carry no continual-harness memory
     /// surface and no push toward proactive delegation (the chat is the
-    /// only memory; subagents run when the user asks).
+    /// only memory; subagents run when the user asks). The one exception
+    /// is main in the `main-worker` shape (the user's approved design):
+    /// its turns route each message to its worker by tool choice instead
+    /// of doing the work; every other root keeps "subagents only when the
+    /// user asks".
     #[test]
     fn chat_memory_layers_drop_harness_memory_and_delegation() {
         let chat = static_prefix(HarnessMemory::Chat);
@@ -162,6 +166,20 @@ mod tests {
             "refine.run(",
         ] {
             assert!(chat.contains(tool), "{tool:?}");
+        }
+        let root = crate::memory::memory_system_layer();
+        let main = crate::memory::main_system_layer();
+        assert!(root.contains("Use subagents only when the user asks for them."));
+        assert!(!main.contains("Use subagents only when the user asks"));
+        for route in [
+            "worker_status",
+            "worker_forward with\n  kind \"context\"",
+            "worker_forward with kind \"redirect\"",
+            "new work: worker_assign",
+            "never run long work yourself",
+        ] {
+            assert!(main.contains(route), "{route:?}");
+            assert!(!root.contains(route), "{route:?}");
         }
     }
 }

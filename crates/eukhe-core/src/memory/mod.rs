@@ -46,8 +46,8 @@ pub use compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 pub use import::{import_sessions, ImportReport};
 pub(crate) use prompts::TURN_TASK;
 pub use prompts::{
-    memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
-    ZOOM_TOOL_DESCRIPTION,
+    main_system_layer, memory_system_layer, subagent_system_layer, worker_system_layer, AGENT_NAME,
+    DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION,
 };
 pub use saved::CompactionPrompt;
 pub use service::{

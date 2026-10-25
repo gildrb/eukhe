@@ -142,6 +142,21 @@ pub struct BuildSystemPromptOptions<'a> {
     /// prompt. A static input like `model_prompt_extras`, never derived
     /// from the depth.
     pub memory: Option<crate::memory::MemoryRole>,
+    /// The session's part in the `main-worker` shape: main's and the
+    /// worker's memory layers carry their doctrine.
+    pub shape_role: ShapeRole,
+}
+
+/// A session's part in the `main-worker` shape (docs/usage.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShapeRole {
+    /// Not part of it: a `single` session, or any other child.
+    #[default]
+    Alone,
+    /// Main: talks with the user and routes each message by tool.
+    Main,
+    /// Main's worker: does the work.
+    Worker,
 }
 
 /// Build the system prompt (assembled text only).
@@ -166,9 +181,19 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         segments.push(PromptSegment::static_segment(
             "memory",
             "chat memory (OptChat)",
-            match role {
-                crate::memory::MemoryRole::Root => crate::memory::memory_system_layer(),
-                crate::memory::MemoryRole::Subagent => crate::memory::subagent_system_layer(),
+            match (role, options.shape_role) {
+                (crate::memory::MemoryRole::Root, ShapeRole::Main) => {
+                    crate::memory::main_system_layer()
+                }
+                (crate::memory::MemoryRole::Root, ShapeRole::Alone | ShapeRole::Worker) => {
+                    crate::memory::memory_system_layer()
+                }
+                (crate::memory::MemoryRole::Subagent, ShapeRole::Worker) => {
+                    crate::memory::worker_system_layer()
+                }
+                (crate::memory::MemoryRole::Subagent, ShapeRole::Alone | ShapeRole::Main) => {
+                    crate::memory::subagent_system_layer()
+                }
             },
         ));
     }
