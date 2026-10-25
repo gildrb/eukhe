@@ -303,25 +303,30 @@ pub(super) async fn execute(
             hidden: tool.name.starts_with(CODEMODE_INTERNAL_PREFIX),
         })
         .collect();
-    let mut namespaces: Vec<StartNamespace> = Vec::new();
-    for tool in agent
+    let listed: Vec<&str> = agent
         .callable
         .iter()
-        .filter(|tool| !tool.name.starts_with(CODEMODE_INTERNAL_PREFIX))
+        .map(|tool| tool.name.as_str())
+        .filter(|name| !name.starts_with(CODEMODE_INTERNAL_PREFIX))
+        .collect();
+    let mut namespaces: Vec<StartNamespace> = Vec::new();
+    for (name, namespace) in listed
+        .iter()
+        .zip(describe::namespaces_of(&listed, &options.namespaces))
     {
-        let Some(namespace) = describe::namespace_of(&tool.name, &options.namespaces) else {
+        let Some(namespace) = namespace else {
             continue;
         };
         match namespaces
             .iter_mut()
             .find(|entry| entry.name == namespace.name)
         {
-            Some(entry) => entry.tools.push(tool.name.clone()),
+            Some(entry) => entry.tools.push((*name).to_owned()),
             None => namespaces.push(StartNamespace {
                 name: namespace.name.clone(),
                 description: namespace.description.clone(),
                 instructions: namespace.instructions.clone(),
-                tools: vec![tool.name.clone()],
+                tools: vec![(*name).to_owned()],
             }),
         }
     }

@@ -154,6 +154,8 @@ pub enum Entry {
     CompactionCut = 270,
     /// `bend/ffi_codemode_source.bend`: a call.
     CodemodeSource = 271,
+    /// `bend/ffi_codemode_describe.bend`: a call.
+    CodemodeDescribe = 272,
 }
 
 impl Entry {
@@ -233,6 +235,7 @@ impl Entry {
         Entry::ContextOrder,
         Entry::CompactionCut,
         Entry::CodemodeSource,
+        Entry::CodemodeDescribe,
     ];
 
     /// The id `bend/core.bend` dispatches on.

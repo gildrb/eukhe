@@ -62,8 +62,8 @@ mod types;
 mod tests;
 
 pub use describe::{
-    codemode_description, codemode_section, declaration_of, namespace_of, sample_of,
-    CodemodeModels, CodemodeNamespace, DEFAULT_CODEMODE_INLINE_BUDGET,
+    codemode_description, codemode_section, declaration_of, sample_of, CodemodeModels,
+    CodemodeNamespace, DEFAULT_CODEMODE_INLINE_BUDGET,
 };
 pub use docs::{
     CodemodeJournal, CodemodeRunState, CodemodeStart, CodemodeStore, JournalEntry, JournalGlobal,
