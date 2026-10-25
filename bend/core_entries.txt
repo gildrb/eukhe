@@ -98,3 +98,4 @@
 295 refine_plan
 380 glob
 420 wait_race
+421 tool_call

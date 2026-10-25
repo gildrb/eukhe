@@ -38,7 +38,7 @@ Jobs: work that runs long (a user bash, or an `ipython` cell whose call outlived
    - The session waits for the killed jobs' ends, at most the blocking budget. The response names jobs that ended in time (`stoppedJobs`) and jobs not yet ended (`stoppingJobs`).
 7. While a job runs, the system prompt has section `running-jobs`: the number and ids of the state tree's job nodes. Absent when no job runs.
 
-Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`; what Rust runs: `feed`, `kills`, `poll`). Laws: `laws/job.bend` (S2). Proofs: `proof/job/`. Every law is universal: every event is free (any output size, exit, kill or tick, in any order; any cap or the opt-out; any budget; any tool call stream; any job table).
+Model: `bend/job.bend` (`step`, `ends`, `wait`, `rewind`; what Rust runs: `feed`, `kills`, `poll`). Laws: `laws/job.bend` (S2). Proofs: `proof/job/`. Every law is universal: every event is free (any output size, exit, kill or tick, in any order; any cap or the opt-out; any budget; any job table).
 
 | Law | Says |
 | --- | --- |
@@ -51,9 +51,6 @@ Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`; what Rust r
 | `job_kill_ends_now` | kill ends a live job at once as killed; output kept (jobs 3) |
 | `call_blocks_at_most_budget` | blocking call returns once its budget passed (jobs 4) |
 | `call_settles_with_job` | settled in time: reports the job's own end; no other end (jobs 4) |
-| `stream_journals_two` | ≤ 2 journal records per call; no progress record (call 1) |
-| `stream_settles_once` | settles exactly once at its end (result or cancel), not before (call 1) |
-| `stream_settle_carries_all` | settle carries every result byte, warning, all usage (call 3) |
 | `rewind_stops_orphans` | after rewind every running job belongs to the target tree (jobs 6) |
 | `rewind_keeps_target_jobs` | target-tree jobs untouched (jobs 6) |
 | `job_feed_fits`, `job_feed_no_output`, `job_feed_ended` | the jobs' step (`feed`: step with bytes kept + dropped held to the wire's largest Nat) = the step below that bound (jobs 1) |
@@ -66,6 +63,17 @@ Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`; what Rust r
 | `job_wait_poll_exact` | one poll of a blocking wait: a passed deadline detaches even with the end ready; else a ready end settles; else it waits (jobs 4) |
 | `job_wait_polls_each_event`, `job_wait_polls_at_rest` | the model's `wait` is that poll at each event (due: no tick left; ready: the event ends the job) (jobs 4) |
 | `job_wait_entry_answers`, `job_wait_entry_malformed_exact`, `job_wait_entry_example` | the wait entry (`bend/ffi_job_wait.bend`, id 81): the turn of each poll; any other input `E job_wait: malformed request` |
+
+A tool call's journal (call 1-3) runs as the compiled Bend core: model `bend/tool_call.bend`, stepper entry `bend/ffi_tool_call.bend` (id 421), laws `laws/tool_call.bend`, proofs `proof/tool_call/`. The Harness holds no rule of it: `call` (a first attempt) and `execute` (a safe rerun) open the call's stepper and journal what the open answers (start: slot `running`; rerun: its progress cleared); every report of the tool (`output`, `diagnostic`, `usage`, `details`, `retained_output`, `execute_tool`) is sent to it under the call's lock and stored only when it answers keep; the end of `execute` (threw or not, signal aborted or not) is sent once, and the call settles as it answers: finished, failed (`ToolEnding::Failed`), or cancelled (the abort handler settles from the board). Every law holds for every order of reports and ends, from any thread.
+
+| Law | Says |
+| --- | --- |
+| `tool_call_step_is_model` | for every order of events, each reply is the one S2 asks: before the end a report is stored and the end settles (finished on a result, failed on a throw, cancelled on a throw while aborted); after it a report is refused, another end does nothing (call 1-3) |
+| `tool_call_open_exact` | a first attempt journals the start, a rerun the clear (call 1) |
+| `stream_journals_two` | ≤ 2 journal records per call: its start or clear, one settle; no report journaled (call 1) |
+| `stream_settles_once` | settles exactly once at its end (result, throw or cancel), not before, whatever comes after (call 1) |
+| `stream_settle_carries_all` | stores exactly the reports before the end: every one (the settle reads them after the end: every result byte, warning, all usage), none after (call 3) |
+| `tool_call_entry_reads`, `tool_call_entry_malformed_exact`, `tool_call_entry_open_reads`, `tool_call_entry_open_malformed_exact`, `tool_call_entry_shut`, `tool_call_entry_example` | the entry over the laws' own reader: any other input gets the exact error form (`tool_call: malformed event`, `malformed open`, `the open was refused`) and keeps the call |
 
 The tool output bounder (`OutputBuffer`, `bound_output`, the truncation notice) runs as the compiled Bend core: model `bend/bound.bend`, entry `bend/ffi_bound.bend` (a call: a whole text's window, the notice; a stepper: one streaming output), laws `laws/bound.bend`, proofs `proof/bound/`. Rust reads a text into each line's bytes, whether it ends inside a line, and the character boundaries at the cap's byte limit, and moves the bytes the reply names; the core decides the window (whole lines from the start or the end, else the first line cut), the bytes and lines dropped, what a streaming output stores (a full head drops later texts; a tail trims to its margin once it stores more than twice its bytes), whether a skip clears the store, and the notice.
 
@@ -87,8 +95,9 @@ Gap: model `rewind` stops a job at once (`stop.at` sets `running` false). So rew
 
 Code: `eukhe-durable/src/harness/output.rs` (`Truncation`, `OutputLimits`, `OutputBuffer` over `eukhe_bend::rules::bound`), `harness/tool/invocation.rs` (`reporting_for`, `publish_progress`, `final_result`, `ToolExecutionApi` `truncation`, `usage`), `harness/tool/result.rs` (`truncated`: the notice from the core), `harness/tool.rs` `settle` (takes progress from the board), `harness/live/progress.rs` (board), `harness/events.rs` `watch_events`, `eukhe-types/src/output.rs` (default limits), `eukhe-core/src/durable/bounded_output.rs` (`BoundedOutput::in_session`), `eukhe-core/src/durable/jobs/mod.rs` (`Job`, `JobState::step`: `feed` and `ends.of`, run as the compiled Bend core, `bend/ffi_job.bend`; `JobTable` (`start`, `rewind_to`: the core's `kills`, `bend/ffi_job_rewind.bend`; `observe`), `wait_until`: each poll the core's `poll`, `bend/ffi_job_wait.bend`), `jobs/tree.rs` (`eukhe.job` document, writer, `stop_orphans`, `running_jobs_section`), `durable/rlm/jobs.rs` (`CellJobs`: cell board over `Job`; `jobs.list`, `jobs.wait`, `jobs.cancel`), `durable/rlm/tool.rs` (`ipython` wait and detach), `durable/prompt.rs` (`running-jobs`), `eukhe-daemon/src/user_bash.rs` (`UserBash`: every run a job; `execute_bash_and_wait` detaches at the budget), `branch_navigation.rs` (`navigate_tree`, `fork` stop orphans).
 
+Host test (real threads, no transcript): `harness::tool::tests::journal::reports_racing_the_end_from_threads_settle_exactly_what_the_call_took`: four threads report while the execute returns; the settle carries exactly the bytes the call took, and every thread ends on the refusal of a settled call. That a streaming call commits only its start and its settle: `live_deltas` below.
+
 Ties (transcripts equal to a Bend file byte for byte):
-- `harness::tool::tests::bridge::a_real_tool_calls_journal_equals_the_bend_model`: 40 real tool calls on a Harness (result bytes, warnings, usage, then return or cancel) vs `bridge/bridge_stream.bend` (the `journal` of `bend/job.bend`). It ties the interleaving, which no entry can run: the commits async Rust makes while a call streams. Records every `pi.live` commit from the call's start; prints `start`, `settle` (read from the result entry), or `progress` for any other commit in the slot. The model has no `progress`, so a journaled progress update fails. The call's pure decisions run in the core (the bounder above; the notice).
 - `durable::jobs::bridge::the_rust_wait_equals_the_bend_model`: the interleaving of `wait_until` (the tokio timer against the job's end, paused clock; tick = 1 ms; each poll decided by the core) vs `wait` in `bridge/bridge_job.bend`, 300 generated scenarios reaching every case: detach at budget, settle by exit and by kill within it, an end after the detach.
 
 Regression tests: `harness::generation::tests::live_deltas::a_long_streaming_call_commits_nothing_between_its_start_and_its_settle` and the other `live_deltas` tests (what each publication delivers; no commit), `settles_an_aborted_tools_slot_with_its_status_and_entry_only`, eukhe-core `bounded_output` tests (call limits, opt-out), `durable::jobs::tests` (cap and one end, opt-out, rewind kill, wait), `durable::open::tests::jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orphans`, daemon `user_bash::tests::an_awaited_run_past_the_budget_answers_detached_and_its_end_records_its_row`, `branch_navigation::tests::navigate_tree_stops_the_jobs_started_after_its_target`.

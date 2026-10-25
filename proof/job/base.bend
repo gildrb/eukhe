@@ -131,17 +131,6 @@ def pj.ends_ended(es: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, 
     case e <> rest:
       pj.ends_ended(rest, cap, k, d, x)
 
-# Streams
-# -------
-
-# a settled call journals nothing more
-def pj.cshut(es: List<&2, Jb.CEv>) -> {Nil{} == Jb.c.go(es, Jb.Shut{}) : List<&2, Jb.CRec>}:
-  match es:
-    case Nil{}:
-      {==}
-    case e <> rest:
-      pj.cshut(rest)
-
 # Rewinds
 # -------
 

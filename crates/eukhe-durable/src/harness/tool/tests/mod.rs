@@ -1,9 +1,9 @@
 //! Tests of the built-in tool task.
 
-mod bridge;
 mod callers;
 mod execution_api;
 mod generation_hooks;
+mod journal;
 mod lifetime;
 pub(crate) mod nested_support;
 mod nested_tools;

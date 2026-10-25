@@ -12,7 +12,7 @@ import ./base.bend as LawsBase
 # --------------------
 # docs/runtime.md S2, the model in bend/job.bend. Every event is free:
 # any output size, exit, kill or tick, in any order; any output cap or
-# the opt-out; any budget; any tool call stream; any job table.
+# the opt-out; any budget; any job table. A tool call's journal: laws/tool_call.bend.
 
 # LAW job_output_bounded: with a cap, a job keeps at most cap bytes of its output
 law job_output_bounded:
@@ -78,25 +78,6 @@ law call_settles_with_job:
   for +x: Jb.End
   for settled: {Jb.wait(es, b) == Some{Jb.Settled{x}} : Maybe<&2, Jb.Wait>}
   {Jb.ends(cap, es) == [x] : List<&2, Jb.End>}
-
-# LAW stream_journals_two: a tool call journals at most two records: its start and one final
-# record; no delta is journaled
-law stream_journals_two:
-  for es: List<&2, Jb.CEv>
-  {Nat.is_le(List.length(&2, Jb.CRec, Jb.journal(es)), 2n) == True{} : Bool}
-
-# LAW stream_settles_once: a tool call settles exactly once when it ends (result or cancel),
-# and not before
-law stream_settles_once:
-  for +es: List<&2, Jb.CEv>
-  {Jb.settles(Jb.journal(es)) == Jb.once(Jb.c.ends(es)) : Nat}
-
-# LAW stream_settle_carries_all: the final record carries everything the stream carried: every
-# result byte, every warning, all usage
-law stream_settle_carries_all:
-  for +es: List<&2, Jb.CEv>
-  for ended: {Jb.c.ends(es) == True{} : Bool}
-  {Jb.carried(Jb.journal(es)) == Some{Jb.Tally{Jb.c.bytes(es), Jb.c.warns(es), Jb.c.usage(es)}} : Maybe<&2, Jb.Tally>}
 
 # LAW rewind_stops_orphans: after a rewind, every running job is a job of the target tree: no
 # orphan job runs on

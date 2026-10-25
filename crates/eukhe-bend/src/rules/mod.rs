@@ -41,6 +41,7 @@ pub mod stream_failure;
 pub mod submission;
 pub mod theme;
 pub mod tokens;
+pub mod tool_call;
 pub mod tool_surface;
 pub mod tui_color;
 pub mod wait;

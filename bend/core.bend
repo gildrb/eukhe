@@ -91,6 +91,7 @@ import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_elect.bend as ffi_tiny_elect
 import ./ffi_tokens.bend as ffi_tokens
+import ./ffi_tool_call.bend as ffi_tool_call
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
@@ -311,6 +312,7 @@ type State is Type:
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
   WaitRace{s: ffi_wait_race.St}
+  ToolCall{s: ffi_tool_call.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -398,6 +400,11 @@ def open.wait_race(r: ffi_wait_race.St & String) -> State & String:
     case (s, reply):
       (WaitRace{s}, reply)
 
+def open.tool_call(r: ffi_tool_call.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (ToolCall{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -434,6 +441,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.auth_flight(ffi_auth_flight.open(input))
     case 420:
       open.wait_race(ffi_wait_race.open(input))
+    case 421:
+      open.tool_call(ffi_tool_call.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -527,6 +536,11 @@ def step.wait_race(r: ffi_wait_race.St & String) -> State & String:
     case (s, reply):
       (WaitRace{s}, reply)
 
+def step.tool_call(r: ffi_tool_call.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (ToolCall{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -563,6 +577,8 @@ def step.go(state: State, input: String) -> State & String:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case WaitRace{s}:
       step.wait_race(ffi_wait_race.step(s, input))
+    case ToolCall{s}:
+      step.tool_call(ffi_tool_call.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -606,6 +622,8 @@ def close.go(state: State) -> Unit:
     case AuthFlight{s}:
       Unit{}
     case WaitRace{s}:
+      Unit{}
+    case ToolCall{s}:
       Unit{}
     case Unknown{}:
       Unit{}

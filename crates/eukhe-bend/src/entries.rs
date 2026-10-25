@@ -200,6 +200,8 @@ pub enum Entry {
     Glob = 380,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
+    /// `bend/ffi_tool_call.bend`: a stepper.
+    ToolCall = 421,
 }
 
 impl Entry {
@@ -302,6 +304,7 @@ impl Entry {
         Entry::RefinePlan,
         Entry::Glob,
         Entry::WaitRace,
+        Entry::ToolCall,
     ];
 
     /// The id `bend/core.bend` dispatches on.
