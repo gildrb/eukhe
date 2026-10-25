@@ -335,12 +335,20 @@ def th.dist(a: Co.Rgb, b: Co.Rgb) -> U32:
     case Co.Rgb{ar, ag, ab} Co.Rgb{br, bg, bb}:
       (299 * th.sq(th.absd(ar, br)) + 587 * th.sq(th.absd(ag, bg)) + 114 * th.sq(th.absd(ab, bb)) : U32)
 
+# every channel of c is at most 255 (a color the entries read or paint)
+def th.byte3(c: Co.Rgb) -> Bool:
+  match c:
+    case Co.Rgb{r, g, b}:
+      Bool.and(U32.is_le(r, 255), Bool.and(U32.is_le(g, 255), U32.is_le(b, 255)))
+
 # LAW color_dist_spec: the distance of two colors weighs the squared channel distances 299,
-# 587 and 114 per mille, for every two colors
+# 587 and 114 per mille, for every two colors with channels at most 255
+# (the sum stays below 2^32 there, so the spec's U32 arithmetic is exact)
 # EXCLUDES: another weighting, unsquared or swapped channel distances
 law color_dist_spec:
   for a: Co.Rgb
   for b: Co.Rgb
+  for bytes: {Bool.and(th.byte3(a), th.byte3(b)) == True{} : Bool}
   {Co.dist(a, b) == th.dist(a, b) : U32}
 
 def th.levels() -> List<&2, U32>:
@@ -372,13 +380,15 @@ def th.to256(c: Co.Rgb) -> U32:
     case Co.Rgb{+r, +g, +b}:
       th.to256.of(r, g, b, th.nearest(r, th.levels()), th.nearest(g, th.levels()), th.nearest(b, th.levels()), th.nearest((299 * r + 587 * g + 114 * b : U32), th.targets()))
 
-# LAW color_to256_spec: the xterm-256 index of every color: its nearest cube color, or its
-# nearest gray when the color is near-neutral and that gray is strictly
-# closer
+# LAW color_to256_spec: the xterm-256 index of every color with channels at most 255 (the
+# colors the entries read or paint; the spec's U32 sums stay below 2^32
+# there): its nearest cube color, or its nearest gray when the color is
+# near-neutral and that gray is strictly closer
 # EXCLUDES: cube levels rounded down or up, the gray chosen for a colored
 #   color or on a tie, a gray slot off by one, cube indices in another order
 law color_to256_spec:
   for c: Co.Rgb
+  for bytes: {th.byte3(c) == True{} : Bool}
   {Co.to256(c) == th.to256(c) : U32}
 
 # LAW color_to256_example: anchors: red 250 is the cube's red (196), not 215 (160); a

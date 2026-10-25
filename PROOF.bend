@@ -933,6 +933,8 @@ import ./proof/tui_color/tui_usage_band_monotone.bend as PTuiUsageBandMonotone
 import ./proof/tui_color/tui_usage_band_fraction.bend as PTuiUsageBandFraction
 import ./proof/tui_color/tui_usage_band_full.bend as PTuiUsageBandFull
 import ./proof/tui_color/tui_roles_shipped.bend as PTuiRolesShipped
+import ./proof/tui_color/tui_resolves_spec.bend as PTuiResolvesSpec
+import ./proof/tui_color/tui_resolves_example.bend as PTuiResolvesExample
 import ./proof/fsmode/base.bend as LAFsmode
 import ./proof/fsmode/socket_dir_owned.bend as PSocketDirOwned
 import ./proof/fsmode/socket_dir_progress.bend as PSocketDirProgress

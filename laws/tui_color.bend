@@ -3,6 +3,7 @@
 import Base
 import ../bend/theme/bundled.bend as TBundled
 import ../bend/tui_color.bend as TC
+import ../bend/theme/file.bend as TFile
 
 # ---- tui_color ----
 
@@ -88,3 +89,42 @@ law tui_usage_band_full:
 law tui_roles_shipped:
   for s: TBundled.Shipped
   {TC.paints(TBundled.table(s), TC.roles()) == True{} : Bool}
+
+def tc_is_set(m: Maybe<&2, TFile.Val>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{v}:
+      True{}
+
+# whether token r of the palette p has a value (a token past p has none)
+def tc_set(p: List<&2, Maybe<&2, TFile.Val>>, r: Nat) -> Bool:
+  match p r:
+    case Nil{} _:
+      False{}
+    case Con{m, t} 0n:
+      tc_is_set(m)
+    case Con{m, t} 1n+k:
+      tc_set(t, k)
+
+# every role of rs has a value in the palette p
+def tc_all(+p: List<&2, Maybe<&2, TFile.Val>>, rs: List<&2, Nat>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case Con{r, rest}:
+      Bool.and(tc_set(p, r), tc_all(p, rest))
+
+# LAW tui_resolves_spec: the roles resolve in a palette exactly when each has a value there
+# EXCLUDES: a test that always holds (tui_roles_resolve made vacuous), a role
+#   looked up at another token
+law tui_resolves_spec:
+  for +p: List<&2, Maybe<&2, TFile.Val>>
+  for rs: List<&2, Nat>
+  {TC.resolves(p, rs) == tc_all(p, rs) : Bool}
+
+# LAW tui_resolves_example: anchors: an unset token does not resolve, a set one does, a token
+# past the palette does not
+# EXCLUDES: a reading of tui_resolves_spec the human did not mean
+law tui_resolves_example:
+  {[TC.resolves([None{}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [1n])] == [False{}, True{}, False{}] : List<&2, Bool>}
