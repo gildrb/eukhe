@@ -1,6 +1,9 @@
 # bridge_cron: runs the cron model (bend/cron.bend) on an events file and
 # prints the jobs file after each event, line for line as the Rust bridge
 # test prints the Rust stores (crates/eukhe-core/src/cron/store/bridge.rs).
+# It checks the interleaving of several processes on the file: the per-job
+# decisions the Rust store makes are the compiled core's (bend/ffi_cron.bend),
+# proven equal to this model's steps (laws/cron.bend, `cron_*_refines`).
 # Build it with
 #
 #   bend bridge/bridge_cron.bend -o <out>

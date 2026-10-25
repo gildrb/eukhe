@@ -8,6 +8,7 @@ import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_command.bend as ffi_command
+import ./ffi_cron.bend as ffi_cron
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
@@ -139,6 +140,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_job_rewind.ffi(input)
     case 81:
       ffi_job_wait.ffi(input)
+    case 82:
+      ffi_cron.ffi(input)
     case 84:
       ffi_retry_idle.ffi(input)
     case 86:

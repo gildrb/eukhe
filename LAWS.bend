@@ -36,6 +36,7 @@ import ./laws/staging.bend as Staging
 import ./laws/listing.bend as Listing
 import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cron
+import ./laws/cron_store.bend as CronStore
 import ./laws/supervise.bend as Supervise
 import ./laws/revive.bend as Revive
 import ./laws/orphan.bend as Orphan

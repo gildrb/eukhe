@@ -111,8 +111,9 @@ pub struct AgentCronJob {
     pub last_error: Option<String>,
     #[serde(rename = "runCount", default)]
     pub run_count: u64,
-    /// Failed runs in a row since the last good run or resume. At
-    /// [`store::FAILURE_STOP_AFTER`] the job pauses until a user resumes it.
+    /// Failed runs in a row since the last good run or resume. At 8 (the
+    /// compiled core's cap, `bend/cron.bend` `CAP`) the job pauses until a
+    /// user resumes it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub failure_streak: u32,
 }
@@ -912,15 +913,12 @@ fn parse_offset(text: &str) -> Option<i64> {
     Some(sign * (hours * 60 + minutes) * 60_000)
 }
 
-/// Whether a job is due at `now_millis`.
+/// Whether a job is due at `now_millis`: what a claim pass of the compiled
+/// core (`eukhe_bend::rules::cron::take`) makes of it.
+#[must_use]
 pub fn is_due_job(job: &AgentCronJob, now_millis: u64) -> bool {
-    if job.status != JobStatus::Active {
-        return false;
-    }
-    job.next_run_at
-        .as_deref()
-        .and_then(parse_iso_millis)
-        .is_some_and(|next| next <= now_millis)
+    eukhe_bend::rules::cron::take(&store::fact_of(job), false, now_millis, now_millis)
+        != eukhe_bend::rules::cron::Took::Keep
 }
 
 #[cfg(test)]
@@ -1174,8 +1172,8 @@ mod tests {
     }
 
     #[test]
-    fn due_jobs_and_formatting() {
-        let mut job = AgentCronJob {
+    fn a_job_formats_as_one_line() {
+        let job = AgentCronJob {
             id: "job1".to_string(),
             status: JobStatus::Active,
             source: JobSource::Cron,
@@ -1201,11 +1199,6 @@ mod tests {
             last_error: Some("boom".to_string()),
             failure_streak: 0,
         };
-        assert!(is_due_job(&job, 946_684_800_001));
-        assert!(!is_due_job(&job, 946_684_799_999));
-        job.status = JobStatus::Paused;
-        assert!(!is_due_job(&job, 946_684_800_001));
-        job.status = JobStatus::Active;
         let formatted = format_agent_cron_job(&job);
         assert!(formatted.starts_with("job1 active label=\"sweep\" next=2000-01-01T00:00:00Z"));
         assert!(

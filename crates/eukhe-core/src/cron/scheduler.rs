@@ -7,9 +7,9 @@
 //! cancelled). Here the store's finish step
 //! ([`AgentCronJobStore::record_dispatch_result`]) counts the failures in
 //! a row on the job, stretches the next run past the schedule (2m, 4m, up
-//! to 1h), and pauses the job after
-//! [`FAILURE_STOP_AFTER`](super::store::FAILURE_STOP_AFTER) of them. A good
-//! run resets the count. A skipped fire (busy session, deferral) neither
+//! to 1h), and pauses the job after 8 of them (the compiled core decides:
+//! `bend/cron_store.bend` `finish`, the model's `CAP`). A good run resets
+//! the count. A skipped fire (busy session, deferral) neither
 //! extends nor resets it.
 //!
 //! Every pass first recovers interrupted claims: its own claims whose run
@@ -332,7 +332,7 @@ impl<H: AgentCronSchedulerHooks + 'static> AgentCronScheduler<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cron::store::{failure_backoff_ms, CreateAgentCronJobInput};
+    use crate::cron::store::CreateAgentCronJobInput;
     use crate::cron::{AgentCronJob, ScheduleKind};
     use std::sync::atomic::AtomicUsize;
 
@@ -687,6 +687,8 @@ mod tests {
     /// dogfood incident: ~120 fires of a failing every-2m heartbeat).
     #[tokio::test]
     async fn consecutive_failures_back_off_the_next_run() {
+        const FIRST_PAUSE: u64 = 120_000;
+        const SECOND_PAUSE: u64 = 240_000;
         let dir = tempfile::TempDir::new().unwrap();
         let store = Arc::new(AgentCronJobStore::new(dir.path().join("jobs.json")));
         let start = 1_700_000_000_000;
@@ -715,11 +717,11 @@ mod tests {
         assert_eq!(job.run_count, 1);
         assert_eq!(
             crate::cron::parse_iso_millis(job.next_run_at.as_deref().unwrap()),
-            Some(t1 + failure_backoff_ms(1))
+            Some(t1 + FIRST_PAUSE)
         );
         // Failure 2 (clock advanced past the deferred run): the pause
         // doubles.
-        let t2 = t1 + failure_backoff_ms(1) + 1;
+        let t2 = t1 + FIRST_PAUSE + 1;
         *hooks.now.lock().unwrap() = t2;
         assert_eq!(scheduler.run_due().await.unwrap(), 1);
         let job = store
@@ -729,11 +731,11 @@ mod tests {
             .expect("job kept");
         assert_eq!(
             crate::cron::parse_iso_millis(job.next_run_at.as_deref().unwrap()),
-            Some(t2 + failure_backoff_ms(2))
+            Some(t2 + SECOND_PAUSE)
         );
         // A good run clears the streak: the next run goes back to the
         // bare schedule...
-        let t3 = t2 + failure_backoff_ms(2) + 1;
+        let t3 = t2 + SECOND_PAUSE + 1;
         *hooks.now.lock().unwrap() = t3;
         *hooks.error.lock().unwrap() = None;
         assert_eq!(scheduler.run_due().await.unwrap(), 1);
@@ -759,7 +761,7 @@ mod tests {
             .expect("job kept");
         assert_eq!(
             crate::cron::parse_iso_millis(job.next_run_at.as_deref().unwrap()),
-            Some(t4 + failure_backoff_ms(1))
+            Some(t4 + FIRST_PAUSE)
         );
     }
 

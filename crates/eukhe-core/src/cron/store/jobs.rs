@@ -1,7 +1,8 @@
 //! Generic cron job operations: create/list/cancel, session binding and
 //! rebinding, due-claim dispatch, the finish step that records a dispatch's
-//! result (with the failure backoff and stop), and interrupted-dispatch
-//! recovery.
+//! result, and interrupted-dispatch recovery. The compiled core decides
+//! each job (`eukhe_bend::rules::cron`: when it is due, the failure backoff
+//! and stop, cancel); this file reads and writes the file around it.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use std::sync::Arc;
@@ -13,41 +14,16 @@ use super::state::{
     claim_due_in_state, compare_optional_iso, normalize_optional_label,
     recover_interrupted_in_state, resolve_path,
 };
+use eukhe_bend::rules::cron::{self as rule, Cut, Finished};
+
+use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CancelJobsFilter, CreateAgentCronJobInput,
     DispatchOutcome, DispatchResultOptions, RunningDispatch, SessionBinding,
 };
 use crate::cron::{
-    is_due_job, next_run_at_for_schedule, parse_agent_cron_schedule, parse_iso_millis,
-    AgentCronJob, JobStatus, ScheduleKind,
+    is_due_job, parse_agent_cron_schedule, parse_iso_millis, AgentCronJob, JobStatus,
 };
-
-/// The pause after the first failed run: 2 minutes.
-const FAILURE_BACKOFF_BASE_MS: u64 = 120_000;
-
-/// The longest pause between two runs of a failing job: 1 hour.
-const FAILURE_BACKOFF_CAP_MS: u64 = 3_600_000;
-
-/// Failed runs in a row after which a job stops: it pauses with its last
-/// error and its failure count shown, until a user resumes it. A good run
-/// or a resume sets the count back to 0.
-///
-/// The pauses double from 2 minutes to the 1 hour ceiling: 2, 4, 8, 16, 32,
-/// 60 and 60 minutes. So the eighth failure in a row comes 182 minutes
-/// (about three hours) after the first, and the last two pauses are at the
-/// ceiling. A cause that lasts through three hours of retries, two of them
-/// a full hour apart, is not a short outage; the job stops instead of
-/// failing each hour for ever.
-pub const FAILURE_STOP_AFTER: u32 = 8;
-
-/// The pause after `consecutive_failures` failed runs: `base * 2^(n-1)`
-/// capped at [`FAILURE_BACKOFF_CAP_MS`]. The first failure pauses 2m, the
-/// second 4m, then 8m, 16m, 32m, 1h. It never shrinks as `n` grows.
-pub(crate) fn failure_backoff_ms(consecutive_failures: u32) -> u64 {
-    FAILURE_BACKOFF_BASE_MS
-        .saturating_mul(2u64.saturating_pow(consecutive_failures.saturating_sub(1)))
-        .min(FAILURE_BACKOFF_CAP_MS)
-}
 
 impl AgentCronJobStore {
     pub fn list(&self) -> Vec<AgentCronJob> {
@@ -195,12 +171,15 @@ impl AgentCronJobStore {
             .read_jobs()
             .into_iter()
             .map(|job| {
-                if job.id != id || job.status == JobStatus::Cancelled {
+                if job.id != id {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::cancel(&fact_of(&job)) else {
+                    return job;
+                };
                 let cancelled_job = AgentCronJob {
-                    status: JobStatus::Cancelled,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };
@@ -255,13 +234,14 @@ impl AgentCronJobStore {
     }
 
     /// The finish step of a claimed dispatch: release the claim and record
-    /// the result on its job, if the job is still active. A one-shot is
-    /// completed. A failed run of a repeating job counts one more failure in
-    /// a row: it pushes the next run out by [`failure_backoff_ms`] (never
-    /// earlier than the schedule), and at [`FAILURE_STOP_AFTER`] it pauses
-    /// the job. A good run sets the count back to 0; a skip leaves it.
-    /// Returns the updated job, or `None` when the dispatch is no longer
-    /// pending.
+    /// the result on its job, as the compiled core decides it
+    /// (`rule::finish`): only an active job counts a result; a one-shot is
+    /// completed; a failed run of a repeating job counts one more failure
+    /// in a row, pushes the next run out by the backoff (never earlier than
+    /// the schedule) or, at the cap, pauses the job; a good run sets the
+    /// count back to 0; a skip leaves it. Returns the updated job, or
+    /// `None` when the dispatch is no longer pending or its job is not
+    /// active.
     ///
     /// # Errors
     ///
@@ -283,52 +263,29 @@ impl AgentCronJobStore {
                 return Vec::new();
             };
             let dispatch = state.dispatches.remove(at);
-            let Some(job) = state
-                .jobs
-                .iter_mut()
-                .find(|job| job.id == dispatch.job_id && job.status == JobStatus::Active)
-            else {
+            let Some(job) = state.jobs.iter_mut().find(|job| job.id == dispatch.job_id) else {
                 return Vec::new();
             };
-            let once = job.schedule.kind == ScheduleKind::Once;
-            match (result.outcome, &result.error) {
-                (DispatchOutcome::Skipped, None) => {
-                    job.next_run_at = next_run_at_for_schedule(&job.schedule, now)
-                        .ok()
-                        .flatten()
-                        .map(iso_from_millis);
-                    job.last_skipped_at = Some(now_iso.clone());
-                }
-                (DispatchOutcome::Ran, error) | (DispatchOutcome::Skipped, error @ Some(_)) => {
-                    job.last_run_at = Some(now_iso.clone());
-                    job.last_error.clone_from(error);
-                    job.run_count += 1;
-                    job.failure_streak = match error {
-                        Some(_) => job.failure_streak.saturating_add(1),
-                        None => 0,
-                    };
-                    if error.is_some() && !once {
-                        if job.failure_streak >= FAILURE_STOP_AFTER {
-                            job.status = JobStatus::Paused;
-                            job.next_run_at = None;
-                        } else {
-                            let until = now + failure_backoff_ms(job.failure_streak);
-                            if job
-                                .next_run_at
-                                .as_deref()
-                                .and_then(parse_iso_millis)
-                                .is_none_or(|next| next < until)
-                            {
-                                job.next_run_at = Some(iso_from_millis(until));
-                            }
-                        }
-                    }
-                }
+            let (ran, becomes) = match rule::finish(
+                &fact_of(job),
+                result.outcome == DispatchOutcome::Ran,
+                result.error.is_some(),
+                now,
+            ) {
+                Finished::Untouched => return Vec::new(),
+                Finished::Ran(becomes) => (true, becomes),
+                Finished::Skipped(becomes) => (false, becomes),
+            };
+            if ran {
+                job.last_run_at = Some(now_iso.clone());
+                job.last_error.clone_from(&result.error);
+                job.run_count += 1;
+            } else {
+                job.last_skipped_at = Some(now_iso.clone());
             }
-            if once {
-                job.status = JobStatus::Completed;
-                job.next_run_at = None;
-            }
+            job.next_run_at = next_text(job, becomes.next, now).ok().flatten();
+            job.status = job_status(becomes.status);
+            job.failure_streak = becomes.streak;
             job.updated_at.clone_from(&now_iso);
             updated = Some(job.clone());
             Vec::new()
@@ -366,8 +323,7 @@ impl AgentCronJobStore {
 mod tests {
     use super::*;
     use crate::cron::store::input;
-    use crate::cron::store::owner::ClaimOwner;
-    use crate::cron::store::state::read_jobs_state;
+    use crate::cron::ScheduleKind;
 
     #[test]
     fn create_list_and_cancel() {
@@ -481,89 +437,6 @@ mod tests {
         assert_eq!(dispatches[0].dispatch().job.id, job.id);
     }
 
-    /// The simulated processes A (pid 1) and B (pid 2) on one jobs file,
-    /// and the set that marks a simulated process dead.
-    type Processes = (
-        Arc<std::sync::Mutex<std::collections::HashSet<u32>>>,
-        AgentCronJobStore,
-        AgentCronJobStore,
-    );
-
-    fn two_processes(path: &std::path::Path) -> Processes {
-        let dead = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
-        let a = AgentCronJobStore::with_owner(path.to_path_buf(), ClaimOwner::simulated(1, &dead));
-        let b = AgentCronJobStore::with_owner(path.to_path_buf(), ClaimOwner::simulated(2, &dead));
-        (dead, a, b)
-    }
-
-    /// Audit F5: the pass of another process cleared every claim on record,
-    /// so a job ran twice at once. Now B's recovery keeps A's live claim
-    /// (and B does not claim the job again); only A's death frees it.
-    #[test]
-    fn a_pass_of_another_process_keeps_a_live_claim() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("jobs.json");
-        let (dead, a, b) = two_processes(&path);
-        let now = 1_700_000_000_000;
-        a.create(&input("tick", "every 10m", now)).unwrap();
-        let running = a.claim_due(now + 600_000, now + 600_000).unwrap();
-        assert_eq!(running.len(), 1);
-        let claims = read_jobs_state(&path).dispatches;
-        assert_eq!(
-            b.recover_interrupted_dispatches(now + 600_001).unwrap(),
-            Vec::new()
-        );
-        assert!(b
-            .claim_due(now + 1_200_000, now + 1_200_000)
-            .unwrap()
-            .is_empty());
-        assert_eq!(read_jobs_state(&path).dispatches, claims);
-        dead.lock().unwrap().insert(1);
-        assert_eq!(
-            b.recover_interrupted_dispatches(now + 1_200_001)
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(read_jobs_state(&path).dispatches, Vec::new());
-    }
-
-    /// Audit F5: recovery completed a one-shot while it still ran. Now it
-    /// stays active until its finish step.
-    #[test]
-    fn a_one_shot_is_not_completed_while_it_runs() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("jobs.json");
-        let (_dead, a, b) = two_processes(&path);
-        let now = 1_700_000_000_000;
-        a.create(&input("once", "in 1m", now)).unwrap();
-        let running = a.claim_due(now + 60_000, now + 60_000).unwrap();
-        let claimed = running[0].dispatch().job.clone();
-        b.recover_interrupted_dispatches(now + 60_001).unwrap();
-        a.recover_interrupted_dispatches(now + 60_002).unwrap();
-        assert_eq!(a.list(), vec![claimed.clone()]);
-        let done = a
-            .record_dispatch_result(
-                &running[0].dispatch().id,
-                &DispatchResultOptions {
-                    now: Some(now + 60_003),
-                    outcome: DispatchOutcome::Ran,
-                    error: None,
-                },
-            )
-            .unwrap();
-        assert_eq!(
-            done,
-            Some(AgentCronJob {
-                status: JobStatus::Completed,
-                updated_at: iso_from_millis(now + 60_003),
-                last_run_at: Some(iso_from_millis(now + 60_003)),
-                run_count: 1,
-                ..claimed
-            })
-        );
-    }
-
     /// Audit F6: a job record this build cannot read was dropped by the
     /// next write. Now it, an unread claim and an unknown key stay as
     /// they are.
@@ -617,59 +490,5 @@ mod tests {
             .collect();
         assert_eq!(aside, vec!["{\"jobs\": [ torn".to_string()]);
         assert_eq!(store.list(), vec![job]);
-    }
-
-    /// Audit L2: a failing job backed off to one run an hour and never
-    /// stopped. Now each failure pushes the next run out by the backoff,
-    /// and the job pauses after `FAILURE_STOP_AFTER` failures in a row.
-    #[test]
-    fn a_failing_job_stops_after_the_cap() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
-        let mut now = 1_700_000_000_000;
-        store.create(&input("tick", "every 1m", now)).unwrap();
-        now += 60_000;
-        for failures in 1..=FAILURE_STOP_AFTER {
-            let running = store.claim_due(now, now).unwrap();
-            assert_eq!(running.len(), 1, "run {failures} is claimed");
-            let job = store
-                .record_dispatch_result(
-                    &running[0].dispatch().id,
-                    &DispatchResultOptions {
-                        now: Some(now),
-                        outcome: DispatchOutcome::Ran,
-                        error: Some("route gone".to_string()),
-                    },
-                )
-                .unwrap()
-                .unwrap();
-            let next = (failures < FAILURE_STOP_AFTER)
-                .then(|| iso_from_millis(now + failure_backoff_ms(failures)));
-            let status = match next {
-                Some(_) => JobStatus::Active,
-                None => JobStatus::Paused,
-            };
-            assert_eq!(
-                (job.status, job.next_run_at.clone(), job.failure_streak),
-                (status, next, failures)
-            );
-            now += failure_backoff_ms(failures);
-        }
-        assert!(store
-            .claim_due(now + 86_400_000, now + 86_400_000)
-            .unwrap()
-            .is_empty());
-        assert!(
-            crate::cron::format_agent_cron_job(&store.list()[0]).contains(" paused next=- last=")
-        );
-    }
-
-    #[test]
-    fn failure_backoff_doubles_then_caps() {
-        let delays: Vec<u64> = (1..=8).map(failure_backoff_ms).collect();
-        assert_eq!(
-            delays,
-            vec![120_000, 240_000, 480_000, 960_000, 1_920_000, 3_600_000, 3_600_000, 3_600_000]
-        );
     }
 }

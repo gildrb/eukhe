@@ -1,12 +1,14 @@
 //! The owner of cron dispatch claims: each dispatch record names the
 //! process that claimed it ([`ProcessIdentity`]), and this process keeps
-//! the set of the dispatches it runs now. A recovery clears a claim only
-//! when it is this process's own claim with no live dispatch, or when its
-//! owner is dead: the live claim of another process is never cleared.
+//! the set of the dispatches it runs now. For a claim on record it tells
+//! whose the claim is: this process's, and whether it still runs it, or
+//! another's, and whether that process is dead. The compiled core decides
+//! from that whether a recovery clears the claim.
 
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_bend::rules::cron::Who;
 use eukhe_types::platform::process::ProcessIdentity;
 
 use super::AgentCronDispatch;
@@ -82,17 +84,22 @@ impl ClaimOwner {
             .remove(dispatch_id);
     }
 
-    /// Whether a recovery by this owner may clear the claim `dispatch_id`
-    /// of `owner`: its own claim with no live dispatch, or a dead owner's.
-    pub(crate) fn may_clear(&self, owner: &ProcessIdentity, dispatch_id: &str) -> bool {
+    /// Whose the claim `dispatch_id` of `owner` is: this owner's (and
+    /// whether its run is live here), or another's (and whether that
+    /// process is dead). Only another's claim asks the liveness probe.
+    pub(crate) fn who(&self, owner: &ProcessIdentity, dispatch_id: &str) -> Who {
         if *owner == self.identity {
-            return !self
-                .running
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .contains(dispatch_id);
+            return Who::Mine {
+                running: self
+                    .running
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains(dispatch_id),
+            };
         }
-        !self.liveness.is_alive(owner)
+        Who::Theirs {
+            dead: !self.liveness.is_alive(owner),
+        }
     }
 }
 

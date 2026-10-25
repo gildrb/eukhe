@@ -6,13 +6,16 @@
 use crate::cron::JobSource;
 use uuid::Uuid;
 
+use eukhe_bend::rules::cron::{self as rule, Again};
+
+use super::facts::{fact_of, job_status, next_text};
 use super::state::{compare_optional_iso, normalize_optional_label};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
     RlmHeartbeatStatusUpdate, RlmHeartbeatUpdate,
 };
 use crate::cron::{
-    next_run_at_for_schedule, parse_agent_cron_schedule, AgentCronJob, JobStatus, ScheduleKind,
+    parse_agent_cron_schedule, AgentCronJob, JobStatus, ScheduleKind,
     DEFAULT_HEARTBEAT_DELIVERY_MODE,
 };
 
@@ -162,12 +165,11 @@ impl AgentCronJobStore {
                         next.next_run_at = None;
                     }
                     Some(RlmHeartbeatStatusUpdate::Resume) => {
-                        next.status = JobStatus::Active;
-                        next.failure_streak = 0;
-                        next.next_run_at = next_run_at_for_schedule(&next.schedule, now)
-                            .ok()
-                            .flatten()
-                            .map(iso_from_millis);
+                        if let Again::Resumed(becomes) = rule::resume(&fact_of(&next), now) {
+                            next.next_run_at = next_text(&next, becomes.next, now).ok().flatten();
+                            next.status = job_status(becomes.status);
+                            next.failure_streak = becomes.streak;
+                        }
                     }
                     None => {}
                 }

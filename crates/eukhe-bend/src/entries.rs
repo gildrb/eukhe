@@ -92,6 +92,8 @@ pub enum Entry {
     JobRewind = 80,
     /// `bend/ffi_job_wait.bend`: a call.
     JobWait = 81,
+    /// `bend/ffi_cron.bend`: a call.
+    Cron = 82,
     /// `bend/ffi_retry_idle.bend`: a call.
     RetryIdle = 84,
     /// `bend/ffi_lease.bend`: a stepper.
@@ -146,6 +148,7 @@ impl Entry {
         Entry::DocRows,
         Entry::JobRewind,
         Entry::JobWait,
+        Entry::Cron,
         Entry::RetryIdle,
         Entry::Lease,
         Entry::Wait,

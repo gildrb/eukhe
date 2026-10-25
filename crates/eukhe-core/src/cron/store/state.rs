@@ -11,17 +11,17 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use eukhe_bend::rules::cron::{self as rule, Back, Took};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::owner::ClaimOwner;
 use super::{
     iso_from_millis, now_millis, AgentCronDispatch, AgentCronDispatchRecord, AgentCronJob,
     AgentCronJobStore, CronJobsState,
 };
-use crate::cron::{
-    is_due_job, next_run_at_for_schedule, parse_iso_millis, JobStatus, ScheduleKind,
-};
+use crate::cron::parse_iso_millis;
 
 const LOCK_STALE_MS: u64 = 30_000;
 
@@ -155,9 +155,10 @@ fn is_at_least_as_fresh(candidate: &AgentCronJob, current: &AgentCronJob) -> boo
     candidate_time >= current_time
 }
 
-/// Claim the due jobs that have no claim on record: each new claim names
-/// `owner` and counts as a live run of it. A due job with a claim on
-/// record only rolls its next run.
+/// A claim pass (the compiled core decides each job: `rule::take`): a due
+/// job with no claim on record is claimed, its new claim naming `owner`
+/// and counting as a live run of it; a due job with a claim on record only
+/// rolls its next run.
 pub(crate) fn claim_due_in_state(
     state: &mut CronJobsState,
     due_at: u64,
@@ -172,16 +173,20 @@ pub(crate) fn claim_due_in_state(
         .collect();
     let mut dispatches = Vec::new();
     for job in &mut state.jobs {
-        if !is_due_job(job, due_at) {
-            continue;
-        }
+        let (next, claim) = match rule::take(
+            &fact_of(job),
+            claimed_job_ids.contains(&job.id),
+            due_at,
+            claimed_at,
+        ) {
+            Took::Keep => continue,
+            Took::Roll(next) => (next, false),
+            Took::Claim(next) => (next, true),
+        };
         let scheduled_for = job.next_run_at.clone().unwrap_or_default();
-        job.next_run_at = next_run_at_for_schedule(&job.schedule, claimed_at)
-            .ok()
-            .flatten()
-            .map(iso_from_millis);
+        job.next_run_at = next_text(job, next, claimed_at).ok().flatten();
         job.updated_at.clone_from(&claimed_iso);
-        if claimed_job_ids.contains(&job.id) {
+        if !claim {
             job.last_skipped_at = Some(claimed_iso.clone());
             continue;
         }
@@ -202,9 +207,11 @@ pub(crate) fn claim_due_in_state(
     dispatches
 }
 
-/// Clear the claims `owner` may clear (its own with no live run, or a
-/// dead owner's). An active job whose claim is cleared records the
-/// interruption; a one-shot is then completed, as its one run ended.
+/// Clear the claims the compiled core clears (`rule::clear`: this
+/// process's own with no live run, or a dead owner's), then let it decide
+/// each job (`rule::recover`): an active job whose claim was cleared
+/// records the interruption; a one-shot is then completed, as its one run
+/// ended.
 pub(crate) fn recover_interrupted_in_state(
     state: &mut CronJobsState,
     now: u64,
@@ -213,20 +220,20 @@ pub(crate) fn recover_interrupted_in_state(
 ) {
     let mut interrupted_job_ids = std::collections::HashSet::new();
     state.dispatches.retain(|dispatch| {
-        let clear = owner.may_clear(&dispatch.owner, &dispatch.id);
+        let clear = rule::clear(owner.who(&dispatch.owner, &dispatch.id));
         if clear {
             interrupted_job_ids.insert(dispatch.job_id.clone());
         }
         !clear
     });
     for job in &mut state.jobs {
-        if !interrupted_job_ids.contains(&job.id) || job.status != JobStatus::Active {
+        let Back::Interrupted { status, next } =
+            rule::recover(&fact_of(job), interrupted_job_ids.contains(&job.id))
+        else {
             continue;
-        }
-        if job.schedule.kind == ScheduleKind::Once {
-            job.status = JobStatus::Completed;
-            job.next_run_at = None;
-        }
+        };
+        job.status = job_status(status);
+        job.next_run_at = next_text_at(job, next);
         job.last_error = Some("Interrupted before scheduled operation completion".to_string());
         job.updated_at = iso_from_millis(now);
         recovered.push(job.clone());

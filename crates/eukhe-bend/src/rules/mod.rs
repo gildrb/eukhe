@@ -2,6 +2,7 @@
 //! (`pub mod <area>;`, one per line), each encoding its input with the wire
 //! format, calling its entry and decoding the reply.
 
+pub mod cron;
 pub mod cvar;
 pub mod fsmode;
 pub mod lease;

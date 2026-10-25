@@ -5,14 +5,17 @@
 use crate::cron::JobSource;
 use uuid::Uuid;
 
+use eukhe_bend::rules::cron::{self as rule, Again};
+
+use super::facts::{fact_of, job_status, next_text};
 use super::state::normalize_optional_label;
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
     HeartbeatManagementAction,
 };
 use crate::cron::{
-    is_heartbeat_cron_job, next_run_at_for_schedule, parse_agent_cron_schedule, parse_iso_millis,
-    AgentCronJob, JobStatus, ScheduleKind, DEFAULT_HEARTBEAT_DELIVERY_MODE,
+    is_heartbeat_cron_job, parse_agent_cron_schedule, parse_iso_millis, AgentCronJob, JobStatus,
+    ScheduleKind, DEFAULT_HEARTBEAT_DELIVERY_MODE,
 };
 
 impl AgentCronJobStore {
@@ -148,9 +151,12 @@ impl AgentCronJobStore {
         let Some(current) = self.get_heartbeat(active_session_id) else {
             return Ok(None);
         };
-        let Some(next_run_at) = next_run_at_for_schedule(&current.schedule, now)? else {
-            anyhow::bail!("Heartbeat schedule must be recurring");
+        let becomes = match rule::resume(&fact_of(&current), now) {
+            Again::Resumed(becomes) => becomes,
+            Again::Ended => return Ok(None),
+            Again::NotRecurring => anyhow::bail!("Heartbeat schedule must be recurring"),
         };
+        let next_run_at = next_text(&current, becomes.next, now)?;
         let now_iso = iso_from_millis(now);
         let mut resumed = None;
         let jobs: Vec<AgentCronJob> = self
@@ -161,10 +167,10 @@ impl AgentCronJobStore {
                     return job;
                 }
                 let resumed_job = AgentCronJob {
-                    status: JobStatus::Active,
-                    next_run_at: Some(iso_from_millis(next_run_at)),
+                    status: job_status(becomes.status),
+                    next_run_at: next_run_at.clone(),
                     updated_at: now_iso.clone(),
-                    failure_streak: 0,
+                    failure_streak: becomes.streak,
                     ..job
                 };
                 resumed = Some(resumed_job.clone());
@@ -225,67 +231,41 @@ impl AgentCronJobStore {
         now: u64,
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now_iso = iso_from_millis(now);
-        let mut updated = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != id
-                    || job.active_session_id != active_session_id
-                    || !is_heartbeat_cron_job(&job)
-                {
-                    return job;
-                }
-                if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
-                    return job;
-                }
-                let next_job = match action {
-                    HeartbeatManagementAction::Pause => AgentCronJob {
-                        status: JobStatus::Paused,
-                        next_run_at: None,
-                        updated_at: now_iso.clone(),
-                        ..job
-                    },
-                    HeartbeatManagementAction::Stop => AgentCronJob {
-                        status: JobStatus::Cancelled,
-                        next_run_at: None,
-                        updated_at: now_iso.clone(),
-                        ..job
-                    },
-                    HeartbeatManagementAction::Resume => AgentCronJob {
-                        status: JobStatus::Active,
-                        updated_at: now_iso.clone(),
-                        failure_streak: 0,
-                        ..job
-                    },
-                };
-                updated = Some(next_job.clone());
-                next_job
-            })
-            .collect();
-        let Some(mut updated_job) = updated else {
+        let mut jobs = self.read_jobs();
+        let Some(job) = jobs.iter_mut().find(|job| {
+            job.id == id && job.active_session_id == active_session_id && is_heartbeat_cron_job(job)
+        }) else {
             return Ok(None);
         };
-        if action == HeartbeatManagementAction::Resume {
-            let Some(next_run_at) = next_run_at_for_schedule(&updated_job.schedule, now)? else {
-                anyhow::bail!("Heartbeat schedule must be recurring");
-            };
-            updated_job.next_run_at = Some(iso_from_millis(next_run_at));
-            let jobs: Vec<AgentCronJob> = jobs
-                .into_iter()
-                .map(|job| {
-                    if job.id == updated_job.id {
-                        updated_job.clone()
-                    } else {
-                        job
+        match action {
+            HeartbeatManagementAction::Pause | HeartbeatManagementAction::Stop => {
+                if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
+                    return Ok(None);
+                }
+                job.status = if action == HeartbeatManagementAction::Pause {
+                    JobStatus::Paused
+                } else {
+                    JobStatus::Cancelled
+                };
+                job.next_run_at = None;
+            }
+            HeartbeatManagementAction::Resume => {
+                let becomes = match rule::resume(&fact_of(job), now) {
+                    Again::Resumed(becomes) => becomes,
+                    Again::Ended => return Ok(None),
+                    Again::NotRecurring => {
+                        anyhow::bail!("Heartbeat schedule must be recurring")
                     }
-                })
-                .collect();
-            self.write_jobs(&jobs)?;
-            return Ok(Some(updated_job));
+                };
+                job.next_run_at = next_text(job, becomes.next, now)?;
+                job.status = job_status(becomes.status);
+                job.failure_streak = becomes.streak;
+            }
         }
+        job.updated_at = now_iso;
+        let updated = job.clone();
         self.write_jobs(&jobs)?;
-        Ok(Some(updated_job))
+        Ok(Some(updated))
     }
 }
 
