@@ -368,7 +368,7 @@ that asks up to its root: no client, clients that leave, clients that
 answer, the gateway alone, clients that leave while the gateway stays;
 `fate`, what becomes of a step with given effects; `default_auto`;
 `gate`, the auto set before the route). Laws:
-`laws/approvals.bend`, `laws/tools.bend`. Proofs: `proof/approvals/`.
+`laws/approvals/`, `laws/tools.bend`. Proofs: `proof/approvals/`.
 
 | Law | Says |
 | --- | --- |
@@ -390,11 +390,11 @@ answer, the gateway alone, clients that leave while the gateway stays;
 
 Code: `eukhe-daemon/src/shell_approval.rs` (`ShellApprovals::ask`, `relay`), `worker.rs` (relay over the supervisor link), `worker/connection.rs` (client kind at attach), `supervisor/routing.rs` (relay budget), `eukhe-tui/src/session_ui/settings.rs` (prompt), `eukhe-gateway/src/link.rs` (attaches as `gateway`), `eukhe-core/src/settings/cvar/table.rs` (`SHELL_AUTO_EFFECTS`, default auto set).
 
-Runs as the compiled core: entry `bend/ffi_approvals.bend` (id 53), Rust `eukhe_bend::rules::approvals`, called by `ShellApprovals::route` at each session a question reaches: what the session does (`next`: show it to its interactive clients; end it by the gateway rule when its clients are all the phone gateway; relay it to its parent when no client is attached; no answer at a root), what its clients' answer makes of the step (`answered`), and the default auto set (`default_auto`). Laws: `laws/approvals.bend` section approvals entry (`approvals_ffi_exact`, `approvals_ffi_answers`, `approvals_ffi_left_over`, `approvals_ffi_example`). What stays in Rust is the interleaving (the relay over the supervisor, clients that detach, the first answer wins), checked by the bridge.
+Runs as the compiled core: entry `bend/ffi_approvals.bend` (id 53), Rust `eukhe_bend::rules::approvals`. The call answers the default auto set (`default_auto`). The stepper is each session's desk (`approvals::Desk`, `bend/approvals.bend` section "One session's desk"): `ShellApprovals` is its event loop with no policy. It sends each event as it arrives, in arrival order (a question reaches the session, with who is attached and whether it has a parent; a client answers; a client detaches; a step stops waiting; the parent answers a relay) and does the acts the desk answers (show the question's frame, settle it, relay it to the parent, wake the waiting step with its fate, take or refuse the client's answer), each keyed by the desk's key. The desk decides what each event means: the session's decision (show it to its interactive clients; end it by the gateway rule when its clients are all the phone gateway; relay it when no client is attached; no answer at a root), which question an answer belongs to (the oldest open one its frame names: the first answer wins), where questions go when the last interactive client detaches, and the step's fate. Laws: `laws/approvals/route.bend` (the model, above, and `approvals_within_runs_unasked`), `laws/approvals/desk.bend` (`approvals_desk_step_spec`, the step table; `approvals_desk_never_stranded`, no question waits on clients that left; `approvals_desk_gateway_never_waits`; `approvals_desk_root_never_relays`; `approvals_desk_wakes_once`, over every sequence of events no step is woken twice; `approvals_desk_is_route`, the desks of a chain route exactly as `route`; examples), `laws/approvals/entry.bend` (the call and the stepper's bytes: `approvals_ffi_*`, `approvals_desk_entry_*`).
 
 Ties:
-- `shell_approval::bridge::the_approval_route_is_its_model` vs `bridge/bridge_approvals.bend` (`route`): every chain of up to 3 sessions with a write, a program run, a protected write, a secret read, plus generated longer ones, on real `ShellApprovals` relaying through each parent's real handler; compares which sessions showed the question, whether each frame names the subagent, the end.
 - `durable::shell::tests::the_default_auto_set_is_its_model`: the real default auto set equals the core's `default_auto`.
+- `shell_approval::tests`: real `ShellApprovals` chains relaying through each parent's real handler: a subagent's question reaches the root and its answer comes back; one its clients leave goes up the chain (settled below); one left to the gateway is ruled there; two questions with one request id each take one answer; a cancelled subagent step settles its question up the chain.
 
 Tests:
 - `with_no_auto_set_a_write_outside_the_workspace_runs_unasked`: no client; write, program run and outside write all run.

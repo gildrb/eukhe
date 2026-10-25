@@ -301,6 +301,7 @@ type State is Type:
   Selection{s: ffi_selection.St}
   DocSearch{s: ffi_doc_search.St}
   DocGlob{s: ffi_doc_glob.St}
+  Approvals{s: ffi_approvals.St}
   Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
@@ -356,6 +357,11 @@ def open.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
   match r:
     case (s, reply):
       (DocGlob{s}, reply)
+
+def open.approvals(r: ffi_approvals.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Approvals{s}, reply)
 
 def open.quirks(r: ffi_quirks.St & String) -> State & String:
   match r:
@@ -422,6 +428,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.doc_search(ffi_doc_search.open(input))
     case 42:
       open.doc_glob(ffi_doc_glob.open(input))
+    case 53:
+      open.approvals(ffi_approvals.open(input))
     case 61:
       open.quirks(ffi_quirks.open(input))
     case 74:
@@ -493,6 +501,11 @@ def step.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
     case (s, reply):
       (DocGlob{s}, reply)
 
+def step.approvals(r: ffi_approvals.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Approvals{s}, reply)
+
 def step.quirks(r: ffi_quirks.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -558,6 +571,8 @@ def step.go(state: State, input: String) -> State & String:
       step.doc_search(ffi_doc_search.step(s, input))
     case DocGlob{s}:
       step.doc_glob(ffi_doc_glob.step(s, input))
+    case Approvals{s}:
+      step.approvals(ffi_approvals.step(s, input))
     case Quirks{s}:
       step.quirks(ffi_quirks.step(s, input))
     case InferGuard{s}:
@@ -603,6 +618,8 @@ def close.go(state: State) -> Unit:
     case DocSearch{s}:
       Unit{}
     case DocGlob{s}:
+      Unit{}
+    case Approvals{s}:
       Unit{}
     case Quirks{s}:
       Unit{}

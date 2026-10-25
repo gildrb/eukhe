@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../laws/approvals.bend as Approvals
+import ../../laws/approvals/route.bend as Approvals
 import ./base.bend as LA
 
 def pa.root(+below: List<&2, Am.Desk>, quiet: {Am.quiet(below) == True{} : Bool}, +yes: Bool) -> {Am.Out.end(Am.route(List.append(&2, Am.Desk, below, [Am.Says{yes}]))) == Am.Answered{List.length(&2, Am.Desk, below), yes} : Am.End}:

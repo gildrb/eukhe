@@ -5,29 +5,36 @@
 //! which shows no question, asks no one: it runs the step at once, or
 //! refuses it at once when the step writes a protected path or reads or
 //! writes a secret (the gateway rule). A session with no attached client,
-//! or whose clients all detached before an answer came (the last detach
-//! drops every pending question), hands the question to its parent
-//! session (`relay_shell_approval` over the supervisor), which does the
-//! same: the question reaches the nearest session up the chain with a
-//! client, and its frame names the subagent that asks. When no session up
-//! to the root answers, the step is unanswered, which the tool treats as a
-//! denial (`laws/approvals.bend`, G5). However a question's wait on the
-//! session's clients ends (an answer, the last detach, the step's
-//! cancellation), a `shell_approval_settled` frame tells every client to
-//! drop it; an answer to a question no longer pending is refused with
-//! [`DaemonErrorInfo::ShellApprovalGone`].
+//! or whose clients all detached before an answer came, hands the question
+//! to its parent session (`relay_shell_approval` over the supervisor),
+//! which does the same: the question reaches the nearest session up the
+//! chain with a client, and its frame names the subagent that asks. When
+//! no session up to the root answers, the step is unanswered, which the
+//! tool treats as a denial (`laws/approvals/`, G5). However a question's
+//! wait on the session's clients ends (an answer, the last detach, the
+//! step's cancellation), a `shell_approval_settled` frame tells every
+//! client to drop it; an answer to a question no longer pending is refused
+//! with [`DaemonErrorInfo::ShellApprovalGone`].
+//!
+//! This module decides none of that. The session's desk, a stepper of the
+//! compiled core ([`approvals::Desk`]), keeps the open questions and
+//! decides what each event means; this module is its event loop: it sends
+//! each event as it arrives (a question, an answer, a detach, a step that
+//! stops waiting, the parent's answer to a relay), in arrival order, and
+//! does the acts the desk answers: frames to the clients, the relay to the
+//! parent, and the wake of the waiting step, keyed by the desk's key.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_bend::rules::approvals::{self, Here, Next, Parent};
+use eukhe_bend::rules::approvals::{self, Act, Here, Key, Parent};
 use eukhe_bend::rules::shell::Said;
 use eukhe_types::daemon::{DaemonCommand, DaemonErrorInfo};
 use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellVerdict};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use tokio::sync::oneshot;
+use tokio::sync::mpsc;
 
 use crate::protocol::{response_failure, response_success, DaemonOutbound, DaemonResponse};
 use crate::worker::{EventPump, OutboundFrame, SessionCore};
@@ -43,44 +50,20 @@ const ANSWER_COMMAND: &str = "answer_shell_approval";
 
 const RELAY_COMMAND: &str = "relay_shell_approval";
 
-/// Request id -> the waiting step's answer slot.
-type Pending = HashMap<String, oneshot::Sender<ShellVerdict>>;
-
-/// Who answers a question of the session now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Attendance {
-    /// An interactive client is attached (the TUI, the dashboard): the
-    /// session asks its clients.
-    Interactive,
-    /// Clients are attached, and all are the phone gateway: the gateway
-    /// rule answers at once.
-    GatewayOnly,
-    /// No client is attached: the question goes to the parent session.
-    Nobody,
-}
-
-impl Attendance {
-    fn of(core: &SessionCore) -> Self {
-        if core.attached_client_ids.is_empty() {
-            Self::Nobody
-        } else if core
-            .attached_client_ids
-            .iter()
-            .all(|id| core.gateway_client_ids.contains(id))
-        {
-            Self::GatewayOnly
-        } else {
-            Self::Interactive
-        }
-    }
-
-    /// The attendance as the compiled core reads it.
-    fn here(self) -> Here {
-        match self {
-            Self::Interactive => Here::Clients,
-            Self::GatewayOnly => Here::GatewayOnly,
-            Self::Nobody => Here::Nobody,
-        }
+/// Who answers a question of the session now, as attached: no client,
+/// only the phone gateway, or an interactive client (the TUI, the
+/// dashboard).
+fn here(core: &SessionCore) -> Here {
+    if core.attached_client_ids.is_empty() {
+        Here::Nobody
+    } else if core
+        .attached_client_ids
+        .iter()
+        .all(|id| core.gateway_client_ids.contains(id))
+    {
+        Here::GatewayOnly
+    } else {
+        Here::Clients
     }
 }
 
@@ -91,11 +74,40 @@ fn parent_of(core: &SessionCore) -> Option<String> {
         .or_else(|| core.parent_active_session_id.clone())
 }
 
+fn parent(core: &SessionCore) -> Parent {
+    match parent_of(core) {
+        Some(_) => Parent::Above,
+        None => Parent::Root,
+    }
+}
+
 /// Sends one `relay_shell_approval` command and answers its response: the
 /// worker's supervisor link (the supervisor routes the command to the
 /// parent session's worker).
 pub(crate) type Relay =
     Arc<dyn Fn(Value) -> BoxFuture<'static, anyhow::Result<DaemonResponse>> + Send + Sync>;
+
+/// What the desk tells a waiting step.
+enum Turn {
+    /// Hand the question to the parent session.
+    Relay,
+    /// The step fares this answer.
+    Wake(ShellAnswer),
+}
+
+/// One open question: what its frames carry, and its step's waiter.
+struct Open {
+    request: ShellApprovalRequest,
+    /// The subagent that asks, when the question came up from a child.
+    agent: Option<String>,
+    waiter: mpsc::UnboundedSender<Turn>,
+}
+
+/// The session's desk and the open questions by the desk's key.
+struct Office {
+    desk: approvals::Desk,
+    open: HashMap<Key, Open>,
+}
 
 /// The session's open shell approval questions.
 #[derive(Clone)]
@@ -103,39 +115,24 @@ pub(crate) struct ShellApprovals {
     core: Arc<Mutex<SessionCore>>,
     events: Arc<EventPump>,
     active_session_id: String,
-    pending: Arc<Mutex<Pending>>,
+    office: Arc<Mutex<Office>>,
     relay: Relay,
 }
 
-/// One question waiting on the session's clients. Dropped when the wait
-/// ends (an answer, the detach of the last interactive client, or the
-/// step's cancellation, which drops the waiting future): it removes the
-/// question and tells every client that it is settled.
+/// The wait of one step. Dropped before its wake (the step's
+/// cancellation), it tells the desk the step stopped waiting.
 struct Waiting<'a> {
     approvals: &'a ShellApprovals,
-    request_id: &'a str,
+    key: Option<Key>,
 }
 
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
-        self.approvals
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(self.request_id);
-        let outbound = DaemonOutbound::ShellApprovalSettled {
-            active_session_id: self.approvals.active_session_id.clone(),
-            request_id: self.request_id.to_owned(),
-            rest: Map::default(),
-        };
-        match serde_json::to_vec(&outbound) {
-            Ok(payload) => self
-                .approvals
-                .events
-                .send(OutboundFrame::shell_approval_settled(payload)),
-            Err(error) => {
-                tracing::error!(%error, "the shell approval settled frame does not serialize");
-            }
+        if let Some(key) = self.key.take() {
+            let mut office = self.approvals.lock_office();
+            let acts = office.desk.cancel(key);
+            self.approvals.perform(&mut office, acts);
+            office.open.remove(&key);
         }
     }
 }
@@ -151,14 +148,20 @@ impl ShellApprovals {
             core,
             events,
             active_session_id,
-            pending: Arc::default(),
+            office: Arc::new(Mutex::new(Office {
+                desk: approvals::Desk::open(),
+                open: HashMap::new(),
+            })),
             relay,
         }
     }
 
+    fn lock_office(&self) -> std::sync::MutexGuard<'_, Office> {
+        self.office.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Ask about one step of this session (the session's `shell_approval`
-    /// sink): its attached clients, the gateway rule, else its parent
-    /// session.
+    /// sink).
     #[tracing::instrument(skip_all, fields(request_id = %request.request_id, step = request.step))]
     pub(crate) async fn ask(&self, request: ShellApprovalRequest) -> ShellAnswer {
         self.route(request, None).await
@@ -180,101 +183,97 @@ impl ShellApprovals {
         response_success(None, RELAY_COMMAND, Some(json!({ "answer": answer })))
     }
 
-    /// Ask this session's attached clients (a frame naming `agent`, the
-    /// subagent that asks, when the question came up from a child), end
-    /// the question here, or hand it to the parent session, as the
-    /// compiled core decides for the session (`eukhe_bend::rules::
-    /// approvals::next`: the gateway rule when its clients are all the
-    /// phone gateway; the parent when none is attached; no answer at a
-    /// root). A question whose interactive clients all detach before an
-    /// answer is routed again. [`ShellAnswer::Unanswered`] when the frame
-    /// does not serialize (logged) or when the relay fails (logged).
+    /// The question reaches the session's desk; wait for its wake, relaying
+    /// it to the parent session when the desk says so.
+    /// [`ShellAnswer::Unanswered`] when its request id is longer than the
+    /// core's wire carries (logged).
     async fn route(&self, request: ShellApprovalRequest, agent: Option<String>) -> ShellAnswer {
-        let (parent, agent) = loop {
-            let receiver = {
-                // The attendance check and the insert hold the core lock,
-                // the lock the detach paths hold while they drop the
-                // pending answers: a question ends here or goes up the
-                // chain at once, or waits here until an answer, or the
-                // detach of the last interactive client, which routes it
-                // again.
-                let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
-                let parent = parent_of(&core);
-                let next = approvals::next(
-                    Attendance::of(&core).here(),
-                    request.effects,
-                    match parent {
-                        Some(_) => Parent::Above,
-                        None => Parent::Root,
-                    },
-                );
-                match (next, parent) {
-                    (Next::Show, _) => {
-                        let (sender, receiver) = oneshot::channel();
-                        self.pending
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .insert(request.request_id.clone(), sender);
-                        receiver
-                    }
-                    (Next::Ends(answer), _) => {
-                        if answer == ShellAnswer::GatewayRefused {
-                            tracing::info!(effects = %request.effects.names(), "the gateway rule refused a step");
-                        }
-                        return answer;
-                    }
-                    (Next::Relay, Some(parent)) => {
-                        // The subagent that asks: the first session of the
-                        // chain.
-                        let agent = agent.unwrap_or_else(|| {
-                            core.session_name
-                                .clone()
-                                .or_else(|| core.rlm_child_id.clone())
-                                .unwrap_or_else(|| self.active_session_id.clone())
-                        });
-                        break (parent, agent);
-                    }
-                    (Next::Relay, None) => {
-                        unreachable!(
-                            "the compiled core relays only the question of a session with a parent"
-                        )
-                    }
+        let (waiter, mut turns) = mpsc::unbounded_channel();
+        let key = {
+            // Who answers the session is read under the core lock, the lock
+            // the detach paths hold while they tell the desk: the desk sees
+            // the question and the detaches in the order they happened.
+            let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut office = self.lock_office();
+            let asked = office.desk.ask(
+                &request.request_id,
+                request.effects,
+                here(&core),
+                parent(&core),
+            );
+            let (key, acts) = match asked {
+                Ok(asked) => asked,
+                Err(error) => {
+                    tracing::error!(%error, "the shell approval question does not reach the desk");
+                    return ShellAnswer::Unanswered;
                 }
             };
-            let waiting = Waiting {
-                approvals: self,
-                request_id: &request.request_id,
-            };
-            // The question may be routed again: the frame keeps its own
-            // copy.
-            let outbound = DaemonOutbound::ShellApproval {
-                active_session_id: self.active_session_id.clone(),
-                request: request.clone(),
-                agent: agent.clone(),
-                rest: Map::default(),
-            };
-            match serde_json::to_vec(&outbound) {
-                Ok(payload) => self.events.send(OutboundFrame::shell_approval(payload)),
-                Err(error) => {
-                    tracing::error!(%error, "the shell approval frame does not serialize");
+            office.open.insert(
+                key,
+                Open {
+                    request: request.clone(),
+                    agent: agent.clone(),
+                    waiter,
+                },
+            );
+            self.perform(&mut office, acts);
+            key
+        };
+        let mut waiting = Waiting {
+            approvals: self,
+            key: Some(key),
+        };
+        loop {
+            match turns.recv().await {
+                Some(Turn::Wake(answer)) => {
+                    waiting.key = None;
+                    if answer == ShellAnswer::GatewayRefused {
+                        tracing::info!(effects = %request.effects.names(), "the gateway rule refused a step");
+                    }
+                    return answer;
+                }
+                Some(Turn::Relay) => {
+                    let answer = self.relay_up(&request, agent.as_deref()).await;
+                    let mut office = self.lock_office();
+                    let acts = office.desk.back(key, answer);
+                    self.perform(&mut office, acts);
+                }
+                // The waiter goes only with the question's wake, which
+                // comes first.
+                None => {
+                    waiting.key = None;
+                    tracing::error!("a shell approval question lost its waiter");
                     return ShellAnswer::Unanswered;
                 }
             }
-            let verdict = receiver.await;
-            drop(waiting);
-            match verdict {
-                Ok(ShellVerdict::Approve) => {
-                    return approvals::answered(request.effects, Said::Yes)
-                }
-                Ok(ShellVerdict::Deny) => return approvals::answered(request.effects, Said::No),
-                // The last interactive client detached: route it again.
-                Err(_) => {}
-            }
+        }
+    }
+
+    /// Hand the question to the parent session and answer its answer:
+    /// [`ShellAnswer::Unanswered`] when the relay fails (logged).
+    async fn relay_up(&self, request: &ShellApprovalRequest, agent: Option<&str>) -> ShellAnswer {
+        let (parent, agent) = {
+            let core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
+            // The subagent that asks: the first session of the chain.
+            let agent = agent.map_or_else(
+                || {
+                    core.session_name
+                        .clone()
+                        .or_else(|| core.rlm_child_id.clone())
+                        .unwrap_or_else(|| self.active_session_id.clone())
+                },
+                ToOwned::to_owned,
+            );
+            (parent_of(&core), agent)
+        };
+        let Some(parent) = parent else {
+            tracing::error!("the desk relayed the question of a session with no parent");
+            return ShellAnswer::Unanswered;
         };
         let command = DaemonCommand::RelayShellApproval {
             id: None,
             active_session_id: parent,
-            request,
+            request: request.clone(),
             agent,
             rest: Map::default(),
         };
@@ -319,7 +318,8 @@ impl ShellApprovals {
         }
     }
 
-    /// `answer_shell_approval`: resolve the named question with the verdict.
+    /// `answer_shell_approval`: the verdict of a client on the question its
+    /// frame named.
     pub(crate) fn answer(&self, payload: &Value) -> DaemonResponse {
         let request_id = payload
             .get("requestId")
@@ -331,40 +331,98 @@ impl ShellApprovals {
         else {
             return response_failure(None, ANSWER_COMMAND, "Invalid shell approval verdict", None);
         };
-        let slot = self
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(request_id);
-        match slot.map(|slot| slot.send(verdict)) {
-            Some(Ok(())) => response_success(None, ANSWER_COMMAND, None),
-            Some(Err(_)) | None => response_failure(
+        let said = match verdict {
+            ShellVerdict::Approve => Said::Yes,
+            ShellVerdict::Deny => Said::No,
+        };
+        let mut office = self.lock_office();
+        let took = match office.desk.answer(request_id, said) {
+            Ok(acts) => self.perform(&mut office, acts),
+            Err(error) => {
+                tracing::warn!(%error, "the shell approval answer does not reach the desk");
+                false
+            }
+        };
+        if took {
+            response_success(None, ANSWER_COMMAND, None)
+        } else {
+            response_failure(
                 None,
                 ANSWER_COMMAND,
                 &format!("No pending shell approval: {request_id}"),
                 Some(DaemonErrorInfo::ShellApprovalGone),
-            ),
+            )
         }
     }
 
-    /// Drop every open question once no interactive client is attached
-    /// (the detach paths call this with the core lock held, after the
-    /// release): each is routed again, so the gateway rule answers it, or
-    /// it goes up to the parent session, or is left unanswered at a root.
-    pub(crate) fn release_if_no_interactive_client(&self, core: &SessionCore) {
-        match Attendance::of(core) {
-            Attendance::Interactive => {}
-            Attendance::GatewayOnly | Attendance::Nobody => self
-                .pending
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clear(),
+    /// A client detached (the detach paths call this with the core lock
+    /// held, after the release): the desk decides what becomes of the
+    /// questions its clients had.
+    pub(crate) fn detached(&self, core: &SessionCore) {
+        let mut office = self.lock_office();
+        let acts = office.desk.detach(here(core), parent(core));
+        self.perform(&mut office, acts);
+    }
+
+    /// Do the desk's acts, in order; whether one took a client's answer.
+    fn perform(&self, office: &mut Office, acts: Vec<Act>) -> bool {
+        let mut took = false;
+        for act in acts {
+            match act {
+                Act::Show(key) => {
+                    if let Some(open) = office.open.get(&key) {
+                        self.send(
+                            &DaemonOutbound::ShellApproval {
+                                active_session_id: self.active_session_id.clone(),
+                                request: open.request.clone(),
+                                agent: open.agent.clone(),
+                                rest: Map::default(),
+                            },
+                            OutboundFrame::shell_approval,
+                        );
+                    }
+                }
+                Act::Settle(key) => {
+                    if let Some(open) = office.open.get(&key) {
+                        self.send(
+                            &DaemonOutbound::ShellApprovalSettled {
+                                active_session_id: self.active_session_id.clone(),
+                                request_id: open.request.request_id.clone(),
+                                rest: Map::default(),
+                            },
+                            OutboundFrame::shell_approval_settled,
+                        );
+                    }
+                }
+                Act::Relay(key) => {
+                    if let Some(open) = office.open.get(&key) {
+                        // A step that stopped waiting is gone: its cancel
+                        // reaches the desk when its wait drops.
+                        let _ = open.waiter.send(Turn::Relay);
+                    }
+                }
+                Act::Wake(key, answer) => {
+                    if let Some(open) = office.open.remove(&key) {
+                        let _ = open.waiter.send(Turn::Wake(answer));
+                    }
+                }
+                Act::Took => took = true,
+                Act::Gone => took = false,
+            }
+        }
+        took
+    }
+
+    /// Broadcast one frame to the session's clients.
+    fn send(&self, outbound: &DaemonOutbound, frame: fn(Vec<u8>) -> OutboundFrame) {
+        match serde_json::to_vec(outbound) {
+            Ok(payload) => self.events.send(frame(payload)),
+            Err(error) => {
+                tracing::error!(%error, "a shell approval frame does not serialize");
+            }
         }
     }
 }
-
-#[cfg(test)]
-mod bridge;
 
 #[cfg(test)]
 mod tests {
@@ -452,7 +510,7 @@ mod tests {
         {
             let mut core = approvals.core.lock().unwrap();
             core.attached_client_ids.clear();
-            approvals.release_if_no_interactive_client(&core);
+            approvals.detached(&core);
         }
         assert_eq!(asking.await.unwrap(), ShellAnswer::Unanswered);
     }
@@ -543,6 +601,188 @@ mod tests {
                 Some(DaemonErrorInfo::ShellApprovalGone)
             )
         );
-        assert!(approvals.pending.lock().unwrap().is_empty());
+        assert!(approvals.lock_office().open.is_empty());
+    }
+
+    /// A chain of real sessions, the asker first: each hands a question up
+    /// through its parent's real `relay_shell_approval` handler (in place of
+    /// the supervisor link, which only carries the command). Each entry:
+    /// the session's attached client ids and its gateway client ids.
+    fn chain(sessions: &[(&[&str], &[&str])]) -> Vec<ShellApprovals> {
+        let mut built: Vec<ShellApprovals> = Vec::new();
+        for (at, (attached, gateway)) in sessions.iter().enumerate().rev() {
+            let mut core = SessionCore::test_core("/tmp".to_string());
+            core.session_name = Some(if at == 0 {
+                "scout".to_string()
+            } else {
+                format!("s{at}")
+            });
+            core.attached_client_ids = attached.iter().map(ToString::to_string).collect();
+            core.gateway_client_ids = gateway.iter().map(ToString::to_string).collect();
+            let relay: Relay = match built.last().cloned() {
+                Some(parent) => {
+                    let parent_id = format!("session-{}", at + 1);
+                    core.parent_session_id = Some(parent_id.clone());
+                    Arc::new(move |command: Value| {
+                        let (parent, parent_id) = (parent.clone(), parent_id.clone());
+                        Box::pin(async move {
+                            let to = command.get("activeSessionId").and_then(Value::as_str);
+                            anyhow::ensure!(to == Some(parent_id.as_str()), "relayed to {to:?}");
+                            Ok(parent.relay(&command).await)
+                        })
+                    })
+                }
+                None => Arc::new(|command| panic!("a root session relayed {command}")),
+            };
+            built.push(ShellApprovals::new(
+                Arc::new(Mutex::new(core)),
+                Arc::new(EventPump::new()),
+                format!("live-{at}"),
+                relay,
+            ));
+        }
+        built.reverse();
+        built
+    }
+
+    /// Detach every interactive client of `approvals`' session.
+    fn interactive_clients_leave(approvals: &ShellApprovals) {
+        let mut guard = approvals.core.lock().unwrap();
+        let core = &mut *guard;
+        core.attached_client_ids
+            .retain(|id| core.gateway_client_ids.contains(id));
+        approvals.detached(core);
+    }
+
+    /// A subagent with no client asks: the question goes up to the root,
+    /// whose frame names the subagent; the root's denial is the verdict.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_subagents_question_reaches_the_root_and_its_answer_comes_back() {
+        let sessions = chain(&[(&[], &[]), (&[], &[]), (&["tui"], &[])]);
+        let mut root_frames = sessions[2].events.subscribe();
+        let asking = tokio::spawn({
+            let asker = sessions[0].clone();
+            async move { asker.ask(request("call-1:0")).await }
+        });
+        let frame = next_frame(&mut root_frames).await;
+        assert_eq!(frame["agent"], "scout");
+        assert_eq!(frame["activeSessionId"], "live-2");
+        let denied = sessions[2].answer(&json!({ "requestId": "call-1:0", "verdict": "deny" }));
+        assert!(denied.success, "{denied:?}");
+        assert_eq!(asking.await.unwrap(), ShellAnswer::Deny);
+        assert!(sessions
+            .iter()
+            .all(|session| session.lock_office().open.is_empty()));
+    }
+
+    /// The subagent's own client sees the question and leaves: the question
+    /// is settled there and goes up; the parent's client approves.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_question_its_clients_leave_goes_up_the_chain() {
+        let sessions = chain(&[(&["tui-0"], &[]), (&["tui-1"], &[])]);
+        let mut child_frames = sessions[0].events.subscribe();
+        let mut parent_frames = sessions[1].events.subscribe();
+        let asking = tokio::spawn({
+            let asker = sessions[0].clone();
+            async move { asker.ask(request("call-1:0")).await }
+        });
+        assert_eq!(next_frame(&mut child_frames).await["agent"], Value::Null);
+        interactive_clients_leave(&sessions[0]);
+        assert_eq!(
+            settled_frame(&mut child_frames).await["requestId"],
+            "call-1:0"
+        );
+        assert_eq!(next_frame(&mut parent_frames).await["agent"], "scout");
+        // The child's clients are gone: an answer there finds nothing.
+        assert!(
+            !sessions[0]
+                .answer(&json!({ "requestId": "call-1:0", "verdict": "approve" }))
+                .success
+        );
+        let approved =
+            sessions[1].answer(&json!({ "requestId": "call-1:0", "verdict": "approve" }));
+        assert!(approved.success, "{approved:?}");
+        assert_eq!(asking.await.unwrap(), ShellAnswer::Approve);
+    }
+
+    /// The interactive client leaves while the phone gateway stays: the
+    /// gateway rule answers there (a secret read is refused), and nothing
+    /// goes up the chain (the parent would panic on a relay).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_question_left_to_the_gateway_is_ruled_there() {
+        let sessions = chain(&[(&["tui", "phone"], &["phone"])]);
+        let mut frames = sessions[0].events.subscribe();
+        let asking = tokio::spawn({
+            let asker = sessions[0].clone();
+            async move {
+                asker
+                    .ask(ShellApprovalRequest {
+                        effects: eukhe_types::shell::ShellEffects::of(&[
+                            eukhe_types::shell::ShellEffect::Read,
+                            eukhe_types::shell::ShellEffect::Secret,
+                        ]),
+                        ..request("call-1:0")
+                    })
+                    .await
+            }
+        });
+        next_frame(&mut frames).await;
+        interactive_clients_leave(&sessions[0]);
+        assert_eq!(asking.await.unwrap(), ShellAnswer::GatewayRefused);
+    }
+
+    /// Two questions with the same request id (two subagents' first steps)
+    /// on one session: an answer goes to the oldest, the next to the other,
+    /// a third finds none.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn each_answer_wakes_one_question_once() {
+        let approvals = approvals(&["tui"]);
+        let mut frames = approvals.events.subscribe();
+        let first = tokio::spawn({
+            let approvals = approvals.clone();
+            async move { approvals.ask(request("call-1:0")).await }
+        });
+        next_frame(&mut frames).await;
+        let second = tokio::spawn({
+            let approvals = approvals.clone();
+            async move { approvals.ask(request("call-1:0")).await }
+        });
+        next_frame(&mut frames).await;
+        let answer = |verdict: &str| {
+            approvals
+                .answer(&json!({ "requestId": "call-1:0", "verdict": verdict }))
+                .success
+        };
+        assert_eq!(
+            (answer("deny"), answer("approve"), answer("approve")),
+            (true, true, false)
+        );
+        assert_eq!(
+            (first.await.unwrap(), second.await.unwrap()),
+            (ShellAnswer::Deny, ShellAnswer::Approve)
+        );
+    }
+
+    /// A subagent's step cancelled while its question waits on the root's
+    /// clients: the relay is dropped, and the root's clients are told the
+    /// question is settled.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_subagent_step_settles_its_question_up_the_chain() {
+        let sessions = chain(&[(&[], &[]), (&["tui"], &[])]);
+        let mut root_frames = sessions[1].events.subscribe();
+        let asking = tokio::spawn({
+            let asker = sessions[0].clone();
+            async move { asker.ask(request("call-1:0")).await }
+        });
+        next_frame(&mut root_frames).await;
+        asking.abort();
+        assert!(asking.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            settled_frame(&mut root_frames).await["requestId"],
+            "call-1:0"
+        );
+        assert!(sessions
+            .iter()
+            .all(|session| session.lock_office().open.is_empty()));
     }
 }

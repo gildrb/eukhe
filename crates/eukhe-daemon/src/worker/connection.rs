@@ -1204,7 +1204,7 @@ impl Worker {
                 core.gateway_client_ids.retain(|entry| entry != id);
             }
         }
-        self.shell_approvals.release_if_no_interactive_client(&core);
+        self.shell_approvals.detached(&core);
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1240,7 +1240,7 @@ impl Worker {
             core.attached_client_ids.retain(|id| id != &client_id);
             core.gateway_client_ids.retain(|id| id != &client_id);
         }
-        self.shell_approvals.release_if_no_interactive_client(&core);
+        self.shell_approvals.detached(&core);
         drop(core);
         response_success(None, "detach", None)
     }
