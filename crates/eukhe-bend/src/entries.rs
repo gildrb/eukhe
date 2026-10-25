@@ -148,6 +148,8 @@ pub enum Entry {
     Throttle = 267,
     /// `bend/ffi_tree_commit.bend`: a call.
     TreeCommit = 268,
+    /// `bend/ffi_context_order.bend`: a call.
+    ContextOrder = 269,
 }
 
 impl Entry {
@@ -224,6 +226,7 @@ impl Entry {
         Entry::Repeat,
         Entry::Throttle,
         Entry::TreeCommit,
+        Entry::ContextOrder,
     ];
 
     /// The id `bend/core.bend` dispatches on.

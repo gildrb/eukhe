@@ -83,3 +83,4 @@ import ./laws/node_error.bend as NodeError
 import ./laws/repeat.bend as Repeat
 import ./laws/throttle.bend as Throttle
 import ./laws/tree_commit.bend as TreeCommit
+import ./laws/context_order.bend as ContextOrder
