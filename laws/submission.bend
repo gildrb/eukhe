@@ -378,3 +378,128 @@ law submission_ffi_example:
   {FSb.ffi("8,2,") == Wr.err("submission: malformed request") : String} &
   {FSb.ffi("0,3,") == Wr.err("submission: malformed request") : String} &
   {FSb.ffi("0,") == Wr.err("submission: malformed request") : String}
+
+# Spec reader
+# -----------
+# The request an input spells, read with the wire primitives alone, and the
+# input after it; Bad when the input spells no request.
+
+# a request: the submission and the change
+type SpecReq is Data:
+  SpecReq{sub: Sb.Sub, change: Sb.Change}
+
+# a submission with one id: k 0 placed input, 1 input unanswered at its
+# entry, 2 placed write
+def read_sub.one(r: Wr.Dec<Nat>, k: Nat) -> Wr.Dec<Sb.Sub>:
+  match r:
+    case Wr.Got{e, s}:
+      match k:
+        case 0n:
+          Wr.Got{Sb.InPlaced{e}, s}
+        case 1n:
+          Wr.Got{Sb.InDropped{Some{e}}, s}
+        case 2n+u:
+          Wr.Got{Sb.WrPlaced{e}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_sub.answer(e: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
+  match r:
+    case Wr.Got{a, s}:
+      Wr.Got{Sb.InAnswered{e, a}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_sub.two(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
+  match r:
+    case Wr.Got{e, s}:
+      read_sub.answer(e, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a submission: its tag (0 to 7, as R5 lists them), then its ids
+def read_sub(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Sub>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Sb.InQueued{}, s}
+        case 1n:
+          read_sub.one(Wr.get_nat(s), 0n)
+        case 2n:
+          read_sub.two(Wr.get_nat(s))
+        case 3n:
+          Wr.Got{Sb.InDropped{None{}}, s}
+        case 4n:
+          read_sub.one(Wr.get_nat(s), 1n)
+        case 5n:
+          Wr.Got{Sb.WrQueued{}, s}
+        case 6n:
+          read_sub.one(Wr.get_nat(s), 2n)
+        case 7n:
+          Wr.Got{Sb.WrDropped{}, s}
+        case 8n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a change with one id: k 0 place, 1 answer
+def read_change.one(r: Wr.Dec<Nat>, k: Nat) -> Wr.Dec<Sb.Change>:
+  match r:
+    case Wr.Got{n, s}:
+      match k:
+        case 0n:
+          Wr.Got{Sb.Place{n}, s}
+        case 1n+u:
+          Wr.Got{Sb.Answer{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a change: 0 place and the entry, 1 answer and the answer entry, 2 settle
+# unanswered
+def read_change(r: Wr.Dec<Nat>) -> Wr.Dec<Sb.Change>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          read_change.one(Wr.get_nat(s), 0n)
+        case 1n:
+          read_change.one(Wr.get_nat(s), 1n)
+        case 2n:
+          Wr.Got{Sb.Drop{}, s}
+        case 3n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_req.change(x: Sb.Sub, r: Wr.Dec<Sb.Change>) -> Wr.Dec<SpecReq>:
+  match r:
+    case Wr.Got{c, s}:
+      Wr.Got{SpecReq{x, c}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_req(r: Wr.Dec<Sb.Sub>) -> Wr.Dec<SpecReq>:
+  match r:
+    case Wr.Got{x, s}:
+      read_req.change(x, read_change(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s spells and the input after it, or Bad
+def read_spec(s: String) -> Wr.Dec<SpecReq>:
+  read_req(read_sub(Wr.get_nat(s)))
+
+# LAW submission_ffi_malformed_exact: every input that spells no request (an unknown tag, a missing id or change) answers exactly the error form "submission: malformed request"
+# EXCLUDES: another error text for a malformed request (the left-over text,
+#   a made-up one), a default outcome
+law submission_ffi_malformed_exact:
+  for +x: String
+  for no: {read_spec(x) == Wr.Bad{} : Wr.Dec<SpecReq>}
+  {FSb.ffi(x) == Wr.err("submission: malformed request") : String}
+
+# LAW submission_ffi_read_example: anchor: the spec reader reads a spelled request and leaves the rest, and refuses an unknown change
+# EXCLUDES: a vacuous submission_ffi_malformed_exact (a reader that never reads)
+law submission_ffi_read_example:
+  {read_spec("1,7,1,9,x") == Wr.Got{SpecReq{Sb.InPlaced{7n}, Sb.Answer{9n}}, "x"} : Wr.Dec<SpecReq>} &
+  {read_spec("0,3,") == Wr.Bad{} : Wr.Dec<SpecReq>}

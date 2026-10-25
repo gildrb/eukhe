@@ -328,3 +328,172 @@ law scan_ffi_example:
   {FSc.ffi("0,0,1,2,0,1,") == "0,1,T" : String} &
   {FSc.ffi("0,0,1,2,4,1,") == Wr.err("scan: malformed request") : String} &
   {FSc.ffi("2,") == Wr.err("scan: malformed request") : String}
+
+# Spec reader
+# -----------
+# The request an input spells, read with the wire primitives alone, and the
+# input after it; Bad when the input spells no request.
+
+# an `after` field: 0 absent, 1 not a safe integer, 2 a safe integer
+def read_after(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.After>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Sc.NoAfter{}, s}
+        case 1n:
+          Wr.Got{Sc.BadAfter{}, s}
+        case 2n:
+          Wr.Got{Sc.SafeAfter{}, s}
+        case 3n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an `order` field: 0 absent, 1 ascending, 2 descending, 3 other
+def read_mark(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.Mark>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Sc.NoMark{}, s}
+        case 1n:
+          Wr.Got{Sc.AscMark{}, s}
+        case 2n:
+          Wr.Got{Sc.DescMark{}, s}
+        case 3n:
+          Wr.Got{Sc.BadMark{}, s}
+        case 4n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an order: 0 ascending, 1 descending
+def read_order(r: Wr.Dec<Nat>) -> Wr.Dec<Sc.Order>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Sc.Asc{}, s}
+        case 1n:
+          Wr.Got{Sc.Desc{}, s}
+        case 2n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the order asked: 0 none, 1 ascending, 2 descending
+def read_asked(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Sc.Order>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          Wr.Got{Some{Sc.Asc{}}, s}
+        case 2n:
+          Wr.Got{Some{Sc.Desc{}}, s}
+        case 3n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_cursor.mark(a: Sc.After, m: Wr.Dec<Sc.Mark>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{k, s}:
+      Wr.Got{Some{Sc.Cursor{a, k}}, s}
+
+def read_cursor.after(m: Wr.Dec<Sc.After>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{a, s}:
+      read_cursor.mark(a, read_mark(Wr.get_nat(s)))
+
+# a cursor: 0 none; 1, its `after` field, its `order` field
+def read_cursor(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Sc.Cursor>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          read_cursor.after(read_after(Wr.get_nat(s)))
+        case 2n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_start.order(asked: Maybe<&2, Sc.Order>, c: Maybe<&2, Sc.Cursor>, m: Wr.Dec<Sc.Order>) -> Wr.Dec<FSc.Req>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{f, s}:
+      Wr.Got{FSc.QStart{asked, c, f}, s}
+
+def read_start.cursor(asked: Maybe<&2, Sc.Order>, m: Wr.Dec<Maybe<&2, Sc.Cursor>>) -> Wr.Dec<FSc.Req>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{c, s}:
+      read_start.order(asked, c, read_order(Wr.get_nat(s)))
+
+def read_start(m: Wr.Dec<Maybe<&2, Sc.Order>>) -> Wr.Dec<FSc.Req>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{asked, s}:
+      read_start.cursor(asked, read_cursor(Wr.get_nat(s)))
+
+def read_id.after(m: Wr.Dec<Sc.After>) -> Wr.Dec<FSc.Req>:
+  match m:
+    case Wr.Bad{}:
+      Wr.Bad{}
+    case Wr.Got{a, s}:
+      Wr.Got{FSc.QId{Some{a}}, s}
+
+def read_id(r: Wr.Dec<Nat>) -> Wr.Dec<FSc.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{FSc.QId{None{}}, s}
+        case 1n:
+          read_id.after(read_after(Wr.get_nat(s)))
+        case 2n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_spec.tag(r: Wr.Dec<Nat>) -> Wr.Dec<FSc.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          read_start(read_asked(Wr.get_nat(s)))
+        case 1n:
+          read_id(Wr.get_nat(s))
+        case 2n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s spells and the input after it, or Bad
+def read_spec(s: String) -> Wr.Dec<FSc.Req>:
+  read_spec.tag(Wr.get_nat(s))
+
+# LAW scan_ffi_malformed_exact: every input that spells no request (an unknown tag, a missing field) answers exactly the error form "scan: malformed request"
+# EXCLUDES: another error text for a malformed request (the left-over text,
+#   a made-up one), a default answer
+law scan_ffi_malformed_exact:
+  for +s: String
+  for no: {read_spec(s) == Wr.Bad{} : Wr.Dec<FSc.Req>}
+  {FSc.ffi(s) == Wr.err("scan: malformed request") : String}
+
+# LAW scan_ffi_read_example: anchor: the spec reader reads a spelled request and leaves the rest, and refuses an unknown tag
+# EXCLUDES: a vacuous scan_ffi_malformed_exact (a reader that never reads)
+law scan_ffi_read_example:
+  {read_spec("1,1,2,x") == Wr.Got{FSc.QId{Some{Sc.SafeAfter{}}}, "x"} : Wr.Dec<FSc.Req>} &
+  {read_spec("0,3,") == Wr.Bad{} : Wr.Dec<FSc.Req>}

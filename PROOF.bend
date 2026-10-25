@@ -1549,3 +1549,7 @@ import ./proof/scan/scan_ffi_example.bend as PScanFfiExample
 import ./proof/scan/scan_ffi_answers.bend as PScanFfiAnswers
 import ./proof/scan/scan_ffi_left_over.bend as PScanFfiLeftOver
 import ./proof/scan/scan_ffi_exact.bend as PScanFfiExact
+import ./proof/scan/scan_ffi_malformed_exact.bend as PScanFfiMalformedExact
+import ./proof/scan/scan_ffi_read_example.bend as PScanFfiReadExample
+import ./proof/submission/submission_ffi_malformed_exact.bend as PSubmissionFfiMalformedExact
+import ./proof/submission/submission_ffi_read_example.bend as PSubmissionFfiReadExample
