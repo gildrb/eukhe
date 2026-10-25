@@ -52,6 +52,7 @@ import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
+import ./ffi_package_source.bend as ffi_package_source
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
@@ -248,6 +249,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_goal_text.ffi(input)
     case 293:
       ffi_redirect_input.ffi(input)
+    case 294:
+      ffi_package_source.ffi(input)
     case _:
       W.err("unknown entry")
 

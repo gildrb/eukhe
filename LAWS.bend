@@ -93,3 +93,5 @@ import ./laws/slash_args/model.bend as SlashArgs
 import ./laws/slash_args/entry.bend as SlashArgsEntry
 import ./laws/goal_text.bend as GoalText
 import ./laws/redirect_input.bend as RedirectInput
+import ./laws/package_source/model.bend as PackageSource
+import ./laws/package_source/entry.bend as PackageSourceEntry
