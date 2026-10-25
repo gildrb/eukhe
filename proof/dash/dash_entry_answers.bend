@@ -2,9 +2,8 @@
 #
 # PROOF: the spelled request reads back whole with nothing left
 # (dash_entry_reads), so the entry answers the code's choice; each choice
-# is the spec's (dash_token_spec, dash_stored_spec, dash_gate_spec,
-# dash_frame_spec, dash_keep_spec) and each reply encoder is the spec's
-# spelling (da.*: case by case).
+# is the spec's (dash_token_spec, dash_stored_spec, dash_keep_spec) and
+# each reply encoder is the spec's spelling (da.*: case by case).
 
 import Base
 import ../../bend/dash.bend as Da
@@ -13,8 +12,6 @@ import ../../bend/wire.bend as Wr
 import ../../laws/dash.bend as Dash
 import ./dash_token_spec.bend as PDashTokenSpec
 import ./dash_stored_spec.bend as PDashStoredSpec
-import ./dash_gate_spec.bend as PDashGateSpec
-import ./dash_frame_spec.bend as PDashFrameSpec
 import ./dash_keep_spec.bend as PDashKeepSpec
 import ./dash_entry_reads.bend as PDashEntryReads
 
@@ -32,13 +29,6 @@ def da.stored(m: Maybe<&2, List<&2, Nat>>) -> {FDa.put_stored(m) == Dash.sp_w_st
     case Some{bs}:
       {==}
     case None{}:
-      {==}
-
-def da.pass(p: Da.Pass) -> {FDa.put_pass(p) == Dash.sp_w_pass(p) : String}:
-  match p:
-    case Da.Admit{}:
-      {==}
-    case Da.Refuse{t}:
       {==}
 
 def da.keep(k: Da.Keep) -> {FDa.keep.tag(k) == Dash.sp_w_keep(k) : Nat}:
@@ -62,12 +52,6 @@ def da.reply(q: FDa.Req) -> {FDa.answer(q) == Dash.sp_w_reply(q) : String}:
     case FDa.QStored{+f}:
       %Equal.sym(Maybe<&2, List<&2, Nat>>, Da.stored(f), Dash.sp_stored(f), Dash.dash_stored_spec(f)) : {FDa.put_stored(_) == Dash.sp_w_stored(Dash.sp_stored(f)) : String}
       da.stored(Dash.sp_stored(f))
-    case FDa.QGate{+x, +f, +b}:
-      %Equal.sym(Da.Pass, Da.gate(x, f, b), Dash.sp_gate(x, f, b), Dash.dash_gate_spec(x, f, b)) : {FDa.put_pass(_) == Dash.sp_w_pass(Dash.sp_gate(x, f, b)) : String}
-      da.pass(Dash.sp_gate(x, f, b))
-    case FDa.QFrame{+f, +b}:
-      %Equal.sym(Da.Pass, Da.frame(f, b), Dash.sp_frame(f, b), Dash.dash_frame_spec(f, b)) : {FDa.put_pass(_) == Dash.sp_w_pass(Dash.sp_frame(f, b)) : String}
-      da.pass(Dash.sp_frame(f, b))
     case FDa.QKeep{+o, +f, +m}:
       %Equal.sym(Da.Keep, Da.keep(o, f, m), Dash.sp_keep(o, f, m), Dash.dash_keep_spec(o, f, m)) : {Wr.put_nat(FDa.keep.tag(_), "") == Wr.put_nat(Dash.sp_w_keep(Dash.sp_keep(o, f, m)), "") : String}
       %da.keep(Dash.sp_keep(o, f, m)) : {Wr.put_nat(FDa.keep.tag(Dash.sp_keep(o, f, m)), "") == Wr.put_nat(_, "") : String}

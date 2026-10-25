@@ -28,7 +28,7 @@ use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::command_policy::{verdict, Verdict};
-use crate::pairing::PairingToken;
+use crate::pairing::{self, Disk, Gate};
 use crate::protocol::{ClientFrame, EventCursor, ExportFormat, PromptMode, Request, ServerFrame};
 use crate::DashboardConfig;
 
@@ -177,11 +177,11 @@ impl Bridge {
     }
 
     /// Serve the tab until it closes or the daemon connection ends. Each
-    /// frame of the tab runs only while `presented` (the token the tab
-    /// paired with) is still the current token; otherwise the tab hears
-    /// `unpaired` and its socket closes.
+    /// text frame of the tab goes to the socket's `gate` with the token
+    /// file as read then; the frame runs, or the tab hears `unpaired` and
+    /// its socket closes, as the gate answers.
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn run<S>(self, socket: S, presented: PairingToken)
+    pub(crate) async fn run<S>(self, socket: S, mut gate: Gate)
     where
         S: Stream<Item = Result<Message, tungstenite::Error>>
             + Sink<Message, Error = tungstenite::Error>
@@ -210,14 +210,20 @@ impl Bridge {
             tokio::select! {
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        let disk = crate::pairing::Disk::read(&tab.config.token_path).await;
-                        if let Err(error) = crate::pairing::admits(&disk, &presented) {
-                            tracing::warn!(%error, "the tab's pairing token is not current; closing its socket");
-                            let unpaired = ServerFrame::Unpaired { error: &error }.to_text();
-                            if let Err(error) = sink.send(Message::text(unpaired)).await {
-                                tracing::debug!(%error, "telling the tab failed");
+                        match gate.frame(&Disk::read(&tab.config.token_path).await) {
+                            pairing::Verdict::Run => {}
+                            pairing::Verdict::Refuse(error) => {
+                                tracing::warn!(%error, "the tab's pairing token is not current; closing its socket");
+                                let unpaired = ServerFrame::Unpaired { error: &error }.to_text();
+                                if let Err(error) = sink.send(Message::text(unpaired)).await {
+                                    tracing::debug!(%error, "telling the tab failed");
+                                }
+                                break;
                             }
-                            break;
+                            pairing::Verdict::Paired | pairing::Verdict::Closed => {
+                                tracing::warn!("the pairing gate did not run a frame of a paired socket; closing it");
+                                break;
+                            }
                         }
                         let tab = Arc::clone(&tab);
                         requests.spawn(async move { tab.answer(text.as_str()).await });

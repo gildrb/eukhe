@@ -3,11 +3,10 @@
 # PROOF: each decoder of bend/ffi_dash.bend answers Got{x, rest} only for
 # an input that is the spec's spelling of x before rest, with x within
 # the wire (dx.*: a predicate per decoder answer, carried stage by stage
-# with the wire's exactness laws wire_nat_exact, wire_str_exact,
-# wire_bool_exact, the fit of a decoded Nat wire_nat_decoded_fits, and the
-# refusal of a too long count wire_nat_too_long). The entry answers a
-# value only for a request read whole with nothing left: that input is
-# the spelled request (dx.top).
+# with the wire's exactness laws wire_nat_exact and wire_str_exact, the fit
+# of a decoded Nat wire_nat_decoded_fits, and the refusal of a too long
+# count wire_nat_too_long). The entry answers a value only for a request
+# read whole with nothing left: that input is the spelled request (dx.top).
 
 import Base
 import ../../bend/dash.bend as Da
@@ -20,7 +19,6 @@ import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
 import ../wire/wire_nat_too_long.bend as PWireNatTooLong
 import ../wire/wire_str_exact.bend as PWireStrExact
-import ../wire/wire_bool_exact.bend as PWireBoolExact
 import ../base/wire.bend as LWire
 import ../base/logic/string.bend as LLogicString
 import ./base.bend as LA
@@ -95,23 +93,6 @@ def dx.str.at(+s: String, d: Wr.Dec<String>, ed: {Wr.get_str(s) == d : Wr.Dec<St
 
 def dx.str(+s: String) -> dx.SP(s, Wr.get_str(s)):
   dx.str.at(s, Wr.get_str(s), {==})
-
-def dx.BP(s: String, d: Wr.Dec<Bool>) -> Type:
-  match d:
-    case Wr.Got{b, r}:
-      {s == Wr.put_bool(b, r) : String}
-    case Wr.Bad{}:
-      Unit
-
-def dx.bool.at(+s: String, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s) == d : Wr.Dec<Bool>}) -> dx.BP(s, d):
-  match d:
-    case Wr.Got{+b, +r}:
-      Wire.wire_bool_exact(s, b, r, ed)
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.bool(+s: String) -> dx.BP(s, Wr.get_bool(s)):
-  dx.bool.at(s, Wr.get_bool(s), {==})
 
 # Files
 # -----
@@ -193,46 +174,6 @@ def dx.said.go(-s: String, d: Wr.Dec<Nat>, np: dx.NP(s, d)) -> dx.SdP(s, FDa.get
 def dx.said(+s: String) -> dx.SdP(s, FDa.get_said(Wr.get_nat(s))):
   dx.said.go(s, Wr.get_nat(s), dx.nat(s))
 
-# First frames
-# ------------
-
-def dx.FP(s: String, d: Wr.Dec<Da.First>) -> Type:
-  match d:
-    case Wr.Got{x, r}:
-      {s == Dash.sp_w_first(x, r) : String} & {Dash.sp_fit_first(x) == True{} : Bool}
-    case Wr.Bad{}:
-      Unit
-
-def dx.first.pair(-s: String, -s1: String, pre: {s == Wr.put_nat(2n, s1) : String}, d: Wr.Dec<Da.Said>, sp: dx.SdP(s1, d)) -> dx.FP(s, FDa.get_first.pair(d)):
-  match d:
-    case Wr.Got{+x, +r}:
-      (e, f) = sp
-      (dx.after(s, 2n, s1, Dash.sp_w_said(x, r), pre, e), f)
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.first.tag(t: Nat, +s1: String, -s: String, pre: {s == Wr.put_nat(t, s1) : String}) -> dx.FP(s, FDa.get_first.tag(t, s1)):
-  match t:
-    case 0n:
-      (pre, {==})
-    case 1n:
-      (pre, {==})
-    case 2n:
-      dx.first.pair(s, s1, pre, FDa.get_said(Wr.get_nat(s1)), dx.said(s1))
-    case 3n+u:
-      Unit{}
-
-def dx.first.go(-s: String, d: Wr.Dec<Nat>, np: dx.NP(s, d)) -> dx.FP(s, FDa.get_first(d)):
-  match d:
-    case Wr.Got{t, s1}:
-      (e, f) = np
-      dx.first.tag(t, s1, s, e)
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.first(+s: String) -> dx.FP(s, FDa.get_first(Wr.get_nat(s))):
-  dx.first.go(s, Wr.get_nat(s), dx.nat(s))
-
 # Rotations
 # ---------
 
@@ -289,64 +230,26 @@ def dx.stored(-s: String, -s1: String, pre: {s == Wr.put_nat(1n, s1) : String}, 
     case Wr.Bad{}:
       Unit{}
 
-def dx.gate.same(-s: String, +x: Da.First, +f: Da.Disk, -s3: String, pre: {s == Wr.put_nat(2n, Dash.sp_w_first(x, Dash.sp_w_disk(f, s3))) : String}, fit: {Bool.and(Dash.sp_fit_first(x), Dash.sp_fit_disk(f)) == True{} : Bool}, d: Wr.Dec<Bool>, bp: dx.BP(s3, d)) -> dx.RP(s, FDa.get_gate.same(x, f, d)):
-  match d:
-    case Wr.Got{+b, +r}:
-      (Equal.trans(String, s, Wr.put_nat(2n, Dash.sp_w_first(x, Dash.sp_w_disk(f, s3))), Wr.put_nat(2n, Dash.sp_w_first(x, Dash.sp_w_disk(f, Wr.put_bool(b, r)))), pre, Equal.cong(String, String, z => Wr.put_nat(2n, Dash.sp_w_first(x, Dash.sp_w_disk(f, z))), s3, Wr.put_bool(b, r), bp)), fit)
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.gate.file(-s: String, +x: Da.First, -s2: String, pre: {s == Wr.put_nat(2n, Dash.sp_w_first(x, s2)) : String}, fx: {Dash.sp_fit_first(x) == True{} : Bool}, d: Wr.Dec<Da.Disk>, dp: dx.DP(s2, d)) -> dx.RP(s, FDa.get_gate.file(x, d)):
-  match d:
-    case Wr.Got{+f, +s3}:
-      (e, g) = dp
-      dx.gate.same(s, x, f, s3, Equal.trans(String, s, Wr.put_nat(2n, Dash.sp_w_first(x, s2)), Wr.put_nat(2n, Dash.sp_w_first(x, Dash.sp_w_disk(f, s3))), pre, Equal.cong(String, String, z => Wr.put_nat(2n, Dash.sp_w_first(x, z)), s2, Dash.sp_w_disk(f, s3), e)), LA.pe.and_tt(Dash.sp_fit_first(x), Dash.sp_fit_disk(f), fx, g), Wr.get_bool(s3), dx.bool(s3))
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.gate(-s: String, -s1: String, pre: {s == Wr.put_nat(2n, s1) : String}, d: Wr.Dec<Da.First>, fp: dx.FP(s1, d)) -> dx.RP(s, FDa.get_gate(d)):
-  match d:
-    case Wr.Got{+x, +s2}:
-      (e, f) = fp
-      dx.gate.file(s, x, s2, dx.after(s, 2n, s1, Dash.sp_w_first(x, s2), pre, e), f, FDa.get_file(Wr.get_nat(s2)), dx.disk(s2))
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.frame.same(-s: String, +f: Da.Disk, -s2: String, pre: {s == Wr.put_nat(3n, Dash.sp_w_disk(f, s2)) : String}, fit: {Dash.sp_fit_disk(f) == True{} : Bool}, d: Wr.Dec<Bool>, bp: dx.BP(s2, d)) -> dx.RP(s, FDa.get_frame.same(f, d)):
-  match d:
-    case Wr.Got{+b, +r}:
-      (Equal.trans(String, s, Wr.put_nat(3n, Dash.sp_w_disk(f, s2)), Wr.put_nat(3n, Dash.sp_w_disk(f, Wr.put_bool(b, r))), pre, Equal.cong(String, String, z => Wr.put_nat(3n, Dash.sp_w_disk(f, z)), s2, Wr.put_bool(b, r), bp)), fit)
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.frame(-s: String, -s1: String, pre: {s == Wr.put_nat(3n, s1) : String}, d: Wr.Dec<Da.Disk>, dp: dx.DP(s1, d)) -> dx.RP(s, FDa.get_frame(d)):
-  match d:
-    case Wr.Got{+f, +s2}:
-      (e, g) = dp
-      dx.frame.same(s, f, s2, dx.after(s, 3n, s1, Dash.sp_w_disk(f, s2), pre, e), g, Wr.get_bool(s2), dx.bool(s2))
-    case Wr.Bad{}:
-      Unit{}
-
-def dx.keep.mode(-s: String, +o: Da.Rotation, +f: Da.Disk, -s3: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))) : String}, ff: {Dash.sp_fit_disk(f) == True{} : Bool}, d: Wr.Dec<Nat>, np: dx.NP(s3, d)) -> dx.RP(s, FDa.get_keep.mode(o, f, d)):
+def dx.keep.mode(-s: String, +o: Da.Rotation, +f: Da.Disk, -s3: String, pre: {s == Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))) : String}, ff: {Dash.sp_fit_disk(f) == True{} : Bool}, d: Wr.Dec<Nat>, np: dx.NP(s3, d)) -> dx.RP(s, FDa.get_keep.mode(o, f, d)):
   match d:
     case Wr.Got{+m, +r}:
       (e, g) = np
-      (Equal.trans(String, s, Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))), Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, Wr.put_nat(m, r)))), pre, Equal.cong(String, String, z => Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, z))), s3, Wr.put_nat(m, r), e)), LA.pe.and_tt(Dash.sp_fit_disk(f), LawsBase.wire_fits(m), ff, g))
+      (Equal.trans(String, s, Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))), Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, Wr.put_nat(m, r)))), pre, Equal.cong(String, String, z => Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, z))), s3, Wr.put_nat(m, r), e)), LA.pe.and_tt(Dash.sp_fit_disk(f), LawsBase.wire_fits(m), ff, g))
     case Wr.Bad{}:
       Unit{}
 
-def dx.keep.file(-s: String, +o: Da.Rotation, -s2: String, pre: {s == Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), s2)) : String}, d: Wr.Dec<Da.Disk>, dp: dx.DP(s2, d)) -> dx.RP(s, FDa.get_keep.file(o, d)):
+def dx.keep.file(-s: String, +o: Da.Rotation, -s2: String, pre: {s == Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), s2)) : String}, d: Wr.Dec<Da.Disk>, dp: dx.DP(s2, d)) -> dx.RP(s, FDa.get_keep.file(o, d)):
   match d:
     case Wr.Got{+f, +s3}:
       (e, g) = dp
-      dx.keep.mode(s, o, f, s3, Equal.trans(String, s, Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), s2)), Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))), pre, Equal.cong(String, String, z => Wr.put_nat(4n, Wr.put_nat(Dash.sp_w_rotation(o), z)), s2, Dash.sp_w_disk(f, s3), e)), g, Wr.get_nat(s3), dx.nat(s3))
+      dx.keep.mode(s, o, f, s3, Equal.trans(String, s, Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), s2)), Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), Dash.sp_w_disk(f, s3))), pre, Equal.cong(String, String, z => Wr.put_nat(2n, Wr.put_nat(Dash.sp_w_rotation(o), z)), s2, Dash.sp_w_disk(f, s3), e)), g, Wr.get_nat(s3), dx.nat(s3))
     case Wr.Bad{}:
       Unit{}
 
-def dx.keep(-s: String, -s1: String, pre: {s == Wr.put_nat(4n, s1) : String}, d: Wr.Dec<Da.Rotation>, rp: dx.RoP(s1, d)) -> dx.RP(s, FDa.get_keep(d)):
+def dx.keep(-s: String, -s1: String, pre: {s == Wr.put_nat(2n, s1) : String}, d: Wr.Dec<Da.Rotation>, rp: dx.RoP(s1, d)) -> dx.RP(s, FDa.get_keep(d)):
   match d:
     case Wr.Got{+o, +s2}:
-      dx.keep.file(s, o, s2, dx.after(s, 4n, s1, Wr.put_nat(Dash.sp_w_rotation(o), s2), pre, rp), FDa.get_file(Wr.get_nat(s2)), dx.disk(s2))
+      dx.keep.file(s, o, s2, dx.after(s, 2n, s1, Wr.put_nat(Dash.sp_w_rotation(o), s2), pre, rp), FDa.get_file(Wr.get_nat(s2)), dx.disk(s2))
     case Wr.Bad{}:
       Unit{}
 
@@ -357,12 +260,8 @@ def dx.req.tag(t: Nat, +s1: String, -s: String, pre: {s == Wr.put_nat(t, s1) : S
     case 1n:
       dx.stored(s, s1, pre, FDa.get_file(Wr.get_nat(s1)), dx.disk(s1))
     case 2n:
-      dx.gate(s, s1, pre, FDa.get_first(Wr.get_nat(s1)), dx.first(s1))
-    case 3n:
-      dx.frame(s, s1, pre, FDa.get_file(Wr.get_nat(s1)), dx.disk(s1))
-    case 4n:
       dx.keep(s, s1, pre, FDa.get_rotation(Wr.get_nat(s1)), dx.rotation(s1))
-    case 5n+u:
+    case 3n+u:
       Unit{}
 
 def dx.req.go(-s: String, d: Wr.Dec<Nat>, np: dx.NP(s, d)) -> dx.RP(s, FDa.get_req.start(d)):

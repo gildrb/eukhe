@@ -30,13 +30,6 @@ def df.stored(m: Maybe<&2, List<&2, Nat>>) -> {LawsBase.wire_opens_err(FDa.put_s
     case None{}:
       Wire.wire_nat_not_err(1n, "")
 
-def df.pass(p: Da.Pass) -> {LawsBase.wire_opens_err(FDa.put_pass(p)) == False{} : Bool}:
-  match p:
-    case Da.Admit{}:
-      Wire.wire_nat_not_err(0n, "")
-    case Da.Refuse{t}:
-      Wire.wire_nat_not_err(1n, Wr.put_str(t, ""))
-
 # a request's choice is a value, never the error form
 def df.answer_ok(q: FDa.Req) -> {LawsBase.wire_opens_err(FDa.answer(q)) == False{} : Bool}:
   match q:
@@ -44,10 +37,6 @@ def df.answer_ok(q: FDa.Req) -> {LawsBase.wire_opens_err(FDa.answer(q)) == False
       df.shown(Da.shown(t))
     case FDa.QStored{f}:
       df.stored(Da.stored(f))
-    case FDa.QGate{x, f, b}:
-      df.pass(Da.gate(x, f, b))
-    case FDa.QFrame{f, b}:
-      df.pass(Da.frame(f, b))
     case FDa.QKeep{o, f, m}:
       Wire.wire_nat_not_err(FDa.keep.tag(Da.keep(o, f, m)), "")
 

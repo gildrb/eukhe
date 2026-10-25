@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::bridge::Bridge;
-use crate::pairing::{Disk, First};
+use crate::pairing::{Disk, First, Gate, Verdict};
 use crate::protocol::{Pairing, ServerFrame, OPS, PROTOCOL_VERSION};
 use crate::DashboardConfig;
 use eukhe_tui::saved_sessions::DaemonLauncher;
@@ -213,14 +213,21 @@ fn upgrade<L: DaemonLauncher>(
             // A binary first frame, or none in time.
             Ok(Some(None)) | Err(_) => First::NoText,
         };
-        let presented = match crate::pairing::open(&first, &Disk::read(&config.token_path).await) {
-            Ok(presented) => presented,
-            Err(error) => {
+        let mut gate = Gate::open();
+        match gate.first(&first, &Disk::read(&config.token_path).await) {
+            Verdict::Paired => {}
+            Verdict::Refuse(error) => {
                 tracing::warn!(%error, "refused a socket that did not present the pairing token");
                 close_with(socket, &ServerFrame::Unpaired { error: &error }).await;
                 return;
             }
-        };
+            Verdict::Run | Verdict::Closed => {
+                tracing::warn!(
+                    "the pairing gate answered a later frame's verdict to a first frame"
+                );
+                return;
+            }
+        }
         let build = format!(
             "{}+web.{}",
             eukhe_build_info::BUILD_ID,
@@ -237,7 +244,7 @@ fn upgrade<L: DaemonLauncher>(
             return;
         }
         match Bridge::connect(config, launcher.as_ref()).await {
-            Ok(bridge) => bridge.run(socket, presented).await,
+            Ok(bridge) => bridge.run(socket, gate).await,
             Err(error) => {
                 tracing::warn!(error = %format!("{error:#}"), "the daemon is not reachable");
                 close_with(
