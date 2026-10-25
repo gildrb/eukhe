@@ -110,3 +110,4 @@ import ./laws/package_source/entry.bend as PackageSourceEntry
 import ./laws/refine_plan/model.bend as RefinePlan
 import ./laws/refine_plan/entry.bend as RefinePlanEntry
 import ./laws/glob.bend as Glob
+import ./laws/worker.bend as Worker

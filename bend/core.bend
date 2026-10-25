@@ -98,6 +98,7 @@ import ./ffi_tui_color.bend as ffi_tui_color
 import ./ffi_wait.bend as ffi_wait
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
+import ./ffi_worker.bend as ffi_worker
 import ./ffi_workflow.bend as ffi_workflow
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -288,6 +289,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_refine_plan.ffi(input)
     case 380:
       ffi_glob.ffi(input)
+    case 430:
+      ffi_worker.ffi(input)
     case _:
       W.err("unknown entry")
 

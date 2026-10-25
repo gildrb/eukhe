@@ -200,6 +200,8 @@ pub enum Entry {
     RefinePlan = 295,
     /// `bend/ffi_glob.bend`: a call.
     Glob = 380,
+    /// `bend/ffi_worker.bend`: a call.
+    Worker = 430,
 }
 
 impl Entry {
@@ -302,6 +304,7 @@ impl Entry {
         Entry::PackageSource,
         Entry::RefinePlan,
         Entry::Glob,
+        Entry::Worker,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -337,5 +337,5 @@ law runners_ffi_example:
   {FRu.ffi("1,1,2,1,0,1,") == "T1,1," : String} &
   {FRu.ffi("1,1,2,1,0,0,") == "F1,1," : String} &
   {FRu.ffi("1,1,2,1,0,2,F") == "T1,0," : String} &
-  {FRu.ffi("2,F") == "11,7,ipython1,2,2,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("2,F") == "14,7,ipython1,2,2,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
   {FRu.ffi("1,1,2,1,0,3,") == malformed() : String}

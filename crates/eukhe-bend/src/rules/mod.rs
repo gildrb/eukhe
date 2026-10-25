@@ -44,3 +44,4 @@ pub mod tokens;
 pub mod tool_surface;
 pub mod tui_color;
 pub mod wait;
+pub mod worker;

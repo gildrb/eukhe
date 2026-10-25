@@ -85,6 +85,7 @@ def chat.tools(chat: Bool) -> List<&2, Tool>:
 
 # every tool a session installs, in install order (crates/eukhe-core/src/
 # durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` when chat holds,
+# `eukhe.children` (the worker tools: assign, forward, status),
 # `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`,
 # `codemode` (its script runs no program itself: each tool it calls runs
 # through that tool's gate; its model tools `classify` and
@@ -92,6 +93,9 @@ def chat.tools(chat: Bool) -> List<&2, Tool>:
 # either: its agents are child sessions with their own gates.
 def registry(chat: Bool) -> List<&2, Tool>:
   Tool{"ipython", [exec()], EachCall{}} <> List.append(&2, Tool, chat.tools(chat), [
+    plain("worker_assign"),
+    plain("worker_forward"),
+    plain("worker_status"),
     plain("workflow"),
     plain("read"),
     plain("edit"),
