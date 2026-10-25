@@ -895,6 +895,7 @@ import ./proof/cron_store/cron_recover_exact.bend as PCronRecoverExact
 import ./proof/cron_store/cron_finish_exact.bend as PCronFinishExact
 import ./proof/cron_store/cron_cancel_exact.bend as PCronCancelExact
 import ./proof/cron_store/cron_resume_exact.bend as PCronResumeExact
+import ./proof/cron_terms/cron_terms_exact.bend as PCronTermsExact
 import ./proof/supervise/base.bend as LASupervise
 import ./proof/supervise/restart_gives_up.bend as PRestartGivesUp
 import ./proof/supervise/restart_decide_window.bend as PRestartDecideWindow
