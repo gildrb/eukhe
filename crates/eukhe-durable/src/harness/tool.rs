@@ -15,7 +15,9 @@ pub(crate) mod tests;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::utils::validation::validate_tool_arguments;
+use eukhe_bend::rules::tool_call::{Attempt, Begin, CallJournal};
 use eukhe_chord::context::Context;
+use eukhe_chord::delta::Draft;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, JsonObject as PiJsonObject, JsonValue as PiJsonValue, Message, ToolCall,
@@ -264,24 +266,39 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
         .transpose()?,
         ToolTaskInput::Model { .. } => None,
     };
+    let (journal, begin) = CallJournal::open(Attempt::First);
     runtime
         .commit(
             move |tx, _current| async move {
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 if let Some(slot) = tool_slot(&live, task_id)? {
-                    slot.set("status", "running")?;
-                    if let Some(arguments) = changed {
-                        if is_nested_slot(&slot)? {
-                            slot.set("arguments", arguments)?;
-                        }
-                    }
+                    begin_slot(&slot, begin, changed)?;
                 }
                 Ok(Some(NextTaskState::Running { checkpoint: intent }))
             },
             &cx,
         )
         .await?;
-    run(&runtime, &input, &call, &tool, args, repairs, &cx).await
+    run(&runtime, &input, &call, &tool, args, repairs, journal, &cx).await
+}
+
+/// Journal the begin of a call in its slot, as its journal's open says: a
+/// start marks it running (a nested slot also shows the arguments the call
+/// runs with, `changed` when they differ from its input's); a rerun's clear
+/// drops what the interrupted attempt published.
+fn begin_slot(slot: &Draft, begin: Begin, changed: Option<JsonValue>) -> SessionResult<()> {
+    match begin {
+        Begin::Start => {
+            slot.set("status", "running")?;
+            if let Some(arguments) = changed {
+                if is_nested_slot(slot)? {
+                    slot.set("arguments", arguments)?;
+                }
+            }
+        }
+        Begin::Clear => clear_progress(slot)?,
+    }
+    Ok(())
 }
 
 /// Recovery after intent: rerun only when the stored and the current policy
@@ -304,22 +321,26 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
     if let Some(tool) =
         tool.filter(|tool| replay == ToolReplay::Safe && tool.replay == Some(ToolReplay::Safe))
     {
-        // The rerun reports from scratch; clear what the interrupted attempt published.
+        // The rerun reports from scratch; its journal clears what the interrupted attempt published.
         let conversation_id = runtime.conversation_id();
         let task_id = runtime.task_id().erase();
+        let (journal, begin) = CallJournal::open(Attempt::Rerun);
         runtime
             .commit(
                 move |tx, _current| async move {
                     let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                     if let Some(slot) = tool_slot(&live, task_id)? {
-                        clear_progress(&slot)?;
+                        begin_slot(&slot, begin, None)?;
                     }
                     Ok(None)
                 },
                 &cx,
             )
             .await?;
-        return run(&runtime, &input, &call, &tool, arguments, repairs, &cx).await;
+        return run(
+            &runtime, &input, &call, &tool, arguments, repairs, journal, &cx,
+        )
+        .await;
     }
     let message = format!(
         "Tool {} was interrupted and may have partially run. {INTERRUPTED_NEXT_STEP}",

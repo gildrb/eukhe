@@ -1,17 +1,18 @@
-# eukhe: lemmas the proofs of area optchat share
+# eukhe: lemmas the proofs of area optchat share: the model's step (its
+# fit, its message and build), what both views keep
 
 import Base
-import ../../bend/optchat/bits.bend as OBits
-import ../../bend/optchat/fit.bend as OFit
-import ../../bend/optchat/info.bend as OInfo
-import ../../bend/optchat/node.bend as ONode
-import ../../bend/optchat/state.bend as OState
-import ../../bend/optchat/step.bend as OStep
-import ../../bend/spec.bend as S
-import ../base/bool.bend as LBool
-import ../base/logic/bool.bend as LLogicBool
-import ../base/logic/logic.bend as LLogicLogic
-import ../base/optchat.bend as LOptchat
+import ../../../bend/optchat/bits.bend as OBits
+import ../../../bend/optchat/fit.bend as OFit
+import ../../../bend/optchat/info.bend as OInfo
+import ../../../bend/optchat/node.bend as ONode
+import ../../../bend/optchat/state.bend as OState
+import ../../../bend/optchat/step.bend as OStep
+import ../../../bend/spec.bend as S
+import ../../base/bool.bend as LBool
+import ../../base/logic/bool.bend as LLogicBool
+import ../../base/logic/logic.bend as LLogicLogic
+import ../../base/optchat.bend as LOptchat
 
 # ---- cover ----
 

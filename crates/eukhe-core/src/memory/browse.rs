@@ -8,9 +8,8 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use super::chat::Chat;
+use super::chat::{Budgets, Chat};
 use super::labeled;
-use super::plan::Budgets;
 use super::saved::load_view;
 use super::store::{LoadMode, Store};
 use super::view::{line_text, NodeTexts, Part};

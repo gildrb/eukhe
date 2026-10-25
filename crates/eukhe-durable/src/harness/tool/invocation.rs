@@ -2,12 +2,13 @@
 //! publications of what it reports to the live observers (never to
 //! storage), its nested calls, and the settled result.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use eukhe_ai::models::Models;
 use eukhe_ai::utils::validation::check_value;
+use eukhe_bend::rules::tool_call::{CallJournal, Ending};
 use eukhe_chord::context::{await_with_context, Context};
 use eukhe_chord::json::{copy_json, from_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{
@@ -75,7 +76,10 @@ struct Reporting {
     reported: Arc<Mutex<Reported>>,
     progress: Progress,
     truncation: Truncation,
-    ended: AtomicBool,
+    /// The call's journal, a stepper of the compiled core: it decides which
+    /// report is stored and when the call settles, for every order the
+    /// reports and the end come in (`laws/tool_call.bend`).
+    call: Mutex<CallJournal>,
     call_id: String,
     /// Nested call admissions this invocation started; cleanup waits for
     /// them, so it sees every nested call.
@@ -86,14 +90,18 @@ struct Reporting {
 }
 
 impl Reporting {
-    fn assert_live(&self) -> SessionResult<()> {
-        if self.ended.load(Ordering::SeqCst) {
+    /// Report to the call: `store` runs when the core takes the report,
+    /// under the call's lock, so the end cannot pass between the two; a
+    /// settled call refuses it.
+    fn report<T>(&self, store: impl FnOnce() -> T) -> SessionResult<T> {
+        let mut call = self.call.lock().unwrap_or_else(PoisonError::into_inner);
+        if !call.report() {
             return Err(SessionError::error(format!(
                 "Tool call {} has settled",
                 self.call_id
             )));
         }
-        Ok(())
+        Ok(store())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Reported> {
@@ -203,8 +211,9 @@ impl ToolExecutionApi for ToolInvocation {
     }
 
     fn retained_output(&self) -> SessionResult<RetainedOutput> {
-        self.reporting.assert_live()?;
-        let retained = self.reporting.lock().output.snapshot();
+        let retained = self
+            .reporting
+            .report(|| self.reporting.lock().output.snapshot())?;
         Ok(RetainedOutput {
             truncated: retained.dropped_bytes > 0,
             text: retained.text,
@@ -220,12 +229,9 @@ impl ToolExecutionApi for ToolInvocation {
         chunk: ToolOutputChunk<'_>,
         skipped: Option<ShellOutputSkip>,
     ) -> SessionResult<()> {
-        self.reporting.assert_live()?;
         let changed = self
             .reporting
-            .lock()
-            .output
-            .push(chunk, skipped.as_ref())
+            .report(|| self.reporting.lock().output.push(chunk, skipped.as_ref()))?
             .map_err(SessionError::other)?;
         if changed {
             self.reporting.progress.mark();
@@ -242,34 +248,34 @@ impl ToolExecutionApi for ToolInvocation {
     }
 
     fn diagnostic(&self, diagnostic: ToolDiagnostic) -> SessionResult<()> {
-        self.reporting.assert_live()?;
-        self.reporting.lock().diagnostics.push(diagnostic);
+        self.reporting
+            .report(|| self.reporting.lock().diagnostics.push(diagnostic))?;
         self.reporting.progress.mark();
         Ok(())
     }
 
     fn usage(&self, usage: Usage) -> SessionResult<()> {
-        self.reporting.assert_live()?;
-        let mut reported = self.reporting.lock();
-        match &mut reported.usage {
-            Some(total) => add_usage(total, &usage),
-            None => reported.usage = Some(usage),
-        }
+        self.reporting.report(|| {
+            let mut reported = self.reporting.lock();
+            match &mut reported.usage {
+                Some(total) => add_usage(total, &usage),
+                None => reported.usage = Some(usage),
+            }
+        })?;
         Ok(())
     }
 
     fn details(&self, value: JsonValue, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
-        let checked = self
-            .reporting
-            .assert_live()
-            .and_then(|()| match cx.abort_signal() {
-                Some(signal) => signal.throw_if_aborted().map_err(SessionError::Aborted),
-                None => Ok(()),
-            });
-        if let Err(error) = checked {
+        let stored = self.reporting.report(|| {
+            if let Some(signal) = cx.abort_signal() {
+                signal.throw_if_aborted().map_err(SessionError::Aborted)?;
+            }
+            self.reporting.lock().details = Some(copy_json(&value));
+            Ok(())
+        });
+        if let Err(error) = stored.and_then(std::convert::identity) {
             return futures::future::ready(Err(error)).boxed();
         }
-        self.reporting.lock().details = Some(copy_json(&value));
         let committed = self.reporting.progress.mark_and_wait();
         let cx = cx.clone();
         // Cancelling the wait leaves the update in place; the commit's own outcome stays observed.
@@ -384,32 +390,36 @@ impl ToolExecutionApi for ToolInvocation {
         cx: &Context,
         options: ExecuteToolOptions,
     ) -> BoxFuture<'static, SessionResult<NestedToolExecutionResult>> {
-        if let Err(error) = self.reporting.assert_live() {
-            return futures::future::ready(Err(error)).boxed();
-        }
-        let key = match options.key {
-            Some(key) => {
-                if let Err(error) = check_key(&key) {
-                    return futures::future::ready(Err(error)).boxed();
+        // A nested call is a report: admitted under the call's lock, so the
+        // settle, which waits for every admission, sees each one.
+        let admitted = self.reporting.report(|| {
+            let key = match options.key {
+                Some(key) => {
+                    check_key(&key)?;
+                    key
                 }
-                key
-            }
-            None => (self.reporting.sequence.fetch_add(1, Ordering::SeqCst) + 1).to_string(),
+                None => (self.reporting.sequence.fetch_add(1, Ordering::SeqCst) + 1).to_string(),
+            };
+            let request = NestedCallRequest {
+                parent_call_id: self.reporting.call_id.clone(),
+                name: name.to_owned(),
+                args,
+                key,
+                progress: options.progress,
+                abandon_on_restart: !self.resumes,
+            };
+            let admission = start_nested_call(&self.runtime, request, cx).shared();
+            self.reporting
+                .admissions
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(admission.clone());
+            Ok(admission)
+        });
+        let admission = match admitted.and_then(std::convert::identity) {
+            Ok(admission) => admission,
+            Err(error) => return futures::future::ready(Err(error)).boxed(),
         };
-        let request = NestedCallRequest {
-            parent_call_id: self.reporting.call_id.clone(),
-            name: name.to_owned(),
-            args,
-            key,
-            progress: options.progress,
-            abandon_on_restart: !self.resumes,
-        };
-        let admission = start_nested_call(&self.runtime, request, cx).shared();
-        self.reporting
-            .admissions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(admission.clone());
         let (runtime, cx, name) = (self.runtime.clone(), cx.clone(), name.to_owned());
         async move {
             let id = admission.await?;
@@ -440,6 +450,7 @@ fn reporting_for(
     input: &ToolTaskInput,
     call: &ToolHookCall,
     tool: &ToolRegistration,
+    journal: CallJournal,
 ) -> (Arc<Reporting>, Option<ShellOutputWindow>) {
     let truncation = tool.truncation;
     let reported = Arc::new(Mutex::new(Reported {
@@ -456,7 +467,7 @@ fn reporting_for(
         progress: publish_progress(runtime, &reported, publishes),
         reported,
         truncation,
-        ended: AtomicBool::new(false),
+        call: Mutex::new(journal),
         call_id: call.id.clone(),
         admissions: Mutex::new(Vec::new()),
         sequence: AtomicU64::new(0),
@@ -481,8 +492,13 @@ fn reporting_for(
     (reporting, output_window)
 }
 
-/// Execute with the resolved implementation, then settle its result. The
+/// Execute with the resolved implementation, then settle its result as the
+/// call's journal (`journal`, opened where the call began) says. The
 /// dialect repairs lead the result's diagnostics.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the call, its tool and arguments, and the journal it began"
+)]
 pub(super) async fn run(
     runtime: &Runtime,
     input: &ToolTaskInput,
@@ -490,15 +506,15 @@ pub(super) async fn run(
     tool: &ToolRegistration,
     args: PiJsonObject,
     repairs: Vec<Repair>,
+    journal: CallJournal,
     cx: &Context,
 ) -> SessionResult<()> {
-    let (reporting, output_window) = reporting_for(runtime, input, call, tool);
+    let (reporting, output_window) = reporting_for(runtime, input, call, tool, journal);
     reporting
         .lock()
         .diagnostics
         .extend(repairs.iter().map(Repair::diagnostic));
 
-    let mut ending = ToolEnding::Completed;
     // Execution time of this attempt; a rerun after recovery measures only itself.
     let mut duration_ms = None;
     // Built for this call, so a rerun after recovery gets the conversation's environment at that time.
@@ -518,32 +534,43 @@ pub(super) async fn run(
         }
         Err(error) => Err(error),
     };
-    let result = match executed {
-        Ok(result) => result,
-        Err(error) => {
-            if runtime.signal().aborted() {
-                reporting.ended.store(true, Ordering::SeqCst);
-                // The abort handler settles with what the call reported, read from the live board.
-                for waiter in reporting.progress.stop().await {
-                    // A waiter whose caller stopped waiting has nobody to tell.
-                    let _gone = waiter.send(Err(error.clone()));
-                }
-                return Err(error);
-            }
-            // A throw, from `execute()` or from building the environment, ends the task `failed`, which cancels what
-            // the call owned; it no longer supervises it. The error text is already in the result.
-            ending = ToolEnding::Failed {
+    let aborted = runtime.signal().aborted();
+    let ending = reporting
+        .call
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .end(executed, aborted);
+    let (ending, result) = match ending {
+        Some(Ending::Finished(result)) => (ToolEnding::Completed, result),
+        // A throw, from `execute()` or from building the environment, ends the task `failed`, which cancels what
+        // the call owned; it no longer supervises it. The error text is already in the result.
+        Some(Ending::Failed(error)) => (
+            ToolEnding::Failed {
                 message: format!("Tool {} threw", call.name),
-            };
+            },
             ToolExecutionResult {
                 is_error: Some(true),
                 diagnostics: Some(vec![tool_diagnostic("tool_error", &error.to_string())]),
                 ..ToolExecutionResult::default()
+            },
+        ),
+        Some(Ending::Cancelled(error)) => {
+            // The abort handler settles with what the call reported, read from the live board.
+            for waiter in reporting.progress.stop().await {
+                // A waiter whose caller stopped waiting has nobody to tell.
+                let _gone = waiter.send(Err(error.clone()));
             }
+            return Err(error);
+        }
+        None => {
+            return Err(SessionError::error(format!(
+                "Tool call {} has settled",
+                call.id
+            )))
         }
     };
-    reporting.ended.store(true, Ordering::SeqCst);
-    // No admission starts after `ended`; let those underway commit, so settlement aborts and lists their calls.
+    // The core refuses every report after the end, so no admission starts now; let those underway commit, so
+    // settlement aborts and lists their calls.
     let admissions = std::mem::take(
         &mut *reporting
             .admissions

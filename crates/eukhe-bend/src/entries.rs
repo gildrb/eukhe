@@ -202,6 +202,10 @@ pub enum Entry {
     TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
+    /// `bend/ffi_tool_call.bend`: a stepper.
+    ToolCall = 421,
+    /// `bend/ffi_optchat.bend`: a stepper.
+    Optchat = 422,
 }
 
 impl Entry {
@@ -305,6 +309,8 @@ impl Entry {
         Entry::ErrText,
         Entry::TinyRun,
         Entry::WaitRace,
+        Entry::ToolCall,
+        Entry::Optchat,
     ];
 
     /// The id `bend/core.bend` dispatches on.

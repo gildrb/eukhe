@@ -13,6 +13,7 @@ import ./laws/admission.bend as Admission
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
 import ./laws/job_step.bend as JobStep
+import ./laws/tool_call.bend as ToolCall
 import ./laws/sandbox.bend as Sandbox
 import ./laws/cvar.bend as Cvar
 import ./laws/cvar_layers.bend as CvarLayers

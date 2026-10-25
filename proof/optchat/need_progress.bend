@@ -13,7 +13,7 @@ import ../../laws/optchat.bend as Optchat
 import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/nat.bend as LNat
-import ./base.bend as LA
+import ./base/step.bend as LA
 
 # (H2) Progress
 # -------------

@@ -7,6 +7,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime};
 
 use eukhe_bend::rules::compactor::{self, Pend};
+use eukhe_bend::rules::optchat::Demand;
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
 use eukhe_types::pi_ai::ImageContent;
 use tokio::sync::oneshot;
@@ -15,9 +16,8 @@ use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
-use crate::memory::chat::{Batch, Chat, Nodes, Step, Zoom};
+use crate::memory::chat::{Batch, Budgets, Chat, Nodes, Step, Zoom};
 use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
-use crate::memory::plan::{Budgets, Demand};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
 use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
@@ -461,7 +461,7 @@ impl Actor {
         })
     }
 
-    fn status(&self) -> MemoryStatus {
+    fn status(&mut self) -> MemoryStatus {
         let first = self.chat.first();
         MemoryStatus {
             messages: self.chat.total(),
@@ -590,7 +590,7 @@ impl Actor {
             .is_some_and(|(running, _)| *running == build)
     }
 
-    fn prepare(&self, part: Part) -> anyhow::Result<Prepared> {
+    fn prepare(&mut self, part: Part) -> anyhow::Result<Prepared> {
         let (step, input) = self.source(part)?;
         if input.len() <= NODE {
             return Ok(Prepared::Free(input));

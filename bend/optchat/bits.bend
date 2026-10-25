@@ -15,8 +15,8 @@
 #   sawtooth; a compaction sees it up to its node (gist §4).
 # - The work queue starts nodes in the gist's order (gist §4).
 #
-# LAWS.bend states what must hold; PROOF.bend proves it. bridge/bridge.bend
-# runs this model on the scenarios the Rust bridge test sends.
+# LAWS.bend states what must hold; PROOF.bend proves it. The compiled core
+# runs this model as the stepper bend/ffi_optchat.bend (entry 422).
 
 import Base
 
@@ -57,6 +57,24 @@ def Bits.val(bs: List<&2, Bool>) -> Nat:
       0n
     case h <> t:
       bit(h, Nat.double(Bits.val(t)))
+
+# n in binary, without high zero bits: the lowest bit is n mod 2, the
+# others n / 2's (the fuel g >= n is enough: each step at least halves n)
+def Bits.of.go(g: Nat, n: Nat) -> List<&2, Bool>:
+  match g:
+    case 0n:
+      Nil{}
+    case 1n+f:
+      match n:
+        case 0n:
+          Nil{}
+        case 1n+p:
+          +m = {1n+p : Nat}
+          Nat.is_eq(Nat.mod(m, 2n), 1n) <> Bits.of.go(f, Nat.div(m, 2n))
+
+def Bits.of(n: Nat) -> List<&2, Bool>:
+  +m = n
+  Bits.of.go(m, m)
 
 def Bits.inc(bs: List<&2, Bool>) -> List<&2, Bool>:
   match bs:
