@@ -77,3 +77,5 @@ import ./laws/selection.bend as Selection
 import ./laws/codemode_id.bend as CodemodeId
 import ./laws/submission.bend as Submission
 import ./laws/scan.bend as Scan
+import ./laws/retry_note.bend as RetryNote
+import ./laws/doc_plan.bend as DocPlan

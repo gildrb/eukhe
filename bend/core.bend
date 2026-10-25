@@ -20,6 +20,7 @@ import ./ffi_director.bend as ffi_director
 import ./ffi_doc_commit.bend as ffi_doc_commit
 import ./ffi_doc_glob.bend as ffi_doc_glob
 import ./ffi_doc_lines.bend as ffi_doc_lines
+import ./ffi_doc_plan.bend as ffi_doc_plan
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
 import ./ffi_doc_seen.bend as ffi_doc_seen
@@ -45,6 +46,7 @@ import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
+import ./ffi_retry_note.bend as ffi_retry_note
 import ./ffi_revive.bend as ffi_revive
 import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
@@ -196,6 +198,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_submission.ffi(input)
     case 262:
       ffi_scan.ffi(input)
+    case 263:
+      ffi_retry_note.ffi(input)
+    case 264:
+      ffi_doc_plan.ffi(input)
     case _:
       W.err("unknown entry")
 

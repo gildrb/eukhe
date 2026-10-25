@@ -9,8 +9,13 @@
 //! request ends with a note that names the retry's attempt and what went
 //! wrong ([`retry_note`](super::decide::retry_note)). The note goes out with the
 //! request only, as the soft prompt of a forced call does: the run never
-//! commits it, so the transcript never logs it as the user's words.
+//! commits it, so the transcript never logs it as the user's words. The
+//! compiled Bend core writes the note's text (`bend/retry_note.bend`,
+//! `laws/retry_note.bend`).
 
+use eukhe_bend::rules::retry_note::{self, Call, Cause};
+use eukhe_bend::wire::NAT_MAX;
+use eukhe_bend::{expect_core, Entry};
 use serde::{Deserialize, Serialize};
 
 use super::decide::{LEAK_NOTES, LENGTH_NOTES, REDIRECT_NOTES};
@@ -97,71 +102,64 @@ pub struct RetryNote {
 
 impl RetryNote {
     /// The text of the note: the last user message of the request, before
-    /// the soft prompt of a forced call.
+    /// the soft prompt of a forced call. The compiled core writes it
+    /// (`eukhe_bend::rules::retry_note`, law `retry_note_exact`); the host
+    /// quotes a repeated line (`{:?}`), gives each recovery's cap, and
+    /// saturates a count past the wire's bound.
+    ///
+    /// # Panics
+    ///
+    /// On a text past the core's wire bound (8 Mi chars) or an inconsistent
+    /// build ([`expect_core`]).
     pub(crate) fn text(&self) -> String {
-        let attempt = self.attempt;
-        match &self.cause {
-            NoteCause::Repeated { period: 1, line } => format!(
-                "Harness note, attempt {attempt}: your previous reply repeated the line {line:?} \
-                 until it was cut. Give the answer again; never list the same item twice."
-            ),
-            NoteCause::Repeated { period, line } => format!(
-                "Harness note, attempt {attempt}: your previous reply repeated a cycle of \
-                 {period} lines, ending with the line {line:?}, until it was cut. Give the \
-                 answer again; never repeat the same lines."
-            ),
-            NoteCause::NoAnswer => format!(
-                "Harness note, attempt {attempt}: your previous reply gave no text and no tool \
-                 call. Give the answer again, as text or as a tool call."
-            ),
-            NoteCause::Length { tokens, row } => {
-                let limit = match tokens {
-                    0 => "the output limit".to_owned(),
-                    tokens => format!("the {tokens}-token output limit"),
-                };
-                format!(
-                    "Harness note, attempt {attempt}: your previous reply hit {limit} while it \
-                     was still reasoning. It gave no text and no tool call, so the harness \
-                     discarded it with every tool call that it planned. If you plan the whole \
-                     task again in your reasoning, you hit the same limit. Reason only about the \
-                     next step, then call its tool. For a large answer (a file, a document, a \
-                     long text), write a minimal working version first, then extend it with \
-                     more edits in later turns. Length note {row} of {LENGTH_NOTES}."
-                )
+        let quoted;
+        let listed;
+        let cause = match &self.cause {
+            NoteCause::Repeated { period, line } => {
+                quoted = format!("{line:?}");
+                Cause::Repeated {
+                    period: *period,
+                    line: &quoted,
+                }
             }
+            NoteCause::NoAnswer => Cause::NoAnswer,
+            NoteCause::Length { tokens, row } => Cause::Length {
+                tokens: (*tokens).min(NAT_MAX),
+                row: *row,
+                cap: LENGTH_NOTES,
+            },
             NoteCause::Leaked {
                 markup,
                 reason,
                 row,
-            } => format!(
-                "Harness note, attempt {attempt}: your previous reply wrote a tool call as \
-                 {markup} markup in its text, and the harness could not read it ({reason}). No \
-                 tool ran. Make the call again through the tool-calling interface, with its \
-                 arguments as one JSON object that agrees with the schema of the tool. Do not \
-                 write a tool call as text. If you need no tool, give the answer as plain text. \
-                 Leak note {row} of {LEAK_NOTES}."
-            ),
+            } => Cause::Leaked {
+                markup,
+                reason,
+                row: *row,
+                cap: LEAK_NOTES,
+            },
             NoteCause::Redirect { calls, rounds, row } => {
-                let listed = calls
+                listed = calls
                     .iter()
-                    .map(|call| format!("`{}` with `{}`", call.tool, call.arguments))
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                format!(
-                    "Harness note, attempt {attempt}: you made the same tool calls {rounds} \
-                     times in a row, and they gave the same results each time: {listed}. The \
-                     harness did not run them again. Do not make these calls with these \
-                     arguments again in this turn. Use different arguments, use a different \
-                     tool, or give your answer with what you found. Redirect note {row} of \
-                     {REDIRECT_NOTES}."
-                )
+                    .map(|call| Call {
+                        tool: &call.tool,
+                        arguments: &call.arguments,
+                    })
+                    .collect::<Vec<_>>();
+                Cause::Redirect {
+                    calls: &listed,
+                    rounds: *rounds,
+                    row: *row,
+                    cap: REDIRECT_NOTES,
+                }
             }
-            NoteCause::Stalled { idle_ms } => format!(
-                "Harness note, attempt {attempt}: your previous reply produced no output for {} \
-                 s, so the harness cut it. Reason briefly, then act: give the answer or call \
-                 the tool of the next step.",
-                idle_ms / 1000
-            ),
-        }
+            NoteCause::Stalled { idle_ms } => Cause::Stalled {
+                idle_ms: (*idle_ms).min(NAT_MAX),
+            },
+        };
+        expect_core(
+            Entry::RetryNote,
+            retry_note::text(self.attempt.min(NAT_MAX), &cause),
+        )
     }
 }

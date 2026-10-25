@@ -8,7 +8,9 @@ use crate::types::{
     DocumentRecord, DocumentRecordScope, EntryId, InputSubmission, StorageWrite, SubmissionRecord,
     SubmissionSettlement, SubmissionState, WriteSubmission,
 };
+use eukhe_bend::rules::doc_plan::{self, Content, Loaded, Plan};
 use eukhe_bend::rules::submission::{self, Change, Out, Sub, Why};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_chord::delta::{Prepared, Tracker};
 
 use super::error::{SessionError, SessionResult};
@@ -240,8 +242,15 @@ pub(super) fn plan_document(document: &DocumentEntry) -> Option<DocumentPlan> {
     })
 }
 
-/// Plan of a loaded incarnation: a version change stores a base even without
-/// operations; otherwise only a change stores a delta.
+/// Plan of a loaded incarnation. The compiled core picks its content
+/// (`eukhe_bend::rules::doc_plan`, `laws/doc_plan.bend`): a version change
+/// stores a base even without operations; otherwise only a change stores a
+/// delta.
+///
+/// # Panics
+///
+/// On a definition version past the core's wire bound (14 digits) or an
+/// inconsistent build ([`expect_core`]).
 fn plan_loaded(
     document: &DocumentEntry,
     loaded: &Arc<LoadedDocument>,
@@ -259,26 +268,27 @@ fn plan_loaded(
     let version = definition.version();
     let id = loaded.record.id;
     let ops: Ops = Arc::from(prepared.ops());
-    // A version change stores a base even without operations;
-    // otherwise only a change stores a delta.
-    let content = if loaded.stored_version() < version {
-        Some(StorageWrite::DocumentChange {
+    let written = doc_plan::content(Loaded {
+        stored: loaded.stored_version(),
+        version,
+        staged: !ops.is_empty(),
+    });
+    let content = match expect_core(Entry::DocPlan, written) {
+        Content::Base => Some(StorageWrite::DocumentChange {
             id,
             content: DocumentContent::Base(DocumentBase {
                 version,
                 value: object_value(prepared.value()),
             }),
-        })
-    } else if ops.is_empty() {
-        None
-    } else {
-        Some(StorageWrite::DocumentChange {
+        }),
+        Content::Delta => Some(StorageWrite::DocumentChange {
             id,
             content: DocumentContent::Delta(DocumentDelta {
                 version,
                 ops: Arc::clone(&ops),
             }),
-        })
+        }),
+        Content::Kept => None,
     };
     DocumentPlan {
         address_id,
@@ -297,14 +307,23 @@ fn plan_loaded(
     }
 }
 
-/// Whether adoption publishes the plan: every creation, copy, and retirement,
-/// and a loaded incarnation that writes content, which includes a
-/// migration-only base so observers of the older shape receive the new value.
+/// Whether adoption publishes the plan. The compiled core decides
+/// (`eukhe_bend::rules::doc_plan`, law `doc_plan_publishes_exact`): every
+/// creation, copy, and retirement, and a loaded incarnation that writes
+/// content, which includes a migration-only base so observers of the older
+/// shape receive the new value.
 pub(super) fn publishes(plan: &DocumentPlan) -> bool {
-    plan.retire
-        || plan
-            .change
-            .as_ref()
-            .is_none_or(|change| change.loaded.is_none())
-        || plan.content.is_some()
+    let change = match &plan.change {
+        None => doc_plan::Change::None,
+        Some(change) => match change.loaded {
+            Some(_) => doc_plan::Change::Loaded,
+            None => doc_plan::Change::Created,
+        },
+    };
+    let asked = Plan {
+        retire: plan.retire,
+        change,
+        writes: plan.content.is_some(),
+    };
+    expect_core(Entry::DocPlan, doc_plan::publishes(asked))
 }
