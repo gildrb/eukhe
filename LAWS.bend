@@ -28,6 +28,7 @@ import ./laws/theme.bend as Theme
 import ./laws/color.bend as Color
 import ./laws/tokens.bend as Tokens
 import ./laws/progress.bend as Progress
+import ./laws/work.bend as Work
 import ./laws/aux_fallback.bend as AuxFallback
 import ./laws/skill_load.bend as SkillLoad
 import ./laws/kernel_local.bend as KernelLocal

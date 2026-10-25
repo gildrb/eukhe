@@ -48,6 +48,7 @@ import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_wait.bend as ffi_wait
 import ./ffi_wire.bend as ffi_wire
+import ./ffi_work.bend as ffi_work
 import ./ffi_workflow.bend as ffi_workflow
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -142,6 +143,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_job_wait.ffi(input)
     case 82:
       ffi_cron.ffi(input)
+    case 83:
+      ffi_work.ffi(input)
     case 84:
       ffi_retry_idle.ffi(input)
     case 86:
@@ -163,6 +166,7 @@ type State is Type:
   Notice{s: ffi_notice.St}
   Log{s: ffi_log.St}
   DocSearch{s: ffi_doc_search.St}
+  Work{s: ffi_work.St}
   Lease{s: ffi_lease.St}
   Unknown{}
 
@@ -201,6 +205,11 @@ def open.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def open.work(r: ffi_work.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Work{s}, reply)
+
 def open.lease(r: ffi_lease.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -222,6 +231,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.log(ffi_log.open(input))
     case 40:
       open.doc_search(ffi_doc_search.open(input))
+    case 83:
+      open.work(ffi_work.open(input))
     case 85:
       open.lease(ffi_lease.open(input))
     case _:
@@ -267,6 +278,11 @@ def step.doc_search(r: ffi_doc_search.St & String) -> State & String:
     case (s, reply):
       (DocSearch{s}, reply)
 
+def step.work(r: ffi_work.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Work{s}, reply)
+
 def step.lease(r: ffi_lease.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -288,6 +304,8 @@ def step.go(state: State, input: String) -> State & String:
       step.log(ffi_log.step(s, input))
     case DocSearch{s}:
       step.doc_search(ffi_doc_search.step(s, input))
+    case Work{s}:
+      step.work(ffi_work.step(s, input))
     case Lease{s}:
       step.lease(ffi_lease.step(s, input))
     case Unknown{}:
@@ -313,6 +331,8 @@ def close.go(state: State) -> Unit:
     case Log{s}:
       Unit{}
     case DocSearch{s}:
+      Unit{}
+    case Work{s}:
       Unit{}
     case Lease{s}:
       Unit{}

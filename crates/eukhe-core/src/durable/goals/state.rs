@@ -259,6 +259,51 @@ pub(crate) struct Prior {
     pub(crate) work: u64,
 }
 
+/// The last progress check the goal loop stored, as the check now sees it:
+/// whether it was of the same run (the run's first input) and of the same
+/// goal, its count of stalls and the work then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Last {
+    pub(crate) same_run: bool,
+    pub(crate) same_goal: bool,
+    pub(crate) stalls: u64,
+    pub(crate) work: u64,
+}
+
+/// The prior check the goal's progress check compares with (`compared` in
+/// `bend/progress.bend`, the call of the compiled core's `work` entry;
+/// `laws/work.bend` `prior_entry_*`, `laws/progress.bend`
+/// `goal_compared_check`): the last check, when it was of the same run and
+/// the same goal; else none, and the check starts the count.
+pub(crate) fn compared(last: Option<Last>) -> Option<Prior> {
+    eukhe_bend::expect_core(Entry::Work, compared_call(last))
+}
+
+fn compared_call(last: Option<Last>) -> Result<Option<Prior>, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    match last {
+        None => request.none(),
+        Some(last) => request
+            .some()
+            .bool(last.same_run)
+            .bool(last.same_goal)
+            .nat(last.stalls.min(NAT_MAX))
+            .nat(last.work.min(NAT_MAX)),
+    };
+    let reply = eukhe_bend::call(Entry::Work, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    let prior = if reply.maybe()? {
+        Some(Prior {
+            stalls: reply.nat()?,
+            work: reply.nat()?,
+        })
+    } else {
+        None
+    };
+    reply.end()?;
+    Ok(prior)
+}
+
 /// The progress check's verdict at one goal continuation: the count of
 /// continuations in a row that did no new work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
