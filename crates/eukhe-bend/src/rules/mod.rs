@@ -22,6 +22,7 @@ pub mod model_facts;
 pub mod package_source;
 pub mod quirks;
 pub mod redirect_input;
+pub mod refine_plan;
 pub mod retry;
 pub mod retry_note;
 pub mod runners;

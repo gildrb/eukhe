@@ -174,6 +174,8 @@ pub enum Entry {
     RedirectInput = 293,
     /// `bend/ffi_package_source.bend`: a call.
     PackageSource = 294,
+    /// `bend/ffi_refine_plan.bend`: a call.
+    RefinePlan = 295,
 }
 
 impl Entry {
@@ -263,6 +265,7 @@ impl Entry {
         Entry::GoalText,
         Entry::RedirectInput,
         Entry::PackageSource,
+        Entry::RefinePlan,
     ];
 
     /// The id `bend/core.bend` dispatches on.

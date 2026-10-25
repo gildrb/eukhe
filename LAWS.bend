@@ -95,3 +95,5 @@ import ./laws/goal_text.bend as GoalText
 import ./laws/redirect_input.bend as RedirectInput
 import ./laws/package_source/model.bend as PackageSource
 import ./laws/package_source/entry.bend as PackageSourceEntry
+import ./laws/refine_plan/model.bend as RefinePlan
+import ./laws/refine_plan/entry.bend as RefinePlanEntry
