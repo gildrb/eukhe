@@ -50,6 +50,9 @@ pub(crate) const SERVICE_TIERS: &[&str] = &["auto", "default", "flex", "scale", 
 pub(crate) const TREE_FILTER_MODES: &[&str] =
     &["default", "no-tools", "user-only", "labeled-only", "all"];
 pub(crate) const CHAT_DETAILS: &[&str] = &["overview", "details", "all"];
+/// `sessionShape`: `single` (the session does the work itself) or
+/// `main-worker` (main talks, a persistent worker child does the work).
+pub(crate) const SESSION_SHAPES: &[&str] = &["single", "main-worker"];
 pub(crate) const MERMAID_MODES: &[&str] = &["off", "final", "streaming"];
 pub(crate) const WORKFLOW_SIZES: &[&str] = &["small", "medium", "large"];
 pub(crate) const PINNED_AGENTS_MODES: &[&str] = &["off", "collapsed", "full"];
@@ -99,6 +102,27 @@ pub const SUBAGENT_DEFAULT_MODEL: Decl = Decl {
     persist: true,
     replicate: false,
     init: Init::Text(""),
+};
+
+/// The worker's model (`sessionShape` `main-worker`); `""`: main's model.
+pub const WORKER_MODEL: Decl = Decl {
+    id: "workerModel",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// The session shape (docs/usage.md, main and worker). `single` until the
+/// eval shows `main-worker` equal or better (the user decides the default).
+pub const SESSION_SHAPE: Decl = Decl {
+    id: "sessionShape",
+    ty: CvarType::Choice(SESSION_SHAPES),
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text("single"),
 };
 
 pub const RECENT_MODELS: Decl = Decl {
@@ -1231,6 +1255,8 @@ pub const DECLS: &[Decl] = &[
     DEFAULT_PROVIDER,
     DEFAULT_MODEL,
     SUBAGENT_DEFAULT_MODEL,
+    WORKER_MODEL,
+    SESSION_SHAPE,
     RECENT_MODELS,
     AUXILIARY_MODEL,
     DEFAULT_THINKING_LEVEL,

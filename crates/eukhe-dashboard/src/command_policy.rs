@@ -33,6 +33,8 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::Rename { .. } => "rename",
         DaemonCommand::CancelPromptAdmission { .. } => "cancel_prompt_admission",
         DaemonCommand::Abort { .. } => "abort",
+        DaemonCommand::PauseWorkers { .. } => "pause_workers",
+        DaemonCommand::ResumeWorkers { .. } => "resume_workers",
         DaemonCommand::AbortAndSendQueued { .. } => "abort_and_send_queued",
         DaemonCommand::AbortBash { .. } => "abort_bash",
         DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
