@@ -317,32 +317,14 @@ def cut(head: Bool, lim: Limit, +cs: List<&2, Contrib>) -> Maybe<&2, Nat>:
 # The summarizer's answer
 # -----------------------
 
-def name(s: Co.Stop) -> String:
-  match s:
-    case Co.SPending{}:
-      "pending"
-    case Co.SStop{}:
-      "stop"
-    case Co.SLength{}:
-      "length"
-    case Co.SToolUse{}:
-      "toolUse"
-    case Co.SError{}:
-      "error"
-    case Co.SAborted{}:
-      "aborted"
-    case Co.SDeferred{}:
-      "deferred"
-
-def failed.reason(s: Co.Stop, err: Maybe<&2, String>) -> String:
+# the failure of an error or aborted answer: its error message, else the
+# name of its stop reason (only these two stop reasons fail this way)
+def failed.as(reason: String, err: Maybe<&2, String>) -> Outcome:
   match err:
     case None{}:
-      name(s)
+      Failed{String.append("Summarization failed: ", reason)}
     case Some{e}:
-      e
-
-def failed.as(s: Co.Stop, err: Maybe<&2, String>) -> Outcome:
-  Failed{String.append("Summarization failed: ", failed.reason(s, err))}
+      Failed{String.append("Summarization failed: ", e)}
 
 def failed.call(calls: Bool) -> Outcome:
   match calls:
@@ -363,9 +345,9 @@ def failed(s: Co.Stop, calls: Bool, err: Maybe<&2, String>) -> Outcome:
     case Co.SToolUse{}:
       failed.call(calls)
     case Co.SError{}:
-      failed.as(Co.SError{}, err)
+      failed.as("error", err)
     case Co.SAborted{}:
-      failed.as(Co.SAborted{}, err)
+      failed.as("aborted", err)
     case Co.SDeferred{}:
       failed.call(calls)
 
