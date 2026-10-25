@@ -156,6 +156,8 @@ pub enum Entry {
     GatewayCommands = 205,
     /// `bend/ffi_cache_marks.bend`: a call.
     CacheMarks = 230,
+    /// `bend/ffi_overflow.bend`: a call.
+    Overflow = 231,
     /// `bend/ffi_codemode_id.bend`: a call.
     CodemodeId = 260,
     /// `bend/ffi_submission.bend`: a call.
@@ -246,6 +248,7 @@ impl Entry {
         Entry::SlashSuggest,
         Entry::GatewayCommands,
         Entry::CacheMarks,
+        Entry::Overflow,
         Entry::CodemodeId,
         Entry::Submission,
         Entry::Scan,

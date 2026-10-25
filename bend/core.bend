@@ -51,6 +51,7 @@ import ./ffi_log.bend as ffi_log
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
+import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
@@ -229,6 +230,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_gateway_commands.ffi(input)
     case 230:
       ffi_cache_marks.ffi(input)
+    case 231:
+      ffi_overflow.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:

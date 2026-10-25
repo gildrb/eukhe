@@ -18,6 +18,7 @@ pub mod infer_force;
 pub mod infer_guard;
 pub mod infer_threshold;
 pub mod model_facts;
+pub mod overflow;
 pub mod quirks;
 pub mod retry;
 pub mod retry_note;
