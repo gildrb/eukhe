@@ -158,7 +158,7 @@ pub async fn cancel_child(
     if row.settled {
         return Ok(None);
     }
-    let task_id = row.task_id();
+    let task_id = row.live_task();
     harness
         .abort_task(task_id, cx)
         .await
@@ -172,7 +172,7 @@ pub async fn cancel_child(
         .map_err(session_error)?;
     let row = after
         .children
-        .get(&task_id.to_string())
+        .get(&row.task_id.to_string())
         .cloned()
         .unwrap_or(row);
     Ok(Some(entry(&row, None, now_ms())))

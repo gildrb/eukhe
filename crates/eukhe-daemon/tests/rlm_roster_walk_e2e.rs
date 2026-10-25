@@ -358,16 +358,17 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
             spawned_by_request_id: None,
             parent_task_id: "1".to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn child");
     children
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: "rlm:1:prompt".to_string(),
-            session_id: child.session_id,
-            rlm_child_id: CHILD_ID.to_string(),
-            prompt: "ship the seed lane".to_string(),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            "rlm:1:prompt".to_string(),
+            child.session_id,
+            CHILD_ID.to_string(),
+            "ship the seed lane".to_string(),
+        ))
         .await
         .expect("prompt child");
     let child_agent_id = format!("{parent_file}#{CHILD_ID}");

@@ -307,16 +307,17 @@ async fn spawn_settled_child(
             spawned_by_request_id: None,
             parent_task_id: index.to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn the child");
     children
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: format!("rlm:{index}:prompt"),
-            session_id: child.session_id.clone(),
-            rlm_child_id: rlm_child_id.clone(),
-            prompt: prompt.to_string(),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            format!("rlm:{index}:prompt"),
+            child.session_id.clone(),
+            rlm_child_id.clone(),
+            prompt.to_string(),
+        ))
         .await
         .expect("prompt the child");
     let deadline = Instant::now() + Duration::from_secs(60);

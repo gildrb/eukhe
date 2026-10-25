@@ -8,6 +8,7 @@
 //! resumes every child task where it stopped, so a report owed for a child
 //! still running at the crash is delivered exactly once.
 
+mod assign;
 mod commands;
 mod depth;
 mod host;
@@ -21,6 +22,12 @@ mod task;
 mod watch;
 mod wire;
 mod work;
+mod worker;
+
+pub use worker::{
+    list_workers, pause_workers, MAIN_TOOLS, WORKER_ASSIGN, WORKER_FORWARD, WORKER_STATUS,
+    WORKER_TOOLS,
+};
 
 #[cfg(test)]
 mod tests;
@@ -37,12 +44,12 @@ pub use commands::{
 };
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
-    NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing, RlmChildObservation,
-    RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
-    RLM_CHILD_ANSWER_MAX_BYTES,
+    ChildMessageKind, NoRlmChildren, PauseAction, RlmChildActivityKind, RlmChildCancelRequest,
+    RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing,
+    RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest, RlmChildPromptRequest,
+    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
+    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
+    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,
@@ -124,6 +131,7 @@ impl Children {
         requests::register(host_requests, self);
         define_extension(Extension {
             tasks: vec![self.task.erase()],
+            tools: worker::worker_tools(self),
             ..Extension::named(EXTENSION_NAME)
         })
     }

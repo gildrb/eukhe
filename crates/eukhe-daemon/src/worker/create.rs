@@ -40,6 +40,8 @@ pub(crate) struct CreateParams {
     pub(crate) rlm_depth: Option<u32>,
     pub(crate) rlm_max_depth: Option<u32>,
     pub(crate) rlm_child_id: Option<String>,
+    /// Main's worker (`runtimeMetadata.worker`, a subagent create).
+    pub(crate) worker: bool,
     pub(crate) parent_active_session_id: Option<String>,
     pub(crate) parent_session_id: Option<String>,
     /// The parent's session file (`parentSessionPath`, RLM children).
@@ -171,6 +173,10 @@ impl CreateParams {
             rlm_depth,
             rlm_max_depth,
             rlm_child_id: text(metadata, "rlmChildId"),
+            worker: metadata
+                .and_then(|metadata| metadata.get("worker"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             parent_active_session_id: text(metadata, "parentActiveSessionId"),
             parent_session_id: text(metadata, "parentSessionId"),
             parent_session_path: text(Some(payload), "parentSessionPath"),
@@ -451,6 +457,7 @@ impl Worker {
                     agent_name: None,
                     spawned_by_request_id: params.spawned_by_request_id.clone(),
                 }),
+            worker: params.worker,
         };
         // A spawned child is a subagent: the family its parent had, then
         // `subagent.cfg` and its `agents/<name>.cfg`; anything else is the
@@ -503,7 +510,7 @@ impl Worker {
             None => Some(None),
             Some(scripted) => scripted.chat_memory_summarizer().map(Some),
         };
-        if let (Some(summarizer), true) = (memory_summarizer, config.role.is_root()) {
+        if let (Some(summarizer), true) = (memory_summarizer, config.role.has_chat_memory()) {
             config.memory = Some(self.chat_memory(summarizer).await?);
         }
         let core = Arc::clone(&self.core);

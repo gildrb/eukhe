@@ -406,6 +406,7 @@ async fn session_config(
         rlm_depth: 0,
         rlm_max_depth: eukhe_daemon::rlm_children::DEFAULT_RLM_MAX_DEPTH,
         parent: None,
+        worker: false,
     };
     session.thinking = config.thinking.map(thinking_level);
     session.prompt = PromptConfig {

@@ -181,16 +181,17 @@ async fn spawn_settled_child(children: &SupervisorChildSessions) -> RlmChildSess
             spawned_by_request_id: None,
             parent_task_id: "1".to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn the child");
     children
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: "rlm:1:prompt".to_string(),
-            session_id: child.session_id.clone(),
-            rlm_child_id: CHILD_ID.to_string(),
-            prompt: "work on the lane".to_string(),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            "rlm:1:prompt".to_string(),
+            child.session_id.clone(),
+            CHILD_ID.to_string(),
+            "work on the lane".to_string(),
+        ))
         .await
         .expect("prompt the child");
     // The child settles done with a resident worker.

@@ -1357,6 +1357,8 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         reporter: None,
         handback: None,
         phase: None,
+        task: None,
+        worker: false,
         answer: None,
     };
     parent

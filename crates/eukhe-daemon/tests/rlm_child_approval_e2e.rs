@@ -215,16 +215,17 @@ async fn a_subagent_step_runs_when_the_root_client_approves() {
             spawned_by_request_id: None,
             parent_task_id: "1".to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn the subagent");
     children
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: "rlm:1:prompt".to_string(),
-            session_id: CHILD_SESSION_ID.to_string(),
-            rlm_child_id: CHILD_ID.to_string(),
-            prompt: "make the marker".to_string(),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            "rlm:1:prompt".to_string(),
+            CHILD_SESSION_ID.to_string(),
+            CHILD_ID.to_string(),
+            "make the marker".to_string(),
+        ))
         .await
         .expect("prompt the subagent");
 

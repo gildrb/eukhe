@@ -226,6 +226,7 @@ fn spawn_request() -> RlmChildSpawnRequest {
         spawned_by_request_id: Some("call-1".to_owned()),
         parent_task_id: "7".to_owned(),
         workspace: WorkspaceMode::Shared,
+        worker: false,
     }
 }
 
@@ -304,12 +305,12 @@ async fn keyed_calls_run_once_and_a_settled_child_reports() {
     let sessions = host(&shared, dir.path()).await;
     sessions.spawn(spawn_request()).await.unwrap();
 
-    let prompt = RlmChildPromptRequest {
-        idempotency_key: "rlm:7:prompt".to_owned(),
-        session_id: CHILD_SESSION.to_owned(),
-        rlm_child_id: "sub-0192a000".to_owned(),
-        prompt: "Investigate".to_owned(),
-    };
+    let prompt = RlmChildPromptRequest::task(
+        "rlm:7:prompt".to_owned(),
+        CHILD_SESSION.to_owned(),
+        "sub-0192a000".to_owned(),
+        "Investigate".to_owned(),
+    );
     sessions.prompt(prompt.clone()).await.unwrap();
     sessions.prompt(prompt).await.unwrap();
     let prompts = commands_of(&shared, "prompt");
@@ -600,12 +601,12 @@ async fn the_task_prompt_lands_as_the_parents_spawn_kickoff() {
     sessions.set_parent_name_source(Arc::new(|| Some("orchestrator".to_owned())));
     sessions.spawn(spawn_request()).await.unwrap();
     sessions
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: "rlm:7:prompt".to_owned(),
-            session_id: CHILD_SESSION.to_owned(),
-            rlm_child_id: "sub-0192a000".to_owned(),
-            prompt: "Investigate".to_owned(),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            "rlm:7:prompt".to_owned(),
+            CHILD_SESSION.to_owned(),
+            "sub-0192a000".to_owned(),
+            "Investigate".to_owned(),
+        ))
         .await
         .unwrap();
     let prompts = commands_of(&shared, "prompt");
@@ -623,6 +624,7 @@ async fn the_task_prompt_lands_as_the_parents_spawn_kickoff() {
         json!({
             "id": "spawn:sub-0192a000",
             "message": "Investigate",
+            "deliveryKind": "task",
             "from": {
                 "activeSessionId": "parent-live",
                 "sessionId": "parent-session",
@@ -656,12 +658,12 @@ async fn a_prompt_waits_out_a_supervisor_restart() {
         session_id: Some("parent-session".to_owned()),
         ..ParentIdentity::with_default_depth()
     });
-    let mut prompt = sessions.prompt(RlmChildPromptRequest {
-        idempotency_key: "rlm:7:prompt".to_owned(),
-        session_id: CHILD_SESSION.to_owned(),
-        rlm_child_id: "sub-0192a000".to_owned(),
-        prompt: "Investigate".to_owned(),
-    });
+    let mut prompt = sessions.prompt(RlmChildPromptRequest::task(
+        "rlm:7:prompt".to_owned(),
+        CHILD_SESSION.to_owned(),
+        "sub-0192a000".to_owned(),
+        "Investigate".to_owned(),
+    ));
     // The refused connect fails at once; the prompt stays pending, waiting
     // for the supervisor instead of failing.
     assert!(

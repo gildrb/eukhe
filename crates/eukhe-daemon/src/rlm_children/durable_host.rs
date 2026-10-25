@@ -18,7 +18,7 @@ use eukhe_core::agent_messaging::{
 };
 use eukhe_core::child_workspace::{ChildWorkspace, Handback, WorkspaceMode};
 use eukhe_core::durable::children as durable;
-use eukhe_types::daemon::{DaemonCommand, PromptInput, WorkerLiveness};
+use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
@@ -239,14 +239,17 @@ impl SupervisorChildSessionsInner {
         stats_usage(&stats)
     }
 
-    /// The spawn kickoff (TS `spawnMessage`): the task text labeled
-    /// `[task from parent]` (the model context, the label the child system
-    /// prompt promises) and the parent's `agent_message` row carrying it
-    /// (`details.id` `spawn:<child id>`, the raw task as `details.message`,
-    /// the parent endpoint as `from`, no `target`), so the child renders a
-    /// parent message instead of an unlabeled user row.
-    fn spawn_kickoff(&self, rlm_child_id: &str, prompt: &str) -> (String, Value) {
-        let content = format!("[task from parent]\n\n{prompt}");
+    /// The parent's message to a child (TS `spawnMessage`): the text
+    /// labeled by its kind (`[task from parent]`, `[context from user via
+    /// main]`, `[redirect from user via main]`: the model context, the
+    /// labels the child system prompt names) and the parent's
+    /// `agent_message` row carrying it (`details.id` the request's row id,
+    /// the raw text as `details.message`, `details.deliveryKind`, the
+    /// request's further details, the parent endpoint as `from`, no
+    /// `target`), so the child renders a parent message instead of an
+    /// unlabeled user row.
+    fn kickoff(&self, request: &durable::RlmChildPromptRequest) -> (String, Value) {
+        let content = format!("{}\n\n{}", request.kind.label(), request.prompt);
         let mut from = json!({ "activeSessionId": self.parent_active_session_id });
         let session_id = self
             .identity
@@ -265,15 +268,21 @@ impl SupervisorChildSessionsInner {
         if let Some(name) = name_source.and_then(|source| source()) {
             from["sessionName"] = json!(name);
         }
-        let row = create_agent_session_message_row(&AgentSessionMessageRowPayload {
-            id: &format!("spawn:{rlm_child_id}"),
+        let mut row = create_agent_session_message_row(&AgentSessionMessageRowPayload {
+            id: &request.row_id,
             prompt: &content,
-            message: prompt,
+            message: &request.prompt,
             from: &from,
             from_relationship: Some(AgentFamilyRelationship::Parent),
             target: None,
             timestamp: now_ms(),
         });
+        if let Some(details) = row.get_mut("details").and_then(Value::as_object_mut) {
+            details.insert("deliveryKind".to_owned(), json!(request.kind.as_str()));
+            if let Some(more) = &request.details {
+                details.extend(more.clone());
+            }
+        }
         (content, row)
     }
 }
@@ -318,11 +327,18 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 return Ok(child.clone());
             }
             this.refresh_parent_model().await;
+            // A worker without a pinned model (`workerModel` unset) runs on
+            // main's model, never on `subagentDefaultModel`.
+            let unpinned = if request.worker {
+                UnpinnedChildModel::Parent
+            } else {
+                UnpinnedChildModel::SubagentDefault
+            };
             let model = resolve_child_model_allowlisted(
                 &this,
                 request.model.as_deref(),
                 "subagent",
-                UnpinnedChildModel::SubagentDefault,
+                unpinned,
             )
             .await?;
             assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
@@ -364,6 +380,8 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     "parentActiveSessionId": this.parent_active_session_id,
                     "rlmDepth": request.depth,
                     "createdAt": now_ms(),
+                    // Main's worker: the chat view and the worker doctrine.
+                    "worker": request.worker,
                 });
                 // A create naming an existing storage reopens it, so a
                 // passivated child is found again by the same id.
@@ -475,7 +493,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // The kickoff rides prompt admission as the parent's
             // `agent_message` row; its content (the labeled task) is the
             // model context.
-            let (content, kickoff) = this.spawn_kickoff(&request.rlm_child_id, &request.prompt);
+            let (content, kickoff) = this.kickoff(&request);
             let make = |selector: &str| DaemonCommand::Prompt {
                 id: None,
                 active_session_id: selector.to_owned(),
@@ -483,7 +501,10 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 input: PromptInput {
                     content: None,
                     images: None,
-                    streaming_behavior: None,
+                    // A task waits for a running turn to end; context and
+                    // a redirect join it at its next boundary (never
+                    // inside a tool call).
+                    streaming_behavior: request.kind.steers().then_some(StreamingBehavior::Steer),
                     queue_if_busy: None,
                     expand_prompt_templates: None,
                     source: Some(json!("rpc")),
@@ -701,6 +722,36 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         })
     }
 
+    /// `pause_workers` / `resume_workers` with `ownRun` on the child: its
+    /// own run and its tree pause or resume (a passivated child wakes for
+    /// it, keyed by its durable session id).
+    fn pause(&self, request: durable::RlmChildPauseRequest) -> durable::RlmHostFuture<'_, ()> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            this.durable_command(
+                &request.session_id,
+                STATE_TIMEOUT_MS,
+                |selector| match request.action {
+                    durable::PauseAction::Pause => DaemonCommand::PauseWorkers {
+                        id: None,
+                        active_session_id: selector.to_owned(),
+                        own_run: Some(true),
+                        rest: Map::default(),
+                    },
+                    durable::PauseAction::Resume => DaemonCommand::ResumeWorkers {
+                        id: None,
+                        active_session_id: selector.to_owned(),
+                        own_run: Some(true),
+                        rest: Map::default(),
+                    },
+                },
+            )
+            .await
+            .map(drop)
+            .with_context(|| format!("pause or resume RLM child {}", request.session_id))
+        })
+    }
+
     fn delete(&self, request: durable::RlmChildDeleteRequest) -> durable::RlmHostFuture<'_, ()> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
@@ -773,11 +824,14 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 let selector = this.durable_selector(&session_id);
                 // A roster read is a snapshot: an unreachable child keeps
                 // its durable row without live facts.
-                let activity = match this.child_busy(&selector).await {
-                    Ok(true) => Some(durable::RlmChildActivityKind::Executing),
-                    Ok(false) => Some(durable::RlmChildActivityKind::Waiting),
-                    Err(_) => None,
-                };
+                let facts = this.child_facts(&selector).await.ok();
+                let activity = facts.as_ref().map(|facts| {
+                    if facts.busy {
+                        durable::RlmChildActivityKind::Executing
+                    } else {
+                        durable::RlmChildActivityKind::Waiting
+                    }
+                });
                 listings.push(durable::RlmChildListing {
                     session_id,
                     activity,
@@ -785,6 +839,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     tool_use_count: None,
                     progress_note: None,
                     last_activity_at: None,
+                    paused: facts.is_some_and(|facts| facts.paused),
                 });
             }
             Ok(listings)

@@ -33,6 +33,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use futures::FutureExt;
 
 pub use docs::{CallState, LoggedState, CALL_DOC, LOGGED_DOC};
+pub(crate) use lines::user_text;
 pub(crate) use tools::agent_chat;
 
 use super::{EukheSettings, HarnessCell, HostDeps, TurnWaitSink};

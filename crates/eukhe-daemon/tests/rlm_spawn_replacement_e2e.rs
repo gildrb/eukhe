@@ -257,6 +257,7 @@ fn spawn_request(index: usize, name: &str, prompt: &str) -> RlmChildSpawnRequest
         spawned_by_request_id: None,
         parent_task_id: index.to_string(),
         workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+        worker: false,
     }
 }
 
@@ -429,15 +430,15 @@ async fn concurrent_spawns_prompt_exactly_once_across_a_worker_replacement() {
             .zip(names.iter())
             .enumerate()
             .map(|(index, (child_id, name))| {
-                let request = RlmChildPromptRequest {
-                    idempotency_key: format!("rlm:{index}:prompt"),
-                    session_id: child_session_id(index),
-                    rlm_child_id: child_id.clone(),
-                    prompt: format!(
+                let request = RlmChildPromptRequest::task(
+                    format!("rlm:{index}:prompt"),
+                    child_session_id(index),
+                    child_id.clone(),
+                    format!(
                         "ship the marker-replacement-e2e-{} task",
                         name.trim_start_matches("kid-")
                     ),
-                };
+                );
                 let children = &children;
                 async move {
                     let deadline = Instant::now() + Duration::from_secs(150);

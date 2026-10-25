@@ -40,8 +40,9 @@ use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
-    RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
+    ChildMessageKind, RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest,
+    RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
@@ -119,6 +120,32 @@ pub(crate) struct ChildTaskInput {
     /// tasks admitted before it: the inbox).
     #[serde(default, skip_serializing_if = "ReportMode::is_inbox")]
     pub(crate) report: ReportMode,
+    /// Set on a re-task (`assign`) of the existing child of this spawn
+    /// task: the task starts in the prompt phase on that child; its row
+    /// and identity are that task's, while this task's own id names its
+    /// prompt and its report's request ids.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) child: Option<u64>,
+    /// What the prompt is to the child (a re-task may carry the user's
+    /// context or redirect to an idle child); absent: a task.
+    #[serde(default, skip_serializing_if = "is_task")]
+    pub(crate) kind: ChildMessageKind,
+    /// More details of the prompt's row (`userMessages`, `note`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) details: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The child is a worker of a main session (`sessionShape`
+    /// `main-worker`): it gets the chat view and the worker doctrine, and
+    /// main's worker tools reach it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) worker: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference"
+)]
+fn is_task(kind: &ChildMessageKind) -> bool {
+    *kind == ChildMessageKind::Task
 }
 
 /// Where a settled child's outcome goes.
@@ -449,10 +476,11 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
             CHILD_TASK_KIND,
             2,
             |input: &ChildTaskInput| {
-                Ok(input
-                    .owed
-                    .as_ref()
-                    .map_or(ChildCheckpoint::Spawn, OwedReport::checkpoint))
+                Ok(match (&input.owed, input.child) {
+                    (Some(owed), _) => owed.checkpoint(),
+                    (None, Some(_)) => ChildCheckpoint::Prompt,
+                    (None, None) => ChildCheckpoint::Spawn,
+                })
             },
             phase(|services, task, runtime, cx| Box::pin(abort(services, task, runtime, cx))),
         )
@@ -494,17 +522,26 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
 
 type PhaseFuture = futures::future::BoxFuture<'static, SessionResult<()>>;
 
-/// The child task whose row and report `task` serves: its own, or, for a
-/// task carrying an aborted child task's report, that task's.
-fn child_task_id(task: &Running) -> TaskId {
+/// The child task whose work `task` serves: its own, or, for a task
+/// carrying an aborted child task's report, that task's. Its id names the
+/// report's request ids and the host requests' idempotency keys.
+fn report_task_id(task: &Running) -> TaskId {
     task.input
         .owed
         .as_ref()
         .map_or_else(|| task.id.erase(), |owed| TaskId::from_number(owed.child))
 }
 
+/// The spawn task of the child `task` serves: its registry row is keyed by
+/// it and the child's identity derives from it.
+fn row_task_id(task: &Running) -> TaskId {
+    task.input
+        .child
+        .map_or_else(|| report_task_id(task), TaskId::from_number)
+}
+
 async fn require_row(runtime: &Runtime, task: &Running, cx: &Context) -> SessionResult<ChildRow> {
-    let task_id = child_task_id(task);
+    let task_id = row_task_id(task);
     let state = read_children(runtime, task.conversation_id, cx).await?;
     state
         .children
@@ -548,6 +585,7 @@ async fn spawn(
         spawned_by_request_id: task.input.spawned_by_request_id.clone(),
         parent_task_id: task_id.to_string(),
         workspace: task.input.workspace.unwrap_or_default(),
+        worker: task.input.worker,
     };
     let spawned = services.host.spawn(request).await;
     let conversation_id = task.conversation_id;
@@ -596,12 +634,19 @@ async fn prompt(
         ));
     };
     let task_id = task.id.erase();
-    let identity = child_identity(&services.parent_session_id, task_id);
+    let row_id = row_task_id(&task);
+    let identity = child_identity(&services.parent_session_id, row_id);
     let request = RlmChildPromptRequest {
         idempotency_key: format!("rlm:{task_id}:prompt"),
         session_id: identity.session_id.clone(),
         rlm_child_id: identity.rlm_child_id.clone(),
         prompt: task.input.prompt.clone(),
+        kind: task.input.kind,
+        row_id: match task.input.child {
+            None => format!("spawn:{}", identity.rlm_child_id),
+            Some(_) => format!("task:{task_id}"),
+        },
+        details: task.input.details.clone(),
     };
     let prompted = match services.host.prompt(request.clone()).await {
         Ok(()) => Ok(()),
@@ -637,7 +682,7 @@ async fn prompt(
                         },
                     }));
                 };
-                let row = tx_update_row(&tx, conversation_id, task_id, |row| {
+                let row = tx_update_row(&tx, conversation_id, row_id, |row| {
                     row.status = ChildStatus::Error;
                     row.error = Some(error.clone());
                     row.failure = Some(ChildFailure::Undelivered);
@@ -852,7 +897,8 @@ async fn watch(
     if !first_poll {
         runtime.sleep(next_poll_at, &cx).await?;
     }
-    let identity = child_identity(&services.parent_session_id, task_id);
+    let row_id = row_task_id(&task);
+    let identity = child_identity(&services.parent_session_id, row_id);
     // The long poll yields to an abort mark or a closing Harness: the
     // invocation is joined before the abort handler runs.
     let signal = runtime.signal();
@@ -971,7 +1017,7 @@ async fn watch(
     runtime
         .commit(
             move |tx, _current| async move {
-                let Some(mut row) = tx_row(&tx, conversation_id, task_id).await? else {
+                let Some(mut row) = tx_row(&tx, conversation_id, row_id).await? else {
                     return Err(SessionError::error(format!(
                         "RLM child task {task_id} has no registry row"
                     )));
@@ -1055,7 +1101,7 @@ async fn submit_report(
 ) -> SessionResult<Arc<dyn Submission>> {
     let conversation = owner(runtime, task, cx).await?;
     let draft = InputSubmissionDraft {
-        request_id: Some(report_request_id(child_task_id(task), ordinal)),
+        request_id: Some(report_request_id(report_task_id(task), ordinal)),
         content: UserContent::Text(report.text()),
         when_busy: Some(WhenBusy::FollowUp),
         origin: report.origin(),
@@ -1092,7 +1138,7 @@ async fn report(
         ));
     };
     let (report, withdrawn) = (report.clone(), *withdrawn);
-    let (conversation_id, task_id) = (task.conversation_id, child_task_id(&task));
+    let (conversation_id, task_id) = (task.conversation_id, row_task_id(&task));
     // The waits yield to an abort mark or a closing Harness; a rerun finds
     // the same submission by its request id.
     let signal = runtime.signal();
@@ -1172,7 +1218,8 @@ async fn abort(
     cx: Context,
 ) -> SessionResult<()> {
     let mut row = require_row(&runtime, &task, &cx).await?;
-    let task_id = child_task_id(&task);
+    let task_id = report_task_id(&task);
+    let row_id = row_task_id(&task);
     let running = !row.status.is_terminal();
     let prompt_admissible = !matches!(task.checkpoint, ChildCheckpoint::Spawn);
     if running && prompt_admissible && !row.delete_requested() {
@@ -1240,7 +1287,7 @@ async fn abort(
                     ),
                     None => None,
                 };
-                let row = tx_update_row(&tx, conversation_id, task_id, |row| {
+                let row = tx_update_row(&tx, conversation_id, row_id, |row| {
                     if !row.status.is_terminal() {
                         row.status = ChildStatus::Cancelled;
                         row.error = Some(reason.to_owned());

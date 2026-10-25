@@ -50,9 +50,20 @@ pub struct SessionRole {
     pub rlm_max_depth: u32,
     /// The spawning session; `None` for top-level sessions.
     pub parent: Option<ParentLink>,
+    /// Main's worker (`sessionShape` `main-worker`): a child that gets
+    /// the chat view as a subagent (pinned view, logs nothing, no
+    /// root-turn lease) and the worker doctrine.
+    pub worker: bool,
 }
 
 impl SessionRole {
+    /// Whether this session has the chat memory: every top-level session,
+    /// and main's worker (as a subagent).
+    #[must_use]
+    pub fn has_chat_memory(&self) -> bool {
+        self.is_root() || self.worker
+    }
+
     /// Whether this is a top-level session.
     #[must_use]
     pub fn is_root(&self) -> bool {

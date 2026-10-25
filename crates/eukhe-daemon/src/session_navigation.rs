@@ -385,6 +385,9 @@ fn replacement_params(
         rlm_depth: Some(live.rlm_depth),
         rlm_max_depth: None,
         rlm_child_id: live.rlm_child_id,
+        // A replacement session (`/new`, `/resume`, a fork) is the user's
+        // own, never main's worker.
+        worker: false,
         parent_active_session_id: live.parent_active_session_id,
         parent_session_id: live.parent_session_id,
         parent_session_path: live.parent_session_path,

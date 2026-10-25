@@ -41,16 +41,17 @@ use serde_json::{json, Value};
 mod report_delivery;
 mod silent;
 mod watch;
+mod worker;
 mod workspace;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPauseRequest,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture,
+    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 use crate::child_workspace::Handback;
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry, SessionClosing};
@@ -104,6 +105,8 @@ struct FakeState {
     handback: Option<Handback>,
     /// The full final answer each child reports once it settles.
     answers: HashMap<String, String>,
+    /// Pauses and resumes of children's trees, in order.
+    pauses: Vec<RlmChildPauseRequest>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -276,6 +279,11 @@ impl RlmSubagentHost for FakeHost {
     fn hand_back(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>> {
         let handback = lock(&self.state).handback.clone();
         Box::pin(async move { Ok(handback) })
+    }
+
+    fn pause(&self, request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()> {
+        lock(&self.state).pauses.push(request);
+        Box::pin(async { Ok(()) })
     }
 }
 

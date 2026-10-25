@@ -56,6 +56,12 @@ pub struct RlmChildSpawnRequest {
     /// Where the child works: the parent's directory or its own
     /// copy-on-write copy of the parent's workspace.
     pub workspace: WorkspaceMode,
+    /// The child is a worker of a main session (`sessionShape`
+    /// `main-worker`): the host gives it the chat view (as a subagent: it
+    /// logs nothing and takes no root-turn lease) and the worker doctrine,
+    /// and an unpinned model falls back to `workerModel`, then the
+    /// parent's model (never `subagentDefaultModel`).
+    pub worker: bool,
 }
 
 /// The created (or, on a repeated key, the previously created) child.
@@ -73,17 +79,97 @@ pub struct RlmChildSession {
     pub model: String,
 }
 
-/// Prompt a created child with its task, once per key. The host admits the
-/// task as the parent's spawn kickoff (TS `spawnMessage`): an
-/// `agent_message` row from the parent labeled `[task from parent]`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Prompt a created child, once per key. The host admits the message as
+/// the parent's `agent_message` row (TS `spawnMessage`): its content is
+/// [`ChildMessageKind::label`], a blank line and `prompt`; its details carry
+/// `id` = `row_id`, `message` = `prompt`, `deliveryKind`, and `details`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RlmChildPromptRequest {
-    /// `rlm:<taskId>:prompt`.
+    /// `rlm:<taskId>:prompt` (a forward: `rlm:forward:<call>`).
     pub idempotency_key: String,
     pub session_id: String,
-    /// The child's roster id: the kickoff row's id is `spawn:<rlm_child_id>`.
+    /// The child's roster id.
     pub rlm_child_id: String,
     pub prompt: String,
+    /// What the message is to the child: its label and its lane.
+    pub kind: ChildMessageKind,
+    /// The row's `details.id`: `spawn:<rlm_child_id>` for a spawn's
+    /// kickoff, `task:<taskId>` for a re-task, `forward:<call>` for a
+    /// forward.
+    pub row_id: String,
+    /// More row details (`userMessages`, `note`), merged in.
+    pub details: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl RlmChildPromptRequest {
+    /// A spawn's task prompt: kind [`ChildMessageKind::Task`], row id
+    /// `spawn:<rlm_child_id>`, no further details.
+    #[must_use]
+    pub fn task(
+        idempotency_key: String,
+        session_id: String,
+        rlm_child_id: String,
+        prompt: String,
+    ) -> Self {
+        Self {
+            row_id: format!("spawn:{rlm_child_id}"),
+            idempotency_key,
+            session_id,
+            rlm_child_id,
+            prompt,
+            kind: ChildMessageKind::Task,
+            details: None,
+        }
+    }
+}
+
+/// What a parent's message is to the child (`details.deliveryKind`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChildMessageKind {
+    /// A task: the child works on it and its watch reports the end. Queued
+    /// behind a running turn (follow-up lane).
+    #[default]
+    Task,
+    /// The user's words for the running work: placed at the child's next
+    /// boundary (steer lane); not an order to change course.
+    Context,
+    /// The user's change of course: placed at the child's next boundary
+    /// (steer lane); the child re-plans.
+    Redirect,
+}
+
+impl ChildMessageKind {
+    /// The label the message's content starts with (the child's doctrine
+    /// names each).
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Task => "[task from parent]",
+            Self::Context => "[context from user via main]",
+            Self::Redirect => "[redirect from user via main]",
+        }
+    }
+
+    /// The wire name (`details.deliveryKind`).
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Context => "context",
+            Self::Redirect => "redirect",
+        }
+    }
+
+    /// Whether the message joins a running turn at its next boundary
+    /// (steer) instead of waiting for the turn to end.
+    #[must_use]
+    pub fn steers(self) -> bool {
+        match self {
+            Self::Task => false,
+            Self::Context | Self::Redirect => true,
+        }
+    }
 }
 
 /// Take an isolated child's workspace changes back into the parent's.
@@ -183,6 +269,22 @@ pub struct RlmChildCancelRequest {
     pub session_id: String,
 }
 
+/// Pause or resume a child's tree: its own run and every descendant's
+/// (`pause_workers` / `resume_workers` with `ownRun`). A pause cancels
+/// nothing: running calls finish, nothing new starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RlmChildPauseRequest {
+    pub session_id: String,
+    pub action: PauseAction,
+}
+
+/// Which way a [`RlmChildPauseRequest`] goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseAction {
+    Pause,
+    Resume,
+}
+
 /// Tear a child session down with its ledger tombstone, once per key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildDeleteRequest {
@@ -204,6 +306,8 @@ pub struct RlmChildListing {
     /// The child's latest accepted `rlm.progress.note`.
     pub progress_note: Option<String>,
     pub last_activity_at: Option<u64>,
+    /// The child's tree is paused (its summary's `isPaused`).
+    pub paused: bool,
 }
 
 /// What a running child is doing (`RlmSubagentActivity.kind`).
@@ -331,6 +435,9 @@ pub trait RlmSubagentHost: Send + Sync {
     /// repeat returns the first hand-back's record and stops nothing).
     /// `None`: the child works in the shared workspace.
     fn hand_back(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>>;
+    /// Pause or resume a child's tree (idempotent: pausing a paused tree
+    /// or resuming a running one changes nothing).
+    fn pause(&self, request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()>;
 }
 
 /// Host behavior for sessions with no child runtime: spawns and creates fail
@@ -383,6 +490,10 @@ impl RlmSubagentHost for NoRlmChildren {
 
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn pause(&self, _request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()> {
+        Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
     }
 
     fn rename(&self, _request: RlmRenameRequest) -> RlmHostFuture<'_, ()> {
