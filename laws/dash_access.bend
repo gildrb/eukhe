@@ -389,6 +389,82 @@ def sp_fit_req(q: FAc.Req) -> Bool:
     case FAc.QOrigin{o, h}:
       Bool.and(LawsBase.wire_fits(String.length(o)), LawsBase.wire_fits(String.length(h)))
 
+# R1: a decimal digit, and one that may lead a number past 65535
+type PortDigit is Data:
+  P0{}
+  P1{}
+  P2{}
+  P3{}
+  P4{}
+  P5{}
+  P6{}
+  P7{}
+  P8{}
+  P9{}
+
+type PortLead is Data:
+  L1{}
+  L2{}
+  L3{}
+  L4{}
+  L5{}
+  L6{}
+  L7{}
+  L8{}
+  L9{}
+
+def sp_digit(d: PortDigit) -> Char:
+  match d:
+    case P0{}:
+      '0'
+    case P1{}:
+      '1'
+    case P2{}:
+      '2'
+    case P3{}:
+      '3'
+    case P4{}:
+      '4'
+    case P5{}:
+      '5'
+    case P6{}:
+      '6'
+    case P7{}:
+      '7'
+    case P8{}:
+      '8'
+    case P9{}:
+      '9'
+
+def sp_lead(d: PortLead) -> Char:
+  match d:
+    case L1{}:
+      '1'
+    case L2{}:
+      '2'
+    case L3{}:
+      '3'
+    case L4{}:
+      '4'
+    case L5{}:
+      '5'
+    case L6{}:
+      '6'
+    case L7{}:
+      '7'
+    case L8{}:
+      '8'
+    case L9{}:
+      '9'
+
+# the digits ds as text
+def sp_digits(ds: List<&2, PortDigit>) -> String:
+  match ds:
+    case Nil{}:
+      SNil{}
+    case d <> t:
+      SCon{sp_digit(d), sp_digits(t)}
+
 # Laws: the verdicts
 # ------------------
 
@@ -412,6 +488,25 @@ law dash_access_origin_spec:
   for +o: String
   for +h: String
   {Ac.same_origin(o, h) == sp_origin(o, h) : Bool}
+
+# LAW dash_access_host_long_port (R1, R2): every `Host` whose port is more
+# than 5 decimal digits, the first not 0 (so worth more than 65535), is
+# refused, whatever comes before its last ':' and whatever hosts are
+# allowed (proven by induction over the digit run, for every length)
+# EXCLUDES: a port read modulo 65536 or capped and kept, a long port
+#   accepted because its value ran past the runtime's numbers, a long port
+#   accepted after a bracketed or allowed host
+law dash_access_host_long_port:
+  for +n: String
+  for +a: PortLead
+  for +d1: PortDigit
+  for +d2: PortDigit
+  for +d3: PortDigit
+  for +d4: PortDigit
+  for +d5: PortDigit
+  for +ds: List<&2, PortDigit>
+  for +al: List<&2, String>
+  {Ac.host_allowed(String.append(n, SCon{':', SCon{sp_lead(a), sp_digits(d1 <> d2 <> d3 <> d4 <> d5 <> ds)}}), al) == False{} : Bool}
 
 # LAW dash_access_host_01_example (R1, R2): anchor: Rust's vector: the Host "127.0.0.1:8377" is allowed
 # EXCLUDES: a spec that drifts from the Rust it replaced on this host
@@ -518,10 +613,10 @@ law dash_access_host_20_example:
 law dash_access_host_21_example:
   {Ac.host_allowed("localhost:-1", []) == False{} : Bool}
 
-# LAW dash_access_host_22_example (R1, R2): anchor: Rust's vector: the Host "localhost:99999999999999999999" is refused
+# LAW dash_access_host_22_example (R1, R2): anchor: Rust's vector, shortened: the Host "localhost:100000" (a port of six digits) is refused; longer ports: dash_access_host_long_port
 # EXCLUDES: a spec that drifts from the Rust it replaced on this host
 law dash_access_host_22_example:
-  {Ac.host_allowed("localhost:99999999999999999999", []) == False{} : Bool}
+  {Ac.host_allowed("localhost:100000", []) == False{} : Bool}
 
 # LAW dash_access_host_23_example (R1, R2): anchor: Rust's vector: the Host "[::1]]:80" is refused
 # EXCLUDES: a spec that drifts from the Rust it replaced on this host

@@ -1183,6 +1183,7 @@ import ./proof/dash_policy/dash_policy_entry_refuses.bend as PDashPolicyEntryRef
 import ./proof/dash_policy/dash_policy_entry_example.bend as PDashPolicyEntryExample
 import ./proof/dash_access/base.bend as LADashAccess
 import ./proof/dash_access/dash_access_host_spec.bend as PDashAccessHostSpec
+import ./proof/dash_access/dash_access_host_long_port.bend as PDashAccessHostLongPort
 import ./proof/dash_access/dash_access_origin_spec.bend as PDashAccessOriginSpec
 import ./proof/dash_access/dash_access_host_01_example.bend as PDashAccessHost01Example
 import ./proof/dash_access/dash_access_host_02_example.bend as PDashAccessHost02Example
@@ -1223,6 +1224,7 @@ import ./proof/gateway_backoff/gateway_backoff_entry_answers.bend as PGatewayBac
 import ./proof/gateway_backoff/gateway_backoff_entry_exact.bend as PGatewayBackoffEntryExact
 import ./proof/gateway_backoff/gateway_backoff_entry_refuses.bend as PGatewayBackoffEntryRefuses
 import ./proof/gateway_backoff/gateway_backoff_entry_example.bend as PGatewayBackoffEntryExample
+import ./proof/gateway_backoff/gateway_backoff_entry_capped.bend as PGatewayBackoffEntryCapped
 import ./proof/gateway_answer/base.bend as LAGatewayAnswer
 import ./proof/gateway_answer/gateway_answer_spec.bend as PGatewayAnswerSpec
 import ./proof/gateway_answer/gateway_answer_example.bend as PGatewayAnswerExample

@@ -116,8 +116,20 @@ law gateway_backoff_entry_refuses:
   for bad: {LawsBase.wire_opens_err(FGb.ffi(s)) == True{} : Bool}
   {FGb.ffi(s) == Wr.err("gateway_backoff: malformed request") : String}
 
+# LAW gateway_backoff_entry_capped (R2, R3): every last wait whose double
+# passes 10 s, of any length that fits the wire, is answered with the wire
+# spelling of 10000 ms (for every length: the examples keep numbers short)
+# EXCLUDES: a capped wait answered with the doubled one, another cap, a
+#   long last wait misread past the cap
+law gateway_backoff_entry_capped:
+  for +d: Nat
+  for h: {LawsBase.wire_fits(d) == True{} : Bool}
+  for big: {Nat.is_le(Nat.mul(2n, d), 10000n) == False{} : Bool}
+  {FGb.ffi(gb_w_req(Some{d}, "")) == Wr.put_nat(10000n, "") : String}
+
 # LAW gateway_backoff_entry_example (R3): anchor: the wire strings Rust
 # sends and the replies it reads; an unknown tag and input left over
+# (short numbers: the capped wait is gateway_backoff_entry_capped)
 # EXCLUDES: tags in another order
 law gateway_backoff_entry_example:
-  {[FGb.ffi("0,"), FGb.ffi("1,250,"), FGb.ffi("1,8000,"), FGb.ffi("2,"), FGb.ffi("0,0,")] == ["250,", "500,", "10000,", Wr.err("gateway_backoff: malformed request"), Wr.err("gateway_backoff: malformed request")] : List<&2, String>}
+  {[FGb.ffi("0,"), FGb.ffi("1,250,"), FGb.ffi("1,40,"), FGb.ffi("2,"), FGb.ffi("0,0,")] == ["250,", "500,", "80,", Wr.err("gateway_backoff: malformed request"), Wr.err("gateway_backoff: malformed request")] : List<&2, String>}
