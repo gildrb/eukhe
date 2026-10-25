@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW approvals_ffi_example
 
 import Base
-import ../../laws/approvals.bend as Approvals
+import ../../laws/approvals/entry.bend as ApprovalsEntry
 
-def Approvals.approvals_ffi_example():
-  ({==}, {==}, {==}, {==}, {==}, {==}, {==}, {==}, {==})
+def ApprovalsEntry.approvals_ffi_example():
+  ({==}, {==})

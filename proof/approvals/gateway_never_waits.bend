@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../laws/approvals.bend as Approvals
+import ../../laws/approvals/route.bend as Approvals
 
 # The gateway rule
 # ----------------

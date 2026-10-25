@@ -299,11 +299,11 @@ law gateway_runs_the_rest:
 # (G5) The default auto set; the never-auto effects
 # --------------------------------------------------
 # A step runs unasked when its effects are within the auto set
-# (`shell.autoEffects`, bend/tools.bend `within`). The bridge test
+# (`shell.autoEffects`, bend/tools.bend `within`). The test
 # crates/eukhe-core/src/durable/shell/tests.rs
 # `the_default_auto_set_is_its_model` reads the real auto set of a
-# session with no settings and compares, with bridge/bridge_approvals.bend,
-# the effects it holds and `gate` on every step of one to seven effects.
+# session with no settings and compares it with the core's
+# `default_auto` (the call of bend/ffi_approvals.bend).
 
 # LAW default_auto_is_grantable (changed 2026-10-23 by the user: no prompts, like omp): the auto
 # set of a session whose user sets none holds exactly the grantable

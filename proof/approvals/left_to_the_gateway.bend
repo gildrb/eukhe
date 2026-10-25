@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../laws/approvals.bend as Approvals
+import ../../laws/approvals/route.bend as Approvals
 
 def pa.left_to_gateway(+above: List<&2, Am.Desk>) -> {Am.route(Am.PhoneLeft{} <> above) == Am.Out{[0n], Am.Ruled{0n}} : Am.Out}:
   {==}
