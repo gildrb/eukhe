@@ -128,6 +128,20 @@ pub enum Entry {
     Bound = 76,
     /// `bend/ffi_tokens.bend`: a call.
     Tokens = 78,
+    /// `bend/ffi_job_rewind.bend`: a call.
+    JobRewind = 80,
+    /// `bend/ffi_job_wait.bend`: a call.
+    JobWait = 81,
+    /// `bend/ffi_cron.bend`: a call.
+    Cron = 82,
+    /// `bend/ffi_work.bend`: a call and a stepper.
+    Work = 83,
+    /// `bend/ffi_retry_idle.bend`: a call.
+    RetryIdle = 84,
+    /// `bend/ffi_lease.bend`: a stepper.
+    Lease = 85,
+    /// `bend/ffi_wait.bend`: a call.
+    Wait = 86,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
@@ -240,6 +254,13 @@ impl Entry {
         Entry::InferThreshold,
         Entry::Bound,
         Entry::Tokens,
+        Entry::JobRewind,
+        Entry::JobWait,
+        Entry::Cron,
+        Entry::Work,
+        Entry::RetryIdle,
+        Entry::Lease,
+        Entry::Wait,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,

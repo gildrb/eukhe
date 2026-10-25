@@ -1,11 +1,15 @@
-//! The bridge between the idle deadline's decisions and its Bend model
-//! (`bend/retry.bend` §6, whose laws `laws/retry.bend` states
-//! and `PROOF.bend` proves): both run the same scenarios and must print
-//! the same transcript, byte for byte. `bridge/bridge_retry.bend` documents
-//! the scenario format (its `i` lines). The deferred job (§4) has no
-//! bridge: its decisions run as `bend/run/decision.bend` in the compiled core (laws
-//! `run_failed_poll_is_the_job_model` and the like); the stall (§5) runs
-//! as the compiled model too (`bend/ffi_retry.bend`).
+//! The bridge between the idle deadline's timer loop and its Bend model
+//! (`bend/retry.bend` §6 `idle`, whose laws `laws/retry.bend` and
+//! `laws/retry_idle.bend` state and `PROOF.bend` proves): both run the
+//! same scenarios and must print the same transcript, byte for byte.
+//! `bridge/bridge_retry.bend` documents the scenario format (its `i`
+//! lines). Only the interleaving stays here: whether the deadline is armed
+//! and what its timer does at each fire run as the compiled core
+//! (`bend/ffi_retry_idle.bend`; law `idle_wake_refines` ties the loop of
+//! those decisions to `idle`); this test checks that tokio's timer, the
+//! provider events' stores of the clock and the `select!` order make that
+//! loop. The deferred job (§4) and the stall (§5) have no bridge: they run
+//! as the compiled core (`bend/run/decision.bend`, `bend/ffi_retry.bend`).
 //!
 //! An `i` case runs the real idle deadline (`StreamIdle::within` behind
 //! [`Models::complete_simple`]) on a stream whose provider sends an event
@@ -116,7 +120,7 @@ fn idle_case(rng: &mut Rng, events: &mut String, transcript: &mut String) {
 }
 
 #[test]
-fn the_rust_idle_deadline_equals_the_bend_model() {
+fn the_idle_deadline_loop_equals_the_bend_model() {
     let scenarios = (1..=30).map(|seed| {
         let mut rng = Rng(seed);
         let mut events = String::new();

@@ -62,6 +62,13 @@
 75 infer_threshold
 76 bound
 78 tokens
+80 job_rewind
+81 job_wait
+82 cron
+83 work
+84 retry_idle
+85 lease
+86 wait
 90 timeouts
 91 revive
 92 auth_flight

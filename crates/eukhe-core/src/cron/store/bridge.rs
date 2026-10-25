@@ -2,6 +2,16 @@
 //! model (`bend/cron.bend`, whose laws `PROOF.bend` proves): both run the
 //! same scenarios and must print the same transcript, byte for byte.
 //!
+//! What it checks is the interleaving: several processes on one file. The
+//! decision on each job (when it is due, which claim a recovery clears,
+//! the finish step, cancel, resume) is the compiled core's, proven equal to
+//! the model's step (laws/cron.bend D2.2, `cron_*_refines`); the store's
+//! shell is not proven: the file under its lock, the claim records of
+//! several processes (one per due job, the owner and its live runs, the
+//! liveness of the others), the records it cannot read, the corrupt file
+//! moved aside. The bridge runs that shell and the model over the same
+//! events of three processes and compares the whole file after each one.
+//!
 //! A scenario (`bridge/bridge_cron.bend` documents the format) runs three
 //! simulated processes, each with its own store and owner identity, on one
 //! jobs file, over a clock of minutes. The processes make jobs, claim the
@@ -28,8 +38,6 @@ use super::{
 };
 use crate::cron::{parse_iso_millis, JobStatus};
 
-use super::FAILURE_STOP_AFTER;
-
 /// The clock's zero: minute 0 of every scenario.
 const BASE: u64 = 1_700_000_000_000;
 
@@ -38,8 +46,7 @@ const MINUTE: u64 = 60_000;
 /// The simulated processes of a scenario.
 const PROCESSES: u64 = 3;
 
-/// A case the scenarios must reach, so that the bridge checks every rule
-/// of the model.
+/// A case of the interleaving the scenarios must reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Case {
     /// A recovery keeps the claim of another live process.
@@ -48,14 +55,6 @@ enum Case {
     DeadClaimCleared,
     /// A recovery clears a process's own claim after its pass unwound.
     OwnClaimCleared,
-    /// A one-shot finishes after its run.
-    OnceFinished,
-    /// A failed run backs the next run off.
-    BackedOff,
-    /// A job stops after its failures in a row reach the cap.
-    Stopped,
-    /// A resume restarts a stopped job.
-    Resumed,
     /// An update keeps records the store cannot read.
     UnreadKept,
     /// An update moves a corrupt file aside.
@@ -368,7 +367,7 @@ fn apply(world: &mut World, event: Event, reached: &mut Reached) {
             let id = run
                 .as_ref()
                 .map_or_else(|| "none".to_string(), |run| run.dispatch().id.clone());
-            let updated = world.stores[at(p)]
+            world.stores[at(p)]
                 .record_dispatch_result(
                     &id,
                     &DispatchResultOptions {
@@ -379,17 +378,6 @@ fn apply(world: &mut World, event: Event, reached: &mut Reached) {
                 )
                 .unwrap();
             drop(run);
-            if let Some(updated) = updated {
-                let case = match updated.status {
-                    JobStatus::Completed => Some(Case::OnceFinished),
-                    JobStatus::Paused => {
-                        (updated.failure_streak == FAILURE_STOP_AFTER).then_some(Case::Stopped)
-                    }
-                    JobStatus::Active => (updated.failure_streak > 0).then_some(Case::BackedOff),
-                    JobStatus::Cancelled => None,
-                };
-                reached.extend(case);
-            }
         }
         Event::Abort { p } => world.running[at(p)].clear(),
         Event::Die { p } => {
@@ -402,13 +390,9 @@ fn apply(world: &mut World, event: Event, reached: &mut Reached) {
                 .unwrap();
         }
         Event::Resume { p, job } => {
-            let paused = before
-                .jobs
-                .iter()
-                .any(|found| found.id == world.store_id(job) && found.status == JobStatus::Paused);
             // A job that cannot resume (a one-shot, a finished job) answers
             // an error or nothing; the model leaves it as it is too.
-            let resumed = world.stores[at(p)].update_rlm_heartbeat(
+            let _resumed = world.stores[at(p)].update_rlm_heartbeat(
                 "live",
                 &world.store_id(job),
                 &RlmHeartbeatUpdate {
@@ -417,9 +401,6 @@ fn apply(world: &mut World, event: Event, reached: &mut Reached) {
                     ..Default::default()
                 },
             );
-            if paused && matches!(resumed, Ok(Some(_))) {
-                reached.insert(Case::Resumed);
-            }
         }
         Event::Tick { d } => world.now += d,
         Event::RawJob { t } => world.add_raw("jobs", serde_json::json!({ "rawJob": t })),
@@ -438,8 +419,7 @@ fn apply(world: &mut World, event: Event, reached: &mut Reached) {
     }
 }
 
-/// The events of one scenario: random steps, or (one in four) a job that
-/// keeps failing until it stops, then a resume.
+/// The events of one scenario: random steps of three processes.
 fn events(rng: &mut Rng) -> Vec<Event> {
     let mut events = Vec::new();
     let mut token = 0;
@@ -447,39 +427,6 @@ fn events(rng: &mut Rng) -> Vec<Event> {
         token += 1;
         token
     };
-    if rng.chance(25) {
-        events.push(Event::Create {
-            p: 0,
-            once: false,
-            d: rng.range(0, 3),
-        });
-        for _ in 0..rng.range(8, 11) {
-            events.push(Event::Tick { d: 61 });
-            events.push(Event::Take { p: 0 });
-            if rng.chance(15) {
-                events.push(Event::RawJob { t: next_token() });
-            }
-            events.push(Event::Finish {
-                p: 0,
-                job: 0,
-                out: Run::Failed,
-            });
-        }
-        events.push(Event::Resume { p: 1, job: 0 });
-        events.push(Event::Tick { d: 5 });
-        events.push(Event::Take { p: 1 });
-        events.push(Event::Finish {
-            p: 1,
-            job: 0,
-            out: Run::Good,
-        });
-        // A claim of a process that dies, recovered by another.
-        events.push(Event::Tick { d: 61 });
-        events.push(Event::Take { p: 0 });
-        events.push(Event::Die { p: 0 });
-        events.push(Event::Recover { p: 1 });
-        return events;
-    }
     let mut made = 0;
     for _ in 0..rng.range(15, 50) {
         let p = rng.below(PROCESSES);
@@ -561,10 +508,6 @@ fn the_rust_cron_store_equals_the_bend_model() {
             Case::LiveClaimKept,
             Case::DeadClaimCleared,
             Case::OwnClaimCleared,
-            Case::OnceFinished,
-            Case::BackedOff,
-            Case::Stopped,
-            Case::Resumed,
             Case::UnreadKept,
             Case::MovedAside,
         ]),

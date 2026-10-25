@@ -1,7 +1,10 @@
 # cron: the model of the cron job store shared by processes
 # (docs/state.md D2). The Rust code is `AgentCronJobStore` in
-# crates/eukhe-core/src/cron/store/; the bridge (bridge/bridge_cron.bend,
-# crates/eukhe-core/src/cron/store/bridge.rs) runs both on the same events.
+# crates/eukhe-core/src/cron/store/; its per-job decisions run as
+# bend/cron_store.bend (entry bend/ffi_cron.bend), tied to this model's
+# steps by the `cron_*_refines` laws; the bridge (bridge/bridge_cron.bend,
+# crates/eukhe-core/src/cron/store/bridge.rs) runs the store's shell and
+# this model on the same events of several processes.
 #
 # One jobs file, shared by any number of processes. Each job record holds
 # its schedule, its status, its next run, its failures in a row, and the
@@ -89,12 +92,12 @@ def S.empty() -> S:
 # The failure backoff
 # -------------------
 
-# failed runs in a row after which a job stops (FAILURE_STOP_AFTER)
+# failed runs in a row after which a job stops
 def CAP() -> Nat:
   8n
 
 # the pause in minutes after the k-th failure in a row: 2, 4, 8, 16, 32,
-# then 60 (failure_backoff_ms)
+# then 60
 def delay(k: Nat) -> Nat:
   match k:
     case 0n:

@@ -16,6 +16,7 @@ import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_config.bend as ffi_config
+import ./ffi_cron.bend as ffi_cron
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
@@ -45,8 +46,11 @@ import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
 import ./ffi_job.bend as ffi_job
+import ./ffi_job_rewind.bend as ffi_job_rewind
+import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
+import ./ffi_lease.bend as ffi_lease
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
@@ -58,6 +62,7 @@ import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
+import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
 import ./ffi_revive.bend as ffi_revive
 import ./ffi_run.bend as ffi_run
@@ -84,7 +89,9 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_wait.bend as ffi_wait
 import ./ffi_wire.bend as ffi_wire
+import ./ffi_work.bend as ffi_work
 import ./ffi_workflow.bend as ffi_workflow
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -205,6 +212,18 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_bound.ffi(input)
     case 78:
       ffi_tokens.ffi(input)
+    case 80:
+      ffi_job_rewind.ffi(input)
+    case 81:
+      ffi_job_wait.ffi(input)
+    case 82:
+      ffi_cron.ffi(input)
+    case 83:
+      ffi_work.ffi(input)
+    case 84:
+      ffi_retry_idle.ffi(input)
+    case 86:
+      ffi_wait.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
@@ -273,6 +292,8 @@ type State is Type:
   Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
+  Work{s: ffi_work.St}
+  Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
   Unknown{}
 
@@ -336,6 +357,16 @@ def open.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def open.work(r: ffi_work.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Work{s}, reply)
+
+def open.lease(r: ffi_lease.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Lease{s}, reply)
+
 def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -367,6 +398,10 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.infer_guard(ffi_infer_guard.open(input))
     case 76:
       open.bound(ffi_bound.open(input))
+    case 83:
+      open.work(ffi_work.open(input))
+    case 85:
+      open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
     case _:
@@ -437,6 +472,16 @@ def step.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def step.work(r: ffi_work.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Work{s}, reply)
+
+def step.lease(r: ffi_lease.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Lease{s}, reply)
+
 def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -468,6 +513,10 @@ def step.go(state: State, input: String) -> State & String:
       step.infer_guard(ffi_infer_guard.step(s, input))
     case Bound{s}:
       step.bound(ffi_bound.step(s, input))
+    case Work{s}:
+      step.work(ffi_work.step(s, input))
+    case Lease{s}:
+      step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case Unknown{}:
@@ -503,6 +552,10 @@ def close.go(state: State) -> Unit:
     case InferGuard{s}:
       Unit{}
     case Bound{s}:
+      Unit{}
+    case Work{s}:
+      Unit{}
+    case Lease{s}:
       Unit{}
     case AuthFlight{s}:
       Unit{}

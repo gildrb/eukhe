@@ -2,6 +2,8 @@
 
 import Base
 import ../bend/wait.bend as Wt
+import ../bend/ffi_wait.bend as FWt
+import ../bend/wire.bend as Wr
 
 # (H6) Every other wait has an exit
 # ---------------------------------
@@ -43,3 +45,294 @@ law wait_cancel_wins:
   for +post: List<&2, Wt.Sig>
   for calm: {Wt.exits(dl, pre) == False{} : Bool}
   {Wt.run(dl, List.append(&2, Wt.Sig, pre, Wt.Cancel{} <> post)) == [Wt.Cancelled{}] : List<&2, Wt.End>}
+
+# (H6.1) The race at one poll runs as the compiled Bend core
+# ---------------------------------------------------------
+# eukhe's race (crates/eukhe-core/src/memory/service/race.rs `race`)
+# polls its event, its cancel and its deadline together and asks the
+# entry bend/ffi_wait.bend which of what it found ready ends the race. At
+# one poll more than one can be ready; the race takes them as if they
+# came in this order: the event, the cancel, then the tick that passes
+# the deadline. How tokio's wakeups make up the polls (the interleaving)
+# is not a decision: the bridge (bridge/bridge_wait.bend) checks it on
+# tokio's paused clock against `Wt.run`.
+#
+# The laws below speak of the entry through a speller and a reader built
+# from the wire's primitives (bend/wire.bend), not through its own codec.
+
+def ww_sig(b: Bool, x: Wt.Sig, rest: List<&2, Wt.Sig>) -> List<&2, Wt.Sig>:
+  match b:
+    case True{}:
+      x <> rest
+    case False{}:
+      rest
+
+# what a poll found ready, as the signals the model sees, in the order the
+# race takes them
+def ww_sigs(r: Wt.Polled) -> List<&2, Wt.Sig>:
+  match r:
+    case Wt.Polled{w, c, l}:
+      ww_sig(w, Wt.Arrive{}, ww_sig(c, Wt.Cancel{}, ww_sig(l, Wt.Tick{}, Nil{})))
+
+def ww_first(es: List<&2, Wt.End>) -> Maybe<&2, Wt.End>:
+  match es:
+    case Nil{}:
+      None{}
+    case e <> t:
+      Some{e}
+
+# the end the model reports when those signals come to an open wait whose
+# deadline passes on its next tick (None: it reports none)
+def ww_end(r: Wt.Polled) -> Maybe<&2, Wt.End>:
+  ww_first(Wt.go(ww_sigs(r), Wt.Open{Some{0n}}))
+
+# a poll as the race writes it: three Bools
+def ww_spell(r: Wt.Polled) -> String:
+  match r:
+    case Wt.Polled{w, c, l}:
+      Wr.put_bool(w, Wr.put_bool(c, Wr.put_bool(l, "")))
+
+# an end as the race reads it: 0 none, 1 the event, 2 the cancel, 3 the
+# deadline
+def ww_spell_end(m: Maybe<&2, Wt.End>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{e}:
+      match e:
+        case Wt.Arrived{}:
+          Wr.put_nat(1n, "")
+        case Wt.Cancelled{}:
+          Wr.put_nat(2n, "")
+        case Wt.Expired{}:
+          Wr.put_nat(3n, "")
+
+def ww_read.late(w: Bool, c: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Wt.Polled>:
+  match r:
+    case Wr.Got{l, s}:
+      Wr.Got{Wt.Polled{w, c, l}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ww_read.cancel(w: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Wt.Polled>:
+  match r:
+    case Wr.Got{c, s}:
+      ww_read.late(w, c, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ww_read.go(r: Wr.Dec<Bool>) -> Wr.Dec<Wt.Polled>:
+  match r:
+    case Wr.Got{w, s}:
+      ww_read.cancel(w, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ww_read.end(whole: Bool, r: Wt.Polled) -> Maybe<&2, Wt.Polled>:
+  match whole:
+    case True{}:
+      Some{r}
+    case False{}:
+      None{}
+
+def ww_read.whole(d: Wr.Dec<Wt.Polled>) -> Maybe<&2, Wt.Polled>:
+  match d:
+    case Wr.Got{r, s}:
+      ww_read.end(Wr.end(s), r)
+    case Wr.Bad{}:
+      None{}
+
+# the poll s is, when s is exactly one poll
+def ww_read(s: String) -> Maybe<&2, Wt.Polled>:
+  ww_read.whole(ww_read.go(Wr.get_bool(s)))
+
+# LAW wait_poll_refines: the end of the race at a poll is the end the
+# wait model reports when what the poll found ready comes in the order
+# event, cancel, deadline: the event wins over the cancel and the
+# deadline, the cancel over the deadline, and nothing ends a poll that
+# found nothing ready
+# EXCLUDES: another priority (a deadline or a cancel that beats a ready
+# event), an end with nothing ready, a ready signal ignored
+law wait_poll_refines:
+  for +r: Wt.Polled
+  {Wt.poll(r) == ww_end(r) : Maybe<&2, Wt.End>}
+
+# LAW wait_entry_answers: every poll the race spells (three Bools from the
+# wire's primitives) answers the spelled end the model gives
+# EXCLUDES: a field misread or swapped (event, cancel, deadline), an end
+# other than the model's, a reply in another spelling
+law wait_entry_answers:
+  for +r: Wt.Polled
+  {FWt.ffi(ww_spell(r)) == ww_spell_end(ww_end(r)) : String}
+
+# LAW wait_entry_reads: an input the laws' reader reads as exactly one
+# poll answers the spelled end the model gives
+# EXCLUDES: an input read otherwise by the entry than by the wire's grammar
+law wait_entry_reads:
+  for +i: String
+  for +r: Wt.Polled
+  for got: {ww_read(i) == Some{r} : Maybe<&2, Wt.Polled>}
+  {FWt.ffi(i) == ww_spell_end(ww_end(r)) : String}
+
+# LAW wait_entry_malformed_exact: an input the laws' reader does not read
+# as exactly one poll (a short or bad Bool, input left over) answers
+# exactly the error form 'E ' + "wait: malformed poll"
+# EXCLUDES: a guessed poll, a default end, another error text
+law wait_entry_malformed_exact:
+  for +i: String
+  for no: {ww_read(i) == None{} : Maybe<&2, Wt.Polled>}
+  {FWt.ffi(i) == SCon{'E', SCon{' ', "wait: malformed poll"}} : String}
+
+# LAW wait_entry_example: anchor: the bytes the race sends and the replies:
+# all three ready, the cancel and the deadline, the deadline alone,
+# nothing, a short poll, input left over
+# EXCLUDES: an entry that answers other bytes than the grammar's
+law wait_entry_example:
+  {[FWt.ffi("TTT"), FWt.ffi("FTT"), FWt.ffi("FFT"), FWt.ffi("FFF"), FWt.ffi("TF"), FWt.ffi("TFFx")] == ["1,", "2,", "3,", "0,", SCon{'E', SCon{' ', "wait: malformed poll"}}, SCon{'E', SCon{' ', "wait: malformed poll"}}] : List<&2, String>}
+
+# (H6) The walk the poll laws read, pinned
+# ----------------------------------------
+# wait_poll_refines and the wait_entry_* laws read the model's walk
+# `Wt.go`; the laws above pin only `Wt.run`. A fresh adversary filled `go`
+# to hold a fired cancel until the next tick (poll `FTF` answered `0,`):
+# `go` is pinned here against a walk written from H6.
+
+# the ends a wait in state w reports while it sees xs: an open wait ends
+# at the first event, cancel, or tick that passes its deadline, with that
+# end, and reports nothing after; an ended wait reports nothing
+# the end e, when it comes to an open wait
+def go_spec.at(w: Wt.W, e: Wt.End) -> List<&2, Wt.End>:
+  match w:
+    case Wt.Over{}:
+      Nil{}
+    case Wt.Open{left}:
+      [e]
+
+def go_spec(xs: List<&2, Wt.Sig>, w: Wt.W) -> List<&2, Wt.End>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          go_spec.at(w, Wt.Arrived{})
+        case Wt.Cancel{}:
+          go_spec.at(w, Wt.Cancelled{})
+        case Wt.Tick{}:
+          match w:
+            case Wt.Over{}:
+              Nil{}
+            case Wt.Open{left}:
+              match left:
+                case None{}:
+                  go_spec(rest, Wt.Open{None{}})
+                case Some{m}:
+                  match m:
+                    case 0n:
+                      [Wt.Expired{}]
+                    case 1n+q:
+                      go_spec(rest, Wt.Open{Some{q}})
+
+# LAW wait_go_exact: the model's walk is the walk of H6: from any state, over any signals, it
+# reports exactly the first end (the event, the cancel, the tick that passes the deadline) and
+# nothing after it, and nothing from an ended wait
+# EXCLUDES: a fired cancel or a ready event held for later, an end reported twice, an end after
+#   the wait ended, a deadline passed a tick late or early
+law wait_go_exact:
+  for +xs: List<&2, Wt.Sig>
+  for +w: Wt.W
+  {Wt.go(xs, w) == go_spec(xs, w) : List<&2, Wt.End>}
+
+# The wait model's run and terms, pinned
+# --------------------------------------
+# The laws at the top of this file state the wait through `Wt.run`,
+# `exits`, `stops` and `once`. A third fresh adversary (SpecCheckLease)
+# filled `run` to report no end ever with `exits` and `stops` always true
+# and `once` always 0, and every law checked: those laws were vacuous. The
+# run and the terms are pinned here.
+
+# a wait with deadline dl (None: none; Some{d}: it passes on the d-th
+# tick, at once when d is 0) that sees xs: the first end, as go_spec
+def run_spec(dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>) -> List<&2, Wt.End>:
+  match dl:
+    case None{}:
+      go_spec(xs, Wt.Open{None{}})
+    case Some{d}:
+      match d:
+        case 0n:
+          [Wt.Expired{}]
+        case 1n+m:
+          go_spec(xs, Wt.Open{Some{m}})
+
+def arrive_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          True{}
+        case Wt.Tick{}:
+          arrive_spec(rest)
+        case Wt.Cancel{}:
+          arrive_spec(rest)
+
+def cancel_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          cancel_spec(rest)
+        case Wt.Tick{}:
+          cancel_spec(rest)
+        case Wt.Cancel{}:
+          True{}
+
+def ticks_spec(xs: List<&2, Wt.Sig>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          ticks_spec(rest)
+        case Wt.Tick{}:
+          1n+ticks_spec(rest)
+        case Wt.Cancel{}:
+          ticks_spec(rest)
+
+def reached_spec(dl: Maybe<&2, Nat>, k: Nat) -> Bool:
+  match dl:
+    case None{}:
+      False{}
+    case Some{d}:
+      Nat.is_le(d, k)
+
+def once_spec(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# LAW wait_run_exact: the model's run is the walk of H6 from the deadline: with no deadline an
+# open wait, with a deadline of 0 an expiry at once, else an open wait whose deadline passes on
+# the d-th tick
+# EXCLUDES: a run that never ends (the laws above vacuous), ends late or early, or ends twice
+law wait_run_exact:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  {Wt.run(dl, xs) == run_spec(dl, xs) : List<&2, Wt.End>}
+
+# LAW wait_terms_exact: the model's terms the laws above read mean what they say: an event
+# came, a cancel came, the ticks counted, the deadline reached, a stop (a cancel or the
+# deadline), an exit (an event or a stop), and how many ends a wait that exits reports
+# EXCLUDES: terms that make the laws above vacuous (exits always true, once always 0)
+law wait_terms_exact:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  for +k: Nat
+  for +b: Bool
+  {Wt.has_arrive(xs) == arrive_spec(xs) : Bool} & {Wt.has_cancel(xs) == cancel_spec(xs) : Bool} & {Wt.ticks(xs) == ticks_spec(xs) : Nat} & {Wt.reached(dl, k) == reached_spec(dl, k) : Bool} & {Wt.stops(dl, xs) == Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs))) : Bool} & {Wt.exits(dl, xs) == Bool.or(arrive_spec(xs), Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs)))) : Bool} & {Wt.once(b) == once_spec(b) : Nat}

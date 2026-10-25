@@ -55,8 +55,8 @@ use super::docs::{
 use super::host::GoalsHost;
 use super::ops::{goal_context, submit_goal_context, user_input_queued};
 use super::state::{
-    accounted, failed, mint, owns_continuation_wakeup, paused, served, spends_budget, stall_check,
-    stamp, terminal_provider_failure, Prior, Stall, UsageOutcome,
+    accounted, compared, failed, mint, owns_continuation_wakeup, paused, served, spends_budget,
+    stall_check, stamp, terminal_provider_failure, Last, Stall, UsageOutcome,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState};
 use crate::durable::children::{has_unsettled_children, WorkLedger};
@@ -67,9 +67,6 @@ use crate::durable::directors::{
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::workflow::unsettled_runs;
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
-
-#[cfg(test)]
-mod bridge;
 
 /// How many of the newest entries the failed-run check reads.
 const RECENT_ENTRIES: usize = 16;
@@ -346,11 +343,7 @@ impl GoalsHost {
                 .await?;
             let mut cache = self.work.lock().unwrap_or_else(PoisonError::into_inner);
             let ledger = cache.entry(conversation_id).or_default();
-            for entry in &page.items {
-                if ledger.last().is_none_or(|last| entry.id > last) {
-                    ledger.read_entry(entry);
-                }
-            }
+            ledger.read_page(&page.items);
             match page.next {
                 Some(next) => cursor = Some(next),
                 None => break ledger.count(),
@@ -571,14 +564,14 @@ fn goal_check(
     work: u64,
     cap: u64,
 ) -> GoalCheck {
-    let prior = prior
-        .filter(|prior| prior.input == input && prior.goal_id == goal.goal_id)
-        .map(|prior| Prior {
-            stalls: prior.stalls,
-            work: prior.work,
-        });
+    let last = prior.map(|prior| Last {
+        same_run: prior.input == input,
+        same_goal: prior.goal_id == goal.goal_id,
+        stalls: prior.stalls,
+        work: prior.work,
+    });
     GoalCheck {
-        stall: stall_check(cap, prior, work),
+        stall: stall_check(cap, compared(last), work),
         cap,
     }
 }

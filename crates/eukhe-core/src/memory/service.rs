@@ -23,6 +23,7 @@ mod actor;
 mod client;
 mod owner;
 mod prefix_gate;
+mod race;
 #[cfg(test)]
 mod tests;
 mod turn;
@@ -35,7 +36,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use eukhe_chord::context::{race, Exits, Raced};
 use eukhe_types::daemon::MemoryUpdate;
 use eukhe_types::pi_ai::ImageContent;
 use eukhe_types::platform::transport::connect_transport;
@@ -47,6 +47,7 @@ use super::view::pieces;
 use super::{AppendKey, Kind};
 use client::{claim, Claim, Client, Disconnected, Subscription};
 use owner::OwnerHandle;
+use race::{race, Exits, Raced};
 
 pub use turn::TurnLease;
 

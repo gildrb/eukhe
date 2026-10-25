@@ -12,6 +12,7 @@ import ./laws/child.bend as Child
 import ./laws/admission.bend as Admission
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
+import ./laws/job_step.bend as JobStep
 import ./laws/sandbox.bend as Sandbox
 import ./laws/cvar.bend as Cvar
 import ./laws/cvar_layers.bend as CvarLayers
@@ -30,6 +31,8 @@ import ./laws/color.bend as Color
 import ./laws/theme_model.bend as ThemeModel
 import ./laws/tokens.bend as Tokens
 import ./laws/progress.bend as Progress
+import ./laws/progress_terms.bend as ProgressTerms
+import ./laws/work.bend as Work
 import ./laws/aux_fallback.bend as AuxFallback
 import ./laws/skill_load.bend as SkillLoad
 import ./laws/kernel_local.bend as KernelLocal
@@ -38,6 +41,8 @@ import ./laws/staging.bend as Staging
 import ./laws/listing.bend as Listing
 import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cron
+import ./laws/cron_store.bend as CronStore
+import ./laws/cron_terms.bend as CronTerms
 import ./laws/supervise.bend as Supervise
 import ./laws/timeouts.bend as Timeouts
 import ./laws/revive.bend as Revive
@@ -56,6 +61,8 @@ import ./laws/wire.bend as Wire
 import ./laws/facts.bend as Facts
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
+import ./laws/retry_idle.bend as RetryIdle
+import ./laws/retry_ffi.bend as RetryFfi
 import ./laws/dash.bend as Dash
 import ./laws/dash_policy.bend as DashPolicy
 import ./laws/dash_access.bend as DashAccess

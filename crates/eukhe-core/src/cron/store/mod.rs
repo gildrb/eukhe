@@ -4,10 +4,11 @@
 //!
 //! Split across submodules: construction, the public input types, and the
 //! heartbeat catalog signature live here; state save/load in [`state`],
-//! generic job and dispatch operations in [`jobs`], the owners of dispatch
-//! claims in [`owner`], `/heartbeat` job management in [`heartbeat`], RLM
-//! heartbeat operations in [`rlm_heartbeat`], and per-session artifact
-//! partitioning in [`session_artifacts`].
+//! generic job and dispatch operations in [`jobs`], the facts of a job the
+//! compiled core decides on in [`facts`], the owners of dispatch claims in
+//! [`owner`], `/heartbeat` job management in [`heartbeat`], RLM heartbeat
+//! operations in [`rlm_heartbeat`], and per-session artifact partitioning
+//! in [`session_artifacts`].
 
 use crate::cron::JobSource;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use super::{is_heartbeat_cron_job, AgentCronJob, AgentCronSchedule, DeliveryMode
 
 #[cfg(test)]
 mod bridge;
+mod facts;
 mod heartbeat;
 mod jobs;
 mod owner;
@@ -29,9 +31,7 @@ mod rlm_heartbeat;
 mod session_artifacts;
 mod state;
 
-#[cfg(test)]
-pub(crate) use jobs::failure_backoff_ms;
-pub use jobs::FAILURE_STOP_AFTER;
+pub(crate) use facts::fact_of;
 pub use owner::RunningDispatch;
 pub use session_artifacts::read_scheduled_jobs_artifact;
 

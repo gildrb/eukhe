@@ -7,8 +7,10 @@ import ./progress.bend as M
 # below the bound t (Rust sends the wire's largest Nat). The request: t, the
 # cap (directors.stallSteps),
 # the prior check of the same run and goal (Maybe: its stalls and its
-# work), the work now. The reply: the Goal, its tag (Go 0, Stop 1) and its
-# count of stalls.
+# work; bend/ffi_work.bend `ffi` decides which prior that is), the work
+# now. The reply: the Goal, its tag (Go 0, Stop 1) and its count of
+# stalls. Any other input answers the error form "progress: malformed
+# request". laws/progress.bend (goal_entry, goal_entry_*) pins the entry.
 
 def put_prior(p: Maybe<&2, M.Prior>, rest: String) -> String:
   match p:
@@ -69,35 +71,35 @@ def run.end(left: Bool, +t: Nat, +cap: Nat, p: Maybe<&2, M.Prior>, +work: Nat) -
     case True{}:
       put_goal(M.judge(t, cap, p, work), "")
     case False{}:
-      W.err("progress: input left over")
+      W.err("progress: malformed request")
 
 def run.work(+t: Nat, +cap: Nat, p: Maybe<&2, M.Prior>, r: W.Dec<Nat>) -> String:
   match r:
     case W.Got{+work, s}:
       run.end(W.end(s), t, cap, p, work)
     case W.Bad{}:
-      W.err("progress: bad work")
+      W.err("progress: malformed request")
 
 def run.prior(+t: Nat, +cap: Nat, r: W.Dec<Maybe<&2, M.Prior>>) -> String:
   match r:
     case W.Got{p, s}:
       run.work(t, cap, p, W.get_nat(s))
     case W.Bad{}:
-      W.err("progress: bad prior check")
+      W.err("progress: malformed request")
 
 def run.cap(+t: Nat, r: W.Dec<Nat>) -> String:
   match r:
     case W.Got{+cap, s}:
       run.prior(t, cap, get_prior(s))
     case W.Bad{}:
-      W.err("progress: bad cap")
+      W.err("progress: malformed request")
 
 def run.t(r: W.Dec<Nat>) -> String:
   match r:
     case W.Got{+t, s}:
       run.cap(t, W.get_nat(s))
     case W.Bad{}:
-      W.err("progress: bad bound")
+      W.err("progress: malformed request")
 
 # the entry
 def ffi(input: String) -> String:

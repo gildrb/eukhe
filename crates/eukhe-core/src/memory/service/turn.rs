@@ -16,17 +16,17 @@
 //! ends, polling it, so a cancelled wait leaves nothing behind. So two
 //! turns never overlap, and nothing waits on a process that is gone.
 //!
-//! `Turns` is modelled in `bend/lease.bend`; its laws (`lease_*` in
-//! `LAWS.bend`) and the bridge test ([`bridge`]) tie the two (H6).
+//! The lease itself runs as the compiled Bend core: `Turns` keeps one
+//! state of the stepper `bend/ffi_lease.bend` (`eukhe_bend::rules::lease`),
+//! sends it each ask, release and closed connection, and only delivers
+//! the grants it answers. Its laws: `lease_*` in `laws/lease.bend` (H6).
 
-#[cfg(test)]
-mod bridge;
-
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::Context as _;
+use eukhe_bend::rules::lease::{Answer, Lease};
 use tokio::sync::oneshot;
 
 use super::{answered, unexpected, Disconnected, Link, Memory, Outcome, Reply, Request};
@@ -40,7 +40,7 @@ const TURN_FILE_POLL: Duration = Duration::from_millis(50);
 pub(super) const TURN_FILE: &str = "turn";
 
 /// Who asked the owner for a lease.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum Origin {
     /// The owner's own process.
     Local,
@@ -49,59 +49,82 @@ pub(super) enum Origin {
 }
 
 /// A lease at the owner: its asker names it, unique per origin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct LeaseKey {
     origin: Origin,
     lease: u64,
 }
 
-/// The owner's side of the lease: the holder, then the waiters in arrival
-/// order.
+/// The owner's side of the lease: the holder and the waiters live in the
+/// compiled core, each named by the key its ask got there; here only each
+/// lease's name and the reply of a waiter not granted yet.
 #[derive(Debug, Default)]
 pub(super) struct Turns {
-    holder: Option<LeaseKey>,
-    waiting: VecDeque<(LeaseKey, oneshot::Sender<Outcome>)>,
+    lease: Lease,
+    /// The core's key of each lease it holds or queues.
+    keys: HashMap<LeaseKey, u64>,
+    /// Per core key: its lease, and the reply of a waiter not granted yet.
+    leases: HashMap<u64, (LeaseKey, Option<oneshot::Sender<Outcome>>)>,
 }
 
 impl Turns {
     pub(super) fn acquire(&mut self, origin: Origin, lease: u64, reply: oneshot::Sender<Outcome>) {
-        self.waiting.push_back((LeaseKey { origin, lease }, reply));
-        self.grant_next();
+        let key = LeaseKey { origin, lease };
+        let (core, answer) = self.lease.ask(origin.number());
+        self.keys.insert(key, core);
+        self.leases.insert(core, (key, Some(reply)));
+        self.act(answer);
     }
 
-    /// End a lease, held or still waited for. A lease the owner does not
-    /// know (it ended with its connection, or before an owner change) is
+    /// End a lease, held or still waited for. A lease the core no longer
+    /// holds (it ended with its connection, or before an owner change) is
     /// already over.
     pub(super) fn release(&mut self, origin: Origin, lease: u64) {
-        let key = LeaseKey { origin, lease };
-        if self.holder == Some(key) {
-            self.holder = None;
-        } else {
-            self.waiting.retain(|(waiter, _)| *waiter != key);
+        if let Some(&core) = self.keys.get(&LeaseKey { origin, lease }) {
+            let answer = self.lease.release(core);
+            self.act(answer);
         }
-        self.grant_next();
     }
 
     /// A client connection closed: every lease it held or waited for ends.
     pub(super) fn closed(&mut self, connection: u64) {
-        let origin = Origin::Connection(connection);
-        if self.holder.is_some_and(|holder| holder.origin == origin) {
-            self.holder = None;
-        }
-        self.waiting.retain(|(waiter, _)| waiter.origin != origin);
-        self.grant_next();
+        let answer = self.lease.crash(Origin::Connection(connection).number());
+        self.act(answer);
     }
 
-    fn grant_next(&mut self) {
-        while self.holder.is_none() {
-            let Some((key, reply)) = self.waiting.pop_front() else {
+    /// Forget the leases the core ended, then deliver its grant. A waiter
+    /// that stopped waiting (its reply is gone) never gets the lease: its
+    /// grant is released at once and the core hands the lease on.
+    fn act(&mut self, mut answer: Answer) {
+        loop {
+            for core in &answer.ended {
+                if let Some((key, _)) = self.leases.remove(core) {
+                    self.keys.remove(&key);
+                }
+            }
+            let Some(core) = answer.grant else {
                 return;
             };
-            // A waiter that stopped waiting is passed over; its release
-            // (or its connection's close) comes after and finds nothing.
-            if reply.send(Outcome::Ok(Reply::Granted)).is_ok() {
-                self.holder = Some(key);
+            let reply = self
+                .leases
+                .get_mut(&core)
+                .and_then(|(_, reply)| reply.take());
+            match reply.map(|reply| reply.send(Outcome::Ok(Reply::Granted))) {
+                Some(Ok(())) => return,
+                Some(Err(_)) | None => answer = self.lease.release(core),
             }
+        }
+    }
+}
+
+impl Origin {
+    /// The core's number of this origin: 0 the owner's own process, c + 1
+    /// client connection c (one per accepted connection, far below the
+    /// wire's bound of 10^14).
+    fn number(self) -> u64 {
+        match self {
+            Origin::Local => 0,
+            Origin::Connection(connection) => connection.saturating_add(1),
         }
     }
 }

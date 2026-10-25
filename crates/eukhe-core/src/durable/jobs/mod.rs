@@ -5,13 +5,13 @@
 //! under the session's output cap, reports exactly one end, and has a kill.
 //!
 //! The Bend model `bend/job.bend` is the specification. `laws/job.bend`
-//! (S2) states its laws and `proof/job/` proves them.
-//! [`JobState::step`] runs the model's `feed` as the compiled Bend core. The
-//! bridge test (`bridge.rs`, with `bridge/bridge_job.bend`) runs the jobs and
-//! the model on the same scenarios and requires the same transcript:
-//! [`Job::record`] and its writer against the model's `step` and `ends`,
-//! [`wait_until`] against its `wait`, and [`JobTable::rewind`] against its
-//! `rewind`.
+//! (S2) states its laws and `proof/job/` proves them. The compiled Bend
+//! core decides; Rust gathers the facts and acts: [`JobState::step`] runs
+//! the model's `feed` (entry `job`), [`JobTable::rewind_to`] its `kills`
+//! (entry `job_rewind`) and each poll of [`wait_until`] its `poll` (entry
+//! `job_wait`). The bridge test (`bridge.rs`, with `bridge/bridge_job.bend`)
+//! ties only the interleaving of [`wait_until`] (the timer against the
+//! job's end, on a paused clock) to the model's `wait`.
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
@@ -224,6 +224,44 @@ fn get_end(reply: &mut Reader<'_>) -> Result<JobEnd, WireError> {
     })
 }
 
+/// A commit as the core's `Maybe<Nat>` (a commit sequence counts commits,
+/// so it stays far below the wire's largest Nat).
+fn put_commit(request: &mut Writer, commit: Option<Seq>) {
+    match commit {
+        None => request.none(),
+        Some(seq) => request.some().nat(seq.get()),
+    };
+}
+
+/// The kills of a rewind to the entry committed at `target`, one per job
+/// of `jobs`, in order: the model's `kills`, run by the compiled Bend core
+/// (`bend/ffi_job_rewind.bend`) on whether each job runs and the commit it
+/// started after.
+fn rewind_kills(target: Option<Seq>, jobs: &[Job]) -> Result<Vec<bool>, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    put_commit(&mut request, target);
+    request.count(jobs.len());
+    for job in jobs {
+        request.bool(job.is_running());
+        put_commit(&mut request, job.inner.after);
+    }
+    let reply = eukhe_bend::call(Entry::JobRewind, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    if reply.count()? != jobs.len() {
+        return Err(WireError::Malformed {
+            at: 0,
+            expected: "one kill per job",
+        }
+        .into());
+    }
+    let kills = jobs
+        .iter()
+        .map(|_| reply.bool())
+        .collect::<Result<Vec<_>, _>>()?;
+    reply.end()?;
+    Ok(kills)
+}
+
 /// The kill of a job: it sends the kill signal to what runs (a process, a
 /// cell's interrupt). The owner of the job reports the end that follows
 /// with [`Job::record`].
@@ -354,7 +392,8 @@ pub enum Wait<T> {
 
 /// The one blocking wait on a job (the model's `wait`): `Settled` with
 /// `end`'s value when it resolves before `deadline`, else `Detached` at the
-/// deadline. Each poll reads the clock first, so a deadline that has passed
+/// deadline. Each poll reads the clock and polls `end`; the compiled Bend
+/// core decides the poll (`poll_turn`), so a deadline that has passed
 /// detaches even when the end is ready. Every blocking wait on a job uses
 /// it, with a deadline within the session's blocking budget
 /// ([`HostDeps::blocking_budget`](super::HostDeps::blocking_budget)).
@@ -362,12 +401,33 @@ pub async fn wait_until<F: Future>(deadline: tokio::time::Instant, end: F) -> Wa
     let mut timer = std::pin::pin!(tokio::time::sleep_until(deadline));
     let mut end = std::pin::pin!(end);
     std::future::poll_fn(|cx| {
-        if tokio::time::Instant::now() >= deadline || timer.as_mut().poll(cx).is_ready() {
-            return Poll::Ready(Wait::Detached);
-        }
-        end.as_mut().poll(cx).map(Wait::Settled)
+        let due = tokio::time::Instant::now() >= deadline || timer.as_mut().poll(cx).is_ready();
+        eukhe_bend::expect_core(Entry::JobWait, poll_turn(due, end.as_mut().poll(cx)))
     })
     .await
+}
+
+/// One poll of a blocking wait: the model's `poll` of whether the deadline
+/// passed and whether the end is ready, run by the compiled Bend core
+/// (`bend/ffi_job_wait.bend`), applied to the end's poll.
+fn poll_turn<T>(due: bool, end: Poll<T>) -> Result<Poll<Wait<T>>, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    request.bool(due).bool(end.is_ready());
+    let reply = eukhe_bend::call(Entry::JobWait, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    let turn = reply.tag_of(3, "a turn of a wait")?;
+    reply.end()?;
+    match (turn, end) {
+        (0, Poll::Pending) => Ok(Poll::Pending),
+        (1, Poll::Ready(value)) => Ok(Poll::Ready(Wait::Settled(value))),
+        (0, Poll::Ready(_)) | (1, Poll::Pending) => Err(WireError::Malformed {
+            at: 0,
+            expected: "a turn that settles exactly when the end is ready",
+        }
+        .into()),
+        // `tag_of` answers a tag below 3: this is 2.
+        (_, Poll::Ready(_) | Poll::Pending) => Ok(Poll::Ready(Wait::Detached)),
+    }
 }
 
 /// The entries the session committed since it opened, in commit order.
@@ -459,31 +519,24 @@ impl JobTable {
         lock(&self.jobs).iter().cloned().collect()
     }
 
-    /// A rewind (the model's `rewind`): send the kill to every running job
-    /// that `keeps` does not hold; the jobs it keeps stay as they are. The
-    /// jobs it sent the kill to, oldest first.
-    pub fn rewind(&self, keeps: impl Fn(&Job) -> bool) -> Vec<Job> {
-        self.jobs()
-            .into_iter()
-            .filter(|job| job.is_running() && !keeps(job))
-            .inspect(Job::kill)
-            .collect()
-    }
-
     /// The rewind to the session just after `target` was added (`None`:
     /// before every entry): it keeps the running jobs that started before
     /// that entry was committed, so their nodes are in the state tree at
-    /// the target, and sends the kill to every other one. The order comes
-    /// from the commits the table saw, not from the job nodes, which the
-    /// writer commits later. An entry the table did not see was committed
-    /// before the session opened, so before every job.
+    /// the target, and sends the kill to every other one; the compiled Bend
+    /// core decides which (the model's `kills`, `bend/ffi_job_rewind.bend`).
+    /// The order comes from the commits the table saw, not from the job
+    /// nodes, which the writer commits later. An entry the table did not
+    /// see was committed before the session opened, so before every job.
+    /// The jobs it sent the kill to, oldest first.
     pub fn rewind_to(&self, target: Option<EntryId>) -> Vec<Job> {
         let target = target.and_then(|entry| lock(&self.entries).commits.get(&entry).copied());
-        self.rewind(|job| match (target, job.inner.after) {
-            (None, _) => false,
-            (Some(_), None) => true,
-            (Some(target), Some(after)) => after < target,
-        })
+        let jobs = self.jobs();
+        let kills = eukhe_bend::expect_core(Entry::JobRewind, rewind_kills(target, &jobs));
+        jobs.into_iter()
+            .zip(kills)
+            .filter_map(|(job, kill)| kill.then_some(job))
+            .inspect(Job::kill)
+            .collect()
     }
 
     /// Note the entries of a commit (the session's commit listener).

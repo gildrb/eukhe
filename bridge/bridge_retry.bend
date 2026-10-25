@@ -1,10 +1,15 @@
-# bridge_retry: runs the model of the retry decisions (bend/retry.bend) on
-# an events file and prints what it decided, line for line as the Rust
-# bridge test prints the Rust code
-# (crates/eukhe-durable/src/harness/generation/retry_bridge.rs for the i
-# lines; the classifier, the wait, the failover walk and the stall run as
-# the compiled model, bend/ffi_retry.bend, and the deferred job as
-# bend/run/decision.bend in the compiled core, bend/ffi_run.bend). Build it with
+# bridge_retry: runs the idle model (bend/retry.bend `idle`) on an events
+# file and prints what it decided, line for line as the Rust bridge test
+# (crates/eukhe-durable/src/harness/generation/retry_bridge.rs) prints
+# the real timer loop of `StreamIdle::within` on paused tokio. What stays
+# here is the interleaving only: every decision of the loop (armed, stall
+# or sleep at each fire) runs as the compiled model
+# (bend/ffi_retry_idle.bend, laws/retry_idle.bend, whose idle_wake_refines
+# ties the loop of those decisions to `idle`); the bridge checks that
+# tokio's timer, the provider events' stores and the select's order give
+# that loop. The classifier, the wait, the failover walk and the stall run
+# as bend/ffi_retry.bend, the deferred job as bend/run/decision.bend
+# (bend/ffi_run.bend). Build it with
 #
 #   bend bridge/bridge_retry.bend -o <out>
 #
