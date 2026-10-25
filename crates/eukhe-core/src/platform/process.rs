@@ -253,7 +253,11 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
         Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(()),
         Err(error) => return Err(error),
     };
-    // The handle closes on drop, on every path.
+    // The handle closes on drop, on every path. RUSTSEC-2026-0386 is about an
+    // `AsyncFd` over a borrowed or arbitrary fd; this pidfd is an owned `OwnedFd`
+    // that the `AsyncFd` holds for its whole life. The safe replacement
+    // (`register_with_interest`) is `unsafe`, which this workspace forbids.
+    #[allow(deprecated)]
     let fd = AsyncFd::with_interest(fd, Interest::READABLE)?;
     // Every wake is confirmed by a zero-timeout poll (AsyncFd readiness
     // can be spurious).
@@ -326,6 +330,9 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
             };
         }
     }
+    // RUSTSEC-2026-0386 does not apply: `KqueueFd` owns its kqueue for the
+    // `AsyncFd`'s whole life (see `wait_for_exit` on Linux).
+    #[allow(deprecated)]
     let kq = AsyncFd::with_interest(KqueueFd(kq), Interest::READABLE)?;
     // Only the exit knote is registered, so a drained event is the exit.
     loop {

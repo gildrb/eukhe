@@ -93,6 +93,11 @@ impl Backend {
         }
         let inotify = Inotify::init(InitFlags::IN_NONBLOCK | InitFlags::IN_CLOEXEC)?;
         let instance = Arc::new(Instance {
+            // RUSTSEC-2026-0386 is about an `AsyncFd` over a borrowed or arbitrary
+            // fd. `InotifyFd` owns its `Inotify`, so the fd is valid and owned for
+            // the `AsyncFd`'s whole life; the safe replacement (`register`) is
+            // `unsafe`, which this workspace forbids.
+            #[allow(deprecated)]
             fd: AsyncFd::new(InotifyFd(inotify))?,
             registry: Mutex::new(Registry::default()),
         });

@@ -106,6 +106,9 @@ impl Backend {
             return Ok(Arc::clone(instance));
         }
         let instance = Arc::new(Instance {
+            // RUSTSEC-2026-0386 does not apply: `KqueueFd` owns its `Kqueue` for
+            // the `AsyncFd`'s whole life (see the inotify backend).
+            #[allow(deprecated)]
             fd: AsyncFd::new(KqueueFd(Kqueue::new()?))?,
             registry: Mutex::new(Registry::default()),
         });
