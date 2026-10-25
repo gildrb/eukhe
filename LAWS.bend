@@ -87,3 +87,5 @@ import ./laws/context_order.bend as ContextOrder
 import ./laws/compaction_cut.bend as CompactionCut
 import ./laws/codemode_source.bend as CodemodeSource
 import ./laws/codemode_describe.bend as CodemodeDescribe
+import ./laws/codemode_models/checks.bend as CodemodeModels
+import ./laws/codemode_models/entry.bend as CodemodeModelsEntry

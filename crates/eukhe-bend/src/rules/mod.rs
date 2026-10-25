@@ -6,6 +6,7 @@ pub mod approvals;
 pub mod bound;
 pub mod codemode_describe;
 pub mod codemode_id;
+pub mod codemode_models;
 pub mod codemode_source;
 pub mod compaction_cut;
 pub mod compactor;

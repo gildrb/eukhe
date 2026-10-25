@@ -2,6 +2,7 @@
 
 import Base
 import ../bend/codemode_describe.bend as Dsc
+import ../bend/codemode_models.bend as Cm
 import ../bend/ffi_codemode_describe.bend as FDsc
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
@@ -607,6 +608,31 @@ law codemode_describe_example:
   {Dsc.section([Dsc.Tool{"gh-a", 160n}, Dsc.Tool{"gh-b", 300n}], [Dsc.Space{"GitHub", "github", "gh-", ""}], 40n) == Some{[Dsc.Lit{"Tools scripts can call (`await tools.<name>(args)`):"}, Dsc.Lit{"\n\n"}, Dsc.Lit{"## GitHub (some tools not listed)"}, Dsc.Lit{"\n\n"}, Dsc.Sect{0n}]} : Maybe<&2, List<&2, Dsc.Part>>} &
   {[Dsc.select([[Dsc.Item{0n, 5n}, Dsc.Item{1n, 1n}], [], [Dsc.Item{2n, 3n}, Dsc.Item{3n, 3n}]], 8n), Dsc.select([[Dsc.Item{0n, 5n}, Dsc.Item{1n, 1n}], [], [Dsc.Item{2n, 3n}, Dsc.Item{3n, 3n}]], 3n)] == [[1n, 2n, 3n], [1n]] : List<&2, List<&2, Nat>>} &
   {Dsc.section([], [Dsc.Space{"GitHub", "github", "gh-", ""}], 100n) == None{} : Maybe<&2, List<&2, Dsc.Part>>}
+
+# R8: the `models` section's last line names the limit the model calls of
+#     one script run under, as bend/codemode_models.bend holds it (R10 of
+#     laws/codemode_models/checks.bend; the host runs the calls under that
+#     same number), so the text and the limit cannot differ.
+
+# R8: the `models` section, up to the limit's digits
+def models_lead_spec() -> String:
+  String.concat(["`models` (all functions return promises):\n", "- `models.getModelsOfType(type, provider?)`, `models.getAvailableOfType(type, provider?)` (configured auth only), `models.getModelOfType(type, provider, id)`: the catalog; `type` is \"chat\", \"image\", or \"classifier\".\n", "- `models.classify(model, { state: { ... }, images?: [{ type: \"image\", data, mimeType }], questions: { <id>: { type: \"choice\", instructions, criteria: { <label>: <meaning> } } | { type: \"score\", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: \"bool\", instructions, criteria: { true: <meaning>, false: <meaning> } } } })` resolves to `{ answers: { <id>: ... }, stopReason, errorMessage?, usage? }`.\n", "- `models.generateImages(model, { input: [{ type: \"text\", text: <prompt> }, ...optional { type: \"image\", data, mimeType }] })` resolves to `{ output: [image blocks], stopReason, errorMessage?, usage? }`; show each image with `image(block)`.\n", "At most "])
+
+# R8: what follows the limit's line: the default classifier's line when
+# the session resolves one, then the paragraph's end
+def models_tail_spec(classify: Bool) -> String:
+  match classify:
+    case True{}:
+      String.concat(["\n", "`models.classify(null, context)` uses the session's default classifier.", "\n\n"])
+    case False{}:
+      "\n\n"
+
+# LAW codemode_describe_cap_named: the `models` paragraph names the model calls' limit as the codemode_models model holds it, in decimal, with or without the default classifier's line
+# EXCLUDES: a limit written into the text apart from the one the host runs
+#   the calls under, a limit spelled otherwise than in decimal
+law codemode_describe_cap_named:
+  for classify: Bool
+  {Dsc.description.models(classify) == String.concat([models_lead_spec(), Nat.show(Cm.max_calls()), " classify/generateImages calls run at once; more wait.", models_tail_spec(classify)]) : String}
 
 # LAWS (R7): the entry of the compiled Bend core
 # (bend/ffi_codemode_describe.bend, called by crates/eukhe-durable

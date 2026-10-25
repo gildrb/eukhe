@@ -33,8 +33,8 @@ use super::docs::{
 };
 use super::identifier::to_codemode_identifier;
 use super::models::{
-    catalog_call, model_call_tool, CATALOG_GLOBALS, CODEMODE_INTERNAL_PREFIX, GENERATE_IMAGES_TOOL,
-    MAX_CONCURRENT_MODEL_CALLS, MODEL_CALL_GLOBALS,
+    catalog_call, max_concurrent_model_calls, model_call_tool, CATALOG_GLOBALS,
+    CODEMODE_INTERNAL_PREFIX, GENERATE_IMAGES_TOOL, MODEL_CALL_GLOBALS,
 };
 use super::output::{format_result, FormatOptions, OutputFiles, DEFAULT_MAX_OUTPUT_TOKENS};
 use super::sandbox::{CodemodeRun, CodemodeRunEvent, CodemodeRunHandle, CodemodeRunOptions};
@@ -531,7 +531,7 @@ impl CodemodeCall {
             failure: None,
             aborted_run: false,
             stopped_flag: Arc::new(AtomicBool::new(false)),
-            model_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_MODEL_CALLS)),
+            model_slots: Arc::new(Semaphore::new(max_concurrent_model_calls())),
             generated_images: 0,
             rows: BTreeMap::new(),
             gate_open: false,

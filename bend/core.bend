@@ -12,6 +12,7 @@ import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_codemode_describe.bend as ffi_codemode_describe
 import ./ffi_codemode_id.bend as ffi_codemode_id
+import ./ffi_codemode_models.bend as ffi_codemode_models
 import ./ffi_codemode_source.bend as ffi_codemode_source
 import ./ffi_command.bend as ffi_command
 import ./ffi_compaction_cut.bend as ffi_compaction_cut
@@ -222,6 +223,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_codemode_source.ffi(input)
     case 272:
       ffi_codemode_describe.ffi(input)
+    case 273:
+      ffi_codemode_models.ffi(input)
     case _:
       W.err("unknown entry")
 

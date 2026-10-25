@@ -1,6 +1,16 @@
 //! Port of the `models.*` globals of code mode scripts
 //! (`codemode/models.ts`): the catalog functions and the internal tools
 //! behind `models.classify()` and `models.generateImages()`.
+//!
+//! The rules run as the compiled Bend core
+//! (`eukhe_bend::rules::codemode_models`; `bend/codemode_models.bend`,
+//! `laws/codemode_models/`): every check of a script's contexts and
+//! arguments, which error wins and its text, which model a call uses, what
+//! a catalog call does with its arguments, which global runs which model
+//! call, and the texts of a call's result. This module reads what the
+//! checks read of a script's JSON values (kinds, keys, the strings a check
+//! compares, serde's JSON text of a value an error prints), looks models up
+//! in the catalog, and runs the calls.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -8,6 +18,11 @@ use std::sync::Arc;
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::{Models, ModelsClassifierOptions, ModelsImagesOptions};
 use eukhe_ai::typebox::Type;
+use eukhe_bend::rules::codemode_models::{
+    self, Block, CatalogArgs, CatalogCall, Desc, Lookups, ModelArg, ModelCall, Outcome, Question,
+    Resolved,
+};
+use eukhe_bend::{expect_core, Entry, WireError};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{
@@ -60,11 +75,10 @@ pub(crate) const GENERATE_IMAGES_TOOL: &str = "pi.codemode.models.generateImages
 /// (`models.classify` → [`CLASSIFY_TOOL`], `models.generateImages` →
 /// [`GENERATE_IMAGES_TOOL`]).
 pub(crate) fn model_call_tool(global: &str) -> Option<&'static str> {
-    match global {
-        "models.classify" => Some(CLASSIFY_TOOL),
-        "models.generateImages" => Some(GENERATE_IMAGES_TOOL),
-        _ => None,
-    }
+    expect_core(Entry::CodemodeModels, codemode_models::tool(global)).map(|call| match call {
+        ModelCall::Classify => CLASSIFY_TOOL,
+        ModelCall::GenerateImages => GENERATE_IMAGES_TOOL,
+    })
 }
 
 /// The globals of `MODEL_CALLS`, in `Object.keys` order.
@@ -78,8 +92,11 @@ pub(crate) const CATALOG_GLOBALS: [&str; 3] = [
 ];
 
 /// `models.classify()` and `models.generateImages()` calls one script may
-/// have in flight; the rest wait.
-pub(crate) const MAX_CONCURRENT_MODEL_CALLS: usize = 4;
+/// have in flight; the rest wait. The core holds the number
+/// (`Mod.max_calls`), and the code mode tool's description names it.
+pub(crate) fn max_concurrent_model_calls() -> usize {
+    expect_core(Entry::CodemodeModels, codemode_models::max_calls())
+}
 
 fn record(value: Option<&PiJsonValue>) -> Option<&serde_json::Map<String, PiJsonValue>> {
     value.and_then(PiJsonValue::as_object)
@@ -98,61 +115,113 @@ fn stringify(value: Option<&PiJsonValue>) -> String {
     }
 }
 
-/// A script value in an error message: `undefined`, `a string`, `an array`,
-/// or its keys (`{ prompt }`).
-fn describe_value(value: Option<&PiJsonValue>) -> String {
+/// What the checks read of a script value.
+fn desc(value: Option<&PiJsonValue>) -> Desc<'_> {
     match value {
-        None => "undefined".to_owned(),
-        Some(PiJsonValue::Null) => "null".to_owned(),
-        Some(PiJsonValue::Array(items)) => {
-            let described = if items.is_empty() {
-                "an empty array"
-            } else {
-                "an array"
-            };
-            described.to_owned()
-        }
+        None => Desc::Undefined,
+        Some(PiJsonValue::Null) => Desc::Null,
+        Some(PiJsonValue::Bool(_)) => Desc::Boolean,
+        Some(PiJsonValue::Number(_)) => Desc::Number,
+        Some(PiJsonValue::String(_)) => Desc::String,
+        Some(PiJsonValue::Array(items)) => Desc::Array {
+            empty: items.is_empty(),
+        },
         Some(PiJsonValue::Object(object)) => {
-            if object.is_empty() {
-                return "{}".to_owned();
-            }
-            let keys: Vec<&str> = object.keys().take(6).map(String::as_str).collect();
-            let more = if object.len() > 6 { ", ..." } else { "" };
-            format!("{{ {}{more} }}", keys.join(", "))
+            Desc::Object(object.keys().map(String::as_str).collect())
         }
-        Some(PiJsonValue::String(_)) => "a string".to_owned(),
-        Some(PiJsonValue::Number(_)) => "a number".to_owned(),
-        Some(PiJsonValue::Bool(_)) => "a boolean".to_owned(),
     }
 }
 
-/// `an image`, `a classifier`.
-fn with_article(word: &str) -> String {
-    let article = if word.starts_with(['a', 'e', 'i', 'o', 'u']) {
-        "an"
-    } else {
-        "a"
-    };
-    format!("{article} {word}")
+/// The field `key` of a value that is an object.
+fn field<'a>(value: Option<&'a PiJsonValue>, key: &str) -> Option<&'a PiJsonValue> {
+    record(value).and_then(|object| object.get(key))
 }
 
-fn to_model_type(value: Option<&PiJsonValue>) -> Result<ModelType, String> {
+fn text(value: Option<&PiJsonValue>) -> Option<&str> {
+    value.and_then(PiJsonValue::as_str)
+}
+
+fn block(item: &PiJsonValue) -> Block<'_> {
+    let at = |key| field(Some(item), key);
+    Block {
+        block: desc(Some(item)),
+        kind: text(at("type")),
+        text: desc(at("text")),
+        data: desc(at("data")),
+        mime_type: desc(at("mimeType")),
+    }
+}
+
+fn blocks(value: Option<&PiJsonValue>) -> Vec<Block<'_>> {
     value
-        .and_then(PiJsonValue::as_str)
-        .and_then(ModelType::parse)
-        .ok_or_else(|| {
-            format!(
-                "Unknown model type {}. Use \"chat\", \"image\", or \"classifier\".",
-                stringify(value)
-            )
-        })
+        .and_then(PiJsonValue::as_array)
+        .map_or_else(Vec::new, |items| items.iter().map(block).collect())
 }
 
-fn to_provider(value: Option<&PiJsonValue>) -> Result<Option<&str>, String> {
-    match value {
-        None | Some(PiJsonValue::Null) => Ok(None),
-        Some(PiJsonValue::String(provider)) => Ok(Some(provider.as_str())),
-        Some(_) => Err("provider must be a string".to_owned()),
+fn question<'a>(id: &'a str, value: &'a PiJsonValue) -> Question<'a> {
+    let at = |key| field(Some(value), key);
+    let criteria = at("criteria");
+    let values = match criteria {
+        Some(PiJsonValue::Object(map)) => map.values().map(|item| desc(Some(item))).collect(),
+        Some(PiJsonValue::Array(items)) => items.iter().map(|item| desc(Some(item))).collect(),
+        Some(
+            PiJsonValue::Null
+            | PiJsonValue::Bool(_)
+            | PiJsonValue::Number(_)
+            | PiJsonValue::String(_),
+        )
+        | None => Vec::new(),
+    };
+    Question {
+        id,
+        question: desc(Some(value)),
+        instructions: desc(at("instructions")),
+        kind: text(at("type")),
+        kind_json: stringify(at("type")),
+        criteria: desc(criteria),
+        values,
+        yes: desc(field(criteria, "true")),
+        no: desc(field(criteria, "false")),
+    }
+}
+
+/// A core answer the caller's own facts contradict, or a request past the
+/// wire's bounds (a script value too long), as the script's error.
+fn core_error(error: &eukhe_bend::Error) -> SessionError {
+    SessionError::error(format!("code mode models: {error}"))
+}
+
+/// Check a script's classifier context, so mistakes fail with the expected
+/// shape instead of a provider error.
+fn check_classifier_context(context: Option<&PiJsonValue>) -> SessionResult<()> {
+    let questions = field(context, "questions");
+    let facts = codemode_models::ClassifierContext {
+        context: desc(context),
+        state: desc(field(context, "state")),
+        images: desc(field(context, "images")),
+        image_items: blocks(field(context, "images")),
+        questions: desc(questions),
+        question_items: record(questions).map_or_else(Vec::new, |map| {
+            map.iter().map(|(id, value)| question(id, value)).collect()
+        }),
+    };
+    match codemode_models::classifier_problem(&facts).map_err(|error| core_error(&error))? {
+        None => Ok(()),
+        Some(problem) => Err(SessionError::error(problem)),
+    }
+}
+
+/// Check a script's image context, so mistakes such as `{ prompt }` fail
+/// with the expected shape.
+fn check_images_context(context: Option<&PiJsonValue>) -> SessionResult<()> {
+    let facts = codemode_models::ImagesContext {
+        context: desc(context),
+        input: desc(field(context, "input")),
+        blocks: blocks(field(context, "input")),
+    };
+    match codemode_models::images_problem(&facts).map_err(|error| core_error(&error))? {
+        None => Ok(()),
+        Some(problem) => Err(SessionError::error(problem)),
     }
 }
 
@@ -188,268 +257,116 @@ pub(crate) async fn catalog_call(
         Some(PiJsonValue::Array(items)) => items,
         Some(_) | None => Vec::new(),
     };
-    let (type_arg, provider, id) = (list.first(), list.get(1), list.get(2));
-    if name == "models.getModelsOfType" {
-        let found = models.get_models_of_type(to_model_type(type_arg)?, to_provider(provider)?);
-        return model_infos(&found).map(Some);
-    }
-    if name == "models.getAvailableOfType" {
-        let model_type = to_model_type(type_arg)?;
-        let available = models
-            .get_available_of_type(
-                model_type,
-                to_provider(provider)?,
-                AuthOperationOptions {
-                    signal: cx.abort_signal(),
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        return model_infos(&available).map(Some);
-    }
-    let (Some(PiJsonValue::String(provider)), Some(PiJsonValue::String(id))) = (provider, id)
-    else {
-        let described: Vec<String> = list
-            .iter()
-            .map(|value| describe_value(Some(value)))
-            .collect();
-        return Err(format!(
-            "models.getModelOfType(type, provider, id) expects three strings, got ({}). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
-            described.join(", ")
-        ));
+    let facts = CatalogArgs {
+        global: name,
+        args: list.iter().map(|value| desc(Some(value))).collect(),
+        kind: text(list.first()),
+        kind_json: stringify(list.first()),
+        provider: text(list.get(1)),
+        id: text(list.get(2)),
     };
-    models
-        .get_model_of_type(to_model_type(type_arg)?, provider, id)
-        .as_ref()
-        .map(to_model_info)
-        .transpose()
-}
-
-const CLASSIFIER_CONTEXT_SHAPE: &str = "{ state: { ... }, images?: [{ type: \"image\", data: <base64>, mimeType }], questions: { <id>: { type: \"choice\", instructions, criteria: { <label>: <meaning> } } | { type: \"score\", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: \"bool\", instructions, criteria: { true: <meaning>, false: <meaning> } } } }";
-
-fn is_image_block(value: &PiJsonValue) -> bool {
-    value.as_object().is_some_and(|block| {
-        block.get("type").and_then(PiJsonValue::as_str) == Some("image")
-            && block.get("data").is_some_and(PiJsonValue::is_string)
-            && block.get("mimeType").is_some_and(PiJsonValue::is_string)
-    })
-}
-
-fn is_strings<'a>(mut values: impl ExactSizeIterator<Item = &'a PiJsonValue>) -> bool {
-    values.len() > 0 && values.all(PiJsonValue::is_string)
-}
-
-/// Check a script's classifier context, so mistakes fail with the expected
-/// shape instead of a provider error.
-fn check_classifier_context(context: Option<&PiJsonValue>) -> Result<(), String> {
-    let fail = |problem: String| {
-        format!("models.classify() {problem}. Expected context: {CLASSIFIER_CONTEXT_SHAPE}.")
-    };
-    let Some(object) = record(context) else {
-        return Err(fail(format!(
-            "expects a context object as its second argument, got {}",
-            describe_value(context)
-        )));
-    };
-    let state = object.get("state");
-    if record(state).is_none() {
-        return Err(fail(format!(
-            "context.state must be an object, got {}",
-            describe_value(state)
-        )));
-    }
-    if let Some(images) = object.get("images") {
-        let PiJsonValue::Array(images) = images else {
-            return Err(fail(format!(
-                "context.images must be an array, got {}",
-                describe_value(Some(images))
-            )));
-        };
-        if let Some((index, image)) = images
-            .iter()
-            .enumerate()
-            .find(|(_, image)| !is_image_block(image))
-        {
-            return Err(fail(format!(
-                "context.images[{index}] must be an image block, got {}",
-                describe_value(Some(image))
-            )));
+    match codemode_models::catalog(&facts).map_err(|error| error.to_string())? {
+        CatalogCall::Failed(problem) => Err(problem),
+        CatalogCall::Models {
+            model_type,
+            provider,
+        } => model_infos(&models.get_models_of_type(model_type, provider)).map(Some),
+        CatalogCall::Available {
+            model_type,
+            provider,
+        } => {
+            let available = models
+                .get_available_of_type(
+                    model_type,
+                    provider,
+                    AuthOperationOptions {
+                        signal: cx.abort_signal(),
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            model_infos(&available).map(Some)
         }
-    }
-    let questions = object.get("questions");
-    let Some(questions_map) = record(questions).filter(|map| !map.is_empty()) else {
-        return Err(fail(format!(
-            "context.questions must map question IDs to questions, got {}",
-            describe_value(questions)
-        )));
-    };
-    for (id, question) in questions_map {
-        let at = format!("context.questions.{id}");
-        let Some(question) = question.as_object() else {
-            return Err(fail(format!(
-                "{at} must be a question object, got {}",
-                describe_value(Some(question))
-            )));
-        };
-        if !question
-            .get("instructions")
-            .is_some_and(PiJsonValue::is_string)
-        {
-            return Err(fail(format!("{at}.instructions must be a string")));
-        }
-        let criteria = question.get("criteria");
-        let question_type = question.get("type");
-        match question_type.and_then(PiJsonValue::as_str) {
-            Some("choice") => {
-                if !record(criteria).is_some_and(|map| is_strings(map.values())) {
-                    return Err(fail(format!(
-                        "{at} is a \"choice\" question, so criteria must map each label to its meaning"
-                    )));
-                }
-            }
-            Some("score") => {
-                if !criteria
-                    .and_then(PiJsonValue::as_array)
-                    .is_some_and(|levels| is_strings(levels.iter()))
-                {
-                    return Err(fail(format!(
-                        "{at} is a \"score\" question, so criteria must list the levels as strings, lowest first"
-                    )));
-                }
-            }
-            Some("bool") => {
-                if !record(criteria).is_some_and(|map| {
-                    map.get("true").is_some_and(PiJsonValue::is_string)
-                        && map.get("false").is_some_and(PiJsonValue::is_string)
-                }) {
-                    return Err(fail(format!(
-                        "{at} is a \"bool\" question, so criteria must be {{ true: string, false: string }}"
-                    )));
-                }
-            }
-            Some(_) | None => {
-                return Err(fail(format!(
-                    "{at}.type must be \"choice\", \"score\", or \"bool\", got {}",
-                    stringify(question_type)
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Check a script's image context, so mistakes such as `{ prompt }` fail
-/// with the expected shape.
-fn check_images_context(context: Option<&PiJsonValue>) -> Result<(), String> {
-    let fail = |problem: String| {
-        format!("models.generateImages() {problem}. Expected context: {{ input: [{{ type: \"text\", text: <prompt> }}, ...optional {{ type: \"image\", data: <base64>, mimeType }} references] }}.")
-    };
-    let Some(object) = record(context) else {
-        return Err(fail(format!(
-            "expects a context object as its second argument, got {}",
-            describe_value(context)
-        )));
-    };
-    let input = object.get("input");
-    let Some(blocks) = input
-        .and_then(PiJsonValue::as_array)
-        .filter(|blocks| !blocks.is_empty())
-    else {
-        return Err(fail(format!(
-            "context.input must be a non-empty array of blocks, got {}",
-            describe_value(input)
-        )));
-    };
-    let is_text = |block: &PiJsonValue| {
-        block.as_object().is_some_and(|block| {
-            block.get("type").and_then(PiJsonValue::as_str) == Some("text")
-                && block.get("text").is_some_and(PiJsonValue::is_string)
-        })
-    };
-    match blocks
-        .iter()
-        .enumerate()
-        .find(|(_, block)| !is_text(block) && !is_image_block(block))
-    {
-        Some((index, block)) => Err(fail(format!(
-            "context.input[{index}] must be a text or image block, got {}",
-            describe_value(Some(block))
-        ))),
-        None => Ok(()),
+        CatalogCall::One {
+            model_type,
+            provider,
+            id,
+        } => models
+            .get_model_of_type(model_type, provider, id)
+            .as_ref()
+            .map(to_model_info)
+            .transpose(),
     }
 }
 
 /// Resolve the script's model by provider and id only, so a script-supplied
 /// baseUrl or headers never receive the credentials, with errors that say
-/// what to do.
+/// what to do: the catalog's models of each type under the model's
+/// provider and id, and the core's choice.
 fn resolve_model(
-    name: &str,
-    model_type: ModelType,
+    call: ModelCall,
+    default_classifier: bool,
     model: Option<&PiJsonValue>,
     models: &Models,
-) -> Result<AnyModel, String> {
-    let type_name = model_type.as_str();
-    let list_hint = format!(
-        "List the {type_name} models you can use with models.getAvailableOfType(\"{type_name}\")."
-    );
-    let fields = record(model).and_then(|object| {
-        Some((
-            object.get("provider")?.as_str()?,
-            object.get("id")?.as_str()?,
-        ))
-    });
-    let Some((provider, id)) = fields else {
-        let undefined_hint = match model {
-            None | Some(PiJsonValue::Null) => {
-                " models.getModelOfType() returns undefined for an unknown provider or id."
+) -> SessionResult<Resolved<AnyModel>> {
+    let (provider, id) = (text(field(model, "provider")), text(field(model, "id")));
+    let lookups = match (provider, id) {
+        (Some(provider), Some(id)) => {
+            let look = |model_type| {
+                models
+                    .get_model_of_type(model_type, provider, id)
+                    .map(|found| (found.model_type(), found))
+            };
+            Lookups {
+                chat: look(ModelType::Chat),
+                image: look(ModelType::Image),
+                classifier: look(ModelType::Classifier),
             }
-            Some(_) => "",
-        };
-        return Err(format!(
-            "{name}() expects {} model as its first argument, got {}.{undefined_hint} {list_hint}",
-            with_article(type_name),
-            describe_value(model)
-        ));
+        }
+        (None, _) | (_, None) => Lookups {
+            chat: None,
+            image: None,
+            classifier: None,
+        },
     };
-    if let Some(resolved) = models.get_model_of_type(model_type, provider, id) {
-        return Ok(resolved);
+    let arg = ModelArg {
+        call,
+        default_classifier,
+        model: desc(model),
+        provider,
+        id,
+    };
+    match codemode_models::resolve(&arg, lookups).map_err(|error| core_error(&error))? {
+        Resolved::Failed(problem) => Err(SessionError::error(problem)),
+        resolved @ (Resolved::Default | Resolved::Found(_)) => Ok(resolved),
     }
-    let actual_type = ModelType::ALL.iter().copied().find(|&other| {
-        other != model_type && models.get_model_of_type(other, provider, id).is_some()
-    });
-    Err(match actual_type {
-        Some(actual) => format!(
-            "\"{provider}/{id}\" is {} model, not {} model. {list_hint}",
-            with_article(actual.as_str()),
-            with_article(type_name)
-        ),
-        None => format!("Unknown {type_name} model \"{provider}/{id}\". {list_hint}"),
-    })
+}
+
+/// A model the core chose for a call, but of another kind than its lookup
+/// said: an inconsistent build.
+fn wrong_kind() -> SessionError {
+    core_error(
+        &WireError::Malformed {
+            at: 0,
+            expected: "a model of the call's type",
+        }
+        .into(),
+    )
 }
 
 /// The result of a model call as the tool returns it: the whole result for
 /// the script, usage counted by the Harness.
 fn model_result<T: Serialize>(
-    label: &str,
-    ok: bool,
-    stop_reason: &str,
-    error_message: Option<&str>,
+    outcome: &Outcome<'_>,
     usage: Option<&Usage>,
     value: &T,
 ) -> SessionResult<ToolExecutionResult> {
-    let text = if ok {
-        format!("{label} done")
-    } else {
-        format!(
-            "{label} {stop_reason}: {}",
-            error_message.unwrap_or_default()
-        )
-    };
+    let report = codemode_models::report(outcome).map_err(|error| core_error(&error))?;
     let structured = to_json(value).map_err(|error| SessionError::error(error.to_string()))?;
     Ok(ToolExecutionResult {
-        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        output: Some(vec![UserContentBlock::Text(TextContent::new(report.text))]),
         structured_output: Some(structured),
-        is_error: (!ok).then_some(true),
+        is_error: (!report.ok).then_some(true),
         usage: usage.copied(),
         ..ToolExecutionResult::default()
     })
@@ -457,19 +374,15 @@ fn model_result<T: Serialize>(
 
 /// Read the checked script context into a request context.
 fn read_context<T: serde::de::DeserializeOwned>(
-    name: &str,
+    call: ModelCall,
     context: Option<&PiJsonValue>,
 ) -> SessionResult<T> {
     serde_json::from_value(context.cloned().unwrap_or(PiJsonValue::Null)).map_err(|error| {
-        SessionError::error(format!("{name}() could not read its context: {error}"))
+        match codemode_models::unread(call, &error.to_string()) {
+            Ok(text) => SessionError::error(text),
+            Err(core) => core_error(&core),
+        }
     })
-}
-
-fn wrong_type(name: &str, model: &AnyModel) -> SessionError {
-    SessionError::error(format!(
-        "{name}() resolved {}, not the requested model type",
-        with_article(model.model_type().as_str())
-    ))
 }
 
 async fn classify(
@@ -478,10 +391,19 @@ async fn classify(
     cx: Context,
     default: ClassifierDefault,
 ) -> SessionResult<ToolExecutionResult> {
-    const NAME: &str = "models.classify";
     let models = api.models();
-    let model = match (args.get("model"), default) {
-        (None | Some(PiJsonValue::Null), ClassifierDefault::Resolver(resolve)) => {
+    let default_classifier = match &default {
+        ClassifierDefault::Unset => false,
+        ClassifierDefault::Resolver(_) => true,
+    };
+    let resolved = resolve_model(
+        ModelCall::Classify,
+        default_classifier,
+        args.get("model"),
+        &models,
+    )?;
+    let model = match (resolved, default) {
+        (Resolved::Default, ClassifierDefault::Resolver(resolve)) => {
             let agent = api.agent(&cx).await?;
             let session_model = agent
                 .model
@@ -492,29 +414,29 @@ async fn classify(
                 .await
                 .map_err(SessionError::error)?
         }
-        (model, ClassifierDefault::Unset | ClassifierDefault::Resolver(_)) => {
-            match resolve_model(NAME, ModelType::Classifier, model, &models)
-                .map_err(SessionError::error)?
-            {
-                AnyModel::Classifier(model) => model,
-                other @ (AnyModel::Chat(_) | AnyModel::Image(_)) => {
-                    return Err(wrong_type(NAME, &other));
-                }
-            }
+        (Resolved::Found(AnyModel::Classifier(model)), _) => model,
+        (
+            Resolved::Default | Resolved::Failed(_),
+            ClassifierDefault::Unset | ClassifierDefault::Resolver(_),
+        )
+        | (Resolved::Found(AnyModel::Chat(_) | AnyModel::Image(_)), _) => {
+            return Err(wrong_kind());
         }
     };
     let context = args.get("context");
-    check_classifier_context(context).map_err(SessionError::error)?;
-    let context: ClassifierContext = read_context(NAME, context)?;
+    check_classifier_context(context)?;
+    let context: ClassifierContext = read_context(ModelCall::Classify, context)?;
     let mut options = ModelsClassifierOptions::default();
     options.options.request.signal = cx.abort_signal();
     let result = models.classify(&model, &context, options).await;
-    let stop_reason = result.stop_reason.as_str();
     model_result(
-        &format!("classify {}/{}", model.provider, model.id),
-        stop_reason == "stop",
-        stop_reason,
-        result.error_message.as_deref(),
+        &Outcome {
+            call: ModelCall::Classify,
+            provider: &model.provider,
+            id: &model.id,
+            stop_reason: result.stop_reason.as_str(),
+            error_message: result.error_message.as_deref(),
+        },
         result.usage.as_ref(),
         &result,
     )
@@ -525,28 +447,27 @@ async fn generate_images(
     api: Arc<dyn ToolExecutionApi>,
     cx: Context,
 ) -> SessionResult<ToolExecutionResult> {
-    const NAME: &str = "models.generateImages";
     let models = api.models();
-    let resolved = resolve_model(NAME, ModelType::Image, args.get("model"), &models)
-        .map_err(SessionError::error)?;
-    let model = match resolved {
-        AnyModel::Image(model) => model,
-        other @ (AnyModel::Chat(_) | AnyModel::Classifier(_)) => {
-            return Err(wrong_type(NAME, &other));
-        }
+    let model = match resolve_model(ModelCall::GenerateImages, false, args.get("model"), &models)? {
+        Resolved::Found(AnyModel::Image(model)) => model,
+        Resolved::Found(AnyModel::Chat(_) | AnyModel::Classifier(_))
+        | Resolved::Default
+        | Resolved::Failed(_) => return Err(wrong_kind()),
     };
     let context = args.get("context");
-    check_images_context(context).map_err(SessionError::error)?;
-    let context: ImagesContext = read_context(NAME, context)?;
+    check_images_context(context)?;
+    let context: ImagesContext = read_context(ModelCall::GenerateImages, context)?;
     let mut options = ModelsImagesOptions::default();
     options.options.request.signal = cx.abort_signal();
     let result = models.generate_images(&model, &context, options).await;
-    let stop_reason = result.stop_reason.as_str();
     model_result(
-        &format!("generateImages {}/{}", model.provider, model.id),
-        stop_reason == "stop",
-        stop_reason,
-        result.error_message.as_deref(),
+        &Outcome {
+            call: ModelCall::GenerateImages,
+            provider: &model.provider,
+            id: &model.id,
+            stop_reason: result.stop_reason.as_str(),
+            error_message: result.error_message.as_deref(),
+        },
         result.usage.as_ref(),
         &result,
     )
@@ -626,64 +547,10 @@ mod tests {
         assert_eq!(model_call_tool("models.getModelOfType"), None);
     }
 
-    #[test]
-    fn describes_values() {
-        let values = [
-            None,
-            Some(json!(null)),
-            Some(json!([])),
-            Some(json!([1])),
-            Some(json!({})),
-            Some(json!({ "prompt": "x" })),
-            Some(json!({ "a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6, "g": 7 })),
-            Some(json!("s")),
-            Some(json!(1)),
-            Some(json!(true)),
-        ];
-        let described: Vec<String> = values
-            .iter()
-            .map(|value| describe_value(value.as_ref()))
-            .collect();
-        assert_eq!(
-            described,
-            [
-                "undefined",
-                "null",
-                "an empty array",
-                "an array",
-                "{}",
-                "{ prompt }",
-                "{ a, b, c, d, e, f, ... }",
-                "a string",
-                "a number",
-                "a boolean",
-            ]
-        );
-    }
+    const CLASSIFIER_CONTEXT_SHAPE: &str = "{ state: { ... }, images?: [{ type: \"image\", data: <base64>, mimeType }], questions: { <id>: { type: \"choice\", instructions, criteria: { <label>: <meaning> } } | { type: \"score\", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: \"bool\", instructions, criteria: { true: <meaning>, false: <meaning> } } } }";
 
-    #[test]
-    fn rejects_unknown_model_types() {
-        assert_eq!(to_model_type(Some(&json!("image"))), Ok(ModelType::Image));
-        assert_eq!(
-            to_model_type(Some(&json!("text"))),
-            Err(
-                "Unknown model type \"text\". Use \"chat\", \"image\", or \"classifier\"."
-                    .to_owned()
-            )
-        );
-        assert_eq!(
-            to_model_type(None),
-            Err(
-                "Unknown model type undefined. Use \"chat\", \"image\", or \"classifier\"."
-                    .to_owned()
-            )
-        );
-        assert_eq!(
-            to_provider(Some(&json!(3))),
-            Err("provider must be a string".to_owned())
-        );
-    }
-
+    /// The facts each check reads of a script's JSON (`laws/codemode_models`
+    /// pins the texts for given facts).
     #[test]
     fn checks_classifier_contexts() {
         let fail = |problem: &str| {
@@ -733,7 +600,7 @@ mod tests {
         ];
         for (value, problem) in cases {
             assert_eq!(
-                check_classifier_context(value.as_ref()),
+                check_classifier_context(value.as_ref()).map_err(|error| error.to_string()),
                 fail(problem),
                 "{problem}"
             );
@@ -746,9 +613,15 @@ mod tests {
                 "b": { "type": "bool", "instructions": "i", "criteria": { "true": "y", "false": "n" } }
             }
         });
-        assert_eq!(check_classifier_context(Some(&valid)), Ok(()));
-        let read: SessionResult<ClassifierContext> = read_context("models.classify", Some(&valid));
+        assert!(check_classifier_context(Some(&valid)).is_ok());
+        let read: SessionResult<ClassifierContext> =
+            read_context(ModelCall::Classify, Some(&valid));
         assert!(read.is_ok(), "{read:?}");
+        let unread: SessionResult<ClassifierContext> =
+            read_context(ModelCall::Classify, Some(&json!({ "state": 1 })));
+        assert!(unread.is_err_and(|error| error
+            .to_string()
+            .starts_with("models.classify() could not read its context: ")),);
     }
 
     #[test]
@@ -756,66 +629,88 @@ mod tests {
         let fail = |problem: &str| {
             Err(format!("models.generateImages() {problem}. Expected context: {{ input: [{{ type: \"text\", text: <prompt> }}, ...optional {{ type: \"image\", data: <base64>, mimeType }} references] }}."))
         };
+        let check = |value: serde_json::Value| {
+            check_images_context(Some(&value)).map_err(|error| error.to_string())
+        };
         assert_eq!(
-            check_images_context(Some(&json!("draw"))),
+            check(json!("draw")),
             fail("expects a context object as its second argument, got a string")
         );
         assert_eq!(
-            check_images_context(Some(&json!({ "prompt": "draw" }))),
+            check(json!({ "prompt": "draw" })),
             fail("context.input must be a non-empty array of blocks, got undefined")
         );
         assert_eq!(
-            check_images_context(Some(&json!({ "input": [] }))),
+            check(json!({ "input": [] })),
             fail("context.input must be a non-empty array of blocks, got an empty array")
         );
         assert_eq!(
-            check_images_context(Some(
-                &json!({ "input": [{ "type": "text", "text": "t" }, { "text": "t" }] })
-            )),
+            check(json!({ "input": [{ "type": "text", "text": "t" }, { "text": "t" }] })),
             fail("context.input[1] must be a text or image block, got { text }")
         );
         assert_eq!(
-            check_images_context(Some(
-                &json!({ "input": [{ "type": "text", "text": "t" }, { "type": "image", "data": "d", "mimeType": "image/png" }] })
-            )),
+            check(
+                json!({ "input": [{ "type": "text", "text": "t" }, { "type": "image", "data": "d", "mimeType": "image/png" }] })
+            ),
             Ok(())
         );
     }
 
+    /// The catalog's lookups under each type and the core's choice.
     #[test]
     fn resolves_models_by_provider_and_id() {
         let models = faux_models();
+        let resolve = |call, default, model: Option<serde_json::Value>| match resolve_model(
+            call,
+            default,
+            model.as_ref(),
+            &models,
+        ) {
+            Ok(Resolved::Found(model)) => Ok(Some(model.id().to_owned())),
+            Ok(Resolved::Default) => Ok(None),
+            Ok(Resolved::Failed(problem)) => Err(problem),
+            Err(error) => Err(error.to_string()),
+        };
         let hint = "List the classifier models you can use with models.getAvailableOfType(\"classifier\").";
         assert_eq!(
-            resolve_model(
-                "models.classify",
-                ModelType::Classifier,
-                Some(&json!({ "provider": "faux", "id": "faux-1" })),
-                &models
-            )
-            .map(|model| model.id().to_owned()),
+            resolve(
+                ModelCall::Classify,
+                false,
+                Some(json!({ "provider": "faux", "id": "faux-1" }))
+            ),
             Err(format!(
                 "\"faux/faux-1\" is a chat model, not a classifier model. {hint}"
             ))
         );
         assert_eq!(
-            resolve_model(
-                "models.classify",
-                ModelType::Classifier,
-                Some(&json!({ "provider": "faux", "id": "nope" })),
-                &models
-            )
-            .map(|model| model.id().to_owned()),
+            resolve(
+                ModelCall::Classify,
+                false,
+                Some(json!({ "provider": "faux", "id": "nope" }))
+            ),
             Err(format!("Unknown classifier model \"faux/nope\". {hint}"))
         );
         assert_eq!(
-            resolve_model("models.classify", ModelType::Classifier, None, &models).map(|model| model.id().to_owned()),
+            resolve(ModelCall::Classify, false, None),
             Err(format!("models.classify() expects a classifier model as its first argument, got undefined. models.getModelOfType() returns undefined for an unknown provider or id. {hint}"))
         );
+        assert_eq!(resolve(ModelCall::Classify, true, None), Ok(None));
         assert_eq!(
-            resolve_model("models.generateImages", ModelType::Image, Some(&json!("faux-1")), &models).map(|model| model.id().to_owned()),
+            resolve(ModelCall::GenerateImages, false, Some(json!("faux-1"))),
             Err("models.generateImages() expects an image model as its first argument, got a string. List the image models you can use with models.getAvailableOfType(\"image\").".to_owned())
         );
+    }
+
+    #[test]
+    fn caps_model_calls_as_the_description_says() {
+        let description = crate::codemode::codemode_description(
+            crate::codemode::CodemodeModels::Included,
+            &ClassifierDefault::Unset,
+        );
+        assert!(description.contains(&format!(
+            "At most {} classify/generateImages calls run at once",
+            max_concurrent_model_calls()
+        )));
     }
 
     #[tokio::test]
