@@ -1,10 +1,8 @@
 //! Codex error classes, retry classification, and the error-body parser.
 //! Section of the port of `api/openai-codex-responses.ts`.
 
-use std::sync::LazyLock;
-
+use eukhe_bend::rules::err_text::{self, Rule};
 use eukhe_types::pi_ai::{DiagnosticCode, JsonValue};
-use regex::Regex;
 use reqwest::header::HeaderMap;
 
 use crate::utils::diagnostics::{
@@ -132,31 +130,10 @@ pub(crate) fn extract_websocket_close_error(code: Option<u16>, reason: Option<&s
 // Retry helpers
 // ---------------------------------------------------------------------------
 
-/// A JS regex `.`: any code point but a line terminator.
-const JS_DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
-
-static TERMINAL_RATE_LIMIT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        "(?i)GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing",
-    )
-    .expect("static regex")
-});
-
-static RETRYABLE_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
-        "(?i)rate{JS_DOT}?limit|overloaded|service{JS_DOT}?unavailable|upstream{JS_DOT}?connect|connection{JS_DOT}?refused"
-    ))
-    .expect("static regex")
-});
-
-static USAGE_LIMIT_CODE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new("(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded")
-        .expect("static regex")
-});
-
-/// TS `isTerminalRateLimitError`.
+/// TS `isTerminalRateLimitError` (the compiled core's
+/// [`Rule::CodexTerminal`]).
 fn is_terminal_rate_limit_error(error_text: &str) -> bool {
-    TERMINAL_RATE_LIMIT.is_match(error_text)
+    err_text::holds(Rule::CodexTerminal, &[error_text])
 }
 
 /// TS `isRetryableError`.
@@ -167,7 +144,7 @@ pub(crate) fn is_retryable_error(status: u16, error_text: &str) -> bool {
     if matches!(status, 429 | 500 | 502 | 503 | 504) {
         return true;
     }
-    RETRYABLE_TEXT.is_match(error_text)
+    err_text::holds(Rule::CodexRetryable, &[error_text])
 }
 
 /// JS `Number(string)`: whitespace-trimmed decimal, `Infinity`, or
@@ -338,7 +315,7 @@ pub(crate) fn parse_error_response(raw: &str, status: u16, status_text: &str) ->
             let field = |name: &str| err.as_object().and_then(|object| object.get(name));
             let code =
                 or_value(field("code"), field("type")).map_or_else(String::new, js_to_string);
-            if USAGE_LIMIT_CODE.is_match(&code) || status == 429 {
+            if err_text::holds(Rule::CodexUsageCode, &[&code]) || status == 429 {
                 let plan = field("plan_type")
                     .filter(|plan| truthy(plan))
                     .map_or_else(String::new, |plan| {

@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use eukhe_bend::rules::err_text::{self, Rule};
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{IndexMap, JsonObject, JsonValue, ProviderHeaders};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -410,11 +411,10 @@ enum SendError {
     Failed { timeout: bool, cause: String },
 }
 
-/// TS `/timed? ?out/i` over the error and its cause.
+/// TS `/timed? ?out/i` over the error and its cause (the compiled core's
+/// [`Rule::Timeout`]).
 fn is_timeout_text(text: &str) -> bool {
-    static TIMEOUT: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new("(?i)timed? ?out").expect("valid regex"));
-    TIMEOUT.is_match(text)
+    err_text::holds(Rule::Timeout, &[text])
 }
 
 #[cfg(test)]
