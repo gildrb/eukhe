@@ -1,11 +1,15 @@
-//! The read/modify/write of one settings document
-//! (`laws/config.bend` `rmw_refuses_broken`, `rmw_keeps_others`,
-//! `settings_save_preserves`): a write reads the document on disk under
-//! its lock, changes only its own key paths, and writes the result. A
-//! document that cannot be read or parsed is never written.
+//! The read/modify/write of one config document (`settings.json`,
+//! `mcp-connections.json`, `auth.json`): a writer reads the document on
+//! disk under its lock, classifies the read (missing, parsed or broken)
+//! and lets the compiled core decide what to write (`laws/config.bend`
+//! `rmw_refuses_broken`, `rmw_keeps_others`, `rmw_applies_change`,
+//! `rmw_keeps_place`, `settings_save_preserves`): a document that cannot
+//! be read or parsed is never written; every other key keeps its value and
+//! its place.
 
 use std::fmt;
 
+use eukhe_bend::rules::config;
 use serde_json::{Map, Value};
 
 /// What the value a setter wrote does: it applies, or a higher layer
@@ -99,58 +103,106 @@ pub(crate) enum KeyEdit {
     Remove,
 }
 
-/// Apply `edit` at `path` of `document` and return the value it replaced.
-/// A missing (or `null`) parent becomes an object; every other key keeps
-/// its value and its place.
+/// The read of the value at a key of a parent: none (or `null`) is a
+/// missing document, an object a parsed one, anything else a broken one
+/// (an edit under it would drop that value).
+fn child_read(document: &Map<String, Value>, at: &[&str], path: &[&str]) -> DocRead {
+    match at.last().and_then(|key| document.get(*key)) {
+        None | Some(Value::Null) => DocRead::Missing,
+        Some(Value::Object(child)) => DocRead::Parsed(child.clone()),
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
+            DocRead::Broken(format!(
+                "`{}` is not an object, so `{}` cannot be written",
+                at.join("."),
+                path.join(".")
+            ))
+        }
+    }
+}
+
+/// Apply `edit` at `path` of the document `read` (the read of a writer
+/// under its lock): the compiled core decides each level of the path
+/// (`Cf.rmw`), the innermost first; the level above sets its key to the
+/// object below. Returns the document to write and the value the edit
+/// replaced. A removal under a parent that is not there removes nothing
+/// (the path is absent).
 ///
 /// # Errors
 ///
-/// A parent on `path` that holds a value which is not an object (the
-/// edit cannot apply without dropping that value).
-pub(crate) fn edit_path(
-    document: &mut Map<String, Value>,
+/// The core refuses a broken read: the reason of the read (the document,
+/// or a parent on `path` that is not an object).
+pub(crate) fn edit_read(
+    read: DocRead,
     path: &[&str],
-    edit: KeyEdit,
-) -> Result<Option<Value>, String> {
-    let Some((last, parents)) = path.split_last() else {
+    edit: &KeyEdit,
+) -> Result<(Map<String, Value>, Option<Value>), String> {
+    edit_level(read, path, 1, edit)
+}
+
+/// Apply `edits` in order to the document `read`, each with [`edit_read`]
+/// over what the one before wrote: the document to write, or `None` when
+/// no edit changed it (a set always does; a removal does when its key was
+/// there).
+///
+/// # Errors
+///
+/// As [`edit_read`], for the first edit the core refuses.
+pub(crate) fn edit_document(
+    read: DocRead,
+    edits: Vec<(Vec<&str>, KeyEdit)>,
+) -> Result<Option<Map<String, Value>>, String> {
+    let mut read = read;
+    let mut changed = false;
+    for (path, edit) in edits {
+        let (document, replaced) = edit_read(read, &path, &edit)?;
+        changed |= matches!(edit, KeyEdit::Set(_)) || replaced.is_some();
+        read = DocRead::Parsed(document);
+    }
+    Ok(match read {
+        DocRead::Parsed(document) if changed => Some(document),
+        DocRead::Missing | DocRead::Parsed(_) | DocRead::Broken(_) => None,
+    })
+}
+
+/// [`edit_read`] at the level of `path[depth - 1]`.
+fn edit_level(
+    read: DocRead,
+    path: &[&str],
+    depth: usize,
+    edit: &KeyEdit,
+) -> Result<(Map<String, Value>, Option<Value>), String> {
+    let Some(key) = depth.checked_sub(1).and_then(|at| path.get(at)) else {
         return Err("an empty key path".to_string());
     };
-    let mut node = document;
-    for (depth, key) in parents.iter().enumerate() {
-        let slot = match edit {
-            KeyEdit::Set(_) => node
-                .entry((*key).to_string())
-                .or_insert_with(|| Value::Object(Map::new())),
-            KeyEdit::Remove => match node.get_mut(*key) {
-                Some(slot) => slot,
-                None => return Ok(None),
-            },
-        };
-        if slot.is_null() {
-            match edit {
-                KeyEdit::Set(_) => *slot = Value::Object(Map::new()),
-                KeyEdit::Remove => return Ok(None),
-            }
+    let (document, missing, refused) = match read {
+        DocRead::Missing => (Map::new(), true, None),
+        DocRead::Parsed(document) => (document, false, None),
+        DocRead::Broken(reason) => (Map::new(), false, Some(reason)),
+    };
+    let (level_edit, replaced) = if depth == path.len() {
+        (edit.clone(), document.get(*key).cloned())
+    } else {
+        let below = child_read(&document, &path[..depth], path);
+        if refused.is_none() && matches!(edit, KeyEdit::Remove) && matches!(below, DocRead::Missing)
+        {
+            return Ok((document, None));
         }
-        node = match slot {
-            Value::Object(object) => object,
-            Value::Null
-            | Value::Bool(_)
-            | Value::Number(_)
-            | Value::String(_)
-            | Value::Array(_) => {
-                return Err(format!(
-                    "`{}` is not an object, so `{}` cannot be written",
-                    parents[..=depth].join("."),
-                    path.join(".")
-                ));
-            }
-        };
+        let (child, replaced) = edit_level(below, path, depth + 1, edit)?;
+        (KeyEdit::Set(Value::Object(child)), replaced)
+    };
+    let read = match (missing, &refused) {
+        (_, Some(_)) => config::Read::Broken,
+        (true, None) => config::Read::Missing,
+        (false, None) => config::Read::Parsed(document.into_iter().collect()),
+    };
+    let edit = match level_edit {
+        KeyEdit::Set(value) => config::Edit::Set((*key).to_string(), value),
+        KeyEdit::Remove => config::Edit::Delete((*key).to_string()),
+    };
+    match config::rmw(read, edit) {
+        Some(written) => Ok((written.into_iter().collect(), replaced)),
+        None => Err(refused.unwrap_or_else(|| "the document was refused".to_string())),
     }
-    Ok(match edit {
-        KeyEdit::Set(value) => node.insert((*last).to_string(), value),
-        KeyEdit::Remove => node.shift_remove(*last),
-    })
 }
 
 #[cfg(test)]
@@ -171,44 +223,45 @@ mod tests {
         }
     }
 
+    /// The glue around the compiled core: each level of a path is read as
+    /// missing, parsed or broken, and the document comes back in order.
     #[test]
-    fn a_set_changes_only_its_path() {
-        let mut document = object(json!({ "a": 1, "b": { "c": "x", "d": [1] }, "e": null }));
-        let before = edit_path(&mut document, &["b", "c"], KeyEdit::Set(json!("y")));
-        assert_eq!(before, Ok(Some(json!("x"))));
-        let created = edit_path(&mut document, &["e", "f"], KeyEdit::Set(json!(true)));
-        assert_eq!(created, Ok(None));
+    fn an_edit_reaches_the_core_at_each_level_of_its_path() {
+        let document = json!({ "a": 1, "b": { "c": "x", "d": [1] }, "e": null, "f": "oops" });
+        let set = |path: &[&str]| {
+            edit_read(
+                DocRead::Parsed(object(document.clone())),
+                path,
+                &KeyEdit::Set(json!(true)),
+            )
+            .map(|(written, replaced)| (Value::Object(written), replaced))
+        };
         assert_eq!(
-            Value::Object(document),
-            json!({ "a": 1, "b": { "c": "y", "d": [1] }, "e": { "f": true } })
+            (
+                set(&["b", "c"]),
+                set(&["e", "g"]),
+                set(&["f", "g"]),
+                edit_read(DocRead::Missing, &["x", "y"], &KeyEdit::Remove),
+                edit_read(
+                    DocRead::Broken("unparsed".to_string()),
+                    &["a"],
+                    &KeyEdit::Remove
+                ),
+            ),
+            (
+                Ok((
+                    json!({ "a": 1, "b": { "c": true, "d": [1] }, "e": null, "f": "oops" }),
+                    Some(json!("x"))
+                )),
+                Ok((
+                    json!({ "a": 1, "b": { "c": "x", "d": [1] }, "e": { "g": true }, "f": "oops" }),
+                    None
+                )),
+                Err("`f` is not an object, so `f.g` cannot be written".to_string()),
+                Ok((Map::new(), None)),
+                Err("unparsed".to_string()),
+            )
         );
-    }
-
-    #[test]
-    fn a_remove_keeps_the_order_of_the_rest() {
-        let mut document = object(json!({ "a": 1, "b": 2, "c": 3 }));
-        assert_eq!(
-            edit_path(&mut document, &["a"], KeyEdit::Remove),
-            Ok(Some(json!(1)))
-        );
-        assert_eq!(
-            edit_path(&mut document, &["x", "y"], KeyEdit::Remove),
-            Ok(None)
-        );
-        assert_eq!(
-            document.keys().cloned().collect::<Vec<_>>(),
-            vec!["b".to_string(), "c".to_string()]
-        );
-    }
-
-    #[test]
-    fn a_parent_that_is_not_an_object_refuses() {
-        let mut document = object(json!({ "mcpServers": "oops" }));
-        assert_eq!(
-            edit_path(&mut document, &["mcpServers", "x"], KeyEdit::Set(json!({}))),
-            Err("`mcpServers` is not an object, so `mcpServers.x` cannot be written".to_string())
-        );
-        assert_eq!(Value::Object(document), json!({ "mcpServers": "oops" }));
     }
 
     #[test]

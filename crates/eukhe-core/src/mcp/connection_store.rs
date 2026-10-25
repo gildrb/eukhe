@@ -8,12 +8,15 @@
 //! its approved endpoint for dispatch and management even if the catalog
 //! later changes the service URL, and the resolver pins vanished sources
 //! from it. Writes are locked read-modify-write (the auth-storage pattern:
-//! lockfile + atomic temp-file rename at mode 0600).
+//! lockfile + atomic temp-file rename at mode 0600); the compiled core
+//! decides what a write writes (`laws/config.bend`: a broken file is never
+//! written, every other record stays).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use eukhe_bend::rules::config;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::storage::{atomic_write_with, AtomicWriteOptions};
@@ -184,16 +187,17 @@ impl McpConnectionStore {
     /// build records by hand.
     #[cfg(test)]
     pub fn upsert(&mut self, record: &McpConnectionRecord) -> Result<(), anyhow::Error> {
-        self.with_disk_state(|records| {
-            records.insert(record.connection_id.clone(), record.clone());
+        self.with_disk_state(|_| {
+            Some(config::Edit::Set(
+                record.connection_id.clone(),
+                record.clone(),
+            ))
         })
     }
 
     /// Remove one record entirely (disconnect keeps nothing behind).
     pub fn remove(&mut self, connection_id: &str) -> Result<(), anyhow::Error> {
-        self.with_disk_state(|records| {
-            records.remove(connection_id);
-        })
+        self.with_disk_state(|_| Some(config::Edit::Delete(connection_id.to_string())))
     }
 
     /// Apply one verification outcome under the shared guard: a stale probe
@@ -210,31 +214,36 @@ impl McpConnectionStore {
         let connection_id = record.connection_id.clone();
         let mut committed = false;
         self.with_disk_state(|records| {
-            match records.get(&connection_id) {
-                None if still_current => {
-                    // A fresh install creates the record.
-                    records.insert(connection_id.clone(), record.clone());
-                    committed = true;
-                }
-                Some(existing) if existing.attempt_id.is_none() && still_current => {
-                    records.insert(connection_id.clone(), record.clone());
-                    committed = true;
-                }
-                _ => {}
-            }
+            let commit = match records.get(&connection_id) {
+                None => still_current,
+                Some(existing) => existing.attempt_id.is_none() && still_current,
+            };
+            committed = commit;
+            commit.then(|| config::Edit::Set(connection_id.clone(), record.clone()))
         })?;
         Ok(committed)
     }
 
-    /// Locked read-modify-write: reload the disk state, apply the change,
-    /// write back atomically. In-memory stores just mutate. A file that
-    /// cannot be used is an error, and nothing is written.
+    /// Locked read-modify-write: reload the disk state, let `change` pick
+    /// its edit from it, let the compiled core decide what to write
+    /// ([`config::rmw`]), write it back atomically. An in-memory store
+    /// keeps the core's answer as its records. A file that cannot be used
+    /// is an error, and nothing is written.
     fn with_disk_state(
         &mut self,
-        change: impl FnOnce(&mut HashMap<String, McpConnectionRecord>),
+        change: impl FnOnce(
+            &HashMap<String, McpConnectionRecord>,
+        ) -> Option<config::Edit<String, McpConnectionRecord>>,
     ) -> Result<(), anyhow::Error> {
         if self.path.as_os_str().is_empty() {
-            change(&mut self.records);
+            if let Some(edit) = change(&self.records) {
+                let read =
+                    config::Read::Parsed(std::mem::take(&mut self.records).into_iter().collect());
+                let Some(records) = config::rmw(read, edit) else {
+                    anyhow::bail!("the compiled core refused the in-memory connections");
+                };
+                self.records = records.into_iter().collect();
+            }
             return Ok(());
         }
         let lock = crate::platform::lock_dir::LockDir::acquire(
@@ -242,22 +251,40 @@ impl McpConnectionStore {
             std::time::Duration::from_secs(10),
         )
         .map_err(|error| anyhow::anyhow!("connection store lock: {error}"))?;
-        let mut records = match read_records(&self.path) {
-            DiskRead::Missing => HashMap::new(),
-            DiskRead::Parsed(records) => records,
-            DiskRead::Broken(reason) => {
+        let (records, broken) = match read_records(&self.path) {
+            DiskRead::Missing => (None, None),
+            DiskRead::Parsed(records) => (Some(records), None),
+            DiskRead::Broken(reason) => (None, Some(reason)),
+        };
+        let edit = change(records.as_ref().unwrap_or(&HashMap::new()));
+        let written = edit.map(|edit| {
+            let read = match (records, &broken) {
+                (_, Some(_)) => config::Read::Broken,
+                (Some(records), None) => config::Read::Parsed(records.into_iter().collect()),
+                (None, None) => config::Read::Missing,
+            };
+            config::rmw(read, edit)
+        });
+        match (written, broken) {
+            (Some(Some(records)), _) => {
+                let records: HashMap<String, McpConnectionRecord> = records.into_iter().collect();
+                write_records(&self.path, &records)?;
+                drop(lock);
+                self.records = records;
+                self.load_error = None;
+                Ok(())
+            }
+            (Some(None) | None, Some(reason)) => {
                 drop(lock);
                 self.records = HashMap::new();
                 self.load_error = Some(reason.clone());
                 anyhow::bail!("{reason}");
             }
-        };
-        change(&mut records);
-        write_records(&self.path, &records)?;
-        drop(lock);
-        self.records = records;
-        self.load_error = None;
-        Ok(())
+            (None, None) => Ok(()),
+            (Some(None), None) => {
+                anyhow::bail!("the compiled core refused a readable connections file")
+            }
+        }
     }
 }
 

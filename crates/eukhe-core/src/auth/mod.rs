@@ -35,8 +35,8 @@ pub use redirect_input::{
     RedirectInputError, VerifiedAuthorization,
 };
 pub use storage::{
-    parse_storage_data, AuthStorageBackend, FileAuthStorageBackend, InMemoryAuthStorageBackend,
-    AUTH_FILE_NAME,
+    edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
+    InMemoryAuthStorageBackend, AUTH_FILE_NAME,
 };
 pub use types::{
     AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData, PrimeTeamAssignment,

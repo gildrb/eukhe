@@ -1,6 +1,6 @@
 //! The load of one settings document: each leaf applies or is named by a
-//! diagnostic (`laws/config.bend` `leaf_applied_or_reported`,
-//! `leaf_not_both`).
+//! diagnostic, as the compiled core decides (`laws/config.bend`
+//! `leaf_applied_or_reported`, `leaf_not_both`).
 //!
 //! A leaf is a value that is not an object, or the whole value of a cvar.
 //! The load keeps a leaf when the typed `Settings` holds it and its cvar
@@ -15,6 +15,7 @@
 //! The known top-level keys come from the `Settings` type itself (the keys
 //! of its serialized default), not from a hand list.
 
+use eukhe_bend::rules::config::{leaves, Outcome};
 use serde_json::{Map, Value};
 
 use super::cvar::{registry, value_text, CvarError, CvarType, Registry};
@@ -78,6 +79,55 @@ pub(crate) fn load_document(document: &Map<String, Value>) -> Loaded {
             undeclared_leaves(registry, key, value, &round, &refused, &mut rejected);
         }
     }
+    // The leaves: each dropped value with its diagnostic, then each
+    // declared top-level key the load kept. The core says which apply
+    // and which are named; a kept key it does not apply leaves.
+    let good: Vec<&String> = kept
+        .keys()
+        .filter(|key| {
+            known.contains(*key)
+                && round
+                    .get(key.as_str())
+                    .is_some_and(|value| !value.is_null())
+        })
+        .collect();
+    let outcomes: Vec<(u64, Outcome)> = rejected
+        .iter()
+        .map(|error| match error {
+            CvarError::Undeclared { .. } => Outcome::Undeclared,
+            CvarError::BadValue { .. }
+            | CvarError::Parse(_)
+            | CvarError::Expand(_)
+            | CvarError::Global { .. }
+            | CvarError::NotBool { .. }
+            | CvarError::Action { .. } => Outcome::BadType,
+        })
+        .chain(good.iter().map(|_| Outcome::Good))
+        .zip(0u64..)
+        .map(|(outcome, place)| (place, outcome))
+        .collect();
+    let (applied, reported) = leaves(&outcomes);
+    let dropped: Vec<&str> = good
+        .iter()
+        .zip(rejected.len() as u64..)
+        .filter(|(_, place)| !applied.contains(place))
+        .map(|(key, _)| key.as_str())
+        .collect();
+    if !dropped.is_empty() {
+        for key in dropped {
+            remove(&mut round, &[key]);
+        }
+        settings = parse(round.as_object().unwrap_or(&Map::new()));
+    }
+    let rejected = reported
+        .into_iter()
+        .filter_map(|place| {
+            usize::try_from(place)
+                .ok()
+                .and_then(|place| rejected.get(place))
+        })
+        .cloned()
+        .collect();
     Loaded { settings, rejected }
 }
 

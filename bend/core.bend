@@ -10,6 +10,7 @@ import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
+import ./ffi_config.bend as ffi_config
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_default_model.bend as ffi_default_model
@@ -150,6 +151,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 60:
+      ffi_config.ffi(input)
     case 62:
       ffi_theme.ffi(input)
     case 63:

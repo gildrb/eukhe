@@ -4,6 +4,7 @@
 
 pub mod approvals;
 pub mod color;
+pub mod config;
 pub mod cvar;
 pub mod cvar_layers;
 pub mod frames;

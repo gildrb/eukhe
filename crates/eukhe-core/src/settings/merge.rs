@@ -1,22 +1,25 @@
 //! Deep-merge and migration (settings-manager.ts).
 
-use serde_json::Value;
+use eukhe_bend::rules::config;
+use serde_json::{Map, Value};
 
 use super::types::Settings;
 
 /// Settings that map names to entries: an entry is one unit, so an
 /// override entry replaces the base entry of its name whole and never
-/// takes keys (a URL, a credential) from it (`laws/config.bend`
-/// `project_entry_never_merges`).
+/// takes keys (a URL, a credential) from it; the compiled core merges them
+/// (`config::merge`, `laws/config.bend` `project_entry_never_merges`,
+/// `global_entry_kept`).
 const ENTRY_MAPS: &[&str] = &["mcpServers"];
 
 /// Settings that are one unit (where the kernel runs and how it reaches
-/// it): an override replaces the base value whole.
+/// it): an override replaces the base value whole, as the merge of a map
+/// with one entry.
 const UNITS: &[&str] = &["kernelTransport"];
 
 /// Deep merge: overrides win; nested objects merge recursively; arrays and
 /// scalars replace (`deepMergeSettings`); the entries of [`ENTRY_MAPS`]
-/// and the values of [`UNITS`] replace whole.
+/// and the values of [`UNITS`] go through the core's merge.
 pub fn deep_merge(base: &Settings, overrides: &Settings) -> Settings {
     let mut base_value = serde_json::to_value(base).unwrap_or_default();
     let overrides_value = serde_json::to_value(overrides).unwrap_or_default();
@@ -28,15 +31,32 @@ pub fn deep_merge(base: &Settings, overrides: &Settings) -> Settings {
                 continue;
             }
             let entries = ENTRY_MAPS.contains(&key.as_str());
+            let unit = UNITS.contains(&key.as_str());
             match (base_obj.get_mut(key), value) {
                 (Some(Value::Object(base_entries)), Value::Object(entries_value)) if entries => {
-                    for (name, entry) in entries_value {
-                        if !entry.is_null() {
-                            base_entries.insert(name.clone(), entry.clone());
-                        }
+                    let global = std::mem::take(base_entries).into_iter().collect();
+                    let project = entries_value
+                        .iter()
+                        .filter(|(_, entry)| !entry.is_null())
+                        .map(|(name, entry)| (name.clone(), entry.clone()))
+                        .collect();
+                    *base_entries = config::merge(global, project)
+                        .into_iter()
+                        .collect::<Map<_, _>>();
+                }
+                (base_slot, _) if unit => {
+                    let global = base_slot
+                        .filter(|value| !value.is_null())
+                        .map(|value| ((), std::mem::take(value)))
+                        .into_iter()
+                        .collect();
+                    if let Some(((), merged)) =
+                        config::merge(global, vec![((), value.clone())]).pop()
+                    {
+                        base_obj.insert(key.clone(), merged);
                     }
                 }
-                (Some(existing), _) if !UNITS.contains(&key.as_str()) && !entries => {
+                (Some(existing), _) if !entries => {
                     merge_values(existing, value);
                 }
                 (Some(_) | None, _) => {

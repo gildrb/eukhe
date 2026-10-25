@@ -98,6 +98,8 @@ pub enum Entry {
     Approvals = 53,
     /// `bend/ffi_frames.bend`: a call.
     Frames = 54,
+    /// `bend/ffi_config.bend`: a call.
+    Config = 60,
     /// `bend/ffi_quirks.bend`: a stepper.
     Quirks = 61,
     /// `bend/ffi_theme.bend`: a call.
@@ -159,6 +161,7 @@ impl Entry {
         Entry::Runners,
         Entry::Approvals,
         Entry::Frames,
+        Entry::Config,
         Entry::Quirks,
         Entry::Theme,
         Entry::TuiColor,

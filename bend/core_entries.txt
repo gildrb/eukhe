@@ -52,3 +52,4 @@
 61 quirks
 62 theme
 67 color
+60 config

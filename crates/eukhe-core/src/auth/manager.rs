@@ -6,8 +6,10 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
+use eukhe_bend::rules::config;
+
 use super::resolve_config_value::{resolve_config_value, resolve_config_value_uncached};
-use super::storage::{parse_storage_data, AuthStorageBackend};
+use super::storage::{edit_storage_data, parse_storage_data, AuthStorageBackend};
 use super::types::{
     AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData, PrimeTeamAssignment,
     PrimeTeamCredential, StoredPrimeTeam, PRIME_INFERENCE_PROVIDER_ID,
@@ -801,29 +803,41 @@ impl AuthStorage {
         self.remove(provider)
     }
 
-    /// Write one provider's change into the document as it is on disk now.
-    /// The other credentials keep their values.
+    /// Write one provider's change into the document as it is on disk now
+    /// (the compiled core decides the write: [`edit_storage_data`]). The
+    /// other credentials keep their values. A document that failed to load
+    /// reads as broken.
     fn persist_provider_change(
         &mut self,
         provider: &str,
         credential: Option<AuthCredential>,
     ) -> Result<(), AuthWriteError> {
-        if let Some(load_error) = &self.load_error {
-            return Err(AuthWriteError {
+        let value = credential
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| AuthWriteError {
                 location: self.storage.location(),
-                cause: format!("the document failed to load: {load_error}"),
-            });
+                cause: error.to_string(),
+            })?;
+        let edit = match value {
+            Some(value) => config::Edit::Set(provider.to_string(), value),
+            None => config::Edit::Delete(provider.to_string()),
+        };
+        if let Some(load_error) = &self.load_error {
+            if config::rmw(config::Read::Broken, edit.clone()).is_none() {
+                return Err(AuthWriteError {
+                    location: self.storage.location(),
+                    cause: format!("the document failed to load: {load_error}"),
+                });
+            }
         }
-        let mut next_credential = credential;
         self.storage
             .with_lock(&mut |current| {
-                let mut data = parse_storage_data(current.as_deref())?;
-                match next_credential.take() {
-                    Some(credential) => data.insert(provider, &credential),
-                    None => data.remove(provider),
-                }
-                let content = serde_json::to_string_pretty(&data.0)?;
-                Ok(((), Some(content)))
+                let data = edit_storage_data(current.as_deref(), |_| Some(edit.clone()))?;
+                let content = data
+                    .map(|data| serde_json::to_string_pretty(&data.0))
+                    .transpose()?;
+                Ok(((), content))
             })
             .map_err(|error| AuthWriteError {
                 location: self.storage.location(),
