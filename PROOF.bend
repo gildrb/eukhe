@@ -97,6 +97,13 @@ import ./proof/wait/wait_entry_answers.bend as PWaitEntryAnswers
 import ./proof/wait/wait_entry_reads.bend as PWaitEntryReads
 import ./proof/wait/wait_entry_malformed_exact.bend as PWaitEntryMalformedExact
 import ./proof/wait/wait_entry_example.bend as PWaitEntryExample
+import ./proof/wait/wait_step_is_model.bend as PWaitStepIsModel
+import ./proof/wait/wait_entry_once.bend as PWaitEntryOnce
+import ./proof/wait/wait_entry_calm.bend as PWaitEntryCalm
+import ./proof/wait/wait_entry_open.bend as PWaitEntryOpen
+import ./proof/wait/wait_entry_open_reads.bend as PWaitEntryOpenReads
+import ./proof/wait/wait_entry_open_malformed_exact.bend as PWaitEntryOpenMalformedExact
+import ./proof/wait/wait_entry_shut.bend as PWaitEntryShut
 import ./proof/wait/wait_go_exact.bend as PWaitGoExact
 import ./proof/wait/wait_run_exact.bend as PWaitRunExact
 import ./proof/wait/wait_terms_exact.bend as PWaitTermsExact

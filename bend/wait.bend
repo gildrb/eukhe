@@ -5,10 +5,10 @@
 #
 # Time is counted in ticks. A deadline of d ticks passes on the d-th
 # tick; a deadline of 0 has passed before anything happens. eukhe's race
-# (crates/eukhe-core/src/memory/service/race.rs) takes each poll's end
-# from `poll` below, run as the compiled Bend core (bend/ffi_wait.bend);
-# the bridge (bridge/bridge_wait.bend, memory/service/race/bridge.rs)
-# checks its interleaving on tokio's clock against `run`.
+# (crates/eukhe-core/src/memory/service/race.rs) runs this wait as the
+# stepper of the compiled Bend core (bend/ffi_wait_race.bend): it opens it
+# with its deadline, sends what it finds ready at each poll, and ends
+# when the stepper answers an end (`race` below).
 
 import Base
 
@@ -103,32 +103,70 @@ def run(dl: Maybe<&2, Nat>, xs: List<&2, Sig>) -> List<&2, End>:
         case 1n+m:
           go(xs, Open{Some{m}})
 
-# The race at one poll
-# --------------------
+# The race
+# --------
+# The race polls its event, its cancel and its deadline together; more
+# than one can be ready at a poll. It sends what it found and the wait
+# takes it as signals in this order: the event, the cancel, then the tick
+# that passes the deadline. The race's deadline is one instant: a wait
+# of one tick, whose tick is the deadline's timer firing.
 
 # What the race finds at one poll: its event is ready, its cancel fired,
-# its deadline passed. More than one can be ready at once.
+# its deadline passed.
 type Polled is Data:
   Polled{work: Bool, cancel: Bool, late: Bool}
 
-# The end of the race at a poll: the event first, then the cancel, then
-# the deadline (None: nothing ends it yet)
-def poll(r: Polled) -> Maybe<&2, End>:
+def sig.when(b: Bool, x: Sig, rest: List<&2, Sig>) -> List<&2, Sig>:
+  match b:
+    case True{}:
+      x <> rest
+    case False{}:
+      rest
+
+# the signals a poll found, in the order the wait takes them
+def sigs(r: Polled) -> List<&2, Sig>:
   match r:
     case Polled{w, c, l}:
-      match w:
-        case True{}:
-          Some{Arrived{}}
-        case False{}:
-          match c:
-            case True{}:
-              Some{Cancelled{}}
-            case False{}:
-              match l:
-                case True{}:
-                  Some{Expired{}}
-                case False{}:
-                  None{}
+      sig.when(w, Arrive{}, sig.when(c, Cancel{}, sig.when(l, Tick{}, Nil{})))
+
+# the wait after it sees xs
+def after(xs: List<&2, Sig>, w: W) -> W:
+  match xs:
+    case Nil{}:
+      w
+    case s <> rest:
+      after(rest, next(w, s))
+
+# a wait with deadline dl at its start: open, or over when dl is 0
+def start(dl: Maybe<&2, Nat>) -> W:
+  match dl:
+    case None{}:
+      Open{None{}}
+    case Some{d}:
+      match d:
+        case 0n:
+          Over{}
+        case 1n+m:
+          Open{Some{m}}
+
+# what a wait with deadline dl reports at its start: the expiry of a
+# deadline of 0
+def first(dl: Maybe<&2, Nat>) -> List<&2, End>:
+  match dl:
+    case None{}:
+      Nil{}
+    case Some{d}:
+      match d:
+        case 0n:
+          [Expired{}]
+        case 1n+m:
+          Nil{}
+
+# one poll of the race at wait w: the wait after it, and the ends it
+# reports
+def race(+w: W, r: Polled) -> W & List<&2, End>:
+  +xs = sigs(r)
+  (after(xs, w), go(xs, w))
 
 # What the laws speak of
 # ----------------------

@@ -68,7 +68,6 @@
 83 work
 84 retry_idle
 85 lease
-86 wait
 90 timeouts
 91 revive
 92 auth_flight
@@ -93,3 +92,4 @@
 264 doc_plan
 290 mcp_url
 291 slash_args
+420 wait_race

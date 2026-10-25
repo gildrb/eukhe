@@ -90,7 +90,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
-import ./ffi_wait.bend as ffi_wait
+import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
 import ./ffi_workflow.bend as ffi_workflow
@@ -223,8 +223,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work.ffi(input)
     case 84:
       ffi_retry_idle.ffi(input)
-    case 86:
-      ffi_wait.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
@@ -298,6 +296,7 @@ type State is Type:
   Work{s: ffi_work.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
+  WaitRace{s: ffi_wait_race.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -375,6 +374,11 @@ def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def open.wait_race(r: ffi_wait_race.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (WaitRace{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -407,6 +411,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
+    case 420:
+      open.wait_race(ffi_wait_race.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -490,6 +496,11 @@ def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def step.wait_race(r: ffi_wait_race.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (WaitRace{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -522,6 +533,8 @@ def step.go(state: State, input: String) -> State & String:
       step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
+    case WaitRace{s}:
+      step.wait_race(ffi_wait_race.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -561,6 +574,8 @@ def close.go(state: State) -> Unit:
     case Lease{s}:
       Unit{}
     case AuthFlight{s}:
+      Unit{}
+    case WaitRace{s}:
       Unit{}
     case Unknown{}:
       Unit{}
