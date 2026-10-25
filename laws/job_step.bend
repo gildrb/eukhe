@@ -113,3 +113,59 @@ law job_step_out_full:
   for +n: Nat
   for full: {Nat.is_le(c, k) == True{} : Bool}
   {Jb.J.kept(Jb.step(Some{c}, Jb.Live{k, d}, Jb.Out{n})) == k : Nat}
+
+# The model's terms, pinned
+# -------------------------
+# A second fresh adversary (SpecCheckJob) made an output of 0 bytes end the
+# job as exited with code 0 while `J.done` answered False for every job:
+# job_step_out_live read the step only through `J.done`, and no law tied
+# the model's runs (`go`, `ends.go`, `run`, `ends`), which the S2 laws
+# state, to `step`. The accessors and the runs are pinned here.
+
+def kept_spec(j: Jb.J) -> Nat:
+  match j:
+    case Jb.Live{k, d}:
+      k
+    case Jb.Ended{k, d, e}:
+      k
+
+def dropped_spec(j: Jb.J) -> Nat:
+  match j:
+    case Jb.Live{k, d}:
+      d
+    case Jb.Ended{k, d, e}:
+      d
+
+def done_spec(j: Jb.J) -> Bool:
+  match j:
+    case Jb.Live{k, d}:
+      False{}
+    case Jb.Ended{k, d, e}:
+      True{}
+
+# LAW job_terms_exact: the model's accessors the laws read are the fields they name: the bytes
+# kept, the bytes dropped, their sum, and whether the job ended
+# EXCLUDES: an accessor that hides an end or reports other counts than the job holds (an output
+#   that ends the job passing job_step_out_live)
+law job_terms_exact:
+  for +j: Jb.J
+  {Jb.J.kept(j) == kept_spec(j) : Nat} & {Jb.J.dropped(j) == dropped_spec(j) : Nat} & {Jb.J.total(j) == Nat.add(kept_spec(j), dropped_spec(j)) : Nat} & {Jb.J.done(j) == done_spec(j) : Bool}
+
+# LAW job_step_out_stays_live: output leaves a live job live: the step's result is a live job
+# EXCLUDES: an output that ends the job (an end reported, a later exit dropped)
+law job_step_out_stays_live:
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  {done_spec(Jb.step(cap, Jb.Live{k, d}, Jb.Out{n})) == False{} : Bool}
+
+# LAW job_runs_are_steps: the model's runs, which the S2 laws state, are the steps one event at a
+# time from a new job, and the ends they report are the ends each step reports, in order
+# EXCLUDES: S2 laws that hold of a run that is not the step Rust runs
+law job_runs_are_steps:
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for +e: Jb.JEv
+  for +es: List<&2, Jb.JEv>
+  {Jb.go(Nil{}, cap, j) == j : Jb.J} & {Jb.go(e <> es, cap, j) == Jb.go(es, cap, Jb.step(cap, j, e)) : Jb.J} & {Jb.ends.go(Nil{}, cap, j) == Nil{} : List<&2, Jb.End>} & {Jb.ends.go(e <> es, cap, j) == List.append(&2, Jb.End, Jb.ends.of(j, e), Jb.ends.go(es, cap, Jb.step(cap, j, e))) : List<&2, Jb.End>} & {Jb.run(cap, es) == Jb.go(es, cap, Jb.Live{0n, 0n}) : Jb.J} & {Jb.ends(cap, es) == Jb.ends.go(es, cap, Jb.Live{0n, 0n}) : List<&2, Jb.End>}

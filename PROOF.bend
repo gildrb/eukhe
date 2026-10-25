@@ -291,6 +291,9 @@ import ./proof/job_step/job_step_optout_keeps.bend as PJobStepOptoutKeeps
 import ./proof/job_step/job_step_out_fits.bend as PJobStepOutFits
 import ./proof/job_step/job_step_out_fills.bend as PJobStepOutFills
 import ./proof/job_step/job_step_out_full.bend as PJobStepOutFull
+import ./proof/job_step/job_terms_exact.bend as PJobTermsExact
+import ./proof/job_step/job_step_out_stays_live.bend as PJobStepOutStaysLive
+import ./proof/job_step/job_runs_are_steps.bend as PJobRunsAreSteps
 import ./proof/sandbox/base.bend as LASandbox
 import ./proof/sandbox/proto_one_reply_each.bend as PProtoOneReplyEach
 import ./proof/sandbox/proto_runs_only_accepted.bend as PProtoRunsOnlyAccepted
