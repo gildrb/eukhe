@@ -985,13 +985,20 @@ impl Worker {
             None => true,
         };
         if retained {
-            if !core.attached_client_ids.iter().any(|id| id == &client_id) {
-                core.attached_client_ids.push(client_id.clone());
-            }
             core.gateway_client_ids.retain(|id| id != &client_id);
             match client_kind {
-                DaemonClientKind::Gateway => core.gateway_client_ids.push(client_id.clone()),
-                DaemonClientKind::Interactive => {}
+                // A watch shows the session only: it is not an attached
+                // client for the approval questions (they relay as if no
+                // client were here) nor for the kernel release.
+                DaemonClientKind::Watch => core.attached_client_ids.retain(|id| id != &client_id),
+                DaemonClientKind::Gateway | DaemonClientKind::Interactive => {
+                    if !core.attached_client_ids.iter().any(|id| id == &client_id) {
+                        core.attached_client_ids.push(client_id.clone());
+                    }
+                    if client_kind == DaemonClientKind::Gateway {
+                        core.gateway_client_ids.push(client_id.clone());
+                    }
+                }
             }
         }
         let summary = self.summary_locked(&core);

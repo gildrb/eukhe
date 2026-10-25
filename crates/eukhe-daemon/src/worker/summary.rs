@@ -638,6 +638,8 @@ pub(crate) fn session_summary(
         runtime_kind: Some(core.runtime_kind.clone()),
         unfinished_action_count: Some(0),
         anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
+        workers: None,
+        is_paused: false,
     }
 }
 

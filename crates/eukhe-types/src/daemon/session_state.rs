@@ -144,6 +144,41 @@ pub struct SessionSummary {
     /// session is still initializing (older workers never emit it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anthropic_warning_shown: Option<bool>,
+    /// A main session's workers (`sessionShape` `main-worker`): one row per
+    /// worker child, in creation order; absent when it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<Vec<SessionWorker>>,
+    /// This session's run is paused (a worker of a paused tree): running
+    /// calls finish, nothing new starts until a resume or a message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_paused: bool,
+}
+
+/// One worker of a main session (`SessionSummary::workers`, the reply of
+/// `pause_workers` / `resume_workers`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWorker {
+    /// The worker's live routing id (attach, prompt, watch).
+    pub active_session_id: String,
+    /// The worker's durable session id.
+    pub session_id: String,
+    pub name: String,
+    pub state: WorkerRunState,
+}
+
+/// Where a worker stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkerRunState {
+    /// On a task: its run, its jobs or its report are under way.
+    Running,
+    /// Its tree is paused: nothing new starts until a resume or a message.
+    Paused,
+    /// No task: it waits for the next one.
+    Idle,
+    /// Its session was stopped or deleted.
+    Stopped,
 }
 
 /// A session's quota park: no turn runs until the provider's usage resets,

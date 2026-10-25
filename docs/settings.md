@@ -91,6 +91,8 @@ More settings:
 |`workflow.size`|`medium`|Default `/dynamic-workflow` size: `small`, `medium`, `large` ([workflows.md](workflows.md)); `/workflows size` sets it|
 |`subagentStallMs`|`600000`|No progress this long: subagent stopped, reported stalled; `0` default|
 |`subagentDefaultModel`|parent model|Model of a subagent spawned without `model`|
+|`sessionShape`|`single`|`single`: the session does its work itself. `main-worker`: a root session talks and hands its work to a persistent worker child ([usage.md](usage.md), main and worker); `single` stays the default until the main-worker eval decides|
+|`workerModel`|main's model|Model of the worker (`sessionShape` `main-worker`); the `worker` role of `/model`|
 |`rlmMaxDepth`|`2`|Max subagent depth (global only)|
 |`providerMaxInFlight`|none|`{"<provider>": n}` concurrent model requests per provider; `0` no limit (global only)|
 |`providerMaxQueued`|`64`|Waiting requests per provider; the next fails (global only)|

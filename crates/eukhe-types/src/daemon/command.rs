@@ -96,6 +96,11 @@ pub enum DaemonClientKind {
     Interactive,
     /// The Signal gateway (`eukhe gateway`): it shows no question.
     Gateway,
+    /// A display-only view of a session another client owns (the TUI's
+    /// worker pane): it receives the session's snapshot and events, is
+    /// never asked a question (approvals route as if it were not
+    /// attached), and does not keep the session's kernel resident.
+    Watch,
 }
 
 /// `prompt`/`steer`/`follow_up`-family input payload.
@@ -547,6 +552,36 @@ pub enum DaemonCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// `pause_workers`: pause the worker tree of a session: every RLM child
+    /// of it, recursively. Running model requests and tool calls finish; no
+    /// new model request, tool call or spawn starts; each paused run parks
+    /// at its next boundary. Nothing is cancelled. Reply: `{workers}`
+    /// ([`super::SessionWorker`] rows).
+    PauseWorkers {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        /// `true`: pause this session's own run too (a parent pausing its
+        /// child's tree sets it; a client pausing a main session's workers
+        /// leaves it absent, so main keeps talking).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        own_run: Option<bool>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// `resume_workers`: wake the paused worker tree of a session; each
+    /// parked run continues where it parked, and the messages kept while it
+    /// was paused are placed in order. Reply: `{workers}`.
+    ResumeWorkers {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        /// `true`: resume this session's own run too.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        own_run: Option<bool>,
         #[serde(flatten)]
         rest: JsonMap,
     },

@@ -647,6 +647,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::Abort {
             active_session_id, ..
         }
+        | DaemonCommand::PauseWorkers {
+            active_session_id, ..
+        }
+        | DaemonCommand::ResumeWorkers {
+            active_session_id, ..
+        }
         | DaemonCommand::AbortAndSendQueued {
             active_session_id, ..
         }
@@ -1010,6 +1016,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::AgentMessagesResume { .. } => "agent_messages_resume",
         DaemonCommand::AgentMessagesClear { .. } => "agent_messages_clear",
         DaemonCommand::Abort { .. } => "abort",
+        DaemonCommand::PauseWorkers { .. } => "pause_workers",
+        DaemonCommand::ResumeWorkers { .. } => "resume_workers",
         DaemonCommand::AbortAndSendQueued { .. } => "abort_and_send_queued",
         DaemonCommand::StartSideQuestion { .. } => "start_side_question",
         DaemonCommand::AbortSideQuestion { .. } => "abort_side_question",
