@@ -80,6 +80,49 @@ law tiny_worker_current:
   for +es: List<&2, Tn.Ev>
   {Tn.W.tag(Tn.run(es, Tn.NoWorker{})) == Tn.last_tag(es, None{}) : Maybe<&2, Nat>}
 
+# the spec of the terms the worker laws read: the number of needs, the
+# tag of the last need since the last exit, the tag a worker runs with
+def sp_needs(es: List<&2, Tn.Ev>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Tn.Need{p, t}:
+          1n+sp_needs(rest)
+        case Tn.Gone{}:
+          sp_needs(rest)
+
+def sp_last_tag(es: List<&2, Tn.Ev>, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match es:
+    case Nil{}:
+      m
+    case e <> rest:
+      match e:
+        case Tn.Need{p, t}:
+          sp_last_tag(rest, Some{t})
+        case Tn.Gone{}:
+          sp_last_tag(rest, None{})
+
+def sp_wtag(w: Tn.W) -> Maybe<&2, Nat>:
+  match w:
+    case Tn.NoWorker{}:
+      None{}
+    case Tn.Worker{o, t}:
+      Some{t}
+
+# LAW tiny_worker_terms_exact: the model's terms tiny_every_need_served and
+# tiny_worker_current read (`needs`, `last_tag`, `W.tag`) mean what the
+# laws say
+# EXCLUDES: a worker model that never starts a worker and reports no
+#   outcome, with `needs` and `last_tag` redefined to match (a fresh
+#   specification-completeness review passed every law that way)
+law tiny_worker_terms_exact:
+  for +es: List<&2, Tn.Ev>
+  for +m: Maybe<&2, Nat>
+  for +w: Tn.W
+  {Tn.needs(es) == sp_needs(es) : Nat} & {Tn.last_tag(es, m) == sp_last_tag(es, m) : Maybe<&2, Nat>} & {Tn.W.tag(w) == sp_wtag(w) : Maybe<&2, Nat>}
+
 # LAW tiny_same_tag_joins: a need with the running worker's tag joins it: no restart churn
 law tiny_same_tag_joins:
   for +o: Nat
