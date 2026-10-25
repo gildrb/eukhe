@@ -23,40 +23,6 @@ pub struct PromptTemplate {
     pub file_path: String,
 }
 
-/// Parse command arguments respecting quoted strings (bash-style).
-#[must_use]
-pub fn parse_command_args(args_string: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut in_quote: Option<char> = None;
-    // An explicitly quoted token is an argument even when empty.
-    let mut quoted = false;
-    for char in args_string.chars() {
-        if let Some(quote) = in_quote {
-            if char == quote {
-                in_quote = None;
-            } else {
-                current.push(char);
-            }
-        } else if char == '"' || char == '\'' {
-            in_quote = Some(char);
-            quoted = true;
-        } else if char.is_whitespace() {
-            if !current.is_empty() || quoted {
-                args.push(current.clone());
-                current.clear();
-                quoted = false;
-            }
-        } else {
-            current.push(char);
-        }
-    }
-    if !current.is_empty() || quoted {
-        args.push(current);
-    }
-    args
-}
-
 /// Substitute `$1`, `$@`, `$ARGUMENTS`, and `${@:N:L}` placeholders.
 /// No recursive substitution of argument values.
 pub fn substitute_args(content: &str, args: &[String]) -> String {
@@ -383,7 +349,7 @@ pub fn expand_prompt_template(text: &str, templates: &[PromptTemplate]) -> Strin
         return text.to_string();
     };
     if let Some(template) = templates.iter().find(|t| t.name == parsed.0) {
-        let args = parse_command_args(&parsed.1);
+        let args = eukhe_bend::rules::slash_args::words(&parsed.1);
         return substitute_args(&template.content, &args);
     }
     text.to_string()
@@ -395,15 +361,6 @@ pub fn expand_prompt_template(text: &str, templates: &[PromptTemplate]) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn command_args_quoting() {
-        assert_eq!(
-            parse_command_args("a \"b c\" 'd e' \"\""),
-            vec!["a", "b c", "d e", ""]
-        );
-        assert_eq!(parse_command_args("  "), Vec::<String>::new());
-    }
 
     #[test]
     fn substitutes_positional_and_slices() {

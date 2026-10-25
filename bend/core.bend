@@ -67,6 +67,7 @@ import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
+import ./ffi_slash_args.bend as ffi_slash_args
 import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_submission.bend as ffi_submission
@@ -239,6 +240,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_plan.ffi(input)
     case 290:
       ffi_mcp_url.ffi(input)
+    case 291:
+      ffi_slash_args.ffi(input)
     case _:
       W.err("unknown entry")
 

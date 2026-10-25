@@ -89,3 +89,5 @@ import ./laws/scan.bend as Scan
 import ./laws/retry_note.bend as RetryNote
 import ./laws/doc_plan.bend as DocPlan
 import ./laws/mcp_url.bend as McpUrl
+import ./laws/slash_args/model.bend as SlashArgs
+import ./laws/slash_args/entry.bend as SlashArgsEntry

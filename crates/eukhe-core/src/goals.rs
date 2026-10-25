@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 pub const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
 /// Custom message type for goal continuation prompts.
 pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
-pub const MAX_THREAD_GOAL_OBJECTIVE_CHARS: usize = 4000;
 
 // The wire/persisted `GoalState` and `GoalStatus` vocabulary lives in
 // eukhe-types (shared with the attached surfaces); this module owns the goal
@@ -92,23 +91,15 @@ pub fn normalize_goal_state(goal: GoalState) -> GoalState {
     }
 }
 
-/// Validate and normalize a goal objective.
+/// Validate and normalize a goal objective: the compiled core's verdict
+/// (`eukhe_bend::rules::slash_args::objective`, `laws/slash_args`).
 ///
 /// # Errors
 ///
 /// Returns an error when the objective is empty after trimming or longer
-/// than the objective character limit.
+/// than the objective character limit (4000 chars).
 pub fn validate_goal_objective(value: &str) -> anyhow::Result<String> {
-    let objective = value.trim();
-    if objective.is_empty() {
-        anyhow::bail!("Goal objective must not be empty.");
-    }
-    if objective.chars().count() > MAX_THREAD_GOAL_OBJECTIVE_CHARS {
-        anyhow::bail!(
-            "Goal objective must be at most {MAX_THREAD_GOAL_OBJECTIVE_CHARS} characters."
-        );
-    }
-    Ok(objective.to_string())
+    eukhe_bend::rules::slash_args::objective(value).map_err(anyhow::Error::msg)
 }
 
 /// Validate a goal token budget.
@@ -451,13 +442,16 @@ mod tests {
 
     #[test]
     fn objective_and_budget_validation() {
-        assert_eq!(validate_goal_objective("  padded  ").unwrap(), "padded");
-        assert!(validate_goal_objective("   ").is_err());
-        assert!(validate_goal_objective("").is_err());
-        let long = "x".repeat(MAX_THREAD_GOAL_OBJECTIVE_CHARS + 1);
-        assert!(validate_goal_objective(&long).is_err());
-        let at_limit = "x".repeat(MAX_THREAD_GOAL_OBJECTIVE_CHARS);
-        assert!(validate_goal_objective(&at_limit).is_ok());
+        // The objective reaches the compiled core at full size: 4000 chars
+        // pass, 4001 do not.
+        let at_limit = "x".repeat(4000);
+        assert_eq!(validate_goal_objective(&at_limit).unwrap(), at_limit);
+        assert_eq!(
+            validate_goal_objective(&"x".repeat(4001))
+                .unwrap_err()
+                .to_string(),
+            "Goal objective must be at most 4000 characters."
+        );
         assert!(validate_goal_budget(None).unwrap().is_none());
         assert_eq!(validate_goal_budget(Some(10)).unwrap(), Some(10));
         assert!(validate_goal_budget(Some(0)).is_err());

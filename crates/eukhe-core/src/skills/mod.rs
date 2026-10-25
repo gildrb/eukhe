@@ -16,8 +16,8 @@ pub use discovery::load_skills_from_dir;
 pub use eukhe_types::slash_commands::parse_slash_command;
 pub use loader::{load_skills, LoadSkillsOptions, LoadSkillsResult};
 pub use prompt_templates::{
-    expand_prompt_template, load_prompt_templates, parse_command_args, substitute_args,
-    LoadPromptTemplatesOptions, LoadPromptTemplatesResult, PromptTemplate,
+    expand_prompt_template, load_prompt_templates, substitute_args, LoadPromptTemplatesOptions,
+    LoadPromptTemplatesResult, PromptTemplate,
 };
 
 /// Source provenance for a resource (port of source-info.ts, synthetic form).
