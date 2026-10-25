@@ -76,7 +76,12 @@ impl Forward {
             kind,
             user_messages: messages
                 .iter()
-                .filter_map(|message| message.get("text").and_then(Value::as_str))
+                // A message is its text, or `{text, images}`.
+                .filter_map(|message| {
+                    message
+                        .as_str()
+                        .or_else(|| message.get("text").and_then(Value::as_str))
+                })
                 .map(str::to_string)
                 .collect(),
             images: messages
@@ -117,7 +122,7 @@ mod tests {
     fn a_forward_keeps_the_users_words_in_order_and_labels_the_note() {
         let forward = Forward::from_details(&json!({
             "deliveryKind": "context",
-            "userMessages": [{"text": "use  tabs\n"}, {"text": "and the v2 api", "images": [{}]}],
+            "userMessages": ["use  tabs\n", {"text": "and the v2 api", "images": [{}]}],
             "note": "the user asked this mid-run",
             "worker": "worker",
         }))
