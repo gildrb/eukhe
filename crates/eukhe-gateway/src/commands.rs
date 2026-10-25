@@ -1,9 +1,18 @@
-//! The phone commands: their vocabulary, how a message parses into one,
-//! and the answer a command-shaped message gets when it names none.
+//! The phone commands and what one text message means to the gateway: a
+//! command, an answer the gateway sends itself, or a prompt for the agent.
 //! Signal has no command menu, so a lone `/` lists the commands, a prefix
-//! lists the commands it starts, and a near miss names the closest.
+//! lists the commands it starts, and a near miss names the closest. The
+//! compiled Bend core decides (`bend/gateway_commands.bend`, entry
+//! `bend/ffi_gateway_commands.bend`, laws `laws/gateway_commands.bend`),
+//! and holds the one copy of the command list; this file sends the text
+//! with the session command names and reads the meaning.
+
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{call, expect_core, Entry, Error};
+use eukhe_types::slash_commands::SESSION_SLASH_COMMAND_NAMES;
 
 /// A phone command (case-insensitive name, exact argument count).
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PhoneCommand {
     Help,
     Sessions,
@@ -17,6 +26,7 @@ pub(crate) enum PhoneCommand {
 }
 
 /// What one text message means to the gateway.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Parsed {
     Command(PhoneCommand),
     /// A command-shaped message that runs nothing: the gateway answers it
@@ -27,152 +37,86 @@ pub(crate) enum Parsed {
     Prompt,
 }
 
-struct Spec {
-    name: &'static str,
-    usage: &'static str,
-    description: &'static str,
-}
-
-const COMMANDS: [Spec; 8] = [
-    Spec {
-        name: "help",
-        usage: "/help",
-        description: "Show the commands.",
-    },
-    Spec {
-        name: "sessions",
-        usage: "/sessions",
-        description: "Show the newest sessions.",
-    },
-    Spec {
-        name: "use",
-        usage: "/use N",
-        description: "Send messages to session N.",
-    },
-    Spec {
-        name: "latest",
-        usage: "/latest",
-        description: "Send messages to the newest session.",
-    },
-    Spec {
-        name: "new",
-        usage: "/new",
-        description: "Start a new session.",
-    },
-    Spec {
-        name: "stop",
-        usage: "/stop",
-        description: "Stop the current turn.",
-    },
-    Spec {
-        name: "status",
-        usage: "/status",
-        description: "Show the session state.",
-    },
-    Spec {
-        name: "memory",
-        usage: "/memory",
-        description: "Show the chat memory state.",
-    },
-];
-
 /// Parse one text message (without images).
 ///
 /// A first word of `/` plus letters, digits, `-` or `_` is command-shaped;
-/// any other text (a path such as `/tmp/x`, a sentence) goes to the agent.
+/// any other text (a path such as `/tmp/x`, a sentence) goes to the agent,
+/// and so does a session command (`/compact`, ...): the session runs it.
 /// A command-shaped message that names a command with the wrong arguments
 /// gets its usage; an unknown name alone gets suggestions; an unknown name
-/// followed by more words goes to the agent.
+/// followed by more words goes to the agent. A Signal message body is far
+/// below the wire's `STR_MAX`.
 pub(crate) fn parse(text: &str) -> Parsed {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let Some((first, args)) = words.split_first() else {
-        return Parsed::Prompt;
-    };
-    let Some(name) = first.strip_prefix('/') else {
-        return Parsed::Prompt;
-    };
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Parsed::Prompt;
-    }
-    let name = name.to_ascii_lowercase();
-    // Session commands (`/dynamic-workflow`, `/compact`, ...) run in the
-    // session: the text goes through as a prompt.
-    if eukhe_types::slash_commands::is_session_slash_command_name(&name) {
-        return Parsed::Prompt;
-    }
-    let command = match (name.as_str(), args) {
-        ("help", []) => PhoneCommand::Help,
-        ("sessions", []) => PhoneCommand::Sessions,
-        ("use", [number]) => PhoneCommand::Use((*number).to_string()),
-        ("latest", []) => PhoneCommand::Latest,
-        ("new", []) => PhoneCommand::New,
-        ("stop", []) => PhoneCommand::Stop,
-        ("status", []) => PhoneCommand::Status,
-        ("memory", []) => PhoneCommand::Memory,
-        _ => {
-            return match COMMANDS.iter().find(|spec| spec.name == name) {
-                Some(spec) => Parsed::Answer(format!("Usage: {}", line(spec))),
-                None if args.is_empty() => Parsed::Answer(suggest(&name)),
-                None => Parsed::Prompt,
-            }
-        }
-    };
-    Parsed::Command(command)
+    expect_core(Entry::GatewayCommands, parse_call(text))
 }
 
-/// The `/help` text.
+/// The `/help` text: the core's answer to a lone `/` (laws
+/// `gateway_commands_spec`, `gateway_commands_example`), so the command
+/// list has one copy, in the Bend model.
 pub(crate) fn help() -> String {
-    let mut lines = vec!["Commands:".to_string()];
-    lines.extend(COMMANDS.iter().map(line));
-    lines.push("Other text goes to the agent.".to_string());
-    lines.join("\n")
+    let answer = parse_call("/").and_then(|parsed| match parsed {
+        Parsed::Answer(text) => Ok(text),
+        Parsed::Command(_) | Parsed::Prompt => Err(Error::from(WireError::Malformed {
+            at: 0,
+            expected: "the command list",
+        })),
+    });
+    expect_core(Entry::GatewayCommands, answer)
 }
 
-fn line(spec: &Spec) -> String {
-    format!("{} - {}", spec.usage, spec.description)
-}
-
-/// The answer to `/<name>` alone when `name` is no command: the commands
-/// it starts, else the closest command, else the command list.
-fn suggest(name: &str) -> String {
-    if name.is_empty() {
-        return help();
+fn parse_call(text: &str) -> Result<Parsed, Error> {
+    let mut request = Writer::new();
+    request.str(text).count(SESSION_SLASH_COMMAND_NAMES.len());
+    for name in SESSION_SLASH_COMMAND_NAMES {
+        request.str(name);
     }
-    let starting: Vec<&Spec> = COMMANDS
-        .iter()
-        .filter(|spec| spec.name.starts_with(name))
-        .collect();
-    if !starting.is_empty() {
-        let mut lines: Vec<String> = starting.into_iter().map(line).collect();
-        lines.push("Send one of these. Send / for all commands.".to_string());
-        return lines.join("\n");
-    }
-    let names: Vec<&str> = COMMANDS.iter().map(|spec| spec.name).collect();
-    match eukhe_bend::rules::slash::suggestion(name, &names) {
-        Some(closest) => format!(
-            "No command /{name}. Did you mean /{closest}?\nNot sent to the agent. Send / for all commands."
-        ),
-        None => format!("No command /{name}. Not sent to the agent.\n{}", help()),
-    }
+    let reply = call(Entry::GatewayCommands, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let parsed = match reader.tag_of(3, "a message meaning")? {
+        0 => Parsed::Command(match reader.tag_of(8, "a phone command")? {
+            0 => PhoneCommand::Help,
+            1 => PhoneCommand::Sessions,
+            2 => PhoneCommand::Use(reader.str()?.to_owned()),
+            3 => PhoneCommand::Latest,
+            4 => PhoneCommand::New,
+            5 => PhoneCommand::Stop,
+            6 => PhoneCommand::Status,
+            7.. => PhoneCommand::Memory,
+        }),
+        1 => Parsed::Answer(reader.str()?.to_owned()),
+        2.. => Parsed::Prompt,
+    };
+    reader.end()?;
+    Ok(parsed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The meaning comes from the compiled core, with Rust's session
+    /// command names: a command, a session command, `/use` with its
+    /// argument, a near miss.
     #[test]
-    fn a_session_command_goes_to_the_session_as_a_prompt() {
-        assert!(matches!(
-            parse("/dynamic-workflow --size large review the repo"),
-            Parsed::Prompt
-        ));
-        assert!(matches!(parse("/compact"), Parsed::Prompt));
-        assert!(matches!(
-            parse("/help"),
-            Parsed::Command(PhoneCommand::Help)
-        ));
+    fn the_core_parses_phone_messages() {
+        assert_eq!(
+            [
+                parse("/help"),
+                parse("/dynamic-workflow --size large review the repo"),
+                parse("/compact"),
+                parse("/use 3"),
+                parse("/hlep"),
+            ],
+            [
+                Parsed::Command(PhoneCommand::Help),
+                Parsed::Prompt,
+                Parsed::Prompt,
+                Parsed::Command(PhoneCommand::Use("3".to_string())),
+                Parsed::Answer(
+                    "No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."
+                        .to_string()
+                ),
+            ]
+        );
     }
 }

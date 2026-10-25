@@ -68,3 +68,4 @@
 202 gateway_answer
 203 gateway_backoff
 204 slash_suggest
+205 gateway_commands

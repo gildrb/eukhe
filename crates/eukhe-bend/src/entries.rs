@@ -140,6 +140,8 @@ pub enum Entry {
     GatewayBackoff = 203,
     /// `bend/ffi_slash_suggest.bend`: a call.
     SlashSuggest = 204,
+    /// `bend/ffi_gateway_commands.bend`: a call.
+    GatewayCommands = 205,
 }
 
 impl Entry {
@@ -212,6 +214,7 @@ impl Entry {
         Entry::GatewayAnswer,
         Entry::GatewayBackoff,
         Entry::SlashSuggest,
+        Entry::GatewayCommands,
     ];
 
     /// The id `bend/core.bend` dispatches on.

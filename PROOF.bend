@@ -1237,6 +1237,14 @@ import ./proof/slash_suggest/slash_suggest_entry_reads.bend as PSlashSuggestEntr
 import ./proof/slash_suggest/slash_suggest_entry_exact.bend as PSlashSuggestEntryExact
 import ./proof/slash_suggest/slash_suggest_entry_refuses.bend as PSlashSuggestEntryRefuses
 import ./proof/slash_suggest/slash_suggest_entry_example.bend as PSlashSuggestEntryExample
+import ./proof/gateway_commands/base.bend as LAGatewayCommands
+import ./proof/gateway_commands/gateway_commands_entry_answers.bend as PGatewayCommandsEntryAnswers
+import ./proof/gateway_commands/gateway_commands_entry_exact.bend as PGatewayCommandsEntryExact
+import ./proof/gateway_commands/gateway_commands_entry_example.bend as PGatewayCommandsEntryExample
+import ./proof/gateway_commands/gateway_commands_entry_reads.bend as PGatewayCommandsEntryReads
+import ./proof/gateway_commands/gateway_commands_entry_refuses.bend as PGatewayCommandsEntryRefuses
+import ./proof/gateway_commands/gateway_commands_example.bend as PGatewayCommandsExample
+import ./proof/gateway_commands/gateway_commands_spec.bend as PGatewayCommandsSpec
 import ./proof/gateway_answer/base.bend as LAGatewayAnswer
 import ./proof/gateway_answer/gateway_answer_spec.bend as PGatewayAnswerSpec
 import ./proof/gateway_answer/gateway_answer_example.bend as PGatewayAnswerExample

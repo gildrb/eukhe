@@ -32,6 +32,7 @@ import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
+import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
@@ -202,6 +203,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_gateway_backoff.ffi(input)
     case 204:
       ffi_slash_suggest.ffi(input)
+    case 205:
+      ffi_gateway_commands.ffi(input)
     case _:
       W.err("unknown entry")
 
