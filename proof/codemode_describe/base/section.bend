@@ -3,13 +3,15 @@
 # Each step of Dsc.section is the spec's step of laws/codemode_describe.bend
 # that it ports: the tools with their namespaces (cds.tagged), the groups
 # (cds.groups), their order (cds.order), the tools shown (cdsel.select of
-# ../base.bend), the headings and markers (cds.heading), the blocks
-# (cds.plain, cds.named) and the joint (cds.sep).
+# ../base.bend; their visibility: cdv.vis of ./visible.bend), the headings
+# and markers (cds.heading), the blocks (cds.plain, cds.named) and the
+# joint (cds.sep).
 
 import Base
 import ../../../bend/codemode_describe.bend as Dsc
 import ../../../laws/codemode_describe.bend as CodemodeDescribe
 import ../base.bend as LACd
+import ./visible.bend as LACdVis
 
 # ---- the tools and their namespaces ----
 
@@ -172,32 +174,9 @@ def cds.names(+ts: List<&2, Dsc.Tool>, xs: List<&2, Nat>) -> {Dsc.names(ts, xs) 
       %cds.names(ts, r) : {Dsc.tool_name(ts, x) <> Dsc.names(ts, r) == Dsc.tool_name(ts, x) <> _ : List<&2, String>}
       {==}
 
-def cds.member(ns: List<&2, String>, +n: String) -> {Dsc.member(ns, n) == CodemodeDescribe.has_name(ns, n) : Bool}:
-  match ns:
-    case Nil{}:
-      {==}
-    case Con{+x, +r}:
-      %cds.member(r, n) : {Bool.or(String.eq(x, n), Dsc.member(r, n)) == Bool.or(String.eq(x, n), _) : Bool}
-      {==}
-
-def cds.shown_at(b: Bool, x: Dsc.Item, r: List<&2, Dsc.Item>) -> {Dsc.visible.sel(b, x, r) == CodemodeDescribe.shown_at(b, x, r) : List<&2, Dsc.Item>}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
+# the tools shown are the spec's: the walk from the first tool
 def cds.visible(xs: List<&2, Dsc.Item>, +ts: List<&2, Dsc.Tool>, +shown: List<&2, String>) -> {Dsc.visible(xs, ts, shown) == CodemodeDescribe.shown_spec(xs, ts, shown) : List<&2, Dsc.Item>}:
-  match xs:
-    case Nil{}:
-      {==}
-    case Con{x, +r}:
-      match x:
-        case Dsc.Item{+t, +c}:
-          %cds.tool_name(ts, t) : {Dsc.visible.sel(Dsc.member(shown, Dsc.tool_name(ts, t)), Dsc.Item{t, c}, Dsc.visible(r, ts, shown)) == CodemodeDescribe.shown_at(CodemodeDescribe.has_name(shown, _), Dsc.Item{t, c}, CodemodeDescribe.shown_spec(r, ts, shown)) : List<&2, Dsc.Item>}
-          %cds.member(shown, Dsc.tool_name(ts, t)) : {Dsc.visible.sel(Dsc.member(shown, Dsc.tool_name(ts, t)), Dsc.Item{t, c}, Dsc.visible(r, ts, shown)) == CodemodeDescribe.shown_at(_, Dsc.Item{t, c}, CodemodeDescribe.shown_spec(r, ts, shown)) : List<&2, Dsc.Item>}
-          %cds.visible(r, ts, shown) : {Dsc.visible.sel(Dsc.member(shown, Dsc.tool_name(ts, t)), Dsc.Item{t, c}, Dsc.visible(r, ts, shown)) == CodemodeDescribe.shown_at(Dsc.member(shown, Dsc.tool_name(ts, t)), Dsc.Item{t, c}, _) : List<&2, Dsc.Item>}
-          cds.shown_at(Dsc.member(shown, Dsc.tool_name(ts, t)), Dsc.Item{t, c}, Dsc.visible(r, ts, shown))
+  LACdVis.cdv.vis(xs, ts, ts, 0n, shown, LACdVis.cdv.drop0(ts))
 
 def cds.sects(xs: List<&2, Dsc.Item>) -> {Dsc.sects(xs) == CodemodeDescribe.sects_spec(xs) : List<&2, Dsc.Part>}:
   match xs:

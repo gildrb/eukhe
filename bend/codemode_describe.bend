@@ -391,12 +391,92 @@ def names(+ts: List<&2, Tool>, xs: List<&2, Nat>) -> List<&2, String>:
     case Con{x, r}:
       tool_name(ts, x) <> names(ts, r)
 
-def member(ns: List<&2, String>, +n: String) -> Bool:
+# A set of names: the placed tools' names as a forest of their chars (first
+# child, next sibling), so that each tool's name is looked up in time of
+# its length, not of the number of tools placed. A node holds a char,
+# whether a name ends at it, the forest of what follows it, and its next
+# sibling.
+type Tr is Data:
+  TEnd{}
+  TNode{c: Char, stop: Bool, down: Tr, next: Tr}
+
+# the forest's first node holds c
+def tr.hit(t: Tr, +c: Char) -> Bool:
+  match t:
+    case TEnd{}:
+      False{}
+    case TNode{d, s, w, n}:
+      Char.is_eq(d, c)
+
+# the forest of the one name c then r
+def tr.chain(r: String, c: Char) -> Tr:
+  match r:
+    case SNil{}:
+      TNode{c, True{}, TEnd{}, TEnd{}}
+    case SCon{e, q}:
+      TNode{c, False{}, tr.chain(q, e), TEnd{}}
+
+# the forest t with the name c then r added (hit: tr.hit(t, c))
+def tr.add(t: Tr, hit: Bool, +c: Char, r: String) -> Tr:
+  match t:
+    case TEnd{}:
+      tr.chain(r, c)
+    case TNode{d, s, +w, +n}:
+      match hit:
+        case True{}:
+          match r:
+            case SNil{}:
+              TNode{d, True{}, w, n}
+            case SCon{+e, q}:
+              TNode{d, s, tr.add(w, tr.hit(w, e), e, q), n}
+        case False{}:
+          TNode{d, s, w, tr.add(n, tr.hit(n, c), c, r)}
+
+# the forest t holds the name c then r (hit: tr.hit(t, c))
+def tr.has(t: Tr, hit: Bool, +c: Char, r: String) -> Bool:
+  match t:
+    case TEnd{}:
+      False{}
+    case TNode{d, s, +w, +n}:
+      match hit:
+        case True{}:
+          match r:
+            case SNil{}:
+              s
+            case SCon{+e, q}:
+              tr.has(w, tr.hit(w, e), e, q)
+        case False{}:
+          tr.has(n, tr.hit(n, c), c, r)
+
+# a set of names: whether it holds "", and the forest of the others
+type NSet is Data:
+  NSet{empty: Bool, t: Tr}
+
+def nset.add(s: NSet, x: String) -> NSet:
+  match s:
+    case NSet{e, +t}:
+      match x:
+        case SNil{}:
+          NSet{True{}, t}
+        case SCon{+c, r}:
+          NSet{e, tr.add(t, tr.hit(t, c), c, r)}
+
+def nset.has(s: NSet, x: String) -> Bool:
+  match s:
+    case NSet{e, +t}:
+      match x:
+        case SNil{}:
+          e
+        case SCon{+c, r}:
+          tr.has(t, tr.hit(t, c), c, r)
+
+# the set of the names ns
+def nset.of(ns: List<&2, String>) -> NSet:
   match ns:
     case Nil{}:
-      False{}
+      NSet{False{}, TEnd{}}
     case Con{x, r}:
-      Bool.or(String.eq(x, n), member(r, n))
+      nset.add(nset.of(r), x)
 
 def visible.sel(shown: Bool, x: Item, rest: List<&2, Item>) -> List<&2, Item>:
   match shown:
@@ -405,15 +485,41 @@ def visible.sel(shown: Bool, x: Item, rest: List<&2, Item>) -> List<&2, Item>:
     case False{}:
       rest
 
-# the tools of xs shown: a tool is shown when a tool of its name was placed
-def visible(xs: List<&2, Item>, +ts: List<&2, Tool>, +shown: List<&2, String>) -> List<&2, Item>:
+# the name of the first tool of ts ("" when none)
+def head_name(ts: List<&2, Tool>) -> String:
+  match ts:
+    case Nil{}:
+      ""
+    case Con{t, r}:
+      match t:
+        case Tool{n, z}:
+          n
+
+# the tools from index t on: from cur (the tools from index pos on) when
+# pos <= t, else from the start
+def vis.here(ahead: Bool, cur: List<&2, Tool>, +ts: List<&2, Tool>, +pos: Nat, +t: Nat) -> List<&2, Tool>:
+  match ahead:
+    case True{}:
+      List.drop(&2, Tool, cur, Nat.sub(t, pos))
+    case False{}:
+      List.drop(&2, Tool, ts, t)
+
+# the tools of xs whose names the set holds; cur: the tools from index pos
+# on (a group's tools come in tool order, so one walk over the tools finds
+# all their names)
+def vis(xs: List<&2, Item>, +ts: List<&2, Tool>, cur: List<&2, Tool>, +pos: Nat, +set: NSet) -> List<&2, Item>:
   match xs:
     case Nil{}:
       []
     case Con{x, r}:
       match x:
         case Item{+t, c}:
-          visible.sel(member(shown, tool_name(ts, t)), Item{t, c}, visible(r, ts, shown))
+          +here = vis.here(Nat.is_le(pos, t), cur, ts, pos, t)
+          visible.sel(nset.has(set, head_name(here)), Item{t, c}, vis(r, ts, here, t, set))
+
+# the tools of xs shown: a tool is shown when a tool of its name was placed
+def visible(xs: List<&2, Item>, +ts: List<&2, Tool>, shown: List<&2, String>) -> List<&2, Item>:
+  vis(xs, ts, ts, 0n, nset.of(shown))
 
 def sects(xs: List<&2, Item>) -> List<&2, Part>:
   match xs:

@@ -1726,6 +1726,7 @@ import ./proof/codemode_source/codemode_source_ffi_exact.bend as PCodemodeSource
 import ./proof/codemode_source/codemode_source_ffi_refuses.bend as PCodemodeSourceFfiRefuses
 import ./proof/codemode_source/codemode_source_ffi_example.bend as PCodemodeSourceFfiExample
 import ./proof/codemode_describe/base.bend as LACodemodeDescribe
+import ./proof/codemode_describe/base/visible.bend as LACdVisible
 import ./proof/codemode_describe/base/section.bend as LACdSection
 import ./proof/codemode_describe/base/read.bend as LACdRead
 import ./proof/codemode_describe/base/reply.bend as LACdReply
