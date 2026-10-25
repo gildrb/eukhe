@@ -62,6 +62,7 @@ import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_throttle.bend as ffi_throttle
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_elect.bend as ffi_tiny_elect
@@ -229,6 +230,7 @@ type State is Type:
   Bound{s: ffi_bound.St}
   AuthFlight{s: ffi_auth_flight.St}
   Repeat{s: ffi_repeat.St}
+  Throttle{s: ffi_throttle.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -296,6 +298,11 @@ def open.repeat(r: ffi_repeat.St & String) -> State & String:
     case (s, reply):
       (Repeat{s}, reply)
 
+def open.throttle(r: ffi_throttle.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Throttle{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -324,6 +331,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.auth_flight(ffi_auth_flight.open(input))
     case 266:
       open.repeat(ffi_repeat.open(input))
+    case 267:
+      open.throttle(ffi_throttle.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -397,6 +406,11 @@ def step.repeat(r: ffi_repeat.St & String) -> State & String:
     case (s, reply):
       (Repeat{s}, reply)
 
+def step.throttle(r: ffi_throttle.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Throttle{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -425,6 +439,8 @@ def step.go(state: State, input: String) -> State & String:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case Repeat{s}:
       step.repeat(ffi_repeat.step(s, input))
+    case Throttle{s}:
+      step.throttle(ffi_throttle.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -460,6 +476,8 @@ def close.go(state: State) -> Unit:
     case AuthFlight{s}:
       Unit{}
     case Repeat{s}:
+      Unit{}
+    case Throttle{s}:
       Unit{}
     case Unknown{}:
       Unit{}

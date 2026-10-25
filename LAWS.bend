@@ -81,3 +81,4 @@ import ./laws/retry_note.bend as RetryNote
 import ./laws/doc_plan.bend as DocPlan
 import ./laws/node_error.bend as NodeError
 import ./laws/repeat.bend as Repeat
+import ./laws/throttle.bend as Throttle

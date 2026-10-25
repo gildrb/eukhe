@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use eukhe_bend::rules::throttle::{Act, Acts, Content, Gate};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, Context as PiContext, Message, Model, Partial};
@@ -16,13 +17,14 @@ use crate::harness::json::assign_json;
 use crate::harness::live::LIVE_DOC;
 use crate::session::{SessionError, SessionResult};
 
+/// The throttle: the compiled core's flags and pending partial
+/// (`eukhe_bend::rules::throttle`), and the timer and commit its actions
+/// start.
 struct ThrottleState {
-    /// The stream's live partial when it changed since the last commit.
-    pending: Option<Partial>,
+    gate: Gate<Partial>,
     timer: Option<JoinHandle<()>>,
     /// Settles with the commit in flight; absent when none is.
     in_flight: Option<oneshot::Receiver<SessionResult<()>>>,
-    stopped: bool,
 }
 
 /// Partials commit as trailing writes at most every `interval` with one
@@ -41,33 +43,48 @@ impl Throttle {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Start the timer unless one runs or a commit is in flight.
-    fn arm(&self, state: &mut ThrottleState) {
-        if state.timer.is_none() && state.in_flight.is_none() {
-            let throttle = self.clone();
-            let interval = self.interval;
-            state.timer = Some(tokio::spawn(async move {
-                tokio::time::sleep(interval).await;
-                throttle.flush();
-            }));
+    /// Do the actions the core answered, in order; the commit in flight
+    /// when the core says to await it.
+    fn act(
+        &self,
+        state: &mut ThrottleState,
+        acts: Acts<Partial>,
+    ) -> Option<oneshot::Receiver<SessionResult<()>>> {
+        let mut awaited = None;
+        for act in acts {
+            match act {
+                Act::Arm => {
+                    let throttle = self.clone();
+                    let interval = self.interval;
+                    state.timer = Some(tokio::spawn(async move {
+                        tokio::time::sleep(interval).await;
+                        throttle.fire();
+                    }));
+                }
+                Act::Commit(partial) => self.start_commit(state, &partial),
+                Act::Abort => {
+                    if let Some(timer) = state.timer.take() {
+                        timer.abort();
+                    }
+                }
+                Act::Await => awaited = state.in_flight.take(),
+            }
         }
+        awaited
     }
 
-    fn flush(&self) {
+    fn fire(&self) {
         let mut state = self.lock();
         state.timer = None;
-        let partial = state.pending.take();
-        let Some(partial) = partial else {
-            return;
-        };
-        if state.stopped {
-            return;
-        }
+        let acts = state.gate.fired();
+        self.act(&mut state, acts);
+    }
+
+    fn start_commit(&self, state: &mut ThrottleState, partial: &Partial) {
         // Copy synchronously (TS `copyJson(partial, { omitUndefinedProperties: true })`).
-        let message = to_json(&partial).map_err(SessionError::from);
+        let message = to_json(partial).map_err(SessionError::from);
         let (sender, receiver) = oneshot::channel();
         state.in_flight = Some(receiver);
-        drop(state);
         let throttle = self.clone();
         tokio::spawn(async move {
             let result = match message {
@@ -84,15 +101,8 @@ impl Throttle {
             };
             let _ = sender.send(result);
             let mut state = throttle.lock();
-            state.in_flight = None;
-            if state.pending.is_some() && !state.stopped {
-                let interval = throttle.interval;
-                let next = throttle.clone();
-                state.timer = Some(tokio::spawn(async move {
-                    tokio::time::sleep(interval).await;
-                    next.flush();
-                }));
-            }
+            let acts = state.gate.settled();
+            throttle.act(&mut state, acts);
         });
     }
 
@@ -119,11 +129,8 @@ impl Throttle {
     async fn stop(&self) -> SessionResult<()> {
         let in_flight = {
             let mut state = self.lock();
-            state.stopped = true;
-            if let Some(timer) = state.timer.take() {
-                timer.abort();
-            }
-            state.in_flight.take()
+            let acts = state.gate.stop();
+            self.act(&mut state, acts)
         };
         match in_flight {
             // A dropped sender means the commit task was cancelled with the runtime.
@@ -140,10 +147,8 @@ struct StopOnDrop(Throttle);
 impl Drop for StopOnDrop {
     fn drop(&mut self) {
         let mut state = self.0.lock();
-        state.stopped = true;
-        if let Some(timer) = state.timer.take() {
-            timer.abort();
-        }
+        let acts = state.gate.dropped();
+        self.0.act(&mut state, acts);
     }
 }
 
@@ -173,10 +178,9 @@ pub(super) async fn stream_response(
     let interval = runtime.settings().progress.partial_interval_ms;
     let throttle = Throttle {
         state: Arc::new(Mutex::new(ThrottleState {
-            pending: None,
+            gate: Gate::open(),
             timer: None,
             in_flight: None,
-            stopped: false,
         })),
         runtime: runtime.clone(),
         cx: cx.clone(),
@@ -190,17 +194,19 @@ pub(super) async fn stream_response(
     let mut iter = events.events();
     while let Some(event) = iter.next().await {
         // A partial without content, such as pi-ai's opening `start` event,
-        // shows nothing; a deferred response never gets past it, so it never
-        // leaves a partial.
+        // shows nothing (the core ignores it); a deferred response never
+        // gets past it, so it never leaves a partial.
         let Some(partial) = event.partial() else {
             continue;
         };
-        if partial.read(|partial| partial.content.is_empty()) {
-            continue;
-        }
+        let content = if partial.read(|partial| partial.content.is_empty()) {
+            Content::Empty
+        } else {
+            Content::Shown
+        };
         let mut state = throttle.lock();
-        state.pending = Some(partial.clone());
-        throttle.arm(&mut state);
+        let acts = state.gate.partial(partial.clone(), content);
+        throttle.act(&mut state, acts);
     }
     let message = events.result().await;
     throttle.stop().await?;

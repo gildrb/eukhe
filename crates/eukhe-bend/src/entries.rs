@@ -144,6 +144,8 @@ pub enum Entry {
     NodeError = 265,
     /// `bend/ffi_repeat.bend`: a stepper.
     Repeat = 266,
+    /// `bend/ffi_throttle.bend`: a stepper.
+    Throttle = 267,
 }
 
 impl Entry {
@@ -218,6 +220,7 @@ impl Entry {
         Entry::DocPlan,
         Entry::NodeError,
         Entry::Repeat,
+        Entry::Throttle,
     ];
 
     /// The id `bend/core.bend` dispatches on.

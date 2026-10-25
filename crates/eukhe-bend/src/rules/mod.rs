@@ -23,5 +23,6 @@ pub mod scan;
 pub mod semver;
 pub mod shell;
 pub mod submission;
+pub mod throttle;
 pub mod tokens;
 pub mod tool_surface;
