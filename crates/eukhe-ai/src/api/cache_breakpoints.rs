@@ -4,18 +4,22 @@
 //! Anthropic Messages (`cache_control`), the Anthropic-format marks of
 //! OpenAI-compatible proxies, and Bedrock Converse (`cachePoint`).
 //!
-//! The budget rule. A request with no marked block keeps its upstream marks
-//! byte for byte. A request with marked blocks keeps the end-of-request mark
-//! (on the last block of the last conversation message) and one mark per
-//! marked block; a marked block that also ends the request counts once. The
-//! provider's optional marks (system prompt, tools, the OAuth identity block)
-//! then take the slots left, in the provider's priority order. More than
-//! [`MAX_MARKED_BLOCKS`] marked blocks is a caller bug: the request fails
-//! before it is sent, never with a silently dropped mark.
+//! The budget rule runs as the compiled core
+//! (`eukhe_bend::rules::cache_marks`, `laws/cache_marks.bend`). A request
+//! with no marked block keeps its upstream marks byte for byte. A request
+//! with marked blocks keeps the end-of-request mark (on the last block of
+//! the last conversation message) and one mark per marked block; a marked
+//! block that also ends the request counts once. The provider's optional
+//! marks (system prompt, tools, the OAuth identity block) then take the
+//! slots left, in the provider's priority order. Too many marked blocks is
+//! a caller bug: the request fails before it is sent, never with a
+//! silently dropped mark. This module gathers the counts the core decides
+//! on.
 //!
 //! Only the text blocks of user messages carry marks; tool-result content
 //! never does.
 
+use eukhe_bend::rules::cache_marks;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, ErrorReason, JsonValue, Message, Model, StopReason,
     Usage, UserContent, UserContentBlock,
@@ -23,12 +27,6 @@ use eukhe_types::pi_ai::{
 
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::now_ms;
-
-/// Cache marks one request may carry (the Anthropic and Bedrock limit).
-pub const MAX_CACHE_MARKS: usize = 4;
-
-/// Marked blocks one request may carry: one slot stays for the end mark.
-pub const MAX_MARKED_BLOCKS: usize = MAX_CACHE_MARKS - 1;
 
 /// Whether a user content block carries an explicit cache breakpoint. Only
 /// text blocks can carry one.
@@ -59,35 +57,34 @@ pub fn count_cache_breakpoints(messages: &[Message]) -> usize {
 }
 
 /// The early error stream for a transcript that marks more user text blocks
-/// than [`MAX_MARKED_BLOCKS`]; `None` when the count fits. Providers with a
+/// than one request may carry; `None` when the count fits. Providers with a
 /// capped mark budget call it before they build the request.
 #[must_use]
 pub fn excess_breakpoints_error(
     model: &Model,
     messages: &[Message],
 ) -> Option<AssistantMessageEventStream> {
-    let marked = count_cache_breakpoints(messages);
-    if marked <= MAX_MARKED_BLOCKS {
-        return None;
-    }
-    let message = AssistantMessage { content: Vec::new(),
-    api: model.api.clone(),
-    provider: model.provider.clone(),
-    model: model.id.clone(),
-    response_model: None,
-    response_id: None,
-    provider_thinking_level: None,
-    thinking_level: None,
-    diagnostics: None,
-    usage: Usage::default(),
-    stop_reason: StopReason::Error,
-    deferred: None,
-    error_message: Some(format!(
-        "Too many cache breakpoints: the request marks {marked} blocks, at most {MAX_MARKED_BLOCKS} are allowed"
-    )),
-    raw_stop_reason: None,
-    end_turn: None,
-    timestamp: now_ms(), duration_ms: None, timing: None };
+    let error_message = cache_marks::excess(count_cache_breakpoints(messages))?;
+    let message = AssistantMessage {
+        content: Vec::new(),
+        api: model.api.clone(),
+        provider: model.provider.clone(),
+        model: model.id.clone(),
+        response_model: None,
+        response_id: None,
+        provider_thinking_level: None,
+        thinking_level: None,
+        diagnostics: None,
+        usage: Usage::default(),
+        stop_reason: StopReason::Error,
+        deferred: None,
+        error_message: Some(error_message),
+        raw_stop_reason: None,
+        end_turn: None,
+        timestamp: now_ms(),
+        duration_ms: None,
+        timing: None,
+    };
     let stream = AssistantMessageEventStream::new();
     stream.push(AssistantMessageEvent::Error {
         reason: ErrorReason::Error,
@@ -97,42 +94,19 @@ pub fn excess_breakpoints_error(
     Some(stream)
 }
 
-/// The cache-mark slots one request has left for its optional marks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CacheMarkBudget {
-    free: usize,
-}
-
-impl CacheMarkBudget {
-    /// The budget left after the marks the converted messages carry: every
-    /// content block with `mark_key` (an Anthropic `cache_control` key, a
-    /// Bedrock `cachePoint` block). These are the marked blocks and the end
-    /// mark, so a marked block that ends the request counts once.
-    #[must_use]
-    pub fn after_message_marks(messages: &[JsonValue], mark_key: &str) -> Self {
-        let placed = messages
-            .iter()
-            .filter_map(|message| message.get("content").and_then(JsonValue::as_array))
-            .flatten()
-            .filter(|block| block.get(mark_key).is_some())
-            .count();
-        Self {
-            free: MAX_CACHE_MARKS.saturating_sub(placed),
-        }
-    }
-
-    /// Spend one slot on an optional mark: `true` when a slot was left.
-    /// Callers ask in their priority order, and only for marks their request
-    /// carries.
-    pub fn take(&mut self) -> bool {
-        match self.free.checked_sub(1) {
-            Some(free) => {
-                self.free = free;
-                true
-            }
-            None => false,
-        }
-    }
+/// The marks the converted messages carry: every content block with
+/// `mark_key` (an Anthropic `cache_control` key, a Bedrock `cachePoint`
+/// block). These are the marked blocks and the end mark, so a marked block
+/// that ends the request counts once. The optional marks take the slots
+/// `eukhe_bend::rules::cache_marks::grant` leaves after them.
+#[must_use]
+pub fn placed_marks(messages: &[JsonValue], mark_key: &str) -> usize {
+    messages
+        .iter()
+        .filter_map(|message| message.get("content").and_then(JsonValue::as_array))
+        .flatten()
+        .filter(|block| block.get(mark_key).is_some())
+        .count()
 }
 
 #[cfg(test)]
@@ -167,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn budget_subtracts_placed_marks() {
+    fn counts_placed_marks() {
         let messages = vec![json!({
             "role": "user",
             "content": [
@@ -175,10 +149,6 @@ mod tests {
                 { "type": "text", "text": "b" },
             ],
         })];
-        let mut budget = CacheMarkBudget::after_message_marks(&messages, "cache_control");
-        assert!(budget.take());
-        assert!(budget.take());
-        assert!(budget.take());
-        assert!(!budget.take());
+        assert_eq!(placed_marks(&messages, "cache_control"), 1);
     }
 }

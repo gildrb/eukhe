@@ -45,7 +45,7 @@ pub use convert::{map_thinking_level_to_effort, supports_prompt_caching};
 
 use self::client::{BedrockFailure, SendRequest, StreamValue};
 use self::events::{handle_metadata, StreamBlocks};
-use super::cache_breakpoints::{excess_breakpoints_error, CacheMarkBudget};
+use super::cache_breakpoints::{excess_breakpoints_error, placed_marks};
 use super::lazy::lazy_stream;
 use super::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
@@ -422,13 +422,12 @@ fn build_command_input(
     let converted = convert::convert_messages(messages, model, cache_retention, env)?;
     // eukhe addition: the message marks are fixed; the system cache point
     // takes a slot only when one is left.
-    let mut budget = CacheMarkBudget::after_message_marks(&converted, "cachePoint");
     let system = convert::build_system_prompt(
         initial_system_prompt.as_deref(),
         model,
         cache_retention,
         env,
-        &mut budget,
+        placed_marks(&converted, "cachePoint"),
     );
     let mut inference_config = JsonObject::new();
     if let Some(max_tokens) = inference_max_tokens {

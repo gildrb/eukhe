@@ -15,7 +15,7 @@ use serde_json::json;
 
 use super::client_config::get_configured_bedrock_region;
 use super::{BedrockOptions, BedrockThinkingDisplay, BedrockToolChoice};
-use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
+use crate::api::cache_breakpoints::has_cache_breakpoint;
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, ConstrainedSamplingError, StrictPlan, StrictSupport,
     StrictToolParameters,
@@ -134,21 +134,19 @@ fn breakpoint_cache_point() -> JsonValue {
 }
 
 /// TS `buildSystemPrompt`. eukhe addition: with marked blocks the system
-/// cache point is optional and takes a mark slot only while `budget` has one
-/// left after the message marks.
+/// cache point is optional and takes a mark slot only while one is left
+/// after the `placed` message marks (`eukhe_bend::rules::cache_marks`).
 pub(crate) fn build_system_prompt(
     system_prompt: Option<&str>,
     model: &Model,
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
-    budget: &mut CacheMarkBudget,
+    placed: usize,
 ) -> Option<Vec<JsonValue>> {
     let system_prompt = system_prompt.filter(|prompt| !prompt.is_empty())?;
     let mut blocks = vec![json!({ "text": sanitize_surrogates(system_prompt) })];
-    if cache_retention != CacheRetention::None
-        && supports_prompt_caching(model, env)
-        && budget.take()
-    {
+    let want = cache_retention != CacheRetention::None && supports_prompt_caching(model, env);
+    if let [true] = eukhe_bend::rules::cache_marks::grant(placed, [want]) {
         blocks.push(cache_point(cache_retention));
     }
     Some(blocks)

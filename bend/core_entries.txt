@@ -75,6 +75,9 @@
 203 gateway_backoff
 204 slash_suggest
 205 gateway_commands
+230 cache_marks
+231 overflow
+232 stream_failure
 260 codemode_id
 261 submission
 262 scan

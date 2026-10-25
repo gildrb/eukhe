@@ -91,3 +91,7 @@ import ./laws/doc_plan.bend as DocPlan
 import ./laws/mcp_url.bend as McpUrl
 import ./laws/slash_args/model.bend as SlashArgs
 import ./laws/slash_args/entry.bend as SlashArgsEntry
+import ./laws/cache_marks.bend as CacheMarks
+import ./laws/text_pat.bend as TextPat
+import ./laws/overflow.bend as Overflow
+import ./laws/stream_failure.bend as StreamFailure

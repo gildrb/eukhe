@@ -4,6 +4,7 @@
 
 pub mod approvals;
 pub mod bound;
+pub mod cache_marks;
 pub mod codemode_id;
 pub mod color;
 pub mod compactor;
@@ -18,6 +19,7 @@ pub mod infer_guard;
 pub mod infer_threshold;
 pub mod mcp_url;
 pub mod model_facts;
+pub mod overflow;
 pub mod quirks;
 pub mod retry;
 pub mod retry_note;
@@ -27,6 +29,7 @@ pub mod semver;
 pub mod shell;
 pub mod slash;
 pub mod slash_args;
+pub mod stream_failure;
 pub mod submission;
 pub mod theme;
 pub mod tokens;

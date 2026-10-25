@@ -7,6 +7,7 @@ import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_bound.bend as ffi_bound
+import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
@@ -51,6 +52,7 @@ import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
+import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
@@ -70,6 +72,7 @@ import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_args.bend as ffi_slash_args
 import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
+import ./ffi_stream_failure.bend as ffi_stream_failure
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_theme.bend as ffi_theme
@@ -228,6 +231,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_slash_suggest.ffi(input)
     case 205:
       ffi_gateway_commands.ffi(input)
+    case 230:
+      ffi_cache_marks.ffi(input)
+    case 231:
+      ffi_overflow.ffi(input)
+    case 232:
+      ffi_stream_failure.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:
