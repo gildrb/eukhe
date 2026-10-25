@@ -55,6 +55,7 @@ import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
+import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -245,6 +246,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_slash_args.ffi(input)
     case 292:
       ffi_goal_text.ffi(input)
+    case 293:
+      ffi_redirect_input.ffi(input)
     case _:
       W.err("unknown entry")
 

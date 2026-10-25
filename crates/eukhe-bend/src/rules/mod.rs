@@ -20,6 +20,7 @@ pub mod infer_threshold;
 pub mod mcp_url;
 pub mod model_facts;
 pub mod quirks;
+pub mod redirect_input;
 pub mod retry;
 pub mod retry_note;
 pub mod runners;

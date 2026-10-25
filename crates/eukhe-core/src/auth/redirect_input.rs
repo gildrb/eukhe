@@ -4,18 +4,13 @@
 //! user-facing texts of the paste retry loop. A browser on another machine
 //! cannot reach the localhost callback, so the user copies the address of
 //! the failed page; terminal and browser copies add quotes, angle brackets,
-//! surrounding whitespace, and line breaks inside a wrapped address.
+//! surrounding whitespace, and line breaks inside a wrapped address. Every
+//! decision and text is the compiled core's
+//! (`eukhe_bend::rules::redirect_input`, `laws/redirect_input.bend`).
 
 use std::fmt;
 
-/// Characters a terminal, chat, or browser copy wraps an address in
-/// (ASCII quotes, backticks, angle brackets, and typographic quotes).
-const WRAPPERS: [char; 9] = [
-    '"', '\'', '`', '<', '>', '\u{201C}', '\u{201D}', '\u{2018}', '\u{2019}',
-];
-
-/// The query keys that mark a paste as a redirect's parameters.
-const REDIRECT_KEYS: [&str; 3] = ["code", "state", "error"];
+use eukhe_bend::rules::redirect_input as rules;
 
 /// One parsed paste: the authorization code and the echoed `state`
 /// (`None` when the paste carries none, e.g. a bare code).
@@ -48,27 +43,28 @@ pub enum RedirectInputError {
     },
 }
 
-impl fmt::Display for RedirectInputError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RedirectInputError::MissingCode => formatter.write_str(
-                "That address has no authorization code. Paste the full address of the page \
-                 your browser ended on.",
-            ),
-            RedirectInputError::StateMismatch => formatter.write_str(
-                "That address is from a different login attempt (state mismatch). Paste the \
-                 address from the browser tab this login opened.",
-            ),
-            RedirectInputError::Provider { error, description } => {
-                write!(formatter, "The sign-in page reported an error: {error}")?;
-                if let Some(description) = description {
-                    write!(formatter, " ({description})")?;
-                }
-                formatter.write_str(
-                    ". Open the login link again and sign in, then paste the new address.",
-                )
+impl From<rules::Fail> for RedirectInputError {
+    fn from(fail: rules::Fail) -> Self {
+        match fail {
+            rules::Fail::MissingCode => RedirectInputError::MissingCode,
+            rules::Fail::StateMismatch => RedirectInputError::StateMismatch,
+            rules::Fail::Provider { error, description } => {
+                RedirectInputError::Provider { error, description }
             }
         }
+    }
+}
+
+impl fmt::Display for RedirectInputError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&rules::text(&match self {
+            RedirectInputError::MissingCode => rules::Fail::MissingCode,
+            RedirectInputError::StateMismatch => rules::Fail::StateMismatch,
+            RedirectInputError::Provider { error, description } => rules::Fail::Provider {
+                error: error.clone(),
+                description: description.clone(),
+            },
+        }))
     }
 }
 
@@ -85,17 +81,8 @@ impl PastedAuthorization {
         self,
         expected_state: &str,
     ) -> Result<VerifiedAuthorization, RedirectInputError> {
-        match self.state {
-            Some(state) if state != expected_state => Err(RedirectInputError::StateMismatch),
-            Some(state) => Ok(VerifiedAuthorization {
-                code: self.code,
-                state,
-            }),
-            None => Ok(VerifiedAuthorization {
-                code: self.code,
-                state: expected_state.to_string(),
-            }),
-        }
+        let (code, state) = rules::verify(&self.code, self.state.as_deref(), expected_state)?;
+        Ok(VerifiedAuthorization { code, state })
     }
 }
 
@@ -106,19 +93,7 @@ impl PastedAuthorization {
 /// either.
 #[must_use]
 pub fn clean_paste(input: &str) -> String {
-    let compact: String = input
-        .chars()
-        .filter(|character| {
-            !character.is_whitespace()
-                && !matches!(
-                    character,
-                    '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
-                )
-        })
-        .collect();
-    compact
-        .trim_matches(|character| WRAPPERS.contains(&character))
-        .to_string()
+    rules::clean(input)
 }
 
 /// Parse one pasted authorization input: a callback address (any host,
@@ -134,65 +109,10 @@ pub fn clean_paste(input: &str) -> String {
 /// and [`RedirectInputError::Provider`] when the redirect carries an
 /// OAuth `error`.
 pub fn parse_redirect_input(input: &str) -> Result<PastedAuthorization, RedirectInputError> {
-    let cleaned = clean_paste(input);
-    let value = cleaned.as_str();
-    if let Some((_, rest)) = value.split_once('?') {
-        // An address with a query (`localhost:1/callback?code=..`, the
-        // scheme optional); the fragment is the fallback carrier.
-        let (query, fragment) = rest.split_once('#').unwrap_or((rest, ""));
-        return from_params(&[query.trim_end_matches('/'), fragment]);
-    }
-    if let Some((_, address_rest)) = value.split_once("://") {
-        // An address without a query: only a fragment can carry the code.
-        let fragment = address_rest
-            .split_once('#')
-            .map_or("", |(_, fragment)| fragment);
-        return from_params(&[fragment]);
-    }
-    let (head, fragment) = value.split_once('#').unwrap_or((value, ""));
-    let carries_params = |text: &str| {
-        text.split('&').any(|pair| {
-            pair.split_once('=')
-                .is_some_and(|(key, _)| REDIRECT_KEYS.contains(&key))
-        })
-    };
-    if carries_params(head) {
-        // `code=..&state=..` (a fragment after it is page noise).
-        return from_params(&[head.trim_end_matches('/')]);
-    }
-    if carries_params(fragment) {
-        // A scheme-less address whose fragment carries the redirect.
-        return from_params(&[fragment]);
-    }
-    if head.is_empty() {
-        return Err(RedirectInputError::MissingCode);
-    }
+    let pasted = rules::parse(input)?;
     Ok(PastedAuthorization {
-        code: head.to_string(),
-        state: (!fragment.is_empty()).then(|| fragment.to_string()),
-    })
-}
-
-/// The redirect parameters of the given carriers (the query first, then
-/// the fragment): an OAuth error wins, then the code and its state.
-fn from_params(carriers: &[&str]) -> Result<PastedAuthorization, RedirectInputError> {
-    let get = |name: &str| {
-        carriers.iter().find_map(|carrier| {
-            url::form_urlencoded::parse(carrier.as_bytes())
-                .find(|(key, value)| key == name && !value.is_empty())
-                .map(|(_, value)| value.into_owned())
-        })
-    };
-    if let Some(error) = get("error") {
-        return Err(RedirectInputError::Provider {
-            error,
-            description: get("error_description"),
-        });
-    }
-    let code = get("code").ok_or(RedirectInputError::MissingCode)?;
-    Ok(PastedAuthorization {
-        code,
-        state: get("state"),
+        code: pasted.code,
+        state: pasted.state,
     })
 }
 
@@ -200,188 +120,13 @@ fn from_params(carriers: &[&str]) -> Result<PastedAuthorization, RedirectInputEr
 /// ways forward (the same login stays open with its verifier and state).
 #[must_use]
 pub fn exchange_retry_notice(error: &str) -> String {
-    format!(
-        "Login did not complete: {}. Paste the address again, or open the login link again \
-         and sign in.",
-        error.trim().trim_end_matches('.')
-    )
+    rules::notice(error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    #[test]
-    fn every_copied_address_shape_parses() {
-        let cases = [
-            (
-                "http://localhost:53692/callback?code=abc&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://127.0.0.1:1455/auth/callback?code=abc&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback/?code=abc&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback?code=abc&state=st/",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback?code=abc&state=st#_",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback?x=1&code=abc&y=2&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback?code=a%2Bb%20c&state=s%26t",
-                "a+b c",
-                Some("s&t"),
-            ),
-            (
-                "localhost:53692/callback?code=abc&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/callback#code=abc&state=st",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "  \"http://localhost:53692/callback?code=abc&state=st\"\n",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "<http://localhost:53692/callback?code=abc&state=st>",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "'http://localhost:53692/callback?code=abc&state=st'",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "\u{201C}http://localhost:53692/callback?code=abc&state=st\u{201D}",
-                "abc",
-                Some("st"),
-            ),
-            (
-                "http://localhost:53692/call\nback?code=ab\r\nc&sta\tte=st",
-                "abc",
-                Some("st"),
-            ),
-            ("code=abc&state=st", "abc", Some("st")),
-            ("state=st&code=abc", "abc", Some("st")),
-            ("http://localhost:53692/callback?code=abc", "abc", None),
-            ("abc#st", "abc", Some("st")),
-            ("  abc#st\n", "abc", Some("st")),
-            ("abc", "abc", None),
-            ("abc==", "abc==", None),
-            ("`abc`", "abc", None),
-        ];
-        for (input, code, state) in cases {
-            assert_eq!(
-                parse_redirect_input(input),
-                Ok(PastedAuthorization {
-                    code: code.to_string(),
-                    state: state.map(str::to_string),
-                }),
-                "{input:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn inputs_without_a_code_say_so() {
-        for input in [
-            "",
-            "   \n",
-            "\"\"",
-            "http://localhost:53692/callback",
-            "http://localhost:53692/callback?state=st",
-            "http://localhost:53692/callback?code=&state=st",
-            "#st",
-            "state=st",
-        ] {
-            assert_eq!(
-                parse_redirect_input(input),
-                Err(RedirectInputError::MissingCode),
-                "{input:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_oauth_error_redirect_reports_its_description() {
-        let error = parse_redirect_input(
-            "http://localhost:53692/callback?error=access_denied&error_description=The+user+said+no&state=st",
-        )
-        .unwrap_err();
-        assert_eq!(
-            error,
-            RedirectInputError::Provider {
-                error: "access_denied".to_string(),
-                description: Some("The user said no".to_string()),
-            }
-        );
-        assert_eq!(
-            error.to_string(),
-            "The sign-in page reported an error: access_denied (The user said no). Open the \
-             login link again and sign in, then paste the new address."
-        );
-        assert_eq!(
-            parse_redirect_input("error=server_error"),
-            Err(RedirectInputError::Provider {
-                error: "server_error".to_string(),
-                description: None,
-            })
-        );
-    }
-
-    #[test]
-    fn the_state_check_matches_or_substitutes() {
-        let echoed = PastedAuthorization {
-            code: "abc".to_string(),
-            state: Some("st".to_string()),
-        };
-        assert_eq!(
-            echoed.clone().verify_state("st"),
-            Ok(VerifiedAuthorization {
-                code: "abc".to_string(),
-                state: "st".to_string(),
-            })
-        );
-        assert_eq!(
-            echoed.verify_state("other"),
-            Err(RedirectInputError::StateMismatch)
-        );
-        let bare = PastedAuthorization {
-            code: "abc".to_string(),
-            state: None,
-        };
-        assert_eq!(
-            bare.verify_state("st"),
-            Ok(VerifiedAuthorization {
-                code: "abc".to_string(),
-                state: "st".to_string(),
-            })
-        );
-    }
 
     /// One generated paste shape around a code and an optional state.
     #[derive(Debug, Clone)]
