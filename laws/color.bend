@@ -388,7 +388,9 @@ law color_to256_example:
   {[Co.to256(Co.Rgb{250, 0, 0}), Co.to256(Co.Rgb{160, 155, 164}), Co.to256(Co.Rgb{255, 255, 255})] == [196, 247, 231] : List<&2, U32>} & {FCo.ffi("0,1,250,0,0,") == "1,196," : String}
 
 # the contrast test with the luminances la and lb: the darker plus the
-# flare (0.05) times num, at most the lighter plus the flare times den
+# flare (0.05) times num, at most the lighter plus the flare times den; a
+# luminance is at most 1e8 and num, den at most 40 (the law's domain), so
+# no product passes 2^32: the comparison is exact
 def th.ratio.if(lt: Bool, +la: U32, +lb: U32, +num: U32, +den: U32) -> Bool:
   match lt:
     case True{}:
@@ -403,7 +405,8 @@ def th.contrast(+a: Co.Rgb, +b: Co.Rgb, +num: U32, +den: U32) -> Bool:
 
 # LAW color_contrast_spec: the contrast test is the WCAG ratio (L_light + 0.05) / (L_dark +
 # 0.05) at least num / den, compared exactly on integers, for every two
-# colors and ratio
+# colors and every ratio of terms up to 40 (the ratios the themes ask:
+# 9/2, 3/1); past 40 the anchors of color_contrast_no_wrap_example
 # EXCLUDES: a test that passes any two different colors, the ratio upside
 #   down, the flare left out
 law color_contrast_spec:
@@ -411,7 +414,15 @@ law color_contrast_spec:
   for +b: Co.Rgb
   for +num: U32
   for +den: U32
+  for small: {Bool.and(U32.is_le(num, 40), U32.is_le(den, 40)) == True{} : Bool}
   {Co.contrast_ge(a, b, num, den) == th.contrast(a, b, num, den) : Bool}
+
+# LAW color_contrast_no_wrap_example: past terms of 40 the test stays exact: white on white (1:1)
+# meets neither 45/10 nor 41/40 but meets 40/40; black on white (21:1)
+# meets 41/40 and 4200000000/200000000 (21:1) but not 4200000001/200000000
+# EXCLUDES: contrast arithmetic that wraps past 2^32
+law color_contrast_no_wrap_example:
+  {[Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 45, 10), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 40, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000000, 200000000), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000001, 200000000)] == [False{}, False{}, True{}, True{}, True{}, False{}] : List<&2, Bool>}
 
 # x is a code from lo to hi
 def th.within(+x: U32, lo: U32, hi: U32) -> Bool:

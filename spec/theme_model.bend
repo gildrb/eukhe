@@ -9,6 +9,7 @@ import Base
 import ../bend/color.bend as Co
 import ../bend/theme/file.bend as TFile
 import ../bend/theme/palette.bend as TPalette
+import ../bend/theme/reader.bend as TReader
 import ../bend/theme/bundled.bend as TBundled
 import ./theme_rules.bend as Ts
 
@@ -154,3 +155,68 @@ def blank.cols(ts: List<&2, U32>) -> List<&2, TFile.REnt>:
 
 def blank() -> TFile.RFile:
   TFile.RFile{"blank", [], blank.cols(toks()), None{}, None{}, None{}}
+
+# a file's reading as an optional resolved file: none when it failed
+def loaded(r: TReader.Read) -> Maybe<&2, TFile.Th>:
+  match r:
+    case TReader.Loaded{th}:
+      Some{th}
+    case TReader.Failed{f}:
+      None{}
+
+# the file writes token t
+def has(+cols: List<&2, TFile.Ent>, +t: U32) -> Bool:
+  Maybe.is_some(&2, TFile.Val, tok_get(cols, t))
+
+# what token t needs of a file, by which token it is (refinementHeader
+# 14, refinementSummary 15, mdBody 18, background 57, foreground 58,
+# else a required one): mdBody needs itself or text (9), a required token
+# itself, the other four nothing
+def need(t14: Bool, t15: Bool, t18: Bool, t57: Bool, t58: Bool, +cols: List<&2, TFile.Ent>, +t: U32) -> Bool:
+  match t14:
+    case True{}:
+      True{}
+    case False{}:
+      match t15:
+        case True{}:
+          True{}
+        case False{}:
+          match t18:
+            case True{}:
+              Bool.or(has(cols, t), has(cols, 9))
+            case False{}:
+              match t57:
+                case True{}:
+                  True{}
+                case False{}:
+                  match t58:
+                    case True{}:
+                      True{}
+                    case False{}:
+                      has(cols, t)
+
+def ok(+cols: List<&2, TFile.Ent>, +t: U32) -> Bool:
+  need(U32.is_eq(t, 14), U32.is_eq(t, 15), U32.is_eq(t, 18), U32.is_eq(t, 57), U32.is_eq(t, 58), cols, t)
+
+def valid.go(+cols: List<&2, TFile.Ent>, ts: List<&2, U32>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case Con{t, rest}:
+      Bool.and(ok(cols, t), valid.go(cols, rest))
+
+# a file is valid when every token gets what it needs
+def valid(+cols: List<&2, TFile.Ent>) -> Bool:
+  valid.go(cols, toks())
+
+# every token of a palette has a value
+def complete(p: List<&2, Maybe<&2, TFile.Val>>) -> Bool:
+  match p:
+    case Nil{}:
+      True{}
+    case Con{m, rest}:
+      match m:
+        case None{}:
+          False{}
+        case Some{v}:
+          complete(rest)

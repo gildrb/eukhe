@@ -95,3 +95,47 @@ law theme_tables_spec:
 # EXCLUDES: an empty palette answered for a valid file
 law theme_vals_example:
   {TPalette.vals([Some{TFile.Idx{3}}, None{}, Some{TFile.Hex{Co.Rgb{1, 2, 3}}}]) == [TFile.Idx{3}, TFile.Dflt{}, TFile.Hex{Co.Rgb{1, 2, 3}}] : List<&2, TFile.Val>} & {String.take(FTh.ffi(Tw.req(FTh.Load{Tm.blank()}, "")), 12n) == "1,59,0,0,0,0" : String}
+
+# LAW theme_load_spec (R3): a file loads exactly when it reads, to what it reads
+# EXCLUDES: a load that never answers (theme_load_valid made vacuous), a
+#   load of a file that does not read
+law theme_load_spec:
+  for f: TFile.RFile
+  {TReader.load(f) == Tm.loaded(TReader.read(f)) : Maybe<&2, TFile.Th>}
+
+# LAW theme_valid_spec (R3): a file is valid exactly when it writes every required token, and
+# mdBody or text, for every file
+# EXCLUDES: a validity test that always fails or always holds
+#   (theme_load_valid, theme_tokens_complete made vacuous)
+law theme_valid_spec:
+  for nm: String
+  for +cols: List<&2, TFile.Ent>
+  for pg: Maybe<&2, Co.Rgb>
+  for cd: Maybe<&2, Co.Rgb>
+  for io: Maybe<&2, Co.Rgb>
+  {TToken.valid(TFile.Th{nm, cols, pg, cd, io}) == Tm.valid(cols) : Bool}
+
+# LAW theme_complete_spec (R4): a palette is complete exactly when every token has a value
+# EXCLUDES: a completeness test that always fails or always holds
+law theme_complete_spec:
+  for p: List<&2, Maybe<&2, TFile.Val>>
+  {TPalette.complete(p) == Tm.complete(p) : Bool}
+
+# LAW theme_rename_spec (R4): renaming a file changes its name only
+# EXCLUDES: a rename that changes the colors or the export backgrounds
+#   (theme_palette_name_free, theme_mode_name_free made vacuous)
+law theme_rename_spec:
+  for nm: String
+  for cols: List<&2, TFile.Ent>
+  for pg: Maybe<&2, Co.Rgb>
+  for cd: Maybe<&2, Co.Rgb>
+  for io: Maybe<&2, Co.Rgb>
+  for n: String
+  {TPalette.rename(TFile.Th{nm, cols, pg, cd, io}, n) == TFile.Th{n, cols, pg, cd, io} : TFile.Th}
+
+# LAW theme_valid_example (R3): anchors: the file with every required token written loads and
+# is valid; a file with no colors is not valid; a palette with an unset
+# token is not complete
+# EXCLUDES: a reading of the laws above the human did not mean
+law theme_valid_example:
+  {Maybe.is_some(&2, TFile.Th, TReader.load(Tm.blank())) == True{} : Bool} & {TToken.valid(TFile.Th{"e", [], None{}, None{}, None{}}) == False{} : Bool} & {[TPalette.complete([Some{TFile.Dflt{}}, None{}]), TPalette.complete([Some{TFile.Dflt{}}])] == [False{}, True{}] : List<&2, Bool>}

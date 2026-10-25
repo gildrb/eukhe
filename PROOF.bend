@@ -621,6 +621,11 @@ import ./proof/theme_model/theme_fill_map_spec.bend as PThemeFillMapSpec
 import ./proof/theme_model/theme_dflt_spec.bend as PThemeDfltSpec
 import ./proof/theme_model/theme_tables_spec.bend as PThemeTablesSpec
 import ./proof/theme_model/theme_vals_example.bend as PThemeValsExample
+import ./proof/theme_model/theme_load_spec.bend as PThemeLoadSpec
+import ./proof/theme_model/theme_valid_spec.bend as PThemeValidSpec
+import ./proof/theme_model/theme_complete_spec.bend as PThemeCompleteSpec
+import ./proof/theme_model/theme_rename_spec.bend as PThemeRenameSpec
+import ./proof/theme_model/theme_valid_example.bend as PThemeValidExample
 import ./proof/color/theme_hex_example.bend as PThemeHexExample
 import ./proof/color/theme_hex_digits.bend as PThemeHexDigits
 import ./proof/color/theme_hex_value.bend as PThemeHexValue
@@ -655,6 +660,7 @@ import ./proof/color/color_ansi256_spec.bend as PColorAnsi256Spec
 import ./proof/color/color_past_255_example.bend as PColorPast255Example
 import ./proof/color/color_hex_spec.bend as PColorHexSpec
 import ./proof/color/color_num_spec.bend as PColorNumSpec
+import ./proof/color/color_contrast_no_wrap_example.bend as PColorContrastNoWrapExample
 import ./proof/color/base.bend as LAColor
 import ./proof/color/color_ffi_answers.bend as PColorFfiAnswers
 import ./proof/color/color_ffi_malformed_exact.bend as PColorFfiMalformedExact

@@ -235,3 +235,20 @@ fn a_name_never_reaches_outside_the_sources() {
         ])
     );
 }
+
+/// A load reads at most 4096 theme files and says so.
+#[test]
+fn a_load_reads_at_most_4096_files() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    for i in 0..4097 {
+        std::fs::write(dir.path().join(format!("{i:05}.json")), "{}").expect("write");
+    }
+    let resolved = custom_dir_sources(dir.path()).resolve("x", THEME_RULES);
+    assert_eq!(
+        (resolved.warnings[1].as_str(), resolved.warnings.len()),
+        (
+            "4097 theme files found; only the first 4096 are read",
+            2 + 4096
+        )
+    );
+}
