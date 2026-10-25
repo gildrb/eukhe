@@ -20,8 +20,6 @@ mod command_policy;
 mod http;
 mod pairing;
 mod protocol;
-#[cfg(test)]
-mod testing;
 
 pub use pairing::{opener_page, pairing_token, PairingToken, Rotation};
 

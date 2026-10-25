@@ -1,39 +1,47 @@
 # ffi_dash: the entry of the compiled Bend core for the dashboard's
-# pairing choices (bend/dash.bend section 6; Rust: crates/eukhe-dashboard
-# pairing.rs, http.rs, bridge.rs). Each request names one choice and
-# carries what Rust met (crates/eukhe-bend/WIRE.md is the grammar):
+# pairing gate (bend/dash.bend; Rust: crates/eukhe-dashboard pairing.rs,
+# http.rs, bridge.rs). The codec is the wire format of bend/wire.bend
+# (crates/eukhe-bend/WIRE.md).
+#
+# The call answers one choice of what Rust met:
 #
 #   tag 0  token   a presented text (a Said)
 #                  -> 0, the 32 bytes (List<Nat>) | 1 blank | 2 junk
 #   tag 1  stored  a Disk  -> 0, the 32 bytes | 1 no token
-#   tag 2  gate    a First, a Disk, same (Bool)
-#                  -> 0 admit | 1, the text the tab shows (String)
-#   tag 3  frame   a Disk, same (Bool)
-#                  -> 0 run | 1, the text the tab shows
-#   tag 4  keep    a Rotation, a Disk, the file's mode (Nat)
+#   tag 2  keep    a Rotation, a Disk, the file's mode (Nat)
 #                  -> 0 mint | 1 reuse | 2 restrict | 3 unreadable
 #                     | 4 tokenless
+#
+# The stepper is one socket (`Dm.Conn`): Rust opens it when the socket
+# opens, sends each frame as it arrives with the token file read at that
+# moment and whether its constant-time comparison found the socket's token
+# equal to the file's, and does what the reply says.
+#
+#   open   nothing                          reply: empty
+#   step   0, a First, a Disk, matches      (the socket's first frame)
+#          | 1, a Disk, matches             (a later text frame)
+#          reply: 0 paired | 1 run | 2, the text the tab shows (the
+#          socket closes) | 3 closed (nothing runs)
 #
 #   Disk      0 none | 1 unreadable | 2 Holds{s: String} | 3 huge
 #   Said      0 Spoken{s: String} | 1 overlong
 #   First     0 no text | 1 not a pairing | 2 Pair{token: Said}
 #   Rotation  0 keep | 1 rotate
 #
-# same: Rust found the presented and the stored token both decoded and
-# equal (a constant-time comparison). Malformed input, or input left after
-# the request, answers `E dash: malformed request`, never a default.
-# Pure: no IO, no @unsafe.
+# A malformed call, or one with input left over, answers
+# `E dash: malformed request`; a malformed event, or one with input left
+# over, answers `E dash: malformed event` and keeps the socket; an open
+# with input opens the refused state, which answers every step
+# `E dash: the open was refused`. Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W
 import ./dash.bend as Dm
 
-# A request of the entry
+# A request of the call
 type Req is Data:
   QToken{said: Dm.Said}
   QStored{file: Dm.Disk}
-  QGate{first: Dm.First, file: Dm.Disk, same: Bool}
-  QFrame{file: Dm.Disk, same: Bool}
   QKeep{rotation: Dm.Rotation, file: Dm.Disk, mode: Nat}
 
 # Requests
@@ -144,41 +152,6 @@ def get_stored(r: W.Dec<Dm.Disk>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
-def get_gate.same(x: Dm.First, f: Dm.Disk, r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{b, s}:
-      W.Got{QGate{x, f, b}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_gate.file(x: Dm.First, r: W.Dec<Dm.Disk>) -> W.Dec<Req>:
-  match r:
-    case W.Got{f, s}:
-      get_gate.same(x, f, W.get_bool(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_gate(r: W.Dec<Dm.First>) -> W.Dec<Req>:
-  match r:
-    case W.Got{x, s}:
-      get_gate.file(x, get_file(W.get_nat(s)))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_frame.same(f: Dm.Disk, r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{b, s}:
-      W.Got{QFrame{f, b}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_frame(r: W.Dec<Dm.Disk>) -> W.Dec<Req>:
-  match r:
-    case W.Got{f, s}:
-      get_frame.same(f, W.get_bool(s))
-    case W.Bad{}:
-      W.Bad{}
-
 def get_keep.mode(o: Dm.Rotation, f: Dm.Disk, r: W.Dec<Nat>) -> W.Dec<Req>:
   match r:
     case W.Got{m, s}:
@@ -207,12 +180,8 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
     case 1n:
       get_stored(get_file(W.get_nat(s)))
     case 2n:
-      get_gate(get_first(W.get_nat(s)))
-    case 3n:
-      get_frame(get_file(W.get_nat(s)))
-    case 4n:
       get_keep(get_rotation(W.get_nat(s)))
-    case 5n+u:
+    case 3n+u:
       W.Bad{}
 
 def get_req.start(r: W.Dec<Nat>) -> W.Dec<Req>:
@@ -247,13 +216,6 @@ def put_stored(m: Maybe<&2, List<&2, Nat>>) -> String:
     case None{}:
       W.put_nat(1n, "")
 
-def put_pass(p: Dm.Pass) -> String:
-  match p:
-    case Dm.Admit{}:
-      W.put_nat(0n, "")
-    case Dm.Refuse{t}:
-      W.put_nat(1n, W.put_str(t, ""))
-
 def keep.tag(k: Dm.Keep) -> Nat:
   match k:
     case Dm.Mint{}:
@@ -274,10 +236,6 @@ def answer(q: Req) -> String:
       put_shown(Dm.shown(t))
     case QStored{f}:
       put_stored(Dm.stored(f))
-    case QGate{x, f, b}:
-      put_pass(Dm.gate(x, f, b))
-    case QFrame{f, b}:
-      put_pass(Dm.frame(f, b))
     case QKeep{o, f, m}:
       W.put_nat(keep.tag(Dm.keep(o, f, m)), "")
 
@@ -295,6 +253,117 @@ def ffi.got(r: W.Dec<Req>) -> String:
     case W.Bad{}:
       W.err("dash: malformed request")
 
-# the entry: decode the request, answer the model's choice
+# the call: decode the request, answer the model's choice
 def ffi(input: String) -> String:
   ffi.got(get_req(input))
+
+# The stepper
+# -----------
+
+def get_ev.matches(x: Dm.First, f: Dm.Disk, r: W.Dec<Bool>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{b, s}:
+      W.Got{Dm.CFirst{x, f, b}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.first(x: Dm.First, r: W.Dec<Dm.Disk>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{f, s}:
+      get_ev.matches(x, f, W.get_bool(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.pair(r: W.Dec<Dm.First>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{x, s}:
+      get_ev.first(x, get_file(W.get_nat(s)))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.later(f: Dm.Disk, r: W.Dec<Bool>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{b, s}:
+      W.Got{Dm.CFrame{f, b}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.frame(r: W.Dec<Dm.Disk>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{f, s}:
+      get_ev.later(f, W.get_bool(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_ev.tag(t: Nat, s: String) -> W.Dec<Dm.CEv>:
+  match t:
+    case 0n:
+      get_ev.pair(get_first(W.get_nat(s)))
+    case 1n:
+      get_ev.frame(get_file(W.get_nat(s)))
+    case 2n+u:
+      W.Bad{}
+
+def get_ev.go(r: W.Dec<Nat>) -> W.Dec<Dm.CEv>:
+  match r:
+    case W.Got{t, s}:
+      get_ev.tag(t, s)
+    case W.Bad{}:
+      W.Bad{}
+
+# the event at the start of s
+def get_ev(s: String) -> W.Dec<Dm.CEv>:
+  get_ev.go(W.get_nat(s))
+
+def put_verdict(v: Dm.Verdict) -> String:
+  match v:
+    case Dm.VPaired{}:
+      W.put_nat(0n, "")
+    case Dm.VRun{}:
+      W.put_nat(1n, "")
+    case Dm.VRefuse{t}:
+      W.put_nat(2n, W.put_str(t, ""))
+    case Dm.VClosed{}:
+      W.put_nat(3n, "")
+
+# a socket, or a refused open
+type St is Data:
+  Live{c: Dm.Conn}
+  Refused{}
+
+def open.end(whole: Bool) -> St & String:
+  match whole:
+    case True{}:
+      (Live{Dm.Waiting{}}, "")
+    case False{}:
+      (Refused{}, W.err("dash: the open takes no input"))
+
+# open: a socket waiting for its pairing
+def open(input: String) -> St & String:
+  open.end(W.end(input))
+
+def step.reply(r: Dm.Conn & Dm.Verdict) -> St & String:
+  (c, v) = r
+  (Live{c}, put_verdict(v))
+
+def step.end(whole: Bool, +c: Dm.Conn, e: Dm.CEv) -> St & String:
+  match whole:
+    case True{}:
+      step.reply(Dm.cstep(c, e))
+    case False{}:
+      (Live{c}, W.err("dash: malformed event"))
+
+def step.ev(+c: Dm.Conn, r: W.Dec<Dm.CEv>) -> St & String:
+  match r:
+    case W.Got{e, rest}:
+      step.end(W.end(rest), c, e)
+    case W.Bad{}:
+      (Live{c}, W.err("dash: malformed event"))
+
+# step: one event; the reply is what Rust does
+def step(st: St, input: String) -> St & String:
+  match st:
+    case Live{c}:
+      step.ev(c, get_ev(input))
+    case Refused{}:
+      (Refused{}, W.err("dash: the open was refused"))

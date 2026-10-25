@@ -8,96 +8,14 @@ import ./base.bend as LawsBase
 
 # ---- dashboard_auth ----
 
-# LAWS (D1): the dashboard's pairing gate. Each law is an open claim about
-# the model in bend/dash.bend; PROOF.bend proves them (as Dash.<law>)
-# with the lemmas of proof/dash/.
-
-# (D1) Pairing
-# ------------
-# docs/dashboard.md "Pairing", the model in bend/dash.bend; the Rust gate
-# (crates/eukhe-dashboard/src/pairing.rs, http.rs, bridge.rs) and the
-# model run the same events in the bridge test
-# pairing::tests::the_gate_pairs_as_its_model. Every input is free: any
-# state, any connection, any token, any events before and after.
-
-# LAW dash_frame_runs_only_current: a frame runs (a daemon command) only when its connection holds the
-# current token
-law dash_frame_runs_only_current:
-  for +s: Da.St
-  for +c: Nat
-  for ran: {Da.ran(c, Da.out(s, Da.Frame{c})) == True{} : Bool}
-  {Da.held(c, Da.St.conns(s)) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
-
-# LAW dash_current_frame_runs: a frame of a connection that holds the current token runs
-law dash_current_frame_runs:
-  for +s: Da.St
-  for +c: Nat
-  for cur: {Da.held(c, Da.St.conns(s)) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
-  {Da.out(s, Da.Frame{c}) == Da.Ran{c} : Da.Out}
-
-# LAW dash_open_pairs_only_current: a connection pairs only when it presents the current token
-law dash_open_pairs_only_current:
-  for +s: Da.St
-  for +c: Nat
-  for +shown: Maybe<&2, Nat>
-  for paired: {Da.is_paired(Da.out(s, Da.Open{c, shown})) == True{} : Bool}
-  {shown == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
-
-# LAW dash_current_open_pairs: a connection that presents the current token pairs
-law dash_current_open_pairs:
-  for +s: Da.St
-  for +c: Nat
-  {Da.out(s, Da.Open{c, Some{Da.St.cur(s)}}) == Da.Paired{c} : Da.Out}
-
-# LAW dash_paired_holds_token: a paired connection holds the token it presented
-law dash_paired_holds_token:
-  for +s: Da.St
-  for +c: Nat
-  {Da.held(c, Da.St.conns(Da.next(s, Da.Open{c, Some{Da.St.cur(s)}}))) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
-
-# LAW dash_closed_runs_nothing: a connection that is not open runs no frame, whatever comes, until
-# it opens again
-law dash_closed_runs_nothing:
-  for +s: Da.St
-  for +c: Nat
-  for +evs: List<&2, Da.Ev>
-  for closed: {Da.held(c, Da.St.conns(s)) == None{} : Maybe<&2, Nat>}
-  for again: {Da.any_opens(c, evs) == False{} : Bool}
-  {Da.any_ran(c, Da.run(evs, s)) == False{} : Bool}
-
-# LAW dash_rejected_runs_nothing: a rejected connection runs no frame, whatever comes, until it
-# opens again
-law dash_rejected_runs_nothing:
-  for +s: Da.St
-  for +c: Nat
-  for +shown: Maybe<&2, Nat>
-  for +evs: List<&2, Da.Ev>
-  for rejected: {Da.is_paired(Da.out(s, Da.Open{c, shown})) == False{} : Bool}
-  for again: {Da.any_opens(c, evs) == False{} : Bool}
-  {Da.any_ran(c, Da.run(Da.Open{c, shown} <> evs, s)) == False{} : Bool}
-
-# LAW dash_rotation_ends_connections: after any history, a rotation ends every connection: none runs a
-# frame, whatever comes, until it opens again
-law dash_rotation_ends_connections:
-  for +hist: List<&2, Da.Ev>
-  for +c: Nat
-  for +evs: List<&2, Da.Ev>
-  for again: {Da.any_opens(c, evs) == False{} : Bool}
-  {Da.any_ran(c, Da.run(Da.Rotate{} <> evs, Da.state(hist, Da.init()))) == False{} : Bool}
-
-# LAW dash_rotation_rejects_old_tokens: after any history, a rotation invalidates every token made before
-# it: an open that presents one is rejected, whatever comes after
-law dash_rotation_rejects_old_tokens:
-  for +hist: List<&2, Da.Ev>
-  for +more: List<&2, Da.Ev>
-  for +c: Nat
-  for +t: Nat
-  for old: {Nat.is_le(t, Da.St.cur(Da.state(hist, Da.init()))) == True{} : Bool}
-  {Da.out(Da.state(Da.Rotate{} <> more, Da.state(hist, Da.init())), Da.Open{c, Some{t}}) == Da.Rejected{c} : Da.Out}
+# LAWS (D2): the dashboard's pairing choices. Each law is an open claim
+# about bend/dash.bend section 1 and the call of bend/ffi_dash.bend;
+# PROOF.bend proves them (as Dash.<law>) with the lemmas of proof/dash/.
+# The socket stepper's laws are laws/dash_conn.bend.
 
 # (D2) The host's choices
 # -----------------------
-# bend/dash.bend section 6, run as the compiled core by bend/ffi_dash.bend
+# bend/dash.bend section 1, run as the compiled core by bend/ffi_dash.bend
 # (crates/eukhe-dashboard pairing.rs, http.rs, bridge.rs). Every input is
 # free: any presented text (or one too long for the wire), any token file (missing, unreadable, any text,
 # too long for the wire), any first frame, any rotation and file mode,
@@ -122,9 +40,9 @@ law dash_rotation_rejects_old_tokens:
 #     no file exists; it fails on an unreadable file and on a file that
 #     holds no token (never replaces it unasked); it narrows a kept file
 #     whose mode gives the group or others any bit to 0600.
-# R6: the entry answers each request Rust writes with the choice of R1-R5,
-#     reads exactly the request and nothing after it, and answers any
-#     other input with the exact error form.
+# R6: the call answers each request Rust writes with the choice of R1, R2
+#     or R5, reads exactly the request and nothing after it, and answers
+#     any other input with the exact error form.
 
 # Spec helpers
 # ------------
@@ -399,12 +317,8 @@ def sp_w_req(q: FDa.Req, rest: String) -> String:
       Wr.put_nat(0n, sp_w_said(t, rest))
     case FDa.QStored{f}:
       Wr.put_nat(1n, sp_w_disk(f, rest))
-    case FDa.QGate{x, f, b}:
-      Wr.put_nat(2n, sp_w_first(x, sp_w_disk(f, Wr.put_bool(b, rest))))
-    case FDa.QFrame{f, b}:
-      Wr.put_nat(3n, sp_w_disk(f, Wr.put_bool(b, rest)))
     case FDa.QKeep{o, f, m}:
-      Wr.put_nat(4n, Wr.put_nat(sp_w_rotation(o), sp_w_disk(f, Wr.put_nat(m, rest))))
+      Wr.put_nat(2n, Wr.put_nat(sp_w_rotation(o), sp_w_disk(f, Wr.put_nat(m, rest))))
 
 def sp_w_bytes(bs: List<&2, Nat>) -> String:
   Wr.put_nat(0n, Wr.put_list(~Nat, ~Wr.put_nat, bs, ""))
@@ -425,13 +339,6 @@ def sp_w_stored(m: Maybe<&2, List<&2, Nat>>) -> String:
     case None{}:
       Wr.put_nat(1n, "")
 
-def sp_w_pass(p: Da.Pass) -> String:
-  match p:
-    case Da.Admit{}:
-      Wr.put_nat(0n, "")
-    case Da.Refuse{t}:
-      Wr.put_nat(1n, Wr.put_str(t, ""))
-
 def sp_w_keep(k: Da.Keep) -> Nat:
   match k:
     case Da.Mint{}:
@@ -445,17 +352,13 @@ def sp_w_keep(k: Da.Keep) -> Nat:
     case Da.Tokenless{}:
       4n
 
-# the reply Rust reads: the spelled choice of the spec (R1-R5)
+# the reply Rust reads: the spelled choice of the spec (R1, R2, R5)
 def sp_w_reply(q: FDa.Req) -> String:
   match q:
     case FDa.QToken{t}:
       sp_w_token(sp_shown(t))
     case FDa.QStored{f}:
       sp_w_stored(sp_stored(f))
-    case FDa.QGate{x, f, b}:
-      sp_w_pass(sp_gate(x, f, b))
-    case FDa.QFrame{f, b}:
-      sp_w_pass(sp_frame(f, b))
     case FDa.QKeep{o, f, m}:
       Wr.put_nat(sp_w_keep(sp_keep(o, f, m)), "")
 
@@ -493,20 +396,8 @@ def sp_fit_req(q: FDa.Req) -> Bool:
       sp_fit_said(t)
     case FDa.QStored{f}:
       sp_fit_disk(f)
-    case FDa.QGate{x, f, b}:
-      Bool.and(sp_fit_first(x), sp_fit_disk(f))
-    case FDa.QFrame{f, b}:
-      sp_fit_disk(f)
     case FDa.QKeep{o, f, m}:
       Bool.and(sp_fit_disk(f), LawsBase.wire_fits(m))
-
-# a pass of the gate
-def sp_opens(p: Da.Pass) -> Bool:
-  match p:
-    case Da.Admit{}:
-      True{}
-    case Da.Refuse{t}:
-      False{}
 
 # Laws: the choices
 # -----------------
@@ -556,34 +447,6 @@ law dash_keep_spec:
   for +f: Da.Disk
   for +m: Nat
   {Da.keep(o, f, m) == sp_keep(o, f, m) : Da.Keep}
-
-# LAW dash_gate_is_model (R3, D1): the host's gate is the model's: with
-# the file holding a token and the tab presenting one (token number t
-# against the current cur: Rust finds them equal exactly when t = cur),
-# the socket opens exactly when the model pairs it; a first frame that is
-# no pairing never opens
-# EXCLUDES: a host gate that drifts from dash_open_pairs_only_current and
-#   dash_current_open_pairs
-law dash_gate_is_model:
-  for +cur: Nat
-  for +t: Nat
-  for +p: String
-  for +f: Da.Disk
-  for shown: {String.is_empty(p) == False{} : Bool}
-  for tok: {Maybe.is_some(&2, List<&2, Nat>, sp_token(p)) == True{} : Bool}
-  for held: {Maybe.is_some(&2, List<&2, Nat>, sp_stored(f)) == True{} : Bool}
-  {sp_opens(Da.gate(Da.Pair{Da.Spoken{p}}, f, Nat.is_eq(t, cur))) == Da.admit(cur, Some{t}) : Bool} & {sp_opens(Da.gate(Da.NotPairing{}, f, False{})) == Da.admit(cur, None{}) : Bool}
-
-# LAW dash_frame_is_model (R4, D1): a later frame runs exactly when the
-# model runs it: the connection holds token t, cur is current
-# EXCLUDES: a host frame check that drifts from dash_frame_runs_only_current
-law dash_frame_is_model:
-  for +cur: Nat
-  for +t: Nat
-  for +c: Nat
-  for +f: Da.Disk
-  for held: {Maybe.is_some(&2, List<&2, Nat>, sp_stored(f)) == True{} : Bool}
-  {sp_opens(Da.frame(f, Nat.is_eq(t, cur))) == Da.ran(c, Da.frame.out(c, Some{t}, cur)) : Bool}
 
 # LAW dash_token_example (R1, R2): anchor: tokens in both cases, a short
 # and a long one, a signed pair, a stored token with its newline and a
@@ -636,4 +499,4 @@ law dash_entry_refuses:
 # replies it reads; an unknown tag and input left over
 # EXCLUDES: tags in another order, a field order other than Rust's
 law dash_entry_example:
-  {[FDa.ffi("0,0,0,"), FDa.ffi("0,0,3,xyz"), FDa.ffi("0,1,"), FDa.ffi("1,1,"), FDa.ffi("2,2,0,64,00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff2,65,00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\nT"), FDa.ffi("2,1,0,T"), FDa.ffi("3,0,T"), FDa.ffi("4,0,2,65,00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n420,"), FDa.ffi("4,1,1,0,"), FDa.ffi("5,"), FDa.ffi("3,0,TT")] == ["1,", "2,", "2,", "1,", "0,", Wr.put_nat(1n, Wr.put_str(sp_missing(), "")), Wr.put_nat(1n, Wr.put_str(sp_unset(), "")), "2,", "0,", Wr.err("dash: malformed request"), Wr.err("dash: malformed request")] : List<&2, String>}
+  {[FDa.ffi("0,0,0,"), FDa.ffi("0,0,3,xyz"), FDa.ffi("0,1,"), FDa.ffi("1,1,"), FDa.ffi("2,0,2,65,00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n420,"), FDa.ffi("2,1,1,0,"), FDa.ffi("3,"), FDa.ffi("1,1,x")] == ["1,", "2,", "2,", "1,", "2,", "0,", Wr.err("dash: malformed request"), Wr.err("dash: malformed request")] : List<&2, String>}

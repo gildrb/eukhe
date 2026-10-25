@@ -68,6 +68,7 @@ import ./laws/retry.bend as Retry
 import ./laws/retry_idle.bend as RetryIdle
 import ./laws/retry_ffi.bend as RetryFfi
 import ./laws/dash.bend as Dash
+import ./laws/dash_conn.bend as DashConn
 import ./laws/dash_policy.bend as DashPolicy
 import ./laws/dash_access.bend as DashAccess
 import ./laws/gateway_answer.bend as GatewayAnswer

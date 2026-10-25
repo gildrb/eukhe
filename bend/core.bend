@@ -309,6 +309,7 @@ type State is Type:
   RetryIdle{s: ffi_retry_idle.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
+  Dash{s: ffi_dash.St}
   TinyRun{s: ffi_tiny_run.St}
   WaitRace{s: ffi_wait_race.St}
   Unknown{}
@@ -398,6 +399,11 @@ def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def open.dash(r: ffi_dash.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Dash{s}, reply)
+
 def open.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -444,6 +450,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
+    case 101:
+      open.dash(ffi_dash.open(input))
     case 400:
       open.tiny_run(ffi_tiny_run.open(input))
     case 420:
@@ -541,6 +549,11 @@ def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def step.dash(r: ffi_dash.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Dash{s}, reply)
+
 def step.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -587,6 +600,8 @@ def step.go(state: State, input: String) -> State & String:
       step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
+    case Dash{s}:
+      step.dash(ffi_dash.step(s, input))
     case TinyRun{s}:
       step.tiny_run(ffi_tiny_run.step(s, input))
     case WaitRace{s}:
@@ -634,6 +649,8 @@ def close.go(state: State) -> Unit:
     case Lease{s}:
       Unit{}
     case AuthFlight{s}:
+      Unit{}
+    case Dash{s}:
       Unit{}
     case TinyRun{s}:
       Unit{}

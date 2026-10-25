@@ -146,7 +146,7 @@ pub enum Entry {
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a call and a stepper.
     AuthFlight = 92,
-    /// `bend/ffi_dash.bend`: a call.
+    /// `bend/ffi_dash.bend`: a call and a stepper.
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
     DocTags = 102,
