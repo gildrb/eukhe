@@ -58,7 +58,9 @@ import ./laws/fsmode.bend as Fsmode
 import ./laws/path_policy.bend as PathPolicy
 import ./laws/child_env.bend as ChildEnv
 import ./laws/runners.bend as Runners
-import ./laws/approvals.bend as Approvals
+import ./laws/approvals/route.bend as Approvals
+import ./laws/approvals/entry.bend as ApprovalsEntry
+import ./laws/approvals/desk.bend as ApprovalsDesk
 import ./laws/wire.bend as Wire
 import ./laws/facts.bend as Facts
 import ./laws/model_facts.bend as ModelFacts

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/approvals.bend as Am
-import ../../laws/approvals.bend as Approvals
+import ../../laws/approvals/route.bend as Approvals
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 

@@ -1,10 +1,17 @@
 # eukhe: the proof of LAW approvals_ffi_exact
-# The entry reads every input as the laws' reader does and answers what
-# the laws spell (LAAp.ap.exact).
+# The call and the spec both answer by whether the input is empty.
 
 import Base
-import ../../laws/approvals.bend as Approvals
-import ./base/entry.bend as LAAp
+import ../../bend/ffi_approvals.bend as FAm
+import ../../bend/wire.bend as Wr
+import ../../laws/approvals/entry.bend as ApprovalsEntry
 
-def Approvals.approvals_ffi_exact(s):
-  LAAp.ap.exact(s)
+def afx.end(b: Bool) -> {FAm.ffi.end(b) == ApprovalsEntry.spec.end(b) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ApprovalsEntry.approvals_ffi_exact(s):
+  afx.end(Wr.end(s))
