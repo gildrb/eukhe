@@ -196,6 +196,8 @@ pub enum Entry {
     RefinePlan = 295,
     /// `bend/ffi_glob.bend`: a call.
     Glob = 380,
+    /// `bend/ffi_err_text.bend`: a call.
+    ErrText = 381,
     /// `bend/ffi_tiny_run.bend`: a stepper.
     TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
@@ -300,6 +302,7 @@ impl Entry {
         Entry::PackageSource,
         Entry::RefinePlan,
         Entry::Glob,
+        Entry::ErrText,
         Entry::TinyRun,
         Entry::WaitRace,
     ];

@@ -34,6 +34,7 @@ import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_doc_tags.bend as ffi_doc_tags
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
+import ./ffi_err_text.bend as ffi_err_text
 import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
 import ./ffi_frames.bend as ffi_frames
@@ -282,6 +283,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_refine_plan.ffi(input)
     case 380:
       ffi_glob.ffi(input)
+    case 381:
+      ffi_err_text.ffi(input)
     case _:
       W.err("unknown entry")
 

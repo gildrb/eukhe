@@ -10,10 +10,7 @@
 //! ([`super::provider_retry`]) reports it. The Bend model `bend/retry.bend`
 //! makes the same decisions; `laws/retry.bend` states their laws.
 
-use std::sync::LazyLock;
-
-use regex::Regex;
-
+use eukhe_bend::rules::err_text::{self, Rule};
 use eukhe_bend::rules::retry::{self as rules, Cause, Facts, Wait, WaitInput};
 use eukhe_bend::wire::NAT_MAX;
 use eukhe_bend::{expect_core, Entry};
@@ -21,96 +18,6 @@ use eukhe_types::pi_ai::{AssistantMessage, StopReason, StreamFailureKind};
 
 use super::js::number_to_js_string;
 use super::stream_failure::RepeatedLines;
-
-fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
-    let pattern = format!("(?i){}", patterns.join("|"));
-    Regex::new(&pattern).unwrap_or_else(|error| panic!("invalid provider error pattern: {error}"))
-}
-
-static NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    build_provider_error_pattern(&[
-        // OpenCode Go/free-tier limits returned as 429 JSON error types by
-        // OpenCode's Zen API: subscription/account limits, not transient throttles.
-        "GoUsageLimitError",
-        "FreeUsageLimitError",
-        // OpenCode Go subscription-limit text.
-        "Monthly usage limit reached",
-        "available balance",
-        // Generic quota/budget/billing exhaustion (`insufficient_quota` is OpenAI's code).
-        "insufficient_quota",
-        "out of budget",
-        "quota exceeded",
-        "billing",
-        // Sign in with ChatGPT: the subscription's shared usage limit (resets after hours).
-        "subscription_sharing_usage_limit_exceeded",
-        // eukhe's own provider admission (`providerMaxQueued`): a full wait
-        // queue fails fast; a retry would only lengthen it.
-        "provider admission queue is full",
-        // The HTTP layer's refusal of a server wait above the cap
-        // (`provider_retry`, the codex client): a retry before the
-        // server's time cannot succeed.
-        r"server requested \d+s retry delay",
-    ])
-});
-
-/// Transient failures by their text, for a failure that recorded no HTTP
-/// status and no typed kind. Status codes and transport words match only
-/// as whole words: `524` in `5242880` or `timeout` in `timeouts_ms` is no
-/// match.
-static RETRYABLE_PROVIDER_ERROR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    build_provider_error_pattern(&[
-        // Generic provider load, HTTP status, and server-side transient failures.
-        r"\boverloaded",
-        r"\bserver_busy\b",
-        "servers are currently busy",
-        "currently experiencing high demand",
-        "model is at capacity",
-        r"\brate.?limit",
-        r"\btoo many requests\b",
-        r"\b(?:408|429|500|502|503|504|520|524|529)\b",
-        r"\bservice.?unavailable\b",
-        r"\bserver.?error\b",
-        r"\binternal.?error\b",
-        // Wrapper/provider text for transient upstream failures (OpenRouter #2264).
-        r"\bprovider.?returned.?error\b",
-        "exceeded request buffer limit while retrying upstream",
-        // Network, proxy, and fetch transport failures (#733, #3317).
-        r"\bnetwork.?error\b",
-        r"\bconnection.?error\b",
-        r"\bconnection.?refused\b",
-        r"\bconnection.?lost\b",
-        "other side closed",
-        r"\bfetch failed\b",
-        r"\bgetaddrinfo\b",
-        r"\bENOTFOUND\b",
-        r"\bEAI_AGAIN\b",
-        r"\bupstream.?connect",
-        "reset before headers",
-        r"\bsocket hang up\b",
-        "socket connection was closed",
-        r"\btimed? ?out\b",
-        r"\bterminated\b",
-        // WebSocket close/error text.
-        r"\bwebsocket.?closed\b",
-        r"\bwebsocket.?error\b",
-        // Premature stream endings (#4433, #3594).
-        r"\bended without\b",
-        "stream ended before message_stop",
-        "stream ended before a terminal response event",
-        "http2 request did not get a response",
-        // HTTP/2 session died before the request was sent (#10379).
-        "pending stream has been canceled",
-        // Explicit retry guidance emitted mid-stream (#6019).
-        "you can retry your request",
-        "try your request again",
-        "please retry your request",
-        // gRPC based providers (e.g. NVIDIA NIM).
-        r"\bResourceExhausted\b",
-        // Sign in with ChatGPT: usage or user data temporarily unavailable.
-        r"\bsubscription_sharing_usage_unavailable\b",
-        r"\bsubscription_sharing_user_unavailable\b",
-    ])
-});
 
 /// The diagnostic type of a failure the quota park ended: the session
 /// waits for the provider's usage reset, so the failure is never retried.
@@ -304,8 +211,7 @@ impl FailureFacts {
         let error_type = failure
             .and_then(|details| details.get("providerErrorType")?.as_str())
             .unwrap_or_default();
-        let limit = NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.is_match(text)
-            || NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.is_match(error_type);
+        let limit = err_text::holds(Rule::Limit, &[text, error_type]);
         let status = failure
             .and_then(|details| details.get("status")?.as_u64())
             .and_then(|status| u16::try_from(status).ok());
@@ -317,7 +223,7 @@ impl FailureFacts {
             limit,
             status,
             kind,
-            transient_text: RETRYABLE_PROVIDER_ERROR_PATTERN.is_match(text),
+            transient_text: err_text::holds(Rule::Transient, &[text]),
         })
     }
 

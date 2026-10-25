@@ -96,5 +96,6 @@
 294 package_source
 295 refine_plan
 380 glob
+381 err_text
 400 tiny_run
 420 wait_race

@@ -823,6 +823,16 @@ law glob_bytes:
 law glob_star_example:
   {[sp_sep1("x{**/a}", "xa"), sp_sep1("x{**/a}", "xb/a"), sp_sep1("{a/**,b}", "a/x/y"), sp_sep1("**a", "x/a"), sp_sep1("a/**b", "a/xb"), sp_sep1("**/**", "a"), sp_sep1("a/**/**", "a/b/c"), sp_sep1("{**/}", "a"), sp_sep1("**/{}", "a"), sp_sep1("**/", "a")] == [[True{}], [True{}], [True{}], [False{}], [True{}], [True{}], [True{}], [False{}], [False{}], [True{}]] : List<&2, List<&2, Bool>>}
 
+# LAW glob_escape_star_example (R1, R2): anchor: `**` in a group after an
+# escaped `,` or `{` (globset reads the char before `**`, escaped or not:
+# the escaped char goes and `**` is a recursive suffix, `a/.*`), and after
+# a group's `-` or `|` (two stars), literal separators
+# EXCLUDES: the char before a group's `**` tested for another char than
+#   `,` and `{`, or the test inverted (found by mutation: glob mutants
+#   0567, 0568, 0569)
+law glob_escape_star_example:
+  {[sp_sep1("{a\\,**}", "a/b"), sp_sep1("{a\\,**}", "a,b"), sp_sep1("{a\\{**}", "a/b"), sp_sep1("{a\\{**}", "a{b"), sp_sep1("{a-**}", "a-b"), sp_sep1("{a|**}", "a|b")] == [[True{}], [False{}], [True{}], [False{}], [True{}], [True{}]] : List<&2, List<&2, Bool>>}
+
 # LAW glob_group_class_example (R1): anchor: a branch whose regex is an
 # empty group, nested groups, `,` after a group, a range chained past
 # its end, `-` as a range end, `\` and `]` first in a class
