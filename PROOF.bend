@@ -104,6 +104,13 @@ import ./proof/lease/lease_hits_exact.bend as PLeaseHitsExact
 import ./proof/lease/lease_step_exact.bend as PLeaseStepExact
 import ./proof/lease/lease_run_exact.bend as PLeaseRunExact
 import ./proof/lease/lease_terms_exact.bend as PLeaseTermsExact
+import ./proof/lease/base/terms.bend as LALeaseTerms
+import ./proof/lease/lease_in_exact.bend as PLeaseInExact
+import ./proof/lease/lease_kept_exact.bend as PLeaseKeptExact
+import ./proof/lease/lease_fifo_term_exact.bend as PLeaseFifoTermExact
+import ./proof/lease/lease_busy_term_exact.bend as PLeaseBusyTermExact
+import ./proof/lease/lease_notheld_term_exact.bend as PLeaseNotheldTermExact
+import ./proof/lease/lease_freed_term_exact.bend as PLeaseFreedTermExact
 import ./proof/child/base.bend as LAChild
 import ./proof/child/child_stalls_in_time.bend as PChildStallsInTime
 import ./proof/child/child_unreachable_in_time.bend as PChildUnreachableInTime

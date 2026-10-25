@@ -651,3 +651,177 @@ law lease_terms_exact:
   for +h: Maybe<&2, Ls.Lease>
   for +w: Ls.Waiter
   {Ls.L.next(s) == lw_next(s) : Nat} & {Ls.L.holder(s) == lw_holder(s) : Maybe<&2, Ls.Lease>} & {Ls.L.queue(s) == lw_queue(s) : List<&2, Ls.Waiter>} & {Ls.hkey(h) == lw_hkey(h) : Maybe<&2, Nat>} & {Ls.Waiter.key(w) == lw_wkey(w) : Nat} & {Ls.Waiter.live(w) == lw_wlive(w) : Bool}
+
+# The model's terms, pinned
+# -------------------------
+# lease_fifo, lease_never_idle, lease_keeps_waiters, lease_stop_never_holds
+# and lease_crash_frees state their claims and premises with the model's
+# own terms (`Ls.In`, `Ls.Kept`, `Ls.Fifo`, `Ls.Busy`, `Ls.NotHeld`,
+# `Ls.Freed`). A fresh adversary noted that a model with `In = Empty` and
+# `Kept = Unit` passes them vacuously. Each term is pinned here, both
+# ways, to a Bool written in the laws: the term holds exactly when the
+# Bool is true.
+
+def lt_beq(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+# two waiters are the same: key, origin and liveness
+def lt_weq(a: Ls.Waiter, b: Ls.Waiter) -> Bool:
+  match a:
+    case Ls.Waiter{k, o, l}:
+      match b:
+        case Ls.Waiter{j, p, m}:
+          Bool.and(Nat.is_eq(k, j), Bool.and(Nat.is_eq(o, p), lt_beq(l, m)))
+
+# x is one of the waiters of q
+def lt_in(+x: Ls.Waiter, q: List<&2, Ls.Waiter>) -> Bool:
+  match q:
+    case Nil{}:
+      False{}
+    case w <> t:
+      Bool.or(lt_weq(x, w), lt_in(x, t))
+
+# the lease h is held by key k of origin o
+def lt_holds(h: Maybe<&2, Ls.Lease>, +k: Nat, +o: Nat) -> Bool:
+  match h:
+    case None{}:
+      False{}
+    case Some{x}:
+      match x:
+        case Ls.Lease{hk, ho}:
+          Bool.and(Nat.is_eq(hk, k), Nat.is_eq(ho, o))
+
+# k of origin o holds the lease of s or waits for it, live
+def lt_kept(+k: Nat, +o: Nat, s: Ls.L) -> Bool:
+  match s:
+    case Ls.L{n, h, q}:
+      Bool.or(lt_holds(h, k, o), lt_in(Ls.Waiter{k, o, True{}}, q))
+
+# the keys of q rise, each above lo (None: no bound)
+def lt_asc(q: List<&2, Ls.Waiter>, lo: Maybe<&2, Nat>) -> Bool:
+  match q:
+    case Nil{}:
+      True{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{+k, o, l}:
+          match lo:
+            case None{}:
+              lt_asc(t, Some{k})
+            case Some{b}:
+              Bool.and(Nat.is_lt(b, k), lt_asc(t, Some{k}))
+
+# the holder came before every waiter, and the waiters in the order they came
+def lt_fifo(s: Ls.L) -> Bool:
+  match s:
+    case Ls.L{n, h, q}:
+      match h:
+        case None{}:
+          lt_asc(q, None{})
+        case Some{x}:
+          match x:
+            case Ls.Lease{hk, ho}:
+              lt_asc(q, Some{hk})
+
+# every waiter of q is dead
+def lt_dead(q: List<&2, Ls.Waiter>) -> Bool:
+  match q:
+    case Nil{}:
+      True{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{k, o, l}:
+          Bool.and(Bool.not(l), lt_dead(t))
+
+# the lease is held, or no live waiter waits for it
+def lt_busy(s: Ls.L) -> Bool:
+  match s:
+    case Ls.L{n, h, q}:
+      match h:
+        case None{}:
+          lt_dead(q)
+        case Some{x}:
+          True{}
+
+# k does not hold h
+def lt_notheld(+k: Nat, h: Maybe<&2, Ls.Lease>) -> Bool:
+  match h:
+    case None{}:
+      True{}
+    case Some{x}:
+      match x:
+        case Ls.Lease{hk, ho}:
+          Bool.not(Nat.is_eq(hk, k))
+
+# no waiter of q is of origin o
+def lt_nonefrom(+o: Nat, q: List<&2, Ls.Waiter>) -> Bool:
+  match q:
+    case Nil{}:
+      True{}
+    case w <> t:
+      match w:
+        case Ls.Waiter{k, wo, l}:
+          Bool.and(Bool.not(Nat.is_eq(wo, o)), lt_nonefrom(o, t))
+
+# no lease of origin o is held or waited for
+def lt_freed(+o: Nat, s: Ls.L) -> Bool:
+  match s:
+    case Ls.L{n, h, q}:
+      match h:
+        case None{}:
+          lt_nonefrom(o, q)
+        case Some{x}:
+          match x:
+            case Ls.Lease{hk, ho}:
+              Bool.and(Bool.not(Nat.is_eq(ho, o)), lt_nonefrom(o, q))
+
+# LAW lease_in_exact: `Ls.In(x, q)` holds exactly when x is one of the waiters of q (same key,
+# origin and liveness)
+# EXCLUDES: an `In` that never holds (lease_keeps_waiters and lease_stop_never_holds vacuous) or
+#   always holds
+law lease_in_exact:
+  for +x: Ls.Waiter
+  for +q: List<&2, Ls.Waiter>
+  (Ls.In(x, q) -> {lt_in(x, q) == True{} : Bool}) & ({lt_in(x, q) == True{} : Bool} -> Ls.In(x, q))
+
+# LAW lease_kept_exact: `Ls.Kept(k, o, s)` holds exactly when key k of origin o holds the lease of
+# s or waits for it, live
+# EXCLUDES: a `Kept` that always holds (lease_keeps_waiters vacuous) or never does
+law lease_kept_exact:
+  for +k: Nat
+  for +o: Nat
+  for +s: Ls.L
+  (Ls.Kept(k, o, s) -> {lt_kept(k, o, s) == True{} : Bool}) & ({lt_kept(k, o, s) == True{} : Bool} -> Ls.Kept(k, o, s))
+
+# LAW lease_fifo_term_exact: `Ls.Fifo(s)` holds exactly when the holder's key is below every
+# waiter's and the waiters' keys rise
+# EXCLUDES: a `Fifo` that always holds (lease_fifo vacuous)
+law lease_fifo_term_exact:
+  for +s: Ls.L
+  (Ls.Fifo(s) -> {lt_fifo(s) == True{} : Bool}) & ({lt_fifo(s) == True{} : Bool} -> Ls.Fifo(s))
+
+# LAW lease_busy_term_exact: `Ls.Busy(s)` holds exactly when the lease is held or every waiter is
+# dead
+# EXCLUDES: a `Busy` that always holds (lease_never_idle vacuous)
+law lease_busy_term_exact:
+  for +s: Ls.L
+  (Ls.Busy(s) -> {lt_busy(s) == True{} : Bool}) & ({lt_busy(s) == True{} : Bool} -> Ls.Busy(s))
+
+# LAW lease_notheld_term_exact: `Ls.NotHeld(k, h)` holds exactly when key k does not hold h
+# EXCLUDES: a `NotHeld` that always holds (lease_stop_never_holds vacuous)
+law lease_notheld_term_exact:
+  for +k: Nat
+  for +h: Maybe<&2, Ls.Lease>
+  (Ls.NotHeld(k, h) -> {lt_notheld(k, h) == True{} : Bool}) & ({lt_notheld(k, h) == True{} : Bool} -> Ls.NotHeld(k, h))
+
+# LAW lease_freed_term_exact: `Ls.Freed(o, s)` holds exactly when no lease of origin o is held or
+# waited for in s
+# EXCLUDES: a `Freed` that always holds (lease_crash_frees vacuous)
+law lease_freed_term_exact:
+  for +o: Nat
+  for +s: Ls.L
+  (Ls.Freed(o, s) -> {lt_freed(o, s) == True{} : Bool}) & ({lt_freed(o, s) == True{} : Bool} -> Ls.Freed(o, s))
