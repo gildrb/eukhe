@@ -1712,3 +1712,16 @@ import ./proof/compaction_cut/compaction_cut_ffi_answers.bend as PCompactionCutF
 import ./proof/compaction_cut/compaction_cut_ffi_exact.bend as PCompactionCutFfiExact
 import ./proof/compaction_cut/compaction_cut_ffi_refuses.bend as PCompactionCutFfiRefuses
 import ./proof/compaction_cut/compaction_cut_ffi_example.bend as PCompactionCutFfiExample
+import ./proof/codemode_source/base.bend as LACodemodeSource
+import ./proof/codemode_source/base/read.bend as LACsRead
+import ./proof/codemode_source/base/reply.bend as LACsReply
+import ./proof/codemode_source/base/exact.bend as LACsExact
+import ./proof/codemode_source/codemode_source_exact.bend as PCodemodeSourceExact
+import ./proof/codemode_source/codemode_source_index_spelled.bend as PCodemodeSourceIndexSpelled
+import ./proof/codemode_source/codemode_source_index_reads.bend as PCodemodeSourceIndexReads
+import ./proof/codemode_source/codemode_source_example.bend as PCodemodeSourceExample
+import ./proof/codemode_source/codemode_source_ffi_reads.bend as PCodemodeSourceFfiReads
+import ./proof/codemode_source/codemode_source_ffi_answers.bend as PCodemodeSourceFfiAnswers
+import ./proof/codemode_source/codemode_source_ffi_exact.bend as PCodemodeSourceFfiExact
+import ./proof/codemode_source/codemode_source_ffi_refuses.bend as PCodemodeSourceFfiRefuses
+import ./proof/codemode_source/codemode_source_ffi_example.bend as PCodemodeSourceFfiExample

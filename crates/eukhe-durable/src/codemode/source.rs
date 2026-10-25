@@ -7,18 +7,26 @@
 //! text(JSON.parse(text).name);
 //! ```
 //!
+//! The rule runs as the compiled Bend core
+//! (`eukhe_bend::rules::codemode_source`; `bend/codemode_source.bend`,
+//! `laws/codemode_source.bend`): every refusal and its text, which options
+//! line is misplaced and its number, the JS `Object.keys` order of the keys
+//! and the options set. This module reads the input's text facts: whether
+//! it is blank, which lines after the first are options lines, whether the
+//! text after the first newline is blank, and the first line's directive
+//! as `serde_json` reads it (the JSON parse and the JS number facts stay
+//! here). A script can be long: shipping it through the core would cost
+//! far more than reading these facts.
+//!
 //! JS `trim()`/`trimStart()` become Rust `trim`/`trim_start`: both strip
 //! Unicode `White_Space` (JS also strips U+FEFF, which is not `White_Space`).
 
+use eukhe_bend::rules::codemode_source::{self, Answer, Directive, Facts, Field, Json, Num};
 use serde_json::Value;
 
 /// The first-line prefix of the options line.
 pub const CODEMODE_OPTIONS_PREFIX: &str = "// @options:";
 
-const SUPPORTED_FIELDS: [&str; 2] = ["max_output_tokens", "timeout_ms"];
-const SUPPORTED_FIELDS_TEXT: &str = "`max_output_tokens` and `timeout_ms`";
-/// Largest delay `setTimeout` supports, which bounds `timeout_ms`.
-const MAX_TIMEOUT_MS: u64 = 2_147_483_647;
 /// `Number.MAX_SAFE_INTEGER`.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
@@ -85,78 +93,10 @@ fn safe_integer(value: &Value) -> Option<u64> {
     (float.fract() == 0.0 && (0.0..=max).contains(&float)).then_some(integer)
 }
 
-/// Whether `key` is an array index, which JS `Object.keys` lists first, in
-/// numeric order.
-fn array_index(key: &str) -> Option<u32> {
-    if key != "0" && key.starts_with('0') {
-        return None;
-    }
-    if !key.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    key.parse::<u32>().ok().filter(|index| *index != u32::MAX)
-}
-
-/// The first key of `Object.keys(fields)` that is not supported.
-fn unsupported_key(fields: &serde_json::Map<String, Value>) -> Option<&str> {
-    // Array indices come first in JS order and are never supported.
-    let first_index = fields
-        .keys()
-        .filter_map(|key| array_index(key).map(|index| (index, key.as_str())))
-        .min_by_key(|(index, _)| *index);
-    if let Some((_, key)) = first_index {
-        return Some(key);
-    }
-    fields
-        .keys()
-        .map(String::as_str)
-        .find(|key| !SUPPORTED_FIELDS.contains(key))
-}
-
-fn not_an_object() -> CodemodeSourceError {
-    CodemodeSourceError(format!(
-        "@options must be a JSON object with supported fields {SUPPORTED_FIELDS_TEXT}"
-    ))
-}
-
-fn parse_options(directive: &str) -> Result<CodemodeSourceOptions, CodemodeSourceError> {
-    if directive.is_empty() {
-        return Err(not_an_object());
-    }
-    // The detail is serde_json's error text, not V8's `JSON.parse` message.
-    let value: Value = serde_json::from_str(directive).map_err(|error| {
-        CodemodeSourceError(format!(
-            "@options must be valid JSON with supported fields {SUPPORTED_FIELDS_TEXT}: {error}"
-        ))
-    })?;
-    let Value::Object(fields) = value else {
-        return Err(not_an_object());
-    };
-    if let Some(key) = unsupported_key(&fields) {
-        return Err(CodemodeSourceError(format!(
-            "@options only supports {SUPPORTED_FIELDS_TEXT}; got `{key}`"
-        )));
-    }
-    let mut options = CodemodeSourceOptions::default();
-    if let Some(value) = fields.get("max_output_tokens") {
-        let tokens = safe_integer(value).ok_or_else(|| {
-            CodemodeSourceError(
-                "@options field `max_output_tokens` must be a non-negative safe integer".to_owned(),
-            )
-        })?;
-        options.max_output_tokens = Some(tokens);
-    }
-    if let Some(value) = fields.get("timeout_ms") {
-        let timeout = safe_integer(value)
-            .filter(|timeout| (1..=MAX_TIMEOUT_MS).contains(timeout))
-            .ok_or_else(|| {
-                CodemodeSourceError(format!(
-                    "@options field `timeout_ms` must be a positive integer up to {MAX_TIMEOUT_MS}"
-                ))
-            })?;
-        options.timeout_ms = Some(timeout);
-    }
-    Ok(options)
+/// Whether `line` is an options line: its text after leading white space
+/// starts with [`CODEMODE_OPTIONS_PREFIX`].
+fn is_options_line(line: &str) -> bool {
+    line.trim_start().starts_with(CODEMODE_OPTIONS_PREFIX)
 }
 
 /// Split an optional first-line `// @options: {...}` from the script.
@@ -165,171 +105,132 @@ fn parse_options(directive: &str) -> Result<CodemodeSourceOptions, CodemodeSourc
 ///
 /// [`CodemodeSourceError`] for empty input, invalid options, and an options
 /// line that is not the first line, which would otherwise be ignored
-/// without notice.
+/// without notice; with the core's error for a key past its wire bound (8
+/// Mi chars).
 pub fn parse_codemode_source(input: &str) -> Result<CodemodeSource, CodemodeSourceError> {
-    if input.trim().is_empty() {
-        return Err(CodemodeSourceError(
-            "Expected JavaScript source text (non-empty). Provide JS only, optionally with a first line `// @options: {\"max_output_tokens\": 1000}`.".to_owned(),
-        ));
-    }
     let mut lines = input.split('\n');
     let first = lines.next().unwrap_or_default();
-    if let Some(misplaced) =
-        lines.position(|line| line.trim_start().starts_with(CODEMODE_OPTIONS_PREFIX))
-    {
-        return Err(CodemodeSourceError(format!(
-            "The {CODEMODE_OPTIONS_PREFIX} line must be the first line of the input; found one on line {}",
-            misplaced + 2
-        )));
-    }
-    let first_line = first.strip_suffix('\r').unwrap_or(first);
-    let trimmed = first_line.trim_start();
-    let Some(directive) = trimmed.strip_prefix(CODEMODE_OPTIONS_PREFIX) else {
-        return Ok(CodemodeSource {
+    let options_lines: Vec<u64> = (1_u64..)
+        .zip(lines)
+        .filter(|(_, line)| is_options_line(line))
+        .map(|(number, _)| number)
+        .collect();
+    let rest = input.find('\n').map_or("", |newline| &input[newline..]);
+    let directive = first
+        .trim_start()
+        .strip_prefix(CODEMODE_OPTIONS_PREFIX)
+        .map(str::trim);
+    let parsed = directive.map(serde_json::from_str::<Value>);
+    let invalid = match &parsed {
+        Some(Err(error)) => error.to_string(),
+        Some(Ok(_)) | None => String::new(),
+    };
+    let fields: Vec<Field<'_>> = match &parsed {
+        Some(Ok(Value::Object(object))) => object
+            .iter()
+            .map(|(key, value)| Field {
+                key,
+                value: safe_integer(value).map_or(Num::NotSafe, Num::Safe),
+            })
+            .collect(),
+        Some(Ok(_) | Err(_)) | None => Vec::new(),
+    };
+    let directive = directive
+        .zip(parsed.as_ref())
+        .map(|(text, parsed)| Directive {
+            empty: text.is_empty(),
+            json: match parsed {
+                Err(_) => Json::Invalid(&invalid),
+                Ok(Value::Object(_)) => Json::Object(&fields),
+                Ok(_) => Json::NotObject,
+            },
+        });
+    let facts = Facts {
+        blank: input.trim().is_empty(),
+        options_lines: &options_lines,
+        rest_blank: rest.trim().is_empty(),
+        directive,
+    };
+    match codemode_source::parse(&facts).map_err(|error| CodemodeSourceError(error.to_string()))? {
+        Answer::Refused(text) => Err(CodemodeSourceError(text)),
+        Answer::Plain => Ok(CodemodeSource {
             code: input.to_owned(),
             options: CodemodeSourceOptions::default(),
-        });
-    };
-    let code = input.find('\n').map_or("", |newline| &input[newline..]);
-    if code.trim().is_empty() {
-        return Err(CodemodeSourceError(
-            "The @options line must be followed by JavaScript source on subsequent lines"
-                .to_owned(),
-        ));
+        }),
+        Answer::Split {
+            max_output_tokens,
+            timeout_ms,
+        } => Ok(CodemodeSource {
+            code: rest.to_owned(),
+            options: CodemodeSourceOptions {
+                max_output_tokens,
+                timeout_ms,
+            },
+        }),
     }
-    Ok(CodemodeSource {
-        code: code.to_owned(),
-        options: parse_options(directive.trim())?,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn error(message: &str) -> Result<CodemodeSource, CodemodeSourceError> {
-        Err(CodemodeSourceError(message.to_owned()))
-    }
-
     #[test]
-    fn plain_source_is_kept() {
-        assert_eq!(
-            parse_codemode_source("text(1);\nreturn 2;"),
-            Ok(CodemodeSource {
-                code: "text(1);\nreturn 2;".to_owned(),
-                options: CodemodeSourceOptions::default(),
-            })
-        );
-    }
-
-    #[test]
-    fn options_line_is_split() {
+    fn reaches_the_core() {
         assert_eq!(
             parse_codemode_source(
-                "  // @options: {\"max_output_tokens\": 2000, \"timeout_ms\": 30000}\r\nreturn 1;"
+                "  // @options: {\"max_output_tokens\": 1.0, \"timeout_ms\": 1e3}\r\nreturn 1;"
             ),
             Ok(CodemodeSource {
                 code: "\nreturn 1;".to_owned(),
-                options: CodemodeSourceOptions {
-                    max_output_tokens: Some(2000),
-                    timeout_ms: Some(30000),
-                },
-            })
-        );
-        assert_eq!(
-            parse_codemode_source(
-                "// @options: {\"max_output_tokens\": 1.0, \"timeout_ms\": 1e3}\nx"
-            ),
-            Ok(CodemodeSource {
-                code: "\nx".to_owned(),
                 options: CodemodeSourceOptions {
                     max_output_tokens: Some(1),
                     timeout_ms: Some(1000),
                 },
             })
         );
-    }
-
-    #[test]
-    fn empty_input_fails() {
-        assert_eq!(
-            parse_codemode_source(" \n\t"),
-            error("Expected JavaScript source text (non-empty). Provide JS only, optionally with a first line `// @options: {\"max_output_tokens\": 1000}`.")
-        );
-    }
-
-    #[test]
-    fn misplaced_options_line_fails() {
         assert_eq!(
             parse_codemode_source("x;\ny;\n  // @options: {}"),
-            error("The // @options: line must be the first line of the input; found one on line 3")
+            Err(CodemodeSourceError(
+                "The // @options: line must be the first line of the input; found one on line 3"
+                    .to_owned()
+            ))
         );
     }
 
     #[test]
-    fn options_without_code_fail() {
+    fn safe_integers_are_js_safe_non_negative_integers() {
+        let read = |json: &str| safe_integer(&serde_json::from_str(json).unwrap());
         assert_eq!(
-            parse_codemode_source("// @options: {}\n  \n"),
-            error("The @options line must be followed by JavaScript source on subsequent lines")
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {}"),
-            error("The @options line must be followed by JavaScript source on subsequent lines")
-        );
-    }
-
-    #[test]
-    fn invalid_options_fail() {
-        let object = "@options must be a JSON object with supported fields `max_output_tokens` and `timeout_ms`";
-        assert_eq!(parse_codemode_source("// @options:\nx"), error(object));
-        assert_eq!(parse_codemode_source("// @options: [1]\nx"), error(object));
-        assert_eq!(parse_codemode_source("// @options: null\nx"), error(object));
-        assert_eq!(
-            parse_codemode_source("// @options: {\"timeout_ms\": 1, \"b\": 2, \"7\": 3}\nx"),
-            error("@options only supports `max_output_tokens` and `timeout_ms`; got `7`")
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"b\": 2, \"c\": 3}\nx"),
-            error("@options only supports `max_output_tokens` and `timeout_ms`; got `b`")
-        );
-        let tokens = "@options field `max_output_tokens` must be a non-negative safe integer";
-        assert_eq!(
-            parse_codemode_source("// @options: {\"max_output_tokens\": -1}\nx"),
-            error(tokens)
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"max_output_tokens\": 1.5}\nx"),
-            error(tokens)
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"max_output_tokens\": null}\nx"),
-            error(tokens)
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"max_output_tokens\": 9007199254740992}\nx"),
-            error(tokens)
-        );
-        let timeout = "@options field `timeout_ms` must be a positive integer up to 2147483647";
-        assert_eq!(
-            parse_codemode_source("// @options: {\"timeout_ms\": 0}\nx"),
-            error(timeout)
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"timeout_ms\": 2147483648}\nx"),
-            error(timeout)
-        );
-        assert_eq!(
-            parse_codemode_source("// @options: {\"timeout_ms\": 2147483647}\nx")
-                .map(|source| source.options),
-            Ok(CodemodeSourceOptions {
-                max_output_tokens: None,
-                timeout_ms: Some(2_147_483_647)
-            })
+            [
+                "0",
+                "-0",
+                "1.0",
+                "1e3",
+                "9007199254740991",
+                "9007199254740992",
+                "-1",
+                "1.5",
+                "null",
+                "\"1\""
+            ]
+            .map(read),
+            [
+                Some(0),
+                Some(0),
+                Some(1),
+                Some(1000),
+                Some(9_007_199_254_740_991),
+                None,
+                None,
+                None,
+                None,
+                None
+            ]
         );
     }
 
     #[test]
-    fn invalid_json_fails() {
+    fn invalid_json_keeps_serde_text() {
         let Err(CodemodeSourceError(message)) = parse_codemode_source("// @options: {\nx") else {
             panic!("expected an error");
         };

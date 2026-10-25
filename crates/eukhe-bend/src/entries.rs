@@ -152,6 +152,8 @@ pub enum Entry {
     ContextOrder = 269,
     /// `bend/ffi_compaction_cut.bend`: a call.
     CompactionCut = 270,
+    /// `bend/ffi_codemode_source.bend`: a call.
+    CodemodeSource = 271,
 }
 
 impl Entry {
@@ -230,6 +232,7 @@ impl Entry {
         Entry::TreeCommit,
         Entry::ContextOrder,
         Entry::CompactionCut,
+        Entry::CodemodeSource,
     ];
 
     /// The id `bend/core.bend` dispatches on.

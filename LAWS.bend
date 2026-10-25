@@ -85,3 +85,4 @@ import ./laws/throttle.bend as Throttle
 import ./laws/tree_commit.bend as TreeCommit
 import ./laws/context_order.bend as ContextOrder
 import ./laws/compaction_cut.bend as CompactionCut
+import ./laws/codemode_source.bend as CodemodeSource
