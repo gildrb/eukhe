@@ -57,16 +57,21 @@ pub struct RefinementProposal {
 /// Whether a JSON candidate ends mid-value (unterminated string, unclosed
 /// object/array): a truncated reply, as opposed to a malformed-but-balanced
 /// one. The compiled core scans it (`bend/refine_plan.bend`, R7).
-#[must_use]
-pub fn is_incomplete_json(candidate: &str) -> bool {
+///
+/// # Errors
+///
+/// The candidate is longer than the compiled core reads (the wire's
+/// longest string), so it cannot be scanned.
+pub fn is_incomplete_json(candidate: &str) -> Result<bool, String> {
     rule::incomplete(candidate)
+        .map_err(|error| format!("the model's reply could not be checked for truncation: {error}"))
 }
 
 fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
     match serde_json::from_str::<serde_json::Value>(candidate) {
         Ok(value) => Ok(value),
         Err(error) => {
-            if is_incomplete_json(candidate) {
+            if is_incomplete_json(candidate)? {
                 Err(TRUNCATED_JSON_ERROR.to_string())
             } else {
                 Err(format!("the model did not return valid JSON: {error}"))
@@ -105,7 +110,7 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
             return parse_json_candidate(&trimmed[start..]);
         }
     }
-    if is_incomplete_json(trimmed) {
+    if is_incomplete_json(trimmed)? {
         return Err(TRUNCATED_JSON_ERROR.to_string());
     }
     Err("Refiner did not return a JSON object".to_string())
@@ -506,6 +511,18 @@ pub fn refinement_request(
 mod tests {
     use super::super::empty_harness_state;
     use super::*;
+
+    /// A reply past the wire's longest string is an error the refine run
+    /// reports, not a panic of the compiled-core call.
+    #[test]
+    fn a_reply_too_long_to_scan_is_an_error() {
+        let reply = "[".repeat(eukhe_bend::wire::STR_MAX + 1);
+        let error = extract_json_object(&reply).unwrap_err();
+        assert!(
+            error.starts_with("the model's reply could not be checked for truncation: "),
+            "{error}"
+        );
+    }
 
     fn create_memory_edit(id: &str, title: &str, content: &str) -> RefinementEdit {
         RefinementEdit {

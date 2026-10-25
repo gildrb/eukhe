@@ -210,10 +210,14 @@ pub fn norm(summary: Option<&str>, rationale: Option<&str>, outcome: Option<&str
 }
 
 /// Whether a JSON candidate ends mid-value (in a string, or with brackets
-/// left open).
-#[must_use]
-pub fn incomplete(text: &str) -> bool {
-    expect_core(Entry::RefinePlan, scan_call(text))
+/// left open). A model reply is not text eukhe encoded: one past the wire's
+/// longest string is refused, not a panic.
+///
+/// # Errors
+///
+/// The text is longer than [`crate::wire::STR_MAX`] chars.
+pub fn incomplete(text: &str) -> Result<bool, Error> {
+    scan_call(text)
 }
 
 /// One step of fitting a refinement request: the window, the
@@ -566,8 +570,8 @@ mod tests {
             norm(None, Some("r"), None).summary,
             "Refined continual harness state"
         );
-        assert!(incomplete(r#"{"edits":[{"action":"cre"#));
-        assert!(!incomplete(r#"{"edits":[]}"#));
+        assert!(incomplete(r#"{"edits":[{"action":"cre"#).unwrap());
+        assert!(!incomplete(r#"{"edits":[]}"#).unwrap());
         assert_eq!(
             fit(
                 Win {
