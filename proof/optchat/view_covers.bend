@@ -2,7 +2,7 @@
 
 import Base
 import ../../laws/optchat.bend as Optchat
-import ./base.bend as LA
+import ./base/step.bend as LA
 
 # ---- laws ----
 

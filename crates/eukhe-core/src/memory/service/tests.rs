@@ -1137,3 +1137,114 @@ async fn a_huge_settle_timeout_does_not_overflow_the_reply_deadline() {
     .reply_deadline();
     assert_eq!(super::answered(deadline, async { 7 }).await.unwrap(), 7);
 }
+
+/// A compactor line long enough that a few hundred of them pass the
+/// view's ceiling, unique per call.
+fn line(n: u64) -> String {
+    format!("{n:06} {}", "l".repeat(NODE - 64))
+}
+
+/// The planner's events race (H2, §3.2, §4): three handles append from
+/// their own tasks on a multi-threaded runtime while a fourth task answers
+/// the compactor's calls in bursts, newest first, and two turns wait for
+/// the view between appends. Whatever order the owner sees messages,
+/// finished calls, waits and their stops in, every view a waiting turn
+/// gets is settled; once a merge is built, the next message's batch (the
+/// view is past its ceiling) merges; and the view reloaded from the logs
+/// alone is the live one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turns_wait_while_calls_finish_in_any_order() {
+    let Chat {
+        owner,
+        first,
+        second,
+        mut calls,
+        dir,
+    } = open().await;
+    let mut updates = owner.subscribe().await.unwrap();
+    let answers = tokio::spawn(async move {
+        let mut n = 0;
+        while let Some(call) = calls.recv().await {
+            let mut burst = vec![call];
+            while let Ok(call) = calls.try_recv() {
+                burst.push(call);
+            }
+            for call in burst.into_iter().rev() {
+                // A call the owner stopped is gone: its answer goes nowhere.
+                let _ = call.send(line(n));
+                n += 1;
+            }
+        }
+    });
+    let appender = |memory: Memory, from: u64| {
+        tokio::spawn(async move {
+            for id in 0..120 {
+                memory
+                    .append(Kind::User, &long(from * 1000 + id))
+                    .await
+                    .unwrap();
+            }
+        })
+    };
+    let turn = |memory: Memory| {
+        tokio::spawn(async move {
+            let mut views = Vec::new();
+            for _ in 0..8 {
+                views.push(
+                    memory
+                        .settled_render(Duration::from_secs(3600))
+                        .await
+                        .unwrap(),
+                );
+            }
+            views
+        })
+    };
+    let writers = [
+        appender(owner.clone(), 0),
+        appender(first.clone(), 1),
+        appender(second.clone(), 2),
+    ];
+    let turns = [turn(first.clone()), turn(second.clone())];
+    for writer in writers {
+        within(writer).await.unwrap();
+    }
+    let mut views = Vec::new();
+    for turn in turns {
+        views.extend(within(turn).await.unwrap());
+    }
+    // The view is past its ceiling, so every message runs a batch; once a
+    // merge is built the next one merges it.
+    loop {
+        let update = within(updates.next()).await.unwrap();
+        let merge_built = match update {
+            MemoryUpdate::Summarized { lines, .. } => lines.iter().any(|line| line.count > 1),
+            MemoryUpdate::Merged { .. } => false,
+        };
+        if merge_built {
+            break;
+        }
+    }
+    owner.append(Kind::User, &long(9999)).await.unwrap();
+    let last = within(owner.settled_render(Duration::from_secs(3600)))
+        .await
+        .unwrap();
+    let status = owner.status().await.unwrap();
+    drop((owner, first, second));
+    std::fs::remove_file(dir.path().join(VIEW_FILE)).unwrap();
+    let reloaded = Memory::open(dir.path(), no_model()).await.unwrap();
+    let unsettled: Vec<&RenderedView> = views
+        .iter()
+        .filter(|view| view.text.contains(PLACEHOLDER))
+        .collect();
+    assert_eq!(
+        (
+            unsettled,
+            last.messages,
+            status.view_lines < status.messages,
+            reloaded.render().await.unwrap(),
+        ),
+        (Vec::new(), 361, true, last.clone())
+    );
+    answers.abort();
+}

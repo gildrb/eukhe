@@ -1,4 +1,4 @@
-# optchat: the shipped batch fitx: line sizes, the merge pass, the laid-out view
+# optchat: the fast batch fitx (not run: bend/optchat/stepx.bend): line sizes, the merge pass, the laid-out view
 
 import Base
 import ./bits.bend as OBits

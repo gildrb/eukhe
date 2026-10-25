@@ -1,12 +1,13 @@
-# optchat: the shipped batch's node-to-size map (Mt tries per level)
+# optchat: the fast batch's node-to-size map (Mt tries per level)
 
 import Base
 import ./node.bend as ONode
 
-# The shipped batch
-# -----------------
-# fit with the Last measure, fast: on a view that tiles the messages it is
-# fit itself (law fitx_is_fit). A merge always makes its parent's pair less
+# The fast batch
+# --------------
+# fit with the Last measure, fast (not run: bend/optchat/stepx.bend). Meant
+# to be fit itself on a view that tiles the messages (a fitx_is_fit law is
+# not stated yet). A merge always makes its parent's pair less
 # due than the pair it merged, so no pair can become mergeable after a less
 # due one: the batch takes, in one sort, every pair that could ever merge
 # (each line's built ancestors), most due first (of equal ones the older),

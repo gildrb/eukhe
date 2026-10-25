@@ -58,6 +58,7 @@ import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
 import ./ffi_notice.bend as ffi_notice
+import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_package_source.bend as ffi_package_source
@@ -313,6 +314,7 @@ type State is Type:
   AuthFlight{s: ffi_auth_flight.St}
   WaitRace{s: ffi_wait_race.St}
   ToolCall{s: ffi_tool_call.St}
+  Optchat{s: ffi_optchat.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -405,6 +407,11 @@ def open.tool_call(r: ffi_tool_call.St & String) -> State & String:
     case (s, reply):
       (ToolCall{s}, reply)
 
+def open.optchat(r: ffi_optchat.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Optchat{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -443,6 +450,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.wait_race(ffi_wait_race.open(input))
     case 421:
       open.tool_call(ffi_tool_call.open(input))
+    case 422:
+      open.optchat(ffi_optchat.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -541,6 +550,11 @@ def step.tool_call(r: ffi_tool_call.St & String) -> State & String:
     case (s, reply):
       (ToolCall{s}, reply)
 
+def step.optchat(r: ffi_optchat.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Optchat{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -579,6 +593,8 @@ def step.go(state: State, input: String) -> State & String:
       step.wait_race(ffi_wait_race.step(s, input))
     case ToolCall{s}:
       step.tool_call(ffi_tool_call.step(s, input))
+    case Optchat{s}:
+      step.optchat(ffi_optchat.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -624,6 +640,8 @@ def close.go(state: State) -> Unit:
     case WaitRace{s}:
       Unit{}
     case ToolCall{s}:
+      Unit{}
+    case Optchat{s}:
       Unit{}
     case Unknown{}:
       Unit{}

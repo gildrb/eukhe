@@ -7,7 +7,7 @@ import ../../bend/optchat/node.bend as ONode
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
 import ../base/logic/logic.bend as LLogicLogic
-import ./base.bend as LA
+import ./base/step.bend as LA
 
 # a type picked by a Maybe: a rewrite through it refutes Some == None
 def pf.NoneT(m: Maybe<&2, ONode.Node>, A: Type) -> Type:

@@ -74,3 +74,18 @@ def St.wait(s: OState.St) -> OState.St:
   match s:
     case OState.St{t, +info, +view, shrink, cview, ready, busy}:
       OState.St{t, info, view, shrink, cview, ready, busy.need(info, view, busy)}
+
+# the busy nodes that are not view lines still unbuilt: the calls a
+# waiting turn stops
+def busy.held(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case +b <> rest:
+      ONode.Nodes.keep(Bool.not(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b)))), b, busy.held(info, v, rest))
+
+# the calls St.wait stops
+def St.held(s: OState.St) -> List<&2, ONode.Node>:
+  match s:
+    case OState.St{t, +info, +view, shrink, cview, ready, busy}:
+      busy.held(info, view, busy)

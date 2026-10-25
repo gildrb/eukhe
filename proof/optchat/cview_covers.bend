@@ -6,7 +6,7 @@ import ../../bend/optchat/state.bend as OState
 import ../../bend/optchat/step.bend as OStep
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
-import ./base.bend as LA
+import ./base/step.bend as LA
 
 def cover.inv_cview(-s: OState.St, inv: LA.cover.Inv(s)) -> S.Tiles(0n, OState.St.cview(s), OBits.Bits.val(OState.St.t(s))):
   (a, b) = inv

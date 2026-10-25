@@ -1,4 +1,4 @@
-# optchat: the shipped step: step with the fast batch
+# optchat: step with the fast batch (not run: see below)
 
 import Base
 import ./bits.bend as OBits
@@ -9,11 +9,13 @@ import ./state.bend as OState
 import ./step.bend as OStep
 import ./batch.bend as OBatch
 
-# The shipped step
-# ----------------
-# step with the fast batch: on a state whose two views tile the messages it
-# is step itself (law stepx_is_step); the message's grown view is built
-# once.
+# The fast step
+# -------------
+# step with the fast batch fitx (bend/optchat/batch.bend); the message's
+# grown view is built once. Not run: the planner's stepper
+# (bend/ffi_optchat.bend) runs step, the algorithm every optchat law covers.
+# No law ties stepx to step yet (a stepx_is_step on states whose two views
+# tile the messages is not stated), so it stays out of the compiled core.
 
 def fitcx.if(over: Bool, +cfg: OState.Cfg, +t: List<&2, Bool>, +info: OInfo.Info, +cv: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
   match over:

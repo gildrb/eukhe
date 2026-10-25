@@ -7,6 +7,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use eukhe_bend::rules::optchat::Node;
+
 use super::{BLOCK, PLACEHOLDER};
 
 /// One tree node as a view part: `(l, i)` covers `[i·2^l, (i+1)·2^l)`.
@@ -31,20 +33,23 @@ impl Part {
     pub(crate) fn end(self) -> u64 {
         (self.i + 1) << self.l
     }
+}
 
-    /// The node over this one and its sibling.
-    pub(crate) fn parent(self) -> Part {
-        Part {
-            l: self.l + 1,
-            i: self.i / 2,
+/// A node as the planner names it.
+impl From<Part> for Node {
+    fn from(part: Part) -> Node {
+        Node {
+            l: part.l,
+            i: part.i,
         }
     }
+}
 
-    /// The other half of this node's parent.
-    pub(crate) fn sibling(self) -> Part {
+impl From<Node> for Part {
+    fn from(node: Node) -> Part {
         Part {
-            l: self.l,
-            i: self.i ^ 1,
+            l: node.l,
+            i: node.i,
         }
     }
 }
@@ -222,8 +227,8 @@ pub(crate) fn pieces(text: &str) -> Vec<String> {
 }
 
 /// The merge order, the sawtooth and the rendering are secured by the
-/// Bend laws (`LAWS.bend`, `PROOF.bend`) and the bridge test
-/// (`memory::chat::bridge`); these cover what the model leaves out.
+/// Bend laws (`laws/optchat.bend`, `PROOF.bend`) of the planner this view
+/// takes its lines from; these cover what the model leaves out.
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

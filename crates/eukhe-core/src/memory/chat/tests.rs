@@ -1,8 +1,9 @@
 //! The planner's merge order, sawtooths, compaction view and work queue
-//! are secured by the Bend laws (`LAWS.bend`, `PROOF.bend`) and by the
-//! bridge test ([`super::bridge`]), which runs this code and the Bend model
-//! on the same scenarios. What stays here is what the model leaves out:
-//! node steps, zoom, free nodes, and the load from the logs.
+//! run as the compiled core and are secured by the Bend laws
+//! (`laws/optchat.bend`, `PROOF.bend`) for every order of events. What
+//! stays here is what the chat does around them: node steps, zoom, free
+//! nodes, the load from the logs, and the chat doing what the planner
+//! answers.
 
 use super::*;
 use crate::memory::store::MergeRecord;
@@ -19,7 +20,8 @@ fn meta(kind: Kind) -> MessageMeta {
 }
 
 fn chat_with(total: u64) -> Chat {
-    let mut chat = Chat::default();
+    let mut chat =
+        Chat::from_loaded(Budgets::default(), Loaded::default(), None, &mut Vec::new()).0;
     for _ in 0..total {
         chat.push_message(meta(Kind::User));
     }
@@ -255,5 +257,51 @@ fn a_restart_keeps_a_shrinking_view_shrinking() {
     assert_eq!(
         serde_json::to_string(&records[0]).unwrap(),
         r#"{"merge":[[1,0]],"open":true,"t":5}"#
+    );
+}
+
+/// The owner died between a message and its batch line (§3.2): the log's
+/// last batch is open and older than the last message. The planner runs
+/// that batch at the load, and it is the batch the live chat ran: the
+/// same merges, logged once, and the same view.
+#[test]
+fn a_missed_batch_runs_at_the_load_as_it_ran_live() {
+    let budgets = Budgets {
+        ceiling: 2000,
+        floor: 1000,
+        compaction_ceiling: 100_000,
+        compaction_floor: 50_000,
+        jobs: 8,
+    };
+    let text = "x".repeat(500);
+    let mut live = Chat::from_loaded(budgets, Loaded::default(), None, &mut Vec::new()).0;
+    let mut nodes = Vec::new();
+    let mut records = Vec::new();
+    for id in 0..4 {
+        live.push_message(meta(Kind::User));
+        live.insert_node(part(0, id), &text);
+        nodes.push(node(0, id, &text));
+    }
+    live.insert_node(part(1, 0), &text);
+    nodes.push(node(1, 0, &text));
+    let (_, batch) = live.push_message(meta(Kind::User));
+    records.extend(batch.map(|batch| batch.record()));
+    live.insert_node(part(1, 1), &text);
+    nodes.push(node(1, 1, &text));
+    // Message 5's batch merges 2+2; its line never reaches the log.
+    let missed = live
+        .push_message(meta(Kind::User))
+        .1
+        .map(|batch| batch.record());
+    let mut problems = Vec::new();
+    let (reloaded, unlogged) =
+        Chat::from_loaded(budgets, loaded(6, nodes, records), None, &mut problems);
+    assert_eq!(
+        (unlogged, problems, reloaded.view().parts().to_vec()),
+        (
+            missed.into_iter().collect::<Vec<_>>(),
+            Vec::<String>::new(),
+            live.view().parts().to_vec()
+        )
     );
 }

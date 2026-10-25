@@ -24,6 +24,7 @@ pub mod infer_threshold;
 pub mod lease;
 pub mod mcp_url;
 pub mod model_facts;
+pub mod optchat;
 pub mod overflow;
 pub mod package_source;
 pub mod quirks;

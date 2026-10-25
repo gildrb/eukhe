@@ -8,7 +8,7 @@ import ../../../bend/optchat/node.bend as ONode
 import ../../../bend/optchat/push.bend as OPush
 import ../../base/logic/nat.bend as LLogicNat
 import ../../base/nat.bend as LNat
-import ../base.bend as LA
+import ../base/step.bend as LA
 import ./list.bend as LLList
 import ./logic.bend as LLLogic
 import ./nat.bend as LLNat

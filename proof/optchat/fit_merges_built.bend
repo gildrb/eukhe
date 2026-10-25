@@ -6,7 +6,7 @@ import ../../bend/optchat/info.bend as OInfo
 import ../../bend/optchat/node.bend as ONode
 import ../../bend/spec.bend as S
 import ../../laws/optchat.bend as Optchat
-import ./base.bend as LA
+import ./base/step.bend as LA
 
 def pf.fst_cons(-n: ONode.Node, r: List<&2, ONode.Node> & List<&2, ONode.Node>) -> {n <> Pair.fst(List<&2, ONode.Node>, List<&2, ONode.Node>, r) == Pair.fst(List<&2, ONode.Node>, List<&2, ONode.Node>, OFit.fit.cons(n, r)) : List<&2, ONode.Node>}:
   (ms, out) = r
