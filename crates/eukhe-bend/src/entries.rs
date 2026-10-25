@@ -136,6 +136,10 @@ pub enum Entry {
     Submission = 261,
     /// `bend/ffi_scan.bend`: a call.
     Scan = 262,
+    /// `bend/ffi_retry_note.bend`: a call.
+    RetryNote = 263,
+    /// `bend/ffi_doc_plan.bend`: a call.
+    DocPlan = 264,
 }
 
 impl Entry {
@@ -206,6 +210,8 @@ impl Entry {
         Entry::CodemodeId,
         Entry::Submission,
         Entry::Scan,
+        Entry::RetryNote,
+        Entry::DocPlan,
     ];
 
     /// The id `bend/core.bend` dispatches on.
