@@ -711,19 +711,18 @@ law cron_entry_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, CS.Ask>}
   {FC.ffi(s) == SCon{'E', SCon{' ', "cron: malformed request"}} : String}
 
-# LAW cron_entry_example: anchor: the strings Rust sends: a due unclaimed interval job is claimed, a fourth failure pauses 16 minutes, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
+# LAW cron_entry_example: anchor: the strings Rust sends, with small times (the proven kernel unfolds numbers one by one, so no anchor here runs the failure pause, a count of minutes times 60000 ms: cron_finish_exact pins it for every unit, cron_entry_answers at the entry's minute): a due unclaimed interval job is claimed, an eighth failure stops the job, an own claim no longer run is cleared, a recovered one-shot is finished, a skip rolls the interval, a cancelled job stays, a one-shot does not resume, a rule's resume asks for its next match; a request with input left over is refused
 law cron_entry_example:
-  {FC.ffi("0,0,1,600000,1,1000,0,F1000,1000,") == "2,1,601000," : String} &
-  {FC.ffi("3,0,1,600000,1,1000,3,TT5000,") == "1,0,1,965000,4," : String} &
-  {FC.ffi("3,0,1,600000,1,1000,7,TT5000,") == "1,1,0,8," : String} &
+  {FC.ffi("0,0,1,6,1,10,0,F10,10,") == "2,1,16," : String} &
+  {FC.ffi("3,0,1,6,1,10,7,TT50,") == "1,1,0,8," : String} &
   {FC.ffi("1,0,F") == "T" : String} &
   {FC.ffi("2,0,0,1,5,0,T") == "1,2,0," : String} &
-  {FC.ffi("3,0,1,600000,1,1000,0,FF5000,") == "2,0,1,605000,0," : String} &
+  {FC.ffi("3,0,1,6,1,10,0,FF50,") == "2,0,1,56,0," : String} &
   {FC.ffi("4,3,0,0,0,") == "0," : String} &
   {FC.ffi("5,0,0,0,0,9,") == "2," : String} &
   {FC.ffi("5,1,2,0,7,9,") == "0,0,2,0," : String} &
-  {read_ask("0,0,1,600000,1,1000,0,F1000,1000,x") == None{} : Maybe<&2, CS.Ask>} &
-  {FC.ffi("0,0,1,600000,1,1000,0,F1000,1000,x") == "E cron: malformed request" : String}
+  {read_ask("0,0,1,6,1,10,0,F10,10,x") == None{} : Maybe<&2, CS.Ask>} &
+  {FC.ffi("0,0,1,6,1,10,0,F10,10,x") == "E cron: malformed request" : String}
 
 # LAW cron_entry_fits_example: anchor: a request whose numbers fit the wire exists, so cron_entry_answers speaks of something
 law cron_entry_fits_example:

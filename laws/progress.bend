@@ -434,12 +434,14 @@ law goal_entry_malformed_exact:
   for no: {gs_read(s) == None{} : Maybe<&2, gs.Req>}
   {FPr.ffi(s) == SCon{'E', SCon{' ', "progress: malformed request"}} : String}
 
-# LAW goal_entry_example (G1): anchor: the requests Rust sends (bound 10^14 - 1): a first
+# LAW goal_entry_example (G1): anchor: the requests Rust sends (with a bound of 100: Rust
+# sends 10^14 - 1, which the proven kernel cannot unfold; below the bound the answer does
+# not depend on it, goal_judge_exact): a first
 # check; a later one with no new work at the cap; one with new work; an
 # unknown prior tag; input left over
 # EXCLUDES: another spelling of the requests or the replies Rust reads
 law goal_entry_example:
-  {[FPr.ffi("99999999999999,3,0,5,"), FPr.ffi("99999999999999,3,1,2,5,5,"), FPr.ffi("99999999999999,3,1,2,5,6,"), FPr.ffi("99999999999999,3,2,5,"), FPr.ffi("99999999999999,3,0,5,x")] == ["0,0,", "1,3,", "0,0,", Wr.err("progress: malformed request"), Wr.err("progress: malformed request")] : List<&2, String>}
+  {[FPr.ffi("100,3,0,5,"), FPr.ffi("100,3,1,2,5,5,"), FPr.ffi("100,3,1,2,5,6,"), FPr.ffi("100,3,2,5,"), FPr.ffi("100,3,0,5,x")] == ["0,0,", "1,3,", "0,0,", Wr.err("progress: malformed request"), Wr.err("progress: malformed request")] : List<&2, String>}
 
 # LAW goal_req_fits_example: witness: requests that fit the wire exist, with and without a
 # prior (goal_entry_answers is not vacuous)
