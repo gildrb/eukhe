@@ -5,6 +5,7 @@ import ../bend/color.bend as Co
 import ../bend/ffi_color.bend as FCo
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
+import ../spec/color_model.bend as Cm
 
 # (T1) Color text, value resolution, file reading, completion, picking
 # ---------------------------------------------------------------------
@@ -387,7 +388,9 @@ law color_to256_example:
   {[Co.to256(Co.Rgb{250, 0, 0}), Co.to256(Co.Rgb{160, 155, 164}), Co.to256(Co.Rgb{255, 255, 255})] == [196, 247, 231] : List<&2, U32>} & {FCo.ffi("0,1,250,0,0,") == "1,196," : String}
 
 # the contrast test with the luminances la and lb: the darker plus the
-# flare (0.05) times num, at most the lighter plus the flare times den
+# flare (0.05) times num, at most the lighter plus the flare times den; a
+# luminance is at most 1e8 and num, den at most 40 (the law's domain), so
+# no product passes 2^32: the comparison is exact
 def th.ratio.if(lt: Bool, +la: U32, +lb: U32, +num: U32, +den: U32) -> Bool:
   match lt:
     case True{}:
@@ -402,7 +405,8 @@ def th.contrast(+a: Co.Rgb, +b: Co.Rgb, +num: U32, +den: U32) -> Bool:
 
 # LAW color_contrast_spec: the contrast test is the WCAG ratio (L_light + 0.05) / (L_dark +
 # 0.05) at least num / den, compared exactly on integers, for every two
-# colors and ratio
+# colors and every ratio of terms up to 40 (the ratios the themes ask:
+# 9/2, 3/1); past 40 the anchors of color_contrast_no_wrap_example
 # EXCLUDES: a test that passes any two different colors, the ratio upside
 #   down, the flare left out
 law color_contrast_spec:
@@ -410,7 +414,15 @@ law color_contrast_spec:
   for +b: Co.Rgb
   for +num: U32
   for +den: U32
+  for small: {Bool.and(U32.is_le(num, 40), U32.is_le(den, 40)) == True{} : Bool}
   {Co.contrast_ge(a, b, num, den) == th.contrast(a, b, num, den) : Bool}
+
+# LAW color_contrast_no_wrap_example: past terms of 40 the test stays exact: white on white (1:1)
+# meets neither 45/10 nor 41/40 but meets 40/40; black on white (21:1)
+# meets 41/40 and 4200000000/200000000 (21:1) but not 4200000001/200000000
+# EXCLUDES: contrast arithmetic that wraps past 2^32
+law color_contrast_no_wrap_example:
+  {[Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 45, 10), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 40, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000000, 200000000), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000001, 200000000)] == [False{}, False{}, True{}, True{}, True{}, False{}] : List<&2, Bool>}
 
 # x is a code from lo to hi
 def th.within(+x: U32, lo: U32, hi: U32) -> Bool:
@@ -456,6 +468,172 @@ law color_hexd_spec:
 # EXCLUDES: letters past f read as digits
 law color_hex_letters_example:
   {[Co.hex("#hhhhhh"), Co.hex("#GGGGGG")] == [None{}, None{}] : List<&2, Maybe<&2, Co.Rgb>>}
+
+# Every color function, exactly
+# -----------------------------
+# The laws above fix lin on 0-255 and quantization, light and contrast
+# over the luminance; these pin, for every input, the remaining color
+# functions the theme's laws and specs read (equality, lin past 255, the
+# palette past 255, the #rrggbb and index texts), each to a spec here that
+# does not call bend/color.bend.
+
+def th.eq3(a: Co.Rgb, b: Co.Rgb) -> Bool:
+  match a b:
+    case Co.Rgb{ar, ag, ab} Co.Rgb{br, bg, bb}:
+      Bool.and(U32.is_eq(ar, br), Bool.and(U32.is_eq(ag, bg), U32.is_eq(ab, bb)))
+
+# LAW color_eq_spec: two colors are equal exactly when their three channels are
+# EXCLUDES: an equality that ignores a channel or always holds
+law color_eq_spec:
+  for a: Co.Rgb
+  for b: Co.Rgb
+  {Co.eq(a, b) == th.eq3(a, b) : Bool}
+
+# LAW color_lin_spec: the linear channel of every U32 is the table entry of its low eight
+# bits (spec/color_model.bend)
+# EXCLUDES: a channel past 255 linearized otherwise than its low byte
+law color_lin_spec:
+  for +c: U32
+  {Co.lin(c) == Cm.lin(c) : U32}
+
+# LAW color_past_255_example: anchors past the channel and index range: channel 384 linearizes
+# as 128 (its low byte), index 256 is the gray 248
+# EXCLUDES: a reading of color_lin_spec or color_ansi256_spec the human did
+#   not mean
+law color_past_255_example:
+  {[Co.lin(384), Co.lin(128)] == [2159, 2159] : List<&2, U32>} & {Co.ansi256(256) == Co.Rgb{248, 248, 248} : Co.Rgb}
+
+def th.join(+b: U32, hi: Maybe<&2, U32>, lo: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match hi:
+    case None{}:
+      None{}
+    case Some{x}:
+      match lo:
+        case None{}:
+          None{}
+        case Some{y}:
+          Some{(x * b + y : U32)}
+
+def th.rgb3(r: Maybe<&2, U32>, g: Maybe<&2, U32>, b: Maybe<&2, U32>) -> Maybe<&2, Co.Rgb>:
+  match r:
+    case None{}:
+      None{}
+    case Some{x}:
+      match g:
+        case None{}:
+          None{}
+        case Some{y}:
+          match b:
+            case None{}:
+              None{}
+            case Some{z}:
+              Some{Co.Rgb{x, y, z}}
+
+def th.sharp(ok: Bool, m: Maybe<&2, Co.Rgb>) -> Maybe<&2, Co.Rgb>:
+  match ok:
+    case True{}:
+      m
+    case False{}:
+      None{}
+
+def th.hex7(+h: Char, a: Char, b: Char, c: Char, d: Char, e: Char, f: Char) -> Maybe<&2, Co.Rgb>:
+  th.sharp(Char.is_eq(h, '#'), th.rgb3(th.join(16, th.hexv(a), th.hexv(b)), th.join(16, th.hexv(c), th.hexv(d)), th.join(16, th.hexv(e), th.hexv(f))))
+
+# the color text s writes: exactly '#' and six hex digits, each pair a
+# channel, high digit first; none for any other text
+def th.hex(s: String) -> Maybe<&2, Co.Rgb>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{h, s1}:
+      match s1:
+        case SNil{}:
+          None{}
+        case SCon{a, s2}:
+          match s2:
+            case SNil{}:
+              None{}
+            case SCon{b, s3}:
+              match s3:
+                case SNil{}:
+                  None{}
+                case SCon{c, s4}:
+                  match s4:
+                    case SNil{}:
+                      None{}
+                    case SCon{d, s5}:
+                      match s5:
+                        case SNil{}:
+                          None{}
+                        case SCon{e, s6}:
+                          match s6:
+                            case SNil{}:
+                              None{}
+                            case SCon{f, s7}:
+                              match s7:
+                                case SNil{}:
+                                  th.hex7(h, a, b, c, d, e, f)
+                                case SCon{g, s8}:
+                                  None{}
+
+# LAW color_hex_spec (R1): every text reads as a color exactly as the spec says
+# EXCLUDES: a text of another length or without '#' read as a color, a
+#   non-digit read, digits in another order
+law color_hex_spec:
+  for s: String
+  {Co.hex(s) == th.hex(s) : Maybe<&2, Co.Rgb>}
+
+def th.digit(ok: Bool, +x: U32, +base: U32) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      Some{(x - base : U32)}
+    case False{}:
+      None{}
+
+# a decimal digit, and a leading one (1-9)
+def th.decd(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      th.digit(th.within(x, 48, 57), x, 48)
+
+def th.decl(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      th.digit(th.within(x, 49, 57), x, 48)
+
+def th.cap(m: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match m:
+    case None{}:
+      None{}
+    case Some{+x}:
+      th.digit(U32.is_le(x, 255), x, 0)
+
+# the index text s writes: one to three decimal digits, no leading zero,
+# at most 255; none for any other text
+def th.num(s: String) -> Maybe<&2, U32>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{a, s1}:
+      match s1:
+        case SNil{}:
+          th.decd(a)
+        case SCon{b, s2}:
+          match s2:
+            case SNil{}:
+              th.join(10, th.decl(a), th.decd(b))
+            case SCon{c, s3}:
+              match s3:
+                case SNil{}:
+                  th.cap(th.join(10, th.join(10, th.decl(a), th.decd(b)), th.decd(c)))
+                case SCon{d, s4}:
+                  None{}
+
+# LAW color_num_spec (R1): every text reads as an index exactly as the spec says
+# EXCLUDES: a sign, a leading zero, a fourth digit or a value past 255 read
+law color_num_spec:
+  for s: String
+  {Co.num(s) == th.num(s) : Maybe<&2, U32>}
 
 def th.ansi16() -> List<&2, Co.Rgb>:
   [Co.Rgb{0, 0, 0}, Co.Rgb{128, 0, 0}, Co.Rgb{0, 128, 0}, Co.Rgb{128, 128, 0}, Co.Rgb{0, 0, 128}, Co.Rgb{128, 0, 128}, Co.Rgb{0, 128, 128}, Co.Rgb{192, 192, 192}, Co.Rgb{128, 128, 128}, Co.Rgb{255, 0, 0}, Co.Rgb{0, 255, 0}, Co.Rgb{255, 255, 0}, Co.Rgb{0, 0, 255}, Co.Rgb{255, 0, 255}, Co.Rgb{0, 255, 255}, Co.Rgb{255, 255, 255}]
@@ -505,6 +683,28 @@ law color_ansi256_low:
 # EXCLUDES: a cube level off, a gray ramp off by a step
 law color_ansi256_high:
   {th.ansi_ok(128n, 128) == True{} : Bool}
+
+def th.ansi_any.if(low: Bool, cube: Bool, +i: U32) -> Co.Rgb:
+  match low:
+    case True{}:
+      Maybe.default(&2, Co.Rgb, List.get(&2, Co.Rgb, th.ansi16(), U32.to_nat(i)), Co.Rgb{0, 0, 0})
+    case False{}:
+      match cube:
+        case True{}:
+          Co.Rgb{th.at(th.levels(), U32.div((i - 16 : U32), 36)), th.at(th.levels(), U32.mod(U32.div((i - 16 : U32), 6), 6)), th.at(th.levels(), U32.mod((i - 16 : U32), 6))}
+        case False{}:
+          Co.Rgb{(8 + (i - 232) * 10 : U32), (8 + (i - 232) * 10 : U32), (8 + (i - 232) * 10 : U32)}
+
+# the xterm-256 color of any U32 index: the ANSI-16 table below 16, the
+# cube below 232, else the gray ramp (past 255 it goes on wrapping)
+def th.ansi_any(+i: U32) -> Co.Rgb:
+  th.ansi_any.if(U32.is_lt(i, 16), U32.is_lt(i, 232), i)
+
+# LAW color_ansi256_spec: the palette color of every U32 index, the indices past 255 included
+# EXCLUDES: a palette that differs past the indices color_ansi256_low/high check
+law color_ansi256_spec:
+  for +i: U32
+  {Co.ansi256(i) == th.ansi_any(i) : Co.Rgb}
 
 # (T1) The compiled entry
 # -----------------------

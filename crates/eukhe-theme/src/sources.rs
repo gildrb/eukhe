@@ -181,10 +181,20 @@ impl ThemeSources {
             },
             None => Vec::new(),
         };
-        let loads = registered_files
+        let mut files: Vec<(PathBuf, bool)> = registered_files
             .into_iter()
             .map(|path| (path, false))
             .chain(custom_files.into_iter().map(|path| (path, true)))
+            .collect();
+        if files.len() > MAX_THEME_FILES {
+            warnings.push(format!(
+                "{} theme files found; only the first {MAX_THEME_FILES} are read",
+                files.len()
+            ));
+            files.truncate(MAX_THEME_FILES);
+        }
+        let loads = files
+            .into_iter()
             .map(|(path, custom)| Load {
                 theme: read_theme(&path),
                 path,
@@ -194,6 +204,11 @@ impl ThemeSources {
         Catalog { loads, warnings }
     }
 }
+
+/// The most theme files one load reads (registered first, then custom).
+/// The theme rules number a file 3 + its index as a U32 and decode the
+/// files one stack frame each, so a load stays far below both limits.
+const MAX_THEME_FILES: usize = 4096;
 
 /// The theme object of the file at `path`, or why it is none.
 fn read_theme(path: &Path) -> Result<RawTheme, String> {

@@ -11,7 +11,9 @@
 # - contrast_ge(a, b, num, den): the WCAG contrast ratio of a and b,
 #   (L_light + 0.05) / (L_dark + 0.05), is at least num/den. Exact: the
 #   comparison is (L_dark + F)·num <= (L_light + F)·den with F = 0.05 in
-#   lum units, on U32 (no overflow for num <= 40).
+#   lum units; a luminance is at most 1e8, so L + F < 2^27 fits a U32;
+#   with num and den at most 40 (the shipped pairs ask 9/2 and 3/1) the
+#   products fit a U32, past that they are taken exactly on 64 bits.
 # - light(c): lum(c) is above one half.
 # - ansi256(i): the color of xterm-256 index i; to256(c): the index a
 #   256-color terminal paints for c.
@@ -136,12 +138,48 @@ def lum(c: Rgb) -> U32:
 def flare() -> U32:
   5000000
 
-def contrast_ge(+a: Rgb, +b: Rgb, num: U32, den: U32) -> Bool:
+# a 64-bit number as its high and low 32 bits
+type W64 is Data:
+  W64{hi: U32, lo: U32}
+
+# the product of two U32, exact: 16-bit halves, the middle carry kept
+def mul64(+a: U32, +b: U32) -> W64:
+  +a1 = (a >> 16n : U32)
+  +a0 = (a .&. 65535 : U32)
+  +b1 = (b >> 16n : U32)
+  +b0 = (b .&. 65535 : U32)
+  +p01 = (a0 * b1 : U32)
+  +p00 = (a0 * b0 : U32)
+  +mid = ((a1 * b0 : U32) + p01 : U32)
+  +lo = (p00 + (mid << 16n : U32) : U32)
+  W64{((a1 * b1 : U32) + (mid >> 16n : U32) + sel(U32.is_lt(mid, p01), 65536, 0) + sel(U32.is_lt(lo, p00), 1, 0) : U32), lo}
+
+def le64.lo(eq: Bool, +xl: U32, +yl: U32) -> Bool:
+  match eq:
+    case True{}:
+      U32.is_le(xl, yl)
+    case False{}:
+      False{}
+
+# x is at most y, as 64-bit numbers
+def le64(x: W64, y: W64) -> Bool:
+  match x y:
+    case W64{+xh, +xl} W64{+yh, +yl}:
+      Bool.or(U32.is_lt(xh, yh), le64.lo(U32.is_eq(xh, yh), xl, yl))
+
+def contrast.pick(small: Bool, +dark: U32, +light: U32, +num: U32, +den: U32) -> Bool:
+  match small:
+    case True{}:
+      U32.is_le((dark * num : U32), (light * den : U32))
+    case False{}:
+      le64(mul64(dark, num), mul64(light, den))
+
+def contrast_ge(+a: Rgb, +b: Rgb, +num: U32, +den: U32) -> Bool:
   +la = lum(a)
   +lb = lum(b)
   +light = U32.max(la, lb)
   +dark = U32.min(la, lb)
-  U32.is_le(((dark + flare()) * num : U32), ((light + flare()) * den : U32))
+  contrast.pick(Bool.and(U32.is_le(num, 40), U32.is_le(den, 40)), (dark + flare() : U32), (light + flare() : U32), num, den)
 
 def light(+c: Rgb) -> Bool:
   U32.is_gt(lum(c), 50000000)

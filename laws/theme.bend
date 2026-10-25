@@ -901,6 +901,11 @@ law theme_status_distinct_spec:
 #    palette; a shipped theme with its table. Any other input gets
 #    exactly "E theme: malformed request"; input after a request is never
 #    read as part of it.
+# Not stated here, by design: that every request the entry accepts holds
+# only lengths and counts that fit the wire (the wire's decoders never
+# read a 15th digit: laws/wire.bend wire_nat_decoded_fits); and file ids
+# past 2^32 (a file is 3 + its index as a U32, in the model and in these
+# specs alike): eukhe-theme reads at most 4096 files a load.
 
 # the builtin themes as the candidates a name resolves over: eukhe (the
 # default theme, id 0), dark (1) and light (2), all valid
