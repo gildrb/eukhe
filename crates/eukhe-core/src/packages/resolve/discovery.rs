@@ -5,7 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use globset::GlobBuilder;
+use eukhe_bend::rules::glob::{self, IgnoreEntry, IgnoreRule};
+use eukhe_bend::{expect_core, Entry};
 
 use super::super::source::path_relative;
 use crate::skills::diagnostics::ResourceDiagnostic;
@@ -56,27 +57,16 @@ fn is_node_modules(name: &str, skip_node_modules: bool) -> bool {
     skip_node_modules && name == "node_modules"
 }
 
-/// One parsed ignore-file rule.
-enum IgnoreRule {
-    /// A rule with a valid glob.
-    Glob {
-        matcher: globset::GlobMatcher,
-        anchored: bool,
-        negated: bool,
-        dir_only: bool,
-    },
-    /// A rule that ignores every path under one directory. `prefix` is the
-    /// root-relative directory: empty for the root, else it ends in `/`. A
-    /// rule that is not a valid glob becomes this rule. An ignore file that
-    /// cannot be read also becomes this rule. Thus a broken rule can only
-    /// ignore more paths, never fewer.
-    Everything { prefix: String },
-}
-
 /// Ordered gitignore-style rule set, added incrementally as the walk enters
 /// nested directories (patterns from nested files are prefixed with their
 /// directory, so a single root-relative matcher stays correct). Broken
-/// rules and ignore files that cannot be read go into `diagnostics`.
+/// rules and ignore files that cannot be read go into `diagnostics`. A
+/// rule that is not a valid glob, or an ignore file that cannot be read,
+/// becomes the rule that ignores every path under its directory
+/// ([`IgnoreRule::Everything`], a prefix that is empty for the root, else
+/// ends in `/`): a broken rule can only ignore more paths, never fewer.
+/// The compiled core decides which paths the rules ignore, one directory
+/// listing per call.
 pub(crate) struct IgnoreMatcher {
     rules: Vec<IgnoreRule>,
     diagnostics: Vec<ResourceDiagnostic>,
@@ -141,21 +131,14 @@ impl IgnoreMatcher {
             glob = glob.strip_suffix('/').unwrap_or(glob);
         }
         let anchored = glob.contains('/');
-        let error = match GlobBuilder::new(glob)
-            .literal_separator(true)
-            .backslash_escape(true)
-            .build()
-        {
-            Ok(built) => {
-                self.rules.push(IgnoreRule::Glob {
-                    matcher: built.compile_matcher(),
-                    anchored,
-                    negated,
-                    dir_only,
-                });
-                return;
-            }
-            Err(error) => error,
+        let Err(error) = expect_core(Entry::Glob, glob::check(glob)) else {
+            self.rules.push(IgnoreRule::Glob {
+                pattern: glob.to_string(),
+                anchored,
+                negated,
+                dir_only,
+            });
+            return;
         };
         let effect = if negated {
             "it is not used"
@@ -171,43 +154,21 @@ impl IgnoreMatcher {
         });
     }
 
-    /// True when the root-relative path is ignored. Dirs pass `is_dir` true
-    /// (the TS side passes trailing-slash paths).
-    pub(crate) fn ignores(&self, rel_path: &str, is_dir: bool) -> bool {
-        let path = rel_path.strip_suffix('/').unwrap_or(rel_path);
-        let segments: Vec<&str> = path.split('/').collect();
-        for rule in self.rules.iter().rev() {
-            match rule {
-                IgnoreRule::Glob {
-                    matcher,
-                    anchored,
-                    negated,
-                    dir_only,
-                } => {
-                    if *dir_only && !is_dir {
-                        continue;
-                    }
-                    let path_matched = if *anchored {
-                        matcher.is_match(path)
-                    } else {
-                        // Unanchored patterns match at any depth.
-                        segments
-                            .iter()
-                            .enumerate()
-                            .any(|(index, _)| matcher.is_match(segments[index..].join("/")))
-                    };
-                    if path_matched {
-                        return !*negated;
-                    }
-                }
-                IgnoreRule::Everything { prefix } => {
-                    if path.starts_with(prefix.as_str()) {
-                        return true;
-                    }
-                }
-            }
+    /// Per root-relative path (`true`: a directory; the TS side passes
+    /// trailing-slash paths), whether it is ignored. One core call for
+    /// the whole listing; none when no rule is set.
+    pub(crate) fn ignored(&self, entries: &[(String, bool)]) -> Vec<bool> {
+        if self.rules.is_empty() {
+            return vec![false; entries.len()];
         }
-        false
+        let entries: Vec<IgnoreEntry<'_>> = entries
+            .iter()
+            .map(|(path, is_dir)| IgnoreEntry {
+                path,
+                is_dir: *is_dir,
+            })
+            .collect();
+        expect_core(Entry::Glob, glob::ignored(&self.rules, &entries))
     }
 }
 
@@ -287,6 +248,47 @@ pub(crate) fn collect_files(
     files
 }
 
+/// One directory entry a walk considers: whether it is a directory or a
+/// file (through symlinks), and whether the ignore rules ignore it.
+struct Listed {
+    entry: DirEntry,
+    is_dir: bool,
+    is_file: bool,
+    ignored: bool,
+}
+
+/// The entries of `dir` (sorted by name) whose name `keep` admits, each
+/// classified and decided by the ignore rules (paths relative to `root`)
+/// in one core call.
+fn listing(
+    dir: &Path,
+    root: &Path,
+    matcher: &IgnoreMatcher,
+    keep: impl Fn(&str) -> bool,
+) -> Vec<Listed> {
+    let kept: Vec<(DirEntry, bool, bool)> = read_entries_sorted(dir)
+        .into_iter()
+        .filter(|entry| keep(&entry.name))
+        .map(|entry| {
+            let (is_dir, is_file) = classify(&entry.path);
+            (entry, is_dir, is_file)
+        })
+        .collect();
+    let paths: Vec<(String, bool)> = kept
+        .iter()
+        .map(|(entry, is_dir, _)| (path_relative(root, &entry.path), *is_dir))
+        .collect();
+    kept.into_iter()
+        .zip(matcher.ignored(&paths))
+        .map(|((entry, is_dir, is_file), ignored)| Listed {
+            entry,
+            is_dir,
+            is_file,
+            ignored,
+        })
+        .collect()
+}
+
 fn collect_files_inner(
     dir: &Path,
     kind: FileKind,
@@ -299,28 +301,22 @@ fn collect_files_inner(
         return files;
     }
     matcher.add_rules(dir, root);
-    for entry in read_entries_sorted(dir) {
-        if entry.name.starts_with('.') {
+    for listed in listing(dir, root, matcher, |name| {
+        !name.starts_with('.') && !is_node_modules(name, skip_node_modules)
+    }) {
+        if listed.ignored {
             continue;
         }
-        if is_node_modules(&entry.name, skip_node_modules) {
-            continue;
-        }
-        let (is_dir, is_file) = classify(&entry.path);
-        let rel_path = path_relative(root, &entry.path);
-        if matcher.ignores(&rel_path, is_dir) {
-            continue;
-        }
-        if is_dir {
+        if listed.is_dir {
             files.extend(collect_files_inner(
-                &entry.path,
+                &listed.entry.path,
                 kind,
                 skip_node_modules,
                 matcher,
                 root,
             ));
-        } else if is_file && kind.matches(&entry.name) {
-            files.push(entry.path);
+        } else if listed.is_file && kind.matches(&listed.entry.name) {
+            files.push(listed.entry.path);
         }
     }
     files
@@ -351,45 +347,34 @@ fn collect_skill_entries_inner(
         return entries;
     }
     matcher.add_rules(dir, root);
-    let dir_entries = read_entries_sorted(dir);
+    let listed = listing(dir, root, matcher, |name| {
+        !name.starts_with('.') && !is_node_modules(name, true)
+    });
 
-    for entry in &dir_entries {
-        if entry.name != "SKILL.md" {
-            continue;
-        }
-        let (is_dir, is_file) = classify(&entry.path);
-        let rel_path = path_relative(root, &entry.path);
-        if !is_dir && is_file && !matcher.ignores(&rel_path, false) {
-            entries.push(entry.path.clone());
-            return entries;
-        }
+    if let Some(skill) = listed.iter().find(|listed| {
+        listed.entry.name == "SKILL.md" && !listed.is_dir && listed.is_file && !listed.ignored
+    }) {
+        entries.push(skill.entry.path.clone());
+        return entries;
     }
 
-    for entry in dir_entries {
-        if entry.name.starts_with('.') || is_node_modules(&entry.name, true) {
-            continue;
-        }
-        let (is_dir, is_file) = classify(&entry.path);
-        let rel_path = path_relative(root, &entry.path);
+    for listed in listed {
         // Root markdown skills apply only in `pi` mode at the scan root.
         if mode == SkillDiscoveryMode::Pi
             && dir == root
-            && !is_dir
-            && is_file
-            && extension_is(&entry.name, &["md"])
-            && !matcher.ignores(&rel_path, false)
+            && !listed.is_dir
+            && listed.is_file
+            && extension_is(&listed.entry.name, &["md"])
+            && !listed.ignored
         {
-            entries.push(entry.path.clone());
+            entries.push(listed.entry.path);
             continue;
         }
-        if !is_dir {
-            continue;
-        }
-        if matcher.ignores(&rel_path, true) {
+        if !listed.is_dir || listed.ignored {
             continue;
         }
         entries.extend(collect_skill_entries_inner(
-            &entry.path,
+            &listed.entry.path,
             mode,
             matcher,
             root,
@@ -426,17 +411,11 @@ fn collect_top_level_files(
     let mut matcher = IgnoreMatcher::new();
     matcher.add_rules(dir, dir);
     diagnostics.append(&mut matcher.diagnostics);
-    for entry in read_entries_sorted(dir) {
-        if entry.name.starts_with('.') || is_node_modules(&entry.name, true) {
-            continue;
-        }
-        let (is_dir, is_file) = classify(&entry.path);
-        let rel_path = path_relative(dir, &entry.path);
-        if matcher.ignores(&rel_path, is_dir) {
-            continue;
-        }
-        if !is_dir && is_file && kind.matches(&entry.name) {
-            entries.push(entry.path);
+    for listed in listing(dir, dir, &matcher, |name| {
+        !name.starts_with('.') && !is_node_modules(name, true)
+    }) {
+        if !listed.ignored && !listed.is_dir && listed.is_file && kind.matches(&listed.entry.name) {
+            entries.push(listed.entry.path);
         }
     }
     entries

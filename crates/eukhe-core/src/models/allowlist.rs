@@ -13,6 +13,9 @@
 //! metered featured default) must surface as an error, never as a running
 //! session on the wrong model.
 
+use eukhe_bend::rules::glob;
+use eukhe_bend::{expect_core, Entry};
+
 /// A model the daemon refused to resolve: the resolved selector is outside
 /// the configured allowlist. Typed so enforcement seams can downcast the
 /// refusal out of the resolution errors that stay
@@ -39,37 +42,22 @@ impl std::error::Error for ModelAllowlistRefusal {}
 
 /// Whether a resolved model selector is allowed by the `allowedModels`
 /// patterns. Patterns use the `--models` CLI scope grammar, matched
-/// case-insensitively against the full selector `provider/model-id` and
-/// against the bare model id (whose `prime-inference` ids may carry
-/// slashes, e.g. `internal/glm-5.3-fast`): a pattern with wildcards
-/// (`*`, `?`, `[`) globs, a plain pattern must match exactly. An empty
-/// pattern list allows nothing.
+/// case-insensitively (both sides lowercased) against the full selector
+/// `provider/model-id` and against the bare model id (whose
+/// `prime-inference` ids may carry slashes, e.g. `internal/glm-5.3-fast`):
+/// a pattern with wildcards (`*`, `?`, `[`) globs, a plain pattern must
+/// match exactly. An empty pattern list allows nothing. The compiled core
+/// decides (`eukhe_bend::rules::glob::model_allowed`).
 #[must_use]
 pub fn model_allowed(selector: &str, allowlist: &[String]) -> bool {
-    allowlist
+    let patterns: Vec<String> = allowlist
         .iter()
-        .any(|pattern| pattern_matches_selector(pattern, selector))
-}
-
-/// One pattern against one selector: case-insensitive exact or glob match
-/// on the full selector or the bare id.
-fn pattern_matches_selector(pattern: &str, selector: &str) -> bool {
-    let pattern = pattern.trim().to_lowercase();
-    if pattern.is_empty() {
-        return false;
-    }
-    let selector = selector.to_lowercase();
-    let bare_id = selector
-        .split_once('/')
-        .map_or(selector.as_str(), |(_, id)| id);
-    if !pattern.contains(['*', '?', '[']) {
-        return pattern == selector || pattern == bare_id;
-    }
-    let matcher = match globset::Glob::new(&pattern) {
-        Ok(glob) => glob.compile_matcher(),
-        Err(_) => return false,
-    };
-    matcher.is_match(&selector) || matcher.is_match(bare_id)
+        .map(|pattern| pattern.to_lowercase())
+        .collect();
+    expect_core(
+        Entry::Glob,
+        glob::model_allowed(&selector.to_lowercase(), &patterns),
+    )
 }
 
 #[cfg(test)]
@@ -102,29 +90,6 @@ mod tests {
             SELECTOR,
             &["prime-inference/internal/glm-5.3-turbo".to_string()]
         ));
-    }
-
-    #[test]
-    fn glob_patterns_match_the_full_selector_or_bare_id() {
-        let allow = |pattern: &str| vec![pattern.to_string()];
-        assert!(model_allowed(SELECTOR, &allow("prime-inference/*")));
-        assert!(model_allowed(
-            SELECTOR,
-            &allow("prime-inference/internal/*")
-        ));
-        assert!(model_allowed(SELECTOR, &allow("internal/*")));
-        assert!(model_allowed(SELECTOR, &allow("PRIME-INFERENCE/*")));
-        // The provider wildcard does not swallow other providers.
-        assert!(!model_allowed("zai/glm-5.3", &allow("prime-inference/*")));
-        // A question mark is a wildcard, not a plain character.
-        assert!(model_allowed("zai/glm-5.3", &allow("zai/glm-5.?")));
-        // An empty pattern list allows nothing (the settings getter never
-        // produces one, but the matching must stay total).
-        assert!(!model_allowed(SELECTOR, &[]));
-        // Blank patterns never match.
-        assert!(!model_allowed(SELECTOR, &["  ".to_string()]));
-        // An invalid glob never matches.
-        assert!(!model_allowed(SELECTOR, &allow("[")));
     }
 
     #[test]

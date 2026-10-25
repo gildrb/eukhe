@@ -2,14 +2,23 @@
 //! `+`/`-` force-include/force-exclude override forms, applied against paths
 //! relative to a base directory.
 //!
-//! Matching is minimatch-compatible via globset with literal separators:
-//! `*` and `?` never cross `/`, `**` spans segments, character classes and
-//! brace alternates work. A pattern that fails to compile matches nothing
-//! (the TS product treats invalid patterns as non-matches).
+//! Matching is globset's (as the compiled core runs it,
+//! `eukhe_bend::rules::glob`) with literal separators: `*` and `?` never
+//! cross `/`, `**` spans segments, character classes and brace alternates
+//! work. A pattern globset refuses matches nothing (the TS product treats
+//! invalid patterns as non-matches). Each query sends every path of a
+//! batch to the core in one call.
 
 use std::path::{Path, PathBuf};
 
-use globset::GlobBuilder;
+use eukhe_bend::rules::glob::{self, GlobOptions};
+use eukhe_bend::{expect_core, Entry};
+
+/// globset's builder options of every resource-filter pattern.
+const OPTIONS: GlobOptions = GlobOptions {
+    literal_separator: true,
+    case_insensitive: false,
+};
 
 /// True when the entry is a pattern rather than a plain path: `!`/`+`/`-`
 /// override prefixes or glob metacharacters.
@@ -62,16 +71,10 @@ fn path_to_posix(path: &Path) -> String {
     to_posix(&path.to_string_lossy())
 }
 
-/// minimatch-style single-pattern match over a posix path string.
-pub(crate) fn minimatch(value: &str, pattern: &str) -> bool {
-    let Ok(glob) = GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .backslash_escape(true)
-        .build()
-    else {
-        return false;
-    };
-    glob.compile_matcher().is_match(value)
+/// Per text, whether one of `patterns` matches it whole.
+fn texts_matching(texts: &[String], patterns: &[String]) -> Vec<bool> {
+    let groups: Vec<Vec<&str>> = texts.iter().map(|text| vec![text.as_str()]).collect();
+    expect_core(Entry::Glob, glob::match_groups(OPTIONS, patterns, &groups))
 }
 
 /// The relative-path, basename, and full-path match candidates for a file,
@@ -84,6 +87,21 @@ struct MatchCandidates {
     parent_rel: Option<String>,
     parent_name: Option<String>,
     parent_full: Option<String>,
+}
+
+impl MatchCandidates {
+    /// Every form a glob pattern is tested against.
+    fn glob_forms(&self) -> Vec<&str> {
+        [&self.rel, &self.name, &self.full]
+            .into_iter()
+            .map(String::as_str)
+            .chain(
+                [&self.parent_rel, &self.parent_name, &self.parent_full]
+                    .into_iter()
+                    .filter_map(Option::as_deref),
+            )
+            .collect()
+    }
 }
 
 fn match_candidates(file_path: &Path, base_dir: &Path) -> MatchCandidates {
@@ -117,29 +135,25 @@ fn match_candidates(file_path: &Path, base_dir: &Path) -> MatchCandidates {
     }
 }
 
-/// True when the file matches any glob pattern, tested against its path
+/// Per file, whether it matches any glob pattern, tested against its path
 /// relative to the base dir, its basename, and its full path (plus the
 /// parent-directory forms for `SKILL.md` files).
+fn paths_matching(file_paths: &[PathBuf], patterns: &[String], base_dir: &Path) -> Vec<bool> {
+    let normalized: Vec<String> = patterns.iter().map(|pattern| to_posix(pattern)).collect();
+    let candidates: Vec<MatchCandidates> = file_paths
+        .iter()
+        .map(|path| match_candidates(path, base_dir))
+        .collect();
+    let groups: Vec<Vec<&str>> = candidates.iter().map(MatchCandidates::glob_forms).collect();
+    expect_core(
+        Entry::Glob,
+        glob::match_groups(OPTIONS, &normalized, &groups),
+    )
+}
+
+/// True when the file matches any glob pattern ([`paths_matching`]).
 pub(crate) fn matches_any_pattern(file_path: &Path, patterns: &[String], base_dir: &Path) -> bool {
-    let candidates = match_candidates(file_path, base_dir);
-    patterns.iter().any(|pattern| {
-        let normalized = to_posix(pattern);
-        minimatch(&candidates.rel, &normalized)
-            || minimatch(&candidates.name, &normalized)
-            || minimatch(&candidates.full, &normalized)
-            || candidates
-                .parent_rel
-                .as_deref()
-                .is_some_and(|parent_rel| minimatch(parent_rel, &normalized))
-            || candidates
-                .parent_name
-                .as_deref()
-                .is_some_and(|parent_name| minimatch(parent_name, &normalized))
-            || candidates
-                .parent_full
-                .as_deref()
-                .is_some_and(|parent_full| minimatch(parent_full, &normalized))
-    })
+    paths_matching(&[file_path.to_path_buf()], patterns, base_dir).contains(&true)
 }
 
 /// Strip a leading `./` and normalize separators (exact-pattern form).
@@ -240,12 +254,18 @@ pub(crate) fn apply_patterns(
     } else {
         all_paths
             .iter()
-            .filter(|path| matches_any_pattern(path, &includes, base_dir))
-            .cloned()
+            .zip(paths_matching(all_paths, &includes, base_dir))
+            .filter(|(_, included)| *included)
+            .map(|(path, _)| path.clone())
             .collect()
     };
     if !excludes.is_empty() {
-        result.retain(|path| !matches_any_pattern(path, &excludes, base_dir));
+        let dropped = paths_matching(&result, &excludes, base_dir);
+        result = result
+            .into_iter()
+            .zip(dropped)
+            .filter_map(|(path, drop)| (!drop).then_some(path))
+            .collect();
     }
     if !force_includes.is_empty() {
         for path in all_paths {
@@ -269,17 +289,9 @@ pub(crate) fn glob_paths(pattern: &str, root: &Path) -> Vec<PathBuf> {
     let pattern = pattern
         .strip_prefix("./")
         .map_or_else(|| pattern.to_string(), str::to_string);
-    let Ok(glob) = GlobBuilder::new(&pattern)
-        .literal_separator(true)
-        .backslash_escape(true)
-        .build()
-    else {
-        return Vec::new();
-    };
-    let matcher = glob.compile_matcher();
     let allow_dot = pattern.starts_with('.') || pattern.contains("/.");
 
-    let mut matched_paths = Vec::new();
+    let mut candidates: Vec<(PathBuf, String)> = Vec::new();
     let mut queue = vec![root.to_path_buf()];
     while let Some(dir) = queue.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -300,14 +312,20 @@ pub(crate) fn glob_paths(pattern: &str, root: &Path) -> Vec<PathBuf> {
             {
                 continue;
             }
-            if !rel.is_empty() && matcher.is_match(&rel) {
-                matched_paths.push(child.clone());
-            }
             if meta.is_dir() {
-                queue.push(child);
+                queue.push(child.clone());
+            }
+            if !rel.is_empty() {
+                candidates.push((child, rel));
             }
         }
     }
+    let rels: Vec<String> = candidates.iter().map(|(_, rel)| rel.clone()).collect();
+    let mut matched_paths: Vec<PathBuf> = candidates
+        .into_iter()
+        .zip(texts_matching(&rels, &[pattern]))
+        .filter_map(|((path, _), matched)| matched.then_some(path))
+        .collect();
     matched_paths.sort();
     matched_paths
 }

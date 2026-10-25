@@ -14,6 +14,7 @@ pub mod cvar_layers;
 pub mod doc_plan;
 pub mod frames;
 pub mod fsmode;
+pub mod glob;
 pub mod infer_force;
 pub mod infer_guard;
 pub mod infer_threshold;

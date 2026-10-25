@@ -40,6 +40,7 @@ import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
 import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
+import ./ffi_glob.bend as ffi_glob
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
@@ -251,6 +252,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_mcp_url.ffi(input)
     case 291:
       ffi_slash_args.ffi(input)
+    case 380:
+      ffi_glob.ffi(input)
     case _:
       W.err("unknown entry")
 
