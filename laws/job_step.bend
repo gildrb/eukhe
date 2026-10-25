@@ -169,3 +169,16 @@ law job_runs_are_steps:
   for +e: Jb.JEv
   for +es: List<&2, Jb.JEv>
   {Jb.go(Nil{}, cap, j) == j : Jb.J} & {Jb.go(e <> es, cap, j) == Jb.go(es, cap, Jb.step(cap, j, e)) : Jb.J} & {Jb.ends.go(Nil{}, cap, j) == Nil{} : List<&2, Jb.End>} & {Jb.ends.go(e <> es, cap, j) == List.append(&2, Jb.End, Jb.ends.of(j, e), Jb.ends.go(es, cap, Jb.step(cap, j, e))) : List<&2, Jb.End>} & {Jb.run(cap, es) == Jb.go(es, cap, Jb.Live{0n, 0n}) : Jb.J} & {Jb.ends(cap, es) == Jb.ends.go(es, cap, Jb.Live{0n, 0n}) : List<&2, Jb.End>}
+
+# LAW job_feed_past_bound: a job whose counts are already past the bound t takes no more
+# output: its counts stay as they are (Rust never holds such a job: job_feed_bounded)
+# EXCLUDES: counts that grow past the bound, or bytes invented, from a job already past it (a
+#   fourth fresh adversary's `feed` passed every other law)
+law job_feed_past_bound:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  for past: {Nat.is_lt(t, Nat.add(k, d)) == True{} : Bool}
+  {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.Live{k, d} : Jb.J}
