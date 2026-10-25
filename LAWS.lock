@@ -47,6 +47,7 @@
     "laws/approvals.bend::nearest_answer_wins": "27c59bb892cbd6f57e531d9b9a8a7f6c840c265412be480450050a7023d71ced",
     "laws/approvals.bend::quiet_is_unanswered": "e2dcc756096169b8f1ee073f20b3738b1f6c004755d49342fe2cf8dce29fc201",
     "laws/approvals.bend::unanswered_only_when_quiet": "00b3f29627742b7fb5dfb026607ff71c57f6f82652089f290179ce09147de438",
+    "laws/auth_flight/entry.bend::flight_desk_is_entry": "1e431742dcbdddf7486460aecffb1578521dffa2c21e4b5aa92d6da188a5540f",
     "laws/auth_flight/entry.bend::flight_open_empty": "49324a6e3ac2241b47602c6e76fc3a21e11742d45b3c11c368182e67d56a834a",
     "laws/auth_flight/entry.bend::flight_open_refuses": "88f739a65f59d4f325b97658633dbfefc3bab9bde3478f029f967f4969b19ea0",
     "laws/auth_flight/entry.bend::flight_step_answers": "319d009e50a9a670fa08613b0711f200d386405e81028c3689959181224c9610",

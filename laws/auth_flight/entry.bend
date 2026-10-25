@@ -713,6 +713,18 @@ law flight_step_answers:
   for fits: {af_ev_fits(e) == True{} : Bool}
   {FA.step(FA.Open{d}, af_spell_ev(e)) == af_step_of(af_desk(d, e)) : FA.St & String}
 
+# LAW flight_desk_is_entry: the desk the safety laws run (F.desk.step) is
+# the laws' desk (af_desk), the one the entry's step is pinned to
+# (flight_step_answers, flight_step_reads), for every desk and every
+# event: the laws over runs of F.desk.step speak of the desk the entry
+# steps
+# EXCLUDES: safety laws made vacuous by a F.desk.step the entry does not
+#   run (a desk that never changes while the entry steps another one)
+law flight_desk_is_entry:
+  for +d: F.Desk
+  for +e: F.DEv
+  {F.desk.step(d, e) == af_desk(d, e) : F.DRes}
+
 # LAW flight_step_reads: every input that is exactly one event (as the
 # wire primitives read it) steps the desk as that event
 # EXCLUDES: a decision on another reading of the input

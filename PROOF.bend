@@ -681,6 +681,7 @@ import ./proof/auth_flight/flight_open_empty.bend as PFlightOpenEmpty
 import ./proof/auth_flight/flight_open_refuses.bend as PFlightOpenRefuses
 import ./proof/auth_flight/flight_step_answers.bend as PFlightStepAnswers
 import ./proof/auth_flight/flight_step_reads.bend as PFlightStepReads
+import ./proof/auth_flight/flight_desk_is_entry.bend as PFlightDeskIsEntry
 import ./proof/auth_flight/flight_step_malformed_exact.bend as PFlightStepMalformedExact
 import ./proof/auth_flight/flight_step_unknown_tag.bend as PFlightStepUnknownTag
 import ./proof/auth_flight/flight_step_example.bend as PFlightStepExample
