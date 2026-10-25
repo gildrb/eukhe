@@ -6,7 +6,7 @@ import ../../../bend/replace.bend as Rp
 import ../../../bend/run/state.bend as RnState
 import ../../../bend/run/step.bend as RnStep
 import ../../../bend/semver.bend as Sv
-import ../../../laws/command.bend as Command
+import ../../../laws/command/paths.bend as Command
 import ./bool.bend as LLogicBool
 import ./logic.bend as LLogicLogic
 

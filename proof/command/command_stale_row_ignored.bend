@@ -10,7 +10,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ./base.bend as LA
 
 # a place whose entry is no child of q gives no row

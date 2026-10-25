@@ -63,6 +63,30 @@ def wire_nats_fit(xs: List<&2, Nat>) -> Bool:
     case Con{+x, t}:
       Bool.and(wire_fits(x), wire_nats_fit(t))
 
+# the char of the decimal digit d: the char of code 48 + d (no table)
+def wire_dec_char(d: Nat) -> Char:
+  Chr{U32.from_nat(Nat.add(48n, d))}
+
+# the decimal digits of n before acc, most significant first, by repeated
+# division by 10; none when n is 0 (the caller wrote the lowest digit).
+# The fuel f bounds the digits (f >= n is enough).
+def wire_dec.go(f: Nat, n: Nat, acc: String) -> String:
+  match f:
+    case 0n:
+      acc
+    case 1n+g:
+      match n:
+        case 0n:
+          acc
+        case 1n+p:
+          +m = {1n+p : Nat}
+          wire_dec.go(g, Nat.div(m, 10n), SCon{wire_dec_char(Nat.mod(m, 10n)), acc})
+
+# a Nat on the wire: its decimal digits (0 is "0"), then ',', then rest
+def wire_dec(n: Nat, rest: String) -> String:
+  +m = n
+  wire_dec.go(m, Nat.div(m, 10n), SCon{wire_dec_char(Nat.mod(m, 10n)), SCon{',', rest}})
+
 # s starts with the char 'E' (the error form of a reply)
 def wire_opens_err(s: String) -> Bool:
   match s:
@@ -70,6 +94,54 @@ def wire_opens_err(s: String) -> Bool:
       False{}
     case SCon{c, t}:
       Char.is_eq(c, 'E')
+
+# ---- spec spellers ----
+
+# The spellings every entry law (laws/<area>.bend about bend/ffi_<area>.bend)
+# builds its requests and replies from. An entry law never uses the
+# entry's own encoders (put_req, put_res, put_*): it spells with these and
+# the wire primitives Wr.put_nat, Wr.put_str, Wr.put_bool, Wr.err, whose
+# round trip and exactness laws/wire.bend pins. A constructor is
+# Wr.put_nat(<its tag>, <its fields>); a record is its fields in order; an
+# error reply is Wr.err(<text>). Lemmas to call: proof/wire/base/spell.bend
+# and the wire laws wire_strs_spells, wire_nats_spells,
+# wire_strs_round_trip, wire_strs_exact, wire_strs_decoded_fit.
+
+# the strings of xs, each spelled, then rest
+def wire_spell_strs.items(xs: List<&2, String>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      Wr.put_str(x, wire_spell_strs.items(t, rest))
+
+# a list of strings: its count, then each string
+def wire_spell_strs(+xs: List<&2, String>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, String, xs), wire_spell_strs.items(xs, rest))
+
+# the Nats of xs, each spelled, then rest
+def wire_spell_nats.items(xs: List<&2, Nat>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      Wr.put_nat(x, wire_spell_nats.items(t, rest))
+
+# a list of Nats: its count, then each Nat
+def wire_spell_nats(+xs: List<&2, Nat>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Nat, xs), wire_spell_nats.items(xs, rest))
+
+# every string of xs is short enough for the wire
+def wire_strs_all(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(wire_fits(String.length(x)), wire_strs_all(t))
+
+# a list of strings fits the wire: its count and every string
+def wire_strs_fit(+xs: List<&2, String>) -> Bool:
+  Bool.and(wire_fits(List.length(&2, String, xs)), wire_strs_all(xs))
 
 # ---- core entries ----
 

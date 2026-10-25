@@ -10,7 +10,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ../base/command.bend as LCommand
 import ./base.bend as LA
 

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tree.bend as Tr
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ./logic/bool.bend as LLogicBool
 import ./logic/list.bend as LLogicList
 import ./logic/logic.bend as LLogicLogic

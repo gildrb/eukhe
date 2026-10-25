@@ -10,7 +10,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ../base/list.bend as LList
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/logic/nat.bend as LLogicNat

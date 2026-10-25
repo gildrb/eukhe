@@ -7,7 +7,7 @@
 import Base
 import ../../bend/ffi_command.bend as FCmd
 import ../../bend/wire.bend as Wr
-import ../../laws/command.bend as Command
+import ../../laws/command/entry.bend as Command
 import ./command_ffi_round_trip.bend as PCommandFfiRoundTrip
 
 def Command.command_ffi_answers(r, h):

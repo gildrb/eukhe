@@ -8,7 +8,7 @@
 
 import Base
 import ../../bend/command.bend as Cmd
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ./base.bend as LA
 
 def tcr_spaced(b: Bool, l: List<&2, Nat>) -> {Cmd.spaced(b, l) == Command.cmd_space_if(b, l) : List<&2, Nat>}:

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/command.bend as Cmd
 import ../../bend/tree.bend as Tr
-import ../../laws/command.bend as Command
+import ../../laws/command/paths.bend as Command
 import ../../laws/base.bend as LawsBase
 import ./bool.bend as LBool
 import ./logic/bool.bend as LLogicBool
