@@ -190,6 +190,63 @@ async fn the_election_starts_joins_and_replaces_real_workers() {
     assert_eq!(live_tag(&socket).await, None);
 }
 
+/// Four clients with the same tag elect at once on a socket with no
+/// worker, each with its own launcher: each is served, exactly one started
+/// the worker (the others joined it, some through a worker they launched
+/// that found the socket taken under the bind lock and left), and that one
+/// worker answers on the socket until it is shut down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_clients_share_one_worker() {
+    let model = model();
+    let (_dir, home) = installed_home(model);
+    let socket = home.socket(model.id, BACKEND);
+    let helpers: Vec<Helper> = (0..4).map(|_| Helper::new("a", TEST_IDLE_MS)).collect();
+    let elect = |at: usize| {
+        let (home, helper) = (&home, &helpers[at]);
+        async move {
+            election::request(home, model, &helper.tag(), helper, &chat(&format!("c{at}"))).await
+        }
+    };
+    let (a, b, c, d) = tokio::join!(elect(0), elect(1), elect(2), elect(3));
+    let mut replies = Vec::new();
+    let mut started = 0;
+    for (at, result) in [a, b, c, d].into_iter().enumerate() {
+        let (reply, got) = result.unwrap();
+        replies.push((reply, at));
+        match got {
+            Got::Started => started += 1,
+            Got::Joined => {}
+            Got::Replaced => panic!("no worker of another tag ran"),
+        }
+    }
+    let live = live_tag(&socket).await;
+    let bye = election::request(
+        &home,
+        model,
+        &helpers[0].tag(),
+        &helpers[0],
+        &Request::Shutdown,
+    )
+    .await;
+    for helper in &helpers {
+        for mut child in helper.children() {
+            child.wait().await.unwrap();
+        }
+    }
+    assert_eq!(
+        (replies, started, live, bye, live_tag(&socket).await),
+        (
+            (0..4)
+                .map(|at| (echoed(&format!("c{at}")), at))
+                .collect::<Vec<_>>(),
+            1,
+            Some(helpers[0].tag()),
+            Ok((Reply::Bye, Got::Joined)),
+            None
+        )
+    );
+}
+
 /// The worker command carries the client's agent dir, so a worker started
 /// without an agent dir variable (a supervisor given `--agent-dir`) and
 /// with another `HOME` binds and serves under the client's agent dir.

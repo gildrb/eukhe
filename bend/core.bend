@@ -84,7 +84,7 @@ import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_theme.bend as ffi_theme
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
-import ./ffi_tiny_elect.bend as ffi_tiny_elect
+import ./ffi_tiny_run.bend as ffi_tiny_run
 import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
@@ -231,8 +231,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_revive.ffi(input)
     case 92:
       ffi_auth_flight.ffi(input)
-    case 100:
-      ffi_tiny_elect.ffi(input)
     case 101:
       ffi_dash.ffi(input)
     case 102:
@@ -298,6 +296,7 @@ type State is Type:
   Work{s: ffi_work.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
+  TinyRun{s: ffi_tiny_run.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -375,6 +374,11 @@ def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def open.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (TinyRun{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -407,6 +411,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
+    case 400:
+      open.tiny_run(ffi_tiny_run.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -490,6 +496,11 @@ def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def step.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (TinyRun{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -522,6 +533,8 @@ def step.go(state: State, input: String) -> State & String:
       step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
+    case TinyRun{s}:
+      step.tiny_run(ffi_tiny_run.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -561,6 +574,8 @@ def close.go(state: State) -> Unit:
     case Lease{s}:
       Unit{}
     case AuthFlight{s}:
+      Unit{}
+    case TinyRun{s}:
       Unit{}
     case Unknown{}:
       Unit{}

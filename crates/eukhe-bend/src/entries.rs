@@ -148,8 +148,6 @@ pub enum Entry {
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a call and a stepper.
     AuthFlight = 92,
-    /// `bend/ffi_tiny_elect.bend`: a call.
-    TinyElect = 100,
     /// `bend/ffi_dash.bend`: a call.
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
@@ -190,6 +188,8 @@ pub enum Entry {
     McpUrl = 290,
     /// `bend/ffi_slash_args.bend`: a call.
     SlashArgs = 291,
+    /// `bend/ffi_tiny_run.bend`: a stepper.
+    TinyRun = 400,
 }
 
 impl Entry {
@@ -266,7 +266,6 @@ impl Entry {
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
-        Entry::TinyElect,
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,
@@ -287,6 +286,7 @@ impl Entry {
         Entry::DocPlan,
         Entry::McpUrl,
         Entry::SlashArgs,
+        Entry::TinyRun,
     ];
 
     /// The id `bend/core.bend` dispatches on.

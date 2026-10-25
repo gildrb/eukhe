@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/pick.bend as Tiny
 
 def pn.tiny_every_need_served(+es: List<&2, Tn.Ev>, +w: Tn.W) -> {List.length(&2, Tn.Got, Tn.gots(es, w)) == Tn.needs(es) : Nat}:
   match es:

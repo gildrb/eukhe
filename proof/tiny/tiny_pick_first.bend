@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/pick.bend as Tiny
 import ./base.bend as LA
 
 # a scan past models that are not available reaches the next one

@@ -4,7 +4,7 @@ import Base
 import ../../bend/ffi_tiny.bend as FTn
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/pick.bend as Tiny
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire

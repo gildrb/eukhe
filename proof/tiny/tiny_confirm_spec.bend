@@ -6,7 +6,7 @@
 import Base
 import ../../bend/tiny.bend as Tn
 import ../../laws/base.bend as LawsBase
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/elect.bend as Tiny
 import ./base.bend as LA
 
 def te.confirm_pong(b: Bool) -> {Tn.confirm.pong(b) == Tiny.sp_check(b) : Tn.Check}:
