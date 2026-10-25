@@ -1,14 +1,21 @@
 //! Main's worker tools: the first `worker_assign` creates the worker with
 //! the user's words verbatim; a later one re-tasks the settled worker
 //! under a new task (its own prompt key, report ids and watch), carrying
-//! only the messages since the last hand-over.
+//! only the messages since the last hand-over. Images and file references
+//! go along with the words they came with.
+
+use eukhe_types::pi_ai::ImageContent;
 
 use super::*;
 use crate::durable::children::host::ChildMessageKind;
 
 fn call_tool(name: &str) -> FauxResponseStep {
+    call_tool_with(name, JsonObject::new())
+}
+
+fn call_tool_with(name: &str, arguments: JsonObject) -> FauxResponseStep {
     FauxResponseStep::Message(Box::new(faux_assistant_message(
-        faux_tool_call(name, JsonObject::new(), None),
+        faux_tool_call(name, arguments, None),
         FauxAssistantMessageOptions {
             stop_reason: Some(StopReason::ToolUse),
             ..FauxAssistantMessageOptions::default()
@@ -17,12 +24,16 @@ fn call_tool(name: &str) -> FauxResponseStep {
 }
 
 async fn say(opened: &Opened, text: &str) {
+    say_content(opened, UserContent::Text(text.to_owned())).await;
+}
+
+async fn say_content(opened: &Opened, content: UserContent) {
     let submission = opened
         .root
         .submit(
             InputSubmissionDraft {
                 request_id: None,
-                content: UserContent::Text(text.to_owned()),
+                content,
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
                 entry: None,
@@ -161,6 +172,148 @@ async fn assign_creates_then_re_tasks_the_worker_with_the_users_words_once() {
             .unwrap()
             .is_some(),
         "the re-task's report goes under its own task id"
+    );
+    opened.harness.close(cx()).await.unwrap();
+}
+
+fn image(data: &str, mime_type: &str) -> ImageContent {
+    ImageContent {
+        data: data.to_owned(),
+        mime_type: mime_type.to_owned(),
+    }
+}
+
+/// The user's text block, then its images, as a prompt with pasted images
+/// arrives.
+fn words_with(text: &str, images: &[ImageContent]) -> UserContent {
+    let mut blocks = vec![UserContentBlock::Text(TextContent::new(text.to_owned()))];
+    blocks.extend(images.iter().cloned().map(UserContentBlock::Image));
+    UserContent::Blocks(blocks)
+}
+
+/// What the worker was handed: (prompt, images), in order.
+fn handed(host: &FakeHost) -> Vec<(String, Vec<ImageContent>)> {
+    lock(&host.state)
+        .prompts
+        .iter()
+        .map(|prompt| (prompt.prompt.clone(), prompt.images.clone()))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hand_over_carries_the_users_images_and_file_references_once_in_order() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(
+        Arc::new(MemoryStorage::new()) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    let (first, second, third) = (
+        image("Zmlyc3Q=", "image/png"),
+        image("c2Vjb25k", "image/jpeg"),
+        image("dGhpcmQ=", "image/png"),
+    );
+
+    // The first task: one message with a file reference and an image (the
+    // task's prompt reads the image back from main's transcript).
+    setup
+        .faux
+        .append_responses(vec![call_tool("worker_assign"), answer("handed")]);
+    say_content(
+        &opened,
+        words_with("fix @src/lib.rs like  this", std::slice::from_ref(&first)),
+    )
+    .await;
+    eventually(|| async { handed(&host).len() == 1 }).await;
+
+    // The running work gets two more images and a second reference as
+    // context: only the new message's, in their order.
+    let mut context = JsonObject::new();
+    context.insert("kind".to_owned(), json!("context"));
+    setup.faux.append_responses(vec![
+        call_tool_with("worker_forward", context),
+        answer("sent"),
+    ]);
+    say_content(
+        &opened,
+        words_with("and @docs/a.md:3-9 too", &[second.clone(), third.clone()]),
+    )
+    .await;
+    eventually(|| async { handed(&host).len() == 2 }).await;
+    assert_eq!(
+        handed(&host),
+        vec![
+            (
+                "fix @src/lib.rs like  this\n[image: image/png]".to_owned(),
+                vec![first],
+            ),
+            (
+                "and @docs/a.md:3-9 too\n[image: image/jpeg]\n[image: image/png]".to_owned(),
+                vec![second, third],
+            ),
+        ]
+    );
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// `/goal` and `/autonomous` typed on main run on its worker, as typed;
+/// before main has a worker there is none to run them on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn main_directors_run_on_the_worker() {
+    use crate::durable::children::worker_session_command;
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(
+        Arc::new(MemoryStorage::new()) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    let before = worker_session_command(
+        &opened.harness,
+        host.as_ref(),
+        ROOT_CONVERSATION_ID,
+        "/goal ship it",
+        cx(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(before, None);
+
+    setup
+        .faux
+        .append_responses(vec![call_tool("worker_assign"), answer("handed")]);
+    say(&opened, "build it").await;
+    let worker = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .last()
+        .cloned()
+        .expect("the worker");
+    for text in ["/goal ship it", "/autonomous on"] {
+        let ran = worker_session_command(
+            &opened.harness,
+            host.as_ref(),
+            ROOT_CONVERSATION_ID,
+            text,
+            cx(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ran.as_deref(), Some("worker"));
+    }
+    assert_eq!(
+        lock(&host.state).commands,
+        ["/goal ship it", "/autonomous on"]
+            .map(|text| RlmChildCommandRequest {
+                session_id: worker.session_id.clone(),
+                text: text.to_owned(),
+            })
+            .to_vec()
     );
     opened.harness.close(cx()).await.unwrap();
 }

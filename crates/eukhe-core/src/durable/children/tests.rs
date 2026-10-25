@@ -47,11 +47,11 @@ mod workspace;
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::{
-    mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPauseRequest,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture,
-    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
+    mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
+    RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildListing, RlmChildObservation,
+    RlmChildPauseRequest, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
+    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
 };
 use crate::child_workspace::Handback;
 use crate::durable::deps::{
@@ -111,6 +111,8 @@ struct FakeState {
     pauses: Vec<RlmChildPauseRequest>,
     /// The children whose runs report paused.
     paused: HashSet<String>,
+    /// Typed session commands run on children, in order.
+    commands: Vec<RlmChildCommandRequest>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -255,6 +257,11 @@ impl RlmSubagentHost for FakeHost {
 
     fn list(&self) -> RlmHostFuture<'_, Vec<RlmChildListing>> {
         Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn session_command(&self, request: RlmChildCommandRequest) -> RlmHostFuture<'_, ()> {
+        lock(&self.state).commands.push(request);
+        Box::pin(async { Ok(()) })
     }
 
     fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()> {

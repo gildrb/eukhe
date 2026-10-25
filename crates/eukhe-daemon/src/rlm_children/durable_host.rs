@@ -500,7 +500,9 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 message: content.clone(),
                 input: PromptInput {
                     content: None,
-                    images: None,
+                    // The images of a hand-over's user messages, in order:
+                    // the child's input is the labeled text, then them.
+                    images: (!request.images.is_empty()).then(|| json!(request.images)),
                     // A task waits for a running turn to end; context and
                     // a redirect join it at its next boundary (never
                     // inside a tool call).
@@ -754,6 +756,44 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             .await
             .map(drop)
             .with_context(|| format!("pause or resume RLM child {}", request.session_id))
+        })
+    }
+
+    /// A typed session command on the child, as if typed there: a prompt
+    /// the child's prompt path classifies and runs on its session (a
+    /// stopped child wakes for it, keyed by its durable session id).
+    fn session_command(
+        &self,
+        request: durable::RlmChildCommandRequest,
+    ) -> durable::RlmHostFuture<'_, ()> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            this.durable_command(&request.session_id, PROMPT_TIMEOUT_MS, |selector| {
+                DaemonCommand::Prompt {
+                    id: None,
+                    active_session_id: selector.to_owned(),
+                    message: request.text.clone(),
+                    input: PromptInput {
+                        content: None,
+                        images: None,
+                        streaming_behavior: None,
+                        queue_if_busy: None,
+                        expand_prompt_templates: None,
+                        source: Some(json!("rpc")),
+                        agent_message_id: None,
+                        custom_message: None,
+                        queue_key: None,
+                        prefix_messages: None,
+                        admission_id: None,
+                        rlm_notice_nonce: None,
+                        reply_to: None,
+                    },
+                    rest: Map::default(),
+                }
+            })
+            .await
+            .map(drop)
+            .with_context(|| format!("run {} on RLM child {}", request.text, request.session_id))
         })
     }
 

@@ -320,6 +320,8 @@ pub(super) struct SpawnSpec {
     pub(super) kwargs: SpawnKwargs,
     /// More details of the task prompt's row (`userMessages`, `note`).
     pub(super) details: Option<Map<String, Value>>,
+    /// Main's user entries the prompt hands over (their images go along).
+    pub(super) user_entries: Vec<u64>,
     /// The child is a worker of a main session.
     pub(super) worker: bool,
 }
@@ -333,6 +335,7 @@ fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
         prompt: prompt.to_owned(),
         kwargs: spawn_kwargs(data)?,
         details: None,
+        user_entries: Vec::new(),
         worker: false,
     })
 }
@@ -447,6 +450,7 @@ pub(super) async fn admit_spawns(
                     child: None,
                     kind: ChildMessageKind::Task,
                     details: spec.details,
+                    user_entries: spec.user_entries,
                     worker: spec.worker,
                 },
             )

@@ -792,6 +792,45 @@ async fn a_call_behind_another_windows_turn_reports_the_wait_until_granted() {
     session.close(&setup).await;
 }
 
+/// Main's worker reads the chat as a subagent and takes no root-turn
+/// lease (`bend/lease.bend` serializes root turns only): its turn runs to
+/// its end while another window holds the chat's root turn, and that
+/// window's turn is untouched.
+#[tokio::test]
+async fn the_workers_chat_view_runs_while_another_window_holds_the_root_turn() {
+    let worker = crate::durable::SessionRole {
+        rlm_depth: 1,
+        rlm_max_depth: 3,
+        parent: None,
+        worker: true,
+    };
+    assert_eq!(
+        (worker.has_chat_memory(), worker.memory_role()),
+        (true, MemoryRole::Subagent)
+    );
+    let setup = Setup::new(worker.memory_role()).await;
+    let other_window = Memory::open(setup.chat_dir(), Arc::new(NoModel))
+        .await
+        .unwrap();
+    let other_turn = other_window.acquire_turn().await.unwrap();
+    let requests = Requests::default();
+    setup
+        .faux
+        .set_responses(vec![requests.step(answer("done"))]);
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::Off)
+        .await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        session.run(&setup.chat, "the task"),
+    )
+    .await
+    .expect("the worker's turn never waits for the root turn");
+    assert_eq!(requests.all().len(), 1);
+    other_turn.release().await.unwrap();
+    session.close(&setup).await;
+}
+
 fn user(text: &str, timestamp: u64) -> Message {
     Message::User(UserMessage {
         content: UserContent::Text(text.to_string()),

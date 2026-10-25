@@ -32,7 +32,7 @@ use eukhe_durable::tasks::{
     define_task, AnyTask, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
 use eukhe_durable::types::{
-    SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
+    EntryId, SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
     TaskOwnership,
 };
 use eukhe_types::input_origin::ChildFailure;
@@ -133,6 +133,11 @@ pub(crate) struct ChildTaskInput {
     /// More details of the prompt's row (`userMessages`, `note`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) details: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The parent's user entries (entry ids, in order) a hand-over carries:
+    /// their images go with the prompt, read from the transcript when the
+    /// prompt goes out (the task input holds no image bytes).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) user_entries: Vec<u64>,
     /// The child is a worker of a main session (`sessionShape`
     /// `main-worker`): it gets the chat view and the worker doctrine, and
     /// main's worker tools reach it.
@@ -636,6 +641,16 @@ async fn prompt(
     let task_id = task.id.erase();
     let row_id = row_task_id(&task);
     let identity = child_identity(&services.parent_session_id, row_id);
+    let mut images = Vec::new();
+    for id in &task.input.user_entries {
+        let entry = runtime
+            .entry(EntryId::from_number(*id), &cx)
+            .await?
+            .ok_or_else(|| {
+                SessionError::error(format!("The hand-over's user entry {id} is gone"))
+            })?;
+        images.extend(super::worker::entry_images(&entry));
+    }
     let request = RlmChildPromptRequest {
         idempotency_key: format!("rlm:{task_id}:prompt"),
         session_id: identity.session_id.clone(),
@@ -647,6 +662,7 @@ async fn prompt(
             Some(_) => format!("task:{task_id}"),
         },
         details: task.input.details.clone(),
+        images,
     };
     let prompted = match services.host.prompt(request.clone()).await {
         Ok(()) => Ok(()),

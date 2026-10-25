@@ -214,10 +214,11 @@ impl CreateParams {
         (session_id, SessionStorage::Jsonl { dir, fsync: true })
     }
 
-    /// Fill the parent link and RLM depth a create names neither of (the
-    /// TUI resuming a saved child): the storage's recorded lineage, else
-    /// the legacy session header the open imports. A create that names its
-    /// parent (an RLM spawn) keeps its own.
+    /// Fill the parent link, RLM depth and worker flag a create names none
+    /// of (the TUI resuming a saved child, a message waking a stopped
+    /// worker): the storage's recorded lineage, else the legacy session
+    /// header the open imports. A create that names its parent (an RLM
+    /// spawn) keeps its own.
     pub(crate) async fn fill_stored_lineage(&mut self, cx: &Context) {
         if self.parent_session_path.is_some() {
             return;
@@ -227,20 +228,27 @@ impl CreateParams {
             return;
         };
         let lineage = if crate::session_store::is_durable_storage(dir) {
-            crate::session_store::read_durable_session_info(dir, cx)
-                .await
-                .and_then(|info| Some((info.parent_session_path?, info.rlm_depth)))
+            crate::session_store::read_durable_lineage(dir, cx).await
         } else {
             match legacy_import_source(&session_id, &storage) {
-                Some(legacy) => legacy_lineage(&legacy).await,
+                Some(legacy) => {
+                    legacy_lineage(&legacy)
+                        .await
+                        .map(|(parent_session_path, rlm_depth)| meta::Lineage {
+                            parent_session_path,
+                            rlm_depth,
+                            worker: false,
+                        })
+                }
                 None => None,
             }
         };
-        if let Some((parent, depth)) = lineage {
-            self.parent_session_path = Some(parent);
+        if let Some(lineage) = lineage {
+            self.parent_session_path = Some(lineage.parent_session_path);
             if self.rlm_depth.is_none() {
-                self.rlm_depth = Some(depth);
+                self.rlm_depth = Some(lineage.rlm_depth);
             }
+            self.worker |= lineage.worker;
         }
     }
 
@@ -748,11 +756,16 @@ impl Worker {
             let session_meta = meta::read_session_meta(hosted.harness(), cx).await?;
             // The RLM lineage survives into later opens that name none.
             if let Some(parent) = &params.parent_session_path {
-                let depth = params.rlm_depth.unwrap_or(1);
+                let lineage = meta::Lineage {
+                    parent_session_path: parent.clone(),
+                    rlm_depth: params.rlm_depth.unwrap_or(1),
+                    worker: params.worker,
+                };
                 if session_meta.parent_session_path.as_ref() != Some(parent)
-                    || session_meta.rlm_depth != Some(depth)
+                    || session_meta.rlm_depth != Some(lineage.rlm_depth)
+                    || session_meta.worker != lineage.worker
                 {
-                    meta::record_lineage(hosted.harness(), parent.clone(), depth, cx).await?;
+                    meta::record_lineage(hosted.harness(), lineage, cx).await?;
                 }
             }
             // Opening a killed session makes it live again (the old
@@ -1040,5 +1053,93 @@ mod tests {
             panic!("a number is not a system prompt input");
         };
         assert!(error.starts_with("Invalid systemPrompt: "), "{error}");
+    }
+
+    /// An in-process worker over `dir` whose sessions run a faux script
+    /// with the chat memory.
+    fn chat_worker(dir: &Path) -> Arc<Worker> {
+        std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
+        Arc::new(Worker::new(
+            super::super::WorkerConfig {
+                socket_path: dir.join("worker.sock"),
+                supervisor_socket_path: PathBuf::new(),
+                token: "token".to_string(),
+                worker_instance_id: String::new(),
+                active_session_id: "worker-child".to_string(),
+                agent_dir: dir.join("agent"),
+                recovery_journal_path: dir.join("recovery.jsonl"),
+                script: Some(
+                    json!({ "modelId": "faux-1", "chatMemory": true, "responses": ["ack"] }),
+                ),
+            },
+            None,
+        ))
+    }
+
+    /// Whether the session `worker` hosts is main's worker: it has the chat
+    /// view (a memory tree) and the worker doctrine.
+    async fn is_main_worker(worker: &Worker) -> (bool, bool) {
+        let tree = worker.dispatch("get_memory_tree", &json!({})).await;
+        let prompt = worker.dispatch("get_system_prompt", &json!({})).await;
+        assert!(tree.success && prompt.success, "{tree:?} {prompt:?}");
+        (
+            !tree.data.expect("tree")["tree"].is_null(),
+            prompt.data.expect("prompt")["systemPrompt"]
+                .as_str()
+                .expect("systemPrompt")
+                .contains("You are the worker:"),
+        )
+    }
+
+    /// A stopped worker woken by a message reopens from its storage alone
+    /// (the wake's create names no lineage): it is still main's worker.
+    #[tokio::test]
+    async fn a_stopped_worker_woken_again_keeps_its_worker_flag() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions = dir.path().join("sessions");
+        let session_id = "0192a000-0000-7000-8000-00000000c0de";
+        let spawned = chat_worker(dir.path());
+        let created = spawned
+            .dispatch(
+                "create",
+                &json!({
+                    "cwd": dir.path(),
+                    "sessionDir": sessions,
+                    "sessionId": session_id,
+                    "rlmDepth": 1,
+                    "rlmMaxDepth": 3,
+                    "parentSessionPath": dir.path().join("main-session"),
+                    "runtimeMetadata": {
+                        "kind": "subagent",
+                        "rlmChildId": "sub-0000c0de",
+                        "parentActiveSessionId": "main-live",
+                        "rlmDepth": 1,
+                        "worker": true,
+                    },
+                }),
+            )
+            .await;
+        assert!(created.success, "create failed: {created:?}");
+        let spawned_flag = is_main_worker(&spawned).await;
+        let stopped = spawned.dispatch("kill", &json!({})).await;
+        assert!(stopped.success, "kill failed: {stopped:?}");
+
+        // The wake's create: the stored session and its depth, nothing else.
+        let woken = chat_worker(dir.path());
+        let reopened = woken
+            .dispatch(
+                "create",
+                &json!({
+                    "sessionPath": sessions.join(session_id),
+                    "cwd": dir.path(),
+                    "rlmDepth": 1,
+                }),
+            )
+            .await;
+        assert!(reopened.success, "wake create failed: {reopened:?}");
+        assert_eq!(
+            (spawned_flag, is_main_worker(&woken).await),
+            ((true, true), (true, true))
+        );
     }
 }

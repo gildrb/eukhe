@@ -2,6 +2,8 @@
 //! `/goal`, `/autonomous`, `/remind`, `/force`, and `/dynamic-workflow`, including the
 //! `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
+//! On main (`sessionShape` `main-worker`) `/goal` and `/autonomous` run on
+//! its worker, where the work runs.
 //!
 //! The rows are `eukhe.custom` entries committed on the command's
 //! conversation: the `session_slash_command` echo first (durable whether the
@@ -17,6 +19,8 @@ use eukhe_types::pi_ai::UserContent;
 use eukhe_types::slash_commands::SlashCommandRegistry;
 use serde_json::{json, Value};
 
+use super::children::worker_session_command;
+use super::deps::SessionShape;
 use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
 use super::goals::{
@@ -195,6 +199,12 @@ pub async fn execute_session_command(
         return outcome;
     }
     let result = match command.name {
+        // Main's directors drive the work, and the work runs on its worker.
+        SessionCommandName::Goal | SessionCommandName::Autonomous
+            if session.deps().shape == SessionShape::Main =>
+        {
+            execute_on_worker(session, conversation, command, cx).await
+        }
         SessionCommandName::Compact => {
             execute_compact(conversation, command, &mut outcome, cx).await
         }
@@ -361,6 +371,46 @@ async fn append_rows(
         )
         .await
         .map_err(|error| error.to_string())
+}
+
+/// `/goal` and `/autonomous` on main (`sessionShape` `main-worker`): the
+/// command runs on main's worker as if typed there (a stopped worker
+/// wakes for it); main records where it went. Main without a worker yet
+/// refuses: its first hand-over creates the worker.
+async fn execute_on_worker(
+    session: &EukheSession,
+    conversation: &Conversation,
+    command: &SessionCommand,
+    cx: &Context,
+) -> Result<(), String> {
+    let name = command.name.as_str();
+    let no_worker = || {
+        format!("No worker yet: /{name} applies to the worker, which main creates with the first work you give it")
+    };
+    let Some(host) = session.deps().children.as_ref() else {
+        return Err(no_worker());
+    };
+    match worker_session_command(
+        session.harness(),
+        host.as_ref(),
+        conversation.id(),
+        &command.text,
+        cx,
+    )
+    .await
+    {
+        Ok(Some(worker)) => {
+            let text = format!("/{name} applied to {worker}: its chat shows the result.");
+            append_rows(
+                conversation,
+                vec![result_row(command, text, Visibility::Shown)],
+                cx,
+            )
+            .await
+        }
+        Ok(None) => Err(no_worker()),
+        Err(error) => Err(format!("{error:#}")),
+    }
 }
 
 /// `/compact [instructions]`: admit a manual compaction (no result row: the

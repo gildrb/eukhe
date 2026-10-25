@@ -16,9 +16,11 @@
 //! No tool takes the user's words from the model: the host attaches every
 //! user message main received since its last hand-over, byte for byte, in
 //! order, once (`forward_pick`, the compiled core's `worker` entry; laws
-//! `forward_*`). The model may add a `note`, sent apart and labeled
-//! `[note from main]`. The hand-over cursor (`eukhe.workers`) moves in the
-//! commit that admits the task, or right after a forward is admitted.
+//! `forward_*`): its text (file references as typed) and its images, the
+//! images of exactly the picked messages after the text, in their order.
+//! The model may add a `note`, sent apart and labeled `[note from main]`.
+//! The hand-over cursor (`eukhe.workers`) moves in the commit that admits
+//! the task, or right after a forward is admitted.
 
 use std::sync::Arc;
 
@@ -36,11 +38,11 @@ use eukhe_durable::harness::{ConversationEntryQuery, Harness};
 use eukhe_durable::session::{CommitListener, SessionError, SessionResult, Tx, Unsubscribe};
 use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, DocumentCommitChange, DocumentIdentity,
-    DocumentReader, DocumentReaderExt, EntryData, EntryId, LatestFork, ScanOrder,
+    DocumentReader, DocumentReaderExt, EntryData, EntryId, EntryRecord, LatestFork, ScanOrder,
 };
 use eukhe_types::daemon::{SessionWorker, WorkerRunState};
 use eukhe_types::input_origin::InputOrigin;
-use eukhe_types::pi_ai::{Message, TextContent, UserContentBlock};
+use eukhe_types::pi_ai::{ImageContent, Message, TextContent, UserContentBlock};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc;
@@ -48,7 +50,8 @@ use tokio::task::JoinHandle;
 
 use super::assign::{assign, child_busy, Assignment};
 use super::host::{
-    ChildMessageKind, PauseAction, RlmChildPauseRequest, RlmChildPromptRequest, RlmSubagentHost,
+    ChildMessageKind, PauseAction, RlmChildCommandRequest, RlmChildPauseRequest,
+    RlmChildPromptRequest, RlmSubagentHost,
 };
 use super::pause::RunPause;
 use super::registry::{read_children, ChildRow, ChildStatus, CHILDREN_DOC};
@@ -57,7 +60,7 @@ use super::task::ReportMode;
 use super::Children;
 use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::HostCall;
-use crate::durable::optchat::user_text;
+use crate::durable::optchat::{user_images, user_text};
 use crate::durable::tool_contract;
 
 /// `worker_assign`: a new task for a worker.
@@ -167,14 +170,44 @@ async fn set_paused(
         .await
 }
 
+/// One message the user wrote, as main's transcript holds it.
+struct UserWords {
+    /// Its entry id.
+    entry: u64,
+    /// Its text, byte for byte (an image stands as `[image: <mime>]`, a
+    /// file reference as the user typed it).
+    text: String,
+    /// Its images, in order.
+    images: Vec<ImageContent>,
+}
+
+/// The user messages of `entry` (one per model message), text and images.
+fn entry_words(entry: &EntryRecord) -> impl Iterator<Item = (String, Vec<ImageContent>)> + '_ {
+    entry
+        .model
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|message| match message {
+            Message::User(user) => Some((user_text(&user.content), user_images(&user.content))),
+            Message::Assistant(_) | Message::ToolResult(_) | Message::System(_) => None,
+        })
+}
+
+/// The images of the user's messages in `entry`, in order: what a task
+/// prompt carries for each user entry it hands over.
+pub(super) fn entry_images(entry: &EntryRecord) -> Vec<ImageContent> {
+    entry_words(entry).flat_map(|(_, images)| images).collect()
+}
+
 /// The user's own messages after entry `cursor` of `conversation_id`, in
-/// transcript order: (entry id, text as the user wrote it).
+/// transcript order.
 async fn user_messages(
     harness: &Harness,
     conversation_id: ConversationId,
     cursor: u64,
     cx: &Context,
-) -> SessionResult<Vec<(u64, String)>> {
+) -> SessionResult<Vec<UserWords>> {
     let conversation = harness
         .conversation(conversation_id, cx)
         .await?
@@ -203,11 +236,11 @@ async fn user_messages(
             if UserData::decode(entry.data.as_ref())?.origin != InputOrigin::User {
                 continue;
             }
-            for message in entry.model.as_deref().unwrap_or_default() {
-                if let Message::User(user) = message {
-                    messages.push((entry.id.get(), user_text(&user.content)));
-                }
-            }
+            messages.extend(entry_words(entry).map(|(text, images)| UserWords {
+                entry: entry.id.get(),
+                text,
+                images,
+            }));
         }
         match page.next {
             Some(next) => page_cursor = Some(next),
@@ -218,11 +251,13 @@ async fn user_messages(
 }
 
 /// What one hand-over carries: the body the worker reads, the user's
-/// messages it holds (verbatim, in order), main's note, and the cursor
-/// after it.
+/// messages it holds (verbatim, in order), their images (in order) and
+/// entries, main's note, and the cursor after it.
 struct HandOver {
     body: String,
     messages: Vec<String>,
+    images: Vec<ImageContent>,
+    entries: Vec<u64>,
     note: Option<String>,
     cursor: u64,
 }
@@ -243,8 +278,8 @@ impl HandOver {
 }
 
 /// The user's messages since the last hand-over, picked by the compiled
-/// core (`forward_pick`): refuses when there is neither a new message nor
-/// a note.
+/// core (`forward_pick`), with the images of exactly the picked messages:
+/// refuses when there is neither a new message nor a note.
 async fn hand_over(
     harness: &Harness,
     api: &dyn ToolExecutionApi,
@@ -256,7 +291,7 @@ async fn hand_over(
     let messages = user_messages(harness, conversation_id, state.cursor, cx).await?;
     let pairs: Vec<(u64, &str)> = messages
         .iter()
-        .map(|(id, text)| (*id, text.as_str()))
+        .map(|words| (words.entry, words.text.as_str()))
         .collect();
     let pick = forward_pick(state.cursor, &pairs, note.as_deref())
         .map_err(|error| SessionError::error(format!("{error:#}")))?;
@@ -265,17 +300,25 @@ async fn hand_over(
             "No new message from the user since the last hand-over, and no note: there is nothing to send",
         ));
     }
-    let picked: Vec<String> = messages
-        .into_iter()
-        .filter(|(id, _)| pick.picked.contains(id))
-        .map(|(_, text)| text)
-        .collect();
-    Ok(HandOver {
+    let mut handed = HandOver {
         body: pick.body,
-        messages: picked,
+        messages: Vec::new(),
+        images: Vec::new(),
+        entries: Vec::new(),
         note,
         cursor: pick.cursor,
-    })
+    };
+    for words in messages
+        .into_iter()
+        .filter(|words| pick.picked.contains(&words.entry))
+    {
+        if handed.entries.last() != Some(&words.entry) {
+            handed.entries.push(words.entry);
+        }
+        handed.messages.push(words.text);
+        handed.images.extend(words.images);
+    }
+    Ok(handed)
 }
 
 /// The live worker rows of `conversation_id`, in creation order.
@@ -502,6 +545,37 @@ async fn pause_rows(
     Ok(())
 }
 
+/// Run the typed session command `text` (`/goal ...`, `/autonomous ...`
+/// typed on main) on main's worker (`worker`, else the first one), where
+/// the work runs: answers its name, or `None` when main has no worker yet.
+///
+/// # Errors
+///
+/// A document read failure, or the command failed on the worker (its own
+/// chat records the failure too).
+pub async fn worker_session_command(
+    reader: &(impl DocumentReader + ?Sized),
+    host: &dyn RlmSubagentHost,
+    conversation_id: ConversationId,
+    text: &str,
+    cx: &Context,
+) -> anyhow::Result<Option<String>> {
+    let rows = worker_rows(reader, conversation_id, cx).await?;
+    let Some(row) = rows
+        .iter()
+        .find(|row| row.session_name == DEFAULT_WORKER)
+        .or_else(|| rows.first())
+    else {
+        return Ok(None);
+    };
+    host.session_command(RlmChildCommandRequest {
+        session_id: row.session_id.clone(),
+        text: text.to_owned(),
+    })
+    .await?;
+    Ok(Some(row.session_name.clone()))
+}
+
 fn optional_text(params: &Value, key: &str) -> SessionResult<Option<String>> {
     match params.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -574,6 +648,7 @@ async fn assign_call(
                     report: ReportMode::Inbox,
                 },
                 details: Some(details.clone()),
+                user_entries: handed.entries.clone(),
                 worker: true,
             };
             let call = HostCall {
@@ -595,6 +670,7 @@ async fn assign_call(
                     prompt: handed.body.clone(),
                     kind: ChildMessageKind::Task,
                     details: Some(details.clone()),
+                    user_entries: handed.entries.clone(),
                 },
                 Some(handed.cursor),
             )
@@ -650,6 +726,7 @@ async fn forward_call(
                 prompt: handed.body.clone(),
                 kind,
                 details: Some(details.clone()),
+                user_entries: handed.entries.clone(),
             },
             Some(handed.cursor),
         )
@@ -667,6 +744,7 @@ async fn forward_call(
                 kind,
                 row_id: format!("forward:{call_id}"),
                 details: Some(details.clone()),
+                images: handed.images.clone(),
             })
             .await
             .map_err(|error| SessionError::error(format!("{error:#}")))?;

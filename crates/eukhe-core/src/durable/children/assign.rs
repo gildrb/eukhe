@@ -21,11 +21,13 @@ use super::requests::cx;
 use super::task::{ChildTaskInput, ReportMode};
 use super::Children;
 
-/// One re-task: the prompt, what it is to the child, and its row details.
+/// One re-task: the prompt, what it is to the child, its row details, and
+/// main's user entries it hands over (their images go along).
 pub(crate) struct Assignment {
     pub(crate) prompt: String,
     pub(crate) kind: ChildMessageKind,
     pub(crate) details: Option<Map<String, Value>>,
+    pub(crate) user_entries: Vec<u64>,
 }
 
 /// The refusal for a child whose task is still running or owes its
@@ -97,6 +99,7 @@ pub(crate) async fn assign(
                 child: Some(row.task_id),
                 kind: assignment.kind,
                 details: assignment.details,
+                user_entries: assignment.user_entries,
                 worker: row.worker,
             };
             let task_id = tx

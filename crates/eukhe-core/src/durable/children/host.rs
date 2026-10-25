@@ -10,7 +10,7 @@
 
 use crate::child_workspace::{Handback, WorkspaceMode};
 use eukhe_types::input_origin::ChildFailure;
-use eukhe_types::pi_ai::Usage;
+use eukhe_types::pi_ai::{ImageContent, Usage};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
@@ -81,8 +81,9 @@ pub struct RlmChildSession {
 
 /// Prompt a created child, once per key. The host admits the message as
 /// the parent's `agent_message` row (TS `spawnMessage`): its content is
-/// [`ChildMessageKind::label`], a blank line and `prompt`; its details carry
-/// `id` = `row_id`, `message` = `prompt`, `deliveryKind`, and `details`.
+/// [`ChildMessageKind::label`], a blank line and `prompt`, then `images`;
+/// its details carry `id` = `row_id`, `message` = `prompt`,
+/// `deliveryKind`, and `details`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RlmChildPromptRequest {
     /// `rlm:<taskId>:prompt` (a forward: `rlm:forward:<call>`).
@@ -99,6 +100,9 @@ pub struct RlmChildPromptRequest {
     pub row_id: String,
     /// More row details (`userMessages`, `note`), merged in.
     pub details: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The images of the user's messages a hand-over carries, in their
+    /// order (none for a plain task).
+    pub images: Vec<ImageContent>,
 }
 
 impl RlmChildPromptRequest {
@@ -119,6 +123,7 @@ impl RlmChildPromptRequest {
             prompt,
             kind: ChildMessageKind::Task,
             details: None,
+            images: Vec::new(),
         }
     }
 }
@@ -293,6 +298,16 @@ pub enum PauseAction {
     Resume,
 }
 
+/// Run one typed session command (`/goal ...`, `/autonomous ...`) on a
+/// child, as if typed there: main's directors apply to its worker. A
+/// stopped child wakes for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RlmChildCommandRequest {
+    pub session_id: String,
+    /// The command as the user typed it.
+    pub text: String,
+}
+
 /// Tear a child session down with its ledger tombstone, once per key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildDeleteRequest {
@@ -446,6 +461,9 @@ pub trait RlmSubagentHost: Send + Sync {
     /// Pause or resume a child's tree (idempotent: pausing a paused tree
     /// or resuming a running one changes nothing).
     fn pause(&self, request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()>;
+    /// Run a typed session command on a child; its failure is the
+    /// command's (the child already recorded it).
+    fn session_command(&self, request: RlmChildCommandRequest) -> RlmHostFuture<'_, ()>;
 }
 
 /// Host behavior for sessions with no child runtime: spawns and creates fail
@@ -501,6 +519,10 @@ impl RlmSubagentHost for NoRlmChildren {
     }
 
     fn pause(&self, _request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()> {
+        Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
+    }
+
+    fn session_command(&self, _request: RlmChildCommandRequest) -> RlmHostFuture<'_, ()> {
         Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
     }
 

@@ -27,8 +27,8 @@ mod worker;
 
 pub use pause::{PauseView, RunPause, Wake};
 pub use worker::{
-    list_workers, pause_own_tree, pause_workers, watch_workers, WorkerUpdates, WORKER_ASSIGN,
-    WORKER_FORWARD, WORKER_STATUS,
+    list_workers, pause_own_tree, pause_workers, watch_workers, worker_session_command,
+    WorkerUpdates, WORKER_ASSIGN, WORKER_FORWARD, WORKER_STATUS,
 };
 
 #[cfg(test)]
@@ -47,11 +47,12 @@ pub use commands::{
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
     ChildMessageKind, NoRlmChildren, PauseAction, RlmChildActivityKind, RlmChildCancelRequest,
-    RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing,
-    RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
+    RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
+    RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture,
+    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,

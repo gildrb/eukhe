@@ -26,7 +26,7 @@ use super::info::{
     SESSION_LIST_SEARCH_TEXT_MAX_CHARS, SESSION_SCAN_MAX_CACHED_STATES,
 };
 use crate::session_usage::SessionUsageSummary;
-use crate::worker::durable_host::meta::SESSION_META_DOC;
+use crate::worker::durable_host::meta::{Lineage, SESSION_META_DOC};
 
 /// The durable storage's commit log; a directory without it is no session.
 const MAIN_FILE: &str = "main.jsonl";
@@ -98,6 +98,29 @@ pub(crate) fn read_durable_session_info_blocking(dir: &Path) -> Option<SessionIn
         })
         .ok()
         .flatten()
+}
+
+/// The RLM lineage the durable storage in `dir` recorded
+/// (`eukhe.daemon.session`): the parent link (as [`storage_session_path`]
+/// names it), the depth and the worker flag. `None` when the storage
+/// records no parent (a root) or cannot be read.
+pub(crate) async fn read_durable_lineage(dir: &Path, cx: &Context) -> Option<Lineage> {
+    let location = SessionLocation::Durable(dir.to_path_buf());
+    let meta = match read_session_document(&location, &SESSION_META_DOC, (), cx).await {
+        Ok(meta) => meta?,
+        Err(error) => {
+            eprintln!(
+                "eukhe-daemon: reading the session metadata of {} failed: {error}",
+                dir.display()
+            );
+            return None;
+        }
+    };
+    Some(Lineage {
+        parent_session_path: storage_session_path(meta.parent_session_path.as_deref()?),
+        rlm_depth: meta.rlm_depth.unwrap_or(0),
+        worker: meta.worker,
+    })
 }
 
 /// One cached row: the commit-log generation it was read at.
