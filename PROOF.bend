@@ -1295,6 +1295,9 @@ import ./proof/command/command_named_word_menu.bend as PCommandNamedWordMenu
 import ./proof/command/command_named_word_ends.bend as PCommandNamedWordEnds
 import ./proof/command/command_named_word_menu_any.bend as PCommandNamedWordMenuAny
 import ./proof/command/command_named_word_resolves_alike.bend as PCommandNamedWordResolvesAlike
+import ./proof/command/command_named_word_then_blank.bend as PCommandNamedWordThenBlank
+import ./proof/command/command_named_word_then_child.bend as PCommandNamedWordThenChild
+import ./proof/command/command_named_word_then_other.bend as PCommandNamedWordThenOther
 import ./proof/command/command_key_follows_menu.bend as PCommandKeyFollowsMenu
 import ./proof/command/command_row_ignored_shut_menu.bend as PCommandRowIgnoredShutMenu
 import ./proof/command/command_blank_runs_nothing.bend as PCommandBlankRunsNothing

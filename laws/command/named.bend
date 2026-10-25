@@ -22,7 +22,12 @@ import ./paths.bend as Paths
 #       canonical name when the path's entries run and take text alike
 #                                     command_named_word_ends,
 #                                     command_named_word_menu_any,
-#                                     command_named_word_resolves_alike
+#                                     command_named_word_resolves_alike,
+#       and after the word, in every table: spaces only, a child of it,
+#       or a word naming none of its children
+#                                     command_named_word_then_blank,
+#                                     command_named_word_then_child,
+#                                     command_named_word_then_other
 #   R18 on a line whose menu lists the children of a path, Tab and Enter
 #       act on that path: a selected child is the row, any other selection
 #       acts as no row             command_key_follows_menu
@@ -34,10 +39,6 @@ import ./paths.bend as Paths
 #   anchors and witnesses             command_named_example,
 #                                     command_named_dup_example,
 #                                     command_named_premises_witness
-#
-# Not pinned: a table that declares one path twice with different run or
-# free flags, and a word naming the later entry followed by more text:
-# the model then answers by the named entry's own flags.
 
 # Spec helpers
 # ------------
@@ -93,6 +94,20 @@ def cmd_alike(a: Cmd.Ent, b: Cmd.Ent) -> Bool:
   match a b:
     case Cmd.Ent{p, x, r, f, g} Cmd.Ent{p2, x2, r2, f2, g2}:
       Bool.and(cmd_flag_eq(r, r2), cmd_flag_eq(f, f2))
+
+# after a named entry, a word x naming none of its children: when the
+# entry takes text it runs with x and the rest as typed, else x is unknown
+def cmd_named_miss.at(f: Bool, p: List<&2, List<&2, Nat>>, x: List<&2, Nat>, s: List<&2, Nat>) -> Cmd.Res:
+  match f:
+    case True{}:
+      Cmd.Runs{p, List.append(&2, Nat, x, s)}
+    case False{}:
+      Cmd.Unknown{p, x}
+
+def cmd_named_miss(e: Cmd.Ent, x: List<&2, Nat>, s: List<&2, Nat>) -> Cmd.Res:
+  match e:
+    case Cmd.Ent{p, a, r, f, g}:
+      cmd_named_miss.at(f, p, x, s)
 
 # s is empty or starts with a space: the words before it stay whole
 def cmd_cuts(s: List<&2, Nat>) -> Bool:
@@ -267,6 +282,73 @@ law command_named_word_resolves_alike:
   for alike: {cmd_alike(e1, e) == True{} : Bool}
   for gap: {cmd_cuts(s) == True{} : Bool}
   {Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), s)) == Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(Paths.cmd_ent_path(e), gs), s)) : Cmd.Res}
+
+# LAW command_named_word_then_blank: a line that ends at a word naming a
+# child and spaces answers as that child's own entry, in every table
+# EXCLUDES: `/memory m ` (m an alias) answered unknown or as /memory
+law command_named_word_then_blank:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +w: List<&2, Nat>
+  for +e: Cmd.Ent
+  for +gs: List<&2, Nat>
+  for +s: List<&2, Nat>
+  for ok: {Paths.cmd_wf(t) == True{} : Bool}
+  for on: {Paths.cmd_walks(t, q) == True{} : Bool}
+  for word: {Paths.cmd_typed(w) == True{} : Bool}
+  for hit: {cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for blank: {cmd_blank(s) == True{} : Bool}
+  {Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), 32n <> s)) == cmd_ent_ended(t, e) : Cmd.Res}
+
+# LAW command_named_word_then_child: after a word naming a child, spaces
+# and a word x that names a child of it: the line resolves as with the
+# child's canonical path, in every table (the entry the first word names
+# no longer matters)
+# EXCLUDES: a path continued below an alias that runs nothing, runs the
+#   parent, or answers another path, when the alias's entry repeats a
+#   declared path
+law command_named_word_then_child:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +w: List<&2, Nat>
+  for +e: Cmd.Ent
+  for +gs: List<&2, Nat>
+  for +n: Nat
+  for +x: List<&2, Nat>
+  for +e2: Cmd.Ent
+  for +s: List<&2, Nat>
+  for ok: {Paths.cmd_wf(t) == True{} : Bool}
+  for on: {Paths.cmd_walks(t, q) == True{} : Bool}
+  for word: {Paths.cmd_typed(w) == True{} : Bool}
+  for hit: {cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for next: {Paths.cmd_typed(x) == True{} : Bool}
+  for kid: {cmd_named(t, Paths.cmd_ent_path(e), x) == Some{e2} : Maybe<&2, Cmd.Ent>}
+  for gap: {cmd_cuts(s) == True{} : Bool}
+  {Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), 32n <> List.append(&2, Nat, Paths.cmd_spaces(n), List.append(&2, Nat, x, s)))) == Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(Paths.cmd_ent_path(e), gs), 32n <> List.append(&2, Nat, Paths.cmd_spaces(n), List.append(&2, Nat, x, s)))) : Cmd.Res}
+
+# LAW command_named_word_then_other: after a word naming a child, spaces
+# and a word x that names none of its children: the named entry decides,
+# in every table: when it takes text it runs with x and the rest as
+# typed, else x is unknown below it
+# EXCLUDES: argument text after an alias dropped, read as no command, or
+#   decided by another entry of the same path
+law command_named_word_then_other:
+  for +t: List<&2, Cmd.Ent>
+  for +q: List<&2, List<&2, Nat>>
+  for +w: List<&2, Nat>
+  for +e: Cmd.Ent
+  for +gs: List<&2, Nat>
+  for +n: Nat
+  for +x: List<&2, Nat>
+  for +s: List<&2, Nat>
+  for ok: {Paths.cmd_wf(t) == True{} : Bool}
+  for on: {Paths.cmd_walks(t, q) == True{} : Bool}
+  for word: {Paths.cmd_typed(w) == True{} : Bool}
+  for hit: {cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}
+  for next: {Paths.cmd_typed(x) == True{} : Bool}
+  for miss: {Paths.cmd_takes(t, Paths.cmd_ent_path(e), Paths.cmd_lower(x)) == False{} : Bool}
+  for gap: {cmd_cuts(s) == True{} : Bool}
+  {Cmd.resolve(t, List.append(&2, Nat, Paths.cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), 32n <> List.append(&2, Nat, Paths.cmd_spaces(n), List.append(&2, Nat, x, s)))) == cmd_named_miss(e, x, s) : Cmd.Res}
 
 # Laws: keys on every line
 # ------------------------

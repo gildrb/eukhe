@@ -744,3 +744,131 @@ def nm_finish_ent(+t: List<&2, Cmd.Ent>, e: Cmd.Ent) -> {Cmd.finish(Cmd.Walk{Cmd
     case Cmd.Ent{+p, a, +r, f, g}:
       %LA.cb_kids_any(t, p) : {Cmd.finish.at(Bool.or(r, Bool.not(Cmd.kids.any(t, p))), p) == Command.cmd_ended.at(Bool.or(r, Bool.not(_)), p) : Cmd.Res}
       nm_finish_at(Bool.or(r, Bool.not(Cmd.kids.any(t, p))), p)
+
+# ---- after a named word ----
+
+# empty words leave a walk at a path where it is
+def nm_walk_blanks(n: Nat, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +e: Cmd.Ent) -> {Cmd.walk(LACommandSpace.sp_blanks(n), t, Cmd.Walk{p, e}) == Cmd.Walk{p, e} : Cmd.St}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+m:
+      nm_walk_blanks(m, t, p, e)
+
+# a space, a run of n spaces, a spaceless x, then a text that cuts
+def nm_words_next(n: Nat, +x: List<&2, Nat>, +s: List<&2, Nat>, hx: {Command.cmd_spaceless(x) == True{} : Bool}, gap: {CommandNamed.cmd_cuts(s) == True{} : Bool}) -> {Cmd.words(32n <> List.append(&2, Nat, Command.cmd_spaces(n), List.append(&2, Nat, x, s))) == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}:
+  +xs = List.append(&2, Nat, x, s)
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(List.append(&2, Nat, Command.cmd_spaces(n), xs)), List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), Cmd.words(xs)), LACommandSpace.sp_words_spaces(n, xs)) : {Nil{} <> _ == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(xs), LA.cb_put(x, Cmd.words(s)), LA.cb_words_app(x, s, hx)) : {Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), _) == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(s), Nil{} <> nm_tail(s), nm_cuts(s, gap)) : {Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), LA.cb_put(x, _)) == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}
+  %Equal.sym(List<&2, List<&2, Nat>>, LA.cb_put(x, Nil{} <> nm_tail(s)), List.append(&2, Nat, x, Nil{}) <> nm_tail(s), LA.cb_put_con(x, Nil{}, nm_tail(s))) : {Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), _) == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}
+  %Equal.sym(List<&2, Nat>, List.append(&2, Nat, x, Nil{}), x, LA.cb_app_nil(Nat, x)) : {Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), _ <> nm_tail(s)) == Nil{} <> List.append(&2, List<&2, Nat>, LACommandSpace.sp_blanks(n), x <> nm_tail(s)) : List<&2, List<&2, Nat>>}
+  {==}
+
+# the walk of q, a named word w, spaces, a word x and a text that cuts:
+# after x, from the state x steps to from the named entry
+def nm_walk_then(+t: List<&2, Cmd.Ent>, +q: List<&2, List<&2, Nat>>, +w: List<&2, Nat>, +e: Cmd.Ent, +gs: List<&2, Nat>, +n: Nat, +x: List<&2, Nat>, +s: List<&2, Nat>, +ok: {Command.cmd_wf(t) == True{} : Bool}, +on: {Command.cmd_walks(t, q) == True{} : Bool}, +hw: {Command.cmd_typed(w) == True{} : Bool}, hit: {CommandNamed.cmd_named(t, q, w) == Some{e} : Maybe<&2, Cmd.Ent>}, hx: {Command.cmd_spaceless(x) == True{} : Bool}, gap: {CommandNamed.cmd_cuts(s) == True{} : Bool}) -> {Cmd.walk(Cmd.words(List.append(&2, Nat, Command.cmd_loose(List.append(&2, List<&2, Nat>, q, [w]), gs), 32n <> List.append(&2, Nat, Command.cmd_spaces(n), List.append(&2, Nat, x, s)))), t, Cmd.Top{}) == Cmd.walk(nm_tail(s), t, Cmd.step(Cmd.Walk{Cmd.Ent.path(e), e}, t, x)) : Cmd.St}:
+  +qw = List.append(&2, List<&2, Nat>, q, [w])
+  +T = {32n <> List.append(&2, Nat, Command.cmd_spaces(n), List.append(&2, Nat, x, s)) : List<&2, Nat>}
+  +B = LACommandSpace.sp_blanks(n)
+  +Y = nm_tail(s)
+  +W = {Cmd.Walk{Cmd.Ent.path(e), e} : Cmd.St}
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.words(List.append(&2, Nat, Command.cmd_loose(qw, gs), T)), List.append(&2, List<&2, Nat>, LACommandSpace.sp_ls(qw, gs), List.append(&2, List<&2, Nat>, B, x <> Y)), LACommandSpace.sp_words_loose_last(q, w, gs, T, List.append(&2, List<&2, Nat>, B, x <> Y), nm_spaceless(t, q, w, ok, on, hw), nm_words_next(n, x, s, hx, gap))) : {Cmd.walk(_, t, Cmd.Top{}) == Cmd.walk(Y, t, Cmd.step(W, t, x)) : Cmd.St}
+  %Equal.sym(Cmd.St, Cmd.walk(List.append(&2, List<&2, Nat>, LACommandSpace.sp_ls(qw, gs), List.append(&2, List<&2, Nat>, B, x <> Y)), t, Cmd.Top{}), Cmd.walk(List.append(&2, List<&2, Nat>, B, x <> Y), t, W), nm_walk_words(t, q, w, e, gs, List.append(&2, List<&2, Nat>, B, x <> Y), ok, on, hw, hit)) : {_ == Cmd.walk(Y, t, Cmd.step(W, t, x)) : Cmd.St}
+  %Equal.sym(Cmd.St, Cmd.walk(List.append(&2, List<&2, Nat>, B, x <> Y), t, W), Cmd.walk(x <> Y, t, Cmd.walk(B, t, W)), LA.cb_walk_app(B, x <> Y, t, W)) : {_ == Cmd.walk(Y, t, Cmd.step(W, t, x)) : Cmd.St}
+  %Equal.sym(Cmd.St, Cmd.walk(B, t, W), W, nm_walk_blanks(n, t, Cmd.Ent.path(e), e)) : {Cmd.walk(x <> Y, t, _) == Cmd.walk(Y, t, Cmd.step(W, t, x)) : Cmd.St}
+  {==}
+
+# from any entry of p, a typed word naming a child of p steps onto it
+def nm_step_kid(+t: List<&2, Cmd.Ent>, +e: Cmd.Ent, +x: List<&2, Nat>, -e2: Cmd.Ent, hx: {Command.cmd_typed(x) == True{} : Bool}, kid: {CommandNamed.cmd_named(t, Command.cmd_ent_path(e), x) == Some{e2} : Maybe<&2, Cmd.Ent>}) -> {Cmd.step(Cmd.Walk{Cmd.Ent.path(e), e}, t, x) == Cmd.Walk{Cmd.Ent.path(e2), e2} : Cmd.St}:
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.Ent.path(e), Command.cmd_ent_path(e), LA.cb_ent_path(e)) : {Cmd.step(Cmd.Walk{_, e}, t, x) == Cmd.Walk{Cmd.Ent.path(e2), e2} : Cmd.St}
+  nm_step_of(Some{e}, t, Command.cmd_ent_path(e), x, e2, {==}, hx, kid)
+
+# ... and one naming no child steps off the path, by the entry's flag
+def nm_step_other(+t: List<&2, Cmd.Ent>, +e: Cmd.Ent, +x: List<&2, Nat>, hx: {Command.cmd_typed(x) == True{} : Bool}, miss: {Command.cmd_takes(t, Command.cmd_ent_path(e), Command.cmd_lower(x)) == False{} : Bool}) -> {Cmd.step(Cmd.Walk{Cmd.Ent.path(e), e}, t, x) == Cmd.step.miss(Cmd.Ent.free(e), Command.cmd_ent_path(e), x) : Cmd.St}:
+  +pe = Command.cmd_ent_path(e)
+  %Equal.sym(List<&2, List<&2, Nat>>, Cmd.Ent.path(e), pe, LA.cb_ent_path(e)) : {Cmd.step(Cmd.Walk{_, e}, t, x) == Cmd.step.miss(Cmd.Ent.free(e), pe, x) : Cmd.St}
+  %Equal.sym(Cmd.St, Cmd.step(Cmd.Walk{pe, e}, t, x), Cmd.step.word(Cmd.Walk{pe, e}, t, x), LA.cb_step_word(x, Cmd.Walk{pe, e}, t, hx)) : {_ == Cmd.step.miss(Cmd.Ent.free(e), pe, x) : Cmd.St}
+  %Equal.sym(Maybe<&2, Cmd.Ent>, Cmd.search(t, pe, Cmd.lows(x)), None{}, LA.cb_search_miss(t, pe, x, Command.cmd_lower(x), LA.cb_lows(x), miss)) : {Cmd.step.walk(_, pe, Cmd.Ent.free(e), x) == Cmd.step.miss(Cmd.Ent.free(e), pe, x) : Cmd.St}
+  {==}
+
+# ---- argument text, joined back ----
+
+# a char put before the first word
+def nm_join_cons(ws: List<&2, List<&2, Nat>>, +c: Nat, -v: List<&2, Nat>) -> {Cmd.join.go(ws, c <> v) == c <> Cmd.join.go(ws, v) : List<&2, Nat>}:
+  match ws:
+    case Nil{}:
+      {==}
+    case Con{u, rs}:
+      {==}
+
+def nm_tail_eq(-a: List<&2, Nat>, -b: List<&2, Nat>, h: {32n <> a == 32n <> b : List<&2, Nat>}) -> {a == b : List<&2, Nat>}:
+  Equal.cong(List<&2, Nat>, List<&2, Nat>, l => List.tail(&2, Nat, l), 32n <> a, 32n <> b, h)
+
+def nm_jw_put(ws: List<&2, List<&2, Nat>>, +c: Nat, +x: List<&2, Nat>, -r: List<&2, Nat>, ne: {LACommandSpace.sp_ne(ws) == True{} : Bool}, ih: {Cmd.join.go(ws, Nil{}) == 32n <> r : List<&2, Nat>}) -> {Cmd.join.go(Cmd.put_word(c, ws), x) == List.append(&2, Nat, x, 32n <> c <> r) : List<&2, Nat>}:
+  match ws:
+    case Nil{}:
+      LLogicLogic.cb_absurd({Cmd.join.go(Cmd.put_word(c, Nil{}), x) == List.append(&2, Nat, x, 32n <> c <> r) : List<&2, Nat>}, ne)
+    case Con{+v, +rest}:
+      %Equal.sym(List<&2, Nat>, Cmd.join.go(rest, c <> v), c <> Cmd.join.go(rest, v), nm_join_cons(rest, c, v)) : {List.append(&2, Nat, x, 32n <> _) == List.append(&2, Nat, x, 32n <> c <> r) : List<&2, Nat>}
+      %Equal.sym(List<&2, Nat>, Cmd.join.go(rest, v), r, nm_tail_eq(Cmd.join.go(rest, v), r, ih)) : {List.append(&2, Nat, x, 32n <> c <> _) == List.append(&2, Nat, x, 32n <> c <> r) : List<&2, Nat>}
+      {==}
+
+def nm_jw_at(b: Bool, +c: Nat, +r: List<&2, Nat>, +x: List<&2, Nat>, hb: {Nat.is_eq(c, 32n) == b : Bool}, ih: {Cmd.join.go(Cmd.words(r), Nil{}) == 32n <> r : List<&2, Nat>}) -> {Cmd.join.go(Cmd.words.at(b, c, Cmd.words(r)), x) == List.append(&2, Nat, x, 32n <> c <> r) : List<&2, Nat>}:
+  match b:
+    case True{}:
+      %Equal.sym(Nat, c, 32n, LLogicNat.cb_nat_eq(c, 32n, hb)) : {Cmd.join.go(Nil{} <> Cmd.words(r), x) == List.append(&2, Nat, x, 32n <> _ <> r) : List<&2, Nat>}
+      %Equal.sym(List<&2, Nat>, Cmd.join.go(Cmd.words(r), Nil{}), 32n <> r, ih) : {List.append(&2, Nat, x, 32n <> _) == List.append(&2, Nat, x, 32n <> 32n <> r) : List<&2, Nat>}
+      {==}
+    case False{}:
+      nm_jw_put(Cmd.words(r), c, x, r, LACommandSpace.sp_words_ne(r), ih)
+
+# the words of a text, joined after x with a space between two: x, a
+# space, then the text as typed
+def nm_jw(r: List<&2, Nat>, +x: List<&2, Nat>) -> {Cmd.join.go(Cmd.words(r), x) == List.append(&2, Nat, x, 32n <> r) : List<&2, Nat>}:
+  match r:
+    case Nil{}:
+      {==}
+    case Con{+c, +rr}:
+      nm_jw_at(Nat.is_eq(c, 32n), c, rr, x, {==}, nm_jw(rr, Nil{}))
+
+# argument text x then a text that cuts joins back to x and the text
+def nm_join_tail(s: List<&2, Nat>, +x: List<&2, Nat>, gap: {CommandNamed.cmd_cuts(s) == True{} : Bool}) -> {Cmd.join.go(nm_tail(s), x) == List.append(&2, Nat, x, s) : List<&2, Nat>}:
+  match s:
+    case Nil{}:
+      Equal.sym(List<&2, Nat>, List.append(&2, Nat, x, Nil{}), x, LA.cb_app_nil(Nat, x))
+    case Con{+c, +r}:
+      %Equal.sym(Nat, c, 32n, LLogicNat.cb_nat_eq(c, 32n, gap)) : {Cmd.join.go(Cmd.words(r), x) == List.append(&2, Nat, x, _ <> r) : List<&2, Nat>}
+      nm_jw(r, x)
+
+# what the walk after a miss finishes as: the entry's flag decides
+def nm_finish_miss(f: Bool, +t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +x: List<&2, Nat>, +s: List<&2, Nat>, gap: {CommandNamed.cmd_cuts(s) == True{} : Bool}) -> {Cmd.finish(Cmd.walk(nm_tail(s), t, Cmd.step.miss(f, p, x)), t) == CommandNamed.cmd_named_miss.at(f, p, x, s) : Cmd.Res}:
+  match f:
+    case True{}:
+      %Equal.sym(Cmd.St, Cmd.walk(nm_tail(s), t, Cmd.Rest{p, [x]}), Cmd.Rest{p, List.append(&2, List<&2, Nat>, [x], nm_tail(s))}, LA.cb_walk_rest(nm_tail(s), t, p, [x])) : {Cmd.finish(_, t) == Cmd.Runs{p, List.append(&2, Nat, x, s)} : Cmd.Res}
+      %Equal.sym(List<&2, Nat>, Cmd.join.go(nm_tail(s), x), List.append(&2, Nat, x, s), nm_join_tail(s, x, gap)) : {Cmd.Runs{p, _} == Cmd.Runs{p, List.append(&2, Nat, x, s)} : Cmd.Res}
+      {==}
+    case False{}:
+      %Equal.sym(Cmd.St, Cmd.walk(nm_tail(s), t, Cmd.Lost{p, x}), Cmd.Lost{p, x}, LA.cb_walk_lost(nm_tail(s), t, p, x)) : {Cmd.finish(_, t) == Cmd.Unknown{p, x} : Cmd.Res}
+      {==}
+
+# after a named word: a blank rest leaves the walk at the entry
+def nm_blank_walk_at(b: Bool, +c: Nat, +r: List<&2, Nat>, +t: List<&2, Cmd.Ent>, +S: Cmd.St, hb: {Bool.and(b, CommandNamed.cmd_blank(r)) == True{} : Bool}, hs: {Cmd.step.empty(S) == S : Cmd.St}, ih: {CommandNamed.cmd_blank(r) == True{} : Bool} -> {Cmd.walk(Cmd.words(r), t, S) == S : Cmd.St}) -> {Cmd.walk(Cmd.words.at(b, c, Cmd.words(r)), t, S) == S : Cmd.St}:
+  match b:
+    case True{}:
+      %Equal.sym(Cmd.St, Cmd.step.empty(S), S, hs) : {Cmd.walk(Cmd.words(r), t, _) == S : Cmd.St}
+      ih(hb)
+    case False{}:
+      LLogicLogic.cb_absurd({Cmd.walk(Cmd.words.at(False{}, c, Cmd.words(r)), t, S) == S : Cmd.St}, hb)
+
+def nm_blank_walk(+t: List<&2, Cmd.Ent>, +p: List<&2, List<&2, Nat>>, +e: Cmd.Ent, s: List<&2, Nat>, h: {CommandNamed.cmd_blank(s) == True{} : Bool}) -> {Cmd.walk(Cmd.words(s), t, Cmd.Walk{p, e}) == Cmd.Walk{p, e} : Cmd.St}:
+  match s:
+    case Nil{}:
+      {==}
+    case Con{+c, +r}:
+      nm_blank_walk_at(Nat.is_eq(c, 32n), c, r, t, Cmd.Walk{p, e}, h, {==}, z => nm_blank_walk(t, p, e, r, z))
+
+def nm_named_miss(e: Cmd.Ent, -x: List<&2, Nat>, -s: List<&2, Nat>) -> {CommandNamed.cmd_named_miss(e, x, s) == CommandNamed.cmd_named_miss.at(Cmd.Ent.free(e), Command.cmd_ent_path(e), x, s) : Cmd.Res}:
+  match e:
+    case Cmd.Ent{p, a, r, f, g}:
+      {==}
