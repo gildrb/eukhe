@@ -299,6 +299,7 @@ import ./proof/job_step/job_step_out_stays_live.bend as PJobStepOutStaysLive
 import ./proof/job_step/job_runs_are_steps.bend as PJobRunsAreSteps
 import ./proof/job_step/job_feed_past_bound.bend as PJobFeedPastBound
 import ./proof/job_step/job_model_terms_exact.bend as PJobModelTermsExact
+import ./proof/job_step/job_rewind_model_exact.bend as PJobRewindModelExact
 import ./proof/sandbox/base.bend as LASandbox
 import ./proof/sandbox/proto_one_reply_each.bend as PProtoOneReplyEach
 import ./proof/sandbox/proto_runs_only_accepted.bend as PProtoRunsOnlyAccepted

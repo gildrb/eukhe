@@ -263,3 +263,34 @@ law job_model_terms_exact:
   for +ks: List<&2, Jb.Slot>
   for +keep: List<&2, Nat>
   {Jb.ticks(es) == ticks_spec(es) : Nat} & {Jb.elem(xs, x) == elem_spec(xs, x) : Bool} & {Jb.running_in(js, keep) == running_in_spec(js, keep) : Bool} & {Jb.kept(js, ks, keep) == slots_kept_spec(js, ks, keep) : Bool}
+
+# a slot after a rewind to a tree that holds the jobs keep: held, as it
+# was; else stopped, with its id
+def rewind_slot_spec(held: Bool, s: Jb.Slot) -> Jb.Slot:
+  match held:
+    case True{}:
+      s
+    case False{}:
+      match s:
+        case Jb.Slot{i, r}:
+          Jb.Slot{i, False{}}
+
+# every slot after a rewind to a tree that holds the jobs keep, in order
+def rewind_spec(js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> List<&2, Jb.Slot>:
+  match js:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      match s:
+        case Jb.Slot{+i, r}:
+          rewind_slot_spec(elem_spec(keep, i), Jb.Slot{i, r}) <> rewind_spec(rest, keep)
+
+# LAW job_rewind_model_exact: the model's rewind, which the S2 rewind laws state, keeps every
+# slot the target tree holds as it was and stops every other one under its own id, in order, on
+# every table (a sixth fresh adversary's rewind renamed a held running job and passed every law)
+# EXCLUDES: a model rewind that renames, reorders, drops or stops a held job (Rust runs the
+#   rewind entry, pinned by job_rewind_exact; this keeps the S2 laws about the right rewind)
+law job_rewind_model_exact:
+  for +js: List<&2, Jb.Slot>
+  for +keep: List<&2, Nat>
+  {Jb.rewind(js, keep) == rewind_spec(js, keep) : List<&2, Jb.Slot>}
