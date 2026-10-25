@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use tokio::sync::{mpsc as async_mpsc, oneshot, Notify};
 
 use self::vm::{run_vm, VmCommand, VmData, VmDelivery, VmDone, VmDoneOutcome, VmMessage};
-use super::identifier::to_codemode_identifier;
+use super::identifier::{is_codemode_identifier, to_codemode_identifier};
 use super::types::{
     CodemodeDeclaredGlobal, CodemodeDeclaredTool, CodemodeDuring, CodemodeEnding, CodemodeError,
     CodemodeErrorKind, CodemodeHostCall, CodemodeOutcome, CodemodeOutputItem, CodemodeResult,
@@ -431,14 +431,6 @@ fn fnv1a(parts: &[&str]) -> String {
     format!("{hash:08x}")
 }
 
-fn is_identifier(text: &str) -> bool {
-    let mut chars = text.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_' || first == '$')
-        && chars.all(|char| char.is_ascii_alphanumeric() || char == '_' || char == '$')
-}
-
 /// Global names: identifiers or `namespace.member`, not shadowing a built-in
 /// global or each other.
 fn check_globals(globals: &[CodemodeDeclaredGlobal]) -> Result<(), CodemodeStartError> {
@@ -447,7 +439,7 @@ fn check_globals(globals: &[CodemodeDeclaredGlobal]) -> Result<(), CodemodeStart
     for global in globals {
         let parts: Vec<&str> = global.name.split('.').collect();
         if parts.len() > 2
-            || !parts.iter().all(|part| is_identifier(part))
+            || !parts.iter().all(|part| is_codemode_identifier(part))
             || RESERVED_GLOBALS.contains(&parts[0])
         {
             return Err(CodemodeStartError::InvalidGlobal(global.name.clone()));

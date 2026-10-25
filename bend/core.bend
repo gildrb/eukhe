@@ -10,6 +10,7 @@ import ./ffi_bound.bend as ffi_bound
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
+import ./ffi_codemode_id.bend as ffi_codemode_id
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_cvar.bend as ffi_cvar
@@ -187,6 +188,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_tags.ffi(input)
     case 103:
       ffi_doc_commit.ffi(input)
+    case 260:
+      ffi_codemode_id.ffi(input)
     case _:
       W.err("unknown entry")
 

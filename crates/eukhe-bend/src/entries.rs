@@ -130,6 +130,8 @@ pub enum Entry {
     DocTags = 102,
     /// `bend/ffi_doc_commit.bend`: a call.
     DocCommit = 103,
+    /// `bend/ffi_codemode_id.bend`: a call.
+    CodemodeId = 260,
 }
 
 impl Entry {
@@ -197,6 +199,7 @@ impl Entry {
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,
+        Entry::CodemodeId,
     ];
 
     /// The id `bend/core.bend` dispatches on.

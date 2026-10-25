@@ -10,7 +10,7 @@ use eukhe_chord::json::to_json;
 use indexmap::IndexSet;
 use serde_json::{Map, Value};
 
-use super::identifier::to_codemode_identifier;
+use super::identifier::{is_codemode_identifier, to_codemode_identifier};
 
 const INDENT: &str = "  ";
 /// Largest rendered input type, in characters (UTF-16 units), before it
@@ -76,14 +76,6 @@ fn is_line_terminator(c: char) -> bool {
     matches!(c, '\r' | '\n' | '\u{2028}' | '\u{2029}')
 }
 
-fn is_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-}
-
 /// One tool as a member of the `tools` object: `name(args: T): Promise<R>;`
 /// with the name as the identifier scripts use. Input types longer than
 /// `input_max_chars` render as `unknown`.
@@ -120,7 +112,7 @@ pub fn render_tool_output_type(schema: Option<&Value>) -> String {
 }
 
 fn property_key(name: &str) -> String {
-    if is_identifier(name) {
+    if is_codemode_identifier(name) {
         name.to_owned()
     } else {
         stringify(&Value::String(name.to_owned()))

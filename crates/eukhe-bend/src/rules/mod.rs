@@ -4,6 +4,7 @@
 
 pub mod approvals;
 pub mod bound;
+pub mod codemode_id;
 pub mod compactor;
 pub mod cvar;
 pub mod frames;

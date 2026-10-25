@@ -1518,3 +1518,16 @@ import ./proof/selection/selection_ffi_error_keeps_the_state.bend as PSelectionF
 import ./proof/selection/selection_ffi_reads_only_events.bend as PSelectionFfiReadsOnlyEvents
 import ./proof/selection/selection_ffi_unknown_event.bend as PSelectionFfiUnknownEvent
 import ./proof/selection/selection_ffi_unknown_wrap.bend as PSelectionFfiUnknownWrap
+import ./proof/codemode_id/base.bend as LACodemodeId
+import ./proof/codemode_id/codemode_id_exact.bend as PCodemodeIdExact
+import ./proof/codemode_id/codemode_id_is_identifier.bend as PCodemodeIdIsIdentifier
+import ./proof/codemode_id/codemode_id_keeps_identifiers.bend as PCodemodeIdKeepsIdentifiers
+import ./proof/codemode_id/codemode_id_example.bend as PCodemodeIdExample
+import ./proof/codemode_id/codemode_id_is_exact.bend as PCodemodeIdIsExact
+import ./proof/codemode_id/codemode_id_is_example.bend as PCodemodeIdIsExample
+import ./proof/codemode_id/codemode_id_ffi_answers.bend as PCodemodeIdFfiAnswers
+import ./proof/codemode_id/codemode_id_ffi_is.bend as PCodemodeIdFfiIs
+import ./proof/codemode_id/codemode_id_ffi_exact.bend as PCodemodeIdFfiExact
+import ./proof/codemode_id/codemode_id_ffi_malformed.bend as PCodemodeIdFfiMalformed
+import ./proof/codemode_id/codemode_id_ffi_left_over.bend as PCodemodeIdFfiLeftOver
+import ./proof/codemode_id/codemode_id_ffi_example.bend as PCodemodeIdFfiExample

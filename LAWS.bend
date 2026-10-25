@@ -72,3 +72,4 @@ import ./laws/infer_guard.bend as InferGuard
 import ./laws/infer_threshold.bend as InferThreshold
 import ./laws/bound.bend as Bound
 import ./laws/selection.bend as Selection
+import ./laws/codemode_id.bend as CodemodeId
