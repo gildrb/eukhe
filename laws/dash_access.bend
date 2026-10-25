@@ -413,14 +413,130 @@ law dash_access_origin_spec:
   for +h: String
   {Ac.same_origin(o, h) == sp_origin(o, h) : Bool}
 
-# LAW dash_access_host_example (R1, R2): anchor: Rust's vectors: loopback
-# hosts in any case and port, an allowed host, a foreign one, a loopback
-# name inside a longer one, a trailing dot, an empty host, a named port,
-# userinfo, a bare IPv6 literal; ports at and past the bound, leading
-# zeros, a sign, an empty port
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law dash_access_host_example:
-  {[Ac.host_allowed("127.0.0.1:8377", ["box.tail1234.ts.net"]), Ac.host_allowed("127.0.0.1", []), Ac.host_allowed("LOCALHOST:1", []), Ac.host_allowed("[::1]:8377", []), Ac.host_allowed("[::1]", []), Ac.host_allowed("box.tail1234.ts.net", ["box.tail1234.ts.net"]), Ac.host_allowed("Box.Tail1234.ts.net:443", ["box.tail1234.ts.net"]), Ac.host_allowed("evil.example:8377", ["box.tail1234.ts.net"]), Ac.host_allowed("127.0.0.1.evil.example", []), Ac.host_allowed("localhost.", []), Ac.host_allowed("", []), Ac.host_allowed("127.0.0.1:http", []), Ac.host_allowed("user@127.0.0.1", []), Ac.host_allowed("::1", [])] == [True{}, True{}, True{}, True{}, True{}, True{}, True{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>} & {[Ac.host_allowed("localhost:65535", []), Ac.host_allowed("localhost:65536", []), Ac.host_allowed("localhost:000080", []), Ac.host_allowed("localhost:+80", []), Ac.host_allowed("localhost:+", []), Ac.host_allowed("localhost:", []), Ac.host_allowed("localhost:-1", []), Ac.host_allowed("localhost:99999999999999999999", []), Ac.host_allowed("[::1]]:80", []), Ac.host_allowed("[::1]x", []), Ac.host_allowed("a:b:80", ["a:b"])] == [True{}, False{}, True{}, True{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>}
+# LAW dash_access_host_01_example (R1, R2): anchor: Rust's vector: the Host "127.0.0.1:8377" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_01_example:
+  {Ac.host_allowed("127.0.0.1:8377", ["box.tail1234.ts.net"]) == True{} : Bool}
+
+# LAW dash_access_host_02_example (R1, R2): anchor: Rust's vector: the Host "127.0.0.1" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_02_example:
+  {Ac.host_allowed("127.0.0.1", []) == True{} : Bool}
+
+# LAW dash_access_host_03_example (R1, R2): anchor: Rust's vector: the Host "LOCALHOST:1" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_03_example:
+  {Ac.host_allowed("LOCALHOST:1", []) == True{} : Bool}
+
+# LAW dash_access_host_04_example (R1, R2): anchor: Rust's vector: the Host "[::1]:8377" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_04_example:
+  {Ac.host_allowed("[::1]:8377", []) == True{} : Bool}
+
+# LAW dash_access_host_05_example (R1, R2): anchor: Rust's vector: the Host "[::1]" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_05_example:
+  {Ac.host_allowed("[::1]", []) == True{} : Bool}
+
+# LAW dash_access_host_06_example (R1, R2): anchor: Rust's vector: the Host "box.tail1234.ts.net" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_06_example:
+  {Ac.host_allowed("box.tail1234.ts.net", ["box.tail1234.ts.net"]) == True{} : Bool}
+
+# LAW dash_access_host_07_example (R1, R2): anchor: Rust's vector: the Host "Box.Tail1234.ts.net:443" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_07_example:
+  {Ac.host_allowed("Box.Tail1234.ts.net:443", ["box.tail1234.ts.net"]) == True{} : Bool}
+
+# LAW dash_access_host_08_example (R1, R2): anchor: Rust's vector: the Host "evil.example:8377" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_08_example:
+  {Ac.host_allowed("evil.example:8377", ["box.tail1234.ts.net"]) == False{} : Bool}
+
+# LAW dash_access_host_09_example (R1, R2): anchor: Rust's vector: the Host "127.0.0.1.evil.example" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_09_example:
+  {Ac.host_allowed("127.0.0.1.evil.example", []) == False{} : Bool}
+
+# LAW dash_access_host_10_example (R1, R2): anchor: Rust's vector: the Host "localhost." is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_10_example:
+  {Ac.host_allowed("localhost.", []) == False{} : Bool}
+
+# LAW dash_access_host_11_example (R1, R2): anchor: Rust's vector: the Host "" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_11_example:
+  {Ac.host_allowed("", []) == False{} : Bool}
+
+# LAW dash_access_host_12_example (R1, R2): anchor: Rust's vector: the Host "127.0.0.1:http" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_12_example:
+  {Ac.host_allowed("127.0.0.1:http", []) == False{} : Bool}
+
+# LAW dash_access_host_13_example (R1, R2): anchor: Rust's vector: the Host "user@127.0.0.1" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_13_example:
+  {Ac.host_allowed("user@127.0.0.1", []) == False{} : Bool}
+
+# LAW dash_access_host_14_example (R1, R2): anchor: Rust's vector: the Host "::1" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_14_example:
+  {Ac.host_allowed("::1", []) == False{} : Bool}
+
+# LAW dash_access_host_15_example (R1, R2): anchor: Rust's vector: the Host "localhost:65535" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_15_example:
+  {Ac.host_allowed("localhost:65535", []) == True{} : Bool}
+
+# LAW dash_access_host_16_example (R1, R2): anchor: Rust's vector: the Host "localhost:65536" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_16_example:
+  {Ac.host_allowed("localhost:65536", []) == False{} : Bool}
+
+# LAW dash_access_host_17_example (R1, R2): anchor: Rust's vector: the Host "localhost:000080" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_17_example:
+  {Ac.host_allowed("localhost:000080", []) == True{} : Bool}
+
+# LAW dash_access_host_18_example (R1, R2): anchor: Rust's vector: the Host "localhost:+80" is allowed
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_18_example:
+  {Ac.host_allowed("localhost:+80", []) == True{} : Bool}
+
+# LAW dash_access_host_19_example (R1, R2): anchor: Rust's vector: the Host "localhost:+" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_19_example:
+  {Ac.host_allowed("localhost:+", []) == False{} : Bool}
+
+# LAW dash_access_host_20_example (R1, R2): anchor: Rust's vector: the Host "localhost:" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_20_example:
+  {Ac.host_allowed("localhost:", []) == False{} : Bool}
+
+# LAW dash_access_host_21_example (R1, R2): anchor: Rust's vector: the Host "localhost:-1" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_21_example:
+  {Ac.host_allowed("localhost:-1", []) == False{} : Bool}
+
+# LAW dash_access_host_22_example (R1, R2): anchor: Rust's vector: the Host "localhost:99999999999999999999" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_22_example:
+  {Ac.host_allowed("localhost:99999999999999999999", []) == False{} : Bool}
+
+# LAW dash_access_host_23_example (R1, R2): anchor: Rust's vector: the Host "[::1]]:80" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_23_example:
+  {Ac.host_allowed("[::1]]:80", []) == False{} : Bool}
+
+# LAW dash_access_host_24_example (R1, R2): anchor: Rust's vector: the Host "[::1]x" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_24_example:
+  {Ac.host_allowed("[::1]x", []) == False{} : Bool}
+
+# LAW dash_access_host_25_example (R1, R2): anchor: Rust's vector: the Host "a:b:80" is refused
+# EXCLUDES: a spec that drifts from the Rust it replaced on this host
+law dash_access_host_25_example:
+  {Ac.host_allowed("a:b:80", ["a:b"]) == False{} : Bool}
 
 # LAW dash_access_origin_example (R1, R3): anchor: Rust's vectors: an
 # origin of its own host with and without default ports, another host,
