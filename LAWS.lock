@@ -783,6 +783,8 @@
     "laws/progress.bend::goal_stopped_exact": "6988a6c2ba2ddfc126556f41f5038deb4288d01c1b7607f51c9e5f18ab7e875e",
     "laws/progress.bend::goal_stops_without_progress": "b15e33e4da4c7c789298fd5d77a2981561bf229dc4de323cb68d0e6297793858",
     "laws/progress.bend::work_counts_distinct": "d79006dd1a29a50a9b13ba525ef35c44b05b4aba89127c96c8fdc450121fc784",
+    "laws/progress_terms.bend::progress_terms_exact": "ec8a733e47dd26f48f8e0b6c45678c7cc817d349171d07302c8144793cc2f659",
+    "laws/progress_terms.bend::progress_type_terms_exact": "0eabd5275319651ba68bd82571fd12d2c192745ea35682bdeb40e0a13e791aa4",
     "laws/replace.bend::background_never_replaces": "b2ad37286248069b93c2a32b7baa61c03dd1e00aebf72bec8010c5fa5c659b8d",
     "laws/replace.bend::replace_ffi_example": "1f9072314be4622ebcedae4d9bfa995ccc16a04a00ef781dbc6c2b6b2ca4095a",
     "laws/replace.bend::replace_ffi_relation": "392bfacbb1368dd434cf6096c4f345bdb0cb45448333451a0fa28a288828e3f1",
@@ -1267,7 +1269,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "04ce7ebb6af40b8bdad59524b20e4f79a68dbcb0f540a9f133f32662772bc03f",
+    "LAWS.bend": "40dd998bf1b84df1e5372b431cf17855945331f281858aa171efe6c05d48d954",
     "laws/admission.bend": "848617737e0db43b23f7330adc23c0256f6bfbe6a2f008b68f7512a842fb7e1c",
     "laws/approvals.bend": "de72b73db91389b165bbbbd371ab2b02e0205eef35cc73a8c15a22c6699f0c89",
     "laws/auth_flight.bend": "b32d55da850f675608d7594e8cac61401e7704ad92e92c74324f5ce3b5de950f",
@@ -1310,6 +1312,7 @@
     "laws/orphan.bend": "bdf5707f99b9978153d9b2da11aee094214f3091797352458da7d89205cfb9a6",
     "laws/path_policy.bend": "8a7095a8509ecd14eaebbb3189b98976fa8106b79254a5b2a21bf8266d3f7ae9",
     "laws/progress.bend": "6a75b1c3bf27d7a8e01acfe3c27a4faf1e48159af72585a32e41acf3a6bc18b5",
+    "laws/progress_terms.bend": "624b66c833bd9b23397fa826330532686dede6498a34b177c38eced761368df8",
     "laws/replace.bend": "64660f500828c7cca64c096a8e35a96df3db81c2d6c2a7b3ad64dc8417913d18",
     "laws/retry.bend": "cace74d2393c8b1293f044bbc3d737609bc15c43461acfb1b77c3c279dd20ca2",
     "laws/retry_ffi.bend": "7bfd11374025cc7e7d5b041da90a3989872a4f1687a55aa9385af5bdf4455491",

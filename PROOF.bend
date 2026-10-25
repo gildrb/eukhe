@@ -702,6 +702,9 @@ import ./proof/progress/goal_compared_check.bend as PGoalComparedCheck
 import ./proof/progress/goal_stopped_exact.bend as PGoalStoppedExact
 import ./proof/progress/goal_judge_exact.bend as PGoalJudgeExact
 import ./proof/progress/work_counts_distinct.bend as PWorkCountsDistinct
+import ./proof/progress_terms/base.bend as LAProgressTerms
+import ./proof/progress_terms/progress_terms_exact.bend as PProgressTermsExact
+import ./proof/progress_terms/progress_type_terms_exact.bend as PProgressTypeTermsExact
 import ./proof/work/base.bend as LAWork
 import ./proof/work/prior_entry_answers.bend as PPriorEntryAnswers
 import ./proof/work/prior_entry_malformed_exact.bend as PPriorEntryMalformedExact
