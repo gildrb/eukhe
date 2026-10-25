@@ -227,8 +227,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_timeouts.ffi(input)
     case 91:
       ffi_revive.ffi(input)
-    case 92:
-      ffi_auth_flight.ffi(input)
     case 100:
       ffi_tiny_elect.ffi(input)
     case 101:

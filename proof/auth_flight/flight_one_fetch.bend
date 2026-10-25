@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 

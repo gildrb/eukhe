@@ -26,7 +26,9 @@ import ./laws/tiny.bend as Tiny
 import ./laws/effort.bend as Effort
 import ./laws/run.bend as Run
 import ./laws/semver.bend as Semver
-import ./laws/auth_flight.bend as AuthFlight
+import ./laws/auth_flight/model.bend as AuthFlight
+import ./laws/auth_flight/entry.bend as AuthFlightEntry
+import ./laws/auth_flight/safety.bend as AuthFlightSafety
 import ./laws/theme.bend as Theme
 import ./laws/color.bend as Color
 import ./laws/theme_model.bend as ThemeModel

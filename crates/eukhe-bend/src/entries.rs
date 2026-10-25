@@ -146,7 +146,7 @@ pub enum Entry {
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
     Revive = 91,
-    /// `bend/ffi_auth_flight.bend`: a call and a stepper.
+    /// `bend/ffi_auth_flight.bend`: a stepper.
     AuthFlight = 92,
     /// `bend/ffi_tiny_elect.bend`: a call.
     TinyElect = 100,

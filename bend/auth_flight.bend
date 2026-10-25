@@ -1,11 +1,11 @@
 # auth_flight: the model of the OAuth refresh of one provider's stored
-# credential, and the decisions the Rust refresh takes at each step. The
-# Rust code (crates/eukhe-core/src/auth/flight.rs) runs the callers on
-# threads and moves the bytes; it asks `next` and `book.step` (section The
-# decisions the Rust takes, compiled through bend/ffi_auth_flight.bend)
-# what follows each step. The bridge (bridge/bridge_auth_flight.bend,
-# crates/eukhe-core/src/auth/flight/bridge.rs) runs the Rust dispatch over
-# those decisions and the model on the same interleavings.
+# credential, and the desk the Rust refresh runs (section The desk the
+# Rust runs, compiled through bend/ffi_auth_flight.bend). The Rust code
+# (crates/eukhe-core/src/auth/flight.rs) runs the callers on threads,
+# reads, fetches and writes, sends the desk each caller's events in the
+# order they come and does what it answers; the desk decides who leads,
+# who joins, when a flight lands and whom it serves. laws/auth_flight.bend
+# ties the desk to the model's steps for every order of events.
 #
 # Each caller takes its refresh one step at a time. A caller loads the
 # stored credential and is served it when it is fresh. Otherwise it boards:
@@ -303,302 +303,364 @@ def After(+c: Nat, +s: St, ok: Bool) -> Type:
   +stored = Sto.c(W.sto(St.w(s)))
   ({List.get(&2, Leg, St.cs(step(step(s, Arrive{}), Step{k, ok})), k) == Some{Served{None{}, Ok{stored}}} : Maybe<&2, Leg>} & {le(c, stored) == True{} : Bool})
 
-# The decisions the Rust takes
-# ----------------------------
-# The Rust refresh runs each caller on its own thread: a leg reads, fetches
-# or writes with no lock held, and the flights of one auth document are one
-# book under a mutex. The credentials and failures stay in the Rust; what
-# follows each step is decided here:
-# - `next`: the leg after a read, fetch or write (the call of the entry)
-# - `book.step`: the book's answer to a board, a land, a wait (its stepper)
-# The laws tie `next` to the model's steps (`adv.*`).
+# The desk the Rust runs
+# ----------------------
+# The Rust refresh keeps one desk per auth document behind a mutex (the
+# stepper of bend/ffi_auth_flight.bend). Each caller's thread sends the
+# desk its caller's events in the order they come (it arrives; its read,
+# fetch or write found something; it unwinds) and does what the desk
+# answers: load, check, fetch, store, wait, done, failed. Who leads a
+# provider's flight, who joins it, when it lands and whom it serves is
+# decided here; the threads only read, fetch, write and pass each answer
+# to its caller. Credentials and failures stay in the Rust: an answer
+# that serves or stores one means the payload of the event it answers
+# (what the reporting caller found), so every caller of a flight is
+# served the payload of the event that lands it.
 
-# what a leg's read, fetch or write found, and the flight the leg is on:
-# the load found a fresh credential, an expired one, or no refresh can
-# start; the check found a fresh credential or not; the fetch a credential
-# or a failure; the store wrote (or kept a peer's credential, or failed)
-type Io is Data:
+# where a live caller stands: asked to load; leading its provider's
+# flight at its check, its fetch or its store; waiting for its provider's
+# flight to land
+type At is Data:
+  Loads{}
+  Checks{}
+  Fetches{}
+  Stores{}
+  Waits{}
+
+# a live caller: its number, its provider, where it stands
+type Cl is Data:
+  Cl{k: Nat, p: String, at: At}
+
+# the live callers, newest first, and the next caller's number
+type Desk is Data:
+  Desk{cs: List<&2, Cl>, m: Nat}
+
+# what a caller's read, fetch or write found: the load a fresh credential,
+# an expired one, or no refresh can start; the check a fresh credential or
+# none; the fetch a credential or a failure; the store its outcome (the
+# credential stored, a peer's fresher one, or why the write failed)
+type Fd is Data:
   LoadFresh{}
   LoadExpired{}
   LoadFailed{}
-  CheckFresh{f: Nat}
-  CheckExpired{f: Nat}
-  FetchOk{f: Nat}
-  FetchFailed{f: Nat}
-  Stored{f: Nat}
+  CheckFresh{}
+  CheckExpired{}
+  FetchOk{}
+  FetchFailed{}
+  Stored{}
 
-# the leg that follows: board, fetch, store the fetched credential, land
-# the flight with what was found, or done with what was found
-type Next is Data:
-  NBoard{}
-  NFetch{f: Nat}
-  NStore{f: Nat}
-  NLand{f: Nat}
-  NDone{}
+# a caller arrives for provider p; caller k found fd; caller k unwinds
+# (it leaves with no outcome); how many wait on p's flight
+type DEv is Data:
+  Comes{p: String}
+  Found{k: Nat, fd: Fd}
+  Unwinds{k: Nat}
+  Joiners{p: String}
 
-# the leg after a step that found io
-def next(io: Io) -> Next:
-  match io:
+# what a caller does next: load, check, fetch, store this event's
+# credential, wait, done with this event's payload, or failed with e
+type Act is Data:
+  DoLoad{}
+  DoCheck{}
+  DoFetch{}
+  DoStore{}
+  DoWait{}
+  DoDone{}
+  DoFail{e: String}
+
+type To is Data:
+  To{k: Nat, a: Act}
+
+# the desk's answer: what callers do; how many wait on a provider's
+# flight (none when it has no flight); out of turn (the event names no
+# live caller, or one whose place takes no such event)
+type DOut is Data:
+  Acts{xs: List<&2, To>}
+  Joined{j: Maybe<&2, Nat>}
+  Off{}
+
+type DRes is Data:
+  DRes{d: Desk, o: DOut}
+
+# no caller yet
+def Desk.new() -> Desk:
+  Desk{Nil{}, 0n}
+
+def Cl.k(x: Cl) -> Nat:
+  match x:
+    case Cl{k, p, a}:
+      k
+
+# what the callers waiting on p's flight are served when its leader
+# unwinds with no outcome
+def gone(p: String) -> String:
+  String.append("the token refresh of ", String.append(p, " ended without an outcome"))
+
+# a caller at a leads its provider's flight
+def leads(a: At) -> Bool:
+  match a:
+    case Loads{}:
+      False{}
+    case Checks{}:
+      True{}
+    case Fetches{}:
+      True{}
+    case Stores{}:
+      True{}
+    case Waits{}:
+      False{}
+
+# the step a place takes a found at: 0 the load, 1 the check, 2 the
+# fetch, 3 the store (4: a waiting caller takes none)
+def At.tag(a: At) -> Nat:
+  match a:
+    case Loads{}:
+      0n
+    case Checks{}:
+      1n
+    case Fetches{}:
+      2n
+    case Stores{}:
+      3n
+    case Waits{}:
+      4n
+
+def Fd.tag(fd: Fd) -> Nat:
+  match fd:
     case LoadFresh{}:
-      NDone{}
+      0n
     case LoadExpired{}:
-      NBoard{}
+      0n
     case LoadFailed{}:
-      NDone{}
-    case CheckFresh{f}:
-      NLand{f}
-    case CheckExpired{f}:
-      NFetch{f}
-    case FetchOk{f}:
-      NStore{f}
-    case FetchFailed{f}:
-      NLand{f}
-    case Stored{f}:
-      NLand{f}
+      0n
+    case CheckFresh{}:
+      1n
+    case CheckExpired{}:
+      1n
+    case FetchOk{}:
+      2n
+    case FetchFailed{}:
+      2n
+    case Stored{}:
+      3n
 
-# a model leg as the Rust holds it, its credential or failure aside (none
-# for the legs no read, fetch or write gives)
-def shape(l: Leg) -> Maybe<&2, Next>:
-  match l:
-    case Load{}:
-      None{}
-    case Board{}:
-      Some{NBoard{}}
-    case Check{f}:
-      None{}
-    case Fetch{f}:
-      Some{NFetch{f}}
-    case Store{f, c}:
-      Some{NStore{f}}
-    case Land{f, o}:
-      Some{NLand{f}}
-    case Waiting{f}:
-      None{}
-    case Served{v, o}:
-      Some{NDone{}}
-
-# The book
-# --------
-# The flights of one document, of every provider: the providers in flight
-# (each with its flight and how many callers joined it), the landed
-# flights whose joiners did not all take the outcome yet (with how many
-# still wait), and how many flights started (the next flight's number).
-# The outcomes stay in the Rust, under the flight's number.
-
-type Fly is Data:
-  Fly{p: String, f: Nat, j: Nat}
-
-type Lnd is Data:
-  Lnd{f: Nat, w: Nat}
-
-type Book is Data:
-  Book{fly: List<&2, Fly>, lnd: List<&2, Lnd>, n: Nat}
-
-# a caller of provider p boards; the leader of p's flight f lands it; a
-# caller that joined flight f asks for its outcome; how many joined p's
-# flight (the tests wait on it)
-type BEv is Data:
-  EvBoard{p: String}
-  EvLand{p: String, f: Nat}
-  EvWait{f: Nat}
-  EvJoiners{p: String}
-
-# lead the new flight f; join p's flight f; the outcome is kept for the
-# joiners; no joiner, nothing kept; flight f did not land yet; take its
-# outcome (more joiners wait); take it, the last joiner; the joiners of
-# p's flight, none when p is not in flight
-type BOut is Data:
-  OLead{f: Nat}
-  OJoin{f: Nat}
-  OKept{}
-  ODropped{}
-  ONotYet{}
-  OTake{}
-  OTakeLast{}
-  OJoiners{j: Maybe<&2, Nat>}
-
-type BRes is Data:
-  BRes{b: Book, o: BOut}
-
-def Book.new() -> Book:
-  Book{Nil{}, Nil{}, 0n}
-
-def Fly.p(x: Fly) -> String:
-  match x:
-    case Fly{p, f, j}:
-      p
-
-def Fly.f(x: Fly) -> Nat:
-  match x:
-    case Fly{p, f, j}:
-      f
-
-def Fly.j(x: Fly) -> Nat:
-  match x:
-    case Fly{p, f, j}:
-      j
-
-def Lnd.f(x: Lnd) -> Nat:
-  match x:
-    case Lnd{f, w}:
-      f
-
-def Lnd.w(x: Lnd) -> Nat:
-  match x:
-    case Lnd{f, w}:
-      w
-
-def fly.find.at(hit: Bool, x: Fly, r: Maybe<&2, Fly>) -> Maybe<&2, Fly>:
+def find.at(hit: Bool, x: Cl, r: Maybe<&2, Cl>) -> Maybe<&2, Cl>:
   match hit:
     case True{}:
       Some{x}
     case False{}:
       r
 
-# p's flight in flight
-def fly.find(+p: String, fs: List<&2, Fly>) -> Maybe<&2, Fly>:
-  match fs:
+# caller k
+def find(+k: Nat, cs: List<&2, Cl>) -> Maybe<&2, Cl>:
+  match cs:
     case Nil{}:
       None{}
     case +x <> t:
-      fly.find.at(String.eq(Fly.p(x), p), x, fly.find(p, t))
+      find.at(Nat.is_eq(Cl.k(x), k), x, find(k, t))
 
-def fly.join.at(hit: Bool, x: Fly, t: List<&2, Fly>, r: List<&2, Fly>) -> List<&2, Fly>:
+def set.at(hit: Bool, x: Cl, +a: At, t: List<&2, Cl>, r: List<&2, Cl>) -> List<&2, Cl>:
   match hit:
     case True{}:
       match x:
-        case Fly{p, f, j}:
-          Fly{p, f, 1n+j} <> t
+        case Cl{j, p, o}:
+          Cl{j, p, a} <> t
     case False{}:
       x <> r
 
-# one more joiner on p's flight
-def fly.join(+p: String, fs: List<&2, Fly>) -> List<&2, Fly>:
-  match fs:
+# caller k stands at a
+def set(+k: Nat, +a: At, cs: List<&2, Cl>) -> List<&2, Cl>:
+  match cs:
     case Nil{}:
       Nil{}
     case +x <> +t:
-      fly.join.at(String.eq(Fly.p(x), p), x, t, fly.join(p, t))
+      set.at(Nat.is_eq(Cl.k(x), k), x, a, t, set(k, a, t))
 
-def fly.drop.at(hit: Bool, x: Fly, t: List<&2, Fly>, r: List<&2, Fly>) -> List<&2, Fly>:
+def cut.at(hit: Bool, x: Cl, t: List<&2, Cl>, r: List<&2, Cl>) -> List<&2, Cl>:
   match hit:
     case True{}:
       t
     case False{}:
       x <> r
 
-# p's flight is no longer in flight
-def fly.drop(+p: String, fs: List<&2, Fly>) -> List<&2, Fly>:
-  match fs:
+# caller k leaves
+def cut(+k: Nat, cs: List<&2, Cl>) -> List<&2, Cl>:
+  match cs:
     case Nil{}:
       Nil{}
     case +x <> +t:
-      fly.drop.at(String.eq(Fly.p(x), p), x, t, fly.drop(p, t))
+      cut.at(Nat.is_eq(Cl.k(x), k), x, t, cut(k, t))
 
-def lnd.find.at(hit: Bool, x: Lnd, r: Maybe<&2, Lnd>) -> Maybe<&2, Lnd>:
+# x waits on p's flight
+def waits(+p: String, x: Cl) -> Bool:
+  match x:
+    case Cl{j, q, a}:
+      match a:
+        case Loads{}:
+          False{}
+        case Checks{}:
+          False{}
+        case Fetches{}:
+          False{}
+        case Stores{}:
+          False{}
+        case Waits{}:
+          String.eq(q, p)
+
+# x leads p's flight
+def lead(+p: String, x: Cl) -> Bool:
+  match x:
+    case Cl{j, q, a}:
+      Bool.and(leads(a), String.eq(q, p))
+
+# p has a flight in flight
+def inflight(+p: String, cs: List<&2, Cl>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case +x <> t:
+      Bool.or(lead(p, x), inflight(p, t))
+
+def unwait.at(hit: Bool, x: Cl, r: List<&2, Cl>) -> List<&2, Cl>:
   match hit:
     case True{}:
-      Some{x}
+      r
+    case False{}:
+      x <> r
+
+# the callers waiting on p's flight leave
+def unwait(+p: String, cs: List<&2, Cl>) -> List<&2, Cl>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case +x <> t:
+      unwait.at(waits(p, x), x, unwait(p, t))
+
+def wake.at(hit: Bool, x: Cl, +a: Act, r: List<&2, To>) -> List<&2, To>:
+  match hit:
+    case True{}:
+      To{Cl.k(x), a} <> r
     case False{}:
       r
 
-# landed flight f
-def lnd.find(+f: Nat, ls: List<&2, Lnd>) -> Maybe<&2, Lnd>:
-  match ls:
+# each caller waiting on p's flight does a
+def wake(+p: String, +a: Act, cs: List<&2, Cl>) -> List<&2, To>:
+  match cs:
     case Nil{}:
-      None{}
+      Nil{}
     case +x <> t:
-      lnd.find.at(Nat.is_eq(Lnd.f(x), f), x, lnd.find(f, t))
+      wake.at(waits(p, x), x, a, wake(p, a, t))
 
-def lnd.less.at(hit: Bool, x: Lnd, t: List<&2, Lnd>, r: List<&2, Lnd>) -> List<&2, Lnd>:
+def joined.at(hit: Bool, r: Nat) -> Nat:
   match hit:
     case True{}:
+      1n+r
+    case False{}:
+      r
+
+# how many wait on p's flight
+def joined(+p: String, cs: List<&2, Cl>) -> Nat:
+  match cs:
+    case Nil{}:
+      0n
+    case +x <> t:
+      joined.at(waits(p, x), joined(p, t))
+
+# the leader k of p's flight lands it: k and every caller waiting on the
+# flight are done with this event's payload, and leave
+def land(+k: Nat, +p: String, cs: List<&2, Cl>, m: Nat) -> DRes:
+  +rest = cut(k, cs)
+  DRes{Desk{unwait(p, rest), m}, Acts{To{k, DoDone{}} <> wake(p, DoDone{}, rest)}}
+
+# caller k's credential expired: it joins p's flight in flight, or leads
+# a new one
+def board(fl: Bool, +k: Nat, cs: List<&2, Cl>, m: Nat) -> DRes:
+  match fl:
+    case True{}:
+      DRes{Desk{set(k, Waits{}, cs), m}, Acts{[To{k, DoWait{}}]}}
+    case False{}:
+      DRes{Desk{set(k, Checks{}, cs), m}, Acts{[To{k, DoCheck{}}]}}
+
+# caller k of provider p found fd, at the step its place takes it: a fresh
+# credential at the load, or no refresh at all, is done; an expired one
+# boards; the leader's check lands on a fresh credential and fetches
+# otherwise; a fetched credential is stored, a failed fetch lands; the
+# store's outcome lands
+def found.go(fd: Fd, +k: Nat, +p: String, +cs: List<&2, Cl>, +m: Nat) -> DRes:
+  match fd:
+    case LoadFresh{}:
+      DRes{Desk{cut(k, cs), m}, Acts{[To{k, DoDone{}}]}}
+    case LoadExpired{}:
+      board(inflight(p, cs), k, cs, m)
+    case LoadFailed{}:
+      DRes{Desk{cut(k, cs), m}, Acts{[To{k, DoDone{}}]}}
+    case CheckFresh{}:
+      land(k, p, cs, m)
+    case CheckExpired{}:
+      DRes{Desk{set(k, Fetches{}, cs), m}, Acts{[To{k, DoFetch{}}]}}
+    case FetchOk{}:
+      DRes{Desk{set(k, Stores{}, cs), m}, Acts{[To{k, DoStore{}}]}}
+    case FetchFailed{}:
+      land(k, p, cs, m)
+    case Stored{}:
+      land(k, p, cs, m)
+
+def found.fit(fit: Bool, fd: Fd, +k: Nat, +p: String, +cs: List<&2, Cl>, +m: Nat) -> DRes:
+  match fit:
+    case True{}:
+      found.go(fd, k, p, cs, m)
+    case False{}:
+      DRes{Desk{cs, m}, Off{}}
+
+def found(r: Maybe<&2, Cl>, +fd: Fd, +k: Nat, +cs: List<&2, Cl>, +m: Nat) -> DRes:
+  match r:
+    case None{}:
+      DRes{Desk{cs, m}, Off{}}
+    case Some{x}:
       match x:
-        case Lnd{f, w}:
-          Lnd{f, Nat.sub(w, 1n)} <> t
-    case False{}:
-      x <> r
+        case Cl{j, p, a}:
+          found.fit(Nat.is_eq(At.tag(a), Fd.tag(fd)), fd, k, p, cs, m)
 
-# one joiner of flight f fewer waits
-def lnd.less(+f: Nat, ls: List<&2, Lnd>) -> List<&2, Lnd>:
-  match ls:
-    case Nil{}:
-      Nil{}
-    case +x <> +t:
-      lnd.less.at(Nat.is_eq(Lnd.f(x), f), x, t, lnd.less(f, t))
-
-def lnd.drop.at(hit: Bool, x: Lnd, t: List<&2, Lnd>, r: List<&2, Lnd>) -> List<&2, Lnd>:
-  match hit:
+# caller k of provider p unwinds: a leader's flight lands with the failure
+# `gone`, served to every caller waiting on it; any other caller just
+# leaves
+def unwind.at(lead: Bool, +k: Nat, +p: String, cs: List<&2, Cl>, m: Nat) -> DRes:
+  match lead:
     case True{}:
-      t
+      +rest = cut(k, cs)
+      DRes{Desk{unwait(p, rest), m}, Acts{wake(p, DoFail{gone(p)}, rest)}}
     case False{}:
-      x <> r
+      DRes{Desk{cut(k, cs), m}, Acts{Nil{}}}
 
-# flight f is forgotten
-def lnd.drop(+f: Nat, ls: List<&2, Lnd>) -> List<&2, Lnd>:
-  match ls:
-    case Nil{}:
-      Nil{}
-    case +x <> +t:
-      lnd.drop.at(Nat.is_eq(Lnd.f(x), f), x, t, lnd.drop(f, t))
-
-# board: join p's flight in flight, or start flight n and lead it
-def book.board(m: Maybe<&2, Fly>, +p: String, +fs: List<&2, Fly>, ls: List<&2, Lnd>, +n: Nat) -> BRes:
-  match m:
-    case Some{x}:
-      BRes{Book{fly.join(p, fs), ls, n}, OJoin{Fly.f(x)}}
+def unwind(r: Maybe<&2, Cl>, +k: Nat, +cs: List<&2, Cl>, +m: Nat) -> DRes:
+  match r:
     case None{}:
-      BRes{Book{Fly{p, n, 0n} <> fs, ls, 1n+n}, OLead{n}}
+      DRes{Desk{cs, m}, Off{}}
+    case Some{x}:
+      match x:
+        case Cl{j, p, a}:
+          unwind.at(leads(a), k, p, cs, m)
 
-def book.keep(k: Bool, +j: Nat, +f: Nat, fs: List<&2, Fly>, ls: List<&2, Lnd>, n: Nat) -> BRes:
-  match k:
+def joiners(fl: Bool, +p: String, cs: List<&2, Cl>) -> Maybe<&2, Nat>:
+  match fl:
     case True{}:
-      BRes{Book{fs, Lnd{f, j} <> lnd.drop(f, ls), n}, OKept{}}
+      Some{joined(p, cs)}
     case False{}:
-      BRes{Book{fs, ls, n}, ODropped{}}
+      None{}
 
-# land: p's flight is no longer in flight; its outcome is kept for its
-# joiners, under f (in place of any outcome kept under f), when it has any
-def book.land(m: Maybe<&2, Fly>, +p: String, +f: Nat, +fs: List<&2, Fly>, ls: List<&2, Lnd>, n: Nat) -> BRes:
-  match m:
-    case Some{+x}:
-      book.keep(Nat.is_lt(0n, Fly.j(x)), Fly.j(x), f, fly.drop(p, fs), ls, n)
-    case None{}:
-      BRes{Book{fs, ls, n}, ODropped{}}
-
-def book.take(more: Bool, +f: Nat, fs: List<&2, Fly>, ls: List<&2, Lnd>, n: Nat) -> BRes:
-  match more:
-    case True{}:
-      BRes{Book{fs, lnd.less(f, ls), n}, OTake{}}
-    case False{}:
-      BRes{Book{fs, lnd.drop(f, ls), n}, OTakeLast{}}
-
-# wait: flight f's outcome once it landed; the last joiner to take it
-# forgets it
-def book.wait(m: Maybe<&2, Lnd>, +f: Nat, fs: List<&2, Fly>, +ls: List<&2, Lnd>, n: Nat) -> BRes:
-  match m:
-    case Some{x}:
-      book.take(Nat.is_lt(1n, Lnd.w(x)), f, fs, ls, n)
-    case None{}:
-      BRes{Book{fs, ls, n}, ONotYet{}}
-
-def book.joiners(m: Maybe<&2, Fly>) -> BOut:
-  match m:
-    case Some{x}:
-      OJoiners{Some{Fly.j(x)}}
-    case None{}:
-      OJoiners{None{}}
-
-# the book after the event e, and its answer
-def book.step(b: Book, e: BEv) -> BRes:
-  match b:
-    case Book{+fs, +ls, +n}:
+# the desk after event e, and its answer: an arrival is the next caller,
+# asked to load; a found or an unwind of a live caller is decided above;
+# an event naming no live caller is out of turn and changes nothing;
+# joiners counts the callers waiting on p's flight
+def desk.step(d: Desk, e: DEv) -> DRes:
+  match d:
+    case Desk{+cs, +m}:
       match e:
-        case EvBoard{+p}:
-          book.board(fly.find(p, fs), p, fs, ls, n)
-        case EvLand{+p, f}:
-          book.land(fly.find(p, fs), p, f, fs, ls, n)
-        case EvWait{+f}:
-          book.wait(lnd.find(f, ls), f, fs, ls, n)
-        case EvJoiners{+p}:
-          BRes{Book{fs, ls, n}, book.joiners(fly.find(p, fs))}
+        case Comes{p}:
+          DRes{Desk{Cl{m, p, Loads{}} <> cs, 1n+m}, Acts{[To{m, DoLoad{}}]}}
+        case Found{+k, fd}:
+          found(find(k, cs), fd, k, cs, m)
+        case Unwinds{+k}:
+          unwind(find(k, cs), k, cs, m)
+        case Joiners{+p}:
+          DRes{Desk{cs, m}, Joined{joiners(inflight(p, cs), p, cs)}}
