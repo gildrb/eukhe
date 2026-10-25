@@ -140,6 +140,8 @@ pub enum Entry {
     RetryNote = 263,
     /// `bend/ffi_doc_plan.bend`: a call.
     DocPlan = 264,
+    /// `bend/ffi_node_error.bend`: a call.
+    NodeError = 265,
 }
 
 impl Entry {
@@ -212,6 +214,7 @@ impl Entry {
         Entry::Scan,
         Entry::RetryNote,
         Entry::DocPlan,
+        Entry::NodeError,
     ];
 
     /// The id `bend/core.bend` dispatches on.

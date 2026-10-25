@@ -8,6 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use eukhe_bend::rules::node_error::UvCode;
 use sha2::{Digest, Sha256};
 
 use super::paths::{ancestors_of, join};
@@ -120,7 +121,7 @@ impl ScanError {
 
 /// TS `isDenied`.
 fn is_denied(error: &io::Error) -> bool {
-    matches!(uv_code(error), "EACCES" | "EPERM")
+    matches!(uv_code(error), UvCode::Eacces | UvCode::Eperm)
 }
 
 fn kind_of(metadata: &Metadata) -> EntryKind {
@@ -312,7 +313,10 @@ impl Scanner<'_> {
                         path: directory.to_owned(),
                     });
                 }
-                if matches!(uv_code(&error), "ENOENT" | "EACCES" | "EPERM" | "ENOTDIR") {
+                if matches!(
+                    uv_code(&error),
+                    UvCode::Enoent | UvCode::Eacces | UvCode::Eperm | UvCode::Enotdir
+                ) {
                     return Ok(None);
                 }
                 Err(ScanError::Fs {

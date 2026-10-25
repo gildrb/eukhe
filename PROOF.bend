@@ -1625,3 +1625,14 @@ import ./proof/doc_plan/doc_plan_ffi_exact.bend as PDocPlanFfiExact
 import ./proof/doc_plan/doc_plan_ffi_left_over_exact.bend as PDocPlanFfiLeftOverExact
 import ./proof/doc_plan/doc_plan_ffi_errors.bend as PDocPlanFfiErrors
 import ./proof/doc_plan/doc_plan_ffi_example.bend as PDocPlanFfiExample
+import ./proof/node_error/base.bend as LANodeError
+import ./proof/node_error/node_error_table_exact.bend as PNodeErrorTableExact
+import ./proof/node_error/node_error_file_exact.bend as PNodeErrorFileExact
+import ./proof/node_error/node_error_message_exact.bend as PNodeErrorMessageExact
+import ./proof/node_error/node_error_example.bend as PNodeErrorExample
+import ./proof/node_error/node_error_ffi_answers.bend as PNodeErrorFfiAnswers
+import ./proof/node_error/node_error_ffi_left_over.bend as PNodeErrorFfiLeftOver
+import ./proof/node_error/node_error_ffi_exact.bend as PNodeErrorFfiExact
+import ./proof/node_error/node_error_ffi_left_over_exact.bend as PNodeErrorFfiLeftOverExact
+import ./proof/node_error/node_error_ffi_errors.bend as PNodeErrorFfiErrors
+import ./proof/node_error/node_error_ffi_example.bend as PNodeErrorFfiExample

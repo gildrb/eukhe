@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_bend::rules::node_error::{Form, UvCode};
 use eukhe_chord::context::Context;
 use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
@@ -18,7 +19,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::super::decode::StreamDecoder;
-use super::super::node_error::{fs_error, uv_code, uv_error_name};
+use super::super::node_error::{described, fs_error, uv_code};
 use super::super::{
     ExecCommand, ExecutionError, ExecutionErrorCode, OutputStream, ShellExecOptions,
     ShellExecResult, ShellOutputInfo, ShellSpillOptions, TempFileOptions,
@@ -350,8 +351,8 @@ impl Run {
             tokio::time::sleep(hook.write_delay).await;
         }
         if let Err(error) = file.write_all(chunk).await {
-            let (code, description) = uv_error_name(&error);
-            self.fail_spill(&format!("{code}: {description}, write"), Arc::new(error));
+            let failure = described(uv_code(&error), Form::Fd { syscall: "write" });
+            self.fail_spill(&failure.message, Arc::new(error));
         }
     }
 
@@ -429,8 +430,8 @@ impl Run {
     async fn finish_spill(&mut self) {
         if let Spill::Writing(file) = &mut self.spill {
             if let Err(error) = file.flush().await {
-                let (code, description) = uv_error_name(&error);
-                self.fail_spill(&format!("{code}: {description}, write"), Arc::new(error));
+                let failure = described(uv_code(&error), Form::Fd { syscall: "write" });
+                self.fail_spill(&failure.message, Arc::new(error));
             }
         }
         if let Spill::Writing(_) = self.spill {
@@ -531,14 +532,14 @@ fn spawn_command(
         .process_group(0)
         .spawn()
         .map_err(|error| {
-            let message = format!("spawn {program} {}", uv_code(&error));
-            spawn_error(message, error)
+            let failure = described(uv_code(&error), Form::Spawn { program });
+            spawn_error(failure.message, error)
         })?;
     // A child that was never waited for still has its pid.
     let pid = child.id().ok_or_else(|| {
         ExecutionError::new(
             ExecutionErrorCode::SpawnError,
-            format!("spawn {program} ESRCH"),
+            described(UvCode::Esrch, Form::Spawn { program }).message,
         )
     })?;
     Ok((child, pid))

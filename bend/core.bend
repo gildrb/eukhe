@@ -40,6 +40,7 @@ import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
 import ./ffi_model_facts.bend as ffi_model_facts
+import ./ffi_node_error.bend as ffi_node_error
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
@@ -202,6 +203,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_retry_note.ffi(input)
     case 264:
       ffi_doc_plan.ffi(input)
+    case 265:
+      ffi_node_error.ffi(input)
     case _:
       W.err("unknown entry")
 

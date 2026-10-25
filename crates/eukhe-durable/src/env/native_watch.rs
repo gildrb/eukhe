@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
+use eukhe_bend::rules::node_error::UvCode;
 use eukhe_chord::context::Context;
 use futures::future::{self, BoxFuture};
 use futures::FutureExt;
@@ -634,7 +635,10 @@ impl Shared {
                 // Out of watches or unsupported: compare snapshots from now on, and say coverage
                 // was uncertain. A path that vanished or is not readable is skipped.
                 Err(error) => {
-                    if !matches!(uv_code(&error), "ENOENT" | "EACCES" | "EPERM") {
+                    if !matches!(
+                        uv_code(&error),
+                        UvCode::Enoent | UvCode::Eacces | UvCode::Eperm
+                    ) {
                         return Reconciled::OutOfWatches;
                     }
                 }

@@ -79,3 +79,4 @@ import ./laws/submission.bend as Submission
 import ./laws/scan.bend as Scan
 import ./laws/retry_note.bend as RetryNote
 import ./laws/doc_plan.bend as DocPlan
+import ./laws/node_error.bend as NodeError

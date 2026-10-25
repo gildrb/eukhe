@@ -68,3 +68,4 @@
 262 scan
 263 retry_note
 264 doc_plan
+265 node_error

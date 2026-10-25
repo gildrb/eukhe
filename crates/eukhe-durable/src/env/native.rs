@@ -17,6 +17,7 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::sync::{Arc, Mutex};
 
+use eukhe_bend::rules::node_error::UvCode;
 use eukhe_chord::context::Context;
 use futures::future::BoxFuture;
 use nix::fcntl::OFlag;
@@ -367,7 +368,7 @@ impl NativeExecutionEnv {
             Ok(Err((syscall, error))) => {
                 // O_NOFOLLOW reports a final-component symlink as ELOOP (EMLINK
                 // on some BSDs).
-                if no_follow && matches!(uv_code(&error), "ELOOP" | "EMLINK") {
+                if no_follow && matches!(uv_code(&error), UvCode::Eloop | UvCode::Emlink) {
                     return Err(symlink_refused(&resolved, error));
                 }
                 return Err(if syscall == "open" {
