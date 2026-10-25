@@ -5,7 +5,9 @@
 #    runs may have, as effect codes) and how the approval gate covers that
 #    code. `registry` is every tool a session installs, in install order,
 #    as crates/eukhe-core/src/durable/registry.rs installs them; the
-#    registry bridge test dumps the real one and compares.
+#    registry bridge test dumps the real one and compares. `main_roster`
+#    is the roster of main (a root session in the `main-worker` shape):
+#    read-only tools and the worker tools only.
 # 2. The cell gate. A tool the gate covers at each call (`ipython`) runs
 #    its code unasked only when its caps are within the auto set. Else it
 #    asks the attached client, and runs only when the user approves.
@@ -85,17 +87,15 @@ def chat.tools(chat: Bool) -> List<&2, Tool>:
 
 # every tool a session installs, in install order (crates/eukhe-core/src/
 # durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` when chat holds,
-# `eukhe.children` (the worker tools: assign, forward, status),
 # `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`,
 # `codemode` (its script runs no program itself: each tool it calls runs
 # through that tool's gate; its model tools `classify` and
 # `generateImages` call a model). The `workflow` script runs no program
-# either: its agents are child sessions with their own gates.
+# either: its agents are child sessions with their own gates. A session
+# outside the `main-worker` shape's main (a `single` session, every child)
+# has no worker tool.
 def registry(chat: Bool) -> List<&2, Tool>:
   Tool{"ipython", [exec()], EachCall{}} <> List.append(&2, Tool, chat.tools(chat), [
-    plain("worker_assign"),
-    plain("worker_forward"),
-    plain("worker_status"),
     plain("workflow"),
     plain("read"),
     plain("edit"),
@@ -107,6 +107,21 @@ def registry(chat: Bool) -> List<&2, Tool>:
     plain("pi.codemode.models.classify"),
     plain("pi.codemode.models.generateImages"),
   ])
+
+# the worker tools (`eukhe.children`): main's hand-overs to its workers
+def worker.tools() -> List<&2, Tool>:
+  [plain("worker_assign"), plain("worker_forward"), plain("worker_status")]
+
+# the read-only tools of `eukhe.documents`, in install order
+def read.tools() -> List<&2, Tool>:
+  [plain("read"), plain("grep"), plain("glob")]
+
+# main's roster (a root session in the `main-worker` shape), in install
+# order: the chat memory's tools when chat holds, the worker tools, the
+# read-only document tools. Main runs no code, edits no file and spawns
+# nothing but workers.
+def main_roster(chat: Bool) -> List<&2, Tool>:
+  List.append(&2, Tool, chat.tools(chat), List.append(&2, Tool, worker.tools(), read.tools()))
 
 # every tool of ts that runs code is gated
 def covered(ts: List<&2, Tool>) -> Bool:

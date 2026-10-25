@@ -11,6 +11,7 @@ use eukhe_core::agent_messaging::{
     AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
     DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
 };
+use eukhe_core::durable::children::Wake;
 use eukhe_core::durable::input_entry;
 use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
@@ -321,6 +322,9 @@ impl Worker {
             Ok(handle) => handle,
             Err(error) => return response_failure(None, command, &error, None),
         };
+        // A prompt is the user's words or main's hand-over: it wakes a
+        // paused run, which places it at the boundary it parked at.
+        heard(&hosted, Wake::Wakes).await;
         if let Some(id) = &admission_id {
             // The admission stays owned until its submission settles.
             self.prompt_admissions.admitted(id, handle.id());
@@ -485,7 +489,10 @@ impl Worker {
                 .await;
         }
         match self.admit_input(&hosted, &request).await {
-            Ok(_) => response_success(None, command, Some(json!({ "queued": true }))),
+            Ok(_) => {
+                heard(&hosted, Wake::Wakes).await;
+                response_success(None, command, Some(json!({ "queued": true })))
+            }
             Err(error) => response_failure(None, command, &error, None),
         }
     }
@@ -615,6 +622,9 @@ impl Worker {
         if let Err(error) = self.admit_input(&hosted, &request).await {
             return response_failure(None, COMMAND, &error, None);
         }
+        // An agent's message waits while the run is paused: the held
+        // boundary places it when the run goes on.
+        heard(&hosted, Wake::Waits).await;
         let timestamp = crate::util::now_iso();
         let mut receipt = json!({
             "id": id,
@@ -634,5 +644,19 @@ impl Worker {
             receipt["from"] = json!(sender);
         }
         response_success(None, COMMAND, Some(receipt))
+    }
+}
+
+/// Tell the session's run pause that a message arrived (after it was
+/// queued). A failure leaves the message queued: it is placed whenever the
+/// run goes on.
+async fn heard(hosted: &HostedSession, wake: Wake) {
+    if let Err(error) = hosted
+        .deps()
+        .run_pause
+        .message(wake, &BACKGROUND_CONTEXT)
+        .await
+    {
+        eprintln!("eukhe-daemon worker: the run pause missed a message: {error:#}");
     }
 }

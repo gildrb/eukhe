@@ -203,6 +203,9 @@ pub struct RlmChildObservation {
     /// The full text of the child's final answer, once it answered
     /// ([`RlmChildOutcome::answer`]).
     pub answer: Option<String>,
+    /// The child's run is paused ([`RlmChildOutcome::paused`]): the watch
+    /// does not count this wait toward its stall clock.
+    pub paused: bool,
 }
 
 /// A child's `get_run_outcome` reply: its run state and its progress
@@ -225,6 +228,11 @@ pub struct RlmChildOutcome {
     /// failure, and from a worker of an older binary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<String>,
+    /// The child's run is paused (`pause_workers` with `ownRun`): nothing
+    /// new starts until a resume or a waking message, so no progress is
+    /// due; `false` from a worker of an older binary.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
 }
 
 /// The largest final answer a child's outcome carries, in bytes.

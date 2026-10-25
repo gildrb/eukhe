@@ -1,7 +1,7 @@
 //! `eukhe.children` over a fake [`RlmSubagentHost`]: spawn to report,
 //! exactly one report across a reopen, delete, collect, and the depth limit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -51,10 +51,12 @@ use super::{
     RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPauseRequest,
     RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
     RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture,
-    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
 };
 use crate::child_workspace::Handback;
-use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry, SessionClosing};
+use crate::durable::deps::{
+    HarnessCell, HostCall, HostRequestRegistry, SessionClosing, SessionShape,
+};
 use crate::durable::observe::rlm_usage::{
     apply_child_usage_attributions, entry_assistant_usage, ChildUsageAttributionData,
     CHILD_USAGE_ATTRIBUTED_KIND,
@@ -107,6 +109,8 @@ struct FakeState {
     answers: HashMap<String, String>,
     /// Pauses and resumes of children's trees, in order.
     pauses: Vec<RlmChildPauseRequest>,
+    /// The children whose runs report paused.
+    paused: HashSet<String>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -212,6 +216,7 @@ impl RlmSubagentHost for FakeHost {
                                 usage: fake.usage.get(&request.session_id).copied(),
                                 progress,
                                 answer: fake.answers.get(&request.session_id).cloned(),
+                                paused: fake.paused.contains(&request.session_id),
                             });
                         }
                     }
@@ -228,6 +233,7 @@ impl RlmSubagentHost for FakeHost {
                     usage: None,
                     progress: None,
                     answer: None,
+                    paused: false,
                 }))
         })
     }
@@ -606,6 +612,8 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         progress_note: None,
         settings: Arc::clone(&setup.settings),
         closing: closing.clone(),
+        shape: SessionShape::Main,
+        pause: Arc::new(RunPause::new(cell.clone())),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let held = Arc::new(HeldSpawn::default());
@@ -1316,6 +1324,8 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         progress_note: None,
         settings: default_settings(),
         closing: SessionClosing::default(),
+        shape: SessionShape::Single,
+        pause: Arc::new(RunPause::new(HarnessCell::default())),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1343,6 +1353,8 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         progress_note: None,
         settings: default_settings(),
         closing: SessionClosing::default(),
+        shape: SessionShape::Main,
+        pause: Arc::new(RunPause::new(HarnessCell::default())),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1827,6 +1839,7 @@ fn a_run_outcome_without_progress_decodes() {
             state: super::host::RlmChildRunState::Running,
             progress: None,
             answer: None,
+            paused: false,
         }
     );
 }

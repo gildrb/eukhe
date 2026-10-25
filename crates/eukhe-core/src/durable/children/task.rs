@@ -943,11 +943,19 @@ async fn watch(
     };
     let stall = services.settings.manager().get_subagent_stall();
     let report = task.input.report;
+    // A paused child starts nothing, so it owes no progress: the time of a
+    // wait that saw it paused is not the stall clock's.
+    let paused = matches!(&observed, Ok(observation) if observation.paused);
+    let elapsed = if paused {
+        0.0
+    } else {
+        (now - started).max(0.0)
+    };
     let call = move |seen: &Seen, progress, replied| {
         verdict(
             vigil,
             stall.as_secs_f64() * 1000.0,
-            (now - started).max(0.0),
+            elapsed,
             seen.obs(progress, replied),
             report,
         )
@@ -959,6 +967,7 @@ async fn watch(
             usage,
             progress,
             answer: full,
+            paused: _,
         }) => {
             answer = full;
             let seen = match state {

@@ -16,7 +16,7 @@ use crate::durable::rlm::kernel_test_lock;
 use crate::durable::rlm::tests::{
     entries, ipython, result_text, results, settle, submit, text, Fixture,
 };
-use crate::durable::{EukheSession, ShellApprovalSink};
+use crate::durable::{EukheSession, SessionRole, ShellApprovalSink};
 use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
 
 /// What a denied cell's call says.
@@ -95,6 +95,72 @@ async fn the_registry_is_its_model() {
     assert_eq!(
         (dump(&classic), dump(&chat)),
         (model(ChatMemory::Off), model(ChatMemory::On))
+    );
+}
+
+/// The roster of a session opened under `settings` (`settings.json`) as
+/// `role`, with chat memory or not: name, caps and gate of each tool.
+async fn roster_of(
+    settings: serde_json::Value,
+    role: SessionRole,
+    chat: ChatMemory,
+) -> Vec<(String, ShellEffects, Covered)> {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        settings.to_string(),
+    )
+    .expect("settings");
+    let memory = match chat {
+        ChatMemory::On => Some(
+            Memory::open(fixture.dir.path().join("chat"), Arc::new(NoModel))
+                .await
+                .expect("chat memory"),
+        ),
+        ChatMemory::Off => None,
+    };
+    let session = fixture
+        .open_configured(move |config| {
+            config.role = role;
+            config.memory = memory;
+        })
+        .await;
+    dump(&session)
+}
+
+/// The tool surface is decided by role and shape when the session opens:
+/// a root in the `main-worker` shape offers the compiled core's main
+/// roster (read-only tools and the worker tools, with and without chat
+/// memory); a `single` root and a child of a `main-worker` family offer
+/// the full registry, which has no worker tool.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_tool_surface_follows_role_and_shape() {
+    let main_worker = json!({ "sessionShape": "main-worker" });
+    let single = json!({ "sessionShape": "single" });
+    let child = SessionRole {
+        rlm_depth: 1,
+        rlm_max_depth: 2,
+        ..SessionRole::default()
+    };
+    let model = |tools: Vec<runners::Tool>| {
+        tools
+            .into_iter()
+            .map(|tool| (tool.name, tool.caps, tool.gate))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        (
+            roster_of(main_worker.clone(), SessionRole::default(), ChatMemory::On).await,
+            roster_of(main_worker.clone(), SessionRole::default(), ChatMemory::Off).await,
+            roster_of(single, SessionRole::default(), ChatMemory::On).await,
+            roster_of(main_worker, child, ChatMemory::Off).await,
+        ),
+        (
+            model(runners::main_roster(ChatMemory::On)),
+            model(runners::main_roster(ChatMemory::Off)),
+            model(runners::registry(ChatMemory::On)),
+            model(runners::registry(ChatMemory::Off)),
+        )
     );
 }
 

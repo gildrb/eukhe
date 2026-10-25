@@ -82,6 +82,13 @@ def rn.registry(r: Wr.Dec<Bool>) -> {Runners.read_registry(r) == FRu.get_registr
     case Wr.Bad{}:
       {==}
 
+def rn.main(r: Wr.Dec<Bool>) -> {Runners.read_main(r) == FRu.get_main(r) : Wr.Dec<FRu.Req>}:
+  match r:
+    case Wr.Got{h, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
 def rn.tag(t: Nat, s: String) -> {Runners.read_req.tag(t, s) == FRu.get_req.tag(t, s) : Wr.Dec<FRu.Req>}:
   match t:
     case 0n:
@@ -90,7 +97,9 @@ def rn.tag(t: Nat, s: String) -> {Runners.read_req.tag(t, s) == FRu.get_req.tag(
       rn.cell(Wr.get_list(~Nat, ~Wr.get_nat, s))
     case 2n:
       rn.registry(Wr.get_bool(s))
-    case 3n+u:
+    case 3n:
+      rn.main(Wr.get_bool(s))
+    case 4n+u:
       {==}
 
 def rn.go(r: Wr.Dec<Nat>) -> {Runners.read_req.go(r) == FRu.get_req.go(r) : Wr.Dec<FRu.Req>}:
@@ -130,6 +139,12 @@ def rn.reply(q: FRu.Req) -> {FRu.answer(q) == Runners.spell_answer(q) : String}:
     case FRu.QCell{+c, +a, +k}:
       rn.out(Ru.cell(c, a, k))
     case FRu.QRegistry{h}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case FRu.QMain{h}:
       match h:
         case True{}:
           {==}
@@ -193,6 +208,13 @@ def rn.rt_registry(h: Bool, rest: String) -> {Runners.read_req(Runners.spell_req
     case False{}:
       {==}
 
+def rn.rt_main(h: Bool, rest: String) -> {Runners.read_req(Runners.spell_req(FRu.QMain{h}, rest)) == Wr.Got{FRu.QMain{h}, rest} : Wr.Dec<FRu.Req>}:
+  match h:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 def rn.rt(q: FRu.Req, +rest: String, fits: {Runners.req_fits(q) == True{} : Bool}) -> {Runners.read_req(Runners.spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FRu.Req>}:
   match q:
     case FRu.QWithin{c, a}:
@@ -201,3 +223,5 @@ def rn.rt(q: FRu.Req, +rest: String, fits: {Runners.req_fits(q) == True{} : Bool
       rn.rt_cell(c, a, k, rest, fits)
     case FRu.QRegistry{h}:
       rn.rt_registry(h, rest)
+    case FRu.QMain{h}:
+      rn.rt_main(h, rest)

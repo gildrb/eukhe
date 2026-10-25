@@ -3,7 +3,9 @@
 //! sequence and the attach snapshot's mirror advance together), coalesced
 //! `message_update`s flush every 50 ms, inbox changes become
 //! `session_action_update` (with the queued inputs' previews read from the
-//! `pi.inbox` document), and goal document changes become `goal_update`.
+//! `pi.inbox` document), goal document changes become `goal_update`, and
+//! main's workers and the session's run pause land on the view (summary
+//! `workers`, `isPaused`).
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,7 +15,8 @@ use std::time::Duration;
 use eukhe_chord::context::{with_cancel, CancelContext, Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_chord::AttachedReplicatedState;
-use eukhe_core::durable::ProviderWireEvent;
+use eukhe_core::durable::children::{watch_workers, RunPause};
+use eukhe_core::durable::{ProviderWireEvent, SessionShape};
 use eukhe_durable::harness::types::InputEntry;
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
@@ -21,7 +24,7 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
-use eukhe_types::daemon::SessionEvent;
+use eukhe_types::daemon::{SessionEvent, SessionWorker};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 use eukhe_types::session::AgentMessage;
@@ -79,6 +82,10 @@ pub(crate) struct ShownView {
     pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
     /// The served goal (`goal_update` payload); `Null` without a goal.
     pub(crate) goal: Value,
+    /// Main's workers (summary `workers`), in creation order.
+    pub(crate) workers: Vec<SessionWorker>,
+    /// This session's run is paused (summary `isPaused`).
+    pub(crate) paused: bool,
 }
 
 /// The shown conversation's committed state as the Harness holds it: the
@@ -123,6 +130,20 @@ pub(crate) struct BridgeSink {
     pub(crate) core: Arc<Mutex<SessionCore>>,
     pub(crate) events: Arc<EventPump>,
     pub(crate) on_run: RunHook,
+    /// Main's workers or this session's pause changed (roster push, park
+    /// re-check).
+    pub(crate) on_shape: ShapeHook,
+}
+
+/// Told after main's workers or the session's run pause changed on the
+/// core.
+pub(crate) type ShapeHook = Arc<dyn Fn() + Send + Sync>;
+
+/// What the shape watch reads: the session's run pause, and whether it is
+/// main (only main has workers).
+pub(crate) struct ShapeWatch {
+    pub(crate) pause: Arc<RunPause>,
+    pub(crate) shape: SessionShape,
 }
 
 /// A running bridge. Dropping it without [`EventBridge::stop`] cancels its
@@ -156,7 +177,7 @@ impl EventBridge {
 
     /// Attach to `conversation`'s events and durable view, install both on
     /// the core, and start the listener, the flush timer, the goal watch,
-    /// and the provider failover relay.
+    /// the workers and pause watch, and the provider failover relay.
     ///
     /// # Errors
     ///
@@ -166,6 +187,7 @@ impl EventBridge {
         conversation: &Conversation,
         provider_events: Option<tokio::sync::broadcast::Receiver<ProviderWireEvent>>,
         retry_policy: RetryPolicySource,
+        shape: ShapeWatch,
         sink: BridgeSink,
     ) -> SessionResult<Self> {
         let conversation_id = conversation.id();
@@ -192,6 +214,8 @@ impl EventBridge {
                 inbox,
                 active: None,
                 goal: Value::Null,
+                workers: Vec::new(),
+                paused: shape.pause.view().paused,
             });
             core.durable = Some(DurableView {
                 harness: harness.clone(),
@@ -215,6 +239,14 @@ impl EventBridge {
             harness.clone(),
             epoch,
             conversation_id,
+            sink.clone(),
+            cx.clone(),
+        )));
+        bridge.tasks.push(tokio::spawn(shape_loop(
+            harness.clone(),
+            epoch,
+            conversation_id,
+            shape,
             sink.clone(),
             cx,
         )));
@@ -539,6 +571,64 @@ async fn goal_loop(
             &sink.events,
             SessionEvent::GoalUpdate { goal },
         );
+    }
+}
+
+/// Main's workers and this session's run pause on the core (summary
+/// `workers`, `isPaused`): each change lands on the view, then the shape
+/// hook pushes the roster update (a worker's running, paused, idle or
+/// stopped; this session paused or running) and re-checks the park (a
+/// held paused run releases its kernel).
+async fn shape_loop(
+    harness: Harness,
+    epoch: u64,
+    conversation_id: ConversationId,
+    shape: ShapeWatch,
+    sink: BridgeSink,
+    cx: Context,
+) {
+    let mut workers = match shape.shape {
+        SessionShape::Main => match watch_workers(&harness, conversation_id, &cx) {
+            Ok(updates) => Some(updates),
+            Err(error) => {
+                eprintln!("eukhe-daemon worker: worker updates unavailable: {error}");
+                None
+            }
+        },
+        SessionShape::Single => None,
+    };
+    let mut pause = shape.pause.subscribe();
+    loop {
+        let next_workers = async {
+            match workers.as_mut() {
+                Some(updates) => updates.next().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            rows = next_workers => {
+                let Some(rows) = rows else {
+                    return;
+                };
+                let mut core = lock(&sink.core);
+                let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+                    return;
+                };
+                view.workers = rows;
+            }
+            changed = pause.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let paused = pause.borrow_and_update().paused;
+                let mut core = lock(&sink.core);
+                let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
+                    return;
+                };
+                view.paused = paused;
+            }
+        }
+        (sink.on_shape)();
     }
 }
 

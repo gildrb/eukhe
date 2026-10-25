@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use eukhe_ai::typebox::Type;
 use eukhe_bend::rules::worker::forward_pick;
-use eukhe_chord::context::Context;
+use eukhe_chord::context::{await_with_context, Context};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::entries::{UserData, USER_ENTRY};
@@ -33,21 +33,25 @@ use eukhe_durable::harness::types::{
     ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult, ToolRegistration,
 };
 use eukhe_durable::harness::{ConversationEntryQuery, Harness};
-use eukhe_durable::session::{SessionError, SessionResult, Tx};
+use eukhe_durable::session::{CommitListener, SessionError, SessionResult, Tx, Unsubscribe};
 use eukhe_durable::types::{
-    ConversationId, DocumentReader, DocumentReaderExt, EntryData, EntryId, LatestFork, ScanOrder,
+    CommitChange, CommitPublication, ConversationId, DocumentCommitChange, DocumentIdentity,
+    DocumentReader, DocumentReaderExt, EntryData, EntryId, LatestFork, ScanOrder,
 };
 use eukhe_types::daemon::{SessionWorker, WorkerRunState};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, TextContent, UserContentBlock};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use super::assign::{assign, child_busy, Assignment};
 use super::host::{
     ChildMessageKind, PauseAction, RlmChildPauseRequest, RlmChildPromptRequest, RlmSubagentHost,
 };
-use super::registry::{read_children, ChildRow, ChildStatus};
+use super::pause::RunPause;
+use super::registry::{read_children, ChildRow, ChildStatus, CHILDREN_DOC};
 use super::requests::{admit_spawns, SpawnKwargs, SpawnSpec};
 use super::task::ReportMode;
 use super::Children;
@@ -62,21 +66,6 @@ pub const WORKER_ASSIGN: &str = "worker_assign";
 pub const WORKER_FORWARD: &str = "worker_forward";
 /// `worker_status`: where each worker stands.
 pub const WORKER_STATUS: &str = "worker_status";
-/// The worker tools: offered to main only (`sessionShape` `main-worker`).
-pub const WORKER_TOOLS: [&str; 3] = [WORKER_ASSIGN, WORKER_FORWARD, WORKER_STATUS];
-/// Main's whole tool offer in the `main-worker` shape: the read-only tools,
-/// the chat memory's, and the worker tools. Main writes no file, runs no
-/// program, and spawns nothing but workers.
-pub const MAIN_TOOLS: [&str; 8] = [
-    "read",
-    "grep",
-    "glob",
-    "zoom",
-    "date",
-    WORKER_ASSIGN,
-    WORKER_FORWARD,
-    WORKER_STATUS,
-];
 
 /// The first worker's name.
 const DEFAULT_WORKER: &str = "worker";
@@ -350,9 +339,109 @@ pub async fn list_workers(
         .collect())
 }
 
+/// A live stream of main's workers (its summary `workers`): the current
+/// rows first, then the rows after every commit that changed its children
+/// registry or its hand-over state, when they changed. Dropping it stops
+/// the subscription.
+pub struct WorkerUpdates {
+    receiver: mpsc::UnboundedReceiver<Vec<SessionWorker>>,
+    unsubscribe: Unsubscribe,
+    task: JoinHandle<()>,
+}
+
+impl WorkerUpdates {
+    /// The next changed rows; `None` once the Harness closed or a read
+    /// failed.
+    pub async fn next(&mut self) -> Option<Vec<SessionWorker>> {
+        self.receiver.recv().await
+    }
+}
+
+impl Drop for WorkerUpdates {
+    fn drop(&mut self) {
+        self.unsubscribe.unsubscribe();
+        self.task.abort();
+    }
+}
+
+/// Whether `publication` changed a document of `conversation_id` that
+/// main's worker rows read.
+fn changes_workers(publication: &CommitPublication, conversation_id: ConversationId) -> bool {
+    let read = |kind: &str| {
+        kind == CHILDREN_DOC.definition().kind || kind == WORKERS_DOC.definition().kind
+    };
+    publication.changes.iter().any(|change| match change {
+        CommitChange::Document(DocumentCommitChange::Document {
+            record,
+            conversation_id: owner,
+            ..
+        }) => read(record.kind()) && *owner == Some(conversation_id),
+        CommitChange::Document(DocumentCommitChange::Copy {
+            record,
+            conversation_id: owner,
+            ..
+        }) => read(record.kind()) && *owner == conversation_id,
+        CommitChange::Conversation(_)
+        | CommitChange::Entry(_)
+        | CommitChange::Task(_)
+        | CommitChange::Submission(_) => false,
+    })
+}
+
+/// Watch the workers of `conversation_id`: the current rows first, then
+/// every change (running, paused, idle, stopped). Cancelling `cx` ends the
+/// stream.
+///
+/// # Errors
+///
+/// The Session is closed.
+pub fn watch_workers(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<WorkerUpdates> {
+    let (ticks, mut ticked) = mpsc::unbounded_channel::<()>();
+    let listener: CommitListener = Arc::new(move |publication, _| {
+        if changes_workers(publication, conversation_id) {
+            // A closed receiver means the stream ended; nothing to notify.
+            let _ = ticks.send(());
+        }
+    });
+    let unsubscribe = harness.subscribe_commits(listener)?;
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let reader = harness.clone();
+    let cx = cx.clone();
+    let task = tokio::spawn(async move {
+        let mut last: Option<Vec<SessionWorker>> = None;
+        loop {
+            let Ok(workers) = list_workers(&reader, conversation_id, &cx).await else {
+                return;
+            };
+            if last.as_ref() != Some(&workers) {
+                last = Some(workers.clone());
+                if sender.send(workers).is_err() {
+                    return;
+                }
+            }
+            match await_with_context(ticked.recv(), &cx).await {
+                Ok(Some(())) => {}
+                Ok(None) | Err(_) => return,
+            }
+            // Coalesce a burst of commits into one read.
+            while ticked.try_recv().is_ok() {}
+        }
+    });
+    Ok(WorkerUpdates {
+        receiver,
+        unsubscribe,
+        task,
+    })
+}
+
 /// Pause or resume the worker tree of `conversation_id` (`pause_workers`,
 /// `resume_workers` on main): each worker's own run and its descendants.
-/// A pause cancels nothing. Answers the workers after it.
+/// A pause cancels nothing; a worker with no work in flight is left alone
+/// (its next task would wake it anyway). Answers the workers after it.
 ///
 /// # Errors
 ///
@@ -366,14 +455,51 @@ pub async fn pause_workers(
 ) -> anyhow::Result<Vec<SessionWorker>> {
     let rows = worker_rows(harness, conversation_id, cx).await?;
     set_paused(harness, conversation_id, action == PauseAction::Pause, cx).await?;
-    for row in &rows {
+    pause_rows(host, rows.iter().filter(|row| !row.settled), action).await?;
+    Ok(list_workers(harness, conversation_id, cx).await?)
+}
+
+/// Pause or resume this session's own run and its whole tree
+/// (`pause_workers` / `resume_workers` with `ownRun`, a parent's call on
+/// its worker): the run pause first, then each child of `conversation_id`
+/// with work in flight.
+///
+/// # Errors
+///
+/// A document read or commit failure, or a child the host cannot reach.
+pub async fn pause_own_tree(
+    harness: &Harness,
+    host: &dyn RlmSubagentHost,
+    pause: &RunPause,
+    conversation_id: ConversationId,
+    action: PauseAction,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    pause.set(action, cx).await?;
+    let rows = read_children(harness, conversation_id, cx).await?.children;
+    pause_rows(
+        host,
+        rows.values()
+            .filter(|row| !row.is_deleted() && !row.settled),
+        action,
+    )
+    .await
+}
+
+/// Pause or resume the tree of each child of `rows`.
+async fn pause_rows(
+    host: &dyn RlmSubagentHost,
+    rows: impl Iterator<Item = &ChildRow>,
+    action: PauseAction,
+) -> anyhow::Result<()> {
+    for row in rows {
         host.pause(RlmChildPauseRequest {
             session_id: row.session_id.clone(),
             action,
         })
         .await?;
     }
-    Ok(list_workers(harness, conversation_id, cx).await?)
+    Ok(())
 }
 
 fn optional_text(params: &Value, key: &str) -> SessionResult<Option<String>> {

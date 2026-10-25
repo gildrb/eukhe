@@ -82,6 +82,31 @@ impl SessionRole {
     }
 }
 
+/// How a session works (`sessionShape`, decided when the session opens,
+/// before its tool roster is fixed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionShape {
+    /// The session does its work itself: every `single` session and every
+    /// child.
+    Single,
+    /// Main: a root session in the `main-worker` shape. It talks to the
+    /// user with read-only tools and hands the work to its workers.
+    Main,
+}
+
+impl SessionShape {
+    /// The shape of a session in `role` under `settings`: main when it is
+    /// a root and its `sessionShape` is `main-worker`.
+    #[must_use]
+    pub fn of(role: &SessionRole, settings: &crate::settings::SettingsManager) -> Self {
+        if role.is_root() && settings.is_main_worker_shape() {
+            Self::Main
+        } else {
+            Self::Single
+        }
+    }
+}
+
 /// Where a session's durable records live.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionStorage {
@@ -469,6 +494,8 @@ pub struct HostDeps {
     /// The durable storage directory; `None` for memory storage.
     pub storage_dir: Option<PathBuf>,
     pub role: SessionRole,
+    /// [`SessionShape::of`] at open: fixes the tool roster.
+    pub shape: SessionShape,
     /// eukhe settings, re-read when the settings files change.
     pub settings: Arc<EukheSettings>,
     pub models: Models,
@@ -528,6 +555,9 @@ pub struct HostDeps {
     /// The auxiliary-model fallbacks this session has shown
     /// (`auxiliaryModel`; each cause shows once per session).
     pub auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices,
+    /// The pause of this session's run (a worker tree's `pause_workers` /
+    /// `resume_workers` with `ownRun`).
+    pub run_pause: Arc<super::children::RunPause>,
 }
 
 /// A barrier through a commit observer's queue.
@@ -548,12 +578,15 @@ pub(crate) struct ResolvedServices {
 
 impl HostDeps {
     pub(crate) fn new(config: &SessionConfig, services: ResolvedServices) -> Self {
+        let harness = HarnessCell::default();
         Self {
+            run_pause: Arc::new(super::children::RunPause::new(harness.clone())),
             agent_dir: config.agent_dir.clone(),
             cwd: config.cwd.clone(),
             session_id: config.session_id.clone(),
             storage_dir: services.storage_dir,
             role: config.role.clone(),
+            shape: SessionShape::of(&config.role, &services.settings.manager()),
             settings: services.settings,
             summary_delta: config.summary_delta.clone(),
             models: services.models,
@@ -573,7 +606,7 @@ impl HostDeps {
             shell_approval: config.shell_approval.clone(),
             prewarm_kernel: config.prewarm_kernel,
             kernel_python: config.kernel_python.clone(),
-            harness: HarnessCell::default(),
+            harness,
             host_requests: HostRequestRegistry::default(),
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),

@@ -132,6 +132,7 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                         state,
                         progress: Some(7),
                         answer: None,
+                        paused: false,
                     })
                     .unwrap(),
                 ),

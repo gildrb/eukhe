@@ -14,6 +14,7 @@ mod depth;
 mod host;
 mod notice;
 pub mod parent_notice;
+mod pause;
 mod progress;
 mod registry;
 mod rename;
@@ -24,9 +25,10 @@ mod wire;
 mod work;
 mod worker;
 
+pub use pause::{PauseView, RunPause, Wake};
 pub use worker::{
-    list_workers, pause_workers, MAIN_TOOLS, WORKER_ASSIGN, WORKER_FORWARD, WORKER_STATUS,
-    WORKER_TOOLS,
+    list_workers, pause_own_tree, pause_workers, watch_workers, WorkerUpdates, WORKER_ASSIGN,
+    WORKER_FORWARD, WORKER_STATUS,
 };
 
 #[cfg(test)]
@@ -62,7 +64,9 @@ pub use wire::{
 };
 pub use work::WorkLedger;
 
-use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing};
+use super::deps::{
+    HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing, SessionShape,
+};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use crate::durable::settings::EukheSettings;
 use task::{child_task, ChildTask, ChildrenServices};
@@ -81,6 +85,10 @@ pub(crate) struct Children {
     models: Models,
     /// Told every accepted progress note of this session.
     progress_note: Option<ProgressNoteSink>,
+    /// Main offers the worker tools; no other session does.
+    shape: SessionShape,
+    /// The session's run pause: its spawns ask at its gate.
+    pause: Arc<RunPause>,
 }
 
 /// Inputs of [`Children::new`].
@@ -99,6 +107,8 @@ pub(crate) struct ChildrenConfig {
     pub(crate) settings: Arc<EukheSettings>,
     /// The session's closing gate: a closing parent admits no report.
     pub(crate) closing: SessionClosing,
+    pub(crate) shape: SessionShape,
+    pub(crate) pause: Arc<RunPause>,
 }
 
 impl Children {
@@ -122,16 +132,24 @@ impl Children {
             harness: config.harness,
             models: config.models,
             progress_note: config.progress_note,
+            shape: config.shape,
+            pause: config.pause,
         })
     }
 
-    /// The extension carrying the `eukhe.rlm.child` task; registers the
-    /// `rlm.*` handlers onto `host_requests`.
+    /// The extension carrying the `eukhe.rlm.child` task, the hooks that
+    /// hold a paused run, and main's worker tools; registers the `rlm.*`
+    /// handlers onto `host_requests`.
     pub(crate) fn install(self: &Arc<Self>, host_requests: &HostRequestRegistry) -> Arc<Extension> {
         requests::register(host_requests, self);
+        let tools = match self.shape {
+            SessionShape::Main => worker::worker_tools(self),
+            SessionShape::Single => Vec::new(),
+        };
         define_extension(Extension {
             tasks: vec![self.task.erase()],
-            tools: worker::worker_tools(self),
+            tools,
+            hooks: pause::pause_hooks(&self.pause),
             ..Extension::named(EXTENSION_NAME)
         })
     }
@@ -152,6 +170,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         progress_note: deps.progress_note.clone(),
         settings: Arc::clone(&deps.settings),
         closing: deps.closing.clone(),
+        shape: deps.shape,
+        pause: Arc::clone(&deps.run_pause),
     })
     .install(&deps.host_requests)
 }

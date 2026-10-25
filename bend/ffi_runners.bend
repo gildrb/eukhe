@@ -16,6 +16,9 @@
 #                    -> every tool it installs, in order: its name
 #                       (String), its caps (List<Nat>), its gate (0 none,
 #                       1 each step, 2 each call): `registry`
+#   tag 3  main      whether main has chat memory (Bool)
+#                    -> main's roster in the `main-worker` shape, each
+#                       tool spelled as for tag 2: `main_roster`
 #
 # Every input that is not exactly one request answers the error form
 # "runners: malformed request", never a default. laws/runners.bend
@@ -31,6 +34,7 @@ type Req is Data:
   QWithin{caps: List<&2, Nat>, auto: List<&2, Nat>}
   QCell{caps: List<&2, Nat>, auto: List<&2, Nat>, asker: Ru.Asker}
   QRegistry{chat: Bool}
+  QMain{chat: Bool}
 
 # Requests
 # --------
@@ -105,6 +109,13 @@ def get_registry(r: W.Dec<Bool>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+def get_main(r: W.Dec<Bool>) -> W.Dec<Req>:
+  match r:
+    case W.Got{h, s}:
+      W.Got{QMain{h}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -113,7 +124,9 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
       get_cell(get_ns(s))
     case 2n:
       get_registry(W.get_bool(s))
-    case 3n+u:
+    case 3n:
+      get_main(W.get_bool(s))
+    case 4n+u:
       W.Bad{}
 
 def get_req.go(r: W.Dec<Nat>) -> W.Dec<Req>:
@@ -172,6 +185,8 @@ def answer(q: Req) -> String:
       put_out(Ru.cell(c, a, k), "")
     case QRegistry{h}:
       W.put_list(~Ru.Tool, ~put_tool, Ru.registry(h), "")
+    case QMain{h}:
+      W.put_list(~Ru.Tool, ~put_tool, Ru.main_roster(h), "")
 
 def malformed() -> String:
   W.err("runners: malformed request")

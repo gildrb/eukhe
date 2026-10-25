@@ -79,6 +79,81 @@ law cell_exec_asks:
   for lacks: {Ru.elem(auto, Ru.exec()) == False{} : Bool}
   {Ru.within(caps, auto) == False{} : Bool}
 
+# (G4) Main's roster: read-only tools and the worker tools
+# ---------------------------------------------------------
+# docs/usage.md (main and worker). A root session in the `main-worker`
+# shape installs `Ru.main_roster`; every other session (a `single` one,
+# every child) installs `Ru.registry`. The registry test in
+# crates/eukhe-core/src/durable/runner/tests.rs compares each real roster
+# with the core's.
+
+# the names of main's read-only tools
+def read_names() -> List<&2, String>:
+  ["read", "grep", "glob", "zoom", "date"]
+
+# the names of the worker tools
+def worker_names() -> List<&2, String>:
+  ["worker_assign", "worker_forward", "worker_status"]
+
+# the name n is one of ns
+def named_in(+n: String, ns: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case m <> rest:
+      Bool.or(String.eq(m, n), named_in(n, rest))
+
+def no_caps(c: List<&2, Nat>) -> Bool:
+  match c:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      False{}
+
+# the tool runs no code of its own: no caps, not gated
+def quiet(t: Ru.Tool) -> Bool:
+  match t:
+    case Ru.Tool{n, c, g}:
+      Bool.and(no_caps(c), Bool.not(Ru.Gate.gated(g)))
+
+# the tool may be on main's roster: it runs no code of its own and is a
+# read-only tool or a worker tool
+def main_ok(+t: Ru.Tool) -> Bool:
+  Bool.and(quiet(t), Bool.or(named_in(Ru.Tool.name(t), read_names()), named_in(Ru.Tool.name(t), worker_names())))
+
+# the tool is a worker tool
+def worker_tool(+t: Ru.Tool) -> Bool:
+  named_in(Ru.Tool.name(t), worker_names())
+
+# LAW main_roster_read_or_workers: every tool of main's roster (the `main-worker` shape, with or without chat memory) runs no code of its own and is a read-only tool (read, grep, glob, zoom, date) or a worker tool (worker_assign, worker_forward, worker_status)
+# EXCLUDES: main offered a tool that runs a program (ipython, bash,
+#   codemode), edits a file (edit), reaches more tools (dyn) or spawns
+#   (workflow)
+law main_roster_read_or_workers:
+  for +chat: Bool
+  for +i: Nat
+  for +t: Ru.Tool
+  for at: {List.get(&2, Ru.Tool, Ru.main_roster(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  {main_ok(t) == True{} : Bool}
+
+# LAW main_roster_offers_workers: main's roster (with or without chat memory) offers the three worker tools, each running no code of its own
+# EXCLUDES: a main that cannot hand work over, forward the user's words or
+#   see its workers
+law main_roster_offers_workers:
+  for +chat: Bool
+  {Ru.find(Ru.main_roster(chat), "worker_assign") == Some{Ru.plain("worker_assign")} : Maybe<&2, Ru.Tool>} &
+  {Ru.find(Ru.main_roster(chat), "worker_forward") == Some{Ru.plain("worker_forward")} : Maybe<&2, Ru.Tool>} &
+  {Ru.find(Ru.main_roster(chat), "worker_status") == Some{Ru.plain("worker_status")} : Maybe<&2, Ru.Tool>}
+
+# LAW worker_tools_main_only: no tool of a session's registry outside main (a `single` session, every child; with or without chat memory) is a worker tool
+# EXCLUDES: a child or a single session that creates or drives workers
+law worker_tools_main_only:
+  for +chat: Bool
+  for +i: Nat
+  for +t: Ru.Tool
+  for at: {List.get(&2, Ru.Tool, Ru.registry(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  {worker_tool(t) == False{} : Bool}
+
 # ---- runners entry ----
 
 # LAWS (G4, compiled core): the runners of code run as the compiled model
@@ -121,6 +196,8 @@ def spell_req(q: FRu.Req, rest: String) -> String:
       Wr.put_nat(1n, spell_ns(c, spell_ns(a, spell_asker(k, rest))))
     case FRu.QRegistry{h}:
       Wr.put_nat(2n, Wr.put_bool(h, rest))
+    case FRu.QMain{h}:
+      Wr.put_nat(3n, Wr.put_bool(h, rest))
 
 # a list of Nats fits the wire: its length and each item
 def ns_fit(+xs: List<&2, Nat>) -> Bool:
@@ -134,6 +211,8 @@ def req_fits(q: FRu.Req) -> Bool:
     case FRu.QCell{c, a, k}:
       Bool.and(ns_fit(c), ns_fit(a))
     case FRu.QRegistry{h}:
+      True{}
+    case FRu.QMain{h}:
       True{}
 
 # how a call ended: ran unasked (0, 0) or approved (0, 1); refused,
@@ -183,6 +262,8 @@ def spell_answer(q: FRu.Req) -> String:
       spell_out(Ru.cell(c, a, k))
     case FRu.QRegistry{h}:
       Wr.put_list(~Ru.Tool, ~spell_tool, Ru.registry(h), "")
+    case FRu.QMain{h}:
+      Wr.put_list(~Ru.Tool, ~spell_tool, Ru.main_roster(h), "")
 
 # the error form of every input that is not exactly one request
 def malformed() -> String:
@@ -261,6 +342,13 @@ def read_registry(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
     case Wr.Bad{}:
       Wr.Bad{}
 
+def read_main(r: Wr.Dec<Bool>) -> Wr.Dec<FRu.Req>:
+  match r:
+    case Wr.Got{h, s}:
+      Wr.Got{FRu.QMain{h}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
 def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
   match t:
     case 0n:
@@ -269,7 +357,9 @@ def read_req.tag(t: Nat, s: String) -> Wr.Dec<FRu.Req>:
       read_cell(read_ns(s))
     case 2n:
       read_registry(Wr.get_bool(s))
-    case 3n+u:
+    case 3n:
+      read_main(Wr.get_bool(s))
+    case 4n+u:
       Wr.Bad{}
 
 def read_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FRu.Req>:
@@ -328,7 +418,7 @@ law runners_ffi_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FRu.ffi(spell_req(q, more)) == malformed() : String}
 
-# LAW runners_ffi_example: anchor: the strings Rust sends: caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry without chat memory; an asker tag 3 is refused
+# LAW runners_ffi_example: anchor: the strings Rust sends: caps {exec} under {read} asks, under {exec} runs unasked; a cell under {read} answered yes runs approved, unanswered and with no client is refused unanswered, denied is refused denied; the registry without chat memory; main's roster with chat memory; an asker tag 3 is refused
 # EXCLUDES: another spelling of a request or a reply
 law runners_ffi_example:
   {FRu.ffi("0,1,2,1,0,") == "F" : String} &
@@ -337,5 +427,6 @@ law runners_ffi_example:
   {FRu.ffi("1,1,2,1,0,1,") == "T1,1," : String} &
   {FRu.ffi("1,1,2,1,0,0,") == "F1,1," : String} &
   {FRu.ffi("1,1,2,1,0,2,F") == "T1,0," : String} &
-  {FRu.ffi("2,F") == "14,7,ipython1,2,2,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("2,F") == "11,7,ipython1,2,2,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("3,T") == "8,4,zoom0,0,4,date0,0,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,4,read0,0,4,grep0,0,4,glob0,0," : String} &
   {FRu.ffi("1,1,2,1,0,3,") == malformed() : String}

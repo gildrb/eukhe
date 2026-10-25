@@ -1133,6 +1133,9 @@ import ./proof/runners/cell_within_runs_unasked.bend as PCellWithinRunsUnasked
 import ./proof/runners/cell_approved_runs.bend as PCellApprovedRuns
 import ./proof/runners/cell_no_yes_stops.bend as PCellNoYesStops
 import ./proof/runners/cell_exec_asks.bend as PCellExecAsks
+import ./proof/runners/main_roster_read_or_workers.bend as PMainRosterReadOrWorkers
+import ./proof/runners/main_roster_offers_workers.bend as PMainRosterOffersWorkers
+import ./proof/runners/worker_tools_main_only.bend as PWorkerToolsMainOnly
 import ./proof/approvals/base.bend as LAApprovals
 import ./proof/approvals/child_answered_by_root.bend as PChildAnsweredByRoot
 import ./proof/approvals/nearest_answer_wins.bend as PNearestAnswerWins

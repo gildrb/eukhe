@@ -567,6 +567,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     usage: this.child_usage(&request.session_id).await,
                     progress,
                     answer,
+                    paused: false,
                 }
             };
             let seen_running = || {
@@ -621,7 +622,11 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 let outcome = this.child_outcome(&selector).await?;
                 if outcome.state == durable::RlmChildRunState::Running {
                     seen_running();
-                    return Ok(observe(outcome.state, outcome.progress, None).await);
+                    // A paused child's wait is not its stall clock's.
+                    return Ok(durable::RlmChildObservation {
+                        paused: outcome.paused,
+                        ..observe(outcome.state, outcome.progress, None).await
+                    });
                 }
                 // Stability re-check: a prompt admitted to an idle worker
                 // can read idle once before its run starts.

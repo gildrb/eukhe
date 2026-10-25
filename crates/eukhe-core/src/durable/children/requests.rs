@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_bend::rules::worker::GateKind;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
 use eukhe_durable::harness::types::ToolExecutionApiExt;
@@ -53,7 +54,9 @@ use crate::kernel::rlm_runtime::{
 const NO_SPAWN_RUNTIME: &str =
     "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime";
 
-/// Register every `rlm.*` handler of `children` onto `registry`.
+/// Register every `rlm.*` handler of `children` onto `registry`. A spawn
+/// (`rlm.run`, `rlm.run_batch`, `rlm.create_session`) first asks at the
+/// run pause's gate: a paused session starts none until it runs again.
 pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
@@ -64,11 +67,31 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
             );
         }};
     }
+    macro_rules! spawning {
+        ($request_type:literal, $function:path) => {{
+            let children = Arc::clone(children);
+            registry.register(
+                $request_type,
+                Arc::new(move |call: HostCall| {
+                    let children = Arc::clone(&children);
+                    async move {
+                        children
+                            .pause
+                            .gate(GateKind::Spawn, &cx())
+                            .await
+                            .map_err(session_error)?;
+                        $function(children, call).await
+                    }
+                    .boxed()
+                }),
+            );
+        }};
+    }
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
-    handler!("rlm.run", run);
-    handler!("rlm.run_batch", run_batch);
-    handler!("rlm.create_session", create_session);
+    spawning!("rlm.run", run);
+    spawning!("rlm.run_batch", run_batch);
+    spawning!("rlm.create_session", create_session);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
