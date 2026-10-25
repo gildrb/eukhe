@@ -58,10 +58,10 @@ use crate::utils::diagnostics::{
     append_assistant_message_diagnostic, error_name, AssistantMessageDiagnostic, ErrorObject,
     Thrown, ThrownValue,
 };
-use crate::utils::error_body::normalize_provider_error;
+use crate::utils::error_body::{format_provider_error, normalize_provider_error};
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::headers::provider_headers_to_record;
-use crate::utils::js::{js_to_string, js_trim, json_stringify, number_to_js_string, utf16_len};
+use crate::utils::js::{js_to_string, js_trim, json_stringify, utf16_len};
 use crate::utils::now_ms;
 use crate::utils::stream_failure::{
     record_stream_failure, stream_failure_from_stop_reason, ProviderError, ProviderHttpError,
@@ -242,10 +242,7 @@ fn format_bedrock_error(failure: &BedrockFailure) -> String {
         ),
         BedrockFailure::Thrown(thrown) => (normalize_provider_error(thrown), None),
     };
-    let core = match (norm.message_carries_body, norm.status, norm.body.as_deref()) {
-        (false, Some(status), Some(body)) => format!("{}: {body}", number_to_js_string(status)),
-        _ => norm.message.clone(),
-    };
+    let core = format_provider_error(&norm, None);
     let data_retention_hint = if core.to_lowercase().contains("data retention mode") {
         format!(" See {BEDROCK_DATA_RETENTION_DOCS_URL} for supported data retention modes.")
     } else {

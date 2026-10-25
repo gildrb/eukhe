@@ -3,19 +3,21 @@
 //! Endpoints behind a proxy or gateway may return a non-2xx response whose
 //! body the provider SDK cannot fold into `error.message`. The error still
 //! carries the HTTP status and the raw/parsed body under SDK-specific field
-//! names (see [`ErrorObject`]). [`normalize_provider_error`] probes the known
+//! names (see [`ErrorObject`]). [`normalize_provider_error`] reads the known
 //! shapes (Mistral, `openai`, `@google/genai`, AWS Bedrock) and returns a
-//! struct each provider composes into its display string.
-//! `message_carries_body` captures the Anthropic / `@google/genai` happy path
-//! where the SDK already folded the body into the message.
+//! struct each provider composes into its display string. Which place's
+//! body counts, its trim and cap, and the display string are the compiled
+//! core's (`eukhe_bend::rules::error_body`); this module reads the SDK's
+//! fields, serializes object bodies, renders the status, and finds whether
+//! the message already carries the body (the Anthropic / `@google/genai`
+//! happy path): a substring search, linear here where the core's naive
+//! search was quadratic (20,000 chars against a 4,000-char body: 3.5 s).
 
+use eukhe_bend::rules::error_body::{self as rules, Probe, Shown};
 use eukhe_types::pi_ai::JsonValue;
 
 use super::diagnostics::{ErrorObject, SdkValue, Thrown, ThrownValue};
-use super::js::{json_stringify, number_to_js_string, utf16_len, utf16_prefix};
-
-/// Cap on the body text surfaced from a provider error.
-pub const MAX_PROVIDER_ERROR_BODY_CHARS: usize = 4000;
+use super::js::{json_stringify, number_to_js_string};
 
 /// A provider error reduced to what display strings need.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,19 +44,61 @@ pub fn normalize_provider_error(error: &Thrown) -> NormalizedProviderError {
         };
     }
     let message = error.to_string();
-    let (status, body) = error
-        .downcast_ref::<ErrorObject>()
-        .map_or((None, None), |object| {
-            (extract_status(object), extract_body(object))
-        });
-    let message_carries_body = body
-        .as_ref()
-        .is_none_or(|body| message.contains(body.as_str()));
+    let Some(object) = error.downcast_ref::<ErrorObject>() else {
+        return NormalizedProviderError {
+            status: None,
+            body: None,
+            message,
+            message_carries_body: true,
+        };
+    };
+    let body = Place::of(object.body.as_ref());
+    let parsed = Place::of(object.error.as_ref());
+    let response = Place::of(
+        object
+            .response
+            .as_ref()
+            .and_then(|response| response.body.as_ref()),
+    );
+    let body = rules::body(body.probe(), parsed.probe(), response.probe());
+    let message_carries_body = body.as_deref().is_none_or(|body| message.contains(body));
     NormalizedProviderError {
-        status,
+        status: extract_status(object),
         body,
         message,
         message_carries_body,
+    }
+}
+
+/// What one place of the error holds, owned: a JSON string, or a plain
+/// object with a key serialized (class instances and streams never count:
+/// serializing them yields internals noise that would replace the real
+/// message).
+enum Place {
+    Nothing,
+    Text(String),
+    Object(String),
+}
+
+impl Place {
+    fn of(value: Option<&SdkValue>) -> Place {
+        match value {
+            Some(SdkValue::Json(JsonValue::String(text))) => Place::Text(text.clone()),
+            Some(SdkValue::Json(JsonValue::Object(object))) if !object.is_empty() => {
+                Place::Object(json_stringify(&JsonValue::Object(object.clone())))
+            }
+            Some(SdkValue::Json(_) | SdkValue::Stream | SdkValue::Instance) | None => {
+                Place::Nothing
+            }
+        }
+    }
+
+    fn probe(&self) -> Probe<'_> {
+        match self {
+            Place::Nothing => Probe::Nothing,
+            Place::Text(text) => Probe::Text(text),
+            Place::Object(text) => Probe::Object(text),
+        }
     }
 }
 
@@ -80,88 +124,25 @@ fn extract_status(error: &ErrorObject) -> Option<f64> {
         })
 }
 
-/// Probe the raw body reason, first usable hit wins, in SDK-field order:
-/// `body` string (Mistral) → `error` parsed JSON body object (`openai`) →
-/// `$response.body` (Bedrock). Empty objects and unread response streams are
-/// treated as no body. The chosen body is truncated to the cap.
-fn extract_body(error: &ErrorObject) -> Option<String> {
-    let body_text = pick_body_text(error)?;
-    let trimmed = body_text.trim_matches(super::js::is_js_whitespace);
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(truncate_error_text(trimmed, MAX_PROVIDER_ERROR_BODY_CHARS))
-}
-
-fn pick_body_text(error: &ErrorObject) -> Option<String> {
-    if let Some(SdkValue::Json(JsonValue::String(body))) = &error.body {
-        return Some(body.clone());
-    }
-    if let Some(SdkValue::Json(value)) = &error.error {
-        if is_plain_non_empty_object(value) {
-            return Some(safe_json_stringify(value));
-        }
-    }
-    match error
-        .response
-        .as_ref()
-        .and_then(|response| response.body.as_ref())
-    {
-        Some(SdkValue::Json(JsonValue::String(body))) => Some(body.clone()),
-        Some(SdkValue::Json(value)) if is_plain_non_empty_object(value) => {
-            Some(safe_json_stringify(value))
-        }
-        Some(SdkValue::Json(_) | SdkValue::Stream | SdkValue::Instance) | None => None,
-    }
-}
-
-/// Only a plain, non-empty object counts as an HTTP body. Class instances
-/// ([`SdkValue::Instance`]) and streams never do: serializing them yields
-/// internals noise that would replace the real message.
-fn is_plain_non_empty_object(value: &JsonValue) -> bool {
-    value.as_object().is_some_and(|object| !object.is_empty())
-}
-
-/// Compose a display string from a normalized error. When the message
-/// already carries the body or no body/status was extracted, the message is
-/// returned (prefixed with the status when a prefix is given). Otherwise the
-/// status and body are surfaced: `"<status>: <body>"` or
-/// `"<prefix> (<status>): <body>"`.
+/// Compose a display string from a normalized error: `"<status>: <body>"`
+/// or `"<prefix> (<status>): <body>"` when the message lacks the body, else
+/// the message (after the prefix and the status when both are given).
 #[must_use]
 pub fn format_provider_error(norm: &NormalizedProviderError, prefix: Option<&str>) -> String {
-    match (norm.message_carries_body, norm.status, norm.body.as_deref()) {
-        (false, Some(status), Some(body)) => {
-            let status = number_to_js_string(status);
-            match prefix {
-                Some(prefix) => format!("{prefix} ({status}): {body}"),
-                None => format!("{status}: {body}"),
-            }
-        }
-        (_, status, _) => match (prefix, status) {
-            (Some(prefix), Some(status)) => {
-                format!(
-                    "{prefix} ({}): {}",
-                    number_to_js_string(status),
-                    norm.message
-                )
-            }
-            _ => norm.message.clone(),
-        },
-    }
+    let status = norm.status.map(number_to_js_string);
+    rules::show(&Shown {
+        carried: norm.message_carries_body,
+        status: status.as_deref(),
+        body: norm.body.as_deref(),
+        prefix,
+        message: &norm.message,
+    })
 }
 
 /// Truncate `text` to `max_chars` UTF-16 code units with a marker.
 #[must_use]
 pub fn truncate_error_text(text: &str, max_chars: usize) -> String {
-    let length = utf16_len(text);
-    if length <= max_chars {
-        return text.to_owned();
-    }
-    format!(
-        "{}... [truncated {} chars]",
-        utf16_prefix(text, max_chars),
-        length - max_chars
-    )
+    rules::truncate(text, max_chars)
 }
 
 /// `JSON.stringify(value)` (a JSON value always serializes).
@@ -351,32 +332,6 @@ mod tests {
         assert!(norm.message_carries_body);
     }
 
-    #[test]
-    fn truncates_the_body_at_the_cap() {
-        let long_body = "x".repeat(MAX_PROVIDER_ERROR_BODY_CHARS + 50);
-        let error = ErrorObject {
-            status_code: Some(json!(500)),
-            body: Some(SdkValue::Json(JsonValue::String(long_body.clone()))),
-            ..error_object("failed")
-        }
-        .thrown();
-        let norm = normalize_provider_error(&error);
-        let body = norm.body.unwrap();
-        assert!(body.contains("... [truncated 50 chars]"));
-        assert!(body.len() < long_body.len());
-    }
-
-    #[test]
-    fn sets_message_carries_body_when_the_message_already_contains_the_extracted_body() {
-        let error = ErrorObject {
-            status_code: Some(json!(500)),
-            body: Some(SdkValue::Json(json!("upstream exploded"))),
-            ..error_object("500: upstream exploded")
-        }
-        .thrown();
-        assert!(normalize_provider_error(&error).message_carries_body);
-    }
-
     fn waf_error() -> NormalizedProviderError {
         normalize_provider_error(
             &ErrorObject {
@@ -389,40 +344,10 @@ mod tests {
     }
 
     #[test]
-    fn surfaces_status_and_body_without_a_prefix() {
-        let formatted = format_provider_error(&waf_error(), None);
-        assert!(formatted.contains("403"));
-        assert!(formatted.contains("blocked by gateway WAF"));
-        assert_ne!(formatted, "403 status code (no body)");
-    }
-
-    #[test]
     fn applies_a_provider_prefix_with_status_and_body() {
         assert_eq!(
             format_provider_error(&waf_error(), Some("OpenAI API error")),
             r#"OpenAI API error (403): {"error":"blocked by gateway WAF"}"#
         );
-    }
-
-    #[test]
-    fn preserves_the_message_with_prefix_and_status_when_it_already_carries_the_body() {
-        let body = json!({ "error": { "message": "Permission denied" } }).to_string();
-        let norm = normalize_provider_error(
-            &ErrorObject {
-                status: Some(Some(json!(403))),
-                ..error_object(&body)
-            }
-            .thrown(),
-        );
-        assert_eq!(
-            format_provider_error(&norm, Some("OpenAI API error")),
-            format!("OpenAI API error (403): {body}")
-        );
-    }
-
-    #[test]
-    fn returns_the_bare_message_for_a_non_error_value() {
-        let norm = normalize_provider_error(&ThrownValue(json!({ "reason": "boom" })).thrown());
-        assert_eq!(format_provider_error(&norm, None), r#"{"reason":"boom"}"#);
     }
 }

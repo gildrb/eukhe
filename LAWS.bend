@@ -102,3 +102,4 @@ import ./laws/cache_marks.bend as CacheMarks
 import ./laws/text_pat.bend as TextPat
 import ./laws/overflow.bend as Overflow
 import ./laws/stream_failure.bend as StreamFailure
+import ./laws/error_body.bend as ErrorBody

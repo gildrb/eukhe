@@ -174,6 +174,8 @@ pub enum Entry {
     Overflow = 231,
     /// `bend/ffi_stream_failure.bend`: a call.
     StreamFailure = 232,
+    /// `bend/ffi_error_body.bend`: a call.
+    ErrorBody = 233,
     /// `bend/ffi_codemode_id.bend`: a call.
     CodemodeId = 260,
     /// `bend/ffi_submission.bend`: a call.
@@ -277,6 +279,7 @@ impl Entry {
         Entry::CacheMarks,
         Entry::Overflow,
         Entry::StreamFailure,
+        Entry::ErrorBody,
         Entry::CodemodeId,
         Entry::Submission,
         Entry::Scan,
