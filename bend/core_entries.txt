@@ -63,6 +63,12 @@
 101 dash
 102 doc_tags
 103 doc_commit
+200 dash_policy
+201 dash_access
+202 gateway_answer
+203 gateway_backoff
+204 slash_suggest
+205 gateway_commands
 260 codemode_id
 261 submission
 262 scan

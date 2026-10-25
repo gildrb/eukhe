@@ -12,7 +12,7 @@ import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ./base.bend as LA
-import ./entry/wire.bend as LE
+import ../base/wire_dec.bend as LE
 
 def dcw.ok_check(c: Cm.Check) -> {LawsBase.wire_opens_err(FCm.put_check(c)) == False{} : Bool}:
   match c:

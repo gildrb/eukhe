@@ -112,6 +112,7 @@ Other text, including session commands such as `/compact`, goes to the agent.
 
 - Signal gets each final agent message: text, `Error: ...`, or `Stopped.`; also `Error: ...` when a turn fails before the model answers (e.g. no model set).
 - No thinking, tool calls, or tool output.
+- What each settled event tells the phone (text, error line, stop, nothing) runs as the compiled core: `bend/gateway_answer.bend` (entry `bend/ffi_gateway_answer.bend`, laws `laws/gateway_answer.bend`); Rust only reads the event.
 - Later turns (e.g. after a subagent report) also reply to Signal, until you type in the CLI.
 
 ## Security

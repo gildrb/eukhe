@@ -670,14 +670,7 @@ pub fn is_help_command_request(path: &[&str]) -> bool {
         .into_iter()
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
-    find_command_suggestion(path[path.len() - 1], &candidates).is_some()
-}
-
-/// Suggest the closest candidate command name. The edit-distance heuristic
-/// (`findSlashCommandSuggestion` in core/slash-commands.ts) is shared
-/// vocabulary: `eukhe_types::slash_commands`.
-pub fn find_command_suggestion<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
-    eukhe_types::slash_commands::find_slash_command_suggestion(input, candidates)
+    eukhe_bend::rules::slash::suggestion(path[path.len() - 1], &candidates).is_some()
 }
 
 fn pad_end(value: &str, width: usize) -> String {
@@ -795,18 +788,6 @@ pub fn format_command_help(path: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn suggestion_thresholds() {
-        assert_eq!(
-            find_command_suggestion("schedul", &["schedule", "list"]),
-            Some("schedule")
-        );
-        // Two-character tolerance would let "tmp" masquerade as "mcp", so
-        // short tokens allow a single-character typo only.
-        assert_eq!(find_command_suggestion("tmp", &["mcp"]), None);
-        assert_eq!(find_command_suggestion("bogus", &["list"]), None);
-    }
 
     #[test]
     fn help_command_request() {

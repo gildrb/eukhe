@@ -599,6 +599,7 @@ dependencies = [
  "base64",
  "crossterm",
  "eukhe-ai",
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-chord",
  "eukhe-core",

@@ -15,7 +15,7 @@ import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ./base.bend as LA
-import ./entry/wire.bend as LE
+import ../base/wire_dec.bend as LE
 import ./commit_check_spec.bend as PCommitCheckSpec
 import ./commit_outcome_spec.bend as PCommitOutcomeSpec
 import ./commit_answer_spec.bend as PCommitAnswerSpec

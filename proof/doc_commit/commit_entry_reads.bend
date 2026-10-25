@@ -14,10 +14,10 @@ import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ./base.bend as LA
-import ./entry/wire.bend as LE
+import ../base/wire_dec.bend as LE
 import ./entry/list_met.bend as LM
 import ./entry/list_fate.bend as LFa
-import ./entry/list_strs.bend as LS
+import ../base/wire_strs.bend as LS
 import ./entry/list_ents.bend as LN
 import ./entry/fields.bend as LF
 

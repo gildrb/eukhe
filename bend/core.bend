@@ -15,6 +15,8 @@ import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_dash.bend as ffi_dash
+import ./ffi_dash_access.bend as ffi_dash_access
+import ./ffi_dash_policy.bend as ffi_dash_policy
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_director.bend as ffi_director
 import ./ffi_doc_commit.bend as ffi_doc_commit
@@ -30,6 +32,9 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
+import ./ffi_gateway_answer.bend as ffi_gateway_answer
+import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
+import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
@@ -57,6 +62,7 @@ import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
+import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
@@ -192,6 +198,18 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_tags.ffi(input)
     case 103:
       ffi_doc_commit.ffi(input)
+    case 200:
+      ffi_dash_policy.ffi(input)
+    case 201:
+      ffi_dash_access.ffi(input)
+    case 202:
+      ffi_gateway_answer.ffi(input)
+    case 203:
+      ffi_gateway_backoff.ffi(input)
+    case 204:
+      ffi_slash_suggest.ffi(input)
+    case 205:
+      ffi_gateway_commands.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:

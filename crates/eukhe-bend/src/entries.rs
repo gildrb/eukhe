@@ -130,6 +130,18 @@ pub enum Entry {
     DocTags = 102,
     /// `bend/ffi_doc_commit.bend`: a call.
     DocCommit = 103,
+    /// `bend/ffi_dash_policy.bend`: a call.
+    DashPolicy = 200,
+    /// `bend/ffi_dash_access.bend`: a call.
+    DashAccess = 201,
+    /// `bend/ffi_gateway_answer.bend`: a call.
+    GatewayAnswer = 202,
+    /// `bend/ffi_gateway_backoff.bend`: a call.
+    GatewayBackoff = 203,
+    /// `bend/ffi_slash_suggest.bend`: a call.
+    SlashSuggest = 204,
+    /// `bend/ffi_gateway_commands.bend`: a call.
+    GatewayCommands = 205,
     /// `bend/ffi_codemode_id.bend`: a call.
     CodemodeId = 260,
     /// `bend/ffi_submission.bend`: a call.
@@ -207,6 +219,12 @@ impl Entry {
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,
+        Entry::DashPolicy,
+        Entry::DashAccess,
+        Entry::GatewayAnswer,
+        Entry::GatewayBackoff,
+        Entry::SlashSuggest,
+        Entry::GatewayCommands,
         Entry::CodemodeId,
         Entry::Submission,
         Entry::Scan,

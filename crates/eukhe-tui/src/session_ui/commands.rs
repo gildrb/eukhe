@@ -117,15 +117,15 @@ impl SessionUi {
             Some((Resolution::Unknown { path, word }, table)) => {
                 let names: Vec<&str> = table.children(&path).map(PathRow::name).collect();
                 let at = path.join(" ");
-                let message = match eukhe_types::slash_commands::find_slash_command_suggestion(
-                    &word.to_lowercase(),
-                    &names,
-                ) {
-                    Some(suggestion) => {
-                        format!("Unknown: /{at} {word}. Did you mean /{at} {suggestion}?")
-                    }
-                    None => format!("Unknown: /{at} {word}. Choose one of: {}", names.join(", ")),
-                };
+                let message =
+                    match eukhe_bend::rules::slash::suggestion(&word.to_lowercase(), &names) {
+                        Some(suggestion) => {
+                            format!("Unknown: /{at} {word}. Did you mean /{at} {suggestion}?")
+                        }
+                        None => {
+                            format!("Unknown: /{at} {word}. Choose one of: {}", names.join(", "))
+                        }
+                    };
                 view.editor.set_text(text);
                 self.error_row(&message, view);
                 return Ok(());
@@ -164,10 +164,7 @@ impl SessionUi {
                 return self.send_prompt(text, behavior, view);
             }
             let candidates = registry.suggestion_candidates();
-            return match eukhe_types::slash_commands::find_slash_command_suggestion(
-                &name,
-                &candidates,
-            ) {
+            return match eukhe_bend::rules::slash::suggestion(&name, &candidates) {
                 Some(suggestion) => {
                     self.note(
                         &format!("Unknown command: /{name}. Did you mean /{suggestion}?"),

@@ -12,8 +12,8 @@ import ../../../laws/doc_commit.bend as DocCommit
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../base.bend as LA
-import ./wire.bend as LE
-import ./list_strs.bend as LS
+import ../../base/wire_dec.bend as LE
+import ../../base/wire_strs.bend as LS
 
 # Read back
 # ---------

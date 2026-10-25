@@ -1,19 +1,18 @@
-# eukhe: lemmas of the doc_commit entry proofs: the list of String
-# (seen digests)
+# eukhe: lemmas shared by the entry proofs (doc_commit, dash_access,
+# gateway_answer): a wire list of String
 #
 # A spelled list of strings that fit reads back (dcw.strs.rt) and a
 # decoded one is spelled, its count and every length within the wire
 # (dcw.strs.list).
 
 import Base
-import ../../../bend/doc_commit.bend as Cm
-import ../../../bend/ffi_doc_commit.bend as FCm
-import ../../../bend/wire.bend as Wr
-import ../../../laws/doc_commit.bend as DocCommit
-import ../../../laws/base.bend as LawsBase
-import ../../../laws/wire.bend as Wire
-import ../base.bend as LA
-import ./wire.bend as LE
+import ../../bend/wire.bend as Wr
+import ../../laws/doc_commit.bend as DocCommit
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
+import ./bool.bend as LBool
+import ./logic/bool.bend as LLogicBool
+import ./wire_dec.bend as LE
 
 # One item
 # --------
@@ -22,13 +21,13 @@ def dcw.strs.item_rt(+x: String, +rest: String, h: {LawsBase.wire_fits(String.le
   Wire.wire_str_round_trip(x, rest, h)
 
 def dcw.strs.hd(+x: String, +t: List<&2, String>, h: {DocCommit.sp_fit_strs(x <> t) == True{} : Bool}) -> {LawsBase.wire_fits(String.length(x)) == True{} : Bool}:
-  LA.dcw.and_l(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), h)
+  LLogicBool.tree.pt.and_l(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), h)
 
 def dcw.strs.tl(+x: String, +t: List<&2, String>, h: {DocCommit.sp_fit_strs(x <> t) == True{} : Bool}) -> {DocCommit.sp_fit_strs(t) == True{} : Bool}:
-  LA.dcw.and_r(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), h)
+  LLogicBool.tree.pt.and_r(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), h)
 
 def dcw.strs.cons_fit(-x: String, -t: List<&2, String>, fx: {LawsBase.wire_fits(String.length(x)) == True{} : Bool}, ft: {DocCommit.sp_fit_strs(t) == True{} : Bool}) -> {DocCommit.sp_fit_strs(x <> t) == True{} : Bool}:
-  LA.dcw.and_tt(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), fx, ft)
+  LBool.cb_and_intro(LawsBase.wire_fits(String.length(x)), DocCommit.sp_fit_strs(t), fx, ft)
 
 # The spelling
 # ------------

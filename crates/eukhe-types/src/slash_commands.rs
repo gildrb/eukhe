@@ -1,7 +1,8 @@
 //! The builtin slash-command vocabulary. Port of `core/slash-commands.ts`:
 //! the command table every surface shares (the interactive TUI, the session
-//! engine's command admission, and CLI suggestion help), plus the parse and
-//! suggestion helpers over it.
+//! engine's command admission, and CLI suggestion help), plus the parse
+//! over it. The suggestion for a mistyped name is the compiled core's
+//! (`eukhe_bend::rules::slash`).
 //!
 //! Pure data and pure functions only. This is the shared-vocabulary crate:
 //! the TUI cannot import the session engine, and one table must serve both
@@ -292,34 +293,9 @@ pub fn parse_slash_command(text: &str) -> Option<(String, String)> {
     }
 }
 
-/// Suggest the closest candidate command name, mirroring
-/// `findSlashCommandSuggestion` in core/slash-commands.ts.
-///
-/// # Panics
-///
-/// Cannot panic: the `unwrap` below only runs when `closest` already holds
-/// a candidate, because the `||` in the loop guard short-circuits first.
-#[must_use]
-pub fn find_slash_command_suggestion<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
-    let mut closest: Option<(&str, usize)> = None;
-    for &candidate in candidates {
-        let distance = edit_distance(input, candidate);
-        if closest.is_none() || distance < closest.unwrap().1 {
-            closest = Some((candidate, distance));
-        }
-    }
-    let threshold = if input.len() <= 3 {
-        1
-    } else {
-        std::cmp::max(2, input.len() / 3)
-    };
-    match closest {
-        Some((candidate, distance)) if distance <= threshold => Some(candidate),
-        _ => None,
-    }
-}
-
 /// Levenshtein edit distance, in characters (`slashCommandEditDistance`).
+/// The slash-command suggestion is the compiled core's; this one serves
+/// the tool-name suggestion of eukhe-durable (`tool_unavailable_message`).
 #[must_use]
 pub fn edit_distance(left: &str, right: &str) -> usize {
     let left: Vec<char> = left.chars().collect();
@@ -401,22 +377,6 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn suggestion_matches_close_names_only() {
-        let registry = SlashCommandRegistry::builtin();
-        let candidates = registry.suggestion_candidates();
-        assert_eq!(
-            find_slash_command_suggestion("modle", &candidates),
-            Some("model")
-        );
-        assert_eq!(
-            find_slash_command_suggestion("comapct", &candidates),
-            Some("compact")
-        );
-        assert_eq!(find_slash_command_suggestion("zzzzzz", &candidates), None);
-    }
-
     #[test]
     fn edit_distance_counts_substitutions() {
         assert_eq!(edit_distance("abc", "abc"), 0);

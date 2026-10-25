@@ -54,6 +54,12 @@ import ./laws/facts.bend as Facts
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
 import ./laws/dash.bend as Dash
+import ./laws/dash_policy.bend as DashPolicy
+import ./laws/dash_access.bend as DashAccess
+import ./laws/gateway_answer.bend as GatewayAnswer
+import ./laws/gateway_backoff.bend as GatewayBackoff
+import ./laws/slash_suggest.bend as SlashSuggest
+import ./laws/gateway_commands.bend as GatewayCommands
 import ./laws/doc_commit.bend as DocCommit
 import ./laws/doc_lines.bend as DocLines
 import ./laws/doc_rows.bend as DocRows

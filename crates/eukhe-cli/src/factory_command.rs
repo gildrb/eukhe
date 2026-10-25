@@ -65,7 +65,7 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
         return Err(String::new());
     };
     if !children.contains(&subcommand.as_str()) {
-        let suggestion = crate::command_registry::find_command_suggestion(subcommand, &children);
+        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
         return Err(format!(
             "Unknown factory command: {subcommand}{}",
             suggestion.map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))

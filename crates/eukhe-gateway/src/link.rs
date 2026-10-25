@@ -16,9 +16,30 @@ use tokio::sync::{mpsc, watch};
 use crate::sessions::{SavedSession, SessionRef};
 use eukhe_tui::saved_sessions::DaemonLauncher;
 
-/// The first reconnect delay; it doubles up to [`RECONNECT_MAX_DELAY`].
-pub(crate) const RECONNECT_FIRST_DELAY: Duration = Duration::from_millis(250);
-pub(crate) const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(10);
+/// The wait before the next attempt to reach the daemon, after `last`
+/// (none: the first attempt). The compiled Bend core decides
+/// (`bend/gateway_backoff.bend`, laws `laws/gateway_backoff.bend`): 250 ms,
+/// then doubling, at most 10 s. `last` is always a wait it answered.
+pub(crate) fn reconnect_delay(last: Option<Duration>) -> Duration {
+    let answer = || -> Result<u64, eukhe_bend::Error> {
+        let mut writer = eukhe_bend::wire::Writer::new();
+        match last {
+            None => writer.tag(0),
+            Some(last) => writer
+                .tag(1)
+                .nat(u64::try_from(last.as_millis()).unwrap_or(u64::MAX)),
+        };
+        let reply = eukhe_bend::call(eukhe_bend::Entry::GatewayBackoff, &writer.finish()?)?;
+        let mut reader = eukhe_bend::wire::Reader::reply(&reply)?;
+        let millis = reader.nat()?;
+        reader.end()?;
+        Ok(millis)
+    };
+    Duration::from_millis(eukhe_bend::expect_core(
+        eukhe_bend::Entry::GatewayBackoff,
+        answer(),
+    ))
+}
 
 /// The session the gateway is attached to.
 #[derive(Debug, Clone, PartialEq)]
@@ -112,7 +133,7 @@ impl<L: DaemonLauncher> Link<L> {
     /// shutdown begins.
     #[tracing::instrument(skip_all)]
     pub(crate) async fn reconnect(&mut self) -> Reconnect {
-        let mut delay = RECONNECT_FIRST_DELAY;
+        let mut delay = reconnect_delay(None);
         loop {
             if *self.shutdown.borrow() {
                 return Reconnect::ShuttingDown;
@@ -144,7 +165,7 @@ impl<L: DaemonLauncher> Link<L> {
                             }
                         }
                     }
-                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                    delay = reconnect_delay(Some(delay));
                 }
             }
         }
@@ -238,5 +259,26 @@ impl<L: DaemonLauncher> Link<L> {
             .await
             .with_context(|| format!("detach from {active_session_id}"))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_core_decides_the_reconnect_wait() {
+        assert_eq!(
+            [
+                reconnect_delay(None),
+                reconnect_delay(Some(Duration::from_millis(250))),
+                reconnect_delay(Some(Duration::from_secs(8))),
+            ],
+            [
+                Duration::from_millis(250),
+                Duration::from_millis(500),
+                Duration::from_secs(10),
+            ]
+        );
     }
 }

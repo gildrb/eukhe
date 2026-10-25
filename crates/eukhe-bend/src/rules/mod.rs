@@ -20,6 +20,7 @@ pub mod runners;
 pub mod scan;
 pub mod semver;
 pub mod shell;
+pub mod slash;
 pub mod submission;
 pub mod tokens;
 pub mod tool_surface;

@@ -97,7 +97,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`|
 |`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-tui`|
 |`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (all of `web/` via `build.rs`; `web/` = committed `make dashboard-ui` output of Vite+ `vp build` from `ui/` (Preact, Radix, StyleX)), daemon-wire client|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`, `eukhe-tui`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 
 - Dependencies point from higher to lower crates only. No cycles.
 - `eukhe-tui` and `eukhe-dashboard` render from wire types and events; they do not link the session engine.

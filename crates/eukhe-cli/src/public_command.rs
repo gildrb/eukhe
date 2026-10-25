@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use crate::args::{parse_args, INTERNAL_RUNTIME_COMMAND_MARKER};
 
 use crate::command_registry::{
-    find_command_suggestion, format_command_help, format_top_level_help, get_child_command_specs,
-    get_command_spec, is_help_command_request, public_command_names, REMOVED_COMMAND_NAMES,
+    format_command_help, format_top_level_help, get_child_command_specs, get_command_spec,
+    is_help_command_request, public_command_names, REMOVED_COMMAND_NAMES,
 };
 use crate::config::APP_NAME;
 use crate::global_flags::{extract_help_command_path, rotate_global_flags_before_command};
@@ -207,7 +207,7 @@ fn print_requested_help(path: &[String]) -> PublicCommandResult {
         .into_iter()
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
-    let suggestion = find_command_suggestion(&path[path.len() - 1], &candidates);
+    let suggestion = eukhe_bend::rules::slash::suggestion(&path[path.len() - 1], &candidates);
     let mut message = format!("Unknown command: {}", path.join(" "));
     let hint = suggestion.map(|suggestion| {
         let mut full = parent.clone();
@@ -279,7 +279,7 @@ fn run_nested_agent_command(
         );
     };
     if !children.contains(&subcommand) {
-        let suggestion = find_command_suggestion(subcommand, &children);
+        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
         return fail(
             format!("Unknown {parent} command: {subcommand}"),
             Some(suggestion.map_or_else(
@@ -486,7 +486,7 @@ fn run_package(args: &[String]) -> PublicCommandResult {
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     if !children.contains(&subcommand) {
-        let suggestion = find_command_suggestion(subcommand, &children);
+        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
         return fail(
             format!("Unknown package command: {subcommand}"),
             Some(suggestion.map_or_else(
@@ -588,7 +588,7 @@ fn rewrite_nested_command(
         let candidate = args.first().map(String::as_str);
         return match candidate {
             Some(candidate) => {
-                let suggestion = find_command_suggestion(candidate, &[subcommand]);
+                let suggestion = eukhe_bend::rules::slash::suggestion(candidate, &[subcommand]);
                 fail(
                     format!("Unknown {parent} command: {candidate}"),
                     Some(suggestion.map_or_else(
