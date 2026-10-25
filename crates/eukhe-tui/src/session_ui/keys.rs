@@ -46,12 +46,18 @@ impl SessionUi {
         None
     }
 
-    /// Arm the double-Escape action for 500ms (TS `armEscapeRepeat`): the
-    /// tree when the session is idle or the editor empty, the clear action
-    /// otherwise.
+    /// Arm the double-Escape action (TS `armEscapeRepeat`): the tree when
+    /// the session is idle or the editor empty, the clear action
+    /// otherwise, for 500ms; the worker pause for
+    /// [`super::workers::PAUSE_ESCAPE_WINDOW`] while a worker runs.
     fn arm_escape_repeat(&mut self, action: &'static str) {
+        let window = if action == "pause" {
+            super::workers::PAUSE_ESCAPE_WINDOW
+        } else {
+            ESCAPE_REPEAT_WINDOW_MS
+        };
         self.escape_repeat_action = Some(action);
-        self.escape_repeat_until = Some(Instant::now() + ESCAPE_REPEAT_WINDOW_MS);
+        self.escape_repeat_until = Some(Instant::now() + window);
     }
 
     /// The Ctrl+C exit hint is armed (TS `isCtrlCExitHintVisible`): a
@@ -341,6 +347,15 @@ impl SessionUi {
         // `focusEditor` -> the editor handles it).
         if self.subagents_focused {
             let kb = view.editor.keybindings();
+            if kb.matches(&id, "tui.select.confirm")
+                && self.activity_group == crate::chrome::ActivityGroup::Subagents
+                && self.worker_paused()
+            {
+                // Enter on the agents block while the worker is paused
+                // wakes it where it paused (`resume_workers`).
+                self.control_workers(super::workers::WorkerAction::Resume, view);
+                return Ok(());
+            }
             if kb.matches(&id, "tui.select.confirm") || kb.matches(&id, "app.subagents.focus") {
                 // The dock is the direct launcher: Enter opens the
                 // focused group's own view (the operator's redesign --
@@ -443,6 +458,11 @@ impl SessionUi {
                 return Ok(());
             }
             self.clear_ctrl_c_hint();
+            // The worker pane's full view owns the first Escape: back to
+            // the docked pane.
+            if self.leave_full_worker_pane(view) {
+                return Ok(());
+            }
             // TS `handleEscape`: an open side-question pane owns the key --
             // the running turn aborts and the pane closes; the armed
             // escape-repeat from an earlier press disarms first (TS
@@ -463,26 +483,34 @@ impl SessionUi {
                 self.dirty = true;
                 return Ok(());
             }
-            // Double-Escape (TS `handleEscape`'s repeat window): the second
-            // press within 500ms opens the tree when the session is idle or
-            // the editor empty, and clears the input otherwise. The repeat's
-            // tree action is one shot per input chain (the operator's
-            // 2026-09-29 Esc-overflow ruling): once the repeat-opened tree
-            // was dismissed, the empty state's pop loop terminates -- the
-            // next Escape arms nothing, so a held or repeated Escape
-            // converges to the inert empty editor instead of cycling the
-            // selector open again every second press.
+            // Double-Escape (TS `handleEscape`'s repeat window): while a
+            // worker of this session runs, the second press within 1s
+            // pauses it (its running model request and tool calls finish,
+            // nothing new starts; the first press aborted only main's own
+            // turn). Otherwise the second press within 500ms opens the
+            // tree when the session is idle or the editor empty, and
+            // clears the input otherwise. The repeat's tree action is one
+            // shot per input chain (the operator's 2026-09-29 Esc-overflow
+            // ruling): once the repeat-opened tree was dismissed, the
+            // empty state's pop loop terminates -- the next Escape arms
+            // nothing, so a held or repeated Escape converges to the
+            // inert empty editor instead of cycling the selector open
+            // again every second press.
             if let Some(action) = self.take_escape_repeat_action() {
-                if action == "tree" {
-                    self.escape_tree_shortcut_spent = true;
-                    self.open_tree_selector(view, None).await?;
-                } else {
-                    view.editor.set_text("");
+                match action {
+                    "pause" => self.control_workers(super::workers::WorkerAction::Pause, view),
+                    "tree" => {
+                        self.escape_tree_shortcut_spent = true;
+                        self.open_tree_selector(view, None).await?;
+                    }
+                    _ => view.editor.set_text(""),
                 }
                 self.dirty = true;
                 return Ok(());
             }
-            let action = if self.turn_active || view.editor.get_text().trim().is_empty() {
+            let action = if self.worker_running() {
+                "pause"
+            } else if self.turn_active || view.editor.get_text().trim().is_empty() {
                 "tree"
             } else {
                 "clear"
@@ -642,6 +670,21 @@ impl SessionUi {
         {
             self.focus_subagents_summary(&DockFocusSource::Shortcut, view);
             self.dirty = true;
+            return Ok(());
+        }
+        // The worker pane: show or hide it, or its full view.
+        let pane_key = {
+            let kb = view.editor.keybindings();
+            if kb.matches(&id, "app.worker.toggle") {
+                Some(super::workers::PaneKey::Toggle)
+            } else if kb.matches(&id, "app.worker.full") {
+                Some(super::workers::PaneKey::Full)
+            } else {
+                None
+            }
+        };
+        if let Some(key) = pane_key {
+            self.worker_pane_key(key, view);
             return Ok(());
         }
         // TS `app.editor.external` (default ctrl+g,
@@ -973,6 +1016,8 @@ pub(crate) fn opening_echo_key_claimed(
         || kb.matches(id, "app.thinking.cycleBackward")
         || kb.matches(id, "app.tools.expand")
         || kb.matches(id, "app.subagents.focus")
+        || kb.matches(id, "app.worker.toggle")
+        || kb.matches(id, "app.worker.full")
         || kb.matches(id, "app.editor.external")
         || kb.matches(id, "app.prompt.stash")
         || kb.matches(id, "app.session.new")

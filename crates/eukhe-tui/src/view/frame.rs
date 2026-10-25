@@ -199,13 +199,27 @@ impl AgentView {
         }
         let (dock, editor_focused) = self.compose_dock(width);
         let budget = height.saturating_sub(dock.len());
-        // Bottom-up: the toasts, the transcript tail, then the unsettled
-        // entries newest first until the budget fills -- entries wholly
-        // above the live area never render, and a streaming message
-        // copies only the rows that show.
+        // Bottom-up: the toasts, the worker pane's strip (the inline
+        // terminal commits rows at full width, so the pane never splits
+        // here), the transcript tail, then the unsettled entries newest
+        // first until the budget fills -- entries wholly above the live
+        // area never render, and a streaming message copies only the
+        // rows that show.
         let mut children: Vec<Vec<Line>> = Vec::new();
         let mut filled: usize = 0;
-        for mut child in [self.toast_rows(width), self.render_transcript_tail(width)] {
+        let toasts = self.toast_rows(width);
+        let pane_rows = match self.worker_pane.as_ref().map(|pane| {
+            crate::worker_pane::placement(pane.mode, width, budget, /*split*/ false)
+        }) {
+            Some(crate::worker_pane::Placement::Bottom { rows }) => rows,
+            Some(crate::worker_pane::Placement::Full) => budget.saturating_sub(toasts.len()),
+            Some(
+                crate::worker_pane::Placement::None | crate::worker_pane::Placement::Right { .. },
+            )
+            | None => 0,
+        };
+        let pane = crate::worker_pane::pane_rows(self, width, pane_rows);
+        for mut child in [toasts, pane, self.render_transcript_tail(width)] {
             child.drain(..child.len().saturating_sub(budget - filled));
             filled += child.len();
             children.push(child);

@@ -31,9 +31,12 @@ bind ctrl+o ""
 |---|---|---|
 |Shift+Tab|`app.thinking.cycleForward`|Next thinking level of the model; wraps to the first|
 |Shift+Alt+Tab|`app.thinking.cycleBackward`|Previous level; wraps to the last|
+|Alt+W|`app.worker.toggle`|Show or hide the worker pane ([interface.md](interface.md), Worker pane)|
+|Shift+Alt+W|`app.worker.full`|Worker pane full view, or back; Esc also returns|
 
 - Prompt only; an open menu or picker takes Shift+Tab first (settings menu: previous tab).
 - Model with fewer than two levels: level kept; status row shows `Current model offers no other thinking level`.
+- Esc twice within 1 s while this session's worker runs pauses it (`/pause`; `/resume` or any message wakes it); otherwise Esc twice keeps its 500 ms tree/clear meaning.
 - `/effort` lists the model's levels, current marked.
 
 |Command|Effect|

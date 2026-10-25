@@ -241,6 +241,17 @@ impl SessionUi {
                 event,
                 meta_sequence,
             } => {
+                // The worker pane's watch: its events fold into the pane,
+                // never into main's transcript.
+                if let Some(pane) = view
+                    .worker_pane
+                    .as_mut()
+                    .filter(|pane| pane.active_session_id == active_session_id)
+                {
+                    pane.apply(meta_sequence, event_to_update(&event));
+                    self.dirty = true;
+                    return;
+                }
                 if active_session_id != self.active_session_id {
                     return;
                 }

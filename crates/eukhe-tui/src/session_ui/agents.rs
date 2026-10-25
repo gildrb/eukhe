@@ -20,6 +20,15 @@ use crate::swarm_block::{
     agent_name, family_members, mention_items, resolve_agent, roster_lines, AgentLookup, SwarmRow,
 };
 
+/// One backgrounded agent request's answer, folded on the UI loop.
+#[derive(Debug)]
+pub(crate) enum AgentsUpdate {
+    /// A settled `@name message` delivery.
+    Message(AgentMessageOutcome),
+    /// A worker request (`super::workers`).
+    Worker(super::workers::WorkerOutcome),
+}
+
 /// One settled `@name message` delivery (the backgrounded request's
 /// fold-back).
 #[derive(Debug)]
@@ -160,7 +169,7 @@ impl SessionUi {
         self.last_status_index = None;
         self.dirty = true;
         let client = self.client.clone();
-        let notes = self.agent_message_notes.clone();
+        let notes = self.agents_updates.clone();
         let active_session_id = self.active_session_id.clone();
         let delivery = AgentDelivery {
             summary,
@@ -175,25 +184,29 @@ impl SessionUi {
             let result = deliver_agent_message(&client, delivery, || {})
                 .await
                 .map(|resumed| resumed.and(cwd_notice));
-            let _ = notes.send(AgentMessageOutcome {
+            let _ = notes.send(AgentsUpdate::Message(AgentMessageOutcome {
                 active_session_id,
                 target: name,
                 draft,
                 result,
-            });
+            }));
         });
         MentionRoute::Handled
+    }
+
+    /// Fold one backgrounded agent request's answer.
+    pub(crate) fn apply_agents_update(&mut self, update: AgentsUpdate, view: &mut AgentView) {
+        match update {
+            AgentsUpdate::Message(outcome) => self.apply_agent_message_outcome(outcome, view),
+            AgentsUpdate::Worker(outcome) => self.apply_worker_outcome(outcome, view),
+        }
     }
 
     /// Fold one settled `@name message` delivery: a failure is an error
     /// row and the draft returns to an empty editor; a resume into a
     /// fallback directory says so. A session switch since the submit
     /// drops it.
-    pub(crate) fn apply_agent_message_outcome(
-        &mut self,
-        outcome: AgentMessageOutcome,
-        view: &mut AgentView,
-    ) {
+    fn apply_agent_message_outcome(&mut self, outcome: AgentMessageOutcome, view: &mut AgentView) {
         if outcome.active_session_id != self.active_session_id {
             return;
         }
