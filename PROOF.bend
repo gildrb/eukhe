@@ -695,6 +695,7 @@ import ./proof/auth_flight/flight_one_fetch_each.bend as PFlightOneFetchEach
 import ./proof/auth_flight/flight_no_lost_wakeup.bend as PFlightNoLostWakeup
 import ./proof/auth_flight/flight_done_once/steps.bend as LAFlightDoneOnceSteps
 import ./proof/auth_flight/flight_done_once.bend as PFlightDoneOnce
+import ./proof/auth_flight/flight_safety_witness.bend as PFlightSafetyWitness
 import ./proof/theme/base.bend as LATheme
 import ./proof/theme/theme_resolve_empty.bend as PThemeResolveEmpty
 import ./proof/theme/theme_resolve_first.bend as PThemeResolveFirst

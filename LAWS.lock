@@ -76,6 +76,7 @@
     "laws/auth_flight/safety.bend::flight_no_lost_wakeup": "8f89dca586aabfd677f57a322cbc4ffd736ae58153d3321c29113952d60628cf",
     "laws/auth_flight/safety.bend::flight_one_fetch_each": "f2070a5e345ecf934dde88cffa2e35d39e6a9ba43e7fd261e06064e30503bd74",
     "laws/auth_flight/safety.bend::flight_one_leader": "63a16a7d0c8ca9cfb126cb949fd316fe46da71f3bd435f4201ba78a3a8277c38",
+    "laws/auth_flight/safety.bend::flight_safety_witness": "284ffc40984ed85184da6c6140536ac39ad3c47b4fc9dc7044b9bcd1778bfbfe",
     "laws/aux_fallback.bend::afw_answers_gate": "5d959170a5d0a3f599bd1a5eaf0da847ec9e649851effb92e9102cb387dc60cf",
     "laws/aux_fallback.bend::afw_answers_pass": "ad87c64f9d4341857c6568dd02c04204dd6050961d481e3f946b53f42e116dfa",
     "laws/aux_fallback.bend::afw_answers_settle": "1951bf8941350b6a186aa9009b37fcd3ca7a025c2893faca9f568b2c064d98cc",

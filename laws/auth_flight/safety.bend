@@ -231,3 +231,16 @@ law flight_done_once:
   for +k: Nat
   for ends: {af_ends(k, af_out(F.desk.step(af_run(pre), e))) == True{} : Bool}
   {af_names(k, af_out(F.desk.step(af_run(pre), e))) == 1n : Nat} & {af_named(k, post, af_after(F.desk.step(af_run(pre), e))) == False{} : Bool} & {af_live(k, AuthFlightEntry.af_cs(af_go(post, af_after(F.desk.step(af_run(pre), e))))) == False{} : Bool}
+
+# LAW flight_safety_witness: anchor: the premises of flight_no_caller_dropped
+# and flight_done_once hold on a run where their conclusions say something:
+# x's caller 0 leads, caller 1 joins; caller 1 is live before the land of
+# caller 0's check, the land is not its unwind, and the land ends its
+# refresh (done with the landed outcome)
+# EXCLUDES: flight_no_caller_dropped or flight_done_once made vacuous by
+#   premises no run meets
+law flight_safety_witness:
+  {AuthFlightEntry.af_cs(af_run([F.Comes{"x"}, F.Found{0n, F.LoadExpired{}}, F.Comes{"x"}, F.Found{1n, F.LoadExpired{}}])) == [F.Cl{1n, "x", F.Waits{}}, F.Cl{0n, "x", F.Checks{}}] : List<&2, F.Cl>} &
+  {af_live(1n, AuthFlightEntry.af_cs(af_run([F.Comes{"x"}, F.Found{0n, F.LoadExpired{}}, F.Comes{"x"}, F.Found{1n, F.LoadExpired{}}]))) == True{} : Bool} &
+  {af_unwinds(F.Found{0n, F.CheckFresh{}}, 1n) == False{} : Bool} &
+  {af_ends(1n, af_out(F.desk.step(af_run([F.Comes{"x"}, F.Found{0n, F.LoadExpired{}}, F.Comes{"x"}, F.Found{1n, F.LoadExpired{}}]), F.Found{0n, F.CheckFresh{}}))) == True{} : Bool}
