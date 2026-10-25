@@ -1191,6 +1191,14 @@ import ./proof/dash_access/dash_access_entry_answers.bend as PDashAccessEntryAns
 import ./proof/dash_access/dash_access_entry_exact.bend as PDashAccessEntryExact
 import ./proof/dash_access/dash_access_entry_refuses.bend as PDashAccessEntryRefuses
 import ./proof/dash_access/dash_access_entry_example.bend as PDashAccessEntryExample
+import ./proof/gateway_backoff/gateway_backoff_spec.bend as PGatewayBackoffSpec
+import ./proof/gateway_backoff/gateway_backoff_bounded.bend as PGatewayBackoffBounded
+import ./proof/gateway_backoff/gateway_backoff_example.bend as PGatewayBackoffExample
+import ./proof/gateway_backoff/gateway_backoff_entry_reads.bend as PGatewayBackoffEntryReads
+import ./proof/gateway_backoff/gateway_backoff_entry_answers.bend as PGatewayBackoffEntryAnswers
+import ./proof/gateway_backoff/gateway_backoff_entry_exact.bend as PGatewayBackoffEntryExact
+import ./proof/gateway_backoff/gateway_backoff_entry_refuses.bend as PGatewayBackoffEntryRefuses
+import ./proof/gateway_backoff/gateway_backoff_entry_example.bend as PGatewayBackoffEntryExample
 import ./proof/gateway_answer/base.bend as LAGatewayAnswer
 import ./proof/gateway_answer/gateway_answer_spec.bend as PGatewayAnswerSpec
 import ./proof/gateway_answer/gateway_answer_example.bend as PGatewayAnswerExample

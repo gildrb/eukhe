@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::answer::{answer, Answer};
 use crate::commands::{Parsed, PhoneCommand};
-use crate::link::{Binding, Link, Opened, Reconnect, RECONNECT_FIRST_DELAY, RECONNECT_MAX_DELAY};
+use crate::link::{reconnect_delay, Binding, Link, Opened, Reconnect};
 use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
@@ -159,8 +159,8 @@ impl<L: DaemonLauncher> Gateway<L> {
                             "the daemon stopped on request; waiting for a new daemon (the next Signal message starts one)"
                         );
                         self.daemon = DaemonState::Waiting {
-                            retry_at: tokio::time::Instant::now() + RECONNECT_FIRST_DELAY,
-                            delay: RECONNECT_FIRST_DELAY,
+                            retry_at: tokio::time::Instant::now() + reconnect_delay(None),
+                            delay: reconnect_delay(None),
                         };
                         self.stop_typing().await;
                         if self.running {
@@ -217,7 +217,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                             self.reattach().await;
                         }
                         Err(error) => {
-                            let delay = retry.map_or(RECONNECT_FIRST_DELAY, |(_, delay)| (delay * 2).min(RECONNECT_MAX_DELAY));
+                            let delay = reconnect_delay(retry.map(|(_, delay)| delay));
                             tracing::debug!(error = %format!("{error:#}"), retry_ms = delay.as_millis(), "no daemon yet");
                             self.daemon = DaemonState::Waiting {
                                 retry_at: tokio::time::Instant::now() + delay,
