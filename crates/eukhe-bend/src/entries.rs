@@ -146,6 +146,8 @@ pub enum Entry {
     Repeat = 266,
     /// `bend/ffi_throttle.bend`: a stepper.
     Throttle = 267,
+    /// `bend/ffi_tree_commit.bend`: a call.
+    TreeCommit = 268,
 }
 
 impl Entry {
@@ -221,6 +223,7 @@ impl Entry {
         Entry::NodeError,
         Entry::Repeat,
         Entry::Throttle,
+        Entry::TreeCommit,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -31,6 +31,7 @@ use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
+use eukhe_bend::rules::tree_commit::{self, Change, Step};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -402,73 +403,119 @@ impl StateTree {
         results
     }
 
-    /// Apply the planned changes of one commit. The changes of a commit
-    /// come in no order: a `Put` waits until its parent is in the tree,
-    /// and the `Del`s come last (a commit retires a document after its
-    /// content).
+    /// Apply the planned changes of one commit in the order the compiled
+    /// core answers (`eukhe_bend::rules::tree_commit`; laws:
+    /// `laws/tree_commit.bend`). The changes of a commit come in no order:
+    /// a `Put` waits until its parent is in the tree (rounds over the
+    /// waiting ones, in commit order), a `Put` whose parent never comes has
+    /// an unknown parent, and the `Del`s come last (a commit retires a
+    /// document after its content). The core gets the commit's keys as
+    /// commit-local numbers and, per `Put`, whether its parent is in the
+    /// tree now; whether a change finds its parent or its node is the tree's
+    /// when the change comes.
     fn apply_commit(
         &mut self,
         seq: Seq,
         planned: Vec<Planned>,
     ) -> Vec<Result<Applied, StateError>> {
-        let mut results = Vec::with_capacity(planned.len());
-        let mut puts = Vec::new();
-        let mut dels = Vec::new();
-        for plan in planned {
-            match plan {
-                Planned::Put { key, parent, node } => puts.push((key, parent, node)),
-                Planned::Del { key } => dels.push(key),
-            }
-        }
-        loop {
-            let before = puts.len();
-            let mut waiting = Vec::new();
-            for (key, parent, node) in puts {
-                let parent_id = match &parent {
-                    None => Some(NodeId::ROOT),
-                    Some(parent) => self
-                        .ids
-                        .get(parent)
-                        .copied()
-                        .filter(|id| self.journal.tree().contains(*id)),
-                };
-                match parent_id {
-                    Some(parent_id) => {
-                        // A new key takes the next id.
-                        let keys = &mut self.keys;
-                        let id = *self.ids.entry(key).or_insert_with_key(|key| {
-                            keys.push(key.clone());
-                            NodeId(keys.len() as u64)
+        // Each Put's key number, and its parent's when the tree does not
+        // have that parent now.
+        let facts: Vec<(u64, Option<u64>)> = {
+            let mut numbers: HashMap<&StateKey, u64> = HashMap::with_capacity(planned.len());
+            let mut facts = Vec::with_capacity(planned.len());
+            for plan in &planned {
+                if let Planned::Put { key, parent, .. } = plan {
+                    let next = numbers.len() as u64;
+                    let key = *numbers.entry(key).or_insert(next);
+                    let parent = parent
+                        .as_ref()
+                        .filter(|parent| self.present(parent).is_none())
+                        .map(|parent| {
+                            let next = numbers.len() as u64;
+                            *numbers.entry(parent).or_insert(next)
                         });
-                        results.push(Ok(self.journal.push(TreeRecord::Do(TreeOp::Put {
-                            id,
-                            parent: parent_id,
-                            value: node,
-                        }))));
+                    facts.push((key, parent));
+                }
+            }
+            facts
+        };
+        let mut put = 0;
+        let changes: Vec<_> = planned
+            .into_iter()
+            .map(|plan| match plan {
+                Planned::Put { key, parent, node } => {
+                    let (number, up) = facts[put];
+                    put += 1;
+                    match up {
+                        None => Change::Here {
+                            key: number,
+                            put: (key, parent, node),
+                        },
+                        Some(up) => Change::Under {
+                            key: number,
+                            parent: up,
+                            put: (key, parent, node),
+                        },
                     }
-                    None => waiting.push((key, parent, node)),
                 }
-            }
-            puts = waiting;
-            if puts.is_empty() || puts.len() == before {
-                break;
-            }
-        }
-        for (key, parent, _) in puts {
-            if let Some(parent) = parent {
-                results.push(Err(StateError::UnknownParent { seq, key, parent }));
-            }
-        }
-        for key in dels {
-            match self.ids.get(&key).copied() {
-                Some(id) if self.journal.tree().contains(id) => {
-                    results.push(Ok(self.journal.push(TreeRecord::Do(TreeOp::Del { id }))));
+                Planned::Del { key } => Change::Gone(key),
+            })
+            .collect();
+        let mut results = Vec::with_capacity(changes.len());
+        for step in tree_commit::order(changes) {
+            match step {
+                Step::Apply((key, parent, node)) => {
+                    let parent_id = match parent {
+                        None => Ok(NodeId::ROOT),
+                        Some(parent) => self.present(&parent).ok_or(parent),
+                    };
+                    match parent_id {
+                        Ok(parent_id) => {
+                            // A new key takes the next id.
+                            let keys = &mut self.keys;
+                            let id = *self.ids.entry(key).or_insert_with_key(|key| {
+                                keys.push(key.clone());
+                                NodeId(keys.len() as u64)
+                            });
+                            results.push(Ok(self.journal.push(TreeRecord::Do(TreeOp::Put {
+                                id,
+                                parent: parent_id,
+                                value: node,
+                            }))));
+                        }
+                        // The core applies a Put once its parent's Put
+                        // applied; a tree that refused that Put does not
+                        // have the parent.
+                        Err(parent) => {
+                            results.push(Err(StateError::UnknownParent { seq, key, parent }));
+                        }
+                    }
                 }
-                Some(_) | None => results.push(Err(StateError::UnknownNode { seq, key })),
+                // Only a Put under a commit key waits, so it has a parent: a
+                // Put under the root applies in the first round.
+                Step::Orphan((key, parent, _)) => {
+                    if let Some(parent) = parent {
+                        results.push(Err(StateError::UnknownParent { seq, key, parent }));
+                    }
+                }
+                Step::Retire(key) => match self.present(&key) {
+                    Some(id) => {
+                        results.push(Ok(self.journal.push(TreeRecord::Do(TreeOp::Del { id }))));
+                    }
+                    None => results.push(Err(StateError::UnknownNode { seq, key })),
+                },
             }
         }
         self.seq = Some(seq);
         results
+    }
+
+    /// The id of `key`'s node when the tree has it.
+    fn present(&self, key: &StateKey) -> Option<NodeId> {
+        self.ids
+            .get(key)
+            .copied()
+            .filter(|id| self.journal.tree().contains(*id))
     }
 
     /// The live tree.

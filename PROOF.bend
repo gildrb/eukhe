@@ -1670,3 +1670,15 @@ import ./proof/throttle/throttle_ffi_step_exact.bend as PThrottleFfiStepExact
 import ./proof/throttle/throttle_ffi_step_errors.bend as PThrottleFfiStepErrors
 import ./proof/throttle/throttle_ffi_shut.bend as PThrottleFfiShut
 import ./proof/throttle/throttle_ffi_example.bend as PThrottleFfiExample
+import ./proof/tree_commit/base.bend as LATreeCommit
+import ./proof/tree_commit/base/entry.bend as LATcEntry
+import ./proof/tree_commit/tree_commit_order_exact.bend as PTreeCommitOrderExact
+import ./proof/tree_commit/tree_commit_once.bend as PTreeCommitOnce
+import ./proof/tree_commit/tree_commit_parent_first.bend as PTreeCommitParentFirst
+import ./proof/tree_commit/tree_commit_dels_last.bend as PTreeCommitDelsLast
+import ./proof/tree_commit/tree_commit_example.bend as PTreeCommitExample
+import ./proof/tree_commit/tree_commit_ffi_reads.bend as PTreeCommitFfiReads
+import ./proof/tree_commit/tree_commit_ffi_answers.bend as PTreeCommitFfiAnswers
+import ./proof/tree_commit/tree_commit_ffi_exact.bend as PTreeCommitFfiExact
+import ./proof/tree_commit/tree_commit_ffi_refuses.bend as PTreeCommitFfiRefuses
+import ./proof/tree_commit/tree_commit_ffi_example.bend as PTreeCommitFfiExample

@@ -70,6 +70,7 @@ import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
+import ./ffi_tree_commit.bend as ffi_tree_commit
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -207,6 +208,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_plan.ffi(input)
     case 265:
       ffi_node_error.ffi(input)
+    case 268:
+      ffi_tree_commit.ffi(input)
     case _:
       W.err("unknown entry")
 

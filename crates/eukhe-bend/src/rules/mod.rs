@@ -26,3 +26,4 @@ pub mod submission;
 pub mod throttle;
 pub mod tokens;
 pub mod tool_surface;
+pub mod tree_commit;
