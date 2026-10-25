@@ -4,13 +4,13 @@
 //! string before it is persisted. Ported from the old eukhe port of
 //! prime-agent's `packages/ai/src/utils/stream-failure.ts`.
 
-use std::fmt::Write as _;
-
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, StopReason,
     StreamFailureKind,
 };
 use serde::{Deserialize, Serialize};
+
+use eukhe_bend::rules::stream_failure as rules;
 
 use crate::utils::diagnostics::append_assistant_message_diagnostic;
 use crate::utils::js::{utf16_len, utf16_prefix};
@@ -478,14 +478,12 @@ impl ProviderError {
             retry_after_ms: None,
             provider_error_type: None,
         };
-        let parts = extract_parts_from_http(&http_error);
-        if parts.info.kind == StreamFailureKind::Unknown {
-            ProviderError::Http(http_error)
-        } else {
-            ProviderError::Http(ProviderHttpError {
-                message: stream_failure_message(&parts.info, parts.detail.as_deref()),
+        match extract_parts_from_http(&http_error).message {
+            None => ProviderError::Http(http_error),
+            Some(message) => ProviderError::Http(ProviderHttpError {
+                message,
                 ..http_error
-            })
+            }),
         }
     }
 }
@@ -502,145 +500,27 @@ impl From<ProviderHttpError> for ProviderError {
     }
 }
 
-const KIND_MESSAGES: &[(StreamFailureKind, &str)] = &[
-    (StreamFailureKind::Refusal, "Model refused to respond"),
-    (
-        StreamFailureKind::Safety,
-        "Response blocked by provider safety filters",
-    ),
-    (StreamFailureKind::Overloaded, "Provider overloaded"),
-    (StreamFailureKind::RateLimit, "Provider rate limit exceeded"),
-    (StreamFailureKind::ServerError, "Provider server error"),
-    (StreamFailureKind::Auth, "Provider authentication failed"),
-    (
-        StreamFailureKind::Permission,
-        "Provider denied access to the requested resource",
-    ),
-    (
-        StreamFailureKind::InvalidRequest,
-        "Provider rejected the request",
-    ),
-    (
-        StreamFailureKind::MalformedResponse,
-        "Provider returned a malformed response",
-    ),
-    (
-        StreamFailureKind::PaymentRequired,
-        "Provider requires payment",
-    ),
-    (
-        StreamFailureKind::StreamDrop,
-        "Provider dropped the response stream",
-    ),
-    (StreamFailureKind::StreamStalled, "Provider stream stalled"),
-    (
-        StreamFailureKind::StreamRepeating,
-        "Provider stream repeating",
-    ),
-    (StreamFailureKind::Unknown, "Provider stream failed"),
-];
-
-fn kind_message(kind: StreamFailureKind) -> &'static str {
-    KIND_MESSAGES
-        .iter()
-        .find(|(candidate, _)| *candidate == kind)
-        .map_or("Provider stream failed", |(_, message)| *message)
-}
-
-/// Build a user-facing message like "Provider overloaded (`overloaded_error`, 529) [`request_id`: `req_abc`]".
+/// Build a user-facing message like "Provider overloaded (`overloaded_error`, 529) [`request_id`: `req_abc`]"
+/// (the compiled core: `eukhe_bend::rules::stream_failure::message`).
 #[must_use]
 pub fn stream_failure_message(info: &StreamFailureInfo, detail: Option<&str>) -> String {
-    let mut qualifiers: Vec<String> = Vec::new();
-    if let Some(provider_error_type) = &info.provider_error_type {
-        qualifiers.push(provider_error_type.clone());
-    }
-    if let Some(status) = info.status {
-        qualifiers.push(status.to_string());
-    }
-    let mut message = kind_message(info.kind).to_string();
-    if !qualifiers.is_empty() {
-        let _ = write!(message, " ({})", qualifiers.join(", "));
-    }
-    if let Some(detail) = detail {
-        let _ = write!(message, ": {detail}");
-    }
-    if let Some(request_id) = &info.request_id {
-        let _ = write!(message, " [request_id: {request_id}]");
-    }
-    message
+    rules::message(&rules::Qualified {
+        kind: info.kind,
+        provider_error_type: info.provider_error_type.as_deref(),
+        status: info.status,
+        detail,
+        request_id: info.request_id.as_deref(),
+    })
 }
 
-/// Classify a stream failure from the provider's error type and status code.
-///
-/// # Panics
-///
-/// Panics only if one of the built-in regex patterns fails to compile; the
-/// patterns are static literals, so this never fires in practice.
+/// Classify a stream failure from the provider's error type and status code
+/// (the compiled core: `eukhe_bend::rules::stream_failure::classify`).
 #[must_use]
 pub fn classify_stream_failure(
     provider_error_type: Option<&str>,
     status: Option<u16>,
 ) -> StreamFailureKind {
-    let type_lower = provider_error_type.unwrap_or("").to_lowercase();
-    // A 402 is a payment failure regardless of the body's `error.type`
-    // text: gateways surface wallet drains as `insufficient_credits`,
-    // `insufficient_balance`, `invalid_request_error`, or bare numeric
-    // codes, and the pre-fix classification forked on exactly that text
-    // (the same 402 retried as `unknown` or settled permanently as
-    // `invalid_request` — the silent-arm diagnosis). The status wins:
-    // credits do not refill inside a retry ladder.
-    if status == Some(402) {
-        return StreamFailureKind::PaymentRequired;
-    }
-    if type_lower == "refusal" {
-        return StreamFailureKind::Refusal;
-    }
-    let safety = regex::Regex::new(
-        r"sensitive|safety|prohibited_content|blocklist|spii|recitation|content.?filter|guardrail|flagged",
-    )
-    .expect("static regex");
-    if safety.is_match(&type_lower) {
-        return StreamFailureKind::Safety;
-    }
-    if type_lower.contains("overloaded") || status == Some(529) {
-        return StreamFailureKind::Overloaded;
-    }
-    // usage_not_included is Codex's plan-entitlement rejection, not bad credentials.
-    let rate_limit = regex::Regex::new(r"rate_limit|usage_limit|usage_not_included|throttl")
-        .expect("static regex");
-    if rate_limit.is_match(&type_lower) || status == Some(429) {
-        return StreamFailureKind::RateLimit;
-    }
-    // Permission/403 shapes are entitlement or policy denials, not bad credentials: never auth-stale.
-    if type_lower.contains("authentication")
-        || type_lower.contains("unauthorized")
-        || status == Some(401)
-    {
-        return StreamFailureKind::Auth;
-    }
-    let permission =
-        regex::Regex::new(r"permission|forbidden|access.?denied").expect("static regex");
-    if permission.is_match(&type_lower) || status == Some(403) {
-        return StreamFailureKind::Permission;
-    }
-    if type_lower.contains("invalid_request")
-        || type_lower.contains("not_found_error")
-        || status == Some(400)
-        || status == Some(404)
-    {
-        return StreamFailureKind::InvalidRequest;
-    }
-    if type_lower.contains("malformed") {
-        return StreamFailureKind::MalformedResponse;
-    }
-    if type_lower.contains("api_error")
-        || type_lower.contains("server_error")
-        || type_lower.contains("unavailable")
-        || status.is_some_and(|status| status >= 500)
-    {
-        return StreamFailureKind::ServerError;
-    }
-    StreamFailureKind::Unknown
+    rules::classify(provider_error_type, status)
 }
 
 /// Failure for a stream that terminated with a provider stop/finish reason that
@@ -649,31 +529,16 @@ pub fn stream_failure_from_stop_reason(
     raw_stop_reason: Option<&str>,
     request_id: Option<&str>,
 ) -> StreamFailureError {
-    let mut info = StreamFailureInfo {
-        kind: match raw_stop_reason {
-            Some(reason) => classify_stream_failure(Some(reason), None),
-            None => StreamFailureKind::Unknown,
+    let (kind, message) = rules::from_stop(raw_stop_reason, request_id);
+    StreamFailureError {
+        message,
+        info: StreamFailureInfo {
+            kind,
+            provider_error_type: raw_stop_reason.map(str::to_owned),
+            request_id: request_id.map(str::to_owned),
+            ..StreamFailureInfo::unknown()
         },
-        provider_error_type: raw_stop_reason.map(std::string::ToString::to_string),
-        request_id: request_id.map(std::string::ToString::to_string),
-        status: None,
-        retry_after_ms: None,
-        raw: None,
-        repeated: None,
-        idle_timeout_ms: None,
-    };
-    if info.kind == StreamFailureKind::Unknown
-        && raw_stop_reason.is_some_and(|reason| reason.to_lowercase().contains("malformed"))
-    {
-        info.kind = StreamFailureKind::MalformedResponse;
     }
-    let message = match raw_stop_reason {
-        Some(_) => stream_failure_message(&info, None),
-        None => {
-            stream_failure_message(&info, Some("stream ended with an error and no stop reason"))
-        }
-    };
-    StreamFailureError { message, info }
 }
 
 /// Which content block a dropped stream was inside when the provider ended
@@ -695,29 +560,19 @@ pub enum OpenStreamBlock {
 /// class when the retries exhaust.
 #[must_use]
 pub fn stream_drop_failure(open_block: OpenStreamBlock) -> StreamFailureError {
-    let detail = match open_block {
-        OpenStreamBlock::Thinking => {
-            "the stream ended inside a thinking block before the stop signal"
-        }
-        OpenStreamBlock::Text => "the stream ended inside a text block before the stop signal",
-        OpenStreamBlock::ToolCall => {
-            "the stream ended inside a tool-call block before the stop signal"
-        }
-        OpenStreamBlock::None => "the stream ended before any response content or stop signal",
-    };
-    let info = StreamFailureInfo {
-        kind: StreamFailureKind::StreamDrop,
-        provider_error_type: Some("stream_drop".to_string()),
-        status: None,
-        request_id: None,
-        retry_after_ms: None,
-        raw: None,
-        repeated: None,
-        idle_timeout_ms: None,
+    let block = match open_block {
+        OpenStreamBlock::Thinking => rules::Block::Thinking,
+        OpenStreamBlock::Text => rules::Block::Text,
+        OpenStreamBlock::ToolCall => rules::Block::ToolCall,
+        OpenStreamBlock::None => rules::Block::None,
     };
     StreamFailureError {
-        message: stream_failure_message(&info, Some(detail)),
-        info,
+        message: rules::dropped(block),
+        info: StreamFailureInfo {
+            kind: StreamFailureKind::StreamDrop,
+            provider_error_type: Some("stream_drop".to_string()),
+            ..StreamFailureInfo::unknown()
+        },
     }
 }
 
@@ -732,63 +587,36 @@ pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
         reason = "an idle deadline is a whole, positive number of ms"
     )]
     let recorded = idle_timeout_ms.max(0.0).round() as u64;
-    let info = StreamFailureInfo {
-        kind: StreamFailureKind::StreamStalled,
-        provider_error_type: None,
-        status: None,
-        request_id: None,
-        retry_after_ms: None,
-        raw: None,
-        repeated: None,
-        idle_timeout_ms: Some(recorded),
-    };
-    let detail = format!(
-        "no stream event for {}ms",
-        crate::utils::js::number_to_js_string(idle_timeout_ms)
-    );
     StreamFailureError {
-        message: stream_failure_message(&info, Some(&detail)),
-        info,
+        message: rules::stalled(&crate::utils::js::number_to_js_string(idle_timeout_ms)),
+        info: StreamFailureInfo {
+            kind: StreamFailureKind::StreamStalled,
+            idle_timeout_ms: Some(recorded),
+            ..StreamFailureInfo::unknown()
+        },
     }
 }
-
-/// The characters of the repeated line a [`stream_repeating_failure`]
-/// message shows; a longer line is cut there and marked with `…`.
-const REPEATED_LINE_SHOWN_CHARS: usize = 80;
 
 /// Failure for a stream the repetition guard cut: its last `limit` output
 /// lines repeat with a period of `period` lines (1: the same line `limit`
 /// times in a row); `line` is the newest (the repetition guard of
 /// `Models`). Retryable by kind, like a stall. Its info records the
-/// period and the line as the message shows them ([`RepeatedLines`]).
+/// period and the line as the message shows them ([`RepeatedLines`]); the
+/// compiled core cuts the line and writes the message, Rust quotes it.
 #[must_use]
 pub fn stream_repeating_failure(limit: u32, period: u32, line: &str) -> StreamFailureError {
-    let shown = match line.char_indices().nth(REPEATED_LINE_SHOWN_CHARS) {
-        Some((end, _)) => format!("{}…", &line[..end]),
-        None => line.to_owned(),
-    };
-    let detail = match period {
-        0 | 1 => format!("the same line {limit} times in a row: {shown:?}"),
-        _ => format!(
-            "a cycle of {period} lines repeated over the last {limit} lines, ending with {shown:?}"
-        ),
-    };
-    let info = StreamFailureInfo {
-        kind: StreamFailureKind::StreamRepeating,
-        provider_error_type: None,
-        status: None,
-        request_id: None,
-        retry_after_ms: None,
-        raw: None,
-        repeated: Some(RepeatedLines {
-            period: period.max(1),
-            line: shown,
-        }),
-        idle_timeout_ms: None,
-    };
+    let shown = rules::shown(line);
+    let (message, period) = rules::repeating(limit, period, &format!("{shown:?}"));
     StreamFailureError {
-        message: stream_failure_message(&info, Some(&detail)),
-        info,
+        message,
+        info: StreamFailureInfo {
+            kind: StreamFailureKind::StreamRepeating,
+            repeated: Some(RepeatedLines {
+                period,
+                line: shown,
+            }),
+            ..StreamFailureInfo::unknown()
+        },
     }
 }
 
@@ -816,7 +644,8 @@ pub(crate) use http_retry::parse_retry_after_ms;
 
 struct ExtractedParts {
     info: StreamFailureInfo,
-    detail: Option<String>,
+    /// The user's message; `None` keeps the raw one (an unknown cause).
+    message: Option<String>,
 }
 
 fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
@@ -856,30 +685,21 @@ fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
     let retry_after_ms = error
         .retry_after_ms
         .or_else(|| parse_retry_after_ms(&error.headers));
-
-    // TS `extractStreamFailureParts`: the SDK error's own `code` field and
-    // then its class `name` stand in for the provider error type when the
-    // body does not carry one.
-    let provider_error_type = body_type
-        .or_else(|| error.provider_error_type.clone())
-        .or_else(|| error.sdk_name.clone());
-    let mut kind = classify_stream_failure(
-        provider_error_type
-            .as_deref()
-            .or(Some(error.message.as_str())),
-        error.status,
-    );
-    // Message text is too weak for these verdicts: without a structured type, only the status decides.
-    if (kind == StreamFailureKind::Auth || kind == StreamFailureKind::Permission)
-        && provider_error_type.is_none()
-    {
-        kind = classify_stream_failure(None, error.status);
-    }
-
+    // The type's precedence (body, the SDK error's own code, its class
+    // name), the cause and the message run as the compiled core.
+    let cause = rules::http(&rules::HttpFacts {
+        message: &error.message,
+        status: error.status,
+        body_type: body_type.as_deref(),
+        body_message: body_message.as_deref(),
+        code: error.provider_error_type.as_deref(),
+        sdk_name: error.sdk_name.as_deref(),
+        request_id: request_id.as_deref(),
+    });
     ExtractedParts {
         info: StreamFailureInfo {
-            kind,
-            provider_error_type,
+            kind: cause.kind,
+            provider_error_type: cause.provider_error_type,
             status: error.status,
             request_id,
             retry_after_ms,
@@ -887,7 +707,7 @@ fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
             repeated: None,
             idle_timeout_ms: None,
         },
-        detail: body_message,
+        message: cause.message,
     }
 }
 
@@ -935,14 +755,9 @@ pub fn format_stream_failure_message(error: &ProviderError) -> String {
         // The TS WS transport errors classify as "unknown", so the raw
         // runtime text passes through verbatim.
         ProviderError::Transport(transport) => transport.message.clone(),
-        ProviderError::Http(http) => {
-            let parts = extract_parts_from_http(http);
-            if parts.info.kind == StreamFailureKind::Unknown {
-                http.message.clone()
-            } else {
-                stream_failure_message(&parts.info, parts.detail.as_deref())
-            }
-        }
+        ProviderError::Http(http) => extract_parts_from_http(http)
+            .message
+            .unwrap_or_else(|| http.message.clone()),
         ProviderError::Message(message) => message.clone(),
     }
 }

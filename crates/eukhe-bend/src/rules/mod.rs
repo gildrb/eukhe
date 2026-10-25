@@ -27,6 +27,7 @@ pub mod scan;
 pub mod semver;
 pub mod shell;
 pub mod slash;
+pub mod stream_failure;
 pub mod submission;
 pub mod theme;
 pub mod tokens;

@@ -70,6 +70,7 @@ import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
+import ./ffi_stream_failure.bend as ffi_stream_failure
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_theme.bend as ffi_theme
@@ -232,6 +233,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_cache_marks.ffi(input)
     case 231:
       ffi_overflow.ffi(input)
+    case 232:
+      ffi_stream_failure.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:

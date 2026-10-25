@@ -91,3 +91,4 @@ import ./laws/doc_plan.bend as DocPlan
 import ./laws/cache_marks.bend as CacheMarks
 import ./laws/text_pat.bend as TextPat
 import ./laws/overflow.bend as Overflow
+import ./laws/stream_failure.bend as StreamFailure
