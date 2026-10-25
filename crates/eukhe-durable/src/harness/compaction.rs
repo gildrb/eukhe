@@ -27,8 +27,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::prompt::serialize_conversation;
 use self::prompt::{
-    summary_failure, summary_prompt, summary_text, SUMMARIZATION_SYSTEM_PROMPT, SUMMARY_PREFIX,
-    SUMMARY_SUFFIX,
+    summary_outcome, summary_prompt, SUMMARIZATION_SYSTEM_PROMPT, SUMMARY_PREFIX, SUMMARY_SUFFIX,
 };
 pub use self::range::{estimate_context, select_cut, summarized_messages};
 use crate::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
@@ -367,7 +366,6 @@ async fn classify(
     cx: &Context,
 ) -> SessionResult<()> {
     let conversation_id = runtime.conversation_id();
-    let summary = summary_text(&message);
     let policy = runtime.settings().retry;
     let retryable = message.stop_reason == StopReason::Error
         && is_retryable_assistant_error(&message)
@@ -394,6 +392,9 @@ async fn classify(
         }
         None => (false, 0.0),
     };
+    // A summary, else the failure text of the response as committed (a
+    // refused retry's error message included).
+    let outcome = summary_outcome(&message);
     let commit_runtime = runtime.clone();
     runtime
         .commit(
@@ -409,19 +410,22 @@ async fn classify(
                 )
                 .await?;
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                if let Some(summary) = summary {
-                    return place_summary(
-                        &tx,
-                        &runtime,
-                        &current,
-                        &live,
-                        request.first_kept,
-                        &summary,
-                        None,
-                    )
-                    .await
-                    .map(Some);
-                }
+                let failure = match outcome {
+                    Ok(summary) => {
+                        return place_summary(
+                            &tx,
+                            &runtime,
+                            &current,
+                            &live,
+                            request.first_kept,
+                            &summary,
+                            None,
+                        )
+                        .await
+                        .map(Some);
+                    }
+                    Err(failure) => failure,
+                };
                 if retry {
                     if let Some(status) = compaction_status(&live, runtime.task_id().erase())? {
                         let retry = LiveRetry {
@@ -435,7 +439,7 @@ async fn classify(
                     }));
                 }
                 remove_compaction_status(&live, runtime.task_id().erase())?;
-                Ok(Some(failed(summary_failure(&message), "model_error")?))
+                Ok(Some(failed(failure, "model_error")?))
             },
             cx,
         )

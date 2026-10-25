@@ -150,6 +150,8 @@ pub enum Entry {
     TreeCommit = 268,
     /// `bend/ffi_context_order.bend`: a call.
     ContextOrder = 269,
+    /// `bend/ffi_compaction_cut.bend`: a call.
+    CompactionCut = 270,
 }
 
 impl Entry {
@@ -227,6 +229,7 @@ impl Entry {
         Entry::Throttle,
         Entry::TreeCommit,
         Entry::ContextOrder,
+        Entry::CompactionCut,
     ];
 
     /// The id `bend/core.bend` dispatches on.

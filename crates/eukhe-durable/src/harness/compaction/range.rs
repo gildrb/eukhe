@@ -2,47 +2,47 @@
 //! [`ContextView`] shared by the compaction task and generation's threshold
 //! and overflow checks.
 
-use std::collections::HashSet;
-
 use eukhe_ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message};
+use eukhe_bend::rules::compaction_cut::{self, Contribution, Limit};
+use eukhe_bend::rules::context_order::Fact;
+use eukhe_types::pi_ai::{AssistantMessage, Message};
 
-use crate::harness::context::order_tool_results;
+use crate::harness::context::{order_tool_results, Calls};
 use crate::harness::types::ContextView;
 
 /// Index in `view.entries` of the first entry a summary keeps, or `None`
-/// when there is nothing to compact (spec §8.7). Walks back from the tail
-/// until `keep_recent_tokens` are kept, then cuts at the first candidate at or
-/// after that entry: an entry whose contribution starts with a user or
-/// assistant message, never a tool result, and never a user entry that a
-/// result of the preceding assistant's calls still follows.
+/// when there is nothing to compact (spec §8.7). The compiled core walks
+/// back from the tail until `keep_recent_tokens` are kept, then cuts at the
+/// first candidate at or after that entry: an entry whose contribution
+/// starts with a user or assistant message, never a tool result, and never
+/// a user entry that a result of the preceding assistant's calls still
+/// follows. Rust gives each contribution's estimated tokens and its
+/// messages' facts, and the keep window as the core's limit
+/// ([`Limit::of_keep`]).
 #[must_use]
 pub fn select_cut(view: &ContextView, keep_recent_tokens: f64) -> Option<usize> {
-    let contributions = &view.contributions;
-    let start = usize::from(view.head.is_some());
-    let candidates: Vec<usize> = (start..contributions.len())
-        .filter(|&index| is_candidate(contributions, index))
+    let mut calls = Calls::default();
+    let facts: Vec<Vec<Fact>> = view
+        .contributions
+        .iter()
+        .map(|contribution| calls.facts(contribution))
         .collect();
-    let mut kept: u64 = 0;
-    let mut cut = None;
-    for index in (start..contributions.len()).rev() {
-        for message in &contributions[index] {
-            kept += estimate_message_tokens(message);
-        }
-        if js_number(kept) < keep_recent_tokens {
-            continue;
-        }
-        cut = candidates
-            .iter()
-            .copied()
-            .find(|&candidate| candidate >= index)
-            .or_else(|| candidates.last().copied());
-        break;
-    }
-    let cut = cut?;
-    (start..cut)
-        .any(|index| !contributions[index].is_empty())
-        .then_some(cut)
+    let contributions: Vec<Contribution<'_>> = view
+        .contributions
+        .iter()
+        .zip(&facts)
+        .map(|(contribution, facts)| Contribution {
+            tokens: contribution.iter().fold(0, |tokens: u64, message| {
+                tokens.saturating_add(estimate_message_tokens(message))
+            }),
+            facts,
+        })
+        .collect();
+    compaction_cut::cut(
+        view.head.is_some(),
+        Limit::of_keep(keep_recent_tokens),
+        &contributions,
+    )
 }
 
 /// A token count as the JS number TS compares it as.
@@ -52,57 +52,6 @@ pub fn select_cut(view: &ContextView, keep_recent_tokens: f64) -> Option<usize> 
 )]
 pub(super) fn js_number(tokens: u64) -> f64 {
     tokens as f64
-}
-
-fn is_candidate(contributions: &[Vec<Message>], index: usize) -> bool {
-    match contributions[index].first() {
-        Some(Message::Assistant(_)) => return true,
-        Some(Message::User(_)) => {}
-        Some(Message::System(_) | Message::ToolResult(_)) | None => return false,
-    }
-    // A result of the preceding assistant's calls that follows this entry,
-    // before the next assistant, belongs before it.
-    let mut calls: HashSet<&str> = HashSet::new();
-    for before in (0..index).rev() {
-        let Some(assistant) =
-            contributions[before]
-                .iter()
-                .rev()
-                .find_map(|message| match message {
-                    Message::Assistant(assistant) => Some(assistant),
-                    Message::System(_) | Message::User(_) | Message::ToolResult(_) => None,
-                })
-        else {
-            continue;
-        };
-        calls = assistant
-            .content
-            .iter()
-            .filter_map(|content| match content {
-                AssistantContentBlock::ToolCall(call) => Some(call.id.as_str()),
-                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
-            })
-            .collect();
-        break;
-    }
-    if calls.is_empty() {
-        return true;
-    }
-    for (after, contribution) in contributions.iter().enumerate().skip(index) {
-        for (position, message) in contribution.iter().enumerate() {
-            match message {
-                Message::Assistant(_) if after > index || position > 0 => return true,
-                Message::ToolResult(result) if calls.contains(result.tool_call_id.as_str()) => {
-                    return false;
-                }
-                Message::Assistant(_)
-                | Message::ToolResult(_)
-                | Message::System(_)
-                | Message::User(_) => {}
-            }
-        }
-    }
-    true
 }
 
 /// Model messages of the entries before `cut`: the head marker first,

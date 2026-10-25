@@ -1699,3 +1699,16 @@ import ./proof/context_order/context_order_ffi_answers.bend as PContextOrderFfiA
 import ./proof/context_order/context_order_ffi_exact.bend as PContextOrderFfiExact
 import ./proof/context_order/context_order_ffi_refuses.bend as PContextOrderFfiRefuses
 import ./proof/context_order/context_order_ffi_example.bend as PContextOrderFfiExample
+import ./proof/compaction_cut/base.bend as LACompactionCut
+import ./proof/compaction_cut/base/read.bend as LACcRead
+import ./proof/compaction_cut/base/reply.bend as LACcReply
+import ./proof/compaction_cut/base/exact.bend as LACcExact
+import ./proof/compaction_cut/compaction_cut_candidates_exact.bend as PCompactionCutCandidatesExact
+import ./proof/compaction_cut/compaction_cut_exact.bend as PCompactionCutExact
+import ./proof/compaction_cut/compaction_cut_summary_exact.bend as PCompactionCutSummaryExact
+import ./proof/compaction_cut/compaction_cut_example.bend as PCompactionCutExample
+import ./proof/compaction_cut/compaction_cut_ffi_reads.bend as PCompactionCutFfiReads
+import ./proof/compaction_cut/compaction_cut_ffi_answers.bend as PCompactionCutFfiAnswers
+import ./proof/compaction_cut/compaction_cut_ffi_exact.bend as PCompactionCutFfiExact
+import ./proof/compaction_cut/compaction_cut_ffi_refuses.bend as PCompactionCutFfiRefuses
+import ./proof/compaction_cut/compaction_cut_ffi_example.bend as PCompactionCutFfiExample

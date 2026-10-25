@@ -12,6 +12,7 @@ import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_codemode_id.bend as ffi_codemode_id
 import ./ffi_command.bend as ffi_command
+import ./ffi_compaction_cut.bend as ffi_compaction_cut
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_context_order.bend as ffi_context_order
 import ./ffi_cvar.bend as ffi_cvar
@@ -213,6 +214,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tree_commit.ffi(input)
     case 269:
       ffi_context_order.ffi(input)
+    case 270:
+      ffi_compaction_cut.ffi(input)
     case _:
       W.err("unknown entry")
 

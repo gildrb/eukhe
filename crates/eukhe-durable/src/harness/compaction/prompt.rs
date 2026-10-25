@@ -1,9 +1,10 @@
 //! The summarizer's request text (the coding agent's structured checkpoint
 //! format) and the classification of its answer (spec §8.7).
 
+use eukhe_bend::rules::compaction_cut::{self, Answer, Outcome};
 use eukhe_chord::json::{JsonObject, JsonValue};
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent, UserContentBlock,
+    AssistantContentBlock, AssistantMessage, Message, UserContent, UserContentBlock,
 };
 
 /// Longest tool result text, in UTF-16 code units, a serialized summary
@@ -51,12 +52,11 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.";
 
-/// The summary of a clean `stop` with text and no tool call; anything else
-/// is not a summary.
-pub(super) fn summary_text(message: &AssistantMessage) -> Option<String> {
-    if message.stop_reason != StopReason::Stop || has_tool_call(message) {
-        return None;
-    }
+/// The summary of a clean `stop` with text and no tool call (`Ok`), else
+/// the failure message of the response (`Err`): the compiled core decides
+/// both from the stop reason, whether it called a tool, whether its text
+/// (joined and trimmed as JS does, here) is blank, and its error message.
+pub(super) fn summary_outcome(message: &AssistantMessage) -> Result<String, String> {
     let text = message
         .content
         .iter()
@@ -67,32 +67,19 @@ pub(super) fn summary_text(message: &AssistantMessage) -> Option<String> {
         .collect::<Vec<_>>()
         .join("\n");
     let text = text.trim_matches(is_js_whitespace);
-    (!text.is_empty()).then(|| text.to_owned())
-}
-
-/// The failure message of a response that is not a summary.
-pub(super) fn summary_failure(message: &AssistantMessage) -> String {
-    if matches!(message.stop_reason, StopReason::Error | StopReason::Aborted) {
-        let reason = message
-            .error_message
-            .as_deref()
-            .unwrap_or_else(|| message.stop_reason.as_str());
-        return format!("Summarization failed: {reason}");
+    let answer = Answer {
+        stop: message.stop_reason,
+        calls: message
+            .content
+            .iter()
+            .any(|content| matches!(content, AssistantContentBlock::ToolCall(_))),
+        text: !text.is_empty(),
+        error: message.error_message.as_deref(),
+    };
+    match compaction_cut::summary(answer) {
+        Outcome::Summary => Ok(text.to_owned()),
+        Outcome::Failed(failure) => Err(failure),
     }
-    if message.stop_reason == StopReason::Length {
-        return "Summarization hit the token limit; the summary is incomplete".to_owned();
-    }
-    if has_tool_call(message) {
-        return "Summarization attempted to call a tool".to_owned();
-    }
-    "Summarization produced no text".to_owned()
-}
-
-fn has_tool_call(message: &AssistantMessage) -> bool {
-    message
-        .content
-        .iter()
-        .any(|content| matches!(content, AssistantContentBlock::ToolCall(_)))
 }
 
 /// The summarizer's user message: the serialized conversation, the prompt,

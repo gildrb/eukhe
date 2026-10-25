@@ -163,7 +163,8 @@ pub fn lead(roles: &[Role]) -> Option<usize> {
     expect_core(Entry::ContextOrder, call_lead(roles))
 }
 
-fn stop_tag(stop: StopReason) -> u32 {
+/// The wire tag of a stop reason (`Co.Stop`).
+pub(crate) fn stop_tag(stop: StopReason) -> u32 {
     match stop {
         StopReason::Pending => 0,
         StopReason::Stop => 1,
@@ -175,7 +176,8 @@ fn stop_tag(stop: StopReason) -> u32 {
     }
 }
 
-fn put_facts(request: &mut Writer, facts: &[Fact]) {
+/// A list of messages' facts (`List<Co.Msg>`).
+pub(crate) fn put_facts(request: &mut Writer, facts: &[Fact]) {
     request.count(facts.len());
     for fact in facts {
         match fact {

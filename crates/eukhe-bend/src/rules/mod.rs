@@ -5,6 +5,7 @@
 pub mod approvals;
 pub mod bound;
 pub mod codemode_id;
+pub mod compaction_cut;
 pub mod compactor;
 pub mod context_order;
 pub mod cvar;
