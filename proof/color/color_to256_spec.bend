@@ -15,11 +15,12 @@ def ct.of(+r: U32, +g: U32, +b: U32, +ri: U32, +gi: U32, +bi: U32, +slot: U32) -
   +cube = {Co.Rgb{Co.at(Co.levels(), ri), Co.at(Co.levels(), gi), Co.at(Co.levels(), bi)} : Co.Rgb}
   +spread = (U32.max(r, U32.max(g, b)) - U32.min(r, U32.min(g, b)) : U32)
   +lhs = Co.to256.of(r, g, b, ri, gi, bi, slot)
-  %Color.color_dist_spec(c, gray) : {lhs == Color.th.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(_, Color.th.dist(c, cube))), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32)) : U32}
-  %Color.color_dist_spec(c, cube) : {lhs == Color.th.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(Co.dist(c, gray), _)), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32)) : U32}
+  %PDist.cd.dist(c, gray) : {lhs == Color.th.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(_, Color.th.dist(c, cube))), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32)) : U32}
+  %PDist.cd.dist(c, cube) : {lhs == Color.th.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(Co.dist(c, gray), _)), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32)) : U32}
   PNear.cn.sel(Bool.and(U32.is_lt(spread, 10), U32.is_lt(Co.dist(c, gray), Co.dist(c, cube))), (232 + slot : U32), (16 + 36 * ri + 6 * gi + bi : U32))
 
-def Color.color_to256_spec(c):
+# for every color (the law states it where the spec is exact)
+def ct.all(c: Co.Rgb) -> {Co.to256(c) == Color.th.to256(c) : U32}:
   match c:
     case Co.Rgb{+r, +g, +b}:
       +l = (299 * r + 587 * g + 114 * b : U32)
@@ -29,3 +30,6 @@ def Color.color_to256_spec(c):
       %Color.color_near_spec(b, Co.levels()) : {lhs == Color.th.to256.of(r, g, b, Co.near(r, Co.levels()), Co.near(g, Co.levels()), _, Color.th.nearest(l, Color.th.targets())) : U32}
       %Color.color_near_spec(l, Co.gray.targets()) : {lhs == Color.th.to256.of(r, g, b, Co.near(r, Co.levels()), Co.near(g, Co.levels()), Co.near(b, Co.levels()), _) : U32}
       ct.of(r, g, b, Co.near(r, Co.levels()), Co.near(g, Co.levels()), Co.near(b, Co.levels()), Co.near(l, Co.gray.targets()))
+
+def Color.color_to256_spec(c, bytes):
+  ct.all(c)
