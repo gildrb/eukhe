@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/pick.bend as Tiny
 import ./base.bend as LA
 
 def tiny.pn.and_t(+a: Bool, +b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:

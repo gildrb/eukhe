@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/tiny.bend as Tn
-import ../../laws/tiny.bend as Tiny
+import ../../laws/tiny/elect.bend as Tiny
 
 def Tiny.tiny_bind_spec(p):
   match p:

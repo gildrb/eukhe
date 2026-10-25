@@ -146,8 +146,6 @@ pub enum Entry {
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a call and a stepper.
     AuthFlight = 92,
-    /// `bend/ffi_tiny_elect.bend`: a call.
-    TinyElect = 100,
     /// `bend/ffi_dash.bend`: a call.
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
@@ -198,6 +196,8 @@ pub enum Entry {
     RefinePlan = 295,
     /// `bend/ffi_glob.bend`: a call.
     Glob = 380,
+    /// `bend/ffi_tiny_run.bend`: a stepper.
+    TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
 }
@@ -275,7 +275,6 @@ impl Entry {
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
-        Entry::TinyElect,
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,
@@ -301,6 +300,7 @@ impl Entry {
         Entry::PackageSource,
         Entry::RefinePlan,
         Entry::Glob,
+        Entry::TinyRun,
         Entry::WaitRace,
     ];
 

@@ -1,17 +1,20 @@
 //! The election of a model's worker: a process that needs the model pings
 //! the worker's socket; a worker with its launch tag is joined, a worker
 //! with another tag is shut down and replaced, and with no live worker one
-//! is started. Every choice (`elect`, `shut`, `launched`, `confirm`, `bind`
-//! in bend/tiny.bend section 3) runs as the compiled Bend core
-//! (`bend/ffi_tiny_elect.bend`); this module connects, pings, shuts down,
-//! launches and reports what it met.
+//! is started. The run of the election, and of a started worker's seat
+//! (bend/tiny.bend section 4), is a stepper of the compiled Bend core
+//! (`bend/ffi_tiny_run.bend`, laws `laws/tiny/run.bend`): it decides what
+//! each outcome means and what to do next. This module only does it
+//! (connect and ping, shut down, launch, take the bind lock), reports each
+//! outcome to the run as it arrives, and keeps what an outcome left to act
+//! on (the connection a ping opened, the error it met).
 
 use std::future::Future;
 use std::io;
 use std::path::Path;
 
-use eukhe_bend::wire::{Reader, WireError, Writer};
-use eukhe_bend::{call, expect_core, Entry, Error};
+use eukhe_bend::wire::{Reader, WireError, Writer, STR_MAX};
+use eukhe_bend::{expect_core, Entry, Error, Stepper};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
@@ -110,25 +113,30 @@ pub(crate) enum Met {
 }
 
 impl Met {
-    /// The probe on the wire (`Probe` of `bend/ffi_tiny_elect.bend`).
+    /// The probe on the wire (`Probe` of `bend/ffi_tiny_run.bend`): a launch
+    /// tag longer than the wire carries is no line of the protocol.
     fn spell(&self, writer: &mut Writer) {
         match self {
             Met::Missing => writer.tag(0),
             Met::Unreachable(_) => writer.tag(1),
-            Met::Pong { tag, .. } => writer.tag(2).str(tag),
+            Met::Pong { tag, .. } if tag.chars().count() <= STR_MAX => writer.tag(2).str(tag),
+            Met::Garbled(_) | Met::Pong { .. } => writer.tag(4),
             Met::Odd(_) => writer.tag(3),
-            Met::Garbled(_) => writer.tag(4),
             Met::Hung => writer.tag(5),
         };
     }
 
-    /// The IO error of a probe the core calls failed.
+    /// The IO error of a probe the run calls failed.
     fn into_error(self) -> io::Error {
         match self {
             Met::Unreachable(error) | Met::Garbled(error) => error,
             Met::Odd(other) => io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("the worker answered a ping with {other:?}"),
+            ),
+            Met::Pong { tag, .. } if tag.chars().count() > STR_MAX => io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the worker's launch tag is longer than the core reads",
             ),
             Met::Missing | Met::Pong { .. } | Met::Hung => inconsistent("a failed probe"),
         }
@@ -166,190 +174,136 @@ pub(crate) async fn probe(socket: &Path) -> Met {
 /// inconsistent build answers it.
 fn inconsistent<T>(expected: &'static str) -> T {
     expect_core(
-        Entry::TinyElect,
+        Entry::TinyRun,
         Err::<T, Error>(Error::Wire(WireError::Malformed { at: 0, expected })),
     )
 }
 
-/// The request in `writer`, which holds a worker's launch tag: a tag too
-/// long for the wire is the worker's protocol fault.
-fn holding_tag(writer: &mut Writer) -> io::Result<String> {
-    writer.finish().map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("the worker's launch tag cannot be read: {error}"),
-        )
-    })
-}
-
-/// The compiled core's choice on `request`: a tag below `choices`.
-fn ask(request: &str, choices: u32, what: &'static str) -> u32 {
-    let choice = || -> Result<u32, Error> {
-        let reply = call(Entry::TinyElect, request)?;
-        let mut reader = Reader::reply(&reply)?;
-        let choice = reader.tag_of(choices, what)?;
-        reader.end()?;
-        Ok(choice)
-    };
-    expect_core(Entry::TinyElect, choice())
-}
-
-/// The first choice of a process (`elect`).
-enum Elected {
-    Join(Connection),
-    Replace(Connection),
-    Start,
-    Broken(io::Error),
-}
-
-fn elect(met: Met, tag: &str) -> io::Result<Elected> {
-    let mut writer = Writer::new();
-    writer.tag(0);
-    met.spell(&mut writer);
-    writer.str(tag);
-    let choice = ask(&holding_tag(&mut writer)?, 4, "an election choice");
-    Ok(match (choice, met) {
-        (0, Met::Pong { connection, .. }) => Elected::Join(connection),
-        (1, Met::Pong { connection, .. }) => Elected::Replace(connection),
-        (2, Met::Missing | Met::Hung) => Elected::Start,
-        (3.., met) => Elected::Broken(met.into_error()),
-        (
-            0..=2,
-            Met::Missing
-            | Met::Unreachable(_)
-            | Met::Pong { .. }
-            | Met::Odd(_)
-            | Met::Garbled(_)
-            | Met::Hung,
-        ) => inconsistent("an election choice the probe allows"),
-    })
-}
-
-/// What the shutdown of a worker of another tag heard (`shut`).
-enum Shutdown {
-    Down,
-    Spoke(Response),
-    Cut(io::Error),
-}
-
-fn shut(heard: io::Result<Response>) -> Shutdown {
-    let fact = match &heard {
-        Ok(Response::Ok { reply: Reply::Bye }) => 0,
-        Ok(_) => 1,
-        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => 2,
-        Err(_) => 3,
-    };
-    let mut writer = Writer::new();
-    writer.tag(1).tag(fact);
-    match (
-        ask(
-            &expect_core(Entry::TinyElect, writer.finish()),
-            3,
-            "a shutdown choice",
-        ),
-        heard,
-    ) {
-        (0, _) => Shutdown::Down,
-        (1, Ok(other)) => Shutdown::Spoke(other),
-        (2.., Err(error)) => Shutdown::Cut(error),
-        (1, Err(_)) | (2.., Ok(_)) => inconsistent("a shutdown choice the answer allows"),
-    }
-}
-
-/// A start the process made: of a first worker, or of a replacement.
-#[derive(Debug, Clone, Copy)]
-enum Fresh {
-    First,
-    Again,
-}
-
-/// What a need that started a worker got (`launched`).
-fn launched(fresh: Fresh, launch: Launched) -> Got {
-    let mut writer = Writer::new();
-    writer
-        .tag(2)
-        .tag(match fresh {
-            Fresh::First => 0,
-            Fresh::Again => 1,
-        })
-        .tag(match launch {
-            Launched::Ready => 0,
-            Launched::Adopted => 1,
-        });
-    match ask(
-        &expect_core(Entry::TinyElect, writer.finish()),
-        3,
-        "a launch outcome",
-    ) {
-        0 => Got::Started,
-        1 => Got::Joined,
-        2.. => Got::Replaced,
-    }
-}
-
-/// What the ping after a start met, for the process (`confirm`).
-enum Confirmed {
-    Serving(Connection),
-    Mistagged(String),
+/// Why a run failed (`Why` in bend/tiny.bend).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Why {
+    Io,
+    Protocol,
+    Mistagged,
     Vacant,
-    Faulty(io::Error),
+    Spawn,
 }
 
-fn confirm(met: Met, tag: &str) -> io::Result<Confirmed> {
-    let mut writer = Writer::new();
-    writer.tag(3);
-    met.spell(&mut writer);
-    writer.str(tag);
-    let choice = ask(&holding_tag(&mut writer)?, 4, "a start check");
-    Ok(match (choice, met) {
-        (0, Met::Pong { connection, .. }) => Confirmed::Serving(connection),
-        (1, Met::Pong { tag: theirs, .. }) => Confirmed::Mistagged(theirs),
-        (2, Met::Missing | Met::Hung) => Confirmed::Vacant,
-        (3.., met) => Confirmed::Faulty(met.into_error()),
-        (
-            0..=2,
-            Met::Missing
-            | Met::Unreachable(_)
-            | Met::Pong { .. }
-            | Met::Odd(_)
-            | Met::Garbled(_)
-            | Met::Hung,
-        ) => inconsistent("a start check the probe allows"),
-    })
-}
-
-/// What a started worker does with the socket (`bind`).
-pub(crate) enum Seat {
-    /// A live worker answers: leave it in place.
+/// What the run tells Rust to do next (`Do` in bend/tiny.bend).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Do {
+    Ping,
+    Shutdown,
+    Launch,
+    Use(Got),
+    Fail(Why),
+    Lock,
     Adopt,
-    /// No live worker: remove a stale socket and bind it.
     Take,
-    /// The socket failed or spoke out of protocol.
-    Fault(io::Error),
+    Fault,
+    Nothing,
 }
 
-/// The choice of a started worker whose own ping met `met`.
-pub(crate) fn seat(met: Met) -> Seat {
-    let mut writer = Writer::new();
-    writer.tag(4);
-    met.spell(&mut writer);
-    let request = match holding_tag(&mut writer) {
-        Ok(request) => request,
-        Err(error) => return Seat::Fault(error),
+/// An outcome Rust reports to the run (`Seen` in bend/tiny.bend).
+enum Seen<'a> {
+    Pinged(&'a Met),
+    Heard(&'a io::Result<Response>),
+    Came(Launched),
+    NoSpawn,
+    Locked,
+}
+
+fn read_do(reply: &str) -> Result<Do, WireError> {
+    let mut reader = Reader::reply(reply)?;
+    let next = match reader.tag_of(10, "what to do next")? {
+        0 => Do::Ping,
+        1 => Do::Shutdown,
+        2 => Do::Launch,
+        3 => Do::Use(match reader.tag_of(3, "what a need got")? {
+            0 => Got::Started,
+            1 => Got::Joined,
+            2.. => Got::Replaced,
+        }),
+        4 => Do::Fail(match reader.tag_of(5, "why a need failed")? {
+            0 => Why::Io,
+            1 => Why::Protocol,
+            2 => Why::Mistagged,
+            3 => Why::Vacant,
+            4.. => Why::Spawn,
+        }),
+        5 => Do::Lock,
+        6 => Do::Adopt,
+        7 => Do::Take,
+        8 => Do::Fault,
+        9.. => Do::Nothing,
     };
-    match (ask(&request, 3, "a seat"), met) {
-        (0, Met::Pong { .. }) => Seat::Adopt,
-        (1, Met::Missing | Met::Hung) => Seat::Take,
-        (2.., met) => Seat::Fault(met.into_error()),
-        (
-            0 | 1,
-            Met::Missing
-            | Met::Unreachable(_)
-            | Met::Pong { .. }
-            | Met::Odd(_)
-            | Met::Garbled(_)
-            | Met::Hung,
-        ) => inconsistent("a seat the probe allows"),
+    reader.end()?;
+    Ok(next)
+}
+
+/// One run in the compiled core: a process's election, or a started
+/// worker's seat.
+struct Run {
+    core: Stepper,
+}
+
+impl Run {
+    fn open(request: Result<String, WireError>) -> (Run, Do) {
+        let opened = || -> Result<(Run, Do), Error> {
+            let (core, reply) = Stepper::open(Entry::TinyRun, &request?)?;
+            Ok((Run { core }, read_do(&reply)?))
+        };
+        expect_core(Entry::TinyRun, opened())
+    }
+
+    /// The election of a process with launch tag `tag`, and its first step.
+    fn need(tag: &str) -> (Run, Do) {
+        let mut writer = Writer::new();
+        writer.tag(0).str(tag);
+        Run::open(writer.finish())
+    }
+
+    /// A started worker's seat, and its first step.
+    fn seat() -> (Run, Do) {
+        let mut writer = Writer::new();
+        writer.tag(1);
+        Run::open(writer.finish())
+    }
+
+    /// Reports `seen`; what to do next.
+    fn step(&mut self, seen: &Seen<'_>) -> Do {
+        let mut writer = Writer::new();
+        match seen {
+            Seen::Pinged(met) => {
+                writer.tag(0);
+                met.spell(&mut writer);
+            }
+            Seen::Heard(heard) => {
+                writer.tag(1).tag(match heard {
+                    Ok(Response::Ok { reply: Reply::Bye }) => 0,
+                    Ok(_) => 1,
+                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => 2,
+                    Err(_) => 3,
+                });
+            }
+            Seen::Came(launched) => {
+                writer.tag(2).tag(match launched {
+                    Launched::Ready => 0,
+                    Launched::Adopted => 1,
+                });
+            }
+            Seen::NoSpawn => {
+                writer.tag(3);
+            }
+            Seen::Locked => {
+                writer.tag(4);
+            }
+        }
+        let mut stepped = || -> Result<Do, Error> {
+            let reply = self.core.step(&writer.finish()?)?;
+            Ok(read_do(&reply)?)
+        };
+        expect_core(Entry::TinyRun, stepped())
     }
 }
 
@@ -371,39 +325,150 @@ pub(crate) async fn ensure(
     launcher: &impl Launcher,
 ) -> Result<(Connection, Got), TinyError> {
     let socket = home.socket(model.id, BACKEND);
-    let io = |error: io::Error| TinyError::io(model, &error);
-    let fresh = match elect(probe(&socket).await, tag).map_err(io)? {
-        Elected::Join(connection) => return Ok((connection, Got::Joined)),
-        Elected::Replace(mut connection) => match shut(connection.call(&Request::Shutdown).await) {
-            Shutdown::Down => Fresh::Again,
-            Shutdown::Spoke(other) => {
-                return Err(TinyError::Protocol {
-                    model: model.id,
-                    message: format!("the worker answered a shutdown with {other:?}"),
-                });
+    let (mut run, mut next) = Run::need(tag);
+    // What the outcomes left to act on: the last ping's (a shutdown takes
+    // its connection), the shutdown's answer, the launch's failure.
+    let mut met = None;
+    let mut heard = None;
+    let mut spawn_failure = None;
+    loop {
+        next = match next {
+            Do::Ping => {
+                let pinged = probe(&socket).await;
+                let next = run.step(&Seen::Pinged(&pinged));
+                met = Some(pinged);
+                next
             }
-            Shutdown::Cut(error) => return Err(io(error)),
-        },
-        Elected::Start => Fresh::First,
-        Elected::Broken(error) => return Err(io(error)),
-    };
-    let got = launched(fresh, launcher.launch(home, model).await?);
+            Do::Shutdown => {
+                let Some(Met::Pong { mut connection, .. }) = met.take() else {
+                    return inconsistent("a shutdown after a pong");
+                };
+                let answer = connection.call(&Request::Shutdown).await;
+                let next = run.step(&Seen::Heard(&answer));
+                heard = Some(answer);
+                next
+            }
+            Do::Launch => match launcher.launch(home, model).await {
+                Ok(came) => run.step(&Seen::Came(came)),
+                Err(error) => {
+                    spawn_failure = Some(error);
+                    run.step(&Seen::NoSpawn)
+                }
+            },
+            Do::Use(got) => {
+                return match met {
+                    Some(Met::Pong { connection, .. }) => Ok((connection, got)),
+                    _ => inconsistent("a use after a pong"),
+                };
+            }
+            Do::Fail(why) => return Err(failure(home, model, tag, why, met, heard, spawn_failure)),
+            Do::Lock | Do::Adopt | Do::Take | Do::Fault | Do::Nothing => {
+                return inconsistent("a need's next step");
+            }
+        };
+    }
+}
+
+/// The error of a need whose run failed for `why`, from what its outcomes
+/// left: the last ping, else the shutdown's answer; the launch's failure.
+fn failure(
+    home: &TinyHome,
+    model: &'static CatalogModel,
+    tag: &str,
+    why: Why,
+    met: Option<Met>,
+    heard: Option<io::Result<Response>>,
+    spawn_failure: Option<TinyError>,
+) -> TinyError {
+    let socket = home.socket(model.id, BACKEND);
     let spawn = |message: String| TinyError::Spawn {
         model: model.id,
         message,
         log: home.log(model.id, BACKEND),
     };
-    match confirm(probe(&socket).await, tag).map_err(io)? {
-        Confirmed::Serving(connection) => Ok((connection, got)),
-        Confirmed::Mistagged(theirs) => Err(spawn(format!(
+    match (why, met, heard) {
+        (Why::Io, Some(met), _) => TinyError::io(model, &met.into_error()),
+        (Why::Io, None, Some(Err(error))) => TinyError::io(model, &error),
+        (Why::Protocol, _, Some(Ok(other))) => TinyError::Protocol {
+            model: model.id,
+            message: format!("the worker answered a shutdown with {other:?}"),
+        },
+        (Why::Mistagged, Some(Met::Pong { tag: theirs, .. }), _) => spawn(format!(
             "the worker on {} answers with tag {theirs}, not {tag}",
             socket.display()
-        ))),
-        Confirmed::Vacant => Err(spawn(format!(
+        )),
+        (Why::Vacant, Some(Met::Missing | Met::Hung), _) => spawn(format!(
             "no worker listens on {} after the start",
             socket.display()
-        ))),
-        Confirmed::Faulty(error) => Err(io(error)),
+        )),
+        (Why::Spawn, _, _) => match spawn_failure {
+            Some(error) => error,
+            None => inconsistent("a failed launch"),
+        },
+        (Why::Io | Why::Protocol | Why::Mistagged | Why::Vacant, _, _) => {
+            inconsistent("a failure its outcomes allow")
+        }
+    }
+}
+
+/// What a started worker does with the socket, as its seat run decides:
+/// take the bind lock (`lock` takes it and answers it held), ping the
+/// socket under it, then leave a live worker in place, take the socket,
+/// or fail.
+pub(crate) enum Seated<L> {
+    /// A live worker answers: leave it in place.
+    Adopt,
+    /// No live worker: remove a stale socket and bind it, still holding
+    /// the lock.
+    Take(L),
+}
+
+/// The seat of a started worker on `socket`: its run decides; `lock`
+/// takes the bind lock.
+///
+/// # Errors
+///
+/// The lock or the probe fails.
+pub(crate) async fn seat<L, F>(socket: &Path, lock: impl FnOnce() -> F) -> io::Result<Seated<L>>
+where
+    F: Future<Output = io::Result<L>>,
+{
+    let (mut run, mut next) = Run::seat();
+    let mut lock = Some(lock);
+    let mut held = None;
+    let mut met = None;
+    loop {
+        next = match next {
+            Do::Lock => {
+                let Some(take) = lock.take() else {
+                    return inconsistent("one lock per seat");
+                };
+                held = Some(take().await?);
+                run.step(&Seen::Locked)
+            }
+            Do::Ping => {
+                let pinged = probe(socket).await;
+                let next = run.step(&Seen::Pinged(&pinged));
+                met = Some(pinged);
+                next
+            }
+            Do::Adopt => return Ok(Seated::Adopt),
+            Do::Take => {
+                return match held {
+                    Some(held) => Ok(Seated::Take(held)),
+                    None => inconsistent("a take under the lock"),
+                };
+            }
+            Do::Fault => {
+                return match met {
+                    Some(met) => Err(met.into_error()),
+                    None => inconsistent("a fault after a ping"),
+                };
+            }
+            Do::Shutdown | Do::Launch | Do::Use(_) | Do::Fail(_) | Do::Nothing => {
+                return inconsistent("a seat's next step");
+            }
+        };
     }
 }
 
