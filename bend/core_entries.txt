@@ -65,3 +65,4 @@
 103 doc_commit
 200 dash_policy
 201 dash_access
+202 gateway_answer

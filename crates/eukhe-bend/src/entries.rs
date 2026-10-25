@@ -134,6 +134,8 @@ pub enum Entry {
     DashPolicy = 200,
     /// `bend/ffi_dash_access.bend`: a call.
     DashAccess = 201,
+    /// `bend/ffi_gateway_answer.bend`: a call.
+    GatewayAnswer = 202,
 }
 
 impl Entry {
@@ -203,6 +205,7 @@ impl Entry {
         Entry::DocCommit,
         Entry::DashPolicy,
         Entry::DashAccess,
+        Entry::GatewayAnswer,
     ];
 
     /// The id `bend/core.bend` dispatches on.

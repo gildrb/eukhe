@@ -1191,6 +1191,14 @@ import ./proof/dash_access/dash_access_entry_answers.bend as PDashAccessEntryAns
 import ./proof/dash_access/dash_access_entry_exact.bend as PDashAccessEntryExact
 import ./proof/dash_access/dash_access_entry_refuses.bend as PDashAccessEntryRefuses
 import ./proof/dash_access/dash_access_entry_example.bend as PDashAccessEntryExample
+import ./proof/gateway_answer/base.bend as LAGatewayAnswer
+import ./proof/gateway_answer/gateway_answer_spec.bend as PGatewayAnswerSpec
+import ./proof/gateway_answer/gateway_answer_example.bend as PGatewayAnswerExample
+import ./proof/gateway_answer/gateway_answer_entry_reads.bend as PGatewayAnswerEntryReads
+import ./proof/gateway_answer/gateway_answer_entry_answers.bend as PGatewayAnswerEntryAnswers
+import ./proof/gateway_answer/gateway_answer_entry_exact.bend as PGatewayAnswerEntryExact
+import ./proof/gateway_answer/gateway_answer_entry_refuses.bend as PGatewayAnswerEntryRefuses
+import ./proof/gateway_answer/gateway_answer_entry_example.bend as PGatewayAnswerEntryExample
 import ./proof/doc_commit/base.bend as LADocCommit
 import ./proof/doc_commit/edit_reports_what_landed.bend as PEditReportsWhatLanded
 import ./proof/doc_commit/edit_all_or_nothing_on_conflict.bend as PEditAllOrNothingOnConflict

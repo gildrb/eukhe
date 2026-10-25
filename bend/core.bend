@@ -30,6 +30,7 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
+import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
@@ -193,6 +194,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_dash_policy.ffi(input)
     case 201:
       ffi_dash_access.ffi(input)
+    case 202:
+      ffi_gateway_answer.ffi(input)
     case _:
       W.err("unknown entry")
 
