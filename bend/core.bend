@@ -33,6 +33,7 @@ import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_doc_tags.bend as ffi_doc_tags
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
+import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
@@ -237,6 +238,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_overflow.ffi(input)
     case 232:
       ffi_stream_failure.ffi(input)
+    case 233:
+      ffi_error_body.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
     case 261:

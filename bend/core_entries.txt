@@ -78,6 +78,7 @@
 230 cache_marks
 231 overflow
 232 stream_failure
+233 error_body
 260 codemode_id
 261 submission
 262 scan

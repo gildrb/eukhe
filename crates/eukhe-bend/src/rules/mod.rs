@@ -12,6 +12,7 @@ pub mod config;
 pub mod cvar;
 pub mod cvar_layers;
 pub mod doc_plan;
+pub mod error_body;
 pub mod frames;
 pub mod fsmode;
 pub mod infer_force;

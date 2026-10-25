@@ -1938,3 +1938,13 @@ import ./proof/stream_failure/stream_failure_entry_answers.bend as PStreamFailur
 import ./proof/stream_failure/stream_failure_entry_exact.bend as PStreamFailureEntryExact
 import ./proof/stream_failure/stream_failure_entry_refuses.bend as PStreamFailureEntryRefuses
 import ./proof/stream_failure/stream_failure_entry_example.bend as PStreamFailureEntryExample
+import ./proof/error_body/base.bend as LAErrorBody
+import ./proof/error_body/error_body_body.bend as PErrorBodyBody
+import ./proof/error_body/error_body_truncate.bend as PErrorBodyTruncate
+import ./proof/error_body/error_body_show.bend as PErrorBodyShow
+import ./proof/error_body/error_body_example.bend as PErrorBodyExample
+import ./proof/error_body/error_body_entry_reads.bend as PErrorBodyEntryReads
+import ./proof/error_body/error_body_entry_answers.bend as PErrorBodyEntryAnswers
+import ./proof/error_body/error_body_entry_exact.bend as PErrorBodyEntryExact
+import ./proof/error_body/error_body_entry_refuses.bend as PErrorBodyEntryRefuses
+import ./proof/error_body/error_body_entry_example.bend as PErrorBodyEntryExample
