@@ -135,8 +135,82 @@ fn line(tree: &str, name: &str, status: &str, depth: usize, model: &str) -> Rost
     }
 }
 
+fn sources(workers: &[SessionWorker]) -> PanelSources<'_> {
+    PanelSources {
+        bash: &[],
+        workflows: &[],
+        workers,
+    }
+}
+
 fn built(anchor: Instant) -> AgentsPanel {
-    AgentsPanel::build(&roster(), &root(), &[], &[], anchor, ms(NOW))
+    AgentsPanel::build(&roster(), &root(), &sources(&[]), anchor, ms(NOW))
+}
+
+/// Main's worker stays listed while idle or paused, says so, and does
+/// not count as running; a running worker is an ordinary working row.
+#[test]
+fn the_worker_row_shows_running_paused_or_idle() {
+    let worker = |id: &str, state: WorkerRunState| SessionWorker {
+        active_session_id: format!("{id}-live"),
+        session_id: format!("{id}-sess"),
+        name: "worker".to_string(),
+        state,
+    };
+    let theme = crate::theme::Theme::builtin("eukhe", ColorMode::TrueColor);
+    let title = |workers: &[SessionWorker]| {
+        let panel = AgentsPanel::build(
+            &roster(),
+            &root(),
+            &sources(workers),
+            Instant::now(),
+            ms(NOW),
+        );
+        let states: Vec<Option<WorkerRunState>> =
+            panel.agents.iter().map(|row| row.worker).collect();
+        let view = PanelView {
+            mode: PinnedAgents::Full,
+            stuck_after_secs: 0,
+            focused: false,
+            open_key: "Enter",
+            expand_key: "Space",
+            expand_reach: ExpandReach::Focused,
+            frame: 0,
+            now: Instant::now(),
+            now_ms: ms(NOW),
+        };
+        let rows: Vec<String> = render_agents_panel(&panel, &view, &theme, 200)
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|span| span.content.as_str())
+                    .collect::<String>()
+            })
+            .collect();
+        (states, rows)
+    };
+    let (states, rows) = title(&[worker("e", WorkerRunState::Idle)]);
+    assert_eq!(
+        states,
+        vec![None, None, None, None, Some(WorkerRunState::Idle), None]
+    );
+    assert!(rows[0].contains("5 running - 1 idle"), "{rows:?}");
+    assert!(
+        rows[5].contains("worker-5") && rows[5].contains("  idle"),
+        "{rows:?}"
+    );
+    let (states, rows) = title(&[worker("c", WorkerRunState::Paused)]);
+    assert_eq!(
+        states,
+        vec![None, None, Some(WorkerRunState::Paused), None, None]
+    );
+    assert!(rows[0].contains("4 running - 1 paused"), "{rows:?}");
+    assert!(
+        rows[3].contains("worker-3") && rows[3].contains("  paused"),
+        "{rows:?}"
+    );
+    let (states, _) = title(&[worker("e", WorkerRunState::Stopped)]);
+    assert_eq!(states, vec![None; 5]);
 }
 
 /// Every running family member maps to its row, nested in tree order:
@@ -168,6 +242,7 @@ fn running_agents_map_to_their_rows() {
             }),
             cost: Some(0.031),
             heard_ms: Some(ms(&at("09:59:58"))),
+            worker: None,
         },
         AgentRow {
             line: line("|  `- ", "worker-2", "running", 2, "-"),
@@ -185,6 +260,7 @@ fn running_agents_map_to_their_rows() {
             context: None,
             cost: None,
             heard_ms: Some(ms(&at("09:59:59"))),
+            worker: None,
         },
         AgentRow {
             line: line("|- ", "worker-3", "running", 1, "-"),
@@ -197,6 +273,7 @@ fn running_agents_map_to_their_rows() {
             context: None,
             cost: None,
             heard_ms: Some(ms(&at("09:58:30"))),
+            worker: None,
         },
         AgentRow {
             line: line("|- ", "worker-4", "running", 1, "-"),
@@ -209,6 +286,7 @@ fn running_agents_map_to_their_rows() {
             context: None,
             cost: None,
             heard_ms: Some(ms(&at("09:00:00"))),
+            worker: None,
         },
         AgentRow {
             line: line("`- ", "worker-6", "queued", 1, "-"),
@@ -221,6 +299,7 @@ fn running_agents_map_to_their_rows() {
             context: None,
             cost: None,
             heard_ms: None,
+            worker: None,
         },
     ];
     assert_eq!(
@@ -307,17 +386,22 @@ fn workflow(name: &str, state: WorkflowRunState) -> WorkflowRunSnapshot {
 /// not.
 #[test]
 fn running_shells_and_workflow_runs_are_jobs() {
+    let shells = [
+        bash("b1", "cargo build", "running", Some(&at("09:59:30"))),
+        bash("b2", "ls", "exited", Some(&at("09:00:00"))),
+    ];
+    let runs = [
+        workflow("crates", WorkflowRunState::Running),
+        workflow("old", WorkflowRunState::Done),
+    ];
     let panel = AgentsPanel::build(
         &[],
         &root(),
-        &[
-            bash("b1", "cargo build", "running", Some(&at("09:59:30"))),
-            bash("b2", "ls", "exited", Some(&at("09:00:00"))),
-        ],
-        &[
-            workflow("crates", WorkflowRunState::Running),
-            workflow("old", WorkflowRunState::Done),
-        ],
+        &PanelSources {
+            bash: &shells,
+            workflows: &runs,
+            workers: &[],
+        },
         Instant::now(),
         ms(NOW),
     );

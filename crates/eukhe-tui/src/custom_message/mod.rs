@@ -30,6 +30,7 @@
 //! notices still drive their turn (the daemon's `followUp` notice action is
 //! unchanged); only the transcript row's class moves.
 
+pub mod forward;
 pub(crate) mod injected_prompt;
 pub(crate) mod refinement;
 pub(crate) mod render;
@@ -96,6 +97,9 @@ pub struct AgentMessageRow {
     /// `details.message` (the body shown expanded; never a collapsed
     /// preview).
     pub message: String,
+    /// What main forwarded the worker (`details.deliveryKind`): the row
+    /// names the kind and always shows the user's words and main's note.
+    pub forward: Option<forward::Forward>,
 }
 
 /// One background-shell completion row (TS `ShellCompletionComponent`,
@@ -211,7 +215,7 @@ pub fn custom_message_entries(
             kind: crate::chat::StatusKind::Warning,
         }],
         CustomType::RefinementOutcome => refinement::refinement_outcome_entries(content, details),
-        CustomType::AgentMessage => agent_message_entry(details).map_or_else(
+        CustomType::AgentMessage => agent_message_entry(content, details).map_or_else(
             || vec![generic_panel_entry(custom_type, content)],
             |entry| vec![entry],
         ),
@@ -354,9 +358,7 @@ fn compaction_outcome_entry(content: &UserContent, details: &Value) -> ChatEntry
 /// TS `isAgentSessionMessage`: string `details.id` + string
 /// `details.message` (no emptiness check); anything else is not an
 /// agent-message row and the dispatch falls through to the generic box.
-fn agent_message_entry(details: &Value) -> Option<ChatEntry> {
-    details.get("id").and_then(Value::as_str)?;
-    let message = details.get("message").and_then(Value::as_str)?;
+fn agent_message_entry(content: &UserContent, details: &Value) -> Option<ChatEntry> {
     let from = details.get("from").unwrap_or(&Value::Null);
     let counterpart = ["sessionName", "activeSessionId", "clientId", "sessionId"]
         .iter()
@@ -365,12 +367,24 @@ fn agent_message_entry(details: &Value) -> Option<ChatEntry> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .filter(|name| !name.trim().is_empty())
-        })
-        .unwrap_or_else(|| "unknown".to_string());
+        });
+    // A forward from main (`details.deliveryKind`): the user's words ride
+    // `details.userMessages`, so the row needs no `id`/`message` pair.
+    if let Some(forward) = forward::Forward::from_details(details) {
+        return Some(ChatEntry::AgentMessage(Box::new(AgentMessageRow {
+            direction: AgentMessageDirection::Received,
+            counterpart: counterpart.unwrap_or_else(|| "main".to_string()),
+            message: custom_content_text(content),
+            forward: Some(forward),
+        })));
+    }
+    details.get("id").and_then(Value::as_str)?;
+    let message = details.get("message").and_then(Value::as_str)?;
     Some(ChatEntry::AgentMessage(Box::new(AgentMessageRow {
         direction: AgentMessageDirection::Received,
-        counterpart,
+        counterpart: counterpart.unwrap_or_else(|| "unknown".to_string()),
         message: message.to_string(),
+        forward: None,
     })))
 }
 
@@ -384,6 +398,7 @@ fn rlm_child_status_row(content: &UserContent, details: &Value) -> AgentMessageR
         direction: AgentMessageDirection::Received,
         counterpart: rlm_child_session_name(details),
         message: text,
+        forward: None,
     }
 }
 

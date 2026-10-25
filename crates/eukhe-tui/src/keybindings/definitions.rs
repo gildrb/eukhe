@@ -239,6 +239,10 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     // The focused dock's expand key: the pinned agents block opens in full
     // or folds to its first rows.
     ("app.subagents.pinned", def!(&["space"])),
+    // The worker pane (`crate::worker_pane`): show or hide it, and its
+    // full view (Esc returns from the full view).
+    ("app.worker.toggle", def!(&["alt+w"])),
+    ("app.worker.full", def!(&["shift+alt+w"])),
     ("app.heartbeats.openSelected", def!(&["right"])),
     ("app.memory.expand", def!(&["right"])),
     ("app.editor.external", def!(&["ctrl+g"])),

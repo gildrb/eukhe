@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use eukhe_types::daemon::agent_roster::{summary_admission, AgentRosterStatus, ModelAdmission};
-use eukhe_types::daemon::{CurrentTool, RetryWait};
+use eukhe_types::daemon::{CurrentTool, RetryWait, SessionWorker, WorkerRunState};
 use eukhe_types::workflow::{WorkflowPhaseState, WorkflowRunSnapshot, WorkflowRunState};
 
 use crate::activity::{AgentActivity, QuotaPark, TurnPhase};
@@ -105,6 +105,9 @@ pub struct AgentRow {
     /// The last word from the agent (Unix ms): the supervisor's last
     /// delta, its newest message, its tool's start, or its creation.
     pub heard_ms: Option<u64>,
+    /// The main session's worker's state (`summary.workers` of main's
+    /// row): a worker stays listed while paused or idle, and says so.
+    pub worker: Option<WorkerRunState>,
 }
 
 /// One running job.
@@ -170,21 +173,35 @@ pub(crate) struct PanelView<'a> {
 
 impl AgentsPanel {
     /// The block of the session `root` from the roster, the session's
-    /// shells, and its workflow runs. `anchor` and `anchor_ms` name one
-    /// instant on the monotonic and the wall clock ([`clock_anchor`]):
-    /// an agent's creation time maps through them onto the monotonic
-    /// clock its indicator counts on.
+    /// shells, its workflow runs, and its workers (they stay listed while
+    /// paused or idle). `anchor` and `anchor_ms` name one instant on the
+    /// monotonic and the wall clock ([`clock_anchor`]): an agent's
+    /// creation time maps through them onto the monotonic clock its
+    /// indicator counts on.
     #[must_use]
     pub(crate) fn build(
         roster: &[Value],
         root: &SessionIdentity,
-        bash: &[BashActivity],
-        workflows: &[WorkflowRunSnapshot],
+        sources: &PanelSources<'_>,
         anchor: Instant,
         anchor_ms: u64,
     ) -> Self {
+        let worker_state = |entry: &Value| {
+            let id = entry["summary"]
+                .get("activeSessionId")
+                .and_then(Value::as_str)?;
+            sources
+                .workers
+                .iter()
+                .find(|worker| {
+                    worker.active_session_id == id && worker.state != WorkerRunState::Stopped
+                })
+                .map(|worker| worker.state)
+        };
         let family = family_members(roster, root);
-        let live = kept_members(&family, |member| is_live(member.entry));
+        let live = kept_members(&family, |member| {
+            is_live(member.entry) || worker_state(member.entry).is_some()
+        });
         let agents = live
             .iter()
             .zip(roster_lines(&live))
@@ -194,17 +211,27 @@ impl AgentsPanel {
                     .iter()
                     .filter(|other| other.parent == Some(index))
                     .count();
-                agent_row(member.entry, line, children, anchor, anchor_ms)
+                let mut row = agent_row(member.entry, line, children, anchor, anchor_ms);
+                row.worker = worker_state(member.entry);
+                if matches!(
+                    row.worker,
+                    Some(WorkerRunState::Paused | WorkerRunState::Idle)
+                ) {
+                    row.activity = AgentActivity::Idle;
+                }
+                row
             })
             .collect();
-        let shells = bash
+        let shells = sources
+            .bash
             .iter()
             .filter(|activity| activity.running())
             .map(|activity| JobRow::Bash {
                 command: activity.command.clone(),
                 started_ms: activity.started_at.as_deref().and_then(wall_ms),
             });
-        let runs = workflows
+        let runs = sources
+            .workflows
             .iter()
             .filter(|run| run.state == WorkflowRunState::Running)
             .map(|run| JobRow::Workflow {
@@ -235,6 +262,15 @@ impl AgentsPanel {
             }
         }
     }
+}
+
+/// The session's other feeds the block reads besides the roster.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PanelSources<'a> {
+    pub(crate) bash: &'a [BashActivity],
+    pub(crate) workflows: &'a [WorkflowRunSnapshot],
+    /// Main's workers (`summary.workers` of its roster row).
+    pub(crate) workers: &'a [SessionWorker],
 }
 
 /// A running family member, or a child run admitted but not started.
@@ -330,6 +366,7 @@ fn agent_row(
             .and_then(|usage| usage.get("cost"))
             .and_then(Value::as_f64),
         heard_ms,
+        worker: None,
     }
 }
 
@@ -432,8 +469,26 @@ fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line 
         .filter(|row| row.quiet_secs(view.stuck_after_secs, view.now_ms).is_some())
         .count();
     let mut counts = Vec::new();
-    if !panel.agents.is_empty() {
-        counts.push(format!("{} running", panel.agents.len()));
+    let in_state = |state: WorkerRunState| {
+        panel
+            .agents
+            .iter()
+            .filter(|row| row.worker == Some(state))
+            .count()
+    };
+    let (paused, idle) = (
+        in_state(WorkerRunState::Paused),
+        in_state(WorkerRunState::Idle),
+    );
+    let running = panel.agents.len() - paused - idle;
+    if running > 0 {
+        counts.push(format!("{running} running"));
+    }
+    if paused > 0 {
+        counts.push(format!("{paused} paused"));
+    }
+    if idle > 0 {
+        counts.push(format!("{idle} idle"));
     }
     if !panel.jobs.is_empty() {
         let jobs = panel.jobs.len();
@@ -510,6 +565,11 @@ fn agent_line(row: &AgentRow, view: &PanelView<'_>, theme: &Theme) -> Line {
         Span::styled(row.line.name.clone(), theme.fg_style(ThemeColor::Accent)),
         Span::styled(format!("  {}", row.line.model), muted),
     ];
+    match row.worker {
+        Some(WorkerRunState::Paused) => line.push(Span::styled("  paused", warning)),
+        Some(WorkerRunState::Idle) => line.push(Span::styled("  idle", muted)),
+        Some(WorkerRunState::Running | WorkerRunState::Stopped) | None => {}
+    }
     if let Some(indicator) = indicator {
         line.push(Span::styled(
             format!("  {}", indicator.text),

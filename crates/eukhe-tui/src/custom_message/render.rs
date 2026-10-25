@@ -115,7 +115,8 @@ pub(crate) fn agent_message_summary_line(
 /// The received agent-message rows (TS `AgentMessageComponent`): a leading
 /// blank (spacing-driven), the summary header (no body preview -- the
 /// collapsed row is the summary alone), and the `BRANCH`-guttered body when
-/// expanded.
+/// expanded. A forward from main (`row.forward`) names its kind and always
+/// shows its body: the user sees exactly what went to the worker.
 pub(crate) fn render_agent_message(
     row: &AgentMessageRow,
     detail: Detail,
@@ -127,12 +128,48 @@ pub(crate) fn render_agent_message(
     if leading {
         out.push(spacer());
     }
-    let header = agent_message_summary_line(row.direction, &row.counterpart, theme);
-    out.extend(text_rows(&header, width));
-    if detail.tool_output_expanded() {
-        out.extend(agent_message_body(&row.message, theme, width));
+    if let Some(forward) = &row.forward {
+        out.extend(text_rows(
+            &forward_summary_line(forward, &row.counterpart, theme),
+            width,
+        ));
+        out.extend(agent_message_body(&forward.body(), theme, width));
+    } else {
+        let header = agent_message_summary_line(row.direction, &row.counterpart, theme);
+        out.extend(text_rows(&header, width));
+        if detail.tool_output_expanded() {
+            out.extend(agent_message_body(&row.message, theme, width));
+        }
     }
     out
+}
+
+/// `mail Context from you - down main`: a forward's header (the kind in
+/// the warning color for a redirect, the accent otherwise).
+pub(crate) fn forward_summary_line(
+    forward: &crate::custom_message::forward::Forward,
+    counterpart: &str,
+    theme: &Theme,
+) -> Line {
+    let kind_color = match forward.kind {
+        crate::custom_message::forward::ForwardKind::Redirect => ThemeColor::Warning,
+        crate::custom_message::forward::ForwardKind::Task
+        | crate::custom_message::forward::ForwardKind::Context => ThemeColor::Accent,
+    };
+    vec![
+        Span::styled(
+            crate::glyphs::MAIL.to_string(),
+            theme.fg_style(ThemeColor::Success),
+        ),
+        Span::raw(" "),
+        Span::styled(forward.kind.label(), theme.fg_style(kind_color)),
+        Span::styled(" from you", theme.fg_style(ThemeColor::Muted)),
+        Span::styled(crate::glyphs::SEP, theme.fg_style(ThemeColor::Dim)),
+        Span::styled(
+            format!("{} {counterpart}", crate::glyphs::DOWN),
+            theme.fg_style(ThemeColor::Dim),
+        ),
+    ]
 }
 
 /// TS `agentMessageBodyLines`: each source line wraps at `width - 4`, the
@@ -313,6 +350,7 @@ mod tests {
             direction: AgentMessageDirection::Received,
             counterpart: "model-probe".to_string(),
             message: "ready".to_string(),
+            forward: None,
         };
         let rows = render_agent_message(&row, Detail::Overview, &theme(), 60, true);
         // Leading blank + the envelope summary line, no body preview.
@@ -344,6 +382,7 @@ mod tests {
                 direction: AgentMessageDirection::Received,
                 counterpart: "root".to_string(),
                 message,
+                forward: None,
             };
             let rows = render_agent_message(&row, Detail::Overview, &theme(), 60, false);
             assert_eq!(rows.len(), 1, "one header row: {rows:?}");
@@ -370,6 +409,7 @@ mod tests {
                 direction,
                 counterpart: "worker".to_string(),
                 message: "ping".to_string(),
+                forward: None,
             };
             let rows = render_agent_message(&row, Detail::Overview, &theme(), 80, false);
             let header = flat(&rows[0]);
@@ -390,6 +430,7 @@ mod tests {
             direction: AgentMessageDirection::Received,
             counterpart: "root".to_string(),
             message: "line one\nline two".to_string(),
+            forward: None,
         };
         let rows = render_agent_message(&row, Detail::All, &theme(), 60, false);
         // No leading blank (spacing decided otherwise), header, two body rows.

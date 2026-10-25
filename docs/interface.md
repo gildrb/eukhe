@@ -114,6 +114,9 @@ At the prompt. An open menu, picker or panel gets keys first (settings menu: Shi
 | --- | --- | --- |
 | Shift+Tab | `app.thinking.cycleForward` | Next thinking level the model offers; wraps last → first. |
 | Shift+Alt+Tab | `app.thinking.cycleBackward` | Previous thinking level the model offers; wraps first → last. |
+| Alt+W | `app.worker.toggle` | Show or hide the worker pane (below). |
+| Shift+Alt+W | `app.worker.full` | The worker pane's full view, or back from it; Esc also returns. |
+| Esc Esc | `app.input.clear` twice | While a worker of this session runs: the second Esc within 1 s pauses it (`/pause`). Otherwise the second Esc within 500 ms opens the tree (idle session or empty editor) or clears the input. The first Esc aborts only main's own turn. |
 
 - Daemon command: `cycle_thinking_level` with `direction`.
 - Model with < 2 levels keeps its level; status row `Current model offers no other thinking level`. Else tray label and `Thinking level: <level>` status row show the new level.
@@ -159,6 +162,20 @@ Turn ending without an answer leaves exactly one row stating it and the next ste
 - `Primary provider recovered`: a toast (no transcript records it).
 
 Laws (draft): `LAWS.bend` section `turn_visibility`, model `bend/turn_visibility.bend`. Code: `session_ui/apply.rs` (`apply_update`), `session_ui/prompt.rs` (`apply_prompt_outcome`), `session_ui/lifecycle.rs` (`attach_session`, `rebuild_view`), `snapshot.rs` (`fold_transcript`, `reconstruct`), `snapshot/turn_end.rs`, `view.rs` (`start_loader`, `stop_loader`, `loader_row`), `view/streaming.rs` `advance_paces` (row through the reveal). Tests: `tests/turn_visibility_headless.rs` (findings' live histories), `snapshot::tests::turn_end`, `tests/failed_turn_visible_headless.rs`, `view::screen_tests::the_loader_stays_up_until_the_streamed_text_all_shows`.
+
+#### Worker pane
+
+A session with a worker (`sessionShape` `main-worker`, docs/usage.md) shows the worker's work live without leaving main's chat.
+
+- Source: main's roster row `summary.workers` (`activeSessionId`, `sessionId`, `name`, `state` `running|paused|idle|stopped`). The pane follows the first worker that is not stopped; a pane whose worker left goes.
+- Feed: a watch attach (`attach` with `clientKind: "watch"`) of the worker on main's connection: its snapshot seeds the pane's rows, its events fold in live (streamed text, tool cards running then settled, forwarded rows, the loader). Events that arrive while the attach travels wait and apply past the snapshot's event sequence; a replayed sequence changes nothing. A watch is never asked a question (approvals still relay to main's client) and does not keep the worker's kernel resident.
+- Place: right split (two fifths of the width, one separator column) in fullscreen at 140 columns or more; otherwise a strip of 12 rows (at most half the transcript area) under the transcript; inline mode always uses the strip (scrollback rows are full width). Full view: the whole transcript area. Header: name, state, the keys.
+- Keys: Alt+W hide/show, Shift+Alt+W full view, Esc from the full view back to the docked pane.
+- Pinned agents block: the worker's row stays while paused or idle and says `paused` / `idle`; the title counts `N running - N paused - N idle`.
+- Pause: Esc Esc (within 1 s, while a worker runs) or `/pause` sends `pause_workers`; `/resume` with a paused worker sends `resume_workers` (without one, `/resume` keeps its agents-view / session meaning). The daemon decides: the running model request and tool calls finish, nothing new starts, nothing is killed; any message to the worker also wakes it.
+- Forwarded messages: main's `worker_assign` / `worker_forward` card and the worker's received row (`agent_message`, `details.deliveryKind` `task|context|redirect`) show the same body at every detail level: the user's messages verbatim and in order (`details.userMessages`), the image count, then `[note from main] <note>`. Header: `Context from you` (redirect in the warning color).
+
+Code: `eukhe-tui/src/worker_pane.rs` (`WorkerPane`, `placement`, `pane_rows`, `beside`), `view/viewport.rs` (`transcript_with_worker`), `view/frame.rs` (`compose_live` strip), `view/layout.rs` (`render_last_rows`), `session_ui/workers.rs` (roster sync, watch attach, pause/resume, pane keys), `session_ui/keys.rs` (Esc ladder), `agents_panel.rs` (`PanelSources.workers`), `custom_message/forward.rs`, `tool_card/worker.rs`. Tests: `worker_pane::tests`, `session_ui::workers::tests`, `agents_panel::tests::the_worker_row_shows_running_paused_or_idle`, `custom_message::forward::tests`, `tool_card::worker::tests`, `tests/worker_pane_headless.rs`.
 
 ### T1. Themes
 
