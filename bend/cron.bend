@@ -92,12 +92,12 @@ def S.empty() -> S:
 # The failure backoff
 # -------------------
 
-# failed runs in a row after which a job stops (FAILURE_STOP_AFTER)
+# failed runs in a row after which a job stops
 def CAP() -> Nat:
   8n
 
 # the pause in minutes after the k-th failure in a row: 2, 4, 8, 16, 32,
-# then 60 (failure_backoff_ms)
+# then 60
 def delay(k: Nat) -> Nat:
   match k:
     case 0n:
