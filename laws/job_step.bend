@@ -182,3 +182,84 @@ law job_feed_past_bound:
   for +n: Nat
   for past: {Nat.is_lt(t, Nat.add(k, d)) == True{} : Bool}
   {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.Live{k, d} : Jb.J}
+
+# The other model terms the job laws read, pinned
+# -----------------------------------------------
+# The S2 laws call_blocks_at_most_budget, rewind_stops_orphans,
+# rewind_keeps_target_jobs, job_rewind_stops_orphans and
+# job_rewind_keeps_target_jobs read `ticks`, `elem`, `running_in` and
+# `kept`; a fifth fresh adversary (SpecCheckJob5) noted that no law pinned
+# them, so those laws could hold of trivial terms. Each is pinned here.
+
+def ticks_spec(es: List<&2, Jb.JEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Jb.Out{n}:
+          ticks_spec(rest)
+        case Jb.Quit{c}:
+          ticks_spec(rest)
+        case Jb.Kill{}:
+          ticks_spec(rest)
+        case Jb.Tick{}:
+          1n+ticks_spec(rest)
+
+# x is one of xs
+def elem_spec(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), elem_spec(rest, x))
+
+# every running slot of js is one keep holds
+def running_in_spec(js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case s <> rest:
+      match s:
+        case Jb.Slot{+i, r}:
+          Bool.and(Bool.or(Bool.not(r), elem_spec(keep, i)), running_in_spec(rest, keep))
+
+def same_bool(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+# js and ks are as long, and every slot of js that keep holds has the id
+# and the running flag of the slot of ks at its place
+def slots_kept_spec(js: List<&2, Jb.Slot>, ks: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> Bool:
+  match js:
+    case Nil{}:
+      match ks:
+        case Nil{}:
+          True{}
+        case k <> kr:
+          False{}
+    case j <> jr:
+      match j:
+        case Jb.Slot{+i, r}:
+          match ks:
+            case Nil{}:
+              False{}
+            case k <> kr:
+              match k:
+                case Jb.Slot{h, q}:
+                  Bool.and(Bool.or(Bool.not(elem_spec(keep, i)), Bool.and(Nat.is_eq(i, h), same_bool(r, q))), slots_kept_spec(jr, kr, keep))
+
+# LAW job_model_terms_exact: the model's ticks of an event list, membership, "every running slot
+# is held" and "every held slot is as it was" mean what the laws above read them as
+# EXCLUDES: trivial terms that make call_blocks_at_most_budget or the rewind laws vacuous
+law job_model_terms_exact:
+  for +es: List<&2, Jb.JEv>
+  for +xs: List<&2, Nat>
+  for +x: Nat
+  for +js: List<&2, Jb.Slot>
+  for +ks: List<&2, Jb.Slot>
+  for +keep: List<&2, Nat>
+  {Jb.ticks(es) == ticks_spec(es) : Nat} & {Jb.elem(xs, x) == elem_spec(xs, x) : Bool} & {Jb.running_in(js, keep) == running_in_spec(js, keep) : Bool} & {Jb.kept(js, ks, keep) == slots_kept_spec(js, ks, keep) : Bool}
