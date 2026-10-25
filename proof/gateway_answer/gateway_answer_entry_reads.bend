@@ -15,8 +15,8 @@ import ../../laws/gateway_answer.bend as GatewayAnswer
 import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/wire.bend as Wire
 import ../base/wire.bend as LWire
-import ../doc_commit/base.bend as LADocCommit
-import ../doc_commit/entry/list_strs.bend as LS
+import ../base/logic/bool.bend as LLogicBool
+import ../base/wire_strs.bend as LS
 import ./base.bend as LA
 
 def gar.maybe(m: Maybe<&2, String>, +rest: String, h: {GatewayAnswer.ga_fit_maybe(m) == True{} : Bool}) -> {FGa.get_maybe(Wr.get_nat(GatewayAnswer.ga_w_maybe(m, rest))) == Wr.Got{m, rest} : Wr.Dec<Maybe<&2, String>>}:
@@ -62,10 +62,10 @@ def gar.req(ev: Ga.Ev, +rest: String, h: {GatewayAnswer.ga_fit(ev) == True{} : B
       gar.agent(a, rest)
     case Ga.EAssistant{+s, +ts, +e}:
       +hq = h
-      +hr = LADocCommit.dcw.and_r(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), hq)
-      +fn = LADocCommit.dcw.and_l(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), hq)
-      +fd = Equal.trans(Bool, DocCommit.sp_fit_strs(ts), GatewayAnswer.ga_fit_strs(ts), True{}, Equal.sym(Bool, GatewayAnswer.ga_fit_strs(ts), DocCommit.sp_fit_strs(ts), LA.gab.fits(ts)), LADocCommit.dcw.and_l(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), hr))
-      +fe = LADocCommit.dcw.and_r(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), hr)
+      +hr = LLogicBool.tree.pt.and_r(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), hq)
+      +fn = LLogicBool.tree.pt.and_l(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), hq)
+      +fd = Equal.trans(Bool, DocCommit.sp_fit_strs(ts), GatewayAnswer.ga_fit_strs(ts), True{}, Equal.sym(Bool, GatewayAnswer.ga_fit_strs(ts), DocCommit.sp_fit_strs(ts), LA.gab.fits(ts)), LLogicBool.tree.pt.and_l(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), hr))
+      +fe = LLogicBool.tree.pt.and_r(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), hr)
       +m = GatewayAnswer.ga_w_maybe(e, rest)
       +l = Wr.put_list(~String, ~Wr.put_str, ts, m)
       %Equal.sym(Wr.Dec<Ga.Stop>, FGa.get_stop(Wr.get_nat(Wr.put_nat(GatewayAnswer.ga_w_stop(s), l))), Wr.Got{s, l}, gar.stop(s, l)) : {FGa.get_assistant(_) == Wr.Got{Ga.EAssistant{s, ts, e}, rest} : Wr.Dec<Ga.Ev>}

@@ -30,6 +30,8 @@ import ./proof/base/semver.bend as LSemver
 import ./proof/base/string.bend as LString
 import ./proof/base/tree.bend as LTree
 import ./proof/base/wire.bend as LWire
+import ./proof/base/wire_dec.bend as LWireDec
+import ./proof/base/wire_strs.bend as LWireStrs
 import ./proof/optchat/base.bend as LAOptchat
 import ./proof/optchat/view_covers.bend as PViewCovers
 import ./proof/optchat/cview_covers.bend as PCviewCovers
@@ -1244,10 +1246,8 @@ import ./proof/doc_commit/move_moves.bend as PMoveMoves
 import ./proof/doc_commit/temp_sweep_never_held.bend as PTempSweepNeverHeld
 import ./proof/doc_commit/temp_sweep_only_own.bend as PTempSweepOnlyOwn
 import ./proof/doc_commit/temp_sweep_removes_free.bend as PTempSweepRemovesFree
-import ./proof/doc_commit/entry/wire.bend as PDocCommitEntryWire
 import ./proof/doc_commit/entry/list_met.bend as PDocCommitEntryListMet
 import ./proof/doc_commit/entry/list_fate.bend as PDocCommitEntryListFate
-import ./proof/doc_commit/entry/list_strs.bend as PDocCommitEntryListStrs
 import ./proof/doc_commit/entry/list_ents.bend as PDocCommitEntryListEnts
 import ./proof/doc_commit/entry/fields.bend as PDocCommitEntryFields
 import ./proof/doc_commit/commit_check_spec.bend as PCommitCheckSpec

@@ -1,4 +1,5 @@
-# eukhe: lemmas of the doc_commit entry proofs: the wire primitives
+# eukhe: lemmas shared by the entry proofs (doc_commit, dash_access,
+# gateway_answer): the wire primitives
 #
 # Each decoder answers Got{x, rest} only for the spelling of x before
 # rest (dcw.nat, dcw.str: wire_nat_exact, wire_str_exact, and a too long
@@ -7,18 +8,18 @@
 # never opens with 'E'.
 
 import Base
-import ../../../bend/wire.bend as Wr
-import ../../../laws/base.bend as LawsBase
-import ../../../laws/wire.bend as Wire
-import ../../wire/wire_nat_exact.bend as PWireNatExact
-import ../../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
-import ../../wire/wire_nat_too_long.bend as PWireNatTooLong
-import ../../wire/wire_nat_not_err.bend as PWireNatNotErr
-import ../../wire/wire_str_exact.bend as PWireStrExact
-import ../../wire/wire_bool_exact.bend as PWireBoolExact
-import ../../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
-import ../../base/wire.bend as LWire
-import ../../base/logic/string.bend as LLogicString
+import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
+import ../../laws/wire.bend as Wire
+import ../wire/wire_nat_exact.bend as PWireNatExact
+import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
+import ../wire/wire_nat_too_long.bend as PWireNatTooLong
+import ../wire/wire_nat_not_err.bend as PWireNatNotErr
+import ../wire/wire_str_exact.bend as PWireStrExact
+import ../wire/wire_bool_exact.bend as PWireBoolExact
+import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
+import ./wire.bend as LWire
+import ./logic/string.bend as LLogicString
 
 def dcw.DT(-A: Data, d: Wr.Dec<A>, G: Type) -> Type:
   match d:

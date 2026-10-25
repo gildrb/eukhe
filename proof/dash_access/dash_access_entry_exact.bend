@@ -15,9 +15,9 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/dash_access.bend as DashAccess
 import ../../laws/doc_commit.bend as DocCommit
 import ../base/staging.bend as LStg
-import ../doc_commit/base.bend as LADocCommit
-import ../doc_commit/entry/wire.bend as LE
-import ../doc_commit/entry/list_strs.bend as LS
+import ../base/bool.bend as LBool
+import ../base/wire_dec.bend as LE
+import ../base/wire_strs.bend as LS
 import ./base.bend as LA
 
 def dax.RP(s: String, d: Wr.Dec<FAc.Req>) -> Type:
@@ -34,7 +34,7 @@ def dax.host.allowed(-s: String, +hh: String, -s2: String, pre: {s == Wr.put_nat
       (fn, fd) = fs2
       +fa = Equal.trans(Bool, DashAccess.sp_fit_strs(al), DocCommit.sp_fit_strs(al), True{}, LA.dab.fits(al), fd)
       (Equal.trans(String, s, Wr.put_nat(0n, Wr.put_str(hh, s2)), Wr.put_nat(0n, Wr.put_str(hh, Wr.put_list(~String, ~Wr.put_str, al, r))), pre, Equal.cong(String, String, z => Wr.put_nat(0n, Wr.put_str(hh, z)), s2, Wr.put_list(~String, ~Wr.put_str, al, r), e)),
-        LADocCommit.dcw.and_tt(LawsBase.wire_fits(String.length(hh)), Bool.and(LawsBase.wire_fits(List.length(&2, String, al)), DashAccess.sp_fit_strs(al)), fh, LADocCommit.dcw.and_tt(LawsBase.wire_fits(List.length(&2, String, al)), DashAccess.sp_fit_strs(al), fn, fa)))
+        LBool.cb_and_intro(LawsBase.wire_fits(String.length(hh)), Bool.and(LawsBase.wire_fits(List.length(&2, String, al)), DashAccess.sp_fit_strs(al)), fh, LBool.cb_and_intro(LawsBase.wire_fits(List.length(&2, String, al)), DashAccess.sp_fit_strs(al), fn, fa)))
     case Wr.Bad{}:
       Unit{}
 
@@ -51,7 +51,7 @@ def dax.origin.host(-s: String, +o: String, -s2: String, pre: {s == Wr.put_nat(1
     case Wr.Got{+hh, +r}:
       (e, fh) = sp
       (Equal.trans(String, s, Wr.put_nat(1n, Wr.put_str(o, s2)), Wr.put_nat(1n, Wr.put_str(o, Wr.put_str(hh, r))), pre, Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_str(o, z)), s2, Wr.put_str(hh, r), e)),
-        LADocCommit.dcw.and_tt(LawsBase.wire_fits(String.length(o)), LawsBase.wire_fits(String.length(hh)), fo, fh))
+        LBool.cb_and_intro(LawsBase.wire_fits(String.length(o)), LawsBase.wire_fits(String.length(hh)), fo, fh))
     case Wr.Bad{}:
       Unit{}
 

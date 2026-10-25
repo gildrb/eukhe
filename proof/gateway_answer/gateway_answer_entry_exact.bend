@@ -18,9 +18,9 @@ import ../../laws/doc_commit.bend as DocCommit
 import ../../laws/wire.bend as Wire
 import ../wire/wire_bool_exact.bend as PWireBoolExact
 import ../base/staging.bend as LStg
-import ../doc_commit/base.bend as LADocCommit
-import ../doc_commit/entry/wire.bend as LE
-import ../doc_commit/entry/list_strs.bend as LS
+import ../base/bool.bend as LBool
+import ../base/wire_dec.bend as LE
+import ../base/wire_strs.bend as LS
 import ./base.bend as LA
 
 # Bools
@@ -152,7 +152,7 @@ def gax.asst.error(-s: String, +st: Ga.Stop, +ts: List<&2, String>, -s3: String,
     case Wr.Got{+e, +r}:
       (ee, fe) = mp
       (Equal.trans(String, s, Wr.put_nat(1n, Wr.put_nat(GatewayAnswer.ga_w_stop(st), Wr.put_list(~String, ~Wr.put_str, ts, s3))), Wr.put_nat(1n, Wr.put_nat(GatewayAnswer.ga_w_stop(st), Wr.put_list(~String, ~Wr.put_str, ts, GatewayAnswer.ga_w_maybe(e, r)))), pre, Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_nat(GatewayAnswer.ga_w_stop(st), Wr.put_list(~String, ~Wr.put_str, ts, z))), s3, GatewayAnswer.ga_w_maybe(e, r), ee)),
-        LADocCommit.dcw.and_tt(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), fn, LADocCommit.dcw.and_tt(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), fs, fe)))
+        LBool.cb_and_intro(LawsBase.wire_fits(List.length(&2, String, ts)), Bool.and(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e)), fn, LBool.cb_and_intro(GatewayAnswer.ga_fit_strs(ts), GatewayAnswer.ga_fit_maybe(e), fs, fe)))
     case Wr.Bad{}:
       Unit{}
 
