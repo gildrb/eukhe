@@ -168,6 +168,8 @@ pub enum Entry {
     McpUrl = 290,
     /// `bend/ffi_slash_args.bend`: a call.
     SlashArgs = 291,
+    /// `bend/ffi_goal_text.bend`: a call.
+    GoalText = 292,
 }
 
 impl Entry {
@@ -254,6 +256,7 @@ impl Entry {
         Entry::DocPlan,
         Entry::McpUrl,
         Entry::SlashArgs,
+        Entry::GoalText,
     ];
 
     /// The id `bend/core.bend` dispatches on.

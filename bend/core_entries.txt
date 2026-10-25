@@ -82,3 +82,4 @@
 264 doc_plan
 290 mcp_url
 291 slash_args
+292 goal_text
