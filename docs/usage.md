@@ -53,10 +53,11 @@ Settings: [settings.md](settings.md#agents-and-providers).
 
 - Main talks with you; one persistent child, `worker`, does the work. Main keeps its turns short and runs no long work: its tools are read-only (`read`, `grep`, `glob`, `zoom`, `date`) plus `worker_assign`, `worker_forward`, `worker_status`.
 - Main routes each message by the tool it picks: it answers questions and chat itself (from `worker_status`, `zoom("worker")`, its read-only tools); context or an idea for the running work goes to the worker as `context` (folded in, same course); a change of course as `redirect` (the worker re-plans); new work as a task (`worker_assign`; a second worker `worker-2` for unrelated work while the first is busy).
-- Your words reach the worker verbatim: main never restates them; its own note is labeled `[note from main]`. They land between the worker's tool calls, never inside one.
-- The worker has the chat view (as a subagent) and reports to main with an agent message. Its model: `workerModel` (the `worker` role of `/model`), else main's.
+- Your words reach the worker verbatim, with the images and `@file` references you sent with them, in order, once: main never restates them; its own note is labeled `[note from main]`. They land between the worker's tool calls, never inside one.
+- The worker has the chat view (as a subagent: it logs nothing and never waits for main's turn) and reports to main with an agent message. It keeps that when stopped and woken again. Its model: `workerModel` (the `worker` role of `/model`), else main's. It may spawn its own subagents (`rlmMaxDepth` 3).
+- `/goal` and `/autonomous` typed on main run on the worker, where the work runs (a stopped worker wakes for them); main's chat records where they went, the worker's chat shows the result. Before main has a worker they are refused: give main work first.
 - Pause: `/pause` or Esc twice within 1 s on main sends `pause_workers`: the worker tree's current model request and tool calls finish; no new request, tool call or spawn starts; detached jobs keep running. Nothing is killed. The worker row shows `paused`, and a paused worker releases its kernel like an idle one.
-- Wake: `/resume`, Enter on the paused worker row, or any message main forwards resumes from where it parked, with its whole context; messages sent meanwhile are delivered once, in order.
+- Wake: `/resume`, Enter on the paused worker row, any message main forwards, or your `@worker` message resumes from where it parked, with its whole context; messages sent meanwhile are delivered once, in order. A wake ends the whole tree's pause: main's row shows the worker running again.
 - Alt+W toggles the live worker pane (right side at 140+ columns, else a bottom strip); Alt+Shift+W shows it full; Esc returns. The pane watches the worker without taking its approvals or holding its kernel.
 
 ## Providers

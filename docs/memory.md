@@ -219,6 +219,8 @@ Status: **matched** (code does the rule), **fixed** (code did not; a test shows 
 | 55 | Long message comes in pages. | Rule 10: each page one message. | `optchat::tests::long_user_texts_are_logged_as_several_messages` | matched |
 | 56 | `date(id)`: description verbatim. | `prompts.rs` `DATE_TOOL_DESCRIPTION`; `tools.rs` | `service::tests::dates_read_as_local_date_and_time` | matched |
 | 57 | Subagent: fresh call, view then task. | `request.rs` (`MemoryRole::Subagent`); `prompts.rs` `subagent_system_layer` | `optchat::tests::a_subagent_pins_one_view_for_its_conversation_and_logs_nothing` | matched |
+| 57a | Main's worker (`sessionShape` `main-worker`) reads the chat as a subagent: pinned view, logs nothing, no root-turn lease; kept when stopped and woken. | `durable/deps.rs` `SessionRole::has_chat_memory`; daemon `worker/create.rs` (`eukhe.daemon.session` `worker`) | `optchat::tests::the_workers_chat_view_runs_while_another_window_holds_the_root_turn`; daemon `worker::create::tests::a_stopped_worker_woken_again_keeps_its_worker_flag` | matched |
+| 57b | Main hands the user's messages to the worker verbatim, images and file references included, in order, once. | `children/worker.rs` `hand_over` (`forward_pick`) | `children::tests::worker::a_hand_over_carries_the_users_images_and_file_references_once_in_order` | matched |
 | 58 | Final reply returns as one `work` message, `[Name] report`; master never waits or polls. | `lines.rs` `report_line`; prompt's `TURNS` | `optchat::tests::agent_replies_are_logged_as_work_and_owed_rows_are_not` | matched |
 
 ### §7 Mistakes to avoid
