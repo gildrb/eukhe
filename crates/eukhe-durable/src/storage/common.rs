@@ -2,6 +2,9 @@
 //! copy of these (`cursorId`, `page`, `isAliveAt`, `isCurrentOnly`); the Rust
 //! port keeps one.
 
+use eukhe_bend::rules::scan;
+use eukhe_bend::{expect_core, Entry};
+
 use crate::errors::StorageError;
 use crate::types::{
     AnyTaskRecord, ConversationRecord, ConversationSemantics, Cursor, DocumentPoint,
@@ -71,22 +74,20 @@ impl PageItem for DocumentRecord {
 }
 
 /// The `after` ID of a backend cursor (TS `cursorId`): absent without a
-/// cursor or `after`; `Invalid storage cursor` unless a safe integer.
+/// cursor or `after`; `Invalid storage cursor` unless a safe integer. The
+/// compiled core decides (`eukhe_bend::rules::scan::cursor_id`).
 pub(crate) fn cursor_id(cursor: Option<&Cursor>) -> Result<Option<i64>, StorageError> {
-    let Some(after) = cursor.and_then(|cursor| cursor.get("after")) else {
-        return Ok(None);
-    };
-    match after.as_number() {
-        Some(number)
-            if number.is_integer() && number.get().abs() <= eukhe_chord::json::MAX_SAFE_INTEGER =>
-        {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a safe integer fits i64 exactly"
-            )]
-            Ok(Some(number.get() as i64))
-        }
-        _ => Err(StorageError::request("Invalid storage cursor")),
+    let field = cursor.and_then(|cursor| cursor.get("after"));
+    let after = super::scan::safe_after(field);
+    let read = cursor.map(|_| match (field, after) {
+        (None, _) => scan::After::Absent,
+        (Some(_), None) => scan::After::NotSafe,
+        (Some(_), Some(_)) => scan::After::Safe,
+    });
+    match expect_core(Entry::Scan, scan::cursor_id(read)) {
+        scan::Id::Absent => Ok(None),
+        scan::Id::After => Ok(after),
+        scan::Id::Refused(text) => Err(StorageError::request(text)),
     }
 }
 

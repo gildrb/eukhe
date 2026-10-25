@@ -8,6 +8,7 @@ use crate::types::{
     DocumentRecord, DocumentRecordScope, EntryId, InputSubmission, StorageWrite, SubmissionRecord,
     SubmissionSettlement, SubmissionState, WriteSubmission,
 };
+use eukhe_bend::rules::submission::{self, Change, Out, Sub, Why};
 use eukhe_chord::delta::{Prepared, Tracker};
 
 use super::error::{SessionError, SessionResult};
@@ -22,64 +23,109 @@ pub(super) enum SubmissionChange {
     Placed(EntryId),
 }
 
-/// Complete record after applying one change. Placement turns a queued input
-/// `placed` and a queued write `done`; only a placed input can be answered. A
-/// settled record stays. `None` means unchanged.
+/// Complete record after applying one change. The compiled core decides
+/// (`eukhe_bend::rules::submission`, `laws/submission.bend`): placement
+/// turns a queued input `placed` and a queued write `done`; only a placed
+/// input can be answered; a settled record stays. `None` means unchanged.
 pub(super) fn apply_submission_change(
     current: &SubmissionRecord,
     change: &SubmissionChange,
 ) -> SessionResult<Option<SubmissionRecord>> {
-    if current.state.is_settled() {
-        return Ok(None);
-    }
-    let state = match (change, &current.state) {
-        (SubmissionChange::Placed(entry), SubmissionState::Input(InputSubmission::Queued)) => {
-            SubmissionState::Input(InputSubmission::Placed { entry: *entry })
-        }
-        (SubmissionChange::Placed(entry), SubmissionState::Write(WriteSubmission::Queued)) => {
-            SubmissionState::Write(WriteSubmission::Done { entry: *entry })
-        }
-        (SubmissionChange::Placed(_), _) => {
+    let asked = match change {
+        SubmissionChange::Placed(entry) => Change::Place { entry: entry.get() },
+        SubmissionChange::Settle(SubmissionSettlement::Done { answer }) => Change::Answer {
+            answer: answer.get(),
+        },
+        SubmissionChange::Settle(SubmissionSettlement::Unanswered { .. }) => Change::Unanswered,
+    };
+    let out = submission::step(lifecycle(&current.state), asked)
+        .map_err(|error| SessionError::error(error.to_string()))?;
+    let next = match out {
+        Out::Stays => return Ok(None),
+        Out::Refused(Why::NotQueued) => {
             return Err(SessionError::error(format!(
                 "Submission {} is not queued",
                 current.id
             )));
         }
-        (
-            SubmissionChange::Settle(SubmissionSettlement::Done { answer }),
-            SubmissionState::Input(InputSubmission::Placed { entry }),
-        ) => SubmissionState::Input(InputSubmission::Done {
-            entry: *entry,
-            answer: *answer,
-        }),
-        (SubmissionChange::Settle(SubmissionSettlement::Done { .. }), _) => {
+        Out::Refused(Why::NotPlacedInput) => {
             return Err(SessionError::error(format!(
                 "Submission {} is not a placed input",
                 current.id
             )));
         }
-        // Queued and placed records carry no answer, reason, or detail; an
-        // unanswered input keeps its entry.
-        (
-            SubmissionChange::Settle(SubmissionSettlement::Unanswered { reason, detail }),
-            SubmissionState::Input(_),
-        ) => SubmissionState::Input(InputSubmission::Unanswered {
-            entry: current.state.entry(),
-            reason: reason.clone(),
-            detail: detail.clone(),
+        Out::Moves(next) => next,
+    };
+    // Queued and placed records carry no answer, reason, or detail: an
+    // unanswered record takes them from its settlement.
+    let settlement = match change {
+        SubmissionChange::Settle(SubmissionSettlement::Unanswered { reason, detail }) => {
+            Some((reason, detail))
+        }
+        SubmissionChange::Placed(_)
+        | SubmissionChange::Settle(SubmissionSettlement::Done { .. }) => None,
+    };
+    let state = match (next, settlement) {
+        (Sub::InputQueued, _) => SubmissionState::Input(InputSubmission::Queued),
+        (Sub::InputPlaced { entry }, _) => SubmissionState::Input(InputSubmission::Placed {
+            entry: EntryId::from_number(entry),
         }),
-        (
-            SubmissionChange::Settle(SubmissionSettlement::Unanswered { reason, detail }),
-            SubmissionState::Write(_),
-        ) => SubmissionState::Write(WriteSubmission::Unanswered {
-            reason: reason.clone(),
-            detail: detail.clone(),
+        (Sub::InputAnswered { entry, answer }, _) => {
+            SubmissionState::Input(InputSubmission::Done {
+                entry: EntryId::from_number(entry),
+                answer: EntryId::from_number(answer),
+            })
+        }
+        (Sub::InputUnanswered { entry }, Some((reason, detail))) => {
+            SubmissionState::Input(InputSubmission::Unanswered {
+                entry: entry.map(EntryId::from_number),
+                reason: reason.clone(),
+                detail: detail.clone(),
+            })
+        }
+        (Sub::WriteQueued, _) => SubmissionState::Write(WriteSubmission::Queued),
+        (Sub::WriteDone { entry }, _) => SubmissionState::Write(WriteSubmission::Done {
+            entry: EntryId::from_number(entry),
         }),
+        (Sub::WriteUnanswered, Some((reason, detail))) => {
+            SubmissionState::Write(WriteSubmission::Unanswered {
+                reason: reason.clone(),
+                detail: detail.clone(),
+            })
+        }
+        (Sub::InputUnanswered { .. } | Sub::WriteUnanswered, None) => {
+            return Err(SessionError::error(format!(
+                "Submission {}: the core settled it unanswered without an unanswered settlement",
+                current.id
+            )));
+        }
     };
     Ok(Some(SubmissionRecord {
         state,
         ..current.clone()
     }))
+}
+
+/// The lifecycle of a submission state, as the core reads it.
+fn lifecycle(state: &SubmissionState) -> Sub {
+    match state {
+        SubmissionState::Input(InputSubmission::Queued) => Sub::InputQueued,
+        SubmissionState::Input(InputSubmission::Placed { entry }) => {
+            Sub::InputPlaced { entry: entry.get() }
+        }
+        SubmissionState::Input(InputSubmission::Done { entry, answer }) => Sub::InputAnswered {
+            entry: entry.get(),
+            answer: answer.get(),
+        },
+        SubmissionState::Input(InputSubmission::Unanswered { entry, .. }) => Sub::InputUnanswered {
+            entry: entry.map(EntryId::get),
+        },
+        SubmissionState::Write(WriteSubmission::Queued) => Sub::WriteQueued,
+        SubmissionState::Write(WriteSubmission::Done { entry }) => {
+            Sub::WriteDone { entry: entry.get() }
+        }
+        SubmissionState::Write(WriteSubmission::Unanswered { .. }) => Sub::WriteUnanswered,
+    }
 }
 
 /// The record a plan writes: committed, or created by this commit.

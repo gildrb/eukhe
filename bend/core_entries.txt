@@ -64,3 +64,5 @@
 102 doc_tags
 103 doc_commit
 260 codemode_id
+261 submission
+262 scan

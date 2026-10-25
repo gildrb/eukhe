@@ -49,12 +49,14 @@ import ./ffi_revive.bend as ffi_revive
 import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
+import ./ffi_scan.bend as ffi_scan
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_staging.bend as ffi_staging
+import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
@@ -190,6 +192,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_doc_commit.ffi(input)
     case 260:
       ffi_codemode_id.ffi(input)
+    case 261:
+      ffi_submission.ffi(input)
+    case 262:
+      ffi_scan.ffi(input)
     case _:
       W.err("unknown entry")
 
