@@ -81,6 +81,8 @@ import ./proof/wait/wait_entry_reads.bend as PWaitEntryReads
 import ./proof/wait/wait_entry_malformed_exact.bend as PWaitEntryMalformedExact
 import ./proof/wait/wait_entry_example.bend as PWaitEntryExample
 import ./proof/wait/wait_go_exact.bend as PWaitGoExact
+import ./proof/wait/wait_run_exact.bend as PWaitRunExact
+import ./proof/wait/wait_terms_exact.bend as PWaitTermsExact
 import ./proof/lease/base.bend as LALease
 import ./proof/lease/lease_fifo.bend as PLeaseFifo
 import ./proof/lease/lease_never_idle.bend as PLeaseNeverIdle
@@ -111,6 +113,7 @@ import ./proof/lease/lease_fifo_term_exact.bend as PLeaseFifoTermExact
 import ./proof/lease/lease_busy_term_exact.bend as PLeaseBusyTermExact
 import ./proof/lease/lease_notheld_term_exact.bend as PLeaseNotheldTermExact
 import ./proof/lease/lease_freed_term_exact.bend as PLeaseFreedTermExact
+import ./proof/lease/lease_run_is_go.bend as PLeaseRunIsGo
 import ./proof/child/base.bend as LAChild
 import ./proof/child/child_stalls_in_time.bend as PChildStallsInTime
 import ./proof/child/child_unreachable_in_time.bend as PChildUnreachableInTime

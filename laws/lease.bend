@@ -825,3 +825,12 @@ law lease_freed_term_exact:
   for +o: Nat
   for +s: Ls.L
   (Ls.Freed(o, s) -> {lt_freed(o, s) == True{} : Bool}) & ({lt_freed(o, s) == True{} : Bool} -> Ls.Freed(o, s))
+
+# LAW lease_run_is_go: the model's run of events is its walk from the empty lease, so
+# lease_run_exact pins it (a third fresh adversary's run that restarted at a stop passed every
+# law)
+# EXCLUDES: a run that drifts from the steps (resets, skips or reorders events), which would
+#   make the history laws speak of another lease than the one the owner runs
+law lease_run_is_go:
+  for +evs: List<&2, Ls.Ev>
+  {Ls.run(evs) == Ls.go(evs, Ls.L.empty()) : Ls.L}

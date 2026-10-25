@@ -242,3 +242,97 @@ law wait_go_exact:
   for +xs: List<&2, Wt.Sig>
   for +w: Wt.W
   {Wt.go(xs, w) == go_spec(xs, w) : List<&2, Wt.End>}
+
+# The wait model's run and terms, pinned
+# --------------------------------------
+# The laws at the top of this file state the wait through `Wt.run`,
+# `exits`, `stops` and `once`. A third fresh adversary (SpecCheckLease)
+# filled `run` to report no end ever with `exits` and `stops` always true
+# and `once` always 0, and every law checked: those laws were vacuous. The
+# run and the terms are pinned here.
+
+# a wait with deadline dl (None: none; Some{d}: it passes on the d-th
+# tick, at once when d is 0) that sees xs: the first end, as go_spec
+def run_spec(dl: Maybe<&2, Nat>, xs: List<&2, Wt.Sig>) -> List<&2, Wt.End>:
+  match dl:
+    case None{}:
+      go_spec(xs, Wt.Open{None{}})
+    case Some{d}:
+      match d:
+        case 0n:
+          [Wt.Expired{}]
+        case 1n+m:
+          go_spec(xs, Wt.Open{Some{m}})
+
+def arrive_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          True{}
+        case Wt.Tick{}:
+          arrive_spec(rest)
+        case Wt.Cancel{}:
+          arrive_spec(rest)
+
+def cancel_spec(xs: List<&2, Wt.Sig>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          cancel_spec(rest)
+        case Wt.Tick{}:
+          cancel_spec(rest)
+        case Wt.Cancel{}:
+          True{}
+
+def ticks_spec(xs: List<&2, Wt.Sig>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case s <> rest:
+      match s:
+        case Wt.Arrive{}:
+          ticks_spec(rest)
+        case Wt.Tick{}:
+          1n+ticks_spec(rest)
+        case Wt.Cancel{}:
+          ticks_spec(rest)
+
+def reached_spec(dl: Maybe<&2, Nat>, k: Nat) -> Bool:
+  match dl:
+    case None{}:
+      False{}
+    case Some{d}:
+      Nat.is_le(d, k)
+
+def once_spec(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# LAW wait_run_exact: the model's run is the walk of H6 from the deadline: with no deadline an
+# open wait, with a deadline of 0 an expiry at once, else an open wait whose deadline passes on
+# the d-th tick
+# EXCLUDES: a run that never ends (the laws above vacuous), ends late or early, or ends twice
+law wait_run_exact:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  {Wt.run(dl, xs) == run_spec(dl, xs) : List<&2, Wt.End>}
+
+# LAW wait_terms_exact: the model's terms the laws above read mean what they say: an event
+# came, a cancel came, the ticks counted, the deadline reached, a stop (a cancel or the
+# deadline), an exit (an event or a stop), and how many ends a wait that exits reports
+# EXCLUDES: terms that make the laws above vacuous (exits always true, once always 0)
+law wait_terms_exact:
+  for +dl: Maybe<&2, Nat>
+  for +xs: List<&2, Wt.Sig>
+  for +k: Nat
+  for +b: Bool
+  {Wt.has_arrive(xs) == arrive_spec(xs) : Bool} & {Wt.has_cancel(xs) == cancel_spec(xs) : Bool} & {Wt.ticks(xs) == ticks_spec(xs) : Nat} & {Wt.reached(dl, k) == reached_spec(dl, k) : Bool} & {Wt.stops(dl, xs) == Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs))) : Bool} & {Wt.exits(dl, xs) == Bool.or(arrive_spec(xs), Bool.or(cancel_spec(xs), reached_spec(dl, ticks_spec(xs)))) : Bool} & {Wt.once(b) == once_spec(b) : Nat}
