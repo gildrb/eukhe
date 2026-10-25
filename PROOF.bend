@@ -1641,6 +1641,17 @@ import ./proof/wire/wire_strs_round_trip.bend as PWireStrsRoundTrip
 import ./proof/wire/wire_strs_exact.bend as PWireStrsExact
 import ./proof/wire/wire_str_decoded_fits.bend as PWireStrDecodedFits
 import ./proof/wire/wire_strs_decoded_fit.bend as PWireStrsDecodedFit
+import ./proof/wire/wire_nat_reads_decimal.bend as PWireNatReadsDecimal
+import ./proof/wire/wire_u32_decimal.bend as PWireU32Decimal
+import ./proof/wire/wire_u32_reads_decimal.bend as PWireU32ReadsDecimal
+import ./proof/wire/wire_bool_spelled.bend as PWireBoolSpelled
+import ./proof/wire/wire_bool_reads_spelled.bend as PWireBoolReadsSpelled
+import ./proof/wire/wire_str_decimal.bend as PWireStrDecimal
+import ./proof/wire/wire_str_reads_decimal.bend as PWireStrReadsDecimal
+import ./proof/wire/wire_nats_decimal.bend as PWireNatsDecimal
+import ./proof/wire/wire_nats_reads_decimal.bend as PWireNatsReadsDecimal
+import ./proof/wire/wire_strs_decimal.bend as PWireStrsDecimal
+import ./proof/wire/wire_strs_reads_decimal.bend as PWireStrsReadsDecimal
 import ./proof/command/command_ffi_example.bend as PCommandFfiExample
 import ./proof/command/command_spacing_example.bend as PCommandSpacingExample
 import ./proof/command/base/entry.bend as LACommandEntry

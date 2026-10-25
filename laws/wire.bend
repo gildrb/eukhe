@@ -93,6 +93,15 @@ law wire_digits_spells:
   for +n: Nat
   {String.length(Wr.put_nat(n, "")) == 1n+LawsBase.wire_digits(n) : Nat}
 
+# LAW wire_nat_reads_decimal (R1): the reader reads the decimal spelling (wire_dec) of a Nat that fits
+# EXCLUDES: a reader that reads its own writer's digit table but not
+#   decimal (a digit swap both ways); a reader pinned only through put_nat
+law wire_nat_reads_decimal:
+  for +n: Nat
+  for rest: String
+  for h: {LawsBase.wire_fits(n) == True{} : Bool}
+  {Wr.get_nat(LawsBase.wire_dec(n, rest)) == Wr.Got{n, rest} : Wr.Dec<Nat>}
+
 # U32
 # ---
 
@@ -117,6 +126,21 @@ law wire_u32_exact:
 # EXCLUDES: a U32 spelled in another base or width
 law wire_u32_example:
   {Wr.put_u32(7, "") == "7," : String}
+
+# LAW wire_u32_decimal (R1): a U32 is spelled as the decimal (wire_dec) of its value
+# EXCLUDES: a U32 writer and reader that agree on a wrong digit table, digit
+#   order, base or width (every round trip passes; the example 7 has one digit)
+law wire_u32_decimal:
+  for +x: U32
+  for rest: String
+  {Wr.put_u32(x, rest) == LawsBase.wire_dec(U32.to_nat(x), rest) : String}
+
+# LAW wire_u32_reads_decimal (R1): the U32 reader reads the decimal spelling of every U32
+# EXCLUDES: a U32 reader that reads only its own writer's (wrong) digits
+law wire_u32_reads_decimal:
+  for +x: U32
+  for rest: String
+  {Wr.get_u32(LawsBase.wire_dec(U32.to_nat(x), rest)) == Wr.Got{x, rest} : Wr.Dec<U32>}
 
 # Bool
 # ----
@@ -149,6 +173,21 @@ law wire_bool_not_err:
 law wire_bool_example:
   {Wr.put_bool(True{}, "F") == "TF" : String}
 
+# LAW wire_bool_spelled (R1): True is the char T (code 84), False the char F (code 70)
+# EXCLUDES: a False spelled with another char both sides agree on (the
+#   example pins only True)
+law wire_bool_spelled:
+  for b: Bool
+  for rest: String
+  {Wr.put_bool(b, rest) == SCon{LawsBase.wire_bool_char(b), rest} : String}
+
+# LAW wire_bool_reads_spelled (R1): the Bool reader reads T as True and F as False
+# EXCLUDES: a reader that reads only its own writer's chars
+law wire_bool_reads_spelled:
+  for b: Bool
+  for rest: String
+  {Wr.get_bool(SCon{LawsBase.wire_bool_char(b), rest}) == Wr.Got{b, rest} : Wr.Dec<Bool>}
+
 # String
 # ------
 
@@ -174,6 +213,22 @@ law wire_str_exact:
 law wire_str_example:
   {Wr.put_str("hé", "!") == "2,hé!" : String}
 
+# LAW wire_str_decimal (R1): a string is its length in chars in decimal (wire_dec), then its chars
+# EXCLUDES: a length writer and reader that agree on a wrong digit table,
+#   order or base (the example's length has one digit)
+law wire_str_decimal:
+  for +a: String
+  for rest: String
+  {Wr.put_str(a, rest) == LawsBase.wire_dec_str(a, rest) : String}
+
+# LAW wire_str_reads_decimal (R1): the string reader reads the decimal spelling of a string whose length fits
+# EXCLUDES: a reader that reads only its own writer's length digits
+law wire_str_reads_decimal:
+  for +a: String
+  for rest: String
+  for h: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  {Wr.get_str(LawsBase.wire_dec_str(a, rest)) == Wr.Got{a, rest} : Wr.Dec<String>}
+
 # Lists
 # -----
 
@@ -198,6 +253,22 @@ law wire_list_exact:
 # EXCLUDES: items with no count, a count after the items
 law wire_list_example:
   {Wr.put_list(~Nat, ~Wr.put_nat, [1n, 22n], "") == "2,1,22," : String}
+
+# LAW wire_nats_decimal (R1): a list of Nats is its count in decimal, then each Nat in decimal
+# EXCLUDES: a list count (or item) writer and reader that agree on a wrong
+#   digit table, order or base
+law wire_nats_decimal:
+  for +xs: List<&2, Nat>
+  for rest: String
+  {Wr.put_list(~Nat, ~Wr.put_nat, xs, rest) == LawsBase.wire_dec_nats(xs, rest) : String}
+
+# LAW wire_nats_reads_decimal (R1): the list reader reads the decimal spelling of a list of Nats that fits
+# EXCLUDES: a list reader that reads only its own writer's count digits
+law wire_nats_reads_decimal:
+  for +xs: List<&2, Nat>
+  for rest: String
+  for h: {Bool.and(LawsBase.wire_fits(List.length(&2, Nat, xs)), LawsBase.wire_nats_fit(xs)) == True{} : Bool}
+  {Wr.get_list(~Nat, ~Wr.get_nat, LawsBase.wire_dec_nats(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Nat>>}
 
 # Replies
 # -------
@@ -272,3 +343,19 @@ law wire_strs_decoded_fit:
 # EXCLUDES: strings with no length, a count of chars instead of strings
 law wire_strs_example:
   {Wr.put_list(~String, ~Wr.put_str, ["ab", "c"], "") == "2,2,ab1,c" : String}
+
+# LAW wire_strs_decimal (R1): a list of strings is its count in decimal, then each string (wire_dec_str)
+# EXCLUDES: a count or length writer and reader that agree on a wrong
+#   digit table, order or base
+law wire_strs_decimal:
+  for +xs: List<&2, String>
+  for rest: String
+  {Wr.put_list(~String, ~Wr.put_str, xs, rest) == LawsBase.wire_dec_strs(xs, rest) : String}
+
+# LAW wire_strs_reads_decimal (R1): the list reader reads the decimal spelling of a list of strings that fits
+# EXCLUDES: a reader that reads only its own writer's count or length digits
+law wire_strs_reads_decimal:
+  for +xs: List<&2, String>
+  for rest: String
+  for h: {LawsBase.wire_strs_fit(xs) == True{} : Bool}
+  {Wr.get_list(~String, ~Wr.get_str, LawsBase.wire_dec_strs(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}

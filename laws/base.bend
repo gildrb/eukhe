@@ -87,6 +87,43 @@ def wire_dec(n: Nat, rest: String) -> String:
   +m = n
   wire_dec.go(m, Nat.div(m, 10n), SCon{wire_dec_char(Nat.mod(m, 10n)), SCon{',', rest}})
 
+# a string on the wire: its length in chars (wire_dec), then its chars,
+# then rest
+def wire_dec_str(+a: String, rest: String) -> String:
+  wire_dec(String.length(a), String.append(a, rest))
+
+# a Bool on the wire: the char T (code 84) or F (code 70)
+def wire_bool_char(b: Bool) -> Char:
+  match b:
+    case True{}:
+      Chr{U32.from_nat(84n)}
+    case False{}:
+      Chr{U32.from_nat(70n)}
+
+# the Nats of xs, each in decimal (wire_dec), then rest
+def wire_dec_nats.items(xs: List<&2, Nat>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      wire_dec(x, wire_dec_nats.items(t, rest))
+
+# a list of Nats on the wire: its count in decimal, then each Nat
+def wire_dec_nats(+xs: List<&2, Nat>, rest: String) -> String:
+  wire_dec(List.length(&2, Nat, xs), wire_dec_nats.items(xs, rest))
+
+# the strings of xs, each as wire_dec_str, then rest
+def wire_dec_strs.items(xs: List<&2, String>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      wire_dec_str(x, wire_dec_strs.items(t, rest))
+
+# a list of strings on the wire: its count in decimal, then each string
+def wire_dec_strs(+xs: List<&2, String>, rest: String) -> String:
+  wire_dec(List.length(&2, String, xs), wire_dec_strs.items(xs, rest))
+
 # s starts with the char 'E' (the error form of a reply)
 def wire_opens_err(s: String) -> Bool:
   match s:
