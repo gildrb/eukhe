@@ -2,14 +2,17 @@
 //! (docs/harness.md H4.8, law `rec_never_runs_a_repeat`; omp
 //! `tool-call-loop-guard.ts`, whose `wait` exemption is here a result that
 //! changes). The count comes from the request's context, so a restart
-//! keeps it and a failed reply (not in the context) never adds to it.
+//! keeps it and a failed reply (not in the context) never adds to it. The
+//! compiled core walks the context (`eukhe_bend::rules::repeat`,
+//! `laws/repeat.bend`): Rust gives it each message newest first, each
+//! round's calls and each result as an id, and canonicalizes only the
+//! rounds the walk reaches.
 
 use std::fmt::Write as _;
 use std::num::NonZeroU32;
 
-use eukhe_types::pi_ai::{
-    AssistantContentBlock, JsonObject, JsonValue, Message, ToolCall, UserContentBlock,
-};
+use eukhe_bend::rules::repeat::{Row, Seen};
+use eukhe_types::pi_ai::{AssistantContentBlock, JsonObject, JsonValue, Message, ToolCall};
 
 /// The intent parameter of every tool schema (docs/tools.md S7.3): it
 /// says why, not what, so two calls that differ only in it are the same.
@@ -69,9 +72,26 @@ fn call_set<'a>(calls: impl Iterator<Item = &'a ToolCall>) -> Vec<(&'a str, Stri
     set
 }
 
-/// One round at the end of a context: its calls as a set, and its results
-/// (content and error flag), in context order.
-type Round<'a> = (Vec<(&'a str, String)>, Vec<(&'a [UserContentBlock], bool)>);
+/// Equal values to equal ids, numbered in the order first seen (the ids
+/// of one walk).
+struct Ids<T> {
+    seen: Vec<T>,
+}
+
+impl<T: PartialEq> Ids<T> {
+    fn new() -> Ids<T> {
+        Ids { seen: Vec::new() }
+    }
+
+    fn id(&mut self, value: T) -> u64 {
+        let found = self.seen.iter().position(|seen| *seen == value);
+        let index = found.unwrap_or_else(|| {
+            self.seen.push(value);
+            self.seen.len() - 1
+        });
+        index as u64
+    }
+}
 
 /// The rounds in a row that `calls` would make: 1 and the rounds at the
 /// end of `messages` with the same calls (names and canonical arguments,
@@ -80,42 +100,37 @@ type Round<'a> = (Vec<(&'a str, String)>, Vec<(&'a [UserContentBlock], bool)>);
 /// it. When the results change (a call polls a job that makes progress),
 /// a new row starts: it is no repeat. A user message (a steer, the user's
 /// next turn) ends the row: the user changed the context. System messages
-/// do not; a reply without tool calls does.
+/// do not; a reply without tool calls does. The compiled core decides all
+/// of this (`laws/repeat.bend`); Rust gives each round's calls (as a set)
+/// and each result (content and error flag) an id, equal values equal ids.
 pub(crate) fn rounds_in_a_row(messages: &[Message], calls: &[ToolCall]) -> NonZeroU32 {
-    let set = call_set(calls.iter());
-    let mut last: Option<Round<'_>> = None;
-    let mut results = Vec::new();
-    let mut rounds = NonZeroU32::MIN;
+    let mut sets = Ids::new();
+    let mut results = Ids::new();
+    let mut row = Row::open(sets.id(call_set(calls.iter())));
     for message in messages.iter().rev() {
-        match message {
-            Message::System(_) => {}
-            Message::User(_) => break,
+        let seen = match message {
+            Message::System(_) => Seen::System,
+            Message::User(_) => Seen::User,
             Message::ToolResult(result) => {
-                results.push((result.content.as_slice(), result.is_error));
+                Seen::Result(results.id((result.content.as_slice(), result.is_error)))
             }
             Message::Assistant(reply) => {
-                results.reverse();
-                let round = (
-                    call_set(reply.content.iter().filter_map(|content| match content {
-                        AssistantContentBlock::ToolCall(call) => Some(call),
-                        AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
-                    })),
-                    std::mem::take(&mut results),
-                );
-                let same = !round.0.is_empty()
-                    && match &last {
-                        None => round.0 == set,
-                        Some(last) => round == *last,
-                    };
-                if !same {
-                    break;
+                let set = call_set(reply.content.iter().filter_map(|content| match content {
+                    AssistantContentBlock::ToolCall(call) => Some(call),
+                    AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
+                }));
+                if set.is_empty() {
+                    Seen::Said
+                } else {
+                    Seen::Called(sets.id(set))
                 }
-                rounds = rounds.saturating_add(1);
-                last.get_or_insert(round);
             }
+        };
+        if let Some(rounds) = row.step(seen) {
+            return rounds;
         }
     }
-    rounds
+    row.end()
 }
 
 #[cfg(test)]
@@ -195,6 +210,9 @@ mod tests {
         );
     }
 
+    /// The Rust-to-core bridge: the ids Rust gives a context's calls (the
+    /// intent and the key order dropped) and results reach the compiled
+    /// walk, which `laws/repeat.bend` pins.
     #[test]
     fn counts_the_rounds_with_the_same_calls_and_the_same_results() {
         let calls = [call("c1", json!({"path": "a.rs", "i": "look"}))];

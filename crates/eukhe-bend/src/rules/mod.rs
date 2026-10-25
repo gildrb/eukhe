@@ -15,6 +15,7 @@ pub mod infer_guard;
 pub mod infer_threshold;
 pub mod model_facts;
 pub mod node_error;
+pub mod repeat;
 pub mod retry;
 pub mod retry_note;
 pub mod runners;

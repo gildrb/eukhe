@@ -45,6 +45,7 @@ import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
+import ./ffi_repeat.bend as ffi_repeat
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -227,6 +228,7 @@ type State is Type:
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
   AuthFlight{s: ffi_auth_flight.St}
+  Repeat{s: ffi_repeat.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -289,6 +291,11 @@ def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def open.repeat(r: ffi_repeat.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Repeat{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -315,6 +322,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.bound(ffi_bound.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
+    case 266:
+      open.repeat(ffi_repeat.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -383,6 +392,11 @@ def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def step.repeat(r: ffi_repeat.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Repeat{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -409,6 +423,8 @@ def step.go(state: State, input: String) -> State & String:
       step.bound(ffi_bound.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
+    case Repeat{s}:
+      step.repeat(ffi_repeat.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -442,6 +458,8 @@ def close.go(state: State) -> Unit:
     case Bound{s}:
       Unit{}
     case AuthFlight{s}:
+      Unit{}
+    case Repeat{s}:
       Unit{}
     case Unknown{}:
       Unit{}
