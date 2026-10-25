@@ -206,13 +206,22 @@ def valid.at(m: Maybe<&2, Decl>, l: Layer, +s: Bind) -> Bool:
 def valid(+ds: List<&2, Decl>, l: Layer, +s: Bind) -> Bool:
   valid.at(find(ds, Bind.id(s)), l, s)
 
+# the set s is valid in layer l, asked only when it sets the cvar (eq):
+# the lookup of its declaration runs for a set of that cvar alone
+def hit.when(eq: Bool, +ds: List<&2, Decl>, +l: Layer, +s: Bind) -> Bool:
+  match eq:
+    case True{}:
+      valid(ds, l, s)
+    case False{}:
+      False{}
+
 # the first set of ss is a valid set of x in layer l
 def hit.at(+ss: List<&2, Bind>, +ds: List<&2, Decl>, +l: Layer, +x: Nat) -> Bool:
   match ss:
     case Nil{}:
       False{}
     case +s <> rest:
-      Bool.and(Nat.is_eq(Bind.id(s), x), valid(ds, l, s))
+      hit.when(Nat.is_eq(Bind.id(s), x), ds, l, s)
 
 # the value of x in layer l: the last valid set of x in ss, else cur;
 # hit is hit.at(ss, ds, l, x)
@@ -580,3 +589,182 @@ def bound(+bs: List<&2, KeyBind>, +k: Nat) -> List<&2, Cmd>:
 # a press of key k: its commands, expanded with the alias table
 def press(+bs: List<&2, KeyBind>, +k: Nat, +as: List<&2, Alias>) -> Exp:
   expand(bound(bs, k), as)
+
+# Resolution, as the compiled core answers it
+# -------------------------------------------
+# bend/ffi_cvar_layers.bend asks these for the Rust code: which
+# declaration a registry refuses first, the value of each cvar and
+# whether a layer sets it, the verdict on a set and on a toggle, the
+# sets an agent writes, the config sets of a settings document.
+
+# the value of x down a family chain (root first) on cur: each agent's
+# profile, then its own sets; cur while no layer of fam sets x
+def chainm(fam: List<&2, Ag>, +ds: List<&2, Decl>, +x: Nat, cur: Maybe<&2, Val>) -> Maybe<&2, Val>:
+  match fam:
+    case Nil{}:
+      cur
+    case Ag{p, s} <> rest:
+      chainm(rest, ds, x, layer(s, ds, Agent{}, x, layer(p, ds, Agent{}, x, cur)))
+
+# the value a layer sets for x (config.cfg, then each agent of the family
+# chain fam, root first); None when only the default applies
+def layered(+ds: List<&2, Decl>, +cfg: List<&2, Bind>, fam: List<&2, Ag>, +x: Nat) -> Maybe<&2, Val>:
+  chainm(fam, ds, x, layer(cfg, ds, Config{}, x, None{}))
+
+# Why a declaration list is not a registry
+type Refusal is Data:
+  Accept{}          # every declaration is kept
+  Twice{id: Nat}    # the first one dropped repeats an id
+  BadInit{id: Nat}  # the first one dropped has a default of the wrong type
+
+# the first declaration of xs repeats an id of ds
+def taken.at(+xs: List<&2, Decl>, +ds: List<&2, Decl>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Maybe.is_some(&2, Decl, find(ds, Decl.id(d)))
+
+# the first declaration of xs has a default of its type
+def typed.first(+xs: List<&2, Decl>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case d <> rest:
+      Decl.typed(d)
+
+# the first declaration of xs that declare drops, onto the kept ds;
+# taken is taken.at(xs, ds), good is typed.first(xs)
+def refusal.go(xs: List<&2, Decl>, +ds: List<&2, Decl>, taken: Bool, good: Bool) -> Refusal:
+  match xs:
+    case Nil{}:
+      Accept{}
+    case +d <> +rest:
+      match taken:
+        case True{}:
+          Twice{Decl.id(d)}
+        case False{}:
+          match good:
+            case True{}:
+              +kept = List.append(&2, Decl, ds, [d])
+              refusal.go(rest, kept, taken.at(rest, kept), typed.first(rest))
+            case False{}:
+              BadInit{Decl.id(d)}
+
+# the first declaration of xs the registry drops, and why
+def refusal(+xs: List<&2, Decl>) -> Refusal:
+  refusal.go(xs, Nil{}, taken.at(xs, Nil{}), typed.first(xs))
+
+# The verdict on one set
+type Check is Data:
+  CkUndeclared{}  # no cvar has its id
+  CkGlobal{}      # a Global cvar, in an agent layer
+  CkType{}        # a value of the wrong type
+  CkFine{}        # a valid set
+
+def check.ty(ok: Bool) -> Check:
+  match ok:
+    case True{}:
+      CkFine{}
+    case False{}:
+      CkType{}
+
+def check.local(local: Bool, ok: Bool) -> Check:
+  match local:
+    case True{}:
+      check.ty(ok)
+    case False{}:
+      CkGlobal{}
+
+def check.at(m: Maybe<&2, Decl>, l: Layer, +s: Bind) -> Check:
+  match m:
+    case None{}:
+      CkUndeclared{}
+    case Some{+d}:
+      match l:
+        case Config{}:
+          check.ty(Ty.eq(Val.ty(Bind.val(s)), Decl.ty(d)))
+        case Agent{}:
+          check.local(Decl.local(d), Ty.eq(Val.ty(Bind.val(s)), Decl.ty(d)))
+
+# the verdict on the set s in layer l
+def check(+ds: List<&2, Decl>, l: Layer, +s: Bind) -> Check:
+  check.at(find(ds, Bind.id(s)), l, s)
+
+# The verdict on one toggle
+type Tog is Data:
+  TgUndeclared{}    # no cvar has its id
+  TgGlobal{}        # a Global cvar, in an agent layer
+  TgNotBool{}       # the value is not a Bool
+  TgFlip{set: Bind} # the set that flips the value
+
+def tog.flip(m: Maybe<&2, Bind>) -> Tog:
+  match m:
+    case None{}:
+      TgNotBool{}
+    case Some{b}:
+      TgFlip{b}
+
+def tog.local(local: Bool, +ds: List<&2, Decl>, +cfg: List<&2, Bind>, +fam: List<&2, Ag>, +x: Nat) -> Tog:
+  match local:
+    case True{}:
+      tog.flip(flip(x, value(ds, cfg, fam, x)))
+    case False{}:
+      TgGlobal{}
+
+def tog.at(m: Maybe<&2, Decl>, l: Layer, +ds: List<&2, Decl>, +cfg: List<&2, Bind>, +fam: List<&2, Ag>, +x: Nat) -> Tog:
+  match m:
+    case None{}:
+      TgUndeclared{}
+    case Some{d}:
+      match l:
+        case Config{}:
+          tog.flip(flip(x, value(ds, cfg, fam, x)))
+        case Agent{}:
+          tog.local(Decl.local(d), ds, cfg, fam, x)
+
+# a toggle of x into layer l by the last agent of the family chain fam:
+# the set that flips the value that agent has (toggle adds it)
+def tog(+ds: List<&2, Decl>, +cfg: List<&2, Bind>, +fam: List<&2, Ag>, l: Layer, +x: Nat) -> Tog:
+  tog.at(find(ds, x), l, ds, cfg, fam, x)
+
+# The config sets of a settings document
+# --------------------------------------
+
+def doc.pick(local: Bool, merged: List<&2, Bind>, global: List<&2, Bind>) -> List<&2, Bind>:
+  match local:
+    case True{}:
+      merged
+    case False{}:
+      global
+
+def doc.one(x: Nat, m: Maybe<&2, Val>, rest: List<&2, Bind>) -> List<&2, Bind>:
+  match m:
+    case None{}:
+      rest
+    case Some{v}:
+      Bind{x, v} <> rest
+
+# the set of x, unless an earlier declaration has its id (taken)
+def doc.first(taken: Bool, x: Nat, m: Maybe<&2, Val>, rest: List<&2, Bind>) -> List<&2, Bind>:
+  match taken:
+    case True{}:
+      rest
+    case False{}:
+      doc.one(x, m, rest)
+
+# the declarations xs after the ones before
+def document.go(xs: List<&2, Decl>, +ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>, +before: List<&2, Decl>) -> List<&2, Bind>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +d <> rest:
+      +x = Decl.id(d)
+      doc.first(Maybe.is_some(&2, Decl, find(before, x)), x, layer(doc.pick(Decl.local(d), merged, global), ds, Config{}, x, None{}), document.go(rest, ds, merged, global, List.append(&2, Decl, before, [d])))
+
+# the config layer of a settings document: per cvar, in the order of its
+# first declaration, the last valid set of it in the merged document (its
+# first declaration Local) or in the global one alone (Global), when
+# there is one; a later declaration of the same id adds nothing
+def document(+ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>) -> List<&2, Bind>:
+  document.go(ds, ds, merged, global, Nil{})

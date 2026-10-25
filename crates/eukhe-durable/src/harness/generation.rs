@@ -11,8 +11,6 @@ mod decide;
 mod deferred;
 mod entry;
 mod force;
-#[cfg(test)]
-mod infer_bridge;
 mod leak;
 mod note;
 mod repeat;

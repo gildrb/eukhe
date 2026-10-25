@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Theme files, their validation, theme name resolution and color math for Eukhe."
+description = "Theme files, their decoding, the palette and theme name resolution for Eukhe; the rules come from the compiled Bend core."
 
 [dependencies]
 serde = { workspace = true }

@@ -49,7 +49,8 @@ def pv.vb_at(m: Maybe<&2, Cv.Decl>, +x: Nat, +c1: Bool, +c2: Bool) -> {Cv.valid.
       {==}
 
 def pv.vb_hit(+ds: List<&2, Cv.Decl>, +x: Nat, +c1: Bool, +c2: Bool) -> {Cv.hit.at([Cv.Bind{x, Cv.VBool{c1}}], ds, Cv.Agent{}, x) == Cv.hit.at([Cv.Bind{x, Cv.VBool{c2}}], ds, Cv.Agent{}, x) : Bool}:
-  Equal.cong(Bool, Bool, z => Bool.and(Nat.is_eq(x, x), z), Cv.valid.at(Cv.find(ds, x), Cv.Agent{}, Cv.Bind{x, Cv.VBool{c1}}), Cv.valid.at(Cv.find(ds, x), Cv.Agent{}, Cv.Bind{x, Cv.VBool{c2}}), pv.vb_at(Cv.find(ds, x), x, c1, c2))
+  %LA.cvar.pv.eq_refl(x) : {Cv.hit.when(_, ds, Cv.Agent{}, Cv.Bind{x, Cv.VBool{c1}}) == Cv.hit.when(_, ds, Cv.Agent{}, Cv.Bind{x, Cv.VBool{c2}}) : Bool}
+  pv.vb_at(Cv.find(ds, x), x, c1, c2)
 
 # the second toggle of a Bool cvar, after the first hit or missed
 def pv.tog_b(w: Bool, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>, +p: List<&2, Cv.Bind>, +ss: List<&2, Cv.Bind>, +x: Nat, +d: Cv.Decl, +em: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}, +b: Bool, +ew: {Cv.hit.at([Cv.Bind{x, Cv.VBool{Bool.not(b)}}], ds, Cv.Agent{}, x) == w : Bool}, +ey: {Cv.over(ds, Cv.Ag{p, ss}, x, Cv.chain(fam, ds, x, Cv.root.val(ds, cfg, x, d))) == Cv.VBool{b} : Cv.Val}) -> {Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.toggle(ds, cfg, fam, Cv.Ag{p, List.append(&2, Cv.Bind, ss, [Cv.Bind{x, Cv.VBool{Bool.not(b)}}])}, x)]), x) == Some{Cv.VBool{b}} : Maybe<&2, Cv.Val>}:

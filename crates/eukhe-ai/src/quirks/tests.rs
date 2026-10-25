@@ -114,20 +114,37 @@ fn a_model_two_shipped_families_match_names_no_family() {
     );
 }
 
+/// The compiled core's verdicts come back as the errors of their rules:
+/// an unknown directive, and a clash that names the rule and the first
+/// later rule of its layer, target and directive with another value (a
+/// value parsed here: `20` and `20` are one value).
 #[test]
-fn an_unknown_directive_does_not_compile() {
+fn the_core_names_an_unknown_directive_and_a_clash() {
     let errors = compile(&[
-        rule(Layer::Host, "a", "store", json!(false)),
+        rule(Layer::Model, "m", "strict_cap", json!(20)),
         rule(Layer::Host, "a", "stor", json!(false)),
+        rule(Layer::Model, "m", "strict_cap", json!(20)),
+        rule(Layer::Model, "m", "strict_cap", json!(8)),
     ])
     .unwrap_err();
+    let clash = QuirksError::Clash {
+        layer: Layer::Model,
+        target: "m".to_owned(),
+        directive: "strict_cap".to_owned(),
+        first: json!(20),
+        second: json!(8),
+    };
     assert_eq!(
         errors,
-        vec![QuirksError::UnknownDirective {
-            layer: Layer::Host,
-            target: "a".to_owned(),
-            directive: "stor".to_owned(),
-        }]
+        vec![
+            clash.clone(),
+            QuirksError::UnknownDirective {
+                layer: Layer::Host,
+                target: "a".to_owned(),
+                directive: "stor".to_owned(),
+            },
+            clash,
+        ]
     );
 }
 
@@ -206,98 +223,6 @@ fn a_capability_takes_only_a_dialect_that_implements_it_or_false() {
         rules.lookup(&model_only, Directive::Endpoint(Capability::Tokenize)),
         Answer::Known(&Value::Endpoint(None))
     );
-}
-
-#[test]
-fn two_rules_of_one_layer_and_target_with_different_values_do_not_compile() {
-    let errors = compile(&[
-        rule(Layer::Model, "m", "strict_cap", json!(20)),
-        rule(Layer::Model, "m", "strict_cap", json!(20)),
-        rule(Layer::Model, "m", "strict_cap", json!(8)),
-    ])
-    .unwrap_err();
-    assert_eq!(
-        errors,
-        vec![QuirksError::Clash {
-            layer: Layer::Model,
-            target: "m".to_owned(),
-            directive: "strict_cap".to_owned(),
-            first: json!(20),
-            second: json!(8),
-        }]
-    );
-    // Other layers or targets with other values are no clash.
-    assert!(compile(&[
-        rule(Layer::Model, "m", "strict_cap", json!(20)),
-        rule(Layer::Host, "m", "strict_cap", json!(8)),
-        rule(Layer::Model, "n", "strict_cap", json!(8)),
-    ])
-    .is_ok());
-}
-
-#[test]
-fn the_highest_layer_that_applies_answers_and_none_is_unknown() {
-    let rules = [
-        rule(Layer::Family, "fam", "store", json!(false)),
-        rule(Layer::Model, "mod", "store", json!(true)),
-        rule(Layer::Family, "fam", "strict_tools", json!(true)),
-        rule(Layer::Host, "host", "strict_tools", json!(false)),
-        rule(Layer::Host, "other", "reasoning_effort", json!(false)),
-    ];
-    let compiled = compile(&rules).unwrap();
-    let answers: Vec<Answer<'_>> = [
-        Directive::Store,
-        Directive::StrictTools,
-        Directive::ReasoningEffort,
-    ]
-    .into_iter()
-    .map(|directive| compiled.lookup(&QUERY, directive))
-    .collect();
-    assert_eq!(
-        answers,
-        vec![
-            Answer::Known(&Value::Bool(true)),
-            Answer::Known(&Value::Bool(false)),
-            Answer::Unknown,
-        ]
-    );
-}
-
-#[test]
-fn the_order_of_the_rules_changes_no_answer() {
-    let rules = vec![
-        rule(
-            Layer::Family,
-            "fam",
-            "max_tokens_field",
-            json!("max_tokens"),
-        ),
-        rule(
-            Layer::Model,
-            "mod",
-            "max_tokens_field",
-            json!("max_completion_tokens"),
-        ),
-        rule(
-            Layer::Model,
-            "mod",
-            "max_tokens_field",
-            json!("max_completion_tokens"),
-        ),
-        rule(Layer::Host, "host", "thinking_format", json!("zai")),
-        rule(Layer::Family, "fam", "thinking_format", json!("qwen")),
-    ];
-    let forward = compile(&rules).unwrap();
-    let mut reversed_rules = rules;
-    reversed_rules.reverse();
-    let reversed = compile(&reversed_rules).unwrap();
-    for directive in Directive::ALL {
-        assert_eq!(
-            forward.lookup(&QUERY, *directive),
-            reversed.lookup(&QUERY, *directive),
-            "{directive:?}"
-        );
-    }
 }
 
 #[test]

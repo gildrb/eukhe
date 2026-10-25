@@ -7,7 +7,7 @@ import ./base.bend as LA
 
 # the set of x to v hits x when it is valid
 def pv.hit_self(+ds: List<&2, Cv.Decl>, +x: Nat, +v: Cv.Val, ok: {Cv.valid(ds, Cv.Agent{}, Cv.Bind{x, v}) == True{} : Bool}) -> {Cv.hit.at([Cv.Bind{x, v}], ds, Cv.Agent{}, x) == True{} : Bool}:
-  %LA.cvar.pv.eq_refl(x) : {Bool.and(_, Cv.valid(ds, Cv.Agent{}, Cv.Bind{x, v})) == True{} : Bool}
+  %LA.cvar.pv.eq_refl(x) : {Cv.hit.when(_, ds, Cv.Agent{}, Cv.Bind{x, v}) == True{} : Bool}
   ok
 
 def pv.sw_m(m: Maybe<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: List<&2, Cv.Ag>, +p: List<&2, Cv.Bind>, +ss: List<&2, Cv.Bind>, +x: Nat, +v: Cv.Val, em: {Cv.find(ds, x) == m : Maybe<&2, Cv.Decl>}, +ok: {Cv.valid(ds, Cv.Agent{}, Cv.Bind{x, v}) == True{} : Bool}) -> {Cv.value.at(m, ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.Ag{p, List.append(&2, Cv.Bind, ss, [Cv.Bind{x, v}])}]), x) == Some{v} : Maybe<&2, Cv.Val>}:

@@ -21,20 +21,26 @@
 //! cvar must also be Local: a Global cvar has one value for the whole
 //! family. A subagent's family is its parent's family plus itself, so it
 //! starts from its parent's values.
+//!
+//! Every one of these decisions runs as the compiled model (entry
+//! `bend/ffi_cvar_layers.bend`, [`eukhe_bend::rules::cvar_layers`]): the
+//! registry's refusal, each value and whether a layer sets it, the verdict
+//! on a set and on a toggle, the sets an agent writes, the config sets of
+//! a settings document. Rust keeps the layers, reads a value's syntax
+//! ([`CvarType::admits`], [`CvarType::parse`]) and acts on the answers.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 use eukhe_bend::rules::cvar::expand;
+use eukhe_bend::rules::cvar_layers as cl;
 use eukhe_types::cvar::{Aliases, Binds, Command, ExpandError, ParseError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod table;
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;
 
@@ -221,12 +227,61 @@ pub enum Flag {
     Replicate,
 }
 
-impl Decl {
-    fn flag(&self, flag: Flag) -> bool {
-        match flag {
-            Flag::Persist => self.persist,
-            Flag::Replicate => self.replicate,
+impl Flag {
+    fn model(self) -> cl::Flag {
+        match self {
+            Flag::Persist => cl::Flag::Persist,
+            Flag::Replicate => cl::Flag::Replicate,
         }
+    }
+}
+
+impl Decl {
+    /// This declaration as the core sees it: cvar `number`, its default
+    /// the reference `default`.
+    fn model(&self, number: u64, default: u64) -> cl::Decl {
+        cl::Decl {
+            id: number,
+            ty: match self.ty {
+                CvarType::Bool => cl::Ty::Bool,
+                CvarType::Nat
+                | CvarType::NatOrOff
+                | CvarType::Text
+                | CvarType::Choice(_)
+                | CvarType::List
+                | CvarType::ChoiceList(_)
+                | CvarType::Json => cl::Ty::Nat,
+            },
+            local: self.scope == CvarScope::Local,
+            persist: self.persist,
+            replicate: self.replicate,
+            init: self.model_val(&self.init.value(), default),
+        }
+    }
+
+    /// `value`, the reference `reference`, as the core sees it: of this
+    /// cvar's type when it has it ([`CvarType::admits`]), of the other type
+    /// when not. A Bool crosses as itself.
+    fn model_val(&self, value: &Value, reference: u64) -> cl::Val {
+        match (self.ty, value) {
+            (CvarType::Bool, Value::Bool(b)) => cl::Val::Bool(*b),
+            (CvarType::Bool, _) => cl::Val::Nat(reference),
+            (ty, _) if ty.admits(value) => cl::Val::Nat(reference),
+            _ => cl::Val::Bool(false),
+        }
+    }
+}
+
+/// The place `n` the core answered in a list of `len` items.
+///
+/// # Panics
+///
+/// When `n` is past the list: the core answered a number Rust never sent
+/// (an inconsistent build).
+fn place(n: u64, len: usize) -> usize {
+    match usize::try_from(n) {
+        Ok(at) if at < len => at,
+        _ => panic!("the cvar core answered the number {n}, past the {len} it was sent"),
     }
 }
 
@@ -257,25 +312,43 @@ impl std::error::Error for RegistryError {}
 pub struct Registry {
     decls: &'static [Decl],
     index: HashMap<&'static str, usize>,
+    /// The declarations as the core sees them: cvar `i` is `decls[i]`,
+    /// its default the reference `i` ([`Refs`]).
+    model: Vec<cl::Decl>,
 }
 
 impl Registry {
-    /// The registry of `decls`.
+    /// The registry of `decls`: the compiled core decides which
+    /// declaration it refuses first (`bend/cvar.bend` `refusal`).
     ///
     /// # Errors
     ///
     /// The first duplicate id or default of the wrong type.
     pub fn new(decls: &'static [Decl]) -> Result<Self, RegistryError> {
-        let mut index = HashMap::with_capacity(decls.len());
+        let mut index: HashMap<&'static str, usize> = HashMap::with_capacity(decls.len());
+        let mut names = Vec::with_capacity(decls.len());
+        let mut model = Vec::with_capacity(decls.len());
         for (at, decl) in decls.iter().enumerate() {
-            if index.insert(decl.id, at).is_some() {
-                return Err(RegistryError::Duplicate { id: decl.id });
+            let next = index.len();
+            let number = *index.entry(decl.id).or_insert(next);
+            if number == next {
+                names.push(decl.id);
             }
-            if !decl.ty.admits(&decl.init.value()) {
-                return Err(RegistryError::BadDefault { id: decl.id });
-            }
+            model.push(decl.model(number as u64, at as u64));
         }
-        Ok(Self { decls, index })
+        match cl::refusal(&model) {
+            None => Ok(Self {
+                decls,
+                index,
+                model,
+            }),
+            Some(cl::Refusal::Twice(n)) => Err(RegistryError::Duplicate {
+                id: names[place(n, names.len())],
+            }),
+            Some(cl::Refusal::BadInit(n)) => Err(RegistryError::BadDefault {
+                id: names[place(n, names.len())],
+            }),
+        }
     }
 
     /// The declaration of `id`.
@@ -329,40 +402,94 @@ pub enum LayerKind {
     Agent,
 }
 
-/// `value` is a valid set of `decl` in a layer of `kind`.
-fn valid(decl: &Decl, kind: LayerKind, value: &Value) -> bool {
-    let scoped = match kind {
-        LayerKind::Config => true,
-        LayerKind::Agent => decl.scope == CvarScope::Local,
-    };
-    scoped && decl.ty.admits(value)
+impl LayerKind {
+    fn model(self) -> cl::Layer {
+        match self {
+            LayerKind::Config => cl::Layer::Config,
+            LayerKind::Agent => cl::Layer::Agent,
+        }
+    }
+}
+
+/// The values one request to the core refers to: reference `i` below the
+/// registry's length is the default of cvar `i`, the ones after it the
+/// values given, in order. An undeclared id crosses as the number past the
+/// table.
+struct Refs<'a> {
+    registry: &'a Registry,
+    values: Vec<&'a Value>,
+}
+
+impl<'a> Refs<'a> {
+    fn new(registry: &'a Registry) -> Self {
+        Self {
+            registry,
+            values: Vec::new(),
+        }
+    }
+
+    /// `value`, a value of cvar number `at`.
+    fn value_of(&mut self, at: usize, value: &'a Value) -> cl::Val {
+        let reference = (self.registry.decls.len() + self.values.len()) as u64;
+        self.values.push(value);
+        self.registry.decls[at].model_val(value, reference)
+    }
+
+    fn bind(&mut self, set: &'a Set) -> cl::Bind {
+        match self.registry.index.get(set.id.as_str()) {
+            Some(&at) => cl::Bind {
+                id: at as u64,
+                val: self.value_of(at, &set.value),
+            },
+            None => cl::Bind {
+                id: self.registry.decls.len() as u64,
+                val: cl::Val::Nat(0),
+            },
+        }
+    }
+
+    fn binds(&mut self, sets: &'a Sets) -> Vec<cl::Bind> {
+        sets.0.iter().map(|set| self.bind(set)).collect()
+    }
+
+    /// The value the core answered.
+    fn value(&self, val: cl::Val) -> Value {
+        match val {
+            cl::Val::Bool(b) => Value::Bool(b),
+            cl::Val::Nat(n) => {
+                let decls = self.registry.decls;
+                let at = place(n, decls.len() + self.values.len());
+                match at.checked_sub(decls.len()) {
+                    Some(given) => self.values[given].clone(),
+                    None => decls[at].init.value(),
+                }
+            }
+        }
+    }
+
+    /// The set the core answered.
+    fn set(&self, bind: cl::Bind) -> Set {
+        Set {
+            id: self.registry.decls[place(bind.id, self.registry.decls.len())]
+                .id
+                .to_string(),
+            value: self.value(bind.val),
+        }
+    }
 }
 
 impl Sets {
-    /// The last valid set of `decl` in this layer.
-    #[must_use]
-    pub fn last(&self, decl: &Decl, kind: LayerKind) -> Option<&Value> {
-        self.0
-            .iter()
-            .rev()
-            .find(|set| set.id == decl.id && valid(decl, kind, &set.value))
-            .map(|set| &set.value)
-    }
-
     /// The sets an agent writes to its cfg ([`Flag::Persist`]) or
-    /// replicates ([`Flag::Replicate`]): its valid sets of cvars with the
-    /// flag, in order (`bend/cvar.bend` `written`).
+    /// replicates ([`Flag::Replicate`]), in order, as the compiled core
+    /// decides (`bend/cvar.bend` `written`).
     #[must_use]
     pub fn written(&self, registry: &Registry, flag: Flag) -> Sets {
+        let mut refs = Refs::new(registry);
+        let binds = refs.binds(self);
         Sets(
-            self.0
-                .iter()
-                .filter(|set| {
-                    registry.find(&set.id).is_some_and(|decl| {
-                        decl.flag(flag) && valid(decl, LayerKind::Agent, &set.value)
-                    })
-                })
-                .cloned()
+            cl::written(&registry.model, &binds, flag.model())
+                .into_iter()
+                .map(|bind| refs.set(bind))
                 .collect(),
         )
     }
@@ -473,11 +600,54 @@ impl std::error::Error for CvarWriteError {}
 
 /// The values of one agent: the config layer and its family, root first
 /// (the agent itself last).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Cvars {
     registry: &'static Registry,
     config: Sets,
     family: Vec<AgentLayer>,
+    /// The value of each declared cvar and whether a layer sets it, in
+    /// table order, as the compiled core resolved them: one call after a
+    /// change, on the first read.
+    resolved: OnceLock<Vec<(Value, bool)>>,
+}
+
+impl PartialEq for Cvars {
+    fn eq(&self, other: &Self) -> bool {
+        self.registry == other.registry
+            && self.config == other.config
+            && self.family == other.family
+    }
+}
+
+/// The layers of a [`Cvars`] as the core sees them.
+struct Model<'a> {
+    refs: Refs<'a>,
+    config: Vec<cl::Bind>,
+    family: Vec<(Vec<cl::Bind>, Vec<cl::Bind>)>,
+}
+
+impl<'a> Model<'a> {
+    fn of(cvars: &'a Cvars) -> Self {
+        let mut refs = Refs::new(cvars.registry);
+        let config = refs.binds(&cvars.config);
+        let family = cvars
+            .family
+            .iter()
+            .map(|agent| (refs.binds(&agent.profile), refs.binds(&agent.sets)))
+            .collect();
+        Self {
+            refs,
+            config,
+            family,
+        }
+    }
+
+    fn chain(&self) -> Vec<cl::Agent<'_>> {
+        self.family
+            .iter()
+            .map(|(profile, sets)| cl::Agent { profile, sets })
+            .collect()
+    }
 }
 
 impl Cvars {
@@ -488,6 +658,7 @@ impl Cvars {
             registry,
             config,
             family: vec![AgentLayer::default()],
+            resolved: OnceLock::new(),
         }
     }
 
@@ -515,6 +686,7 @@ impl Cvars {
         if self.family.is_empty() {
             self.family.push(AgentLayer::default());
         }
+        self.resolved.take();
     }
 
     /// The agent itself: the last of the family.
@@ -523,12 +695,18 @@ impl Cvars {
         self.family.last().unwrap_or(&EMPTY_AGENT)
     }
 
-    fn agent_mut(&mut self) -> &mut AgentLayer {
+    /// The layer `target` names, to change.
+    fn layer_mut(&mut self, target: Target) -> &mut Sets {
+        self.resolved.take();
         if self.family.is_empty() {
             self.family.push(AgentLayer::default());
         }
         let last = self.family.len() - 1;
-        &mut self.family[last]
+        match target {
+            Target::Config => &mut self.config,
+            Target::Profile => &mut self.family[last].profile,
+            Target::Sets => &mut self.family[last].sets,
+        }
     }
 
     /// A subagent of this agent: the same config, this family plus a new
@@ -541,37 +719,69 @@ impl Cvars {
             registry: self.registry,
             config: self.config.clone(),
             family,
+            resolved: OnceLock::new(),
+        }
+    }
+
+    /// Every declared cvar's value and whether a layer sets it, in table
+    /// order (`bend/cvar.bend` `value`, `layered`).
+    fn resolved(&self) -> &[(Value, bool)] {
+        self.resolved.get_or_init(|| {
+            let model = Model::of(self);
+            let values = cl::values(&self.registry.model, &model.config, &model.chain());
+            assert_eq!(
+                values.len(),
+                self.registry.decls.len(),
+                "the cvar core answered a value per cvar"
+            );
+            values
+                .into_iter()
+                .map(|resolved| (model.refs.value(resolved.value), resolved.layered))
+                .collect()
+        })
+    }
+
+    /// The resolved value of `decl`.
+    ///
+    /// # Panics
+    ///
+    /// When `decl` is not declared in this registry.
+    fn resolved_of(&self, decl: &Decl) -> &(Value, bool) {
+        match self.registry.index.get(decl.id) {
+            Some(&at) => &self.resolved()[at],
+            None => panic!("cvar `{}` is not in this registry", decl.id),
         }
     }
 
     /// The value of `decl` (`bend/cvar.bend` `value`).
+    ///
+    /// # Panics
+    ///
+    /// When `decl` is not declared in this registry.
     #[must_use]
     pub fn value(&self, decl: &Decl) -> Value {
-        self.layered(decl).unwrap_or_else(|| decl.init.value())
+        self.resolved_of(decl).0.clone()
     }
 
     /// The value a layer (config or an agent of the family) sets for
     /// `decl`; `None` when only the default applies (a reader whose unset
-    /// means "the downstream default", such as the stream transport).
+    /// means "the downstream default", such as the stream transport;
+    /// `bend/cvar.bend` `layered`).
+    ///
+    /// # Panics
+    ///
+    /// When `decl` is not declared in this registry.
     #[must_use]
     pub fn layered(&self, decl: &Decl) -> Option<Value> {
-        let mut value = self.config.last(decl, LayerKind::Config).cloned();
-        for agent in &self.family {
-            if let Some(set) = agent
-                .sets
-                .last(decl, LayerKind::Agent)
-                .or_else(|| agent.profile.last(decl, LayerKind::Agent))
-            {
-                value = Some(set.clone());
-            }
-        }
-        value
+        let (value, set) = self.resolved_of(decl);
+        set.then(|| value.clone())
     }
 
     /// The value of cvar `id`; `None` when it is not declared.
     #[must_use]
     pub fn value_of(&self, id: &str) -> Option<Value> {
-        self.registry.find(id).map(|decl| self.value(decl))
+        let at = *self.registry.index.get(id)?;
+        Some(self.resolved()[at].0.clone())
     }
 
     /// The value of a Bool cvar.
@@ -659,30 +869,57 @@ impl Cvars {
             .collect()
     }
 
-    /// The set of `id` to `text`, checked against its declaration for a
-    /// layer of `kind`.
+    /// The set of `id` to `text` for a layer of `kind`: Rust reads `text`
+    /// as a value of the cvar's type ([`CvarType::parse`]); the compiled
+    /// core gives the verdict (`bend/cvar.bend` `check`).
     ///
     /// # Errors
     ///
-    /// An undeclared cvar, a value of the wrong type, or a Global cvar in an
-    /// agent layer.
+    /// An undeclared cvar, a Global cvar in an agent layer, or a value of
+    /// the wrong type.
+    ///
+    /// # Panics
+    ///
+    /// When the core calls a set valid or of the wrong type that it was
+    /// sent as undeclared or unparsed (an inconsistent build).
     pub fn check(&self, kind: LayerKind, id: &str, text: &str) -> Result<Set, CvarError> {
-        let decl = self
-            .registry
-            .find(id)
-            .ok_or_else(|| CvarError::Undeclared { id: id.to_string() })?;
-        if kind == LayerKind::Agent && decl.scope == CvarScope::Global {
-            return Err(CvarError::Global { id: id.to_string() });
+        let found = self.registry.index.get(id).copied();
+        let parsed = found.and_then(|at| self.registry.decls[at].ty.parse(text));
+        let set = match (found, &parsed) {
+            (Some(at), Some(value)) => cl::Bind {
+                id: at as u64,
+                val: self.registry.decls[at].model_val(value, 0),
+            },
+            (Some(at), None) => cl::Bind {
+                id: at as u64,
+                val: match self.registry.decls[at].ty {
+                    CvarType::Bool => cl::Val::Nat(0),
+                    _ => cl::Val::Bool(false),
+                },
+            },
+            (None, _) => cl::Bind {
+                id: self.registry.decls.len() as u64,
+                val: cl::Val::Nat(0),
+            },
+        };
+        let id = id.to_string();
+        match (
+            cl::check(&self.registry.model, kind.model(), set),
+            found,
+            parsed,
+        ) {
+            (cl::Check::Undeclared, _, _) => Err(CvarError::Undeclared { id }),
+            (cl::Check::Global, _, _) => Err(CvarError::Global { id }),
+            (cl::Check::BadType, Some(at), _) => Err(CvarError::BadValue {
+                id,
+                value: text.to_string(),
+                expected: self.registry.decls[at].ty.name(),
+            }),
+            (cl::Check::Valid, Some(_), Some(value)) => Ok(Set { id, value }),
+            (verdict, _, _) => {
+                panic!("the cvar core answered {verdict:?} for `{id}` = `{text}`, which it was not sent")
+            }
         }
-        let value = decl.ty.parse(text).ok_or_else(|| CvarError::BadValue {
-            id: id.to_string(),
-            value: text.to_string(),
-            expected: decl.ty.name(),
-        })?;
-        Ok(Set {
-            id: id.to_string(),
-            value,
-        })
     }
 
     /// Run `commands` into `target`: a `set` adds a set, a `toggle` adds
@@ -725,39 +962,44 @@ impl Cvars {
                 },
             };
             match outcome {
-                Ok(sets) => {
-                    let layer = match target {
-                        Target::Config => &mut self.config,
-                        Target::Profile => &mut self.agent_mut().profile,
-                        Target::Sets => &mut self.agent_mut().sets,
-                    };
-                    layer.0.extend(sets);
-                }
+                Ok(sets) => self.layer_mut(target).0.extend(sets),
                 Err(error) => errors.push(error),
             }
         }
         errors
     }
 
-    /// The set that flips Bool cvar `id` (`bend/cvar.bend` `flip`).
+    /// The set that flips Bool cvar `id`, as the compiled core decides
+    /// (`bend/cvar.bend` `tog`): it flips the value the agent has, its
+    /// inherited values included.
     fn toggled(&self, kind: LayerKind, id: &str) -> Result<Set, CvarError> {
-        let decl = self
+        let number = self
             .registry
-            .find(id)
-            .ok_or_else(|| CvarError::Undeclared { id: id.to_string() })?;
-        if kind == LayerKind::Agent && decl.scope == CvarScope::Global {
-            return Err(CvarError::Global { id: id.to_string() });
-        }
-        match self.value(decl) {
-            Value::Bool(value) => Ok(Set {
-                id: id.to_string(),
-                value: Value::Bool(!value),
+            .index
+            .get(id)
+            .map_or(self.registry.decls.len(), |at| *at);
+        let model = Model::of(self);
+        let id = id.to_string();
+        match cl::toggle(
+            &self.registry.model,
+            &model.config,
+            &model.chain(),
+            kind.model(),
+            number as u64,
+        ) {
+            cl::Toggle::Undeclared => Err(CvarError::Undeclared { id }),
+            cl::Toggle::Global => Err(CvarError::Global { id }),
+            cl::Toggle::NotBool => Err(CvarError::NotBool { id }),
+            cl::Toggle::Flip(cl::Bind {
+                val: cl::Val::Bool(value),
+                ..
+            }) => Ok(Set {
+                id,
+                value: Value::Bool(value),
             }),
-            Value::Null
-            | Value::Number(_)
-            | Value::String(_)
-            | Value::Array(_)
-            | Value::Object(_) => Err(CvarError::NotBool { id: id.to_string() }),
+            cl::Toggle::Flip(set) => {
+                panic!("the cvar core flipped `{id}` to {set:?}, which is not a Bool")
+            }
         }
     }
 }
@@ -765,27 +1007,35 @@ impl Cvars {
 static EMPTY_AGENT: LazyLock<AgentLayer> = LazyLock::new(AgentLayer::default);
 
 /// The config layer of a settings document (the merged `settings.json`):
-/// a set for each declared cvar the document holds with a value of its
-/// type, in table order. `global_only` is the global document: Global
-/// cvars come from it alone, never from a project.
+/// Rust finds each declared cvar's key (a `null` is no value); the
+/// compiled core keeps, in table order, the value of a Local cvar from
+/// `merged` and of a Global cvar from `global_only` alone (never from a
+/// project), when it has the cvar's type (`bend/cvar.bend` `document`).
 #[must_use]
 pub fn document_sets(registry: &Registry, merged: &Value, global_only: &Value) -> Sets {
-    let mut sets = Vec::new();
-    for decl in registry.decls() {
-        let source = match decl.scope {
-            CvarScope::Global => global_only,
-            CvarScope::Local => merged,
-        };
-        let found = decl
-            .id
-            .split('.')
-            .try_fold(source, |node, key| node.get(key));
-        if let Some(value) = found.filter(|value| !value.is_null() && decl.ty.admits(value)) {
-            sets.push(Set {
-                id: decl.id.to_string(),
-                value: value.clone(),
-            });
+    let mut refs = Refs::new(registry);
+    let mut sets_of = |document| -> Vec<cl::Bind> {
+        let mut binds = Vec::new();
+        for (at, decl) in registry.decls.iter().enumerate() {
+            let found = decl
+                .id
+                .split('.')
+                .try_fold(document, |node: &Value, key| node.get(key));
+            if let Some(value) = found.filter(|value| !value.is_null()) {
+                binds.push(cl::Bind {
+                    id: at as u64,
+                    val: refs.value_of(at, value),
+                });
+            }
         }
-    }
-    Sets(sets)
+        binds
+    };
+    let merged = sets_of(merged);
+    let global = sets_of(global_only);
+    Sets(
+        cl::document(&registry.model, &merged, &global)
+            .into_iter()
+            .map(|bind| refs.set(bind))
+            .collect(),
+    )
 }

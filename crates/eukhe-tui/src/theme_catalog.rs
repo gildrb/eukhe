@@ -19,7 +19,7 @@ pub struct ResolvedTheme {
 /// or invalid theme: the default theme and a warning) for `mode`.
 #[must_use]
 pub fn resolve_theme(sources: &ThemeSources, name: &str, mode: ColorMode) -> ResolvedTheme {
-    let resolved = sources.resolve(name);
+    let resolved = sources.resolve(name, crate::theme_rules::THEME_RULES);
     ResolvedTheme {
         theme: Theme::from_palette(&resolved.palette, mode),
         warnings: resolved.warnings,

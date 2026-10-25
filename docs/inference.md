@@ -6,7 +6,7 @@ Shared rules (what a law secures, adversary, H1 to H6): [harness.md](harness.md)
 
 Between harness and wire APIs; decides what a request may ask of a provider.
 
-1. Quirks rulebook: family, model and host settings as data. Rule = layer, target id, directives with values. Compile rejects unknown directive, wrong value type, two rules of one layer+target giving one directive different values. Lookup: host > model > family. No rule → Unknown (no guess; wire API default applies). Explicit `model.compat` beats both. Rule order changes no answer.
+1. Quirks rulebook: family, model and host settings as data. Rule = layer, target id, directives with values. Compile rejects unknown directive, wrong value type, two rules of one layer+target giving one directive different values; it reports each rule (a clash names the first later rule it clashes with). Lookup: host > model > family. No rule → Unknown (no guess; wire API default applies). Explicit `model.compat` beats both. Rule order changes no answer.
 2. One target per layer:
    - Family: the one family whose pattern matches the id (or id and name) and whose revision range, if any, holds. Revision (omp taxonomy): from first digit after the prefix in the bare name; a size (`8b`) is not one; none → 0. `qwen3.8-27b` → `qwen-3.8` (`>=3.8`); `qwen3-8b`, `qwq-32b` → `qwen` (`<3.8`).
    - Two families match → `QuirksError::FamilyOverlap`; none wins by id or order. Shipped-rulebook test rejects overlap on any compiled-catalog model. Out-of-catalog overlap → no family: family directives Unknown; error logged once per model id.
@@ -64,7 +64,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
 
     Family `except` regex excludes matches (families stay disjoint). Bedrock effort = model's thinking-level map (native `xhigh`: `xhigh: "xhigh"`), else Bedrock default.
 
-Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/infer.bend` and `laws/effort.bend` (S6.9). Proofs: `proof/infer/` and `proof/effort/`. Free inputs: rulebook, query, directive, model replies, provider support, tools, stream, context sizes.
+Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/quirks.bend` (the rulebook entry `bend/ffi_quirks.bend`), `laws/infer.bend` and `laws/effort.bend` (S6.9). Proofs: `proof/infer/`, `proof/quirks/` and `proof/effort/`. Free inputs: rulebook, query, directive, model replies, provider support, tools, stream, context sizes.
 
 | Law | Says |
 | --- | --- |
@@ -75,6 +75,11 @@ Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/infer.bend` and `la
 | `quirk_highest_wins` | Compiled: highest applying layer answers (S6.1). |
 | `quirk_order_free` | Compiled: swapping two rules changes no answer (S6.1). |
 | `quirk_compile_order_free` | Swapping two rules keeps compile outcome (S6.1). |
+| `quirks_open_answers` | Entry open: compiles flag = model's `compiles`, one verdict per rule (unknown; else first later clash; else fine), rulebook kept iff it compiles (S6.1). |
+| `quirks_faults_iff_rejected` | Some verdict not fine iff the rulebook does not compile (S6.1). |
+| `quirks_lookup_answers` | Entry lookup in a kept rulebook = model's `lookup`; rulebook kept (S6.1). |
+| `quirks_open_malformed`, `quirks_lookup_malformed`, `quirks_shut_refuses` | Malformed open / lookup, or lookup with no rulebook → exact error form (S6.1). |
+| `quirks_open_example`, `quirks_lookup_example`, `quirks_malformed_example` | Anchors: the strings Rust sends and reads (S6.1). |
 | `quirk_ladder_explicit_first` | Explicit map beats rulebook ladder (S6.9). |
 | `quirk_ladder_rule_second` | No explicit map → rulebook ladder (S6.9). |
 | `quirk_ladder_default_last` | Neither → no entries; default ladder gives all (S6.9). |
@@ -101,20 +106,19 @@ Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/infer.bend` and `la
 | `infer_force_ffi_*`, `infer_guard_ffi_*`, `infer_threshold_ffi_*` | The entries answer the model on every request whose numbers fit the wire; anything else gets the exact error form. |
 
 Code:
-- Rulebook: `eukhe-ai/src/quirks/mod.rs` (`compile`, `Rules::lookup`, `Rulebook::query`, `Rulebook::family`, `Rulebook::check_catalog`, `Quirks`, `ModelKey`, `ThinkingDefaults`), `quirks/revision.rs`, `quirks/tiers.rs` (`service_tiers`, `supports_service_tier`), `quirks/prices.rs` (`service_tier_multiplier`, `cache_write_1h_multiplier`), `quirks/rulebook.json` (shipped), `eukhe-ai/src/models/ladder.rs` (`thinking_level_map`, ladder functions).
+- Rulebook: `eukhe-ai/src/quirks/mod.rs` (`compile`, `Rules::lookup`: parse and number the rules, then the compiled core decides through `eukhe-bend` `rules::quirks` (a stepper of `bend/ffi_quirks.bend` that keeps the rulebook); `Rulebook::query`, `Rulebook::family`, `Rulebook::check_catalog`, `Quirks`, `ModelKey`, `ThinkingDefaults`), `quirks/revision.rs`, `quirks/tiers.rs` (`service_tiers`, `supports_service_tier`), `quirks/prices.rs` (`service_tier_multiplier`, `cache_write_1h_multiplier`), `quirks/rulebook.json` (shipped), `eukhe-ai/src/models/ladder.rs` (`thinking_level_map`, ladder functions).
 - Resolvers (rulebook as detected input): `api/openai_completions/compat.rs` (`detect_compat`, `is_custom_qwen_template_model`), `api/anthropic_messages.rs` (`get_anthropic_compat`, `manual_thinking`), `api/openai_responses.rs` `get_compat`, `api/azure_openai_responses.rs`, `api/openai_codex_responses/request.rs`, `api/bedrock_converse_stream.rs` (strict default, `manual_thinking`), `api/google_shared/stream.rs` (validated function calling), `api/mistral_conversations/payload.rs`, `models/thinking.rs` `adaptive_thinking`.
 - Strict, forced: `api/constrained_sampling.rs` (`strict_budget`, `StrictPlan`), `api/simple_options.rs` `maps_forced_tool_choice`; `eukhe-types/src/pi_ai/tool.rs` `Tool::priority`, `eukhe-types/src/pi_ai/settings.rs` `ToolChoice` (`Required`, `Tool(name)`; mapped in every wire API); `eukhe-durable/src/harness/generation/force.rs` (`ForceEscalation`, `Forcing`, `ForcedToolError`, `soft_prompt`), `eukhe-bend/src/rules/infer_force.rs` (`flag`, `after`, `Reply`, `Step`), `ConversationStreamOptions::force_tool`.
 - Guard: `eukhe-ai/src/utils/stream_repeat.rs` (`RepetitionGuard`: deltas → chunks → ids, `MAX_CHUNK_BYTES`, `StreamRepeat`), `eukhe-bend/src/rules/infer_guard.rs` (`Guard`, a stepper), `api/lazy.rs` `watched_lazy_stream`.
 - Compaction: `eukhe-durable/src/harness/generation/decide.rs` `threshold_for` (policy → whole tokens), `eukhe-bend/src/rules/infer_threshold.rs` (`Compaction::over`, `whole`), `types/settings.rs` (`BackgroundMargin`, `ThresholdTokens`), `eukhe-durable/src/harness/generation.rs` (`threshold_compaction`, `provider_tokens`: provider count, logged fallback); `eukhe-core/src/settings/cvar/table.rs` `COMPACTION_PROVIDER_TOKEN_COUNT`, `eukhe-core/src/durable/settings.rs` (`WindowPercent(10.0)`, repeat limit); `eukhe-daemon/src/worker/durable_host/translator.rs` (`summary_write`, `end_lost_placements`, held ends at a snapshot).
 - Capabilities: `eukhe-ai/src/capabilities/` (`Capability`, `Dialect::endpoint`, `capabilities_of`, one module per dialect), `models/capabilities.rs` (`Models` operations), `Directive::Endpoint`, `eukhe-cli/src/provider_command.rs`.
 
-Tie (bridge tests, transcripts byte for byte):
-- `harness::generation::infer_bridge::the_rust_quirks_rulebook_equals_the_bend_model` vs `bridge/bridge_quirks.bend`: compile, lookup on generated rulebooks, each also with two rules swapped; directives = first of each value type in `Directive::ALL`; queries may name no family or host.
+Tie (compiled models; no bridge left):
 - Forced call, guard, compaction threshold run as their compiled models (`bend/ffi_infer_force.bend` 73, `bend/ffi_infer_guard.bend` 74, a stepper, `bend/ffi_infer_threshold.bend` 75; laws `infer_*_steps` tie the per-step calls to `force`, `guard`, `first_at`); no Rust copy, no bridge. Rust keeps byte work: counting requests; cutting deltas into chunks (lines, blank lines skipped, `MAX_CHUNK_BYTES`) and one id per distinct chunk; counting tokens and rounding reserve and margin (`BackgroundMargin::tokens`) up to whole tokens, exact for a whole reserve (a fractional reserve and margin together may start background compaction one token early; NaN reads 0; past 10^14 saturates).
-- Strict plan and thinking ladder (section 6) run as their compiled models (`bend/ffi_infer.bend`, `bend/ffi_effort.bend`); no Rust copy.
+- Quirks rulebook compile and lookup (section 1), strict plan and thinking ladder (section 6) run as their compiled models (`bend/ffi_quirks.bend`, `bend/ffi_infer.bend`, `bend/ffi_effort.bend`); no Rust copy, no bridge.
 
 Tests:
-- `quirks::tests`: shipped rulebook compiles, no catalog overlap; `families_that_overlap_on_a_catalog_model_are_rejected`, `a_model_two_shipped_families_match_names_no_family`; errors, precedence, order, host/family queries, former hand-written checks; `the_shipped_qwen_families_split_at_the_revision_3_8`.
+- `quirks::tests`: shipped rulebook compiles, no catalog overlap; `families_that_overlap_on_a_catalog_model_are_rejected`, `a_model_two_shipped_families_match_names_no_family`; `the_core_names_an_unknown_directive_and_a_clash` (core verdicts mapped to errors), wrong value types, host/family queries, former hand-written checks; `the_shipped_qwen_families_split_at_the_revision_3_8`.
 - `quirks::revision::tests`; `quirks::tiers::tests` (`the_table_keeps_every_answer_of_the_former_predicate`: every compiled-catalog model and tier vs the former hardcoded predicate, kept only in the test); `models::ladder::tests`.
 - `openai_completions::tests::tool_choice` (`a_custom_qwen_3_8_model_sends_the_rulebook_ladder`), `openai_completions::tests::service_tier`, `openai_completions::tests::host_quirks` (`a_custom_provider_at_openrouter_ai_sends_no_cache_marks`, `the_openrouter_provider_at_a_loopback_url_keeps_the_openrouter_settings`).
 - `constrained_sampling::tests` (`the_strict_budget_keeps_the_highest_priorities_and_the_earlier_of_equals`, `a_strict_plan_sends_tools_past_the_cap_loose_and_drops_none`), `generation::force::tests` (`manual_extended_thinking_has_no_native_forced_choice`), `anthropic_forced_tool_choice` `the_forced_choice_predicate_matches_the_wire`.

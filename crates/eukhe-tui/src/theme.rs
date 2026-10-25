@@ -1,8 +1,10 @@
 //! The terminal theme: a resolved [`eukhe_theme::Palette`] rendered as
-//! terminal styles per color slot. The theme files, their validation and
-//! name resolution live in `eukhe-theme` (the resolver the HTML export
-//! shares; [`crate::theme_catalog`] mounts it). Colors render as truecolor
-//! or 256-color ANSI depending on `COLORTERM`/`TERM`.
+//! terminal styles per color slot. The theme files and name resolution
+//! live in `eukhe-theme` (the resolver the HTML export shares;
+//! [`crate::theme_catalog`] mounts it), its rules and the 256-color
+//! quantization in the compiled core ([`crate::theme_rules`],
+//! `eukhe_bend::rules::color`). Colors render as truecolor or 256-color
+//! ANSI depending on `COLORTERM`/`TERM`.
 //!
 //! This module is the only place that makes a [`Color`]: its value is
 //! private, so the compiler refuses a color literal in any other module.
@@ -10,12 +12,12 @@
 //! from the tokens (docs/interface.md, T3).
 
 use crate::style::{Modifier, Style};
+use eukhe_bend::rules::tui_color;
 use eukhe_theme::{ColorValue, Mode, Palette, Rgb, Token};
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-
-#[cfg(test)]
-mod bridge;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 /// A terminal color. Only the theme module makes one (the value is
 /// private): other code gets colors from a [`Theme`] and cannot write
@@ -65,9 +67,8 @@ impl Color {
     fn known_rgb(self) -> Option<Rgb> {
         match self.0 {
             Paint::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
-            Paint::Indexed(index) => {
-                (!eukhe_theme::is_terminal_defined(index)).then(|| eukhe_theme::ansi256(index))
-            }
+            Paint::Indexed(index) => (!eukhe_theme::is_terminal_defined(index))
+                .then(|| Rgb::from_channels(eukhe_bend::rules::color::ansi256(index))),
             Paint::Reset => None,
         }
     }
@@ -178,52 +179,7 @@ impl ThemeColor {
     ];
 
     fn token(self) -> Token {
-        match self {
-            ThemeColor::Accent => Token::Accent,
-            ThemeColor::Border => Token::Border,
-            ThemeColor::BorderAccent => Token::BorderAccent,
-            ThemeColor::BorderMuted => Token::BorderMuted,
-            ThemeColor::Success => Token::Success,
-            ThemeColor::Error => Token::Error,
-            ThemeColor::Warning => Token::Warning,
-            ThemeColor::Muted => Token::Muted,
-            ThemeColor::Dim => Token::Dim,
-            ThemeColor::Text => Token::Text,
-            ThemeColor::ThinkingText => Token::ThinkingText,
-            ThemeColor::UserMessageText => Token::UserMessageText,
-            ThemeColor::CustomMessageText => Token::CustomMessageText,
-            ThemeColor::CustomMessageLabel => Token::CustomMessageLabel,
-            ThemeColor::RefinementHeader => Token::RefinementHeader,
-            ThemeColor::RefinementSummary => Token::RefinementSummary,
-            ThemeColor::ToolTitle => Token::ToolTitle,
-            ThemeColor::ToolOutput => Token::ToolOutput,
-            ThemeColor::MdBody => Token::MdBody,
-            ThemeColor::MdHeading => Token::MdHeading,
-            ThemeColor::MdLink => Token::MdLink,
-            ThemeColor::MdLinkUrl => Token::MdLinkUrl,
-            ThemeColor::MdCode => Token::MdCode,
-            ThemeColor::MdCodeBlock => Token::MdCodeBlock,
-            ThemeColor::MdCodeBlockBorder => Token::MdCodeBlockBorder,
-            ThemeColor::MdQuote => Token::MdQuote,
-            ThemeColor::MdQuoteBorder => Token::MdQuoteBorder,
-            ThemeColor::MdHr => Token::MdHr,
-            ThemeColor::MdListBullet => Token::MdListBullet,
-            ThemeColor::ToolDiffAdded => Token::ToolDiffAdded,
-            ThemeColor::ToolDiffRemoved => Token::ToolDiffRemoved,
-            ThemeColor::ToolDiffText => Token::ToolDiffText,
-            ThemeColor::ToolDiffContext => Token::ToolDiffContext,
-            ThemeColor::SyntaxComment => Token::SyntaxComment,
-            ThemeColor::SyntaxKeyword => Token::SyntaxKeyword,
-            ThemeColor::SyntaxFunction => Token::SyntaxFunction,
-            ThemeColor::SyntaxVariable => Token::SyntaxVariable,
-            ThemeColor::SyntaxString => Token::SyntaxString,
-            ThemeColor::SyntaxNumber => Token::SyntaxNumber,
-            ThemeColor::SyntaxType => Token::SyntaxType,
-            ThemeColor::SyntaxOperator => Token::SyntaxOperator,
-            ThemeColor::SyntaxPunctuation => Token::SyntaxPunctuation,
-            ThemeColor::ContextHigh => Token::ContextHigh,
-            ThemeColor::BashMode => Token::BashMode,
-        }
+        ROLES.fg[self as usize]
     }
 }
 
@@ -255,17 +211,7 @@ impl ThemeBg {
     ];
 
     fn token(self) -> Token {
-        match self {
-            ThemeBg::SelectedBg => Token::SelectedBg,
-            ThemeBg::UserMessageBg => Token::UserMessageBg,
-            ThemeBg::CustomMessageBg => Token::CustomMessageBg,
-            ThemeBg::ToolPendingBg => Token::ToolPendingBg,
-            ThemeBg::ToolSuccessBg => Token::ToolSuccessBg,
-            ThemeBg::ToolErrorBg => Token::ToolErrorBg,
-            ThemeBg::ToolDiffAddedBg => Token::ToolDiffAddedBg,
-            ThemeBg::ToolDiffRemovedBg => Token::ToolDiffRemovedBg,
-            ThemeBg::ToolPanelBg => Token::ToolPanelBg,
-        }
+        ROLES.bg[self as usize]
     }
 }
 
@@ -293,13 +239,7 @@ impl ThemeRgb {
     ];
 
     fn token(self) -> Token {
-        match self {
-            ThemeRgb::EffortLow => Token::EffortLow,
-            ThemeRgb::EffortHigh => Token::EffortHigh,
-            ThemeRgb::LiftLight => Token::LiftLight,
-            ThemeRgb::LiftDark => Token::LiftDark,
-            ThemeRgb::Canvas => Token::Background,
-        }
+        ROLES.rgb[self as usize]
     }
 }
 
@@ -322,6 +262,41 @@ const _: () = {
         index += 1;
     }
 };
+
+/// The theme token of every color slot, decided by the compiled core
+/// (`bend/tui_color.bend` `roles`, entry `bend/ffi_tui_color.bend`): the
+/// ink slots ([`ThemeColor`]), the surface slots ([`ThemeBg`]) and the
+/// colors the UI computes with ([`ThemeRgb`]), each in declaration order.
+struct Roles {
+    fg: [Token; ThemeColor::ALL.len()],
+    bg: [Token; ThemeBg::ALL.len()],
+    rgb: [Token; ThemeRgb::ALL.len()],
+}
+
+/// The roles, asked of the core once per process (they are constant).
+static ROLES: LazyLock<Roles> = LazyLock::new(Roles::from_core);
+
+impl Roles {
+    /// # Panics
+    ///
+    /// When the core names another count of slots or a token past the
+    /// table: an inconsistent build (`laws/tui_color.bend`
+    /// `tui_roles_cover` holds 58 distinct tokens below 58).
+    fn from_core() -> Roles {
+        let tokens: Vec<Token> = tui_color::roles()
+            .into_iter()
+            .map(|index| Token::ALL[index])
+            .collect();
+        let (fg, rest) = tokens.split_at(ThemeColor::ALL.len());
+        let (bg, rgb) = rest.split_at(ThemeBg::ALL.len());
+        let slots = "the core names one token per color slot";
+        Roles {
+            fg: fg.try_into().expect(slots),
+            bg: bg.try_into().expect(slots),
+            rgb: rgb.try_into().expect(slots),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorMode {
@@ -360,35 +335,22 @@ pub fn detect_color_mode() -> ColorMode {
 fn to_terminal_color(color: Color, mode: ColorMode) -> Color {
     match (color.0, mode) {
         (Paint::Rgb(r, g, b), ColorMode::Color256) => {
-            Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(r, g, b))))
+            Color(Paint::Indexed(eukhe_bend::rules::color::to256([r, g, b])))
         }
         (Paint::Rgb(..) | Paint::Indexed(_) | Paint::Reset, ColorMode::TrueColor)
         | (Paint::Indexed(_) | Paint::Reset, ColorMode::Color256) => color,
     }
 }
 
-/// Rung `rung` (1 to `rungs`) of the ramp from `low` to `high`: each
-/// channel is its lower end plus `floor(d * w / rungs)`, with `d` the
-/// channel distance and `w` the rung when the channel rises, `rungs -
-/// rung` when it falls. So the last rung is `high` and the ramp starts
-/// one step above `low`. `bend/tui_color.bend` models it (`ramp`), and
-/// the T3 laws hold that the rungs move toward `high` in every channel
-/// and are distinct when no channel distance is below `rungs`.
-fn ramp_rung(low: Rgb, high: Rgb, rung: usize, rungs: usize) -> Rgb {
-    let channel = |low: u8, high: u8| -> u8 {
-        let (rung, rungs) = (rung as u64, rungs as u64);
-        if low <= high {
-            low + (rung * u64::from(high - low) / rungs) as u8
-        } else {
-            high + ((rungs - rung) * u64::from(low - high) / rungs) as u8
-        }
-    };
-    Rgb::new(
-        channel(low.r, high.r),
-        channel(low.g, high.g),
-        channel(low.b, high.b),
-    )
+/// The channels of a color, as the core reads them.
+fn channels(rgb: Rgb) -> tui_color::Rgb {
+    [rgb.r, rgb.g, rgb.b]
 }
+
+/// The effort ramps a theme has drawn, by rung count: the core computes
+/// each once per theme (clones share them), not once per frame.
+#[derive(Debug, Default, Clone)]
+struct EffortRamps(Arc<Mutex<HashMap<usize, Arc<[Rgb]>>>>);
 
 /// How far a selection wash must stand off the surface it renders on:
 /// TS `SELECTION_MIN_LUMINANCE_DELTA` -- "Selection rows must stand out
@@ -456,6 +418,8 @@ pub struct Theme {
     /// Identity of this resolution: clones share it, so equal generations
     /// mean equal themes without comparing the tables.
     generation: u64,
+    /// The effort ramps drawn so far ([`Theme::effort_ramp`]).
+    effort_ramps: EffortRamps,
 }
 
 impl PartialEq for Theme {
@@ -492,6 +456,7 @@ impl Theme {
             canvas_mode: palette.mode(),
             mode,
             generation: NEXT_THEME_GENERATION.fetch_add(1, Ordering::Relaxed),
+            effort_ramps: EffortRamps::default(),
         }
     }
 
@@ -505,8 +470,8 @@ impl Theme {
     /// statically.
     #[must_use]
     pub fn builtin(name: &str, mode: ColorMode) -> Theme {
-        let palette =
-            Palette::builtin(name).unwrap_or_else(|| panic!("{name} is not a builtin theme"));
+        let palette = Palette::builtin(name, crate::theme_rules::THEME_RULES)
+            .unwrap_or_else(|| panic!("{name} is not a builtin theme"));
         Theme::from_palette(&palette, mode)
     }
 
@@ -574,20 +539,36 @@ impl Theme {
             .collect()
     }
 
-    /// The effort ramp for a ladder of `rungs` levels (any length): the
-    /// style of each rung, lowest first, interpolated from the theme's
-    /// `effortLow` to its `effortHigh` ([`ramp_rung`]). The last rung is
-    /// `effortHigh`.
+    /// The effort ramp for a ladder of `rungs` levels: the style of each
+    /// rung, lowest first, from the theme's `effortLow` toward its
+    /// `effortHigh`, as the compiled core draws it (`bend/tui_color.bend`
+    /// `ramp`; the last rung is `effortHigh`). The core draws each length
+    /// once per theme.
+    ///
+    /// # Panics
+    ///
+    /// When `rungs` is above [`tui_color::RAMP_MAX`]: callers pass a
+    /// model's effort ladder, a few levels of the level vocabulary.
     pub fn effort_ramp(&self, rungs: usize) -> impl Iterator<Item = Style> + '_ {
-        let (low, high) = (
-            self.rgb[ThemeRgb::EffortLow as usize],
-            self.rgb[ThemeRgb::EffortHigh as usize],
+        let ramp = Arc::clone(
+            self.effort_ramps
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(rungs)
+                .or_insert_with(|| {
+                    tui_color::ramp(
+                        channels(self.rgb[ThemeRgb::EffortLow as usize]),
+                        channels(self.rgb[ThemeRgb::EffortHigh as usize]),
+                        rungs,
+                    )
+                    .into_iter()
+                    .map(|[r, g, b]| Rgb::new(r, g, b))
+                    .collect()
+                }),
         );
-        (1..=rungs).map(move |rung| {
-            Style::default().fg(to_terminal_color(
-                Color::rgb(ramp_rung(low, high, rung, rungs)),
-                self.mode,
-            ))
+        (0..ramp.len()).map(move |rung| {
+            Style::default().fg(to_terminal_color(Color::rgb(ramp[rung]), self.mode))
         })
     }
 
@@ -804,12 +785,23 @@ fn span_with(span: crate::Span, modifier: Modifier) -> crate::Span {
 pub(crate) fn theme_with_colors(overrides: &serde_json::Value, mode: ColorMode) -> Theme {
     let mut colors: serde_json::Map<String, serde_json::Value> = Token::ALL
         .into_iter()
-        .filter(|token| token.presence() == eukhe_theme::Presence::Required)
+        .filter(|token| {
+            // The optional tokens: a file may leave them to their fallbacks.
+            !matches!(
+                token,
+                Token::RefinementHeader
+                    | Token::RefinementSummary
+                    | Token::MdBody
+                    | Token::Background
+                    | Token::Foreground
+            )
+        })
         .map(|token| (token.name().to_string(), serde_json::Value::from("")))
         .collect();
     colors.extend(overrides.as_object().expect("an object").clone());
     let file = serde_json::json!({ "name": "custom", "colors": colors });
-    let palette = Palette::parse(&file.to_string()).expect("a valid theme");
+    let palette =
+        Palette::parse(&file.to_string(), crate::theme_rules::THEME_RULES).expect("a valid theme");
     Theme::from_palette(&palette, mode)
 }
 
@@ -877,7 +869,7 @@ mod tests {
             ],
             [
                 Color(Paint::Rgb(25, 5, 6)),
-                Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(25, 5, 6)))),
+                Color(Paint::Indexed(eukhe_bend::rules::color::to256([25, 5, 6]))),
                 Color(Paint::Rgb(221, 221, 221)),
                 Color(Paint::Rgb(25, 25, 26)),
             ]

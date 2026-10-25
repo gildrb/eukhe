@@ -64,8 +64,9 @@ def pv.valid_ty(l: Cv.Layer, +d: Cv.Decl, +s: Cv.Bind, h: {Cv.valid.at(Some{d}, 
 
 # a set that hits x has the type of x's declaration
 def pv.hit_ty(+s: Cv.Bind, +ds: List<&2, Cv.Decl>, +l: Cv.Layer, +x: Nat, +d: Cv.Decl, em: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}, +h: {Cv.hit.at([s], ds, l, x) == True{} : Bool}) -> {Cv.Ty.eq(Cv.Val.ty(Cv.Bind.val(s)), Cv.Decl.ty(d)) == True{} : Bool}:
-  +ex = LA.pv.eq_true(Cv.Bind.id(s), x, LA.cvar.pv.and_l(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, l, s), h))
-  +hv = LA.cvar.pv.and_r(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, l, s), h)
+  +ha = LA.pv.hit_l(s, ds, l, x, h)
+  +ex = LA.pv.eq_true(Cv.Bind.id(s), x, LA.cvar.pv.and_l(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, l, s), ha))
+  +hv = LA.cvar.pv.and_r(Nat.is_eq(Cv.Bind.id(s), x), Cv.valid(ds, l, s), ha)
   pv.valid_ty(l, d, s, LA.pv.valid_m(ds, l, s, x, Some{d}, em, ex, hv))
 
 # the value is absent or has type t

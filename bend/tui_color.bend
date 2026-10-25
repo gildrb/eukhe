@@ -1,9 +1,8 @@
-# tui_color: the colors that the terminal UI computes from a theme
-# (crates/eukhe-tui/src/theme.rs, crates/eukhe-tui/src/status_line.rs);
+# tui_color: the colors that the terminal UI computes from a theme;
 # laws in laws/tui_color.bend (T3), docs/interface.md "Terminal colors".
-# The bridge test crates/eukhe-tui/src/theme/bridge.rs runs the Rust code
-# and this model (through bridge/bridge_tui_color.bend) on the same
-# scenarios.
+# This model is the code that runs: the entry bend/ffi_tui_color.bend
+# serves the ramp, the band and the roles to crates/eukhe-tui (theme.rs,
+# status_line.rs), which paints them.
 #
 # - The effort ramp. A model offers a ladder of n effort levels (any n).
 #   The theme gives two colors, effortLow (42) and effortHigh (43). Rung k

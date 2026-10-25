@@ -11,9 +11,12 @@ import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_codemode_id.bend as ffi_codemode_id
+import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
+import ./ffi_config.bend as ffi_config
 import ./ffi_cvar.bend as ffi_cvar
+import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
 import ./ffi_dash_access.bend as ffi_dash_access
 import ./ffi_dash_policy.bend as ffi_dash_policy
@@ -49,6 +52,7 @@ import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
+import ./ffi_quirks.bend as ffi_quirks
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -66,6 +70,7 @@ import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_theme.bend as ffi_theme
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_elect.bend as ffi_tiny_elect
@@ -73,6 +78,7 @@ import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
+import ./ffi_tui_color.bend as ffi_tui_color
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -172,6 +178,16 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
+    case 60:
+      ffi_config.ffi(input)
+    case 62:
+      ffi_theme.ffi(input)
+    case 63:
+      ffi_tui_color.ffi(input)
+    case 64:
+      ffi_cvar_layers.ffi(input)
+    case 67:
+      ffi_color.ffi(input)
     case 70:
       ffi_compactor.ffi(input)
     case 71:
@@ -239,6 +255,7 @@ type State is Type:
   Selection{s: ffi_selection.St}
   DocSearch{s: ffi_doc_search.St}
   DocGlob{s: ffi_doc_glob.St}
+  Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
   AuthFlight{s: ffi_auth_flight.St}
@@ -289,6 +306,11 @@ def open.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
     case (s, reply):
       (DocGlob{s}, reply)
 
+def open.quirks(r: ffi_quirks.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Quirks{s}, reply)
+
 def open.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -324,6 +346,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.doc_search(ffi_doc_search.open(input))
     case 42:
       open.doc_glob(ffi_doc_glob.open(input))
+    case 61:
+      open.quirks(ffi_quirks.open(input))
     case 74:
       open.infer_guard(ffi_infer_guard.open(input))
     case 76:
@@ -383,6 +407,11 @@ def step.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
     case (s, reply):
       (DocGlob{s}, reply)
 
+def step.quirks(r: ffi_quirks.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Quirks{s}, reply)
+
 def step.infer_guard(r: ffi_infer_guard.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -418,6 +447,8 @@ def step.go(state: State, input: String) -> State & String:
       step.doc_search(ffi_doc_search.step(s, input))
     case DocGlob{s}:
       step.doc_glob(ffi_doc_glob.step(s, input))
+    case Quirks{s}:
+      step.quirks(ffi_quirks.step(s, input))
     case InferGuard{s}:
       step.infer_guard(ffi_infer_guard.step(s, input))
     case Bound{s}:
@@ -451,6 +482,8 @@ def close.go(state: State) -> Unit:
     case DocSearch{s}:
       Unit{}
     case DocGlob{s}:
+      Unit{}
+    case Quirks{s}:
       Unit{}
     case InferGuard{s}:
       Unit{}

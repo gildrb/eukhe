@@ -31,8 +31,6 @@ use self::theme::export_theme;
 
 pub mod ansi_to_html;
 mod theme;
-#[cfg(test)]
-mod theme_bridge;
 pub mod tool_render;
 
 pub use self::tool_render::{
@@ -283,7 +281,7 @@ pub(crate) mod tests {
         let returned = export_from_path(
             &session,
             Some(out.to_str().unwrap()),
-            &eukhe_theme::Palette::default_theme(),
+            &eukhe_theme::Palette::default_theme(crate::theme_rules::THEME_RULES),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -321,7 +319,7 @@ pub(crate) mod tests {
         let returned = export_from_path(
             &session,
             None,
-            &eukhe_theme::Palette::default_theme(),
+            &eukhe_theme::Palette::default_theme(crate::theme_rules::THEME_RULES),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -338,7 +336,7 @@ pub(crate) mod tests {
         let error = export_from_path(
             &dir.path().join("nope.jsonl"),
             None,
-            &eukhe_theme::Palette::default_theme(),
+            &eukhe_theme::Palette::default_theme(crate::theme_rules::THEME_RULES),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -360,7 +358,7 @@ pub(crate) mod tests {
         let error = export_from_path(
             &input,
             Some(out.to_str().unwrap()),
-            &eukhe_theme::Palette::default_theme(),
+            &eukhe_theme::Palette::default_theme(crate::theme_rules::THEME_RULES),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -389,7 +387,7 @@ pub(crate) mod tests {
             custom_dir: Some(dir.path().join("agent").join("themes")),
             diagnostics: Vec::new(),
         };
-        let resolved = sources.resolve("dusk-apple");
+        let resolved = sources.resolve("dusk-apple", crate::theme_rules::THEME_RULES);
         assert_eq!(
             (resolved.palette.name(), resolved.warnings),
             ("dusk-apple", Vec::<String>::new())

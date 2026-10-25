@@ -49,6 +49,12 @@
 52 runners
 53 approvals
 54 frames
+60 config
+61 quirks
+62 theme
+63 tui_color
+64 cvar_layers
+67 color
 70 compactor
 71 model_facts
 73 infer_force

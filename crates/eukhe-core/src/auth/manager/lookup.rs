@@ -5,9 +5,9 @@
 //! refresh flights, and the passthrough `get_api_key` (TS getApiKey).
 
 use super::{
-    now_epoch_ms, parse_storage_data, resolve_config_value, resolve_config_value_uncached,
-    AuthApiKeyResult, AuthCredential, AuthStorage, AuthStorageBackend, AuthStorageData,
-    OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
+    config, edit_storage_data, now_epoch_ms, parse_storage_data, resolve_config_value,
+    resolve_config_value_uncached, AuthApiKeyResult, AuthCredential, AuthStorage,
+    AuthStorageBackend, AuthStorageData, OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
 };
 use crate::auth::flight::RefreshIo;
 
@@ -284,16 +284,22 @@ impl RefreshIo for DocumentRefresh<'_> {
         let mut stored = credential.clone();
         self.storage
             .with_lock(&mut |current| {
-                let mut data = parse_storage_data(current.as_deref())?;
-                if let Some(peer) = data.credential(provider).filter(fresh) {
-                    // A peer refreshed while this fetch ran: its fresher
-                    // credential stands and this attempt writes nothing.
-                    stored = peer;
-                    return Ok(((), None));
-                }
-                data.insert(provider, &credential);
-                let content = serde_json::to_string_pretty(&data.0)?;
-                Ok(((), Some(content)))
+                let mut entry = Some(serde_json::to_value(&credential)?);
+                let data = edit_storage_data(current.as_deref(), |data| {
+                    if let Some(peer) = data.credential(provider).filter(fresh) {
+                        // A peer refreshed while this fetch ran: its fresher
+                        // credential stands and this attempt writes nothing.
+                        stored = peer;
+                        return None;
+                    }
+                    entry
+                        .take()
+                        .map(|entry| config::Edit::Set(provider.to_string(), entry))
+                })?;
+                let content = data
+                    .map(|data| serde_json::to_string_pretty(&data.0))
+                    .transpose()?;
+                Ok(((), content))
             })
             .map_err(|error| format!("could not save the refreshed credential: {error:#}"))?;
         Ok(stored)

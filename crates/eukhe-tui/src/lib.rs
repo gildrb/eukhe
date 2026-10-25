@@ -133,6 +133,7 @@ mod terminal_image;
 mod testing;
 pub mod theme;
 pub mod theme_catalog;
+pub(crate) mod theme_rules;
 pub mod toast;
 pub mod tool_card;
 pub mod tree_display;

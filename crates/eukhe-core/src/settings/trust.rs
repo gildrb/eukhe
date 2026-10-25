@@ -2,12 +2,16 @@
 //! whatever repository the user opened, so the keys that can run code,
 //! redirect credentials or data, move where code and kernel state load
 //! from, or raise a limit apply only when the global `trustedProjects`
-//! list covers the project directory (`laws/config.bend`
-//! `untrusted_changes_nothing_guarded`). `trustedProjects` is read from
-//! the global layer only (the global `settings.json`, then the global
-//! `config.cfg`), like `gateway` and `ssh`.
+//! list covers the project directory; the compiled core decides which
+//! keys apply (`laws/config.bend` `untrusted_changes_nothing_guarded`,
+//! `trusted_project_applies`, the `trust_*` laws). `trustedProjects` is
+//! read from the global layer only (the global `settings.json`, then the
+//! global `config.cfg`), like `gateway` and `ssh`.
 
 use std::path::{Path, PathBuf};
+
+use eukhe_bend::rules::config;
+use serde_json::{Map, Value};
 
 use super::manager::SettingsError;
 use super::storage::{SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
@@ -146,235 +150,89 @@ pub(super) fn apply_project_trust(
     (project, trust)
 }
 
-/// The project scope that applies at a trust level, plus the present keys
-/// it did not apply. A trusted project keeps everything except the
-/// global-only `trustedProjects`, `gateway` and `ssh`.
+/// The project scope that applies at a trust level, plus the names of the
+/// present keys it did not apply, as the compiled core decides from the
+/// document's leaves (`config::project`; `bend/config.bend` names what each
+/// key is). Untrusted, only the preferences apply: a key that runs or
+/// installs code, routes a credential, moves where sessions live, raises a
+/// limit, or that no rule names is withheld. A global-only key
+/// (`trustedProjects`, `gateway`, `ssh`) never applies from a project. A
+/// document the core cannot read (a key past the wire's bounds) applies
+/// nothing and is named whole.
 pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Settings, Vec<String>) {
-    match level {
-        TrustLevel::Trusted => {
-            let mut project = document.clone();
-            let ignored = [
-                ("trustedProjects", project.trusted_projects.take().is_some()),
-                ("gateway", project.gateway.take().is_some()),
-                ("ssh", project.ssh.take().is_some()),
-            ]
-            .into_iter()
-            .filter(|(_, present)| *present)
-            .map(|(key, _)| key.to_string())
-            .collect();
-            (project, ignored)
+    let mut keys = Vec::new();
+    if let Ok(Value::Object(fields)) = serde_json::to_value(document) {
+        project_leaves(fields, &mut Vec::new(), &mut keys);
+    }
+    let trust = match level {
+        TrustLevel::Trusted => config::Trust::Trusted,
+        TrustLevel::Untrusted => config::Trust::Untrusted,
+    };
+    let refused = |error: String| {
+        (
+            Settings::default(),
+            vec![format!("the whole project document ({error})")],
+        )
+    };
+    match config::project(trust, keys) {
+        Ok((kept, withheld)) => {
+            let mut applied = Map::new();
+            for (path, value) in kept {
+                put_leaf(&mut applied, &path, value);
+            }
+            match serde_json::from_value(Value::Object(applied)) {
+                Ok(project) => (project, withheld),
+                Err(error) => refused(error.to_string()),
+            }
         }
-        TrustLevel::Untrusted => untrusted_project_scope(document.clone()),
+        Err(error) => refused(error.to_string()),
     }
 }
 
-/// The project scope an untrusted project keeps: every field is listed
-/// (the destructure and the struct literal have no `..`), so a new
-/// `Settings` field does not compile until it is classified here.
-/// Withheld: anything that names a program, command, shell, or library
-/// (`providers.tinyRuntimeLibrary`); installs or spawns code (packages,
-/// MCP servers and catalogs, skill paths); holds or routes credentials
-/// (MCP servers, `kernelTransport`, `providers`); moves where sessions and
-/// kernel snapshots live; toggles execution gates (factory, the model
-/// allowlist); hides startup output (and so this warning); a limit on
-/// spend, time, rounds or concurrency (the tool rounds, the subagent
-/// cap and stall, the tool blocking budget, the autonomous and Director
-/// caps, the retry counts, the thinking budgets: an untrusted project
-/// could raise them); the global-only `trustedProjects`, `gateway` and
-/// `ssh`; and unknown keys. Everything else is a UI or model preference.
-fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
-    let Settings {
-        onboarding_shown,
-        onboarding_completed,
-        default_provider,
-        default_model,
-        subagent_default_model,
-        recent_models,
-        auxiliary_model,
-        default_thinking_level,
-        default_service_tier,
-        rlm_max_depth,
-        provider_max_in_flight,
-        provider_max_queued,
-        subagent_max_concurrency,
-        subagent_stall_ms,
-        tool_blocking_budget_ms,
-        max_tool_rounds,
-        idle_eviction_minutes,
-        session_archive_max_age_days,
-        session_archive_max_sessions,
-        transport,
-        steering_mode,
-        follow_up_mode,
-        theme,
-        compaction,
-        memory,
-        auto_refine,
-        factory,
-        branch_summary,
-        retry,
-        provider_backup_model,
-        image_model,
-        autonomous,
-        directors,
-        shell_path,
-        quiet_startup,
-        shell_command_prefix,
-        npm_command,
-        mcp_servers,
-        mcp_catalog_sources,
-        packages,
-        skills,
-        prompts,
-        themes,
-        enable_skill_commands,
-        enable_builtin_skills,
-        terminal,
-        images,
-        enabled_models,
-        allowed_models,
-        tree_filter_mode,
-        chat_detail,
-        thinking_budgets,
-        editor_padding_x,
-        autocomplete_max_visible,
-        show_hardware_cursor,
-        markdown,
-        workflow,
-        warnings,
-        session_dir,
-        request_timing,
-        trusted_projects,
-        gateway,
-        kernel_transport,
-        shell,
-        ssh,
-        model_roles,
-        providers,
-        titles,
-        tts,
-        stt,
-        extra,
-    } = document;
-    let mut retry_limits = Vec::new();
-    let retry = retry.map(|mut retry| {
-        if retry.max_retries.take().is_some() {
-            retry_limits.push("retry.maxRetries".to_string());
+/// Put `value` at `path` of `object`, making the objects on the way (the
+/// leaves of one document never sit under one another).
+fn put_leaf(object: &mut Map<String, Value>, path: &[String], value: Value) {
+    match path {
+        [] => {}
+        [name] => {
+            object.insert(name.clone(), value);
         }
-        if let Some(failover) = retry.failover.as_mut() {
-            if failover.max_retries.take().is_some() {
-                retry_limits.push("retry.failover.maxRetries".to_string());
+        [name, rest @ ..] => {
+            if let Value::Object(child) = object
+                .entry(name.clone())
+                .or_insert_with(|| Value::Object(Map::new()))
+            {
+                put_leaf(child, rest, value);
             }
         }
-        retry
-    });
-    let withheld = [
-        ("subagentMaxConcurrency", subagent_max_concurrency.is_some()),
-        ("subagentStallMs", subagent_stall_ms.is_some()),
-        ("toolBlockingBudgetMs", tool_blocking_budget_ms.is_some()),
-        ("maxToolRounds", max_tool_rounds.is_some()),
-        ("factory", factory.is_some()),
-        ("shellPath", shell_path.is_some()),
-        ("quietStartup", quiet_startup.is_some()),
-        ("shellCommandPrefix", shell_command_prefix.is_some()),
-        ("npmCommand", npm_command.is_some()),
-        ("mcpServers", mcp_servers.is_some()),
-        ("mcpCatalogSources", mcp_catalog_sources.is_some()),
-        ("packages", packages.is_some()),
-        ("skills", skills.is_some()),
-        ("allowedModels", allowed_models.is_some()),
-        ("sessionDir", session_dir.is_some()),
-        ("trustedProjects", trusted_projects.is_some()),
-        ("gateway", gateway.is_some()),
-        ("kernelTransport", kernel_transport.is_some()),
-        ("autonomous", autonomous.is_some()),
-        ("directors", directors.is_some()),
-        ("thinkingBudgets", thinking_budgets.is_some()),
-        ("shell", shell.is_some()),
-        ("ssh", ssh.is_some()),
-        ("providers", providers.is_some()),
-    ];
-    let ignored_keys = withheld
-        .into_iter()
-        .filter(|(_, present)| *present)
-        .map(|(key, _)| key.to_string())
-        .chain(retry_limits)
-        .chain(extra.into_iter().map(|(key, _)| key))
-        .collect();
-    let kept = Settings {
-        onboarding_shown,
-        onboarding_completed,
-        default_provider,
-        default_model,
-        subagent_default_model,
-        recent_models,
-        auxiliary_model,
-        default_thinking_level,
-        default_service_tier,
-        rlm_max_depth,
-        provider_max_in_flight,
-        provider_max_queued,
-        subagent_max_concurrency: None,
-        subagent_stall_ms: None,
-        tool_blocking_budget_ms: None,
-        max_tool_rounds: None,
-        idle_eviction_minutes,
-        session_archive_max_age_days,
-        session_archive_max_sessions,
-        transport,
-        steering_mode,
-        follow_up_mode,
-        theme,
-        compaction,
-        memory,
-        auto_refine,
-        factory: None,
-        branch_summary,
-        retry,
-        provider_backup_model,
-        image_model,
-        autonomous: None,
-        directors: None,
-        shell_path: None,
-        quiet_startup: None,
-        shell_command_prefix: None,
-        npm_command: None,
-        mcp_servers: None,
-        mcp_catalog_sources: None,
-        packages: None,
-        skills: None,
-        prompts,
-        themes,
-        enable_skill_commands,
-        enable_builtin_skills,
-        terminal,
-        images,
-        enabled_models,
-        allowed_models: None,
-        tree_filter_mode,
-        chat_detail,
-        thinking_budgets: None,
-        editor_padding_x,
-        autocomplete_max_visible,
-        show_hardware_cursor,
-        markdown,
-        workflow,
-        warnings,
-        session_dir: None,
-        request_timing,
-        trusted_projects: None,
-        gateway: None,
-        kernel_transport: None,
-        shell: None,
-        ssh: None,
-        model_roles,
-        providers: None,
-        titles,
-        tts,
-        stt,
-        extra: serde_json::Map::new(),
-    };
-    (kept, ignored_keys)
+    }
+}
+
+/// The leaves of a project document under `path`, each its path (the key
+/// names from the top) and its value: a value that is not an object, or
+/// an empty object; an unset (`null`) value is none.
+fn project_leaves(
+    fields: Map<String, Value>,
+    path: &mut Vec<String>,
+    leaves: &mut Vec<(Vec<String>, Value)>,
+) {
+    for (name, value) in fields {
+        path.push(name);
+        match value {
+            Value::Null => {}
+            Value::Object(children) if !children.is_empty() => {
+                project_leaves(children, path, leaves);
+            }
+            leaf @ (Value::Object(_)
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::Array(_)) => {
+                leaves.push((path.clone(), leaf));
+            }
+        }
+        path.pop();
+    }
 }
 
 #[cfg(test)]

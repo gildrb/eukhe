@@ -12,12 +12,13 @@
 
 use std::fmt::Write as _;
 
-/// The color of palette index `index` as `#rrggbb` ([`eukhe_theme::ansi256`],
-/// the one ANSI-16 table and xterm-256 palette); `None` past 255.
+/// The color of palette index `index` as `#rrggbb`
+/// ([`eukhe_bend::rules::color::ansi256`], the one ANSI-16 table and
+/// xterm-256 palette); `None` past 255.
 fn palette_hex(index: u64) -> Option<String> {
-    u8::try_from(index)
-        .ok()
-        .map(|index| eukhe_theme::ansi256(index).to_string())
+    u8::try_from(index).ok().map(|index| {
+        eukhe_theme::Rgb::from_channels(eukhe_bend::rules::color::ansi256(index)).to_string()
+    })
 }
 
 /// The color of ANSI-16 index `index` (0-15) as `#rrggbb`.

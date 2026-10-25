@@ -14,8 +14,10 @@ import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
 import ./laws/sandbox.bend as Sandbox
 import ./laws/cvar.bend as Cvar
+import ./laws/cvar_layers.bend as CvarLayers
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer
+import ./laws/quirks.bend as Quirks
 import ./laws/tools.bend as Tools
 import ./laws/screen.bend as Screen
 import ./laws/tiny.bend as Tiny
@@ -25,6 +27,7 @@ import ./laws/semver.bend as Semver
 import ./laws/auth_flight.bend as AuthFlight
 import ./laws/theme.bend as Theme
 import ./laws/color.bend as Color
+import ./laws/theme_model.bend as ThemeModel
 import ./laws/tokens.bend as Tokens
 import ./laws/progress.bend as Progress
 import ./laws/aux_fallback.bend as AuxFallback

@@ -51,7 +51,7 @@ One command language for cfg files, the `/set` family and key binds. Line = comm
    - Unreadable `binds.cfg` or unwritable import: warning at startup and `/reload`.
 6. `/cvar save` writes the agent's `persist` sets to `agents/<name>.cfg`; read back as profile, same values.
 
-Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `press`). Laws: `laws/cvar.bend` (S4). Proofs: `proof/cvar/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds.
+Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `tog`, `written`, `document`, `toggle`, `expand`, `press`). Laws: `laws/cvar.bend` (S4), `laws/cvar_layers.bend` (the entry). Proofs: `proof/cvar/`, `proof/cvar_layers/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds, any request text.
 
 | Law | Says |
 | --- | --- |
@@ -73,12 +73,25 @@ Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`, `expand`, `pr
 | `bind_press_plain` | Key press runs only plain commands (S4.5). |
 | `bind_unbound_runs_nothing` | Unbound key runs nothing (S4.5). |
 | `bind_first_wins` | Key press runs the key's first bind (S4.5). |
+| `cvar_find_exact` | A cvar's declaration is the first one with its id. |
+| `cvar_layered_exact` | Value the layers set: last set that counts over config, then each agent root first, profile before own sets (S4.2). |
+| `cvar_value_exact` | Value: what the layers set, else the default; none for an undeclared cvar. |
+| `cvar_refusal_exact` | Registry refuses the first repeated id, else the first wrong default; accepts otherwise (S4.1). |
+| `cvar_check_exact` | Set verdict: undeclared, then Global in an agent layer, then wrong type; else valid. |
+| `cvar_tog_exact` | Toggle verdict: undeclared, then Global in an agent layer; else the opposite of the agent's Bool value (inherited included), or not a Bool. |
+| `cvar_written_exact` | Written/replicated sets: exactly the agent's sets of flagged cvars that count in an agent layer, in order (S4.3). |
+| `cvar_document_exact` | Config sets of `settings.json`: per declaration, a Local cvar from the merged document, a Global cvar from the global one only, when typed. |
+| `cvar_terms_exact` | The predicates the laws above read (`unique`, `all_typed`, `typed.at`, `all_flag`, `Exp.plain`) mean what they say. |
+| `cvar_layers_ffi_answers` | The entry answers every request Rust writes with the model's decision. |
+| `cvar_layers_ffi_malformed_exact` | Any other input: exactly `E cvar_layers: malformed request`. |
+| `cvar_layers_ffi_example`, `cvar_layers_fits_example` | Anchors: Rust's request strings; a fitting request of each kind. |
 
 Code:
 
 - `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `Binds`, `ExpandError`.
 - `eukhe-bend/src/rules/cvar.rs`: `expand`, `Presses`: expansion and key presses run as the compiled model (entry `bend/ffi_cvar.bend`, laws `laws/cvar.bend`); a press table lives in the core, so a press sends only its key.
-- `eukhe-core/src/settings/cvar.rs`: `Registry`, `Cvars::value`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
+- `eukhe-bend/src/rules/cvar_layers.rs`: `refusal`, `values`, `toggle`, `check`, `written`, `document`: every resolution decision runs as the compiled model (entry `bend/ffi_cvar_layers.bend`, id 64). The model sees numbers: a cvar is its place in the table, a non-Bool value a reference Rust keeps, crossing with its cvar's type when `CvarType::admits` it (Rust reads value syntax only).
+- `eukhe-core/src/settings/cvar.rs`: `Registry` (the core's refusal), `Cvars` (keeps the layers; the core resolves every value in one call after a change, on the first read), `Cvars::check`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
 - `settings/cfg.rs`: config layer (`settings.json`, then `config.cfg` files under trust rules).
 - `settings/manager.rs`, `settings/getters.rs`: getters, all through `Cvars`.
 - `eukhe-core/src/durable/cvar_agent.rs` (session agent): `CvarAgent`, `eukhe.cvar.agent` document, `run_cvar_line`, `save_agent_cfg`.
@@ -87,7 +100,7 @@ Code:
 - Spawn carries parent family in create config (`cvarFamily`).
 - `eukhe-tui/src/session_ui/cvar.rs`: TUI sends `/set`, `/toggle`, `/alias`, `/cvar` as `cvar` lines.
 
-Tie: `settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` vs `bridge/bridge_cvar.bend`, byte for byte, 300 generated scenarios reaching every rule: registries (duplicate ids, wrong defaults); values over config and family (wrong types, Global cvars, undeclared ids, profiles, sets); toggles of a family's last agent (subagent toggles an inherited value); written sets (`persist`, `replicate`). Expansion and presses: no bridge, they run as the model; `rules::cvar::tests` checks the glue (names and commands to the model's numbers and back).
+No bridge: resolution, expansion and presses run as the model. `settings::cvar::tests` and `rules::cvar::tests` check the glue (ids, values and commands to the model's numbers and back), one test per request.
 
 Regression tests:
 
@@ -108,7 +121,7 @@ Documents: `settings.json` (global, project), `mcp-connections.json`, `auth.json
 6. `mcpServers` entry is a unit: a project entry replaces the same-named global entry, never takes its URL or credential. `kernelTransport` is a unit too.
 7. Sessions directory, one precedence for every reader (CLI, dashboard, gateway, daemon; `settings::resolve_session_dir`): `--session-dir`, `EUKHE_SESSION_DIR` (or legacy `EUKHE_CODING_AGENT_SESSION_DIR`), `sessionDir` setting, `<agent dir>/sessions`.
 
-Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs: `proof/config/`.
+Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.bend`, entry 60, `eukhe_bend::rules::config`). Laws: `laws/config.bend` (spec helpers `spec/config.bend`). Proofs: `proof/config/`.
 
 | Law | Says |
 | --- | --- |
@@ -124,10 +137,27 @@ Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs: `proof/config/`.
 | `trusted_project_applies` | Trusted project's item applies. |
 | `project_entry_never_merges` | Project MCP entry applies whole (S4b.6). |
 | `global_entry_kept` | Global entry the project does not name stays whole. |
+| `rmw_keeps_place` | Write keeps every key in its place: a set of a present key keeps the order, a new key goes last, a delete drops only its key (S4b.1). |
+| `rmw_missing_is_empty` | Missing file is edited as the empty document (S4b.1). |
+| `leaf_lists_exact` | Leaves applied = the good ones, leaves named = the rest, each in document order (S4b.3). |
+| `limits_exact` | Each asked provider's limit, in order: unset/absent/0 no limit, n is n, malformed or not a map caps at 1 (S4b.4). |
+| `merge_finds_exact` | Each asked name: the project entry whole, else the global one whole, else none (S4b.6). |
+| `trust_classify_exact` | A project key is what the first rule of the table whose path prefixes it says; no rule: code (S4b.5). |
+| `trust_table_example` | The table, pinned: nested retry counts are limits, other `retry` keys a preference, unknown keys code. |
+| `trust_applies_exact` | Trusted: every key but a global-only one applies; untrusted: only preferences. |
+| `trust_project_exact` | The project keys that apply are exactly those whose scope applies, in order, with their values. |
+| `trust_withheld_exact` | Trust warning names each withheld key once, in key order, by its rule's name. |
+| `config_ffi_answers` | Every request Rust writes is answered with the model's decision as Rust reads it. |
+| `config_ffi_reads_spelled` | The laws' reader reads every spelled request back whole. |
+| `config_ffi_malformed_exact` | Input that is not exactly one request gets exactly `E config: malformed request`. |
+| `config_ffi_example`, `config_ffi_refuses_example` | Anchors: request and reply bytes, refused inputs. |
+| `rmw_written_exact` | Write over a read document is exactly that document with the one edit applied (S4b.1). |
+| `save_exact`, `save_refuses_broken_example` | Setter writes exactly the on-disk document with its key set; over an unreadable file it writes nothing (S4b.1-2). |
+| `set_exact`, `lookup_exact`, `kept_exact`, `touches_exact`, `listed_exact`, `leaf_path_exact`, `leaf_in_exact`, `distinct_exact`, `slot_exact`, `val_limit_exact`, `limit_exact`, `malformed_at_exact`, `effective_exact`, `only_guarded_exact`, `has_exact`, `find_exact`, `finds_exact`, `merge_find_exact` | Each model helper a law reads equals an independent restatement (`spec/config_rules.bend`), so no law holds by two helpers wrong together. |
 
 Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `laws/default_model.bend`.
 
-Tie: `settings::bridge::the_rust_config_code_equals_the_bend_model` vs `bridge/bridge_config.bend`, byte for byte, 360 generated scenarios: each writer over missing, valid, invalid, unreadable, other-version files; setters after another writer's change; documents with good, wrong-typed, undeclared leaves; `providerMaxInFlight` values; projects under each trust; global and project `mcpServers` entries.
+Tie: the Rust reads and writes the files and sends the facts (keys and values as places, project leaves as paths) to the compiled core: `eukhe_bend::rules::config::{rmw, leaves, limits, project, merge}` (entry 60); `rules::config::tests::the_codec_carries_each_question_through_the_core` checks the core is reached and the glue maps places back.
 
 Regression tests: `add_refuses_a_settings_file_that_does_not_parse`, `a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`, `another_version_is_refused_and_never_rewritten`, `set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`, `a_bad_leaf_drops_only_itself_and_is_named`, `a_setting_a_cfg_file_shadows_says_so`, `a_project_mcp_entry_never_takes_global_credentials`.
 

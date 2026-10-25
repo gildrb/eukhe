@@ -3,7 +3,7 @@
 //! export template reads. Every color comes from the theme, and every
 //! value written is `#rrggbb`.
 
-use eukhe_theme::{ExportSurface, Mode, Palette, Rgb, Token};
+use eukhe_theme::{ExportSurface, Palette, Rgb, Token};
 
 /// The CSS variables plus the three background colors the export template
 /// substitutes.
@@ -28,9 +28,10 @@ fn derived_backgrounds(base: Rgb) -> [Rgb; 3] {
             base.b.saturating_sub(b),
         )
     };
-    match Mode::of_background(base) {
-        Mode::Light => [base.scaled(0.96), base, shifted(10, 5, 20)],
-        Mode::Dark => [base.scaled(0.7), base.scaled(0.85), shifted(20, 15, 0)],
+    if eukhe_bend::rules::color::light(base.channels()) {
+        [base.scaled(0.96), base, shifted(10, 5, 20)]
+    } else {
+        [base.scaled(0.7), base.scaled(0.85), shifted(20, 15, 0)]
     }
 }
 
@@ -58,7 +59,7 @@ mod tests {
     use super::*;
 
     fn palette(raw: &str) -> Palette {
-        Palette::parse(raw).expect("a valid theme")
+        Palette::parse(raw, crate::theme_rules::THEME_RULES).expect("a valid theme")
     }
 
     /// The bundled eukhe theme: `--accent` through the `primary` variable,
@@ -66,7 +67,7 @@ mod tests {
     /// section's `bg`/`surface`/`panel` references.
     #[test]
     fn the_default_theme_exports_its_variables_and_backgrounds() {
-        let theme = export_theme(&Palette::default_theme());
+        let theme = export_theme(&Palette::default_theme(crate::theme_rules::THEME_RULES));
         let lines: Vec<&str> = theme.theme_vars.split("\n      ").collect();
         assert_eq!(lines.len(), Token::ALL.len());
         assert_eq!(

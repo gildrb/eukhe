@@ -125,7 +125,10 @@ pub(crate) async fn export_html(
             })
         }
     };
-    let resolved = sources.resolve(&deps.settings.manager().get_theme().unwrap_or_default());
+    let resolved = sources.resolve(
+        &deps.settings.manager().get_theme().unwrap_or_default(),
+        eukhe_core::theme_rules::THEME_RULES,
+    );
     for warning in &resolved.warnings {
         tracing::warn!(%warning, "export theme");
     }

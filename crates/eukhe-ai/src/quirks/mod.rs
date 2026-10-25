@@ -7,7 +7,10 @@
 //! with an unknown directive, a value of the wrong type, and two rules of
 //! one layer, target and directive with different values. A lookup takes
 //! the rule of the highest layer that applies (host over model over
-//! family); with no rule that applies the answer is [`Answer::Unknown`],
+//! family). Rust parses each value and numbers targets, directives and
+//! values; the compiled core (`bend/ffi_quirks.bend`, a stepper that keeps
+//! the rulebook) decides what compiles and answers each lookup. With no
+//! rule that applies the answer is [`Answer::Unknown`],
 //! never a guess: the caller (a wire API's compat resolver) applies its
 //! own default, and the explicit `model.compat` wins over both. The answer
 //! does not depend on the order of the rules.
@@ -42,10 +45,13 @@
 //! The shipped rulebook is `rulebook.json`, compiled into the binary and
 //! compiled once on first use.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use eukhe_bend::rules::quirks as compiled;
+use eukhe_bend::wire::WireError;
+use eukhe_bend::{expect_core, Entry};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -78,14 +84,20 @@ pub enum Layer {
 }
 
 impl Layer {
-    /// Every layer, highest first: the lookup order.
-    const BY_PRECEDENCE: [Self; 3] = [Self::Host, Self::Model, Self::Family];
-
     const fn index(self) -> usize {
         match self {
             Self::Family => 0,
             Self::Model => 1,
             Self::Host => 2,
+        }
+    }
+
+    /// The layer as the compiled core reads it.
+    const fn compiled(self) -> compiled::Layer {
+        match self {
+            Self::Family => compiled::Layer::Family,
+            Self::Model => compiled::Layer::Model,
+            Self::Host => compiled::Layer::Host,
         }
     }
 }
@@ -244,6 +256,16 @@ impl Directive {
             Self::ThinkingLadder => "thinking_ladder",
             Self::Endpoint(capability) => capability.as_str(),
         }
+    }
+
+    /// The directive's id in the compiled core: its index in [`Self::ALL`]
+    /// (the core's known directives are `0 .. ALL.len()`).
+    fn id(self) -> u64 {
+        Self::ALL
+            .iter()
+            .position(|directive| *directive == self)
+            .and_then(|index| u64::try_from(index).ok())
+            .unwrap_or(u64::MAX)
     }
 
     /// The directive named `name`.
@@ -532,90 +554,164 @@ pub struct FamilyOverlap {
     pub second: String,
 }
 
-/// The values one target of one layer gets.
-type Settings = BTreeMap<Directive, (Value, JsonValue)>;
-
-/// Compiled rules: per layer, per target, per directive, one value.
-#[derive(Debug, Clone, Default)]
+/// Compiled rules: the compiled core keeps them (`bend/ffi_quirks.bend`)
+/// and answers each lookup; Rust keeps the ids it gave the targets and the
+/// values.
+#[derive(Debug)]
 pub struct Rules {
-    layers: [HashMap<String, Settings>; 3],
+    book: Mutex<compiled::Book>,
+    /// Per layer, the id of each target (from 1: 0 is no target).
+    targets: [HashMap<String, u64>; 3],
+    /// The value of each value id.
+    values: Vec<Value>,
 }
 
-/// Compile `rules`: every directive known, every value of its directive's
-/// type, and no two rules of one layer, target and directive with different
-/// values. The result does not depend on the order of `rules`.
+/// The value id of `value` in `values`, added when it is new: equal values
+/// share an id, so the core sees two rules of one value as one value.
+fn value_id(values: &mut Vec<Value>, value: Value) -> u64 {
+    let index = values
+        .iter()
+        .position(|known| *known == value)
+        .unwrap_or_else(|| {
+            values.push(value);
+            values.len() - 1
+        });
+    u64::try_from(index).unwrap_or(u64::MAX)
+}
+
+/// Compile `rules` in the compiled core: every directive known, every value
+/// of its directive's type (parsed here), and no two rules of one layer,
+/// target and directive with different values. The result does not depend
+/// on the order of `rules`.
 ///
 /// # Errors
 ///
-/// Every rule that breaks one of those, in rule order.
+/// Every rule that breaks one of those, in rule order: a clash names the
+/// rule and the first later rule it clashes with.
 pub fn compile(rules: &[RawRule]) -> Result<Rules, Vec<QuirksError>> {
-    let mut compiled = Rules::default();
-    let mut errors = Vec::new();
-    for rule in rules {
-        let Some(directive) = Directive::parse(&rule.directive) else {
-            errors.push(QuirksError::UnknownDirective {
-                layer: rule.layer,
-                target: rule.target.clone(),
-                directive: rule.directive.clone(),
-            });
-            continue;
-        };
-        let Some(value) = directive.kind().parse(&rule.value) else {
-            errors.push(QuirksError::BadValue {
-                layer: rule.layer,
-                target: rule.target.clone(),
-                directive: rule.directive.clone(),
-                value: rule.value.clone(),
-                kind: directive.kind(),
-            });
-            continue;
-        };
-        let settings = compiled.layers[rule.layer.index()]
-            .entry(rule.target.clone())
-            .or_default();
-        match settings.get(&directive) {
-            Some((first, first_raw)) => {
-                if *first != value {
-                    errors.push(QuirksError::Clash {
+    let mut targets: [HashMap<String, u64>; 3] = Default::default();
+    let mut unknown: HashMap<&str, u64> = HashMap::new();
+    let mut values = Vec::new();
+    let mut facts = Vec::with_capacity(rules.len());
+    // The index in `rules` of each rule of `facts`.
+    let mut sources = Vec::with_capacity(rules.len());
+    let mut errors: Vec<(usize, QuirksError)> = Vec::new();
+    let known_count = Directive::ALL.len() as u64;
+    for (index, rule) in rules.iter().enumerate() {
+        let (directive, value) = if let Some(directive) = Directive::parse(&rule.directive) {
+            let Some(value) = directive.kind().parse(&rule.value) else {
+                errors.push((
+                    index,
+                    QuirksError::BadValue {
                         layer: rule.layer,
                         target: rule.target.clone(),
                         directive: rule.directive.clone(),
-                        first: first_raw.clone(),
-                        second: rule.value.clone(),
-                    });
-                }
-            }
-            None => {
-                settings.insert(directive, (value, rule.value.clone()));
+                        value: rule.value.clone(),
+                        kind: directive.kind(),
+                    },
+                ));
+                continue;
+            };
+            (directive.id(), value_id(&mut values, value))
+        } else {
+            // A name past the known directives: the core rejects it.
+            let next = known_count + unknown.len() as u64;
+            (*unknown.entry(&rule.directive).or_insert(next), 0)
+        };
+        let ids = &mut targets[rule.layer.index()];
+        let next = ids.len() as u64 + 1;
+        let target = *ids.entry(rule.target.clone()).or_insert(next);
+        facts.push(compiled::Rule {
+            layer: rule.layer.compiled(),
+            target,
+            directive,
+            value,
+        });
+        sources.push(index);
+    }
+    let known: Vec<u64> = (0..known_count).collect();
+    let (book, verdicts) = expect_core(Entry::Quirks, compiled::Book::open(&known, &facts));
+    for (verdict, &index) in verdicts.into_iter().zip(&sources) {
+        let rule = &rules[index];
+        match verdict {
+            compiled::Verdict::Fine => {}
+            compiled::Verdict::UnknownDirective => errors.push((
+                index,
+                QuirksError::UnknownDirective {
+                    layer: rule.layer,
+                    target: rule.target.clone(),
+                    directive: rule.directive.clone(),
+                },
+            )),
+            compiled::Verdict::ClashesWith(other) => {
+                let other = expect_core(
+                    Entry::Quirks,
+                    sources.get(other).ok_or(WireError::Malformed {
+                        at: 0,
+                        expected: "the index of a rule",
+                    }),
+                );
+                errors.push((
+                    index,
+                    QuirksError::Clash {
+                        layer: rule.layer,
+                        target: rule.target.clone(),
+                        directive: rule.directive.clone(),
+                        first: rule.value.clone(),
+                        second: rules[*other].value.clone(),
+                    },
+                ));
             }
         }
     }
-    if errors.is_empty() {
-        Ok(compiled)
-    } else {
-        Err(errors)
+    errors.sort_by_key(|(index, _)| *index);
+    match book {
+        Some(book) if errors.is_empty() => Ok(Rules {
+            book: Mutex::new(book),
+            targets,
+            values,
+        }),
+        Some(_) | None => Err(errors.into_iter().map(|(_, error)| error).collect()),
     }
 }
 
 impl Rules {
-    /// The value of `directive` for `query`: the rule of the highest layer
-    /// whose target the query names; [`Answer::Unknown`] when none does.
+    /// The value of `directive` for `query`, as the compiled core looks it
+    /// up: the rule of the highest layer whose target the query names;
+    /// [`Answer::Unknown`] when none does.
     #[must_use]
     pub fn lookup(&self, query: &Query<'_>, directive: Directive) -> Answer<'_> {
-        Layer::BY_PRECEDENCE
-            .iter()
-            .find_map(|layer| {
-                let target = query.target(*layer)?;
-                self.layers[layer.index()]
-                    .get(target)?
-                    .get(&directive)
-                    .map(|(value, _)| Answer::Known(value))
-            })
-            .unwrap_or(Answer::Unknown)
-    }
-
-    fn targets(&self, layer: Layer) -> impl Iterator<Item = &String> {
-        self.layers[layer.index()].keys()
+        let id = |layer: Layer, target: Option<&str>| {
+            target
+                .and_then(|target| self.targets[layer.index()].get(target))
+                .copied()
+                .unwrap_or(0)
+        };
+        let query = compiled::Query {
+            family: id(Layer::Family, query.family),
+            model: id(Layer::Model, Some(query.model)),
+            host: id(Layer::Host, query.host),
+        };
+        let value = expect_core(
+            Entry::Quirks,
+            self.book
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .lookup(query, directive.id()),
+        );
+        match value {
+            Some(value) => Answer::Known(expect_core(
+                Entry::Quirks,
+                usize::try_from(value)
+                    .ok()
+                    .and_then(|value| self.values.get(value))
+                    .ok_or(WireError::Malformed {
+                        at: 0,
+                        expected: "a value id of the rulebook",
+                    }),
+            )),
+            None => Answer::Unknown,
+        }
     }
 }
 
@@ -625,16 +721,6 @@ pub struct Query<'a> {
     pub family: Option<&'a str>,
     pub model: &'a str,
     pub host: Option<&'a str>,
-}
-
-impl<'a> Query<'a> {
-    const fn target(&self, layer: Layer) -> Option<&'a str> {
-        match layer {
-            Layer::Family => self.family,
-            Layer::Model => Some(self.model),
-            Layer::Host => self.host,
-        }
-    }
 }
 
 /// The fields of a model that a rulebook query reads: the id and name
@@ -964,40 +1050,44 @@ impl Rulebook {
                 })
             })
             .collect();
-        let rules = compile(&raw).unwrap_or_else(|compile_errors| {
-            errors.extend(compile_errors);
-            Rules::default()
-        });
-        for target in rules.targets(Layer::Family) {
-            if !families.iter().any(|family| &family.id == target) {
-                errors.push(QuirksError::UndefinedTarget {
-                    layer: Layer::Family,
-                    target: target.clone(),
-                });
+        let rules = match compile(&raw) {
+            Ok(rules) => {
+                let mut undefined = HashSet::new();
+                let mut wire_on_capabilities = HashSet::new();
+                for rule in &raw {
+                    let defined = match rule.layer {
+                        Layer::Family => families.iter().any(|family| family.id == rule.target),
+                        Layer::Model => true,
+                        Layer::Host => host_ids.contains(&rule.target.as_str()),
+                    };
+                    if !defined && undefined.insert((rule.layer, rule.target.as_str())) {
+                        errors.push(QuirksError::UndefinedTarget {
+                            layer: rule.layer,
+                            target: rule.target.clone(),
+                        });
+                    }
+                    let wire = Directive::parse(&rule.directive).is_some_and(|directive| {
+                        directive.capability().is_none() && directive != Directive::PromptProgress
+                    });
+                    if rule.layer == Layer::Host
+                        && wire
+                        && capability_hosts.contains(&rule.target)
+                        && wire_on_capabilities
+                            .insert((rule.target.as_str(), rule.directive.as_str()))
+                    {
+                        errors.push(QuirksError::WireDirectiveOnCapabilityHost {
+                            host: rule.target.clone(),
+                            directive: rule.directive.clone(),
+                        });
+                    }
+                }
+                Some(rules)
             }
-        }
-        for target in rules.targets(Layer::Host) {
-            if !host_ids.contains(&target.as_str()) {
-                errors.push(QuirksError::UndefinedTarget {
-                    layer: Layer::Host,
-                    target: target.clone(),
-                });
+            Err(compile_errors) => {
+                errors.extend(compile_errors);
+                None
             }
-            if capability_hosts.contains(target) {
-                errors.extend(
-                    rules.layers[Layer::Host.index()][target]
-                        .keys()
-                        .filter(|directive| {
-                            directive.capability().is_none()
-                                && **directive != Directive::PromptProgress
-                        })
-                        .map(|directive| QuirksError::WireDirectiveOnCapabilityHost {
-                            host: target.clone(),
-                            directive: directive.as_str().to_owned(),
-                        }),
-                );
-            }
-        }
+        };
         errors.extend(
             entry
                 .service_tiers
@@ -1008,8 +1098,8 @@ impl Rulebook {
                     family: target.clone(),
                 }),
         );
-        if errors.is_empty() {
-            Ok(Self {
+        match rules {
+            Some(rules) if errors.is_empty() => Ok(Self {
                 families,
                 by_api,
                 by_provider,
@@ -1021,9 +1111,8 @@ impl Rulebook {
                 service_tier_prices: entry.service_tier_prices,
                 cache_write_1h_prices: entry.cache_write_1h_prices,
                 provider_defaults: entry.provider_defaults,
-            })
-        } else {
-            Err(errors)
+            }),
+            Some(_) | None => Err(errors),
         }
     }
 
