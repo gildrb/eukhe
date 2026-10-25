@@ -401,3 +401,87 @@ law retry_ffi_entry_example:
 law retry_length_exact:
   for +ts: List<&2, R.Tried>
   {R.length(ts) == List.length(&2, R.Tried, ts) : Nat}
+
+# The model's accessors, pinned
+# -----------------------------
+# A third fresh adversary (SpecCheckRetry3) filled `R.Policy.switches` to
+# read a budget of 0 as 1 (`ffi("2,2,1,0,0,0,10,200,")` switching to
+# provider 1 instead of answering no switch) and every law checked: the
+# laws' own failover spec (laws/retry.bend `rs.next`) reads the policy
+# through the model's accessors, so failover_exact had the model on both
+# sides. The accessors the laws read are pinned here.
+
+def rt_switches(p: R.Policy) -> Nat:
+  match p:
+    case R.Policy{s, b, m}:
+      s
+
+def rt_base(p: R.Policy) -> Nat:
+  match p:
+    case R.Policy{s, b, m}:
+      b
+
+def rt_max(p: R.Policy) -> Nat:
+  match p:
+    case R.Policy{s, b, m}:
+      m
+
+def rt_at(t: R.Tried) -> Nat:
+  match t:
+    case R.Tried{a, w}:
+      a
+
+def rt_live(j: R.Job) -> Bool:
+  match j:
+    case R.NoJob{}:
+      False{}
+    case R.Live{f, l}:
+      True{}
+
+def rt_left(j: R.Job) -> Nat:
+  match j:
+    case R.NoJob{}:
+      0n
+    case R.Live{f, l}:
+      l
+
+def rt_act(s: R.Step) -> R.Act:
+  match s:
+    case R.Step{a, j}:
+      a
+
+def rt_job(s: R.Step) -> R.Job:
+  match s:
+    case R.Step{a, j}:
+      j
+
+def rt_sends(y: R.Tally) -> Nat:
+  match y:
+    case R.Tally{s, l}:
+      s
+
+def rt_late(y: R.Tally) -> Nat:
+  match y:
+    case R.Tally{s, l}:
+      l
+
+def rt_idle_at(i: R.Idle) -> Nat:
+  match i:
+    case R.IdleStall{a}:
+      a
+    case R.IdleClose{a}:
+      a
+
+# LAW retry_terms_exact: the model's accessors the laws read are the fields they name: the
+# failover budget, base and max of a policy, when a provider was tried, whether a job is live
+# and its time left, a step's act and job, a tally's sends and late polls, when a stream ended
+# EXCLUDES: an accessor that misreads a field (a budget of 0 read as 1) so that a law with the
+#   model on both sides passes a wrong decision
+law retry_terms_exact:
+  for +p: R.Policy
+  for +t: R.Tried
+  for +j: R.Job
+  for +s: R.Step
+  for +y: R.Tally
+  for +i: R.Idle
+  {R.Policy.switches(p) == rt_switches(p) : Nat} & {R.Policy.base(p) == rt_base(p) : Nat} & {R.Policy.max(p) == rt_max(p) : Nat} & {R.Tried.at(t) == rt_at(t) : Nat} & {R.Job.live(j) == rt_live(j) : Bool} & {R.Job.left(j) == rt_left(j) : Nat} & {R.Step.act(s) == rt_act(s) : R.Act} & {R.Step.job(s) == rt_job(s) : R.Job} & {R.Tally.sends(y) == rt_sends(y) : Nat} & {R.Tally.late(y) == rt_late(y) : Nat} & {R.Idle.at(i) == rt_idle_at(i) : Nat}

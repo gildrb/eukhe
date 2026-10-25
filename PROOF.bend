@@ -1185,6 +1185,7 @@ import ./proof/retry_ffi/retry_ffi_entry_malformed_exact.bend as PRetryFfiEntryM
 import ./proof/retry_ffi/retry_ffi_entry_trailing_exact.bend as PRetryFfiEntryTrailingExact
 import ./proof/retry_ffi/retry_ffi_entry_example.bend as PRetryFfiEntryExample
 import ./proof/retry_ffi/retry_length_exact.bend as PRetryLengthExact
+import ./proof/retry_ffi/retry_terms_exact.bend as PRetryTermsExact
 import ./proof/dash/base.bend as LADash
 import ./proof/dash/dash_frame_runs_only_current.bend as PDashFrameRunsOnlyCurrent
 import ./proof/dash/dash_current_frame_runs.bend as PDashCurrentFrameRuns
