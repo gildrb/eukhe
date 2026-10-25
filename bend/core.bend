@@ -215,8 +215,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tokens.ffi(input)
     case 80:
       ffi_job_rewind.ffi(input)
-    case 81:
-      ffi_job_wait.ffi(input)
     case 82:
       ffi_cron.ffi(input)
     case 83:
@@ -295,6 +293,7 @@ type State is Type:
   Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
+  JobWait{s: ffi_job_wait.St}
   Work{s: ffi_work.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
@@ -360,6 +359,11 @@ def open.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def open.job_wait(r: ffi_job_wait.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (JobWait{s}, reply)
+
 def open.work(r: ffi_work.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -401,6 +405,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.infer_guard(ffi_infer_guard.open(input))
     case 76:
       open.bound(ffi_bound.open(input))
+    case 81:
+      open.job_wait(ffi_job_wait.open(input))
     case 83:
       open.work(ffi_work.open(input))
     case 85:
@@ -475,6 +481,11 @@ def step.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def step.job_wait(r: ffi_job_wait.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (JobWait{s}, reply)
+
 def step.work(r: ffi_work.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -516,6 +527,8 @@ def step.go(state: State, input: String) -> State & String:
       step.infer_guard(ffi_infer_guard.step(s, input))
     case Bound{s}:
       step.bound(ffi_bound.step(s, input))
+    case JobWait{s}:
+      step.job_wait(ffi_job_wait.step(s, input))
     case Work{s}:
       step.work(ffi_work.step(s, input))
     case Lease{s}:
@@ -555,6 +568,8 @@ def close.go(state: State) -> Unit:
     case InferGuard{s}:
       Unit{}
     case Bound{s}:
+      Unit{}
+    case JobWait{s}:
       Unit{}
     case Work{s}:
       Unit{}

@@ -4,4 +4,4 @@ import Base
 import ../../laws/job.bend as Job
 
 def Job.job_entries_malformed_witness():
-  ({==}, {==}, {==})
+  ({==}, {==})

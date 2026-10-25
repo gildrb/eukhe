@@ -9,10 +9,11 @@
 # counts the rest as dropped; None (the explicit opt-out) keeps all.
 # Truncation is on by default: the Rust default is Some.
 #
-# The Rust jobs (crates/eukhe-core/src/durable/jobs/) run `feed`, `kills`
-# and `poll` as the compiled Bend core (ffi_job, ffi_job_rewind,
-# ffi_job_wait); the bridge (bridge/bridge_job.bend) ties only the
-# interleaving of a blocking wait to `wait`.
+# The Rust jobs (crates/eukhe-core/src/durable/jobs/) run `feed` and
+# `kills` as the compiled Bend core (ffi_job, ffi_job_rewind); a blocking
+# wait runs as the stepper ffi_job_wait, which answers each event the Rust
+# wait sends, in the order it arrives, with `poll`. No bridge:
+# laws/job_wait.bend ties the stepper to `wait` for every order of events.
 
 import Base
 
@@ -556,10 +557,11 @@ def kills(js: List<&2, Seen>, +target: Maybe<&2, Nat>) -> List<&2, Bool>:
 
 # A blocking call, poll by poll
 # -----------------------------
-# The Rust wait (wait_until) is polled. At each poll it knows whether its
-# deadline passed (`due`) and whether the job's end is ready, and decides
-# (ffi_job_wait): a passed deadline detaches, even when the end is ready;
-# else a ready end settles; else the call waits for the next poll.
+# The stepper of a blocking wait (ffi_job_wait) decides each event with
+# the poll: whether its deadline passed (`due`: no tick of budget left
+# after the event) and whether the job's end is ready (the event is the
+# end): a passed deadline detaches, even when the end is ready; else a
+# ready end settles; else the call waits for the next event.
 
 type Turn is Data:
   Waits{}

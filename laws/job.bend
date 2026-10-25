@@ -3,7 +3,6 @@
 import Base
 import ../bend/ffi_job.bend as FJb
 import ../bend/ffi_job_rewind.bend as FJr
-import ../bend/ffi_job_wait.bend as FJw
 import ../bend/job.bend as Jb
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
@@ -829,16 +828,14 @@ law job_rewind_entry_example:
 law job_rewind_req_fits_example:
   {rw_req_fits(Some{5n}, [Jb.Seen{True{}, None{}}, Jb.Seen{False{}, Some{9n}}]) == True{} : Bool}
 
-# LAW job_entries_malformed_witness: witness: inputs that are not one request exist for each entry (the malformed_exact laws are not vacuous)
+# LAW job_entries_malformed_witness: witness: inputs that are not one request exist for each call entry (the malformed_exact laws are not vacuous; the wait's stepper has its own in job_wait_entry_example)
 law job_entries_malformed_witness:
-  {job_reads("5,2,") == False{} : Bool} & {rw_reads("0,1,T0,x") == False{} : Bool} & {wt_reads("F") == False{} : Bool}
+  {job_reads("5,2,") == False{} : Bool} & {rw_reads("0,1,T0,x") == False{} : Bool}
 
-# The wait entry
-# --------------
-
-# the request Rust writes: T|F the deadline passed, T|F the end is ready
-def wt_spell_req(due: Bool, ready: Bool) -> String:
-  Wr.put_bool(due, Wr.put_bool(ready, ""))
+# The wait, poll by poll
+# ----------------------
+# The stepper of the wait (bend/ffi_job_wait.bend) answers each event with
+# `poll`; laws/job_wait.bend pins it.
 
 # a turn: 0 the call waits, 1 it settles, 2 it detaches
 def wt_spell_turn(t: Jb.Turn) -> String:
@@ -919,38 +916,3 @@ law job_wait_polls_each_event:
 law job_wait_polls_at_rest:
   for +left: Nat
   {Jb.wait(Nil{}, left) == wt_take(Jb.poll(Nat.is_eq(left, 0n), False{}), None{}, None{}) : Maybe<&2, Jb.Wait>}
-
-def wt_reads.ready(r: Wr.Dec<Bool>) -> Bool:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.end(s)
-    case Wr.Bad{}:
-      False{}
-
-def wt_reads.due(r: Wr.Dec<Bool>) -> Bool:
-  match r:
-    case Wr.Got{d, s}:
-      wt_reads.ready(Wr.get_bool(s))
-    case Wr.Bad{}:
-      False{}
-
-# s is exactly one poll request: two Bools, nothing after
-def wt_reads(s: String) -> Bool:
-  wt_reads.due(Wr.get_bool(s))
-
-# LAW job_wait_entry_answers: on every request Rust writes the wait entry answers the turn job_wait_poll_exact pins
-law job_wait_entry_answers:
-  for due: Bool
-  for ready: Bool
-  {FJw.ffi(wt_spell_req(due, ready)) == wt_spell_turn(wt_poll_spec(due, ready)) : String}
-
-# LAW job_wait_entry_malformed_exact: every input that is not exactly two Bools gets exactly the error form 'E ', then "job_wait: malformed request"
-law job_wait_entry_malformed_exact:
-  for +s: String
-  for no: {wt_reads(s) == False{} : Bool}
-  {FJw.ffi(s) == SCon{'E', SCon{' ', "job_wait: malformed request"}} : String}
-
-# LAW job_wait_entry_example: anchor: the four strings Rust sends and their turns; malformed inputs (one Bool, input left over, nothing, a digit)
-law job_wait_entry_example:
-  {[FJw.ffi("TT"), FJw.ffi("TF"), FJw.ffi("FT"), FJw.ffi("FF")] == ["2,", "2,", "1,", "0,"] : List<&2, String>} &
-  {[FJw.ffi("F"), FJw.ffi("TFT"), FJw.ffi(""), FJw.ffi("1,")] == ["E job_wait: malformed request", "E job_wait: malformed request", "E job_wait: malformed request", "E job_wait: malformed request"] : List<&2, String>}

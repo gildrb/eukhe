@@ -130,7 +130,7 @@ pub enum Entry {
     Tokens = 78,
     /// `bend/ffi_job_rewind.bend`: a call.
     JobRewind = 80,
-    /// `bend/ffi_job_wait.bend`: a call.
+    /// `bend/ffi_job_wait.bend`: a stepper.
     JobWait = 81,
     /// `bend/ffi_cron.bend`: a call.
     Cron = 82,

@@ -8,10 +8,11 @@
 //! (S2) states its laws and `proof/job/` proves them. The compiled Bend
 //! core decides; Rust gathers the facts and acts: [`JobState::step`] runs
 //! the model's `feed` (entry `job`), [`JobTable::rewind_to`] its `kills`
-//! (entry `job_rewind`) and each poll of [`wait_until`] its `poll` (entry
-//! `job_wait`). The bridge test (`bridge.rs`, with `bridge/bridge_job.bend`)
-//! ties only the interleaving of [`wait_until`] (the timer against the
-//! job's end, on a paused clock) to the model's `wait`.
+//! (entry `job_rewind`). [`wait_until`] is an event loop over the stepper
+//! `job_wait`, which decides every event of a blocking wait with the
+//! model's `poll`: Rust only sends the timer's tick and the job's end in
+//! the order they arrive, so `laws/job_wait.bend`, which ties the stepper
+//! to the model's `wait` for every order of events, covers it; no bridge.
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
@@ -21,8 +22,6 @@
 //! commits the table sees; the system prompt shows the running jobs of the
 //! tree ([`running_jobs_section`]).
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;
 mod tree;
@@ -34,7 +33,7 @@ use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
-use eukhe_bend::Entry;
+use eukhe_bend::{Entry, Stepper};
 use eukhe_durable::harness::Truncation;
 use eukhe_durable::types::{CommitChange, CommitPublication, EntryId, Seq};
 use eukhe_types::job::JobId;
@@ -390,44 +389,82 @@ pub enum Wait<T> {
     Detached,
 }
 
+/// The event of a wait's stepper (entry `job_wait`): the deadline timer
+/// fired (one tick: the wait's whole budget).
+const TICK: u32 = 0;
+
+/// The event of a wait's stepper (entry `job_wait`): the end came (its
+/// value stays here).
+const END: u32 = 1;
+
 /// The one blocking wait on a job (the model's `wait`): `Settled` with
 /// `end`'s value when it resolves before `deadline`, else `Detached` at the
-/// deadline. Each poll reads the clock and polls `end`; the compiled Bend
-/// core decides the poll (`poll_turn`), so a deadline that has passed
-/// detaches even when the end is ready. Every blocking wait on a job uses
-/// it, with a deadline within the session's blocking budget
-/// ([`HostDeps::blocking_budget`](super::HostDeps::blocking_budget)).
+/// deadline. The compiled Bend core's stepper (`bend/ffi_job_wait.bend`)
+/// decides; this host opens it with a budget of one tick (the deadline
+/// timer), sends it each event as it arrives (the timer's tick, then the
+/// end, within one poll) and returns on its final turn. Every blocking
+/// wait on a job uses it, with a deadline within the session's blocking
+/// budget ([`HostDeps::blocking_budget`](super::HostDeps::blocking_budget)).
 pub async fn wait_until<F: Future>(deadline: tokio::time::Instant, end: F) -> Wait<F::Output> {
+    let mut value = None;
+    let opened = (|| {
+        let (core, reply) = Stepper::open(Entry::JobWait, &Writer::new().nat(1).finish()?)?;
+        Ok::<_, eukhe_bend::Error>((core, turn(&reply, &mut value)?))
+    })();
+    let (mut core, opened) = eukhe_bend::expect_core(Entry::JobWait, opened);
+    if let Some(waited) = opened {
+        return waited;
+    }
     let mut timer = std::pin::pin!(tokio::time::sleep_until(deadline));
     let mut end = std::pin::pin!(end);
+    let mut fired = false;
     std::future::poll_fn(|cx| {
-        let due = tokio::time::Instant::now() >= deadline || timer.as_mut().poll(cx).is_ready();
-        eukhe_bend::expect_core(Entry::JobWait, poll_turn(due, end.as_mut().poll(cx)))
+        // The timer fires once; the clock shows a deadline already past
+        // before tokio's timer wheel turns.
+        if !fired && (tokio::time::Instant::now() >= deadline || timer.as_mut().poll(cx).is_ready())
+        {
+            fired = true;
+            if let Some(waited) = send(&mut core, TICK, &mut value) {
+                return Poll::Ready(waited);
+            }
+        }
+        // The end comes once.
+        if value.is_none() {
+            if let Poll::Ready(ended) = end.as_mut().poll(cx) {
+                value = Some(ended);
+                if let Some(waited) = send(&mut core, END, &mut value) {
+                    return Poll::Ready(waited);
+                }
+            }
+        }
+        Poll::Pending
     })
     .await
 }
 
-/// One poll of a blocking wait: the model's `poll` of whether the deadline
-/// passed and whether the end is ready, run by the compiled Bend core
-/// (`bend/ffi_job_wait.bend`), applied to the end's poll.
-fn poll_turn<T>(due: bool, end: Poll<T>) -> Result<Poll<Wait<T>>, eukhe_bend::Error> {
-    let mut request = Writer::new();
-    request.bool(due).bool(end.is_ready());
-    let reply = eukhe_bend::call(Entry::JobWait, &request.finish()?)?;
-    let mut reply = Reader::reply(&reply)?;
+/// Sends a wait's stepper `event` ([`TICK`] or [`END`]); answers its turn.
+fn send<T>(core: &mut Stepper, event: u32, value: &mut Option<T>) -> Option<Wait<T>> {
+    eukhe_bend::expect_core(
+        Entry::JobWait,
+        (|| turn(&core.step(&Writer::new().tag(event).finish()?)?, value))(),
+    )
+}
+
+/// The turn a wait's stepper replied: `None` while the call waits,
+/// `Settled` with the end's `value`, or `Detached`.
+fn turn<T>(reply: &str, value: &mut Option<T>) -> Result<Option<Wait<T>>, eukhe_bend::Error> {
+    let mut reply = Reader::reply(reply)?;
     let turn = reply.tag_of(3, "a turn of a wait")?;
     reply.end()?;
-    match (turn, end) {
-        (0, Poll::Pending) => Ok(Poll::Pending),
-        (1, Poll::Ready(value)) => Ok(Poll::Ready(Wait::Settled(value))),
-        (0, Poll::Ready(_)) | (1, Poll::Pending) => Err(WireError::Malformed {
+    Ok(match turn {
+        0 => None,
+        1 => Some(Wait::Settled(value.take().ok_or(WireError::Malformed {
             at: 0,
-            expected: "a turn that settles exactly when the end is ready",
-        }
-        .into()),
+            expected: "a settle after the end came",
+        })?)),
         // `tag_of` answers a tag below 3: this is 2.
-        (_, Poll::Ready(_) | Poll::Pending) => Ok(Poll::Ready(Wait::Detached)),
-    }
+        _ => Some(Wait::Detached),
+    })
 }
 
 /// The entries the session committed since it opened, in commit order.
