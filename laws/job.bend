@@ -536,13 +536,13 @@ law job_entry_malformed_exact:
   for no: {job_reads(s) == False{} : Bool}
   {FJb.ffi(s) == SCon{'E', SCon{' ', job_why(s)}} : String}
 
-# LAW job_entry_example: anchor: the strings Rust sends (the bound is the wire's largest Nat) and the replies: output under a cap, output past it, an exit with code 7, a kill, a kill after the end; output that saturates a bound of 20; and one malformed input per error text (a U32 past 2^32 - 1 is not checked here: the checker builds it word by word, see wire_u32_exact)
+# LAW job_entry_example: anchor: the strings Rust sends (with a bound of 100: Rust sends the wire's largest Nat, which the proven kernel cannot unfold; below the bound the answer does not depend on it, job_feed_fits) and the replies: output under a cap, output past it, an exit with code 7, a kill, a kill after the end; output that saturates a bound of 20; and one malformed input per error text (a U32 past 2^32 - 1 is not checked here: the checker builds it word by word, see wire_u32_exact)
 law job_entry_example:
-  {FJb.ffi("99999999999999,1,10,0,0,0,0,6,") == "0,6,0,0," : String} &
-  {FJb.ffi("99999999999999,1,10,0,8,0,0,6,") == "0,10,4,0," : String} &
-  {FJb.ffi("99999999999999,0,0,3,0,1,0,7,") == "1,3,0,0,0,7,1,0,0,7," : String} &
-  {FJb.ffi("99999999999999,0,0,3,0,2,") == "1,3,0,1,1,1," : String} &
-  {FJb.ffi("99999999999999,0,1,3,0,1,2,") == "1,3,0,1,0," : String} &
+  {FJb.ffi("100,1,10,0,0,0,0,6,") == "0,6,0,0," : String} &
+  {FJb.ffi("100,1,10,0,8,0,0,6,") == "0,10,4,0," : String} &
+  {FJb.ffi("100,0,0,3,0,1,0,7,") == "1,3,0,0,0,7,1,0,0,7," : String} &
+  {FJb.ffi("100,0,0,3,0,2,") == "1,3,0,1,1,1," : String} &
+  {FJb.ffi("100,0,1,3,0,1,2,") == "1,3,0,1,0," : String} &
   {FJb.ffi("20,0,0,15,0,0,9,") == "0,20,0,0," : String} &
   {FJb.ffi("") == "E job: bad bound" : String} &
   {FJb.ffi("5,2,") == "E job: bad cap" : String} &

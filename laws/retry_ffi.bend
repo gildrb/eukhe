@@ -389,7 +389,7 @@ law retry_ffi_entry_trailing_exact:
   for left: {Wr.end(rest) == False{} : Bool}
   {Fr.ffi(s) == SCon{'E', SCon{' ', "retry: input left after the request"}} : String}
 
-# LAW retry_ffi_entry_example: anchor: the strings Rust sends and the replies it reads: a 429 is retried; a wait of base 100, retry 4, cap 600, draw 12345 is 345 ms; the next of three tried providers returns to the first after 10 ms; a stall under 30 ms retries under 60; an unknown tag and input left over are refused
+# LAW retry_ffi_entry_example: anchor: the strings Rust sends and the replies it reads: a 429 is retried; a wait of base 10, retry 4, cap 60, draw 95 is 35 ms (small numbers: the proven kernel unfolds them); the next of three tried providers returns to the first after 10 ms; a stall under 30 ms retries under 60; an unknown tag and input left over are refused
 # EXCLUDES: another spelling of the requests or replies Rust reads
 law retry_ffi_entry_example:
-  {[Fr.ffi("0,FF1,429,0,F"), Fr.ffi("1,100,4,600,12345,0,"), Fr.ffi("2,3,3,0,0,1,0,2,0,8,10,200,"), Fr.ffi("3,30,"), Fr.ffi("4,"), Fr.ffi("3,30,x")] == ["T", "0,345,", "1,0,10,", "60,", "E retry: malformed request", "E retry: input left after the request"] : List<&2, String>}
+  {[Fr.ffi("0,FF1,429,0,F"), Fr.ffi("1,10,4,60,95,0,"), Fr.ffi("2,3,3,0,0,1,0,2,0,8,10,200,"), Fr.ffi("3,30,"), Fr.ffi("4,"), Fr.ffi("3,30,x")] == ["T", "0,35,", "1,0,10,", "60,", "E retry: malformed request", "E retry: input left after the request"] : List<&2, String>}
