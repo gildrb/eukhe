@@ -4,7 +4,9 @@ use eukhe_types::cvar::parse_list;
 use serde_json::{json, Value};
 
 use crate::settings::cvar::{CvarError, CvarWriteError, Set, Sets};
-use crate::settings::storage::{InMemorySettingsStorage, SettingsScope, SettingsStorage};
+use crate::settings::storage::{
+    FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage,
+};
 use crate::settings::{SettingsManager, TransportSetting};
 
 fn set(id: &str, value: Value) -> Set {
@@ -396,5 +398,42 @@ fn clear_global_unsets_the_cvar_in_both_global_files() {
     assert_eq!(
         manager.get_memory_thinking(),
         crate::settings::ThinkingLevelSetting::High
+    );
+}
+
+/// A session run from the agent dir's parent (`eukhe` launched in the
+/// home directory) resolves the project `config.cfg` to the global one:
+/// the global sets apply once, and the global file's own Global cvars
+/// raise no project error.
+#[test]
+fn a_session_in_the_agent_dirs_parent_reads_its_config_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".eukhe")).expect("agent dir");
+    let storage: Arc<dyn SettingsStorage> =
+        Arc::new(FileSettingsStorage::new(&home, home.join(".eukhe")));
+    storage
+        .with_lock(SettingsScope::Global, &mut |_| Some("{}".to_string()))
+        .expect("settings.json");
+    storage
+        .with_cfg_lock(SettingsScope::Global, "config.cfg", &mut |_| {
+            Some("set memory.model zai/glm-5.3-flash\nset memory.thinking low\n".to_string())
+        })
+        .expect("cfg");
+    let manager = SettingsManager::from_storage(Arc::clone(&storage));
+    assert!(
+        errors(&manager).is_empty(),
+        "the global config.cfg must not error as the project one: {:?}",
+        errors(&manager)
+    );
+    assert_eq!(
+        (
+            manager.get_memory_model().as_deref(),
+            manager.get_memory_thinking()
+        ),
+        (
+            Some("zai/glm-5.3-flash"),
+            crate::settings::ThinkingLevelSetting::Low
+        )
     );
 }
