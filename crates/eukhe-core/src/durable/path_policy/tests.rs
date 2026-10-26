@@ -59,16 +59,20 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
             .map(|file| (file.clone(), false))
             .collect::<Vec<_>>()
     );
+    // The fixture world lives in the OS temp dir, a workspace root: a path
+    // beside the workspace inside it is Inside; one outside both roots is Outside.
     assert_eq!(
         [
             eukhe_shell::paths::judge_path(&policy, &agent_dir.join("auth.json")).class,
             eukhe_shell::paths::judge_path(&policy, &home.join(".ssh/id_ed25519")).class,
             eukhe_shell::paths::judge_path(&policy, &cwd.join("src/main.rs")).class,
             eukhe_shell::paths::judge_path(&policy, &top.join("elsewhere.txt")).class,
+            eukhe_shell::paths::judge_path(&policy, std::path::Path::new("/elsewhere.txt")).class,
         ],
         [
             PathClass::Secret,
             PathClass::Secret,
+            PathClass::Inside,
             PathClass::Inside,
             PathClass::Outside
         ]
