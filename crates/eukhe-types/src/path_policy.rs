@@ -234,6 +234,18 @@ impl PathPolicy {
     pub fn secret(&self) -> &[PathBuf] {
         &self.secret
     }
+    /// Whether `resolved` is a strict ancestor of a secret (a secret
+    /// below it, none at it): only a read that descends into it (a
+    /// search) reads that secret, so a shallow listing does not. The
+    /// wider `holds_secret` of the same path (the Bend model's `judge`)
+    /// is this plus the secret itself and everything inside it.
+    #[must_use]
+    pub fn ancestor_of_secret_of_resolved(&self, resolved: &RealPath) -> bool {
+        let real = resolved.path();
+        self.secret
+            .iter()
+            .any(|entry| entry != real && entry.starts_with(real))
+    }
 }
 
 #[cfg(test)]

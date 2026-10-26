@@ -17,14 +17,14 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use eukhe_types::path_policy::{PathClass, PathPolicy};
+use eukhe_types::path_policy::{resolve, PathClass, PathPolicy};
 use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use crate::coreutils::{self, Io};
-use crate::effect::{classify, reads_cwd};
+use crate::effect::{classify, reads_cwd, shallow_list};
 use crate::expand::Scope;
 use crate::parse::{self, Command, Link, Pipeline, RedirectOp};
 use crate::shown::quote;
@@ -440,6 +440,12 @@ impl Shell {
         }
         let writes = effects.contains(ShellEffect::Write);
         // An operand, or the value of `--option=value`.
+        // A shallow `ls` names the entries of the directory it lists
+        // and reads nothing below them: a secret under a named
+        // directory (or under the working directory) is no read of the
+        // step. A descending command (`find`, `grep -r`, `rg`, `du`,
+        // `ls -R`) never lists shallow.
+        let shallow = shallow_list(argv);
         let named = argv
             .iter()
             .skip(1)
@@ -448,8 +454,10 @@ impl Shell {
                 Some(_) | None => (!word.starts_with('-')).then_some(word.as_str()),
             });
         for word in named {
-            let judged = crate::paths::judge_path(paths, &self.cwd.join(word));
-            if judged.holds_secret {
+            let target = self.cwd.join(word);
+            let judged = crate::paths::judge_path(paths, &target);
+            let above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&target));
+            if judged.holds_secret && !above {
                 effects.insert(ShellEffect::Secret);
             }
             if writes {
@@ -461,8 +469,12 @@ impl Shell {
                 }
             }
         }
-        if cwd_read && crate::paths::judge_path(paths, &self.cwd).holds_secret {
-            effects.insert(ShellEffect::Secret);
+        if cwd_read {
+            let cwd_judged = crate::paths::judge_path(paths, &self.cwd);
+            let cwd_above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&self.cwd));
+            if cwd_judged.holds_secret && !cwd_above {
+                effects.insert(ShellEffect::Secret);
+            }
         }
         effects
     }

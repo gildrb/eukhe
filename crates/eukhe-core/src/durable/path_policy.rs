@@ -121,7 +121,15 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .filter(|value| !value.is_empty())
             .map(|value| workspace.join(value)),
     );
-    PathPolicy::new(vec![workspace.to_path_buf()], protected, secret)
+    // The OS temp dir is scratch: every session writes its probe
+    // scripts and files there, and a write outside the workspace would
+    // ask for each. Its writes run without asking.
+    let mut roots = vec![workspace.to_path_buf()];
+    let temp = std::env::temp_dir();
+    if temp != workspace {
+        roots.push(temp);
+    }
+    PathPolicy::new(roots, protected, secret)
 }
 
 /// The path policy of a call of a session (its agent dir and settings)

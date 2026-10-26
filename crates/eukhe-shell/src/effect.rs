@@ -880,6 +880,20 @@ fn walk_operands(walker: &Walker, args: &[String]) -> Operands {
     operands
 }
 
+/// Whether the command of `words` is an `ls` that lists one directory
+/// level (`-R`/`--recursive` absent): it names the entries it lists and
+/// reads nothing below them, so a secret under a named directory is no
+/// read of the step. Every other command, and a recursive `ls`, is not
+/// a shallow list.
+pub(crate) fn shallow_list(words: &[String]) -> bool {
+    match words.split_first() {
+        Some((program, args)) if program == "ls" => !args
+            .iter()
+            .any(|arg| short(arg, 'R') || long(arg, "recursive")),
+        _ => false,
+    }
+}
+
 /// Whether the command of `words` reads the working directory because it
 /// names no path of its own (the [`Walker`] commands; `find` with no
 /// starting point; `git` without `-C`, whose directory is a word it
