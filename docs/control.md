@@ -17,7 +17,7 @@ default < config < each agent of the family, root first:
                    its profile < its own sets
 ```
 
-- Config: `settings.json` (global, then project), then `config.cfg` (global `<agent dir>/config.cfg`, then project `.eukhe/config.cfg`). Project files obey `settings.json` project trust rules; never set a Global cvar.
+- Config: `settings.json` (global, then project), then `config.cfg` (global `<agent dir>/config.cfg`, then project `.eukhe/config.cfg`). Project files obey `settings.json` project trust rules; never set a Global cvar. A session run from the agent dir's parent (the home directory) resolves the project `config.cfg` to the global one: it applies once, as the global file.
 - Subagent profile: `subagent.cfg`, then `agents/<name>.cfg` for a named agent. Root session = agent `main`.
 - Agent sets: runtime sets (`/set`, `/toggle`, session switches). Session state: conversation document `eukhe.cvar.agent`, committed per change; shown in the state tree; restored by rewind or fork.
 

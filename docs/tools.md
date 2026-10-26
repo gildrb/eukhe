@@ -80,8 +80,8 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    command's effects from its name, the `git` subcommand and some options.
    A command not in the table is exec.
    - Each redirection adds the effects of its target: a write inside the workspace is write; outside it, write and outside; to a protected path (S7 G1: eukhe's own settings and credentials, a `.git` directory, a directory on `PATH`, an ancestor of a protected or secret entry), write and protected. A read of a secret (ssh keys, credential stores) is read and secret.
-   - Paths a step names add effects: a word that is or holds a secret (`cat ~/.ssh/id_ed25519`, `grep -r KEY ~`) adds secret. For a command that writes, a word outside the workspace adds outside; a protected word adds protected.
-   - The working directory adds secret (when it holds one) only to a command that reads it because it names no path of its own: `ls`, `du`, `find` with no starting point, `rg` (the first operand is the pattern unless `-e`, `-f`, `--regexp`, `--file` or `--files` gives it), `grep -r`/`-R` (the same), `git ls-files`, and `git grep` with no pathspec after `--` (an operand before `--` may be a revision). An option whose value may be the next word takes it, so the path count errs low. In the home dir, `echo hi`, `date` or `git -C repo log` has no secret effect; `ls` or `rg x` has.
+   - Paths a step names add effects: a word that is a secret or holds one (`cat ~/.ssh/id_ed25519`, `grep -r KEY ~`) adds secret, except that a shallow `ls` of a word that only holds one (the secret is below it) names the entries and adds none. For a command that writes, a word outside the workspace adds outside; a protected word adds protected.
+   - The working directory adds secret (when it holds one) only to a command that reads and descends into it because it names no path of its own: `du`, `find` with no starting point, `rg` (the first operand is the pattern unless `-e`, `-f`, `--regexp`, `--file` or `--files` gives it), `grep -r`/`-R` (the same), `git ls-files`, and `git grep` with no pathspec after `--` (an operand before `--` may be a revision). An option whose value may be the next word takes it, so the path count errs low. In the home dir, `echo hi`, `date`, `git -C repo log` or `ls` has no secret effect; `rg x` has.
    - Every other table command reads only what it names or its input.
    - A script outside the grammar is one step with exec and every effect of every command it holds (subshells, command substitutions, pipelines inside control flow).
 
@@ -206,7 +206,7 @@ requests) share it, so they cannot judge a path differently.
 2. The classes. Each real path has one class; the first that applies wins:
    1. Secret: the path is a secret entry, or under one.
    2. Protected: a protected rule covers the path, or the path is an ancestor of a protected or secret entry (moving or removing the ancestor moves or removes the entry).
-   3. Inside: the path is under a workspace root.
+   3. Inside: the path is under a workspace root. The OS temp dir (`/tmp`) is a workspace root of every session: its writes never ask.
    4. Outside: all other paths.
 
    A path whose symlinks loop is never Inside: it is Outside, or Protected or Secret when one applies.
@@ -289,7 +289,7 @@ Not modelled: filesystem change between gate and lock (the writer checks it), fi
 
 ### G2. Shell classification
 
-A step's effects: every effect of every part (S7 item 8); auto set rules: S7 item 8. By default only a step with outside, protected or secret asks. A step has secret only when a part names a path that is or holds a secret (an operand, an option value, a redirection target, the working directory of a command that reads it because it names no path).
+A step's effects: every effect of every part (S7 item 8); auto set rules: S7 item 8. By default only a step with outside, protected or secret asks. A step has secret only when a part names a path that is or holds a secret (an operand, an option value, a redirection target, the working directory of a command that reads and descends into it because it names no path; a shallow `ls` of a path that only holds one is no read of it).
 
 Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 `within`, `join`, `Part{own, secret}`, `part.effs`, `parts.effs`,
@@ -306,11 +306,11 @@ Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 | `auto_runs_within` | within the auto set: runs, uses no answer |
 | `held_needs_a_yes` | not within: runs only on a yes; else the script stops there |
 
-Code: `eukhe-types/src/shell.rs` (`ShellEffect`, `ShellEffects`, `AutoSet`), `eukhe-shell/src/effect.rs` (`classify`, `GIT_UNTRUSTED_REPO_ARGS`, `reads_cwd`), `run.rs` (`Shell::effects`; parts of an out-of-grammar script from `parse::parts`), `shown.rs` (`quote`, `visible`), `eukhe-tui/src/confirm.rs` (`ConfirmPanel::approval`).
+Code: `eukhe-types/src/shell.rs` (`ShellEffect`, `ShellEffects`, `AutoSet`), `eukhe-shell/src/effect.rs` (`classify`, `shallow_list`, `GIT_UNTRUSTED_REPO_ARGS`, `reads_cwd`), `run.rs` (`Shell::effects`; parts of an out-of-grammar script from `parse::parts`), `shown.rs` (`quote`, `visible`), `eukhe-tui/src/confirm.rs` (`ConfirmPanel::approval`).
 
-Tie: `run::tests::the_gate_runs_as_its_model` vs `bridge/bridge_shell.bend`: steps from parts whose effects and secret paths come from a temp workspace's path classes (secret reads, writes outside and to a protected tree, redirections, out-of-grammar scripts), run in the workspace or the dir above it, which holds a secret (there `echo`, `date`: no secret part; `ls`, `grep -r`: one for the working dir); random auto sets (outside, protected, secret included) and answers; compares steps run, their effects, the end. Every command and redirection kind runs in each dir.
+Tie: `run::tests::the_gate_runs_as_its_model` vs `bridge/bridge_shell.bend`: steps from parts whose effects and secret paths come from a temp workspace's path classes (secret reads, writes outside and to a protected tree, redirections, out-of-grammar scripts), run in the workspace or the dir above it, which holds a secret (there `echo`, `date`, `ls`: no secret part; `grep -r`: one for the working dir); random auto sets (outside, protected, secret included) and answers; compares steps run, their effects, the end. Every command and redirection kind runs in each dir.
 
-Tests: `every_effect_of_a_step_must_be_allowed`, `only_a_step_that_reads_its_working_directory_reads_a_secret_in_it`, `effect::tests::a_command_reads_the_working_directory_only_when_it_names_no_path`, `effect::tests::a_git_step_that_can_run_a_repository_program_is_exec`, `a_git_step_that_is_not_exec_runs_with_the_untrusted_repository_arguments`, `shown::tests::a_hidden_character_is_escaped_and_bash_reads_the_word_back`, `confirm::tests::an_approval_answers_no_on_enter_and_keeps_every_line`.
+Tests: `every_effect_of_a_step_must_be_allowed`, `only_a_step_that_reads_its_working_directory_reads_a_secret_in_it`, `a_shallow_ls_of_a_secret_holding_directory_reads_no_secret`, `effect::tests::a_command_reads_the_working_directory_only_when_it_names_no_path`, `effect::tests::a_git_step_that_can_run_a_repository_program_is_exec`, `a_git_step_that_is_not_exec_runs_with_the_untrusted_repository_arguments`, `shown::tests::a_hidden_character_is_escaped_and_bash_reads_the_word_back`, `confirm::tests::an_approval_answers_no_on_enter_and_keeps_every_line`.
 
 Not modelled: which paths a command reads or writes (every word counts; working dir only via `reads_cwd`); what an approved exec step does.
 

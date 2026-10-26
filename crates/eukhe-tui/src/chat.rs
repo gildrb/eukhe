@@ -456,7 +456,14 @@ pub fn render_assistant(
         }
         match block {
             MessageBlock::Text(text) => {
-                out.extend(render_markdown_block(text, &md, width, cache));
+                let rows = render_markdown_block(text, &md, width, cache);
+                out.extend(fold_rows(
+                    rows,
+                    message.has_tool_calls,
+                    detail,
+                    theme,
+                    width,
+                ));
             }
             MessageBlock::Thinking(text) => {
                 out.extend(render_thinking_block(text, theme, &md, width, cache));
@@ -506,6 +513,34 @@ pub fn render_assistant(
         }
     }
     out
+}
+
+/// The head rows a foldable block shows before its fold.
+pub(crate) const FOLD_HEAD: usize = 8;
+
+/// A foldable block (a mid-turn commentary block of a message with tool
+/// calls, a long `Info` status row) folds to its head with a count of
+/// the hidden rows, unless the chat is at `Detail::All`; a block that
+/// never folds (the answer of a turn, a warning, an error) shows in
+/// full.
+pub(crate) fn fold_rows(
+    mut rows: Vec<Line>,
+    foldable: bool,
+    detail: Detail,
+    theme: &Theme,
+    width: usize,
+) -> Vec<Line> {
+    if !foldable || detail.tool_output_expanded() || rows.len() <= FOLD_HEAD + 1 {
+        return rows;
+    }
+    let hidden = rows.len() - FOLD_HEAD;
+    rows.truncate(FOLD_HEAD);
+    let tail = vec![Span::styled(
+        format!("… +{hidden} lines (Ctrl+O shows all)"),
+        theme.fg_style(ThemeColor::Dim),
+    )];
+    rows.push(pad_to(tail, width, Style::default()));
+    rows
 }
 
 /// Markdown rows with TS margins: rendered at `width - 2`, one leading margin
