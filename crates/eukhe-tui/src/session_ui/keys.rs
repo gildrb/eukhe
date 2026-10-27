@@ -909,8 +909,19 @@ impl SessionUi {
                             .await?;
                     } else {
                         view.editor.add_to_history(&text);
+                        // Enter with messages parked behind a running turn
+                        // sends them now: the submit joins the batch, then
+                        // the abort interrupts the stream and the turn
+                        // boundary delivers every parked steer at once
+                        // (`abort_and_send_queued`; the worker does the
+                        // real work, so an interrupted main stream costs
+                        // nothing).
+                        let flush = self.turn_active && !view.queued.is_empty();
                         self.submit_prompt(&text, SubmitBehavior::Steer, view)
                             .await?;
+                        if flush {
+                            self.abort_turn();
+                        }
                     }
                 }
                 crate::editor::EditorEvent::ClipboardWrite(text) => {

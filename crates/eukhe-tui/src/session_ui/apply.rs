@@ -40,7 +40,7 @@ impl SessionUi {
     /// catch, both arms of TS `abortAndSendQueued`). The request never
     /// blocks key handling, and a failure surfaces later as a transcript
     /// note.
-    fn abort_turn(&self) {
+    pub(crate) fn abort_turn(&self) {
         let client = self.client.clone();
         let active_session_id = self.active_session_id.clone();
         let notes = self.notes.clone();
