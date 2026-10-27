@@ -915,8 +915,10 @@ impl SessionUi {
                         // boundary delivers every parked steer at once
                         // (`abort_and_send_queued`; the worker does the
                         // real work, so an interrupted main stream costs
-                        // nothing).
-                        let flush = self.turn_active && !view.queued.is_empty();
+                        // nothing). An empty Enter stays a no-op: it never
+                        // flushes, never aborts.
+                        let flush =
+                            !text.trim().is_empty() && self.turn_active && !view.queued.is_empty();
                         self.submit_prompt(&text, SubmitBehavior::Steer, view)
                             .await?;
                         if flush {
