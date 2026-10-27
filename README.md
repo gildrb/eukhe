@@ -1,6 +1,6 @@
 # eukhe
 
-eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions (no empty new session, no compaction dropping the start); each turn starts from a compact view of the full log. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect; not affiliated with Prime Intellect, Victor Taelin or Earendil ([Attribution](#attribution)).
+eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions; each turn starts from a compact view of it. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect, not affiliated ([Attribution](#attribution)).
 
 ## Install
 
@@ -15,46 +15,33 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 |mise|`"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }`|
 |Source|`cargo build --release --locked -p eukhe-cli`|
 
-`eukhe update` does not download.
-
 ## Use
 
 ```sh
 cd /path/to/project
-eukhe            # start; run /login at the first start
+eukhe            # start; /login at the first start
 eukhe agents     # find and open sessions
 eukhe gateway    # connect Signal on your phone to the CLI session
-eukhe dashboard  # open the session in a browser
+eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dashboard
 ```
 
 ## Memory
 
-- Log: `~/.eukhe/chat/`, append-only.
-- The compactor writes one-line summaries into a binary tree over the log.
+- Log: `~/.eukhe/chat/`, append-only; the compactor writes one-line summaries into a binary tree over it.
 - Each root turn starts from the view: 64 KB to 128 KB of lines.
-- `/memory`: the view. `/memory model`: compaction model and reasoning effort (the `/model` hub at the memory role).
+- `/memory`: the view; `/memory model`: compaction model and reasoning effort.
 
 Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
 
 ## Agents
 
-- `rlm.spawn` in the agent's Python REPL starts subagents.
-- `@name message`: message a family agent. `/agents`: list the session's agents.
-
-## Dynamic workflows
-
-- `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
-- `--size small|medium|large`: how many agents; `/workflows size` sets the default. `/workflows`: phases, agents, log per run.
-
-## Phone and browser
-
-- `eukhe gateway`: Signal to the CLI session .
-- `eukhe dashboard`: the session on `127.0.0.1`; phone: `poros eukhe dashboard` .
+- The agent spawns subagents (`rlm.spawn` in its Python REPL) and messages any agent of its family from the prompt: `@name message`.
+- `/agents`: list and open the session's agents.
 
 ## Limitations
 
 - Runs model-generated Python and shell with your user permissions; no sandbox. Trusted repositories only.
-- macOS (Apple Silicon), Linux (x64, arm64). No Windows.
+- macOS (Apple Silicon), Linux (x64, arm64); no Windows.
 - Kernel needs uv; chat memory needs git; the Nix package supplies both.
 - Local models need ONNX Runtime 1.24+.
 
