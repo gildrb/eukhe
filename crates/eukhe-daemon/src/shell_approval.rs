@@ -3,8 +3,9 @@
 //! first `answer_shell_approval` for its request id wins. A session whose
 //! attached clients are all the phone gateway (`clientKind` `gateway`),
 //! which shows no question, asks no one: it runs the step at once, or
-//! refuses it at once when the step writes a protected path or reads or
-//! writes a secret (the gateway rule). A session with no attached client,
+//! refuses it at once when the step writes a protected path the user's
+//! auto set does not already run (the gateway rule). A session with no
+//! attached client,
 //! or whose clients all detached before an answer came (the last detach
 //! drops every pending question), hands the question to its parent
 //! session (`relay_shell_approval` over the supervisor), which does the
@@ -190,11 +191,10 @@ impl ShellApprovals {
                         receiver
                     }
                     // The gateway shows no question, so no one waits: a
-                    // step runs, unless it writes a protected path or
-                    // reads or writes a secret.
+                    // step runs, unless it writes a protected path the
+                    // user's auto set does not already run.
                     Attendance::GatewayOnly => {
-                        let guarded = request.effects.contains(ShellEffect::Protected)
-                            || request.effects.contains(ShellEffect::Secret);
+                        let guarded = request.effects.contains(ShellEffect::Protected);
                         return if guarded {
                             tracing::info!(effects = %request.effects.names(), "the gateway rule refused a step");
                             ShellAnswer::GatewayRefused

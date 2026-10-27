@@ -8,9 +8,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::path_policy::PathClass;
 
 /// One effect a step may have. A command the classification table does
-/// not know is [`ShellEffect::Exec`]. [`ShellEffect::Outside`],
-/// [`ShellEffect::Protected`] and [`ShellEffect::Secret`] are never in an
-/// [`AutoSet`]: a step with one of them always asks.
+/// not know is [`ShellEffect::Exec`]. Every effect may sit in an
+/// [`AutoSet`]; the user's `shell.autoEffects` decides (a secret access
+/// gates like any other).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellEffect {
@@ -72,15 +72,18 @@ impl ShellEffect {
         }
     }
 
-    /// Whether the user's auto set may hold the effect: every effect but
-    /// [`Self::Secret`] (bend/tools.bend `grantable`).
+    /// Whether the user's auto set may hold the effect: every effect
+    /// (bend/tools.bend `grantable`).
     #[must_use]
     pub fn grantable(self) -> bool {
         match self {
-            Self::Read | Self::Write | Self::Exec | Self::Net | Self::Outside | Self::Protected => {
-                true
-            }
-            Self::Secret => false,
+            Self::Read
+            | Self::Write
+            | Self::Exec
+            | Self::Net
+            | Self::Outside
+            | Self::Protected
+            | Self::Secret => true,
         }
     }
 }
@@ -176,8 +179,7 @@ impl<'de> Deserialize<'de> for ShellEffects {
 }
 
 /// The effects whose steps run without asking: the grantable effects the
-/// user allows (`shell.autoEffects`). It never holds
-/// [`ShellEffect::Secret`].
+/// user allows (`shell.autoEffects`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AutoSet(ShellEffects);
 
@@ -238,8 +240,8 @@ pub enum ShellAnswer {
     /// No session up the chain had a client that answered: a denial.
     Unanswered,
     /// The session runs only from the phone gateway, and the step writes a
-    /// protected path ([`ShellEffect::Protected`]) or reads or writes a
-    /// secret ([`ShellEffect::Secret`]): refused at once.
+    /// protected path ([`ShellEffect::Protected`]) that the narrowed auto
+    /// set does not run: refused at once.
     GatewayRefused,
 }
 
@@ -256,12 +258,12 @@ mod tests {
     }
 
     #[test]
-    fn the_auto_set_never_allows_a_secret() {
+    fn the_auto_set_allows_a_secret_like_any_effect() {
         let auto = AutoSet::new(ShellEffect::ALL);
         let allowed: Vec<bool> = ShellEffect::ALL
             .into_iter()
             .map(|effect| auto.allows(ShellEffects::of(&[ShellEffect::Read, effect])))
             .collect();
-        assert_eq!(allowed, [true, true, true, true, true, true, false]);
+        assert_eq!(allowed, [true, true, true, true, true, true, true]);
     }
 }

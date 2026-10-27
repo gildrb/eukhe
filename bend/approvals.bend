@@ -27,9 +27,10 @@
 # question is unanswered (a denial). A frame on a session above the asker
 # names the subagent that asks.
 #
-# The gateway rule: a step that writes a protected path (effect 5) or
-# reads or writes a secret (effect 6) is refused; every other step runs.
-# The effects are their codes (bend/tools.bend `Eff.code`).
+# The gateway rule: a step that writes a protected path (effect 5) is
+# refused when its question reaches the rule (the user narrowed the auto
+# set past it); every other step runs. The effects are their codes
+# (bend/tools.bend `Eff.code`).
 
 import Base
 import ./tools.bend as Tl
@@ -150,9 +151,9 @@ def named(k: Nat) -> Bool:
       True{}
 
 # The auto set of a session whose user sets none (`shell.autoEffects`):
-# every effect but secret
+# every effect
 def default_auto() -> List<&2, Nat>:
-  [0n, 1n, 2n, 3n, 4n, 5n]
+  [0n, 1n, 2n, 3n, 4n, 5n, 6n]
 
 def guard(g: Bool) -> Fate:
   match g:
@@ -163,7 +164,7 @@ def guard(g: Bool) -> Fate:
 
 # The gateway rule on a step with the effects es
 def rule(+es: List<&2, Nat>) -> Fate:
-  guard(Bool.or(Tl.elem(es, 5n), Tl.elem(es, 6n)))
+  guard(Tl.elem(es, 5n))
 
 def yes.fate(y: Bool) -> Fate:
   match y:

@@ -15,8 +15,7 @@
 #    path that loops is never Inside.
 # 3. The gate. An access's effects (codes: read 0, write 1, exec 2, net
 #    3, outside 4, protected 5, secret 6) run without a question only when
-#    the auto set holds each of them and each is grantable (below 6);
-#    else only the user's yes runs them.
+#    the auto set holds each of them; else only the user's yes runs them.
 # 4. The store. An agent's writes through any paths, each judged by the
 #    gate on its real path, with answers that are never yes, leave every
 #    secret location as it was.
@@ -435,9 +434,9 @@ def effs(c: Cls, a: Acc) -> List<&2, Nat>:
     case Wr{}:
       write_of(c)
 
-# the user may put effect e in the auto set: every effect but secret (6)
+# the user may put effect e in the auto set: every effect
 def grantable(e: Nat) -> Bool:
-  Nat.is_lt(e, 6n)
+  Nat.is_lt(e, 7n)
 
 # every effect is in the auto set and grantable
 def allows(+auto: List<&2, Nat>, es: List<&2, Nat>) -> Bool:

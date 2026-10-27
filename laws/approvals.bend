@@ -56,7 +56,8 @@ law quiet_is_unanswered:
 # -----------------------------------------------------------------
 # The phone gateway shows no question. A step is guarded when it writes a
 # protected path (effect 5: eukhe's own config and credentials, a .git or
-# .eukhe dir, a PATH dir) or reads or writes a secret (effect 6).
+# .eukhe dir, a PATH dir); the rule refuses it when the auto set does not
+# already run it.
 
 # LAW gateway_never_waits: a step of a session whose only clients are the phone gateway never
 # waits: no client gets a frame, the question does not go up the chain,

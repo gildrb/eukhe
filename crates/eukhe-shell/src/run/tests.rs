@@ -618,7 +618,9 @@ async fn the_gate_runs_as_its_model() {
 /// Regression (audit H4, H2, M4): a step had one effect, so a write
 /// redirection of a `Net` or `Exec` step, a write outside the workspace
 /// or to a protected place, and a read of a secret ran with the auto set
-/// of its main effect. The widest auto set still stops at the secret.
+/// of its main effect. Every effect gates the same way: the widest auto
+/// set runs the whole script, a narrow one asks for each effect it
+/// lacks.
 #[tokio::test]
 async fn every_effect_of_a_step_must_be_allowed() {
     let bench = Bench::new();
@@ -633,18 +635,7 @@ async fn every_effect_of_a_step_must_be_allowed() {
             &Record::default(),
         )
         .await;
-    assert_eq!(
-        (got.steps.len(), got.end),
-        (
-            3,
-            End::Refused {
-                step: 3,
-                command: "cat ../keys/id".to_string(),
-                effects: ShellEffects::of(&[Read, Secret]),
-                refusal: Refusal::Unanswered,
-            }
-        )
-    );
+    assert_eq!((got.steps.len(), got.end), (5, End::Finished { status: 0 }));
     let asked = Scripted::new([Answer::Approve; 4]);
     let got = bench
         .shell()

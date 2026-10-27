@@ -14,7 +14,8 @@
 //! The classes, strongest first:
 //!
 //! - [`PathClass::Secret`]: under a secret entry (an ssh key dir, a
-//!   credential store). A read asks the user; a write asks the user.
+//!   credential store). A read or a write gates like any access: the
+//!   user's auto set decides.
 //! - [`PathClass::Protected`]: eukhe's own config and credentials (a
 //!   [`PathRule`] covers it), or an ancestor of a protected or secret entry
 //!   (a write there can move or remove the entry). A write asks the user.

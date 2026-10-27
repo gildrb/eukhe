@@ -20,10 +20,10 @@
 //! The secret set holds `auth.json`, the Prime CLI config and the
 //! credential stores other programs keep in the home dir.
 //!
-//! [`DocumentsGate`] is the gate of one document tool call: a read or
-//! write of a secret, and every access the user's auto set
-//! (`shell.autoEffects`) does not allow, ask the user through the
-//! session's approval sink, as a `bash` step does.
+//! [`DocumentsGate`] is the gate of one document tool call: every access
+//! the user's auto set (`shell.autoEffects`) does not allow asks the user
+//! through the session's approval sink, as a `bash` step does (a secret
+//! access gates like any other).
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;

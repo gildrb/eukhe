@@ -213,9 +213,9 @@ def stays(segs: List<&2, Seg>, d: Nat) -> Bool:
 # 4. The approval gate
 # --------------------
 
-# Effect codes: 0 read, 1 write, 2 exec, 3 net (an auto set may hold
-# these), 4 outside, 5 protected, 6 secret (an auto set that holds one
-# of these has no effect for it). A step: its id and its effects.
+# Effect codes: 0 read, 1 write, 2 exec, 3 net, 4 outside, 5 protected,
+# 6 secret (an auto set may hold every effect; the names the setting
+# lists decide). A step: its id and its effects.
 type Step is Data:
   Step{id: Nat, effs: List<&2, Nat>}
 
@@ -224,7 +224,7 @@ def Step.effs(s: Step) -> List<&2, Nat>:
     case Step{i, e}:
       e
 
-# an auto set may hold effect c: every effect but secret (6)
+# an auto set may hold effect c: every effect
 def grantable(c: Nat) -> Bool:
   match c:
     case 0n:
@@ -250,7 +250,11 @@ def grantable(c: Nat) -> Bool:
                         case 0n:
                           True{}
                         case 1n+g:
-                          False{}
+                          match g:
+                            case 0n:
+                              True{}
+                            case 1n+h:
+                              False{}
 
 # every effect of effs may be in an auto set and is in auto
 def within(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:

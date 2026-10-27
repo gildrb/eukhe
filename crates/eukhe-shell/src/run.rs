@@ -49,7 +49,7 @@ pub enum Answer {
     /// No one answered: a denial.
     Unanswered,
     /// The session runs only from the phone gateway, and the step writes
-    /// a protected path or reads or writes a secret: refused unasked.
+    /// a protected path: refused unasked.
     GatewayRefused,
 }
 
@@ -287,9 +287,8 @@ impl Shell {
     /// Run `script`: each step whose effects are all in `auto` runs,
     /// every other step runs only when `approver` approves it; the first
     /// step it does not approve ends the script. `paths` classes the
-    /// paths a step names (a write outside the workspace, to a protected
-    /// place, a read of a secret always asks). The output streams to
-    /// `sink`.
+    /// paths a step names (each effect gates the same way: the user's
+    /// auto set decides). The output streams to `sink`.
     #[tracing::instrument(level = "debug", skip_all, fields(cwd = %self.cwd.display()))]
     pub async fn run(
         &mut self,

@@ -1,13 +1,11 @@
 //! `eukhe.shell`: the `bash` tool (`bash@1`). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. A step whose effects are all in the auto set (the
-//! `shell.autoEffects` setting, default every grantable effect: all but
-//! `secret`) runs unasked; every other step runs only when the user
-//! approves it through the session's [`ShellApprovalSink`] (the daemon
-//! asks the attached client). A read or write of a secret (the session's
-//! [`PathPolicy`](eukhe_types::path_policy::PathPolicy)) always asks. A
-//! denial, no answer, or the refusal of a session that runs only from the
-//! phone gateway stops the script at that step, and the
+//! `shell.autoEffects` setting, default every effect) runs unasked; every
+//! other step runs only when the user approves it through the session's
+//! [`ShellApprovalSink`] (the daemon asks the attached client). A denial,
+//! no answer, or the refusal of a session that runs only from the phone
+//! gateway stops the script at that step, and the
 //! model reads it as a [`RefusalText`].
 //!
 //! The tool obeys the S2 limits. Its output streams through one
@@ -65,8 +63,9 @@ const DESCRIPTION: &str = "Run a bash script in the working directory. Steps are
 joined by `;`, newlines, `&&`, `||`, `|`, with redirections; the commands of a pipeline run \
 together. A step that reads, writes files in the workspace, runs another program, or uses the \
 network runs at once, unless the user narrowed the kinds of step that do: then it runs only after \
-the user approves it, and a denial stops the script there. A write outside the workspace or to \
-eukhe's own settings, and a read of a secret (ssh keys, credential stores), always need approval. \
+the user approves it, and a denial stops the script there. Every step kind (a write outside the \
+workspace and a secret access included) gates the same way: the user's `shell.autoEffects` \
+decides. \
 `git` commands that can run a repository's programs (status, diff of the work tree, commit, ...) \
 count as running a program. Common commands (cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
 touch, cp, mv, grep) run in process; a script with control flow, functions, subshells or command \
@@ -124,12 +123,12 @@ impl RefusalText {
                 what: "it needs the user's approval, and no client answered",
                 next:
                     "Ask the user to attach a client, or to allow its effect in shell.autoEffects \
-if that is not secret; or use read-only steps",
+if that is read, write, exec, net, outside, protected or secret; or use read-only steps",
             },
             Refusal::GatewayRefused => Self {
                 what: "the session runs only from the phone gateway, and from there a step that \
-writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or \
-reads or writes a secret never runs",
+writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) \
+never runs when the user's auto set does not already run it",
                 next: "Ask the user to run it from the eukhe TUI or the dashboard",
             },
         }
@@ -307,6 +306,7 @@ pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
                 "net" => Some(ShellEffect::Net),
                 "outside" => Some(ShellEffect::Outside),
                 "protected" => Some(ShellEffect::Protected),
+                "secret" => Some(ShellEffect::Secret),
                 unknown => {
                     tracing::warn!(unknown, "shell.autoEffects holds an unknown effect");
                     None
