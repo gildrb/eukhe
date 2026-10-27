@@ -1,6 +1,6 @@
 # eukhe
 
-eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions; each turn starts from a compact view of it. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect, not affiliated ([Attribution](#attribution)).
+eukhe (Greek εὐχή: a wish, a prayer): a coding agent that knows a lot because its memory is one endless chat log shared by all sessions. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect, not affiliated ([Attribution](#attribution)).
 
 ## Install
 
@@ -10,10 +10,10 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 
 |Method|Command|
 |---|---|
-|Nix, one run|`nix run github:gildrb/eukhe`|
 |Home Manager|`programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)|
 |mise|`"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }`|
 |Source|`cargo build --release --locked -p eukhe-cli`|
+- Needs uv; chat memory needs git; the Nix package supplies both.
 
 ## Use
 
@@ -27,11 +27,7 @@ eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dash
 
 ## Memory
 
-- Log: `~/.eukhe/chat/`, append-only; the compactor writes one-line summaries into a binary tree over it.
-- Each root turn starts from the view: 64 KB to 128 KB of lines.
-- `/memory`: the view; `/memory model`: compaction model and reasoning effort.
-
-Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
+- One endless chat log at `~/.eukhe/chat/`, append-only, shared by all sessions.
 
 ## Agents
 
@@ -41,9 +37,6 @@ Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a
 ## Limitations
 
 - Runs model-generated Python and shell with your user permissions; no sandbox. Trusted repositories only.
-- macOS (Apple Silicon), Linux (x64, arm64); no Windows.
-- Kernel needs uv; chat memory needs git; the Nix package supplies both.
-- Local models need ONNX Runtime 1.24+.
 
 ## Attribution
 
