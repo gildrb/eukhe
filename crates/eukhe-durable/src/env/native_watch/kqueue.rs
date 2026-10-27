@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use nix::errno::Errno;
 use nix::libc::timespec;
 use nix::sys::event::{EventFilter, EventFlag, FilterFlag, KEvent, Kqueue};
-use tokio::io::unix::AsyncFd;
+use tokio::io::{unix::AsyncFd, Interest};
 use tokio::task::JoinHandle;
 
 use super::{HandleId, Listener, Notice, Sink};
@@ -105,8 +105,12 @@ impl Backend {
         if let Some(instance) = &self.instance {
             return Ok(Arc::clone(instance));
         }
+        // Sound in tokio >= 1.53.3 (delegates to `register`); the unsafe
+        // replacement is forbidden by the workspace `unsafe_code` lint.
+        #[allow(deprecated)]
+        let fd = AsyncFd::with_interest(KqueueFd(Kqueue::new()?), Interest::READABLE)?;
         let instance = Arc::new(Instance {
-            fd: AsyncFd::new(KqueueFd(Kqueue::new()?))?,
+            fd,
             registry: Mutex::new(Registry::default()),
         });
         self.reader = Some(tokio::spawn(read_events(

@@ -254,6 +254,9 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
         Err(error) => return Err(error),
     };
     // The handle closes on drop, on every path.
+    // Sound in tokio >= 1.53.3 (delegates to `register`); the unsafe
+    // replacement is forbidden by the workspace `unsafe_code` lint.
+    #[allow(deprecated)]
     let fd = AsyncFd::with_interest(fd, Interest::READABLE)?;
     // Every wake is confirmed by a zero-timeout poll (AsyncFd readiness
     // can be spurious).
@@ -326,6 +329,9 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
             };
         }
     }
+    // Sound in tokio >= 1.53.3 (delegates to `register`); the unsafe
+    // replacement is forbidden by the workspace `unsafe_code` lint.
+    #[allow(deprecated)]
     let kq = AsyncFd::with_interest(KqueueFd(kq), Interest::READABLE)?;
     // Only the exit knote is registered, so a drained event is the exit.
     loop {
