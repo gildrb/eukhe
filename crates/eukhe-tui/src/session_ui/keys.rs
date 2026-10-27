@@ -522,6 +522,17 @@ impl SessionUi {
                 self.clear_ctrl_c_hint();
                 return Ok(());
             }
+            // A filled chatbox clears first (omp's handleCtrlC): the exit
+            // and the interrupt live on an empty editor, so a buggy paste
+            // is always one Ctrl+C from gone. A running turn still
+            // interrupts on the same press.
+            if !view.editor.get_text().is_empty() {
+                view.editor.set_text("");
+                self.interrupt_running_work(view);
+                self.show_ctrl_c_hint();
+                self.dirty = true;
+                return Ok(());
+            }
             // TS `handleCtrlC`: the first press interrupts (aborting an
             // active turn, showing the exit hint); a second press inside
             // the hint window shuts down unconditionally -- no turn wait,
