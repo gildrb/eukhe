@@ -815,6 +815,17 @@ pub const PRIVACY_ANONYMIZE_REMOTE: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// Phrases a remote provider must not see (`PERSON_<n>` tokens;
+/// harness/privacy).
+pub const PRIVACY_TERMS: Decl = Decl {
+    id: "privacy.terms",
+    ty: CvarType::List,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::EmptyList,
+};
+
 pub const TERMINAL_FULLSCREEN: Decl = Decl {
     id: "terminal.fullscreen",
     ty: CvarType::Bool,
@@ -1322,6 +1333,7 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_SHOW_SPEED,
     PRIVACY_ANONYMIZE_REMOTE,
+    PRIVACY_TERMS,
     TERMINAL_FULLSCREEN,
     TERMINAL_PINNED_AGENTS,
     TERMINAL_STUCK_AFTER_SECS,

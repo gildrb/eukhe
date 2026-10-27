@@ -640,6 +640,13 @@ impl SettingsManager {
         self.cvars().bool(&table::PRIVACY_ANONYMIZE_REMOTE)
     }
 
+    /// `privacy.terms`: phrases a remote provider must not see (empty by
+    /// default).
+    #[must_use]
+    pub fn get_privacy_terms(&self) -> Vec<String> {
+        self.cvars().list(&table::PRIVACY_TERMS)
+    }
+
     /// `ssh.hosts`: the hosts an `ssh://` read may reach (Global: new
     /// outbound traffic). Empty: every `ssh://` read is rejected.
     #[must_use]

@@ -651,7 +651,8 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let messages = if runtime.settings().privacy_anonymize_remote
         && !crate::harness::privacy::is_local(&model.base_url)
     {
-        crate::harness::privacy::scrub_messages(messages)
+        crate::harness::privacy::Scrubber::new(&runtime.settings().privacy_terms)
+            .scrub_messages(messages)
     } else {
         messages
     };
@@ -935,7 +936,8 @@ async fn provider_tokens(
     let messages = if runtime.settings().privacy_anonymize_remote
         && !crate::harness::privacy::is_local(&model.base_url)
     {
-        crate::harness::privacy::scrub_messages(messages)
+        crate::harness::privacy::Scrubber::new(&runtime.settings().privacy_terms)
+            .scrub_messages(messages)
     } else {
         messages
     };

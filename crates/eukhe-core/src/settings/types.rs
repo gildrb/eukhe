@@ -257,6 +257,10 @@ pub struct PrivacySettings {
     /// keys, IP addresses, absolute paths, hosts and domains become
     /// stable pseudonyms (default true).
     pub anonymize_remote: Option<bool>,
+    /// Phrases a remote provider must not see: free-text names (a person,
+    /// a company, a project) become `PERSON_<n>` tokens at word
+    /// boundaries. Add your own name, your hostname, your username.
+    pub terms: Option<Vec<String>>,
 }
 
 /// `stt`: speech to text (dictation into the editor draft).

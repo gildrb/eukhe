@@ -328,6 +328,8 @@ pub struct HarnessSettings {
     /// Scrub outbound request text of a remote provider (harness/privacy).
     /// Default true.
     pub privacy_anonymize_remote: Option<bool>,
+    /// Free-text phrases a remote provider must not see.
+    pub privacy_terms: Option<Vec<String>>,
 }
 
 /// Resolved settings: every field over its built-in default, object fields
@@ -348,6 +350,8 @@ pub struct Settings {
     pub max_tool_rounds: NonZeroU32,
     /// Scrub outbound request text of a remote provider (harness/privacy).
     pub privacy_anonymize_remote: bool,
+    /// Free-text phrases a remote provider must not see.
+    pub privacy_terms: Vec<String>,
 }
 
 /// Live source of [`HarnessSettings`] (TS `HarnessOptions.settings`, an

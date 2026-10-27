@@ -29,6 +29,19 @@ eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dash
 
 - One endless chat log at `~/.eukhe/chat/`, append-only, shared by all sessions.
 
+## Privacy
+
+- `privacy.anonymizeRemote` (default on): a request to a remote
+  (non-loopback) provider carries pseudonyms, never your text. Keys,
+  cards, phones, IPs and IDs become hashes; names, emails, paths and
+  domains become mapped tokens that map back, so the model's tool calls
+  still run.
+- `privacy.terms` in `~/.eukhe/settings.json`: phrases a provider must
+  not see (your name, your hostname). Example:
+  `"privacy": { "terms": ["Gil Rodrigues"] }`.
+- Local models (loopback) see everything. The chat log keeps the real
+  text; only the outbound copy is scrubbed.
+
 ## Agents
 
 - The agent spawns subagents (`rlm.spawn` in its Python REPL) and messages any agent of its family from the prompt: `@name message`.

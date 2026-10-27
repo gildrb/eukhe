@@ -208,7 +208,11 @@ pub static TOOL_TASK: LazyLock<ToolTask> = LazyLock::new(|| {
 
 async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let input = task.input;
-    let call = read_call(&runtime, &input, &cx).await?;
+    let mut call = read_call(&runtime, &input, &cx).await?;
+    // A remote model wrote pseudonym tokens; the tool runs against the
+    // real strings (`privacy.anonymizeRemote`, harness/privacy).
+    call.call.arguments = crate::harness::privacy::Scrubber::new(&runtime.settings().privacy_terms)
+        .unredact_arguments(&call.call.arguments);
     let Some(tool) = resolve_tool(&runtime, &input, &call.name, &cx).await? else {
         let agent = runtime.agent(&cx).await?;
         let offered = match &input {
