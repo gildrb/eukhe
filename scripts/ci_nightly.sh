@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The nightly gate and release of eukhe (docs/develop.md). A systemd user
+# The nightly gate and release of eukhe. A systemd user
 # timer runs it once a night.
 #
 #   scripts/ci_nightly.sh run     the full gate (`make ci-local`) on

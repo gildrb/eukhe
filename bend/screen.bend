@@ -1,4 +1,4 @@
-# screen: the model of the interface (docs/interface.md, S8).
+# screen: the model of the interface.
 #
 # 1. The transcript. A block of the transcript is active (it still
 #    grows), final (its text is fixed), or committed (it is in the

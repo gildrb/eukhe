@@ -1,4 +1,4 @@
-//! The deferred job of a request and the stall of a stream (docs/harness.md
+//! The deferred job of a request and the stall of a stream (LAWS.bend
 //! H4.4, H4.5): what a failed poll of the job does ([`PollFailure::next`])
 //! and the idle deadline of the retry after a stall ([`idle_after_stall`]).
 //! The time check of a job (its deadline) is [`after_reply`]'s.

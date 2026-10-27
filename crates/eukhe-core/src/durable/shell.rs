@@ -1,4 +1,4 @@
-//! `eukhe.shell`: the `bash` tool (`bash@1`, docs/tools.md S7). It runs
+//! `eukhe.shell`: the `bash` tool (`bash@1`). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. A step whose effects are all in the auto set (the
 //! `shell.autoEffects` setting, default every grantable effect: all but
@@ -7,7 +7,7 @@
 //! asks the attached client). A read or write of a secret (the session's
 //! [`PathPolicy`](eukhe_types::path_policy::PathPolicy)) always asks. A
 //! denial, no answer, or the refusal of a session that runs only from the
-//! phone gateway (docs/tools.md G5) stops the script at that step, and the
+//! phone gateway stops the script at that step, and the
 //! model reads it as a [`RefusalText`].
 //!
 //! The tool obeys the S2 limits. Its output streams through one

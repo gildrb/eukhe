@@ -20,7 +20,7 @@
 //! pause inside one model call, never a failure or an end of the call:
 //! the compactor's [`super::CALL_DEADLINE`] bounds each model call, its
 //! waits for a slot and its preemptions included, so a call preempted
-//! without end fails at the deadline (docs/harness.md H1.5, H2).
+//! without end fails at the deadline (LAWS.bend H1.5, H2).
 
 use std::path::{Path, PathBuf};
 

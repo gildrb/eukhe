@@ -1,4 +1,4 @@
-//! Headless e2e for dictation into the draft (docs/inference.md S9): the
+//! Headless e2e for dictation into the draft: the
 //! `binds.cfg` keys of `app.stt.toggle` and `app.stt.pushToTalk` start a
 //! take, the status line shows it, the fake recorder's WAV goes to the
 //! fake transcriber, and the text lands in the editor draft. Esc cancels

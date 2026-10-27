@@ -238,7 +238,7 @@ pub fn terminal_provider_failure(message: &AssistantMessage) -> Option<String> {
 /// (old `next_continuation_message`): the goal with one continuation slot
 /// consumed, whose goal-context continuation text continues the run; `None`
 /// when the goal does not own the continuation wakeup. An empty reply never
-/// reaches it: the Harness fails it as a model error (docs/harness.md
+/// reaches it: the Harness fails it as a model error (LAWS.bend
 /// H4.7), and the failed run fails the goal.
 #[must_use]
 pub(crate) fn mint(state: &GoalState) -> Option<GoalState> {

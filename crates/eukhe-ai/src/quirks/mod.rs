@@ -1,4 +1,4 @@
-//! The quirks rulebook (docs/inference.md S6.1; model `bend/infer.bend`
+//! The quirks rulebook (model `bend/infer.bend`
 //! section 1): which wire settings, thinking ladders and service tiers a
 //! model family, a model, and a host need, as data.
 //!
@@ -32,12 +32,8 @@
 //!   only capability directives, and a wire lookup skips it as if it named
 //!   nothing, so it never changes a request's wire settings.
 //!
-//! The rulebook also holds the service tiers ([`service_tiers`],
-//! docs/inference.md S6.8): a table of the tiers that a provider honors
-//! over one wire API, for every model or for the models of one family;
-//! and the prices that a catalog row does not carry
-//! ([`service_tier_multiplier`], [`cache_write_1h_multiplier`]); and the
-//! default model of each provider ([`provider_default_model`]).
+//! The rulebook also holds the service tiers ([`service_tiers`]): a table of the tiers that a provider honors
+//! over one wire API, for every model or for the models of one family.
 //!
 //! The shipped rulebook is `rulebook.json`, compiled into the binary and
 //! compiled once on first use.
@@ -164,7 +160,7 @@ pub enum Directive {
     /// host of scope `capabilities` may set it, and a capability lookup
     /// reads it.
     PromptProgress,
-    /// The thinking ladder of a model (docs/inference.md S10): the levels
+    /// The thinking ladder of a model: the levels
     /// it offers and their wire values, as a `thinkingLevelMap` (a level
     /// with a string is offered with that wire value, a `null` level is
     /// absent, a missing level keeps the default rule). A model's explicit
@@ -674,7 +670,7 @@ impl<'a> From<&'a eukhe_types::ai::Model> for ModelKey<'a> {
     }
 }
 
-/// The thinking defaults (docs/inference.md S10, the ladder 0). The
+/// The thinking defaults (the ladder 0). The
 /// ladders are the levels a model offers where its ladder gives no entry,
 /// in the wire API's own form: `reasoning` serves a reasoning model,
 /// `plain` a model without reasoning (whose ladder has no effect).

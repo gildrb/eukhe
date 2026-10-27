@@ -7,7 +7,7 @@ import ./base.bend as LawsBase
 
 # (S3) The host and the sandbox
 # -----------------------------
-# docs/runtime.md S3, the model in bend/sandbox.bend. Every input is
+# the model in bend/sandbox.bend. Every input is
 # free: any frames of any length and kind, any limits, any workspaces of
 # the parent, the base and the child.
 

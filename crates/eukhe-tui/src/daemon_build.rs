@@ -1,5 +1,4 @@
-//! The order of eukhe builds and the launcher's replacement verdict
-//! (docs/daemon.md D1). A client compares its build with the build of the
+//! The order of eukhe builds and the launcher's replacement verdict. A client compares its build with the build of the
 //! daemon on its socket, then keeps the daemon or replaces it.
 //!
 //! A version `X.Y.Z` (each number in decimal without leading zeros, as in

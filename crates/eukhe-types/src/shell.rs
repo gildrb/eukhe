@@ -1,4 +1,4 @@
-//! The shell's approval vocabulary (docs/tools.md, S7): the effects of one
+//! The shell's approval vocabulary (S7): the effects of one
 //! step of a `bash` script (a set), the auto set, the question the host
 //! asks the attached client about a step that is not within the auto set,
 //! the client's answer, and how the question ended.
@@ -226,7 +226,7 @@ pub enum ShellVerdict {
 }
 
 /// How one [`ShellApprovalRequest`] ended: the answer of the session's
-/// approval sink (docs/tools.md G5).
+/// approval sink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellAnswer {

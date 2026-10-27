@@ -52,7 +52,7 @@ async fn ex21_late_join_gets_the_state_first_and_then_changes() {
         r#"view entries: ["pi.user","pi.system","pi.assistant"]"#
     );
     // The view holds committed state only: the running call's output lives
-    // on the in-memory progress board (docs/runtime.md S2).
+    // on the in-memory progress board.
     assert_eq!(lines[1], "view tool slot: running undefined", "{out}");
     assert!(
         lines.contains(&r#"snapshot tools: ["count running"]"#),

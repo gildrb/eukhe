@@ -468,7 +468,7 @@ pub enum Raced<T> {
 }
 
 /// Await `work` until it completes, the deadline passes, or the signal
-/// aborts, whichever comes first (eukhe addition, `docs/harness.md` H6).
+/// aborts, whichever comes first (eukhe addition, `LAWS.bend` H6).
 /// The wait ends exactly once, and the losers are dropped: dropping `work`
 /// must end the work it waits for, or leave it safe to finish alone. When
 /// two are ready together, the event wins, then the cancel. A deadline

@@ -1,6 +1,5 @@
 //! The bridge between the Rust cvars and their Bend model
-//! (`bend/cvar.bend`, whose laws `PROOF.bend` proves, section S4 of
-//! `docs/control.md`): both run the same scenarios and must print the same
+//! (`bend/cvar.bend`, whose laws `PROOF.bend` proves): both run the same scenarios and must print the same
 //! transcript, byte for byte.
 //!
 //! A scenario is a list of events (`bridge/bridge_cvar.bend` documents the

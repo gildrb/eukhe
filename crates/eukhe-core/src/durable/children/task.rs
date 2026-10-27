@@ -13,7 +13,7 @@
 //! report twice, held until it reaches the parent's transcript and
 //! submitted again under the next id when the inbox withdraws it), then
 //! terminal. Abort cancels the child's run and delivers the report a
-//! delete owes. `bend/child.bend` models the phases (docs/harness.md H5);
+//! delete owes. `bend/child.bend` models the phases (LAWS.bend H5);
 //! the bridge test runs their decisions ([`watched_next`],
 //! [`report_step`], [`owed_on_abort`]) against its `step`.
 

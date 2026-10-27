@@ -15,7 +15,7 @@ curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, 
 |mise|`"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }`|
 |Source|`cargo build --release --locked -p eukhe-cli`|
 
-`eukhe update` does not download. Details: [docs/install.md](docs/install.md).
+`eukhe update` does not download.
 
 ## Use
 
@@ -27,8 +27,6 @@ eukhe gateway    # connect Signal on your phone to the CLI session
 eukhe dashboard  # open the session in a browser
 ```
 
-All commands: [docs/usage.md](docs/usage.md).
-
 ## Memory
 
 - Log: `~/.eukhe/chat/`, append-only.
@@ -36,7 +34,7 @@ All commands: [docs/usage.md](docs/usage.md).
 - Each root turn starts from the view: 64 KB to 128 KB of lines.
 - `/memory`: the view. `/memory model`: compaction model and reasoning effort (the `/model` hub at the memory role).
 
-Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449). Details: [docs/memory.md](docs/memory.md).
+Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
 
 ## Agents
 
@@ -48,26 +46,10 @@ Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a
 - `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
 - `--size small|medium|large`: how many agents; `/workflows size` sets the default. `/workflows`: phases, agents, log per run.
 
-Details: [docs/workflows.md](docs/workflows.md).
-
 ## Phone and browser
 
-- `eukhe gateway`: Signal to the CLI session ([docs/gateway.md](docs/gateway.md)).
-- `eukhe dashboard`: the session on `127.0.0.1`; phone: `poros eukhe dashboard` ([docs/dashboard.md](docs/dashboard.md)).
-
-## References
-
-|File|Content|
-|---|---|
-|[docs/install.md](docs/install.md)|Installer, Nix, Home Manager, mise, source build, daemon versions|
-|[docs/usage.md](docs/usage.md)|Commands, agents, providers, session state|
-|[docs/settings.md](docs/settings.md)|Settings files, key binds, all settings, Directors|
-|[docs/workflows.md](docs/workflows.md)|Dynamic workflows: sizes, script API, resume, limits|
-|[docs/memory.md](docs/memory.md)|Chat memory: use, rules, Bend model, proofs|
-|[docs/local-models.md](docs/local-models.md)|Local models: titles, translation, speech, dictation|
-|[docs/gateway.md](docs/gateway.md)|Signal gateway|
-|[docs/dashboard.md](docs/dashboard.md)|Web dashboard|
-|[docs/develop.md](docs/develop.md)|Build, test, releases|
+- `eukhe gateway`: Signal to the CLI session .
+- `eukhe dashboard`: the session on `127.0.0.1`; phone: `poros eukhe dashboard` .
 
 ## Limitations
 

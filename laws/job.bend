@@ -7,7 +7,7 @@ import ./base.bend as LawsBase
 
 # (S2) Jobs and limits
 # --------------------
-# docs/runtime.md S2, the model in bend/job.bend. Every event is free:
+# the model in bend/job.bend. Every event is free:
 # any output size, exit, kill or tick, in any order; any output cap or
 # the opt-out; any budget; any tool call stream; any job table.
 

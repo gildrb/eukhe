@@ -1,4 +1,4 @@
-//! The thinking ladder of a model (docs/inference.md S10; model
+//! The thinking ladder of a model (S10; model
 //! `bend/infer.bend` section 6 and `bend/effort.bend`): the levels a model
 //! offers and their wire values. Every ladder is data:
 //!

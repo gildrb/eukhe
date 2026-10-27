@@ -1,4 +1,4 @@
-//! Dictation into the editor draft (docs/inference.md S9): a key records
+//! Dictation into the editor draft: a key records
 //! the microphone into a 16 kHz mono WAV file, the `dictation` role turns
 //! the file into text, and the text goes into the draft at the cursor.
 //!

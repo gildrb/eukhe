@@ -1,5 +1,5 @@
 //! The watch's call on one poll of a child (rule H5,
-//! `docs/harness.md`): `verdict` in `bend/child.bend`, run by the compiled
+//! `LAWS.bend`): `verdict` in `bend/child.bend`, run by the compiled
 //! Bend core (`bend/ffi_child.bend`). `LAWS.bend` states what it guarantees
 //! (a child with no progress is reported within `subagentStallMs`, failed
 //! polls within [`CHILD_POLL_FAILURES`], a child that progresses never; the

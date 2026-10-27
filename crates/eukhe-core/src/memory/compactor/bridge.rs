@@ -1,5 +1,5 @@
 //! The bridge between the compactor and its Bend model
-//! (`bend/compactor.bend`, whose laws `PROOF.bend` proves, docs/harness.md
+//! (`bend/compactor.bend`, whose laws `PROOF.bend` proves, LAWS.bend
 //! H1): both run the same scenarios and must print the same transcript,
 //! byte for byte.
 //!

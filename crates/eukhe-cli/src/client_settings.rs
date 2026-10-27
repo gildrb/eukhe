@@ -92,7 +92,7 @@ enum RoleTarget {
     Local(eukhe_core::tiny::Role, &'static Decl),
 }
 
-/// The setting of `role` (docs/settings.md, the `/model` hub).
+/// The setting of `role` (the `/model` hub).
 fn role_target(role: ModelRole) -> RoleTarget {
     use eukhe_core::tiny::Role;
     match role {

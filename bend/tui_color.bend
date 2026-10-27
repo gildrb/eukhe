@@ -1,6 +1,6 @@
 # tui_color: the colors that the terminal UI computes from a theme
 # (crates/eukhe-tui/src/theme.rs, crates/eukhe-tui/src/status_line.rs);
-# laws in laws/tui_color.bend (T3), docs/interface.md "Terminal colors".
+# laws in laws/tui_color.bend (T3).
 # The bridge test crates/eukhe-tui/src/theme/bridge.rs runs the Rust code
 # and this model (through bridge/bridge_tui_color.bend) on the same
 # scenarios.

@@ -85,8 +85,7 @@ pub enum DaemonSessionLifecycle {
 /// session asks its interactive clients each shell approval question. A
 /// session whose only clients are the phone gateway asks no one: it runs
 /// each gated step at once, except a step that writes a protected path
-/// or reads or writes a secret, which it refuses at once (docs/tools.md
-/// G5). An attach without the field is interactive.
+/// or reads or writes a secret, which it refuses at once. An attach without the field is interactive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonClientKind {

@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # (S6) The inference layer
 # ------------------------
-# docs/inference.md S6, the model in bend/infer.bend. Every input is free:
+# the model in bend/infer.bend. Every input is free:
 # any rulebook, query and directive; any replies of the model; any
 # provider support; any tools; any stream; any context sizes.
 
@@ -246,7 +246,7 @@ law compact_starts_early:
 
 # (S6.9) The thinking ladder
 # --------------------------
-# docs/inference.md S6.9 and S10 (the ladder 0), the model in
+# the model in
 # bend/infer.bend section 6. Every input is free: any explicit map, any
 # rulebook ladder, any default ladders, any level.
 

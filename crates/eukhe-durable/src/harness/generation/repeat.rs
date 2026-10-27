@@ -1,5 +1,5 @@
 //! The rounds in a row with the same tool calls and the same results
-//! (docs/harness.md H4.8, law `rec_never_runs_a_repeat`; omp
+//! (LAWS.bend H4.8, law `rec_never_runs_a_repeat`; omp
 //! `tool-call-loop-guard.ts`, whose `wait` exemption is here a result that
 //! changes). The count comes from the request's context, so a restart
 //! keeps it and a failed reply (not in the context) never adds to it.
@@ -11,7 +11,7 @@ use eukhe_types::pi_ai::{
     AssistantContentBlock, JsonObject, JsonValue, Message, ToolCall, UserContentBlock,
 };
 
-/// The intent parameter of every tool schema (docs/tools.md S7.3): it
+/// The intent parameter of every tool schema: it
 /// says why, not what, so two calls that differ only in it are the same.
 const INTENT: &str = "i";
 

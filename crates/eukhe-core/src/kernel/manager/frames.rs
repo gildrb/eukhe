@@ -1,4 +1,4 @@
-//! The bounded kernel-to-host protocol (docs/runtime.md S3; model
+//! The bounded kernel-to-host protocol (model
 //! `bend/sandbox.bend`, `serve`): the host decides, the kernel executes.
 //!
 //! The stdout reader cuts the kernel's byte stream into frames

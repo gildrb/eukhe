@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S10) Reasoning depth
 # ---------------------
-# docs/inference.md S10, the model in bend/effort.bend. Every input is
+# the model in bend/effort.bend. Every input is
 # free: any model, reasoning or not, with any thinking-level map (each
 # entry missing, null or a wire string); any level; any stored level and
 # default; any model switches, sets and cycle steps, in any order.
@@ -170,7 +170,7 @@ law effort_shown_is_sent:
 
 # (S6.9) The thinking ladder
 # --------------------------
-# docs/inference.md S6.9 and S10 (the ladder 0), the model in
+# the model in
 # bend/infer.bend section 6. Every input is free: any explicit map, any
 # rulebook ladder, any default ladders, any level.
 

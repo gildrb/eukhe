@@ -67,7 +67,7 @@ def pl.gate_no(s: Tl.Step, r: Tl.Ran) -> {Nil{} == Tl.Ran.steps(Tl.gate(False{},
 
 # ---- shell ----
 
-# proof_shell: the G2 laws (docs/tools.md S7, shell classification) of
+# proof_shell: the G2 laws (shell classification) of
 # the gate model in bend/tools.bend part 4. An effect of a part is in the
 # join of the parts (`ps.elem_app_l`, `ps.elem_app_r`, by induction on the
 # parts before it). A step with one effect that is not within the auto set

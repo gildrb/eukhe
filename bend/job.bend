@@ -1,5 +1,5 @@
 # job: the model of one job, one blocking call on it, one tool call's
-# stream, and the job table at a rewind (docs/runtime.md, S2).
+# stream, and the job table at a rewind.
 #
 # A job is anything that runs long: a shell, a cell, a subagent, a call
 # that ran too long. It has an output, an exit status and a kill. It sees

@@ -641,7 +641,7 @@ impl ReplKernelManager {
     }
 
     /// A token that moves while the kernel's background jobs write output
-    /// (rule H5, `docs/harness.md`): the stdout/stderr bytes the kernel
+    /// (rule H5, `LAWS.bend`): the stdout/stderr bytes the kernel
     /// ever sent (a detached cell's prints) plus the output bytes of its
     /// running bash handles (`outputBytes` of the `bash_activity` list,
     /// which a background build writes to its handle, not to a stream).

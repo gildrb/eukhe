@@ -6,7 +6,7 @@ import ./step.bend as RnStep
 
 # The requests
 # ------------
-# docs/harness.md H4.7. The model decodes the same request the same way
+# LAWS.bend H4.7. The model decodes the same request the same way
 # (a greedy model always does), so a retry after a noted reply (a stream
 # cut as repeating, a reply with no answer) must not send that request
 # again. Its request ends with a harness note that names the retry's

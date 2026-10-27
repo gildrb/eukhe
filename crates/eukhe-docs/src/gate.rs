@@ -1,5 +1,5 @@
 //! The host's check of every path a document tool reads or writes (the
-//! path policy, docs/tools.md S7, `laws/path_policy.bend` (G1)).
+//! path policy)).
 
 use eukhe_types::path_policy::RealPath;
 

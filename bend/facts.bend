@@ -1,5 +1,5 @@
 # facts: the model of the model and provider facts that live in data, not
-# in code (docs/inference.md S6.10). laws/facts.bend states its laws;
+# in code. laws/facts.bend states its laws;
 # proof/facts/ proves them; bridge/bridge_facts.bend runs it against
 # the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
 #

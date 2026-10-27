@@ -1,4 +1,4 @@
-// The pairing token (docs/dashboard.md, "Pairing"). `eukhe dashboard` puts
+// The pairing token. `eukhe dashboard` puts
 // it in the URL's fragment (`#token=<64 hex digits>`), which a browser never
 // sends to a server. The page takes it out of the address bar at once,
 // keeps it in this browser's storage (so a bookmark of the page keeps

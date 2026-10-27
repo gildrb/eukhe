@@ -1,5 +1,4 @@
-# approvals: the model of where a question of the approval gate goes
-# (docs/tools.md G5; crates/eukhe-daemon/src/shell_approval.rs).
+# approvals: the model of where a question of the approval gate goes (crates/eukhe-daemon/src/shell_approval.rs).
 #
 # A `bash` step or an `ipython` cell runs unasked when its effects are
 # within the auto set (bend/tools.bend `within`); the default auto set is

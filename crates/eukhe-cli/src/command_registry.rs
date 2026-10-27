@@ -372,7 +372,7 @@ The compactor then summarizes them like any other messages.",
     .description(
         "Runs signal-cli and relays Signal messages into the newest session (the one the CLI \
 uses), then sends the replies back. Set gateway.signal.account in the global settings first. \
-Runs until Ctrl+C. See docs/gateway.md.",
+Runs until Ctrl+C.",
     )
     .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
     CommandSpec::new(
@@ -389,7 +389,7 @@ prints holds a pairing token after `#token=`: a browser must present it, and not
 socket without the current token. The token stays the same across restarts (it is in the agent \
 dir, mode 0600) until --rotate-token replaces it. It answers only to loopback host names and to \
 the names you add with --allow-host (for example the name `tailscale serve` gives your machine), \
-and its socket accepts only pages it served itself. Runs until Ctrl+C. See docs/dashboard.md.",
+and its socket accepts only pages it served itself. Runs until Ctrl+C.",
     )
     .options(&[
         "--port <port>           Listen on this port (default: a free port)",

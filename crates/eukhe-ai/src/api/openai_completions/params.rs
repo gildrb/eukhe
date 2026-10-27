@@ -219,7 +219,7 @@ pub(crate) fn build_params(
     }
 
     // eukhe addition: a provider with a service tier table entry for this
-    // wire API (the quirks rulebook, docs/inference.md S6.8) gets the
+    // wire API (the quirks rulebook) gets the
     // top-level service_tier when it honors the tier. Other
     // OpenAI-compatible gateways may reject unknown fields, so they never
     // receive it.

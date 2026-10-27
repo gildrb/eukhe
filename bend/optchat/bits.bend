@@ -1,7 +1,7 @@
 # optchat: numbers and binary naturals (lowest bit first): pow2/shl, bit arithmetic, comparison, boolean helpers
 #
 # optchat: the pure core of eukhe's chat memory, after Victor Taelin's
-# OptChat gist (docs/memory.md maps every rule of it to this file, to the
+# OptChat gist (maps every rule of it to this file, to the
 # Rust code and to LAWS.bend).
 #
 # - A node(l, i) covers the 2^l messages from i·2^l on (gist §2). Its

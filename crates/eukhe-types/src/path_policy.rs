@@ -1,4 +1,4 @@
-//! The path policy (docs/tools.md S7, `laws/path_policy.bend` (G1)): the data that
+//! The path policy (`laws/path_policy.bend` (G1)): the data that
 //! judges a path an agent tool reads or writes. The document tools and
 //! the shell use this one policy, so the two cannot judge a path
 //! differently; the judgment itself is `eukhe_shell::paths::judge`

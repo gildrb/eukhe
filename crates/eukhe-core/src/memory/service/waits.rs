@@ -1,4 +1,4 @@
-//! Regression tests of the chat memory's waits (`docs/harness.md` H6):
+//! Regression tests of the chat memory's waits (`LAWS.bend` H6):
 //! every request to an owner in another process but the lease has a reply
 //! deadline, a request to a stuck owner ends at it, and a cancelled wait
 //! for the turn file leaves nothing behind.

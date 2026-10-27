@@ -13,7 +13,7 @@ import ../bend/approvals.bend as Am
 
 # (G5) A child's question reaches its root's user
 # ------------------------------------------------
-# docs/tools.md G5, the model in bend/approvals.bend. A chain lists the
+# the model in bend/approvals.bend. A chain lists the
 # sessions from the one that asks (a subagent, or a root) up to its root.
 # The bridge test in crates/eukhe-daemon/src/shell_approval/bridge.rs
 # runs the real approvals of a chain of sessions (clients attached or

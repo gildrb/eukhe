@@ -1,4 +1,4 @@
-//! Jobs (docs/runtime.md S2): everything that runs long is one [`Job`]. A
+//! Jobs: everything that runs long is one [`Job`]. A
 //! user bash is a job from its start; an `ipython` cell or a `bash` tool
 //! script becomes one when its call outlives the blocking budget (ADR
 //! 0010). A job counts its output

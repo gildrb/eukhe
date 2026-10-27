@@ -473,7 +473,7 @@ pub struct StrictCandidate {
     pub required: bool,
 }
 
-/// The strict plan of a request (docs/inference.md S6.3; model
+/// The strict plan of a request (S6.3; model
 /// `bend/infer.bend` `plan`): of the `candidates` (in request order),
 /// which go loose under the cap: the highest priorities keep their strict
 /// schemas, and among equal priorities the earlier tool. With no cap every

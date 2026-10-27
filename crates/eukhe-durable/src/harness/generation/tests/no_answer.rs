@@ -1,4 +1,4 @@
-//! docs/harness.md H4.7: a message that ends the model's turn with no text
+//! LAWS.bend H4.7: a message that ends the model's turn with no text
 //! and no tool call (only thinking, or nothing) is no answer. It fails as a
 //! noted model error: it is retried with a note while notes are left
 //! (`MAX_NOTES`), whatever the retry policy, else the run fails with

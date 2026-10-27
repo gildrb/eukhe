@@ -1,5 +1,5 @@
 # supervise: the model of the supervisor's restart budget and of its
-# timeouts (docs/daemon.md D1). The restart budget runs compiled as the
+# timeouts. The restart budget runs compiled as the
 # Rust rule: `restart_budget::decide`
 # (crates/eukhe-daemon/src/supervisor/restart_budget.rs) calls `decide`
 # through bend/ffi_supervise.bend. The timeouts are the constants of

@@ -185,7 +185,7 @@ pub(crate) fn pi_headers(
     provider_headers_to_record(&[Some(&spread)])
 }
 
-/// The `thinkingBudget` of `level` (docs/inference.md S10.3; model
+/// The `thinkingBudget` of `level` (S10.3; model
 /// `bend/facts.bend` `gbudget`): the user's custom budget of the level,
 /// else the quirks rulebook's budget of the model (`thinking_budgets`),
 /// held inside the model's range (the rule's `minimal` to its `high`). A

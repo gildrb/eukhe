@@ -1,4 +1,4 @@
-# lease: the model of the chat's root-turn lease (docs/harness.md, H6):
+# lease: the model of the chat's root-turn lease (LAWS.bend, H6):
 # one holder, then the waiters in the order they asked. The Rust code is
 # `Turns` in crates/eukhe-core/src/memory/service/turn.rs; the bridge
 # (bridge/bridge_wait.bend, crates/eukhe-core/src/memory/service/turn/bridge.rs)

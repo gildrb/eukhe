@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
-# docs/harness.md H3, the model in bend/admission.bend: one provider's
+# LAWS.bend H3, the model in bend/admission.bend: one provider's
 # admission (crates/eukhe-core/src/admission.rs), ticket by ticket. Every
 # op is free: admits of either class, polls, drops of permits and of
 # waiters, new limits, in any order, on any state.

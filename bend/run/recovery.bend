@@ -21,7 +21,7 @@ def again(same: Nat, +last: Nat, +h: Nat) -> Nat:
 
 # Recoveries
 # ----------
-# docs/harness.md H4.8. Three replies a weaker model gives when it is
+# LAWS.bend H4.8. Three replies a weaker model gives when it is
 # stuck get a recovery, each with a cap: a length stop while it is still
 # reasoning (no text and no tool call), tool calls that it wrote as text
 # (markup in the answer), and the same tool calls (names and arguments)

@@ -11,7 +11,7 @@ import ../bend/runners.bend as Ru
 
 # (G4) Every runner of code goes through the gate
 # -----------------------------------------------
-# docs/tools.md S7, the model in bend/runners.bend. `Rn.registry` is the
+# the model in bend/runners.bend. `Rn.registry` is the
 # registry a session installs (crates/eukhe-core/src/durable/registry.rs);
 # the bridge test in crates/eukhe-core/src/durable/runner/tests.rs dumps
 # the real registry and runs the `ipython` gate on the scenarios of

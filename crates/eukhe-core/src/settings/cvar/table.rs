@@ -1,4 +1,4 @@
-//! The declaration of every cvar (docs/control.md S4): each setting of
+//! The declaration of every cvar : each setting of
 //! `settings.json` once, by the dotted path of its key.
 //!
 //! Global: one value for the whole family, read from the global config
@@ -1100,7 +1100,7 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
 pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net", "outside", "protected"];
 
 /// The effects a shell command may have without asking; by default every
-/// grantable effect (docs/tools.md S7 item 8, law `default_auto_is_grantable`):
+/// grantable effect (law `default_auto_is_grantable`):
 /// only a read or write of a secret asks, and no value can make it run
 /// unasked. An execution gate: an untrusted project may not set it and an
 /// agent never saves it.
@@ -1113,7 +1113,7 @@ pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     init: Init::List(SHELL_EFFECTS),
 };
 
-/// The hosts an `ssh://` read may reach (docs/tools.md S7.5): new
+/// The hosts an `ssh://` read may reach : new
 /// outbound traffic, so a project may not set it and an agent never
 /// saves it. Empty: every `ssh://` read is rejected.
 pub const SSH_HOSTS: Decl = Decl {

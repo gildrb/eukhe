@@ -1,5 +1,4 @@
-# revive: the model of the busy evidence of a long run (docs/daemon.md
-# D1). The Rust code is the worker's busy refresh (crates/eukhe-daemon/
+# revive: the model of the busy evidence of a long run. The Rust code is the worker's busy refresh (crates/eukhe-daemon/
 # src/worker.rs, every `timeouts::BUSY_REFRESH_MS`) and
 # `revival_gate::busy_evidence_fresh`; the bridge (bridge/bridge_revive.bend,
 # crates/eukhe-daemon/src/supervision_bridge.rs) runs both on the same runs.

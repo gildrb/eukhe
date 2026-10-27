@@ -1,4 +1,4 @@
-//! The cfg files of the settings (docs/control.md S4): command scripts in
+//! The cfg files of the settings: command scripts in
 //! the cvar language (`eukhe_types::cvar`) beside `settings.json`.
 //!
 //! - `config.cfg` (global `<agentDir>/config.cfg`, then the project's

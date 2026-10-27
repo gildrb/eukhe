@@ -1,5 +1,5 @@
 //! The bridge from the tiny-model service's worker election to its Bend
-//! model (`bend/tiny.bend`, docs/inference.md S9): generated needs run
+//! model (`bend/tiny.bend`): generated needs run
 //! through the Rust code, and `bridge/bridge_tiny.bend` must print the same
 //! transcript, byte for byte. (The pick runs as the compiled model itself:
 //! `roles::pick`.)

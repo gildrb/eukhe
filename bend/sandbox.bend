@@ -1,4 +1,4 @@
-# sandbox: the model of the host and the sandbox (docs/runtime.md, S3).
+# sandbox: the model of the host and the sandbox.
 #
 # 1. The protocol. The host decides; the sandbox executes. The sandbox
 #    stub sends frames to the host. The host reads each frame: a frame

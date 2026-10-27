@@ -20,7 +20,7 @@ import ../bend/tui_color.bend as TC
 
 # (T1) Themes
 # -----------
-# docs/interface.md "Themes", the model in bend/theme/: the one theme
+# The model in bend/theme/: the one theme
 # validator and name resolver of crates/eukhe-theme, which the terminal UI
 # and the HTML export share. Every input is free: any registered, builtin
 # and custom candidates in any order, valid or not; any name; any theme
@@ -825,7 +825,7 @@ law theme_pick_example:
 
 # (T3) Terminal colors
 # --------------------
-# docs/interface.md "Terminal colors", the model in bend/tui_color.bend:
+# The model in bend/tui_color.bend:
 # the effort ramp, the usage bands and the color roles of
 # crates/eukhe-tui. Every input is free: any ramp ends and any ladder
 # length, any token count and any window. The bridge test

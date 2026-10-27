@@ -6,7 +6,7 @@
 //! over-long line gets the cut follow-up in the SAME conversation.
 //!
 //! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
-//! model replies (docs/harness.md H1; the decision is `line` in
+//! model replies (LAWS.bend H1; the decision is `line` in
 //! `bend/compactor.bend`): at most [`TRIES`] model calls; the first line
 //! that fits wins; an empty or thinking-only reply, or a follow-up not
 //! shorter than the best line, ends the tries; then the best line, else

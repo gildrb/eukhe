@@ -1,4 +1,4 @@
-//! The bridges between the inference layer (docs/inference.md S6) and its
+//! The bridges between the inference layer and its
 //! Bend model (`bend/infer.bend`, whose laws `PROOF.bend` proves): both
 //! run the same scenarios and must print the same transcript, byte for
 //! byte.
@@ -245,7 +245,7 @@ fn force_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
     }
 }
 
-/// The observed thinking loop (docs/inference.md S6.5) as chunk ids: 14
+/// The observed thinking loop as chunk ids: 14
 /// lines, then this cycle of 7 lines, in which no line comes twice in a row.
 const OBSERVED_CYCLE: [u64; 7] = [9, 11, 14, 10, 11, 15, 13];
 

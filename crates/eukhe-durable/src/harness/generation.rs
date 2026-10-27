@@ -1052,7 +1052,7 @@ fn ms_f64(ms: u64) -> f64 {
 }
 
 /// Classify a terminal provider message and commit the step it leads to
-/// ([`after_reply`], docs/harness.md H4), clearing the partial.
+/// ([`after_reply`], LAWS.bend H4), clearing the partial.
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"

@@ -1,4 +1,4 @@
-//! The service tiers (docs/inference.md S6.8): the tiers that a provider
+//! The service tiers: the tiers that a provider
 //! honors for a model, as the rulebook's `service_tiers` table.
 
 use eukhe_types::ai::ServiceTier;

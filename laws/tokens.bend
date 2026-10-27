@@ -11,7 +11,7 @@ import ../bend/tokens.bend as Tk
 
 # (T2) Dashboard tokens
 # ---------------------
-# docs/dashboard.md "Tokens", the model in bend/tokens.bend. The web app
+# the model in bend/tokens.bend. The web app
 # writes every presentation value once, in
 # crates/eukhe-dashboard/ui/src/tokens.stylex.ts; its test
 # src/tokens.test.ts checks that the token values there equal the tables

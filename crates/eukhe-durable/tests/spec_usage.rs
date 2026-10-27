@@ -1,4 +1,4 @@
-//! Port of `test/spec-usage.test.ts`: the usage examples of `docs/spec.md`,
+//! Port of `test/spec-usage.test.ts`: the usage examples,
 //! compile-checked. Each block is copied as written apart from Rust
 //! spelling, with the names the spec leaves to the application supplied by
 //! [`App`]. `examples` is never called: the test only requires it to

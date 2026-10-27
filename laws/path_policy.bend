@@ -16,7 +16,7 @@ import ./base.bend as LawsBase
 
 # (G1) Path policy
 # ----------------
-# docs/tools.md S7: one policy for the `bash` tool and the document
+# one policy for the `bash` tool and the document
 # tools (crates/eukhe-types/src/path_policy.rs). A path is a list of
 # segments from `/`; the symlinks are free (any location, any target,
 # from `/` or from the link's directory, loops included); the policy is

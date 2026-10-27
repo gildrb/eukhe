@@ -29,7 +29,7 @@ pub(super) type AgentResolution = Shared<BoxFuture<'static, SessionResult<Arc<Ag
 
 /// How long a phase handler may run on after its invocation's signal (an
 /// abort mark, close, or the invocation's end) before the driver drops it
-/// (docs/harness.md H4.6). A handler that honours its signal returns within
+/// (LAWS.bend H4.6). A handler that honours its signal returns within
 /// it and cleans up; one stuck in a wait that ignores the signal (a hook, a
 /// lock, a peer that never answers) is dropped, so every abort ends.
 const ABORT_GRACE: Duration = Duration::from_secs(3);

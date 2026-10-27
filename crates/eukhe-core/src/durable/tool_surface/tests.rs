@@ -1,4 +1,4 @@
-//! The tool surface on an open session (docs/tools.md S7): every request
+//! The tool surface on an open session: every request
 //! sends the roster the session opened with, while a host tool that joins
 //! later is listed and run through `dyn`; `report_issue` stores a row the
 //! user sees; every change of the roster is rejected.

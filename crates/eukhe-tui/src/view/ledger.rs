@@ -1,5 +1,5 @@
 //! The transcript ledger: the state of each chat entry on the inline
-//! terminal (docs/interface.md S8, rule 1; model `bend/screen.bend`
+//! terminal (rule 1; model `bend/screen.bend`
 //! section 1, `run`).
 //!
 //! An entry is active (it can still change), final (its rows are fixed),

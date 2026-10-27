@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (S9) Local tiny models
 # ----------------------
-# docs/inference.md S9, the model in bend/tiny.bend. Every input is free:
+# the model in bend/tiny.bend. Every input is free:
 # any chain of models, any set of available models, any needs of any
 # processes with any tags, any worker exits, in any order.
 

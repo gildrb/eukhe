@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # (S7) The tool surface
 # ---------------------
-# docs/tools.md S7, the model in bend/tools.bend. Every input is free:
+# the model in bend/tools.bend. Every input is free:
 # any tools that join and quit, any schemas, any paths, any scripts, any
 # auto set, any answers of the user.
 
@@ -154,7 +154,7 @@ law gate_finish_runs_all:
 
 # (G1) Path policy
 # ----------------
-# docs/tools.md S7: one policy for the `bash` tool and the document
+# One policy for the `bash` tool and the document
 # tools (crates/eukhe-types/src/path_policy.rs). A path is a list of
 # segments from `/`; the symlinks are free (any location, any target,
 # from `/` or from the link's directory, loops included); the policy is
@@ -178,7 +178,7 @@ law gate_inside_write_runs:
 
 # (G2) Shell classification
 # -------------------------
-# docs/tools.md S7, the gate model of bend/tools.bend part 4. A step has a
+# the gate model of bend/tools.bend part 4. A step has a
 # set of effects (codes: 0 read, 1 write, 2 exec, 3 net, 4 outside, 5
 # protected, 6 secret): every effect of every part of it (its command,
 # each redirection, each path it names; every command an external script

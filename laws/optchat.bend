@@ -162,7 +162,7 @@ law context_is_prefix:
 
 # (H2) A turn never waits forever for the memory
 # ----------------------------------------------
-# docs/harness.md H2: the need-first queue of bend/optchat/queue.bend, the settle
+# LAWS.bend H2: the need-first queue of bend/optchat/queue.bend, the settle
 # of bend/compactor.bend.
 
 # LAW need_progress: the queue never stalls a waiting turn: after any events, while

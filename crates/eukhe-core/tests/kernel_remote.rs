@@ -10,7 +10,7 @@
     clippy::cast_precision_loss
 )]
 
-//! `@remote` on the real runtime (docs/runtime.md S3): a decorated
+//! `@remote` on the real runtime: a decorated
 //! function registers with the host (name, schema from its type hints,
 //! docstring); the host's `call` request runs it and gets its result; a
 //! function that raises, is unknown, or hangs past the bound answers a

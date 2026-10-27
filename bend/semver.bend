@@ -1,5 +1,4 @@
-# semver: eukhe's release versions (laws/semver.bend R1, docs/develop.md
-# "Releases"). The rule runs as compiled Bend (entry bend/ffi_semver.bend,
+# semver: eukhe's release versions (laws/semver.bend R1). The rule runs as compiled Bend (entry bend/ffi_semver.bend,
 # laws/semver.bend R2): `eukhe-next-version` computes a release with it and
 # crates/eukhe-build-info's build script checks EUKHE_RELEASE_VERSION.
 #

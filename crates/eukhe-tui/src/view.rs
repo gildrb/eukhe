@@ -188,7 +188,7 @@ pub struct AgentView {
     /// it (its clock stops there), gone once all the text shows
     /// (`advance_paces`). The indicator is on while the reply streams,
     /// and to the user the reply streams until its last character is on
-    /// screen (docs/interface.md S8 pacing, "Turn visibility").
+    /// screen ("Turn visibility").
     loader_held_by_pace: Option<WorkingState>,
     /// Per-streaming-assistant-entry render state (`streaming`): the
     /// markdown block cache (TS `Markdown.blockCache`, one per component

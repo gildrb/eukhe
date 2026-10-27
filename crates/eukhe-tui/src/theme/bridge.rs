@@ -1,5 +1,5 @@
 //! The bridge from the terminal UI's color code to its Bend model
-//! (`bend/tui_color.bend`, docs/interface.md T3): the effort ramp
+//! (`bend/tui_color.bend`): the effort ramp
 //! ([`ramp_rung`], [`Theme::effort_ramp`]), the usage bands
 //! ([`crate::status_line::context_band`]) and the color roles (the
 //! tokens of [`ThemeColor`], [`ThemeBg`] and [`ThemeRgb`]) run generated

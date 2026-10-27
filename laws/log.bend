@@ -16,7 +16,7 @@ import ./base.bend as LawsBase
 
 # (D2) Storage
 # ------------
-# docs/state.md D2. The commit log `main.jsonl` (spec/log.bend): every
+# The commit log `main.jsonl` (spec/log.bend): every
 # input is free: any disk (any bytes, a torn tail, no file), any commits,
 # any crash point, any number of bytes not flushed that the crash keeps,
 # and whether the crash drops the directory entries not flushed.

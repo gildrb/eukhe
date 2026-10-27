@@ -1,5 +1,5 @@
 # dash: the model of the dashboard's pairing gate (laws/dash.bend,
-# docs/dashboard.md "Pairing"). crates/eukhe-dashboard/src/pairing.rs,
+# "Pairing"). crates/eukhe-dashboard/src/pairing.rs,
 # http.rs and bridge.rs implement it; its bridge test
 # (pairing::tests::the_gate_pairs_as_its_model, with
 # bridge/bridge_dash.bend) runs both on the same events.

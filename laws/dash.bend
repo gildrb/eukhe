@@ -11,7 +11,7 @@ import ../bend/dash.bend as Da
 
 # (D1) Pairing
 # ------------
-# docs/dashboard.md "Pairing", the model in bend/dash.bend; the Rust gate
+# the model in bend/dash.bend; the Rust gate
 # (crates/eukhe-dashboard/src/pairing.rs, http.rs, bridge.rs) and the
 # model run the same events in the bridge test
 # pairing::tests::the_gate_pairs_as_its_model. Every input is free: any

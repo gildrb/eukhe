@@ -1,5 +1,4 @@
-//! What every eukhe wire tool's contract shares (omp ADR 0026, docs/tools.md
-//! S7): the intent `i`, the first property of a closed parameter object; the
+//! What every eukhe wire tool's contract shares (omp ADR 0026): the intent `i`, the first property of a closed parameter object; the
 //! schema version, the annotation `title: "v<n>"` with `n >= 1`, which every
 //! wire API keeps; and the durable identity `name@rev` each result's details
 //! carry as `version`.

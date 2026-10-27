@@ -173,7 +173,7 @@ pub type ParentNameSource = std::sync::Arc<dyn Fn() -> Option<String> + Send + S
 
 /// Reads the parent session's effective cvar family (root first) at spawn
 /// time: the worker answers from its session settings, so a child starts
-/// from the values its parent has now (docs/control.md S4).
+/// from the values its parent has now.
 pub type ParentCvarFamilySource =
     std::sync::Arc<dyn Fn() -> Vec<eukhe_core::settings::cvar::AgentLayer> + Send + Sync>;
 

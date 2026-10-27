@@ -1,4 +1,4 @@
-//! The `bash` tool's approval path end to end (docs/tools.md S7.8, G5): a
+//! The `bash` tool's approval path end to end (G5): a
 //! real supervisor and worker, the scripted faux model calling `bash`, in
 //! a session whose user narrowed `shell.autoEffects` to `read` (by default
 //! a write and a run of a program run unasked). An attached client gets

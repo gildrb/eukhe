@@ -1,11 +1,11 @@
-//! `ssh://<host>/<path>` reads (docs/tools.md S7.5): the user's own `ssh`
+//! `ssh://<host>/<path>` reads: the user's own `ssh`
 //! program, with the user's `~/.ssh/config`, runs `cat` on one file of a
 //! host that the setting `ssh.hosts` allows. eukhe handles no key and no
 //! password: `BatchMode=yes` makes a host that asks for one fail at once,
 //! as a typed `auth` rejection. The path goes to the remote shell as one
 //! single-quoted word, so no character of it is shell syntax there.
 //!
-//! The read is bounded twice (docs/runtime.md S2). The call's output cap
+//! The read is bounded twice. The call's output cap
 //! keeps the first bytes and counts the rest as dropped; the reply names
 //! the count. The blocking budget ends the read: `ssh` runs in a process
 //! group of its own, and the group is killed at the deadline.

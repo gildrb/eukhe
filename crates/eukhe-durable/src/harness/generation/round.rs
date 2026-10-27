@@ -427,7 +427,7 @@ fn slot(
 /// The round's tools are terminal: apply their controls and either end the
 /// run at the final boundary (`terminate`, `handoff`, a queued reset, the
 /// round cap, or a loop) or hand it to the next generation at the
-/// `postTools` boundary (spec §8.5, docs/harness.md H4).
+/// `postTools` boundary (spec §8.5, LAWS.bend H4).
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"

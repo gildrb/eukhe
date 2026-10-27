@@ -1,4 +1,4 @@
-//! `eukhe provider`: the provider capability surface (docs/inference.md S6.1).
+//! `eukhe provider`: the provider capability surface.
 //!
 //! `caps` prints what each provider's API offers besides chat streaming,
 //! read from the quirks rulebook through `Models::provider_capabilities`; it

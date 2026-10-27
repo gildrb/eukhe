@@ -5,7 +5,7 @@
 //! replay, the internal tools behind its `models.*` globals, and the
 //! `codemode` prompt section listing the tools scripts can call. A
 //! `models.classify()` call that names no model takes the `judge` role's
-//! model (docs/inference.md S9).
+//! model.
 
 use std::sync::Arc;
 

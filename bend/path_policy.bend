@@ -1,4 +1,4 @@
-# path_policy: the model of the path policy (docs/tools.md S7, LAWS
+# path_policy: the model of the path policy (LAWS
 # (G1), crates/eukhe-types/src/path_policy.rs and the document tools'
 # gate, crates/eukhe-core/src/durable/path_policy.rs). It extends the
 # path of bend/tools.bend §3 (segments under a root) to real filesystem
