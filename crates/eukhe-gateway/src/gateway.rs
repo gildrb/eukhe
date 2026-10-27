@@ -410,6 +410,8 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
             PhoneCommand::Status => self.status().await,
             PhoneCommand::Memory => self.memory().await,
+            PhoneCommand::Model(number) => self.model(number).await,
+            PhoneCommand::Reasoning(level) => self.reasoning(level).await,
         }
     }
 
@@ -480,6 +482,10 @@ impl<L: DaemonLauncher> Gateway<L> {
             .and_then(Value::as_bool)
             .context("the session state has no isStreaming")?;
         let busy = if busy { "yes" } else { "no" };
+        let thinking = state
+            .get("thinkingLevel")
+            .and_then(Value::as_str)
+            .unwrap_or("off");
         // `get_state` leaves `model` out when the session has none.
         let model = match state.get("model") {
             None => "none".to_string(),
@@ -494,7 +500,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
         };
         Ok(format!(
-            "Session: {name}\nFolder: {cwd}\nModel: {model}\nMode: {mode}\nBusy: {busy}"
+            "Session: {name}\nFolder: {cwd}\nModel: {model}\nThinking: {thinking}\nMode: {mode}\nBusy: {busy}"
         ))
     }
 
@@ -539,6 +545,165 @@ impl<L: DaemonLauncher> Gateway<L> {
             lines.push(format!("Last error: {error}"));
         }
         Ok(lines.join("\n"))
+    }
+
+    /// The routed session's connection state: the same JSON the model
+    /// pickers read (`model`, `thinkingLevel`,
+    /// `availableThinkingLevels`).
+    ///
+    /// # Errors
+    ///
+    /// The daemon cannot report the session state.
+    async fn connection_state(&self, active_session_id: &str) -> anyhow::Result<Value> {
+        self.link
+            .client
+            .request_ok(DaemonCommand::GetState {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .context("read the session state")
+    }
+
+    /// The `/model` reply: the current model and the discovered models;
+    /// `/model N` switches to the Nth one.
+    ///
+    /// # Errors
+    ///
+    /// No session state, no model discovery, or the switch failed.
+    #[tracing::instrument(skip_all)]
+    async fn model(&self, number: Option<String>) -> anyhow::Result<String> {
+        let Some(binding) = &self.binding else {
+            return Ok("Session: none open. The next message opens one.".to_string());
+        };
+        let state = self.connection_state(&binding.active_session_id).await?;
+        let current = state.get("model").and_then(|model| {
+            Some(format!(
+                "{}/{}",
+                model.get("provider")?.as_str()?,
+                model.get("id")?.as_str()?
+            ))
+        });
+        let Some(number) = number else {
+            let models = self.available_models(&binding.active_session_id).await?;
+            let mut lines = vec![format!("Model: {}", current.as_deref().unwrap_or("none"))];
+            for (index, entry) in models.iter().enumerate() {
+                lines.push(format!(
+                    "{}. {}/{} - {}",
+                    index + 1,
+                    entry["provider"].as_str().unwrap_or("?"),
+                    entry["id"].as_str().unwrap_or("?"),
+                    entry["name"].as_str().unwrap_or(""),
+                ));
+            }
+            if models.is_empty() {
+                lines.push("No other model is configured.".to_string());
+            }
+            lines.push("Send /model N to switch.".to_string());
+            return Ok(lines.join("\n"));
+        };
+        let models = self.available_models(&binding.active_session_id).await?;
+        let index: usize = number
+            .parse()
+            .map_err(|_| anyhow::anyhow!("No model {number}. Send /model for the list."))?;
+        let entry = models
+            .get(index.wrapping_sub(1))
+            .ok_or_else(|| anyhow::anyhow!("No model {number}. Send /model for the list."))?;
+        let provider = entry
+            .get("provider")
+            .and_then(Value::as_str)
+            .context("the model has no provider")?;
+        let model_id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .context("the model has no id")?;
+        self.link
+            .client
+            .request_ok(DaemonCommand::SetModel {
+                id: None,
+                active_session_id: binding.active_session_id.clone(),
+                provider: provider.to_string(),
+                model_id: model_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .map(|_| format!("Model set to {provider}/{model_id}."))
+    }
+
+    /// The session's discovered models (`get_available_models`).
+    ///
+    /// # Errors
+    ///
+    /// The daemon cannot list the models.
+    async fn available_models(&self, active_session_id: &str) -> anyhow::Result<Vec<Value>> {
+        let data = self
+            .link
+            .client
+            .request_ok(DaemonCommand::GetAvailableModels {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .context("list the models")?;
+        Ok(data
+            .get("models")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    /// The `/reasoning` reply: the current thinking level and the levels
+    /// the model offers; `/reasoning <level>` sets it.
+    ///
+    /// # Errors
+    ///
+    /// No session state, or the switch failed.
+    #[tracing::instrument(skip_all)]
+    async fn reasoning(&self, level: Option<String>) -> anyhow::Result<String> {
+        let Some(binding) = &self.binding else {
+            return Ok("Session: none open. The next message opens one.".to_string());
+        };
+        let state = self.connection_state(&binding.active_session_id).await?;
+        let current = state
+            .get("thinkingLevel")
+            .and_then(Value::as_str)
+            .unwrap_or("off")
+            .to_string();
+        let levels: Vec<String> = state
+            .get("availableThinkingLevels")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+        let Some(given) = level else {
+            if levels.is_empty() {
+                return Ok(format!(
+                    "Thinking: {current}. This model offers no other level."
+                ));
+            }
+            return Ok(format!(
+                "Thinking: {current}\nLevels: {}\nSend /reasoning <level> to set it.",
+                levels.join(", ")
+            ));
+        };
+        if levels.is_empty() {
+            return Ok("This model offers no other thinking level.".to_string());
+        }
+        let found = levels
+            .iter()
+            .find(|offered| offered.eq_ignore_ascii_case(&given))
+            .ok_or_else(|| anyhow::anyhow!("No level {given}. Levels: {}.", levels.join(", ")))?;
+        self.link
+            .client
+            .request_ok(DaemonCommand::SetThinkingLevel {
+                id: None,
+                active_session_id: binding.active_session_id.clone(),
+                level: found.clone(),
+                rest: Map::default(),
+            })
+            .await
+            .map(|_| format!("Thinking set to {found}."))
     }
 
     /// Send one message to the agent; on success Signal holds the floor.

@@ -16,6 +16,10 @@ pub(crate) enum PhoneCommand {
     Stop,
     Status,
     Memory,
+    /// `/model` lists; `/model N` switches to the Nth listed model.
+    Model(Option<String>),
+    /// `/reasoning` shows; `/reasoning <level>` sets it.
+    Reasoning(Option<String>),
 }
 
 /// What one text message means to the gateway.
@@ -35,7 +39,7 @@ struct Spec {
     description: &'static str,
 }
 
-const COMMANDS: [Spec; 8] = [
+const COMMANDS: [Spec; 10] = [
     Spec {
         name: "help",
         usage: "/help",
@@ -76,6 +80,16 @@ const COMMANDS: [Spec; 8] = [
         usage: "/memory",
         description: "Show the chat memory state.",
     },
+    Spec {
+        name: "model",
+        usage: "/model [N]",
+        description: "Show the models; N switches to one.",
+    },
+    Spec {
+        name: "reasoning",
+        usage: "/reasoning [level]",
+        description: "Show the thinking level; a level sets it.",
+    },
 ];
 
 /// Parse one text message (without images).
@@ -114,6 +128,10 @@ pub(crate) fn parse(text: &str) -> Parsed {
         ("stop", []) => PhoneCommand::Stop,
         ("status", []) => PhoneCommand::Status,
         ("memory", []) => PhoneCommand::Memory,
+        ("model", []) => PhoneCommand::Model(None),
+        ("model", [number]) => PhoneCommand::Model(Some((*number).to_string())),
+        ("reasoning", []) => PhoneCommand::Reasoning(None),
+        ("reasoning", [level]) => PhoneCommand::Reasoning(Some((*level).to_string())),
         _ => {
             return match COMMANDS.iter().find(|spec| spec.name == name) {
                 Some(spec) => Parsed::Answer(format!("Usage: {}", line(spec))),
@@ -176,5 +194,28 @@ mod tests {
             parse("/help"),
             Parsed::Command(PhoneCommand::Help)
         ));
+    }
+
+    #[test]
+    fn model_and_reasoning_parse_with_and_without_arguments() {
+        assert!(matches!(
+            parse("/model"),
+            Parsed::Command(PhoneCommand::Model(None))
+        ));
+        assert!(matches!(
+            parse("/model 2"),
+            Parsed::Command(PhoneCommand::Model(Some(number))) if number == "2"
+        ));
+        assert!(matches!(
+            parse("/reasoning"),
+            Parsed::Command(PhoneCommand::Reasoning(None))
+        ));
+        assert!(matches!(
+            parse("/reasoning high"),
+            Parsed::Command(PhoneCommand::Reasoning(Some(level))) if level == "high"
+        ));
+        // A wrong argument count gets the usage line, never the agent.
+        assert!(matches!(parse("/model 2 3"), Parsed::Answer(_)));
+        assert!(matches!(parse("/reasoning low extra"), Parsed::Answer(_)));
     }
 }
