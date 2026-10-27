@@ -633,6 +633,13 @@ impl SettingsManager {
         self.cvars().list(&table::SHELL_AUTO_EFFECTS)
     }
 
+    /// `privacy.anonymizeRemote`: scrub outbound request text of a remote
+    /// provider (default true).
+    #[must_use]
+    pub fn get_privacy_anonymize_remote(&self) -> bool {
+        self.cvars().bool(&table::PRIVACY_ANONYMIZE_REMOTE)
+    }
+
     /// `ssh.hosts`: the hosts an `ssh://` read may reach (Global: new
     /// outbound traffic). Empty: every `ssh://` read is rejected.
     #[must_use]

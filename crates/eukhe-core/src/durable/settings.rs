@@ -557,6 +557,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         context_retention_ms: None,
         document_retention_ms: None,
         max_tool_rounds: Some(manager.get_max_tool_rounds()),
+        privacy_anonymize_remote: Some(manager.get_privacy_anonymize_remote()),
     }
 }
 

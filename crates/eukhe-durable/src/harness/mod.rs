@@ -66,6 +66,7 @@ pub use compaction::{
 
 // HarnessGeneration modules.
 pub mod generation;
+pub mod privacy;
 
 pub use generation::{
     ForcedToolError, GenerationCheckpoint, GenerationInput, GenerationResult, GenerationTask,

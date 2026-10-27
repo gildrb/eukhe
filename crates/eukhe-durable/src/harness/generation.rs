@@ -646,6 +646,15 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
     };
     let sent_at = runtime.now()?;
+    // A remote provider sees pseudonyms, not the memory's text
+    // (`privacy.anonymizeRemote`, harness/privacy).
+    let messages = if runtime.settings().privacy_anonymize_remote
+        && !crate::harness::privacy::is_local(&model.base_url)
+    {
+        crate::harness::privacy::scrub_messages(messages)
+    } else {
+        messages
+    };
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -922,6 +931,14 @@ async fn provider_tokens(
 ) -> u64 {
     let extra = planned_messages(planned);
     let messages = view.messages.iter().chain(&extra).cloned().collect();
+    // The count request reaches the provider: it reads pseudonyms too.
+    let messages = if runtime.settings().privacy_anonymize_remote
+        && !crate::harness::privacy::is_local(&model.base_url)
+    {
+        crate::harness::privacy::scrub_messages(messages)
+    } else {
+        messages
+    };
     let mut request = stream.simple_stream_options().stream.request;
     request.signal = Some(runtime.signal());
     let options = ModelsCapabilityOptions::from(CapabilityOptions { request });

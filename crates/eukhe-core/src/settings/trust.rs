@@ -254,6 +254,8 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         titles,
         tts,
         stt,
+        // An untrusted project must not turn the outbound scrub off.
+        privacy: _,
         extra,
     } = document;
     let mut retry_limits = Vec::new();
@@ -372,6 +374,8 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         titles,
         tts,
         stt,
+        // An untrusted project must not turn the outbound scrub off.
+        privacy: None,
         extra: serde_json::Map::new(),
     };
     (kept, ignored_keys)

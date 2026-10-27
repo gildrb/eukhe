@@ -248,8 +248,19 @@ pub struct TtsSettings {
     pub local_voice: Option<String>,
 }
 
+/// `privacy`: what leaves for a remote provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacySettings {
+    /// Scrub the outbound request text of a remote (non-loopback)
+    /// provider: emails, phones, payment instruments, government IDs, API
+    /// keys, IP addresses, absolute paths, hosts and domains become
+    /// stable pseudonyms (default true).
+    pub anonymize_remote: Option<bool>,
+}
+
 /// `stt`: speech to text (dictation into the editor draft).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SttSettings {
     /// Turn on the dictation keys (default false).
@@ -547,6 +558,8 @@ pub struct Settings {
     pub tts: Option<TtsSettings>,
     /// `stt`: speech to text.
     pub stt: Option<SttSettings>,
+    /// `privacy`: outbound anonymization.
+    pub privacy: Option<PrivacySettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

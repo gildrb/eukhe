@@ -805,6 +805,16 @@ pub const TERMINAL_SHOW_SPEED: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// Scrub outbound request text for a remote provider (harness/privacy).
+pub const PRIVACY_ANONYMIZE_REMOTE: Decl = Decl {
+    id: "privacy.anonymizeRemote",
+    ty: CvarType::Bool,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::Bool(true),
+};
+
 pub const TERMINAL_FULLSCREEN: Decl = Decl {
     id: "terminal.fullscreen",
     ty: CvarType::Bool,
@@ -1097,7 +1107,15 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
     init: Init::Null,
 };
 
-pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net", "outside", "protected"];
+pub(crate) const SHELL_EFFECTS: &[&str] = &[
+    "read",
+    "write",
+    "exec",
+    "net",
+    "outside",
+    "protected",
+    "secret",
+];
 
 /// The effects a shell command may have without asking; by default every
 /// grantable effect (law `default_auto_is_grantable`):
@@ -1303,6 +1321,7 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_CLEAR_ON_SHRINK,
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_SHOW_SPEED,
+    PRIVACY_ANONYMIZE_REMOTE,
     TERMINAL_FULLSCREEN,
     TERMINAL_PINNED_AGENTS,
     TERMINAL_STUCK_AFTER_SECS,

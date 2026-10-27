@@ -6,10 +6,11 @@ use crate::settings::types::{
     AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
     CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings,
     ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
-    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
-    RetryFailoverSettings, RetrySettings, Settings, ShellSettings, SignalGatewaySettings,
-    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
-    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, WarningSettings,
+    PrivacySettings, ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings,
+    QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings, ShellSettings,
+    SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings, TerminalSettings,
+    ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings,
+    WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -198,6 +199,9 @@ fn populated() -> Settings {
         }),
         stt: Some(SttSettings {
             enabled: Some(true),
+        }),
+        privacy: Some(PrivacySettings {
+            anonymize_remote: Some(true),
         }),
         extra: serde_json::Map::new(),
     }

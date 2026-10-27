@@ -121,6 +121,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
                 .and_then(|progress| progress.output_interval_ms)
                 .unwrap_or(DEFAULT_PROGRESS_POLICY.output_interval_ms),
         },
+        privacy_anonymize_remote: settings
+            .and_then(|settings| settings.privacy_anonymize_remote)
+            .unwrap_or(true),
         tool_execution: settings
             .and_then(|settings| settings.tool_execution)
             .unwrap_or(ToolExecutionMode::Parallel),
