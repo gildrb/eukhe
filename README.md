@@ -31,7 +31,7 @@ eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dash
 
 ## Privacy
 
-- `privacy.anonymizeRemote` (default on): a remote provider gets tokens (`PERSON_1`, mapped back so tool calls run) for names, emails, home names, paths, domains, and hashes for keys, cards, phones, IPs. Loopback providers see raw text; the log always keeps it.
+- `privacy.anonymizeRemote` (default on): a remote provider gets tokens (`PERSON_1`, mapped back so tool calls run) for names, emails, home names, paths, and hashes for keys, cards, phones, IPs. Loopback providers see raw text; the log always keeps it. Domains pass as they are (the model must read them); your own domain goes in the terms.
 - `privacy.terms`: your phrases become tokens. `"privacy": { "terms": ["Gil Rodrigues"] }` in `~/.eukhe/settings.json`.
 
 ## Agents

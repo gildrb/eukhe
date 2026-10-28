@@ -5,14 +5,18 @@
 //! Two kinds of pseudonym:
 //!
 //! - Mapped (`CLASS_<n>`, one index space per class): the phrases of
-//!   `privacy.terms` (free-text names, `PERSON`), home-dir names
-//!   (`HOME`), emails (`EMAIL`), whole absolute paths (`PATH`) and
-//!   domains (`DOMAIN`). The map is in memory and append-only: the same
-//!   original keeps its index for the daemon's life, and
-//!   [`Scrubber::unredact`] maps a token back, so a remote model's tool
-//!   call that names `PATH_3` executes against the real path. The chat
-//!   memory in `~/.eukhe` is never touched - the scrub runs on the
-//!   outbound copy only.
+//!   `privacy.terms` (free-text names and any phrase of yours, including
+//!   your own domains, `PERSON`), home-dir names (`HOME`), emails
+//!   (`EMAIL`) and whole absolute paths (`PATH`). The map is in memory
+//!   and append-only: the same original keeps its index for the daemon's
+//!   life, and [`Scrubber::unredact`] maps a token back, so a remote
+//!   model's tool call that names `PATH_3` executes against the real
+//!   path. The chat memory in `~/.eukhe` is never touched - the scrub
+//!   runs on the outbound copy only.
+//!
+//! Domains are not scrubbed: a reference the model must read (docs, an
+//! API endpoint, a repo) has to arrive as it is, and a common domain
+//! says nothing about you. Your own domain goes in `privacy.terms`.
 //! - Hashed (`CLASS_<6 hex of the value's SHA-256>`, irreversible): API
 //!   keys and tokens, PEM blocks, IBANs, government IDs, phone numbers,
 //!   IP addresses, credit cards. What must never come back is hashed;
@@ -115,8 +119,7 @@ fn original_of(token: &str) -> Option<String> {
 
 /// The token grammar of the mapped classes: `CLASS_<digits>`.
 static TOKEN_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new("(?:PERSON|HOME|EMAIL|PATH|DOMAIN)_[0-9]+")
-        .expect("the token grammar compiles")
+    regex_lite::Regex::new("(?:PERSON|HOME|EMAIL|PATH)_[0-9]+").expect("the token grammar compiles")
 });
 
 /// Whether `text` is one mapped token.
@@ -173,8 +176,8 @@ fn term_rules(terms: &[String]) -> Vec<TermRule> {
 // ------------
 
 /// Scrubs one request's text: the mapped classes first (terms, home
-/// names, emails, paths, domains), then the hashed classes (keys, IDs,
-/// phones, IPs, cards).
+/// names, emails, paths), then the hashed classes (keys, IDs, phones,
+/// IPs, cards). Domains pass as they are.
 #[derive(Clone)]
 pub struct Scrubber {
     terms: Vec<TermRule>,
@@ -266,19 +269,6 @@ static PATH_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
     .expect("compiles")
 });
 
-/// A URL's host: the scheme and path stay readable.
-static URL_HOST_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new("(?i)(https?://)([a-z0-9][a-z0-9.-]*\\.[a-z]{2,})").expect("compiles")
-});
-
-/// A bare domain.
-static DOMAIN_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new(
-        "\\b[a-z0-9][a-z0-9.-]*\\.(?:com|org|net|io|dev|ai|de|eu|sh|app|co|xyz|me|info)\\b",
-    )
-    .expect("compiles")
-});
-
 impl Scrubber {
     /// The scrubber for `terms` (`privacy.terms`): every phrase becomes a
     /// `PERSON_<n>` token at word boundaries.
@@ -316,7 +306,6 @@ impl Scrubber {
                 }
             })
             .into_owned();
-        // Emails before domains: the domain passes would mangle them.
         text = EMAIL_RE
             .replace_all(&text, |caps: &regex_lite::Captures| {
                 mapped("EMAIL", caps.get(0).map_or("", |m| m.as_str()))
@@ -330,28 +319,6 @@ impl Scrubber {
                     whole.to_string()
                 } else {
                     mapped("PATH", whole)
-                }
-            })
-            .into_owned();
-        // Domains: the scheme stays, the host becomes DOMAIN_<n>.
-        text = URL_HOST_RE
-            .replace_all(&text, |caps: &regex_lite::Captures| {
-                let scheme = caps.get(1).map_or("", |m| m.as_str());
-                let host = caps.get(2).map_or("", |m| m.as_str());
-                if is_token(host) {
-                    format!("{scheme}{host}")
-                } else {
-                    format!("{scheme}{}", mapped("DOMAIN", host))
-                }
-            })
-            .into_owned();
-        text = DOMAIN_RE
-            .replace_all(&text, |caps: &regex_lite::Captures| {
-                let whole = caps.get(0).map_or("", |m| m.as_str());
-                if is_token(whole) {
-                    whole.to_string()
-                } else {
-                    mapped("DOMAIN", whole)
                 }
             })
             .into_owned();
@@ -625,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn paths_ips_domains_and_homes_are_scrubbed() {
+    fn paths_ips_and_homes_are_scrubbed_domains_pass() {
         let out = scrubber().scrub_str(
             "the log at /home/gilrodrigues/Repos/eukhe/target and /var/log/syslog says 10.0.0.7 refused https://api.anthropic.com/v1",
         );
@@ -636,9 +603,14 @@ mod tests {
         assert!(out.contains("PATH_"));
         assert!(!out.contains("/var/log/syslog"));
         assert!(!out.contains("10.0.0.7"));
-        assert!(!out.contains("api.anthropic.com"));
         assert!(out.contains("IP_"));
-        assert!(out.contains("DOMAIN_"));
+        // A domain the model must read (deploy, docs, search) passes as it is.
+        assert!(out.contains("https://api.anthropic.com/v1"));
+        // Your own domain is a term, not a shape.
+        let own = Scrubber::new(&["gildrb.com".to_owned()]);
+        assert!(!own
+            .scrub_str("deploy gildrb.com now")
+            .contains("gildrb.com"));
     }
 
     #[test]
@@ -720,7 +692,7 @@ mod leak_tests {
     #[test]
     fn no_original_survives_anywhere() {
         let scrubber = Scrubber::new(&["Gil Rodrigues".to_owned()]);
-        let text = "Gil Rodrigues, gil rodrigues, GIL RODRIGUES; gil@example.org, gil+tag@example.org; /home/gilrodrigues/x, /var/log/auth.log; https://api.anthropic.com/v1, openrouter.ai; sk-abcdefghijklmnopqrstuvwx, ghp_AAAABBBBCCCCDDDDEEEE; +49 172 4510 5432; 10.0.0.7, 2001:db8::1; 4111 1111 1111 1111";
+        let text = "Gil Rodrigues, gil rodrigues, GIL RODRIGUES; gil@example.org, gil+tag@example.org; /home/gilrodrigues/x, /var/log/auth.log; sk-abcdefghijklmnopqrstuvwx, ghp_AAAABBBBCCCCDDDDEEEE; +49 172 4510 5432; 10.0.0.7, 2001:db8::1; 4111 1111 1111 1111";
         let out = scrubber.scrub_str(text);
         let lowered = out.to_ascii_lowercase();
         for original in [
@@ -729,8 +701,6 @@ mod leak_tests {
             "gil+tag@example.org",
             "/home/gilrodrigues",
             "/var/log/auth.log",
-            "api.anthropic.com",
-            "openrouter.ai",
             "sk-abcdefghijklmnopqrstuvwx",
             "ghp_aaaabbbbccccddddeeee",
             "172 4510 5432",
