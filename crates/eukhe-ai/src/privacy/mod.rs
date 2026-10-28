@@ -158,8 +158,11 @@ fn term_rules(terms: &[String]) -> Vec<TermRule> {
         .iter()
         .filter(|term| !term.trim().is_empty())
         .map(|term| TermRule {
-            regex: regex_lite::Regex::new(&format!(r"\b{term}\b", term = regex_lite::escape(term)))
-                .expect("a term pattern compiles"),
+            regex: regex_lite::Regex::new(&format!(
+                r"(?i)\b{term}\b",
+                term = regex_lite::escape(term)
+            ))
+            .expect("a term pattern compiles"),
         })
         .collect();
     *cached = Some((terms.to_vec(), rules.clone()));
@@ -705,5 +708,52 @@ mod tests {
         assert!(scrubbed.contains("HOME_"));
         assert!(scrubbed.contains("KEY_"));
         assert!(scrubbed.contains("EMAIL_"));
+    }
+}
+
+#[cfg(test)]
+mod leak_tests {
+    use super::*;
+
+    /// A corpus of identifying text; scrubbing must leave none of the
+    /// originals (for names, in any case).
+    #[test]
+    fn no_original_survives_anywhere() {
+        let scrubber = Scrubber::new(&["Gil Rodrigues".to_owned()]);
+        let text = "Gil Rodrigues, gil rodrigues, GIL RODRIGUES; gil@example.org, gil+tag@example.org; /home/gilrodrigues/x, /var/log/auth.log; https://api.anthropic.com/v1, openrouter.ai; sk-abcdefghijklmnopqrstuvwx, ghp_AAAABBBBCCCCDDDDEEEE; +49 172 4510 5432; 10.0.0.7, 2001:db8::1; 4111 1111 1111 1111";
+        let out = scrubber.scrub_str(text);
+        let lowered = out.to_ascii_lowercase();
+        for original in [
+            "gil rodrigues",
+            "gil@example.org",
+            "gil+tag@example.org",
+            "/home/gilrodrigues",
+            "/var/log/auth.log",
+            "api.anthropic.com",
+            "openrouter.ai",
+            "sk-abcdefghijklmnopqrstuvwx",
+            "ghp_aaaabbbbccccddddeeee",
+            "172 4510 5432",
+            "10.0.0.7",
+            "2001:db8::1",
+            "4111",
+        ] {
+            assert!(
+                !lowered.contains(original),
+                "{original} survived scrubbing: {out}"
+            );
+        }
+    }
+
+    /// What a scrubbed request still tells a provider: the token classes,
+    /// and everything a pattern cannot see.
+    #[test]
+    fn what_still_leaks_is_visible() {
+        let scrubber = Scrubber::new(&[]);
+        let out = scrubber.scrub_str("my sister Anna and my repo poros at C:\\Users\\gil");
+        // Not in the term list, no pattern shape: both travel as-is. This
+        // test documents the boundary, it does not assert a property.
+        assert!(out.contains("Anna"));
+        assert!(out.contains("poros"));
     }
 }

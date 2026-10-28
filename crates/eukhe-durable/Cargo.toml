@@ -47,8 +47,6 @@ base64 = "0.22"
 # testing/bridge: the bridge tests' scratch directory (the `testing`
 # feature only). MIT OR Apache-2.0.
 tempfile = { version = "3", optional = true }
-# harness/privacy: the outbound scrub's patterns. MIT OR Apache-2.0.
-regex-lite.workspace = true
 
 [features]
 # `eukhe_durable::testing`: the storage and environment conformance suites,

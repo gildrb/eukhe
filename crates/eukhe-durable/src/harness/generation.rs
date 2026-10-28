@@ -646,16 +646,8 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
     };
     let sent_at = runtime.now()?;
-    // A remote provider sees pseudonyms, not the memory's text
-    // (`privacy.anonymizeRemote`, harness/privacy).
-    let messages = if runtime.settings().privacy_anonymize_remote
-        && !crate::harness::privacy::is_local(&model.base_url)
-    {
-        crate::harness::privacy::Scrubber::new(&runtime.settings().privacy_terms)
-            .scrub_messages(messages)
-    } else {
-        messages
-    };
+    // A remote provider sees pseudonyms, not the memory's text: the
+    // provider runtime scrubs every stream request (`privacy.anonymizeRemote`).
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -934,10 +926,9 @@ async fn provider_tokens(
     let messages = view.messages.iter().chain(&extra).cloned().collect();
     // The count request reaches the provider: it reads pseudonyms too.
     let messages = if runtime.settings().privacy_anonymize_remote
-        && !crate::harness::privacy::is_local(&model.base_url)
+        && !eukhe_ai::privacy::is_local(&model.base_url)
     {
-        crate::harness::privacy::Scrubber::new(&runtime.settings().privacy_terms)
-            .scrub_messages(messages)
+        eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms).scrub_messages(messages)
     } else {
         messages
     };
