@@ -1346,7 +1346,7 @@ mod tests {
         let fixture = fixture_set(
             /*text_only*/ true,
             "shared-1",
-            &serde_json::json!({ "privacy": { "terms": ["Gil Rodrigues"] } }),
+            &serde_json::json!({ "privacy": { "terms": ["Ada Lovelace"] } }),
         );
         let echo = |handle: &FauxProviderHandle| {
             handle.set_responses(vec![FauxResponseStep::factory(
@@ -1391,21 +1391,20 @@ mod tests {
             &fixture.models,
             &remote,
             vec![said(
-                "Gil Rodrigues works at /home/gil/x, mail gil@example.org",
+                "Ada Lovelace works at /home/ada/x, mail dev@example.net",
             )],
         )
         .await;
         let seen = format!("{reply:?}");
         assert!(seen.contains("PERSON_1"), "the name became a token: {seen}");
-        assert!(
-            seen.contains("HOME_1"),
-            "the home name became a token: {seen}"
-        );
         assert!(seen.contains("EMAIL_1"), "the email became a token: {seen}");
-        assert!(!seen.contains("Gil Rodrigues"), "the name leaked: {seen}");
-        assert!(!seen.contains("/home/gil"), "the path leaked: {seen}");
+        assert!(!seen.contains("Ada Lovelace"), "the name leaked: {seen}");
         assert!(
-            !seen.contains("gil@example.org"),
+            seen.contains("/home/ada/x"),
+            "a path the model must read passes: {seen}"
+        );
+        assert!(
+            !seen.contains("dev@example.net"),
             "the email leaked: {seen}"
         );
 
@@ -1414,16 +1413,16 @@ mod tests {
         let reply = drive(
             &fixture.models,
             &local,
-            vec![said("Gil Rodrigues works at /home/gil/x")],
+            vec![said("Ada Lovelace works at /home/ada/x")],
         )
         .await;
         let seen = format!("{reply:?}");
         assert!(
-            seen.contains("Gil Rodrigues"),
+            seen.contains("Ada Lovelace"),
             "loopback sees raw text: {seen}"
         );
         assert!(
-            seen.contains("/home/gil/x"),
+            seen.contains("/home/ada/x"),
             "loopback sees raw paths: {seen}"
         );
     }

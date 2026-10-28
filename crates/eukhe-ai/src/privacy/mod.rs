@@ -6,17 +6,17 @@
 //!
 //! - Mapped (`CLASS_<n>`, one index space per class): the phrases of
 //!   `privacy.terms` (free-text names and any phrase of yours, including
-//!   your own domains, `PERSON`), home-dir names (`HOME`), emails
-//!   (`EMAIL`) and whole absolute paths (`PATH`). The map is in memory
-//!   and append-only: the same original keeps its index for the daemon's
-//!   life, and [`Scrubber::unredact`] maps a token back, so a remote
-//!   model's tool call that names `PATH_3` executes against the real
-//!   path. The chat memory in `~/.eukhe` is never touched - the scrub
-//!   runs on the outbound copy only.
+//!   your own domain, `PERSON`) and emails (`EMAIL`). The map is in
+//!   memory and append-only: the same original keeps its index for the
+//!   daemon's life, and [`Scrubber::unredact`] maps a token back, so a
+//!   remote model's tool call that names one still runs. The chat memory
+//!   in `~/.eukhe` is never touched - the scrub runs on the outbound
+//!   copy only.
 //!
-//! Domains are not scrubbed: a reference the model must read (docs, an
-//! API endpoint, a repo) has to arrive as it is, and a common domain
-//! says nothing about you. Your own domain goes in `privacy.terms`.
+//! Paths and domains are not scrubbed: a coding model reads them to work
+//! (a file you point at, a screenshot's path, an endpoint to deploy),
+//! and scrubbing them broke exactly that. A path says little about you;
+//! your own name, domain or username goes in `privacy.terms`.
 //! - Hashed (`CLASS_<6 hex of the value's SHA-256>`, irreversible): API
 //!   keys and tokens, PEM blocks, IBANs, government IDs, phone numbers,
 //!   IP addresses, credit cards. What must never come back is hashed;
@@ -122,16 +122,6 @@ static TOKEN_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
     regex_lite::Regex::new("(?:PERSON|HOME|EMAIL|PATH)_[0-9]+").expect("the token grammar compiles")
 });
 
-/// Whether `text` is one mapped token.
-fn is_token(text: &str) -> bool {
-    TOKEN_RE.is_match(text)
-}
-
-/// Whether `text` holds a mapped token anywhere.
-fn holds_token(text: &str) -> bool {
-    TOKEN_RE.is_match(text)
-}
-
 // The terms
 // ---------
 /// One phrase of `privacy.terms` as a word-bounded pattern.
@@ -141,8 +131,8 @@ struct TermRule {
 }
 
 /// The compiled term rules, cached for the terms they were built from:
-/// longest first, so "Gil Rodrigues" wins over "Gil", each escaped and
-/// word-bounded, case-sensitive.
+/// longest first, so a full name wins over its first name, each escaped
+/// and word-bounded, case-insensitive.
 type TermCache = Option<(Vec<String>, Vec<TermRule>)>;
 static TERM_RULES: LazyLock<Mutex<TermCache>> = LazyLock::new(|| Mutex::new(None));
 
@@ -175,9 +165,9 @@ fn term_rules(terms: &[String]) -> Vec<TermRule> {
 // The scrubber
 // ------------
 
-/// Scrubs one request's text: the mapped classes first (terms, home
-/// names, emails, paths), then the hashed classes (keys, IDs, phones,
-/// IPs, cards). Domains pass as they are.
+/// Scrubs one request's text: the mapped classes first (terms, emails),
+/// then the hashed classes (keys, IDs, phones, IPs, cards). Paths and
+/// domains pass as they are.
 #[derive(Clone)]
 pub struct Scrubber {
     terms: Vec<TermRule>,
@@ -251,22 +241,9 @@ struct Pass {
 // The mapped patterns (class, pattern with one replace group; the guard
 // holds when a match already carries a token).
 
-/// The home root and its first segment.
-static HOME_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new("(/(?:home|Users)/)([A-Za-z0-9._-]+)").expect("compiles")
-});
-
 /// An email.
 static EMAIL_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
     regex_lite::Regex::new("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").expect("compiles")
-});
-
-/// An absolute path: two segments or more, so a lone `/` never matches.
-static PATH_RE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new(
-        "/(?:home|Users|root|mnt|media|srv|opt|var|etc|usr|private)(?:/[A-Za-z0-9._-]+)+",
-    )
-    .expect("compiles")
 });
 
 impl Scrubber {
@@ -294,32 +271,9 @@ impl Scrubber {
                 })
                 .into_owned();
         }
-        // Home names: the root stays, the segment becomes HOME_<n>.
-        text = HOME_RE
-            .replace_all(&text, |caps: &regex_lite::Captures| {
-                let root = caps.get(1).map_or("", |m| m.as_str());
-                let segment = caps.get(2).map_or("", |m| m.as_str());
-                if is_token(segment) {
-                    format!("{root}{segment}")
-                } else {
-                    format!("{root}{}", mapped("HOME", segment))
-                }
-            })
-            .into_owned();
         text = EMAIL_RE
             .replace_all(&text, |caps: &regex_lite::Captures| {
                 mapped("EMAIL", caps.get(0).map_or("", |m| m.as_str()))
-            })
-            .into_owned();
-        // Whole absolute paths whose text holds no token yet.
-        text = PATH_RE
-            .replace_all(&text, |caps: &regex_lite::Captures| {
-                let whole = caps.get(0).map_or("", |m| m.as_str());
-                if holds_token(whole) {
-                    whole.to_string()
-                } else {
-                    mapped("PATH", whole)
-                }
             })
             .into_owned();
         // The hashed classes.
@@ -538,7 +492,7 @@ mod tests {
     use super::*;
 
     fn scrubber() -> Scrubber {
-        Scrubber::new(&["Gil Rodrigues".to_owned()])
+        Scrubber::new(&["Ada Lovelace".to_owned()])
     }
 
     #[test]
@@ -551,29 +505,29 @@ mod tests {
     }
 
     #[test]
-    fn every_class_gets_a_stable_pseudonym() {
-        let email = scrubber().scrub_str("write to gil@example.com about the invoice");
+    fn emails_get_a_stable_token() {
+        let email = scrubber().scrub_str("write to dev@example.net about the invoice");
         let expected = "write to EMAIL_1 about the invoice";
         assert_eq!(email, expected);
         // The same input twice: the same token.
         assert_eq!(
-            scrubber().scrub_str("gil@example.com"),
-            scrubber().scrub_str("gil@example.com")
+            scrubber().scrub_str("dev@example.net"),
+            scrubber().scrub_str("dev@example.net")
         );
         // A different input: a different token.
         assert_ne!(
-            scrubber().scrub_str("gil@example.com"),
-            scrubber().scrub_str("sam@example.com")
+            scrubber().scrub_str("dev@example.net"),
+            scrubber().scrub_str("ops@example.net")
         );
     }
 
     #[test]
     fn terms_scrub_names_and_only_at_boundaries() {
-        let out = scrubber().scrub_str("ask Gil Rodrigues, not Gilbert");
-        assert_eq!(out, "ask PERSON_1, not Gilbert");
+        let out = scrubber().scrub_str("ask Ada Lovelace, not Adalbert");
+        assert_eq!(out, "ask PERSON_1, not Adalbert");
         // A term inside a longer word does not match.
-        let inside = Scrubber::new(&["Gil".to_owned()]).scrub_str("Gilbert stays");
-        assert_eq!(inside, "Gilbert stays");
+        let inside = Scrubber::new(&["Ada".to_owned()]).scrub_str("Adalbert stays");
+        assert_eq!(inside, "Adalbert stays");
     }
 
     #[test]
@@ -592,25 +546,22 @@ mod tests {
     }
 
     #[test]
-    fn paths_ips_and_homes_are_scrubbed_domains_pass() {
+    fn ips_are_scrubbed_paths_and_domains_pass() {
         let out = scrubber().scrub_str(
-            "the log at /home/gilrodrigues/Repos/eukhe/target and /var/log/syslog says 10.0.0.7 refused https://api.anthropic.com/v1",
+            "the log at /home/lovelace/Repos/eukhe/target and /var/log/syslog says 10.0.0.7 refused https://api.anthropic.com/v1",
         );
-        assert!(!out.contains("/home/gilrodrigues"));
-        assert!(!out.contains("gilrodrigues"));
-        assert!(out.contains("/home/HOME_"));
-        // A home path keeps its shape; a non-home path maps whole.
-        assert!(out.contains("PATH_"));
-        assert!(!out.contains("/var/log/syslog"));
         assert!(!out.contains("10.0.0.7"));
         assert!(out.contains("IP_"));
-        // A domain the model must read (deploy, docs, search) passes as it is.
+        // A path the model must read (a file you point at, a
+        // screenshot's path) passes as it is; so does a domain.
+        assert!(out.contains("/home/lovelace/Repos/eukhe/target"));
+        assert!(out.contains("/var/log/syslog"));
         assert!(out.contains("https://api.anthropic.com/v1"));
         // Your own domain is a term, not a shape.
-        let own = Scrubber::new(&["gildrb.com".to_owned()]);
+        let own = Scrubber::new(&["example.dev".to_owned()]);
         assert!(!own
-            .scrub_str("deploy gildrb.com now")
-            .contains("gildrb.com"));
+            .scrub_str("deploy example.dev now")
+            .contains("example.dev"));
     }
 
     #[test]
@@ -623,7 +574,7 @@ mod tests {
 
     #[test]
     fn scrubbing_scrubbed_text_changes_nothing() {
-        let text = "Gil Rodrigues works in /home/gilrodrigues/x, mail gil@example.com, https://api.anthropic.com/v1, key sk-abcdefghijklmnopqrstuvwx";
+        let text = "Ada Lovelace works in /home/lovelace/x, mail dev@example.net, https://api.anthropic.com/v1, key sk-abcdefghijklmnopqrstuvwx";
         let once = scrubber().scrub_str(text);
         let twice = scrubber().scrub_str(&once);
         assert_eq!(once, twice);
@@ -631,13 +582,11 @@ mod tests {
 
     #[test]
     fn unredact_maps_tokens_back_and_never_hashed_ones() {
-        let text = "Gil Rodrigues reads /var/log/syslog and /home/gilrodrigues/x, mail gil@example.com, key sk-abcdefghijklmnopqrstuvwx";
+        let text = "Ada Lovelace, mail dev@example.net, key sk-abcdefghijklmnopqrstuvwx";
         let scrubbed = scrubber().scrub_str(text);
         let back = scrubber().unredact(&scrubbed);
-        assert!(back.contains("Gil Rodrigues"));
-        assert!(back.contains("/var/log/syslog"));
-        assert!(back.contains("/home/gilrodrigues/x"));
-        assert!(back.contains("gil@example.com"));
+        assert!(back.contains("Ada Lovelace"));
+        assert!(back.contains("dev@example.net"));
         // The key never comes back.
         assert!(!back.contains("sk-abcdefghijklmnopqrstuvwx"));
         assert!(back.contains("KEY_"));
@@ -645,41 +594,41 @@ mod tests {
 
     #[test]
     fn tool_arguments_map_back_through_the_map() {
-        let scrubbed = scrubber().scrub_str("cat /home/gilrodrigues/notes/day.md");
+        let scrubbed = scrubber().scrub_str("write to Ada Lovelace about the notes");
         let mut arguments = eukhe_types::JsonMap::new();
         arguments.insert("script".to_owned(), serde_json::Value::String(scrubbed));
         let back = scrubber().unredact_arguments(&arguments);
         assert_eq!(
             back.get("script").and_then(|value| value.as_str()),
-            Some("cat /home/gilrodrigues/notes/day.md")
+            Some("write to Ada Lovelace about the notes")
         );
     }
 
     #[test]
     fn messages_of_every_role_are_scrubbed() {
         let messages: Vec<Message> = serde_json::from_value(serde_json::json!([
-            { "role": "system", "content": "workspace /home/gil/work", "timestamp": 0 },
+            { "role": "system", "content": "workspace /home/dev/work", "timestamp": 0 },
             { "role": "user", "content": "my key is ghp_AAAABBBBCCCCDDDDEEEE", "timestamp": 0 },
             { "role": "assistant", "content": [
                 { "type": "toolCall", "id": "t1", "name": "bash",
-                  "arguments": { "script": "cat /home/gil/.ssh/id_ed25519" } },
+                  "arguments": { "script": "cat /home/dev/.ssh/id_ed25519" } },
             ],
               "api": "anthropic", "provider": "anthropic", "model": "m", "timestamp": 0,
               "usage": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
                          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
               "stopReason": "stop" },
             { "role": "toolResult", "toolCallId": "t1", "toolName": "bash", "isError": false,
-              "content": [ { "type": "text", "text": " mailed sam@example.org the file" } ],
+              "content": [ { "type": "text", "text": " mailed ops@example.org the file" } ],
               "timestamp": 0 },
         ]))
         .expect("the wire shapes");
         let scrubbed = format!("{:?}", scrubber().scrub_messages(messages));
-        assert!(!scrubbed.contains("/home/gil"));
         assert!(!scrubbed.contains("ghp_AAAABBBBCCCCDDDDEEEE"));
-        assert!(!scrubbed.contains("sam@example.org"));
-        assert!(scrubbed.contains("HOME_"));
+        assert!(!scrubbed.contains("ops@example.org"));
         assert!(scrubbed.contains("KEY_"));
         assert!(scrubbed.contains("EMAIL_"));
+        // A path in a tool call argument passes as it is.
+        assert!(scrubbed.contains("/home/dev/.ssh/id_ed25519"));
     }
 }
 
@@ -691,16 +640,14 @@ mod leak_tests {
     /// originals (for names, in any case).
     #[test]
     fn no_original_survives_anywhere() {
-        let scrubber = Scrubber::new(&["Gil Rodrigues".to_owned()]);
-        let text = "Gil Rodrigues, gil rodrigues, GIL RODRIGUES; gil@example.org, gil+tag@example.org; /home/gilrodrigues/x, /var/log/auth.log; sk-abcdefghijklmnopqrstuvwx, ghp_AAAABBBBCCCCDDDDEEEE; +49 172 4510 5432; 10.0.0.7, 2001:db8::1; 4111 1111 1111 1111";
+        let scrubber = Scrubber::new(&["Ada Lovelace".to_owned()]);
+        let text = "Ada Lovelace, ada lovelace, ADA LOVELACE; dev@example.net, dev+tag@example.net; sk-abcdefghijklmnopqrstuvwx, ghp_AAAABBBBCCCCDDDDEEEE; +49 172 4510 5432; 10.0.0.7, 2001:db8::1; 4111 1111 1111 1111";
         let out = scrubber.scrub_str(text);
         let lowered = out.to_ascii_lowercase();
         for original in [
-            "gil rodrigues",
-            "gil@example.org",
-            "gil+tag@example.org",
-            "/home/gilrodrigues",
-            "/var/log/auth.log",
+            "ada lovelace",
+            "dev@example.net",
+            "dev+tag@example.net",
             "sk-abcdefghijklmnopqrstuvwx",
             "ghp_aaaabbbbccccddddeeee",
             "172 4510 5432",
@@ -720,10 +667,10 @@ mod leak_tests {
     #[test]
     fn what_still_leaks_is_visible() {
         let scrubber = Scrubber::new(&[]);
-        let out = scrubber.scrub_str("my sister Anna and my repo poros at C:\\Users\\gil");
+        let out = scrubber.scrub_str("my sister Mia and my repo poros at C:\\Users\\dev");
         // Not in the term list, no pattern shape: both travel as-is. This
         // test documents the boundary, it does not assert a property.
-        assert!(out.contains("Anna"));
+        assert!(out.contains("Mia"));
         assert!(out.contains("poros"));
     }
 }
