@@ -31,16 +31,11 @@ eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dash
 
 ## Privacy
 
-- `privacy.anonymizeRemote` (default on): a request to a remote
-  (non-loopback) provider carries pseudonyms, never your text. Keys,
-  cards, phones, IPs and IDs become hashes; names, emails, paths and
-  domains become mapped tokens that map back, so the model's tool calls
-  still run.
-- `privacy.terms` in `~/.eukhe/settings.json`: phrases a provider must
-  not see (your name, your hostname). Example:
-  `"privacy": { "terms": ["Gil Rodrigues"] }`.
-- Local models (loopback) see everything. The chat log keeps the real
-  text; only the outbound copy is scrubbed.
+- `privacy.anonymizeRemote` (default on): a remote (non-loopback) provider gets pseudonyms, never your text. The log keeps the real text.
+- Map back (tool calls still run): names, emails, home names, paths, domains.
+- Hashed, never back: keys, cards, phones, IPs, IDs.
+- Local (loopback) models see everything.
+- `privacy.terms`: your phrases. `"privacy": { "terms": ["Gil Rodrigues"] }` in `~/.eukhe/settings.json`.
 
 ## Agents
 
