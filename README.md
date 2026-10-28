@@ -1,6 +1,6 @@
 # eukhe
 
-eukhe (Greek εὐχή: a wish, a prayer): a coding agent that knows a lot because its memory is one endless chat log shared by all sessions. Fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) by Prime Intellect, not affiliated ([Attribution](#attribution)).
+eukhe (Greek εὐχή: a wish, a prayer): a coding agent whose memory is one endless chat log shared by all sessions ([Attribution](#attribution)).
 
 ## Install
 
@@ -31,11 +31,8 @@ eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dash
 
 ## Privacy
 
-- `privacy.anonymizeRemote` (default on): a remote (non-loopback) provider gets pseudonyms, never your text. The log keeps the real text.
-- Map back (tool calls still run): names, emails, home names, paths, domains.
-- Hashed, never back: keys, cards, phones, IPs, IDs.
-- Local (loopback) models see everything.
-- `privacy.terms`: your phrases. `"privacy": { "terms": ["Gil Rodrigues"] }` in `~/.eukhe/settings.json`.
+- `privacy.anonymizeRemote` (default on): a remote provider gets tokens (`PERSON_1`, mapped back so tool calls run) for names, emails, home names, paths, domains, and hashes for keys, cards, phones, IPs. Loopback providers see raw text; the log always keeps it.
+- `privacy.terms`: your phrases become tokens. `"privacy": { "terms": ["Gil Rodrigues"] }` in `~/.eukhe/settings.json`.
 
 ## Agents
 
