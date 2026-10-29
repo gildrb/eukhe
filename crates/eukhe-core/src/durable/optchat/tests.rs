@@ -34,7 +34,7 @@ use super::lines::LogLine;
 use super::logger::LoggerHandle;
 use super::request::request_messages;
 use super::OptChat;
-use crate::durable::{HarnessCell, TurnWait, TurnWaitSink};
+use crate::durable::HarnessCell;
 use crate::memory::{
     AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
     DATE_TOOL_DESCRIPTION, TURN_TASK, ZOOM_TOOL_DESCRIPTION,
@@ -202,10 +202,6 @@ struct Setup {
 
 impl Setup {
     async fn new(role: MemoryRole) -> Setup {
-        Setup::with_sink(role, None).await
-    }
-
-    async fn with_sink(role: MemoryRole, turn_wait: Option<TurnWaitSink>) -> Setup {
         let dir = tempfile::tempdir().unwrap();
         let memory = Memory::open(dir.path().join("chat"), Arc::new(NoModel))
             .await
@@ -220,7 +216,6 @@ impl Setup {
             "session".to_string(),
             Arc::new(crate::durable::EukheSettings::new(dir.path(), dir.path())),
             cell.clone(),
-            turn_wait,
         );
         let registry = create_registry();
         registry.install(chat.extension()).unwrap();
@@ -475,11 +470,7 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     // The turn line goes to the model only; the chat logs the words alone.
     let first_user = format!("user:{first_view}|{TURN_TASK}\nhello[cache]");
     assert_eq!(
-        (
-            requests.described(),
-            after_first,
-            setup.chat.turn.lock().await.held()
-        ),
+        (requests.described(), after_first,),
         (
             vec![
                 vec!["system".to_string(), first_user.clone()],
@@ -501,8 +492,7 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                 (Kind::Echo, zoomed),
                 (Kind::Eukhe, "done".to_string()),
             ],
-            false,
-        )
+        ),
     );
     // The first message of a run is byte-identical across its requests.
     let all = requests.all();
@@ -743,50 +733,6 @@ async fn a_subagent_pins_one_view_for_its_conversation_and_logs_nothing() {
                 (Kind::User, "earlier".to_string()),
                 (Kind::User, "later".to_string()),
             ],
-        )
-    );
-    session.close(&setup).await;
-}
-
-#[tokio::test]
-async fn a_call_behind_another_windows_turn_reports_the_wait_until_granted() {
-    let waits: Arc<Mutex<Vec<TurnWait>>> = Arc::default();
-    let waiting = Arc::new(Notify::new());
-    let sink: TurnWaitSink = {
-        let waits = Arc::clone(&waits);
-        let waiting = Arc::clone(&waiting);
-        Arc::new(move |wait| {
-            lock(&waits).push(wait);
-            if wait == TurnWait::Waiting {
-                waiting.notify_one();
-            }
-        })
-    };
-    let setup = Setup::with_sink(MemoryRole::Root, Some(sink)).await;
-    let other_window = Memory::open(setup.chat_dir(), Arc::new(NoModel))
-        .await
-        .unwrap();
-    let other_turn = other_window.acquire_turn().await.unwrap();
-    let requests = Requests::default();
-    setup
-        .faux
-        .set_responses(vec![requests.step(answer("done"))]);
-    let session = setup
-        .open(Arc::new(MemoryStorage::new()), Logging::On)
-        .await;
-    let shown = waiting.notified();
-    session.submit("hello").await;
-    shown.await;
-    let before_grant = (requests.all().len(), lock(&waits).clone());
-    other_turn.release().await.unwrap();
-    session.root.wait_for_idle(cx()).await.unwrap();
-    setup.chat.flush().await.unwrap();
-    assert_eq!(
-        (before_grant, requests.all().len(), lock(&waits).clone()),
-        (
-            (0, vec![TurnWait::Waiting]),
-            1,
-            vec![TurnWait::Waiting, TurnWait::Cleared]
         )
     );
     session.close(&setup).await;
@@ -1456,9 +1402,9 @@ async fn a_failed_transform_fails_the_turn_and_sends_nothing() {
     let session = setup
         .open(Arc::new(MemoryStorage::new()), Logging::Off)
         .await;
-    // The session's hold on the chat is closed: the transform cannot take
-    // the root-turn lease.
-    setup.chat.turn.lock().await.close().await.unwrap();
+    // The session's harness is closed: the request transform fails before
+    // anything goes to the model.
+    setup.cell.clear();
     let settled = session
         .root
         .submit(
@@ -1489,10 +1435,9 @@ async fn a_failed_transform_fails_the_turn_and_sends_nothing() {
         (
             Vec::<Vec<String>>::new(),
             Some("model_error"),
-            Some("A request hook failed: the session closed".to_string()),
+            Some("A request hook failed: Harness is closed".to_string()),
             Vec::<String>::new(),
         )
     );
-    setup.cell.clear();
     session.harness.close(cx()).await.unwrap();
 }

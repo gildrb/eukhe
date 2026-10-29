@@ -120,7 +120,6 @@ impl LoggerHandle {
 /// history predates the chat memory), then every commit.
 pub(super) async fn start(chat: Arc<OptChat>, harness: Harness) -> SessionResult<LoggerHandle> {
     let cx = BACKGROUND_CONTEXT.clone();
-    chat.turn.lock().await.open();
     let mut followed = BTreeSet::new();
     for conversation in root_conversations(&harness, &cx).await? {
         if harness
@@ -193,12 +192,12 @@ fn wakes(change: &CommitChange) -> bool {
     }
 }
 
-/// How a pass may take the lease.
+/// How far a pass goes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PassMode {
-    /// Wait for the lease when there is something to log.
+    /// Keep passing until every followed conversation is idle and logged.
     Normal,
-    /// Closing: log only under a lease this session already holds.
+    /// Closing: one pass, then stop.
     Closing,
 }
 
@@ -264,42 +263,31 @@ impl Logger {
         self.close().await;
     }
 
-    /// Log what the held lease allows, persist, and give the lease back.
+    /// Log what there is to log, persist, and stop.
     async fn close(&mut self) {
         if let Err(error) = self.pass(PassMode::Closing).await {
             tracing::warn!(target: "chat_memory", "cannot log to the chat at close: {error}");
         }
-        let mut state = self.chat.turn.lock().await;
-        if state.held() && self.dirty {
+        if self.dirty {
             if let Err(error) = self.chat.memory.persist().await {
                 tracing::warn!(target: "chat_memory", "cannot persist the chat: {error:#}");
             }
             self.dirty = false;
         }
-        if let Err(error) = state.close().await {
-            tracing::warn!(target: "chat_memory", "cannot release the chat's turn: {error:#}");
-        }
     }
 
     /// Log every followed conversation up to what its run holds back; then,
-    /// when every root conversation is idle and logged, persist and give
-    /// the lease back. The decision reads the runs under the lease lock: a
-    /// call that finds the lease held there runs while its run is live, so
-    /// the lease stays.
+    /// when every root conversation is idle and logged, persist.
     async fn pass(&mut self, mode: PassMode) -> SessionResult<()> {
         let chat = Arc::clone(&self.chat);
         loop {
             let followed: Vec<ConversationId> = self.followed.iter().copied().collect();
             for conversation in followed {
-                if !self.log_conversation(conversation, &chat, mode).await? {
+                if !self.log_conversation(conversation, &chat).await? {
                     return Ok(());
                 }
             }
             if mode == PassMode::Closing {
-                return Ok(());
-            }
-            let mut state = chat.turn.lock().await;
-            if !state.held() {
                 return Ok(());
             }
             for &conversation in &self.followed {
@@ -311,8 +299,7 @@ impl Logger {
                 }
             }
             if self.pending().await? {
-                // An entry landed after this pass looked: log it before the
-                // lease goes back.
+                // An entry landed after this pass looked: log it.
                 continue;
             }
             if self.dirty {
@@ -322,20 +309,18 @@ impl Logger {
                     .map_err(|error| memory_error(&error))?;
                 self.dirty = false;
             }
-            return state.release().await.map_err(|error| memory_error(&error));
+            return Ok(());
         }
     }
 
     /// Log the entries of `conversation` after its cursor and before its
-    /// run's start while the run has not pinned its view. `false` when a
-    /// closing pass needs a lease this session does not hold. The entries
+    /// run's start while the run has not pinned its view. The entries
     /// are read before the run state: an entry committed with a run's start
     /// is then always seen with that run.
     async fn log_conversation(
         &mut self,
         conversation: ConversationId,
         chat: &OptChat,
-        mode: PassMode,
     ) -> SessionResult<bool> {
         let cursor = self.cursor(conversation).await?;
         let min = cursor
@@ -367,18 +352,6 @@ impl Logger {
             lines.extend(entry_lines(entry)?);
         }
         if !lines.is_empty() {
-            match mode {
-                PassMode::Normal => chat
-                    .turn
-                    .ensure(&chat.memory)
-                    .await
-                    .map_err(|error| memory_error(&error))?,
-                PassMode::Closing => {
-                    if !chat.turn.lock().await.held() {
-                        return Ok(false);
-                    }
-                }
-            }
             let scope = format!("{}/{conversation}", chat.session_id);
             for (seq, line) in (cursor.lines..).zip(&lines) {
                 let key = AppendKey {

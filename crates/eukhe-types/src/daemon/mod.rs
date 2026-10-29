@@ -114,7 +114,6 @@ pub struct DaemonEventMeta {
 
 mod agent_relay;
 pub mod agent_roster;
-mod chat_turn_wait;
 mod chat_view;
 mod command;
 mod cvar;
@@ -130,7 +129,6 @@ pub mod timing;
 mod worker;
 
 pub use agent_relay::AgentRelayEvent;
-pub use chat_turn_wait::CHAT_TURN_WAIT_NOTICE;
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     AdmissionPriority, AgentPeerScope, CycleDirection, DaemonClientKind, DaemonCommand,

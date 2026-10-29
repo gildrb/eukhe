@@ -46,10 +46,6 @@ pub(super) async fn transform(
                 return Ok(None);
             };
             let key = run_key(&run);
-            chat.turn
-                .claim(&chat.memory, chat.turn_wait.as_ref())
-                .await
-                .map_err(|error| memory_error(&error))?;
             let (call, pinned) = match call_state(&harness, conversation, &cx).await? {
                 Some(call) if call.run_key.as_deref() == Some(key.as_str()) => (call, false),
                 Some(_) | None => {

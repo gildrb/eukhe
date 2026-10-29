@@ -896,7 +896,6 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
-            | SessionEvent::ChatTurnWait { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::AgentRelay(_)
             | SessionEvent::BashStart { .. }

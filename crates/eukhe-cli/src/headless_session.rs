@@ -14,7 +14,7 @@ use eukhe_chord::context::Context;
 use eukhe_core::durable::{
     fork_session, most_recent_session_for_cwd, open_session, read_session_cwd, resolve_session,
     EukheSession, ForkPoint, ModelRequest, PromptConfig, ResolvedListing, SessionConfig,
-    SessionLocation, SessionRole, SessionStorage, TurnWait, TurnWaitSink,
+    SessionLocation, SessionRole, SessionStorage,
 };
 use eukhe_daemon::lease::SessionLease;
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
@@ -48,20 +48,6 @@ pub(crate) enum HeadlessTarget {
         location: PathBuf,
         reuse_lease: bool,
     },
-}
-
-/// How the session's chat turn waits surface (print: a stderr notice; rpc:
-/// a `chat_turn_wait` frame).
-pub(crate) type TurnWaitHook = TurnWaitSink;
-
-/// The print modes' turn-wait sink: a prompt queued behind another window's
-/// turn on the shared chat says so on stderr (stdout stays the answer or
-/// the JSON stream).
-pub(crate) fn stderr_turn_wait() -> TurnWaitHook {
-    Arc::new(|wait| match wait {
-        TurnWait::Waiting => eprintln!("{}", eukhe_types::daemon::CHAT_TURN_WAIT_NOTICE),
-        TurnWait::Cleared => {}
-    })
 }
 
 /// The sessions directory (the `--session-dir` flag, else the agent dir's
@@ -100,7 +86,6 @@ pub(crate) enum Selection {
 pub(crate) async fn open_headless_session(
     options: &RunOptions,
     target: HeadlessTarget,
-    turn_wait: Option<TurnWaitHook>,
     cx: &Context,
 ) -> Result<HeadlessSession, String> {
     let selection = match target {
@@ -127,7 +112,6 @@ pub(crate) async fn open_headless_session(
                 &options.config.cwd,
                 &session_id,
                 SessionStorage::Memory,
-                turn_wait,
             )
             .await?;
             let session = open(config, cx).await?;
@@ -143,7 +127,7 @@ pub(crate) async fn open_headless_session(
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir), turn_wait).await?;
+            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
             let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
@@ -156,7 +140,7 @@ pub(crate) async fn open_headless_session(
         Selection::Fork { source } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir), turn_wait).await?;
+            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
             let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
@@ -198,7 +182,7 @@ pub(crate) async fn open_headless_session(
                         })?;
                 }
             }
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir), turn_wait).await?;
+            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
             let session = open(config, cx).await?;
             if cwd_override.is_some() {
                 set_main_cwd(&session, &cwd, cx).await?;
@@ -398,7 +382,6 @@ async fn session_config(
     cwd: &Path,
     session_id: &str,
     storage: SessionStorage,
-    turn_wait: Option<TurnWaitHook>,
 ) -> Result<SessionConfig, String> {
     let config = &options.config;
     let mut session = SessionConfig::new(&config.agent_dir, cwd, session_id, storage);
@@ -423,7 +406,6 @@ async fn session_config(
             .collect(),
         ..PromptConfig::default()
     };
-    session.turn_wait = turn_wait;
     if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {
         let script = parse_faux_script(&script)
             .map_err(|error| format!("invalid EUKHE_FAUX_SCRIPT: {error}"))?;

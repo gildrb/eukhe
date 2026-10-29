@@ -113,15 +113,6 @@ pub struct PromptConfig {
     pub conversation_log_path: Option<PathBuf>,
 }
 
-/// What `OptChat` reports about a turn waiting on the root-turn lease.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TurnWait {
-    /// The turn waits for another session's root turn to finish.
-    Waiting,
-    /// The wait ended.
-    Cleared,
-}
-
 /// A requested model as the CLI takes it: `--provider` (optional) and
 /// `--model` (an id, `provider/id`, a pattern, optionally `:level`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,9 +129,6 @@ impl From<ModelRef> for ModelRequest {
         }
     }
 }
-
-/// Receives [`TurnWait`] changes synchronously (the daemon shows them).
-pub type TurnWaitSink = Arc<dyn Fn(TurnWait) + Send + Sync>;
 
 /// Receives every text delta a compaction summary streams while it
 /// generates (the daemon's live `compaction_summary_delta` seam; the old
@@ -223,8 +211,6 @@ pub struct SessionConfig {
     pub mcp_login: Option<McpLogin>,
     /// Harness clock (ms since the epoch); `None` uses the system clock.
     pub now: Option<Clock>,
-    /// Turn-wait notifications (`OptChat` root-turn lease).
-    pub turn_wait: Option<TurnWaitSink>,
     /// The provider admission authority the session's model requests ask
     /// (the daemon worker's supervisor link); `None` uses this process's
     /// shared in-process authority ([`crate::admission::local_admission`]).
@@ -291,7 +277,6 @@ impl SessionConfig {
             mcp: None,
             mcp_login: None,
             now: None,
-            turn_wait: None,
             admission: None,
             admission_state: None,
             cron: None,
@@ -475,7 +460,6 @@ pub struct HostDeps {
     pub mcp: Arc<Mutex<crate::mcp::McpManager>>,
     /// Python skills the project trust admits into the kernel.
     pub python_skills: Vec<KernelPythonSkill>,
-    pub turn_wait: Option<TurnWaitSink>,
     pub cron: Option<KernelCronWiring>,
     pub extra_host_handlers: Option<HostRequestHandlers>,
     pub late_agent_message: Option<LateAgentMessageSink>,
@@ -553,7 +537,6 @@ impl HostDeps {
             generic_mcp_servers: services.generic_mcp_servers,
             mcp: services.mcp,
             python_skills: services.python_skills,
-            turn_wait: config.turn_wait.clone(),
             cron: config.cron.clone(),
             extra_host_handlers: config.extra_host_handlers.clone(),
             late_agent_message: config.late_agent_message.clone(),

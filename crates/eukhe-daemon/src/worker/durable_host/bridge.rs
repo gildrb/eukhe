@@ -481,7 +481,6 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
-            | SessionEvent::ChatTurnWait { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::AgentRelay(_)
             | SessionEvent::BashStart { .. }

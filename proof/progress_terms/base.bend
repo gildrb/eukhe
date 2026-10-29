@@ -4,7 +4,7 @@ import Base
 import ../../bend/progress.bend as Pr
 import ../../bend/child.bend as Ch
 import ../../laws/progress_terms.bend as ProgressTerms
-import ../lease/base/terms.bend as LT
+import ../base/terms.bend as LT
 
 def pg.mem(+x: Nat, xs: List<&2, Nat>) -> {ProgressTerms.mem_spec(x, xs) == Pr.mem(x, xs) : Bool}:
   match xs:

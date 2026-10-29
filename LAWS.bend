@@ -7,7 +7,6 @@ import ./laws/base.bend as LawsBase
 import ./laws/optchat.bend as Optchat
 import ./laws/compactor.bend as Compactor
 import ./laws/wait.bend as WaitLaws
-import ./laws/lease.bend as Lease
 import ./laws/child.bend as Child
 import ./laws/admission.bend as Admission
 import ./laws/tree.bend as Tree

@@ -11,15 +11,10 @@ use std::time::Duration;
 
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
 use eukhe_types::pi_ai::{Context, ImageContent, Message, UserContent, UserContentBlock};
-use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::{mpsc, oneshot};
 
 use super::actor::commit;
-use super::client::Client;
-use super::turn::TURN_FILE;
-use super::{
-    ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request, Zoomed,
-};
+use super::{ImportItem, KeyedAppend, Memory, MemoryStatus, RenderedView, Reply, Request, Zoomed};
 use crate::memory::compactor::tests::{reply, thinking_only, Scripted, Silent};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{CompactionPrompt, VIEW_FILE};
@@ -148,42 +143,6 @@ fn long(id: u64) -> String {
     format!("message {id}: {}", "x".repeat(NODE))
 }
 
-/// Where turns log their names, in the order they hold the lease.
-type Log = mpsc::UnboundedSender<String>;
-
-/// The names logged so far.
-fn logged(log: &mut mpsc::UnboundedReceiver<String>) -> Vec<String> {
-    std::iter::from_fn(|| log.try_recv().ok()).collect()
-}
-
-/// A root turn that has reached the owner's queue, left to run on its own
-/// task: it logs its name once it holds the lease, then releases it.
-async fn queued_turn(
-    memory: &Memory,
-    name: &str,
-    log: &Log,
-) -> tokio::task::JoinHandle<anyhow::Result<()>> {
-    let mut turn = Box::pin({
-        let memory = memory.clone();
-        let name = name.to_string();
-        let log = log.clone();
-        async move {
-            let lease = memory.acquire_turn().await?;
-            log.send(name)
-                .map_err(|_| anyhow::anyhow!("the test stopped listening"))?;
-            lease.release().await
-        }
-    });
-    assert!(
-        futures::poll!(turn.as_mut()).is_pending(),
-        "the lease is held"
-    );
-    // One handle's requests reach the owner in order: once this answers,
-    // the turn is in the queue.
-    memory.status().await.unwrap();
-    tokio::spawn(turn)
-}
-
 /// One runtime thread, so every step below happens in a fixed order: the
 /// compactor's answer runs the node's build to its end (the line reaches
 /// the owner) before the appending client's frame leaves, so each append
@@ -222,103 +181,6 @@ async fn a_settled_view_never_shows_a_placeholder_while_another_client_appends()
     }
 }
 
-#[tokio::test]
-async fn root_turns_go_in_arrival_order_across_processes() {
-    let chat = open().await;
-    let (log, mut names) = mpsc::unbounded_channel();
-    let held = chat.owner.acquire_turn().await.unwrap();
-    let first = queued_turn(&chat.first, "first", &log).await;
-    let second = queued_turn(&chat.second, "second", &log).await;
-    let owner = queued_turn(&chat.owner, "owner", &log).await;
-    held.release().await.unwrap();
-    for turn in [first, second, owner] {
-        within(turn).await.unwrap().unwrap();
-    }
-    assert_eq!(logged(&mut names), ["first", "second", "owner"]);
-}
-
-#[tokio::test]
-async fn a_client_that_hangs_up_frees_its_lease() {
-    let chat = open().await;
-    let (log, mut names) = mpsc::unbounded_channel();
-    // A client process that holds the lease and dies: only its connection
-    // closes.
-    let crashed = Client::connect(
-        connect_transport(&chat.dir.path().join("lock"))
-            .await
-            .unwrap(),
-    );
-    let granted = within(crashed.request(&Request::AcquireTurn { lease: 1 })).await;
-    assert!(
-        matches!(granted, Ok(Outcome::Ok(Reply::Granted))),
-        "{granted:?}"
-    );
-    let next = queued_turn(&chat.first, "next", &log).await;
-    drop(crashed);
-    within(next).await.unwrap().unwrap();
-    assert_eq!(logged(&mut names), ["next"]);
-}
-
-#[tokio::test]
-async fn a_cancelled_wait_leaves_no_lease_behind() {
-    let chat = open().await;
-    let (log, mut names) = mpsc::unbounded_channel();
-    let held = chat.owner.acquire_turn().await.unwrap();
-    // Queued in this order: a client's wait and the owner's own, each
-    // dropped only once the lease has reached it, a client's wait dropped
-    // before, and the turn that must still come.
-    let mut client_wait = Box::pin(chat.first.acquire_turn());
-    assert!(futures::poll!(client_wait.as_mut()).is_pending());
-    chat.first.status().await.unwrap();
-    let mut early_wait = Box::pin(chat.second.acquire_turn());
-    assert!(futures::poll!(early_wait.as_mut()).is_pending());
-    chat.second.status().await.unwrap();
-    let mut owner_wait = Box::pin(chat.owner.acquire_turn());
-    assert!(futures::poll!(owner_wait.as_mut()).is_pending());
-    let last = queued_turn(&chat.second, "last", &log).await;
-    drop(early_wait);
-    // Once this answers, the early wait has left the queue.
-    chat.second.status().await.unwrap();
-    // The lease reaches the client's wait, which nobody polls any more.
-    held.release().await.unwrap();
-    drop(client_wait);
-    // Once this answers, the client's lease has ended and the lease has
-    // reached the owner's own wait, which nobody polls either.
-    chat.first.status().await.unwrap();
-    drop(owner_wait);
-    within(last).await.unwrap().unwrap();
-    assert_eq!(logged(&mut names), ["last"]);
-}
-
-#[tokio::test]
-async fn a_new_owner_never_starts_a_turn_over_a_surviving_one() {
-    let chat = open().await;
-    let held = chat.first.acquire_turn().await.unwrap();
-    // The owner goes away, and the lease it knew with it.
-    drop(chat.owner);
-    // The other client takes the chat over: its owner never knew `held`.
-    chat.second.status().await.unwrap();
-    assert!(chat.second.owns().await);
-    let mut next = Box::pin(chat.second.acquire_turn());
-    assert!(futures::poll!(next.as_mut()).is_pending());
-    // Once this answers, the new owner has granted `next` its lease.
-    chat.second.status().await.unwrap();
-    assert!(
-        futures::poll!(next.as_mut()).is_pending(),
-        "the surviving turn still runs"
-    );
-    let probe = std::fs::File::options()
-        .write(true)
-        .open(chat.dir.path().join(TURN_FILE))
-        .unwrap();
-    assert!(matches!(
-        probe.try_lock(),
-        Err(std::fs::TryLockError::WouldBlock)
-    ));
-    held.release().await.unwrap();
-    within(next).await.unwrap().release().await.unwrap();
-}
-
 /// Runtime files and the view cache stay out of the chat's history (an
 /// ignore file from before one existed gets its line, and a view a chat
 /// committed before is untracked).
@@ -342,7 +204,6 @@ fn a_commit_keeps_runtime_files_and_the_view_cache_out() {
     std::fs::write(dir.path().join(".gitignore"), "lock\nlock.lock/\n").unwrap();
     std::fs::create_dir(dir.path().join("main")).unwrap();
     std::fs::write(dir.path().join("main/2026-10-05.jsonl"), "{}\n").unwrap();
-    std::fs::write(dir.path().join(TURN_FILE), "").unwrap();
     std::fs::write(dir.path().join(VIEW_FILE), "[[0,0]]").unwrap();
     git(&["add", VIEW_FILE]);
     git(&["commit", "-q", "-m", "an old chat"]);
@@ -355,7 +216,7 @@ fn a_commit_keeps_runtime_files_and_the_view_cache_out() {
             git(&["ls-files"]),
         ),
         (
-            "lock\nlock.lock/\nturn\n.*.tmp\nprompt.json\nview.json\n".to_string(),
+            "lock\nlock.lock/\n.*.tmp\nprompt.json\nview.json\n".to_string(),
             ".gitignore\nmain/2026-10-05.jsonl\n".to_string(),
         )
     );
@@ -1131,10 +992,12 @@ async fn a_waiting_turn_stops_a_merge_that_holds_the_slot() {
 /// `memory.settleTimeoutMs` panicked adding its reply deadline to now.
 #[tokio::test]
 async fn a_huge_settle_timeout_does_not_overflow_the_reply_deadline() {
-    let deadline = Request::SettledRender {
-        within_ms: u64::MAX,
-    }
-    .reply_deadline();
+    let deadline = Some(
+        Request::SettledRender {
+            within_ms: u64::MAX,
+        }
+        .reply_deadline(),
+    );
     assert_eq!(super::answered(deadline, async { 7 }).await.unwrap(), 7);
 }
 

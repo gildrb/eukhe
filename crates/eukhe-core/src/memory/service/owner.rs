@@ -13,7 +13,6 @@ use tokio::sync::oneshot;
 
 use super::actor::Actor;
 use super::client::write_lines;
-use super::turn::Origin;
 use super::{ClientFrame, Outcome, Reply, ReplyFrame, Request, Summarizer};
 use crate::memory::view::Part;
 
@@ -52,17 +51,12 @@ impl Drop for OwnerHandle {
 
 pub(super) enum Command {
     Request {
-        origin: Origin,
         request: Request,
         reply: oneshot::Sender<Outcome>,
     },
     /// Send every update from now on to `sender`, until it closes.
     Subscribe {
         sender: tokio::sync::mpsc::UnboundedSender<MemoryUpdate>,
-    },
-    /// A client connection closed: its leases end.
-    Closed {
-        connection: u64,
     },
     /// The response of node `part`'s call number `build` has started: its
     /// prefix is cached, so the calls waiting for it may go (§3.3).
@@ -132,11 +126,7 @@ impl OwnerHandle {
     pub(super) async fn request(&self, request: Request) -> anyhow::Result<Reply> {
         let (reply, receiver) = oneshot::channel();
         self.commands
-            .send(Command::Request {
-                origin: Origin::Local,
-                request,
-                reply,
-            })
+            .send(Command::Request { request, reply })
             .map_err(|_| anyhow::anyhow!("the chat memory actor has stopped"))?;
         match receiver
             .await
@@ -157,24 +147,12 @@ impl OwnerHandle {
             .map_err(|_| anyhow::anyhow!("the chat memory actor has stopped"))?;
         Ok(receiver)
     }
-
-    /// Send `request` without waiting for its reply (the actor may have
-    /// stopped: then nothing is left to do).
-    pub(super) fn post(&self, request: Request) {
-        let (reply, _) = oneshot::channel();
-        let _ = self.commands.send(Command::Request {
-            origin: Origin::Local,
-            request,
-            reply,
-        });
-    }
 }
 
 /// Accept clients until the owner goes away. Every connection task lives
 /// in a `JoinSet` owned by this one: aborting the server closes them all.
 async fn serve(listener: Box<dyn TransportListener>, commands: mpsc::Sender<Command>) {
     let mut connections = tokio::task::JoinSet::new();
-    let mut next_connection: u64 = 0;
     loop {
         // Reap finished connections so the set does not grow forever.
         while connections.try_join_next().is_some() {}
@@ -184,22 +162,17 @@ async fn serve(listener: Box<dyn TransportListener>, commands: mpsc::Sender<Comm
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
-        next_connection += 1;
-        connections.spawn(serve_connection(stream, commands.clone(), next_connection));
+        connections.spawn(serve_connection(stream, commands.clone()));
     }
 }
 
 /// One client connection: JSON-line frames in, replies out by id. Its
-/// requests reach the actor in the order they arrive (a lease's release
-/// never overtakes its request); each reply is awaited on its own task, so
-/// a waiting request never blocks the connection, and a cancelled one
-/// drops its wait. A `subscribe` request streams every update under its
-/// id. When the client hangs up, the actor ends its leases.
-async fn serve_connection(
-    stream: Box<dyn TransportStream>,
-    commands: mpsc::Sender<Command>,
-    connection: u64,
-) {
+/// requests reach the actor in the order they arrive; each reply is
+/// awaited on its own task, so a waiting request never blocks the
+/// connection, and a cancelled one drops its wait. A `subscribe` request
+/// streams every update under its id. When the client hangs up, its
+/// pending replies are dropped.
+async fn serve_connection(stream: Box<dyn TransportStream>, commands: mpsc::Sender<Command>) {
     let (read_half, write_half) = stream.split();
     let (replies, lines) = tokio::sync::mpsc::unbounded_channel();
     let mut tasks = tokio::task::JoinSet::new();
@@ -264,11 +237,7 @@ async fn serve_connection(
             }
             ClientFrame::Request { id, request } => {
                 let (reply, receiver) = oneshot::channel();
-                let sent = commands.send(Command::Request {
-                    origin: Origin::Connection(connection),
-                    request,
-                    reply,
-                });
+                let sent = commands.send(Command::Request { request, reply });
                 if sent.is_err() {
                     // The actor stopped: hang up so the client fails over.
                     break;
@@ -289,8 +258,6 @@ async fn serve_connection(
             }
         }
     }
-    // The client hung up: its leases end (a stopped actor holds none), and
-    // its pending replies have no reader.
-    let _ = commands.send(Command::Closed { connection });
+    // The client hung up; its pending replies have no reader.
     tasks.abort_all();
 }

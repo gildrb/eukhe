@@ -138,8 +138,6 @@ pub enum Entry {
     Work = 83,
     /// `bend/ffi_retry_idle.bend`: a stepper.
     RetryIdle = 84,
-    /// `bend/ffi_lease.bend`: a stepper.
-    Lease = 85,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
@@ -277,7 +275,6 @@ impl Entry {
         Entry::Cron,
         Entry::Work,
         Entry::RetryIdle,
-        Entry::Lease,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,

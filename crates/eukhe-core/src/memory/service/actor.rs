@@ -14,7 +14,6 @@ use tokio::sync::oneshot;
 
 use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
-use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
 use crate::memory::chat::{Batch, Budgets, Chat, Nodes, Step, Zoom};
 use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
@@ -41,8 +40,6 @@ pub(super) struct Actor {
     view_waiters: BTreeMap<(Instant, u64), oneshot::Sender<Outcome>>,
     /// The arrival number of the next waiter.
     next_waiter: u64,
-    /// The root-turn lease.
-    turns: Turns,
     /// The newest keyed message of each append scope (keyed appends).
     scopes: HashMap<String, ScopeMark>,
     failures: HashMap<Part, Failure>,
@@ -152,7 +149,6 @@ impl Actor {
             prompt: Arc::new(prompt),
             view_waiters: BTreeMap::new(),
             next_waiter: 0,
-            turns: Turns::default(),
             scopes,
             failures: HashMap::new(),
             waiting: HashSet::new(),
@@ -194,13 +190,8 @@ impl Actor {
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             };
             match command {
-                Command::Request {
-                    origin,
-                    request,
-                    reply,
-                } => self.handle(origin, request, reply),
+                Command::Request { request, reply } => self.handle(request, reply),
                 Command::Subscribe { sender } => self.subscribers.push(sender),
-                Command::Closed { connection } => self.turns.closed(connection),
                 Command::Started { part, build } => {
                     if self.current(part, build) {
                         // The prefix is written: its waiters read it now.
@@ -238,19 +229,11 @@ impl Actor {
         }
     }
 
-    fn handle(&mut self, origin: Origin, request: Request, reply: oneshot::Sender<Outcome>) {
+    fn handle(&mut self, request: Request, reply: oneshot::Sender<Outcome>) {
         let outcome = match request {
             Request::SettledRender { within_ms } => {
                 self.add_view_waiter(reply, Duration::from_millis(within_ms));
                 return;
-            }
-            Request::AcquireTurn { lease } => {
-                self.turns.acquire(origin, lease, reply);
-                return;
-            }
-            Request::Release { lease } => {
-                self.turns.release(origin, lease);
-                Ok(Reply::Released)
             }
             Request::Append {
                 kind,
@@ -915,10 +898,9 @@ fn readable<T>(
 /// the takeover lock, the turn file, the temporary files of atomic saves,
 /// the compaction prompt (derived from the turns, rewritten often), and
 /// the view cache (a fold of the logs).
-const IGNORED: [&str; 6] = [
+const IGNORED: [&str; 5] = [
     "lock",
     "lock.lock/",
-    TURN_FILE,
     ".*.tmp",
     saved::PROMPT_FILE,
     saved::VIEW_FILE,

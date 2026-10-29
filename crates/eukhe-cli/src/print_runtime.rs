@@ -20,8 +20,7 @@ use futures::FutureExt;
 
 use crate::headless_autonomous::{autonomous_exit_stderr, autonomous_runtime_config};
 use crate::headless_session::{
-    open_headless_session, sessions_dir, stderr_turn_wait, HeadlessSession, HeadlessTarget,
-    Selection,
+    open_headless_session, sessions_dir, HeadlessSession, HeadlessTarget, Selection,
 };
 use crate::headless_terminal::{select_terminal_result, RunFailure};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
@@ -265,7 +264,7 @@ async fn rpc_mode_main(options: &RunOptions) -> Result<i32, String> {
 /// assembly, the mode owns the swap.
 fn rpc_engine_factory(options: &RunOptions) -> eukhe_daemon::rpc::session::RpcEngineFactory {
     let options = options.clone();
-    Arc::new(move |request, turn_wait| {
+    Arc::new(move |request| {
         let options = options.clone();
         async move {
             use eukhe_daemon::rpc::session::RpcEngineRequest;
@@ -280,9 +279,7 @@ fn rpc_engine_factory(options: &RunOptions) -> eukhe_daemon::rpc::session::RpcEn
                     reuse_lease,
                 },
             };
-            let opened =
-                open_headless_session(&options, target, Some(turn_wait), &BACKGROUND_CONTEXT)
-                    .await?;
+            let opened = open_headless_session(&options, target, &BACKGROUND_CONTEXT).await?;
             Ok(eukhe_daemon::rpc::session::RpcEngineHandle {
                 session: opened.session,
                 session_lease: opened.lease,
@@ -343,13 +340,7 @@ async fn print_mode_main(
     lease: &mut Option<eukhe_daemon::lease::SessionLease>,
 ) -> Result<i32, String> {
     let cx = &*BACKGROUND_CONTEXT;
-    let mut opened = open_headless_session(
-        options,
-        HeadlessTarget::Selected,
-        Some(stderr_turn_wait()),
-        cx,
-    )
-    .await?;
+    let mut opened = open_headless_session(options, HeadlessTarget::Selected, cx).await?;
     *lease = opened.lease.take();
     let result = run_prompts(&opened, options, cx).await;
     let HeadlessSession { session, .. } = opened;

@@ -39,7 +39,6 @@ async fn fresh_session_without_a_lease_fails_closed() {
     let Err(error) = open_headless_session(
         &options,
         HeadlessTarget::New { cwd: None },
-        None,
         &BACKGROUND_CONTEXT,
     )
     .await

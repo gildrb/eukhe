@@ -26,13 +26,11 @@ mod prefix_gate;
 mod race;
 #[cfg(test)]
 mod tests;
-mod turn;
 #[cfg(test)]
 mod waits;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -48,8 +46,6 @@ use super::{AppendKey, Kind};
 use client::{claim, Claim, Client, Disconnected, Subscription};
 use owner::OwnerHandle;
 use race::{race, Exits, Raced};
-
-pub use turn::TurnLease;
 
 /// How long a subscription waits before it reconnects to a new owner.
 const RESUBSCRIBE_DELAY: Duration = Duration::from_millis(250);
@@ -166,14 +162,6 @@ enum Request {
     Status,
     Persist,
     Parts,
-    /// Wait for the root-turn lease; `lease` names it on this connection.
-    AcquireTurn {
-        lease: u64,
-    },
-    /// End lease `lease` of this connection, held or still waited for.
-    Release {
-        lease: u64,
-    },
     /// Compactions reuse this system prompt and these tools from now on
     /// (a root turn reports its own, §4).
     SetPrompt {
@@ -222,8 +210,6 @@ enum Reply {
     Parts {
         parts: Vec<(u32, u64)>,
     },
-    Granted,
-    Released,
     PromptSet,
     /// A subscription is registered: every update from here on reaches
     /// it, and so does the effect of any request sent after this reply.
@@ -282,8 +268,6 @@ struct Inner {
     dir: PathBuf,
     summarizer: Arc<dyn Summarizer>,
     link: Mutex<Option<Link>>,
-    /// Names this handle's turn leases (see [`Memory::acquire_turn`]).
-    next_lease: AtomicU64,
 }
 
 #[derive(Clone)]
@@ -311,7 +295,6 @@ impl Memory {
                 dir: dir.into(),
                 summarizer,
                 link: Mutex::new(None),
-                next_lease: AtomicU64::new(1),
             }),
         };
         memory.link().await?;
@@ -547,7 +530,7 @@ impl Memory {
     }
 
     async fn request(&self, mut request: Request) -> anyhow::Result<Reply> {
-        let deadline = request.reply_deadline();
+        let deadline = Some(request.reply_deadline());
         for _ in 0..4 {
             match self.link().await? {
                 Link::Owner(owner) => return owner.request(request).await,
@@ -561,10 +544,6 @@ impl Memory {
                             Request::Import { .. } => anyhow::bail!(
                                 "the chat owner went away during an import; nothing after the last \
                                  reply is certain: check `chat status` before importing again"
-                            ),
-                            // A lease belongs to its connection: it ended with it.
-                            Request::AcquireTurn { .. } | Request::Release { .. } => anyhow::bail!(
-                                "the chat owner went away during a turn lease request"
                             ),
                             // A subscription has its own connection.
                             Request::Subscribe => anyhow::bail!(
@@ -681,7 +660,7 @@ pub(crate) async fn live_parts(dir: &Path) -> Option<Vec<(u32, u64)>> {
     let stream = connect_transport(&dir.join("lock")).await.ok()?;
     let client = Client::connect(stream);
     match answered(
-        Request::Parts.reply_deadline(),
+        Some(Request::Parts.reply_deadline()),
         client.request(&Request::Parts),
     )
     .await
@@ -705,23 +684,18 @@ const REPLY_DEADLINE: Duration = Duration::from_secs(30);
 const IMPORT_ITEM_DEADLINE: Duration = Duration::from_millis(100);
 
 impl Request {
-    /// The longest wait for the reply of an owner in another process:
+    /// The wait for the reply of an owner in another process:
     /// [`REPLY_DEADLINE`], on top of the settle deadline for a settled
-    /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import. A
-    /// lease has none: it waits for the turn ahead of it, and ends when
-    /// that turn's holder releases or crashes, or when its own wait is
-    /// cancelled (dropped).
-    fn reply_deadline(&self) -> Option<Duration> {
+    /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import.
+    fn reply_deadline(&self) -> Duration {
         match self {
-            Request::AcquireTurn { .. } => None,
             Request::SettledRender { within_ms } => {
-                Some(Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE))
+                Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
-            Request::Import { items } => Some(
-                IMPORT_ITEM_DEADLINE
-                    .saturating_mul(u32::try_from(items.len()).unwrap_or(u32::MAX))
-                    .saturating_add(REPLY_DEADLINE),
-            ),
+            Request::Import { items } => {
+                IMPORT_ITEM_DEADLINE * u32::try_from(items.len()).unwrap_or(u32::MAX)
+                    + REPLY_DEADLINE
+            }
             Request::Append { .. }
             | Request::Render
             | Request::Zoom { .. }
@@ -730,9 +704,8 @@ impl Request {
             | Request::Status
             | Request::Persist
             | Request::Parts
-            | Request::Release { .. }
             | Request::SetPrompt { .. }
-            | Request::Subscribe => Some(REPLY_DEADLINE),
+            | Request::Subscribe => REPLY_DEADLINE,
         }
     }
 }

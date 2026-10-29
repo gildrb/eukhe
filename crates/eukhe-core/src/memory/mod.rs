@@ -49,9 +49,7 @@ pub use prompts::{
     ZOOM_TOOL_DESCRIPTION,
 };
 pub use saved::CompactionPrompt;
-pub use service::{
-    KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, TurnLease, Zoomed,
-};
+pub use service::{KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, Zoomed};
 pub use summarizer::{configured_memory_model, SettingsSummarizer};
 
 /// Target size of one summary line, in UTF-8 bytes.

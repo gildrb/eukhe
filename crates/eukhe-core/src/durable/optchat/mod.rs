@@ -19,7 +19,6 @@ mod lines;
 mod logger;
 pub(crate) mod request;
 mod tools;
-mod turn;
 
 #[cfg(test)]
 mod tests;
@@ -35,10 +34,9 @@ use futures::FutureExt;
 pub use docs::{CallState, LoggedState, CALL_DOC, LOGGED_DOC};
 pub(crate) use tools::agent_chat;
 
-use super::{EukheSettings, HarnessCell, HostDeps, TurnWaitSink};
+use super::{EukheSettings, HarnessCell, HostDeps};
 use crate::memory::{Memory, MemoryRole};
 use logger::{LoggerLink, LoggerRequest};
-use turn::RootTurn;
 
 /// The extension name.
 pub const EXTENSION_NAME: &str = "eukhe.optchat";
@@ -54,7 +52,6 @@ pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
         deps.session_id.clone(),
         Arc::clone(&deps.settings),
         deps.harness.clone(),
-        deps.turn_wait.clone(),
     );
     if chat.role == MemoryRole::Root {
         let logged = Arc::clone(&chat);
@@ -79,8 +76,6 @@ pub(crate) struct OptChat {
     /// `memory.settleTimeoutMs`: how long a call waits for the view.
     settings: Arc<EukheSettings>,
     harness: HarnessCell,
-    turn_wait: Option<TurnWaitSink>,
-    turn: RootTurn,
     /// The running logger (root sessions, while open).
     logger: Mutex<Option<LoggerLink>>,
 }
@@ -92,7 +87,6 @@ impl OptChat {
         session_id: String,
         settings: Arc<EukheSettings>,
         harness: HarnessCell,
-        turn_wait: Option<TurnWaitSink>,
     ) -> Arc<Self> {
         Arc::new(Self {
             memory,
@@ -100,8 +94,6 @@ impl OptChat {
             session_id,
             settings,
             harness,
-            turn_wait,
-            turn: RootTurn::default(),
             logger: Mutex::new(None),
         })
     }

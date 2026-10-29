@@ -138,11 +138,6 @@ pub enum SessionEvent {
     GoalUpdate {
         goal: GoalState,
     },
-    /// This window's chat turn waits for another window's turn (`true`),
-    /// or that wait ended (`false`).
-    ChatTurnWait {
-        waiting: bool,
-    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -213,7 +208,6 @@ impl SessionEvent {
             | Self::ServiceTierChanged { .. }
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
-            | Self::ChatTurnWait { .. }
             | Self::MemoryUpdate { .. }
             | Self::AgentRelay(_)
             | Self::BashStart { .. }

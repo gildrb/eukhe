@@ -14,7 +14,6 @@ use eukhe_core::durable::cvar_agent::CvarAgent;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
     McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
-    TurnWait,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_types::daemon::SessionEvent;
@@ -506,19 +505,8 @@ impl Worker {
         if let (Some(summarizer), true) = (memory_summarizer, config.role.is_root()) {
             config.memory = Some(self.chat_memory(summarizer).await?);
         }
-        let core = Arc::clone(&self.core);
-        let events = Arc::clone(&self.events);
         let summary_core = Arc::clone(&self.core);
         let summary_events = Arc::clone(&self.events);
-        config.turn_wait = Some(Arc::new(move |wait| {
-            emit_worker_event_with(
-                &core,
-                &events,
-                SessionEvent::ChatTurnWait {
-                    waiting: matches!(wait, TurnWait::Waiting),
-                },
-            );
-        }));
         // Provider admission: the supervisor owns the daemon-wide slots
         // (a worker without one keeps the in-process authority), and the
         // session's admission state rides its roster summary.

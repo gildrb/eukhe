@@ -54,7 +54,6 @@ import ./ffi_job_rewind.bend as ffi_job_rewind
 import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_launcher.bend as ffi_launcher
-import ./ffi_lease.bend as ffi_lease
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
@@ -312,7 +311,6 @@ type State is Type:
   Bound{s: ffi_bound.St}
   Work{s: ffi_work.St}
   RetryIdle{s: ffi_retry_idle.St}
-  Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
   Dash{s: ffi_dash.St}
   TinyRun{s: ffi_tiny_run.St}
@@ -396,11 +394,6 @@ def open.retry_idle(r: ffi_retry_idle.St & String) -> State & String:
     case (s, reply):
       (RetryIdle{s}, reply)
 
-def open.lease(r: ffi_lease.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (Lease{s}, reply)
-
 def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -463,8 +456,6 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.work(ffi_work.open(input))
     case 84:
       open.retry_idle(ffi_retry_idle.open(input))
-    case 85:
-      open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
     case 101:
@@ -560,11 +551,6 @@ def step.retry_idle(r: ffi_retry_idle.St & String) -> State & String:
     case (s, reply):
       (RetryIdle{s}, reply)
 
-def step.lease(r: ffi_lease.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (Lease{s}, reply)
-
 def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -627,8 +613,6 @@ def step.go(state: State, input: String) -> State & String:
       step.work(ffi_work.step(s, input))
     case RetryIdle{s}:
       step.retry_idle(ffi_retry_idle.step(s, input))
-    case Lease{s}:
-      step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
     case Dash{s}:
@@ -680,8 +664,6 @@ def close.go(state: State) -> Unit:
     case Work{s}:
       Unit{}
     case RetryIdle{s}:
-      Unit{}
-    case Lease{s}:
       Unit{}
     case AuthFlight{s}:
       Unit{}

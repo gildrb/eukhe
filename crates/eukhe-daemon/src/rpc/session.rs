@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_core::durable::goals::goal_state;
-use eukhe_core::durable::{EukheSession, TurnWait, TurnWaitSink};
+use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::daemon::SessionEvent;
@@ -65,14 +65,10 @@ pub enum RpcEngineRequest {
 
 /// The composition root's session assembly. The RPC mode never opens a
 /// session itself — eukhe-cli owns the assembly (cwd, model resolution,
-/// auth), exactly like the TS runtime host owns `createRuntime`. The sink
-/// is the connection's chat turn-wait seam: the factory installs it as the
-/// opened session's `SessionConfig::turn_wait`, so the session's
-/// `chat_turn_wait` frames reach this connection.
+/// auth), exactly like the TS runtime host owns `createRuntime`.
 pub type RpcEngineFactory = Arc<
     dyn Fn(
             RpcEngineRequest,
-            TurnWaitSink,
         ) -> Pin<Box<dyn Future<Output = Result<RpcEngineHandle, String>> + Send>>
         + Send
         + Sync,
@@ -156,16 +152,6 @@ impl ConnectionOutputs {
             .collect();
         self.write_all(frames);
     }
-
-    /// The chat turn-wait sink publishing `chat_turn_wait` frames.
-    pub(crate) fn turn_wait_sink(&self) -> TurnWaitSink {
-        let outputs = self.clone();
-        Arc::new(move |wait: TurnWait| {
-            outputs.write_events([SessionEvent::ChatTurnWait {
-                waiting: matches!(wait, TurnWait::Waiting),
-            }]);
-        })
-    }
 }
 
 /// The live session state one RPC connection drives.
@@ -197,7 +183,7 @@ impl RpcSession {
         factory: RpcEngineFactory,
         outputs: ConnectionOutputs,
     ) -> Result<Self, String> {
-        let handle = factory(RpcEngineRequest::Startup, outputs.turn_wait_sink()).await?;
+        let handle = factory(RpcEngineRequest::Startup).await?;
         let cx = rpc_context();
         let initial_goal = goal_state(handle.session.harness(), handle.session.main().id(), &cx)
             .await
@@ -325,7 +311,7 @@ impl RpcSession {
             }
         }
         let built = tokio::select! {
-            built = (self.factory)(request, self.outputs.turn_wait_sink()) => built,
+            built = (self.factory)(request) => built,
             () = self.signal_shutdown.cancelled() => Err(SIGNAL_EXIT_IN_PROGRESS.to_string()),
         };
         let mut replacement = match built {
@@ -472,22 +458,6 @@ mod tests {
                 json!({ "n": 2 }),
                 json!({ "n": 3 }),
                 json!({ "n": 4 }),
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn turn_waits_publish_chat_turn_wait_frames() {
-        let (writer, mut rx) = LineWriter::channel();
-        let outputs = ConnectionOutputs::new(writer);
-        let sink = outputs.turn_wait_sink();
-        sink(TurnWait::Waiting);
-        sink(TurnWait::Cleared);
-        assert_eq!(
-            written(&mut rx),
-            vec![
-                json!({ "type": "chat_turn_wait", "waiting": true }),
-                json!({ "type": "chat_turn_wait", "waiting": false }),
             ]
         );
     }

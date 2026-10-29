@@ -870,19 +870,6 @@ impl SessionUi {
             TurnUpdate::GoalUpdate(goal) => {
                 self.apply_goal_update(goal, view);
             }
-            TurnUpdate::ChatTurnWait { waiting } => {
-                // The turn waits for another window's turn on the shared
-                // chat: the loader note says so until the wait ends (a
-                // note the wait did not set stays).
-                if let Some(working) = &mut view.working {
-                    let notice = eukhe_types::daemon::CHAT_TURN_WAIT_NOTICE;
-                    if waiting {
-                        working.message = Some(notice.to_string());
-                    } else if working.message.as_deref() == Some(notice) {
-                        working.message = None;
-                    }
-                }
-            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

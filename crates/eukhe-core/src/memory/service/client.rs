@@ -207,15 +207,6 @@ impl Client {
         self.outgoing.send(line).map_err(|_| Disconnected)
     }
 
-    /// Send `request` without waiting: its reply finds no waiter and the
-    /// reader drops it (a closed connection has nothing left to send to).
-    pub(super) fn post(&self, request: Request) {
-        let _ = self.send(&ClientFrame::Request {
-            id: self.next_id.fetch_add(1, Ordering::SeqCst),
-            request,
-        });
-    }
-
     /// Send `request` and wait for its outcome. Dropping the future tells
     /// the owner to drop the wait.
     pub(super) async fn request(&self, request: &Request) -> Result<Outcome, Disconnected> {

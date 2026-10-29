@@ -103,10 +103,6 @@ pub enum TurnUpdate {
         error_message: Option<String>,
         error_severity: Option<ErrorSeverity>,
     },
-    /// `chat_turn_wait`: this session's turn waits for another window's
-    /// turn on the shared chat (`waiting`), or that wait ended. The loader
-    /// note shows the wait; nothing lands in the transcript.
-    ChatTurnWait { waiting: bool },
     /// `prompt_progress`: the model request's server got this far through
     /// the prompt (llama.cpp); the status line's prefill segment shows it.
     PromptProgress(eukhe_types::pi_ai::PromptProgress),
@@ -351,7 +347,6 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
         SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
-        SessionEvent::ChatTurnWait { waiting } => TurnUpdate::ChatTurnWait { waiting: *waiting },
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::AgentRelay(relay) => TurnUpdate::AgentRelay(relay.clone()),
         SessionEvent::BashStart {
