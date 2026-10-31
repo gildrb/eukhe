@@ -54,10 +54,13 @@ pub const GOALS_EXTENSION: &str = "eukhe.goals";
 /// Director stack's step, its limits from the `directors` settings), the
 /// `goal.get` / `goal.create` / `goal.complete` / `directors.push` host
 /// requests registered in `deps.host_requests`, and the run-end failure
-/// observer. Autonomous gates run in the session cwd.
+/// observer. Autonomous gates run in the session cwd. The
+/// `autoresearch.*` host requests register here too: their loop is the
+/// autonomous run.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     observer::install(deps);
+    crate::autoresearch::register_host_requests(deps);
     let settings = Arc::clone(&deps.settings);
     goals_extension(
         deps.harness.clone(),

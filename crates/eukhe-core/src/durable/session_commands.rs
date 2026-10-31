@@ -1,6 +1,6 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, `/autonomous`, `/remind`, `/force`, and `/dynamic-workflow`, including the
-//! `/refine` and `/force` argument parsing.
+//! `/goal`, `/autonomous`, `/remind`, `/force`, `/dynamic-workflow`, and
+//! `/autoresearch`, including the `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //!
 //! The rows are `eukhe.custom` entries committed on the command's
@@ -104,11 +104,12 @@ pub enum SessionCommandName {
     Remind,
     Force,
     DynamicWorkflow,
+    Autoresearch,
 }
 
 impl SessionCommandName {
     /// The command's name as typed (`compact`, `refine`, `goal`,
-    /// `autonomous`, `remind`, `force`).
+    /// `autonomous`, `remind`, `force`, `dynamic-workflow`, `autoresearch`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -119,6 +120,7 @@ impl SessionCommandName {
             Self::Remind => "remind",
             Self::Force => "force",
             Self::DynamicWorkflow => "dynamic-workflow",
+            Self::Autoresearch => "autoresearch",
         }
     }
 
@@ -133,6 +135,7 @@ impl SessionCommandName {
             "remind" => Some(Self::Remind),
             "force" => Some(Self::Force),
             "dynamic-workflow" => Some(Self::DynamicWorkflow),
+            "autoresearch" => Some(Self::Autoresearch),
             _ => None,
         }
     }
@@ -225,6 +228,21 @@ pub async fn execute_session_command(
         },
         SessionCommandName::DynamicWorkflow => {
             execute_dynamic_workflow(session, conversation, command, &mut outcome, cx).await
+        }
+        SessionCommandName::Autoresearch => {
+            match crate::autoresearch::execute_command(session, conversation, &command.args, cx)
+                .await
+            {
+                Ok(text) => {
+                    append_rows(
+                        conversation,
+                        vec![result_row(command, text, Visibility::Shown)],
+                        cx,
+                    )
+                    .await
+                }
+                Err(message) => Err(message),
+            }
         }
     };
     if let Err(message) = result {

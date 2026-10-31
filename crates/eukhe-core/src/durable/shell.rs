@@ -76,10 +76,10 @@ lists every step that ran with its exit status; the output is bounded. A script 
 blocking budget goes on as a job, and its end reaches the session as a [job-settled] message.";
 
 /// Asks through the session's sink; each question's id is the tool
-/// call's id and the step.
-struct SinkApprover {
-    sink: Option<ShellApprovalSink>,
-    call: String,
+/// call's id (or a host request's) and the step.
+pub(crate) struct SinkApprover {
+    pub(crate) sink: Option<ShellApprovalSink>,
+    pub(crate) call: String,
 }
 
 impl Approver for SinkApprover {

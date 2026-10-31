@@ -38,7 +38,7 @@ pub mod rlm;
 mod runner;
 pub(crate) mod session_commands;
 mod settings;
-mod shell;
+pub(crate) mod shell;
 mod staging;
 mod state_tree;
 mod tool_contract;

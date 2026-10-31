@@ -47,6 +47,7 @@ Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a
 
 - `/dynamic-workflow <request>`: the agent writes and runs one orchestration script that starts many subagents (fan-out, pipelines, phases).
 - `--size small|medium|large`: how many agents; `/workflows size` sets the default. `/workflows`: phases, agents, log per run.
+- `/autoresearch <goal>`: an experiment loop on an `autoresearch/*` branch; the agent writes a benchmark (`autoresearch.sh`), measures each experiment, keeps (commits) only improvements. `/autoresearch off|status|clear`.
 
 Details: [docs/workflows.md](docs/workflows.md).
 

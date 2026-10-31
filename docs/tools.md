@@ -133,7 +133,7 @@ The model can call: the roster tools, the tools behind `dyn`, the internal URLs,
    - Each cell is one step with the effect `exec`. It runs immediately only when `exec` is in `shell.autoEffects` (the default).
    - Else the host asks with the same `shell_approval` frame: request id `<call>:cell`, step 0, the code as the command (control and bidi characters escaped), effects `["exec"]`. It asks before it starts the kernel, a job or the blocking budget.
    - On a denial, no client, or no answer, the cell does not run; the model gets the refusal text (`ipython did not run (exec): ` and the text above).
-   - The `bash()` calls and host requests of a cell the gate let run do not ask again.
+   - The `bash()` calls and host requests of a cell the gate let run do not ask again. One exception: `autoresearch.run` runs `bash autoresearch.sh` as a `bash` step through this gate (auto set, path policy, approval sink); with `exec` outside the auto set it asks (request id `autoresearch:<call>:<step>`), see [workflows.md](workflows.md) "Autoresearch".
 9. Remote reads (`ssh://`). An `ssh://` read is new outbound traffic, so
    it is off by default:
    1. The host must be in the setting `ssh.hosts` (list of strings; default empty). The setting is Global: eukhe reads it from the global `settings.json` only; a project cannot set it. The host must match an entry as written (`box`, `me@box`). With an empty list, each `ssh://` read gets the rejection `not_allowed`, and the message names `ssh.hosts`.
