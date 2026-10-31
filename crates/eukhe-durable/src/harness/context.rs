@@ -14,6 +14,7 @@ use eukhe_types::pi_ai::{
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
+use crate::harness::lift::lift_calls;
 use crate::harness::types::ContextView;
 use crate::session::{Session, SessionError, SessionResult};
 use crate::types::{
@@ -471,7 +472,10 @@ fn select_active_refs<'a>(
 
 /// Place each assistant's tool results directly after it in call order.
 /// Results are taken from the messages before the next assistant; a missing
-/// result is synthesized and unmatched results are dropped.
+/// result is synthesized and unmatched results are dropped. Each stamped
+/// call is then lifted to its family's current dialect (`harness/lift.rs`):
+/// a call's lift depends on that call alone, so the order of a sequence is
+/// still the concatenation of the order of its parts.
 #[must_use]
 pub fn order_tool_results(messages: &[Message]) -> Vec<Message> {
     let mut ordered = Vec::with_capacity(messages.len());
@@ -511,6 +515,7 @@ pub fn order_tool_results(messages: &[Message]) -> Vec<Message> {
             });
         }
     }
+    lift_calls(&mut ordered);
     ordered
 }
 

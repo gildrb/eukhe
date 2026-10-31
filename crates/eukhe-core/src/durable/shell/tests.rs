@@ -2,7 +2,8 @@
 //! truncation (whole under the opt-out), and a script past the blocking
 //! budget detached as a job whose end settles it and whose kill stops it.
 //! The gate's refusal texts, and the default auto set against the
-//! compiled core's (`bend/approvals.bend` `default_auto`).
+//! compiled core's (`bend/approvals.bend` `default_auto`). A crash
+//! mid-script never runs it again (`effect_once`).
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -15,13 +16,14 @@ use eukhe_ai::providers::faux::{
 use eukhe_bend::rules::approvals;
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
+use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::pi_ai::{JsonObject, StopReason};
 use serde_json::{json, Value};
 
 use super::*;
 use crate::durable::jobs::{JobEnd, JobState};
 use crate::durable::rlm::tests::{
-    cx, entries, result_text, results, settle, submit, text, Fixture, WAIT_MS,
+    cx, entries, result_text, results, settle, submit, text, wait_for, Fixture, WAIT_MS,
 };
 use crate::durable::EukheSession;
 
@@ -260,6 +262,52 @@ async fn the_kill_of_a_detached_script_stops_it() {
         }
     );
     assert_eq!(job.ended().await, JobEnd::Killed);
+    session.close(cx()).await.expect("close");
+}
+
+/// Speculation, then effect (`effect_once` in `laws/tool_call.bend`): a
+/// crash while a `bash` call runs (an unsafe tool: a step may have
+/// written) settles it `interrupted` after the reopen, and its script
+/// never runs again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_resume_never_runs_a_bash_call_a_crash_interrupted_again() {
+    let fixture = Fixture::new();
+    // A budget past the test: the call blocks, it never detaches as a job.
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        json!({ "toolBlockingBudgetMs": WAIT_MS }).to_string(),
+    )
+    .expect("settings");
+    fixture
+        .faux
+        .set_responses(vec![bash("b1", "echo run >> runs; sleep 60"), text("done")]);
+    let runs = fixture.dir.path().join("work").join("runs");
+    let session = fixture.open_configured(|_| {}).await;
+    let id = submit(&session, "go").await;
+    wait_for("the script's first step", || {
+        let ran = std::fs::read_to_string(&runs).is_ok_and(|text| text == "run\n");
+        async move { ran }
+    })
+    .await;
+    // The worker dies mid-script: nothing more commits.
+    session.harness().close(cx()).await.expect("harness close");
+    drop(session);
+
+    let session = fixture.open_configured(|_| {}).await;
+    assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
+    let all = results(&entries(&session).await);
+    assert_eq!(
+        (
+            all.len(),
+            result_text(&all[0]),
+            std::fs::read_to_string(&runs).expect("the script's file")
+        ),
+        (
+            1,
+            "<harness>\n[error] Tool bash was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>".to_owned(),
+            "run\n".to_owned()
+        )
+    );
     session.close(cx()).await.expect("close");
 }
 

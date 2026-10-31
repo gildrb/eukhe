@@ -4,12 +4,14 @@ import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_approvals.bend as ffi_approvals
+import ./ffi_arg_repair.bend as ffi_arg_repair
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
 import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_bound.bend as ffi_bound
 import ./ffi_cache_marks.bend as ffi_cache_marks
+import ./ffi_call_lift.bend as ffi_call_lift
 import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
@@ -69,6 +71,7 @@ import ./ffi_package_source.bend as ffi_package_source
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_quirks.bend as ffi_quirks
+import ./ffi_rebase.bend as ffi_rebase
 import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
@@ -76,6 +79,7 @@ import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
 import ./ffi_revive.bend as ffi_revive
+import ./ffi_rlm_query.bend as ffi_rlm_query
 import ./ffi_run.bend as ffi_run
 import ./ffi_runners.bend as ffi_runners
 import ./ffi_sandbox.bend as ffi_sandbox
@@ -295,10 +299,20 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_glob.ffi(input)
     case 381:
       ffi_err_text.ffi(input)
+    case 421:
+      ffi_tool_call.ffi(input)
     case 431:
       ffi_family.ffi(input)
     case 432:
       ffi_task_life.ffi(input)
+    case 433:
+      ffi_rlm_query.ffi(input)
+    case 434:
+      ffi_arg_repair.ffi(input)
+    case 435:
+      ffi_call_lift.ffi(input)
+    case 436:
+      ffi_rebase.ffi(input)
     case _:
       W.err("unknown entry")
 

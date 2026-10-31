@@ -8,12 +8,22 @@
 //! that rides with the call as a warning. Arguments that are not JSON, a key
 //! of another dialect, an unknown key of a closed schema, or two keys for one
 //! argument is a typed [`ArgumentError`] that names the fix.
+//!
+//! The decisions run as the compiled Bend core (`eukhe_bend::rules::
+//! arg_repair`, `bend/arg_repair.bend`, laws `laws/arg_repair.bend`): this
+//! module decodes the JSON (the key's JSON string layers, a string's f64
+//! and container readings) and turns the core's answer into the repaired
+//! arguments and their receipts.
 
 use std::fmt;
 
 use eukhe_ai::utils::json_parse::{
     json_parse, parse_json_with_repair, PARSE_ERROR_KEY, RAW_JSON_KEY,
 };
+use eukhe_bend::rules::arg_repair::{
+    self, Arg, Container, Prop, Reading, Record, Refusal, Verdict,
+};
+use eukhe_bend::wire::WireError;
 use eukhe_types::pi_ai::{JsonObject as PiJsonObject, JsonValue as PiJsonValue, ToolSchema};
 use serde::{Deserialize, Serialize};
 
@@ -104,6 +114,15 @@ impl Repair {
     }
 }
 
+impl From<Record> for Repair {
+    fn from(record: Record) -> Self {
+        match record {
+            Record::Alias { from, to } => Self::Alias { from, to },
+            Record::Coercion { key, from, to } => Self::Coercion { key, from, to },
+        }
+    }
+}
+
 /// Arguments in the tool's own dialect and the repairs that made them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Repaired {
@@ -124,11 +143,15 @@ pub enum ArgumentError {
         error: String,
         raw: String,
     },
+    /// A key, name or hint longer than the compiled core reads: nothing was
+    /// decided.
+    #[error("{tool} got arguments too large to read: {error}")]
+    TooLarge { tool: String, error: WireError },
     #[error("{tool} does not take `{key}`: {hint}")]
     Refused {
         tool: String,
         key: String,
-        hint: &'static str,
+        hint: String,
     },
     #[error("{tool} has no argument `{key}`. Valid arguments: {}.", valid.join(", "))]
     Unknown {
@@ -144,58 +167,55 @@ pub enum ArgumentError {
     },
 }
 
-const TRUE: [&str; 4] = ["true", "yes", "on", "1"];
-const FALSE: [&str; 4] = ["false", "no", "off", "0"];
-
 /// Layers of JSON string encoding removed from one key (omp
 /// `MAX_KEY_DECODE_DEPTH`).
 const MAX_KEY_DECODE_DEPTH: usize = 3;
 
-/// `value` as the value of the declared property `schema` when it is another
-/// spelling of the declared `type` (omp `validation.ts`
-/// `tryCoerceForExpectedTypes`, `coerceArgsFromIssues`).
-fn coerce(schema: &PiJsonValue, value: &PiJsonValue) -> Option<PiJsonValue> {
-    let kind = schema.get("type")?.as_str()?;
-    if let PiJsonValue::Number(_) | PiJsonValue::Bool(_) = value {
-        // A number or boolean for a declared string is its JSON text.
-        return (kind == "string").then(|| PiJsonValue::String(value.to_string()));
+/// `key` with its JSON string encoding removed (`"\"path\""` is `path`),
+/// at most [`MAX_KEY_DECODE_DEPTH`] layers; `None` when no layer decodes.
+fn plain_key(key: &str) -> Option<String> {
+    let mut plain: Option<String> = None;
+    for _ in 0..MAX_KEY_DECODE_DEPTH {
+        let current = plain.as_deref().unwrap_or(key);
+        if current.len() < 2 || !current.starts_with('"') || !current.ends_with('"') {
+            break;
+        }
+        let Ok(PiJsonValue::String(inner)) = json_parse(current) else {
+            break;
+        };
+        plain = Some(inner);
     }
+    plain
+}
+
+/// What a string value's trimmed text reads as (omp `validation.ts`
+/// `tryCoerceForExpectedTypes`): its f64, and the container it spells when
+/// it opens with a bracket. Any other value reads as nothing.
+fn reading(value: &PiJsonValue) -> Reading {
     let PiJsonValue::String(text) = value else {
-        return None;
+        return Reading::default();
     };
     let trimmed = text.trim();
-    match kind {
-        "boolean" => {
-            let lower = trimmed.to_ascii_lowercase();
-            if TRUE.contains(&lower.as_str()) {
-                Some(PiJsonValue::Bool(true))
-            } else if FALSE.contains(&lower.as_str()) {
-                Some(PiJsonValue::Bool(false))
-            } else {
-                None
-            }
-        }
-        "integer" => trimmed.parse::<i64>().ok().map(PiJsonValue::from),
-        "number" => trimmed
+    let container = if trimmed.starts_with('{') {
+        Container::Brace(match parse_json_with_repair(trimmed) {
+            Ok(PiJsonValue::Object(object)) => Some(object),
+            Ok(_) | Err(_) => None,
+        })
+    } else if trimmed.starts_with('[') {
+        Container::Bracket(match parse_json_with_repair(trimmed) {
+            Ok(PiJsonValue::Array(array)) => Some(array),
+            Ok(_) | Err(_) => None,
+        })
+    } else {
+        Container::Plain
+    };
+    Reading {
+        number: trimmed
             .parse::<f64>()
             .ok()
             .and_then(serde_json::Number::from_f64)
             .map(PiJsonValue::Number),
-        // A JSON string of the declared container.
-        "object" if trimmed.starts_with('{') => parse_json_with_repair(trimmed)
-            .ok()
-            .filter(PiJsonValue::is_object),
-        "array" if trimmed.starts_with('[') => parse_json_with_repair(trimmed)
-            .ok()
-            .filter(PiJsonValue::is_array),
-        // A lone string for a declared array of strings.
-        "array" => (schema
-            .get("items")
-            .and_then(|items| items.get("type"))
-            .and_then(PiJsonValue::as_str)
-            == Some("string"))
-        .then(|| PiJsonValue::Array(vec![value.clone()])),
-        _ => None,
+        container,
     }
 }
 
@@ -207,8 +227,8 @@ fn coerce(schema: &PiJsonValue, value: &PiJsonValue) -> Option<PiJsonValue> {
 /// # Errors
 ///
 /// [`ArgumentError`] for arguments that are not JSON (the
-/// `__parseError` object of `parse_tool_call_arguments`), and for a refused,
-/// unknown, or doubled argument.
+/// `__parseError` object of `parse_tool_call_arguments`), for a refused,
+/// unknown, or doubled argument, and for a key too long to read.
 pub fn repair_arguments(
     tool: &str,
     parameters: &ToolSchema,
@@ -224,97 +244,70 @@ pub fn repair_arguments(
         });
     }
     let schema = parameters.json();
-    let properties = schema.get("properties").and_then(PiJsonValue::as_object);
-    let closed = schema.get("additionalProperties") == Some(&PiJsonValue::Bool(false));
-    // Keys sent in a JSON string (`"\"path\""`), decoded unless the decoded
-    // key is sent too (omp `validation.ts` `normalizeDoubleEncodedKeys`).
-    let decoded: Vec<(String, String)> = raw
-        .keys()
-        .filter_map(|key| {
-            let mut plain: Option<String> = None;
-            for _ in 0..MAX_KEY_DECODE_DEPTH {
-                let current = plain.as_deref().unwrap_or(key);
-                if current.len() < 2 || !current.starts_with('"') || !current.ends_with('"') {
-                    break;
-                }
-                let Ok(PiJsonValue::String(inner)) = json_parse(current) else {
-                    break;
-                };
-                plain = Some(inner);
-            }
-            plain
-                .filter(|plain| plain != key && !raw.contains_key(plain))
-                .map(|plain| (key.clone(), plain))
+    let none = PiJsonObject::new();
+    let properties = schema
+        .get("properties")
+        .and_then(PiJsonValue::as_object)
+        .unwrap_or(&none);
+    let args = raw
+        .into_iter()
+        .map(|(key, value)| Arg {
+            plain: plain_key(&key),
+            reading: reading(&value),
+            key,
+            value,
         })
         .collect();
-    let mut repairs = Vec::new();
-    let mut sent_as: Vec<(String, String)> = Vec::with_capacity(raw.len());
-    let mut arguments = PiJsonObject::new();
-    for (sent, value) in raw {
-        let key = match decoded.iter().find(|(encoded, _)| *encoded == sent) {
-            Some((_, plain)) => {
-                repairs.push(Repair::Alias {
-                    from: sent,
-                    to: plain.clone(),
-                });
-                plain.clone()
-            }
-            None => sent,
-        };
-        if let Some(refused) = dialect.refused.iter().find(|refused| refused.key == key) {
-            return Err(ArgumentError::Refused {
-                tool: tool.to_owned(),
-                key,
-                hint: refused.hint,
-            });
+    let verdict = arg_repair::repair(
+        arg_repair::Schema {
+            props: properties.iter().map(|(name, declared)| Prop {
+                name,
+                kind: declared.get("type").and_then(PiJsonValue::as_str),
+                items: declared
+                    .get("items")
+                    .and_then(|items| items.get("type"))
+                    .and_then(PiJsonValue::as_str),
+            }),
+            closed: schema.get("additionalProperties") == Some(&PiJsonValue::Bool(false)),
+        },
+        arg_repair::Dialect {
+            aliases: dialect
+                .aliases
+                .iter()
+                .map(|alias| (alias.alias, alias.canonical)),
+            refused: dialect
+                .refused
+                .iter()
+                .map(|refused| (refused.key, refused.hint)),
+        },
+        args,
+    )
+    .map_err(|error| ArgumentError::TooLarge {
+        tool: tool.to_owned(),
+        error,
+    })?;
+    let tool = tool.to_owned();
+    match verdict {
+        Verdict::Repaired { arguments, records } => Ok(Repaired {
+            arguments,
+            repairs: records.into_iter().map(Repair::from).collect(),
+        }),
+        Verdict::Rejected(Refusal::Refused { key, hint }) => {
+            Err(ArgumentError::Refused { tool, key, hint })
         }
-        let declared = properties.is_some_and(|properties| properties.contains_key(&key));
-        let canonical = match dialect.aliases.iter().find(|alias| alias.alias == key) {
-            Some(alias) if !declared => alias.canonical.to_owned(),
-            Some(_) | None => {
-                if closed && !declared {
-                    return Err(ArgumentError::Unknown {
-                        tool: tool.to_owned(),
-                        key,
-                        valid: properties
-                            .map(|properties| properties.keys().cloned().collect())
-                            .unwrap_or_default(),
-                    });
-                }
-                key.clone()
-            }
-        };
-        if let Some((_, first)) = sent_as.iter().find(|(name, _)| *name == canonical) {
-            return Err(ArgumentError::Ambiguous {
-                tool: tool.to_owned(),
-                keys: vec![format!("`{first}`"), format!("`{key}`")],
-                canonical,
-            });
+        Verdict::Rejected(Refusal::Unknown { key, valid }) => {
+            Err(ArgumentError::Unknown { tool, key, valid })
         }
-        if canonical != key {
-            repairs.push(Repair::Alias {
-                from: key.clone(),
-                to: canonical.clone(),
-            });
-        }
-        let value = match properties
-            .and_then(|properties| properties.get(&canonical))
-            .and_then(|declared| coerce(declared, &value))
-        {
-            Some(coerced) => {
-                repairs.push(Repair::Coercion {
-                    key: canonical.clone(),
-                    from: value,
-                    to: coerced.clone(),
-                });
-                coerced
-            }
-            None => value,
-        };
-        sent_as.push((canonical.clone(), key));
-        arguments.insert(canonical, value);
+        Verdict::Rejected(Refusal::Ambiguous {
+            canonical,
+            first,
+            key,
+        }) => Err(ArgumentError::Ambiguous {
+            tool,
+            canonical,
+            keys: vec![format!("`{first}`"), format!("`{key}`")],
+        }),
     }
-    Ok(Repaired { arguments, repairs })
 }
 
 #[cfg(test)]

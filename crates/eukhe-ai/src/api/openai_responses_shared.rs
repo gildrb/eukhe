@@ -6,6 +6,7 @@
 
 mod stream;
 
+use eukhe_bend::rules::model_facts;
 use eukhe_types::pi_ai::TextSignaturePhase;
 use serde_json::json;
 
@@ -227,7 +228,9 @@ fn split_tool_call_id(id: &str) -> (&str, Option<&str>) {
     (call_id, pieces.next())
 }
 
-/// TS `convertResponsesMessages`.
+/// TS `convertResponsesMessages`. The target's host keeps compound
+/// `call|item` tool-call ids when the rulebook says so
+/// (`compound_tool_call_ids`); else every id is normalized.
 ///
 /// # Errors
 ///
@@ -237,14 +240,13 @@ fn split_tool_call_id(id: &str) -> (&str, Option<&str>) {
 pub fn convert_responses_messages(
     model: &Model,
     context: &TranscriptContext,
-    allowed_tool_call_providers: &[&str],
     options: &ConvertResponsesMessagesOptions,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let normalized_context =
         resolve_transcript(context.clone(), options.supports_mid_convo_system_messages);
     let mut messages: Vec<JsonValue> = Vec::new();
 
-    let provider_allowed = allowed_tool_call_providers.contains(&model.provider.as_str());
+    let provider_allowed = model_facts::flag(Quirks::of(model).compound_tool_call_ids(), false);
     let normalize_tool_call_id = |id: &str, _target: &Model, source: &AssistantMessage| -> String {
         if !provider_allowed || !id.contains('|') {
             return normalize_id_part(id);

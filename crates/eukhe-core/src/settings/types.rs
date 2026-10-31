@@ -118,6 +118,25 @@ pub struct MemorySettings {
     pub settle_timeout_ms: Option<u64>,
 }
 
+/// `rlm`: the sub-model calls of the kernel's `rlm.query`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields spell the settings keys `rlm.queryModel`, `rlm.queryConcurrency`, `rlm.queryBudgetBytes`"
+)]
+pub struct RlmSettings {
+    /// `provider/model-id` of a query that names no model; unset asks the
+    /// calling session's model.
+    pub query_model: Option<String>,
+    /// Queries of one session in flight at once (default 4; `0` or unset
+    /// takes the default).
+    pub query_concurrency: Option<u64>,
+    /// Input bytes one session's queries may send in all (`0` or unset: no
+    /// budget).
+    pub query_budget_bytes: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoRefineSettings {
@@ -482,6 +501,7 @@ pub struct Settings {
     pub theme: Option<String>,
     pub compaction: Option<CompactionSettings>,
     pub memory: Option<MemorySettings>,
+    pub rlm: Option<RlmSettings>,
     pub auto_refine: Option<AutoRefineSettings>,
     pub factory: Option<FactorySettings>,
     pub branch_summary: Option<BranchSummarySettings>,

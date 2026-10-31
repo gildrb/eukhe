@@ -15,7 +15,9 @@ pub(crate) mod tests;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::utils::validation::validate_tool_arguments;
-use eukhe_bend::rules::tool_call::{Attempt, Begin, CallJournal};
+use eukhe_bend::rules::tool_call::{
+    self as effect, AbortCause, Attempt, Begin, CallJournal, Enter, Intent, Recover, Replay, Stop,
+};
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
@@ -208,24 +210,39 @@ pub static TOOL_TASK: LazyLock<ToolTask> = LazyLock::new(|| {
     )
 });
 
+/// The call phase asks the effect gate (`bend/tool_call.bend`): a call
+/// runs only when a committed entry holds it and its tool is offered.
 async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let input = task.input;
-    let mut call = read_call(&runtime, &input, &cx).await?;
-    // A remote model wrote pseudonym tokens; the tool runs against the
-    // real strings (`privacy.anonymizeRemote`, harness/privacy).
-    call.call.arguments = eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms)
-        .unredact_arguments(&call.call.arguments);
-    let Some(tool) = resolve_tool(&runtime, &input, &call.name, &cx).await? else {
-        let agent = runtime.agent(&cx).await?;
-        let offered = match &input {
-            ToolTaskInput::Model { .. } => &agent.tools,
-            ToolTaskInput::Nested { .. } => &agent.callable,
-        };
-        let error = harness_error(
-            "tool_unavailable",
-            &tool_unavailable_message(&call.name, offered.iter().map(|tool| tool.name.as_str())),
-        );
-        return complete(&runtime, &input, &call, error, &cx).await;
+    let call = read_call(&runtime, &input, &cx).await?.map(|mut call| {
+        // A remote model wrote pseudonym tokens; the tool runs against the
+        // real strings (`privacy.anonymizeRemote`, harness/privacy).
+        call.call.arguments = eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms)
+            .unredact_arguments(&call.call.arguments);
+        call
+    });
+    let tool = match &call {
+        Some(call) => offered(resolve_tool(&runtime, &input, &call.name, &cx).await?),
+        None => None,
+    };
+    let (call, tool) = match effect::enter(call, tool) {
+        Enter::Run { call, tool } => (call, tool),
+        Enter::Unavailable(call) => {
+            let agent = runtime.agent(&cx).await?;
+            let offered = match &input {
+                ToolTaskInput::Model { .. } => &agent.tools,
+                ToolTaskInput::Nested { .. } => &agent.callable,
+            };
+            let error = harness_error(
+                "tool_unavailable",
+                &tool_unavailable_message(
+                    &call.name,
+                    offered.iter().map(|tool| tool.name.as_str()),
+                ),
+            );
+            return complete(&runtime, &input, &call, error, &cx).await;
+        }
+        Enter::Missing => return Err(missing(&input)),
     };
     let checked = repair_arguments(
         &call.name,
@@ -305,8 +322,8 @@ fn begin_slot(slot: &Draft, begin: Begin, changed: Option<JsonValue>) -> Session
     Ok(())
 }
 
-/// Recovery after intent: rerun only when the stored and the current policy
-/// both say `safe`.
+/// Recovery after intent asks the effect gate: rerun only when the stored
+/// and the current policy both say `safe`, else settle interrupted.
 async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let ToolTaskCheckpoint::Execute {
         arguments,
@@ -320,32 +337,37 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
     };
     let input = task.input;
     let call = read_call(&runtime, &input, &cx).await?;
-    let tool = resolve_tool(&runtime, &input, &call.name, &cx).await?;
-    let retain = retain_of(tool.as_deref());
-    if let Some(tool) =
-        tool.filter(|tool| replay == ToolReplay::Safe && tool.replay == Some(ToolReplay::Safe))
-    {
-        // The rerun reports from scratch; its journal clears what the interrupted attempt published.
-        let conversation_id = runtime.conversation_id();
-        let task_id = runtime.task_id().erase();
-        let (journal, begin) = CallJournal::open(Attempt::Rerun);
-        runtime
-            .commit(
-                move |tx, _current| async move {
-                    let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                    if let Some(slot) = tool_slot(&live, task_id)? {
-                        begin_slot(&slot, begin, None)?;
-                    }
-                    Ok(None)
-                },
-                &cx,
+    let tool = match &call {
+        Some(call) => offered(resolve_tool(&runtime, &input, &call.name, &cx).await?),
+        None => None,
+    };
+    let (call, tool) = match effect::recover(call, policy(replay), tool) {
+        Recover::Rerun { call, tool } => {
+            // The rerun reports from scratch; its journal clears what the interrupted attempt published.
+            let conversation_id = runtime.conversation_id();
+            let task_id = runtime.task_id().erase();
+            let (journal, begin) = CallJournal::open(Attempt::Rerun);
+            runtime
+                .commit(
+                    move |tx, _current| async move {
+                        let live = tx.doc(&LIVE_DOC, conversation_id).await?;
+                        if let Some(slot) = tool_slot(&live, task_id)? {
+                            begin_slot(&slot, begin, None)?;
+                        }
+                        Ok(None)
+                    },
+                    &cx,
+                )
+                .await?;
+            return run(
+                &runtime, &input, &call, &tool, arguments, repairs, journal, &cx,
             )
-            .await?;
-        return run(
-            &runtime, &input, &call, &tool, arguments, repairs, journal, &cx,
-        )
-        .await;
-    }
+            .await;
+        }
+        Recover::Interrupted { call, tool } => (call, tool),
+        Recover::Missing => return Err(missing(&input)),
+    };
+    let retain = retain_of(tool.as_deref());
     let message = format!(
         "Tool {} was interrupted and may have partially run. {INTERRUPTED_NEXT_STEP}",
         call.name
@@ -366,29 +388,43 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
     .await
 }
 
+/// The abort handler asks the effect gate how the call settles.
 async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let call = read_call(&runtime, &task.input, &cx).await?;
-    let tool = resolve_tool(&runtime, &task.input, &call.name, &cx).await?;
+    let tool = match &call {
+        Some(call) => resolve_tool(&runtime, &task.input, &call.name, &cx).await?,
+        None => None,
+    };
     let retain = retain_of(tool.as_deref());
     // Abandoned after a restart (`TaskOptions.abandon_on_restart`): say whether the call may have run.
-    let (code, message) = if task.abort_reason != Some(TaskAbortReason::Restart) {
-        ("aborted", format!("Tool {} was aborted", call.name))
-    } else if matches!(task.checkpoint, ToolTaskCheckpoint::Execute { .. }) {
-        (
-            "interrupted",
-            format!(
+    let cause = match task.abort_reason {
+        Some(TaskAbortReason::Restart) => AbortCause::Restart,
+        None => AbortCause::Requested,
+    };
+    let intent = match task.checkpoint {
+        ToolTaskCheckpoint::Call => Intent::Unrecorded,
+        ToolTaskCheckpoint::Execute { .. } => Intent::Recorded,
+    };
+    let (call, code, message) = match effect::stop(call, cause, intent) {
+        Stop::Aborted(call) => {
+            let message = format!("Tool {} was aborted", call.name);
+            (call, "aborted", message)
+        }
+        Stop::Interrupted(call) => {
+            let message = format!(
                 "Tool {} was interrupted by a restart and may have partially run. {INTERRUPTED_NEXT_STEP}",
                 call.name
-            ),
-        )
-    } else {
-        (
-            "abandoned",
-            format!(
+            );
+            (call, "interrupted", message)
+        }
+        Stop::Abandoned(call) => {
+            let message = format!(
                 "Tool {} was not started: its caller ended with a restart",
                 call.name
-            ),
-        )
+            );
+            (call, "abandoned", message)
+        }
+        Stop::Missing => return Err(missing(&task.input)),
     };
     settle(
         &runtime,
@@ -400,6 +436,40 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
         None,
     )
     .await
+}
+
+/// The gate's policy of a tool's replay.
+fn policy(replay: ToolReplay) -> Replay {
+    match replay {
+        ToolReplay::Safe => Replay::Safe,
+        ToolReplay::Unsafe => Replay::Unsafe,
+    }
+}
+
+/// The tool offered now, with the policy its intent records (a tool that
+/// names none is unsafe).
+fn offered(tool: Option<Arc<ToolRegistration>>) -> Option<(Arc<ToolRegistration>, Replay)> {
+    tool.map(|tool| {
+        let replay = policy(tool.replay.unwrap_or(ToolReplay::Unsafe));
+        (tool, replay)
+    })
+}
+
+/// The error of a task whose call no committed entry holds: nothing of the
+/// call ran or settled.
+fn missing(input: &ToolTaskInput) -> SessionError {
+    match input {
+        ToolTaskInput::Model { assistant, call_id } => {
+            SessionError::error(format!("Entry {assistant} has no tool call {call_id}"))
+        }
+        ToolTaskInput::Nested {
+            parent_call_id,
+            key,
+            ..
+        } => SessionError::error(format!(
+            "Nested call {key} of tool call {parent_call_id} has no call"
+        )),
+    }
 }
 
 /// How `tool` retains its running output; a tool no longer offered kept it
@@ -429,12 +499,13 @@ async fn resolve_tool(
 }
 
 /// The call: from the input for a nested call, which hooks see with its
-/// parent, else the tool call `call_id` of the assistant entry.
+/// parent, else the tool call `call_id` of the committed assistant entry;
+/// `None` when no committed entry holds it.
 async fn read_call(
     runtime: &Runtime,
     input: &ToolTaskInput,
     cx: &Context,
-) -> SessionResult<ToolHookCall> {
+) -> SessionResult<Option<ToolHookCall>> {
     let (assistant, call_id) = match input {
         ToolTaskInput::Nested {
             parent,
@@ -442,13 +513,13 @@ async fn read_call(
             call,
             ..
         } => {
-            return Ok(ToolHookCall {
+            return Ok(Some(ToolHookCall {
                 call: call.clone(),
                 parent: Some(ToolCallParent {
                     task_id: *parent,
                     call_id: parent_call_id.clone(),
                 }),
-            })
+            }))
         }
         ToolTaskInput::Model { assistant, call_id } => (*assistant, call_id),
     };
@@ -469,10 +540,7 @@ async fn read_call(
             Message::System(_) | Message::User(_) | Message::ToolResult(_) => None,
         },
     );
-    let call = call.ok_or_else(|| {
-        SessionError::error(format!("Entry {assistant} has no tool call {call_id}"))
-    })?;
-    Ok(ToolHookCall { call, parent: None })
+    Ok(call.map(|call| ToolHookCall { call, parent: None }))
 }
 
 /// The call's arguments as repaired by the tool; a failing repair makes them

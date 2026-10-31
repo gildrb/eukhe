@@ -1,6 +1,6 @@
 ---
 name: subagents
-description: Decide whether a subagent is justified, then spawn, brief and collect it. Read before any rlm.spawn or rlm.spawn_batch call - when a task splits into independent parts that can run at once, when work would flood this context with material of which only a summary matters, when a task needs tools or instructions that conflict with yours, or when the user asks for a subagent. Covers the required why value, dividing work by context, self-contained prompts, compact hand-back and fan-in.
+description: Decide whether a subagent is justified, then spawn, brief and collect it. Read before any rlm.spawn or rlm.spawn_batch call - when a task splits into independent parts that can run at once, when work would flood this context with material of which only a summary matters, when a task needs tools or instructions that conflict with yours, or when the user asks for a subagent. Covers the required why value, dividing work by context, self-contained prompts, compact hand-back and fan-in, and when rlm.query (a tool-less sub-model call over a slice of data) does the job instead.
 ---
 
 # Subagents
@@ -17,6 +17,10 @@ Default: do the work in this loop. A child costs a fresh context, a full briefin
 | `user` | the user asked for a subagent | |
 
 No row fits: do it here.
+
+## Query instead
+
+A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.query_batch([...])` for many. No child, briefing or transcript: the answer is a Python value; print only what you need. Keep long material (files, logs, this conversation through `history` or `chat`) in variables, slice it in code, query each slice, combine the values. Spawn only when the work needs tools, its own loop or a hand-back.
 
 ## Spawn
 

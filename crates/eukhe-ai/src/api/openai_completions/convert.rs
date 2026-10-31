@@ -2,6 +2,7 @@
 //! `convertTools`), plus the `reasoning_details` replay helpers.
 
 use crate::types::IndexMap;
+use eukhe_bend::rules::model_facts;
 use serde_json::json;
 
 use super::compat::ResolvedCompat;
@@ -10,6 +11,7 @@ use crate::api::constrained_sampling::{
     ConstrainedSamplingError, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::transform_messages::transform_messages;
+use crate::quirks::Quirks;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, JsonObject, JsonValue, Message, Modality, Model,
     ThinkingContent, Tool, ToolCall, TranscriptContext, UserContent, UserContentBlock,
@@ -201,8 +203,13 @@ fn normalize_tool_call_id(model: &Model, id: &str) -> String {
         let prefix: String = call_id.chars().take(prefix_len).collect();
         return format!("{prefix}_{hash}");
     }
-    if model.provider == "openai" && utf16_len(id) > 40 {
-        return utf16_prefix(id, 40).to_owned();
+    // The host's longest tool-call id (rulebook `tool_call_id_limit`).
+    if let Some(limit) = Quirks::of(model)
+        .tool_call_id_limit()
+        .and_then(|limit| usize::try_from(limit).ok())
+        .filter(|limit| utf16_len(id) > *limit)
+    {
+        return utf16_prefix(id, limit).to_owned();
     }
     id.to_owned()
 }
@@ -503,7 +510,11 @@ fn convert_assistant(
             // reasoning_details is the structured alternative to a raw reasoning field.
             if preserved_reasoning_details.is_none() {
                 let mut signature = first_thinking.thinking_signature.as_deref();
-                if model.provider == "opencode-go" && signature == Some("reasoning") {
+                // A host that signs `reasoning` as `reasoning_content`
+                // (rulebook `reasoning_content_signature`) replays it so.
+                if signature == Some("reasoning")
+                    && model_facts::flag(Quirks::of(model).reasoning_content_signature(), false)
+                {
                     signature = Some("reasoning_content");
                 }
                 if let Some(field) =

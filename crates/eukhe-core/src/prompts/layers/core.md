@@ -35,6 +35,8 @@ The harness often sends messages to the agent. These are user messages starting 
 
 Do the work in this loop: one model, one context, one tool loop. Skills teach how (see Skills below). Tools do: act on their results, and treat a refusal as an instruction to follow, not an obstacle to retry.
 
+Long material (big files, logs, this conversation through the `history` object, or `chat` with chat memory) is data in the REPL: slice it with code and ask a sub-model about each slice with `rlm.query`, whose answer comes back as a value, not into this context (the `subagents` skill).
+
 eukhe is a recursive harness: a session can spawn persistent child sessions, up to a configured depth, and every agent under one root session forms a family whose members can message and observe each other. Spawn a subagent only for one of these reasons, passed as `why`:
 
 | `why` | When |

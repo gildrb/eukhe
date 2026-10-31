@@ -5,7 +5,7 @@ import ./facts.bend as Fx
 
 # ffi_model_facts: the model facts a wire API decides from the rulebook's
 # answers (bend/facts.bend sections 1, 3 and 4: `flag`, `adaptive`,
-# `effort`, `price`) as an entry of the compiled
+# `effort`, `reasoning`, `price`) as an entry of the compiled
 # Bend core. Rust gathers the facts (the
 # rulebook's answer for a directive, the model's compat flag, the
 # AWS_BEDROCK_FORCE_CACHE flag, the thinking-level map, the price rows of
@@ -27,8 +27,12 @@ import ./facts.bend as Fx
 #      each row: its model (0 every model | 1 then the model's number),
 #      its tier's number and its multiplier in hundredths), then the
 #      model's number and the tier's number
+#   4  the Bedrock reasoning fields (`Fx.reasoning`): the rulebook's shape
+#      (0 none | 1 Claude | 2 GPT | 3 gpt-oss), the thinking-level map's
+#      entry of the level (as in 2), then the level (as in 2)
 # Reply to 0 and 1: the Bool; to 2: the Nat; to 3: 0 no row | 1 then the
-# multiplier. Any other input: the error form.
+# multiplier; to 4: 0 none | 1 Claude | 2 then the nested effort | 3 then
+# the flat effort. Any other input: the error form.
 
 # A request of the entry
 type Req is Data:
@@ -36,6 +40,7 @@ type Req is Data:
   QAdaptive{c: Maybe<&2, Bool>, a: If.Ans}
   QEffort{m: Fx.EMap, l: Fx.ELv}
   QPrice{rows: List<&2, Fx.PRow>, m: Nat, t: Nat}
+  QReasoning{s: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, l: Fx.ELv}
 
 # Decoding
 # --------
@@ -342,6 +347,49 @@ def get_price(r: W.Dec<List<&2, Fx.PRow>>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+# a shape: 0 none | 1 Claude | 2 GPT | 3 gpt-oss
+def get_shape.tag(t: Nat, s: String) -> W.Dec<Maybe<&2, Fx.Shape>>:
+  match t:
+    case 0n:
+      W.Got{None{}, s}
+    case 1n:
+      W.Got{Some{Fx.SClaude{}}, s}
+    case 2n:
+      W.Got{Some{Fx.SGpt{}}, s}
+    case 3n:
+      W.Got{Some{Fx.SGptOss{}}, s}
+    case 4n+p:
+      W.Bad{}
+
+def get_shape(r: W.Dec<Nat>) -> W.Dec<Maybe<&2, Fx.Shape>>:
+  match r:
+    case W.Got{t, s}:
+      get_shape.tag(t, s)
+    case W.Bad{}:
+      W.Bad{}
+
+# 4 the Bedrock reasoning fields: the shape, the entry, the level
+def get_reasoning.l(x: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, r: W.Dec<Fx.ELv>) -> W.Dec<Req>:
+  match r:
+    case W.Got{l, s}:
+      W.Got{QReasoning{x, e, l}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_reasoning.e(x: Maybe<&2, Fx.Shape>, r: W.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> W.Dec<Req>:
+  match r:
+    case W.Got{e, s}:
+      get_reasoning.l(x, e, get_elv(W.get_nat(s)))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_reasoning(r: W.Dec<Maybe<&2, Fx.Shape>>) -> W.Dec<Req>:
+  match r:
+    case W.Got{x, s}:
+      get_reasoning.e(x, get_ent(W.get_nat(s)))
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -352,7 +400,9 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
       get_effort(get_ent(W.get_nat(s)))
     case 3n:
       get_price(get_rows(W.get_nat(s)))
-    case 4n+p:
+    case 4n:
+      get_reasoning(get_shape(W.get_nat(s)))
+    case 5n+p:
       W.Bad{}
 
 def get_req.go(r: W.Dec<Nat>) -> W.Dec<Req>:
@@ -376,6 +426,17 @@ def put_mnat(m: Maybe<&2, Nat>) -> String:
     case Some{k}:
       W.put_nat(1n, W.put_nat(k, ""))
 
+def put_rfields(f: Fx.RFields) -> String:
+  match f:
+    case Fx.RNone{}:
+      W.put_nat(0n, "")
+    case Fx.RClaude{}:
+      W.put_nat(1n, "")
+    case Fx.RNested{e}:
+      W.put_nat(2n, W.put_nat(e, ""))
+    case Fx.RFlat{e}:
+      W.put_nat(3n, W.put_nat(e, ""))
+
 # The decisions
 # -------------
 
@@ -390,6 +451,8 @@ def answer(q: Req) -> String:
       W.put_nat(Fx.effort(m, l), "")
     case QPrice{rows, m, t}:
       put_mnat(Fx.price(rows, m, t))
+    case QReasoning{x, e, l}:
+      put_rfields(Fx.reasoning(x, e, l))
 
 def fail() -> String:
   W.err("model facts: malformed request")

@@ -127,3 +127,7 @@ import ./laws/cron_user.bend as CronUser
 import ./laws/cron_file/pass.bend as CronFile
 import ./laws/cron_file/entry.bend as CronFileEntry
 import ./laws/cron_file/view.bend as CronFileView
+import ./laws/call_lift.bend as CallLift
+import ./laws/rlm_query.bend as RlmQuery
+import ./laws/rebase.bend as Rebase
+import ./laws/arg_repair.bend as ArgRepair

@@ -11,7 +11,7 @@ use super::{
     ListedModel, TokenCount, WebSearchRequest, WebSearchResult, WebSource,
 };
 use crate::api::constrained_sampling::create_grammar_tool_input_properties;
-use crate::api::openai_responses::{get_compat, OPENAI_TOOL_CALL_PROVIDERS};
+use crate::api::openai_responses::get_compat;
 use crate::api::openai_responses_shared::{
     convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
     ConvertResponsesToolsOptions,
@@ -64,7 +64,6 @@ fn responses_params(
     let input = convert_responses_messages(
         model,
         context,
-        OPENAI_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: None,
             grammar_tool_input_properties: Some(grammar),

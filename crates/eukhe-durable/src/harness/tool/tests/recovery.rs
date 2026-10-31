@@ -537,6 +537,108 @@ async fn reruns_the_generation_tools_phase_interrupted_before_its_commit() {
     opened.harness.close(context()).await.unwrap();
 }
 
+/// Speculation, then effect (`uncommitted_drop_inert` in
+/// `laws/tool_call.bend`): a crash between the end of the stream and the
+/// commit of its assistant entry leaves no tool task, so no intent and no
+/// run; the reopened run asks again, and the dropped call never runs.
+#[tokio::test]
+async fn a_crash_between_the_stream_end_and_its_commit_runs_nothing() {
+    let (_directory, path) = store_path();
+    let setup = chat_setup(RegisterFauxProviderOptions::default());
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&runs);
+    let work = tool("work", move |_, _| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        async { Ok(ToolExecutionResult::default()) }
+    });
+    add_tool(&setup.registry, define_tool(work), None).unwrap();
+    let reached: Deferred = deferred();
+    let responses = Arc::new(AtomicUsize::new(0));
+    let (gate, count) = (reached.clone(), Arc::clone(&responses));
+    add_hooks(
+        &setup.registry,
+        generation_task(),
+        GenerationHooks {
+            after_response: Some(Arc::new(move |_, _, cx| {
+                let response = count.fetch_add(1, Ordering::SeqCst) + 1;
+                let (gate, cx) = (gate.clone(), cx.clone());
+                async move {
+                    // The first reply streamed whole; its entry is not
+                    // committed until this hook returns.
+                    if response == 1 {
+                        gate.resolve(());
+                        return Err(aborted(&cx.abort_signal().expect("a call signal")).await);
+                    }
+                    Ok(())
+                }
+                .boxed()
+            })),
+            ..GenerationHooks::default()
+        },
+        None,
+    )
+    .unwrap();
+    setup
+        .faux
+        .set_responses(vec![call("work", "c1").into(), done().into()]);
+    let opened = open(&path, &setup, None).await;
+    let id = opened.root.submit(go(), context()).await.unwrap().id();
+    reached.wait().await;
+    opened.harness.close(context()).await.unwrap();
+
+    let opened = open(&path, &setup, None).await;
+    assert_eq!(settle(&opened, id).await, SubmissionStatus::Done);
+    let kinds: Vec<String> = all_entries(&opened.root, context())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.kind)
+        .collect();
+    let conversation_id = opened.root.id();
+    let tasks = opened
+        .harness
+        .commit(
+            move |tx| async move {
+                tx.scan_tasks(
+                    TaskQuery {
+                        conversation_id: Some(conversation_id),
+                        ..TaskQuery::default()
+                    },
+                    20,
+                    None,
+                )
+                .await
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    let tool_tasks = tasks
+        .items
+        .iter()
+        .filter(|task| task.kind == "pi.tool")
+        .count();
+    assert_eq!(
+        (
+            kinds,
+            tool_tasks,
+            runs.load(Ordering::SeqCst),
+            responses.load(Ordering::SeqCst)
+        ),
+        (
+            vec![
+                "pi.user".to_owned(),
+                "pi.system".to_owned(),
+                "pi.assistant".to_owned()
+            ],
+            0,
+            0,
+            2
+        )
+    );
+    opened.harness.close(context()).await.unwrap();
+}
+
 #[tokio::test]
 async fn answers_an_aborted_tool_with_its_partial_output_and_continues_the_run() {
     let (_directory, path) = store_path();

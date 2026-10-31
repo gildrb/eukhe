@@ -103,13 +103,9 @@ fn get_replayed_reasoning(model: &Model, assistant: &AssistantMessage) -> Option
     }))
     .expect("context");
     let context = normalize_context(context);
-    let input = convert_responses_messages(
-        model,
-        &context,
-        &["azure"],
-        &ConvertResponsesMessagesOptions::default(),
-    )
-    .expect("convert");
+    let input =
+        convert_responses_messages(model, &context, &ConvertResponsesMessagesOptions::default())
+            .expect("convert");
     input.into_iter().find(|item| item["type"] == "reasoning")
 }
 

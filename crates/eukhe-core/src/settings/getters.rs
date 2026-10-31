@@ -382,6 +382,27 @@ impl SettingsManager {
         std::time::Duration::from_millis(self.nonzero_nat(&table::SUBAGENT_STALL_MS))
     }
 
+    /// `rlm.queryModel`: the `provider/id` of an `rlm.query` that names no
+    /// model; `None` (unset or whitespace) asks the calling session's model.
+    #[must_use]
+    pub fn get_rlm_query_model(&self) -> Option<String> {
+        self.cvars().optional_text(&table::RLM_QUERY_MODEL)
+    }
+
+    /// `rlm.queryConcurrency`: `rlm.query` calls of one session in flight
+    /// at once (`0` takes the default).
+    #[must_use]
+    pub fn get_rlm_query_concurrency(&self) -> u64 {
+        self.nonzero_nat(&table::RLM_QUERY_CONCURRENCY)
+    }
+
+    /// `rlm.queryBudgetBytes`: input bytes one session's `rlm.query` calls
+    /// may send in all (`0`: no budget).
+    #[must_use]
+    pub fn get_rlm_query_budget_bytes(&self) -> u64 {
+        self.cvars().nat(&table::RLM_QUERY_BUDGET_BYTES)
+    }
+
     /// `toolBlockingBudgetMs`: the runtime's one blocking budget for a
     /// tool call (`0` takes the default).
     #[must_use]

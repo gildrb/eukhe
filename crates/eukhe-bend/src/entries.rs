@@ -204,7 +204,7 @@ pub enum Entry {
     TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
-    /// `bend/ffi_tool_call.bend`: a stepper.
+    /// `bend/ffi_tool_call.bend`: a call and a stepper.
     ToolCall = 421,
     /// `bend/ffi_optchat.bend`: a stepper.
     Optchat = 422,
@@ -214,6 +214,14 @@ pub enum Entry {
     Family = 431,
     /// `bend/ffi_task_life.bend`: a call.
     TaskLife = 432,
+    /// `bend/ffi_rlm_query.bend`: a call.
+    RlmQuery = 433,
+    /// `bend/ffi_arg_repair.bend`: a call.
+    ArgRepair = 434,
+    /// `bend/ffi_call_lift.bend`: a call.
+    CallLift = 435,
+    /// `bend/ffi_rebase.bend`: a call.
+    Rebase = 436,
 }
 
 impl Entry {
@@ -323,6 +331,10 @@ impl Entry {
         Entry::Autoresearch,
         Entry::Family,
         Entry::TaskLife,
+        Entry::RlmQuery,
+        Entry::ArgRepair,
+        Entry::CallLift,
+        Entry::Rebase,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -19,7 +19,9 @@
 //! - family: the one family whose pattern matches the model, and whose
 //!   revision range (when it has one) holds for the revision that the
 //!   model id names ([`revision`]; an id that names no revision has the
-//!   revision 0). A model that two families match is the error
+//!   revision 0), and none of whose `outside` families does (a family
+//!   that holds what other families leave, as `gpt` holds every `gpt-`
+//!   name the id-anchored GPT families do not). A model that two families match is the error
 //!   [`FamilyOverlap`], never a choice between them: the shipped rulebook
 //!   is checked against every model of the compiled catalog
 //!   ([`Rulebook::check_catalog`]), and a model outside it that two
@@ -45,6 +47,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use eukhe_bend::rules::model_facts;
 use eukhe_bend::rules::quirks as compiled;
 use eukhe_bend::wire::WireError;
 use eukhe_bend::{expect_core, Entry};
@@ -178,6 +181,37 @@ pub enum Directive {
     /// absent, a missing level keeps the default rule). A model's explicit
     /// `thinkingLevelMap` wins over it (`models::thinking_level_map`).
     ThinkingLadder,
+    /// Google: `functionCall` and `functionResponse` parts carry the
+    /// tool-call `id`, and tool-call ids are sanitized (Gemini 3 and later,
+    /// Claude and gpt-oss behind a Google API). No rule: no ids.
+    GoogleToolCallIds,
+    /// Google: a tool result's images go inside `functionResponse.parts`
+    /// (false: a separate user image turn, Gemini before 3). No rule:
+    /// inside.
+    GoogleMultimodalFunctionResponse,
+    /// Bedrock: the request shape of the model's reasoning fields
+    /// (`claude`, `gpt`, `gpt-oss`); no rule: no reasoning field.
+    BedrockReasoning,
+    /// openai-completions: the longest tool-call id the host accepts, in
+    /// UTF-16 units (a longer id is cut to it). No rule: no limit.
+    ToolCallIdLimit,
+    /// `OpenAI` Responses (and its Azure and Codex dialects): the host keeps
+    /// compound `call|item` tool-call ids. No rule: ids are normalized.
+    CompoundToolCallIds,
+    /// `OpenAI` Responses: the host takes the `service_tier` field. No
+    /// rule: it does.
+    ServiceTierField,
+    /// `OpenAI` Responses: a reasoning model with no effort set gets the
+    /// explicit off (`reasoning.effort: none`). No rule: it does.
+    ReasoningOffField,
+    /// `OpenAI` Responses: a reasoning model's request asks for the
+    /// encrypted reasoning (`include: ["reasoning.encrypted_content"]`)
+    /// whatever the caller's settings. No rule: it does not.
+    EncryptedReasoning,
+    /// openai-completions: the host streams and replays reasoning under the
+    /// `reasoning` field but signs it `reasoning_content`. No rule: the
+    /// field is its own signature.
+    ReasoningContentSignature,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -211,6 +245,15 @@ impl Directive {
         Self::ToolChoiceFree,
         Self::PromptProgress,
         Self::ThinkingLadder,
+        Self::GoogleToolCallIds,
+        Self::GoogleMultimodalFunctionResponse,
+        Self::BedrockReasoning,
+        Self::ToolCallIdLimit,
+        Self::CompoundToolCallIds,
+        Self::ServiceTierField,
+        Self::ReasoningOffField,
+        Self::EncryptedReasoning,
+        Self::ReasoningContentSignature,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -250,6 +293,15 @@ impl Directive {
             Self::ToolChoiceFree => "tool_choice_free",
             Self::PromptProgress => "prompt_progress",
             Self::ThinkingLadder => "thinking_ladder",
+            Self::GoogleToolCallIds => "google_tool_call_ids",
+            Self::GoogleMultimodalFunctionResponse => "google_multimodal_function_response",
+            Self::BedrockReasoning => "bedrock_reasoning",
+            Self::ToolCallIdLimit => "tool_call_id_limit",
+            Self::CompoundToolCallIds => "compound_tool_call_ids",
+            Self::ServiceTierField => "service_tier_field",
+            Self::ReasoningOffField => "reasoning_off_field",
+            Self::EncryptedReasoning => "encrypted_reasoning",
+            Self::ReasoningContentSignature => "reasoning_content_signature",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -303,7 +355,16 @@ impl Directive {
             | Self::ToolChoiceNative
             | Self::ToolChoiceFree
             | Self::PromptProgress
-            | Self::ThinkingLadder => None,
+            | Self::ThinkingLadder
+            | Self::GoogleToolCallIds
+            | Self::GoogleMultimodalFunctionResponse
+            | Self::BedrockReasoning
+            | Self::ToolCallIdLimit
+            | Self::CompoundToolCallIds
+            | Self::ServiceTierField
+            | Self::ReasoningOffField
+            | Self::EncryptedReasoning
+            | Self::ReasoningContentSignature => None,
         }
     }
 
@@ -327,14 +388,22 @@ impl Directive {
             | Self::GoogleThinkingLevel
             | Self::ToolChoiceNative
             | Self::ToolChoiceFree
-            | Self::PromptProgress => ValueKind::Bool,
+            | Self::PromptProgress
+            | Self::GoogleToolCallIds
+            | Self::GoogleMultimodalFunctionResponse
+            | Self::CompoundToolCallIds
+            | Self::ServiceTierField
+            | Self::ReasoningOffField
+            | Self::EncryptedReasoning
+            | Self::ReasoningContentSignature => ValueKind::Bool,
             Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
                 ValueKind::Prefixes
             }
             Self::MaxTokensField => ValueKind::MaxTokensField,
             Self::ThinkingFormat => ValueKind::ThinkingFormat,
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
-            Self::StrictCap => ValueKind::Count,
+            Self::StrictCap | Self::ToolCallIdLimit => ValueKind::Count,
+            Self::BedrockReasoning => ValueKind::BedrockReasoning,
             Self::ThinkingLadder => ValueKind::ThinkingLadder,
             Self::ThinkingBudgets => ValueKind::ThinkingBudgets,
             Self::Endpoint(capability) => ValueKind::Endpoint(capability),
@@ -363,6 +432,8 @@ pub enum ValueKind {
     /// A `thinkingBudgets` object with all four levels set, each level at
     /// least the one before it (`minimal` ≤ `low` ≤ `medium` ≤ `high`).
     ThinkingBudgets,
+    /// A Bedrock reasoning shape: `claude`, `gpt` or `gpt-oss`.
+    BedrockReasoning,
     /// A [`Dialect`] wire string that implements the capability, or `false`.
     Endpoint(Capability),
 }
@@ -406,6 +477,12 @@ impl ValueKind {
                         && budgets.medium <= budgets.high
                 })
                 .map(Value::ThinkingBudgets),
+            Self::BedrockReasoning => match raw.as_str()? {
+                "claude" => Some(Value::BedrockReasoning(model_facts::Shape::Claude)),
+                "gpt" => Some(Value::BedrockReasoning(model_facts::Shape::Gpt)),
+                "gpt-oss" => Some(Value::BedrockReasoning(model_facts::Shape::GptOss)),
+                _ => None,
+            },
             Self::Endpoint(capability) => match raw {
                 JsonValue::Bool(false) => Some(Value::Endpoint(None)),
                 JsonValue::String(name) => Dialect::parse(name)
@@ -426,6 +503,8 @@ impl ValueKind {
 pub enum Value {
     Bool(bool),
     Count(u32),
+    /// A Bedrock reasoning shape ([`Directive::BedrockReasoning`]).
+    BedrockReasoning(model_facts::Shape),
     Prefixes(Vec<String>),
     MaxTokensField(MaxTokensField),
     ThinkingFormat(ThinkingFormat),
@@ -515,6 +594,10 @@ pub enum QuirksError {
     UndefinedTierFamily { family: String },
     #[error("host `{host}` serves capability lookups only, but its rule sets `{directive}`")]
     WireDirectiveOnCapabilityHost { host: String, directive: String },
+    #[error("family `{family}` is outside `{outside}`, which no family definition names")]
+    UndefinedOutside { family: String, outside: String },
+    #[error("family `{family}` is outside `{outside}`, which is itself outside other families")]
+    NestedOutside { family: String, outside: String },
     #[error(transparent)]
     FamilyOverlap(#[from] FamilyOverlap),
 }
@@ -804,6 +887,11 @@ struct FamilyEntry {
     /// same candidates), so two families stay disjoint without a lookahead.
     #[serde(default)]
     except: Option<String>,
+    /// Families whose models are outside this one: a model one of them
+    /// matches (by its own pattern, exception and revision) is not of this
+    /// family. A family named here is outside no family.
+    #[serde(default)]
+    outside: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -855,6 +943,9 @@ struct Family {
     except: Option<Regex>,
     /// The revision prefix (lowercase) and the range the revision is in.
     revision: Option<(String, revision::Range)>,
+    /// The indexes (in the sorted families) of the families whose models
+    /// are outside this one.
+    outside: Vec<usize>,
 }
 
 /// A rulebook: the families, the hosts, the compiled rules, the service
@@ -948,17 +1039,18 @@ impl Rulebook {
     }
 
     /// Parse and compile a rulebook: `families` (`id`, `on`: `id` or
-    /// `names`, `match`: a regex), `hosts` (`id`, `apis`, `providers`,
-    /// `urls`, `scope`: `all` (default) or `capabilities`), and `rules`
-    /// (`layer`, `target`, `set`: directive → value). Unknown fields are
-    /// errors.
+    /// `names`, `match`: a regex, `except`, `revision`, `outside`: family
+    /// ids), `hosts` (`id`, `apis`, `providers`, `urls`, `scope`: `all`
+    /// (default) or `capabilities`), and `rules` (`layer`, `target`, `set`:
+    /// directive → value). Unknown fields are errors.
     ///
     /// # Errors
     ///
     /// When the text is not a rulebook, a pattern is not a regex, a
     /// revision range does not parse, two definitions share an id, two
     /// hosts share an API or a provider, a family or host rule or a
-    /// service tier entry targets an undefined id, a host of scope
+    /// service tier entry or an `outside` targets an undefined id, an
+    /// `outside` family is itself outside others, a host of scope
     /// `capabilities` gets a wire directive, or the rules do not
     /// [`compile`].
     #[allow(clippy::too_many_lines)] // one parse-and-check pass; each check is a short loop
@@ -967,6 +1059,8 @@ impl Rulebook {
             .map_err(|error| vec![QuirksError::Format(error.to_string())])?;
         let mut errors = Vec::new();
         let mut families: Vec<Family> = Vec::new();
+        // The `outside` names of each family, by family id.
+        let mut outside_names: HashMap<String, Vec<String>> = HashMap::new();
         for family in entry.families {
             if families.iter().any(|known| known.id == family.id) {
                 errors.push(QuirksError::DuplicateId {
@@ -990,13 +1084,17 @@ impl Rulebook {
             };
             let except = family.except.as_deref().map(Regex::new).transpose();
             match (Regex::new(&family.pattern), except) {
-                (Ok(pattern), Ok(except)) => families.push(Family {
-                    id: family.id,
-                    on: family.on,
-                    pattern,
-                    except,
-                    revision,
-                }),
+                (Ok(pattern), Ok(except)) => {
+                    outside_names.insert(family.id.clone(), family.outside);
+                    families.push(Family {
+                        id: family.id,
+                        on: family.on,
+                        pattern,
+                        except,
+                        revision,
+                        outside: Vec::new(),
+                    });
+                }
                 (Err(error), _) | (Ok(_), Err(error)) => errors.push(QuirksError::BadPattern {
                     family: family.id,
                     reason: error.to_string(),
@@ -1004,6 +1102,28 @@ impl Rulebook {
             }
         }
         families.sort_by(|left, right| left.id.cmp(&right.id));
+        let ids: Vec<String> = families.iter().map(|family| family.id.clone()).collect();
+        for family in &mut families {
+            for name in outside_names.get(&family.id).into_iter().flatten() {
+                match ids.iter().position(|id| id == name) {
+                    None => errors.push(QuirksError::UndefinedOutside {
+                        family: family.id.clone(),
+                        outside: name.clone(),
+                    }),
+                    Some(_)
+                        if outside_names
+                            .get(name)
+                            .is_some_and(|names| !names.is_empty()) =>
+                    {
+                        errors.push(QuirksError::NestedOutside {
+                            family: family.id.clone(),
+                            outside: name.clone(),
+                        });
+                    }
+                    Some(index) => family.outside.push(index),
+                }
+            }
+        }
         let mut host_ids: Vec<&str> = Vec::new();
         let mut by_api = HashMap::new();
         let mut by_provider = HashMap::new();
@@ -1138,20 +1258,34 @@ impl Rulebook {
     pub fn family(&self, id: &str, name: &str) -> Result<Option<&str>, FamilyOverlap> {
         let lower_id = id.to_lowercase();
         let mut candidates: Option<Vec<String>> = None;
-        let mut matching = self.families.iter().filter(|family| {
-            let mut matches = |pattern: &Regex| match family.on {
-                MatchOn::Id => pattern.is_match(&lower_id),
-                MatchOn::Names => candidates
-                    .get_or_insert_with(|| match_candidates(id, name))
-                    .iter()
-                    .any(|candidate| pattern.is_match(candidate)),
-            };
-            matches(&family.pattern)
-                && !family.except.as_ref().is_some_and(&mut matches)
-                && family.revision.as_ref().is_none_or(|(prefix, range)| {
-                    range.holds(revision::of(id, prefix).unwrap_or_default())
-                })
-        });
+        // Whether each family's own pattern, exception and revision take
+        // the model, before `outside` is read.
+        let own: Vec<bool> = self
+            .families
+            .iter()
+            .map(|family| {
+                let mut matches = |pattern: &Regex| match family.on {
+                    MatchOn::Id => pattern.is_match(&lower_id),
+                    MatchOn::Names => candidates
+                        .get_or_insert_with(|| match_candidates(id, name))
+                        .iter()
+                        .any(|candidate| pattern.is_match(candidate)),
+                };
+                matches(&family.pattern)
+                    && !family.except.as_ref().is_some_and(&mut matches)
+                    && family.revision.as_ref().is_none_or(|(prefix, range)| {
+                        range.holds(revision::of(id, prefix).unwrap_or_default())
+                    })
+            })
+            .collect();
+        let mut matching = self
+            .families
+            .iter()
+            .zip(&own)
+            .filter(|(family, own_match)| {
+                **own_match && !family.outside.iter().any(|index| own[*index])
+            })
+            .map(|(family, _)| family);
         let family = matching.next();
         if let (Some(first), Some(second)) = (family, matching.next()) {
             return Err(FamilyOverlap {
@@ -1296,6 +1430,7 @@ impl<'a> Quirks<'a> {
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1310,6 +1445,7 @@ impl<'a> Quirks<'a> {
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1350,6 +1486,7 @@ impl<'a> Quirks<'a> {
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1372,6 +1509,7 @@ impl<'a> Quirks<'a> {
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1400,6 +1538,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1419,8 +1558,18 @@ impl<'a> Quirks<'a> {
     /// [`Directive::StrictCap`].
     #[must_use]
     pub fn strict_cap(&self) -> Option<u32> {
-        match self.known(Directive::StrictCap)? {
-            Value::Count(cap) => Some(*cap),
+        self.count(Directive::StrictCap)
+    }
+
+    /// [`Directive::ToolCallIdLimit`].
+    #[must_use]
+    pub fn tool_call_id_limit(&self) -> Option<u32> {
+        self.count(Directive::ToolCallIdLimit)
+    }
+
+    fn count(&self, directive: Directive) -> Option<u32> {
+        match self.known(directive)? {
+            Value::Count(count) => Some(*count),
             Value::Bool(_)
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
@@ -1428,6 +1577,7 @@ impl<'a> Quirks<'a> {
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1447,7 +1597,8 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
-            | Value::ThinkingBudgets(_) => None,
+            | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_) => None,
         }
     }
 
@@ -1505,6 +1656,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1540,7 +1692,67 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingBudgets(_)
+            | Value::BedrockReasoning(_)
             | Value::Endpoint(_) => None,
         }
+    }
+
+    /// [`Directive::GoogleToolCallIds`].
+    #[must_use]
+    pub fn google_tool_call_ids(&self) -> Option<bool> {
+        self.flag(Directive::GoogleToolCallIds)
+    }
+
+    /// [`Directive::GoogleMultimodalFunctionResponse`].
+    #[must_use]
+    pub fn google_multimodal_function_response(&self) -> Option<bool> {
+        self.flag(Directive::GoogleMultimodalFunctionResponse)
+    }
+
+    /// [`Directive::BedrockReasoning`].
+    #[must_use]
+    pub fn bedrock_reasoning(&self) -> Option<model_facts::Shape> {
+        match self.known(Directive::BedrockReasoning)? {
+            Value::BedrockReasoning(shape) => Some(*shape),
+            Value::Bool(_)
+            | Value::Count(_)
+            | Value::Prefixes(_)
+            | Value::MaxTokensField(_)
+            | Value::ThinkingFormat(_)
+            | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
+            | Value::Endpoint(_) => None,
+        }
+    }
+
+    /// [`Directive::CompoundToolCallIds`].
+    #[must_use]
+    pub fn compound_tool_call_ids(&self) -> Option<bool> {
+        self.flag(Directive::CompoundToolCallIds)
+    }
+
+    /// [`Directive::ServiceTierField`].
+    #[must_use]
+    pub fn service_tier_field(&self) -> Option<bool> {
+        self.flag(Directive::ServiceTierField)
+    }
+
+    /// [`Directive::ReasoningOffField`].
+    #[must_use]
+    pub fn reasoning_off_field(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningOffField)
+    }
+
+    /// [`Directive::EncryptedReasoning`].
+    #[must_use]
+    pub fn encrypted_reasoning(&self) -> Option<bool> {
+        self.flag(Directive::EncryptedReasoning)
+    }
+
+    /// [`Directive::ReasoningContentSignature`].
+    #[must_use]
+    pub fn reasoning_content_signature(&self) -> Option<bool> {
+        self.flag(Directive::ReasoningContentSignature)
     }
 }

@@ -46,6 +46,8 @@ pub(crate) const WAIT_MS: u64 = 90_000;
 
 use super::kernel_test_lock;
 
+mod query;
+
 /// Directories, models, and the faux provider of one session that survive a
 /// reopen, like a worker host's own objects.
 pub(crate) struct Fixture {
@@ -210,7 +212,7 @@ async fn first_slot(session: &EukheSession) -> Option<ToolSlot> {
     live.tools.and_then(|tools| tools.into_iter().next())
 }
 
-async fn wait_for<F, Fut>(what: &str, mut check: F)
+pub(crate) async fn wait_for<F, Fut>(what: &str, mut check: F)
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = bool>,

@@ -82,3 +82,27 @@ def mfb.mnat(x: Maybe<&2, Nat>) -> {FMF.put_mnat(x) == ModelFacts.mf.mnat(x, "")
       {==}
     case Some{k}:
       {==}
+
+def mfb.shape(s: Maybe<&2, Fx.Shape>, -rest: String) -> {Wr.Got{s, rest} == FMF.get_shape(Wr.get_nat(ModelFacts.mf.shape(s, rest))) : Wr.Dec<Maybe<&2, Fx.Shape>>}:
+  match s:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Fx.SClaude{}:
+          {==}
+        case Fx.SGpt{}:
+          {==}
+        case Fx.SGptOss{}:
+          {==}
+
+def mfb.rfields(f: Fx.RFields) -> {FMF.put_rfields(f) == ModelFacts.mf.rfields(f) : String}:
+  match f:
+    case Fx.RNone{}:
+      {==}
+    case Fx.RClaude{}:
+      {==}
+    case Fx.RNested{e}:
+      {==}
+    case Fx.RFlat{e}:
+      {==}

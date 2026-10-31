@@ -7,7 +7,7 @@ use crate::settings::types::{
     CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings,
     ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
     PrivacySettings, ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings,
-    QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings, ShellSettings,
+    QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings, Settings, ShellSettings,
     SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings, TerminalSettings,
     ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings,
     WarningSettings,
@@ -52,6 +52,11 @@ fn populated() -> Settings {
             model: Some("m".into()),
             thinking: Some(ThinkingLevelSetting::Low),
             settle_timeout_ms: Some(1),
+        }),
+        rlm: Some(RlmSettings {
+            query_model: Some("m".into()),
+            query_concurrency: Some(1),
+            query_budget_bytes: Some(1),
         }),
         auto_refine: Some(AutoRefineSettings {
             enabled: Some(true),

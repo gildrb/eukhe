@@ -185,6 +185,39 @@ pub const SUBAGENT_STALL_MS: Decl = Decl {
     init: Init::Nat(600_000),
 };
 
+/// The `provider/id` an `rlm.query` without a `model` asks; `""`: the
+/// calling session's model.
+pub const RLM_QUERY_MODEL: Decl = Decl {
+    id: "rlm.queryModel",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// `rlm.query` calls of one session in flight at once; `0` takes the
+/// default (the code mode `models.*` cap, 4).
+pub const RLM_QUERY_CONCURRENCY: Decl = Decl {
+    id: "rlm.queryConcurrency",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(4),
+};
+
+/// Input bytes (prompts and contexts) one session's `rlm.query` calls may
+/// send in all; `0`: no budget.
+pub const RLM_QUERY_BUDGET_BYTES: Decl = Decl {
+    id: "rlm.queryBudgetBytes",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(0),
+};
+
 /// `0` takes the default.
 pub const TOOL_BLOCKING_BUDGET_MS: Decl = Decl {
     id: "toolBlockingBudgetMs",
@@ -1269,6 +1302,9 @@ pub const DECLS: &[Decl] = &[
     PROVIDER_MAX_QUEUED,
     SUBAGENT_MAX_CONCURRENCY,
     SUBAGENT_STALL_MS,
+    RLM_QUERY_MODEL,
+    RLM_QUERY_CONCURRENCY,
+    RLM_QUERY_BUDGET_BYTES,
     TOOL_BLOCKING_BUDGET_MS,
     MAX_TOOL_ROUNDS,
     IDLE_EVICTION_MINUTES,

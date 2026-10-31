@@ -19,6 +19,34 @@ Each session builds a tree of agents, starting at depth 0. An agent below the de
 - `rlm.create_session(prompt: str, name: str | None = None, model: str | None = None, thinking: str | None = None, cwd: str | None = None) -> RLMCreateSessionHandle`: creates another depth-0 session (a sibling root, not a child). Only at depth 0 with a daemon; returns after the session exists and its first prompt is sent.
 - `rlm.find_models(query: str = "", limit: int = 8) -> list[RLMModel]`: models backed by active credentials; pass `selector` as `model`.
 
+## Query (a sub-model call over data)
+
+- `rlm.query(prompt: str, context: str | None = None, *, model: str | None = None, thinking: str | None = None, max_bytes: int | None = None) -> RLMText`: one model call with no tools, no session and no transcript entry; the answer is a value and enters the conversation only if the cell prints it.
+  - `context`: the slice the prompt is about (sent before the prompt, inside `<context>` tags).
+  - `model`: an exact `provider/id` (see `rlm.find_models`); default the `rlm.queryModel` setting, else this session's model. `thinking`: a reasoning level; default the model's own.
+  - `max_bytes`: cut the answer to at most that many UTF-8 bytes at a character boundary.
+  - Raises `rlm.RLMQueryError` when the call fails or the batch is refused.
+- `rlm.query_batch(calls: list[dict], *, concurrency: int | None = None) -> list[RLMText | RLMQueryError]`: each dict `{prompt, context?, model?, thinking?, max_bytes?}` as in `rlm.query`; answers in order, a failed call's `RLMQueryError` in its place. A context shared by many calls is sent to the host once.
+  - Admission is all or none: over the session's input-byte budget (`rlm.queryBudgetBytes`, 0: none) the batch raises `rlm.query needs N bytes of input; the session's query budget has L of B bytes left (rlm.queryBudgetBytes)`; with every query slot of the session busy (`rlm.queryConcurrency`, default 4) it raises `rlm.query concurrency limit N is already full`.
+  - The calls run in waves of at most `concurrency` (default and ceiling: the free query slots), in order.
+  - Each call's usage counts into this session's usage.
+- `RLMText`: a `str` with `.truncated: bool` (cut by `max_bytes` or the model's output limit) and `.model: str` (`provider/id`).
+
+## The conversation as data
+
+Synchronous reads (no `await`) that return values and print nothing; slice them in code and query the slices.
+
+- Sessions without chat memory:
+  - `history.entries(*, kind: str | None = None) -> list[HistoryEntry]`: every entry of this conversation, oldest first, compactions and what they summarized included.
+  - `history.entry(id: int) -> HistoryEntry`.
+  - `history.compactions() -> list[HistoryEntry]`: each compaction's summary is its `text`; the entries before its `first_kept_id` are what it summarized.
+  - `HistoryEntry`: `id`, `kind` (`user`, `assistant`, `tool_result`, `compaction`, `reset`, `system`, `bash`, `custom`, ...), `text`, `tool_calls` (`ToolCall(id, name, arguments)`), `tool_call_id`, `tool_name`, `is_error`, `custom_type`, `first_kept_id`, `timestamp`.
+- Chat-memory sessions (read by zoom only; there is no search):
+  - `chat.view() -> list[ChatLine]`: the view's lines, `ChatLine(id, n, text)`: the `n` messages from `id` on, summarized.
+  - `chat.zoom(id: int, n: int) -> list[ChatLine]`: the two lines line `(id, n)` was built from (`n` > 1).
+  - `chat.message(id: int) -> str`: message `id` whole, as `kind: text`.
+- Each object raises in the other kind of session, naming the reads that fit.
+
 ## Track and collect
 
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct children; rows carry live activity (current activity, tool use count, duration, answer preview, latest progress note). Use after a kernel restart or compaction to get handles back.

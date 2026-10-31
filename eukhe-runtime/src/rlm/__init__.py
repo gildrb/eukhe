@@ -28,7 +28,9 @@ from .harness import (
     chat_memory_session,
     get_harness_state,
 )
+from .history import ChatLine, HistoryEntry, ToolCall, chat, history
 from .jobs import Job, jobs
+from .query import RLMQueryError, RLMText, query, query_batch
 from .remote import remote
 
 _NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
@@ -708,6 +710,8 @@ class _RLMFactoryNamespace:
 class _RLMNamespace:
     harness = _harness_state
     get_harness_state = staticmethod(get_harness_state)
+    RLMQueryError = RLMQueryError
+    RLMText = RLMText
 
     async def spawn(
         self,
@@ -757,6 +761,22 @@ class _RLMNamespace:
     async def collect(self, targets: Any = None, *, timeout_ms: int = 0) -> list[RLMChildResult]:
         return await collect(targets, timeout_ms=timeout_ms)
 
+    async def query(
+        self,
+        prompt: str,
+        context: str | None = None,
+        *,
+        model: str | None = None,
+        thinking: str | None = None,
+        max_bytes: int | None = None,
+    ) -> RLMText:
+        return await query(prompt, context, model=model, thinking=thinking, max_bytes=max_bytes)
+
+    async def query_batch(
+        self, calls: list[dict[str, Any]], *, concurrency: int | None = None
+    ) -> list[RLMText | RLMQueryError]:
+        return await query_batch(calls, concurrency=concurrency)
+
     factory = _RLMFactoryNamespace()
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -783,32 +803,41 @@ sys.modules[__name__].__class__ = _NotCallableModule
 __all__ = [
     "BashHandle",
     "BashResult",
+    "ChatLine",
     "HarnessEntry",
     "HarnessScope",
     "HarnessState",
+    "HistoryEntry",
     "McpIntegration",
     "McpToolError",
     "NotEnabled",
     "RLMCreateSessionHandle",
     "RLMModel",
     "RLMProgressNoteResult",
+    "RLMQueryError",
     "RLMSpawnHandle",
     "RLMSubagent",
     "RLMSubagentActivity",
+    "RLMText",
+    "ToolCall",
     "create_session",
     "RefinementEvent",
     "Job",
     "bash",
+    "chat",
     "delete_subagent",
     "emit",
     "find_models",
     "get_harness_state",
     "harness",
+    "history",
     "host_request",
     "jobs",
     "host_request_sync",
     "list_subagents",
     "progress_note",
+    "query",
+    "query_batch",
     "remote",
     "rename",
     "rlm",

@@ -21,6 +21,7 @@ pub(crate) mod context;
 )]
 mod harness;
 pub(crate) mod inbox;
+pub(crate) mod lift;
 pub(crate) mod live;
 pub(crate) mod output;
 pub(crate) mod prompt;

@@ -15,8 +15,8 @@
 //! - [`glob`]: matching paths, newest first, as a folded listing.
 //! - [`Url`]: internal URLs (`repo://`, `skill://`, `agent://`, `memory://`)
 //!   whose `..` cannot leave the scheme's root.
-//! - [`rebase_content`]: byte-level three-way rebase of a stale edit onto the
-//!   current file.
+//! - `rebase`: line-level three-way rebase of a stale edit onto the current
+//!   file, decided by the compiled core (`eukhe_bend::rules::rebase`).
 //! - [`apply_hashline`]: the hashline `edit` engine; writes go through the
 //!   host's [`EditWriter`].
 //!
@@ -59,10 +59,6 @@ pub use path::{lexical_normalize, resolve};
 pub use read::{
     display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, Row,
     SelectorError,
-};
-pub use rebase::{
-    apply_edits, canonical_edits, rebase_content, rebase_edits, validate_edits, AppliedEdits,
-    ByteEdit, ByteEditError, ByteRange, RebaseConflict,
 };
 pub use store::{
     file_hash, payload_hash, seen_lines_from_body, Clipboard, EditStore, Snapshot,

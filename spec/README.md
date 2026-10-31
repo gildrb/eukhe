@@ -17,11 +17,12 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 
 |Pillar|Source|Spec|Law areas (laws)|
 |---|---|---|---|
-|durable|[pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`crates/eukhe-durable`)|`durable/log.bend`, `durable/task_life.bend`, `durable/task_life_wire.bend`|log (25), staging (26), listing (12), tree (30), task_life (16), job (37), job_step (15), tool_call (11), wait (19)|
-|rlm|[prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) RLM: REPL kernel, `rlm.spawn` child sessions|`rlm/family.bend`|family (15), child (16), child_env (19), workflow (37), progress (19), work (16)|
+|durable|[pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`crates/eukhe-durable`)|`durable/log.bend`, `durable/task_life.bend`, `durable/task_life_wire.bend`|log (25), staging (26), listing (12), tree (30), task_life (16), job (37), job_step (15), wait (19)|
+|rlm|[prime-agent](https://www.primeintellect.ai/blog/prime-agent) RLM: context as a variable in the REPL, subagents as function calls|`rlm/family.bend`, `rlm/query.bend`|family (15), rlm_query (19), child (16), child_env (19), workflow (37), progress (19), work (16)|
+|harness|[omp²](https://github.com/can1357/oh-my-pi/blob/omp2/PHILOSOPHY.md): speculation then effect, decode what they meant, version everything, documents checked out, data over code|`harness/{effect,arguments,lift,lift_wire,rebase}.bend`|tool_call (21), arg_repair (21), call_lift (13), rebase (12), facts (48), model_facts (8), quirks (17)|
 |memory|[OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449)|`memory/optchat.bend`|optchat (31), compactor (29), admission (36)|
 |agents|[Fold subagents into the main loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop)|`rlm/family.bend` (spawn reasons)|run (60), family (15), tools (35), tool_surface (4), skill_load (11), runners (11), approvals (33), director (33)|
-|autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats}.bend`|autoresearch (47)|
+|autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats,step}.bend`|autoresearch (54)|
 |settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (48), cvar (35)|
 |theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (51), theme_model (16), color (39)|
 
@@ -35,6 +36,12 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |D4|Every run ends; every wait has an exit.|`run_ends`, wait laws|
 |R1|A subagent is admitted only with a reason (`parallel`, `isolate`, `tools`, `user`), below the depth limit, inside the family cap; a batch admits all or none.|`family_admit_iff`, `family_why_required`, `family_admit_depth_bound`, `family_cap_bound`, `family_batch_all_or_none`, `family_refusal_precedence`|
 |R2|Every subagent reports exactly once; no credential reaches a child.|child laws, `env_drops_credentials`|
+|R3|`rlm.query`/`query_batch` (tool-less sub-model calls whose results return as values): budget first, then the concurrency cap, then waves that cover every call once, in order; a result cut stays UTF-8 safe and within `max_bytes`.|`rlm_query_plan_spec`, `rlm_query_budget_refuses`, `rlm_query_full_refuses`, `rlm_query_admits`, `rlm_query_cap_bound`, `rlm_query_covers`, `rlm_query_cut_spec`|
+|H1|Speculation, then effect: a tool runs only for a call of a committed assistant entry; a history with no commit changes nothing; an unsafe call never runs twice across a restart; each call settles once.|`tool_call_gate_is_spec`, `execute_after_committed`, `uncommitted_drop_inert`, `effect_once`, `effect_settles_once`|
+|H2|Decode what they meant: every argument repair (decoded key, alias, scalar spelling) is recorded once; declared keys are never renamed; refused or unknown keys reject the call; a repair is idempotent.|`arg_repair_spec`, `arg_repair_recorded`, `arg_repair_never_renames`, `arg_repair_refused_rejects`, `arg_repair_unknown_rejects`, `arg_repair_idempotent`|
+|H3|Version everything: a replayed call of an older `family@rev` is lifted to the current rev; current and foreign calls stay untouched; no argument is lost; a transcript's bytes never change when a turn is appended.|`call_lift_refines_spec`, `call_lift_reaches_current`, `call_lift_current_is_identity`, `call_lift_unknown_family_untouched`, `call_lift_preserves_unmapped`, `call_lift_replay_byte_stable`|
+|H4|Documents checked out: a stale edit lands only where its window is unique in base and head; otherwise it is refused whole with the reason, never guessed or written in part.|`rebase_refines`, `rebase_disjoint_lands`, `rebase_conflict_no_write`, `rebase_ambiguous_refused`, `rebase_result_applies`|
+|H5|Data over code: wire shape never branches on a model id or provider name in Rust; the rulebook's families and hosts decide it.|`facts_reasoning_exact`, `facts_bedrock_reasoning_oracle`, `facts_flag_exact`|
 |M1|The view and the compaction view tile the messages; merges follow Taelin's rollback push (due = (T − last) / 2^l); a fit reaches its budget; a turn never waits forever on memory.|`view_covers`, `cview_covers`, `push_agrees_always`, `fit_reaches_budget`, `need_progress`|
 |M2|A compactor line fits its budget; interactive requests never wait behind background work.|compactor laws, admission laws|
 |A1|One loop: the roster is fixed at open and stays small; late tools come through `dyn`; skills show only name and description and load on demand; a failed skill load is reported.|`roster_fixed`, `dyn_reaches_joined`, skill_load laws|
@@ -46,4 +53,5 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 
 Proven: the Bend source of every rule above. Trusted: the Bend compiler, the C
 shim (`crates/eukhe-bend/src/ffi.rs`), the Rust codecs and IO. Tested, not
-proven: the host paths (`cargo test`).
+proven: the host paths (`cargo test`), and run-time `Nat` sizes (Bend aborts
+past 2^48-1; laws see unbounded numbers): `fifteen_digit_metrics_run_in_the_core`.

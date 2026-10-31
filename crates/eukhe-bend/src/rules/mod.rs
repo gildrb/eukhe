@@ -3,9 +3,11 @@
 //! format, calling its entry and decoding the reply.
 
 pub mod approvals;
+pub mod arg_repair;
 pub mod autoresearch;
 pub mod bound;
 pub mod cache_marks;
+pub mod call_lift;
 pub mod codemode_id;
 pub mod color;
 pub mod compactor;
@@ -30,10 +32,12 @@ pub mod optchat;
 pub mod overflow;
 pub mod package_source;
 pub mod quirks;
+pub mod rebase;
 pub mod redirect_input;
 pub mod refine_plan;
 pub mod retry;
 pub mod retry_note;
+pub mod rlm_query;
 pub mod runners;
 pub mod scan;
 pub mod semver;

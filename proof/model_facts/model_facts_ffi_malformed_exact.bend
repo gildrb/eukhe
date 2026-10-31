@@ -310,6 +310,49 @@ def mfm.price(r: Wr.Dec<List<&2, Fx.PRow>>) -> {ModelFacts.mfr.get_price(r) == F
     case Wr.Bad{}:
       {==}
 
+def mfm.shape_tag(t: Nat, +s: String) -> {ModelFacts.mfr.get_shape.tag(t, s) == FMF.get_shape.tag(t, s) : Wr.Dec<Maybe<&2, Fx.Shape>>}:
+  match t:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n:
+      {==}
+    case 4n+p:
+      {==}
+
+def mfm.shape(r: Wr.Dec<Nat>) -> {ModelFacts.mfr.get_shape(r) == FMF.get_shape(r) : Wr.Dec<Maybe<&2, Fx.Shape>>}:
+  match r:
+    case Wr.Got{t, +s}:
+      mfm.shape_tag(t, s)
+    case Wr.Bad{}:
+      {==}
+
+def mfm.reasoning_l(x: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Fx.ELv>) -> {ModelFacts.mfr.get_reasoning.l(x, e, r) == FMF.get_reasoning.l(x, e, r) : Wr.Dec<FMF.Req>}:
+  match r:
+    case Wr.Got{l, +s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def mfm.reasoning_e(x: Maybe<&2, Fx.Shape>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> {ModelFacts.mfr.get_reasoning.e(x, r) == FMF.get_reasoning.e(x, r) : Wr.Dec<FMF.Req>}:
+  match r:
+    case Wr.Got{e, +s}:
+      %mfm.elv(Wr.get_nat(s)) : {ModelFacts.mfr.get_reasoning.l(x, e, ModelFacts.mfr.get_elv(Wr.get_nat(s))) == FMF.get_reasoning.l(x, e, _) : Wr.Dec<FMF.Req>}
+      mfm.reasoning_l(x, e, ModelFacts.mfr.get_elv(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
+def mfm.reasoning(r: Wr.Dec<Maybe<&2, Fx.Shape>>) -> {ModelFacts.mfr.get_reasoning(r) == FMF.get_reasoning(r) : Wr.Dec<FMF.Req>}:
+  match r:
+    case Wr.Got{x, +s}:
+      %mfm.ent(Wr.get_nat(s)) : {ModelFacts.mfr.get_reasoning.e(x, ModelFacts.mfr.get_ent(Wr.get_nat(s))) == FMF.get_reasoning.e(x, _) : Wr.Dec<FMF.Req>}
+      mfm.reasoning_e(x, ModelFacts.mfr.get_ent(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
 def mfm.req_tag(t: Nat, +s: String) -> {ModelFacts.mfr.get_req.tag(t, s) == FMF.get_req.tag(t, s) : Wr.Dec<FMF.Req>}:
   match t:
     case 0n:
@@ -324,7 +367,10 @@ def mfm.req_tag(t: Nat, +s: String) -> {ModelFacts.mfr.get_req.tag(t, s) == FMF.
     case 3n:
       %mfm.rows(Wr.get_nat(s)) : {ModelFacts.mfr.get_price(ModelFacts.mfr.get_rows(Wr.get_nat(s))) == FMF.get_price(_) : Wr.Dec<FMF.Req>}
       mfm.price(ModelFacts.mfr.get_rows(Wr.get_nat(s)))
-    case 4n+p:
+    case 4n:
+      %mfm.shape(Wr.get_nat(s)) : {ModelFacts.mfr.get_reasoning(ModelFacts.mfr.get_shape(Wr.get_nat(s))) == FMF.get_reasoning(_) : Wr.Dec<FMF.Req>}
+      mfm.reasoning(ModelFacts.mfr.get_shape(Wr.get_nat(s)))
+    case 5n+p:
       {==}
 
 def mfm.req_go(r: Wr.Dec<Nat>) -> {ModelFacts.mfr.get_req.go(r) == FMF.get_req.go(r) : Wr.Dec<FMF.Req>}:

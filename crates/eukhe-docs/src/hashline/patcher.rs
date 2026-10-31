@@ -375,7 +375,7 @@ struct SeenGuard<'a> {
 /// Apply a section whose tag names an older snapshot onto the live text,
 /// or `Ok(None)` to reject it as stale.
 ///
-/// Tries omp's anchor remap ([`try_recover`]), then the byte-level
+/// Tries omp's anchor remap ([`try_recover`]), then the line-level
 /// three-way rebase ([`rebase_stale`]), each on a clipboard fork, so a
 /// failed attempt leaves `clipboard` untouched.
 fn recover_stale(
@@ -401,11 +401,13 @@ fn recover_stale(
     Ok(Some(rebased))
 }
 
-/// The byte-level three-way rebase (omp envd `docserver/rebase.rs`): apply
-/// the section to the snapshot it was written against, then carry that
-/// change onto the live text through regions both sides left unchanged.
-/// `Ok(None)` when there is no snapshot, the section does not apply to it,
-/// or the change overlaps what moved on disk.
+/// The three-way rebase (after omp envd `docserver/rebase.rs`; the decision
+/// is the compiled core's, `crate::rebase`): apply the section to the
+/// snapshot it was written against, then carry that change onto the live
+/// text where the live text still holds the lines it replaces, each found
+/// once. `Ok(None)` when there is no snapshot, the section does not apply
+/// to it, or the core refuses the rebase (the change overlaps what moved on
+/// disk, or its place is ambiguous).
 ///
 /// Like omp's document server, anchors are checked against the snapshot's
 /// seen lines before rebasing when `seen_guard` is set.
@@ -434,12 +436,7 @@ fn rebase_stale(
     let Ok(ours) = apply_edits(&base.text, edits, clipboard) else {
         return Ok(None);
     };
-    let Some(Ok(rebased)) =
-        rebase_content(base.text.as_bytes(), live.as_bytes(), ours.text.as_bytes()).ok()
-    else {
-        return Ok(None);
-    };
-    let Ok(text) = String::from_utf8(rebased.into_parts().0) else {
+    let Ok(text) = rebase_content(&base.text, live, &ours.text) else {
         return Ok(None);
     };
     let first_changed_line = live

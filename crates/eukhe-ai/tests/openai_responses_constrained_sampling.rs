@@ -298,14 +298,10 @@ fn replays_grammar_calls_as_custom_responses_items() {
             "openai",
             "gpt-test",
         ));
-        let error = convert_responses_messages(
-            &make_model(),
-            &context,
-            &["openai"],
-            &grammar_messages_options(),
-        )
-        .expect_err("expected a throw")
-        .to_string();
+        let error =
+            convert_responses_messages(&make_model(), &context, &grammar_messages_options())
+                .expect_err("expected a throw")
+                .to_string();
         assert!(
             error.contains(
                 r#"Grammar tool call "sample_tool" requires argument "payload" to be a string"#
@@ -320,13 +316,8 @@ fn replays_grammar_calls_as_custom_responses_items() {
         "openai",
         "gpt-test",
     ));
-    let messages = convert_responses_messages(
-        &make_model(),
-        &context,
-        &["openai"],
-        &grammar_messages_options(),
-    )
-    .expect("messages");
+    let messages = convert_responses_messages(&make_model(), &context, &grammar_messages_options())
+        .expect("messages");
 
     assert!(messages.contains(&json!({
         "type": "custom_tool_call",
@@ -352,13 +343,8 @@ fn drops_foreign_item_ids_when_replaying_grammar_calls_as_custom_responses_items
         "gpt-other",
     ));
 
-    let messages = convert_responses_messages(
-        &make_model(),
-        &context,
-        &["openai"],
-        &grammar_messages_options(),
-    )
-    .expect("messages");
+    let messages = convert_responses_messages(&make_model(), &context, &grammar_messages_options())
+        .expect("messages");
 
     let call = messages
         .iter()

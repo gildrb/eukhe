@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use eukhe_bend::rules::model_facts;
 use serde_json::json;
 
 use super::constrained_sampling::create_grammar_tool_input_properties;
@@ -23,6 +24,7 @@ use super::simple_options::{build_base_options, resolve_sampling_params};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
 use crate::models::{clamp_thinking_level, thinking_level_map};
+use crate::quirks::Quirks;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
     Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
@@ -40,7 +42,6 @@ use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions}
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_declared_tools, resolve_transcript, resolve_transcript_tools};
 
-pub(crate) const OPENAI_TOOL_CALL_PROVIDERS: &[&str] = &["openai", "openai-codex", "opencode"];
 /// `OpenAI` Responses rejects `max_output_tokens` below 16.
 pub(crate) const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: u64 = 16;
 const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
@@ -215,8 +216,9 @@ impl OpenAIResponsesOptions {
 }
 
 /// The effective `serviceTier`: the API option, else the eukhe addition
-/// [`StreamOptions::service_tier`](crate::types::StreamOptions) (never sent
-/// to GitHub Copilot, which rejects the field itself with a 400).
+/// [`StreamOptions::service_tier`](crate::types::StreamOptions), unless the
+/// rulebook says the host rejects the field (`service_tier_field`: GitHub
+/// Copilot answers it with a 400).
 fn effective_service_tier(
     model: &Model,
     options: &ProviderStreamOptions,
@@ -226,7 +228,7 @@ fn effective_service_tier(
         options
             .stream
             .service_tier
-            .filter(|_| model.provider != "github-copilot")
+            .filter(|_| model_facts::flag(Quirks::of(model).service_tier_field(), true))
             .map(|tier| json!(tier.as_str()))
     })
 }
@@ -305,12 +307,11 @@ fn build_params(
         supports_strict_mode: Some(compat.supports_strict_mode),
         supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
         tool_search_result: None,
-        strict_cap: crate::quirks::Quirks::of(model).strict_cap(),
+        strict_cap: Quirks::of(model).strict_cap(),
     };
     let messages = convert_responses_messages(
         model,
         context,
-        OPENAI_TOOL_CALL_PROVIDERS,
         &ConvertResponsesMessagesOptions {
             include_system_prompt: None,
             grammar_tool_input_properties: Some(grammar.clone()),
@@ -386,12 +387,13 @@ fn build_params(
 
     let reasoning_effort = reasoning_effort_of(api);
     if model.reasoning {
+        let quirks = Quirks::of(model);
         if let Some(effort) = reasoning_effort {
             insert_reasoning(model, api, effort, &mut params);
-        } else if model.provider != "github-copilot" {
+        } else if model_facts::flag(quirks.reasoning_off_field(), true) {
             insert_reasoning_off(model, &mut params);
         }
-        if model.provider == "xai" {
+        if model_facts::flag(quirks.encrypted_reasoning(), false) {
             params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
         }
     }

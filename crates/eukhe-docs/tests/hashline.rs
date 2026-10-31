@@ -277,9 +277,9 @@ fn every_block_locator_form_is_rejected() {
 }
 
 /// Same drift as `stale_edit_rebases_when_anchor_remap_cannot_prove_one_offset`
-/// (only the byte rebase can apply it), but line 6 was never displayed.
+/// (only the three-way rebase can apply it), but line 6 was never displayed.
 #[test]
-fn byte_rebase_runs_the_seen_line_guard_on_the_snapshot() {
+fn rebase_runs_the_seen_line_guard_on_the_snapshot() {
     let live = "a\nb\nc\nd\nX\ne\nf\n";
     let mut ws = Workspace::new();
     ws.enforce_seen_lines = true;

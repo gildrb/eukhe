@@ -45,6 +45,8 @@ try:
     rlm = _eukhe_rlm_module.rlm
     bash = _eukhe_rlm_module.bash
     jobs = _eukhe_rlm_module.jobs
+    chat = _eukhe_rlm_module.chat
+    history = _eukhe_rlm_module.history
     from rlm.fs import edit, glob, grep, read, write
     import rlm.mcp as mcp
 except Exception as _eukhe_rlm_error:
@@ -90,6 +92,13 @@ except Exception as _eukhe_rlm_error:
             rlm._raise_missing()
 
     jobs = _EukheMissingJobs()
+
+    class _EukheMissingMemory:
+        def __getattr__(self, name):
+            rlm._raise_missing()
+
+    chat = _EukheMissingMemory()
+    history = _EukheMissingMemory()
     def read(path, sel=None):
         rlm._raise_missing()
 

@@ -2,7 +2,8 @@
 # in code. laws/facts.bend states its laws;
 # proof/facts/ proves them. Sections 1 to 4 run as the compiled core:
 # bend/ffi_facts.bend (the budgets) and bend/ffi_model_facts.bend (the
-# flags, adaptive thinking, the Bedrock effort, the tier price row).
+# flags, adaptive thinking, the Bedrock effort and reasoning fields, the
+# tier price row).
 #
 # 1. Decisions from the rulebook: a wire API reads a fact of a model (adaptive
 #    thinking, block binding, prompt caching, explicit cache breakpoints, the
@@ -337,6 +338,89 @@ def effort.of(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
 def effort(+m: EMap, +l: ELv) -> Nat:
   effort.of(EMap.at(m, l), l)
 
+# Bedrock reasoning fields. The rulebook's `bedrock_reasoning` names the
+# request shape of a model on Bedrock: Claude's thinking fields, OpenAI
+# GPT's nested `reasoning.effort`, or gpt-oss's flat `reasoning_effort`
+# (none: the request sends no reasoning field).
+type Shape is Data:
+  SClaude{}
+  SGpt{}
+  SGptOss{}
+
+# the reasoning fields a Bedrock request sends: none; Claude's (Rust builds
+# them: adaptive or budget thinking); a nested effort; a flat effort. An
+# effort is a wire value: 0 the map's own string, 2 low, 3 medium, 4
+# high, 5 xhigh, 6 max
+type RFields is Data:
+  RNone{}
+  RClaude{}
+  RNested{e: Nat}
+  RFlat{e: Nat}
+
+# GPT's default effort of a level: each level its own, minimal as low
+def gpt.default(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      5n
+    case EMax{}:
+      6n
+
+# GPT's effort: the map's entry of the level (a wire value), else the
+# default effort (a missing or null entry)
+def gpt.of(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
+  match e:
+    case Some{w}:
+      match w:
+        case Some{v}:
+          v
+        case None{}:
+          gpt.default(l)
+    case None{}:
+      gpt.default(l)
+
+# gpt-oss's effort: low, medium and high only (minimal as low, xhigh and
+# max as high); the map is not read
+def oss.effort(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      4n
+    case EMax{}:
+      4n
+
+def reasoning.at(x: Shape, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match x:
+    case SClaude{}:
+      RClaude{}
+    case SGpt{}:
+      RNested{gpt.of(e, l)}
+    case SGptOss{}:
+      RFlat{oss.effort(l)}
+
+# the reasoning fields of a Bedrock request: the rulebook's shape s (none
+# when no rule applies), the map's entry e of the request's level l
+def reasoning(s: Maybe<&2, Shape>, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match s:
+    case None{}:
+      RNone{}
+    case Some{x}:
+      reasoning.at(x, e, l)
+
 def is_xhigh(l: ELv) -> Bool:
   match l:
     case EXhigh{}:
@@ -383,6 +467,92 @@ def native_ok(native: Bool, m: EMap) -> Bool:
       native_ok.e(EMap.at(m, EXhigh{}))
     case False{}:
       True{}
+
+# `OPENAI_GPT_EFFORT` of the Bedrock code
+def reasoning.old.table(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      5n
+    case EMax{}:
+      6n
+
+def reasoning.old.gpt(e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> Nat:
+  match e:
+    case Some{w}:
+      match w:
+        case Some{v}:
+          v
+        case None{}:
+          reasoning.old.table(l)
+    case None{}:
+      reasoning.old.table(l)
+
+# `OPENAI_GPT_OSS_EFFORT` of the Bedrock code
+def reasoning.old.oss(l: ELv) -> Nat:
+  match l:
+    case EMinimal{}:
+      2n
+    case ELow{}:
+      2n
+    case EMedium{}:
+      3n
+    case EHigh{}:
+      4n
+    case EXhigh{}:
+      4n
+    case EMax{}:
+      4n
+
+def reasoning.old.rest(oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match oss:
+    case True{}:
+      RFlat{reasoning.old.oss(l)}
+    case False{}:
+      match gpt:
+        case True{}:
+          RNested{reasoning.old.gpt(e, l)}
+        case False{}:
+          RNone{}
+
+# the Bedrock reasoning fields before the rulebook held the shape: a name
+# with "claude" (cl) sends Claude's fields; else a name with "gpt-oss"
+# (oss) the flat effort; else a name with "gpt-" (gpt) the nested effort;
+# else none (`build_additional_model_request_fields`)
+def reasoning.old(cl: Bool, oss: Bool, gpt: Bool, e: Maybe<&2, Maybe<&2, Nat>>, +l: ELv) -> RFields:
+  match cl:
+    case True{}:
+      RClaude{}
+    case False{}:
+      reasoning.old.rest(oss, gpt, e, l)
+
+def shape.old.rest(oss: Bool, gpt: Bool) -> Maybe<&2, Shape>:
+  match oss:
+    case True{}:
+      Some{SGptOss{}}
+    case False{}:
+      match gpt:
+        case True{}:
+          Some{SGpt{}}
+        case False{}:
+          None{}
+
+# the shape the rulebook gives a model of the old predicates (the shipped
+# families of rulebook.json; a Rust test sweeps the catalog for it): the
+# first predicate that holds, in the old order
+def shape.old(cl: Bool, oss: Bool, gpt: Bool) -> Maybe<&2, Shape>:
+  match cl:
+    case True{}:
+      Some{SClaude{}}
+    case False{}:
+      shape.old.rest(oss, gpt)
 
 # the budget-based Claude table of the Bedrock code, before the rulebook
 # held it (the level is clamped to high already)

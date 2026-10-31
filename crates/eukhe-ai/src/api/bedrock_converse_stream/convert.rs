@@ -5,7 +5,9 @@
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
-use eukhe_bend::rules::model_facts::{self, Effort, Level, MapEntry};
+use eukhe_bend::rules::model_facts::{
+    self, Effort, GptEffort, Level, MapEntry, ReasoningFields, Shape,
+};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
     ModelThinkingLevel, ProviderEnv, StopReason, ThinkingLevel, Tool, UserContent,
@@ -23,7 +25,7 @@ use crate::api::constrained_sampling::{
 use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
-use crate::quirks::{match_candidates, Quirks};
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -37,38 +39,51 @@ const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 
-/// TS `mapThinkingLevelToEffort`: the model's thinking-level map, else the
-/// Bedrock default effort of the level. A model with native `xhigh` says so
-/// in its map (`xhigh: "xhigh"`).
-#[must_use]
-pub fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
-    let map = thinking_level_map(model);
-    let entry = |at: ModelThinkingLevel| match map.and_then(|map| map.get(&at)) {
+/// The thinking-level map's entry of `level` for `model`, as the compiled
+/// core reads it.
+fn map_entry(model: &Model, level: ModelThinkingLevel) -> MapEntry {
+    match thinking_level_map(model).and_then(|map| map.get(&level)) {
         None => MapEntry::Missing,
         Some(None) => MapEntry::Null,
         Some(Some(_)) => MapEntry::Wire,
-    };
-    let entries = [
-        entry(ModelThinkingLevel::Minimal),
-        entry(ModelThinkingLevel::Low),
-        entry(ModelThinkingLevel::Medium),
-        entry(ModelThinkingLevel::High),
-        entry(ModelThinkingLevel::Xhigh),
-        entry(ModelThinkingLevel::Max),
-    ];
-    let at = match level {
+    }
+}
+
+const fn level_of(level: ThinkingLevel) -> Level {
+    match level {
         ThinkingLevel::Minimal => Level::Minimal,
         ThinkingLevel::Low => Level::Low,
         ThinkingLevel::Medium => Level::Medium,
         ThinkingLevel::High => Level::High,
         ThinkingLevel::Xhigh => Level::Xhigh,
         ThinkingLevel::Max => Level::Max,
-    };
-    match model_facts::effort(entries, at) {
-        Effort::Mapped => map
-            .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
-            .and_then(Option::clone)
-            .unwrap_or_default(),
+    }
+}
+
+/// The map's own wire string of `level` (the effort `Mapped` names).
+fn mapped_effort(model: &Model, level: ThinkingLevel) -> String {
+    thinking_level_map(model)
+        .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
+        .and_then(Option::clone)
+        .unwrap_or_default()
+}
+
+/// TS `mapThinkingLevelToEffort`: the model's thinking-level map, else the
+/// Bedrock default effort of the level. A model with native `xhigh` says so
+/// in its map (`xhigh: "xhigh"`).
+#[must_use]
+pub fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
+    let entries = [
+        ModelThinkingLevel::Minimal,
+        ModelThinkingLevel::Low,
+        ModelThinkingLevel::Medium,
+        ModelThinkingLevel::High,
+        ModelThinkingLevel::Xhigh,
+        ModelThinkingLevel::Max,
+    ]
+    .map(|at| map_entry(model, at));
+    match model_facts::effort(entries, level_of(level)) {
+        Effort::Mapped => mapped_effort(model, level),
         Effort::Low => "low".to_owned(),
         Effort::Medium => "medium".to_owned(),
         Effort::High => "high".to_owned(),
@@ -90,16 +105,12 @@ pub(crate) fn resolve_cache_retention(
     CacheRetention::Short
 }
 
-/// TS `isAnthropicClaudeModel`: checks the id and the name (application
-/// inference profile ARNs don't contain the model name).
+/// Whether the rulebook gives the model Claude's request shape on Bedrock
+/// (`bedrock_reasoning: "claude"`; TS `isAnthropicClaudeModel`, which read
+/// the id and the name: application inference profile ARNs do not hold
+/// the model name).
 pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    let name = model.name.to_lowercase();
-    id.contains("anthropic.claude")
-        || id.contains("anthropic/claude")
-        || name.contains("anthropic.claude")
-        || name.contains("anthropic/claude")
-        || name.contains("claude")
+    Quirks::of(model).bedrock_reasoning() == Some(Shape::Claude)
 }
 
 /// TS `supportsPromptCaching`: the quirks rulebook's `prompt_caching` for
@@ -536,8 +547,28 @@ pub(crate) fn build_additional_model_request_fields(
     if !model.reasoning {
         return None;
     }
-    if !is_anthropic_claude_model(model) {
-        return build_openai_reasoning_fields(model, reasoning);
+    let fields = model_facts::reasoning(
+        Quirks::of(model).bedrock_reasoning(),
+        map_entry(model, ModelThinkingLevel::from(reasoning)),
+        level_of(reasoning),
+    );
+    let gpt_effort = |effort: GptEffort| match effort {
+        GptEffort::Mapped => mapped_effort(model, reasoning),
+        GptEffort::Low => "low".to_owned(),
+        GptEffort::Medium => "medium".to_owned(),
+        GptEffort::High => "high".to_owned(),
+        GptEffort::Xhigh => "xhigh".to_owned(),
+        GptEffort::Max => "max".to_owned(),
+    };
+    match fields {
+        ReasoningFields::None => return None,
+        ReasoningFields::Nested(effort) => {
+            return Some(json!({ "reasoning": { "effort": gpt_effort(effort) } }));
+        }
+        ReasoningFields::Flat(effort) => {
+            return Some(json!({ "reasoning_effort": gpt_effort(effort) }));
+        }
+        ReasoningFields::Claude => {}
     }
     // GovCloud Bedrock rejects the Claude thinking.display field and block
     // binding.
@@ -599,50 +630,6 @@ pub(crate) fn build_additional_model_request_fields(
         }
     }
     Some(JsonValue::Object(result))
-}
-
-/// The non-Claude tail of TS `buildAdditionalModelRequestFields`: `OpenAI`
-/// GPT models (GPT-5.x, GPT-6) take a nested `reasoning.effort` and reject
-/// `minimal`; gpt-oss takes a flat `reasoning_effort` and only accepts low,
-/// medium and high.
-fn build_openai_reasoning_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
-    let candidates = match_candidates(&model.id, &model.name);
-    if candidates
-        .iter()
-        .any(|candidate| candidate.contains("gpt-oss"))
-    {
-        // TS `OPENAI_GPT_OSS_EFFORT`.
-        let effort = match reasoning {
-            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-            ThinkingLevel::Medium => "medium",
-            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => "high",
-        };
-        return Some(json!({ "reasoning_effort": effort }));
-    }
-    if candidates
-        .iter()
-        .any(|candidate| candidate.contains("gpt-"))
-    {
-        let mapped = thinking_level_map(model)
-            .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
-            .and_then(Option::as_ref);
-        // TS `OPENAI_GPT_EFFORT`.
-        let effort = mapped.map_or_else(
-            || {
-                match reasoning {
-                    ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-                    ThinkingLevel::Medium => "medium",
-                    ThinkingLevel::High => "high",
-                    ThinkingLevel::Xhigh => "xhigh",
-                    ThinkingLevel::Max => "max",
-                }
-                .to_owned()
-            },
-            Clone::clone,
-        );
-        return Some(json!({ "reasoning": { "effort": effort } }));
-    }
-    None
 }
 
 #[cfg(test)]
