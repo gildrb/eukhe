@@ -81,8 +81,10 @@ export function render(css: string): Record<string, string> {
 const styles = stylex.create({
   html: {
     backgroundColor: colors.bg,
+    WebkitFontSmoothing: "antialiased",
     MozOsxFontSmoothing: "grayscale",
     WebkitTextSizeAdjust: "100%",
+    textRendering: "optimizeLegibility",
   },
   /** The column's width, for the header's fitted type (`markdown.tsx`). */
   main: { containerType: "inline-size" },
