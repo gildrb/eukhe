@@ -22,7 +22,7 @@ cd /path/to/project
 eukhe            # start; /login at the first start
 eukhe agents     # find and open sessions
 eukhe gateway    # connect Signal on your phone to the CLI session
-eukhe dashboard  # open the session in a browser; on the phone: poros eukhe dashboard
+eukhe dashboard  # open the session in a browser; on the phone: porthmeus eukhe dashboard
 ```
 
 ## Memory

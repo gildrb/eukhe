@@ -667,10 +667,10 @@ mod leak_tests {
     #[test]
     fn what_still_leaks_is_visible() {
         let scrubber = Scrubber::new(&[]);
-        let out = scrubber.scrub_str("my sister Mia and my repo poros at C:\\Users\\dev");
+        let out = scrubber.scrub_str("my sister Mia and my repo porthmeus at C:\\Users\\dev");
         // Not in the term list, no pattern shape: both travel as-is. This
         // test documents the boundary, it does not assert a property.
         assert!(out.contains("Mia"));
-        assert!(out.contains("poros"));
+        assert!(out.contains("porthmeus"));
     }
 }

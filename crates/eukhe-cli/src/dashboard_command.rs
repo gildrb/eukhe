@@ -135,7 +135,7 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         println!("eukhe dashboard: {url}");
         println!("Serving on loopback only. Press Ctrl+C to stop.");
         println!(
-            "The {fragment} part pairs a browser: keep it private. Through a forwarder (poros, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
+            "The {fragment} part pairs a browser: keep it private. Through a forwarder (porthmeus, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
         );
         for host in &config.allowed_hosts {
             println!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
