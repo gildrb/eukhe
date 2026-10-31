@@ -6,17 +6,19 @@
 use std::collections::HashSet;
 use std::future::Future;
 
+use eukhe_bend::rules::task_life::{Mark, Member, Row};
 use eukhe_chord::context::{await_with_context, Context};
 use indexmap::{IndexMap, IndexSet};
 
 use crate::session::{SessionError, SessionResult, TransactionScope, Tx};
 use crate::types::{
-    AnyTaskRecord, ConversationId, TaskAbortReason, TaskId, TaskOutcome, TaskState,
+    AnyTaskRecord, ConversationId, TaskAbortReason, TaskId, TaskOutcome, TaskState, TaskStatus,
 };
 
 use super::invocation::InvocationMode;
-use super::mirror::{needs_request_mark, with_abort_mark, with_state, Queued};
-use super::ownership::{failed_outcome, Background, Node, Overlay, Scope, TaskNode, Walk};
+use super::life::{self, OwnedWork};
+use super::mirror::{with_state, Queued};
+use super::ownership::{failed_outcome, is_live, Background, Node, Overlay, Scope, TaskNode, Walk};
 use super::reservation::Resolution;
 use super::{Inner, SchedulerOutcome, TaskScheduler};
 
@@ -109,8 +111,8 @@ impl TaskScheduler {
                         }
                     }
                 }
-                if needs_request_mark(&current) {
-                    tx.set_task(with_abort_mark(&current, None))?;
+                if let Some(marked) = life::marked(&current, Mark::Request) {
+                    tx.set_task(marked)?;
                 }
                 let run = invocation.filter(|invocation| invocation.mode == InvocationMode::Run);
                 Ok((TaskAbortResult::Marked, run))
@@ -183,8 +185,8 @@ impl TaskScheduler {
                             continue;
                         }
                         reached.push(live.id);
-                        if needs_request_mark(live) {
-                            tx.set_task(with_abort_mark(live, None))?;
+                        if let Some(marked) = life::marked(live, Mark::Request) {
+                            tx.set_task(marked)?;
                         }
                     }
                 }
@@ -254,17 +256,20 @@ impl Inner {
                     let queued = inner
                         .load_scopes(if cascade { Queued::Load } else { Queued::Skip })
                         .await?;
-                    // A cascade from an abandoned owner passes its `restart` reason on; any other
-                    // intent marks, or upgrades a `restart` mark, as a request. Collected first, so
-                    // a request wins over a `restart` mark of the same pass.
+                    // The task-life rules decide every mark (`life::cascade`,
+                    // `life::join`): a cascade from an abandoned owner passes
+                    // its `restart` mark on; any other intent marks, or
+                    // upgrades a `restart` mark, as a request. Collected
+                    // first, so a request wins over a `restart` mark of the
+                    // same pass.
                     let mut marks = Marks::default();
                     {
-                        // Every live foreground task below a live owner with
-                        // cancellation intent, which is its nearest one: a
-                        // walk down from each owner with intent does not enter
-                        // another, whose own walk covers what is below it.
-                        // Derived again on every pass, as loading edges can
-                        // reveal a cancelled owner.
+                        // Every task below a live owner with cancellation
+                        // intent, which is its nearest one: a walk down from
+                        // each owner with intent does not enter another, whose
+                        // own walk covers what is below it. Derived again on
+                        // every pass, as loading edges can reveal a cancelled
+                        // owner.
                         let state = inner.lock();
                         let enter = |below: TaskId| !state.intent.contains(&below);
                         let walk = Walk {
@@ -273,33 +278,43 @@ impl Inner {
                         };
                         for id in &state.intent {
                             let owner = &state.live[id];
-                            // Only an owner abandoned after a restart, and nothing else, passes its
-                            // reason on.
-                            let restart = owner.abort_reason == Some(TaskAbortReason::Restart)
-                                && !failed_outcome(owner);
-                            for found in state.walk_down(Node::Task(*id), walk) {
-                                if let Some(live) = found.live.filter(|_| !found.node.background) {
-                                    marks.mark(live, restart.then_some(TaskAbortReason::Restart));
+                            let reached: Vec<_> = state.walk_down(Node::Task(*id), walk).collect();
+                            let rows: Vec<Row> = reached
+                                .iter()
+                                .map(|found| Row {
+                                    live: found.live.is_some(),
+                                    background: found.node.background,
+                                    mark: found
+                                        .live
+                                        .map_or(Mark::Clear, |live| marks.effective(live)),
+                                })
+                                .collect();
+                            for (found, mark) in reached.iter().zip(life::cascade(owner, &rows)) {
+                                if let Some(live) = found.live {
+                                    marks.set(live, mark);
                                 }
                             }
                         }
                     }
                     for id in pass_checks {
                         let waiter = inner.lock().live.get(&id).cloned();
-                        let Some(TaskState::Waiting { on, .. }) = waiter.map(|waiter| waiter.state)
+                        let Some(TaskState::Waiting { on, policy, .. }) =
+                            waiter.map(|waiter| waiter.state)
                         else {
                             continue;
                         };
-                        if !inner.any_failed(&on).await? {
-                            continue;
-                        }
-                        // Every other live task: the failed one keeps its own outcome.
+                        let members = inner.members(&on).await?;
+                        let joined = life::join(policy, &members);
                         let state = inner.lock();
-                        for member in &on {
+                        for (member, abort) in on.iter().zip(joined.abort) {
+                            if !abort {
+                                continue;
+                            }
                             if let Some(record) = state.live.get(member) {
-                                if !failed_outcome(record) {
-                                    marks.mark(record, None);
-                                }
+                                marks.set(
+                                    record,
+                                    life::merge(marks.effective(record), Mark::Request),
+                                );
                             }
                         }
                     }
@@ -325,25 +340,29 @@ impl Inner {
         self.settle_idle();
     }
 
-    /// Whether any of `ids` holds or ended with an outcome other than `completed`.
-    async fn any_failed(&self, ids: &[TaskId]) -> SessionResult<bool> {
+    /// Each of `ids` as a join reads it: live or not, and whether it holds or
+    /// ended with an outcome other than `completed`.
+    async fn members(&self, ids: &[TaskId]) -> SessionResult<Vec<Member>> {
+        let mut members = Vec::with_capacity(ids.len());
         for id in ids {
             let live = self.lock().live.get(id).cloned();
             let record = match live {
                 Some(record) => Some(record),
                 None => self.storage.task(*id, &self.context).await?,
             };
-            if record.as_ref().is_some_and(failed_outcome) {
-                return Ok(true);
-            }
+            members.push(Member {
+                live: record.as_ref().is_some_and(is_live),
+                failed: record.as_ref().is_some_and(failed_outcome),
+            });
         }
-        Ok(false)
+        Ok(members)
     }
 
     /// Write the terminal record of every `completing` task without live
-    /// ordinary owned work. Finalizing one can free its owner, so this repeats
-    /// over the commit's candidates until nothing changes. A held scheduler
-    /// outcome gets its Harness cleanup here.
+    /// ordinary owned work, as the task-life rules decide
+    /// (`life::finalize`). Finalizing one can free its owner, so this
+    /// repeats over the commit's candidates until nothing changes. A held
+    /// scheduler outcome gets its Harness cleanup here.
     async fn finalize(&self, tx: &Tx) -> SessionResult<()> {
         // A worklist: the tasks that started holding, and the holders of work
         // that ended. Finalizing one can free the nearest live task above it,
@@ -363,38 +382,39 @@ impl Inner {
                 let held = {
                     let state = self.lock();
                     let record = overlay.tasks.get(&id).or_else(|| state.live.get(&id));
-                    let holding = record.and_then(|record| match &record.state {
-                        TaskState::Completing { outcome } => Some((record, outcome)),
-                        TaskState::Pending { .. }
-                        | TaskState::Running { .. }
-                        | TaskState::Waiting { .. }
-                        | TaskState::Terminal { .. } => None,
-                    });
+                    // Only a held outcome finalizes; skip the walk for the rest.
+                    let holding =
+                        record.filter(|record| record.state.status() == TaskStatus::Completing);
                     let enter = |below: TaskId| !done.contains(&below);
                     let walk = Walk {
                         overlay: Some(&overlay),
                         enter: Some(&enter),
                         ..Walk::default()
                     };
-                    holding
-                        .filter(|_| !state.has_owned_live(id, walk))
-                        .map(|(record, outcome)| (record.clone(), outcome.clone()))
+                    holding.map(|record| {
+                        let owned = if state.has_owned_live(id, walk) {
+                            OwnedWork::Live
+                        } else {
+                            OwnedWork::Gone
+                        };
+                        (record.clone(), owned)
+                    })
                 };
-                let Some((record, outcome)) = held else {
+                let Some((record, owned)) = held else {
                     continue;
                 };
-                let terminal = with_state(
-                    &record,
-                    TaskState::Terminal {
-                        outcome: outcome.clone(),
-                    },
-                );
+                let finalized = life::finalize(&record, owned)?;
+                let TaskState::Terminal { outcome } = &finalized else {
+                    continue;
+                };
+                // REMINDER: only the scheduler writes `faulted` and `orphaned` (spec §5.4);
+                // their cleanup waits for this commit.
+                let settled = scheduler_outcome(outcome);
+                let terminal = with_state(&record, finalized);
                 tx.set_task(terminal.clone())?;
                 overlay.tasks.insert(id, terminal);
                 done.insert(id);
-                // REMINDER: only the scheduler writes `faulted` and `orphaned` (spec §5.4);
-                // their cleanup waits for this commit.
-                if let Some(outcome) = scheduler_outcome(&outcome) {
+                if let Some(outcome) = settled {
                     (self.settle_outcome)(tx.clone(), record.clone(), outcome).await?;
                 }
                 let above = self
@@ -411,10 +431,10 @@ impl Inner {
         Ok(())
     }
 
-    /// Write an outcome the scheduler decided. While the task's ordinary owned
-    /// work is live it holds as `completing` and its Harness cleanup waits for
-    /// the final commit (spec §5.5, rule 4); otherwise it is terminal with its
-    /// cleanup.
+    /// Write an outcome the scheduler decided, as the task-life rules decide
+    /// (`life::settle`). While the task's ordinary owned work is live it
+    /// holds as `completing` and its Harness cleanup waits for the final
+    /// commit (spec §5.5, rule 4); otherwise it is terminal with its cleanup.
     pub(super) async fn terminate(
         &self,
         tx: &Tx,
@@ -430,48 +450,45 @@ impl Inner {
                 ..Walk::default()
             },
         );
-        if holds {
-            tx.set_task(with_state(
-                record,
-                TaskState::Completing {
-                    outcome: outcome.outcome(),
-                },
-            ))?;
+        let owned = if holds {
+            OwnedWork::Live
+        } else {
+            OwnedWork::Gone
+        };
+        let state = life::settle(record, &outcome.outcome(), owned)?;
+        let terminal = state.status() == TaskStatus::Terminal;
+        tx.set_task(with_state(record, state))?;
+        if !terminal {
             return Ok(());
         }
-        tx.set_task(with_state(
-            record,
-            TaskState::Terminal {
-                outcome: outcome.outcome(),
-            },
-        ))?;
         (self.settle_outcome)(tx.clone(), record.clone(), outcome).await
     }
 }
 
 /// Abort marks staged by one reconcile pass, each task at most once, in
-/// staging order: a request wins over a `restart` mark of the same pass.
+/// staging order, with the mark it takes: a request wins over a `restart`
+/// mark of the same pass (`life::merge`).
 #[derive(Default)]
-struct Marks(IndexMap<TaskId, (AnyTaskRecord, Option<TaskAbortReason>)>);
+struct Marks(IndexMap<TaskId, (AnyTaskRecord, Mark)>);
 
 impl Marks {
-    fn mark(&mut self, record: &AnyTaskRecord, reason: Option<TaskAbortReason>) {
-        if self
-            .0
+    /// The mark of `record` so far in this pass.
+    fn effective(&self, record: &AnyTaskRecord) -> Mark {
+        self.0
             .get(&record.id)
-            .is_some_and(|(_, staged)| staged.is_none())
-        {
-            return;
+            .map_or_else(|| life::mark_of(record), |(_, mark)| *mark)
+    }
+
+    /// Stage `mark` for `record` when it is not the record's own.
+    fn set(&mut self, record: &AnyTaskRecord, mark: Mark) {
+        if mark != life::mark_of(record) {
+            self.0.insert(record.id, (record.clone(), mark));
         }
-        if record.abort_requested && (record.abort_reason.is_none() || reason.is_some()) {
-            return;
-        }
-        self.0.insert(record.id, (record.clone(), reason));
     }
 
     fn apply(self, tx: &Tx) -> SessionResult<()> {
-        for (record, reason) in self.0.into_values() {
-            tx.set_task(with_abort_mark(&record, reason))?;
+        for (record, mark) in self.0.into_values() {
+            tx.set_task(life::with_mark(&record, mark))?;
         }
         Ok(())
     }

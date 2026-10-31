@@ -76,6 +76,7 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 rlm_module.rlm.spawn(
                     "check the API",
                     name="api-reviewer",
+                    why="isolate",
                     model="deepseek/deepseek-v4-flash",
                 )
             )
@@ -86,6 +87,7 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 "prompt": "check the API",
                 "kwargs": {
                     "name": "api-reviewer",
+                    "why": "isolate",
                     "model": "deepseek/deepseek-v4-flash",
                 },
             },
@@ -114,8 +116,8 @@ class RlmSubagentRegistryTest(unittest.TestCase):
             handles = asyncio.run(
                 rlm_module.rlm.spawn_batch(
                     [
-                        {"prompt": "read the spec", "name": "reader"},
-                        {"prompt": "write the patch", "name": "writer", "model": "m/b", "thinking": None},
+                        {"prompt": "read the spec", "name": "reader", "why": "parallel"},
+                        {"prompt": "write the patch", "name": "writer", "why": "parallel", "model": "m/b", "thinking": None},
                     ]
                 )
             )
@@ -123,8 +125,8 @@ class RlmSubagentRegistryTest(unittest.TestCase):
             "rlm.run_batch",
             {
                 "tasks": [
-                    {"prompt": "read the spec", "kwargs": {"name": "reader"}},
-                    {"prompt": "write the patch", "kwargs": {"name": "writer", "model": "m/b"}},
+                    {"prompt": "read the spec", "kwargs": {"name": "reader", "why": "parallel"}},
+                    {"prompt": "write the patch", "kwargs": {"name": "writer", "why": "parallel", "model": "m/b"}},
                 ]
             },
         )

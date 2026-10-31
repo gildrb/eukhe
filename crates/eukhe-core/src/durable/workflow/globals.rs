@@ -670,7 +670,10 @@ async fn settle_child(
             return Ok(ChildEnd::Failed(format!("{error:#}")));
         }
         Err(_) => {
+            // A workflow's agents run at once: the spawn's reason is
+            // `parallel` (laws/family.bend).
             let kwargs = json!({
+                "why": "parallel",
                 "name": name,
                 "label": options.label,
                 "phase": options.phase,

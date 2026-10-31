@@ -255,7 +255,7 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
             tool_call(&lane.cell(
                 "parent",
                 &format!(
-                    "handle = await rlm.spawn(\"edit the workspace\", name=\"iso\", workspace=\"isolated\")\nfor name, body in [(\"b.txt\", \"b-parent\"), (\"c.txt\", \"c-parent\")]:\n    open(os.path.join({work:?}, name), \"w\").write(body)\nopen({marker:?}, \"w\").write(\"edited\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nfiles = {{name: open(os.path.join({work:?}, name)).read() for name in sorted(os.listdir({work:?}))}}\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"files\": files}})",
+                    "handle = await rlm.spawn(\"edit the workspace\", name=\"iso\", why=\"isolate\", workspace=\"isolated\")\nfor name, body in [(\"b.txt\", \"b-parent\"), (\"c.txt\", \"c-parent\")]:\n    open(os.path.join({work:?}, name), \"w\").write(body)\nopen({marker:?}, \"w\").write(\"edited\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nfiles = {{name: open(os.path.join({work:?}, name)).read() for name in sorted(os.listdir({work:?}))}}\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"files\": files}})",
                     work = lane.work().display().to_string(),
                     marker = marker.display().to_string(),
                 ),
@@ -361,7 +361,7 @@ fn a_child_still_writing_at_its_end_stops_before_its_hand_back() {
             tool_call(&lane.cell(
                 "parent",
                 &format!(
-                    "handle = await rlm.spawn(\"tick\", name=\"ticker\", workspace=\"isolated\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nticks = os.path.join({work:?}, \"ticks.txt\")\nfirst = open(ticks).read()\nawait asyncio.sleep(1)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"unchanged\": open(ticks).read() == first}})",
+                    "handle = await rlm.spawn(\"tick\", name=\"ticker\", why=\"isolate\", workspace=\"isolated\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nticks = os.path.join({work:?}, \"ticks.txt\")\nfirst = open(ticks).read()\nawait asyncio.sleep(1)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"unchanged\": open(ticks).read() == first}})",
                     work = lane.work().display().to_string(),
                 ),
             )),

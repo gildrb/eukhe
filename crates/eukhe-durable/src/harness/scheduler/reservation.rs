@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::task_life::Mark;
 use eukhe_chord::json::copy_json;
 
 use crate::harness::types::{
@@ -11,10 +12,11 @@ use crate::harness::types::{
 };
 use crate::session::{SessionError, SessionResult, TransactionScope};
 use crate::tasks::{AnyTask, Migrated};
-use crate::types::{AnyTaskRecord, TaskAbortReason, TaskId, TaskState, TaskStatus};
+use crate::types::{AnyTaskRecord, TaskId, TaskState, TaskStatus};
 
 use super::invocation::{Invocation, InvocationMode};
-use super::mirror::{with_abort_mark, with_state, Queued};
+use super::life;
+use super::mirror::{with_state, Queued};
 use super::ownership::{parent_of, Node, Walk};
 use super::state::{FailedMigration, State};
 use super::{Inner, SchedulerOutcome, TaskScheduler};
@@ -281,11 +283,8 @@ impl Inner {
                     if !state.abandoned.is_empty() {
                         for id in &state.abandoned {
                             if let Some(record) = state.live.get(id) {
-                                if !record.abort_requested {
-                                    tx.set_task(with_abort_mark(
-                                        record,
-                                        Some(TaskAbortReason::Restart),
-                                    ))?;
+                                if let Some(marked) = life::marked(record, Mark::Restart) {
+                                    tx.set_task(marked)?;
                                 }
                             }
                         }
@@ -369,13 +368,9 @@ impl Inner {
                             record: resolved,
                             migrated,
                         } => {
-                            if migrated || record.state.status() != TaskStatus::Running {
-                                let checkpoint =
-                                    resolved.state.checkpoint().cloned().unwrap_or_default();
-                                tx.set_task(with_state(
-                                    &resolved,
-                                    TaskState::Running { checkpoint },
-                                ))?;
+                            let running = life::reserve(&resolved)?;
+                            if migrated || running.status() != record.state.status() {
+                                tx.set_task(with_state(&resolved, running))?;
                             }
                             // Registered on the line, so marks and later
                             // reservations see it and close joins it; `end`

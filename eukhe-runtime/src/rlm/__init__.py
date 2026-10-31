@@ -31,8 +31,8 @@ from .harness import (
 from .jobs import Job, jobs
 from .remote import remote
 
-_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
-_RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
+_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
+_RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
 
 
 @dataclass(frozen=True)
@@ -200,6 +200,7 @@ async def spawn(
     prompt: str,
     *,
     name: str,
+    why: str | None = None,
     model: str | None = None,
     thinking: str | None = None,
     workspace: str | None = None,
@@ -207,6 +208,12 @@ async def spawn(
     """Spawn a recursive Eukhe child and return once its task is admitted.
 
     ``name`` is required and must be unique among siblings.
+    ``why`` is required: the reason for a subagent, one of ``"parallel"``
+    (independent tasks run at once), ``"isolate"`` (the work would bloat
+    this context; only a compact result comes back), ``"tools"`` (the task
+    needs a tool set or instructions that conflict with this agent's) or
+    ``"user"`` (the user asked for a subagent). The host refuses a spawn
+    without one of these with an error that states the rule.
     ``model`` selects a child with an exact ``provider/model`` selector.
     ``thinking`` sets the child reasoning level (e.g. 'off', 'low', 'medium', 'high');
     defaults to the parent level; levels invalid for the resolved model fail the spawn.
@@ -217,6 +224,8 @@ async def spawn(
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
     kwargs: dict[str, Any] = {"name": name}
+    if why is not None:
+        kwargs["why"] = why
     if model is not None:
         kwargs["model"] = model
     if thinking is not None:
@@ -231,11 +240,12 @@ async def spawn(
 async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     """Spawn several recursive Eukhe children together, all or none.
 
-    Each task is a dict ``{"prompt": str, "name": str, "model"?: str,
+    Each task is a dict ``{"prompt": str, "name": str, "why": str, "model"?: str,
     "thinking"?: str, "workspace"?: str}`` with the same rules as :func:`spawn`. The batch admits
-    atomically: when it would exceed the family's running-subagent cap
-    (``subagentMaxConcurrency``) nothing is spawned and the call fails with
-    ``subagent concurrency limit N is already full``.
+    atomically: when a task has no allowed ``why``, or the batch would exceed
+    the family's running-subagent cap (``subagentMaxConcurrency``), nothing is
+    spawned and the call fails (for the cap with ``subagent concurrency limit
+    N is already full``).
     """
     if not isinstance(tasks, list) or not tasks:
         raise TypeError("tasks must be a non-empty list of dicts")
@@ -243,7 +253,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     for task in tasks:
         if not isinstance(task, dict):
             raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", "name", "model", "thinking", "workspace"})
+        unknown = sorted(set(task) - {"prompt", "name", "why", "model", "thinking", "workspace"})
         if unknown:
             raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
         prompt = task.get("prompt")
@@ -253,7 +263,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
             raise TypeError("each task needs a name")
         kwargs = {
             key: task[key]
-            for key in ("name", "model", "thinking", "workspace")
+            for key in ("name", "why", "model", "thinking", "workspace")
             if task.get(key) is not None
         }
         entries.append({"prompt": prompt, "kwargs": kwargs})
@@ -704,11 +714,12 @@ class _RLMNamespace:
         prompt: str,
         *,
         name: str,
+        why: str | None = None,
         model: str | None = None,
         thinking: str | None = None,
         workspace: str | None = None,
     ) -> RLMSpawnHandle:
-        return await spawn(prompt, name=name, model=model, thinking=thinking, workspace=workspace)
+        return await spawn(prompt, name=name, why=why, model=model, thinking=thinking, workspace=workspace)
 
     async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
         return await spawn_batch(tasks)

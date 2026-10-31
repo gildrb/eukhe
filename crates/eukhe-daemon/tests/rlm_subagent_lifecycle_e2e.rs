@@ -397,13 +397,13 @@ fn kid_resident(client: &mut Client) -> bool {
 }
 
 /// The body of the spawn cell: spawn `kid`, record its id.
-const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nrecord({\"id\": handle.rlm_child_id})";
+const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nrecord({\"id\": handle.rlm_child_id})";
 
 /// The body of the busy-parent cell: spawn `kid`, wait for its run to
 /// settle, record the result, then hold the turn until the gate opens.
 fn spawn_wait_hold(gate: &Path) -> String {
     format!(
-        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
+        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
         gate = gate.display().to_string(),
     )
 }
@@ -436,7 +436,7 @@ fn spawn_message_wait_and_kill_a_subagent() {
         &json!([
             tool_call(&lane.cell(
                 "spawn",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
             )),
             { "text": "spawn turn done" },
             { "text": "report noted" },

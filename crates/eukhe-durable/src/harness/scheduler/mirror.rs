@@ -11,10 +11,11 @@ use crate::session::{SessionResult, TransactionScope};
 use crate::tasks::SettledTask;
 use crate::types::{
     AnyTaskRecord, CommitChange, CommitPublication, ConversationId, JoinPolicy, SubmissionQuery,
-    SubmissionStatus, SubmissionType, TaskAbortReason, TaskId, TaskQuery, TaskState, TaskStatus,
+    SubmissionStatus, SubmissionType, TaskId, TaskQuery, TaskState, TaskStatus,
 };
 
 use super::invocation::InvocationMode;
+use super::life;
 use super::ownership::{
     cancellation_intent, failed_outcome, owner_task, parent_of, Edge, Node, Overlay, TaskNode,
 };
@@ -60,25 +61,6 @@ pub(super) fn with_state(record: &AnyTaskRecord, state: TaskState) -> AnyTaskRec
         started_at: record.started_at,
         ended_at: record.ended_at,
     }
-}
-
-/// The record with an abort mark: `Restart` for an abandonment; without a
-/// reason, a request, which replaces `Restart`.
-pub(super) fn with_abort_mark(
-    record: &AnyTaskRecord,
-    reason: Option<TaskAbortReason>,
-) -> AnyTaskRecord {
-    AnyTaskRecord {
-        abort_requested: true,
-        abort_reason: reason,
-        ..record.clone()
-    }
-}
-
-/// Whether an abort request must write the record: it carries no mark, or
-/// a `restart` mark the request replaces.
-pub(super) fn needs_request_mark(record: &AnyTaskRecord) -> bool {
-    !record.abort_requested || record.abort_reason.is_some()
 }
 
 /// The record's checkpoint; `null` for a record that holds an outcome.
@@ -139,23 +121,15 @@ impl Inner {
                             if record.abandon_on_restart {
                                 state.abandoned.insert(record.id);
                             }
-                            match &record.state {
-                                TaskState::Running { checkpoint } => {
-                                    let checkpoint = checkpoint.clone();
-                                    drop(state);
-                                    tx.set_task(with_state(
-                                        &record,
-                                        TaskState::Pending { checkpoint },
-                                    ))?;
-                                }
-                                TaskState::Waiting { policy, .. } => {
-                                    if *policy == JoinPolicy::FailFast {
-                                        state.fail_fast_checks.insert(record.id);
-                                    }
-                                }
-                                TaskState::Pending { .. }
-                                | TaskState::Completing { .. }
-                                | TaskState::Terminal { .. } => {}
+                            // A new Harness resumes each stored state as the
+                            // task-life rules decide (`life::resume`).
+                            let resumed = life::resume(&record)?;
+                            if resumed.check_fail_fast {
+                                state.fail_fast_checks.insert(record.id);
+                            }
+                            drop(state);
+                            if resumed.state.status() != record.state.status() {
+                                tx.set_task(with_state(&record, resumed.state))?;
                             }
                         }
                     }

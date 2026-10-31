@@ -40,7 +40,11 @@ pub(super) fn spawn_collect_hold_tool(
                     cell_source_code: None,
                     call: Some(api.clone()),
                 };
-                let handle = spawn(call(json!({ "prompt": PROMPT }))).await.unwrap();
+                let handle = spawn(call(
+                    json!({ "prompt": PROMPT, "kwargs": { "why": "isolate" } }),
+                ))
+                .await
+                .unwrap();
                 let target = handle["rlm_child_id"].clone();
                 let collected = collect(call(json!({ "targets": [target], "timeout_ms": 30_000 })))
                     .await

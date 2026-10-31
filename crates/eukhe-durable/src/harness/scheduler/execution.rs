@@ -17,6 +17,7 @@ use crate::tasks::{AnyTask, NextTaskState, RunningTask, TaskRuntimeBackend};
 use crate::types::{AnyTaskRecord, JoinPolicy, TaskId, TaskOutcomeError, TaskState, TaskStatus};
 
 use super::invocation::{Invocation, InvocationMode};
+use super::life::{self, OwnedWork};
 use super::mirror::{checkpoint_of, with_state, Queued};
 use super::ownership::{is_live, parent_of, Node, Overlay, Walk};
 use super::reservation::{can_reserve, Reservation};
@@ -275,12 +276,7 @@ impl Inner {
         if replaced {
             if let Some(next) = &next {
                 if can_reserve(next, current) {
-                    tx.set_task(with_state(
-                        current,
-                        TaskState::Pending {
-                            checkpoint: checkpoint_of(current),
-                        },
-                    ))?;
+                    tx.set_task(with_state(current, life::requeue(current)?))?;
                     return Ok(Decision::End);
                 }
             }
@@ -451,8 +447,9 @@ impl Inner {
             .abort(Some(Arc::new(invocation.ended_error())));
     }
 
-    /// Replace a running task's state with what it committed. A terminal state
-    /// holds as `completing` while ordinary owned work is live, judged on the
+    /// Replace a running task's state with what it committed, as the
+    /// task-life rules decide (`life::commit`): a terminal state holds as
+    /// `completing` while ordinary owned work is live, judged on the
     /// commit's candidates, so work the same commit creates below the task
     /// counts. A wait is validated first.
     pub(super) async fn commit_state(
@@ -467,29 +464,33 @@ impl Inner {
             self.validate_wait(tx, invocation, current, on, *policy)
                 .await?;
         }
-        if let TaskState::Terminal { outcome } = &next {
-            let overlay = Overlay::of(tx);
-            self.load_scopes(Queued::Skip).await?;
-            for record in overlay.tasks.values() {
-                self.load_chain(parent_of(record), Some(&overlay)).await?;
-            }
-            let holds = self.lock().has_owned_live(
-                current.id,
-                Walk {
-                    overlay: Some(&overlay),
-                    ..Walk::default()
-                },
-            );
-            if holds {
-                return tx.set_task(with_state(
-                    current,
-                    TaskState::Completing {
-                        outcome: outcome.clone(),
+        // Owned work matters only to an outcome; finding it walks the tree.
+        let owned = match &next {
+            TaskState::Terminal { .. } => {
+                let overlay = Overlay::of(tx);
+                self.load_scopes(Queued::Skip).await?;
+                for record in overlay.tasks.values() {
+                    self.load_chain(parent_of(record), Some(&overlay)).await?;
+                }
+                let holds = self.lock().has_owned_live(
+                    current.id,
+                    Walk {
+                        overlay: Some(&overlay),
+                        ..Walk::default()
                     },
-                ));
+                );
+                if holds {
+                    OwnedWork::Live
+                } else {
+                    OwnedWork::Gone
+                }
             }
-        }
-        tx.set_task(with_state(current, next))
+            TaskState::Pending { .. }
+            | TaskState::Running { .. }
+            | TaskState::Waiting { .. }
+            | TaskState::Completing { .. } => OwnedWork::Gone,
+        };
+        tx.set_task(with_state(current, life::commit(current, &next, owned)?))
     }
 
     /// A wait names existing tasks, and `failFast` only tasks the waiter

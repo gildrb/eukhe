@@ -302,7 +302,7 @@ fn report_cell(receipt: &Path) -> String {
 
 /// The kernel cell of the parent's spawn turn.
 fn spawn_cell() -> &'static str {
-    "handle = await rlm.spawn(\"find the number\", name=\"kid\")\nprint(handle.rlm_child_id)"
+    "handle = await rlm.spawn(\"find the number\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)"
 }
 
 /// A child that reported to its parent (an agent message) exits passively:

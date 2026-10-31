@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_bend::rules::family;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
 use eukhe_durable::harness::types::ToolExecutionApiExt;
@@ -211,6 +212,9 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
 
 /// Validated `rlm.spawn` kwargs.
 struct SpawnKwargs {
+    /// The reason the spawn names (`why`); the compiled core decides
+    /// whether it is allowed (`eukhe_bend::rules::family`).
+    why: Option<String>,
     name: Option<String>,
     model: Option<String>,
     thinking: Option<String>,
@@ -232,6 +236,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         &kwargs,
         OPERATION,
         &[
+            "why",
             "name",
             "model",
             "thinking",
@@ -241,6 +246,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
             "report",
         ],
     )?;
+    let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
     let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
     let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
     if let Some(name) = &name {
@@ -271,6 +277,7 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
     };
     Ok(SpawnKwargs {
+        why,
         name,
         model,
         thinking,
@@ -304,11 +311,6 @@ fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
         prompt: prompt.to_owned(),
         kwargs: spawn_kwargs(data)?,
     })
-}
-
-/// The spawn-cap refusal (omp2 `SpawnError::Concurrency`).
-pub(super) fn concurrency_limit_full(maximum: u32) -> String {
-    format!("subagent concurrency limit {maximum} is already full")
 }
 
 /// `rlm.spawn`: admit one `eukhe.rlm.child` task (see [`admit_spawns`]).
@@ -349,12 +351,14 @@ type Admitted = (
 
 /// Admit `specs` as `eukhe.rlm.child` tasks in the calling tool's commit,
 /// together with their registry rows, then wait for each task's `spawn`
-/// phase to create its child. The name checks, the spawn cap, and the rows
+/// phase to create its child. The compiled core decides admission
+/// (`eukhe_bend::rules::family`, entry 431): first on the reasons and the
+/// depth (no family count yet, no cap), then inside the commit on the
+/// family's running or starting subagents (the host's view unioned with
+/// this session's not-yet-visible children) against
+/// `subagentMaxConcurrency`. The name checks, that decision, and the rows
 /// land atomically, so parallel same-name spawns cannot both admit and a
-/// batch is all-or-nothing: the cap counts the family's running or
-/// starting subagents (the host's view unioned with this session's
-/// not-yet-visible children) and refuses the whole batch when it would
-/// exceed `subagentMaxConcurrency`.
+/// batch is all-or-nothing.
 async fn admit_spawns(
     children: &Arc<Children>,
     call: &HostCall,
@@ -376,9 +380,21 @@ async fn admit_spawns(
     };
     let depth = children.services.rlm_depth;
     let max_depth = depth_override.unwrap_or(children.services.rlm_max_depth);
-    if depth >= max_depth {
-        bail!("RLM recursion depth limit reached (RLM_DEPTH={depth}, RLM_MAX_DEPTH={max_depth})");
-    }
+    let whys: Vec<Option<String>> = specs.iter().map(|spec| spec.kwargs.why.clone()).collect();
+    let decide = move |running: u32, cap: u32| {
+        let whys: Vec<Option<&str>> = whys.iter().map(Option::as_deref).collect();
+        family::admit(&family::Batch {
+            depth,
+            max_depth,
+            running,
+            cap,
+            whys: &whys,
+        })
+    };
+    let child_depth = match decide(0, 0) {
+        family::Admission::Admit { child_depth } => child_depth,
+        family::Admission::Refuse(text) => bail!("{text}"),
+    };
     let Some(api) = call.call.clone() else {
         bail!("rlm.spawn must run inside a tool call");
     };
@@ -421,25 +437,21 @@ async fn admit_spawns(
         .commit(
             move |tx| async move {
                 let state = tx_children(&tx, conversation_id).await?;
-                if capacity.max_concurrency != 0 {
-                    let mut active: std::collections::HashSet<&str> = capacity
-                        .active_session_ids
-                        .iter()
-                        .map(String::as_str)
-                        .collect();
-                    active.extend(
-                        state
-                            .children
-                            .values()
-                            .filter(|row| !row.is_deleted() && !row.status.is_terminal())
-                            .map(|row| row.session_id.as_str()),
-                    );
-                    let limit = usize::try_from(capacity.max_concurrency).unwrap_or(usize::MAX);
-                    if active.len().saturating_add(admitted.len()) > limit {
-                        return Err(SessionError::error(concurrency_limit_full(
-                            capacity.max_concurrency,
-                        )));
-                    }
+                let mut active: std::collections::HashSet<&str> = capacity
+                    .active_session_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect();
+                active.extend(
+                    state
+                        .children
+                        .values()
+                        .filter(|row| !row.is_deleted() && !row.status.is_terminal())
+                        .map(|row| row.session_id.as_str()),
+                );
+                let running = u32::try_from(active.len()).unwrap_or(u32::MAX);
+                if let family::Admission::Refuse(text) = decide(running, capacity.max_concurrency) {
+                    return Err(SessionError::error(text));
                 }
                 let mut batch_names: Vec<&str> = Vec::new();
                 for name in admitted.iter().filter_map(|(name, ..)| name.as_deref()) {
@@ -449,7 +461,10 @@ async fn admit_spawns(
                             .values()
                             .any(|row| !row.is_deleted() && row.session_name == name);
                     if taken {
-                        return Err(SessionError::error(spawn_name_unavailable(name, depth + 1)));
+                        return Err(SessionError::error(spawn_name_unavailable(
+                            name,
+                            child_depth,
+                        )));
                     }
                     batch_names.push(name);
                 }

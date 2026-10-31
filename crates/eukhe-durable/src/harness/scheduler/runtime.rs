@@ -494,7 +494,7 @@ fn memo_of(record: Option<&AnyTaskRecord>, name: &str) -> Option<JsonValue> {
 }
 
 /// The TS status string of a live state.
-fn status_name(status: TaskStatus) -> &'static str {
+pub(super) fn status_name(status: TaskStatus) -> &'static str {
     match status {
         TaskStatus::Pending => "pending",
         TaskStatus::Running => "running",

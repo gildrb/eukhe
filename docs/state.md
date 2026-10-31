@@ -64,6 +64,56 @@ Tests (glue around the core): `tree::journal::tests::the_live_tree_follows_the_c
 
 Not modelled: commit→record map (S1, second list); tested.
 
+### S2. The task lifecycle (`task_life`)
+
+A durable task (pi-durable spec §5.1-§5.5) is `pending`, `running` or `waiting` (live, with a checkpoint), `completing` (outcome decided, held while ordinary owned work below is live; runs no code) or `terminal`.
+
+1. A terminal task never changes.
+2. Reservation: a pending, running or waiting task becomes running at the same checkpoint. A completing task is not reserved.
+3. Only a running task commits (running, waiting, an outcome) or goes back to pending (handover to a replacement definition), at its own checkpoint.
+4. An outcome (a commit, or a fault or orphan the scheduler writes for a live task that is not completing) is completing while owned work is live, else terminal. Finalization: completing becomes terminal with the same outcome when no owned work is live.
+5. Resume (a new Harness): running becomes pending at its checkpoint; a failFast wait is checked again; nothing else changes.
+6. Join: a waiting task runs when no awaited task is live. allSettled marks nothing. failFast, after an awaited task holds or ended with an outcome other than completed, marks each live awaited task that did not fail.
+7. Abort marks: none < restart < request. A new mark keeps the stronger.
+8. Cascade: below a live owner with intent (a mark, or a held outcome other than completed), each live foreground task that the owner's walk reaches takes the owner's reason: restart from an owner with the restart mark that did not fail, else request. Nothing else changes.
+9. A submission status moves only forward: queued, placed, then done or unanswered.
+
+Model: `bend/task_life.bend`, entry `bend/ffi_task_life.bend` (id 432). Spec (independent restatement): `spec/durable/task_life.bend`; the entry's spellers, bounds and reader: `spec/durable/task_life_wire.bend`. Laws: `laws/task_life.bend`. Proofs: `proof/task_life/`. All laws universal: any state, transition, handle, policy, mark, list.
+
+| Law | Says |
+| --- | --- |
+| `task_life_step_refines_spec` | Each transition of each state = the spec's (by transition first), refusal reason included (S2.1-S2.4). |
+| `task_life_terminal_absorbs` | Terminal: every transition refused as ended; resume keeps it (S2.1). |
+| `task_life_outcome_once` | From completing with outcome o: refused, still completing with o, or terminal with o (S2.4). |
+| `task_life_forward_only` | No transition and no resume lowers the measure pending < running, waiting < completing < terminal, except a running task back to pending at its own checkpoint (S2.2-S2.5). |
+| `task_life_resume_keeps_checkpoint` | Resume keeps each checkpoint and outcome; no task stays running (S2.5). |
+| `task_life_resume_exact` | Resume = the spec's, failFast check included (S2.5). |
+| `task_life_join_fail_fast`, `task_life_join_all_settled` | Each policy's join = the spec's: ready iff no awaited task live; marks (S2.6). |
+| `task_life_mark_merge` | Merge = the stronger mark (S2.7). |
+| `task_life_abort_reaches_owned` | Cascade = the spec's: exactly the live foreground reached tasks below an owner with intent, with its reason (S2.8). |
+| `task_life_submission_forward` | Each change of the submission rule (`bend/submission.bend`) moves the status strictly forward or leaves it (S2.9). |
+| `task_life_example` | Anchor: the scheduler's sequence. |
+| `task_life_entry_answers`, `task_life_entry_reads`, `task_life_entry_malformed_exact`, `task_life_entry_example` | The entry answers each request Rust writes with the rules' decision; any other input gets exactly `E task_life: malformed request`. |
+
+Code: `eukhe-bend` `rules/task_life.rs` (`step`, `resume`, `join`, `merge`, `cascade`); `eukhe-durable` `harness/scheduler/life.rs` (the records' adapter: handle 0 = the record's checkpoint or outcome, 1 = the one the transition brings; a waiting state's awaited tasks travel with its checkpoint).
+
+| Decision site | Rule |
+| --- | --- |
+| `scheduler/reservation.rs` reservation pass (`life::reserve`) | S2.2 |
+| `scheduler/reservation.rs` abandoned tasks at open (`life::marked`, restart) | S2.7 |
+| `scheduler/execution.rs` `decide` handover (`life::requeue`) | S2.3 |
+| `scheduler/execution.rs` `commit_state` (`life::commit`) | S2.3, S2.4 |
+| `scheduler/cascade.rs` `terminate` (`life::settle`) | S2.4 |
+| `scheduler/cascade.rs` `finalize` (`life::finalize`) | S2.4 |
+| `scheduler/mirror.rs` `open` (`life::resume`) | S2.5 |
+| `scheduler/cascade.rs` `reconcile` failFast check (`life::join`, `members`) | S2.6 |
+| `scheduler/cascade.rs` `abort`, `abort_conversation` (`life::marked`, request); `Marks` (`life::merge`) | S2.7 |
+| `scheduler/cascade.rs` `reconcile` cascade (`life::cascade`) | S2.8 |
+
+Not routed (Rust): the ownership walks that find owned work and the reach of a cascade (`ownership.rs` `walk_down`, `has_owned_live`, `below_cancelled`; the rules decide from their rows); the index predicates `cancellation_intent`, `failed_outcome` (`ownership.rs`); the invocation precedence rules of a run step (`execution.rs` `decide`: abort mark, owner cancellation, uncaught error, no durable progress); wait validation (`execution.rs` `validate_wait`: wait cycles, failFast only on owned tasks); readiness of a task in the reservation pass (`reservation.rs`: owned work of an abort-marked task, live awaited tasks; S2.6 states the same rule); orphaning a blocked task (`cascade.rs` `abort`, `reservation.rs` abort mode) and the `KeepRestart` guard; when a failFast check is scheduled (`mirror.rs` `observe`); the checkpoint rewrite of a migration (`reservation.rs` `resolve`, same state); the Session's guard on any record replacement (`session/transaction.rs`, "already terminal") and the runtime commit gate (`scheduler/runtime.rs`, running only, no abort mark in a run).
+
+Tests: `eukhe_bend::rules::task_life::tests` (the codec through the core); `harness::scheduler::life::tests` (one per routed decision).
+
 ### D2. Storage and cron
 
 Storage = a directory with one commit log, `main.jsonl`; opened with fsync on in each worker.

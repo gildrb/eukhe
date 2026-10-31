@@ -141,7 +141,7 @@ A subagent's workspace:
 6. Each path is replaced in one rename from a copy beside it. The copy has the same name in every run, so a run after a crash removes the copy the crash left. Idempotent: a path already taken reads as changed by both to the same content, so a hand-back cut by a crash reruns from the start to the same result. Its record (`handback.json`) ends it; a repeat after the record does not stop the child again. Then base and copy are removed, and the child's directory becomes a symlink to the parent's, so a child woken later starts its kernel there.
 7. Location: `<agent dir>/workspaces/<parent session id>/<child id>/`. A child resumed after a daemon restart keeps its copy and base; its stored working directory is the copy.
 
-Default is `shared` because the prompts tell the parent to fan in through files the children write while running ("Have children write files and read those files for fan-in", `prompts/layers/usage.md`), and a child replies with `agent_message` before its run ends. An isolated child's files reach the parent only at the end. Isolation is for children that change the same tree in parallel.
+Default is `shared` because the `subagents` skill tells the parent to fan in through files the children write while running ("Fan-in through files", `skills/subagents/references/api.md`), and a child replies with `agent_message` before its run ends. An isolated child's files reach the parent only at the end. Isolation is for children that change the same tree in parallel.
 
 Where the sandbox runs (the kernel transport):
 
@@ -202,6 +202,44 @@ Ties: hand-back plan = the proven model itself (compiled core). The gate of each
 Tests: `kernel_protocol_frame_caps` (real child: oversized request, unserved type, served one: one reply each; session keeps working; oversized headerless line lands in repair); `kernel::manager::frames::tests` (`a_repeated_id_of_a_request_in_flight_gets_a_duplicate_reply_and_no_handler`); `eukhe-runtime/test/test_repl.py` (`test_host_duplicate_reply_does_not_settle_the_request_in_flight`); `child_workspace::tests` (copy omits ignored files; hand-back; crash-cut hand-back reruns to the same result; `a_hand_back_after_a_crash_removes_the_copy_the_crash_left_beside_a_path`; `a_path_the_parent_holds_as_a_directory_or_under_a_file_is_a_conflict`); children and daemon workspace tests (`rlm_workspace_e2e` `a_child_still_writing_at_its_end_stops_before_its_hand_back`: a child thread writing at the end writes nothing after the hand-back); `kernel::transport::tests` (path map both ways; `fs.*` request and reply maps, refusals; `fs_requests_reject_a_symlink_in_a_mount_that_points_out_of_every_mount`; setting; launch argv, environment); `kernel_transport` (real stub under fake wrapper `setsid -w sh -c 'exec "$@"'`, sandbox dir mapped to another host dir: cwd, environment, `fs.read` host paths in and sandbox paths out, typed refusal, kill via closed stdin); `kernel_remote` (register, call; raising, unknown, hanging function; NaN result; wrong args to an async function; then cells and calls still work; kernel exiting mid-call: unreachable); `eukhe-runtime/test/test_remote.py` (schema, `call` request, `test_a_nan_result_and_bad_async_arguments_answer_typed_errors`, stdin owner).
 
 Not modelled: order of accepted requests' replies (handlers end in any order; the kernel matches by id); the duplicate-id refusal and its `duplicate` reply (model and bridge frames have distinct ids); directories and symlinks in the hand-back (model paths are flat files); the transport and `@remote` (the tests above tie them).
+
+### Subagent admission: why, depth, cap
+
+One loop does the work. A subagent only for a reason: `rlm.spawn(prompt, *, name, why, ...)`; `rlm.spawn_batch([{prompt, name, why, ...}])`.
+
+|`why`|Use|
+|---|---|
+|`parallel`|independent tasks run at once|
+|`isolate`|the work would bloat this context; only a compact result comes back|
+|`tools`|the task needs a tool set or instructions that conflict with this agent's|
+|`user`|the user asked for a subagent|
+
+Callers: the workflow tool's `agent()` sends `parallel`; a factory state sends `isolate`.
+
+One decision per batch (`rlm.run`: a batch of one; `rlm.run_batch`), all or none. Order of refusal:
+
+1. A task without an allowed `why` (missing, or another text; compared whole): `rlm.spawn task <i> has no allowed why: why must be "parallel" (...), "isolate" (...), "tools" (...) or "user" (...); otherwise do the work in this loop` (first such task, from 0).
+2. Caller depth at or past the bound (`rlmMaxDepth`, or the session's `set_rlm_max_depth`): `RLM recursion depth limit reached (RLM_DEPTH=<d>, RLM_MAX_DEPTH=<m>)`.
+3. Family's running or starting subagents (host's view ∪ this session's not yet visible children) plus the batch over `subagentMaxConcurrency` (`0`: no cap): `subagent concurrency limit <c> is already full`.
+
+Admitted: each child runs at depth + 1.
+
+Code: the decision runs as the compiled Bend core: model `bend/family.bend`, entry `bend/ffi_family.bend` (id 431), Rust `eukhe_bend::rules::family::admit`. `eukhe-core/src/durable/children/requests.rs` `admit_spawns` asks it twice: before the commit with no family count and no cap (reasons, depth), and inside the admitting commit with the count and the cap. Rust only gathers the inputs. Spec: `spec/rlm/family.bend` (S1-S5). Laws: `laws/family.bend`. Proofs: `proof/family/`. Every input is free: any depth, bound, running count, cap and whys.
+
+| Law | Says |
+| --- | --- |
+| `family_refusal_precedence` | the decision is the spec's: missing reason, then depth, then cap; the first bad task's index; the cap named |
+| `family_admit_iff` | admitted exactly when every `why` is a reason, depth < bound, running + batch ≤ cap (or no cap) |
+| `family_admit_depth_bound` | admitted: child depth = depth + 1 ≤ bound |
+| `family_refuse_at_depth` | reasons given and depth ≥ bound: depth refusal |
+| `family_cap_bound` | admitted: running + batch within the cap |
+| `family_batch_all_or_none` | `xs ++ ys` admitted exactly when `xs` is and then `ys` is with the `xs` running: no partial batch |
+| `family_why_required` | a task without a reason: refused for it, whatever the depth and cap |
+| `family_text_spec`, `family_text_example` | refusal texts; depth and cap texts byte for byte as before the move |
+| `family_example` | anchors: Rust's tests |
+| `family_entry_answers`, `family_entry_left_over`, `family_entry_reads`, `family_entry_malformed_exact`, `family_entry_example` | entry 431 reads exactly the request Rust writes, answers the spec's decision; any other input: `E family: malformed request` |
+
+Tests: `eukhe_bend::rules::family` (through the core), eukhe-core `durable::children::tests::spawn_at_the_depth_limit_errors_as_today` (at the bound; no `why`; another `why`), `a_spawn_batch_over_the_concurrency_cap_admits_nothing`; eukhe-runtime `test_subagent_registry`, `test_factory` (`why` forwarded).
 
 ### Local access: the socket dir, file modes and the working dir
 
