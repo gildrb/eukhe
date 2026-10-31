@@ -1,4 +1,4 @@
-//! `ssh://` reads end to end (docs/tools.md S7.9): a daemon session (a
+//! `ssh://` reads end to end: a daemon session (a
 //! scripted faux provider) with a fake `ssh` first on `PATH` and
 //! `ssh.hosts` in the global settings. The `read` tool reads a file of an
 //! allowed host through the fake, a host outside `ssh.hosts` is rejected

@@ -1,5 +1,5 @@
 # The CI gates as git hooks, run by prek (https://github.com/j178/prek,
-# pinned in docs/develop.md). GitHub runs no gate. `make hooks` installs
+# pinned there). GitHub runs no gate. `make hooks` installs
 # them. Both run at low CPU priority (nice -n 10).
 #
 # pre-commit: `make ci-fast` (rustfmt, the secrets scan of the staged diff,

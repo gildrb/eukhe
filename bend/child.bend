@@ -1,5 +1,5 @@
 # child: the life of one subagent as its parent's durable task sees it
-# (docs/harness.md H5). The Rust code is the `eukhe.rlm.child` task
+# (LAWS.bend H5). The Rust code is the `eukhe.rlm.child` task
 # (crates/eukhe-core/src/durable/children/task.rs) and its watch verdict
 # (children/watch.rs).
 #

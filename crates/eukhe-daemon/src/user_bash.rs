@@ -11,8 +11,7 @@
 //! wrapper (the already-running guard, the
 //! identity echoed on start/end, transient rows staying unrecorded).
 //!
-//! Every run is a job of the session (`eukhe_core::durable::jobs`,
-//! docs/runtime.md S2): its process leads its own process group, and its
+//! Every run is a job of the session (`eukhe_core::durable::jobs`): its process leads its own process group, and its
 //! kill (`abort_bash`, a rewind) kills the group. `execute_bash_and_wait`
 //! blocks at most the session's blocking budget: past it the call answers
 //! detached with the output so far, the run goes on in the background, and

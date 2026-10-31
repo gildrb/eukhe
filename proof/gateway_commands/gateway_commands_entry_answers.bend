@@ -13,6 +13,13 @@ import ../../laws/gateway_commands.bend as GatewayCommands
 import ./gateway_commands_spec.bend as PGatewayCommandsSpec
 import ./gateway_commands_entry_reads.bend as PGatewayCommandsEntryReads
 
+def gca.arg(m: Maybe<&2, String>) -> {FGc.put_arg(m) == GatewayCommands.gc_w_arg(m) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{a}:
+      {==}
+
 def gca.cmd(c: Gc.Cmd) -> {FGc.put_cmd(c) == GatewayCommands.gc_w_cmd(c) : String}:
   match c:
     case Gc.CHelp{}:
@@ -30,6 +37,12 @@ def gca.cmd(c: Gc.Cmd) -> {FGc.put_cmd(c) == GatewayCommands.gc_w_cmd(c) : Strin
     case Gc.CStatus{}:
       {==}
     case Gc.CMemory{}:
+      {==}
+    case Gc.CModel{+m}:
+      %gca.arg(m) : {Wr.put_nat(8n, FGc.put_arg(m)) == Wr.put_nat(8n, _) : String}
+      {==}
+    case Gc.CReasoning{+m}:
+      %gca.arg(m) : {Wr.put_nat(9n, FGc.put_arg(m)) == Wr.put_nat(9n, _) : String}
       {==}
 
 def gca.out(o: Gc.Out) -> {FGc.put_out(o) == GatewayCommands.gc_w_out(o) : String}:

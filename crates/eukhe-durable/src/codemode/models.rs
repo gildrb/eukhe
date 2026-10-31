@@ -34,8 +34,7 @@ pub type ClassifierResolver = Arc<
 pub enum ClassifierDefault {
     /// No default: the script names a classifier model (the TS behavior).
     Unset,
-    /// The embedding resolves one (eukhe: the `judge` role,
-    /// docs/inference.md S9).
+    /// The embedding resolves one (eukhe: the `judge` role).
     Resolver(ClassifierResolver),
 }
 

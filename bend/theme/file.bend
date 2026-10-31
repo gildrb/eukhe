@@ -2,7 +2,7 @@
 #
 # theme: the theme rules of crates/eukhe-theme (the one theme file
 # validator and the one theme name resolver of the terminal UI and the
-# HTML export); laws in laws/theme.bend (T1), docs/interface.md Themes.
+# HTML export); laws in laws/theme.bend (T1).
 # The Rust crate decodes the JSON and reads the files; every decision on
 # what it read is here: `parse` (a file's palette, or the error the user
 # sees) and `pick` (the theme a name resolves to, and the warnings).

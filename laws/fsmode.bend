@@ -18,7 +18,7 @@ import ./base.bend as LawsBase
 
 # File modes, the socket dir and the working dir
 # ----------------------------------------------
-# docs/runtime.md "Local access", the model in bend/fsmode.bend, which
+# The model in bend/fsmode.bend, which
 # runs as the compiled core (entry bend/ffi_fsmode.bend, laws below).
 
 # LAW socket_dir_owned: the daemon binds in a socket dir only when the dir is a real

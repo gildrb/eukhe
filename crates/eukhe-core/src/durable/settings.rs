@@ -1,6 +1,6 @@
 //! eukhe settings as the Harness settings source: the global
 //! `<agent_dir>/settings.json` merged with the project
-//! `<cwd>/.eukhe/settings.json`, then the cfg layers (docs/control.md S4):
+//! `<cwd>/.eukhe/settings.json`, then the cfg layers:
 //! config.cfg (global, then project), the family this session inherited,
 //! its profile (`agents/main.cfg`, or `subagent.cfg` and
 //! `agents/<name>.cfg`), and its own sets. Re-read when any of those files
@@ -557,6 +557,8 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         context_retention_ms: None,
         document_retention_ms: None,
         max_tool_rounds: Some(manager.get_max_tool_rounds()),
+        privacy_anonymize_remote: Some(manager.get_privacy_anonymize_remote()),
+        privacy_terms: Some(manager.get_privacy_terms()),
     }
 }
 

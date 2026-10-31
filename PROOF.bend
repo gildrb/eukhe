@@ -454,16 +454,12 @@ import ./proof/tools/step_holds_every_part.bend as PStepHoldsEveryPart
 import ./proof/tools/secret_needs_a_secret_path.bend as PSecretNeedsASecretPath
 import ./proof/tools/secret_path_gives_secret.bend as PSecretPathGivesSecret
 import ./proof/tools/auto_needs_every_effect.bend as PAutoNeedsEveryEffect
-import ./proof/tools/auto_never_sensitive.bend as PAutoNeverSensitive
 import ./proof/tools/composed_needs_every_part.bend as PComposedNeedsEveryPart
 import ./proof/tools/auto_runs_within.bend as PAutoRunsWithin
 import ./proof/tools/held_needs_a_yes.bend as PHeldNeedsAYes
 import ./proof/tools/gateway_refuses_protected.bend as PGatewayRefusesProtected
-import ./proof/tools/gateway_refuses_secret.bend as PGatewayRefusesSecret
 import ./proof/tools/gateway_runs_the_rest.bend as PGatewayRunsTheRest
 import ./proof/tools/default_auto_is_grantable.bend as PDefaultAutoIsGrantable
-import ./proof/tools/never_auto_is_routed.bend as PNeverAutoIsRouted
-import ./proof/tools/never_auto_asks_the_client.bend as PNeverAutoAsksTheClient
 import ./proof/tools/outside_runs_only_by_the_gateway.bend as POutsideRunsOnlyByTheGateway
 import ./proof/tools/guarded_refused_from_the_phone.bend as PGuardedRefusedFromThePhone
 import ./proof/screen/base.bend as LAScreen
@@ -1114,10 +1110,7 @@ import ./proof/path_policy/path_inside_is_safe.bend as PPathInsideIsSafe
 import ./proof/path_policy/path_ancestor_guarded.bend as PPathAncestorGuarded
 import ./proof/path_policy/path_judge_class.bend as PPathJudgeClass
 import ./proof/path_policy/path_judge_holds.bend as PPathJudgeHolds
-import ./proof/path_policy/gate_write_auto_never_secret.bend as PGateWriteAutoNeverSecret
-import ./proof/path_policy/gate_secret_read_needs_yes.bend as PGateSecretReadNeedsYes
 import ./proof/path_policy/gate_yes_runs.bend as PGateYesRuns
-import ./proof/path_policy/secrets_need_yes.bend as PSecretsNeedYes
 import ./proof/path_policy/path_policy_ffi_request_round_trip.bend as PPathPolicyFfiRequestRoundTrip
 import ./proof/path_policy/path_policy_ffi_answers.bend as PPathPolicyFfiAnswers
 import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicyFfiRejectsMalformed

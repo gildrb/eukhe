@@ -13,7 +13,7 @@ import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 # ---- effort ----
 
-# proof_effort: the S10 laws (docs/inference.md) of the reasoning-depth
+# proof_effort: the S10 laws of the reasoning-depth
 # model in bend/effort.bend.
 #
 # The offered levels are a filter of the ladder: a level that the filter

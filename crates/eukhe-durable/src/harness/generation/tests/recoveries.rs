@@ -1,4 +1,4 @@
-//! docs/harness.md H4.1, H4.7 and H4.8: the recoveries that help a weaker
+//! LAWS.bend H4.1, H4.7 and H4.8: the recoveries that help a weaker
 //! model get unstuck. A length stop while the model still reasons is
 //! retried with a length note; the same calls with the same results are
 //! redirected with a note before they run a fifth time; tool calls leaked

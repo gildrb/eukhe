@@ -1,7 +1,7 @@
 {
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"title": "Eukhe Theme",
-	"description": "Theme file for the Eukhe terminal UI and HTML export (docs/interface.md, Themes)",
+	"description": "Theme file for the Eukhe terminal UI and HTML export",
 	"type": "object",
 	"required": ["name", "colors"],
 	"properties": {

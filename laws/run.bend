@@ -14,7 +14,7 @@ import ./base.bend as LawsBase
 
 # (H4) Every run ends
 # -------------------
-# docs/harness.md H4, the model in bend/run/: one run (one user turn)
+# LAWS.bend H4, the model in bend/run/: one run (one user turn)
 # through prepare, call (a request or a deferred poll), compact (an
 # overflow's or a blocking threshold one) and tools. Every input is free:
 # any model reply, any round end, any compaction result, an abort, in any
@@ -124,7 +124,7 @@ law run_retry_spends_no_note:
 
 # (H4.7) A retry never resends a request it cut
 # ---------------------------------------------
-# docs/harness.md H4.7, the requests of bend/run/request.bend: a model decodes
+# LAWS.bend H4.7, the requests of bend/run/request.bend: a model decodes
 # the same request the same way (a greedy one always does), so a retry
 # after a noted reply (the stream repeated itself until the guard cut it,
 # or the reply gave no answer) ends its request with a harness note that
@@ -161,7 +161,7 @@ law run_note_is_never_logged:
 
 # (H4.9) The decisions Rust calls are the model's
 # -----------------------------------------------
-# docs/harness.md H4, the decisions of bend/run/decision.bend that
+# LAWS.bend H4, the decisions of bend/run/decision.bend that
 # crates/eukhe-durable/src/harness/generation/decide.rs and deferred.rs
 # call through the compiled core (decide.reply, decide.prepare,
 # decide.compact, decide.round, decide.poll; decide.recover in section
@@ -574,7 +574,7 @@ law run_reply_saturates_the_attempt:
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
-# docs/harness.md H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
+# LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
 # stop while the model still reasons, tool calls leaked as text, the same
 # tool calls with the same results round after round. Every reply is
 # free, in any order. A Redo is a noted error, so its retry ends its

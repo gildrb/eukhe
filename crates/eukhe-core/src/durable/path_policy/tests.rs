@@ -8,8 +8,9 @@ use eukhe_types::shell::{AutoSet, ShellEffect};
 use super::*;
 
 /// Regression (audit C2): every file the settings loaders read, and the
-/// auth store, is Protected or Secret, so for a user whose auto set lacks
-/// `protected` no agent write to it runs without the user's yes.
+/// auth store, is Protected or Secret, so for a user whose auto set
+/// lacks the file's effect no agent write to it runs without the user's
+/// yes.
 #[test]
 fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
     let dir = tempfile::tempdir().unwrap();
@@ -62,16 +63,20 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
             .map(|file| (file.clone(), false))
             .collect::<Vec<_>>()
     );
+    // The fixture world lives in the OS temp dir, a workspace root: a path
+    // beside the workspace inside it is Inside; one outside both roots is Outside.
     assert_eq!(
         [
             eukhe_shell::paths::judge_path(&policy, &agent_dir.join("auth.json")).class,
             eukhe_shell::paths::judge_path(&policy, &home.join(".ssh/id_ed25519")).class,
             eukhe_shell::paths::judge_path(&policy, &cwd.join("src/main.rs")).class,
             eukhe_shell::paths::judge_path(&policy, &top.join("elsewhere.txt")).class,
+            eukhe_shell::paths::judge_path(&policy, std::path::Path::new("/elsewhere.txt")).class,
         ],
         [
             PathClass::Secret,
             PathClass::Secret,
+            PathClass::Inside,
             PathClass::Inside,
             PathClass::Outside
         ]
@@ -115,7 +120,8 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
         (
             Err(
                 "(write+outside) it needs the user's approval, and no client answered. Ask the \
-user to attach a client, or to allow its effect in shell.autoEffects if that is not secret; or \
+user to attach a client, or to allow its effect in shell.autoEffects if that is read, write, \
+exec, net, outside, protected or secret; or \
 use read-only steps."
                     .to_owned()
             ),

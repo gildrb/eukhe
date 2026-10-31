@@ -45,6 +45,7 @@ serde = { version = "1", features = ["derive"] }
 # diverging from the TS byte stream (e.g. compaction `details` order).
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
+regex-lite = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tracing = { version = "0.1", features = ["attributes"] }

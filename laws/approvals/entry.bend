@@ -377,10 +377,12 @@ law approvals_ffi_left_over:
   for some: {String.is_empty(more) == False{} : Bool}
   {FAm.ffi(more) == malformed() : String}
 
-# LAW approvals_ffi_example: anchor: the bytes of the call and its reply; a call with input is refused
+# LAW approvals_ffi_example (changed 2026-10-27 by the user: secrets never
+# ask again; the default auto set holds every effect): anchor: the bytes
+# of the call and its reply; a call with input is refused
 # EXCLUDES: another spelling of the reply
 law approvals_ffi_example:
-  {FAm.ffi("") == "6,0,1,2,3,4,5," : String} & {FAm.ffi("2,") == malformed() : String}
+  {FAm.ffi("") == "7,0,1,2,3,4,5,6," : String} & {FAm.ffi("2,") == malformed() : String}
 
 # The desk
 # --------
@@ -453,11 +455,11 @@ law approvals_desk_entry_history:
 # the replies: a question shown (key 0), a relayed one (key 1), the
 # answer of the first (settle, wake: runs, took), a second answer to it
 # (gone), the parent's answer to the relay (wake: denied), a gateway-only
-# question (wake at once: refused, a secret read), an unknown tag, input
-# left over
+# protected-path write (wake at once: refused), a gateway-only secret read
+# (wake at once: runs), an unknown tag, input left over
 # EXCLUDES: another spelling of an event or a reply
 law approvals_desk_entry_example:
-  {dk_raw(["0,1,a1,1,2,F", "0,1,b1,1,0,T", "1,1,aT", "1,1,aT", "4,1,1,", "0,1,c1,6,1,F", "9,", "3,0,x"], FAm.open("")) == ["", "0,1,0,0,", "1,1,2,1,", "3,1,0,3,0,0,4,", "1,5,", "1,3,1,1,", "2,1,3,2,3,", malformed_event(), malformed_event()] : List<&2, String>}
+  {dk_raw(["0,1,a1,1,2,F", "0,1,b1,1,0,T", "1,1,aT", "1,1,aT", "4,1,1,", "0,1,c1,5,1,F", "0,1,d1,6,1,F", "9,", "3,0,x"], FAm.open("")) == ["", "0,1,0,0,", "1,1,2,1,", "3,1,0,3,0,0,4,", "1,5,", "1,3,1,1,", "2,1,3,2,3,", "3,1,3,3,0,", malformed_event(), malformed_event()] : List<&2, String>}
 
 # LAW approvals_desk_fits_example (R3): witness: events of each kind Rust
 # sends fit the wire (the desk entry laws are not vacuous)

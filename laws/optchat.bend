@@ -165,7 +165,7 @@ law context_is_prefix:
 
 # (H2) A turn never waits forever for the memory
 # ----------------------------------------------
-# docs/harness.md H2: the need-first queue of bend/optchat/queue.bend, the settle
+# LAWS.bend H2: the need-first queue of bend/optchat/queue.bend, the settle
 # of bend/compactor.bend.
 
 # LAW need_progress: the queue never stalls a waiting turn: after any events, while
@@ -180,7 +180,7 @@ law need_progress:
 
 # (S) The planner runs as a stepper of the compiled core
 # ------------------------------------------------------
-# docs/memory.md. The chat (crates/eukhe-core/src/memory/chat.rs) opens
+# spec/README.md M1. The chat (crates/eukhe-core/src/memory/chat.rs) opens
 # the stepper bend/ffi_optchat.bend from its loaded log, sends each event
 # as it happens (a message, a node built, a call started or freed, a turn
 # that starts to wait) and each query it needs (the nodes to start, with
@@ -320,7 +320,7 @@ def oc_node(l: Nat, k: Nat) -> ONode.Node:
   ONode.Node{l, OBits.Bits.of(k)}
 
 # the busy nodes a waiting turn stops: those that are not view lines
-# still unbuilt (docs/harness.md H2.1)
+# still unbuilt
 def oc_held.pick(stop: Bool, +b: ONode.Node, rest: List<&2, ONode.Node>) -> List<&2, ONode.Node>:
   match stop:
     case True{}:

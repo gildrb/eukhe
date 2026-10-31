@@ -19,14 +19,14 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use eukhe_bend::rules::shell::{self as gate, Answered, Gate, Part, Said};
-use eukhe_types::path_policy::{PathClass, PathPolicy};
+use eukhe_types::path_policy::{resolve, PathClass, PathPolicy};
 use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use crate::coreutils::{self, Io};
-use crate::effect::{classify, reads_cwd};
+use crate::effect::{classify, reads_cwd, shallow_list};
 use crate::expand::Scope;
 use crate::parse::{self, Command, Link, Pipeline, RedirectOp};
 use crate::shown::quote;
@@ -51,7 +51,7 @@ pub enum Answer {
     /// No one answered: a denial.
     Unanswered,
     /// The session runs only from the phone gateway, and the step writes
-    /// a protected path or reads or writes a secret: refused unasked.
+    /// a protected path: refused unasked.
     GatewayRefused,
 }
 
@@ -290,9 +290,8 @@ impl Shell {
     /// Run `script`: each step whose effects are all in `auto` runs,
     /// every other step runs only when `approver` approves it; the first
     /// step it does not approve ends the script. `paths` classes the
-    /// paths a step names (a write outside the workspace, to a protected
-    /// place, a read of a secret always asks). The output streams to
-    /// `sink`.
+    /// paths a step names (each effect gates the same way: the user's
+    /// auto set decides). The output streams to `sink`.
     #[tracing::instrument(level = "debug", skip_all, fields(cwd = %self.cwd.display()))]
     pub async fn run(
         &mut self,
@@ -450,6 +449,12 @@ impl Shell {
             .iter()
             .any(|part| part.own.contains(ShellEffect::Write));
         // An operand, or the value of `--option=value`.
+        // A shallow `ls` names the entries of the directory it lists
+        // and reads nothing below them: a secret under a named
+        // directory (or under the working directory) is no read of the
+        // step. A descending command (`find`, `grep -r`, `rg`, `du`,
+        // `ls -R`) never lists shallow.
+        let shallow = shallow_list(argv);
         let named = argv
             .iter()
             .skip(1)
@@ -458,7 +463,9 @@ impl Shell {
                 Some(_) | None => (!word.starts_with('-')).then_some(word.as_str()),
             });
         for word in named {
-            let judged = crate::paths::judge_path(paths, &self.cwd.join(word));
+            let target = self.cwd.join(word);
+            let judged = crate::paths::judge_path(paths, &target);
+            let above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&target));
             let (own, written_secret) = match (writes, judged.class) {
                 (false, _) | (true, PathClass::Inside) => (ShellEffects::NONE, false),
                 (true, PathClass::Outside) => (ShellEffects::of(&[ShellEffect::Outside]), false),
@@ -469,13 +476,14 @@ impl Shell {
             };
             parts.push(Part {
                 own,
-                names_secret: judged.holds_secret || written_secret,
+                names_secret: (judged.holds_secret && !above) || written_secret,
             });
         }
         if cwd_read {
+            let cwd_above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&self.cwd));
             parts.push(Part {
                 own: ShellEffects::NONE,
-                names_secret: crate::paths::judge_path(paths, &self.cwd).holds_secret,
+                names_secret: crate::paths::judge_path(paths, &self.cwd).holds_secret && !cwd_above,
             });
         }
         parts

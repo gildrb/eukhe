@@ -1,6 +1,6 @@
 //! The repetition guard of one stream (`bend/infer_guard.bend`, stepper
-//! `bend/ffi_infer_guard.bend`; `laws/infer_guard.bend`, docs/inference.md
-//! S6.5): the guard stays in the Bend heap, the caller sends one id per
+//! `bend/ffi_infer_guard.bend`; `laws/infer_guard.bend`): the guard stays
+//! in the Bend heap, the caller sends one id per
 //! chunk (equal chunks, equal ids) and reads whether it cut the stream.
 
 use crate::wire::{Reader, Writer};

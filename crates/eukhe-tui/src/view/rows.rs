@@ -89,7 +89,17 @@ impl AgentView {
                 };
                 let mut rows = Vec::new();
                 rows.push(Vec::new());
-                rows.extend(render_text_rows(text, style, width));
+                let body = render_text_rows(text, style, width);
+                // A long informational row (a settled job's notice) folds
+                // to its head; a warning or an error never folds.
+                let foldable = matches!(kind, crate::chat::StatusKind::Info);
+                rows.extend(crate::chat::fold_rows(
+                    body,
+                    foldable,
+                    detail,
+                    &self.theme,
+                    width,
+                ));
                 rows
             }
             ChatEntry::User { text } => {

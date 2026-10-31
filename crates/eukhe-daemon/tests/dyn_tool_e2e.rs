@@ -1,4 +1,4 @@
-//! The tool surface end to end (docs/tools.md S7): a daemon session over
+//! The tool surface end to end: a daemon session over
 //! the real kernel (scripted faux provider) with a settings-declared stdio
 //! MCP server. Over two turns the session's requests all carry the roster it
 //! opened with, while the server's `echo` tool, never in the roster, is

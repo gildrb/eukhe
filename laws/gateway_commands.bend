@@ -23,16 +23,17 @@ import ./doc_commit.bend as DocCommit
 # R3: the name is read with its ASCII letters lowercased; a name among the
 #     session command names Rust sends is a prompt (the session runs it).
 # R4: the commands, in order: help, sessions, use, latest, new, stop,
-#     status, memory. `/use` takes exactly one argument (kept as written),
-#     the others none; a command name with exactly its arguments is that
-#     command.
+#     status, memory, model, reasoning. `/use` takes exactly one argument
+#     (kept as written), `/model` and `/reasoning` none or one (kept as
+#     written), the others none; a command name with exactly its arguments
+#     is that command.
 # R5: a command name with other arguments answers
 #     `Usage: <usage> - <description>` (its line of gc_lines).
 # R6: another name followed by more words is a prompt. Alone it answers:
 #     for the empty name (a lone `/`), the help text; else, when command
 #     names start with it, their lines in order, each on its own line,
 #     then `Send one of these. Send / for all commands.`; else, when the
-#     slash_suggest suggestion over the 8 names picks one,
+#     slash_suggest suggestion over the 10 names picks one,
 #     `No command /<name>. Did you mean /<closest>?` and on a second line
 #     `Not sent to the agent. Send / for all commands.`; else
 #     `No command /<name>. Not sent to the agent.` and on the next lines
@@ -41,7 +42,8 @@ import ./doc_commit.bend as DocCommit
 #     `Other text goes to the agent.`, one per line.
 # R8: the entry answers each request Rust writes (the text and the session
 #     names, every length within the wire) with the meaning of R1-R7 (a
-#     command by its tag, `/use` with its argument; an answer with its
+#     command by its tag, `/use` with its argument, `/model` and
+#     `/reasoning` with their optional argument; an answer with its
 #     text; a prompt), reads exactly the request and nothing after it, and
 #     answers any other input with the exact error form
 #     `E gateway_commands: malformed request`.
@@ -51,15 +53,15 @@ import ./doc_commit.bend as DocCommit
 
 # R4: the command names, in order
 def gc_names() -> List<&2, String>:
-  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory"]
+  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory", "model", "reasoning"]
 
 # R5: the command lines, in the same order
 def gc_lines() -> List<&2, String>:
-  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state."]
+  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [N] - Show the models; N switches to one.", "/reasoning [level] - Show the thinking level; a level sets it."]
 
 # R7
 def gc_help() -> String:
-  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\nOther text goes to the agent."
+  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [N] - Show the models; N switches to one.\n/reasoning [level] - Show the thinking level; a level sets it.\nOther text goes to the agent."
 
 # the text at index i of xs; "" past the end
 def gc_at(xs: List<&2, String>, i: Nat) -> String:
@@ -129,7 +131,11 @@ def gc_bare(i: Nat) -> Maybe<&2, Gc.Cmd>:
       Some{Gc.CStatus{}}
     case 7n:
       Some{Gc.CMemory{}}
-    case 8n+u:
+    case 8n:
+      Some{Gc.CModel{None{}}}
+    case 9n:
+      Some{Gc.CReasoning{None{}}}
+    case 10n+u:
       None{}
 
 # R4: the command at index i with the one argument a
@@ -141,7 +147,21 @@ def gc_one(i: Nat, a: String) -> Maybe<&2, Gc.Cmd>:
       None{}
     case 2n:
       Some{Gc.CUse{a}}
-    case 3n+u:
+    case 3n:
+      None{}
+    case 4n:
+      None{}
+    case 5n:
+      None{}
+    case 6n:
+      None{}
+    case 7n:
+      None{}
+    case 8n:
+      Some{Gc.CModel{Some{a}}}
+    case 9n:
+      Some{Gc.CReasoning{Some{a}}}
+    case 10n+u:
       None{}
 
 # R4: the command at index i given args, when they are its own
@@ -270,6 +290,14 @@ def gc_w_req(q: FGc.Req, rest: String) -> String:
     case FGc.QParse{t, ns}:
       Wr.put_str(t, Wr.put_list(~String, ~Wr.put_str, ns, rest))
 
+# an optional argument: 0 without, 1 then the argument with one
+def gc_w_arg(m: Maybe<&2, String>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{a}:
+      Wr.put_nat(1n, Wr.put_str(a, ""))
+
 def gc_w_cmd(c: Gc.Cmd) -> String:
   match c:
     case Gc.CHelp{}:
@@ -288,6 +316,10 @@ def gc_w_cmd(c: Gc.Cmd) -> String:
       Wr.put_nat(6n, "")
     case Gc.CMemory{}:
       Wr.put_nat(7n, "")
+    case Gc.CModel{m}:
+      Wr.put_nat(8n, gc_w_arg(m))
+    case Gc.CReasoning{m}:
+      Wr.put_nat(9n, gc_w_arg(m))
 
 def gc_w_out(o: Gc.Out) -> String:
   match o:
@@ -318,6 +350,7 @@ def gc_fit_req(q: FGc.Req) -> Bool:
 #   for a command, a name with other chars accepted, a case-sensitive
 #   name, a session command answered by the gateway, an argument count
 #   ignored or checked for the wrong command, `/use` losing its argument,
+#   `/model` or `/reasoning` losing or inventing its optional argument,
 #   a usage line of another command, an unknown name with more words
 #   answered, a listing out of order or missing a starting command, a near
 #   miss named past the slash_suggest limit, a missing help text after a
@@ -330,10 +363,12 @@ law gateway_commands_spec:
 # LAW gateway_commands_example (R1-R7): anchor: Rust's vectors, short: a
 # command, a lone `/`, a prefix, a near miss, `/use 3`, `/use` alone, a
 # path, an unknown name with words, a session command, an uppercase name,
-# a far miss, a blank text, a prefix of three commands, extra spaces
+# a far miss, a blank text, a prefix of three commands, extra spaces;
+# `/model` and `/reasoning` with no argument, one argument and two, an
+# uppercase `/Reasoning`, the prefix `/m` of memory and model
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law gateway_commands_example:
-  {[Gc.parse("/help", []), Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/hlep", []), Gc.parse("/use 3", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/compact", ["compact"]), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", [])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}] : List<&2, Gc.Out>}
+  {[Gc.parse("/help", []), Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/hlep", []), Gc.parse("/use 3", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/compact", ["compact"]), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/model", []), Gc.parse("/model 2", []), Gc.parse("/model 2 3", []), Gc.parse("/Reasoning", []), Gc.parse("/reasoning high", []), Gc.parse("/reasoning low extra", []), Gc.parse("/m", [])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OAnswer{"Usage: /model [N] - Show the models; N switches to one."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [N] - Show the models; N switches to one.\nSend one of these. Send / for all commands."}] : List<&2, Gc.Out>}
 
 # Laws: the entry (R8)
 # --------------------
@@ -379,7 +414,8 @@ law gateway_commands_entry_refuses:
 # LAW gateway_commands_entry_example (R8): anchor: the wire strings Rust
 # sends and the replies it reads: a command, `/use` with its argument, a
 # usage answer, a session command, a prompt; input left over and a
-# malformed request
+# malformed request; `/model` without and with its argument, `/reasoning`
+# with its argument, a `/model` usage answer
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law gateway_commands_entry_example:
-  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request")] : List<&2, String>}
+  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,55,Usage: /model [N] - Show the models; N switches to one."] : List<&2, String>}

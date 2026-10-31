@@ -641,7 +641,7 @@ async fn treats_silent_overflow_as_an_ordinary_answer_a_stop_whose_input_exceeds
     treats_silent_overflow_as_an_ordinary_answer(vec![answer("fine")]).await;
 }
 
-/// A reply with no output is no answer (docs/harness.md H4.7): it is
+/// A reply with no output is no answer (LAWS.bend H4.7): it is
 /// retried as a model error, never compacted as an overflow.
 #[tokio::test]
 async fn treats_silent_overflow_as_an_ordinary_answer_a_length_stop_that_fills_the_window_without_output(

@@ -1,4 +1,4 @@
-//! One tool call's journal (docs/runtime.md S2, call 1-3): the model
+//! One tool call's journal (call 1-3): the model
 //! `bend/tool_call.bend`, stepper entry `bend/ffi_tool_call.bend`.
 //!
 //! The call lives in the compiled core. The Harness opens it where it

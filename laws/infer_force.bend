@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S6.2) A forced tool call, one attempt at a time
 # ------------------------------------------------
-# docs/inference.md S6.2, the model `force` in bend/infer.bend section 2;
+# The model `force` in bend/infer.bend section 2;
 # the harness asks the compiled core (bend/ffi_infer_force.bend) for each
 # request's native flag and for the step after each reply. Every input is
 # free: any attempt, retries, provider support, replies.

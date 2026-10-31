@@ -292,14 +292,15 @@ fn every_refusal_text_names_what_failed_and_the_next_step() {
                 ),
                 Some(
                     "it needs the user's approval, and no client answered. Ask the user to attach \
-a client, or to allow its effect in shell.autoEffects if that is not secret; or use read-only \
-steps."
+a client, or to allow its effect in shell.autoEffects if that is read, write, exec, net, \
+outside, protected or secret; or use read-only steps."
                         .to_owned()
                 ),
                 Some(
                     "the session runs only from the phone gateway, and from there a step that \
-writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or \
-reads or writes a secret never runs. Ask the user to run it from the eukhe TUI or the dashboard."
+writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) \
+never runs when the user's auto set does not already run it. Ask the user to run it from the \
+eukhe TUI or the dashboard."
                         .to_owned()
                 ),
             ]
@@ -324,7 +325,7 @@ async fn the_default_auto_set_is_its_model() {
 /// Regression: the default auto set held only read, write, exec and net,
 /// so in a session whose user set none, a write outside the workspace
 /// asked, and a subagent writing its notes to /tmp stopped every turn
-/// for a yes. Now every effect but secret runs unasked: with no client
+/// for a yes. Now every effect runs unasked: with no client
 /// to answer, the whole script runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn with_no_auto_set_a_write_outside_the_workspace_runs_unasked() {

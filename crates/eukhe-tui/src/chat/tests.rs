@@ -927,3 +927,33 @@ fn live_abort_text_matches_ts() {
         "Aborted after 2 retry attempts - 1m 05s"
     );
 }
+
+/// A foldable block over the head folds to `FOLD_HEAD` rows plus one dim
+/// count; at `Detail::All`, and under the fold threshold, it shows in
+/// full; a block that never folds shows in full at every level.
+#[test]
+fn a_foldable_block_folds_to_its_head_with_a_count() {
+    let theme = theme();
+    let width = 60;
+    let rows: Vec<Line> = (0..FOLD_HEAD + 4).map(|_| Vec::new()).collect();
+    let folded = fold_rows(rows.clone(), true, Detail::Details, &theme, width);
+    assert_eq!(folded.len(), FOLD_HEAD + 1);
+    let tail = folded[FOLD_HEAD]
+        .iter()
+        .map(|s| s.content.as_str())
+        .collect::<String>();
+    assert!(tail.contains("+4 lines"), "{tail}");
+    assert_eq!(
+        fold_rows(rows.clone(), true, Detail::All, &theme, width).len(),
+        rows.len()
+    );
+    let short: Vec<Line> = (0..FOLD_HEAD).map(|_| Vec::new()).collect();
+    assert_eq!(
+        fold_rows(short.clone(), true, Detail::Overview, &theme, width).len(),
+        short.len()
+    );
+    assert_eq!(
+        fold_rows(rows.clone(), false, Detail::Overview, &theme, width).len(),
+        rows.len()
+    );
+}

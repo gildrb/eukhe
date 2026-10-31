@@ -24,7 +24,7 @@ import ../spec/theme/rules.bend as Ts
 
 # (T1) Themes
 # -----------
-# docs/interface.md "Themes", the model in bend/theme/: the one theme
+# The model in bend/theme/: the one theme
 # validator and name resolver the terminal UI and the HTML export share,
 # run by the compiled entry bend/ffi_theme.bend (section "The compiled
 # entry" below); crates/eukhe-theme reads the files and decodes their
@@ -974,7 +974,7 @@ law theme_ffi_example:
 
 # (T3) Terminal colors
 # --------------------
-# docs/interface.md "Terminal colors", the model in bend/tui_color.bend:
+# The model in bend/tui_color.bend:
 # the effort ramp, the usage bands and the color roles of
 # crates/eukhe-tui. Every input is free: any ramp ends and any ladder
 # length, any token count and any window. The entry bend/ffi_tui_color.bend

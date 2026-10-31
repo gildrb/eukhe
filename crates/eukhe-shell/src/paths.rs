@@ -1,5 +1,5 @@
-//! The judgment of a path under the session's [`PathPolicy`] (docs/tools.md
-//! S7, `laws/path_policy.bend`): `judge` in `bend/path_policy.bend`,
+//! The judgment of a path under the session's [`PathPolicy`]:
+//! `laws/path_policy.bend`: `judge` in `bend/path_policy.bend`,
 //! run as the compiled Bend core, one call per path the shell or a
 //! document tool touches. The caller resolves the path ([`resolve`], IO)
 //! and judges the [`RealPath`] it acts on; a second resolution would lose

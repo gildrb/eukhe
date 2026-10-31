@@ -1,4 +1,4 @@
-//! Regression tests of the chat memory's waits (`docs/harness.md` H6):
+//! Regression tests of the chat memory's waits (spec/README.md D4):
 //! every request to an owner in another process has a reply deadline, and
 //! a request to a stuck owner ends at it.
 

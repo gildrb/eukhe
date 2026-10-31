@@ -1,4 +1,4 @@
-//! The chat memory's planner (docs/memory.md, gist §3-§4): the model
+//! The chat memory's planner (spec/README.md M1, gist §3-§4): the model
 //! `bend/optchat/`, stepper entry `bend/ffi_optchat.bend`.
 //!
 //! The planner lives in the compiled core: which lines the view and the

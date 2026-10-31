@@ -18,7 +18,7 @@ use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify, WatchDescriptor};
-use tokio::io::unix::AsyncFd;
+use tokio::io::{unix::AsyncFd, Interest};
 use tokio::task::JoinHandle;
 
 use super::paths::basename;
@@ -92,13 +92,12 @@ impl Backend {
             return Ok(Arc::clone(instance));
         }
         let inotify = Inotify::init(InitFlags::IN_NONBLOCK | InitFlags::IN_CLOEXEC)?;
+        // Sound in tokio >= 1.53.3 (delegates to `register`); the unsafe
+        // replacement is forbidden by the workspace `unsafe_code` lint.
+        #[allow(deprecated)]
+        let fd = AsyncFd::with_interest(InotifyFd(inotify), Interest::READABLE)?;
         let instance = Arc::new(Instance {
-            // RUSTSEC-2026-0386 is about an `AsyncFd` over a borrowed or arbitrary
-            // fd. `InotifyFd` owns its `Inotify`, so the fd is valid and owned for
-            // the `AsyncFd`'s whole life; the safe replacement (`register`) is
-            // `unsafe`, which this workspace forbids.
-            #[allow(deprecated)]
-            fd: AsyncFd::new(InotifyFd(inotify))?,
+            fd,
             registry: Mutex::new(Registry::default()),
         });
         self.reader = Some(tokio::spawn(read_events(

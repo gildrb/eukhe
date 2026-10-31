@@ -5,7 +5,7 @@ import ../../bend/command.bend as Cmd
 
 # ---- commands ----
 
-# LAWS (slash commands; docs/interface.md "Slash commands"): the path a
+# LAWS (slash commands): the path a
 # typed command line names, the menu below its last word, and what Tab
 # and Enter do. Each law is an open claim about the model in
 # bend/command.bend and its entry bend/ffi_command.bend (the Rust code,

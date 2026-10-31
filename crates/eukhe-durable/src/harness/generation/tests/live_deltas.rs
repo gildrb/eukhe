@@ -1,5 +1,5 @@
 //! Port of `test/harness-live-deltas.test.ts`. A running tool's progress
-//! reaches the live observers and never storage (docs/runtime.md S2), so
+//! reaches the live observers and never storage, so
 //! the tool steps below check the change each publication delivers and
 //! that no commit carried it.
 
@@ -607,7 +607,7 @@ async fn publishes_details_and_diagnostics_and_settles_them_with_one_commit() {
 
 /// The journal of a long streaming call: its start (the `running` slot,
 /// before the steps) and its settle; none of its many publications
-/// reaches storage (docs/runtime.md S2).
+/// reaches storage.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_streaming_call_commits_nothing_between_its_start_and_its_settle() {
     let run = drive(Truncation::default()).await;

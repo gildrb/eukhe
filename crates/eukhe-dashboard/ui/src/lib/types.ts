@@ -1,4 +1,4 @@
-// Wire shapes of the bridge (docs/dashboard.md "Protocol") and of the
+// Wire shapes of the bridge and of the
 // daemon's session values, as far as the app reads them. Daemon JSON is
 // open-ended: unknown fields pass through untouched.
 

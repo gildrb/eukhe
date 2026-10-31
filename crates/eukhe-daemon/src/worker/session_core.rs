@@ -53,8 +53,7 @@ pub(crate) struct SessionCore {
     pub(crate) attached_client_ids: Vec<String>,
     /// The attached clients that attached as the phone gateway
     /// (`clientKind` `gateway`; a subset of `attached_client_ids`). A
-    /// session whose attached clients are all gateways asks no one
-    /// (docs/tools.md G5).
+    /// session whose attached clients are all gateways asks no one.
     pub(crate) gateway_client_ids: Vec<String>,
     pub(crate) shutdown_requested: bool,
     /// The wall-clock ms of this session's last activity (run end);

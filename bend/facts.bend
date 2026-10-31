@@ -1,5 +1,5 @@
 # facts: the model of the model and provider facts that live in data, not
-# in code (docs/inference.md S6.10). laws/facts.bend states its laws;
+# in code. laws/facts.bend states its laws;
 # proof/facts/ proves them. Sections 1 to 4 run as the compiled core:
 # bend/ffi_facts.bend (the budgets) and bend/ffi_model_facts.bend (the
 # flags, adaptive thinking, the Bedrock effort, the tier price row).

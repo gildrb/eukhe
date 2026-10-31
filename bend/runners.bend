@@ -1,5 +1,4 @@
-# runners: the model of the tools that run code (docs/tools.md, S7;
-# crates/eukhe-core/src/durable/runner.rs).
+# runners: the model of the tools that run code (crates/eukhe-core/src/durable/runner.rs).
 #
 # 1. The registry. A tool has a name, its caps (the effects the code it
 #    runs may have, as effect codes) and how the approval gate covers that

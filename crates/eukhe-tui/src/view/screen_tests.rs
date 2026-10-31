@@ -1,5 +1,4 @@
-//! The transcript protocol and the pace through `AgentView::compose`
-//! (docs/interface.md S8): committed rows are written once, whatever
+//! The transcript protocol and the pace through `AgentView::compose`: committed rows are written once, whatever
 //! changes after them, and streamed text shows at its pace.
 
 use super::*;
@@ -170,7 +169,7 @@ fn streamed_text_shows_at_its_pace_and_commits_whole() {
 
 /// The loader row stays up after the turn ended while its answer's text
 /// still shows at its pace, and goes down with the frame that shows the
-/// last of it (docs/interface.md "Turn visibility": the indicator is on
+/// last of it ("Turn visibility": the indicator is on
 /// while the reply streams, to its last character on screen). A new
 /// loader replaces the held row.
 #[test]

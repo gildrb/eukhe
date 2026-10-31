@@ -650,6 +650,8 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
     };
     let sent_at = runtime.now()?;
+    // A remote provider sees pseudonyms, not the memory's text: the
+    // provider runtime scrubs every stream request (`privacy.anonymizeRemote`).
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -923,6 +925,14 @@ async fn provider_tokens(
 ) -> u64 {
     let extra = planned_messages(planned);
     let messages = view.messages.iter().chain(&extra).cloned().collect();
+    // The count request reaches the provider: it reads pseudonyms too.
+    let messages = if runtime.settings().privacy_anonymize_remote
+        && !eukhe_ai::privacy::is_local(&model.base_url)
+    {
+        eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms).scrub_messages(messages)
+    } else {
+        messages
+    };
     let mut request = stream.simple_stream_options().stream.request;
     request.signal = Some(runtime.signal());
     let options = ModelsCapabilityOptions::from(CapabilityOptions { request });
@@ -1053,7 +1063,7 @@ fn ms_f64(ms: u64) -> f64 {
 }
 
 /// Classify a terminal provider message and commit the step it leads to
-/// ([`after_reply`], docs/harness.md H4), clearing the partial.
+/// ([`after_reply`], LAWS.bend H4), clearing the partial.
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"

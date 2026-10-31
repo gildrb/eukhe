@@ -6,7 +6,7 @@ import ../../../bend/admission.bend as Ad
 # ---- admission ----
 
 # proof_admission: the admission laws of LAWS.bend (rule H3 of
-# docs/harness.md) over the model in admission.bend.
+# LAWS.bend) over the model in admission.bend.
 
 # Logic
 # -----

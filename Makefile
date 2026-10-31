@@ -31,7 +31,7 @@ nightly-status:
 	@scripts/ci_nightly.sh status
 
 hooks:
-	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (docs/develop.md: mise use -g github:j178/prek@0.5.7)"; exit 1; }
+	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (mise use -g github:j178/prek@0.5.7)"; exit 1; }
 	prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 
 # The eukhe-runtime Python suite on the uv-locked kernel env (the env the
@@ -42,7 +42,7 @@ runtime-test:
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
 include scripts/toolchain.env
 
-# The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md). The full gate
+# The laws (LAWS.bend, proven in PROOF.bend). The full gate
 # (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION).
 laws:
 	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend $(BEND_VERSION): https://bend-lang.com/install.sh)"; exit 1; }

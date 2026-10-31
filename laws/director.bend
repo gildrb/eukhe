@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (S5) The Director stack
 # -----------------------
-# docs/control.md S5, the model in bend/director.bend. Every verdict is
+# the model in bend/director.bend. Every verdict is
 # free: each layer of each step says what the adversary picks.
 
 # LAW dir_stack_bounded: a decision never grows the stack past its cap

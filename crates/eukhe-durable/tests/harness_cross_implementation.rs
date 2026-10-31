@@ -25,10 +25,10 @@
 //! - `rust-crash-resumed.json` / `rust-crash-resumed/`: the final state and
 //!   the JSONL files after TS resumed a copy of `rust-crash/`.
 //! - In both `-resumed` fixtures, the second generation's input carries
-//!   eukhe's `rounds` (docs/harness.md H4), edited in after TS wrote them;
+//!   eukhe's `rounds` (LAWS.bend H4), edited in after TS wrote them;
 //!   TS's input is `{}`. The interrupted call's result text ends with
 //!   eukhe's next step ("Check the state it changes (files, processes,
-//!   jobs) before you run it again.", docs/harness.md H7), edited in the
+//!   jobs) before you run it again.", LAWS.bend H7), edited in the
 //!   same way, with the token counts of the answer that follows it; TS's
 //!   text ends at "may have partially run".
 //!
@@ -94,7 +94,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// What `probe` does once it has reported its details (durable in TS; in
-/// eukhe they are published to live observers only, docs/runtime.md S2).
+/// eukhe they are published to live observers only).
 #[derive(Clone, Copy)]
 enum AfterDetails {
     /// Die like a crashed process (TS `process.exit(0)`).
@@ -529,7 +529,7 @@ async fn resumes_rust_crash_like_ts() {
 /// The records of `probe`'s progress (output, then details and the
 /// diagnostic) in the crash fixtures: TS and eukhe before S2 commit each
 /// progress update to `pi.live` (seq 9 and 10). Eukhe now keeps progress in
-/// memory (docs/runtime.md S2), so a crashed Rust process leaves the
+/// memory, so a crashed Rust process leaves the
 /// fixture storage without these two commits.
 fn without_progress(files: Vec<(String, String)>) -> Vec<(String, String)> {
     files

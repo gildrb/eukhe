@@ -1,4 +1,4 @@
-//! A wait with every exit (docs/harness.md H6): an event raced against a
+//! A wait with every exit (spec/README.md D4): an event raced against a
 //! deadline and a cancel signal. The race holds no rule: the wait is a
 //! stepper of the compiled Bend core (`eukhe_bend::rules::wait`,
 //! `bend/ffi_wait_race.bend`). The race opens it with its deadline, sends what

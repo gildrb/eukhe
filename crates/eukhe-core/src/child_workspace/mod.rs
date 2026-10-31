@@ -1,4 +1,4 @@
-//! Copy-on-write child workspaces (docs/runtime.md S3; model
+//! Copy-on-write child workspaces (S3; model
 //! `bend/sandbox.bend`, `back`, and its per-path `plan`).
 //!
 //! An isolated child works on its own copy of its parent's workspace. At

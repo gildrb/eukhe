@@ -400,7 +400,7 @@ mod tests {
             vec![CvarError::BadValue {
                 id: "shell.autoEffects".into(),
                 value: "[\"read\",\"wirte\"]".into(),
-                expected: "a list of read, write, exec, net, outside, protected".into()
+                expected: "a list of read, write, exec, net, outside, protected, secret".into()
             }]
         );
     }

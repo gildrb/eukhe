@@ -76,7 +76,11 @@ def gcb.bare(i: Nat) -> {Gc.command(i, []) == GatewayCommands.gc_command(i, []) 
       {==}
     case 7n:
       {==}
-    case 8n+u:
+    case 8n:
+      {==}
+    case 9n:
+      {==}
+    case 10n+u:
       {==}
 
 def gcb.one(i: Nat, +a: String) -> {Gc.command(i, [a]) == GatewayCommands.gc_command(i, [a]) : Maybe<&2, Gc.Cmd>}:
@@ -97,7 +101,11 @@ def gcb.one(i: Nat, +a: String) -> {Gc.command(i, [a]) == GatewayCommands.gc_com
       {==}
     case 7n:
       {==}
-    case 8n+u:
+    case 8n:
+      {==}
+    case 9n:
+      {==}
+    case 10n+u:
       {==}
 
 def gcb.more(i: Nat, +a: String, +b: String, +u: List<&2, String>) -> {Gc.command(i, a <> b <> u) == GatewayCommands.gc_command(i, a <> b <> u) : Maybe<&2, Gc.Cmd>}:
@@ -118,7 +126,11 @@ def gcb.more(i: Nat, +a: String, +b: String, +u: List<&2, String>) -> {Gc.comman
       {==}
     case 7n:
       {==}
-    case 8n+v:
+    case 8n:
+      {==}
+    case 9n:
+      {==}
+    case 10n+v:
       {==}
 
 # the code's command of an index and arguments is the spec's

@@ -65,8 +65,7 @@ fn catalog_model(session: &SessionSlot, provider: &str, model_id: &str) -> Optio
     session.get()?.deps().models.get_model(provider, model_id)
 }
 
-/// The shown conversation's thinking level as its requests send it
-/// (docs/inference.md S10): the stored level clamped to the model's
+/// The shown conversation's thinking level as its requests send it: the stored level clamped to the model's
 /// ladder, the clamp every provider applies before it sends a level. An
 /// unset level shows as `default`, never as `off`: open settles every
 /// main conversation on a level, so `default` shows only before a
@@ -114,7 +113,7 @@ pub(crate) fn available_thinking_levels(core: &SessionCore, session: &SessionSlo
 }
 
 /// The service tiers the shown model honors (`["default"]` without one),
-/// by the quirks rulebook (docs/inference.md S6.8).
+/// by the quirks rulebook.
 fn available_service_tiers(core: &SessionCore, session: &SessionSlot) -> Vec<String> {
     match shown_model(core, session) {
         Some(model) => eukhe_ai::quirks::service_tiers((&model).into())

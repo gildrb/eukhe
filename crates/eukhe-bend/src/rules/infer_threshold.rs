@@ -1,6 +1,6 @@
 //! Which compaction threshold a request's context is over
 //! (`bend/infer_threshold.bend`, entry `bend/ffi_infer_threshold.bend`;
-//! `laws/infer_threshold.bend`, docs/inference.md S6.6). The caller counts
+//! `laws/infer_threshold.bend`). The caller counts
 //! the context's tokens and gives the policy's reserve and margin in whole
 //! tokens ([`whole`]); [`Compaction::over`] encodes them, calls
 //! [`Entry::InferThreshold`] and decodes the decision.

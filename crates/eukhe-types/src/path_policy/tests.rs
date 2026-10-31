@@ -70,3 +70,19 @@ fn real_paths_follow_links_on_the_existing_part() {
         ]
     );
 }
+
+/// A strict ancestor of a secret (the home over `.ssh`) is one; the
+/// secret itself, a path inside it and an unrelated path are not.
+#[test]
+fn a_strict_ancestor_of_a_secret_is_one() {
+    let tree = Tree::new();
+    let policy = PathPolicy::new(vec![tree.at("ws")], vec![], vec![tree.at("home/.ssh")]);
+    let ancestor = |path: &str| policy.ancestor_of_secret_of_resolved(&resolve(&tree.at(path)));
+    assert!(
+        ancestor("home")
+            && !ancestor("home/.ssh")
+            && !ancestor("home/.ssh/id")
+            && !ancestor("ws/keys")
+            && !ancestor("ws/src/a.rs"),
+    );
+}

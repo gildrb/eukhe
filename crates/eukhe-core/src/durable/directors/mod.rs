@@ -1,4 +1,4 @@
-//! The Director stack (docs/control.md S5, the model `bend/director.bend`):
+//! The Director stack (the model `bend/director.bend`):
 //! after each final answer the agent loop asks a stack of Directors what to
 //! do. The goal, the autonomous run, a reminder, and a forced tool call
 //! are layers ([`LayerKind`]); the top layer decides first, and the loop of

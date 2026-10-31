@@ -1,5 +1,5 @@
-//! Autoresearch (port of omp `autoresearch/`, docs/workflows.md
-//! "Autoresearch"): the agent builds a benchmark harness
+//! Autoresearch (port of omp `autoresearch/`; spec/README.md X1, X2): the
+//! agent builds a benchmark harness
 //! (`autoresearch.sh`), measures each experiment with it, and keeps only
 //! the improvements.
 //!

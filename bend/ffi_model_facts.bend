@@ -5,7 +5,7 @@ import ./facts.bend as Fx
 
 # ffi_model_facts: the model facts a wire API decides from the rulebook's
 # answers (bend/facts.bend sections 1, 3 and 4: `flag`, `adaptive`,
-# `effort`, `price`; docs/inference.md S6.10) as an entry of the compiled
+# `effort`, `price`) as an entry of the compiled
 # Bend core. Rust gathers the facts (the
 # rulebook's answer for a directive, the model's compat flag, the
 # AWS_BEDROCK_FORCE_CACHE flag, the thinking-level map, the price rows of

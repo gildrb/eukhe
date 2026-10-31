@@ -8,7 +8,7 @@ import ./base.bend as LawsBase
 
 # (S4) Settings as console variables
 # ----------------------------------
-# docs/control.md S4, the model in bend/cvar.bend. Every input is free:
+# the model in bend/cvar.bend. Every input is free:
 # any declarations (duplicate ids, wrong defaults), any config.cfg, any
 # family of agents with any profiles and sets (wrong types, Global cvars,
 # undeclared ids), any alias table.

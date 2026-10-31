@@ -1,5 +1,5 @@
-# cron: the model of the cron job store shared by processes
-# (docs/state.md D2). The Rust code is `AgentCronJobStore` in
+# cron: the model of the cron job store shared by processes. The Rust
+# code is `AgentCronJobStore` in
 # crates/eukhe-core/src/cron/store/; its per-job decisions run as
 # bend/cron_store.bend (entry bend/ffi_cron.bend), tied to this model's
 # steps by the `cron_*_refines` laws; the bridge (bridge/bridge_cron.bend,

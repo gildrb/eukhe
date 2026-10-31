@@ -15,7 +15,7 @@ import ./base.bend as LawsBase
 
 # (R1) Release versions
 # ---------------------
-# docs/develop.md "Releases", the model in bend/semver.bend; it runs as
+# The model in bend/semver.bend; it runs as
 # compiled Bend through the entry of section entry (R2). Every input is
 # free: any version, any tags (any
 # text, in any order: other series, other prefixes, no version at all),

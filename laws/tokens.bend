@@ -14,7 +14,7 @@ import ../bend/wire.bend as Wr
 
 # (T2) Dashboard tokens
 # ---------------------
-# docs/dashboard.md "Tokens", the model in bend/tokens.bend. The compiled
+# The model in bend/tokens.bend. The compiled
 # core writes its tables into the marked blocks of
 # crates/eukhe-dashboard/ui/src/tokens.stylex.ts (entry bend/ffi_tokens.bend,
 # laws below).

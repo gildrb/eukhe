@@ -1,5 +1,5 @@
-//! Autoresearch's decisions (docs/workflows.md "Autoresearch"; port of
-//! oh-my-pi autoresearch): the model `bend/autoresearch/`, stepper entry
+//! Autoresearch's decisions (port of oh-my-pi autoresearch; spec/README.md
+//! X1, X2): the model `bend/autoresearch/`, stepper entry
 //! `bend/ffi_autoresearch.bend`, laws `laws/autoresearch.bend`.
 //!
 //! The lab lives in the compiled core: which runs a log may keep (only a

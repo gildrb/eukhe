@@ -1,7 +1,7 @@
 //! The model facts a wire API decides from the quirks rulebook's answers
 //! (`bend/facts.bend` sections 1, 3 and 4, entry
-//! `bend/ffi_model_facts.bend`; `laws/model_facts.bend`, docs/inference.md
-//! S6.10): a flag directive's decision, adaptive thinking, the Bedrock
+//! `bend/ffi_model_facts.bend`; `laws/model_facts.bend`): a flag
+//! directive's decision, adaptive thinking, the Bedrock
 //! effort of a level and the service tier row that prices a request. The
 //! caller gathers the facts (the rulebook's answers, the model's compat
 //! flag and thinking-level map, the price rows); the compiled core decides.

@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S8) The interface
 # ------------------
-# docs/interface.md S8, the model in bend/screen.bend. Every input is free:
+# the model in bend/screen.bend. Every input is free:
 # any blocks, growths, finals, flushes and resizes in any order; any
 # chunk sizes and frames; any check results; any child heights.
 
@@ -208,7 +208,7 @@ law all_comm_rejects:
 
 # (H4.8) A stuck model gets a recovery, each with a cap
 # -----------------------------------------------------
-# docs/harness.md H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
+# LAWS.bend H4.8, the recoveries of bend/run/recovery.bend (Rec): a length
 # stop while the model still reasons, tool calls leaked as text, the same
 # tool calls with the same results round after round. Every reply is
 # free, in any order. A Redo is a noted error, so its retry ends its

@@ -1,4 +1,4 @@
-//! The resolution of the cvars (docs/control.md S4): the model
+//! The resolution of the cvars: the model
 //! `bend/cvar.bend` (`refusal`, `value`, `layered`, `tog`, `check`,
 //! `written`, `document`), entry `bend/ffi_cvar_layers.bend`, laws
 //! `laws/cvar.bend` and `laws/cvar_layers.bend`.

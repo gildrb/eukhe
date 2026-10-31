@@ -1,4 +1,4 @@
-//! Model revisions (docs/inference.md S6.2): the `major.minor.patch`
+//! Model revisions: the `major.minor.patch`
 //! triple that a model id names, and the range a family can require. A
 //! port of omp's taxonomy revisions (`packages/catalog/src/compat/
 //! revision.ts`, `taxonomy.ts` `extractRevision`).

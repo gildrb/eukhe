@@ -1,4 +1,4 @@
-//! Where the kernel runs (docs/runtime.md S3): a local child process, or the
+//! Where the kernel runs: a local child process, or the
 //! same stub under a wrapper command that reaches a container, a VM or a
 //! remote machine (`docker exec -i <c>`, `podman exec -i <c>`,
 //! `docker run -i --rm -v ...`, `ssh -T <host>`).

@@ -57,8 +57,9 @@ def sp_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
     case y <> rest:
       Bool.or(Nat.is_eq(y, x), sp_has(rest, x))
 
-# D1: the gateway rule: a step that writes a protected path (effect 5) or
-# reads or writes a secret (effect 6) is refused; any other runs
+# D1: the gateway rule (changed 2026-10-27 by the user: secrets never ask
+# again): a step that writes a protected path (effect 5) is refused; any
+# other runs, a secret access (effect 6) included
 def sp_guard(g: Bool) -> Am.Fate:
   match g:
     case True{}:
@@ -67,7 +68,7 @@ def sp_guard(g: Bool) -> Am.Fate:
       Am.Runs{}
 
 def sp_rule(+es: List<&2, Nat>) -> Am.Fate:
-  sp_guard(Bool.or(sp_has(es, 5n), sp_has(es, 6n)))
+  sp_guard(sp_has(es, 5n))
 
 # D2: the clients' answer: yes runs the step, no denies it
 def sp_answered(+es: List<&2, Nat>, yes: Bool) -> Am.Fate:
@@ -581,7 +582,7 @@ law approvals_desk_wakes_once:
 
 # LAW approvals_desk_fates_example (D1-D3): anchor: the fates the desk
 # wakes steps with: a phone-only session refuses a protected-path write
-# (effects 1, 5) and a secret read (0, 6) at once and runs a plain write;
+# (effects 1, 5) at once and runs a secret read (0, 6) and a plain write;
 # a protected-path write its clients approve runs; a secret read they deny
 # is denied; a protected-path write the interactive clients leave to the
 # phone gateway is refused, and one they leave at a root is unanswered
@@ -590,7 +591,7 @@ law approvals_desk_wakes_once:
 #   left question that runs
 law approvals_desk_fates_example:
   {ds_acts(Am.dstep(Am.D{0n, Nil{}}, Am.EAsk{"w", [1n, 5n], Am.GatewayOnly{}, True{}})) == [Am.AWake{0n, Am.GatewayRefused{}}] : List<&2, Am.Act>} &
-  {ds_acts(Am.dstep(Am.D{0n, Nil{}}, Am.EAsk{"s", [0n, 6n], Am.GatewayOnly{}, False{}})) == [Am.AWake{0n, Am.GatewayRefused{}}] : List<&2, Am.Act>} &
+  {ds_acts(Am.dstep(Am.D{0n, Nil{}}, Am.EAsk{"s", [0n, 6n], Am.GatewayOnly{}, False{}})) == [Am.AWake{0n, Am.Runs{}}] : List<&2, Am.Act>} &
   {ds_acts(Am.dstep(Am.D{3n, Nil{}}, Am.EAsk{"x", [1n], Am.GatewayOnly{}, False{}})) == [Am.AWake{3n, Am.Runs{}}] : List<&2, Am.Act>} &
   {ds_acts(Am.dstep(Am.D{1n, [Am.Q{0n, "w", [1n, 5n], Am.OnClients{}}]}, Am.EAnswer{"w", True{}})) == [Am.ASettle{0n}, Am.AWake{0n, Am.Runs{}}, Am.ATook{}] : List<&2, Am.Act>} &
   {ds_acts(Am.dstep(Am.D{1n, [Am.Q{0n, "s", [0n, 6n], Am.OnClients{}}]}, Am.EAnswer{"s", False{}})) == [Am.ASettle{0n}, Am.AWake{0n, Am.Denied{}}, Am.ATook{}] : List<&2, Am.Act>} &
@@ -613,8 +614,8 @@ law approvals_desk_terms_exact:
 # LAW approvals_fate_spec (D1, D2): what becomes of a step, for every
 # effects and every end of its question: the clients' yes runs it and their
 # no denies it, whatever its effects and whichever session answered; no
-# answer is unanswered; the gateway rule refuses a protected-path write or a
-# secret and runs any other step
+# answer is unanswered; the gateway rule refuses a protected-path write and
+# runs any other step (a secret access included)
 # EXCLUDES: a no that runs a step (for some effects), an unanswered
 #   question that runs, an answer read through the gateway rule, a fate
 #   that depends on the session that answered

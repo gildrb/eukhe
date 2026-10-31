@@ -3,18 +3,18 @@
 //! first `answer_shell_approval` for its request id wins. A session whose
 //! attached clients are all the phone gateway (`clientKind` `gateway`),
 //! which shows no question, asks no one: it runs the step at once, or
-//! refuses it at once when the step writes a protected path or reads or
-//! writes a secret (the gateway rule). A session with no attached client,
-//! or whose clients all detached before an answer came, hands the question
-//! to its parent session (`relay_shell_approval` over the supervisor),
-//! which does the same: the question reaches the nearest session up the
-//! chain with a client, and its frame names the subagent that asks. When
-//! no session up to the root answers, the step is unanswered, which the
-//! tool treats as a denial (`laws/approvals/`, G5). However a question's
-//! wait on the session's clients ends (an answer, the last detach, the
-//! step's cancellation), a `shell_approval_settled` frame tells every
-//! client to drop it; an answer to a question no longer pending is refused
-//! with [`DaemonErrorInfo::ShellApprovalGone`].
+//! refuses it at once when the step writes a protected path the user's
+//! auto set does not already run (the gateway rule). A session with no
+//! attached client, or whose clients all detached before an answer came,
+//! hands the question to its parent session (`relay_shell_approval` over
+//! the supervisor), which does the same: the question reaches the nearest
+//! session up the chain with a client, and its frame names the subagent
+//! that asks. When no session up to the root answers, the step is
+//! unanswered, which the tool treats as a denial (`laws/approvals/`, G5).
+//! However a question's wait on the session's clients ends (an answer, the
+//! last detach, the step's cancellation), a `shell_approval_settled` frame
+//! tells every client to drop it; an answer to a question no longer pending
+//! is refused with [`DaemonErrorInfo::ShellApprovalGone`].
 //!
 //! This module decides none of that. The session's desk, a stepper of the
 //! compiled core ([`approvals::Desk`]), keeps the open questions and
@@ -706,8 +706,8 @@ mod tests {
     }
 
     /// The interactive client leaves while the phone gateway stays: the
-    /// gateway rule answers there (a secret read is refused), and nothing
-    /// goes up the chain (the parent would panic on a relay).
+    /// gateway rule answers there (a protected-path write is refused), and
+    /// nothing goes up the chain (the parent would panic on a relay).
     #[tokio::test(flavor = "multi_thread")]
     async fn a_question_left_to_the_gateway_is_ruled_there() {
         let sessions = chain(&[(&["tui", "phone"], &["phone"])]);
@@ -718,8 +718,8 @@ mod tests {
                 asker
                     .ask(ShellApprovalRequest {
                         effects: eukhe_types::shell::ShellEffects::of(&[
-                            eukhe_types::shell::ShellEffect::Read,
-                            eukhe_types::shell::ShellEffect::Secret,
+                            eukhe_types::shell::ShellEffect::Write,
+                            eukhe_types::shell::ShellEffect::Protected,
                         ]),
                         ..request("call-1:0")
                     })

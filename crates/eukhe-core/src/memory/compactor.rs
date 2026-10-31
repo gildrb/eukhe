@@ -6,7 +6,7 @@
 //! over-long line gets the cut follow-up in the SAME conversation.
 //!
 //! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
-//! model replies (docs/harness.md H1): the compiled Bend core decides each
+//! model replies (spec/README.md M2): the compiled Bend core decides each
 //! step (`line.open`, `line.step` of `bend/compactor.bend`, through
 //! `eukhe_bend::rules::compactor`) from the replies' lengths; this file
 //! moves the texts. At most [`TRIES`] model calls; the first line that

@@ -22,7 +22,7 @@ law revive_after_refresh:
 
 # (D1) The revival veto's entry of the compiled core
 # --------------------------------------------------
-# docs/daemon.md D1: a supervisor boot relaunches a dead worker only when
+# A supervisor boot relaunches a dead worker only when
 # the journal proves interrupted live work this boot must heal. Rust
 # `revival_gate::revival_veto` gathers the facts (the descriptor's
 # lifecycle, the session file's archived belt, the live lease holder, the

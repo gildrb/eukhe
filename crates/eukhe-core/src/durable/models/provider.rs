@@ -138,6 +138,27 @@ impl CarriedOptions {
     }
 }
 
+/// The context a remote provider may see: pseudonyms for the personal
+/// classes (`privacy.anonymizeRemote`, `eukhe_ai::privacy`). Every wrapped
+/// stream and the failover re-dispatch pass through here, so no caller
+/// (turns, the compactor, branch summaries, side questions) can send raw
+/// text to a remote endpoint. Loopback models see the raw text.
+fn scrub_remote(
+    settings: &Arc<crate::durable::EukheSettings>,
+    model: &Model,
+    context: &TranscriptContext,
+) -> TranscriptContext {
+    let manager = settings.manager();
+    if manager.get_privacy_anonymize_remote() && !eukhe_ai::privacy::is_local(&model.base_url) {
+        let scrubber = eukhe_ai::privacy::Scrubber::new(&manager.get_privacy_terms());
+        TranscriptContext::from_normalized_messages(
+            scrubber.scrub_messages(context.clone().into_messages()),
+        )
+    } else {
+        context.clone()
+    }
+}
+
 /// The installed provider runtime of one session.
 pub struct ProviderRuntime {
     inner: Arc<Inner>,
@@ -189,40 +210,28 @@ impl ProviderRuntime {
                 let Some(inner) = weak.upgrade() else {
                     return original_stream(model, context, options);
                 };
+                let context = scrub_remote(&inner.deps.settings, model, context);
                 let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
                     let original = original_stream.clone();
                     let options = options;
                     Arc::new(move |model, context| original(model, context, options.clone()))
                 };
-                dispatch_request(
-                    inner,
-                    model.clone(),
-                    context.clone(),
-                    dispatch,
-                    carried,
-                    false,
-                )
+                dispatch_request(inner, model.clone(), context, dispatch, carried, false)
             });
             let weak = Arc::downgrade(&runtime.inner);
             provider.stream_simple = Arc::new(move |model, context, options| {
                 let Some(inner) = weak.upgrade() else {
                     return original_simple(model, context, options);
                 };
+                let context = scrub_remote(&inner.deps.settings, model, context);
                 let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
                     let original = original_simple.clone();
                     let options = options;
                     Arc::new(move |model, context| original(model, context, options.clone()))
                 };
-                dispatch_request(
-                    inner,
-                    model.clone(),
-                    context.clone(),
-                    dispatch,
-                    carried,
-                    true,
-                )
+                dispatch_request(inner, model.clone(), context, dispatch, carried, true)
             });
             models.set_provider(provider);
         }
@@ -523,12 +532,14 @@ fn original_dispatch(
         .get(&model.provider)
         .cloned();
     let models = inner.models.clone();
+    let settings = Arc::clone(&inner.deps.settings);
     Arc::new(move |model: &Model, context: &TranscriptContext| {
         let Some((stream, stream_simple)) = original.clone() else {
             return create_assistant_message_event_stream();
         };
         let models = models.clone();
         let carried = carried.clone();
+        let settings = Arc::clone(&settings);
         let (mut request_model, context) = (model.clone(), context.clone());
         lazy_stream(model, async move {
             let mut request = ProviderRequestOptions {
@@ -553,6 +564,9 @@ fn original_dispatch(
                 request,
                 ..StreamOptions::default()
             };
+            // The failover target may be remote where the primary was
+            // local: scrub against the resolved target.
+            let context = scrub_remote(&settings, &request_model, &context);
             Ok(if simple {
                 stream_simple(
                     &request_model,
@@ -1322,6 +1336,95 @@ mod tests {
         message.stop_reason = StopReason::Error;
         message.error_message = Some(text.to_owned());
         message.into()
+    }
+
+    /// What the provider receives, echoed back: a remote model sees
+    /// pseudonyms for every personal class (`privacy.anonymizeRemote`,
+    /// `privacy.terms`), a loopback model sees the raw text.
+    #[tokio::test]
+    async fn remote_models_receive_pseudonyms_loopback_receives_raw_text() {
+        let fixture = fixture_set(
+            /*text_only*/ true,
+            "shared-1",
+            &serde_json::json!({ "privacy": { "terms": ["Ada Lovelace"] } }),
+        );
+        let echo = |handle: &FauxProviderHandle| {
+            handle.set_responses(vec![FauxResponseStep::factory(
+                |context: &TranscriptContext,
+                 _options: Option<&SimpleStreamOptions>,
+                 _state: &eukhe_ai::providers::faux::FauxProviderState,
+                 _model: &Model| {
+                    let seen = context
+                        .messages()
+                        .iter()
+                        .rev()
+                        .find_map(|message| match message {
+                            Message::User(user) => match &user.content {
+                                UserContent::Text(text) => Some(text.clone()),
+                                UserContent::Blocks(blocks) => {
+                                    blocks.iter().find_map(|block| match block {
+                                        UserContentBlock::Text(text) => Some(text.text.clone()),
+                                        UserContentBlock::Image(_) => None,
+                                    })
+                                }
+                            },
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    Ok(faux_assistant_message(
+                        seen,
+                        FauxAssistantMessageOptions::default(),
+                    ))
+                },
+            )]);
+        };
+        let said = |text: &str| {
+            user_message(UserContent::Blocks(vec![UserContentBlock::Text(
+                TextContent::new(text),
+            )]))
+        };
+
+        let mut remote = fixture.faux_a.get_model();
+        remote.base_url = "https://api.anthropic.com".to_owned();
+        echo(&fixture.faux_a);
+        let reply = drive(
+            &fixture.models,
+            &remote,
+            vec![said(
+                "Ada Lovelace works at /home/ada/x, mail dev@example.net",
+            )],
+        )
+        .await;
+        let seen = format!("{reply:?}");
+        assert!(seen.contains("PERSON_1"), "the name became a token: {seen}");
+        assert!(seen.contains("EMAIL_1"), "the email became a token: {seen}");
+        assert!(!seen.contains("Ada Lovelace"), "the name leaked: {seen}");
+        assert!(
+            seen.contains("/home/ada/x"),
+            "a path the model must read passes: {seen}"
+        );
+        assert!(
+            !seen.contains("dev@example.net"),
+            "the email leaked: {seen}"
+        );
+
+        let local = fixture.faux_a.get_model();
+        echo(&fixture.faux_a);
+        let reply = drive(
+            &fixture.models,
+            &local,
+            vec![said("Ada Lovelace works at /home/ada/x")],
+        )
+        .await;
+        let seen = format!("{reply:?}");
+        assert!(
+            seen.contains("Ada Lovelace"),
+            "loopback sees raw text: {seen}"
+        );
+        assert!(
+            seen.contains("/home/ada/x"),
+            "loopback sees raw paths: {seen}"
+        );
     }
 
     #[tokio::test]

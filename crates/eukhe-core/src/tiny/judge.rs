@@ -152,7 +152,7 @@ pub enum JudgeClassifierError {
     Provider { provider: String, message: String },
 }
 
-/// The classifier model of the `judge` role (docs/inference.md S9) for a
+/// The classifier model of the `judge` role for a
 /// classification that names no model: the first candidate of the role's
 /// chain that is an available classifier model of `models` (`pick` in
 /// bend/tiny.bend; later candidates are not checked). A local candidate is

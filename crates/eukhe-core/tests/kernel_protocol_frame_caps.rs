@@ -10,7 +10,7 @@
     clippy::cast_precision_loss
 )]
 
-//! Verifier integration test of the bounded protocol (docs/runtime.md S3):
+//! Verifier integration test of the bounded protocol:
 //! an oversized host request gets an error reply and the session keeps
 //! working; a host request of a type the host does not serve gets an
 //! error reply without reaching a handler; an oversized line with no

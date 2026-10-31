@@ -7,7 +7,7 @@ import ../bend/wire.bend as Wr
 
 # (S2) A tool call journals its start and its settle
 # --------------------------------------------------
-# docs/runtime.md S2, call 1-3. The Harness opens the stepper
+# Call 1-3. The Harness opens the stepper
 # bend/ffi_tool_call.bend where it journals a call's start (a first
 # attempt) or clears it (a rerun), sends it every report the tool makes
 # (output, a diagnostic, usage, details, a read of its output, a nested

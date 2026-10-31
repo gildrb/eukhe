@@ -1,5 +1,4 @@
-# retry_note: the note at the end of a retry's request (docs/harness.md
-# H4.7, H4.8; the Rust host is
+# retry_note: the note at the end of a retry's request (the Rust host is
 # crates/eukhe-durable/src/harness/generation/note.rs). After a noted reply
 # the retry must not send the same request again: its request ends with a
 # note that names the retry's attempt and what went wrong, and tells the

@@ -1,5 +1,5 @@
 //! The compactor's decisions (`bend/compactor.bend`, entry
-//! `bend/ffi_compactor.bend`; `laws/compactor.bend`, docs/harness.md H1):
+//! `bend/ffi_compactor.bend`; `laws/compactor.bend`, spec/README.md M2):
 //! how a line of the chat memory ends, one model reply at a time, and the
 //! failure cap of a node not built yet. The caller keeps the texts and
 //! sends their lengths in UTF-8 bytes; each function encodes them, calls

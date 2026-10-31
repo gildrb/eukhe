@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S6.5) The repetition guard, one chunk at a time
 # ------------------------------------------------
-# docs/inference.md S6.5, the model `guard` in bend/infer.bend section 4;
+# The model `guard` in bend/infer.bend section 4;
 # a stream's lines go to a stepper of the compiled core
 # (bend/ffi_infer_guard.bend) one id per line. Every input is free: any
 # window, any chunks read before, any chunk.

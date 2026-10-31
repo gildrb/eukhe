@@ -1,6 +1,6 @@
 # admission: the pure model of one provider's admission controller
 # (crates/eukhe-core/src/admission.rs, `ControllerState`), rule H3 of
-# docs/harness.md.
+# LAWS.bend.
 #
 # - The state is the limit, the queue limit, and one entry per ticket, in
 #   ticket order: its class and its status. Ticket k is entry k.

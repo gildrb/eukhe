@@ -1,4 +1,4 @@
-# fsmode: who reaches eukhe's own state (docs/runtime.md "Local access").
+# fsmode: who reaches eukhe's own state ("Local access").
 # Four small decisions, each as one function, run as this code (entry
 # bend/ffi_fsmode.bend):
 #

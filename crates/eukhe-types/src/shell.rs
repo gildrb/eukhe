@@ -1,4 +1,4 @@
-//! The shell's approval vocabulary (docs/tools.md, S7): the effects of one
+//! The shell's approval vocabulary (S7): the effects of one
 //! step of a `bash` script (a set), the auto set, the question the host
 //! asks the attached client about a step that is not within the auto set,
 //! the client's answer, and how the question ended.
@@ -8,9 +8,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::path_policy::PathClass;
 
 /// One effect a step may have. A command the classification table does
-/// not know is [`ShellEffect::Exec`]. A step with [`ShellEffect::Secret`]
-/// always asks, whatever the auto set holds (the gate,
-/// `eukhe_bend::rules::shell`, runs bend/tools.bend `within`).
+/// not know is [`ShellEffect::Exec`]. Every effect may sit in an
+/// [`AutoSet`]; the user's `shell.autoEffects` decides (a secret access
+/// gates like any other; the gate, `eukhe_bend::rules::shell`, runs
+/// bend/tools.bend `within`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellEffect {
@@ -163,9 +164,9 @@ impl<'de> Deserialize<'de> for ShellEffects {
     }
 }
 
-/// The effects the user lets run without asking (`shell.autoEffects`).
-/// The gate (`eukhe_bend::rules::shell`) decides with it: an effect no
-/// auto set may hold (secret) asks even when the set holds it.
+/// The effects the user lets run without asking (`shell.autoEffects`);
+/// every effect may sit in it. The gate (`eukhe_bend::rules::shell`)
+/// decides with it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AutoSet(ShellEffects);
 
@@ -211,7 +212,7 @@ pub enum ShellVerdict {
 }
 
 /// How one [`ShellApprovalRequest`] ended: the answer of the session's
-/// approval sink (docs/tools.md G5).
+/// approval sink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellAnswer {
@@ -223,8 +224,8 @@ pub enum ShellAnswer {
     /// No session up the chain had a client that answered: a denial.
     Unanswered,
     /// The session runs only from the phone gateway, and the step writes a
-    /// protected path ([`ShellEffect::Protected`]) or reads or writes a
-    /// secret ([`ShellEffect::Secret`]): refused at once.
+    /// protected path ([`ShellEffect::Protected`]) that the narrowed auto
+    /// set does not run: refused at once.
     GatewayRefused,
 }
 

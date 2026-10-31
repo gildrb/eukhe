@@ -5,7 +5,7 @@
 //! of the terminal UI and the HTML export. Every decision on what was read
 //! (validation, completion, the name a theme resolves to, the colors) runs
 //! in the compiled Bend core (`bend/theme/`, `bend/color.bend`;
-//! `laws/theme.bend`, docs/interface.md, Themes), passed in as
+//! `laws/theme.bend`, Themes), passed in as
 //! [`ThemeRules`].
 
 mod color;

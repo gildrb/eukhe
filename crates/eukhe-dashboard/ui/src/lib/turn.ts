@@ -736,7 +736,7 @@ export function modelName(model: ModelRef | string | null | undefined): string {
   return model.name || model.id || "";
 }
 
-/** The last path segment (`/home/gil/eukhe` → `eukhe`). */
+/** The last path segment (`/home/dev/eukhe` → `eukhe`). */
 export function basename(path: string | null | undefined): string {
   if (!path) return "";
   const parts = path.split("/").filter(Boolean);

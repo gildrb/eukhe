@@ -33,7 +33,11 @@ def pa.default_auto(+c: Nat) -> {Tl.elem(Am.default_auto(), c) == Tl.grantable(c
                         case 0n:
                           {==}
                         case 1n+g:
-                          {==}
+                          match g:
+                            case 0n:
+                              {==}
+                            case 1n+h:
+                              {==}
 
 # (G5) The default auto set; the never-auto effects
 

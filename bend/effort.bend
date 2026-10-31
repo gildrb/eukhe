@@ -1,5 +1,4 @@
-# effort: the model of the reasoning depth (thinking level) of a session
-# (docs/inference.md, S10).
+# effort: the model of the reasoning depth (thinking level) of a session.
 #
 # 1. The ladder. The levels in order: off, minimal, low, medium, high,
 #    xhigh, max. A model offers a sublist of the ladder. A model without

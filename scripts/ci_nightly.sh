@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The nightly gate and release of eukhe (docs/develop.md). A systemd user
+# The nightly gate and release of eukhe. A systemd user
 # timer runs it once a night.
 #
 #   scripts/ci_nightly.sh run     the full gate (`make ci-local`) on
@@ -76,7 +76,10 @@ case "${mode}" in
       } | tee -a "${summary}"
       exit 1
     fi
-    gh workflow run eukhe-release.yml --ref main -f sha="${sha}"
+    # gh resolves the repo from the git remotes and prefers an `upstream`
+    # remote over `origin`, so name the origin repo explicitly.
+    repo="$(git remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+    gh workflow run eukhe-release.yml --repo "${repo}" --ref main -f sha="${sha}"
     echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started" | tee -a "${summary}"
     ;;
   *)

@@ -1,5 +1,5 @@
 //! The bounder of a tool's output (`bend/bound.bend`, entry
-//! `bend/ffi_bound.bend`; `laws/bound.bend`, docs/runtime.md S2): which
+//! `bend/ffi_bound.bend`; `laws/bound.bend`): which
 //! bytes of an output a cap keeps (whole lines from the start or the end,
 //! else the first line cut at a character boundary), what it counts as
 //! dropped, what a streaming output stores, and the truncation notice.

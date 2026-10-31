@@ -833,7 +833,7 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
     harness.close(cx()).await.expect("close");
 }
 
-/// An empty reply is no answer (docs/harness.md H4.7): the harness retries
+/// An empty reply is no answer (LAWS.bend H4.7): the harness retries
 /// it with a harness note while notes are left (`MAX_NOTES` of
 /// eukhe-durable's `generation::decide`, 8: the first request and 8 noted
 /// retries) and then fails the run with the model error, which fails the

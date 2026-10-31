@@ -2,7 +2,7 @@
 //! Every transition the scheduler writes, the resume of a stored state, the
 //! failFast join of a wait and every abort mark run as the compiled core
 //! (`eukhe_bend::rules::task_life`; `bend/task_life.bend`,
-//! `laws/task_life.bend`; `docs/state.md` section S2).
+//! `laws/task_life.bend`; spec/README.md D3).
 //!
 //! The core never reads a payload: a state goes out with handle
 //! [`CURRENT`] for the record's own checkpoint or outcome, a transition

@@ -1,5 +1,5 @@
 # job: the model of one job, one blocking call on it, and the job table
-# at a rewind (docs/runtime.md, S2). A tool call's journal is
+# at a rewind. A tool call's journal is
 # bend/tool_call.bend.
 #
 # A job is anything that runs long: a shell, a cell, a subagent, a call

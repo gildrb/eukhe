@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The CI gates of eukhe (docs/develop.md). They run only here: GitHub runs
+# The CI gates of eukhe. They run only here: GitHub runs
 # no gate. prek runs fast and pre-push as git hooks
 # (.pre-commit-config.yaml; `make hooks` installs them); the nightly run
 # (scripts/ci_nightly.sh) runs full and releases only when it passes.

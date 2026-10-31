@@ -7,8 +7,9 @@
 #   ASCII letters, digits, `-` or `_` (empty allowed); else a prompt.
 # - The name is read lowercased (ASCII). A session command name (the list
 #   Rust sends) is a prompt: the session runs it.
-# - A command name with exactly its arguments (`/use` one, the others
-#   none) is that command; with other arguments, its usage line.
+# - A command name with exactly its arguments (`/use` one, `/model` and
+#   `/reasoning` none or one, the others none) is that command; with other
+#   arguments, its usage line.
 # - Another name alone answers suggestions: a lone `/` the command list,
 #   the commands the name starts, else the closest command, else the
 #   command list; another name with more words is a prompt.
@@ -29,6 +30,10 @@ type Cmd is Data:
   CStop{}
   CStatus{}
   CMemory{}
+  # `/model` lists the models; `/model N` switches, with N as written
+  CModel{arg: Maybe<&2, String>}
+  # `/reasoning` shows the thinking level; `/reasoning L` sets it
+  CReasoning{arg: Maybe<&2, String>}
 
 # What one text message means
 type Out is Data:
@@ -43,7 +48,7 @@ type Spec is Data:
 
 # The commands, in PhoneCommand order
 def specs() -> List<&2, Spec>:
-  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}]
+  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [N]", "Show the models; N switches to one."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}]
 
 # Text
 # ----
@@ -150,6 +155,33 @@ def one(args: List<&2, String>) -> Maybe<&2, Cmd>:
         case b <> more:
           None{}
 
+# the argument of args when they are none or one: Some{None} for none,
+# Some{Some{a}} for one, None for more
+def upto(args: List<&2, String>) -> Maybe<&2, Maybe<&2, String>>:
+  match args:
+    case Nil{}:
+      Some{None{}}
+    case a <> rest:
+      match rest:
+        case Nil{}:
+          Some{Some{a}}
+        case b <> more:
+          None{}
+
+def model(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
+  match m:
+    case None{}:
+      None{}
+    case Some{a}:
+      Some{CModel{a}}
+
+def reasoning(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
+  match m:
+    case None{}:
+      None{}
+    case Some{a}:
+      Some{CReasoning{a}}
+
 # the command at index i of specs() given args, when they are its own
 def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
   match i:
@@ -169,7 +201,11 @@ def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
       none(args, CStatus{})
     case 7n:
       none(args, CMemory{})
-    case 8n+u:
+    case 8n:
+      model(upto(args))
+    case 9n:
+      reasoning(upto(args))
+    case 10n+u:
       None{}
 
 def find.at(b: Bool, i: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:

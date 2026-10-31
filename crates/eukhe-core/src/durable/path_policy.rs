@@ -1,4 +1,4 @@
-//! The path policy of a session (docs/tools.md S7, `laws/path_policy.bend` (G1)) and
+//! The path policy of a session (`laws/path_policy.bend` (G1)) and
 //! the gate the document tools pass every path access through.
 //!
 //! [`session_policy`] builds the one [`PathPolicy`] the `bash` tool and
@@ -20,10 +20,10 @@
 //! The secret set holds `auth.json`, the Prime CLI config and the
 //! credential stores other programs keep in the home dir.
 //!
-//! [`DocumentsGate`] is the gate of one document tool call: a read or
-//! write of a secret, and every access the user's auto set
-//! (`shell.autoEffects`) does not allow, ask the user through the
-//! session's approval sink, as a `bash` step does.
+//! [`DocumentsGate`] is the gate of one document tool call: every access
+//! the user's auto set (`shell.autoEffects`) does not allow asks the user
+//! through the session's approval sink, as a `bash` step does (a secret
+//! access gates like any other).
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
@@ -122,7 +122,15 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .filter(|value| !value.is_empty())
             .map(|value| workspace.join(value)),
     );
-    PathPolicy::new(vec![workspace.to_path_buf()], protected, secret)
+    // The OS temp dir is scratch: every session writes its probe
+    // scripts and files there, and a write outside the workspace would
+    // ask for each. Its writes run without asking.
+    let mut roots = vec![workspace.to_path_buf()];
+    let temp = std::env::temp_dir();
+    if temp != workspace {
+        roots.push(temp);
+    }
+    PathPolicy::new(roots, protected, secret)
 }
 
 /// The path policy of a call of a session (its agent dir and settings)

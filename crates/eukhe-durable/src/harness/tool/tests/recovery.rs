@@ -208,7 +208,7 @@ fn blocking_tool(name: &str) -> Blocking {
     }
 }
 
-/// A crash loses a running call's live progress (docs/runtime.md S2): the
+/// A crash loses a running call's live progress: the
 /// interrupted answer carries what is durable, its start, and no partial
 /// output or details.
 #[tokio::test]

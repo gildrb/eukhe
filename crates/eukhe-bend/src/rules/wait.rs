@@ -1,4 +1,4 @@
-//! A wait with every exit (docs/harness.md H6): the model
+//! A wait with every exit (spec/README.md D4): the model
 //! `bend/wait.bend`, stepper entry `bend/ffi_wait_race.bend`.
 //!
 //! The wait lives in the compiled core. Its race opens it with its

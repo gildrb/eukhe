@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S6.6) Early compaction, one request at a time
 # ----------------------------------------------
-# docs/inference.md S6.6, the model `first_at` in bend/infer.bend section
+# The model `first_at` in bend/infer.bend section
 # 5; the harness asks the compiled core (bend/ffi_infer_threshold.bend)
 # which threshold each request's context is over. Every input is free:
 # compaction on or off, any token count, window, reserve and margin.

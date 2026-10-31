@@ -1,4 +1,4 @@
-//! In-process bash for the `bash` tool (docs/tools.md, S7).
+//! In-process bash for the `bash` tool.
 //!
 //! A script is a list of steps: simple commands, joined by `;`, newlines,
 //! `&&`, `||` and `|`. [`Shell::run`] expands each step (variables, `~`,

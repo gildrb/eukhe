@@ -1,4 +1,4 @@
-//! The run's decisions (docs/harness.md H4), one per phase transition:
+//! The run's decisions (LAWS.bend H4), one per phase transition:
 //! what preparation does before its request ([`before_request`]), whether
 //! it goes on after the compaction it waited for ([`after_compaction`]),
 //! what a recovery does with a stuck reply ([`recover`], H4.8), what

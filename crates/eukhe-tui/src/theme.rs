@@ -9,7 +9,7 @@
 //! This module is the only place that makes a [`Color`]: its value is
 //! private, so the compiler refuses a color literal in any other module.
 //! Every color a frame paints is a theme token or a value computed here
-//! from the tokens (docs/interface.md, T3).
+//! from the tokens.
 
 use crate::style::{Modifier, Style};
 use eukhe_bend::rules::tui_color;

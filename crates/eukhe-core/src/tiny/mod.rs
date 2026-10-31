@@ -1,4 +1,4 @@
-//! The S9 roles (docs/inference.md S9): each role's settings from its cvars
+//! The S9 roles: each role's settings from its cvars
 //! (`modelRoles.<role>`, `retry.fallbackChains.<role>`, `providers.tiny*`),
 //! the resolution of a role to one model of its chain, and the run of a
 //! text role's request on the picked model: a local catalog model through

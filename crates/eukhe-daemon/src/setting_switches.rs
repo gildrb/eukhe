@@ -3,8 +3,7 @@
 //! `set_scoped_models`, `cycle_thinking_level`, `set_service_tier`,
 //! `set_transport`, `set_steering_mode`, `set_follow_up_mode`,
 //! `set_auto_compaction`, `set_auto_retry`, `abort_retry` (TS daemon-mode
-//! cases) — and the cvar commands (`cvar`, `cvar_save`, docs/control.md
-//! S4). The wire contracts are TS-verbatim. Model and thinking switches
+//! cases) — and the cvar commands (`cvar`, `cvar_save`). The wire contracts are TS-verbatim. Model and thinking switches
 //! configure the main conversation (`model_switch`); every other switch is
 //! a set of a Local cvar in this session's own layer (the same path as
 //! `cvar`, committed with the main conversation), never a settings.json
@@ -36,7 +35,7 @@ const QUEUE_MODES: &[&str] = &["all", "one-at-a-time"];
 
 /// TS `supportsServiceTier` over the shown model's wire metadata
 /// (provider, api, id, name) against the quirks rulebook's service tiers
-/// (docs/inference.md S6.8). A session without a resolved catalog model
+/// A session without a resolved catalog model
 /// supports only the `default` tier, exactly like the TS `model == null`
 /// arm.
 pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTier) -> bool {
@@ -297,7 +296,7 @@ impl Worker {
     /// `cycle_thinking_level { direction? }` (TS
     /// `session.cycleThinkingLevel`): one step through the levels the
     /// model offers, forward unless `direction` is `backward`, wrapping at
-    /// the ends (`cycle_thinking_level`, docs/inference.md S10). A ladder
+    /// the ends (`cycle_thinking_level`). A ladder
     /// of fewer than two levels (no model, no reasoning, an `off`-only
     /// map) answers success with `null` data: nothing changes. Else the
     /// step applies through the `set_thinking_level` flow.

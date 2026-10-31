@@ -1,4 +1,4 @@
-//! The cfg files of the settings (docs/control.md S4): command scripts in
+//! The cfg files of the settings: command scripts in
 //! the cvar language (`eukhe_types::cvar`) beside `settings.json`.
 //!
 //! - `config.cfg` (global `<agentDir>/config.cfg`, then the project's
@@ -10,6 +10,10 @@
 //!   ([`SettingsManager::read_profile`](super::SettingsManager::read_profile)).
 
 use std::fmt::Write as _;
+use std::fs;
+use std::path::Path;
+
+use super::CONFIG_DIR_NAME;
 
 use eukhe_types::cvar::{parse_script, render_list, Aliases, Binds, Command};
 use serde_json::Value;
@@ -166,49 +170,51 @@ pub(super) fn config_layer(
         document,
         global_cfg: cvars.config().0.len(),
     };
-    if let Some(text) = read(SettingsScope::Project, &mut errors) {
-        let mut scratch = cvars.clone();
-        let mut project_aliases = aliases.clone();
-        errors.extend(run_script(
-            &mut scratch,
-            Target::Config,
-            &text,
-            &mut project_aliases,
-            SettingsScope::Project,
-            CONFIG_CFG,
-        ));
-        let mut config = cvars.config().clone();
-        for set in &scratch.config().0[config.0.len()..] {
-            match project_set(set, trust) {
-                ProjectSet::Applies => config.0.push(set.clone()),
-                ProjectSet::Global => errors.push(SettingsError {
-                    scope: SettingsScope::Project,
-                    message: format!(
+    if !project_cfg_is_global_cfg(storage) {
+        if let Some(text) = read(SettingsScope::Project, &mut errors) {
+            let mut scratch = cvars.clone();
+            let mut project_aliases = aliases.clone();
+            errors.extend(run_script(
+                &mut scratch,
+                Target::Config,
+                &text,
+                &mut project_aliases,
+                SettingsScope::Project,
+                CONFIG_CFG,
+            ));
+            let mut config = cvars.config().clone();
+            for set in &scratch.config().0[config.0.len()..] {
+                match project_set(set, trust) {
+                    ProjectSet::Applies => config.0.push(set.clone()),
+                    ProjectSet::Global => errors.push(SettingsError {
+                        scope: SettingsScope::Project,
+                        message: format!(
                         "{CONFIG_CFG}: `{}` is a Global cvar: only the global {CONFIG_CFG} sets it",
                         set.id
                     ),
-                }),
-                ProjectSet::Withheld(key) => {
-                    if !withheld.contains(&key) {
-                        withheld.push(key);
+                    }),
+                    ProjectSet::Withheld(key) => {
+                        if !withheld.contains(&key) {
+                            withheld.push(key);
+                        }
                     }
+                    ProjectSet::Unfit => errors.push(SettingsError {
+                        scope: SettingsScope::Project,
+                        message: format!(
+                            "{CONFIG_CFG}: `{} {}` is not a value settings.json holds",
+                            set.id,
+                            value_text(&set.value)
+                        ),
+                    }),
                 }
-                ProjectSet::Unfit => errors.push(SettingsError {
-                    scope: SettingsScope::Project,
-                    message: format!(
-                        "{CONFIG_CFG}: `{} {}` is not a value settings.json holds",
-                        set.id,
-                        value_text(&set.value)
-                    ),
-                }),
             }
-        }
-        cvars = Cvars::new(registry, config);
-        match trust {
-            TrustLevel::Trusted => aliases = project_aliases,
-            TrustLevel::Untrusted => {
-                if project_aliases != aliases {
-                    withheld.push(format!("{CONFIG_CFG} aliases"));
+            cvars = Cvars::new(registry, config);
+            match trust {
+                TrustLevel::Trusted => aliases = project_aliases,
+                TrustLevel::Untrusted => {
+                    if project_aliases != aliases {
+                        withheld.push(format!("{CONFIG_CFG} aliases"));
+                    }
                 }
             }
         }
@@ -219,6 +225,36 @@ pub(super) fn config_layer(
         errors,
         withheld,
         bounds,
+    }
+}
+
+/// Whether the project `config.cfg` of `storage` is the global one: the
+/// session's directory holds the agent dir (`eukhe` run from the home
+/// directory), and both names resolve to one file. The global file's
+/// sets already applied; they must not apply twice, as project sets.
+fn project_cfg_is_global_cfg(storage: &dyn SettingsStorage) -> bool {
+    let Some(project) = storage
+        .project_dir()
+        .map(|dir| dir.join(CONFIG_DIR_NAME).join(CONFIG_CFG))
+    else {
+        return false;
+    };
+    let Some(global) = storage
+        .global_location()
+        .and_then(|location| location.parent().map(|dir| dir.join(CONFIG_CFG)))
+    else {
+        return false;
+    };
+    same_cfg_file(&project, &global)
+}
+
+/// Whether two paths name one file: their canonical paths when both
+/// resolve, their raw paths otherwise (an absent file has no canonical
+/// form; then the names decide).
+fn same_cfg_file(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
     }
 }
 

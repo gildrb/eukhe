@@ -56,7 +56,7 @@ def cands(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   cands.with(s, room, cand.view(OState.St.view(s), OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), 0n, room))
 
 # the nodes to start while a turn waits for the view: the view's unbuilt
-# lines only, oldest first; the ready merges wait (docs/harness.md H2.1)
+# lines only, oldest first; the ready merges wait (LAWS.bend H2.1)
 def cands.need(+cfg: OState.Cfg, +s: OState.St) -> List<&2, ONode.Node>:
   cand.view(OState.St.view(s), OState.St.info(s), OState.St.busy(s), OState.Cfg.jobs(cfg), 0n, Nat.sub(OState.Cfg.jobs(cfg), List.length(&2, ONode.Node, OState.St.busy(s))))
 
@@ -69,7 +69,7 @@ def busy.need(+info: OInfo.Info, +v: List<&2, ONode.Node>, bs: List<&2, ONode.No
       ONode.Nodes.keep(Bool.and(ONode.Nodes.has(v, b), Bool.not(OInfo.Info.built(info, b))), b, busy.need(info, v, rest))
 
 # a turn starts to wait: every call of a node it does not need stops, and
-# the node goes back to the queue (docs/harness.md H2.1)
+# the node goes back to the queue (LAWS.bend H2.1)
 def St.wait(s: OState.St) -> OState.St:
   match s:
     case OState.St{t, +info, +view, shrink, cview, ready, busy}:

@@ -184,7 +184,7 @@ fn ctrl_o() -> KeyEvent {
 /// The session opens into its transcript at once; the chat view lands
 /// later as one collapsed summary row (never the `<chat>` text). The row
 /// is committed to scrollback, so Ctrl+O -- cycled to the expanded level
-/// -- does not write it again (docs/interface.md S8: committed rows are
+/// -- does not write it again (committed rows are
 /// written once; a detail level applies to the live area and to the rows
 /// committed after it).
 #[test]

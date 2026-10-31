@@ -522,6 +522,17 @@ impl SessionUi {
                 self.clear_ctrl_c_hint();
                 return Ok(());
             }
+            // A filled chatbox clears first (omp's handleCtrlC): the exit
+            // and the interrupt live on an empty editor, so a buggy paste
+            // is always one Ctrl+C from gone. A running turn still
+            // interrupts on the same press.
+            if !view.editor.get_text().is_empty() {
+                view.editor.set_text("");
+                self.interrupt_running_work(view);
+                self.show_ctrl_c_hint();
+                self.dirty = true;
+                return Ok(());
+            }
             // TS `handleCtrlC`: the first press interrupts (aborting an
             // active turn, showing the exit hint); a second press inside
             // the hint window shuts down unconditionally -- no turn wait,
@@ -909,8 +920,21 @@ impl SessionUi {
                             .await?;
                     } else {
                         view.editor.add_to_history(&text);
+                        // Enter with messages parked behind a running turn
+                        // sends them now: the submit joins the batch, then
+                        // the abort interrupts the stream and the turn
+                        // boundary delivers every parked steer at once
+                        // (`abort_and_send_queued`; the worker does the
+                        // real work, so an interrupted main stream costs
+                        // nothing). An empty Enter stays a no-op: it never
+                        // flushes, never aborts.
+                        let flush =
+                            !text.trim().is_empty() && self.turn_active && !view.queued.is_empty();
                         self.submit_prompt(&text, SubmitBehavior::Steer, view)
                             .await?;
+                        if flush {
+                            self.abort_turn();
+                        }
                     }
                 }
                 crate::editor::EditorEvent::ClipboardWrite(text) => {

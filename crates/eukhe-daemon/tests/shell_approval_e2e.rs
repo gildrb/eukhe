@@ -1,4 +1,4 @@
-//! The `bash` tool's approval path end to end (docs/tools.md S7.8, G5): a
+//! The `bash` tool's approval path end to end (G5): a
 //! real supervisor and worker, the scripted faux model calling `bash`, in
 //! a session whose user narrowed `shell.autoEffects` to `read` (by default
 //! a write and a run of a program run unasked). An attached client gets
@@ -297,7 +297,7 @@ fn with_no_client_attached_a_gated_step_is_refused_unanswered() {
             dir.path().join("approved.txt").exists(),
         ),
         (
-            "[stopped at step 0 (read+write): `echo one >approved.txt` and the steps after it did not run: it needs the user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is not secret; or use read-only steps.]\n"
+            "[stopped at step 0 (read+write): `echo one >approved.txt` and the steps after it did not run: it needs the user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is read, write, exec, net, outside, protected or secret; or use read-only steps.]\n"
                 .to_owned(),
             0,
             false,
@@ -344,7 +344,7 @@ fn a_phone_only_session_runs_steps_unasked_and_refuses_a_protected_write() {
             read("never.txt"),
         ),
         (
-            "$ echo one >written.txt\n$ sh -c 'echo two > ran.txt'\n[stopped at step 2 (read+write+protected): `echo three >.eukhe/settings.json` and the steps after it did not run: the session runs only from the phone gateway, and from there a step that writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or reads or writes a secret never runs. Ask the user to run it from the eukhe TUI or the dashboard.]\n"
+            "$ echo one >written.txt\n$ sh -c 'echo two > ran.txt'\n[stopped at step 2 (read+write+protected): `echo three >.eukhe/settings.json` and the steps after it did not run: the session runs only from the phone gateway, and from there a step that writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) never runs when the user's auto set does not already run it. Ask the user to run it from the eukhe TUI or the dashboard.]\n"
                 .to_owned(),
             0,
             Some("one\n".to_owned()),

@@ -1,5 +1,5 @@
-# tool_call: the model of one tool call's journal (docs/runtime.md S2,
-# call 1-3). The Harness (crates/eukhe-durable/src/harness/tool.rs and
+# tool_call: the model of one tool call's journal (call 1-3). The Harness
+# (crates/eukhe-durable/src/harness/tool.rs and
 # tool/invocation.rs) runs it as the stepper bend/ffi_tool_call.bend: it
 # opens the call where it journals the call's start, sends every report the
 # tool makes and the end of its execute in the order they come (from any

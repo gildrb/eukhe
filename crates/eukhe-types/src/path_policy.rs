@@ -1,4 +1,4 @@
-//! The path policy (docs/tools.md S7, `laws/path_policy.bend` (G1)): the data that
+//! The path policy (`laws/path_policy.bend` (G1)): the data that
 //! judges a path an agent tool reads or writes. The document tools and
 //! the shell use this one policy, so the two cannot judge a path
 //! differently; the judgment itself is `eukhe_shell::paths::judge`
@@ -14,7 +14,8 @@
 //! The classes, strongest first:
 //!
 //! - [`PathClass::Secret`]: under a secret entry (an ssh key dir, a
-//!   credential store). A read asks the user; a write asks the user.
+//!   credential store). A read or a write gates like any access: the
+//!   user's auto set decides.
 //! - [`PathClass::Protected`]: eukhe's own config and credentials (a
 //!   [`PathRule`] covers it), or an ancestor of a protected or secret entry
 //!   (a write there can move or remove the entry). A write asks the user.
@@ -233,6 +234,18 @@ impl PathPolicy {
     #[must_use]
     pub fn secret(&self) -> &[PathBuf] {
         &self.secret
+    }
+    /// Whether `resolved` is a strict ancestor of a secret (a secret
+    /// below it, none at it): only a read that descends into it (a
+    /// search) reads that secret, so a shallow listing does not. The
+    /// wider `holds_secret` of the same path (the Bend model's `judge`)
+    /// is this plus the secret itself and everything inside it.
+    #[must_use]
+    pub fn ancestor_of_secret_of_resolved(&self, resolved: &RealPath) -> bool {
+        let real = resolved.path();
+        self.secret
+            .iter()
+            .any(|entry| entry != real && entry.starts_with(real))
     }
 }
 

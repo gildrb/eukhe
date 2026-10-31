@@ -10,7 +10,7 @@ import ./base.bend as LawsBase
 
 # (D1) Supervisor
 # ---------------
-# docs/daemon.md D1: the supervisor, its workers, a lost supervisor, a
+# The supervisor, its workers, a lost supervisor, a its workers, a lost supervisor, a
 # daemon replacement, the attaches after a restart. The models are
 # bend/supervise.bend (the restart budget and the timeouts),
 # bend/revive.bend (busy evidence and the revival veto), bend/orphan.bend

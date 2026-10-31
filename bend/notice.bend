@@ -1,4 +1,4 @@
-# notice: the kernel restore notices a TUI view shows (docs/daemon.md D1).
+# notice: the kernel restore notices a TUI view shows.
 # The rule below runs compiled (bend/ffi_notice.bend, a stepper) under
 # crates/eukhe-tui/src/restore_notices.rs (`RestoreNotices`): Rust sends
 # each message it asks about and each batch of messages it shows; this

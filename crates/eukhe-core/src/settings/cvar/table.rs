@@ -1,4 +1,4 @@
-//! The declaration of every cvar (docs/control.md S4): each setting of
+//! The declaration of every cvar : each setting of
 //! `settings.json` once, by the dotted path of its key.
 //!
 //! Global: one value for the whole family, read from the global config
@@ -805,6 +805,27 @@ pub const TERMINAL_SHOW_SPEED: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// Scrub outbound request text for a remote provider (harness/privacy).
+pub const PRIVACY_ANONYMIZE_REMOTE: Decl = Decl {
+    id: "privacy.anonymizeRemote",
+    ty: CvarType::Bool,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::Bool(true),
+};
+
+/// Phrases a remote provider must not see (`PERSON_<n>` tokens;
+/// harness/privacy).
+pub const PRIVACY_TERMS: Decl = Decl {
+    id: "privacy.terms",
+    ty: CvarType::List,
+    scope: CvarScope::Global,
+    persist: true,
+    replicate: true,
+    init: Init::EmptyList,
+};
+
 pub const TERMINAL_FULLSCREEN: Decl = Decl {
     id: "terminal.fullscreen",
     ty: CvarType::Bool,
@@ -1097,10 +1118,18 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
     init: Init::Null,
 };
 
-pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net", "outside", "protected"];
+pub(crate) const SHELL_EFFECTS: &[&str] = &[
+    "read",
+    "write",
+    "exec",
+    "net",
+    "outside",
+    "protected",
+    "secret",
+];
 
 /// The effects a shell command may have without asking; by default every
-/// grantable effect (docs/tools.md S7 item 8, law `default_auto_is_grantable`):
+/// grantable effect (law `default_auto_is_grantable`):
 /// only a read or write of a secret asks, and no value can make it run
 /// unasked. An execution gate: an untrusted project may not set it and an
 /// agent never saves it.
@@ -1113,7 +1142,7 @@ pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     init: Init::List(SHELL_EFFECTS),
 };
 
-/// The hosts an `ssh://` read may reach (docs/tools.md S7.5): new
+/// The hosts an `ssh://` read may reach : new
 /// outbound traffic, so a project may not set it and an agent never
 /// saves it. Empty: every `ssh://` read is rejected.
 pub const SSH_HOSTS: Decl = Decl {
@@ -1303,6 +1332,8 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_CLEAR_ON_SHRINK,
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_SHOW_SPEED,
+    PRIVACY_ANONYMIZE_REMOTE,
+    PRIVACY_TERMS,
     TERMINAL_FULLSCREEN,
     TERMINAL_PINNED_AGENTS,
     TERMINAL_STUCK_AFTER_SECS,

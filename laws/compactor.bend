@@ -12,7 +12,7 @@ import ../bend/optchat/state.bend as OState
 
 # (H1) A compactor call always ends with a line that fits
 # -------------------------------------------------------
-# docs/harness.md H1, the model in bend/compactor.bend. A reply is free:
+# LAWS.bend H1, the model in bend/compactor.bend. A reply is free:
 # any text, empty, thinking only, an error, missing.
 
 # LAW line_calls_at_most_tries: a line makes at most `tries` model calls
@@ -81,7 +81,7 @@ law fail_cap_builds:
 
 # (H2) A turn never waits forever for the memory
 # ----------------------------------------------
-# docs/harness.md H2: the need-first queue of bend/optchat/queue.bend, the settle
+# LAWS.bend H2: the need-first queue of bend/optchat/queue.bend, the settle
 # of bend/compactor.bend.
 
 # LAW need_first: while a turn waits, every node the queue starts is a line of the

@@ -1,4 +1,4 @@
-//! docs/harness.md H4.4: a failed poll of a deferred job. The job can
+//! LAWS.bend H4.4: a failed poll of a deferred job. The job can
 //! still run, so a retryable failure polls the same job again and never
 //! sends a new request (law `deferred_pays_once`).
 

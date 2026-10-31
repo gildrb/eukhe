@@ -1,5 +1,4 @@
-//! The console-variable command language (docs/control.md S4,
-//! `bend/cvar.bend`): the lines of a `.cfg` file, the `/set` slash command
+//! The console-variable command language (`bend/cvar.bend`): the lines of a `.cfg` file, the `/set` slash command
 //! family, and the commands a key bind runs.
 //!
 //! A script is lines. A line that starts with `#` or `//` is a comment.

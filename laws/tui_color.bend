@@ -18,7 +18,7 @@ import ./base.bend as LawsBase
 
 # (T3) Terminal colors
 # --------------------
-# docs/interface.md "Terminal colors", the model in bend/tui_color.bend:
+# The model in bend/tui_color.bend:
 # the effort ramp, the usage bands and the color roles of
 # crates/eukhe-tui. Every input is free: any ramp ends and any ladder
 # length, any token count and any window. The terminal UI runs the model

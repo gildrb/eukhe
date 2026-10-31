@@ -1,5 +1,4 @@
-//! End-to-end: a subagent's gated step asks the user of its root session
-//! (docs/tools.md G5). A subagent session has no client of its own; its
+//! End-to-end: a subagent's gated step asks the user of its root session. A subagent session has no client of its own; its
 //! `bash` step that writes (outside the user's auto set, narrowed here to
 //! `read`) hands the question up to its root through the supervisor, the
 //! root's attached client gets the `shell_approval` frame naming the

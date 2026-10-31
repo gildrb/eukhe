@@ -9,7 +9,7 @@ import ./base.bend as LawsBase
 
 # (S1) The session tree
 # ---------------------
-# docs/state.md S1, the model in bend/tree.bend. One tree holds the
+# the model in bend/tree.bend. One tree holds the
 # state of a session; the journal is its list of records. Every record
 # is free: any put (valid or not), any delete, any rewind ops.
 
@@ -220,7 +220,7 @@ law tree_core_snap_keeps:
 
 # (S5) The Director stack
 # -----------------------
-# docs/control.md S5, the model in bend/director.bend. Every verdict is
+# the model in bend/director.bend. Every verdict is
 # free: each layer of each step says what the adversary picks.
 
 # LAW dir_encode_sound: the stack in the tree is a valid tree

@@ -16,7 +16,7 @@ import ./cron_store.bend as CronStore
 
 # (D2) Cron
 # ---------
-# docs/state.md D2. The cron jobs file `cron-jobs.json` (bend/cron.bend),
+# The cron jobs file `cron-jobs.json` (bend/cron.bend),
 # shared by any number of processes. Every input is free: any events of
 # any processes in any order (make a job, claim the due jobs, recover
 # claims, finish a run good, failed or skipped, unwind a pass, die), any

@@ -34,7 +34,7 @@ law notice_per_restore:
 #
 # LAWS: the kernel restore notices a TUI view shows
 # (crates/eukhe-tui/src/restore_notices.rs `RestoreNotices` keeps the
-# compiled stepper of bend/ffi_notice.bend; docs/daemon.md D1). A message
+# compiled stepper of bend/ffi_notice.bend). A message
 # is another role or a custom message (its kind and its stamp, as text);
 # the view asks whether a message of a session shows, and records the
 # messages of a session it shows. Every input is free: any session ids,

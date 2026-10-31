@@ -1,4 +1,4 @@
-//! The note at the end of a retry's request (docs/harness.md H4.7, H4.8,
+//! The note at the end of a retry's request (LAWS.bend H4.7, H4.8,
 //! laws `run_retry_sends_a_new_request`, `run_note_is_never_logged` and
 //! the `rec_*` laws).
 //!

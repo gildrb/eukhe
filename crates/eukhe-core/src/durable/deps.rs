@@ -154,7 +154,7 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
 /// Asks the user whether one gated step of a `bash` tool script may run
-/// (docs/tools.md S7, G5): the daemon worker asks its attached clients and
+/// (G5): the daemon worker asks its attached clients and
 /// waits for the first answer, or answers by the gateway rule when its
 /// only clients are the phone gateway, or hands the question to its
 /// parent session when no client is attached.
@@ -489,14 +489,13 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
-    /// The jobs of the session (docs/runtime.md S2).
+    /// The jobs of the session.
     pub jobs: super::jobs::JobTable,
     /// The session's live state tree, set when the session opens.
     pub(crate) state_tree: OnceLock<Weak<super::LiveStateTree>>,
     /// The closing gate of the session's background parent submissions.
     pub(crate) closing: SessionClosing,
-    /// The session's dynamic tools, reached through `dyn` (docs/tools.md
-    /// S7): a host tool that comes after the roster was fixed joins here.
+    /// The session's dynamic tools, reached through `dyn`: a host tool that comes after the roster was fixed joins here.
     pub tool_surface: super::tool_surface::ToolSurface,
     /// The auxiliary-model fallbacks this session has shown
     /// (`auxiliaryModel`; each cause shows once per session).
