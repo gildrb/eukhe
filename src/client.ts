@@ -259,7 +259,10 @@ function tap(row: number, col: number) {
   }
   const url = linkAt(row, col);
   step({ $: "EvClick", row, col });
-  if (url !== null) window.open(url, "_blank", "noopener");
+  if (url === null) return;
+  // eukhe.com's own pages open here, as terminals too; other sites in a new tab.
+  if (new URL(url, location.href).origin === location.origin) location.assign(url);
+  else window.open(url, "_blank", "noopener");
 }
 
 /** The cell under a pointer event. */
@@ -280,7 +283,13 @@ let booting: Promise<void> | null = null;
 
 async function start() {
   if (filesText === null) throw new Error("the editor starts before it listens");
-  files = await loadFiles(filesText);
+  // This page's file first: the editor opens on it, as the page's first screen shows.
+  const page = document.documentElement.dataset.page ?? "index.md";
+  const all = await loadFiles(filesText);
+  files = [
+    ...all.filter((file) => file.path === page),
+    ...all.filter((file) => file.path !== page),
+  ];
   const { rows, cols } = size();
   const bufs = cons(
     files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),

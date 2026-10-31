@@ -205,6 +205,11 @@ function firstScreen(files: readonly EditorFile[]): Screen {
 /** Loads the module named in its own `data-src` once the page has loaded. */
 const loader = `const src=document.currentScript.dataset.src;addEventListener("load",()=>{const s=document.createElement("script");s.type="module";s.src=src;document.body.append(s)})`;
 
+/** The editor's file of a page: index.md for the home page, about.md for /about. */
+function markdownFile(doc: Doc): string {
+  return doc.path === "/" ? "index.md" : `${doc.path.slice(1)}.md`;
+}
+
 /** Without the script: the page, not the terminal. */
 const noscript = `<style>html[data-vim]{overflow:auto}html[data-vim] main{position:static;width:auto;height:auto;overflow:visible;clip-path:none}html[data-vim] [data-deco]{display:inline}[data-term]{display:none}</style>`;
 
@@ -222,7 +227,11 @@ function Page({
   const url = `${origin}${doc.path}`;
   const markdownUrl = doc.path === "/" ? "/index.md" : `${doc.path}.md`;
   return (
-    <html lang="en" {...(screen === null ? {} : { "data-vim": "" })} {...stylex.props(styles.html)}>
+    <html
+      lang="en"
+      {...(screen === null ? {} : { "data-vim": "", "data-page": markdownFile(doc) })}
+      {...stylex.props(styles.html)}
+    >
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -336,20 +345,28 @@ export type SourceFile = { path: string; text: string; plain: boolean };
  * (for the Bend core) and highlights (for the screen).
  */
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
-  const editor = [{ path: "index.md", text: source, plain: false }, ...files].map((file) =>
-    editorFile(file.path, file.text, file.plain),
-  );
+  // The editor's files: the home page, the other pages, then the docs and the source.
+  const editor = [
+    { path: "index.md", text: source, plain: false },
+    ...docs.map((doc) => ({ path: `${doc.path.slice(1)}.md`, text: doc.markdown, plain: false })),
+    ...files,
+  ].map((file) => editorFile(file.path, file.text, file.plain));
+  // A page opens the editor on its own file: that file first (client.ts orders them the same way).
+  const first = (path: string) => {
+    const own = editor.filter((file) => file.path === path);
+    return firstScreen([...own, ...editor.filter((file) => file.path !== path)]);
+  };
   const html = (doc: Doc, screen: Screen | null) =>
     `<!doctype html>\n${renderToString(<Page css={css} doc={doc} script={script} screen={screen} />)}\n`;
   const pages = Object.fromEntries(
     docs.flatMap((doc) => [
-      [`${doc.path.slice(1)}.html`, html(doc, null)],
+      [`${doc.path.slice(1)}.html`, html(doc, first(`${doc.path.slice(1)}.md`))],
       [`${doc.path.slice(1)}.md`, doc.markdown],
     ]),
   );
   const urls = [home, ...docs].map((doc) => `  <url><loc>${origin}${doc.path}</loc></url>`);
   return {
-    "index.html": html(home, firstScreen(editor)),
+    "index.html": html(home, first("index.md")),
     "index.md": source,
     ...pages,
     "404.html": html(missing, null),
