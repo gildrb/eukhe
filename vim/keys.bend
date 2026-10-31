@@ -92,6 +92,21 @@ def Key.z(+s: T.St, +which: Nat) -> T.St:
   +top = Bool.pick(Nat, Nat.is_eq(which, 0n), Nat.sub(l, Nat.div(Nat.sub(h, 1n), 2n)), Bool.pick(Nat, Nat.is_eq(which, 1n), Nat.sub(l, Nat.min(so, l)), Nat.sub(Nat.add(l, Nat.min(so, Nat.sub(last, l))), Nat.sub(h, 1n))))
   C.Win.scroll(s, top, l)
 
+# zl zh: the view n columns right or left ('nowrap'); the cursor is dragged
+# to stay 'sidescrolloff' columns inside; a view never starts past the
+# cursor line's last character
+def Key.side(+s: T.St, +right: Bool, +n: Nat) -> T.St:
+  +ls = C.St.lines(s)
+  +w = S.St.win(s)
+  +l = C.St.line(s)
+  +c = C.St.col(s)
+  +lastc = M.Move.last_col(ls, l)
+  +width = C.St.w(s)
+  +so = V.View.so_in(width)
+  +left = Bool.pick(Nat, right, Nat.min(Nat.add(S.Win.left(w), n), lastc), Nat.sub(S.Win.left(w), n))
+  +c2 = Bool.pick(Nat, right, Nat.min(Nat.max(c, Nat.add(left, so)), lastc), Nat.min(c, Nat.sub(Nat.add(left, width), Nat.add(so, 1n))))
+  C.Win.settle(S.St.set_win(s, T.Win{S.Win.tgt(w), T.Pos{l, c2}, T.Col{c2}, S.Win.top(w), left}))
+
 def Key.back.to(+s: T.St, +fwd: Bool, ws: List<&2, T.Win>) -> T.St:
   match ws:
     case Nil{}:
@@ -262,7 +277,7 @@ def Key.normal.at(+s: T.St, k: Nat, +n: Nat, +n0: Nat) -> T.Step:
     case 51n:
       Key.ok(S.St.set_count(S.St.set_pend(s, T.PendG{}), n0))
     case 52n:
-      Key.ok(S.St.set_pend(s, T.PendZ{}))
+      Key.ok(S.St.set_count(S.St.set_pend(s, T.PendZ{}), n0))
     case 53n:
       Key.ok(S.St.set_pend(s, T.PendLead{}))
     case 54n:
@@ -306,10 +321,11 @@ def Key.g.at(+s: T.St, k: Nat, +n0: Nat) -> T.Step:
 def Key.g(+s: T.St, +key: String, +n0: Nat) -> T.Step:
   Key.g.at(s, E.Ex.find(["g", "x", "f", "j", "k", "0", "^", "$", "_"], key, 0n), n0)
 
-# z then key
-def Key.zkey(+s: T.St, +key: String) -> T.St:
-  +k = E.Ex.find(["z", ".", "t", "<CR>", "b", "-"], key, 0n)
-  Bool.pick(T.St, Nat.is_lt(k, 2n), Key.z(s, 0n), Bool.pick(T.St, Nat.is_lt(k, 4n), Key.z(s, 1n), Bool.pick(T.St, Nat.is_lt(k, 6n), Key.z(s, 2n), s)))
+# z then key (zz zt zb, z. z<CR> z-, zl zh with a count)
+def Key.zkey(+s: T.St, +key: String, +n0: Nat) -> T.St:
+  +k = E.Ex.find(["z", ".", "t", "<CR>", "b", "-", "l", "<Right>", "h", "<Left>"], key, 0n)
+  +n = Nat.max(n0, 1n)
+  Bool.pick(T.St, Nat.is_lt(k, 2n), Key.z(s, 0n), Bool.pick(T.St, Nat.is_lt(k, 4n), Key.z(s, 1n), Bool.pick(T.St, Nat.is_lt(k, 6n), Key.z(s, 2n), Bool.pick(T.St, Nat.is_lt(k, 8n), Key.side(s, True{}, n), Bool.pick(T.St, Nat.is_lt(k, 10n), Key.side(s, False{}, n), s)))))
 
 def Key.lead.at(+s: T.St, k: Nat) -> T.St:
   match k:
@@ -379,7 +395,7 @@ def Key.pend(+s: T.St, p: T.Pend, +key: String, +n0: Nat) -> T.Step:
     case T.PendG{}:
       Key.g(s, key, n0)
     case T.PendZ{}:
-      Key.ok(Key.zkey(s, key))
+      Key.ok(Key.zkey(s, key, n0))
     case T.PendLead{}:
       Key.ok(Key.lead(s, key))
     case T.PendLeadF{}:

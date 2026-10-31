@@ -123,15 +123,47 @@ def Fit.band(+top: Nat, +l: Nat, +h: Nat, +last: Nat, hl: L.LE(l, last)) -> Band
   +down = Bool.pick(Nat, down_c, mid, hi)
   Band.pick2(Nat.is_lt(lo, top), Nat.is_gt(hi, top), lo, hi, top, up, down, {==}, {==}, Band.pick(up_c, mid, lo, lo, hi, bmid, (hilo, L.Nat.le_refl(lo))), Band.pick(down_c, mid, hi, lo, hi, bmid, (L.Nat.le_refl(hi), hilo)))
 
-# View.fit_side keeps the cursor's column in the band
+# half a window of w columns is at least half of its columns less one
+def Fit.half_le(w: Nat) -> L.LE(Nat.div(Nat.sub(w, 1n), 2n), Nat.div(w, 2n)):
+  match w:
+    case 0n:
+      {==}
+    case 1n++n:
+      %Equal.sym(Nat, Nat.sub(n, 0n), n, L.Nat.sub_zero(n)) : L.LE(Nat.div(_, 2n), Nat.div(1n+n, 2n))
+      L.Nat.div2_mono(n)
+
+# w / 2 + (w - 1) / 2 is at most w - 1
+def Fit.half_w(w: Nat) -> L.LE(Nat.add(Nat.div(w, 2n), Nat.div(Nat.sub(w, 1n), 2n)), Nat.sub(w, 1n)):
+  match w:
+    case 0n:
+      {==}
+    case 1n++n:
+      %Equal.sym(Nat, Nat.sub(n, 0n), n, L.Nat.sub_zero(n)) : L.LE(Nat.add(Nat.div(1n+n, 2n), Nat.div(_, 2n)), _)
+      %L.Nat.add_comm(Nat.div(n, 2n), Nat.div(1n+n, 2n)) : L.LE(_, n)
+      L.Nat.div2_pair(n)
+
+# View.fit_side keeps the cursor's column in the band; a centered column
+# c - w / 2 lies in it too
 def Fit.side(+left: Nat, +c: Nat, +w: Nat, +last: Nat) -> Band(V.View.fit_side(left, c, w, last), Fin.lo(c, V.View.so_in(w)), Fin.hi(c, V.View.so_in(w), last, w)):
   +so = V.View.so_in(w)
   +half = Nat.div(Nat.sub(w, 1n), 2n)
+  +hw = Nat.div(w, 2n)
   +lo = Fin.lo(c, so)
   +hi = Fin.hi(c, so, last, w)
+  +mid = Nat.sub(c, hw)
+  +a = Nat.min(so, Nat.sub(last, c))
+  +b = Nat.min(so, c)
   +h2 = L.Nat.le_trans(Nat.add(half, so), Nat.add(half, half), Nat.sub(w, 1n), L.Nat.le_add_mono(half, so, half, Fit.so_half(w)), L.Nat.div2_twice(Nat.sub(w, 1n)))
   +hilo = Fit.hilo(c, w, last, so, so, half, Fit.so_half(w), h2)
-  Band.pick2(Nat.is_lt(lo, left), Nat.is_gt(hi, left), lo, hi, left, lo, hi, {==}, {==}, (hilo, L.Nat.le_refl(lo)), (L.Nat.le_refl(hi), hilo))
+  +ha = L.Nat.le_trans(a, so, half, L.Nat.min_le_l(so, Nat.sub(last, c)), Fit.so_half(w))
+  +himid = Fit.hi_le(c, a, hw, w, L.Nat.le_trans(Nat.add(hw, a), Nat.add(hw, half), Nat.sub(w, 1n), L.Nat.le_add_mono(hw, a, half, ha), Fit.half_w(w)))
+  +midlo = L.Nat.sub_anti(c, b, hw, L.Nat.le_trans(b, half, hw, L.Nat.le_trans(b, so, half, L.Nat.min_le_l(so, c), Fit.so_half(w)), Fit.half_le(w)))
+  +bmid = {(himid, midlo) : Band(mid, lo, hi)}
+  +back_c = Nat.is_gt(Nat.sub(left, lo), hw)
+  +ahead_c = Nat.is_gt(Nat.sub(hi, left), hw)
+  +back = Bool.pick(Nat, back_c, mid, lo)
+  +ahead = Bool.pick(Nat, ahead_c, mid, hi)
+  Band.pick2(Nat.is_lt(lo, left), Nat.is_gt(hi, left), lo, hi, left, back, ahead, {==}, {==}, Band.pick(back_c, mid, lo, lo, hi, bmid, (hilo, L.Nat.le_refl(lo))), Band.pick(ahead_c, mid, hi, lo, hi, bmid, (L.Nat.le_refl(hi), hilo)))
 
 # Final
 # -----

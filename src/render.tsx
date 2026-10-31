@@ -90,7 +90,7 @@ function Page({
       </head>
       <body {...stylex.props(styles.body)}>
         <main {...stylex.props(styles.main)}>
-          <Markdown source={markdown} path={path === "/" ? "index.md" : "404"} />
+          <Markdown source={markdown} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div data-term="" aria-hidden="true" {...stylex.props(styles.term)}>
@@ -165,8 +165,10 @@ const styles = stylex.create({
   term: {
     position: "fixed",
     inset: 0,
-    fontSize: "15px",
+    fontSize: "var(--fs, 15px)",
     lineHeight: "var(--lh)",
+    // The finger scrolls the text (client.ts), never the page or its zoom.
+    touchAction: "none",
     whiteSpace: "pre",
     userSelect: "none",
     cursor: "default",

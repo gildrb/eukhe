@@ -53,8 +53,8 @@ def EscIdle.fin(+files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, +d
       EscIdle.refl(Laws.F.tgt(f), Laws.F.top(f), Laws.F.left(f), Laws.F.row(f), Laws.F.col(f))
 
 # z and y wait for a key: Esc drops them (proven on an opaque editor, so
-# the kernel never unfolds the zz/zt/zb or yank it skips)
-def EscIdle.zkey(+s: T.St) -> {s == K.Key.zkey(s, "<Esc>") : T.St}:
+# the kernel never unfolds the zz/zt/zb/zl/zh or yank it skips)
+def EscIdle.zkey(+s: T.St, +n: Nat) -> {s == K.Key.zkey(s, "<Esc>", n) : T.St}:
   {==}
 
 def EscIdle.ykey(+s: T.St, +n: Nat) -> {K.Key.ok(s) == K.Key.pend(s, T.PendY{}, "<Esc>", n) : T.Step}:
@@ -70,7 +70,7 @@ def EscIdle.PendG(+files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, 
 def EscIdle.PendZ(+files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, +dirs: List<&2, T.Listing>, +marks: List<&2, T.Pos>, +spots: List<&2, T.Spot>, +opened: List<&2, Nat>, +bufs: List<&2, Nat>, +back: List<&2, T.Win>, +fwd: List<&2, T.Win>, +count: Nat, +find: Maybe<&2, T.Find>, +hl: Bool, +opts: T.Opts, +rows: Nat, +cols: Nat, +msg: String, +stat: String, +tgt: T.Tgt, +line: Nat, +col: Nat, +want: T.Want, +top: Nat, +left: Nat, fin: Fi.Final(Eb.Esc.at(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendZ{}, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left})), hr: {B.Tgt.real(files, tgt) == True{} : Bool}) -> {Laws.Claim.esc_idle(Eb.Esc.at(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendZ{}, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left})) == True{} : Bool}:
   +x = Eb.Esc.at(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendZ{}, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left})
   +x1 = S.St.set_count(S.St.set_pend(x, T.NoPend{}), 0n)
-  %EscIdle.zkey(x1) : {EscIdle.cmp(x, Vim.Vim.final(Vim.Vim.keep(x, _))) == True{} : Bool}
+  %EscIdle.zkey(x1, S.St.count(x)) : {EscIdle.cmp(x, Vim.Vim.final(Vim.Vim.keep(x, _))) == True{} : Bool}
   EscIdle.fin(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendZ{}, find, hl, hl, opts, rows, cols, msg, stat, tgt, line, col, want, top, left, fin, hr)
 
 def EscIdle.PendLead(+files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, +dirs: List<&2, T.Listing>, +marks: List<&2, T.Pos>, +spots: List<&2, T.Spot>, +opened: List<&2, Nat>, +bufs: List<&2, Nat>, +back: List<&2, T.Win>, +fwd: List<&2, T.Win>, +count: Nat, +find: Maybe<&2, T.Find>, +hl: Bool, +opts: T.Opts, +rows: Nat, +cols: Nat, +msg: String, +stat: String, +tgt: T.Tgt, +line: Nat, +col: Nat, +want: T.Want, +top: Nat, +left: Nat, fin: Fi.Final(Eb.Esc.at(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendLead{}, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left})), hr: {B.Tgt.real(files, tgt) == True{} : Bool}) -> {Laws.Claim.esc_idle(Eb.Esc.at(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, T.PendLead{}, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left})) == True{} : Bool}:

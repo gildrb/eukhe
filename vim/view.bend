@@ -84,12 +84,17 @@ def View.fit(+top: Nat, +l: Nat, +h: Nat, +last: Nat) -> Nat:
 
 # sideways: the first column on screen, moved as little as it takes to
 # keep 'sidescrolloff' columns either side of column c where the line has
-# them
+# them; a move of more than half the window puts column c in its middle
+# instead, as Neovim does
 def View.fit_side(+left: Nat, +c: Nat, +w: Nat, +last: Nat) -> Nat:
   +so = View.so_in(w)
+  +half = Nat.div(w, 2n)
   +lo = Nat.sub(c, Nat.min(so, c))
   +hi = Nat.sub(Nat.add(c, Nat.min(so, Nat.sub(last, c))), Nat.sub(w, 1n))
-  Bool.pick(Nat, Nat.is_lt(lo, left), lo, Bool.pick(Nat, Nat.is_gt(hi, left), hi, left))
+  +mid = Nat.sub(c, half)
+  +back = Bool.pick(Nat, Nat.is_gt(Nat.sub(left, lo), half), mid, lo)
+  +ahead = Bool.pick(Nat, Nat.is_gt(Nat.sub(hi, left), half), mid, hi)
+  Bool.pick(Nat, Nat.is_lt(lo, left), back, Bool.pick(Nat, Nat.is_gt(hi, left), ahead, left))
 
 # the largest first line: the last line on the screen's first row, less
 # the scrolloff above it ('scrolloff' always holds)

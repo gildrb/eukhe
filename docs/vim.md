@@ -1,6 +1,6 @@
 # eukhe.com as Neovim
 
-On desktop (fine pointer, 720px or wider) the page is a read-only Neovim with Gil's config. Phones get the plain page.
+The page is a read-only Neovim with Gil's config, on every screen with the script. Without it, the plain page (Markdown reflowed to the screen's width).
 
 | Part  | File                                   | Does                                                                                                         |
 | ----- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -11,9 +11,20 @@ On desktop (fine pointer, 720px or wider) the page is a read-only Neovim with Gi
 
 ## Grid
 
-- The whole window, 2px padding (Ghostty). Font 15px; cell = one advance of Ioskeley Mono by its line height, measured at start.
+- The whole window, 2px padding (Ghostty). Font 15px (13px on touch screens); cell = one advance of Ioskeley Mono by its line height, measured at start.
 - Layers: number column, text rows, statusline, command line, float, cursor, scrollbar. A key rewrites only the rows that changed.
 - The goose of fff's prompt (U+1FABF) takes two cells; every other character one.
+
+## Touch
+
+| Gesture         | Does                                                                           |
+| --------------- | ------------------------------------------------------------------------------ |
+| Vertical drag   | text follows the finger, a row per line height (`<C-e>`, `<C-y>` with a count) |
+| Flick           | keeps scrolling, 5% slower each frame                                          |
+| Horizontal drag | view moves a column per cell (`zl`, `zh` with a count)                         |
+| Tap             | cursor to the cell; a link opens; `[copy]` copies the install command          |
+
+No keyboard comes up: pickers and commands stay desktop-only.
 
 ## Reference
 

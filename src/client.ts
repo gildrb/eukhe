@@ -7,7 +7,8 @@
 import type { EditorFile, Run } from "./markdown.tsx";
 import Vim, { type BendList, type Buf, type Ev, type Frame, type Mark, type St } from "./vim.mjs";
 
-const wide = window.matchMedia("(min-width: 720px) and (pointer: fine)");
+/** A touch screen (a phone): no keyboard, a smaller font, the finger scrolls. */
+const touch = window.matchMedia("(pointer: coarse)").matches;
 
 function element<T extends Element>(selector: string, type: new () => T): T {
   const found = document.querySelector(selector);
@@ -70,10 +71,12 @@ const pad = 2;
 let cw = 9;
 let lh = 18;
 
+/** Ghostty's 15px on a desktop; 13px on a phone, where every column counts. */
+const fontSize = touch ? 13 : 15;
+
 function measure() {
   const probe = document.createElement("span");
-  probe.style.cssText =
-    "position:absolute;visibility:hidden;white-space:pre;font-size:15px;line-height:normal";
+  probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-size:${fontSize}px;line-height:normal`;
   probe.textContent = "0".repeat(100);
   document.body.append(probe);
   const box = probe.getBoundingClientRect();
@@ -81,6 +84,7 @@ function measure() {
   if (!(box.width > 0 && box.height > 0)) throw new Error(`cell ${box.width}x${box.height}`);
   cw = box.width / 100;
   lh = Math.ceil(box.height);
+  term.style.setProperty("--fs", `${fontSize}px`);
   term.style.setProperty("--cw", `${cw}px`);
   term.style.setProperty("--lh", `${lh}px`);
   term.style.setProperty("--ox", `${pad}px`);
@@ -428,6 +432,19 @@ function paint(frame: Frame) {
   if (blink !== undefined) blink.currentTime = 0;
 }
 
+/** Events in a row, painted once (a finger's scroll sends many). */
+function steps(events: readonly Ev[]) {
+  if (state === null || events.length === 0) return;
+  for (const event of events) state = Vim["Vim.step"](state, event).st;
+  paint(Vim["Vim.frame"](state));
+}
+
+/** Keys for a count and a command: 12 then <C-e>. */
+function counted(n: number, keys: readonly string[]): Ev[] {
+  const digits = n > 1 ? Array.from(String(n)) : [];
+  return [...digits, ...keys].map((name): Ev => ({ $: "EvKey", name }));
+}
+
 function step(event: Ev) {
   if (state === null) return;
   const next = Vim["Vim.step"](state, event);
@@ -448,6 +465,17 @@ function step(event: Ev) {
     }
   }
   paint(Vim["Vim.frame"](state));
+}
+
+/** A click or a tap on a cell: [copy] copies, a link opens as on a page, and the cursor goes there. */
+function tap(row: number, col: number) {
+  if (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to) {
+    void navigator.clipboard.writeText(copyAt.text);
+    return;
+  }
+  const url = linkAt(row, col);
+  step({ $: "EvClick", row, col });
+  if (url !== null) window.open(url, "_blank", "noopener");
 }
 
 /** The cell under a pointer event. */
@@ -485,14 +513,7 @@ async function start() {
     if (event.button !== 0) return;
     event.preventDefault();
     const { row, col } = cellAt(event);
-    if (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to) {
-      void navigator.clipboard.writeText(copyAt.text);
-      return;
-    }
-    // A link opens as on a page; the cursor goes to the click as in Neovim.
-    const url = linkAt(row, col);
-    step({ $: "EvClick", row, col });
-    if (url !== null) window.open(url, "_blank", "noopener");
+    tap(row, col);
   });
   term.addEventListener("mousemove", (event) => {
     const { row, col } = cellAt(event);
@@ -515,11 +536,118 @@ async function start() {
     },
     { passive: false },
   );
+  if (touch) touchScroll();
   window.addEventListener("resize", () => {
     const next = size();
     step({ $: "EvSize", rows: next.rows, cols: next.cols });
   });
 }
 
+// The page's [copy] button (phones, or before the editor starts): copies the install command.
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-copy]") : null;
+  if (!(button instanceof HTMLElement)) return;
+  const command = button.dataset.copy;
+  if (command === undefined) return;
+  void navigator.clipboard.writeText(command).then(() => {
+    button.textContent = "[copied]";
+    setTimeout(() => {
+      button.textContent = "[copy]";
+    }, 1500);
+  });
+});
+
+/** The text n rows up (down when negative), the cursor dragged: Ctrl-e, Ctrl-y. */
+function scrollRows(n: number) {
+  if (n !== 0) steps(counted(Math.abs(n), [n > 0 ? "<C-e>" : "<C-y>"]));
+}
+
+/** The view n columns right (left when negative): zl, zh. */
+function scrollCols(n: number) {
+  if (n !== 0) steps(counted(Math.abs(n), ["z", n > 0 ? "l" : "h"]));
+}
+
+/**
+ * A finger, as in a terminal over SSH on a phone: a drag scrolls the text with it (a line a row,
+ * Ctrl-e and Ctrl-y; a column a cell, zl and zh), a flick keeps it going and slows down, a tap
+ * puts the cursor there or opens the link under it. No keyboard comes up.
+ */
+function touchScroll() {
+  let x = 0;
+  let y = 0;
+  let startX = 0;
+  let startY = 0;
+  let axis: "none" | "x" | "y" = "none";
+  let rows = 0;
+  let cols = 0;
+  let speed = 0;
+  let last = 0;
+  let fling = 0;
+  term.addEventListener(
+    "touchstart",
+    (event) => {
+      const t = event.touches[0];
+      if (t === undefined) return;
+      cancelAnimationFrame(fling);
+      x = startX = t.clientX;
+      y = startY = t.clientY;
+      axis = "none";
+      rows = 0;
+      cols = 0;
+      speed = 0;
+      last = event.timeStamp;
+    },
+    { passive: true },
+  );
+  term.addEventListener(
+    "touchmove",
+    (event) => {
+      event.preventDefault();
+      const t = event.touches[0];
+      if (t === undefined) return;
+      if (axis === "none" && Math.hypot(t.clientX - startX, t.clientY - startY) > 8)
+        axis = Math.abs(t.clientX - startX) > Math.abs(t.clientY - startY) ? "x" : "y";
+      const dt = Math.max(1, event.timeStamp - last);
+      if (axis === "y") {
+        speed = (y - t.clientY) / dt;
+        const total = Math.trunc((startY - t.clientY) / lh);
+        scrollRows(total - rows);
+        rows = total;
+      } else if (axis === "x") {
+        const total = Math.trunc((startX - t.clientX) / cw);
+        scrollCols(total - cols);
+        cols = total;
+      }
+      x = t.clientX;
+      y = t.clientY;
+      last = event.timeStamp;
+    },
+    { passive: false },
+  );
+  term.addEventListener("touchend", (event) => {
+    if (axis === "none") {
+      event.preventDefault();
+      const row = Math.max(0, Math.floor((y - pad) / lh));
+      const col = Math.max(0, Math.floor((x - pad) / cw));
+      tap(row, col);
+      return;
+    }
+    if (axis !== "y" || Math.abs(speed) < 0.3) return;
+    // A flick: the text keeps going, slowing down by 5% a frame.
+    let carry = 0;
+    let then = performance.now();
+    const frame = (now: number) => {
+      carry += (speed * (now - then)) / lh;
+      then = now;
+      speed *= 0.95;
+      const whole = Math.trunc(carry);
+      carry -= whole;
+      scrollRows(whole);
+      if (Math.abs(speed) > 0.02) fling = requestAnimationFrame(frame);
+    };
+    fling = requestAnimationFrame(frame);
+  });
+}
+
 // Anything that stops the editor from starting leaves the page as it is, and says why.
-if (wide.matches) start().catch((error: unknown) => console.error("eukhe editor:", error));
+start().catch((error: unknown) => console.error("eukhe editor:", error));

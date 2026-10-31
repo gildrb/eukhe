@@ -115,9 +115,13 @@ def Esc.side_back(+left: Nat, +c: Nat, +w: Nat, +last: Nat, b: Fi.Band(left, Fi.
   match b:
     case (bh, bl):
       +so = V.View.so_in(w)
+      -half = Nat.div(w, 2n)
       +lo = Nat.sub(c, Nat.min(so, c))
       +hi = Nat.sub(Nat.add(c, Nat.min(so, Nat.sub(last, c))), Nat.sub(w, 1n))
-      Esc.pick2_back(Nat.is_lt(lo, left), Nat.is_gt(hi, left), lo, hi, left, L.Nat.le_not_lt(lo, left, bl), Esc.le_not_gt(hi, left, bh))
+      -mid = Nat.sub(c, half)
+      -back = Bool.pick(Nat, Nat.is_gt(Nat.sub(left, lo), half), mid, lo)
+      -ahead = Bool.pick(Nat, Nat.is_gt(Nat.sub(hi, left), half), mid, hi)
+      Esc.pick2_back(Nat.is_lt(lo, left), Nat.is_gt(hi, left), back, ahead, left, L.Nat.le_not_lt(lo, left, bl), Esc.le_not_gt(hi, left, bh))
 
 # Move.clamp keeps a cursor on the text
 def Esc.clamp_back(+ls: List<&2, String>, +line: Nat, +col: Nat, el: L.LE(line, M.Move.last_line(ls)), ec: L.LE(col, M.Move.last_col(ls, line))) -> {T.Pos{line, col} == M.Move.clamp(ls, T.Pos{line, col}) : T.Pos}:
