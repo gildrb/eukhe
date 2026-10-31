@@ -25,7 +25,7 @@ npm run deploy    # build, then wrangler deploy
 
 ## Worker
 
-`worker/index.ts`, files from `dist/`.
+`worker/index.ts`, files from `dist/`. Routes: `eukhe.com/*`, `www.eukhe.com/*`. `gildrb.com/eukhe` and `eukhe.gildrb.com` redirect here from gildrb.com.
 
 | Request                          | Response                                 |
 | -------------------------------- | ---------------------------------------- |
@@ -34,10 +34,6 @@ npm run deploy    # build, then wrangler deploy
 | `GET /`, `Accept: text/markdown` | `index.md`                               |
 | `GET /`, `Accept: text/html`     | `index.html`                             |
 | `www.eukhe.com/*`                | 301 to `eukhe.com`                       |
-
-## Limitations
-
-- `wrangler.jsonc` has no eukhe.com route: the domain stays on the `gildrb-products` Worker until it moves here.
 
 ## License
 
