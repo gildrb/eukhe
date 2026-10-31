@@ -87,18 +87,29 @@ def Text.drop(s: String, i: Nat) -> String:
     case SCon{h, t} 1n+p:
       Text.drop(t, p)
 
-def Text.take.go(s: String, n: Nat, acc: String) -> String:
+# s less its first character. Strings built a character at a time (the
+# loops below, from a blank) end with it: on the JS target the cut leaves
+# one flat string, which the next walk over it and String.contains read
+# fastest
+def Text.rest(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{h, t}:
+      t
+
+def Text.take.go(s: String, n: Nat, +acc: String) -> String:
   match s n:
     case SNil{} _:
-      String.reverse(acc)
+      Text.rest(acc)
     case SCon{h, t} 0n:
-      String.reverse(acc)
+      Text.rest(acc)
     case SCon{h, t} 1n+p:
-      Text.take.go(t, p, SCon{h, acc})
+      Text.take.go(t, p, String.append(acc, SCon{h, SNil{}}))
 
 # the first n characters of s
 def Text.take(s: String, n: Nat) -> String:
-  Text.take.go(s, n, SNil{})
+  Text.take.go(s, n, " ")
 
 def Text.first.go(s: String, +i: Nat, +last: Nat) -> Nat:
   match s:
@@ -125,16 +136,16 @@ def Text.bytes.go(s: String, n: Nat, acc: Nat) -> Nat:
 def Text.bytes(s: String, n: Nat) -> Nat:
   Text.bytes.go(s, n, 0n)
 
-def Text.fold.go(s: String, acc: String) -> String:
+def Text.fold.go(s: String, +acc: String) -> String:
   match s:
     case SNil{}:
-      String.reverse(acc)
+      acc
     case SCon{h, t}:
-      Text.fold.go(t, SCon{Char.fold(h), acc})
+      Text.fold.go(t, String.append(acc, SCon{Char.fold(h), SNil{}}))
 
 # s in lower case
 def Text.fold(s: String) -> String:
-  Text.fold.go(s, SNil{})
+  Text.rest(Text.fold.go(s, " "))
 
 # whether s holds a capital letter
 def Text.has_upper(s: String) -> Bool:
@@ -144,15 +155,18 @@ def Text.has_upper(s: String) -> Bool:
     case SCon{+h, t}:
       Bool.when(Bool, Char.upper(h), u => Text.has_upper(t), u => True{})
 
+def Text.prefix.go(s: String, p: String, +ok: Bool) -> Bool:
+  match s p:
+    case _ SNil{}:
+      ok
+    case SNil{} SCon{y, yt}:
+      False{}
+    case SCon{+x, xt} SCon{+y, yt}:
+      Text.prefix.go(xt, Bool.pick(String, Char.is_eq(x, y), yt, ""), Bool.and(ok, Char.is_eq(x, y)))
+
 # whether s starts with p
 def Text.prefix(p: String, s: String) -> Bool:
-  match p s:
-    case SNil{} _:
-      True{}
-    case SCon{y, yt} SNil{}:
-      False{}
-    case SCon{+y, yt} SCon{+x, xt}:
-      Bool.when(Bool, Char.is_eq(x, y), u => False{}, u => Text.prefix(yt, xt))
+  Text.prefix.go(s, p, True{})
 
 # the decimal digits of n
 def Text.digits(n: Nat) -> Nat:
@@ -195,22 +209,51 @@ def Text.cells.go(s: String, acc: Nat) -> Nat:
 def Text.cells(s: String) -> Nat:
   Text.cells.go(s, 0n)
 
-def Text.cut.go(s: String, +w: Nat, +acc: String) -> String:
-  match s:
-    case SNil{}:
-      String.reverse(acc)
-    case SCon{+h, t}:
+def Text.cells.upto.go(s: String, n: Nat, +acc: Nat) -> Nat:
+  match s n:
+    case SNil{} _:
+      acc
+    case SCon{h, t} 0n:
+      acc
+    case SCon{h, t} 1n+p:
+      Text.cells.upto.go(t, p, Nat.add(acc, Char.width(h)))
+
+# the cells of s's first n characters: Text.cells(s) when s holds at most
+# n, else at least n
+def Text.cells.upto(s: String, n: Nat) -> Nat:
+  Text.cells.upto.go(s, n, 0n)
+
+def Text.cut.go(s: String, w: Nat, +acc: String) -> String:
+  match s w:
+    case SNil{} _:
+      Text.rest(acc)
+    case SCon{h, t} 0n:
+      Text.rest(acc)
+    case SCon{+h, t} 1n++p:
       +cw = Char.width(h)
-      Bool.when(String, Nat.is_le(cw, w), u => String.reverse(acc), u => Text.cut.go(t, Nat.sub(w, cw), SCon{h, acc}))
+      +ok = Nat.is_le(cw, 1n+p)
+      Text.cut.go(t, Bool.pick(Nat, ok, Nat.sub(1n+p, cw), 0n), Bool.pick(String, ok, String.append(acc, SCon{h, SNil{}}), acc))
 
 # s cut to at most w cells
 def Text.cut(s: String, w: Nat) -> String:
-  Text.cut.go(s, w, SNil{})
+  Text.cut.go(s, w, " ")
+
+# s's characters while they fit in w cells, then pad more blanks (a
+# character that does not fit leaves its cells to pad)
+def Text.fit.go(s: String, w: Nat, +pad: Nat, +acc: String) -> String:
+  match s w:
+    case SNil{} _:
+      Text.rest(String.append(acc, Text.spaces(Nat.add(w, pad), SNil{})))
+    case SCon{h, t} 0n:
+      Text.rest(String.append(acc, Text.spaces(pad, SNil{})))
+    case SCon{+h, t} 1n++p:
+      +cw = Char.width(h)
+      +ok = Nat.is_le(cw, 1n+p)
+      Text.fit.go(t, Bool.pick(Nat, ok, Nat.sub(1n+p, cw), 0n), Bool.pick(Nat, ok, pad, 1n+p), Bool.pick(String, ok, String.append(acc, SCon{h, SNil{}}), acc))
 
 # s in exactly w cells: cut, then padded with spaces
 def Text.fit(+s: String, +w: Nat) -> String:
-  +c = Text.cut(s, w)
-  String.append(c, Text.spaces(Nat.sub(w, Text.cells(c)), SNil{}))
+  Text.fit.go(s, w, 0n, " ")
 
 def Text.reps(n: Nat, +c: Char, acc: String) -> String:
   match n:
@@ -243,18 +286,23 @@ def Text.indent(s: String, acc: Nat) -> Nat:
     case t:
       acc
 
-# s less its first n cells (a wide character cut in two leaves a space)
-def Text.dropc(s: String, n: Nat) -> String:
+def Text.dropc.go(s: String, n: Nat, +pre: String) -> String:
   match s n:
     case t 0n:
-      t
+      String.append(pre, t)
     case SNil{} 1n+p:
       SNil{}
-    case SCon{h, +t} 1n++p:
+    case SCon{h, t} 1n++p:
       +wide = Nat.is_eq(Char.width(h), 2n)
-      Bool.when(String, Bool.and(wide, Nat.is_eq(p, 0n)), u => Text.dropc(t, Nat.sub(p, Bool.pick(Nat, wide, 1n, 0n))), u => SCon{' ', t})
+      +half = Bool.and(wide, Nat.is_eq(p, 0n))
+      Text.dropc.go(t, Bool.pick(Nat, half, 0n, Nat.sub(p, Bool.pick(Nat, wide, 1n, 0n))), Bool.pick(String, half, " ", ""))
 
-# s with text over it from cell col on (virtual text at a window column)
+# s less its first n cells (a wide character cut in two leaves a space)
+def Text.dropc(s: String, n: Nat) -> String:
+  Text.dropc.go(s, n, "")
+
+# s with text over it from cell col on (virtual text at a window column),
+# as wide as base (what runs past its edge is cut)
 def Text.over(+base: String, +col: Nat, +s: String) -> String:
   +w = Text.cells(s)
-  Text.fit(Text.cut(base, col), col) ++ s ++ Text.dropc(base, Nat.add(col, w))
+  Text.fit(Text.fit(Text.cut(base, col), col) ++ s ++ Text.dropc(base, Nat.add(col, w)), Text.cells(base))

@@ -101,6 +101,11 @@ def Greedy.cols(s: String, q: String) -> List<&2, Nat>:
 def Fff.typos(+n: Nat) -> Nat:
   Nat.min(6n, Nat.max(2n, Nat.div(n, 4n)))
 
+# the query's characters a file of a query of n characters must hold in
+# order
+def Fff.need(+n: Nat) -> Nat:
+  Nat.max(1n, Nat.sub(n, Fff.typos(n)))
+
 # a file's name: its path after the last "/"
 def Fff.name(+path: String) -> String:
   X.Text.drop(path, X.Text.len(B.Path.dir(path)))
@@ -110,13 +115,41 @@ def Fff.dir(+path: String) -> String:
   +d = B.Path.dir(path)
   X.Text.take(d, Nat.sub(X.Text.len(d), 1n))
 
+# a file with its folder and name, for sorting
+type Keyed is Data:
+  Keyed{dir: String, name: String, cand: T.Cand}
+
 # fff's order with no query: folders first by path, then names
-def Fff.le(a: T.Item, b: T.Item) -> Bool:
+def Keyed.le(a: Keyed, b: Keyed) -> Bool:
   match a b:
-    case T.Item{t1, p1, +x, h1} T.Item{t2, p2, +y, h2}:
-      +dx = Fff.dir(x)
-      +dy = Fff.dir(y)
-      Bool.or(String.is_lt(dx, dy), Bool.and(String.eq(dx, dy), String.is_le(Fff.name(x), Fff.name(y))))
+    case Keyed{+dx, nx, c1} Keyed{+dy, ny, c2}:
+      Bool.or(String.is_lt(dx, dy), Bool.and(String.eq(dx, dy), String.is_le(nx, ny)))
+
+def Keyed.all(fs: List<&2, T.Buf>, +i: Nat, +acc: List<&2, Keyed>) -> List<&2, Keyed>:
+  match fs:
+    case Nil{}:
+      List.reverse(&2, Keyed, acc)
+    case Con{T.Buf{+p, ls}, t}:
+      Keyed.all(t, 1n+i, Keyed{Fff.dir(p), Fff.name(p), T.Cand{i, 0n, p, ""}} <> acc)
+
+def Keyed.cands(ks: List<&2, Keyed>, +acc: List<&2, T.Cand>) -> List<&2, T.Cand>:
+  match ks:
+    case Nil{}:
+      List.reverse(&2, T.Cand, acc)
+    case Con{Keyed{d, n, c}, t}:
+      Keyed.cands(t, c <> acc)
+
+def Fff.items(cs: List<&2, T.Cand>, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
+  match cs:
+    case Nil{}:
+      List.reverse(&2, T.Item, acc)
+    case Con{T.Cand{i, l, p, low}, t}:
+      Fff.items(t, T.Item{T.File{i}, T.Pos{0n, 0n}, p, Nil{}} <> acc)
+
+# what fff's files finds for the empty query: every file, in its order
+def Fff.base(+fs: List<&2, T.Buf>) -> T.Level:
+  +cs = Keyed.cands(List.sort(~Keyed, ~Keyed.le, Keyed.all(fs, 0n, Nil{})), Nil{})
+  T.Level{cs, Fff.items(cs, Nil{}), None{}}
 
 # a matched file's rank: the characters matched, then whole runs of the
 # query in its name and path, then a short path
@@ -127,43 +160,47 @@ def Fff.score(+path: String, +q: String, +k: Nat) -> Nat:
   Nat.sub(Nat.add(Nat.mul(k, 100n), Nat.add(name, whole)), Nat.min(X.Text.len(path), 19n))
 
 type Scored is Data:
-  Scored{score: Nat, item: T.Item}
+  Scored{score: Nat, cand: T.Cand, item: T.Item}
 
 def Scored.le(a: Scored, b: Scored) -> Bool:
   match a b:
-    case Scored{x, i} Scored{y, j}:
+    case Scored{x, c1, i} Scored{y, c2, j}:
       Nat.is_ge(x, y)
 
 def Scored.items(xs: List<&2, Scored>, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
   match xs:
     case Nil{}:
       List.reverse(&2, T.Item, acc)
-    case Con{Scored{x, i}, t}:
+    case Con{Scored{x, c, i}, t}:
       Scored.items(t, i <> acc)
 
-def Fff.match(fs: List<&2, T.Item>, +q: String, +need: Nat, +acc: List<&2, Scored>) -> List<&2, Scored>:
-  match fs:
+def Scored.cands(xs: List<&2, Scored>, +acc: List<&2, T.Cand>) -> List<&2, T.Cand>:
+  match xs:
+    case Nil{}:
+      List.reverse(&2, T.Cand, acc)
+    case Con{Scored{x, c, i}, t}:
+      Scored.cands(t, c <> acc)
+
+def Fff.match(cs: List<&2, T.Cand>, +q: String, +need: Nat, +acc: List<&2, Scored>) -> List<&2, Scored>:
+  match cs:
     case Nil{}:
       List.reverse(&2, Scored, acc)
-    case Con{T.Item{tgt, pos, +path, h}, t}:
+    case Con{T.Cand{+i, +l, +path, +low}, +t}:
       +k = Lcs.len(path, q)
-      +item = {T.Item{tgt, pos, path, Greedy.cols(path, q)} : T.Item}
-      Fff.match(t, q, need, Bool.pick(List<&2, Scored>, Nat.is_ge(k, need), Scored{Fff.score(path, q, k), item} <> acc, acc))
+      X.Bool.when(List<&2, Scored>, Nat.is_ge(k, need), u => Fff.match(t, q, need, acc), u => Fff.match(t, q, need, Scored{Fff.score(path, q, k), T.Cand{i, l, path, low}, T.Item{T.File{i}, T.Pos{0n, 0n}, path, Greedy.cols(path, q)}} <> acc))
 
-def Fff.all(fs: List<&2, T.Buf>, +i: Nat, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
-  match fs:
-    case Nil{}:
-      List.reverse(&2, T.Item, acc)
-    case Con{T.Buf{p, ls}, t}:
-      Fff.all(t, 1n+i, T.Item{T.File{i}, T.Pos{0n, 0n}, p, Nil{}} <> acc)
-
-# the files matching query q (all of them for none), in fff's order
-def Fff.files(+fs: List<&2, T.Buf>, +q: String) -> List<&2, T.Item>:
-  +all = List.sort(~T.Item, ~Fff.le, Fff.all(fs, 0n, Nil{}))
-  +fq = X.Text.fold(q)
-  +n = X.Text.len(q)
-  +need = Nat.max(1n, Nat.sub(n, Fff.typos(n)))
-  Bool.pick(List<&2, T.Item>, String.is_empty(q), all, Scored.items(List.sort(~Scored, ~Scored.le, Fff.match(all, fq, need, Nil{})), Nil{}))
+# what fff's files finds for query q, one character longer than the
+# query that found head (base: the empty query's): the files matching it,
+# best first. A file matching q holds one character of q fewer in order
+# than it, so it matches head's query when that needs one fewer; else it
+# is looked for among them all.
+def Fff.narrow(head: T.Level, base: T.Level, +q: String) -> T.Level:
+  match head base:
+    case T.Level{hc, hi, hr} T.Level{bc, bi, br}:
+      +n = X.Text.len(q)
+      +need = Fff.need(n)
+      +ss = Fff.match(Bool.pick(List<&2, T.Cand>, Nat.is_gt(need, Fff.need(Nat.sub(n, 1n))), hc, bc), X.Text.fold(q), need, Nil{})
+      T.Level{Scored.cands(ss, Nil{}), Scored.items(List.sort(~Scored, ~Scored.le, ss), Nil{}), None{}}
 
 # Live grep
 # ---------
@@ -198,54 +235,101 @@ def Grep.line(+i: Nat, +l: Nat, +line: String, cs: List<&2, Nat>, +acc: List<&2,
       +ind = X.Text.indent(line, 0n)
       T.Item{T.File{i}, T.Pos{l, c}, X.Text.drop(line, ind), Grep.shift(Con{c, t}, ind, Nil{})} <> acc
 
-# the matching lines of one file, while room is left
-def Grep.lines(ls: List<&2, String>, fl: List<&2, String>, +room: Nat, +i: Nat, +l: Nat, +pat: String, +fold: Bool, +acc: List<&2, T.Item>) -> (Nat & List<&2, T.Item>):
-  match ls fl:
-    case Nil{} _:
-      (room, acc)
-    case _ Nil{}:
-      (room, acc)
-    case Con{+h, ht} Con{+f, ft}:
-      +s = Bool.pick(String, fold, f, h)
-      +hit = Bool.and(Nat.is_gt(room, 0n), String.contains(s, pat))
-      +cs = X.Bool.when(List<&2, Nat>, hit, u => Nil{}, u => Grep.cols(s, pat, 0n))
-      Grep.lines(ht, ft, Bool.pick(Nat, hit, Nat.sub(room, 1n), room), i, 1n+l, pat, fold, Grep.line(i, l, h, cs, acc))
-
-def Grep.done(ra: (Nat & List<&2, T.Item>)) -> List<&2, T.Item>:
-  match ra:
-    case (room, acc):
-      List.reverse(&2, T.Item, acc)
-
-def Grep.file(ls: List<&2, String>, fl: List<&2, String>, +i: Nat, +pat: String, +fold: Bool, ra: (Nat & List<&2, T.Item>)) -> (Nat & List<&2, T.Item>):
-  match ra:
-    case (+room, +acc):
-      X.Bool.when((Nat & List<&2, T.Item>), Nat.is_eq(room, 0n), u => Grep.lines(ls, fl, room, i, 0n, pat, fold, acc), u => (room, acc))
-
-def Grep.next(fs: List<&2, T.Buf>, fls: List<&2, List<&2, String>>, +i: Nat, +pat: String, +fold: Bool, ra: (Nat & List<&2, T.Item>)) -> List<&2, T.Item>:
+# where a scan of files fs (fls: their lines in lower case) starts
+def Grep.start(fs: List<&2, T.Buf>, fls: List<&2, List<&2, String>>) -> Maybe<&2, T.Rest>:
   match fs fls:
-    case Nil{} _:
-      Grep.done(ra)
+    case Con{T.Buf{p, ls}, ft} Con{fl, flt}:
+      Some{T.Rest{0n, 0n, ls, fl, ft, flt}}
+    case _ _:
+      None{}
+
+# a scan of one file's lines: how many more lines it needs (0: it stopped
+# at line l, ls and fl the lines left), the lines found (reversed)
+type Scan is Data:
+  Scan{need: Nat, acc: List<&2, T.Cand>, l: Nat, ls: List<&2, String>, fl: List<&2, String>}
+
+# the lines holding pat from line l of file i (ls; fl: in lower case) on,
+# onto acc reversed, until need more are found
+def Grep.lines(ls: List<&2, String>, fl: List<&2, String>, +i: Nat, +l: Nat, need: Nat, +pat: String, +fold: Bool, +acc: List<&2, T.Cand>) -> Scan:
+  match ls fl need:
+    case xs ys 0n:
+      Scan{0n, acc, l, xs, ys}
+    case Con{+h, ht} Con{+f, ft} 1n++p:
+      +hit = String.contains(Bool.pick(String, fold, f, h), pat)
+      Grep.lines(ht, ft, i, 1n+l, Bool.pick(Nat, hit, p, 1n+p), pat, fold, Bool.pick(List<&2, T.Cand>, hit, T.Cand{i, l, h, f} <> acc, acc))
+    case _ _ 1n+p:
+      Scan{1n+p, acc, l, Nil{}, Nil{}}
+
+# the scan sc of file i, then of the files after it (fs; fls: their lines
+# in lower case) while it needs more lines: the lines found (reversed) and
+# where the scan stopped (none: at the end)
+def Grep.files(fs: List<&2, T.Buf>, fls: List<&2, List<&2, String>>, +i: Nat, sc: Scan, +pat: String, +fold: Bool) -> (List<&2, T.Cand> & Maybe<&2, T.Rest>):
+  match fs fls sc:
+    case xfs xfls Scan{0n, acc, l, ls, fl}:
+      (acc, Some{T.Rest{i, l, ls, fl, xfs, xfls}})
+    case Con{T.Buf{p, nls}, ft} Con{nfl, flt} Scan{1n+n, acc, l, ls, fl}:
+      Grep.files(ft, flt, 1n+i, Grep.lines(nls, nfl, 1n+i, 0n, 1n+n, pat, fold, acc), pat, fold)
+    case _ _ Scan{n, acc, l, ls, fl}:
+      (acc, None{})
+
+# the candidates holding pat, onto acc reversed, and how many
+def Grep.keep(cs: List<&2, T.Cand>, +pat: String, +fold: Bool, +n: Nat, +acc: List<&2, T.Cand>) -> (Nat & List<&2, T.Cand>):
+  match cs:
+    case Nil{}:
+      (n, acc)
+    case Con{T.Cand{+i, +l, +h, +f}, t}:
+      +hit = String.contains(Bool.pick(String, fold, f, h), pat)
+      Grep.keep(t, pat, fold, Bool.pick(Nat, hit, 1n+n, n), Bool.pick(List<&2, T.Cand>, hit, T.Cand{i, l, h, f} <> acc, acc))
+
+# the items of the first n candidates (the page listed)
+def Grep.items(n: Nat, cs: List<&2, T.Cand>, +pat: String, +fold: Bool, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
+  match n cs:
+    case 0n _:
+      List.reverse(&2, T.Item, acc)
     case _ Nil{}:
-      Grep.done(ra)
-    case Con{T.Buf{p, ls}, t} Con{fl, flt}:
-      Grep.next(t, flt, 1n+i, pat, fold, Grep.file(ls, fl, i, pat, fold, ra))
+      List.reverse(&2, T.Item, acc)
+    case 1n+p Con{T.Cand{+i, +l, +h, +f}, t}:
+      Grep.items(p, t, pat, fold, Grep.line(i, l, h, Grep.cols(Bool.pick(String, fold, f, h), pat, 0n), acc))
 
+def Grep.level(+pat: String, +fold: Bool, found: (List<&2, T.Cand> & Maybe<&2, T.Rest>)) -> T.Level:
+  match found:
+    case (acc, rest):
+      +cs = List.reverse(&2, T.Cand, acc)
+      T.Level{cs, Grep.items(Grep.cap(), cs, pat, fold, Nil{}), rest}
 
+# the scan resumed at r until Grep.cap() lines are found, n of them found
+# already (acc, reversed)
+def Grep.resume(r: Maybe<&2, T.Rest>, +n: Nat, +pat: String, +fold: Bool, +acc: List<&2, T.Cand>) -> T.Level:
+  match r:
+    case None{}:
+      Grep.level(pat, fold, (acc, None{}))
+    case Some{T.Rest{+i, +l, +ls, +fl, +fs, +fls}}:
+      Grep.level(pat, fold, X.Bool.when((List<&2, T.Cand> & Maybe<&2, T.Rest>), Nat.is_ge(n, Grep.cap()), u => Grep.files(fs, fls, i, Grep.lines(ls, fl, i, l, Nat.sub(Grep.cap(), n), pat, fold, acc), pat, fold), u => (acc, Some{T.Rest{i, l, ls, fl, fs, fls}})))
 
-# every line of every file holding q (smart case), at most Grep.cap()
-def Fff.grep(+fs: List<&2, T.Buf>, +fls: List<&2, List<&2, String>>, +q: String) -> List<&2, T.Item>:
-  +fold = Bool.not(X.Text.has_upper(q))
-  +pat = Bool.pick(String, fold, X.Text.fold(q), q)
-  X.Bool.when(List<&2, T.Item>, String.is_empty(q), u => Grep.next(fs, fls, 0n, pat, fold, (Grep.cap(), Nil{})), u => Nil{})
+def Grep.kept(r: Maybe<&2, T.Rest>, +pat: String, +fold: Bool, nk: (Nat & List<&2, T.Cand>)) -> T.Level:
+  match nk:
+    case (n, acc):
+      Grep.resume(r, n, pat, fold, acc)
+
+# what live grep finds for query q (smart case), one character longer
+# than the query that found head: the lines holding q before where head's
+# scan stopped are among head's; the scan goes on from there until a page
+# (Grep.cap()) is found
+def Grep.narrow(head: T.Level, +q: String) -> T.Level:
+  match head:
+    case T.Level{hc, hi, hr}:
+      +fold = Bool.not(X.Text.has_upper(q))
+      +pat = Bool.pick(String, fold, X.Text.fold(q), q)
+      Grep.kept(hr, pat, fold, Grep.keep(hc, pat, fold, 0n, Nil{}))
 
 # Drawing
 # -------
 
 # a file's row of the list: the sign column, its name and folder,
 # "(current)" right for the file the picker was opened from
-def Fff.file_row(+path: String, +w: Nat, +current: Bool) -> String:
-  +base = X.Text.fit("  " ++ Fff.name(path) ++ " " ++ Fff.dir(path), w)
-  Bool.pick(String, current, X.Text.over(base, Nat.sub(w, 10n), " (current)"), base)
+def Fff.file_row(+name: String, +dir: String, +w: Nat, +current: Bool) -> String:
+  +base = X.Text.fit("  " ++ name ++ " " ++ dir, w)
+  X.Bool.when(String, current, u => base, u => X.Text.over(base, Nat.sub(w, 10n), " (current)"))
 
 # matched path columns as cells of a file's row: the name's from cell 2,
 # the folder's after the name and a space; the "/" between is not shown
@@ -259,14 +343,13 @@ def Fff.hits(cs: List<&2, Nat>, +ns: Nat, +nl: Nat, +row: Nat, +col: Nat, +w: Na
       +shown = Bool.and(Bool.or(named, Nat.is_lt(1n+c, ns)), Nat.is_lt(at, w))
       Fff.hits(t, ns, nl, row, col, w, Bool.pick(List<&2, T.Mark>, shown, T.Mark{row, Nat.add(col, at), 1n, T.Match{}} <> acc, acc))
 
-# the marks of a file's row: the folder dimmed, "(current)" dimmed, the
+# the marks of a file's row (its name nl characters, its folder dl, the
+# path's ns before the name): the folder dimmed, "(current)" dimmed, the
 # matched characters
-def Fff.file_marks(+path: String, hits: List<&2, Nat>, +row: Nat, +col: Nat, +w: Nat, +current: Bool, +acc: List<&2, T.Mark>) -> List<&2, T.Mark>:
-  +nl = X.Text.len(Fff.name(path))
-  +dl = X.Text.len(Fff.dir(path))
+def Fff.file_marks(+nl: Nat, +dl: Nat, +ns: Nat, hits: List<&2, Nat>, +row: Nat, +col: Nat, +w: Nat, +current: Bool, +acc: List<&2, T.Mark>) -> List<&2, T.Mark>:
   +dim = Bool.pick(List<&2, T.Mark>, Nat.is_eq(dl, 0n), acc, T.Mark{row, Nat.add(col, Nat.add(3n, nl)), dl, T.Dim{}} <> acc)
   +cur = Bool.pick(List<&2, T.Mark>, current, T.Mark{row, Nat.add(col, Nat.sub(w, 9n)), 9n, T.Dim{}} <> dim, dim)
-  Fff.hits(hits, Nat.sub(X.Text.len(path), nl), nl, row, col, w, cur)
+  Fff.hits(hits, ns, nl, row, col, w, cur)
 
 def Tgt.index(t: T.Tgt) -> Nat:
   match t:
@@ -274,21 +357,6 @@ def Tgt.index(t: T.Tgt) -> Nat:
       i
     case T.Dir{path}:
       0n
-
-def Item.index(it: T.Item) -> Nat:
-  match it:
-    case T.Item{tgt, pos, text, hits}:
-      Tgt.index(tgt)
-
-def Item.pos(it: T.Item) -> T.Pos:
-  match it:
-    case T.Item{tgt, pos, text, hits}:
-      pos
-
-def Item.text(it: T.Item) -> String:
-  match it:
-    case T.Item{tgt, pos, text, hits}:
-      text
 
 # the rows (w cells) and marks of the files list: k rows of the page
 # holding the selection (sel: its row counted from 1), the box's row row0
@@ -301,9 +369,12 @@ def Fff.file_rows(k: Nat, its: List<&2, T.Item>, +w: Nat, +sel: Nat, +cur: Nat, 
       Fff.file_rows(p, Nil{}, w, Nat.sub(sel, 1n), cur, 1n+row0, X.Text.spaces(w, SNil{}) <> acc, ms)
     case 1n+p Con{T.Item{tgt, pos, +path, hits}, t}:
       +current = Nat.is_eq(cur, 1n+Tgt.index(tgt))
-      +ms2 = Fff.file_marks(path, hits, row0, 1n, w, current, ms)
+      +d = B.Path.dir(path)
+      +ns = X.Text.len(d)
+      +name = X.Text.drop(path, ns)
+      +ms2 = Fff.file_marks(X.Text.len(name), Nat.sub(ns, 1n), ns, hits, row0, 1n, w, current, ms)
       +ms3 = Bool.pick(List<&2, T.Mark>, Nat.is_eq(sel, 1n), T.Mark{row0, 1n, w, T.Sel{}} <> ms2, ms2)
-      Fff.file_rows(p, t, w, Nat.sub(sel, 1n), cur, 1n+row0, Fff.file_row(path, w, current) <> acc, ms3)
+      Fff.file_rows(p, t, w, Nat.sub(sel, 1n), cur, 1n+row0, Fff.file_row(name, X.Text.take(d, Nat.sub(ns, 1n)), w, current) <> acc, ms3)
 
 # Live grep's list
 # ----------------
@@ -316,18 +387,21 @@ type GLine is Data:
 
 # a file's header: its name and folder, as the files list shows them
 def Grep.header(+path: String, +w: Nat) -> GLine:
-  +nl = X.Text.len(Fff.name(path))
-  +dl = X.Text.len(Fff.dir(path))
-  GLine{X.Text.fit("  " ++ Fff.name(path) ++ " " ++ Fff.dir(path), w), Bool.pick(List<&2, T.Mark>, Nat.is_eq(dl, 0n), Nil{}, [T.Mark{0n, Nat.add(3n, nl), dl, T.Dim{}}]), 0n}
+  +d = B.Path.dir(path)
+  +ns = X.Text.len(d)
+  +name = X.Text.drop(path, ns)
+  +dl = Nat.sub(ns, 1n)
+  GLine{X.Text.fit("  " ++ name ++ " " ++ X.Text.take(d, dl), w), Bool.pick(List<&2, T.Mark>, Nat.is_eq(dl, 0n), Nil{}, [T.Mark{0n, Nat.add(3n, X.Text.len(name)), dl, T.Dim{}}]), 0n}
 
 # a match: " :line:col  text" after the sign column, the text cut with "…"
 # to the cells the list leaves it
 def Grep.match(+loc: String, +content: String, hits: List<&2, Nat>, +w: Nat, +k: Nat) -> GLine:
   +pre = Nat.add(3n, X.Text.len(loc))
   +avail = Nat.sub(Nat.sub(w, pre), 2n)
-  +long = Bool.and(Nat.is_gt(X.Text.cells(content), avail), Nat.is_gt(avail, 3n))
-  +shown = Bool.pick(String, long, X.Text.cut(content, Nat.sub(avail, 1n)) ++ "…", content)
-  +lim = Bool.pick(Nat, long, Nat.sub(avail, 1n), X.Text.cells(content))
+  +n = X.Bool.when(Nat, Nat.is_gt(avail, 3n), u => X.Text.cells(content), u => X.Text.cells.upto(content, 1n+avail))
+  +long = Bool.and(Nat.is_gt(n, avail), Nat.is_gt(avail, 3n))
+  +shown = X.Bool.when(String, long, u => content, u => X.Text.cut(content, Nat.sub(avail, 1n)) ++ "…")
+  +lim = Bool.pick(Nat, long, Nat.sub(avail, 1n), n)
   GLine{X.Text.fit("   " ++ loc ++ "  " ++ shown, w), P.Marks.cols(hits, 0n, Nat.add(2n, pre), lim, [T.Mark{0n, 3n, X.Text.len(loc), T.Number{}}]), k}
 
 # the list's rows for matches its: each file's header, then its matches
@@ -337,11 +411,10 @@ def Grep.glines(its: List<&2, T.Item>, +fs: List<&2, T.Buf>, +w: Nat, +last: Nat
       List.reverse(&2, GLine, acc)
     case Con{T.Item{tgt, T.Pos{+l, +c}, +text, +hits}, t}:
       +i = Tgt.index(tgt)
-      +b = B.Files.at(fs, i)
       +ind = Nat.sub(c, Maybe.default(&2, Nat, List.head(&2, Nat, hits), 0n))
       +loc = ":" ++ Nat.show(1n+l) ++ ":" ++ Nat.show(Nat.add(1n+ind, X.Text.bytes(text, Nat.sub(c, ind))))
       +m = Grep.match(loc, text, hits, w, 1n+k)
-      Grep.glines(t, fs, w, 1n+i, 1n+k, Bool.pick(List<&2, GLine>, Nat.is_eq(last, 1n+i), m <> acc, m <> Grep.header(B.Buf.path(b), w) <> acc))
+      Grep.glines(t, fs, w, 1n+i, 1n+k, X.Bool.when(List<&2, GLine>, Nat.is_eq(last, 1n+i), u => m <> Grep.header(B.Buf.path(B.Files.at(fs, i)), w) <> acc, u => m <> acc))
 
 def Grep.tip(+s: String, +w: Nat) -> GLine:
   GLine{X.Text.fit("  " ++ s, w), Bool.pick(List<&2, T.Mark>, String.is_empty(s), Nil{}, [T.Mark{0n, 2n, X.Text.cells(s), T.Dim{}}]), 0n}
@@ -392,8 +465,7 @@ def Fff.ptop(+grep: Bool, +fs: List<&2, T.Buf>, m: Maybe<&2, T.Item>, +pw: Nat, 
     case Some{T.Item{tgt, T.Pos{+l, c}, text, hits}}:
       +b = B.Files.at(fs, Tgt.index(tgt))
       +ls = B.Buf.lines(b)
-      +nw = Bool.pick(Nat, grep, P.Pane.numw(B.Lines.len(ls)), 0n)
-      Bool.pick(Nat, Nat.is_gt(pv, 0n), Nat.sub(pv, 1n), Bool.pick(Nat, grep, P.Pane.zt(ls, l, Nat.sub(pw, nw), P.Pane.wraps(B.Buf.path(b))), 0n))
+      X.Bool.when(Nat, Nat.is_gt(pv, 0n), u => X.Bool.when(Nat, grep, u => 0n, u => P.Pane.zt(ls, l, Nat.sub(pw, P.Pane.numw(B.Lines.len(ls))), P.Pane.wraps(B.Buf.path(b)))), u => Nat.sub(pv, 1n))
 
 # the preview's title and pane for the selected item
 def Fff.pane(+grep: Bool, +fs: List<&2, T.Buf>, m: Maybe<&2, T.Item>, +top: Nat, +pw: Nat, +ph: Nat) -> (String & P.Pane):
@@ -433,13 +505,17 @@ def Rows.first(xs: List<&2, String>) -> String:
 def Rows.second(xs: List<&2, String>) -> String:
   Maybe.default(&2, String, List.get(&2, String, xs, 1n), SNil{})
 
+# live grep's rows and marks, the first at box row row0
+def Grep.list(+fs: List<&2, T.Buf>, +q: String, +its: List<&2, T.Item>, +sel: Nat, +lw: Nat, +lh: Nat, +row0: Nat) -> (List<&2, String> & List<&2, T.Mark>):
+  +gs = X.Bool.when(List<&2, GLine>, List.is_empty(&2, T.Item, its), u => Grep.glines(List.take(&2, T.Item, its, Nat.add(sel, Nat.add(lh, 1n))), fs, lw, 0n, 0n, Nil{}), u => Grep.empty(q, lw))
+  +gtop = Nat.min(Nat.sub(Nat.add(Grep.cline(gs, 1n+sel, 0n), 9n), lh), Nat.sub(List.length(&2, GLine, gs), lh))
+  Grep.rows(lh, List.drop(&2, GLine, gs, gtop), lw, 1n+sel, row0, Nil{}, Nil{})
+
 # the files list's or live grep's rows and marks, the first at box row
 # row0
 def Fff.list(+grep: Bool, +fs: List<&2, T.Buf>, +q: String, +its: List<&2, T.Item>, +sel: Nat, +top: Nat, +cur: Nat, +lw: Nat, +lh: Nat, +row0: Nat) -> (List<&2, String> & List<&2, T.Mark>):
   +page = Nat.mul(Nat.div(sel, Nat.max(lh, 1n)), lh)
-  +gs = Bool.pick(List<&2, GLine>, List.is_empty(&2, T.Item, its), Grep.empty(q, lw), Grep.glines(List.take(&2, T.Item, its, Nat.add(sel, Nat.add(lh, 1n))), fs, lw, 0n, 0n, Nil{}))
-  +gtop = Nat.min(Nat.sub(Nat.add(Grep.cline(gs, 1n+sel, 0n), 9n), lh), Nat.sub(List.length(&2, GLine, gs), lh))
-  X.Bool.when((List<&2, String> & List<&2, T.Mark>), grep, u => Fff.file_rows(lh, List.drop(&2, T.Item, its, page), lw, Nat.sub(1n+sel, page), cur, row0, Nil{}, Nil{}), u => Grep.rows(lh, List.drop(&2, GLine, gs, gtop), lw, 1n+sel, row0, Nil{}, Nil{}))
+  X.Bool.when((List<&2, String> & List<&2, T.Mark>), grep, u => Fff.file_rows(lh, List.drop(&2, T.Item, its, page), lw, Nat.sub(1n+sel, page), cur, row0, Nil{}, Nil{}), u => Grep.list(fs, q, its, sel, lw, lh, row0))
 
 # what the prompt shows right: the files matched of all (just all for a
 # query under two characters), or live grep's mode

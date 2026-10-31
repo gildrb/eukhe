@@ -13,6 +13,7 @@ import ./st.bend as S
 import ./core.bend as C
 import ./fff.bend as FF
 import ./fzf.bend as Z
+import ./box.bend as Bx
 
 # the file the window shows, from 1 (0: a folder's listing)
 def Pick.cur(t: T.Tgt) -> Nat:
@@ -27,29 +28,86 @@ def Pick.buffers(+s: T.St) -> List<&2, T.Item>:
   +w = S.St.win(s)
   Z.Fzf.buffers(S.St.opened(s), S.St.files(s), S.St.bufs(s), S.St.marks(s), Pick.cur(S.Win.tgt(w)), S.Win.cur(w))
 
-# the lines of file c (from 1) and in lower case
-def Pick.lines(+s: T.St, +c: Nat, +q: String) -> List<&2, T.Item>:
+# the buffers but the current one matching q
+def Pick.bufs(+s: T.St, +q: String) -> T.Level:
+  T.Level{Nil{}, Z.Fzf.filter(List.drop(&2, T.Item, Pick.buffers(s), 1n), q), None{}}
+
+def Pick.none() -> T.Level:
+  T.Level{Nil{}, Nil{}, None{}}
+
+# every line of file c (from 1; 0: none)
+def Pick.lines(+s: T.St, +c: Nat) -> T.Level:
   +i = Nat.sub(c, 1n)
   +ls = B.Buf.lines(B.Files.at(S.St.files(s), i))
   +fl = Maybe.default(&2, List<&2, String>, List.get(&2, List<&2, String>, S.St.folded(s), i), Nil{})
-  Bool.pick(List<&2, T.Item>, Nat.is_eq(c, 0n), Nil{}, Z.Fzf.lines(ls, fl, i, q))
+  X.Bool.when(T.Level, Nat.is_eq(c, 0n), u => Z.Fzf.base(ls, fl, i), u => Pick.none())
 
-# what picker k lists for query q
-def Pick.items(+s: T.St, k: T.Pick, +q: String) -> List<&2, T.Item>:
+# what picker k finds for the empty query
+def Pick.base(+s: T.St, k: T.Pick) -> T.Level:
   match k:
     case T.FFiles{}:
-      FF.Fff.files(S.St.files(s), q)
+      FF.Fff.base(S.St.files(s))
     case T.FGrep{}:
-      FF.Fff.grep(S.St.files(s), S.St.folded(s), q)
+      T.Level{Nil{}, Nil{}, FF.Grep.start(S.St.files(s), S.St.folded(s))}
     case T.ZBufs{}:
-      Z.Fzf.filter(List.drop(&2, T.Item, Pick.buffers(s), 1n), q)
+      Pick.bufs(s, "")
     case T.ZLines{}:
-      Pick.lines(s, Pick.cur(S.Win.tgt(S.St.win(s))), q)
+      Pick.lines(s, Pick.cur(S.Win.tgt(S.St.win(s))))
+
+# what picker k finds for query q, one character longer than the query
+# head found; base: what the empty query found
+def Pick.narrow.at(+s: T.St, k: T.Pick, head: T.Level, base: T.Level, +q: String) -> T.Level:
+  match k:
+    case T.FFiles{}:
+      FF.Fff.narrow(head, base, q)
+    case T.FGrep{}:
+      FF.Grep.narrow(head, q)
+    case T.ZBufs{}:
+      Pick.bufs(s, q)
+    case T.ZLines{}:
+      Z.Fzf.narrow(head, q)
+
+# what picker k finds for query q, one character longer than the query
+# that found the first of levels (each query's back to the empty one's)
+def Pick.narrow(+s: T.St, +k: T.Pick, +levels: List<&2, T.Level>, +q: String) -> T.Level:
+  +head = Maybe.default(&2, T.Level, List.head(&2, T.Level, levels), Pick.none())
+  +base = Maybe.default(&2, T.Level, List.last(&2, T.Level, levels), Pick.none())
+  Pick.narrow.at(s, k, head, base, q)
+
+def Pick.items(m: Maybe<&2, T.Level>) -> List<&2, T.Item>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{T.Level{cs, its, r}}:
+      its
+
+# picker k open with query q and what it and each shorter query found,
+# its first item selected
+def Pick.set(+s: T.St, +k: T.Pick, +q: String, +levels: List<&2, T.Level>) -> T.St:
+  +its = Pick.items(List.head(&2, T.Level, levels))
+  S.St.set_pend(S.St.set_mode(s, T.Picking{k, q, its, List.length(&2, T.Item, its), 0n, 0n, 0n, levels}), T.NoPend{})
+
+# the levels of query q's characters cs typed after query q
+def Pick.grow(+s: T.St, +k: T.Pick, cs: String, +q: String, +levels: List<&2, T.Level>) -> List<&2, T.Level>:
+  match cs:
+    case SNil{}:
+      levels
+    case SCon{+h, t}:
+      +q2 = String.append(q, SCon{h, SNil{}})
+      Pick.grow(s, k, t, q2, Pick.narrow(s, k, levels, q2) <> levels)
 
 # picker k open with query q, its first item selected
 def Pick.open(+s: T.St, +k: T.Pick, +q: String) -> T.St:
-  +its = Pick.items(s, k, q)
-  S.St.set_pend(S.St.set_mode(s, T.Picking{k, q, its, List.length(&2, T.Item, its), 0n, 0n, 0n}), T.NoPend{})
+  Pick.set(s, k, q, Pick.grow(s, k, q, "", [Pick.base(s, k)]))
+
+# Backspace: the query q (less its last character) and what it found:
+# the levels less their first, but the empty query's
+def Pick.back(+s: T.St, +k: T.Pick, +q: String, levels: List<&2, T.Level>) -> T.St:
+  match levels:
+    case Con{l, Con{h, t}}:
+      Pick.set(s, k, q, Con{h, t})
+    case ls:
+      Pick.set(s, k, q, ls)
 
 def Pick.is_fff(k: T.Pick) -> Bool:
   match k:
@@ -149,10 +207,10 @@ def Pick.char(s: String) -> Bool:
     case t:
       False{}
 
-def Pick.special(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat, key: Nat) -> T.St:
+def Pick.special(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat, +levels: List<&2, T.Level>, key: Nat) -> T.St:
   match key:
     case 0n:
-      Pick.open(s, k, String.reverse(Pick.drop1(String.reverse(q))))
+      Pick.back(s, k, String.reverse(Pick.drop1(String.reverse(q))), levels)
     case 1n:
       Pick.enter(s, k, its, sel)
     case 2n:
@@ -160,32 +218,31 @@ def Pick.special(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: N
     case 3n:
       S.St.set_mode(s, T.Normal{})
     case 4n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n, levels})
     case 5n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n, levels})
     case 6n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, True{}), 0n, 0n, levels})
     case 7n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n, levels})
     case 8n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n, levels})
     case 9n:
-      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n})
+      S.St.set_mode(s, T.Picking{k, q, its, n, Pick.move(k, n, sel, False{}), 0n, 0n, levels})
     case 10n:
-      Bool.pick(T.St, Pick.is_fff(k), S.St.set_mode(s, T.Picking{k, q, its, n, sel, 0n, Pick.scroll(s, k, its, sel, pv, True{})}), s)
+      Bool.pick(T.St, Pick.is_fff(k), S.St.set_mode(s, T.Picking{k, q, its, n, sel, 0n, Pick.scroll(s, k, its, sel, pv, True{}), levels}), s)
     case 11n:
-      Bool.pick(T.St, Pick.is_fff(k), S.St.set_mode(s, T.Picking{k, q, its, n, sel, 0n, Pick.scroll(s, k, its, sel, pv, False{})}), s)
+      Bool.pick(T.St, Pick.is_fff(k), S.St.set_mode(s, T.Picking{k, q, its, n, sel, 0n, Pick.scroll(s, k, its, sel, pv, False{}), levels}), s)
     case 12n+p:
       s
-
-
 
 # a key in a picker: a character narrows the list, Backspace widens it,
 # the arrows and Ctrl-n/p/j/k move the selection, Enter opens, Esc and
 # Ctrl-c close, Ctrl-d/u scroll fff's preview
-def Pick.key(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat, +key: String) -> T.St:
+def Pick.key(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat, +levels: List<&2, T.Level>, +key: String) -> T.St:
   +ch = Bool.pick(String, String.eq(key, "<Space>"), " ", key)
-  X.Bool.when(T.St, Pick.char(ch), u => Pick.special(s, k, q, its, n, sel, pv, Pick.find(Pick.keys(), key, 0n)), u => Pick.open(s, k, String.append(q, ch)))
+  +q2 = String.append(q, ch)
+  X.Bool.when(T.St, Pick.char(ch), u => Pick.special(s, k, q, its, n, sel, pv, levels, Pick.find(Pick.keys(), key, 0n)), u => Pick.set(s, k, q2, Pick.narrow(s, k, levels, q2) <> levels))
 
 # The float, the statusline, the cursor
 # -------------------------------------
@@ -197,12 +254,22 @@ def Pick.text(m: Maybe<&2, T.Item>) -> String:
     case Some{T.Item{tgt, pos, text, hits}}:
       text
 
+def Pick.fff(+s: T.St, +grep: Bool, +q: String, +its: List<&2, T.Item>, +sel: Nat, +pv: Nat) -> T.Float:
+  FF.Fff.float(grep, S.St.files(s), q, its, sel, 0n, pv, Pick.cur(S.Win.tgt(S.St.win(s))), S.St.rows(s), S.St.cols(s))
 
-def Pick.float(+s: T.St, +k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat) -> T.Float:
-  +r = S.St.rows(s)
-  +c = S.St.cols(s)
-  +fs = S.St.files(s)
-  +cur = Pick.cur(S.Win.tgt(S.St.win(s)))
-  +bufs = Pick.buffers(s)
-  X.Bool.when(T.Float, Pick.is_fff(k), u => X.Bool.when(T.Float, Pick.is_lines(k), u => Z.Fzf.float(False{}, fs, S.St.bufs(s), " Buffers ", q, [":: <ctrl-x> to close", Pick.text(List.head(&2, T.Item, bufs))], its, Nat.sub(List.length(&2, T.Item, bufs), 1n), sel, r, c), u => Z.Fzf.float(True{}, fs, S.St.bufs(s), " Buffer Lines ", q, Nil{}, its, B.Lines.len(C.St.lines(s)), sel, r, c)), u => FF.Fff.float(Bool.not(Pick.is_files(k)), fs, q, its, sel, 0n, pv, cur, r, c))
+def Pick.draw(+s: T.St, k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat) -> T.Float:
+  match k:
+    case T.FFiles{}:
+      Pick.fff(s, False{}, q, its, sel, pv)
+    case T.FGrep{}:
+      Pick.fff(s, True{}, q, its, sel, pv)
+    case T.ZBufs{}:
+      +bufs = Pick.buffers(s)
+      Z.Fzf.float(False{}, S.St.files(s), S.St.bufs(s), " Buffers ", q, [":: <ctrl-x> to close", Pick.text(List.head(&2, T.Item, bufs))], its, Nat.sub(List.length(&2, T.Item, bufs), 1n), sel, S.St.rows(s), S.St.cols(s))
+    case T.ZLines{}:
+      Z.Fzf.float(True{}, S.St.files(s), S.St.bufs(s), " Buffer Lines ", q, Nil{}, its, B.Lines.len(C.St.lines(s)), sel, S.St.rows(s), S.St.cols(s))
+
+# picker k's float, kept on screen
+def Pick.float(+s: T.St, k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat) -> T.Float:
+  Bx.Float.fit(Pick.draw(s, k, q, its, n, sel, pv), S.St.rows(s))
 

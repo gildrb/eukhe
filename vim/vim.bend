@@ -38,7 +38,7 @@ def Vim.click(+s: T.St, m: T.Mode, +row: Nat, +col: Nat) -> T.St:
       X.Bool.when(T.St, Nat.is_lt(row, C.St.h(s)), u => s2, u => C.Win.go(s2, T.Pos{Nat.add(S.Win.top(w), row), Nat.add(S.Win.left(w), Nat.sub(col, g))}, False{}))
     case T.Typing{kind, text}:
       s
-    case T.Picking{kind, q, its, n, sel, top, pv}:
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       S.St.set_mode(s, T.Normal{})
 
 # notches of the wheel: three lines each, the cursor dragged on screen; in
@@ -49,8 +49,8 @@ def Vim.wheel(+s: T.St, m: T.Mode, +down: Bool, +notches: Nat) -> T.St:
       K.Key.scroll_by(s, down, Nat.mul(notches, V.View.notch()), False{})
     case T.Typing{kind, text}:
       s
-    case T.Picking{kind, q, its, n, sel, top, pv}:
-      P.Pick.key(s, kind, q, its, n, sel, pv, Bool.pick(String, down, "<Down>", "<Up>"))
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      P.Pick.key(s, kind, q, its, n, sel, pv, levels, Bool.pick(String, down, "<Down>", "<Up>"))
 
 # The editor
 # ----------

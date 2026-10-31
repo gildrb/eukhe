@@ -16,11 +16,13 @@
 # R3 'scrolloff' 8 (as much of it as the window holds): the cursor keeps that many lines above and below it on screen, unless the buffer ends first.
 # R4 The screen fits: rows x cols cells from the last size event (at least 3 x 12); the number column one entry per text row, each exactly the gutter wide; the statusline exactly cols cells; search hits and the scrollbar inside the text rows; a float inside the screen, each of its rows exactly its width.
 # R5 A click on a text cell puts the cursor on that line (the last line when below the text) and on that column (the line's last character when past its end).
-# R6 Oil never traps: every listing starts with "../"; "-" goes to the parent folder (at the root it stays); Ctrl-c always returns to a file; "-" from a file opens its folder with the cursor on the file's entry.
+# R6 Oil never traps: every listing starts with "../"; "-" goes to the parent folder (at the root it stays); Ctrl-c in a listing (normal mode) returns to a file; "-" from a file opens its folder with the cursor on the file's entry.
 # R7 The host never does anything the files did not ask for: the only text ever copied is the install command, and every URL opened appears in a file.
 # A1 Every character of a file takes one cell (the site's font is monospace, every glyph checked at build); files hold no wide characters.
 # A2 A file with no lines shows one empty line, as Neovim does; past the last file, the window shows one empty line.
 # A3 The motion laws (R2, R5) hold from normal mode: after an Esc, which closes a picker, cancels a command line and drops a count or a waiting key.
+# A4 j, k, gg and G keep the column ('nostartofline'): a cursor short of its line's end stays on that column, or on the new line's last character when the line is shorter; a cursor at its line's end stays at least as far right.
+# A5 After Esc the command line may still show the last message or search, as in Neovim; while a command line or a picker is open, the window behind it is not checked for 'scrolloff'.
 
 import Base
 import ./vim/types.bend as T
@@ -564,6 +566,63 @@ def Example.start() -> Bool:
   +f = V.Vim.frame(V.Vim.init([T.Buf{"index.md", ["ab", "c"]}], 10n, 40n))
   Bool.and(Bool.and(Nat.is_eq(F.row(f), 0n), Nat.is_eq(F.col(f), 6n)), String.eq(F.char(f), "a"))
 
+# A4: from frame a to frame b, a vertical motion kept the column
+def Claim.vcol(+fs: List<&2, T.Buf>, +s1: T.St, +s2: T.St) -> Bool:
+  +a = V.Vim.frame(s1)
+  +b = V.Vim.frame(s2)
+  +c = Spec.at_col(a)
+  +last = Spec.last(Spec.chars(Spec.line(Spec.lines(fs, s1), Spec.at_line(a))))
+  +want = Spec.min(c, Spec.last(Spec.chars(Spec.line(Spec.lines(fs, s2), Spec.at_line(b)))))
+  Bool.pick(Bool, Nat.is_lt(c, last), Nat.is_eq(Spec.at_col(b), want), Nat.is_le(want, Spec.at_col(b)))
+
+def Claim.vcol_j(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  Claim.vcol(fs, s, Spec.press(s, "j"))
+
+def Claim.vcol_k(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  Claim.vcol(fs, s, Spec.press(s, "k"))
+
+def Claim.vcol_gg(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  Claim.vcol(fs, s, Spec.press(Spec.press(s, "g"), "g"))
+
+def Claim.vcol_G(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  Claim.vcol(fs, s, Spec.press(s, "G"))
+
+def F.cmd(f: T.Frame) -> String:
+  match f:
+    case T.Frame{tgt, top, left, gutter, nums, cur, char, cmd, hits, bar, cl, status, float}:
+      cmd
+
+def F.cl(f: T.Frame) -> Bool:
+  match f:
+    case T.Frame{tgt, top, left, gutter, nums, cur, char, cmd, hits, bar, cl, status, float}:
+      cl
+
+def Spec.is_none(m: Maybe<&2, T.Float>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{x}:
+      False{}
+
+def Spec.bar_col(b: T.Span) -> Nat:
+  match b:
+    case T.Span{row, col, len}:
+      col
+
+# R4: the scrollbar in the last column, the command line within the
+# screen, the cursorline shown exactly when no float is open
+def Spec.edges(+s: T.St, +cols: Nat) -> Bool:
+  +f = V.Vim.frame(s)
+  +bar = Nat.is_eq(Spec.bar_col(F.bar(f)), Nat.sub(cols, 1n))
+  Bool.and(bar, Bool.and(Nat.is_le(Spec.cells(F.cmd(f)), cols), Bool.not(Bool.xor(F.cl(f), Spec.is_none(F.float(f))))))
+
+# R1: a cursor on the command line sits right after what it shows, on
+# screen
+def Spec.on_cmdline(+s: T.St, +rows: Nat, +cols: Nat) -> Bool:
+  +f = V.Vim.frame(s)
+  +there = Bool.and(Spec.is_none(F.float(f)), Nat.is_eq(F.row(f), Nat.sub(rows, 1n)))
+  Spec.implies(there, Bool.and(Nat.is_eq(F.col(f), Spec.cells(F.cmd(f))), Bool.and(Nat.is_lt(F.col(f), cols), Bool.not(String.is_empty(F.cmd(f))))))
+
 # Laws
 # ----
 
@@ -607,6 +666,25 @@ law fits:
   for +cols: Nat
   for +evs: List<&2, T.Ev>
   {Spec.fits(Spec.run(fs, rows, cols, evs), Spec.rows(rows, evs), Spec.cols(cols, evs)) == True{} : Bool}
+
+# LAW cmdline_cursor: after any events, a cursor on the command line
+# (no float open) sits right after the text it shows, on screen (R1).
+law cmdline_cursor:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Spec.on_cmdline(Spec.run(fs, rows, cols, evs), Spec.rows(rows, evs), Spec.cols(cols, evs)) == True{} : Bool}
+
+# LAW edges: after any events, the scrollbar is in the last column, the
+# command line fits the screen, and the cursorline shows exactly when no
+# float is open (R4).
+law edges:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Spec.edges(Spec.run(fs, rows, cols, evs), Spec.cols(cols, evs)) == True{} : Bool}
 
 # LAW esc_closes: after any events and an Esc, no float is open (A3).
 law esc_closes:
@@ -681,6 +759,38 @@ law key_l:
   for +cols: Nat
   for +evs: List<&2, T.Ev>
   {Claim.l(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW col_j: j keeps the column (A4).
+law col_j:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.vcol_j(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW col_k: k keeps the column (A4).
+law col_k:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.vcol_k(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW col_gg: gg keeps the column (A4).
+law col_gg:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.vcol_gg(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW col_G: G keeps the column (A4).
+law col_G:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.vcol_G(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
 
 # ---- the mouse (R5) ----
 

@@ -1,8 +1,14 @@
 {
   "laws": {
     "LAWS.bend::click": "cfe0f2bb2695a532a993b124f93f9f28059a4628716e1f785381af218078ebcf",
+    "LAWS.bend::cmdline_cursor": "58ec637d9cd87cf751bd097f62277e8c1854cff78b1e98948c7b9bf3fbb35e87",
+    "LAWS.bend::col_G": "b493a7dcbabdba73a40910fe62667781a213a6f2d8cec3726b457423dd435c0b",
+    "LAWS.bend::col_gg": "b40bebea6579b0eb9f4f1ac16d338450ce4b4223873db82633724550275679a2",
+    "LAWS.bend::col_j": "9ef6ae23c6a0c8adf21fdd1143706fe7f7b9871d6acaf022ab38894cbc94e4e4",
+    "LAWS.bend::col_k": "a9d1aaa67f1f319e20e02dd59efb01176b263763ce17b7cee17847722bbd2cd1",
     "LAWS.bend::cursor_ok": "2022806b87f4037be9e613a49fa14dc3ef34b7dda7c6ef107a4b2f291995cc2b",
     "LAWS.bend::cursor_on_text": "8d24535d3f2117a86c22e869e84087f59e16f804a364e7a10f4827ec4b8c86b5",
+    "LAWS.bend::edges": "dce5b473b25852489709ed03b9682967fe09af40737bedacf8870d7ee7390438",
     "LAWS.bend::esc_closes": "9c8613ae1fbd798496e48d91f9992cda7748780d9a648f7a77afe663a058cba6",
     "LAWS.bend::fits": "911236a06091b38dba33b9d6e49230b2fb62926c136dbb569c0d4a16a088d9e1",
     "LAWS.bend::honest": "56877f7bd4e959bc46c0fd012235c20fd349548ce77b44d543096e55f717dd0a",
@@ -22,7 +28,7 @@
     "LAWS.bend::start_example": "5d4e43b01317334eecd7008a45bef3727e39a39c7ec6d3646d9ecb6d5e21b689"
   },
   "spec": {
-    "LAWS.bend": "81cdf3d41d7b5455f8cfd3b3037fd65515bf53d090b83f07c27224bb66261765"
+    "LAWS.bend": "ad1f879f233fd3bf4c228b93e3254fa5989f08ea097c13f32d0139c9c793b0e5"
   },
   "spec_files": {}
 }

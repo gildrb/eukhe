@@ -45,6 +45,24 @@ type Pick is Data:
 type Item is Data:
   Item{tgt: Tgt, pos: Pos, text: String, hits: List<&2, Nat>}
 
+# what a picker matches its query against: file i, line l (0 for fff's
+# files), the text (a line or a path) and it in lower case (lines only)
+type Cand is Data:
+  Cand{i: Nat, l: Nat, text: String, low: String}
+
+# where live grep's scan of the files stopped: line l of file i, the lines
+# from it on (fl: in lower case), then the files after it and their lines
+# in lower case
+type Rest is Data:
+  Rest{i: Nat, l: Nat, ls: List<&2, String>, fl: List<&2, String>, fs: List<&2, Buf>, fls: List<&2, List<&2, String>>}
+
+# what a picker found for one query: the candidates matching it (every
+# file or line for the empty query), its items and, for live grep, where
+# its scan stopped (the candidates are the lines before it matching; none:
+# it scanned every file)
+type Level is Data:
+  Level{cands: List<&2, Cand>, items: List<&2, Item>, rest: Maybe<&2, Rest>}
+
 # what the command line takes: an Ex command (:), a search forward (/) or
 # back (?)
 type Line is Data:
@@ -53,13 +71,15 @@ type Line is Data:
   Quest{}
 
 # the mode: normal, typing on the command line, or a picker with its
-# query, its items (the ones listed, at most a page for fff), how many
-# match in all, the selected item, the first item on screen and the
-# preview's scroll (lines)
+# query, its items (the ones listed, at most a page for fff's live grep),
+# how many it lists, the selected item, the first item on screen, the
+# preview's scroll (lines) and what each query from the query back to the
+# empty one found (a typed character narrows the first, Backspace drops
+# it)
 type Mode is Data:
   Normal{}
   Typing{kind: Line, text: String}
-  Picking{kind: Pick, query: String, items: List<&2, Item>, n: Nat, sel: Nat, top: Nat, pv: Nat}
+  Picking{kind: Pick, query: String, items: List<&2, Item>, n: Nat, sel: Nat, top: Nat, pv: Nat, levels: List<&2, Level>}
 
 # a key that waits for the next one: g, z, the leader (Space), leader f,
 # y

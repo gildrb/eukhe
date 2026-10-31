@@ -420,5 +420,5 @@ def Key.in(+s: T.St, m: T.Mode, +key: String) -> T.Step:
       Key.in_normal(s, key)
     case T.Typing{kind, text}:
       Key.typing(s, kind, text, key)
-    case T.Picking{kind, q, its, n, sel, top, pv}:
-      Key.ok(P.Pick.key(s, kind, q, its, n, sel, pv, key))
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      Key.ok(P.Pick.key(s, kind, q, its, n, sel, pv, levels, key))

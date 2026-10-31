@@ -29,9 +29,6 @@ def Box.centered(+title: String, +w: Nat) -> String:
 def Box.center_at(+title: String, +w: Nat) -> Nat:
   Nat.div(Nat.sub(w, X.Text.cells(title)), 2n)
 
-def Box.mark(+row: Nat, +col: Nat, +len: Nat, g: T.Group) -> T.Mark:
-  T.Mark{row, col, len, g}
-
 def Box.side.cols(cs: List<&2, Nat>, +row: Nat, +acc: List<&2, T.Mark>) -> List<&2, T.Mark>:
   match cs:
     case Nil{}:
@@ -62,6 +59,28 @@ def Marks.cols(cs: List<&2, Nat>, +row: Nat, +col: Nat, +lim: Nat, +acc: List<&2
     case Con{+c, t}:
       Marks.cols(t, row, col, lim, Bool.pick(List<&2, T.Mark>, Nat.is_lt(c, lim), T.Mark{row, Nat.add(col, c), 1n, T.Match{}} <> acc, acc))
 
+# marks of a float of n rows cut to h rows of w cells: the last row's
+# moved to row h - 1, those of rows cut dropped, each cut at the edge
+def Marks.fit(ms: List<&2, T.Mark>, +n: Nat, +h: Nat, +w: Nat, +acc: List<&2, T.Mark>) -> List<&2, T.Mark>:
+  match ms:
+    case Nil{}:
+      List.reverse(&2, T.Mark, acc)
+    case Con{T.Mark{+r, +c, +len, g}, t}:
+      +r2 = Bool.pick(Nat, Nat.is_eq(1n+r, n), Nat.sub(h, 1n), r)
+      +keep = Bool.and(Bool.or(Nat.is_lt(1n+r, h), Nat.is_eq(1n+r, n)), Nat.is_lt(c, w))
+      Marks.fit(t, n, h, w, Bool.pick(List<&2, T.Mark>, keep, T.Mark{r2, c, Nat.min(len, Nat.sub(w, c)), g} <> acc, acc))
+
+# a float on a screen of rows rows: its rows are its lines (at most the
+# screen's: the first and its last, the bottom border), moved up as far
+# as it must to stay on screen
+def Float.fit(f: T.Float, +rows: Nat) -> T.Float:
+  match f:
+    case T.Float{+row, col, +width, height, +lines, marks}:
+      +n = List.length(&2, String, lines)
+      +h = Nat.min(n, rows)
+      +ls = X.Bool.when(List<&2, String>, Nat.is_lt(h, n), u => lines, u => List.append(&2, String, List.take(&2, String, lines, Nat.sub(h, 1n)), List.drop(&2, String, lines, Nat.sub(n, 1n))))
+      T.Float{Nat.min(row, Nat.sub(rows, h)), col, width, h, ls, Marks.fit(marks, n, h, width, Nil{})}
+
 # Previews
 # --------
 
@@ -80,20 +99,20 @@ def Pane.wraps(+path: String) -> Bool:
 def Pane.num(+n: Nat, +w: Nat, +shown: Bool) -> String:
   Bool.pick(String, Nat.is_eq(w, 0n), "", Bool.pick(String, shown, X.Text.right(Nat.show(n), Nat.sub(w, 1n)) ++ " ", X.Text.spaces(w, SNil{})))
 
-# the rows of s cut in runs of w cells, at most n of them, reversed onto
-# acc
+# the rows of s cut in runs of w cells (each padded to w), at most n of
+# them, reversed onto acc
 def Pane.chunks(n: Nat, +s: String, +w: Nat, +acc: List<&2, String>) -> List<&2, String>:
   match n:
     case 0n:
       acc
-    case 1n+p:
-      +c = X.Text.cut(s, w)
-      +rest = X.Text.dropc(s, w)
-      X.Bool.when(List<&2, String>, String.is_empty(rest), u => Pane.chunks(p, rest, w, c <> acc), u => c <> acc)
+    case 1n++p:
+      +c = X.Text.fit(s, w)
+      X.Bool.when(List<&2, String>, Nat.is_eq(p, 0n), u => X.Bool.when(List<&2, String>, String.is_empty(X.Text.dropc(s, w)), u => Pane.chunks(p, X.Text.dropc(s, w), w, c <> acc), u => c <> acc), u => c <> acc)
 
-# the screen rows a line takes when wrapped in w cells
-def Pane.height(+s: String, +w: Nat) -> Nat:
-  Nat.max(1n, Nat.div(Nat.add(X.Text.cells(s), Nat.sub(w, 1n)), Nat.max(w, 1n)))
+# the screen rows a line takes when wrapped in w cells, counted up to
+# room + 1 (past it, its rows are at least that)
+def Pane.height(+s: String, +w: Nat, +room: Nat) -> Nat:
+  Nat.max(1n, Nat.div(Nat.add(X.Text.cells.upto(s, Nat.mul(Nat.max(w, 1n), 1n+room)), Nat.sub(w, 1n)), Nat.max(w, 1n)))
 
 def Pane.blank(n: Nat, +w: Nat, +acc: List<&2, String>) -> List<&2, String>:
   match n:
@@ -111,12 +130,12 @@ def Pane.sel(n: Nat, +row: Nat, +w: Nat, +ms: List<&2, T.Mark>) -> List<&2, T.Ma
 
 # the rows of a line's chunks: the number column on the first, blanks on
 # the others
-def Pane.rows(cs: List<&2, String>, +nw: Nat, +n: Nat, +tw: Nat, +acc: List<&2, String>, +first: Bool) -> List<&2, String>:
+def Pane.rows(cs: List<&2, String>, +nw: Nat, +n: Nat, +acc: List<&2, String>, +first: Bool) -> List<&2, String>:
   match cs:
     case Nil{}:
       List.reverse(&2, String, acc)
     case Con{c, t}:
-      Pane.rows(t, nw, n, tw, (Pane.num(n, nw, first) ++ X.Text.fit(c, tw)) <> acc, False{})
+      Pane.rows(t, nw, n, (Pane.num(n, nw, first) ++ c) <> acc, False{})
 
 # 'display' lastline: a line that does not fit shows "@@@" at the end of
 # the window's last row
@@ -135,12 +154,12 @@ def Pane.go(ls: List<&2, String>, h: Nat, +w: Nat, +nw: Nat, +n: Nat, +wrap: Boo
       (List.reverse(&2, String, Pane.blank(1n+p, w, acc)), ms)
     case Con{+l, rest} 1n++p:
       +tw = Nat.sub(w, nw)
-      +rows = Bool.pick(Nat, wrap, Pane.height(l, tw), 1n)
+      +rows = X.Bool.when(Nat, wrap, u => 1n, u => Pane.height(l, tw, 1n+p))
       +fits = Nat.is_le(rows, 1n+p)
       +shown = Nat.min(rows, 1n+p)
       +chunks = List.reverse(&2, String, Pane.chunks(shown, l, tw, Nil{}))
-      +texts = Pane.rows(chunks, nw, n, tw, Nil{}, True{})
-      +texts2 = Bool.pick(List<&2, String>, fits, texts, Pane.lastline(texts, w))
+      +texts = Pane.rows(chunks, nw, n, Nil{}, True{})
+      +texts2 = X.Bool.when(List<&2, String>, fits, u => Pane.lastline(texts, w), u => texts)
       +nm = Bool.pick(List<&2, T.Mark>, Nat.is_eq(nw, 0n), ms, T.Mark{row, 0n, nw, T.Number{}} <> ms)
       +sel = Bool.pick(List<&2, T.Mark>, Nat.is_eq(cur, 1n), Pane.sel(shown, row, w, nm), nm)
       Pane.go(rest, Nat.sub(1n+p, shown), w, nw, 1n+n, wrap, Nat.sub(cur, 1n), Nat.add(row, shown), List.append(&2, String, List.reverse(&2, String, texts2), acc), sel)
@@ -166,12 +185,11 @@ def Pane.above(ls: List<&2, String>, n: Nat, +w: Nat, +need: Nat) -> Nat:
       n
     case _ 0n:
       n
-    case Con{+h, t} 1n+p:
-      Pane.above(t, 1n+n, w, Nat.sub(1n+p, Pane.height(h, w)))
+    case Con{+h, t} 1n++p:
+      Pane.above(t, 1n+n, w, Nat.sub(1n+p, Pane.height(h, w, 1n+p)))
 
 # the first line on screen when line l is put at the top with 8 rows of
 # 'scrolloff' above it (fff's grep preview: cursor to l, zt), rows of
 # wrapped lines counted as the screen shows them
 def Pane.zt(+ls: List<&2, String>, +l: Nat, +w: Nat, +wrap: Bool) -> Nat:
-  +above = List.reverse(&2, String, B.Lines.take(ls, l))
-  Nat.sub(l, Bool.pick(Nat, wrap, Pane.above(above, 0n, w, 8n), Nat.min(l, 8n)))
+  Nat.sub(l, X.Bool.when(Nat, wrap, u => Nat.min(l, 8n), u => Pane.above(List.reverse(&2, String, B.Lines.take(ls, l)), 0n, w, 8n)))

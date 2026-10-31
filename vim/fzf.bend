@@ -78,8 +78,8 @@ def Zm.fwd(s: String, q: String, +fold: Bool, +i: Nat) -> Maybe<&2, Nat>:
       Some{i}
     case SNil{} SCon{y, yt}:
       None{}
-    case SCon{x, +xt} SCon{+y, +yt}:
-      X.Bool.when(Maybe<&2, Nat>, Char.is_eq(Zc.fold(x, fold), y), u => Zm.fwd(xt, SCon{y, yt}, fold, 1n+i), u => Zm.fwd(xt, yt, fold, 1n+i))
+    case SCon{x, xt} SCon{+y, +yt}:
+      Zm.fwd(xt, Bool.pick(String, Char.is_eq(Zc.fold(x, fold), y), yt, SCon{y, yt}), fold, 1n+i)
 
 # backward from the end e: the index where the last match of q (reversed:
 # rq) starts
@@ -89,8 +89,8 @@ def Zm.back(rs: String, rq: String, +fold: Bool, +i: Nat) -> Nat:
       i
     case SNil{} SCon{y, yt}:
       i
-    case SCon{x, +xt} SCon{+y, +yt}:
-      X.Bool.when(Nat, Char.is_eq(Zc.fold(x, fold), y), u => Zm.back(xt, SCon{y, yt}, fold, Nat.sub(i, 1n)), u => Zm.back(xt, yt, fold, Nat.sub(i, 1n)))
+    case SCon{x, xt} SCon{+y, +yt}:
+      Zm.back(xt, Bool.pick(String, Char.is_eq(Zc.fold(x, fold), y), yt, SCon{y, yt}), fold, Nat.sub(i, 1n))
 
 # a match: its score and the columns it takes
 type Zhit is Data:
@@ -107,45 +107,53 @@ def Zm.score(s: String, q: String, +fold: Bool, +prev: Nat, +i: Nat, +gap: Bool,
       Zhit{Nat.sub(sc, lost), List.reverse(&2, Nat, acc)}
     case SNil{} SCon{y, yt}:
       Zhit{Nat.sub(sc, lost), List.reverse(&2, Nat, acc)}
-    case SCon{+x, +xt} SCon{+y, +yt}:
+    case SCon{+x, xt} SCon{+y, +yt}:
       +k = Zc.cls(x)
       +hit = Char.is_eq(Zc.fold(x, fold), y)
       +b = Zc.bonus(prev, k)
       +first2 = Bool.pick(Nat, Nat.is_eq(run, 0n), b, Bool.pick(Nat, Bool.and(Nat.is_ge(b, 8n), Nat.is_gt(b, first)), b, first))
       +b2 = Bool.pick(Nat, Nat.is_eq(run, 0n), b, Nat.max(b, Nat.max(first2, 4n)))
       +add = Nat.add(16n, Bool.pick(Nat, List.is_empty(&2, Nat, acc), Nat.mul(b2, 2n), b2))
-      X.Bool.when(Zhit, hit, u => Zm.score(xt, SCon{y, yt}, fold, k, 1n+i, True{}, 0n, 0n, sc, Nat.add(lost, Bool.pick(Nat, gap, 1n, 3n)), acc), u => Zm.score(xt, yt, fold, k, 1n+i, False{}, 1n+run, first2, Nat.add(sc, add), lost, i <> acc))
+      Zm.score(xt, Bool.pick(String, hit, yt, SCon{y, yt}), fold, k, 1n+i, Bool.not(hit), Bool.pick(Nat, hit, 1n+run, 0n), Bool.pick(Nat, hit, first2, 0n), Bool.pick(Nat, hit, Nat.add(sc, add), sc), Bool.pick(Nat, hit, lost, Nat.add(lost, Bool.pick(Nat, gap, 1n, 3n))), Bool.pick(List<&2, Nat>, hit, i <> acc, acc))
 
-def Zm.cls_of(m: Maybe<&2, Char>) -> Nat:
-  match m:
-    case None{}:
-      0n
-    case Some{c}:
-      Zc.cls(c)
+# the first n characters of s reversed (one flat string)
+def Zm.rev(s: String, n: Nat, +acc: String) -> String:
+  match s n:
+    case SNil{} _:
+      X.Text.rest(SCon{' ', acc})
+    case SCon{h, t} 0n:
+      X.Text.rest(SCon{' ', acc})
+    case SCon{h, t} 1n+p:
+      Zm.rev(t, p, SCon{h, acc})
 
-def Zm.prev(s: String, +at: Nat) -> Nat:
-  match at:
-    case 0n:
-      0n
-    case 1n+p:
-      Zm.cls_of(X.Text.at(s, p))
+# the score of s's match of q from start, d: s from the character before
+# start (none at the start: d is s)
+def Zm.from(+start: Nat, d: String, +q: String, +fold: Bool) -> Zhit:
+  match start d:
+    case 0n t:
+      Zm.score(t, q, fold, 0n, 0n, False{}, 0n, 0n, 0n, 0n, Nil{})
+    case 1n+p SNil{}:
+      Zm.score(SNil{}, q, fold, 0n, start, False{}, 0n, 0n, 0n, 0n, Nil{})
+    case 1n+p SCon{h, t}:
+      Zm.score(t, q, fold, Zc.cls(h), start, False{}, 0n, 0n, 0n, 0n, Nil{})
 
-def Zm.best(+s: String, +q: String, +fold: Bool, +e: Nat) -> Zhit:
-  +start = Zm.back(String.reverse(X.Text.take(s, e)), String.reverse(q), fold, e)
-  Zm.score(X.Text.drop(s, start), q, fold, Zm.prev(s, start), start, False{}, 0n, 0n, 0n, 0n, Nil{})
+# the best match of q (reversed: rq) in s ending at e
+def Zm.best(+s: String, +q: String, +rq: String, +fold: Bool, +e: Nat) -> Zhit:
+  +start = Zm.back(Zm.rev(s, e, SNil{}), rq, fold, e)
+  Zm.from(start, X.Text.drop(s, Nat.sub(start, 1n)), q, fold)
 
-def Zm.at(+s: String, +q: String, +fold: Bool, m: Maybe<&2, Nat>) -> Maybe<&2, Zhit>:
+def Zm.at(+s: String, +q: String, +rq: String, +fold: Bool, m: Maybe<&2, Nat>) -> Maybe<&2, Zhit>:
   match m:
     case None{}:
       None{}
     case Some{e}:
-      Some{Zm.best(s, q, fold, e)}
+      Some{Zm.best(s, q, rq, fold, e)}
 
 # fzf's match of query q in s (smart case): its score and columns
 def Zm.find(+s: String, +q: String) -> Maybe<&2, Zhit>:
   +fold = Bool.not(X.Text.has_upper(q))
   +fq = Bool.pick(String, fold, X.Text.fold(q), q)
-  Zm.at(s, fq, fold, Zm.fwd(s, fq, fold, 0n))
+  Zm.at(s, fq, String.reverse(fq), fold, Zm.fwd(s, fq, fold, 0n))
 
 # whether every character of q is in s (a quick test before matching)
 def Zm.has(+s: String, q: String) -> Bool:
@@ -177,35 +185,50 @@ def Zs.items(xs: List<&2, Zs>, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
 def Zs.sort(xs: List<&2, Zs>) -> List<&2, T.Item>:
   Zs.items(List.sort(~Zs, ~Zs.le, xs), Nil{})
 
-def Zl.hit(+i: Nat, +l: Nat, +line: String, m: Maybe<&2, Zhit>, +acc: List<&2, Zs>) -> List<&2, Zs>:
-  match m:
-    case None{}:
+def Zl.hit(m: Maybe<&2, Zhit>, c: T.Cand, acc: (List<&2, T.Cand> & List<&2, Zs>)) -> (List<&2, T.Cand> & List<&2, Zs>):
+  match m c:
+    case None{} _:
       acc
-    case Some{Zhit{score, cols}}:
-      Zs{score, T.Item{T.File{i}, T.Pos{l, 0n}, line, cols}} <> acc
+    case Some{Zhit{score, cols}} T.Cand{+i, +l, +h, +f}:
+      (cs, zs) = acc
+      (T.Cand{i, l, h, f} <> cs, Zs{score, T.Item{T.File{i}, T.Pos{l, 0n}, h, cols}} <> zs)
 
-def Zl.go(ls: List<&2, String>, fl: List<&2, String>, +i: Nat, +l: Nat, +q: String, +fq: String, +fold: Bool, +acc: List<&2, Zs>) -> List<&2, Zs>:
+def Zl.go(cs: List<&2, T.Cand>, +fq: String, +rq: String, +fold: Bool, acc: (List<&2, T.Cand> & List<&2, Zs>)) -> (List<&2, T.Cand> & List<&2, Zs>):
+  match cs:
+    case Nil{}:
+      acc
+    case Con{T.Cand{+i, +l, +h, +f}, t}:
+      +m = X.Bool.when(Maybe<&2, Zhit>, Zm.has(Bool.pick(String, fold, f, h), fq), u => None{}, u => Zm.at(h, fq, rq, fold, Zm.fwd(h, fq, fold, 0n)))
+      Zl.go(t, fq, rq, fold, Zl.hit(m, T.Cand{i, l, h, f}, acc))
+
+def Zl.all(ls: List<&2, String>, fl: List<&2, String>, +i: Nat, +l: Nat, +cs: List<&2, T.Cand>, +its: List<&2, T.Item>) -> T.Level:
   match ls fl:
     case Nil{} _:
-      List.reverse(&2, Zs, acc)
+      T.Level{List.reverse(&2, T.Cand, cs), List.reverse(&2, T.Item, its), None{}}
     case _ Nil{}:
-      List.reverse(&2, Zs, acc)
-    case Con{+h, ht} Con{+f, ft}:
-      +m = X.Bool.when(Maybe<&2, Zhit>, Zm.has(Bool.pick(String, fold, f, h), fq), u => None{}, u => Zm.find(h, q))
-      Zl.go(ht, ft, i, 1n+l, q, fq, fold, Zl.hit(i, l, h, m, acc))
+      T.Level{List.reverse(&2, T.Cand, cs), List.reverse(&2, T.Item, its), None{}}
+    case Con{+h, ht} Con{f, ft}:
+      Zl.all(ht, ft, i, 1n+l, T.Cand{i, l, h, f} <> cs, T.Item{T.File{i}, T.Pos{l, 0n}, h, Nil{}} <> its)
 
-def Zl.all(ls: List<&2, String>, +i: Nat, +l: Nat, +acc: List<&2, T.Item>) -> List<&2, T.Item>:
-  match ls:
-    case Nil{}:
-      List.reverse(&2, T.Item, acc)
-    case Con{h, t}:
-      Zl.all(t, i, 1n+l, T.Item{T.File{i}, T.Pos{l, 0n}, h, Nil{}} <> acc)
+# what blines finds for the empty query: every line of file i (fl: in
+# lower case)
+def Fzf.base(+ls: List<&2, String>, +fl: List<&2, String>, +i: Nat) -> T.Level:
+  Zl.all(ls, fl, i, 0n, Nil{}, Nil{})
 
-# blines: the lines of file i (fl: in lower case) matching q, best first
-def Fzf.lines(+ls: List<&2, String>, +fl: List<&2, String>, +i: Nat, +q: String) -> List<&2, T.Item>:
-  +fold = Bool.not(X.Text.has_upper(q))
-  +fq = Bool.pick(String, fold, X.Text.fold(q), q)
-  Bool.pick(List<&2, T.Item>, String.is_empty(q), Zl.all(ls, i, 0n, Nil{}), Zs.sort(Zl.go(ls, fl, i, 0n, q, fq, fold, Nil{})))
+def Zl.level(acc: (List<&2, T.Cand> & List<&2, Zs>)) -> T.Level:
+  match acc:
+    case (cs, zs):
+      T.Level{List.reverse(&2, T.Cand, cs), Zs.sort(List.reverse(&2, Zs, zs)), None{}}
+
+# what blines finds for query q, one character longer than the query
+# that found head: the lines of head's matching it, best first (a line
+# that holds q in order holds its every prefix)
+def Fzf.narrow(head: T.Level, +q: String) -> T.Level:
+  match head:
+    case T.Level{hc, hi, hr}:
+      +fold = Bool.not(X.Text.has_upper(q))
+      +fq = Bool.pick(String, fold, X.Text.fold(q), q)
+      Zl.level(Zl.go(hc, fq, String.reverse(fq), fold, (Nil{}, Nil{})))
 
 # the number of file i's buffer (the order files were first opened)
 def Zb.no(bs: List<&2, Nat>, +i: Nat, +n: Nat) -> Nat:
@@ -293,14 +316,16 @@ def Zd.left(+t2: String, cols: List<&2, Nat>, +w: Nat) -> Zrow:
 
 # fzf's hscroll: a text wider than w cells is cut with "··" at the end;
 # when its last match would be cut, it scrolls left (10 cells past the
-# match kept, "··" at both ends)
+# match kept, "··" at both ends). Its cells are counted only as far as
+# these choices need.
 def Zd.fit(+text: String, +cols: List<&2, Nat>, +w: Nat) -> Zrow:
-  +n = X.Text.cells(text)
   +last = Maybe.default(&2, Nat, List.last(&2, Nat, cols), 0n)
-  +maxe = Bool.pick(Nat, List.is_empty(&2, Nat, cols), 0n, Nat.min(n, Nat.add(1n+last, Nat.min(Nat.sub(Nat.div(w, 2n), 2n), 10n))))
+  +reach = Nat.add(1n+last, Nat.min(Nat.sub(Nat.div(w, 2n), 2n), 10n))
+  +n = X.Text.cells.upto(text, 1n+Nat.max(w, Nat.add(reach, 3n)))
+  +maxe = Bool.pick(Nat, List.is_empty(&2, Nat, cols), 0n, Nat.min(n, reach))
   +head = Nat.is_gt(maxe, Nat.sub(w, 2n))
   +right = Nat.is_gt(Nat.sub(n, maxe), 2n)
-  X.Bool.when(Zrow, Nat.is_le(n, w), u => X.Bool.when(Zrow, head, u => Zrow{X.Text.cut(text, Nat.sub(w, 2n)) ++ "··", Zd.lim(cols, Nat.sub(w, 2n), Nil{})}, u => Zd.left(Bool.pick(String, right, X.Text.take(text, maxe) ++ "··", text), cols, w)), u => Zrow{text, cols})
+  X.Bool.when(Zrow, Nat.is_le(n, w), u => X.Bool.when(Zrow, head, u => Zrow{X.Text.cut(text, Nat.sub(w, 2n)) ++ "··", Zd.lim(cols, Nat.sub(w, 2n), Nil{})}, u => Zd.left(X.Bool.when(String, right, u => text, u => X.Text.take(text, maxe) ++ "··"), cols, w)), u => Zrow{text, cols})
 
 def Zd.shift(cs: List<&2, Nat>, +by: Nat, +acc: List<&2, Nat>) -> List<&2, Nat>:
   match cs:
@@ -309,22 +334,27 @@ def Zd.shift(cs: List<&2, Nat>, +by: Nat, +acc: List<&2, Nat>) -> List<&2, Nat>:
     case Con{c, t}:
       Zd.shift(t, by, Nat.add(c, by) <> acc)
 
-# tabs as one blank (fzf --tabstop 1)
-def Zd.tabs(s: String, acc: String) -> String:
-  match s:
-    case SNil{}:
-      String.reverse(acc)
-    case SCon{'\t', t}:
-      Zd.tabs(t, SCon{' ', acc})
-    case SCon{h, t}:
-      Zd.tabs(t, SCon{h, acc})
+# s in exactly w cells (as Text.fit), its tabs as one blank each when tabs
+# (fzf --tabstop 1)
+def Zd.show(s: String, w: Nat, +pad: Nat, +tabs: Bool, +acc: String) -> String:
+  match s w:
+    case SNil{} _:
+      X.Text.rest(String.append(acc, X.Text.spaces(Nat.add(w, pad), SNil{})))
+    case SCon{h, t} 0n:
+      X.Text.rest(String.append(acc, X.Text.spaces(pad, SNil{})))
+    case SCon{+h, t} 1n++p:
+      +cw = X.Char.width(h)
+      +ok = Nat.is_le(cw, 1n+p)
+      +c = Bool.pick(Char, Bool.and(tabs, Char.is_eq(h, '\t')), ' ', h)
+      Zd.show(t, Bool.pick(Nat, ok, Nat.sub(1n+p, cw), 0n), Bool.pick(Nat, ok, pad, 1n+p), tabs, Bool.pick(String, ok, String.append(acc, SCon{c, SNil{}}), acc))
 
 # an item's text as the list shows it: blines put the line's number
-# before it ("%5d", then fzf-lua's U+00A0 and a tab, 1 cell at tabstop 1)
+# before it ("%5d", then fzf-lua's U+00A0 and a tab, 1 cell at tabstop 1;
+# Zd.items turns the tabs to blanks once the row is cut)
 def Zd.text(+lines: Bool, it: T.Item) -> Zrow:
   match it:
     case T.Item{tgt, T.Pos{l, c}, +text, +hits}:
-      X.Bool.when(Zrow, lines, u => Zrow{text, hits}, u => Zrow{X.Text.right(Nat.show(1n+l), 5n) ++ Bool.pick(String, String.is_empty(text), "", "\u{a0} " ++ Zd.tabs(text, SNil{})), Zd.shift(hits, 7n, Nil{})})
+      X.Bool.when(Zrow, lines, u => Zrow{text, hits}, u => Zrow{X.Text.right(Nat.show(1n+l), 5n) ++ Bool.pick(String, String.is_empty(text), "", "\u{a0} " ++ text), Zd.shift(hits, 7n, Nil{})})
 
 def Zrow.text(r: Zrow) -> String:
   match r:
@@ -353,7 +383,7 @@ def Zd.items(n: Nat, its: List<&2, T.Item>, +lines: Bool, +w: Nat, +sel: Nat, +k
     case 1n+p Con{it, t}:
       +r = Zd.fit_row(Zd.text(lines, it), Nat.sub(w, 3n))
       +bar = Bool.pick(String, Bool.and(Nat.is_ge(k, bs), Nat.is_lt(k, Nat.add(bs, bl))), "│", " ")
-      +line = "▌ " ++ X.Text.fit(Zrow.text(r), Nat.sub(w, 3n)) ++ bar
+      +line = "▌ " ++ Zd.show(Zrow.text(r), Nat.sub(w, 3n), 0n, lines, " ") ++ bar
       +m1 = Bool.pick(List<&2, T.Mark>, Nat.is_eq(sel, 1n+k), T.Mark{row, 0n, w, T.Sel{}} <> ms, ms)
       +m2 = Bool.pick(List<&2, T.Mark>, lines, T.Mark{row, 2n, 5n, T.Number{}} <> m1, m1)
       Zd.items(p, t, lines, w, sel, 1n+k, bs, bl, 1n+row, line <> acc, P.Marks.cols(Zrow.cols(r), row, 2n, Nat.sub(w, 3n), m2))
