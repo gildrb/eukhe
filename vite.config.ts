@@ -1,8 +1,9 @@
 import assert from "node:assert";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import stylexVite from "@stylexjs/unplugin/vite";
 import { defineConfig, type Plugin } from "vite-plus";
+import { gather } from "./scripts/files.ts";
 import type * as RenderModule from "./src/render.tsx";
 
 type Render = typeof RenderModule;
@@ -27,6 +28,7 @@ function renderModule(module: unknown): Render {
 }
 
 const ssrOutDir = "node_modules/.site-ssr";
+const root = import.meta.dirname;
 
 // StyleX hands over the CSS it has collected; each page inlines it, so there is no stylesheet.
 const stylexPlugin: Plugin & { __stylexCollectCss?: () => string } = stylexVite({
@@ -46,7 +48,8 @@ const site: Plugin = {
       server
         .ssrLoadModule("/src/render.tsx")
         .then(async (module) => {
-          const files = renderModule(module).render(stylexPlugin.__stylexCollectCss?.() ?? "");
+          const css = stylexPlugin.__stylexCollectCss?.() ?? "";
+          const files = renderModule(module).render(css, "/src/client.ts", await gather(root));
           const name = pathname === "/" ? "index.html" : pathname.slice(1);
           const body = files[name];
           if (body === undefined) return next();
@@ -68,9 +71,9 @@ function contentType(name: string): string {
 
 export default defineConfig({
   staged: { "*": "vp check --fix" },
-  fmt: { ignorePatterns: ["src/content/**", "public/**"] },
+  fmt: { ignorePatterns: ["src/content/**", "public/**", "src/vim.mjs"] },
   lint: {
-    ignorePatterns: ["public/**"],
+    ignorePatterns: ["public/**", "src/vim.mjs"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     categories: { correctness: "error", suspicious: "error" },
@@ -103,25 +106,35 @@ export default defineConfig({
         rollupOptions: { input: "src/render.tsx" },
       },
     },
+    client: {
+      build: { outDir: "dist", emptyOutDir: true, rollupOptions: { input: "src/client.ts" } },
+    },
   },
   builder: {
-    // Prerender: the SSR pass registers every StyleX rule; the pages inline the collected CSS.
+    // Prerender: the SSR pass registers every StyleX rule; the pages inline the collected CSS and
+    // load the client bundle (the vim cursor), which the client pass writes with the public files.
     async buildApp(builder) {
-      const { ssr } = builder.environments;
-      assert(ssr);
+      const { ssr, client } = builder.environments;
+      assert(ssr && client);
       await builder.build(ssr);
       const css = stylexPlugin.__stylexCollectCss?.() ?? "";
       assert(css.length > 0, "StyleX collected no CSS");
+      const output = await builder.build(client);
+      assert("output" in output);
+      const entry = output.output.find((chunk) => chunk.type === "chunk" && chunk.isEntry);
+      assert(entry);
       // The bundle this build just wrote; it does not exist when this config loads.
       const { render } = renderModule(await import(path.resolve(ssrOutDir, "render.js")));
       const outDir = "dist";
-      await rm(outDir, { recursive: true, force: true });
-      await cp("public", outDir, { recursive: true });
+      // The pages inline the CSS; the client pass's copy of it is unused.
+      await rm(path.join(outDir, "assets/stylex.css"), { force: true });
       await Promise.all(
-        Object.entries(render(css)).map(async ([file, body]) => {
-          await mkdir(path.dirname(path.join(outDir, file)), { recursive: true });
-          await writeFile(path.join(outDir, file), body);
-        }),
+        Object.entries(render(css, `/${entry.fileName}`, await gather(root))).map(
+          async ([file, body]) => {
+            await mkdir(path.dirname(path.join(outDir, file)), { recursive: true });
+            await writeFile(path.join(outDir, file), body);
+          },
+        ),
       );
     },
   },

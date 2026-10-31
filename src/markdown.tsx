@@ -1,33 +1,53 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
-import { swatch } from "./source.ts";
+import { install, swatch } from "./source.ts";
 import { colors, type Token, type } from "./tokens.stylex.ts";
 
 /**
  * Markdown shown as Markdown: every character of the source stays on the page. Headings, links,
- * code and tables only gain weight, color and a working <a>. Right of each line, its inks: the
- * color tokens it is drawn in, each name in its own color (`Inks`).
+ * code and tables only gain weight, color and a working <a>. Each source line is one
+ * `[data-l]` span (the vim cursor in `client.ts` counts on them). Left of a line, its number;
+ * right of it, its inks: the color tokens it is drawn in, each name in its own color.
  */
 type Line =
+  | { $: "Header"; text: string; first: boolean }
+  | { $: "Motto"; text: string }
   | { $: "Heading"; marker: string; text: string }
+  | { $: "Quote"; text: string }
   | { $: "Fence"; text: string }
   | { $: "Code"; text: string }
   | { $: "Table"; text: string }
-  | { $: "Text"; text: string };
+  | { $: "Text"; text: string }
+  | { $: "Raw"; text: string };
 
-function classify(source: string): Line[] {
+/** A line and its 1-based number in the source. */
+type Entry = { n: number; line: Line };
+
+/**
+ * The lines before the first blank one are the header, the next text line the motto; then
+ * Markdown: headings, `>` quotes, fences, tables, text.
+ */
+function classify(source: string, plain: boolean): Entry[] {
+  const lines = source.split("\n");
+  if (plain) return lines.map((text, index): Entry => ({ n: index + 1, line: { $: "Raw", text } }));
+  const headerEnd = lines.indexOf("");
+  const motto = lines.findIndex((text, index) => index > headerEnd && text !== "");
   let fenced = false;
-  return source.split("\n").map((text): Line => {
+  return lines.map((text, index): Entry => {
+    const n = index + 1;
+    if (index < headerEnd) return { n, line: { $: "Header", text, first: index === 0 } };
+    if (index === motto) return { n, line: { $: "Motto", text } };
     if (text.startsWith("```")) {
       fenced = !fenced;
-      return { $: "Fence", text };
+      return { n, line: { $: "Fence", text } };
     }
-    if (fenced) return { $: "Code", text };
+    if (fenced) return { n, line: { $: "Code", text } };
     const heading = /^(#{1,6} )(.*)$/.exec(text);
     if (heading?.[1] !== undefined && heading[2] !== undefined)
-      return { $: "Heading", marker: heading[1], text: heading[2] };
-    if (text.startsWith("|")) return { $: "Table", text };
-    return { $: "Text", text };
+      return { n, line: { $: "Heading", marker: heading[1], text: heading[2] } };
+    if (text.startsWith("> ")) return { n, line: { $: "Quote", text: text.slice(2) } };
+    if (text.startsWith("|")) return { n, line: { $: "Table", text } };
+    return { n, line: { $: "Text", text } };
   });
 }
 
@@ -91,14 +111,21 @@ function tableRow(text: string): ComponentChildren {
 /** The tokens a line is drawn in, in the order they first appear; the same rules as above. */
 function inks(item: Line): Token[] {
   switch (item.$) {
+    case "Header":
+      return ["primary"];
     case "Heading":
       return ["tertiary", "primary"];
+    case "Quote":
+      return ["tertiary", "article"];
     case "Fence":
       return ["tertiary"];
     case "Code":
       return commentPattern.test(item.text) ? ["article", "tertiary"] : ["article"];
     case "Table":
       return rulePattern.test(item.text) ? ["tertiary"] : ["tertiary", "article"];
+    case "Raw":
+      return item.text === "" ? [] : ["article"];
+    case "Motto":
     case "Text":
       if (item.text === "") return [];
       return inlinePattern.test(item.text) ? ["article", "tertiary"] : ["article"];
@@ -110,29 +137,50 @@ function inks(item: Line): Token[] {
 }
 
 /**
- * The inks of one line or of a block's lines, set in a column right of the text, from the top of
- * the line it is placed in. Not part of the text: hidden from selection and assistive technology,
- * and from screens too narrow for the column.
+ * The margins of one line or of a block's lines, from the top of the line they are placed in:
+ * line numbers left of the text, inks right of it. Not part of the text: hidden from selection,
+ * copying and assistive technology, and from screens too narrow for them.
  */
-function Inks({ rows }: { rows: readonly (readonly Token[])[] }) {
-  if (rows.every((row) => row.length === 0)) return null;
+function Margin({ entries }: { entries: readonly Entry[] }) {
+  const tokens = entries.map((entry) => inks(entry.line));
   return (
-    <span aria-hidden="true" data-inks="" {...stylex.props(styles.anchor)}>
-      <span {...stylex.props(styles.inks)}>
-        {rows.map((row, at) => [
+    <span aria-hidden="true" data-margin="" {...stylex.props(styles.anchor)}>
+      <span {...stylex.props(styles.numbers)}>
+        {entries.map((entry, at) => [
           at === 0 ? "" : "\n",
-          row.map((token, index) => [
-            index === 0 ? "" : " ",
-            <span {...stylex.props(ink[token])}>{token}</span>,
-          ]),
+          <span data-n={entry.n}>{entry.n}</span>,
         ])}
       </span>
+      {tokens.some((row) => row.length > 0) ? (
+        <span {...stylex.props(styles.inks)}>
+          {tokens.map((row, at) => [
+            at === 0 ? "" : "\n",
+            row.map((token, index) => [
+              index === 0 ? "" : " ",
+              <span {...stylex.props(ink[token])}>{token}</span>,
+            ]),
+          ])}
+        </span>
+      ) : null}
     </span>
   );
 }
 
-function line(item: Line): ComponentChildren {
+function content(item: Line): ComponentChildren {
   switch (item.$) {
+    case "Header":
+      return item.first
+        ? [
+            <h1 {...stylex.props(styles.title)}>{item.text}</h1>,
+            // Without the script: the blinking cursor of a terminal. With it, the vim cursor.
+            <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)}>
+              {" █"}
+            </span>,
+          ]
+        : item.text;
+    case "Motto":
+    case "Text":
+      return inline(item.text);
     case "Heading": {
       // The page name is the <h1>; `#` sections are <h2>, deeper ones <h3>.
       const Tag = item.marker.length === 2 ? "h2" : "h3";
@@ -143,14 +191,16 @@ function line(item: Line): ComponentChildren {
         </Tag>
       );
     }
+    case "Quote":
+      return [<span {...stylex.props(styles.muted)}>{"> "}</span>, inline(item.text)];
     case "Fence":
       return <span {...stylex.props(styles.muted)}>{item.text}</span>;
     case "Code":
       return shellLine(item.text);
     case "Table":
       return tableRow(item.text);
-    case "Text":
-      return inline(item.text);
+    case "Raw":
+      return item.text;
     default: {
       const _: never = item;
       return _;
@@ -158,113 +208,206 @@ function line(item: Line): ComponentChildren {
   }
 }
 
-/** A code fence or a table: kept on its lines and scrolled sideways when wider than the page. */
-type Group = { $: "Line"; line: Line } | { $: "Block"; lines: Line[] };
+/** One source line: the span the vim cursor moves through. */
+function Source({ entry, after }: { entry: Entry; after?: ComponentChildren }) {
+  const header = entry.line.$ === "Header";
+  return (
+    <span data-l={entry.n} {...stylex.props(header && styles.header)}>
+      {content(entry.line)}
+      {after}
+    </span>
+  );
+}
 
-function group(lines: readonly Line[]): Group[] {
-  const groups: Group[] = [];
-  let open: Line[] | null = null;
-  for (const item of lines) {
-    const last = groups.at(-1);
-    if (open !== null) {
-      open.push(item);
-      if (item.$ === "Fence") open = null;
-    } else if (item.$ === "Fence") {
-      open = [item];
-      groups.push({ $: "Block", lines: open });
-    } else if (item.$ === "Table" && last?.$ === "Block" && last.lines[0]?.$ === "Table") {
-      last.lines.push(item);
-    } else if (item.$ === "Table") {
-      groups.push({ $: "Block", lines: [item] });
-    } else {
-      groups.push({ $: "Line", line: item });
+/** The commands of each fenced block, keyed by its opening fence's line number. */
+function fences(entries: readonly Entry[]): Map<number, string> {
+  const blocks = new Map<number, string>();
+  let open: { n: number; code: string[] } | null = null;
+  for (const entry of entries) {
+    if (entry.line.$ === "Fence") {
+      if (open === null) open = { n: entry.n, code: [] };
+      else {
+        blocks.set(open.n, open.code.join("\n"));
+        open = null;
+      }
+    } else if (open !== null && entry.line.$ === "Code") open.code.push(entry.line.text);
+  }
+  return blocks;
+}
+
+/**
+ * Every source line on its own row, joined by a newline: no line ever starts or ends anywhere
+ * else, so the page is a grid of 20px rows (the vim cursor's rows), and copies as its source. Only
+ * the install command's fence gets a copy button (`source.ts`).
+ */
+function body(entries: readonly Entry[]): ComponentChildren[] {
+  const blocks = fences(entries);
+  return entries.map((entry, index) => [
+    index === 0 ? "" : "\n",
+    <Margin entries={[entry]} />,
+    <Source
+      entry={entry}
+      {...(blocks.get(entry.n) === install
+        ? {
+            after: (
+              <button
+                type="button"
+                data-copy={install}
+                aria-label="Copy the install command"
+                {...stylex.props(styles.copy)}
+              >
+                [copy]
+              </button>
+            ),
+          }
+        : {})}
+    />,
+  ]);
+}
+
+/** A highlight group of the editor's screen (client.ts paints each as a class). */
+export type Hl = "title" | "muted" | "heading" | "link" | { color: string };
+
+/** Characters from..to (code points, end exclusive) of a line drawn in a group. */
+export type Run = { from: number; to: number; hl: Hl };
+
+/**
+ * A file as the editor holds it: its lines, each line's highlights, the page's inks, and the line
+ * of the install command's opening fence (`[copy]` follows it), if the file holds one.
+ */
+export type EditorFile = {
+  path: string;
+  lines: string[];
+  runs: Run[][];
+  inks: Token[][] | null;
+  copy: number | null;
+};
+
+/** Code points in a string: the editor's columns. */
+function cellCount(text: string): number {
+  return Array.from(text).length;
+}
+
+/** A run over the code points of `text` from UTF-16 index `start` to `end`. */
+function span(text: string, start: number, end: number, hl: Hl): Run {
+  return { from: cellCount(text.slice(0, start)), to: cellCount(text.slice(0, end)), hl };
+}
+
+/** Inline code ticks muted, link URLs as links; `offset` is where `text` starts in its line. */
+function inlineRuns(text: string, offset: number): Run[] {
+  const runs: Run[] = [];
+  for (const match of text.matchAll(new RegExp(inlinePattern, "g"))) {
+    const [whole, code, label] = match;
+    const at = match.index;
+    if (code !== undefined) {
+      runs.push(
+        span(text, at, at + 1, "muted"),
+        span(text, at + whole.length - 1, at + whole.length, "muted"),
+      );
+    } else if (label !== undefined) {
+      runs.push(span(text, at + label.length + 3, at + whole.length - 1, "link"));
     }
   }
-  return groups;
+  return runs.map((run) => ({ ...run, from: run.from + offset, to: run.to + offset }));
 }
 
-/**
- * Lines join with a newline; a block sits on its own lines. The newline that ends the text before a
- * block draws no line of its own, so a blank line there becomes the block's top margin: the page
- * looks like the source, and copies as the source.
- */
-function body(groups: readonly Group[]): ComponentChildren[] {
-  return groups.map((item, index) => {
-    const previous = groups[index - 1];
-    switch (item.$) {
-      case "Line":
-        return [
-          previous?.$ === "Line" ? "\n" : "",
-          <Inks rows={[inks(item.line)]} />,
-          line(item.line),
-        ];
-      case "Block": {
-        const blank = previous?.$ === "Line" && previous.line.text === "";
-        // A fenced block's commands, as the copy button hands them over.
-        const code = item.lines
-          .filter((each) => each.$ === "Code")
-          .map((each) => each.text)
-          .join("\n");
-        return (
-          <span {...stylex.props(styles.block, styles.anchor, blank && styles.afterBlank)}>
-            <Inks rows={item.lines.map(inks)} />
-            <span {...stylex.props(styles.scroll)}>
-              {item.lines.map((each, at) => [
-                at === 0 ? "" : "\n",
-                line(each),
-                at === 0 && each.$ === "Fence" ? (
-                  <button
-                    type="button"
-                    data-copy={code}
-                    aria-label="Copy the commands"
-                    {...stylex.props(styles.copy)}
-                  >
-                    [copy]
-                  </button>
-                ) : null,
-              ])}
-            </span>
-          </span>
-        );
-      }
-      default: {
-        const _: never = item;
-        return _;
-      }
+/** The highlights of one line: the same rules as the page's styles. */
+function lineRuns(item: Line): Run[] {
+  switch (item.$) {
+    case "Header":
+      return [{ from: 0, to: cellCount(item.text), hl: "title" }];
+    case "Motto":
+    case "Text":
+      return inlineRuns(item.text, 0);
+    case "Heading": {
+      const marker = cellCount(item.marker);
+      return [
+        { from: 0, to: marker, hl: "muted" },
+        { from: marker, to: marker + cellCount(item.text), hl: "heading" },
+      ];
     }
-  });
+    case "Quote":
+      return [{ from: 0, to: 2, hl: "muted" }, ...inlineRuns(item.text, 2)];
+    case "Fence":
+      return [{ from: 0, to: cellCount(item.text), hl: "muted" }];
+    case "Code": {
+      const comment = commentPattern.exec(item.text);
+      if (comment === null) return [];
+      return [
+        span(item.text, comment.index + (comment[1]?.length ?? 0), item.text.length, "muted"),
+      ];
+    }
+    case "Table": {
+      if (rulePattern.test(item.text)) return [{ from: 0, to: cellCount(item.text), hl: "muted" }];
+      const runs: Run[] = [];
+      for (const pipe of item.text.matchAll(/\|/g))
+        runs.push(span(item.text, pipe.index, pipe.index + 1, "muted"));
+      for (const painted of item.text.matchAll(
+        new RegExp(`${swatch}(?= (oklch\\([^)]+\\)))`, "g"),
+      )) {
+        const color = painted[1];
+        if (color !== undefined)
+          runs.push(span(item.text, painted.index, painted.index + swatch.length, { color }));
+      }
+      return runs;
+    }
+    case "Raw":
+      return [];
+    default: {
+      const _: never = item;
+      return _;
+    }
+  }
+}
+
+/** The 0-based line of the install command's opening fence. */
+function copyFence(entries: readonly Entry[]): number | null {
+  for (const [n, code] of fences(entries)) if (code === install) return n - 1;
+  return null;
+}
+
+/** A file for the editor: Markdown gets the page's highlights; `inks` only for the page. */
+export function editorFile(path: string, source: string, plain: boolean): EditorFile {
+  const text = source.replace(/\n$/, "");
+  const entries = classify(text, plain);
+  return {
+    path,
+    lines: text.split("\n"),
+    runs: entries.map((entry) => lineRuns(entry.line)),
+    inks: path === "index.md" ? entries.map((entry) => inks(entry.line)) : null,
+    copy: plain ? null : copyFence(entries),
+  };
 }
 
 /**
- * The page: the header block (the lines before the first blank one) with a blinking cursor after
- * its first line, the motto after one blank line, then the document. One 20px line throughout.
+ * A file as the page shows it: Markdown (`index.md`, the docs) styled as Markdown; anything else
+ * (`plain`: the Bend source, `LICENSE`) as it is. `path` names the file.
  */
-export function Markdown({ source }: { source: string }) {
-  const [head = "", motto = "", ...rest] = source.split("\n\n");
-  const [title = "", ...subtitle] = head.split("\n");
-  const groups = group(classify(rest.join("\n\n")));
+export function Markdown({
+  source,
+  path,
+  plain = false,
+}: {
+  source: string;
+  path: string;
+  plain?: boolean;
+}) {
+  const entries = classify(source.replace(/\n$/, ""), plain);
+  const headerChars = Math.max(
+    0,
+    ...entries.map((entry) => (entry.line.$ === "Header" ? entry.line.text.length + 2 : 0)),
+  );
+  const gutter = `${String(entries.length).length + 2}ch`;
+  // The inks stand right of the longest line: links may run past the 68-character measure.
+  const width = Math.max(68, ...source.split("\n").map((line) => Array.from(line).length));
   return (
-    <pre {...stylex.props(styles.pre)}>
-      <code {...stylex.props(styles.code)}>
-        <span
-          style={{ "--header-chars": Math.max(...head.split("\n").map((each) => each.length)) }}
-          {...stylex.props(styles.header)}
-        >
-          <Inks rows={[title, ...subtitle].map((): Token[] => ["primary"])} />
-          <h1 {...stylex.props(styles.title)}>{title}</h1>{" "}
-          <span aria-hidden="true" {...stylex.props(styles.cursor)}>
-            █
-          </span>
-          {"\n"}
-          {subtitle.join("\n")}
-        </span>
-        {"\n\n"}
-        <span {...stylex.props(styles.anchor)}>
-          <Inks rows={[inks({ $: "Text", text: motto })]} />
-          {inline(motto)}
-        </span>
-        {"\n\n"}
-        {body(groups)}
+    <pre
+      data-file={path}
+      style={{ "--header-chars": headerChars, "--gutter": gutter, "--inks": `${width + 2}ch` }}
+      {...stylex.props(styles.pre)}
+    >
+      <code data-doc="" {...stylex.props(styles.code)}>
+        {body(entries)}
       </code>
     </pre>
   );
@@ -275,9 +418,13 @@ const flash = stylex.keyframes({
   "51%, 100%": { opacity: 0 },
 });
 
+const wide = "@media (min-width: 720px)";
+
 const styles = stylex.create({
   pre: {
     margin: 0,
+    // The line numbers' column, on screens wide enough to show them.
+    marginLeft: { default: 0, [wide]: "var(--gutter)" },
     maxWidth: type.measure,
     whiteSpace: "pre-wrap",
     textWrap: "pretty",
@@ -288,37 +435,47 @@ const styles = stylex.create({
   },
   code: { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit" },
   /**
-   * The header never wraps: on a screen narrower than its longest line (`--header-chars`, 0.6em
-   * each) its type shrinks to fit the column (`main` is the container); its lines stay 20px.
+   * Header lines never wrap: on a screen narrower than the longest (`--header-chars`, 0.6em each)
+   * their type shrinks to fit the column (`main` is the container); their lines stay 20px.
    */
   header: {
-    display: "inline-block",
     whiteSpace: "pre",
     fontSize: `min(${type.size}, 100cqi / (0.6 * var(--header-chars)))`,
     color: colors.primary,
-    position: "relative",
   },
-  block: { display: "block" },
-  /** A block's lines keep their length and scroll sideways when wider than the column. */
-  scroll: { display: "block", overflowX: "auto", whiteSpace: "pre", overflowWrap: "normal" },
-  /** Places `inks` at the start of its line. */
+  /** Places the margins at the start of their line. */
   anchor: { position: "relative" },
-  /** Two characters right of the 68-character measure; shown from 720px, where it fits. */
+  /** Right-aligned two characters left of the text. */
+  numbers: {
+    position: "absolute",
+    top: 0,
+    right: "2ch",
+    display: { default: "none", [wide]: "block" },
+    whiteSpace: "pre",
+    textAlign: "right",
+    fontSize: type.size,
+    fontWeight: 400,
+    color: colors.tertiary,
+    userSelect: "none",
+    pointerEvents: "none",
+  },
+  /** Two characters right of the longest line (`--inks`); shown from 720px. */
   inks: {
     position: "absolute",
     top: 0,
-    left: `calc(${type.measure} + 2ch)`,
-    display: { default: "none", "@media (min-width: 720px)": "block" },
+    left: "var(--inks)",
+    display: { default: "none", [wide]: "block" },
     whiteSpace: "pre",
+    fontSize: type.size,
     fontWeight: 400,
     userSelect: "none",
     pointerEvents: "none",
   },
-  afterBlank: { marginTop: type.leading },
   /** The page's name, an <h1> set as the line it sits on. */
   title: { display: "inline", margin: 0, fontSize: "inherit", fontWeight: "inherit" },
-  cursor: {
+  deco: {
     color: colors.primary,
+    userSelect: "none",
     animationName: { default: flash, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "1s",
     animationIterationCount: "infinite",

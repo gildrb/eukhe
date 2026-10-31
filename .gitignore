@@ -3,6 +3,8 @@ AGENTS.md
 node_modules/
 dist/
 .wrangler/
+# Bend's JS output: `npm run bend` writes it from vim/vim.bend.
+src/vim.mjs
 
 .env
 .env.*
