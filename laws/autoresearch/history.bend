@@ -118,6 +118,20 @@ law baseline_is_first:
   for +s: ArS.St
   {ArS.St.baseline(s) == SG.first_kept(ArM.ar_runs(s), ArM.ar_seg(s)) : Maybe<&2, ArD.Dec>}
 
+# LAW logged_is_segment: in every state (so after every history), the
+# logged count (the snapshot's, and the one cap_stops reads) is the
+# number of runs of the current segment that were logged (a status set;
+# abandoned rows have none), flagged ones included
+# (spec/autoresearch/segment.bend logged_count). With cap_stops (an
+# equation for the stop), the cap is per segment: a step stops exactly
+# when the current segment's logged runs reach max_iterations
+# EXCLUDES: a count over every segment (a new segment that starts with
+# the old segment's budget spent), abandoned runs counted, flagged runs
+# left out of the cap
+law logged_is_segment:
+  for +s: ArS.St
+  {ArS.St.logged(s) == SG.logged_count(ArM.ar_runs(s), ArM.ar_seg(s)) : Nat}
+
 def ar_better.of(c: Maybe<&2, ArS.Cfg>, b2: Maybe<&2, ArD.Dec>, b: Maybe<&2, ArD.Dec>) -> Type:
   match c:
     case None{}:
@@ -222,3 +236,56 @@ def ar_ex_flag_keep_log() -> ArS.Res:
 # than the best kept 1")
 law keep_after_flag_example:
   {(ArS.St.best(ar_ex_flag_keep()), ar_took_eff(ar_ex_flag_keep_log()), ArS.St.best(ArM.ar_after(ar_ex_flag_keep_log(), ar_ex_flag_keep())), ArM.ar_mode(ArM.ar_after(ar_ex_flag_keep_log(), ar_ex_flag_keep()))) == (Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Some{ArS.Commit{}}, Some{ArD.Dec{False{}, [9n], 0n}}, ArS.On{}) : Maybe<&2, ArD.Dec> & Maybe<&2, ArS.Eff> & Maybe<&2, ArD.Dec> & ArS.Mode}
+
+# a session capped at 2 runs a segment (lower is better): run 1 prints
+# 10, discard (segment 0); a fresh init opens segment 1; run 2 prints 9
+# and waits for its log
+def ar_cap_cfg() -> ArS.Cfg:
+  ArS.Cfg{"speed", "faster", "ms", "ms", ArS.Lower{}, [], [], [], Some{2n}}
+
+def ar_cap_evs() -> List<&2, ArS.Ev>:
+  [ArS.Init{ar_cap_cfg(), False{}, True{}}, ArS.Begin{1n}, ArS.Line{"METRIC ms=10"}, ArS.Finish{False{}, 0n, False{}}, ArS.Log{ArS.Discard{}, "a", None{}, 0n}, ArS.Init{ar_cap_cfg(), True{}, True{}}, ArS.Begin{2n}, ArS.Line{"METRIC ms=9"}, ArS.Finish{False{}, 0n, False{}}]
+
+def ar_ex_cap() -> ArS.St:
+  ArM.ar_run(ar_cap_evs())
+
+def ar_ex_cap_log() -> ArS.Res:
+  ArP.step(ar_ex_cap(), ArS.Log{ArS.Keep{}, "b", None{}, 0n})
+
+# then run 2 kept, run 3 prints 8 and waits for its log
+def ar_ex_cap2() -> ArS.St:
+  ArM.ar_run(List.append(&2, ArS.Ev, ar_cap_evs(), [ArS.Log{ArS.Keep{}, "b", None{}, 0n}, ArS.Begin{3n}, ArS.Line{"METRIC ms=8"}, ArS.Finish{False{}, 0n, False{}}]))
+
+def ar_ex_cap2_log() -> ArS.Res:
+  ArP.step(ar_ex_cap2(), ArS.Log{ArS.Discard{}, "c", None{}, 0n})
+
+# an accepted step's stop; none on a refusal
+def ar_took_stop(r: ArS.Res) -> Maybe<&2, Bool>:
+  match r:
+    case ArS.Took{s2, e, stop}:
+      Some{stop}
+    case ArS.Refuse{t}:
+      None{}
+
+# LAW cap_segment_example: anchor: keeping run 2 (the first logged run
+# of segment 1) commits and does not stop: the mode stays On and the
+# segment logged 1 run; logging run 3 (its second) stops: mode Off,
+# logged 2
+# EXCLUDES: a cap counted over every segment (the first run of a new
+# segment stopping the loop), a cap that never stops
+law cap_segment_example:
+  {(ar_took_eff(ar_ex_cap_log()), ar_took_stop(ar_ex_cap_log()), ArM.ar_mode(ArM.ar_after(ar_ex_cap_log(), ar_ex_cap())), ArS.St.logged(ArM.ar_after(ar_ex_cap_log(), ar_ex_cap())), ar_took_stop(ar_ex_cap2_log()), ArM.ar_mode(ArM.ar_after(ar_ex_cap2_log(), ar_ex_cap2())), ArS.St.logged(ArM.ar_after(ar_ex_cap2_log(), ar_ex_cap2()))) == (Some{ArS.Commit{}}, Some{False{}}, ArS.On{}, 1n, Some{True{}}, ArS.Off{}, 2n) : Maybe<&2, ArS.Eff> & Maybe<&2, Bool> & ArS.Mode & Nat & Maybe<&2, Bool> & ArS.Mode & Nat}
+
+# a session (no cap, lower is better): run 1 starts and prints 10; it is
+# still pending (not finished, not logged)
+def ar_ex_pending() -> ArS.St:
+  ArM.ar_run([ArS.Init{ar_seg_cfg(), False{}, True{}}, ArS.Begin{1n}, ArS.Line{"METRIC ms=10"}])
+
+# LAW start_abandons_example: anchor: starting run 2 while run 1 is
+# pending is accepted (no effect, no stop): run 1 ends as an abandoned
+# row (no status, its metric 10 kept, not passed, not finished) and run 2
+# is the only pending run, with no metrics
+# EXCLUDES: a start refused while a run is pending (R1), a pending run
+# lost instead of abandoned
+law start_abandons_example:
+  {ArP.step(ar_ex_pending(), ArS.Begin{2n}) == ArS.Took{ArS.St{Some{ar_seg_cfg()}, 0n, ArS.On{}, [ArS.Row{1n, 0n, None{}, Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Nil{}, False{}, False{}, False{}, ""}], Some{ArS.Pend{2n, Nil{}, None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}

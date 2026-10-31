@@ -147,3 +147,25 @@ def first_kept(rs: List<&2, S.Row>, +seg: Nat) -> Maybe<&2, D.Dec>:
       None{}
     case r <> t:
       first_kept.or(kept(r, seg), first_kept(t, seg))
+
+def logged_count.at(here: Bool, st: Maybe<&2, S.Status>, rest: Nat) -> Nat:
+  match here:
+    case False{}:
+      rest
+    case True{}:
+      match st:
+        case None{}:
+          rest
+        case Some{k}:
+          1n+rest
+
+# how many runs of segment seg were logged (they have a status: keep,
+# discard, crash or checks_failed; abandoned rows have none), flagged ones
+# included (they still count toward max_iterations). Rows of other
+# segments never count.
+def logged_count(rs: List<&2, S.Row>, +seg: Nat) -> Nat:
+  match rs:
+    case Nil{}:
+      0n
+    case S.Row{id, sg, st, m, ms, ps, fn, fl, desc} <> t:
+      logged_count.at(Nat.is_eq(sg, seg), st, logged_count(t, seg))

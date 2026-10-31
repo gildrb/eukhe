@@ -16,6 +16,7 @@ import ../../spec/autoresearch/decimal.bend as SD
 import ../../spec/autoresearch/metric_line.bend as SL
 import ../../spec/autoresearch/segment.bend as SG
 import ../../spec/autoresearch/stats.bend as SS
+import ../../spec/autoresearch/step.bend as SP
 
 # Terms
 # -----
@@ -965,3 +966,19 @@ law confidence_exact:
   for +s: ArS.St
   for wf: {ar_rows_wf(ar_runs(s)) == True{} : Bool}
   {ArT.St.confidence(s) == SS.confidence(ar_vals(ar_runs(s), ar_seg(s)), ArS.St.baseline(s), ArS.St.best(s)) : Maybe<&2, Nat>}
+
+# The whole step
+# --------------
+
+# LAW step_refines_spec: every event on every state answers exactly what
+# spec/autoresearch/step.bend restates from the requirements: the same
+# refusal text, or the same state, effect and stop. The METRIC parser,
+# the order and the printer of metrics are the shipped ones, which
+# metric_line_*, metric_order_* and metric_print_round_trip pin
+# EXCLUDES: a step off the requirements in either direction: an accepted
+# step refused (a start while a run is pending), a refused step accepted,
+# another refusal text, another state, effect or stop
+law step_refines_spec:
+  for +s: ArS.St
+  for +e: ArS.Ev
+  {ArP.step(s, e) == SP.step(~ArD.Dec.cmp, ~ArL.metric, ~ArD.show, s, e) : ArS.Res}
