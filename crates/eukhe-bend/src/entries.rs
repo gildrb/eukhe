@@ -204,6 +204,12 @@ pub enum Entry {
     ToolCall = 421,
     /// `bend/ffi_optchat.bend`: a stepper.
     Optchat = 422,
+    /// `bend/ffi_autoresearch.bend`: a stepper.
+    Autoresearch = 430,
+    /// `bend/ffi_family.bend`: a call.
+    Family = 431,
+    /// `bend/ffi_task_life.bend`: a call.
+    TaskLife = 432,
 }
 
 impl Entry {
@@ -308,6 +314,9 @@ impl Entry {
         Entry::WaitRace,
         Entry::ToolCall,
         Entry::Optchat,
+        Entry::Autoresearch,
+        Entry::Family,
+        Entry::TaskLife,
     ];
 
     /// The id `bend/core.bend` dispatches on.

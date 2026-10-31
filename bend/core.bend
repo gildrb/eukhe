@@ -5,6 +5,7 @@ import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
+import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_bound.bend as ffi_bound
 import ./ffi_cache_marks.bend as ffi_cache_marks
@@ -37,6 +38,7 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_err_text.bend as ffi_err_text
 import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_family.bend as ffi_family
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
@@ -87,6 +89,7 @@ import ./ffi_staging.bend as ffi_staging
 import ./ffi_stream_failure.bend as ffi_stream_failure
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_task_life.bend as ffi_task_life
 import ./ffi_theme.bend as ffi_theme
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
@@ -286,6 +289,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_glob.ffi(input)
     case 381:
       ffi_err_text.ffi(input)
+    case 431:
+      ffi_family.ffi(input)
+    case 432:
+      ffi_task_life.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -317,6 +324,7 @@ type State is Type:
   WaitRace{s: ffi_wait_race.St}
   ToolCall{s: ffi_tool_call.St}
   Optchat{s: ffi_optchat.St}
+  Autoresearch{s: ffi_autoresearch.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -424,6 +432,11 @@ def open.optchat(r: ffi_optchat.St & String) -> State & String:
     case (s, reply):
       (Optchat{s}, reply)
 
+def open.autoresearch(r: ffi_autoresearch.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Autoresearch{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -468,6 +481,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.tool_call(ffi_tool_call.open(input))
     case 422:
       open.optchat(ffi_optchat.open(input))
+    case 430:
+      open.autoresearch(ffi_autoresearch.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -581,6 +596,11 @@ def step.optchat(r: ffi_optchat.St & String) -> State & String:
     case (s, reply):
       (Optchat{s}, reply)
 
+def step.autoresearch(r: ffi_autoresearch.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Autoresearch{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -625,6 +645,8 @@ def step.go(state: State, input: String) -> State & String:
       step.tool_call(ffi_tool_call.step(s, input))
     case Optchat{s}:
       step.optchat(ffi_optchat.step(s, input))
+    case Autoresearch{s}:
+      step.autoresearch(ffi_autoresearch.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -676,6 +698,8 @@ def close.go(state: State) -> Unit:
     case ToolCall{s}:
       Unit{}
     case Optchat{s}:
+      Unit{}
+    case Autoresearch{s}:
       Unit{}
     case Unknown{}:
       Unit{}

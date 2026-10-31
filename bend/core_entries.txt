@@ -100,3 +100,6 @@
 420 wait_race
 421 tool_call
 422 optchat
+430 autoresearch
+431 family
+432 task_life

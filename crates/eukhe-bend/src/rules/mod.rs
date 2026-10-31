@@ -3,6 +3,7 @@
 //! format, calling its entry and decoding the reply.
 
 pub mod approvals;
+pub mod autoresearch;
 pub mod bound;
 pub mod cache_marks;
 pub mod codemode_id;
@@ -15,6 +16,7 @@ pub mod cvar_layers;
 pub mod doc_plan;
 pub mod err_text;
 pub mod error_body;
+pub mod family;
 pub mod frames;
 pub mod fsmode;
 pub mod glob;
@@ -40,6 +42,7 @@ pub mod slash;
 pub mod slash_args;
 pub mod stream_failure;
 pub mod submission;
+pub mod task_life;
 pub mod theme;
 pub mod tokens;
 pub mod tool_call;
