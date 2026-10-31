@@ -780,6 +780,51 @@ mod tests {
         assert_eq!(lab.snapshot().unwrap().confidence_tenths, Some(20));
     }
 
+    /// Metrics of 15 significant digits run in the compiled core: no Nat
+    /// past 2^48-1 is built from their digits (laws reason about unbounded
+    /// numbers, so only a run can show this). Keeps of 999999999999999,
+    /// 999999999999998 and 0.000000000000001 compare, print and feed the
+    /// confidence.
+    #[test]
+    fn fifteen_digit_metrics_run_in_the_core() {
+        let mut lab = Lab::open().unwrap();
+        let mut steps = vec![(init(false, true), Want::Took(Effect::Nothing))];
+        for (run, value) in [
+            (1, "999999999999999"),
+            (2, "999999999999998"),
+            (3, "0.000000000000001"),
+        ] {
+            steps.push((Event::Start { run }, Want::Took(Effect::Nothing)));
+            steps.push((
+                line(&format!("METRIC ms={value}")),
+                Want::Took(Effect::Nothing),
+            ));
+            steps.push((finish(0), Want::Took(Effect::Nothing)));
+            steps.push((log(Status::Keep, None, 0), Want::Took(Effect::Commit)));
+        }
+        steps.push((Event::Start { run: 4 }, Want::Took(Effect::Nothing)));
+        steps.push((
+            line("METRIC ms=999999999999999"),
+            Want::Took(Effect::Nothing),
+        ));
+        steps.push((finish(0), Want::Took(Effect::Nothing)));
+        check(&mut lab, steps);
+        let snapshot = lab.snapshot().unwrap();
+        assert_eq!(
+            (snapshot.baseline, snapshot.best),
+            (
+                Some(metric(false, 999_999_999_999_999, 0)),
+                Some(metric(false, 1, 15))
+            )
+        );
+        assert_eq!(
+            lab.step(&log(Status::Keep, None, 0)).unwrap(),
+            Err(Refusal {
+                text: "autoresearch.log: 999999999999999 is not better than the best kept 0.000000000000001 (lower is better); log discard".to_string()
+            })
+        );
+    }
+
     /// The text of a metric is the core's: the one its refusals show.
     #[test]
     fn a_metric_prints_as_the_core_prints_it() {

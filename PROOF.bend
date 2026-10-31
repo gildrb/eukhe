@@ -2394,3 +2394,6 @@ import ./proof/cron_file/cron_open_refines.bend as PCronOpenRefines
 import ./proof/cron_file/cron_ids_distinct.bend as PCronIdsDistinct
 import ./proof/autoresearch/step_refines_spec.bend as PArStepRefinesSpec
 import ./proof/autoresearch/start_abandons_example.bend as PArStartAbandonsExample
+import ./proof/autoresearch/best_is_segment.bend as PArBestIsSegment
+import ./proof/autoresearch/snapshot_best_is_best.bend as PArSnapshotBestIsBest
+import ./proof/autoresearch/best_segment_example.bend as PArBestSegmentExample

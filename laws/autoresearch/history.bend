@@ -9,6 +9,7 @@ import ../../bend/autoresearch/state.bend as ArS
 import ../../bend/autoresearch/step.bend as ArP
 import ../../bend/autoresearch/stats.bend as ArT
 import ../../spec/autoresearch/segment.bend as SG
+import ../../spec/autoresearch/step.bend as SP
 import ./model.bend as ArM
 
 # Runs
@@ -131,6 +132,37 @@ law baseline_is_first:
 law logged_is_segment:
   for +s: ArS.St
   {ArS.St.logged(s) == SG.logged_count(ArM.ar_runs(s), ArM.ar_seg(s)) : Nat}
+
+# LAW best_is_segment: in every state, the best the snapshot shows (and
+# the confidence reads) is the newest kept metric of the current segment
+# that is not flagged, none when the segment kept no such run
+# (spec/autoresearch/step.bend last_kept, the best a refused keep names);
+# snapshot_best_is_best then says it is the segment's best
+# EXCLUDES: a best taken over every segment (the previous segment's
+# better metric after a new segment, and the confidence built on it), a
+# flagged, discarded, crashed or abandoned run as the best
+law best_is_segment:
+  for +s: ArS.St
+  {ArS.St.best(s) == SP.last_kept(ArM.ar_runs(s), ArM.ar_seg(s)) : Maybe<&2, ArD.Dec>}
+
+def ar_snap_best_ok(s: ArS.St) -> Type:
+  match s:
+    case ArS.St{cfg, +seg, mode, +runs, pend}:
+      match cfg:
+        case None{}:
+          {SG.none_kept(runs, seg) == True{} : Bool}
+        case Some{+c}:
+          SG.Best(~ArD.Dec.cmp, ArS.Cfg.dir(c), ArS.St.best(ArS.St{Some{c}, seg, mode, runs, pend}), runs, seg)
+
+# LAW snapshot_best_is_best: after any history from the empty state, the
+# best the snapshot shows is none exactly when the current segment kept
+# no run (that is not flagged); else it is the metric of such a run, and
+# no such run of the segment is better (spec/autoresearch/segment.bend)
+# EXCLUDES: a snapshot best from another segment, a flagged run, or one a
+# kept run of the segment beats
+law snapshot_best_is_best:
+  for +evs: List<&2, ArS.Ev>
+  ar_snap_best_ok(ArM.ar_run(evs))
 
 def ar_better.of(c: Maybe<&2, ArS.Cfg>, b2: Maybe<&2, ArD.Dec>, b: Maybe<&2, ArD.Dec>) -> Type:
   match c:
@@ -289,3 +321,16 @@ def ar_ex_pending() -> ArS.St:
 # lost instead of abandoned
 law start_abandons_example:
   {ArP.step(ar_ex_pending(), ArS.Begin{2n}) == ArS.Took{ArS.St{Some{ar_seg_cfg()}, 0n, ArS.On{}, [ArS.Row{1n, 0n, None{}, Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Nil{}, False{}, False{}, False{}, ""}], Some{ArS.Pend{2n, Nil{}, None{}}}}, ArS.Nothing{}, False{}} : ArS.Res}
+
+# a session over two segments (no cap, lower is better): run 1 keeps 1
+# (segment 0); a fresh init opens segment 1; runs 2 and 3 keep 10 and 9,
+# run 4 discards 8
+def ar_ex_seg_best() -> ArS.St:
+  ArM.ar_run(List.concat(&2, ArS.Ev, [[ArS.Init{ar_seg_cfg(), False{}, True{}}], ar_seg_run(1n, "METRIC ms=1"), [ArS.Init{ar_seg_cfg(), True{}, True{}}], ar_seg_run(2n, "METRIC ms=10"), ar_seg_run(3n, "METRIC ms=9"), [ArS.Begin{4n}, ArS.Line{"METRIC ms=8"}, ArS.Finish{False{}, 0n, False{}}, ArS.Log{ArS.Discard{}, "d", None{}, 0n}]]))
+
+# LAW best_segment_example: anchor: the session above ends in segment 1
+# with baseline 10, best 9 (not segment 0's 1), 3 runs logged and
+# confidence 1.0 (|9 - 10| / MAD 1 of 10, 9, 8)
+# EXCLUDES: a best or confidence taken from an earlier segment
+law best_segment_example:
+  {(ArM.ar_seg(ar_ex_seg_best()), ArS.St.baseline(ar_ex_seg_best()), ArS.St.best(ar_ex_seg_best()), ArS.St.logged(ar_ex_seg_best()), ArT.St.confidence(ar_ex_seg_best())) == (1n, Some{ArD.Dec{False{}, [1n, 0n], 0n}}, Some{ArD.Dec{False{}, [9n], 0n}}, 3n, Some{10n}) : Nat & Maybe<&2, ArD.Dec> & Maybe<&2, ArD.Dec> & Nat & Maybe<&2, Nat>}
