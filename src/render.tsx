@@ -1,8 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import { renderToString } from "preact-render-to-string";
-import { editorFile, Markdown } from "./markdown.tsx";
+import { type EditorFile, editorFile, Markdown } from "./markdown.tsx";
+import { escape, gutterRows, statusParts, textRows } from "./paint.ts";
 import { notFound, source } from "./source.ts";
 import { colors, palette, type } from "./tokens.stylex.ts";
+import Vim, { type BendList, type Buf } from "./vim.mjs";
 
 export const origin = "https://eukhe.com";
 
@@ -25,14 +27,18 @@ const globalCss = [
   `html{background:${palette.bg.dark};color-scheme:dark}`,
   `@media (prefers-color-scheme:light){html{background:${palette.bg.light};color-scheme:light}}`,
   `::selection{color:${colors.bg};background:${colors.primary}}`,
-  // The editor (client.ts): a terminal of cells over the whole window, shown once the script runs
-  // on a screen with a keyboard and room; the page stays in the document for assistive technology.
+  // The editor (client.ts): a terminal of cells over the whole window, its first screen painted
+  // here; the page stays in the document for assistive technology, search and agents. A cell is
+  // 0.6em (every glyph of the font) by a line; the screen is W x H, whole cells.
+  `[data-term]{--fs:15px;--cw:9px;--lh:18px;--ox:2px;--oy:2px;--W:round(down,100vw - 4px,var(--cw));--H:round(down,100dvh - 4px,var(--lh))}`,
+  `@media (pointer:coarse){[data-term]{--fs:13px;--cw:7.8px;--lh:17px}}`,
   `html:not([data-vim]) [data-term]{display:none}`,
   `html[data-vim]{overflow:hidden}`,
   `html[data-vim] main{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}`,
   `html[data-vim] [data-deco]{display:none}`,
   // Rows and highlight groups: made by client.ts, which owns no StyleX classes.
-  `[data-text]>div,[data-float]>div{height:var(--lh);white-space:pre;overflow:hidden}`,
+  `[data-text]>div,[data-gutter]>div,[data-float]>div{height:var(--lh);white-space:pre;overflow:hidden}`,
+  `[data-status-r]{position:absolute;right:var(--cw)}`,
   `[data-float][hidden]{display:none}`,
   `.title,.cnr,.ti,.prompt,.match,.sel{color:${colors.primary}}`,
   `.muted,.nr,.bd,.dim,.count,.ink-tertiary{color:${colors.tertiary}}`,
@@ -53,19 +59,69 @@ const globalCss = [
 /** The favicon: the header's cursor, one block, in each theme's `primary`. */
 export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="9" y="4" width="14" height="24"/></svg>\n`;
 
+/** The first screen, as client.ts would paint it on any screen (paint.ts). */
+type Screen = {
+  text: string;
+  gutter: string;
+  left: string;
+  right: string;
+  char: string;
+  vars: Record<string, number>;
+};
+
+/** Rows as the client's layers hold them: one <div> each, the cursor's row with 'cursorline'. */
+function rowsHtml(rows: readonly string[], cursorline: number | null): string {
+  return rows.map((row, r) => `<div${r === cursorline ? ' class="cl"' : ""}>${row}</div>`).join("");
+}
+
+function cons<T>(items: readonly T[]): BendList<T> {
+  return items.reduceRight<BendList<T>>((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
+}
+
+/** The editor at the start over these files, on a screen tall and wide enough for the page. */
+function firstScreen(files: readonly EditorFile[]): Screen {
+  const page = files[0];
+  if (page === undefined) throw new Error("the editor has no page");
+  const bufs = cons(
+    files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),
+  );
+  const h = page.lines.length;
+  const frame = Vim["Vim.frame"](Vim["Vim.init"](bufs, h + 2, 400));
+  const { left, right } = statusParts(frame.status);
+  return {
+    text: rowsHtml(textRows(frame, page, [], h).htmls, frame.cl ? frame.cur.row : null),
+    gutter: rowsHtml(gutterRows(frame), null),
+    left,
+    right,
+    char: escape(frame.char),
+    vars: {
+      "--g": frame.gutter,
+      "--crow": frame.cur.row,
+      "--ccol": frame.cur.col,
+      "--bar-start": 0,
+      "--bar-len": 0,
+    },
+  };
+}
+
+/** Without the script: the page, not the terminal. */
+const noscript = `<style>html[data-vim]{overflow:auto}html[data-vim] main{position:static;width:auto;height:auto;overflow:visible;clip-path:none}html[data-vim] [data-deco]{display:inline}[data-term]{display:none}</style>`;
+
 function Page({
   css,
   markdown,
   path,
   script,
+  screen,
 }: {
   css: string;
   markdown: string;
   path: string;
   script: string;
+  screen: Screen | null;
 }) {
   return (
-    <html lang="en" {...stylex.props(styles.html)}>
+    <html lang="en" {...(screen === null ? {} : { "data-vim": "" })} {...stylex.props(styles.html)}>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -84,23 +140,44 @@ function Page({
           href={fonts[0]?.file}
           as="font"
           type="font/woff2"
-          crossorigin="anonymous"
+          crossOrigin="anonymous"
         />
         <style dangerouslySetInnerHTML={{ __html: globalCss + css }} />
+        {screen === null ? null : <noscript dangerouslySetInnerHTML={{ __html: noscript }} />}
       </head>
       <body {...stylex.props(styles.body)}>
         <main {...stylex.props(styles.main)}>
           <Markdown source={markdown} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
-        <div data-term="" aria-hidden="true" {...stylex.props(styles.term)}>
-          <pre data-gutter="" {...stylex.props(styles.gutter)} />
-          <div data-text="" {...stylex.props(styles.text)} />
-          <div data-status="" {...stylex.props(styles.status)} />
+        <div
+          data-term=""
+          aria-hidden="true"
+          style={screen?.vars ?? {}}
+          {...stylex.props(styles.term)}
+        >
+          <div
+            data-gutter=""
+            dangerouslySetInnerHTML={{ __html: screen?.gutter ?? "" }}
+            {...stylex.props(styles.gutter)}
+          />
+          <div
+            data-text=""
+            dangerouslySetInnerHTML={{ __html: screen?.text ?? "" }}
+            {...stylex.props(styles.text)}
+          />
+          <div data-status="" {...stylex.props(styles.status)}>
+            <span data-status-l="">{screen?.left ?? ""}</span>
+            <span data-status-r="">{screen?.right ?? ""}</span>
+          </div>
           <div data-cmd="" {...stylex.props(styles.cmd)} />
           <div data-bar="" {...stylex.props(styles.bar)} />
           <div data-float="" hidden {...stylex.props(styles.float)} />
-          <div data-cursor="" {...stylex.props(styles.cursor)} />
+          <div
+            data-cursor=""
+            dangerouslySetInnerHTML={{ __html: screen?.char ?? "" }}
+            {...stylex.props(styles.cursor)}
+          />
         </div>
         <script type="module" src={script} />
       </body>
@@ -117,15 +194,15 @@ export type SourceFile = { path: string; text: string; plain: boolean };
  * (for the Bend core) and highlights (for the screen).
  */
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
-  const html = (markdown: string, path: string) =>
-    `<!doctype html>\n${renderToString(<Page css={css} markdown={markdown} path={path} script={script} />)}\n`;
   const editor = [{ path: "index.md", text: source, plain: false }, ...files].map((file) =>
     editorFile(file.path, file.text, file.plain),
   );
+  const html = (markdown: string, path: string, screen: Screen | null) =>
+    `<!doctype html>\n${renderToString(<Page css={css} markdown={markdown} path={path} script={script} screen={screen} />)}\n`;
   return {
-    "index.html": html(source, "/"),
+    "index.html": html(source, "/", firstScreen(editor)),
     "index.md": source,
-    "404.html": html(notFound, "/404"),
+    "404.html": html(notFound, "/404", null),
     "files.json": JSON.stringify(editor),
     "favicon.svg": favicon,
     "robots.txt": `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`,
@@ -159,13 +236,14 @@ const styles = stylex.create({
     lineHeight: type.leading,
   },
   /**
-   * The terminal: the whole window, with Ghostty's 2px padding. client.ts sets the cell (--cw by
-   * --lh, from the font), the grid's origin (--ox, --oy) and every position below in cells.
+   * The terminal: the whole window, with Ghostty's 2px padding. The cell (--cw by --lh), the
+   * grid's origin (--ox, --oy) and the screen (--W by --H) are set in globalCss; client.ts sets the
+   * positions below in cells.
    */
   term: {
     position: "fixed",
     inset: 0,
-    fontSize: "var(--fs, 15px)",
+    fontSize: "var(--fs)",
     lineHeight: "var(--lh)",
     // The finger scrolls the text (client.ts), never the page or its zoom.
     touchAction: "none",
@@ -178,8 +256,8 @@ const styles = stylex.create({
     position: "absolute",
     top: "var(--oy)",
     left: "var(--ox)",
-    margin: 0,
-    font: "inherit",
+    height: "calc(var(--H) - 2 * var(--lh))",
+    overflow: "hidden",
     color: colors.tertiary,
   },
   /** The text rows, right of the gutter; the cursor's row carries 'cursorline' (`.cl`). */
@@ -187,14 +265,16 @@ const styles = stylex.create({
     position: "absolute",
     top: "var(--oy)",
     left: "calc(var(--ox) + var(--g) * var(--cw))",
-    width: "calc((var(--cols) - var(--g)) * var(--cw))",
+    width: "calc(var(--W) - var(--g) * var(--cw))",
+    height: "calc(var(--H) - 2 * var(--lh))",
+    overflow: "hidden",
   },
   /** laststatus=3: one statusline across the window. */
   status: {
     position: "absolute",
-    top: "calc(var(--oy) + var(--h) * var(--lh))",
+    top: "calc(var(--oy) + var(--H) - 2 * var(--lh))",
     left: "var(--ox)",
-    width: "calc(var(--cols) * var(--cw))",
+    width: "var(--W)",
     height: "var(--lh)",
     overflow: "hidden",
     color: colors.tertiary,
@@ -202,9 +282,9 @@ const styles = stylex.create({
   },
   cmd: {
     position: "absolute",
-    top: "calc(var(--oy) + (var(--h) + 1) * var(--lh))",
+    top: "calc(var(--oy) + var(--H) - var(--lh))",
     left: "var(--ox)",
-    width: "calc(var(--cols) * var(--cw))",
+    width: "var(--W)",
     height: "var(--lh)",
     overflow: "hidden",
   },
@@ -235,7 +315,7 @@ const styles = stylex.create({
   bar: {
     position: "absolute",
     top: "calc(var(--oy) + var(--bar-start) * var(--lh))",
-    left: "calc(var(--ox) + var(--cols) * var(--cw) - 2px)",
+    left: "calc(var(--ox) + var(--W) - 2px)",
     width: "2px",
     height: "calc(var(--bar-len) * var(--lh))",
     backgroundColor: colors.tertiary,

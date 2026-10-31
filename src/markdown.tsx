@@ -104,7 +104,13 @@ function tableRow(text: string): ComponentChildren {
     const painted = new RegExp(`^(\\s*)${swatch}( (oklch\\([^)]+\\)).*)$`).exec(cell);
     if (painted?.[1] === undefined || painted[2] === undefined || painted[3] === undefined)
       return cell;
-    return [painted[1], <span style={{ color: painted[3] }}>{swatch}</span>, painted[2]];
+    return [
+      painted[1],
+      <span key="swatch" style={{ color: painted[3] }}>
+        {swatch}
+      </span>,
+      painted[2],
+    ];
   });
 }
 
