@@ -10,7 +10,7 @@ import Base
 import ../../vim/text.bend as X
 import ../../vim/buf.bend as B
 import ../../vim/screen.bend as R
-import ../../LAWS.bend as Laws
+import ../../laws/vim/base.bend as Laws
 import ../base.bend as L
 
 # the cells of character x

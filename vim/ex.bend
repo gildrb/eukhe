@@ -150,43 +150,27 @@ def Link.inner.go(s: String, +acc: String, +open: Bool) -> String:
     case SCon{+h, +t}:
       X.Bool.when(String, open, u => X.Bool.when(String, Char.is_eq(h, '('), u => Link.inner.go(t, acc, False{}), u => Link.inner.go(t, SNil{}, True{})), u => X.Bool.when(String, Char.is_eq(h, ')'), u => Link.inner.go(t, SCon{h, acc}, True{}), u => String.reverse(acc)))
 
+# the brackets and quotes Link.trim drops before a WORD
+def Link.opens(+c: Char) -> Bool:
+  Bool.or(Char.is_eq(c, '('), Bool.or(Char.is_eq(c, '['), Bool.or(Char.is_eq(c, '<'), Bool.or(Char.is_eq(c, '`'), Char.is_eq(c, '"')))))
+
+# the brackets, quotes and punctuation Link.trim drops after a WORD
+def Link.closes(+c: Char) -> Bool:
+  Bool.or(Char.is_eq(c, ')'), Bool.or(Char.is_eq(c, ']'), Bool.or(Char.is_eq(c, '>'), Bool.or(Char.is_eq(c, '.'), Bool.or(Char.is_eq(c, ','), Bool.or(Char.is_eq(c, ':'), Bool.or(Char.is_eq(c, ';'), Bool.or(Char.is_eq(c, '`'), Char.is_eq(c, '"')))))))))
+
 def Link.trim.l(s: String) -> String:
   match s:
-    case SCon{'(', t}:
-      Link.trim.l(t)
-    case SCon{'[', t}:
-      Link.trim.l(t)
-    case SCon{'<', t}:
-      Link.trim.l(t)
-    case SCon{'`', t}:
-      Link.trim.l(t)
-    case SCon{'"', t}:
-      Link.trim.l(t)
-    case t:
-      t
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      X.Bool.when(String, Link.opens(h), u => SCon{h, t}, u => Link.trim.l(t))
 
 def Link.trim.rl(s: String) -> String:
   match s:
-    case SCon{')', t}:
-      Link.trim.rl(t)
-    case SCon{']', t}:
-      Link.trim.rl(t)
-    case SCon{'>', t}:
-      Link.trim.rl(t)
-    case SCon{'.', t}:
-      Link.trim.rl(t)
-    case SCon{',', t}:
-      Link.trim.rl(t)
-    case SCon{':', t}:
-      Link.trim.rl(t)
-    case SCon{';', t}:
-      Link.trim.rl(t)
-    case SCon{'`', t}:
-      Link.trim.rl(t)
-    case SCon{'"', t}:
-      Link.trim.rl(t)
-    case t:
-      t
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      X.Bool.when(String, Link.closes(h), u => SCon{h, t}, u => Link.trim.rl(t))
 
 def Link.trim.r(+s: String) -> String:
   String.reverse(Link.trim.rl(String.reverse(s)))
@@ -216,10 +200,11 @@ def Link.gf(+s: T.St) -> T.St:
   +t = Link.target(Link.big(C.St.text(s), C.St.col(s)))
   Link.gf.at(s, t, Path.find(s, t))
 
-# gx: the web address under the cursor opens in the browser; a path, as gf
+# gx: the web address under the cursor opens in the browser; a path, as
+# gf (a folder's listing holds no web address: only file windows open one)
 def Link.gx(+s: T.St) -> T.Step:
   +t = Link.target(Link.big(C.St.text(s), C.St.col(s)))
-  X.Bool.when(T.Step, Link.is_url(t), u => T.Step{Link.gf(s), T.Nothing{}}, u => T.Step{s, T.OpenUrl{t}})
+  X.Bool.when(T.Step, Bool.and(C.St.on_file(s), Link.is_url(t)), u => T.Step{Link.gf(s), T.Nothing{}}, u => T.Step{s, T.OpenUrl{t}})
 
 def Oil.enter.at(+s: T.St, +n: Nat, t: T.Tgt) -> T.St:
   match t:

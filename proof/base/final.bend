@@ -57,28 +57,27 @@ def Band.pick2(c1: Bool, c2: Bool, +lo: Nat, +hi: Nat, +top: Nat, -up: Nat, -dow
 def Fit.hi_le(+l: Nat, +a: Nat, +x: Nat, +h: Nat, hx: L.LE(Nat.add(x, a), Nat.sub(h, 1n))) -> L.LE(Nat.sub(Nat.add(l, a), Nat.sub(h, 1n)), Nat.sub(l, x)):
   L.LE.cast_r(Nat.sub(Nat.add(l, a), Nat.sub(h, 1n)), Nat.sub(Nat.add(l, a), Nat.add(x, a)), Nat.sub(l, x), L.Nat.sub_cancel_r(l, x, a), L.Nat.sub_anti(Nat.add(l, a), Nat.add(x, a), Nat.sub(h, 1n), hx))
 
-# the bands a window of h rows keeps, its scrolloff so at most half of
-# its rows less one on each side
-def Fit.hilo(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +half: Nat, +h1: L.LE(so, half), h2: L.LE(Nat.add(half, half), Nat.sub(h, 1n)))
-  -> L.LE(Fin.hi(l, so, last, h), Fin.lo(l, so)):
-  +a = Nat.min(so, Nat.sub(last, l))
+# the bands a window of h rows keeps: scrolloff so above the cursor (at
+# most half of its rows less one), sd below, half + sd at most h - 1
+def Fit.hilo(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +sd: Nat, +half: Nat, +h1: L.LE(so, half), h2: L.LE(Nat.add(half, sd), Nat.sub(h, 1n)))
+  -> L.LE(Fin.hi(l, sd, last, h), Fin.lo(l, so)):
+  +a = Nat.min(sd, Nat.sub(last, l))
   +b = Nat.min(so, l)
-  +ha = L.Nat.min_le_l(so, Nat.sub(last, l))
+  +ha = L.Nat.min_le_l(sd, Nat.sub(last, l))
   +hb = L.Nat.min_le_l(so, l)
-  +sos = L.Nat.le_trans(Nat.add(so, so), Nat.add(half, half), Nat.sub(h, 1n), L.Nat.le_add2(so, half, so, half, h1, h1), h2)
-  Fit.hi_le(l, a, b, h, L.Nat.le_trans(Nat.add(b, a), Nat.add(so, so), Nat.sub(h, 1n), L.Nat.le_add2(b, so, a, so, hb, ha), sos))
+  Fit.hi_le(l, a, b, h, L.Nat.le_trans(Nat.add(b, a), Nat.add(half, sd), Nat.sub(h, 1n), L.Nat.le_add2(b, half, a, sd, L.Nat.le_trans(b, so, half, hb, h1), ha), h2))
 
-def Fit.mid(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +half: Nat, hl: L.LE(l, last), +h1: L.LE(so, half), h2: L.LE(Nat.add(half, half), Nat.sub(h, 1n)))
-  -> Band(Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n)))), Fin.lo(l, so), Fin.hi(l, so, last, h)):
-  +a = Nat.min(so, Nat.sub(last, l))
+def Fit.mid(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +sd: Nat, +half: Nat, hl: L.LE(l, last), +h1: L.LE(so, half), h2: L.LE(Nat.add(half, sd), Nat.sub(h, 1n)))
+  -> Band(Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n)))), Fin.lo(l, so), Fin.hi(l, sd, last, h)):
+  +a = Nat.min(sd, Nat.sub(last, l))
   +b = Nat.min(so, l)
   +lo = Fin.lo(l, so)
-  +hi = Fin.hi(l, so, last, h)
+  +hi = Fin.hi(l, sd, last, h)
   +mid = Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))))
-  +ha = L.Nat.min_le_l(so, Nat.sub(last, l))
+  +ha = L.Nat.min_le_l(sd, Nat.sub(last, l))
   +hb = L.Nat.min_le_l(so, l)
-  +m1 = Fit.hi_le(l, a, half, h, L.Nat.le_trans(Nat.add(half, a), Nat.add(half, half), Nat.sub(h, 1n), L.Nat.le_add_mono(half, a, half, L.Nat.le_trans(a, so, half, ha, h1)), h2))
-  +la = L.LE.cast_r(Nat.add(l, a), Nat.add(l, Nat.sub(last, l)), last, L.Nat.add_sub(last, l, hl), L.Nat.le_add_mono(l, a, Nat.sub(last, l), L.Nat.min_le_r(so, Nat.sub(last, l))))
+  +m1 = Fit.hi_le(l, a, half, h, L.Nat.le_trans(Nat.add(half, a), Nat.add(half, sd), Nat.sub(h, 1n), L.Nat.le_add_mono(half, a, sd, ha), h2))
+  +la = L.LE.cast_r(Nat.add(l, a), Nat.add(l, Nat.sub(last, l)), last, L.Nat.add_sub(last, l, hl), L.Nat.le_add_mono(l, a, Nat.sub(last, l), L.Nat.min_le_r(sd, Nat.sub(last, l))))
   +m2 = L.LE.cast_r(hi, Nat.sub(last, Nat.sub(h, 1n)), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))), L.Nat.sub_min(last, Nat.sub(h, 1n)), L.Nat.sub_mono(Nat.add(l, a), last, Nat.sub(h, 1n), la))
   +midlo = L.Nat.le_trans(mid, Nat.sub(l, half), lo, L.Nat.min_le_l(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n)))), L.Nat.sub_anti(l, b, half, L.Nat.le_trans(b, so, half, hb, h1)))
   (L.Nat.le_min(hi, Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))), m1, m2), midlo)
@@ -87,15 +86,37 @@ def Fit.mid(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +half: Nat, hl: L.LE(l, last
 def Fit.so_half(+h: Nat) -> L.LE(V.View.so_in(h), Nat.div(Nat.sub(h, 1n), 2n)):
   L.Nat.min_le_r(V.View.so(), Nat.div(Nat.sub(h, 1n), 2n))
 
+# the scrolloff above is at most the one below
+def Fit.so_le_dn(h: Nat) -> L.LE(V.View.so_in(h), V.View.so_dn(h)):
+  match h:
+    case 0n:
+      {==}
+    case 1n++n:
+      +d1 = Nat.div(Nat.sub(n, 0n), 2n)
+      +d2 = Nat.div(1n+n, 2n)
+      +e = Equal.cong(Nat, Nat, z => Nat.div(z, 2n), Nat.sub(n, 0n), n, L.Nat.sub_zero(n))
+      +m = L.LE.cast_l(Nat.div(n, 2n), d1, d2, Equal.sym(Nat, d1, Nat.div(n, 2n), e), L.Nat.div2_mono(n))
+      L.Nat.le_min(Nat.min(V.View.so(), d1), V.View.so(), d2, L.Nat.min_le_l(V.View.so(), d1), L.Nat.le_trans(Nat.min(V.View.so(), d1), d1, d2, L.Nat.min_le_r(V.View.so(), d1), m))
+
+# above and below together fit the window: (h - 1) / 2 + so_dn(h) <= h - 1
+def Fit.half_dn(h: Nat) -> L.LE(Nat.add(Nat.div(Nat.sub(h, 1n), 2n), V.View.so_dn(h)), Nat.sub(h, 1n)):
+  match h:
+    case 0n:
+      {==}
+    case 1n++n:
+      %Equal.sym(Nat, Nat.sub(n, 0n), n, L.Nat.sub_zero(n)) : L.LE(Nat.add(Nat.div(_, 2n), V.View.so_dn(1n+n)), _)
+      L.Nat.le_trans(Nat.add(Nat.div(n, 2n), V.View.so_dn(1n+n)), Nat.add(Nat.div(n, 2n), Nat.div(1n+n, 2n)), n, L.Nat.le_add_mono(Nat.div(n, 2n), V.View.so_dn(1n+n), Nat.div(1n+n, 2n), L.Nat.min_le_r(V.View.so(), Nat.div(1n+n, 2n))), L.Nat.div2_pair(n))
+
 # View.fit keeps the cursor's line in the band
-def Fit.band(+top: Nat, +l: Nat, +h: Nat, +last: Nat, hl: L.LE(l, last)) -> Band(V.View.fit(top, l, h, last), Fin.lo(l, V.View.so_in(h)), Fin.hi(l, V.View.so_in(h), last, h)):
+def Fit.band(+top: Nat, +l: Nat, +h: Nat, +last: Nat, hl: L.LE(l, last)) -> Band(V.View.fit(top, l, h, last), Fin.lo(l, V.View.so_in(h)), Fin.hi(l, V.View.so_dn(h), last, h)):
   +so = V.View.so_in(h)
+  +sd = V.View.so_dn(h)
   +half = Nat.div(Nat.sub(h, 1n), 2n)
   +lo = Fin.lo(l, so)
-  +hi = Fin.hi(l, so, last, h)
+  +hi = Fin.hi(l, sd, last, h)
   +mid = Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))))
-  +hilo = Fit.hilo(l, h, last, so, half, Fit.so_half(h), L.Nat.div2_twice(Nat.sub(h, 1n)))
-  +bmid = Fit.mid(l, h, last, so, half, hl, Fit.so_half(h), L.Nat.div2_twice(Nat.sub(h, 1n)))
+  +hilo = Fit.hilo(l, h, last, so, sd, half, Fit.so_half(h), Fit.half_dn(h))
+  +bmid = Fit.mid(l, h, last, so, sd, half, hl, Fit.so_half(h), Fit.half_dn(h))
   +up_c = Nat.is_gt(Nat.sub(top, lo), half)
   +down_c = Nat.is_gt(Nat.sub(hi, top), half)
   +up = Bool.pick(Nat, up_c, mid, lo)
@@ -108,7 +129,8 @@ def Fit.side(+left: Nat, +c: Nat, +w: Nat, +last: Nat) -> Band(V.View.fit_side(l
   +half = Nat.div(Nat.sub(w, 1n), 2n)
   +lo = Fin.lo(c, so)
   +hi = Fin.hi(c, so, last, w)
-  +hilo = Fit.hilo(c, w, last, so, half, Fit.so_half(w), L.Nat.div2_twice(Nat.sub(w, 1n)))
+  +h2 = L.Nat.le_trans(Nat.add(half, so), Nat.add(half, half), Nat.sub(w, 1n), L.Nat.le_add_mono(half, so, half, Fit.so_half(w)), L.Nat.div2_twice(Nat.sub(w, 1n)))
+  +hilo = Fit.hilo(c, w, last, so, so, half, Fit.so_half(w), h2)
   Band.pick2(Nat.is_lt(lo, left), Nat.is_gt(hi, left), lo, hi, left, lo, hi, {==}, {==}, (hilo, L.Nat.le_refl(lo)), (L.Nat.le_refl(hi), hilo))
 
 # Final
@@ -124,7 +146,7 @@ def Final.at(+ls: List<&2, String>, +rows: Nat, +cols: Nat, +opts: T.Opts, +onfi
   +h = V.View.text_rows(rows)
   +w = V.View.text_cols(cols, V.View.gutter(opts, B.Lines.len(ls), onfile, cols))
   +lc = M.Move.last_col(ls, line)
-  And2(L.LE(3n, rows), And2(L.LE(12n, cols), And2(L.LE(line, last), And2(L.LE(col, lc), And2(Band(top, Fin.lo(line, V.View.so_in(h)), Fin.hi(line, V.View.so_in(h), last, h)), Band(left, Fin.lo(col, V.View.so_in(w)), Fin.hi(col, V.View.so_in(w), lc, w)))))))
+  And2(L.LE(3n, rows), And2(L.LE(12n, cols), And2(L.LE(line, last), And2(L.LE(col, lc), And2(Band(top, Fin.lo(line, V.View.so_in(h)), Fin.hi(line, V.View.so_dn(h), last, h)), Band(left, Fin.lo(col, V.View.so_in(w)), Fin.hi(col, V.View.so_in(w), lc, w)))))))
 
 # the editor s is settled
 def Final(+s: T.St) -> Data:
@@ -158,8 +180,9 @@ def Final.of_fit(+x: T.St) -> Final(Vim.Vim.fit(x)):
             case T.Dir{+path}:
               match cur:
                 case T.Pos{+line, +col}:
-                  Final.win(B.Lines.some(Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), ["../"])), rows, cols, opts, False{}, line, col, top, left)
+                  Final.win(B.Lines.some(Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), B.Oil.list(files, path))), rows, cols, opts, False{}, line, col, top, left)
 
 # every editor Vim.final gives is settled
 def Final.of(+x: T.St) -> Final(Vim.Vim.final(x)):
-  Final.of_fit(S.St.set_win(x, Vim.Vim.real(S.St.files(x), S.St.win(x))))
+  +x2 = S.St.set_count(S.St.set_pend(x, Vim.Vim.pend(S.St.mode(x), S.St.pend(x))), Vim.Vim.count(S.St.mode(x), S.St.count(x)))
+  Final.of_fit(S.St.set_win(x2, Vim.Vim.real(S.St.files(x), S.St.win(x))))

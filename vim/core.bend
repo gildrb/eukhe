@@ -33,7 +33,7 @@ def St.lines.at(+s: T.St, t: T.Tgt) -> List<&2, String>:
     case T.File{i}:
       B.Buf.lines(B.Files.at(S.St.files(s), i))
     case T.Dir{+path}:
-      Maybe.default(&2, List<&2, String>, Listing.find(S.St.dirs(s), path), ["../"])
+      Maybe.default(&2, List<&2, String>, Listing.find(S.St.dirs(s), path), B.Oil.list(S.St.files(s), path))
 
 # the lines the window shows (folders' listings are found at the start),
 # at least one
@@ -91,6 +91,11 @@ def St.col(+s: T.St) -> Nat:
 def St.text(+s: T.St) -> String:
   B.Lines.at(St.lines(s), St.line(s))
 
+# the column j and k aim for at p: w when it gives p's column (as every
+# motion leaves it), else p's column
+def Want.at(+ls: List<&2, String>, +p: T.Pos, +w: T.Want) -> T.Want:
+  Bool.pick(T.Want, Nat.is_eq(M.Move.aim(ls, S.Pos.line(p), w), S.Pos.col(p)), w, T.Col{S.Pos.col(p)})
+
 # the editor with the cursor pulled onto the text and the window scrolled
 # to it: the one way a cursor reaches the screen
 def Win.settle(+s: T.St) -> T.St:
@@ -101,7 +106,7 @@ def Win.settle(+s: T.St) -> T.St:
   +last = M.Move.last_line(ls)
   +top = V.View.fit(Nat.min(S.Win.top(w), V.View.max_top(h, last)), S.Pos.line(p), h, last)
   +left = V.View.fit_side(S.Win.left(w), S.Pos.col(p), St.w(s), M.Move.last_col(ls, S.Pos.line(p)))
-  S.St.set_win(s, T.Win{S.Win.tgt(w), p, S.Win.want(w), top, left})
+  S.St.set_win(s, T.Win{S.Win.tgt(w), p, Want.at(ls, p, S.Win.want(w)), top, left})
 
 # the cursor to p; the column j and k aim for follows it unless keep
 def Win.go(+s: T.St, p: T.Pos, +keep: Bool) -> T.St:
@@ -150,17 +155,6 @@ def Spots.get(xs: List<&2, T.Spot>, +path: String) -> Maybe<&2, T.Pos>:
     case Con{T.Spot{p, +q}, t}:
       X.Bool.when(Maybe<&2, T.Pos>, String.eq(p, path), u => Spots.get(t, path), u => Some{q})
 
-def Win.leave.at(+s: T.St, t: T.Tgt) -> T.St:
-  match t:
-    case T.File{i}:
-      S.St.set_marks(s, List.set(&2, T.Pos, S.St.marks(s), i, S.Win.cur(S.St.win(s))))
-    case T.Dir{+path}:
-      S.St.set_spots(s, T.Spot{path, S.Win.cur(S.St.win(s))} <> Spots.drop(S.St.spots(s), path, Nil{}))
-
-# the cursor of the buffer the window leaves, kept for its return
-def Win.leave(+s: T.St) -> T.St:
-  Win.leave.at(s, S.Win.tgt(S.St.win(s)))
-
 def Opened.drop(os: List<&2, Nat>, +i: Nat, +acc: List<&2, Nat>) -> List<&2, Nat>:
   match os:
     case Nil{}:
@@ -175,6 +169,18 @@ def Opened.put(os: List<&2, Nat>, t: T.Tgt) -> List<&2, Nat>:
       i <> Opened.drop(os, i, Nil{})
     case T.Dir{path}:
       os
+
+def Win.leave.at(+s: T.St, t: T.Tgt) -> T.St:
+  match t:
+    case T.File{+i}:
+      S.St.set_opened(S.St.set_marks(s, List.set(&2, T.Pos, S.St.marks(s), i, S.Win.cur(S.St.win(s)))), Opened.put(S.St.opened(s), T.File{i}))
+    case T.Dir{+path}:
+      S.St.set_spots(s, T.Spot{path, S.Win.cur(S.St.win(s))} <> Spots.drop(S.St.spots(s), path, Nil{}))
+
+# the cursor of the buffer the window leaves, kept for its return; a file
+# left is the file opened last (Oil's Ctrl-c goes back to it)
+def Win.leave(+s: T.St) -> T.St:
+  Win.leave.at(s, S.Win.tgt(S.St.win(s)))
 
 def Bufs.has(bs: List<&2, Nat>, +i: Nat) -> Bool:
   match bs:

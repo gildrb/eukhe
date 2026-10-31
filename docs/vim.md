@@ -2,12 +2,12 @@
 
 On desktop (fine pointer, 720px or wider) the page is a read-only Neovim with Gil's config. Phones get the plain page.
 
-| Part  | File                                   | Does                                                                                                        |
-| ----- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Core  | `vim/*.bend` (entry `vim/vim.bend`)    | `Vim.init`, `Vim.step(st, ev) -> Step{st, act}`, `Vim.frame(st)`, `Vim.lines(st)`; pure, decides everything |
-| Host  | `src/client.ts`                        | browser events to `Ev`; paints `Frame` on a cell grid; runs `Act` (open URL, copy install command)          |
-| Files | `scripts/files.ts`, `src/markdown.tsx` | `files.json`: each file's lines, highlights, the page's inks, the install fence                             |
-| Laws  | `LAWS.bend`                            | requirements `R1`-`R7`, `A1`-`A3` at its top; one law per claim                                             |
+| Part  | File                                   | Does                                                                                                         |
+| ----- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Core  | `vim/*.bend` (entry `vim/vim.bend`)    | `Vim.init`, `Vim.step(st, ev) -> Step{st, act}`, `Vim.frame(st)`, `Vim.lines(st)`; pure, decides everything  |
+| Host  | `src/client.ts`                        | browser events to `Ev`; paints `Frame` on a cell grid; runs `Act` (open URL, copy install command)           |
+| Files | `scripts/files.ts`, `src/markdown.tsx` | `files.json`: each file's lines, highlights, the page's inks, the install fence                              |
+| Laws  | `LAWS.bend`, `laws/vim/`               | requirements `R1`-`R7`, `A1`-`A3` atop LAWS.bend; one law per claim, by section in `laws/vim/<section>.bend` |
 
 ## Grid
 

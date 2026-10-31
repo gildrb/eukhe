@@ -552,6 +552,41 @@ def Nat.div2_twice(+n: Nat) -> LE(Nat.add(Nat.div(n, 2n), Nat.div(n, 2n)), n):
   %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(n, 1n, 0n, 0n)), Half(n), Half.go(n, 0n)) : LE(Nat.add(_, _), n)
   Half.twice(n)
 
+def Half.pair(n: Nat) -> LE(Nat.add(Half(n), Half(1n+n)), n):
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      match p:
+        case 0n:
+          {==}
+        case 1n++k:
+          %Nat.add_succ(Half(k), Half(1n+k)) : LE(1n+_, 2n+k)
+          Half.pair(k)
+
+# n / 2 + (n + 1) / 2 is at most n
+def Nat.div2_pair(+n: Nat) -> LE(Nat.add(Nat.div(n, 2n), Nat.div(1n+n, 2n)), n):
+  %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(n, 1n, 0n, 0n)), Half(n), Half.go(n, 0n)) : LE(Nat.add(_, Nat.div(1n+n, 2n)), n)
+  %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(1n+n, 1n, 0n, 0n)), Half(1n+n), Half.go(1n+n, 0n)) : LE(Nat.add(Half(n), _), n)
+  Half.pair(n)
+
+def Half.mono(n: Nat) -> LE(Half(n), Half(1n+n)):
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      match p:
+        case 0n:
+          {==}
+        case 1n+k:
+          Half.mono(k)
+
+# n / 2 is at most (n + 1) / 2
+def Nat.div2_mono(+n: Nat) -> LE(Nat.div(n, 2n), Nat.div(1n+n, 2n)):
+  %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(n, 1n, 0n, 0n)), Half(n), Half.go(n, 0n)) : LE(_, Nat.div(1n+n, 2n))
+  %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(1n+n, 1n, 0n, 0n)), Half(1n+n), Half.go(1n+n, 0n)) : LE(Half(n), _)
+  Half.mono(n)
+
 # x + z <= y gives x <= y - z
 def Nat.le_sub_of_add(+x: Nat, z: Nat, y: Nat, h: LE(Nat.add(x, z), y)) -> LE(x, Nat.sub(y, z)):
   match z y:

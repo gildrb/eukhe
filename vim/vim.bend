@@ -72,15 +72,44 @@ def Vim.real(+fs: List<&2, T.Buf>, w: T.Win) -> T.Win:
 def Vim.fit(+s: T.St) -> T.St:
   C.Win.settle(S.St.set_cols(S.St.set_rows(s, Nat.max(S.St.rows(s), V.View.min_rows())), Nat.max(S.St.cols(s), V.View.min_cols())))
 
-# the editor settled, as every step leaves it: on a buffer it may show,
-# then fitted (Vim.fit)
-def Vim.final(+s: T.St) -> T.St:
-  Vim.fit(S.St.set_win(s, Vim.real(S.St.files(s), S.St.win(s))))
+# outside normal mode no key waits and no count is typed
+def Vim.pend(m: T.Mode, p: T.Pend) -> T.Pend:
+  match m:
+    case T.Normal{}:
+      p
+    case T.Typing{kind, text}:
+      T.NoPend{}
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      T.NoPend{}
 
-# st on the files and the screen of s: only the start and a size event
-# set those
-def Vim.keep(+s: T.St, st: T.St) -> T.St:
-  S.St.set_cols(S.St.set_rows(S.St.set_files(st, S.St.files(s)), S.St.rows(s)), S.St.cols(s))
+def Vim.count(m: T.Mode, c: Nat) -> Nat:
+  match m:
+    case T.Normal{}:
+      c
+    case T.Typing{kind, text}:
+      0n
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      0n
+
+# the editor settled, as every step leaves it: on a buffer it may show,
+# no key waiting nor count outside normal mode, then fitted (Vim.fit)
+def Vim.final(+s: T.St) -> T.St:
+  +s2 = S.St.set_count(S.St.set_pend(s, Vim.pend(S.St.mode(s), S.St.pend(s))), Vim.count(S.St.mode(s), S.St.count(s)))
+  Vim.fit(S.St.set_win(s2, Vim.real(S.St.files(s), S.St.win(s))))
+
+# the files opened: at least one (Ctrl-^ and Oil's Ctrl-c go to its head)
+def Vim.opened(os: List<&2, Nat>) -> List<&2, Nat>:
+  match os:
+    case Nil{}:
+      [0n]
+    case Con{h, t}:
+      Con{h, t}
+
+# st on the files, their folds and listings and the screen of s: only the
+# start and a size event set those
+def Vim.keep(+s: T.St, +st: T.St) -> T.St:
+  +st2 = S.St.set_opened(S.St.set_dirs(S.St.set_folded(S.St.set_files(st, S.St.files(s)), S.St.folded(s)), S.St.dirs(s)), Vim.opened(S.St.opened(st)))
+  S.St.set_cols(S.St.set_rows(st2, S.St.rows(s)), S.St.cols(s))
 
 # a step from s, its editor settled
 def Vim.done(+s: T.St, r: T.Step) -> T.Step:

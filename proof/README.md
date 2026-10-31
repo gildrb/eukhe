@@ -1,19 +1,24 @@
-# Proofs of LAWS.bend
+# Proofs of the laws (LAWS.bend, laws/vim/)
+
+All 37 laws of laws/vim/ are proven: `bend PROOF.bend` and
+`bend PROOF.bend --verdict` print ALL PROOFS CHECK. No law is open.
 
 `bend PROOF.bend` (and `--verdict`) checks every file PROOF.bend imports.
 One file per law; lemmas in `base.bend` files. NEVER `@unsafe`, `?` holes,
-or edits to LAWS.bend / LAWS.lock.
+or edits to LAWS.bend, laws/ or LAWS.lock. A code change must keep every proof
+green, `python3 scripts/vim-diff.py` at 22/24 exact and the law fuzz at 0
+fails.
 
 ## What exists
 
-| File                                    | Gives                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proof/base.bend`                       | Bool/And/Or/Not, `LE`/`LT` (Data), Nat order, add/sub/min/max, `Nat.div2_twice`, `Nat.sub_chain`, `Nat.le_sub_of_add`, ...                                                                                                                                                                                                                                                                                                                                                   |
-| `proof/base/final.bend`                 | `Final(s)`: rows >= 3, cols >= 12, cursor line/col on the text, `Band` for top (scrolloff) and left (sidescrolloff). `Final.of(x) : Final(Vim.final(x))` for EVERY x. `Fit.band`/`Fit.side` (View.fit/fit_side land in the band).                                                                                                                                                                                                                                            |
-| `proof/base/reach.bend`                 | `Reach.step(s,e)`: `after(Vim.step(s,e)) == Vim.final(Reach.next(s,e))`; `Reach.run`: `Spec.run(..) == Vim.final(Reach.pre(evs, Vim.start(..)))`; `Reach.final` (Final of every run); `Reach.files_run` (`files == Files.some(fs, Nil)`); `Reach.rows_run`/`cols_run` (`S.St.rows(run) == Spec.rows(rows, evs)`); `Reach.snoc`; `Esc.mode` (Esc from any state gives Normal); `Reach.normal_mode`, `rows_normal`, `cols_normal`; `Keep.*`, `Field.*`, `Size.*` field lemmas. |
-| `proof/base/text.bend`                  | `Cells.eq` (Text.cells = Spec.cells), `Chars.eq`, `Count.eq`, `Line.eq`, `Char.eq`, `String.eq_refl/eq_same`, `Fit.cells`, `Fitted.cells`, `Cut.cells`, `Drop.cells`.                                                                                                                                                                                                                                                                                                        |
-| `proof/screen/base.bend`                | `Screen.on_text`, `Screen.scrolled` (settled editor in Normal mode on `Files.some(fs)`), `Files.spec` (`Spec.file(fs,i)` = the window's lines), mode-clash helpers `Mode.typing/picking`, `And3/6/7`.                                                                                                                                                                                                                                                                        |
-| `proof/screen/parts.bend`, `frame.bend` | nums, hits, bar, Float.fit, Scr.inside, Scr.typed, statusline; per-mode frame facts.                                                                                                                                                                                                                                                                                                                                                                                         |
+| File                                        | Gives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proof/base.bend`                           | Bool/And/Or/Not, `LE`/`LT` (Data), Nat order, add/sub/min/max, `Nat.div2_twice`, `Nat.sub_chain`, `Nat.le_sub_of_add`, ...                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `proof/base/final.bend`                     | `Final(s)`: rows >= 3, cols >= 12, cursor line/col on the text, `Band` for top (scrolloff) and left (sidescrolloff). `Final.of(x) : Final(Vim.final(x))` for EVERY x. `Fit.band`/`Fit.side` (View.fit/fit_side land in the band).                                                                                                                                                                                                                                                                                                            |
+| `proof/base/reach.bend`                     | `Reach.step(s,e)`: `after(Vim.step(s,e)) == Vim.final(Reach.next(s,e))`; `Reach.run`: `Spec.run(..) == Vim.final(Reach.pre(evs, Vim.start(..)))`; `Reach.final` (Final of every run); `Reach.files_run` (`files == Files.some(fs, Nil)`); `Reach.dirs_run`; `Reach.rows_run`/`cols_run` (`S.St.rows(run) == Spec.rows(rows, evs)`); `Reach.snoc`; `Esc.mode` (Esc from any state gives Normal); `Reach.normal_mode`, `normal_pend`, `normal_count`, `normal_step`, `rows_normal`, `cols_normal`; `Keep.*`, `Field.*`, `Size.*` field lemmas. |
+| `proof/base/text.bend`                      | `Cells.eq` (Text.cells = Spec.cells), `Chars.eq`, `Count.eq`, `Line.eq`, `Char.eq`, `String.eq_refl/eq_same`, `Fit.cells`, `Fitted.cells`, `Cut.cells`, `Drop.cells`.                                                                                                                                                                                                                                                                                                                                                                        |
+| `proof/vim/screen/base.bend`                | `Screen.on_text`, `Screen.scrolled` (settled editor in Normal mode on `Files.some(fs)`), `Files.spec` (`Spec.file(fs,i)` = the window's lines), mode-clash helpers `Mode.typing/picking`, `And3/6/7`.                                                                                                                                                                                                                                                                                                                                        |
+| `proof/vim/screen/parts.bend`, `frame.bend` | nums, hits, bar, Float.fit, Scr.inside, Scr.typed, statusline; per-mode frame facts.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Pattern for a law over `Spec.run(fs, rows, cols, evs)`: rewrite
 `Spec.rows/cols` with `Reach.rows_run/cols_run`, then prove the claim for
@@ -24,101 +29,106 @@ the files). For `Spec.normal`, use the `*_normal` lemmas and
 before tgt/cur — see `OnText.at`). For a step from a reached state use
 `Reach.step` + `Keep.*`.
 
-## Open laws: what each needs
+## Invariants built into the code
 
-Every motion/oil law starts from `n = Spec.normal(...)`: Final(n),
-mode Normal, files invariant are already proven. Pend NoPend and count 0
-after Esc are NOT yet proven: add `Esc.pend`/`Esc.count` next to
-`Esc.mode` (reach.bend), same proof shape (match s, mode, pend; `{==}`).
+Every law starts from a reached editor: `Spec.run` or `n = Spec.normal(...)`.
+What every reached editor holds by construction (vim/vim.bend), with its
+lemmas in proof/base/reach.bend unless named:
 
-### esc group
+- `Vim.final` resets pend/count outside Normal: `Reach.normal_pend` /
+  `Reach.normal_count` give `pend(Spec.normal(..)) == NoPend`,
+  `count(Spec.normal(..)) == 0n` (from `Esc.pend`/`Esc.count`,
+  `Field.pend_final`, `Keep.pend`, `Pend.none`, `Count.zero`).
+  `Reach.normal_step`: `Spec.normal(..) == Vim.final(Reach.next(Spec.run(..), Esc))`.
+- `Vim.keep` restores files, folded, dirs (`Reach.dirs_run`: listings ==
+  `S.St.dirs(Vim.start(..))`) and keeps `opened` nonempty (`Keep.opened`,
+  `Field.opened_final`; `Vim.opened(Nil) = [0n]`).
+- A Dir's lines default to `B.Oil.list(files, path)` when its listing is
+  not found (core.bend St.lines.at); Win.leave records a file left in
+  `opened` (Oil's Ctrl-c returns to it).
+- View.fit's lower scrolloff is `View.so_dn(h)`: Final's top band is
+  `Fin.hi(line, View.so_dn(h), last, h)`; `Fit.so_le_dn` gives so_in <= so_dn.
+- `want` normalized in `Win.settle` (core.bend `Want.at`): kept when
+  `Move.aim(ls, line, want) == col`, else `Col{col}` (A4): `Aim`/`Aim.of`
+  in proof/vim/motion/base.bend.
+- `Vim.real` in Vim.final: the window shows a real buffer: `Real.of(x)`,
+  `Real.spec` in proof/vim/buffers/real.bend.
+- Link.gx opens a URL only on a file window (ex.bend).
 
-- **esc_closes**: `F.float(frame(n)) == None` from `Reach.normal_mode` +
-  `Scr.float(s, Normal) = None` (rewrite mode). Code: screen.bend Scr.float.
-- **oil_close**: `Spec.press(n, "<C-c>")` in Normal/NoPend: `Key.normal.hi(..27..)`
-  → `Win.alt` when on a Dir; need `Win.alt` result tgt is a File:
-  `Win.to(s, head(drop(opened, 0)))` — needs invariant "opened is nonempty"
-  (opened starts `[0n]`, Opened.put only conses) or show `Win.to(s, None)`
-  keeps a File tgt is false on Dir → **needs a reach invariant on
-  `opened`** (by construction in Vim.keep, or a per-key proof). Code:
-  core.bend Win.alt/Win.to/Opened.put, keys.bend 26/27.
-- **esc_keeps**: tgt(normal) == tgt(run): Esc keeps `S.St.win` in every
-  mode/pend (Key.in → set_mode/set_hl/set_pend only) and Vim.real/fit keep
-  tgt when it is real (needs `Tgt.real(files(run), tgt(run)) == True`, i.e.
-  the real_buffer invariant below). Lemma: `Esc.win(s): win(after(Key.in(s,
-  mode(s), "<Esc>"))) == win(s)` (match s, mode, pend).
-- **esc_idle** (new in LAWS): Esc in normal mode changes nothing on screen:
-  frame(after(step(s,Esc))) == frame(s) for Normal s — Esc.win + set_hl only
-  (check: Esc clears `hl`, which changes hits — read the law's exact claim).
+Proof-cost note: orient every rewrite `%e` as `e : {new == old}` with the
+goal literally `P[old]`; otherwise bend normalizes `Spec.normal` (minutes).
 
-### motion group (key_j, key_k, key_gg, key_G, key_0, key_dollar, key_h, key_l, col_j/k/gg/G)
+## Proofs by group
 
-Per key k: `after(step(n, EvKey{k})) == Vim.final(Reach.next(n, ...))` with
-`Key.in_normal(n, k)` reducing via `Ex.find(Key.names(), k, 0)` (closed)
-to `Key.normal.at(s, IDX, max(0,1)=1, 0)` once count = 0 and pend = NoPend
-(needs Esc.pend/count). Then: Win.go_line / Win.go / Key.dollar →
-`Win.settle`, and Vim.final re-settles (idempotent facts needed only for
-line/col: `Move.clamp`, `Move.aim`, `Nat.min`). Lemmas:
+### screen (cursor_ok, cursor_on_text, fits, edges, cmdline_cursor, scrolloff, scrolloff_any)
 
-- `Settle.cur(s)`: cursor after `Win.settle(s)` is `Move.clamp(lines, cur)`;
-  `Final` already gives `line <= last`, so clamp of a clamped pos is itself.
-- `Fit.cur(x)`: cursor of `Vim.final(x)` is `Move.clamp(lines(x), cur(x))`
-  (from Final.win's expression) and tgt unchanged when real.
-- at_line/at_col of the frame = cursor line/col (proved inside
-  `OnText.parts`: `el`, `ec`; extract as standalone lemmas).
-- col laws (A4): `Move.aim(ls, l, want)` vs `Spec.min(c, last)`; needs the
-  invariant `want == Col{col}` or `End` with col at line end — **not
-  guaranteed by Final**; either add to Vim.final (want normalized) or prove
-  per key that `Win.go` sets want = Col{col}. Code: core.bend Win.go/go_line,
-  move.bend Move.aim, keys.bend Key.dollar (sets End).
-- j_view (new): read the law; uses View.fit's new `far_up`/`down` thresholds.
+proof/vim/screen/*.bend, from `Final.of` and screen/base.bend, parts.bend, frame.bend.
 
-### mouse
+### esc (esc_closes, oil_close, esc_keeps, esc_idle)
 
-- **click**: `Vim.click(n, Normal, r, c)` → `Win.go(s2, Pos{top+r, left+c-g})`
-  then Vim.final; needs the same `Fit.cur` lemma and `Move.clamp` =
-  `Spec.min(.., last)`; `Spec.min_eq` exists (screen/base.bend).
-  Code: vim.bend Vim.click.
+- `proof/vim/esc/base.bend`: `Settle.win` (Win.settle keeps a settled window),
+  `Settle.self` (Vim.final keeps a settled normal-mode editor on a real
+  buffer, up to want), `Esc.win` (Esc keeps the window), `Esc.final_tgt`,
+  `Esc.real_run`.
 
-### oil group (oil_up_entry, oil_parent, oil_open, oil_back, oil_listing)
+### motion (key_j/k/gg/G/0/dollar/h/l, col_j/k/gg/G, j_view)
 
-- Every Dir the window shows is real (`Tgt.real`, by construction:
-  `Vim.real` in Vim.final). Listing lines come from `St.lines.at(s, Dir d)` =
-  `Listing.find(dirs, d)` default `["../"]`; need invariant
-  `dirs(run) == dirs(start)` (by construction like files: extend Vim.keep
-  to restore dirs/folded, runtime-identical) and `Listing.find(Dirs.list(..),
-  d)` starts with "../" (Oil.list = `"../" <> es`).
-- oil_parent/oil_open: `Oil.here.at` (core.bend) with `Path.up`/`Path.dir`/
-  `Path.child` vs `Spec.parent`/`Spec.dir`/`Spec.base` (string lemmas on
-  `Path.dir.go`, `Path.up.go` vs `Spec.dir.go`, `Spec.drop_last`), and
-  `Lines.index` finding `Spec.base(p)` in the listing (oil_listing helps).
-- oil_back, oil_listing: new laws; read them first.
+- `proof/vim/motion/base.bend`: proofs work on `Idle.mk(n)` (`Idle.eta`,
+  `Ready.*`: the record with mode/count/pend written in, so a key
+  computes); `Final.real` (Vim.final = Vim.fit on a real target);
+  `GL.cur`/`GLJ.cur`/`Go.cur`/`Dol.cur`/`G1.cur` give the cursor after each
+  motion; `AtLine`/`AtCol` read the frame back; `Aim.of` (want invariant).
+- `proof/vim/motion/col_base.bend`: `VCol.press` (press = Vim.fit(keep(z, raw
+  key)); converting a press directly runs `--verdict` out of fuel),
+  `VCol.aim`/`VCol.of`/`VCol.tail` prove Claim.vcol for any want.
+- `proof/vim/motion/j_view.bend`: `JV.top` (the two settles of j), `JV.fit`
+  (View.fit from a top in line l's band to m <= l + 1: top, or hi(m);
+  `JV.mid_eq` covers windows of at most two rows), `JV.collapse`.
 
-### buffers
+### mouse (click)
 
-- **real_buffer**: `Vim.final` now ends with `Vim.real` (vim.bend): the
-  window shows `B.Tgt.real(files, tgt)` targets, else file 0. Needed:
-  `Real.of(x): B.Tgt.real(files(x), tgt(Vim.final(x))) == True`
-  (`Vim.fit` keeps tgt: match x; `Vim.real`: case on the Bool, False → File 0
-  real since `0 < max(n, 1)`), and `B.Tgt.real(Files.some(fs, Nil), t) ==
-  Spec.real(fs, t)`: `Files.len(Files.some(fs))` = `Spec.nfiles(fs)`
-  (Files.some_go in screen/base.bend + a count lemma), `Spec.max_eq`
-  (reach.bend), `B.Path.is_dir == Spec.ends_slash` (same recursion),
-  `X.Text.prefix(d, p) == Spec.prefix(d, p)` (Text.prefix.go with ok=False
-  stays False; inspect `Char.is_eq`).
+- `proof/vim/mouse/click.bend`: `Ck.final(s, w)` and `Ck.frame(s, m)` are
+  shape copies of Vim.final / Scr.frame: change them with those defs.
+
+### oil (oil_up_entry, oil_parent, oil_open, oil_back, oil_listing)
+
+- `proof/vim/oil/base.bend`: what a folder window shows (`Oil.vim_lines`,
+  `Good`), `Oil.dash`/`Oil.ctrl_c` from a settled normal editor.
+- `proof/vim/oil/path.bend`: `Path.dir_eq`/`Path.up_eq`/`Path.child_base` vs
+  Spec.dir/parent/base, `Path.real_dir`.
+- `proof/vim/oil/bag.bend`: an Oil listing holds exactly the folder's children.
+- `proof/vim/oil/str.bend`: `Str.eq_true` (String.eq true -> equal) and
+  Word/U32/Char eq_true.
+
+### buffers (real_buffer, start_file)
+
+- `proof/vim/buffers/real.bend`: `Real.of`, `Real.fit`, `Real.win`, `Real.spec`,
+  `Prefix.eq` (Text.prefix = Spec.prefix), `Slash.eq`, `Char.eq_comm`.
 
 ### host (honest, urls)
 
-- `Spec.act(Vim.step(run, e))` = act of the raw step (Vim.done keeps act).
-  CopyText only from `Key.yank` (keys.bend: copies only when the line equals
-  `E.Vim.install()`; prove `String.eq(line, install) == True → line ==
-  install`, a String.eq_true lemma from U32/Word eq_true as in the bank).
-  OpenUrl only from `E.Link.gx` (ex.bend): url cut from the cursor's line,
-  which is a line of `Spec.file(fs, i)` (files invariant) — needs
-  `within(cut, line)`-style lemmas; urls also needs the http(s) prefix test
-  in Link.gx.
+- `proof/vim/host/honest.bend`, `urls.bend`: both project `A.Host.law`
+  (`proof/vim/host/act.bend`): `Host.good(fs, act(Vim.step(run, e)))`, i.e.
+  honest and url_ok together, by `Step.good` → `In.good` (every key path
+  of Key.in; `Normal.good`/`Hi.good`/`G.good` enumerate key numbers).
+  yy: `E.Vim.install()` computes to `Spec.install()`, no eq_true needed.
+  gx: `Gx.good` (only on file windows: Link.gx tests `C.St.on_file`).
+- `proof/vim/host/base.bend`: string lemmas (`Str.app_nil/assoc/rev_go/
+  rev_app/rev_rev`), runs `Sub(u, s)` (s = a ++ u ++ b; `refl/trans/rev/
+  cons/within`), `When.both`/`Pick.both` (a property of both branches),
+  and `Gx.sub(line, c)`: the target gx cuts is a run of the line.
 
-### Ex
+### Ex (colon, ex_line)
 
-- colon, ex_line: new laws (":" opens Typing{Colon,""}: cursor after it —
-  Typing frame facts exist in frame.bend/parts.bend; ":5<CR>" → E.Line.run).
+- `proof/vim/ex/colon.bend`: match the state, mode, pend (`Eb.Pend.clash` for a
+  waiting key, from `Reach.normal_pend`); the Typing frame computes:
+  `Colon.typed` (`Scr.typed(":", c) == ":"` for c >= 2), `Max.l`.
+- `proof/vim/ex/ex_line.bend`: step lemmas over an ABSTRACT editor (unfolding
+  three presses at once does not finish): `ExLine.real` (Vim.final on a
+  real buffer is `ExLine.rf`, Vim.fit only), `ExLine.Same` (files, dirs,
+  target) with `Same.trans/real`, `Lines.same`; `Press.eq/same/mode/line/
+  final` for any key keeping the target; per key `Colon.*`, `Five.*`,
+  `Cr.*`; `ExLine.at_line` (frame line == cursor line when settled, Normal);
+  `Lines.spec`, `Want.eq`, `Min.idem/four`. Uses `Rb.Real.of`
+  (proof/vim/buffers/real.bend).
+- `proof/vim/ex/base.bend`: `Pend.If/clash`, `Max.l`.

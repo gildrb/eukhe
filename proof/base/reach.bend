@@ -14,7 +14,7 @@ import ../../vim/buf.bend as B
 import ../../vim/st.bend as S
 import ../../vim/keys.bend as K
 import ../../vim/vim.bend as Vim
-import ../../LAWS.bend as Laws
+import ../../laws/vim/base.bend as Laws
 import ../base.bend as L
 import ./final.bend as Fi
 
@@ -408,3 +408,185 @@ def Reach.cols_normal(fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2
   +evs2 = Laws.Spec.snoc(evs, {T.EvKey{"<Esc>"} : T.Ev})
   %ColsGo.snoc(evs, "<Esc>", cols) : {S.St.cols(Laws.Spec.run(fs, rows, cols, evs2)) == Laws.Spec.max(_, 12n) : Nat}
   Reach.cols_run(fs, rows, cols, evs2)
+
+# Restored fields: folders' listings, opened files; idle outside normal
+# -----------------------------------------------------------------------
+
+def Field.dirs_final(+x: T.St) -> {S.St.dirs(Vim.Vim.final(x)) == S.St.dirs(x) : List<&2, T.Listing>}:
+  match x:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Field.opened_final(+x: T.St) -> {S.St.opened(Vim.Vim.final(x)) == S.St.opened(x) : List<&2, Nat>}:
+  match x:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Field.pend_final(+x: T.St) -> {S.St.pend(Vim.Vim.final(x)) == Vim.Vim.pend(S.St.mode(x), S.St.pend(x)) : T.Pend}:
+  match x:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Field.count_final(+x: T.St) -> {S.St.count(Vim.Vim.final(x)) == Vim.Vim.count(S.St.mode(x), S.St.count(x)) : Nat}:
+  match x:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Keep.dirs(+s: T.St, st: T.St) -> {S.St.dirs(Vim.Vim.keep(s, st)) == S.St.dirs(s) : List<&2, T.Listing>}:
+  match st:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Keep.opened(+s: T.St, st: T.St) -> {S.St.opened(Vim.Vim.keep(s, st)) == Vim.Vim.opened(S.St.opened(st)) : List<&2, Nat>}:
+  match st:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Keep.pend(+s: T.St, st: T.St) -> {S.St.pend(Vim.Vim.keep(s, st)) == S.St.pend(st) : T.Pend}:
+  match st:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Keep.count(+s: T.St, st: T.St) -> {S.St.count(Vim.Vim.keep(s, st)) == S.St.count(st) : Nat}:
+  match st:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Size.dirs(+s: T.St, +r: Nat, +c: Nat) -> {S.St.dirs(Vim.Vim.size(s, r, c)) == S.St.dirs(s) : List<&2, T.Listing>}:
+  match s:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Env.dirs(+s: T.St, e: T.Ev) -> {S.St.dirs(Reach.env(s, e)) == S.St.dirs(s) : List<&2, T.Listing>}:
+  match e:
+    case T.EvKey{name}:
+      {==}
+    case T.EvClick{row, col}:
+      {==}
+    case T.EvWheel{down, notches}:
+      {==}
+    case T.EvSize{+rows, +cols}:
+      Size.dirs(s, rows, cols)
+
+def Reach.dirs(evs: List<&2, T.Ev>, +x: T.St) -> {S.St.dirs(Reach.pre(evs, x)) == S.St.dirs(x) : List<&2, T.Listing>}:
+  match evs:
+    case Nil{}:
+      {==}
+    case Con{+e, t}:
+      +fx = Vim.Vim.final(x)
+      +env = Reach.env(fx, e)
+      +n = Reach.next(fx, e)
+      Equal.trans(List<&2, T.Listing>, S.St.dirs(Reach.pre(t, n)), S.St.dirs(n), S.St.dirs(x), Reach.dirs(t, n), Equal.trans(List<&2, T.Listing>, S.St.dirs(n), S.St.dirs(env), S.St.dirs(x), Keep.dirs(env, Laws.Spec.after(Reach.raw(fx, e))), Equal.trans(List<&2, T.Listing>, S.St.dirs(env), S.St.dirs(fx), S.St.dirs(x), Env.dirs(fx, e), Field.dirs_final(x))))
+
+# the folders' listings after any events are the start's
+def Reach.dirs_run(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {S.St.dirs(Laws.Spec.run(fs, rows, cols, evs)) == S.St.dirs(Vim.Vim.start(fs, rows, cols)) : List<&2, T.Listing>}:
+  +x = Reach.pre(evs, Vim.Vim.start(fs, rows, cols))
+  %Equal.sym(T.St, Laws.Spec.run(fs, rows, cols, evs), Vim.Vim.final(x), Reach.run(fs, rows, cols, evs)) : {S.St.dirs(_) == S.St.dirs(Vim.Vim.start(fs, rows, cols)) : List<&2, T.Listing>}
+  Equal.trans(List<&2, T.Listing>, S.St.dirs(Vim.Vim.final(x)), S.St.dirs(x), S.St.dirs(Vim.Vim.start(fs, rows, cols)), Field.dirs_final(x), Reach.dirs(evs, Vim.Vim.start(fs, rows, cols)))
+
+# Esc from a settled editor: no key waits, no count
+def Esc.pend(y: T.St) -> {S.St.pend(Laws.Spec.after(K.Key.in(Vim.Vim.final(y), S.St.mode(Vim.Vim.final(y)), "<Esc>"))) == T.NoPend{} : T.Pend}:
+  match y:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      match mode:
+        case T.Normal{}:
+          match pend:
+            case T.NoPend{}:
+              {==}
+            case T.PendG{}:
+              {==}
+            case T.PendZ{}:
+              {==}
+            case T.PendLead{}:
+              {==}
+            case T.PendLeadF{}:
+              {==}
+            case T.PendY{}:
+              {==}
+        case T.Typing{kind, text}:
+          {==}
+        case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+          {==}
+
+def Esc.count(y: T.St) -> {S.St.count(Laws.Spec.after(K.Key.in(Vim.Vim.final(y), S.St.mode(Vim.Vim.final(y)), "<Esc>"))) == 0n : Nat}:
+  match y:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      match mode:
+        case T.Normal{}:
+          match pend:
+            case T.NoPend{}:
+              {==}
+            case T.PendG{}:
+              {==}
+            case T.PendZ{}:
+              {==}
+            case T.PendLead{}:
+              {==}
+            case T.PendLeadF{}:
+              {==}
+            case T.PendY{}:
+              {==}
+        case T.Typing{kind, text}:
+          {==}
+        case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+          {==}
+
+# no key waits nor count is typed whatever the mode
+def Pend.none(m: T.Mode) -> {Vim.Vim.pend(m, T.NoPend{}) == T.NoPend{} : T.Pend}:
+  match m:
+    case T.Normal{}:
+      {==}
+    case T.Typing{kind, text}:
+      {==}
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      {==}
+
+def Count.zero(m: T.Mode) -> {Vim.Vim.count(m, 0n) == 0n : Nat}:
+  match m:
+    case T.Normal{}:
+      {==}
+    case T.Typing{kind, text}:
+      {==}
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      {==}
+
+# Esc after evs: no key waits, no count
+def Esc.pend_run(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {S.St.pend(Laws.Spec.after(K.Key.in(Laws.Spec.run(fs, rows, cols, evs), S.St.mode(Laws.Spec.run(fs, rows, cols, evs)), "<Esc>"))) == T.NoPend{} : T.Pend}:
+  +x = Reach.pre(evs, Vim.Vim.start(fs, rows, cols))
+  %Equal.sym(T.St, Laws.Spec.run(fs, rows, cols, evs), Vim.Vim.final(x), Reach.run(fs, rows, cols, evs)) : {S.St.pend(Laws.Spec.after(K.Key.in(_, S.St.mode(_), "<Esc>"))) == T.NoPend{} : T.Pend}
+  Esc.pend(x)
+
+def Esc.count_run(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {S.St.count(Laws.Spec.after(K.Key.in(Laws.Spec.run(fs, rows, cols, evs), S.St.mode(Laws.Spec.run(fs, rows, cols, evs)), "<Esc>"))) == 0n : Nat}:
+  +x = Reach.pre(evs, Vim.Vim.start(fs, rows, cols))
+  %Equal.sym(T.St, Laws.Spec.run(fs, rows, cols, evs), Vim.Vim.final(x), Reach.run(fs, rows, cols, evs)) : {S.St.count(Laws.Spec.after(K.Key.in(_, S.St.mode(_), "<Esc>"))) == 0n : Nat}
+  Esc.count(x)
+
+# the editor in normal mode after evs and an Esc waits for no key
+def Reach.normal_pend(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {S.St.pend(Laws.Spec.normal(fs, rows, cols, evs)) == T.NoPend{} : T.Pend}:
+  +esc = {T.EvKey{"<Esc>"} : T.Ev}
+  +r = Laws.Spec.run(fs, rows, cols, evs)
+  +k = Laws.Spec.after(K.Key.in(r, S.St.mode(r), "<Esc>"))
+  +n = Reach.next(r, esc)
+  %Equal.sym(T.St, Laws.Spec.normal(fs, rows, cols, evs), Laws.Spec.after(Vim.Vim.step(r, esc)), Reach.snoc(evs, esc, Vim.Vim.init(fs, rows, cols))) : {S.St.pend(_) == T.NoPend{} : T.Pend}
+  %Equal.sym(T.St, Laws.Spec.after(Vim.Vim.step(r, esc)), Vim.Vim.final(n), Reach.step(r, esc)) : {S.St.pend(_) == T.NoPend{} : T.Pend}
+  +e1 = Equal.trans(T.Pend, S.St.pend(n), S.St.pend(k), T.NoPend{}, Keep.pend(r, k), Esc.pend_run(fs, rows, cols, evs))
+  +e2 = Equal.cong(T.Pend, T.Pend, p => Vim.Vim.pend(S.St.mode(n), p), S.St.pend(n), T.NoPend{}, e1)
+  Equal.trans(T.Pend, S.St.pend(Vim.Vim.final(n)), Vim.Vim.pend(S.St.mode(n), S.St.pend(n)), T.NoPend{}, Field.pend_final(n), Equal.trans(T.Pend, Vim.Vim.pend(S.St.mode(n), S.St.pend(n)), Vim.Vim.pend(S.St.mode(n), T.NoPend{}), T.NoPend{}, e2, Pend.none(S.St.mode(n))))
+
+# ... and has no count
+def Reach.normal_count(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {S.St.count(Laws.Spec.normal(fs, rows, cols, evs)) == 0n : Nat}:
+  +esc = {T.EvKey{"<Esc>"} : T.Ev}
+  +r = Laws.Spec.run(fs, rows, cols, evs)
+  +k = Laws.Spec.after(K.Key.in(r, S.St.mode(r), "<Esc>"))
+  +n = Reach.next(r, esc)
+  %Equal.sym(T.St, Laws.Spec.normal(fs, rows, cols, evs), Laws.Spec.after(Vim.Vim.step(r, esc)), Reach.snoc(evs, esc, Vim.Vim.init(fs, rows, cols))) : {S.St.count(_) == 0n : Nat}
+  %Equal.sym(T.St, Laws.Spec.after(Vim.Vim.step(r, esc)), Vim.Vim.final(n), Reach.step(r, esc)) : {S.St.count(_) == 0n : Nat}
+  +e1 = Equal.trans(Nat, S.St.count(n), S.St.count(k), 0n, Keep.count(r, k), Esc.count_run(fs, rows, cols, evs))
+  +e2 = Equal.cong(Nat, Nat, c => Vim.Vim.count(S.St.mode(n), c), S.St.count(n), 0n, e1)
+  Equal.trans(Nat, S.St.count(Vim.Vim.final(n)), Vim.Vim.count(S.St.mode(n), S.St.count(n)), 0n, Field.count_final(n), Equal.trans(Nat, Vim.Vim.count(S.St.mode(n), S.St.count(n)), Vim.Vim.count(S.St.mode(n), 0n), 0n, e2, Count.zero(S.St.mode(n))))
+
+# the editor in normal mode after evs is Vim.final of the Esc step from the run
+def Reach.normal_step(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {Laws.Spec.normal(fs, rows, cols, evs) == Vim.Vim.final(Reach.next(Laws.Spec.run(fs, rows, cols, evs), T.EvKey{"<Esc>"})) : T.St}:
+  +esc = {T.EvKey{"<Esc>"} : T.Ev}
+  +r = Laws.Spec.run(fs, rows, cols, evs)
+  Equal.trans(T.St, Laws.Spec.normal(fs, rows, cols, evs), Laws.Spec.after(Vim.Vim.step(r, esc)), Vim.Vim.final(Reach.next(r, esc)), Reach.snoc(evs, esc, Vim.Vim.init(fs, rows, cols)), Reach.step(r, esc))
