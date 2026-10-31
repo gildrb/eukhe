@@ -559,7 +559,7 @@ def Claim.open.of(+fs: List<&2, T.Buf>, +s: T.St, t: T.Tgt) -> Bool:
     case T.File{+i}:
       +s2 = Spec.press(s, "-")
       +p = Spec.path(fs, i)
-      Spec.implies(Nat.is_lt(i, Spec.nfiles(fs)), Bool.and(Spec.is_dir(F.tgt(V.Vim.frame(s2)), Spec.dir(p)), String.eq(Spec.line(V.Vim.lines(s2), Spec.at_line(V.Vim.frame(s2))), Spec.base(p))))
+      Spec.implies(Bool.and(Nat.is_lt(i, Spec.nfiles(fs)), Bool.not(String.is_empty(Spec.base(p)))), Bool.and(Spec.is_dir(F.tgt(V.Vim.frame(s2)), Spec.dir(p)), String.eq(Spec.line(V.Vim.lines(s2), Spec.at_line(V.Vim.frame(s2))), Spec.base(p))))
 
 def Claim.open(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
   Claim.open.of(fs, s, F.tgt(V.Vim.frame(s)))
@@ -989,8 +989,9 @@ law oil_close:
   for +evs: List<&2, T.Ev>
   {Spec.is_file(F.tgt(V.Vim.frame(Spec.press(Spec.normal(fs, rows, cols, evs), "<C-c>")))) == True{} : Bool}
 
-# LAW oil_open: in a file (one of fs), "-" shows the file's folder with
-# the cursor on the file's entry.
+# LAW oil_open: in a file (one of fs, its path naming a file: not empty,
+# not ending in "/"), "-" shows the file's folder with the cursor on the
+# file's entry.
 law oil_open:
   for fs: List<&2, T.Buf>
   for +rows: Nat
