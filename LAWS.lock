@@ -1,0 +1,28 @@
+{
+  "laws": {
+    "LAWS.bend::click": "cfe0f2bb2695a532a993b124f93f9f28059a4628716e1f785381af218078ebcf",
+    "LAWS.bend::cursor_ok": "2022806b87f4037be9e613a49fa14dc3ef34b7dda7c6ef107a4b2f291995cc2b",
+    "LAWS.bend::cursor_on_text": "8d24535d3f2117a86c22e869e84087f59e16f804a364e7a10f4827ec4b8c86b5",
+    "LAWS.bend::esc_closes": "9c8613ae1fbd798496e48d91f9992cda7748780d9a648f7a77afe663a058cba6",
+    "LAWS.bend::fits": "911236a06091b38dba33b9d6e49230b2fb62926c136dbb569c0d4a16a088d9e1",
+    "LAWS.bend::honest": "56877f7bd4e959bc46c0fd012235c20fd349548ce77b44d543096e55f717dd0a",
+    "LAWS.bend::key_0": "a880f6f0b0cbe0003602957157a2e35fd36d145e9d314c99222cc894f43f2948",
+    "LAWS.bend::key_G": "4019d5746c75ef9458f81d268ebff363a2c7c18f7a54516f5e6a7453e7827e60",
+    "LAWS.bend::key_dollar": "114af679224920466b3290f4b23efd007c2d1cadf09a6a06b3092a6c0518089f",
+    "LAWS.bend::key_gg": "24287332c4107731661e49553a6e24a7c6269f30beea3e8e252286205314eb02",
+    "LAWS.bend::key_h": "f1d3318f632e24591d7e1f58e811b4b95950c63c5b618ad257ed35c9d817dfbf",
+    "LAWS.bend::key_j": "38cf3d7a0ce10d3ff8b88aabbda656b55197a4abbfd029d3e2f90419c2d16037",
+    "LAWS.bend::key_k": "27743093d91077ebc09b2213621626912b112fd8525b21f7df6d4fd78b67a4f1",
+    "LAWS.bend::key_l": "4f01e0b0d89682a1474d82ceef0ae7c40d5f9ff0f6bfe363308862898074d29f",
+    "LAWS.bend::oil_close": "1e0da6a4435b5673eadaa3de6dcc1de300ba3dceddead0e7f7a8030e165b3ca4",
+    "LAWS.bend::oil_open": "f3b2e5f962d1d40d835f806cf1a3b3b5bbafb02f627f689c02561b4910a97729",
+    "LAWS.bend::oil_parent": "58479bb07a76df86f698e92fe700e3dd8804862a9273034c49a322d71f8db61f",
+    "LAWS.bend::oil_up_entry": "090c36e9e43b8f98ba2124aebab23184570b64f11143ad87a3eb00dea15d9be4",
+    "LAWS.bend::scrolloff": "72927272b30d999bc9ea3df4f12c44e02266bd3e7acae7485dbb379aab2f3d2c",
+    "LAWS.bend::start_example": "5d4e43b01317334eecd7008a45bef3727e39a39c7ec6d3646d9ecb6d5e21b689"
+  },
+  "spec": {
+    "LAWS.bend": "81cdf3d41d7b5455f8cfd3b3037fd65515bf53d090b83f07c27224bb66261765"
+  },
+  "spec_files": {}
+}

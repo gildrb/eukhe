@@ -57,8 +57,6 @@ export type Frame = {
   cl: boolean;
   /** The whole statusline row, exactly `cols` cells. */
   status: string;
-  /** The screen column of 'colorcolumn' (100) when visible in a file window. */
-  cc: Maybe<number>;
   float: Maybe<Float>;
 };
 export type Ev =

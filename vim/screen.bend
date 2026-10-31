@@ -106,6 +106,11 @@ def Scr.caret(rc: (Nat & Nat), +by: Nat) -> T.Cell:
     case (r, c):
       T.Cell{r, Nat.add(c, by)}
 
+# what the command line shows of a command being typed: its end, so the
+# cursor after it stays on screen (one cell is left for the cursor)
+def Scr.typed(+line: String, +cols: Nat) -> String:
+  X.Text.drop(line, Nat.sub(X.Text.len(line), Nat.sub(cols, 1n)))
+
 # the cursor's cell: in the text; on the command line after its text; in
 # a picker after its query
 def Scr.cell(+s: T.St, m: T.Mode) -> T.Cell:
@@ -113,8 +118,8 @@ def Scr.cell(+s: T.St, m: T.Mode) -> T.Cell:
     case T.Normal{}:
       +w = S.St.win(s)
       T.Cell{Nat.sub(C.St.line(s), S.Win.top(w)), Nat.add(C.St.g(s), Nat.sub(C.St.col(s), S.Win.left(w)))}
-    case T.Typing{kind, text}:
-      T.Cell{Nat.sub(S.St.rows(s), 1n), Nat.add(1n, X.Text.cells(text))}
+    case T.Typing{kind, +text}:
+      T.Cell{Nat.sub(S.St.rows(s), 1n), X.Text.cells(Scr.typed(Scr.prefix(kind) ++ text, S.St.cols(s)))}
     case T.Picking{+kind, +q, its, n, sel, top, pv}:
       +r = S.St.rows(s)
       +c = S.St.cols(s)
@@ -129,7 +134,7 @@ def Scr.msg(+s: T.St) -> String:
 def Scr.cmd(+s: T.St, m: T.Mode) -> String:
   match m:
     case T.Typing{kind, text}:
-      Scr.prefix(kind) ++ text
+      Scr.typed(Scr.prefix(kind) ++ text, S.St.cols(s))
     case T.Normal{}:
       Scr.msg(s)
     case T.Picking{kind, q, its, n, sel, top, pv}:
@@ -163,12 +168,6 @@ def Scr.cl(m: T.Mode) -> Bool:
     case T.Picking{kind, q, its, n, sel, top, pv}:
       False{}
 
-# 'colorcolumn' 100 on screen, in a file window
-def Scr.cc(+s: T.St) -> Maybe<&2, Nat>:
-  +left = S.Win.left(S.St.win(s))
-  +shown = Bool.and(C.St.on_file(s), Bool.and(Nat.is_le(left, 99n), Nat.is_lt(Nat.sub(99n, left), C.St.w(s))))
-  Bool.pick(Maybe<&2, Nat>, shown, Some{Nat.add(C.St.g(s), Nat.sub(99n, left))}, None{})
-
 # what the screen shows
 def Scr.frame(+s: T.St) -> T.Frame:
   +w = S.St.win(s)
@@ -178,4 +177,4 @@ def Scr.frame(+s: T.St) -> T.Frame:
   +m = S.St.mode(s)
   +numw = V.View.numw(S.St.opts(s), n)
   +nums = V.View.nums(h, S.St.opts(s), S.Win.top(w), C.St.line(s), Nat.sub(n, 1n), numw, C.St.on_file(s))
-  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, Scr.cell(s, m), Scr.under(s, m), Scr.cmd(s, m), Scr.hits(s, Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), Scr.cl(m), Scr.status_of(s, m), Scr.cc(s), Scr.float(s, m)}
+  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, Scr.cell(s, m), Scr.under(s, m), Scr.cmd(s, m), Scr.hits(s, Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), Scr.cl(m), Scr.status_of(s, m), Scr.float(s, m)}

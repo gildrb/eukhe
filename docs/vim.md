@@ -1,34 +1,38 @@
 # eukhe.com as Neovim
 
-The desktop page is a read-only Neovim. One pure Bend function holds all of it:
-`Vim.step(st, event) -> Step{st, act}`; `Vim.frame(st) -> Frame` says what the screen shows.
-`src/client.ts` only turns browser events into `Ev`, paints `Frame` on a fixed character grid,
-and runs `Act` (open a URL, copy the install command). Phones (no fine pointer, under 720px) get the
-plain page.
+On desktop (fine pointer, 720px or wider) the page is a read-only Neovim with Gil's config. Phones get the plain page.
 
-Laws: `LAWS.bend`. Proofs: `PROOF.bend`. Gate: `python3 ~/.agents/skills/bend/scripts/gate.py .`.
+| Part  | File                                   | Does                                                                                                        |
+| ----- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Core  | `vim/*.bend` (entry `vim/vim.bend`)    | `Vim.init`, `Vim.step(st, ev) -> Step{st, act}`, `Vim.frame(st)`, `Vim.lines(st)`; pure, decides everything |
+| Host  | `src/client.ts`                        | browser events to `Ev`; paints `Frame` on a cell grid; runs `Act` (open URL, copy install command)          |
+| Files | `scripts/files.ts`, `src/markdown.tsx` | `files.json`: each file's lines, highlights, the page's inks, the install fence                             |
+| Laws  | `LAWS.bend`                            | requirements `R1`-`R7`, `A1`-`A3` at its top; one law per claim                                             |
 
 ## Grid
 
-- Ioskeley Mono, 12px: every glyph on the page advances 600/1000 em (checked at build), so one
-  cell is `1ch` by 20px. The screen is `rows x cols` cells; Bend picks every cell.
-- No browser wrapping (`wrap` off, as in Gil's nvim). The page source is hard-wrapped at 68
-  columns; longer lines (docs tables) scroll sideways (`sidescrolloff`).
+- The whole window, 2px padding (Ghostty). Font 15px; cell = one advance of Ioskeley Mono by its line height, measured at start.
+- Layers: number column, text rows, statusline, command line, float, cursor, scrollbar. A key rewrites only the rows that changed.
+- The goose of fff's prompt (U+1FABF) takes two cells; every other character one.
 
-## Requirements
+## Reference
 
-| Id  | Requirement                                                                                                                                                                                                                                                                                                                                  |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | The cursor is always on one cell of one row: never between rows, never off a line's text, never off screen. Holds for every sequence of events from the start (the bend-lang.com game law).                                                                                                                                                  |
-| R2  | Motions behave as Neovim: `h j k l`, `w b e W B E`, `0 ^ $`, `gg G`, counts, `H M L`, `{ }`, `Ctrl-d u f b e y`, `zz zt zb`, `/ ? n N * #`.                                                                                                                                                                                                  |
-| R3  | Gil's nvim config: leader Space; `-` and `<leader>e` Oil; `<leader>ff`, `<leader><leader>` files; `<leader>fg` grep; `<leader>fw` grep word; `<leader>fb` buffers; `<leader>/` buffer lines; `number`, `relativenumber`, `cursorline`, `scrolloff=8`, `sidescrolloff=8`, `ignorecase`, `smartcase`, `nowrap`, `Esc` clears search highlight. |
-| R4  | `:` commands (`:N`, `:e`, `:Oil`, `:bn`, `:bp`, `:set nu/rnu/hls`, `:noh`, `:q`, `:w`), unknown ones answer as Neovim does.                                                                                                                                                                                                                  |
-| R5  | Statusline: the file and `line:col`, nothing else; no key hints anywhere.                                                                                                                                                                                                                                                                    |
-| R6  | Files: the page (`index.md`), `LICENSE`, eukhe's `docs/*.md`, this site's Bend source; one page, buffers in memory.                                                                                                                                                                                                                          |
-| R7  | Mouse: a click puts the cursor on the clicked cell; the wheel scrolls three lines a notch, the cursor follows.                                                                                                                                                                                                                               |
-| R8  | Links open from the keyboard (`gx` URL, `gf` file) and by click. The only copy is the install command.                                                                                                                                                                                                                                       |
-| R9  | Custom scrollbar, from the frame; no native scrollbar.                                                                                                                                                                                                                                                                                       |
-| A1  | Search patterns are literal text (no regex); `*` and `#` match whole words.                                                                                                                                                                                                                                                                  |
-| A2  | Word classes follow Vim's `iskeyword` default and `utf_class`, reduced to the page's characters.                                                                                                                                                                                                                                             |
-| A3  | Pickers filter by in-order letters (fuzzy subsequence), ignoring case, in path order.                                                                                                                                                                                                                                                        |
-| A4  | Neovim defaults where Gil's config is silent: `nostartofline`, `wrapscan`, `hlsearch`, `incsearch`, `mousescroll=ver:3`, `numberwidth=4`, `laststatus=3`, `cmdheight=1`.                                                                                                                                                                     |
+| Source            | Path                                              |
+| ----------------- | ------------------------------------------------- |
+| Options, keymaps  | `~/.config/nvim/lua/config/{options,keymaps}.lua` |
+| Oil, fff, fzf-lua | `~/.config/nvim/lua/plugins/editor.lua`           |
+
+## Use
+
+```sh
+npm run bend                      # vim/vim.bend -> src/vim.mjs
+bend vim/vim.bend --check-only    # type-check the core
+python3 scripts/vim-diff.py       # diff Bend screens against real nvim (pyte)
+node scripts/vim-smoke.mjs        # drive the core from Node
+```
+
+## Limitations
+
+- fff ranks by frecency; ours lists matches in file order.
+- Live grep shows one page of 40 matches.
+- fzf-lua buffer numbers follow first-open order.

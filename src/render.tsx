@@ -94,7 +94,6 @@ function Page({
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div data-term="" aria-hidden="true" {...stylex.props(styles.term)}>
-          <div data-cc="" {...stylex.props(styles.cc)} />
           <pre data-gutter="" {...stylex.props(styles.gutter)} />
           <div data-text="" {...stylex.props(styles.text)} />
           <div data-status="" {...stylex.props(styles.status)} />
@@ -171,16 +170,6 @@ const styles = stylex.create({
     whiteSpace: "pre",
     userSelect: "none",
     cursor: "default",
-  },
-  /** 'colorcolumn': one cell wide down the text rows. */
-  cc: {
-    position: "absolute",
-    display: "var(--cc-show, none)",
-    top: "var(--oy)",
-    left: "calc(var(--ox) + var(--cc) * var(--cw))",
-    width: "var(--cw)",
-    height: "calc(var(--h) * var(--lh))",
-    backgroundColor: `color-mix(in oklch, ${colors.primary} 4%, transparent)`,
   },
   /** The sign and number columns. */
   gutter: {

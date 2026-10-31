@@ -159,11 +159,12 @@ function cells(text: string): string[] {
 /** Virtual text on screen this frame (`[copy]`), for clicks. */
 let copyAt: { row: number; from: number; to: number; text: string } | null = null;
 
-/** One row being built: a character and a class list per cell. */
-type Row = { chars: string[]; classes: string[] };
+/** One row being built: a character, a class list and a color ("": the class's) per cell. */
+type Row = { chars: string[]; classes: string[]; colors: string[] };
 
 function blankRow(width: number): Row {
-  return { chars: Array<string>(width).fill(" "), classes: Array<string>(width).fill("") };
+  const blank = () => Array<string>(width).fill("");
+  return { chars: Array<string>(width).fill(" "), classes: blank(), colors: blank() };
 }
 
 function put(row: Row, col: number, text: string, cls: string) {
@@ -192,8 +193,14 @@ function addClass(row: Row, from: number, to: number, cls: string) {
   }
 }
 
-function hlClass(run: Run): string {
-  return typeof run.hl === "string" ? run.hl : "";
+/** A run's highlight: a group's class, or a color of its own (a swatch in the COLORS table). */
+function paintRun(row: Row, from: number, to: number, run: Run) {
+  if (typeof run.hl === "string") {
+    addClass(row, from, to, run.hl);
+    return;
+  }
+  for (let col = Math.max(0, from); col < Math.min(to, row.colors.length); col += 1)
+    row.colors[col] = run.hl.color;
 }
 
 function markClass(mark: Mark): string {
@@ -227,27 +234,36 @@ function escape(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-/** A row's cells as runs of one class each. */
+/** A span's attributes: its class list and its own color, if any. */
+function attrs(cls: string, color: string): string {
+  return `${cls === "" ? "" : ` class="${cls}"`}${color === "" ? "" : ` style="color:${color}"`}`;
+}
+
+/** A row's cells as runs of one class and color each. */
 function rowHtml(row: Row): string {
   let html = "";
   let run = "";
   let cls = "";
+  let color = "";
   const flush = () => {
     if (run === "") return;
-    html += cls === "" ? escape(run) : `<span class="${cls}">${escape(run)}</span>`;
+    html +=
+      cls === "" && color === "" ? escape(run) : `<span${attrs(cls, color)}>${escape(run)}</span>`;
     run = "";
   };
   for (let col = 0; col < row.chars.length; col += 1) {
     const ch = row.chars[col] ?? " ";
     const c = row.classes[col] ?? "";
+    const k = row.colors[col] ?? "";
     if (ch === goose) {
       flush();
-      html += `<span class="w2 ${c}">${ch}</span>`;
+      html += `<span${attrs(`w2 ${c}`, k)}>${ch}</span>`;
       continue;
     }
-    if (c !== cls) {
+    if (c !== cls || k !== color) {
       flush();
       cls = c;
+      color = k;
     }
     run += ch;
   }
@@ -306,10 +322,8 @@ function textRows(frame: Frame, h: number, w: number): string[] {
           if (ch === undefined) break;
           row.chars[c] = ch;
         }
-        for (const run of file.runs[l] ?? []) {
-          const cls = hlClass(run);
-          if (cls !== "") addClass(row, run.from - frame.left, run.to - frame.left, cls);
-        }
+        for (const run of file.runs[l] ?? [])
+          paintRun(row, run.from - frame.left, run.to - frame.left, run);
         // Virtual text: the inks of the page, and `[copy]` after the install fence.
         const inks = file.inks?.[l];
         const ink = inkCol.get(tgt.i);
@@ -355,7 +369,25 @@ function floatRows(frame: Frame): string[] {
   return rows.map(rowHtml);
 }
 
+/** The frame on screen: what a click lands on. */
+let shown: Frame | null = null;
+
+/** The URL of the link under screen cell (row, col), if one is there. */
+function linkAt(row: number, col: number): string | null {
+  if (shown === null || shown.float.$ === "Some" || shown.tgt.$ !== "File") return null;
+  const g = shown.gutter;
+  if (row >= size().rows - 2 || col < g) return null;
+  const file = files[shown.tgt.i];
+  const l = shown.top + row;
+  const line = file?.lines[l];
+  if (file === undefined || line === undefined) return null;
+  const c = shown.left + col - g;
+  const run = (file.runs[l] ?? []).find((r) => r.hl === "link" && r.from <= c && c < r.to);
+  return run === undefined ? null : cells(line).slice(run.from, run.to).join("");
+}
+
 function paint(frame: Frame) {
+  shown = frame;
   const { rows, cols } = size();
   const h = rows - 2;
   const g = frame.gutter;
@@ -376,8 +408,6 @@ function paint(frame: Frame) {
   Array.from(text.element.children).forEach((row, r) => {
     row.classList.toggle("cl", frame.cl && r === frame.cur.row);
   });
-  if (frame.cc.$ === "Some") style.setProperty("--cc", String(frame.cc.value));
-  style.setProperty("--cc-show", frame.cc.$ === "Some" ? "block" : "none");
   if (status.textContent !== frame.status) status.textContent = frame.status;
   if (cmdline.textContent !== frame.cmd) cmdline.textContent = frame.cmd;
   show(floatLayer, floatRows(frame));
@@ -459,7 +489,17 @@ async function start() {
       void navigator.clipboard.writeText(copyAt.text);
       return;
     }
+    // A link opens as on a page; the cursor goes to the click as in Neovim.
+    const url = linkAt(row, col);
     step({ $: "EvClick", row, col });
+    if (url !== null) window.open(url, "_blank", "noopener");
+  });
+  term.addEventListener("mousemove", (event) => {
+    const { row, col } = cellAt(event);
+    const over =
+      linkAt(row, col) !== null ||
+      (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to);
+    term.style.cursor = over ? "pointer" : "";
   });
   // A notch is about 100px of wheel; a trackpad sends many small moves, summed until they make one.
   let wheel = 0;

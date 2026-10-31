@@ -153,6 +153,6 @@ type Float is Data:
 # each text row, the cursor's cell and the character under it, the
 # command line, the search hits on screen, the scrollbar (first row and
 # rows; 0 rows: none), whether the cursor's row shows the cursorline, the
-# statusline (cols cells), the screen column of 'colorcolumn', the float
+# statusline (cols cells), the float
 type Frame is Data:
-  Frame{tgt: Tgt, top: Nat, left: Nat, gutter: Nat, nums: List<&2, String>, cur: Cell, char: String, cmd: String, hits: List<&2, Span>, bar: Span, cl: Bool, status: String, cc: Maybe<&2, Nat>, float: Maybe<&2, Float>}
+  Frame{tgt: Tgt, top: Nat, left: Nat, gutter: Nat, nums: List<&2, String>, cur: Cell, char: String, cmd: String, hits: List<&2, Span>, bar: Span, cl: Bool, status: String, float: Maybe<&2, Float>}
