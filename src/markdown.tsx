@@ -198,13 +198,24 @@ const styles = stylex.create({
     margin: 0,
     maxWidth: type.measure,
     whiteSpace: "pre-wrap",
+    textWrap: "pretty",
     overflowWrap: "anywhere",
     fontFamily: "inherit",
     fontSize: "inherit",
     lineHeight: "inherit",
   },
   code: { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit" },
-  header: { display: "inline-block", lineHeight: "18px", color: colors.primary },
+  /**
+   * The header never wraps: on a screen narrower than the measure its type shrinks so the longest
+   * line (68 characters at most, 0.6em each) still fits the column (`main` is the container).
+   */
+  header: {
+    display: "inline-block",
+    whiteSpace: "pre",
+    fontSize: `min(${type.size}, 100cqi / 40.8)`,
+    lineHeight: "18px",
+    color: colors.primary,
+  },
   block: { display: "block", overflowX: "auto", whiteSpace: "pre", overflowWrap: "normal" },
   afterBlank: { marginTop: type.leading },
   /** The page's name, an <h1> set as the line it sits on. */

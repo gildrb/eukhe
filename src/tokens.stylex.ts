@@ -29,7 +29,7 @@ export const colors = stylex.defineVars({
   tertiary: { default: palette.tertiary.dark, [light]: palette.tertiary.light },
 });
 
-/** Page metrics: 12px type on a 20px line, a 40px inset, a 480px measure. */
+/** Page metrics: 12px type on a 20px line, a 40px inset, a 68-character measure. */
 export const type = stylex.defineConsts({
   family: '"Ioskeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
   size: "12px",
@@ -37,5 +37,5 @@ export const type = stylex.defineConsts({
   bold: "700",
   inset: "40px",
   insetPhone: "20px",
-  measure: "480px",
+  measure: "68ch",
 });

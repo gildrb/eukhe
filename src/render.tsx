@@ -55,7 +55,7 @@ function Page({ css, markdown, path }: { css: string; markdown: string; path: st
         <style dangerouslySetInnerHTML={{ __html: globalCss + css }} />
       </head>
       <body {...stylex.props(styles.body)}>
-        <main>
+        <main {...stylex.props(styles.main)}>
           <Markdown source={markdown} />
         </main>
       </body>
@@ -84,6 +84,8 @@ const styles = stylex.create({
     MozOsxFontSmoothing: "grayscale",
     WebkitTextSizeAdjust: "100%",
   },
+  /** The column's width, for the header's fitted type (`markdown.tsx`). */
+  main: { containerType: "inline-size" },
   body: {
     margin: 0,
     padding: { default: type.inset, "@media (max-width: 559px)": type.insetPhone },
