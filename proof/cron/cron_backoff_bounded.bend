@@ -183,6 +183,14 @@ def pc.paused_job(+e: Cr.Ev, +c: Nat, +dead: List<&2, Nat>, +j: Cr.Job, nu: {Cr.
       LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Cancel{p, ji}, c, dead, j)), nu)
     case Cr.Resume{+p, +ji}:
       LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Resume{p, ji}, c, dead, j)), nu)
+    case Cr.Pause{+p, +ji}:
+      LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Pause{p, ji}, c, dead, j)), nu)
+    case Cr.Stop{+p, +ji}:
+      LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Stop{p, ji}, c, dead, j)), nu)
+    case Cr.Delete{+p, +ji}:
+      LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Delete{p, ji}, c, dead, j)), nu)
+    case Cr.Edit{+p, +ji, +q}:
+      LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Edit{p, ji, q}, c, dead, j)), nu)
     case Cr.Create{+p, +sc}:
       LALogic.cron_step.pc.absurd(pc.PSJ(Cr.job(Cr.Create{p, sc}, c, dead, j)), nu)
     case Cr.Tick{d}:
@@ -298,6 +306,14 @@ def pc.stays(s: Cr.S, +e: Cr.Ev, +i: Nat, +nu: {Cr.Ev.is_user(e) == False{} : Bo
           LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Cancel{p, ji})), nu)
         case Cr.Resume{+p, +ji}:
           LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Resume{p, ji})), nu)
+        case Cr.Pause{+p, +ji}:
+          LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Pause{p, ji})), nu)
+        case Cr.Stop{+p, +ji}:
+          LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Stop{p, ji})), nu)
+        case Cr.Delete{+p, +ji}:
+          LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Delete{p, ji})), nu)
+        case Cr.Edit{+p, +ji, +q}:
+          LALogic.cron_step.pc.absurd(pc.SPO(i, Cr.step(Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.Edit{p, ji, q})), nu)
         case Cr.Tick{+d}:
           Inl{h}
         case Cr.RawJob{+t}:

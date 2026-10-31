@@ -16,9 +16,8 @@ import ./base.bend as LawsBase
 # bend/revive.bend (busy evidence and the revival veto), bend/orphan.bend
 # (a lost supervisor's worker), bend/launcher.bend (the idle shutdown and
 # adoption), bend/replace.bend (the launcher's replacement verdict) and
-# bend/notice.bend (the kernel restore notices a view shows); the bridge
-# test crates/eukhe-tui/src/restore_notices.rs runs the Rust code and its
-# model on the same scenarios; the restart budget, the timeouts
+# bend/notice.bend (the kernel restore notices a view shows); the restart
+# budget, the timeouts
 # (laws/timeouts.bend), the revival veto (laws/revive.bend), the orphan
 # exit and the replacement verdict run as their models (the compiled
 # core). Every input is free: any configuration, any

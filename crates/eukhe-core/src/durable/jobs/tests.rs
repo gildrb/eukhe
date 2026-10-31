@@ -256,6 +256,94 @@ async fn the_wait_settles_before_the_deadline_and_detaches_at_it() {
     );
 }
 
+/// One event a scripted wait sees: output, an exit, the kill, or one
+/// millisecond of the paused tokio clock.
+#[derive(Clone, Copy)]
+enum Step {
+    Output(u64),
+    Exit(i64),
+    Kill,
+    Tick,
+}
+
+/// What a scripted wait answered after each step: nothing yet, or its
+/// answer.
+type Answers = Vec<Option<Wait<JobEnd>>>;
+
+/// The answers a blocking wait with a `budget` of milliseconds gives
+/// after each of `steps`, on a job whose kill ends it at once: polled
+/// once after every step, and kept once it answered.
+async fn wait_transcript(budget: u64, steps: &[Step]) -> Answers {
+    let table = JobTable::default();
+    let job = table.start(JobSpec {
+        id: JobId::new("job").expect("id"),
+        kind: JobKind::UserBash,
+        label: String::new(),
+        truncation: Truncation::default(),
+        written: 0,
+        kill: Box::new(|job| {
+            job.record(JobEvent::Killed);
+        }),
+    });
+    let mut wait = Box::pin(wait_until(
+        tokio::time::Instant::now() + Duration::from_millis(budget),
+        job.ended(),
+    ));
+    let mut answer = None;
+    let mut answers = Vec::new();
+    for step in steps {
+        match *step {
+            Step::Output(bytes) => job.record(JobEvent::Output(bytes)),
+            Step::Exit(code) => job.record(JobEvent::Exited(code)),
+            Step::Kill => job.kill(),
+            Step::Tick => tokio::time::advance(Duration::from_millis(1)).await,
+        }
+        if answer.is_none() {
+            answer = (&mut wait).now_or_never();
+        }
+        answers.push(answer);
+    }
+    answers
+}
+
+/// The tokio timer against the job's end, step by step, as `bend/job.bend`
+/// `wait` answers: output never settles, an exit or the kill settles while
+/// budget is left, the budget's last tick detaches, and an end after the
+/// detach leaves the wait detached.
+#[tokio::test(start_paused = true)]
+async fn the_wait_answers_each_step_as_the_model_waits() {
+    use Step::{Exit, Kill, Output, Tick};
+    let exited = |code| Some(Wait::Settled(JobEnd::Exited(code)));
+    let killed = Some(Wait::Settled(JobEnd::Killed));
+    let detached = Some(Wait::Detached);
+    let cases: [(u64, Vec<Step>, Answers); 5] = [
+        (
+            2,
+            vec![Output(3), Tick, Exit(1), Kill],
+            vec![None, None, exited(1), exited(1)],
+        ),
+        (
+            3,
+            vec![Tick, Output(4), Tick, Kill, Exit(2)],
+            vec![None, None, None, killed, killed],
+        ),
+        (
+            2,
+            vec![Tick, Output(1), Tick, Exit(0), Tick],
+            vec![None, None, detached, detached, detached],
+        ),
+        (
+            1,
+            vec![Tick, Kill, Output(2)],
+            vec![detached, detached, detached],
+        ),
+        (0, vec![Output(5), Exit(0)], vec![detached, detached]),
+    ];
+    for (budget, steps, expected) in cases {
+        assert_eq!(wait_transcript(budget, &steps).await, expected);
+    }
+}
+
 /// Delegates to `inner`, but a read of the `eukhe.job` document `refused`
 /// fails: the record of that job fails its commit, and every record in
 /// the same batch with it.

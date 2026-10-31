@@ -36,8 +36,6 @@ mimalloc.workspace = true
 
 [dev-dependencies]
 filetime = "0.2"
-# The Bend bridge harness (`eukhe_durable::testing::bridge`).
-eukhe-durable = { path = "../eukhe-durable", features = ["testing"] }
 tempfile = "3"
 socket2 = "0.6"
 # The supervisor property suite draws sibling rosters for the live

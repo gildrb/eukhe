@@ -106,7 +106,7 @@ docs_only() {
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
 # files, the agent rules, docs/, and the laws and proofs (the proofs gate
-# checks them; the bridge drivers import only bend/). (scripts/release/ and
+# checks them). (scripts/release/ and
 # README.md stay code: eukhe-cli's packaging tests run and copy them.)
 outside_crates() {
   case "$1" in
@@ -244,7 +244,7 @@ laws() {
 }
 
 dashboard_ui() {
-  EUKHE_REQUIRE_BEND=1 make --no-print-directory dashboard-ui
+  make --no-print-directory dashboard-ui
   git diff --exit-code --stat -- crates/eukhe-dashboard/web
   test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 }
@@ -276,7 +276,7 @@ clean_env() {
     keep+=("CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG}")
   fi
   env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
-    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 "${keep[@]}" "$@"
+    BEND_NO_TELEMETRY=1 "${keep[@]}" "$@"
 }
 
 workspace_tests() {

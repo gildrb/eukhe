@@ -193,8 +193,7 @@ def tc_before_end(es: List<&2, Tc.Ev>, +ended: Bool) -> List<&2, Bool>:
 # EXCLUDES: a report lost or refused while the call runs, a report stored
 # after the settle, a second settle, a settle before the end, a settle as
 # another ending (an abort settled as a failure, a throw as finished), a
-# stepper whose state drifts (the bridge's transcript, restated over every
-# order)
+# stepper whose state drifts after some order of events
 law tool_call_step_is_model:
   for +first: Bool
   for +es: List<&2, Tc.Ev>

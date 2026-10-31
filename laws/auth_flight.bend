@@ -16,9 +16,9 @@ import ./base.bend as LawsBase
 # ------------------------------------
 # The OAuth refresh of an expired stored credential
 # (crates/eukhe-core/src/auth/flight.rs): the callers of one provider share
-# one token fetch. The bridge test crates/eukhe-core/src/auth/flight/bridge.rs
-# runs the Rust dispatch over the compiled decisions (section A1, The
-# decisions of the Rust refresh) and the model on the same interleavings.
+# one token fetch. The Rust runs the compiled decisions (section A1, The
+# decisions of the Rust refresh, and laws/auth_read.bend for what each read
+# means); no Rust copy of a rule remains.
 # Every input is free: any callers, their steps in any order, any fetch
 # results, peer writes and expiries at any time.
 
@@ -292,8 +292,7 @@ law flight_step_exact:
   {F.step(s, e) == am_step(s, e) : F.St}
 
 # LAW flight_new_example: anchor: a world starts with no caller, no flight in flight, none
-# landed, no fetch made, and the store holding credential 0, expired (the
-# bridge's new world)
+# landed, no fetch made, and the store holding credential 0, expired
 # EXCLUDES: a model whose runs start from a fresh store or a flight in flight
 law flight_new_example:
   {F.St.new() == F.St{F.W{F.Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}} : F.St}
@@ -315,8 +314,8 @@ law flight_store_terms_exact:
 # entry (bend/ffi_auth_flight.bend, a call) which leg follows; each step
 # on the flights of a document it asks the document's book (the entry's
 # stepper). No Rust copy of either decision. The thread interleaving stays
-# in the Rust (the mutex, the condvar, the unwind that lands a flight): the
-# bridge test runs it over these decisions against the model.
+# in the Rust (the mutex, the condvar, the unwind that lands a flight);
+# its tests step the callers through these decisions.
 #
 # The spec below spells requests, events and replies with the wire
 # primitives (bend/wire.bend), never with the entry's own codec, and

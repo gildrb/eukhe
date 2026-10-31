@@ -661,8 +661,7 @@ law idle_only_fires_answer:
 
 # LAW idle_step_refines: the host's timer loop over the stepper (each event a life sent at its time, each fire a fire sent at its time, sleeping as the stepper answers) ends every stream exactly as the idle model: under every positive deadline, for every gap list, stalled or closed at the same time, never stuck
 # EXCLUDES: a stepper whose loop stalls early or late, misses a stall,
-#   re-arms from the timer instead of the last life, or never ends (the
-#   bridge's transcript, restated over every stream)
+#   re-arms from the timer instead of the last life, or never ends
 law idle_step_refines:
   for gs: List<&2, Nat>
   for +d: Nat
@@ -750,11 +749,11 @@ def idle_spec(gs: List<&2, Nat>, +d: Nat) -> R.Idle:
     case +g <> rest:
       idle_spec.go(g <> rest, d, 0n)
 
-# LAW idle_exact: for every deadline (0 too) and every gaps, the model the bridge reads ends a
+# LAW idle_exact: for every deadline (0 too) and every gaps, the idle model ends a
 # stream as R3 says: a stall d after the last event before the first gap above d, a stall at d
 # with no event, else a close at the last event
 # EXCLUDES: a model that reads some deadline as none, stalls early or late, or closes a stalled
-#   stream (the bridge would then check the timer loop against a wrong oracle)
+#   stream (idle_step_refines would then tie the timer loop to a wrong oracle)
 law idle_exact:
   for +gs: List<&2, Nat>
   for +d: Nat

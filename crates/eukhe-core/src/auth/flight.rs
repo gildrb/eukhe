@@ -6,25 +6,28 @@
 //! What follows each step is the compiled Bend core's decision
 //! (`bend/ffi_auth_flight.bend` over `bend/auth_flight.bend` section The
 //! decisions the Rust takes; laws `flight_ffi_*`, `flight_step_*` and
-//! `flight_next_*_is_model`, `laws/auth_flight.bend`): [`Leg::advance`]
-//! reads, fetches or writes and asks the core's call which leg follows;
-//! [`FlightBook::advance`] asks the document's book, the core's stepper.
-//! The Rust keeps the bytes (the credentials, the failures, a landed
-//! flight's outcome under its number) and the interleaving: the threads,
-//! the book's mutex and condvar, the unwind that lands a flight. The bridge
-//! test (`flight/bridge.rs`) runs that dispatch over the core's decisions
-//! and the model on the same interleavings.
+//! `flight_next_*_is_model`, `laws/auth_flight.bend`), and so is what
+//! each read of the auth document means (`bend/ffi_auth_read.bend` over
+//! section The reads the Rust judges; laws `auth_read_*`,
+//! `laws/auth_read.bend`): whether a stored credential is fresh, whether
+//! a refresh can start, whether a peer's credential stands at the store.
+//! [`Leg::advance`] reads, fetches or writes, asks the core what a read
+//! means and which leg follows; [`FlightBook::advance`] asks the
+//! document's book, the core's stepper. The Rust keeps the bytes (the
+//! credentials, the failures, a landed flight's outcome under its number)
+//! and the interleaving: the threads, the book's mutex and condvar, the
+//! unwind that lands a flight. No Rust copy of a rule remains.
 
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Stepper};
 
 use super::types::AuthCredential;
 
 #[cfg(test)]
-mod bridge;
+mod tests;
 
 /// What a refresh gives its caller: the credential to serve, or why there
 /// is none.
@@ -55,26 +58,151 @@ enum Leg {
     Done(Outcome),
 }
 
+/// What a read of the auth document found under the provider.
+pub(crate) enum Stored {
+    /// The document could not be read or parsed: why.
+    Unreadable(String),
+    /// No credential under the provider.
+    Missing,
+    /// The provider's credential.
+    Credential(AuthCredential),
+}
+
+/// One read of the auth document: what it found, and the clock (ms since
+/// the epoch) when it read it.
+pub(crate) struct Read {
+    pub(crate) found: Stored,
+    pub(crate) at: i64,
+}
+
 /// The reads, the fetch and the write of a refresh. The auth manager
 /// implements it over the auth document and the OAuth integration; the
-/// bridge test over a scripted document.
+/// tests over a scripted document. The core judges what each read found.
 pub(crate) trait RefreshIo {
-    /// The stored credential when it is fresh, `None` when it expired, or
-    /// why no refresh can start (no stored OAuth credential, an unreadable
-    /// document).
-    fn load(&mut self) -> Result<Option<AuthCredential>, String>;
+    /// Read the provider's stored credential before the refresh boards.
+    fn load(&mut self) -> Read;
 
-    /// The stored credential when it is fresh now; `None` when it expired
-    /// or the document cannot be read.
-    fn check(&mut self) -> Option<AuthCredential>;
+    /// Read the provider's stored credential again, as the leader of a
+    /// flight, before it fetches.
+    fn check(&mut self) -> Read;
 
     /// A new credential from the token endpoint, or why none came back.
     fn fetch(&mut self) -> Outcome;
 
-    /// Store `credential`, unless the stored credential is fresh (a peer
-    /// process refreshed meanwhile): the stored credential after the
-    /// write, or why the write failed.
-    fn store(&mut self, credential: AuthCredential) -> Outcome;
+    /// Under the document's lock, read the provider's stored credential
+    /// and ask `stands` whether it stands (a peer process refreshed
+    /// meanwhile): if it does, write nothing and give it back; else write
+    /// `credential` and give it back. `Err` when the write failed.
+    fn store(&mut self, credential: AuthCredential, stands: &dyn Fn(&Read) -> bool) -> Outcome;
+}
+
+/// What a read is for (the core's `Ask`).
+#[derive(Clone, Copy)]
+enum Ask {
+    Load,
+    Check,
+    Store,
+}
+
+/// The core's judgment of a read (its `Verdict`).
+enum Verdict {
+    /// The read credential is fresh: serve it, or land the flight on it.
+    Serve,
+    /// The read credential is not fresh: board, or fetch.
+    Refresh,
+    /// No refresh can start.
+    Refuse,
+    /// A peer's credential stands: the store writes nothing.
+    KeepPeer,
+    /// The store writes the fetched credential.
+    Write,
+}
+
+/// What a read found, as the core reads it.
+#[derive(Clone, Copy)]
+enum Seen<'a> {
+    Unreadable,
+    Missing,
+    Credential(&'a AuthCredential),
+}
+
+impl Read {
+    fn seen(&self) -> Seen<'_> {
+        match &self.found {
+            Stored::Unreadable(_) => Seen::Unreadable,
+            Stored::Missing => Seen::Missing,
+            Stored::Credential(credential) => Seen::Credential(credential),
+        }
+    }
+}
+
+/// A clock or an expiry as the wire carries it: an instant before the
+/// epoch as 0, one past the wire's largest Nat (the year 5138) as that
+/// Nat. For every clock below it, `clock < expiry` reads the same.
+fn wire_ms(ms: i64) -> u64 {
+    u64::try_from(ms).unwrap_or(0).min(NAT_MAX)
+}
+
+/// The core's judgment, for `ask`, of what a read at `at` (ms since the
+/// epoch) found.
+fn judge(ask: Ask, at: i64, found: Seen<'_>) -> Result<Verdict, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    request
+        .tag(match ask {
+            Ask::Load => 0,
+            Ask::Check => 1,
+            Ask::Store => 2,
+        })
+        .nat(wire_ms(at));
+    match found {
+        Seen::Unreadable => request.tag(0),
+        Seen::Missing => request.tag(1),
+        Seen::Credential(AuthCredential::ApiKey { .. } | AuthCredential::McpStaticToken { .. }) => {
+            request.tag(2)
+        }
+        Seen::Credential(AuthCredential::Oauth { expires, .. }) => {
+            request.tag(3).nat(wire_ms(*expires))
+        }
+    };
+    let reply = eukhe_bend::call(Entry::AuthRead, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let verdict = match reader.tag_of(5, "a verdict on a read")? {
+        0 => Verdict::Serve,
+        1 => Verdict::Refresh,
+        2 => Verdict::Refuse,
+        3 => Verdict::KeepPeer,
+        // `tag_of` answers a tag below 5: this is 4.
+        _ => Verdict::Write,
+    };
+    reader.end()?;
+    Ok(verdict)
+}
+
+/// Whether the stored credential `read` found stands against the fetched
+/// one at the store: the core's judgment.
+fn peer_stands(read: &Read) -> bool {
+    let stands = judge(Ask::Store, read.at, read.seen()).and_then(|verdict| match verdict {
+        Verdict::KeepPeer => Ok(true),
+        Verdict::Write => Ok(false),
+        Verdict::Serve | Verdict::Refresh | Verdict::Refuse => {
+            Err(inconsistent("a kept peer or a write"))
+        }
+    });
+    eukhe_bend::expect_core(Entry::AuthRead, stands)
+}
+
+/// Whether `credential` is fresh at `now` (ms since the epoch): the core's
+/// judgment of a stored credential the auth lookup read.
+pub(crate) fn fresh(credential: &AuthCredential, now: i64) -> bool {
+    let fresh =
+        judge(Ask::Check, now, Seen::Credential(credential)).and_then(|verdict| match verdict {
+            Verdict::Serve => Ok(true),
+            Verdict::Refresh => Ok(false),
+            Verdict::Refuse | Verdict::KeepPeer | Verdict::Write => {
+                Err(inconsistent("a serve or a refresh"))
+            }
+        });
+    eukhe_bend::expect_core(Entry::AuthRead, fresh)
 }
 
 /// What a read, fetch or write found (the core's `Io`), with what it
@@ -96,24 +224,54 @@ fn inconsistent(expected: &'static str) -> eukhe_bend::Error {
 }
 
 impl Leg {
-    /// Take this leg's step that reads, fetches or writes. A step on the
-    /// flights leaves the leg as it is.
-    fn advance(self, io: &mut impl RefreshIo) -> Leg {
+    /// Take this leg's step that reads, fetches or writes for `provider`.
+    /// A step on the flights leaves the leg as it is.
+    fn advance(self, provider: &str, io: &mut impl RefreshIo) -> Leg {
         let found = match self {
-            Leg::Load => match io.load() {
-                Ok(Some(credential)) => Found::LoadFresh(credential),
-                Ok(None) => Found::LoadExpired,
-                Err(cause) => Found::LoadFailed(cause),
-            },
-            Leg::Check(flight) => match io.check() {
-                Some(credential) => Found::CheckFresh(flight, credential),
-                None => Found::CheckExpired(flight),
-            },
+            Leg::Load => {
+                let read = io.load();
+                let verdict = judge(Ask::Load, read.at, read.seen());
+                let found = verdict.and_then(|verdict| match (verdict, read.found) {
+                    (Verdict::Serve, Stored::Credential(credential)) => {
+                        Ok(Found::LoadFresh(credential))
+                    }
+                    (Verdict::Refresh, _) => Ok(Found::LoadExpired),
+                    (Verdict::Refuse, Stored::Unreadable(cause)) => Ok(Found::LoadFailed(cause)),
+                    (Verdict::Refuse, Stored::Missing) => Ok(Found::LoadFailed(format!(
+                        "no stored credential for {provider}"
+                    ))),
+                    (Verdict::Refuse, Stored::Credential(_)) => Ok(Found::LoadFailed(format!(
+                        "the stored credential for {provider} is not OAuth"
+                    ))),
+                    (Verdict::Serve, Stored::Unreadable(_) | Stored::Missing)
+                    | (Verdict::KeepPeer | Verdict::Write, _) => {
+                        Err(inconsistent("a load's serve, refresh or refusal"))
+                    }
+                });
+                eukhe_bend::expect_core(Entry::AuthRead, found)
+            }
+            Leg::Check(flight) => {
+                let read = io.check();
+                let verdict = judge(Ask::Check, read.at, read.seen());
+                let found = verdict.and_then(|verdict| match (verdict, read.found) {
+                    (Verdict::Serve, Stored::Credential(credential)) => {
+                        Ok(Found::CheckFresh(flight, credential))
+                    }
+                    (Verdict::Refresh, _) => Ok(Found::CheckExpired(flight)),
+                    (Verdict::Serve, Stored::Unreadable(_) | Stored::Missing)
+                    | (Verdict::Refuse | Verdict::KeepPeer | Verdict::Write, _) => {
+                        Err(inconsistent("a check's serve or refresh"))
+                    }
+                });
+                eukhe_bend::expect_core(Entry::AuthRead, found)
+            }
             Leg::Fetch(flight) => match io.fetch() {
                 Ok(credential) => Found::FetchOk(flight, credential),
                 Err(cause) => Found::FetchFailed(flight, cause),
             },
-            Leg::Store(flight, credential) => Found::Stored(flight, io.store(credential)),
+            Leg::Store(flight, credential) => {
+                Found::Stored(flight, io.store(credential, &peer_stands))
+            }
             Leg::Board | Leg::Land(..) | Leg::Wait(_) | Leg::Done(_) => return self,
         };
         eukhe_bend::expect_core(Entry::AuthFlight, follow(found))
@@ -353,7 +511,9 @@ impl RefreshFlights {
         loop {
             leg = match leg {
                 Leg::Done(outcome) => return outcome,
-                Leg::Load | Leg::Check(_) | Leg::Fetch(_) | Leg::Store(..) => leg.advance(io),
+                Leg::Load | Leg::Check(_) | Leg::Fetch(_) | Leg::Store(..) => {
+                    leg.advance(provider, io)
+                }
                 Leg::Board | Leg::Land(..) | Leg::Wait(_) => {
                     let mut book = self.book();
                     let mut next = book.advance(provider, leg);

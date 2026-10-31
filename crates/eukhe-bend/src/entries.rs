@@ -138,12 +138,16 @@ pub enum Entry {
     Work = 83,
     /// `bend/ffi_retry_idle.bend`: a stepper.
     RetryIdle = 84,
+    /// `bend/ffi_cron_file.bend`: a call.
+    CronFile = 85,
     /// `bend/ffi_timeouts.bend`: a call.
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
     Revive = 91,
     /// `bend/ffi_auth_flight.bend`: a call and a stepper.
     AuthFlight = 92,
+    /// `bend/ffi_auth_read.bend`: a call.
+    AuthRead = 93,
     /// `bend/ffi_dash.bend`: a call and a stepper.
     Dash = 101,
     /// `bend/ffi_doc_tags.bend`: a call.
@@ -281,9 +285,11 @@ impl Entry {
         Entry::Cron,
         Entry::Work,
         Entry::RetryIdle,
+        Entry::CronFile,
         Entry::Timeouts,
         Entry::Revive,
         Entry::AuthFlight,
+        Entry::AuthRead,
         Entry::Dash,
         Entry::DocTags,
         Entry::DocCommit,

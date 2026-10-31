@@ -46,4 +46,4 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 
 Proven: the Bend source of every rule above. Trusted: the Bend compiler, the C
 shim (`crates/eukhe-bend/src/ffi.rs`), the Rust codecs and IO. Tested, not
-proven: the host paths (`cargo test`, bridge tests with `EUKHE_REQUIRE_BEND=1`).
+proven: the host paths (`cargo test`).

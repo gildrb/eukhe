@@ -122,3 +122,8 @@ import ./laws/task_life.bend as TaskLife
 import ./laws/autoresearch/model.bend as Autoresearch
 import ./laws/autoresearch/history.bend as AutoresearchHistory
 import ./laws/autoresearch/entry.bend as AutoresearchEntry
+import ./laws/auth_read.bend as AuthRead
+import ./laws/cron_user.bend as CronUser
+import ./laws/cron_file/pass.bend as CronFile
+import ./laws/cron_file/entry.bend as CronFileEntry
+import ./laws/cron_file/view.bend as CronFileView

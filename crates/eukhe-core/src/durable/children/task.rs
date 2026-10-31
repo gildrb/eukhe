@@ -13,9 +13,9 @@
 //! report twice, held until it reaches the parent's transcript and
 //! submitted again under the next id when the inbox withdraws it), then
 //! terminal. Abort cancels the child's run and delivers the report a
-//! delete owes. `bend/child.bend` models the phases (LAWS.bend H5);
-//! the bridge test runs their decisions ([`watched_next`],
-//! [`report_step`], [`owed_on_abort`]) against its `step`.
+//! delete owes. `bend/child.bend` models the phases (LAWS.bend H5); their
+//! decisions ([`watched_next`], [`report_step`], [`owed_on_abort`]) are
+//! the compiled core's (entry `child`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};

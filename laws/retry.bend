@@ -16,10 +16,7 @@ import ./base.bend as LawsBase
 # compiled (bend/ffi_retry.bend, R7; Rust calls eukhe_bend::rules::retry).
 # The deferred job runs as bend/run/decision.bend, compiled (bend/ffi_run.bend).
 # The idle deadline's decisions run compiled too (bend/ffi_retry_idle.bend,
-# laws/retry_idle.bend); the bridge test
-# crates/eukhe-durable/src/harness/generation/retry_bridge.rs runs the Rust
-# timer loop (the race of events and the timer) against
-# bridge/bridge_retry.bend.
+# laws/retry_idle.bend).
 
 # (R1) The classifier
 # -------------------

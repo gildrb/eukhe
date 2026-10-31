@@ -291,7 +291,7 @@ law wait_poll_refines:
 # when it had reported nothing before; else nothing
 # EXCLUDES: an end reported twice or at a later poll, an end lost, an
 # end other than the model's, a stepper whose state drifts from the
-# model's wait (the bridge's transcript, restated over every order)
+# model's wait after some order of events
 law wait_step_is_model:
   for +dl: Maybe<&2, Nat>
   for +pre: List<&2, Wt.Polled>

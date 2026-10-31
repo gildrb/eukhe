@@ -285,6 +285,60 @@ def cre.resume(r: Wr.Dec<CS.Fact>) -> {Cron.read_resume(r) == FC.get_resume(r) :
     case Wr.Bad{}:
       {==}
 
+def cre.halt_how(f: CS.Fact, t: Nat, s: String) -> {Cron.read_halt.how(f, t, s) == FC.get_halt.how(f, t, s) : Wr.Dec<CS.Ask>}:
+  match t:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n+p:
+      {==}
+
+def cre.halt_tag(f: CS.Fact, r: Wr.Dec<Nat>) -> {Cron.read_halt.tag(f, r) == FC.get_halt.tag(f, r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{t, s}:
+      cre.halt_how(f, t, s)
+    case Wr.Bad{}:
+      {==}
+
+def cre.halt(r: Wr.Dec<CS.Fact>) -> {Cron.read_halt(r) == FC.get_halt(r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{f, s}:
+      cre.halt_tag(f, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
+def cre.edit_at(f: CS.Fact, r: Wr.Dec<Maybe<&2, Nat>>) -> {Cron.read_edit.at(f, r) == FC.get_edit.at(f, r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{m, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def cre.edit(r: Wr.Dec<CS.Fact>) -> {Cron.read_edit(r) == FC.get_edit(r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{+f, +s}:
+      %cre.mnat(Wr.get_nat(s)) : {Cron.read_edit.at(f, Cron.read_mnat(Wr.get_nat(s))) == FC.get_edit.at(f, _) : Wr.Dec<CS.Ask>}
+      cre.edit_at(f, Cron.read_mnat(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
+def cre.make(r: Wr.Dec<Nat>) -> {Cron.read_make(r) == FC.get_make(r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{n, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def cre.open(r: Wr.Dec<Bool>) -> {Cron.read_open(r) == FC.get_open(r) : Wr.Dec<CS.Ask>}:
+  match r:
+    case Wr.Got{b, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
 def cre.ask_tag(t: Nat, +s: String) -> {Cron.read_ask.tag(t, s) == FC.get_ask.tag(t, s) : Wr.Dec<CS.Ask>}:
   match t:
     case 0n:
@@ -305,7 +359,17 @@ def cre.ask_tag(t: Nat, +s: String) -> {Cron.read_ask.tag(t, s) == FC.get_ask.ta
     case 5n:
       %cre.fact(s) : {Cron.read_resume(Cron.read_fact(s)) == FC.get_resume(_) : Wr.Dec<CS.Ask>}
       cre.resume(Cron.read_fact(s))
-    case 6n+p:
+    case 6n:
+      %cre.fact(s) : {Cron.read_halt(Cron.read_fact(s)) == FC.get_halt(_) : Wr.Dec<CS.Ask>}
+      cre.halt(Cron.read_fact(s))
+    case 7n:
+      %cre.fact(s) : {Cron.read_edit(Cron.read_fact(s)) == FC.get_edit(_) : Wr.Dec<CS.Ask>}
+      cre.edit(Cron.read_fact(s))
+    case 8n:
+      cre.make(Wr.get_nat(s))
+    case 9n:
+      cre.open(Wr.get_bool(s))
+    case 10n+p:
       {==}
 
 # the entry reads every input as the laws' reader does

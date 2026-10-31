@@ -3,9 +3,9 @@
 # Rust code (crates/eukhe-core/src/auth/flight.rs) runs the callers on
 # threads and moves the bytes; it asks `next` and `book.step` (section The
 # decisions the Rust takes, compiled through bend/ffi_auth_flight.bend)
-# what follows each step. The bridge (bridge/bridge_auth_flight.bend,
-# crates/eukhe-core/src/auth/flight/bridge.rs) runs the Rust dispatch over
-# those decisions and the model on the same interleavings.
+# what follows each step, and `judge` (section The reads the Rust judges,
+# compiled through bend/ffi_auth_read.bend) what each read of the auth
+# document means. No Rust copy of a rule remains.
 #
 # Each caller takes its refresh one step at a time. A caller loads the
 # stored credential and is served it when it is fresh. Otherwise it boards:
@@ -602,3 +602,88 @@ def book.step(b: Book, e: BEv) -> BRes:
           book.wait(lnd.find(f, ls), f, fs, ls, n)
         case EvJoiners{+p}:
           BRes{Book{fs, ls, n}, book.joiners(fly.find(p, fs))}
+
+# The reads the Rust judges
+# -------------------------
+# The Rust reads the auth document and hands the core what it found under
+# the provider, with its clock (ms since the epoch); the core judges it.
+# A read credential is fresh when it is an OAuth credential that expires
+# after now: what the model's store calls fresh (`Sto.fresh`).
+
+# what a read found under the provider: the document could not be read;
+# no credential; a credential that is not OAuth; an OAuth credential that
+# expires at exp
+type Read is Data:
+  Unread{}
+  NoCred{}
+  NotOauth{}
+  Oauth{exp: Nat}
+
+# what a read is for: the load (is a refresh needed, can one start), the
+# leader's check (did a flight store a fresh credential meanwhile), the
+# store (did a peer store a fresh credential while the fetch ran)
+type Ask is Data:
+  AskLoad{}
+  AskCheck{}
+  AskStore{}
+
+# one read to judge: what it is for, the clock, what it found
+type Query is Data:
+  Query{a: Ask, now: Nat, r: Read}
+
+# serve the read credential (the load: no refresh; the check: land the
+# flight on it); refresh (the load: board; the check: fetch); refuse (the
+# load: no refresh can start); keep the peer's credential (the store
+# writes nothing); write the fetched credential
+type Verdict is Data:
+  Serve{}
+  Refresh{}
+  Refuse{}
+  KeepPeer{}
+  Write{}
+
+# a read credential that is fresh
+def judge.fresh(a: Ask, fresh: Bool) -> Verdict:
+  match a:
+    case AskLoad{}:
+      match fresh:
+        case True{}:
+          Serve{}
+        case False{}:
+          Refresh{}
+    case AskCheck{}:
+      match fresh:
+        case True{}:
+          Serve{}
+        case False{}:
+          Refresh{}
+    case AskStore{}:
+      match fresh:
+        case True{}:
+          KeepPeer{}
+        case False{}:
+          Write{}
+
+# no OAuth credential was read: the load cannot refresh it, the check
+# fetches, the store writes
+def judge.none(a: Ask) -> Verdict:
+  match a:
+    case AskLoad{}:
+      Refuse{}
+    case AskCheck{}:
+      Refresh{}
+    case AskStore{}:
+      Write{}
+
+def judge(q: Query) -> Verdict:
+  match q:
+    case Query{a, now, r}:
+      match r:
+        case Unread{}:
+          judge.none(a)
+        case NoCred{}:
+          judge.none(a)
+        case NotOauth{}:
+          judge.none(a)
+        case Oauth{exp}:
+          judge.fresh(a, Nat.is_lt(now, exp))

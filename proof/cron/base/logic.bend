@@ -135,6 +135,14 @@ def pc.dead_after(e: Cr.Ev, +dead: List<&2, Nat>) -> List<&2, Nat>:
       dead
     case Cr.Corrupt{t}:
       dead
+    case Cr.Pause{p, i}:
+      dead
+    case Cr.Stop{p, i}:
+      dead
+    case Cr.Delete{p, i}:
+      dead
+    case Cr.Edit{p, i, k}:
+      dead
 
 def cron.pc.void(-A: Type, e: Empty) -> A:
   match e:
@@ -239,6 +247,14 @@ def pc.Alive(e: Cr.Ev, +dead: List<&2, Nat>) -> Data:
     case Cr.RawClaim{t}:
       Unit
     case Cr.Corrupt{t}:
+      Unit
+    case Cr.Pause{p, i}:
+      Unit
+    case Cr.Stop{p, i}:
+      Unit
+    case Cr.Delete{p, i}:
+      Unit
+    case Cr.Edit{p, i, k}:
       Unit
 
 def pc.once_empty(+s: Cr.Sched, -nx: Maybe<&2, Nat>) -> pc.OnceG(s, Nil{}, nx):

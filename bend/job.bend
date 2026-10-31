@@ -12,8 +12,8 @@
 #
 # The Rust jobs (crates/eukhe-core/src/durable/jobs/) run `feed`, `kills`
 # and `poll` as the compiled Bend core (ffi_job, ffi_job_rewind,
-# ffi_job_wait); the bridge (bridge/bridge_job.bend) ties only the
-# interleaving of a blocking wait to `wait`.
+# ffi_job_wait); no Rust copy of a rule remains. The laws
+# job_wait_polls_* tie `wait` to `poll`.
 
 import Base
 

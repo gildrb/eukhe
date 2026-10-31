@@ -3,8 +3,7 @@
 # 1. The registry. A tool has a name, its caps (the effects the code it
 #    runs may have, as effect codes) and how the approval gate covers that
 #    code. `registry` is every tool a session installs, in install order,
-#    as crates/eukhe-core/src/durable/registry.rs installs them; the
-#    registry bridge test dumps the real one and compares.
+#    as crates/eukhe-core/src/durable/registry.rs installs them.
 # 2. The cell gate. A tool the gate covers at each call (`ipython`) runs
 #    its code unasked only when its caps are within the auto set. Else it
 #    asks the attached client, and runs only when the user approves.

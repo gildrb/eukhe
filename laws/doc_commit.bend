@@ -13,9 +13,7 @@ import ./base.bend as LawsBase
 # tags, seen lines, grep and glob. Each law is an open claim about a model
 # in bend/doc_*.bend; PROOF.bend proves them (as DocCommit.<law>) with the
 # lemmas of proof/doc_commit/ and, for lines and their endings,
-# proof/doc_lines/. A Rust bridge test runs the real
-# code and the model on the same generated scenarios and requires the same
-# transcript.
+# proof/doc_lines/.
 
 # (F1, F9) An edit of many files
 # ------------------------------

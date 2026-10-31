@@ -1,8 +1,10 @@
 //! Generic cron job operations: create/list/cancel, session binding and
 //! rebinding, due-claim dispatch, the finish step that records a dispatch's
 //! result, and interrupted-dispatch recovery. The compiled core decides
-//! each job (`eukhe_bend::rules::cron`: when it is due, the failure backoff
-//! and stop, cancel); this file reads and writes the file around it.
+//! every status and every record of the file (`eukhe_bend::rules::cron`:
+//! a new job, when a job is due, the failure backoff and stop, a cancel,
+//! a stop, which claim record a finish step drops and which job counts the
+//! result); this file reads and writes the file around it.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use std::sync::Arc;
@@ -11,10 +13,10 @@ use crate::cron::JobSource;
 use uuid::Uuid;
 
 use super::state::{
-    claim_due_in_state, compare_optional_iso, normalize_optional_label,
-    recover_interrupted_in_state, resolve_path,
+    claim_due_in_state, compare_optional_iso, id_keys, normalize_optional_label,
+    recover_interrupted_in_state, resolve_path, slots_of,
 };
-use eukhe_bend::rules::cron::{self as rule, Cut, Finished};
+use eukhe_bend::rules::cron::{self as rule, Cut, Finished, Halt, Pin};
 
 use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::{
@@ -48,9 +50,10 @@ impl AgentCronJobStore {
         let now = input.now.unwrap_or_else(now_millis);
         let parsed = parse_agent_cron_schedule(&input.schedule_text, now)?;
         let now_iso = iso_from_millis(now);
+        let made = rule::make(parsed.1);
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
-            status: JobStatus::Active,
+            status: job_status(made.status),
             source: input.source.unwrap_or(JobSource::Cron),
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: None,
@@ -63,12 +66,12 @@ impl AgentCronJobStore {
             schedule: parsed.0,
             created_at: now_iso.clone(),
             updated_at: now_iso,
-            next_run_at: Some(iso_from_millis(parsed.1)),
+            next_run_at: Some(iso_from_millis(made.next)),
             last_run_at: None,
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
-            failure_streak: 0,
+            failure_streak: made.streak,
         };
         let mut jobs = self.read_jobs();
         jobs.push(job.clone());
@@ -117,6 +120,10 @@ impl AgentCronJobStore {
         }
         Ok(rebound_jobs)
     }
+    /// Stop the jobs of a session (the compiled core decides each:
+    /// `rule::halt` with [`Halt::Stop`]: an active or paused job is
+    /// cancelled, a completed or cancelled one stays).
+    ///
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
@@ -143,12 +150,15 @@ impl AgentCronJobStore {
                     || target_session_file
                         .as_ref()
                         .is_some_and(|file| resolve_path(&job.session_file) == *file);
-                if !matches || !matches!(job.status, JobStatus::Active | JobStatus::Paused) {
+                if !matches {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
+                    return job;
+                };
                 let cancelled_job = AgentCronJob {
-                    status: JobStatus::Cancelled,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };
@@ -233,15 +243,16 @@ impl AgentCronJobStore {
         None
     }
 
-    /// The finish step of a claimed dispatch: release the claim and record
-    /// the result on its job, as the compiled core decides it
-    /// (`rule::finish`): only an active job counts a result; a one-shot is
-    /// completed; a failed run of a repeating job counts one more failure
-    /// in a row, pushes the next run out by the backoff (never earlier than
-    /// the schedule) or, at the cap, pauses the job; a good run sets the
-    /// count back to 0; a skip leaves it. Returns the updated job, or
-    /// `None` when the dispatch is no longer pending or its job is not
-    /// active.
+    /// The finish step of a claimed dispatch, as the compiled core decides
+    /// it over the whole file (`rule::finish_all`): the claim record of the
+    /// dispatch goes, and the first job it names records the result (only
+    /// an active job counts one; a one-shot is completed; a failed run of
+    /// a repeating job counts one more failure in a row, pushes the next
+    /// run out by the backoff, never earlier than the schedule, or, at the
+    /// cap, pauses the job; a good run sets the count back to 0; a skip
+    /// leaves it). With no claim record of the dispatch (cleared by a
+    /// recovery), nothing changes. Returns the updated job, or `None` when
+    /// no job counted the result.
     ///
     /// # Errors
     ///
@@ -255,39 +266,49 @@ impl AgentCronJobStore {
         let now_iso = iso_from_millis(now);
         let mut updated = None;
         self.mutate_states(|state| {
-            let Some(at) = state
-                .dispatches
-                .iter()
-                .position(|candidate| candidate.id == dispatch_id)
-            else {
-                return Vec::new();
+            let closed = {
+                let keys = id_keys(&state.jobs);
+                let claims: Vec<Pin> = state
+                    .dispatches
+                    .iter()
+                    .map(|dispatch| Pin::Pinned {
+                        key: keys.get(dispatch.job_id.as_str()).copied(),
+                        hit: dispatch.id == dispatch_id,
+                    })
+                    .chain(state.unread_dispatches.iter().map(|_| Pin::Unpinned))
+                    .collect();
+                rule::finish_all(
+                    &slots_of(&state.jobs, &keys),
+                    &claims,
+                    result.outcome == DispatchOutcome::Ran,
+                    result.error.is_some(),
+                    now,
+                )
             };
-            let dispatch = state.dispatches.remove(at);
-            let Some(job) = state.jobs.iter_mut().find(|job| job.id == dispatch.job_id) else {
-                return Vec::new();
-            };
-            let (ran, becomes) = match rule::finish(
-                &fact_of(job),
-                result.outcome == DispatchOutcome::Ran,
-                result.error.is_some(),
-                now,
-            ) {
-                Finished::Untouched => return Vec::new(),
-                Finished::Ran(becomes) => (true, becomes),
-                Finished::Skipped(becomes) => (false, becomes),
-            };
-            if ran {
-                job.last_run_at = Some(now_iso.clone());
-                job.last_error.clone_from(&result.error);
-                job.run_count += 1;
-            } else {
-                job.last_skipped_at = Some(now_iso.clone());
+            let mut keep = closed.keep.into_iter();
+            state.dispatches.retain(|_| keep.next().unwrap_or(true));
+            state
+                .unread_dispatches
+                .retain(|_| keep.next().unwrap_or(true));
+            for (job, finished) in state.jobs.iter_mut().zip(closed.jobs) {
+                let (ran, becomes) = match finished {
+                    Finished::Untouched => continue,
+                    Finished::Ran(becomes) => (true, becomes),
+                    Finished::Skipped(becomes) => (false, becomes),
+                };
+                if ran {
+                    job.last_run_at = Some(now_iso.clone());
+                    job.last_error.clone_from(&result.error);
+                    job.run_count += 1;
+                } else {
+                    job.last_skipped_at = Some(now_iso.clone());
+                }
+                job.next_run_at = next_text(job, becomes.next, now).ok().flatten();
+                job.status = job_status(becomes.status);
+                job.failure_streak = becomes.streak;
+                job.updated_at.clone_from(&now_iso);
+                updated = Some(job.clone());
             }
-            job.next_run_at = next_text(job, becomes.next, now).ok().flatten();
-            job.status = job_status(becomes.status);
-            job.failure_streak = becomes.streak;
-            job.updated_at.clone_from(&now_iso);
-            updated = Some(job.clone());
             Vec::new()
         })?;
         Ok(updated)
@@ -490,5 +511,216 @@ mod tests {
             .collect();
         assert_eq!(aside, vec!["{\"jobs\": [ torn".to_string()]);
         assert_eq!(store.list(), vec![job]);
+    }
+
+    /// Three processes share one jobs file, each with its own store and
+    /// claim owner. Every decision on the file is the compiled core's
+    /// (`rules::cron` file passes): another process's live claim stays, a
+    /// second process only rolls a job that already has a claim, a process
+    /// clears its own claim once its run unwinds and a dead process's
+    /// claim, a finish step after the claim was cleared by another process
+    /// changes nothing, a claim record this build cannot read stays through
+    /// every update, and a corrupt file is moved aside.
+    #[test]
+    fn processes_share_one_jobs_file() {
+        use super::super::owner::ClaimOwner;
+        use super::super::state::read_jobs_state;
+        use super::super::{AgentCronDispatchRecord, CronJobsState};
+        use eukhe_types::platform::process::ProcessIdentity;
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+
+        const MINUTE: u64 = 60_000;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jobs.json");
+        let dead = Arc::new(Mutex::new(HashSet::new()));
+        let store =
+            |pid| AgentCronJobStore::with_owner(path.clone(), ClaimOwner::simulated(pid, &dead));
+        let (p0, p1, p2) = (store(0), store(1), store(2));
+        let now = 1_700_000_000_000;
+        let a = p0.create(&input("a", "every 10m", now)).unwrap();
+        let b = p1.create(&input("b", "every 10m", now)).unwrap();
+        // Another writer adds a claim record this build cannot read.
+        let raw_claim = serde_json::json!({"rawClaim": 1});
+        let mut file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        file["dispatches"]
+            .as_array_mut()
+            .unwrap()
+            .push(raw_claim.clone());
+        std::fs::write(&path, file.to_string()).unwrap();
+        let created = read_jobs_state(&path);
+
+        // p0 claims both due jobs: one claim record each, naming p0.
+        let mut runs = p0.claim_due(now + 10 * MINUTE, now + 10 * MINUTE).unwrap();
+        let claimed = read_jobs_state(&path);
+        let at = |minutes: u64| iso_from_millis(now + minutes * MINUTE);
+        assert_eq!(
+            claimed,
+            CronJobsState {
+                jobs: created
+                    .jobs
+                    .iter()
+                    .map(|job| AgentCronJob {
+                        next_run_at: Some(at(20)),
+                        updated_at: at(10),
+                        ..job.clone()
+                    })
+                    .collect(),
+                dispatches: runs
+                    .iter()
+                    .map(|run| AgentCronDispatchRecord {
+                        id: run.dispatch().id.clone(),
+                        job_id: run.dispatch().job.id.clone(),
+                        claimed_at: at(10),
+                        scheduled_for: at(10),
+                        owner: ProcessIdentity {
+                            pid: 0,
+                            process_start_id: Some("sim:0".to_string()),
+                        },
+                    })
+                    .collect(),
+                ..created.clone()
+            }
+        );
+
+        // p1's recovery keeps p0's live claims and the unread record.
+        assert_eq!(
+            p1.recover_interrupted_dispatches(now + 11 * MINUTE)
+                .unwrap(),
+            Vec::new()
+        );
+        assert_eq!(read_jobs_state(&path), claimed);
+
+        // p1's claim pass finds both jobs due and claimed: it only rolls
+        // their next runs.
+        assert!(p1
+            .claim_due(now + 20 * MINUTE, now + 20 * MINUTE)
+            .unwrap()
+            .is_empty());
+        let rolled = read_jobs_state(&path);
+        assert_eq!(
+            rolled,
+            CronJobsState {
+                jobs: claimed
+                    .jobs
+                    .iter()
+                    .map(|job| AgentCronJob {
+                        next_run_at: Some(at(30)),
+                        last_skipped_at: Some(at(20)),
+                        updated_at: at(20),
+                        ..job.clone()
+                    })
+                    .collect(),
+                ..claimed.clone()
+            }
+        );
+
+        // p0's run of a unwinds: p0's recovery clears its own claim, and a
+        // records the interruption.
+        runs.retain(|run| run.dispatch().job.id != a.id);
+        let interrupted = |state: &CronJobsState, id: &str, minutes: u64| -> Vec<AgentCronJob> {
+            state
+                .jobs
+                .iter()
+                .filter(|job| job.id == id)
+                .map(|job| AgentCronJob {
+                    last_error: Some(
+                        "Interrupted before scheduled operation completion".to_string(),
+                    ),
+                    updated_at: at(minutes),
+                    ..job.clone()
+                })
+                .collect()
+        };
+        assert_eq!(
+            p0.recover_interrupted_dispatches(now + 21 * MINUTE)
+                .unwrap(),
+            interrupted(&rolled, &a.id, 21)
+        );
+        let own_cleared = read_jobs_state(&path);
+        assert_eq!(
+            own_cleared,
+            CronJobsState {
+                jobs: rolled
+                    .jobs
+                    .iter()
+                    .map(|job| {
+                        interrupted(&rolled, &a.id, 21)
+                            .pop()
+                            .filter(|_| job.id == a.id)
+                            .unwrap_or_else(|| job.clone())
+                    })
+                    .collect(),
+                dispatches: rolled
+                    .dispatches
+                    .iter()
+                    .filter(|dispatch| dispatch.job_id == b.id)
+                    .cloned()
+                    .collect(),
+                ..rolled.clone()
+            }
+        );
+
+        // p0 dies while it runs b: p2's recovery clears p0's claim.
+        dead.lock().unwrap().insert(0);
+        assert_eq!(
+            p2.recover_interrupted_dispatches(now + 22 * MINUTE)
+                .unwrap(),
+            interrupted(&own_cleared, &b.id, 22)
+        );
+        let dead_cleared = read_jobs_state(&path);
+        assert_eq!(
+            dead_cleared,
+            CronJobsState {
+                jobs: own_cleared
+                    .jobs
+                    .iter()
+                    .map(|job| {
+                        interrupted(&own_cleared, &b.id, 22)
+                            .pop()
+                            .filter(|_| job.id == b.id)
+                            .unwrap_or_else(|| job.clone())
+                    })
+                    .collect(),
+                dispatches: Vec::new(),
+                ..own_cleared.clone()
+            }
+        );
+
+        // p0's finish step of b, its claim cleared by p2, changes nothing;
+        // the unread claim record is still there.
+        let run_b = runs.pop().unwrap();
+        assert_eq!(
+            p0.record_dispatch_result(
+                &run_b.dispatch().id,
+                &DispatchResultOptions {
+                    now: Some(now + 23 * MINUTE),
+                    outcome: DispatchOutcome::Ran,
+                    error: None,
+                },
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(read_jobs_state(&path), dead_cleared);
+        assert_eq!(dead_cleared.unread_dispatches, vec![raw_claim]);
+
+        // The next update of a corrupt file moves it aside.
+        std::fs::write(&path, "{\"jobs\": [ torn").unwrap();
+        assert!(p1
+            .claim_due(now + 30 * MINUTE, now + 30 * MINUTE)
+            .unwrap()
+            .is_empty());
+        let aside: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("jobs.json.corrupt-"))
+            .map(|name| std::fs::read_to_string(dir.path().join(name)).unwrap())
+            .collect();
+        assert_eq!(
+            (aside, path.exists()),
+            (vec!["{\"jobs\": [ torn".to_string()], false)
+        );
     }
 }

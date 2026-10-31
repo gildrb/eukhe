@@ -70,8 +70,6 @@ sysctl = "0.7"
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-# The Bend bridge harness (`eukhe_durable::testing::bridge`).
-eukhe-durable = { workspace = true, features = ["testing"] }
 tempfile = "3"
 proptest = { workspace = true }
 # The traces rate-gate test runs on paused tokio time (the 12s platform

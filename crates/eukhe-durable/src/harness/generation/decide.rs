@@ -10,8 +10,7 @@
 //! returns.
 //! The Bend model `bend/run/` makes the same decisions; `laws/run.bend`
 //! (H4) proves that every run ends under them, that a retry never
-//! resends a request it cut and that every recovery stops at its cap, and
-//! the bridge test (`bridge.rs`) runs both on the same scenarios.
+//! resends a request it cut and that every recovery stops at its cap.
 
 use std::num::NonZeroU32;
 

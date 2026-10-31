@@ -1,13 +1,15 @@
 //! `/heartbeat` job management: create/pause/resume/clear lifecycle plus
-//! the heartbeat management actions (pause/resume/stop).
+//! the heartbeat management actions (pause/resume/stop). Every status a
+//! heartbeat takes comes from the compiled core (`eukhe_bend::rules::cron`
+//! `make`, `halt`, `resume`).
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use crate::cron::JobSource;
 use uuid::Uuid;
 
-use eukhe_bend::rules::cron::{self as rule, Again};
+use eukhe_bend::rules::cron::{self as rule, Again, Cut, Halt};
 
-use super::facts::{fact_of, job_status, next_text};
+use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::state::normalize_optional_label;
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
@@ -51,29 +53,32 @@ impl AgentCronJobStore {
             anyhow::bail!("Heartbeat instruction cannot be empty");
         }
         let now_iso = iso_from_millis(now);
-        // Cancel existing active/paused heartbeats for this session.
+        // Stop the session's existing heartbeats (the compiled core leaves
+        // a completed or cancelled one as it is).
         let existing: Vec<AgentCronJob> = self
             .read_jobs()
             .into_iter()
             .map(|job| {
-                if job.active_session_id == input.active_session_id
-                    && job.source == JobSource::Heartbeat
-                    && matches!(job.status, JobStatus::Active | JobStatus::Paused)
+                if job.active_session_id != input.active_session_id
+                    || job.source != JobSource::Heartbeat
                 {
-                    AgentCronJob {
-                        status: JobStatus::Cancelled,
-                        next_run_at: None,
+                    return job;
+                }
+                match rule::halt(&fact_of(&job), Halt::Stop) {
+                    Cut::Same => job,
+                    Cut::Cut { status, next } => AgentCronJob {
+                        status: job_status(status),
+                        next_run_at: next_text_at(&job, next),
                         updated_at: now_iso.clone(),
                         ..job
-                    }
-                } else {
-                    job
+                    },
                 }
             })
             .collect();
+        let made = rule::make(parsed.1);
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
-            status: JobStatus::Active,
+            status: job_status(made.status),
             source: JobSource::Heartbeat,
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: Some(
@@ -90,12 +95,12 @@ impl AgentCronJobStore {
             schedule: parsed.0,
             created_at: now_iso.clone(),
             updated_at: now_iso,
-            next_run_at: Some(iso_from_millis(parsed.1)),
+            next_run_at: Some(iso_from_millis(made.next)),
             last_run_at: None,
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
-            failure_streak: 0,
+            failure_streak: made.streak,
         };
         let mut jobs = existing;
         jobs.push(job.clone());
@@ -122,9 +127,12 @@ impl AgentCronJobStore {
                 if job.id != current.id {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Pause) else {
+                    return job;
+                };
                 let paused_job = AgentCronJob {
-                    status: JobStatus::Paused,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };
@@ -132,7 +140,9 @@ impl AgentCronJobStore {
                 paused_job
             })
             .collect();
-        self.write_jobs(&jobs)?;
+        if paused.is_some() {
+            self.write_jobs(&jobs)?;
+        }
         Ok(paused)
     }
 
@@ -201,9 +211,12 @@ impl AgentCronJobStore {
                 if job.id != current.id {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
+                    return job;
+                };
                 let cleared_job = AgentCronJob {
-                    status: JobStatus::Cancelled,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };
@@ -211,7 +224,9 @@ impl AgentCronJobStore {
                 cleared_job
             })
             .collect();
-        self.write_jobs(&jobs)?;
+        if cleared.is_some() {
+            self.write_jobs(&jobs)?;
+        }
         Ok(cleared)
     }
 
@@ -239,15 +254,16 @@ impl AgentCronJobStore {
         };
         match action {
             HeartbeatManagementAction::Pause | HeartbeatManagementAction::Stop => {
-                if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
-                    return Ok(None);
-                }
-                job.status = if action == HeartbeatManagementAction::Pause {
-                    JobStatus::Paused
+                let how = if action == HeartbeatManagementAction::Pause {
+                    Halt::Pause
                 } else {
-                    JobStatus::Cancelled
+                    Halt::Stop
                 };
-                job.next_run_at = None;
+                let Cut::Cut { status, next } = rule::halt(&fact_of(job), how) else {
+                    return Ok(None);
+                };
+                job.next_run_at = next_text_at(job, next);
+                job.status = job_status(status);
             }
             HeartbeatManagementAction::Resume => {
                 let becomes = match rule::resume(&fact_of(job), now) {

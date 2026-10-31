@@ -1,10 +1,11 @@
 # cron: the model of the cron job store shared by processes. The Rust
 # code is `AgentCronJobStore` in
-# crates/eukhe-core/src/cron/store/; its per-job decisions run as
-# bend/cron_store.bend (entry bend/ffi_cron.bend), tied to this model's
-# steps by the `cron_*_refines` laws; the bridge (bridge/bridge_cron.bend,
-# crates/eukhe-core/src/cron/store/bridge.rs) runs the store's shell and
-# this model on the same events of several processes.
+# crates/eukhe-core/src/cron/store/; its decisions run as the compiled
+# core: the per-job ones as bend/cron_store.bend (entry
+# bend/ffi_cron.bend), tied to this model's steps by the `cron_*_refines`
+# laws, and the passes over the whole file (a claim pass, a recovery, a
+# finish step) as bend/cron_file.bend (entry bend/ffi_cron_file.bend),
+# tied to this model's `recs` by the `cron_file_*_refines` laws.
 #
 # One jobs file, shared by any number of processes. Each job record holds
 # its schedule, its status, its next run, its failures in a row, and the
@@ -24,9 +25,9 @@
 #
 # Events: a process makes a job, claims the due jobs, recovers claims,
 # finishes a run (good, failed, or skipped), unwinds its pass, dies; the
-# user cancels or resumes a job; time passes; another writer adds records
-# this build cannot read; the file becomes corrupt. A dead process does
-# nothing.
+# user cancels, resumes, pauses, stops, deletes or reschedules a job; time
+# passes; another writer adds records this build cannot read; the file
+# becomes corrupt. A dead process does nothing.
 
 import Base
 
@@ -85,6 +86,10 @@ type Ev is Data:
   RawJob{t: Nat}
   RawClaim{t: Nat}
   Corrupt{t: Nat}
+  Pause{p: Nat, i: Nat}
+  Stop{p: Nat, i: Nat}
+  Delete{p: Nat, i: Nat}
+  Edit{p: Nat, i: Nat, k: Nat}
 
 def S.empty() -> S:
   S{None{}, Nil{}, Nil{}, Nil{}, 0n, 0n, Nil{}}
@@ -384,6 +389,59 @@ def resume(+c: Nat, j: Job) -> Job:
             case Cancelled{}:
               Job{i, Every{n}, Cancelled{}, nx, k, cl, rs, ss, h}
 
+# the user pauses a job: an active or paused job is paused, with no next
+# run
+def pause(j: Job) -> Job:
+  match j:
+    case Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match st:
+        case Active{}:
+          Job{i, s, Paused{}, None{}, k, cl, rs, ss, h}
+        case Paused{}:
+          Job{i, s, Paused{}, None{}, k, cl, rs, ss, h}
+        case Finished{}:
+          Job{i, s, Finished{}, nx, k, cl, rs, ss, h}
+        case Cancelled{}:
+          Job{i, s, Cancelled{}, nx, k, cl, rs, ss, h}
+
+# the user stops a job: an active or paused job is cancelled, with no next
+# run; a finished job stays finished
+def stop(j: Job) -> Job:
+  match j:
+    case Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match st:
+        case Active{}:
+          Job{i, s, Cancelled{}, None{}, k, cl, rs, ss, h}
+        case Paused{}:
+          Job{i, s, Cancelled{}, None{}, k, cl, rs, ss, h}
+        case Finished{}:
+          Job{i, s, Finished{}, nx, k, cl, rs, ss, h}
+        case Cancelled{}:
+          Job{i, s, Cancelled{}, nx, k, cl, rs, ss, h}
+
+# the user deletes a job: whatever its status, it is cancelled, with no
+# next run
+def delete(j: Job) -> Job:
+  match j:
+    case Job{i, s, st, nx, k, cl, rs, ss, h}:
+      Job{i, s, Cancelled{}, None{}, k, cl, rs, ss, h}
+
+# the user gives an active or paused job the schedule Every{k}: an active
+# job runs next 1+k minutes after c, a paused one stays paused with no
+# next run; a finished or cancelled job stays as it is
+def edit(+c: Nat, +k: Nat, j: Job) -> Job:
+  match j:
+    case Job{i, s, st, nx, kk, cl, rs, ss, h}:
+      match st:
+        case Active{}:
+          Job{i, Every{k}, Active{}, Some{Nat.add(c, 1n+k)}, kk, cl, rs, ss, h}
+        case Paused{}:
+          Job{i, Every{k}, Paused{}, None{}, kk, cl, rs, ss, h}
+        case Finished{}:
+          Job{i, s, Finished{}, nx, kk, cl, rs, ss, h}
+        case Cancelled{}:
+          Job{i, s, Cancelled{}, nx, kk, cl, rs, ss, h}
+
 # Runs of a process end
 # ---------------------
 
@@ -434,6 +492,14 @@ def job(+e: Ev, +c: Nat, +dead: List<&2, Nat>, +j: Job) -> Job:
       job.pick(Nat.is_eq(Job.id(j), i), cancel(j), j)
     case Resume{p, i}:
       job.pick(Nat.is_eq(Job.id(j), i), resume(c, j), j)
+    case Pause{p, i}:
+      job.pick(Nat.is_eq(Job.id(j), i), pause(j), j)
+    case Stop{p, i}:
+      job.pick(Nat.is_eq(Job.id(j), i), stop(j), j)
+    case Delete{p, i}:
+      job.pick(Nat.is_eq(Job.id(j), i), delete(j), j)
+    case Edit{p, i, k}:
+      job.pick(Nat.is_eq(Job.id(j), i), edit(c, k, j), j)
     case Create{p, s}:
       j
     case Tick{d}:
@@ -483,6 +549,14 @@ def Ev.by(e: Ev) -> Maybe<&2, Nat>:
       Some{p}
     case Resume{p, i}:
       Some{p}
+    case Pause{p, i}:
+      Some{p}
+    case Stop{p, i}:
+      Some{p}
+    case Delete{p, i}:
+      Some{p}
+    case Edit{p, i, k}:
+      Some{p}
     case Tick{d}:
       None{}
     case RawJob{t}:
@@ -528,6 +602,14 @@ def step(s: S, +e: Ev) -> S:
         case Cancel{p, i}:
           step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
         case Resume{p, i}:
+          step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
+        case Pause{p, i}:
+          step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
+        case Stop{p, i}:
+          step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
+        case Delete{p, i}:
+          step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
+        case Edit{p, i, k}:
           step.alive(has(p, dead), S{bad, recs(e, c, dead, rs), rd, dead, c, n, aside}, S{bad, rs, rd, dead, c, n, aside})
         case Tick{d}:
           S{bad, rs, rd, dead, Nat.add(c, d), n, aside}
@@ -619,13 +701,30 @@ def Ev.is_corrupt(e: Ev) -> Bool:
       False{}
     case RawClaim{t}:
       False{}
+    case Pause{p, i}:
+      False{}
+    case Stop{p, i}:
+      False{}
+    case Delete{p, i}:
+      False{}
+    case Edit{p, i, k}:
+      False{}
 
-# Ev.is_user: a user action (only these may restart a stopped job)
+# Ev.is_user: a user action (only these may restart a stopped job, or
+# change its status from outside a run)
 def Ev.is_user(e: Ev) -> Bool:
   match e:
     case Cancel{p, i}:
       True{}
     case Resume{p, i}:
+      True{}
+    case Pause{p, i}:
+      True{}
+    case Stop{p, i}:
+      True{}
+    case Delete{p, i}:
+      True{}
+    case Edit{p, i, k}:
       True{}
     case Create{p, s}:
       True{}

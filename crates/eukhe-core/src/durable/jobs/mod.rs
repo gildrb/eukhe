@@ -9,9 +9,9 @@
 //! core decides; Rust gathers the facts and acts: [`JobState::step`] runs
 //! the model's `feed` (entry `job`), [`JobTable::rewind_to`] its `kills`
 //! (entry `job_rewind`) and each poll of [`wait_until`] its `poll` (entry
-//! `job_wait`). The bridge test (`bridge.rs`, with `bridge/bridge_job.bend`)
-//! ties only the interleaving of [`wait_until`] (the timer against the
-//! job's end, on a paused clock) to the model's `wait`.
+//! `job_wait`). The tests drive the interleaving of [`wait_until`] (the
+//! timer against the job's end, on a paused clock) step by step against
+//! the model's `wait`.
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
@@ -21,8 +21,6 @@
 //! commits the table sees; the system prompt shows the running jobs of the
 //! tree ([`running_jobs_section`]).
 
-#[cfg(test)]
-mod bridge;
 #[cfg(test)]
 mod tests;
 mod tree;

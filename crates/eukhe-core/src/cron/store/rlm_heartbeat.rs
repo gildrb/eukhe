@@ -1,14 +1,16 @@
 //! RLM heartbeat operations: the agent-owned heartbeat jobs created and
 //! managed through the rlm-heartbeat kernel skill (list/create/update/delete
-//! plus session-teardown cancellation).
+//! plus session-teardown cancellation). Every status a job takes, and
+//! whether it takes an edit at all, comes from the compiled core
+//! (`eukhe_bend::rules::cron` `make`, `edit`, `halt`, `resume`).
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use crate::cron::JobSource;
 use uuid::Uuid;
 
-use eukhe_bend::rules::cron::{self as rule, Again};
+use eukhe_bend::rules::cron::{self as rule, Again, Cut, Edit, Halt};
 
-use super::facts::{fact_of, job_status, next_text};
+use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::state::{compare_optional_iso, normalize_optional_label};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
@@ -67,9 +69,10 @@ impl AgentCronJobStore {
             anyhow::bail!("RLM heartbeat instruction cannot be empty");
         }
         let now_iso = iso_from_millis(now);
+        let made = rule::make(parsed.1);
         let job = AgentCronJob {
             id: Uuid::new_v4().to_string(),
-            status: JobStatus::Active,
+            status: job_status(made.status),
             source: JobSource::RlmHeartbeat,
             runtime_kind: input.runtime_kind.clone(),
             delivery_mode: Some(
@@ -86,12 +89,12 @@ impl AgentCronJobStore {
             schedule: parsed.0,
             created_at: now_iso.clone(),
             updated_at: now_iso,
-            next_run_at: Some(iso_from_millis(parsed.1)),
+            next_run_at: Some(iso_from_millis(made.next)),
             last_run_at: None,
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
-            failure_streak: 0,
+            failure_streak: made.streak,
         };
         let mut jobs = self.read_jobs();
         jobs.push(job.clone());
@@ -129,9 +132,21 @@ impl AgentCronJobStore {
                     return job;
                 }
                 matched = true;
-                if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
+                let schedule = match &update.schedule_text {
+                    None => None,
+                    Some(schedule_text) => match parse_agent_cron_schedule(schedule_text, now) {
+                        Ok(parsed) if parsed.0.kind != ScheduleKind::Once => Some(parsed),
+                        _ => return job,
+                    },
+                };
+                let fact = fact_of(&job);
+                let Edit::Edited {
+                    status,
+                    next: next_run,
+                } = rule::edit(&fact, schedule.as_ref().map(|parsed| parsed.1))
+                else {
                     return job;
-                }
+                };
                 let mut next = job.clone();
                 if let Some(label) = &update.label {
                     next.label = normalize_optional_label(Some(label));
@@ -146,23 +161,25 @@ impl AgentCronJobStore {
                     }
                     next.prompt = prompt.to_string();
                 }
-                if let Some(schedule_text) = &update.schedule_text {
-                    match parse_agent_cron_schedule(schedule_text, now) {
-                        Ok(parsed) if parsed.0.kind != ScheduleKind::Once => {
-                            next.schedule = parsed.0;
-                            next.next_run_at = if next.status == JobStatus::Paused {
-                                None
-                            } else {
-                                Some(iso_from_millis(parsed.1))
-                            };
-                        }
-                        _ => return job,
-                    }
+                if let Some(parsed) = schedule {
+                    next.schedule = parsed.0;
+                }
+                next.status = job_status(status);
+                // The record keeps its next run as written unless the core
+                // answers another one than it read.
+                if next_run != fact.next {
+                    next.next_run_at = next_run.map(iso_from_millis);
                 }
                 match update.status {
                     Some(RlmHeartbeatStatusUpdate::Pause) => {
-                        next.status = JobStatus::Paused;
-                        next.next_run_at = None;
+                        if let Cut::Cut {
+                            status,
+                            next: paused,
+                        } = rule::halt(&fact_of(&next), Halt::Pause)
+                        {
+                            next.next_run_at = next_text_at(&next, paused);
+                            next.status = job_status(status);
+                        }
                     }
                     Some(RlmHeartbeatStatusUpdate::Resume) => {
                         if let Again::Resumed(becomes) = rule::resume(&fact_of(&next), now) {
@@ -211,9 +228,12 @@ impl AgentCronJobStore {
                 {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Delete) else {
+                    return job;
+                };
                 let cancelled = AgentCronJob {
-                    status: JobStatus::Cancelled,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };
@@ -243,13 +263,15 @@ impl AgentCronJobStore {
             .map(|job| {
                 if job.active_session_id != active_session_id
                     || job.source != JobSource::RlmHeartbeat
-                    || !matches!(job.status, JobStatus::Active | JobStatus::Paused)
                 {
                     return job;
                 }
+                let Cut::Cut { status, next } = rule::halt(&fact_of(&job), Halt::Stop) else {
+                    return job;
+                };
                 let cancelled_job = AgentCronJob {
-                    status: JobStatus::Cancelled,
-                    next_run_at: None,
+                    status: job_status(status),
+                    next_run_at: next_text_at(&job, next),
                     updated_at: now_iso.clone(),
                     ..job
                 };

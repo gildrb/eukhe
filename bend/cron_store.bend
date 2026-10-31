@@ -3,14 +3,17 @@
 # entry bend/ffi_cron.bend runs. The store's clock counts milliseconds;
 # the model of the shared file (bend/cron.bend) counts minutes: each
 # decision here takes the clock unit `u` (MINUTE in the shipped entry), and
-# the laws (laws/cron.bend, the `cron_*_refines` laws) tie each one to the
-# model's `take`, `recover`, `finish`, `cancel` and `resume` on every unit.
+# the laws (laws/cron.bend and laws/cron_user.bend, the `cron_*_refines`
+# laws) tie each one to the model's `take`, `recover`, `finish`, `cancel`,
+# `resume`, `pause`, `stop`, `delete`, `edit` and a new job on every unit.
 #
 # Rust reads the jobs file and gathers the facts of one job (its status,
 # its schedule, its next run, its failures in a row, whether a claim of it
 # is on record or was cleared, the clock); each decision answers what the
-# job becomes. Rust keeps the file, its lock, the claim records, the ids,
-# the liveness probe and the set of the runs of this process.
+# job becomes. A new job's first run, and the next match of a rule, are
+# Rust's to compute (the schedule's own arithmetic); whether a corrupt
+# file is moved aside is decided here too. Rust keeps the file, its lock,
+# the ids, the liveness probe and the set of the runs of this process.
 
 import Base
 import ./cron.bend as Cr
@@ -43,6 +46,13 @@ type Who is Data:
   Mine{running: Bool}
   Theirs{dead: Bool}
 
+# how the user holds or ends a job: pause it, stop it (a live job is
+# cancelled), delete it (cancelled whatever its status)
+type Halt is Data:
+  HPause{}
+  HStop{}
+  HDelete{}
+
 # what Rust asks about one job
 type Ask is Data:
   AskTake{f: Fact, claimed: Bool, due: Nat, now: Nat}
@@ -51,6 +61,10 @@ type Ask is Data:
   AskFinish{f: Fact, ran: Bool, failed: Bool, now: Nat}
   AskCancel{f: Fact}
   AskResume{f: Fact, now: Nat}
+  AskHalt{f: Fact, how: Halt}
+  AskEdit{f: Fact, at: Maybe<&2, Nat>}
+  AskMake{at: Nat}
+  AskOpen{update: Bool}
 
 # Answers
 # -------
@@ -86,6 +100,17 @@ type Again is Data:
   Resumed{st: Cr.Status, n: Next, k: Nat}
   Ended{}
   NotRecurring{}
+
+# an edit of a job (a new schedule whose first run is `at`, or none): the
+# job is finished or cancelled and takes no edit, or it keeps this status
+# and takes this next run
+type Edit is Data:
+  Locked{}
+  Edited{st: Cr.Status, next: Maybe<&2, Nat>}
+
+# a new job: its status, first run and failures in a row
+type Made is Data:
+  Made{st: Cr.Status, next: Nat, k: Nat}
 
 # The clock
 # ---------
@@ -310,3 +335,89 @@ def resume(f: Fact, +now: Nat) -> Again:
           Ended{}
         case Cr.Cancelled{}:
           Ended{}
+
+# a job the user pauses: an active or paused job is paused, with no next
+# run; a finished or cancelled one stays (Cr.pause)
+def halt.pause(f: Fact) -> Cut:
+  match f:
+    case Fact{st, p, nx, k}:
+      match st:
+        case Cr.Active{}:
+          Cut{Cr.Paused{}, None{}}
+        case Cr.Paused{}:
+          Cut{Cr.Paused{}, None{}}
+        case Cr.Finished{}:
+          Same{}
+        case Cr.Cancelled{}:
+          Same{}
+
+# a job the user stops: an active or paused job is cancelled, with no next
+# run; a finished or cancelled one stays (Cr.stop)
+def halt.stop(f: Fact) -> Cut:
+  match f:
+    case Fact{st, p, nx, k}:
+      match st:
+        case Cr.Active{}:
+          Cut{Cr.Cancelled{}, None{}}
+        case Cr.Paused{}:
+          Cut{Cr.Cancelled{}, None{}}
+        case Cr.Finished{}:
+          Same{}
+        case Cr.Cancelled{}:
+          Same{}
+
+# a job the user deletes is cancelled, with no next run, whatever its
+# status (Cr.delete)
+def halt.delete(f: Fact) -> Cut:
+  match f:
+    case Fact{st, p, nx, k}:
+      Cut{Cr.Cancelled{}, None{}}
+
+def halt(f: Fact, how: Halt) -> Cut:
+  match how:
+    case HPause{}:
+      halt.pause(f)
+    case HStop{}:
+      halt.stop(f)
+    case HDelete{}:
+      halt.delete(f)
+
+def edit.active(nx: Maybe<&2, Nat>, at: Maybe<&2, Nat>) -> Edit:
+  match at:
+    case None{}:
+      Edited{Cr.Active{}, nx}
+    case Some{a}:
+      Edited{Cr.Active{}, Some{a}}
+
+def edit.paused(nx: Maybe<&2, Nat>, at: Maybe<&2, Nat>) -> Edit:
+  match at:
+    case None{}:
+      Edited{Cr.Paused{}, nx}
+    case Some{a}:
+      Edited{Cr.Paused{}, None{}}
+
+# an edit of an active or paused job keeps its status; a new schedule
+# gives an active job its first run `at` and a paused one no next run; a
+# finished or cancelled job takes no edit (Cr.edit)
+def edit(f: Fact, at: Maybe<&2, Nat>) -> Edit:
+  match f:
+    case Fact{st, p, nx, k}:
+      match st:
+        case Cr.Active{}:
+          edit.active(nx, at)
+        case Cr.Paused{}:
+          edit.paused(nx, at)
+        case Cr.Finished{}:
+          Locked{}
+        case Cr.Cancelled{}:
+          Locked{}
+
+# a new job is active, runs first at `at`, with no failures in a row (the
+# model's new job of Cr.step's Create)
+def make(at: Nat) -> Made:
+  Made{Cr.Active{}, at, 0n}
+
+# a corrupt jobs file is moved aside by an update (which then starts from
+# no records), and read as no records, left in place, by a read (Cr.heal)
+def open(update: Bool) -> Bool:
+  update

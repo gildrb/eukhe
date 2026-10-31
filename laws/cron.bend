@@ -77,17 +77,21 @@ law cron_backoff_bounded:
 
 # (D2.2) The per-job decisions, and the entry Rust calls
 # ------------------------------------------------------
-# crates/eukhe-core/src/cron/store/ (state.rs `claim_due_in_state`,
-# `recover_interrupted_in_state`, jobs.rs `record_dispatch_result`,
-# `cancel`, the resumes of heartbeat.rs and rlm_heartbeat.rs) reads the
-# jobs file, gathers one job's facts and calls the entry
-# bend/ffi_cron.bend, which runs bend/cron_store.bend on the store's clock
-# (ms). The spec (laws/cron_store.bend) states each decision on a clock of
-# any unit u, and pins the code to it; the spellers and the reader are the entry's wire grammar written with the
+# crates/eukhe-core/src/cron/store/ (jobs.rs `cancel`, the resumes,
+# pauses, stops, deletes, edits and new jobs of jobs.rs, heartbeat.rs and
+# rlm_heartbeat.rs, state.rs on a corrupt file, cron/mod.rs `is_due_job`)
+# gathers one job's facts and calls the entry bend/ffi_cron.bend, which
+# runs bend/cron_store.bend on the store's clock (ms); its passes over a
+# whole file (state.rs, jobs.rs `record_dispatch_result`) call
+# bend/ffi_cron_file.bend (laws/cron_file.bend), which runs these same
+# decisions per record. The spec (laws/cron_store.bend) states each
+# decision on a clock of any unit u, and pins the code to it; the spellers
+# and the reader are the entry's wire grammar written with the
 # wire primitives alone (laws/wire.bend proves their round trips); they
-# never call the entry's codec. The `cron_*_refines` laws tie each
-# decision, on every clock unit (the store's: a minute is 60000 ms), to
-# the model's step of bend/cron.bend that the laws above speak of.
+# never call the entry's codec. The `cron_*_refines` laws (here and in
+# laws/cron_user.bend) tie each decision, on every clock unit (the
+# store's: a minute is 60000 ms), to the model's step of bend/cron.bend
+# that the laws above speak of.
 
 # Terms
 # -----
@@ -137,6 +141,15 @@ def spell_who(w: CS.Who, rest: String) -> String:
     case CS.Theirs{b}:
       Wr.put_nat(1n, Wr.put_bool(b, rest))
 
+def spell_how(h: CS.Halt, rest: String) -> String:
+  match h:
+    case CS.HPause{}:
+      Wr.put_nat(0n, rest)
+    case CS.HStop{}:
+      Wr.put_nat(1n, rest)
+    case CS.HDelete{}:
+      Wr.put_nat(2n, rest)
+
 # the request Rust writes for a
 def spell_ask(a: CS.Ask) -> String:
   match a:
@@ -152,6 +165,14 @@ def spell_ask(a: CS.Ask) -> String:
       Wr.put_nat(4n, spell_fact(f, ""))
     case CS.AskResume{f, n}:
       Wr.put_nat(5n, spell_fact(f, Wr.put_nat(n, "")))
+    case CS.AskHalt{f, h}:
+      Wr.put_nat(6n, spell_fact(f, spell_how(h, "")))
+    case CS.AskEdit{f, m}:
+      Wr.put_nat(7n, spell_fact(f, spell_mnat(m, "")))
+    case CS.AskMake{n}:
+      Wr.put_nat(8n, Wr.put_nat(n, ""))
+    case CS.AskOpen{b}:
+      Wr.put_nat(9n, Wr.put_bool(b, ""))
 
 def plan_fits(p: CS.Plan) -> Bool:
   match p:
@@ -182,6 +203,14 @@ def ask_fits(a: CS.Ask) -> Bool:
       fact_fits(f)
     case CS.AskResume{f, n}:
       Bool.and(fact_fits(f), LawsBase.wire_fits(n))
+    case CS.AskHalt{f, h}:
+      fact_fits(f)
+    case CS.AskEdit{f, m}:
+      Bool.and(fact_fits(f), LawsBase.core_mfits(m))
+    case CS.AskMake{n}:
+      LawsBase.wire_fits(n)
+    case CS.AskOpen{b}:
+      True{}
 
 # Spellers: the reply
 
@@ -235,6 +264,18 @@ def spell_again(x: CS.Again, rest: String) -> String:
     case CS.NotRecurring{}:
       Wr.put_nat(2n, rest)
 
+def spell_edit(x: CS.Edit, rest: String) -> String:
+  match x:
+    case CS.Locked{}:
+      Wr.put_nat(0n, rest)
+    case CS.Edited{st, m}:
+      Wr.put_nat(1n, spell_status(st, spell_mnat(m, rest)))
+
+def spell_made(x: CS.Made, rest: String) -> String:
+  match x:
+    case CS.Made{st, n, k}:
+      spell_status(st, Wr.put_nat(n, Wr.put_nat(k, rest)))
+
 # the reply to a: the decision of the spec, on the store's clock
 def spell_answer(a: CS.Ask) -> String:
   match a:
@@ -250,6 +291,14 @@ def spell_answer(a: CS.Ask) -> String:
       spell_cut(CronStore.cancel_spec(f), "")
     case CS.AskResume{f, n}:
       spell_again(CronStore.resume_spec(f, n), "")
+    case CS.AskHalt{f, h}:
+      spell_cut(CronStore.halt_spec(f, h), "")
+    case CS.AskEdit{f, m}:
+      spell_edit(CronStore.edit_spec(f, m), "")
+    case CS.AskMake{n}:
+      spell_made(CronStore.make_spec(n), "")
+    case CS.AskOpen{b}:
+      Wr.put_bool(CronStore.open_spec(b), "")
 
 # Reader: the requests the entry accepts, read with the wire primitives
 
@@ -480,6 +529,59 @@ def read_resume(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
     case Wr.Bad{}:
       Wr.Bad{}
 
+def read_halt.how(f: CS.Fact, t: Nat, s: String) -> Wr.Dec<CS.Ask>:
+  match t:
+    case 0n:
+      Wr.Got{CS.AskHalt{f, CS.HPause{}}, s}
+    case 1n:
+      Wr.Got{CS.AskHalt{f, CS.HStop{}}, s}
+    case 2n:
+      Wr.Got{CS.AskHalt{f, CS.HDelete{}}, s}
+    case 3n+p:
+      Wr.Bad{}
+
+def read_halt.tag(f: CS.Fact, r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      read_halt.how(f, t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_halt(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_halt.tag(f, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_edit.at(f: CS.Fact, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{m, s}:
+      Wr.Got{CS.AskEdit{f, m}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_edit(r: Wr.Dec<CS.Fact>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{f, s}:
+      read_edit.at(f, read_mnat(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_make(r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{CS.AskMake{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def read_open(r: Wr.Dec<Bool>) -> Wr.Dec<CS.Ask>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{CS.AskOpen{b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
 def read_ask.tag(t: Nat, s: String) -> Wr.Dec<CS.Ask>:
   match t:
     case 0n:
@@ -494,7 +596,15 @@ def read_ask.tag(t: Nat, s: String) -> Wr.Dec<CS.Ask>:
       read_cancel(read_fact(s))
     case 5n:
       read_resume(read_fact(s))
-    case 6n+p:
+    case 6n:
+      read_halt(read_fact(s))
+    case 7n:
+      read_edit(read_fact(s))
+    case 8n:
+      read_make(Wr.get_nat(s))
+    case 9n:
+      read_open(Wr.get_bool(s))
+    case 10n+p:
       Wr.Bad{}
 
 def read_ask.go(r: Wr.Dec<Nat>) -> Wr.Dec<CS.Ask>:

@@ -40,8 +40,7 @@ import ../base.bend as LawsBase
 #     whose only client is the phone gateway never shows or relays; a root
 #     never relays.
 # D7: the desks of a chain of sessions route a question exactly as
-#     bend/approvals.bend `route` does (the transcript the Rust bridge test
-#     compared, restated over the stepper).
+#     bend/approvals.bend `route` does, over the stepper.
 # D8: over every sequence of events from the empty desk, no key is woken
 #     twice: Rust wakes each waiting step at most once, whatever the order
 #     of answers, detaches, cancels and the parent's answers.
@@ -557,8 +556,7 @@ law approvals_desk_root_never_relays:
 # a question exactly as `route` does: the sessions that show it, in order,
 # and the fate of the step
 # EXCLUDES: a relay past clients that answer, a frame on a session that
-#   should not show it, a fate other than the route's (the transcript the
-#   Rust bridge compared)
+#   should not show it, a fate other than the route's
 law approvals_desk_is_route:
   for +ds: List<&2, Am.Desk>
   for +es: List<&2, Nat>

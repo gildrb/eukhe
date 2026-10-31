@@ -71,6 +71,14 @@ def by_spec(e: Cr.Ev) -> Maybe<&2, Nat>:
       None{}
     case Cr.Corrupt{t}:
       None{}
+    case Cr.Pause{p, i}:
+      Some{p}
+    case Cr.Stop{p, i}:
+      Some{p}
+    case Cr.Delete{p, i}:
+      Some{p}
+    case Cr.Edit{p, i, k}:
+      Some{p}
 
 def corrupt_spec(e: Cr.Ev) -> Bool:
   match e:
@@ -98,8 +106,17 @@ def corrupt_spec(e: Cr.Ev) -> Bool:
       False{}
     case Cr.Corrupt{t}:
       True{}
+    case Cr.Pause{p, i}:
+      False{}
+    case Cr.Stop{p, i}:
+      False{}
+    case Cr.Delete{p, i}:
+      False{}
+    case Cr.Edit{p, i, k}:
+      False{}
 
-# a user action: a create, a cancel, a resume
+# a user action: a create, a cancel, a resume, a pause, a stop, a delete,
+# an edit
 def user_spec(e: Cr.Ev) -> Bool:
   match e:
     case Cr.Create{p, s}:
@@ -126,6 +143,14 @@ def user_spec(e: Cr.Ev) -> Bool:
       False{}
     case Cr.Corrupt{t}:
       False{}
+    case Cr.Pause{p, i}:
+      True{}
+    case Cr.Stop{p, i}:
+      True{}
+    case Cr.Delete{p, i}:
+      True{}
+    case Cr.Edit{p, i, k}:
+      True{}
 
 def claim_spec.pick(b: Bool, cl: Maybe<&2, Cr.Claim>, rest: Maybe<&2, Cr.Claim>) -> Maybe<&2, Cr.Claim>:
   match b:

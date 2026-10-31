@@ -60,6 +60,34 @@ def cra.resume(+f: CS.Fact, +n: Nat, +fits: {Cron.ask_fits(CS.AskResume{f, n}) =
   %LWire.pw6.nat(n, "", LCe.cre.and_r(Cron.fact_fits(f), LawsBase.wire_fits(n), fits)) : {FC.run(FC.get_resume.now(f, _)) == Cron.spell_answer(CS.AskResume{f, n}) : String}
   LAn.cran.answer(CS.AskResume{f, n})
 
+def cra.halt(+f: CS.Fact, h: CS.Halt, +fits: {Cron.ask_fits(CS.AskHalt{f, h}) == True{} : Bool}) -> {FC.ffi(Cron.spell_ask(CS.AskHalt{f, h})) == Cron.spell_answer(CS.AskHalt{f, h}) : String}:
+  match h:
+    case CS.HPause{}:
+      %LCe.crr.fact(f, Cron.spell_how(CS.HPause{}, ""), fits) : {FC.run(FC.get_halt(_)) == Cron.spell_answer(CS.AskHalt{f, CS.HPause{}}) : String}
+      LAn.cran.answer(CS.AskHalt{f, CS.HPause{}})
+    case CS.HStop{}:
+      %LCe.crr.fact(f, Cron.spell_how(CS.HStop{}, ""), fits) : {FC.run(FC.get_halt(_)) == Cron.spell_answer(CS.AskHalt{f, CS.HStop{}}) : String}
+      LAn.cran.answer(CS.AskHalt{f, CS.HStop{}})
+    case CS.HDelete{}:
+      %LCe.crr.fact(f, Cron.spell_how(CS.HDelete{}, ""), fits) : {FC.run(FC.get_halt(_)) == Cron.spell_answer(CS.AskHalt{f, CS.HDelete{}}) : String}
+      LAn.cran.answer(CS.AskHalt{f, CS.HDelete{}})
+
+def cra.edit(+f: CS.Fact, +m: Maybe<&2, Nat>, +fits: {Cron.ask_fits(CS.AskEdit{f, m}) == True{} : Bool}) -> {FC.ffi(Cron.spell_ask(CS.AskEdit{f, m})) == Cron.spell_answer(CS.AskEdit{f, m}) : String}:
+  %LCe.crr.fact(f, Cron.spell_mnat(m, ""), LCe.cre.and_l(Cron.fact_fits(f), LawsBase.core_mfits(m), fits)) : {FC.run(FC.get_edit(_)) == Cron.spell_answer(CS.AskEdit{f, m}) : String}
+  %LCe.crr.mnat(m, "", LCe.cre.and_r(Cron.fact_fits(f), LawsBase.core_mfits(m), fits)) : {FC.run(FC.get_edit.at(f, _)) == Cron.spell_answer(CS.AskEdit{f, m}) : String}
+  LAn.cran.answer(CS.AskEdit{f, m})
+
+def cra.make(+n: Nat, +fits: {Cron.ask_fits(CS.AskMake{n}) == True{} : Bool}) -> {FC.ffi(Cron.spell_ask(CS.AskMake{n})) == Cron.spell_answer(CS.AskMake{n}) : String}:
+  %LWire.pw6.nat(n, "", fits) : {FC.run(FC.get_make(_)) == Cron.spell_answer(CS.AskMake{n}) : String}
+  LAn.cran.answer(CS.AskMake{n})
+
+def cra.open(b: Bool) -> {FC.ffi(Cron.spell_ask(CS.AskOpen{b})) == Cron.spell_answer(CS.AskOpen{b}) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 def Cron.cron_entry_answers(a, fits):
   match a:
     case CS.AskTake{f, c, d, n}:
@@ -74,3 +102,11 @@ def Cron.cron_entry_answers(a, fits):
       cra.cancel(f, fits)
     case CS.AskResume{f, n}:
       cra.resume(f, n, fits)
+    case CS.AskHalt{f, h}:
+      cra.halt(f, h, fits)
+    case CS.AskEdit{f, m}:
+      cra.edit(f, m, fits)
+    case CS.AskMake{n}:
+      cra.make(n, fits)
+    case CS.AskOpen{b}:
+      cra.open(b)

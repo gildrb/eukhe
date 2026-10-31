@@ -5,8 +5,9 @@ import ./cron_store.bend as CS
 
 # ffi_cron: the per-job decisions of the cron job store
 # (bend/cron_store.bend `take`, `clear`, `recover`, `finish`, `cancel`,
-# `resume`, on the clock unit CS.MINUTE: times in ms) as an entry of the
-# compiled Bend core. A request is one job's facts:
+# `resume`, `halt`, `edit`, `make`, `open`, on the clock unit CS.MINUTE:
+# times in ms) as an entry of the compiled Bend core. A request is one
+# job's facts:
 #   status  0 active | 1 paused | 2 finished | 3 cancelled
 #   plan    0 a one-shot | 1 an interval, then its ms | 2 a rule (a cron
 #           expression; Rust evaluates it)
@@ -22,6 +23,10 @@ import ./cron_store.bend as CS
 #      whether it failed (T|F), the clock
 #   4  a cancel: a fact
 #   5  a resume: a fact, the clock
+#   6  a user's hold: a fact, then 0 pause | 1 stop | 2 delete
+#   7  an edit: a fact, the first run of a new schedule (Maybe ms)
+#   8  a new job: its first run (ms)
+#   9  a corrupt file: whether the read is for an update (T|F)
 # Reply (a next run: 0 none | 1 at, then the ms | 2 the rule's next match
 # after the clock):
 #   0  0 not due | 1 roll, then the next run | 2 claim, then the next run
@@ -32,6 +37,11 @@ import ./cron_store.bend as CS
 #   4  0 already cancelled | 1 cut, then a status and a next run (Maybe ms)
 #   5  0 resumed, then a status, a next run and the failures in a row |
 #      1 ended (finished or cancelled) | 2 not recurring
+#   6  as 4: 0 unchanged | 1 cut, then a status and a next run (Maybe ms)
+#   7  0 locked (finished or cancelled) | 1 edited, then a status and a
+#      next run (Maybe ms)
+#   8  a status, the first run (ms), the failures in a row
+#   9  T (move the file aside) | F (leave it in place)
 # Any other input: the error form.
 
 # Decoding
@@ -265,6 +275,59 @@ def get_resume(r: W.Dec<CS.Fact>) -> W.Dec<CS.Ask>:
     case W.Bad{}:
       W.Bad{}
 
+def get_halt.how(f: CS.Fact, t: Nat, s: String) -> W.Dec<CS.Ask>:
+  match t:
+    case 0n:
+      W.Got{CS.AskHalt{f, CS.HPause{}}, s}
+    case 1n:
+      W.Got{CS.AskHalt{f, CS.HStop{}}, s}
+    case 2n:
+      W.Got{CS.AskHalt{f, CS.HDelete{}}, s}
+    case 3n+p:
+      W.Bad{}
+
+def get_halt.tag(f: CS.Fact, r: W.Dec<Nat>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{t, s}:
+      get_halt.how(f, t, s)
+    case W.Bad{}:
+      W.Bad{}
+
+def get_halt(r: W.Dec<CS.Fact>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{f, s}:
+      get_halt.tag(f, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_edit.at(f: CS.Fact, r: W.Dec<Maybe<&2, Nat>>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{m, s}:
+      W.Got{CS.AskEdit{f, m}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_edit(r: W.Dec<CS.Fact>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{f, s}:
+      get_edit.at(f, get_mnat(W.get_nat(s)))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_make(r: W.Dec<Nat>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{n, s}:
+      W.Got{CS.AskMake{n}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_open(r: W.Dec<Bool>) -> W.Dec<CS.Ask>:
+  match r:
+    case W.Got{b, s}:
+      W.Got{CS.AskOpen{b}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_ask.tag(t: Nat, s: String) -> W.Dec<CS.Ask>:
   match t:
     case 0n:
@@ -279,7 +342,15 @@ def get_ask.tag(t: Nat, s: String) -> W.Dec<CS.Ask>:
       get_cancel(get_fact(s))
     case 5n:
       get_resume(get_fact(s))
-    case 6n+p:
+    case 6n:
+      get_halt(get_fact(s))
+    case 7n:
+      get_edit(get_fact(s))
+    case 8n:
+      get_make(W.get_nat(s))
+    case 9n:
+      get_open(W.get_bool(s))
+    case 10n+p:
       W.Bad{}
 
 def get_ask.go(r: W.Dec<Nat>) -> W.Dec<CS.Ask>:
@@ -364,6 +435,18 @@ def put_again(x: CS.Again, rest: String) -> String:
     case CS.NotRecurring{}:
       W.put_nat(2n, rest)
 
+def put_edit(x: CS.Edit, rest: String) -> String:
+  match x:
+    case CS.Locked{}:
+      W.put_nat(0n, rest)
+    case CS.Edited{st, m}:
+      W.put_nat(1n, put_status(st, put_mnat(m, rest)))
+
+def put_made(x: CS.Made, rest: String) -> String:
+  match x:
+    case CS.Made{st, n, k}:
+      put_status(st, W.put_nat(n, W.put_nat(k, rest)))
+
 # The entry
 # ---------
 
@@ -382,6 +465,14 @@ def answer(a: CS.Ask) -> String:
       put_cut(CS.cancel(f), "")
     case CS.AskResume{f, n}:
       put_again(CS.resume(f, n), "")
+    case CS.AskHalt{f, h}:
+      put_cut(CS.halt(f, h), "")
+    case CS.AskEdit{f, m}:
+      put_edit(CS.edit(f, m), "")
+    case CS.AskMake{n}:
+      put_made(CS.make(n), "")
+    case CS.AskOpen{b}:
+      W.put_bool(CS.open(b), "")
 
 def fail() -> String:
   W.err("cron: malformed request")

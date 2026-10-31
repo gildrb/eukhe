@@ -283,3 +283,118 @@ law cron_resume_exact:
   for +f: CS.Fact
   for +n: Nat
   {CS.resume(f, n) == resume_spec(f, n) : CS.Again}
+
+# User actions on one job (laws/cron_user.bend ties each to the model)
+# ---------------------------------------------------------------------
+
+# a pause: an active or paused job is paused, with no next run; a finished
+# or cancelled job is left as it is
+def pause_spec(f: CS.Fact) -> CS.Cut:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      match st:
+        case Cr.Finished{}:
+          CS.Same{}
+        case Cr.Cancelled{}:
+          CS.Same{}
+        case Cr.Active{}:
+          CS.Cut{Cr.Paused{}, None{}}
+        case Cr.Paused{}:
+          CS.Cut{Cr.Paused{}, None{}}
+
+# a stop: an active or paused job is cancelled, with no next run; a
+# finished or cancelled job is left as it is
+def stop_spec(f: CS.Fact) -> CS.Cut:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      match st:
+        case Cr.Finished{}:
+          CS.Same{}
+        case Cr.Cancelled{}:
+          CS.Same{}
+        case Cr.Active{}:
+          CS.Cut{Cr.Cancelled{}, None{}}
+        case Cr.Paused{}:
+          CS.Cut{Cr.Cancelled{}, None{}}
+
+# a hold: a pause, a stop, or a delete (cancelled with no next run, even a
+# finished or cancelled job)
+def halt_spec(f: CS.Fact, how: CS.Halt) -> CS.Cut:
+  match how:
+    case CS.HPause{}:
+      pause_spec(f)
+    case CS.HStop{}:
+      stop_spec(f)
+    case CS.HDelete{}:
+      CS.Cut{Cr.Cancelled{}, None{}}
+
+def edit_spec.live(paused: Bool, nx: Maybe<&2, Nat>, at: Maybe<&2, Nat>) -> CS.Edit:
+  match paused:
+    case True{}:
+      match at:
+        case None{}:
+          CS.Edited{Cr.Paused{}, nx}
+        case Some{a}:
+          CS.Edited{Cr.Paused{}, None{}}
+    case False{}:
+      match at:
+        case None{}:
+          CS.Edited{Cr.Active{}, nx}
+        case Some{a}:
+          CS.Edited{Cr.Active{}, Some{a}}
+
+# an edit: a finished or cancelled job is locked; an active or paused one
+# keeps its status and, with no new schedule, its next run; a new
+# schedule gives an active job its first run `at` and a paused one none
+def edit_spec(f: CS.Fact, at: Maybe<&2, Nat>) -> CS.Edit:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      match st:
+        case Cr.Finished{}:
+          CS.Locked{}
+        case Cr.Cancelled{}:
+          CS.Locked{}
+        case Cr.Active{}:
+          edit_spec.live(False{}, nx, at)
+        case Cr.Paused{}:
+          edit_spec.live(True{}, nx, at)
+
+# a new job: active, first run at `at`, no failures in a row
+def make_spec(at: Nat) -> CS.Made:
+  CS.Made{Cr.Active{}, at, 0n}
+
+# a corrupt file: an update moves it aside, a read leaves it
+def open_spec(update: Bool) -> Bool:
+  match update:
+    case True{}:
+      True{}
+    case False{}:
+      False{}
+
+# LAW cron_halt_exact: a pause, stop or delete of the model that runs is the spec's on every fact
+# EXCLUDES: a pause or stop that changes a finished or cancelled job, a delete that skips one, a
+#   held job left with a next run, a stop that pauses or a pause that cancels
+law cron_halt_exact:
+  for +f: CS.Fact
+  for +h: CS.Halt
+  {CS.halt(f, h) == halt_spec(f, h) : CS.Cut}
+
+# LAW cron_edit_exact: an edit of the model that runs is the spec's on every fact and first run
+# EXCLUDES: an edit of a finished or cancelled job, an edit that changes a status, a paused job
+#   given a next run, an active job left on its old next run after a new schedule
+law cron_edit_exact:
+  for +f: CS.Fact
+  for +at: Maybe<&2, Nat>
+  {CS.edit(f, at) == edit_spec(f, at) : CS.Edit}
+
+# LAW cron_make_exact: a new job of the model that runs is active, first runs at the time given, and has no failures in a row
+# EXCLUDES: a new job made paused, with an old failure count, or a first run other than its schedule's
+law cron_make_exact:
+  for +at: Nat
+  {CS.make(at) == make_spec(at) : CS.Made}
+
+# LAW cron_open_exact: the model that runs moves a corrupt file aside exactly on an update
+# EXCLUDES: a corrupt file written over by an update, or moved aside by a read
+law cron_open_exact:
+  for +b: Bool
+  {CS.open(b) == open_spec(b) : Bool}

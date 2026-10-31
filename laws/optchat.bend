@@ -523,8 +523,7 @@ def oc_chat(st: FOc.St) -> OState.St:
 
 # LAW optchat_step_is_model: the stepper opened from any loaded chat and
 # sent any events and queries, in any order, answers each as the model
-# run from the opened chat answers it (the bridge's transcript, restated
-# over every order)
+# run from the opened chat answers it, over every order
 # EXCLUDES: a stepper whose replies drift from the model's after some
 # order of events, an open that starts the model elsewhere
 law optchat_step_is_model:

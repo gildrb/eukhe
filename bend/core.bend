@@ -5,6 +5,7 @@ import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
+import ./ffi_auth_read.bend as ffi_auth_read
 import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_bound.bend as ffi_bound
@@ -18,6 +19,7 @@ import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_config.bend as ffi_config
 import ./ffi_cron.bend as ffi_cron
+import ./ffi_cron_file.bend as ffi_cron_file
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
@@ -231,12 +233,16 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_cron.ffi(input)
     case 83:
       ffi_work.ffi(input)
+    case 85:
+      ffi_cron_file.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
       ffi_revive.ffi(input)
     case 92:
       ffi_auth_flight.ffi(input)
+    case 93:
+      ffi_auth_read.ffi(input)
     case 101:
       ffi_dash.ffi(input)
     case 102:

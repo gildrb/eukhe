@@ -1,17 +1,25 @@
 //! State save/load for the cron job store: cross-process file locking
 //! (lockfile with stale takeover), state read/write/merge helpers, and the
-//! in-state due-claim / interrupted-dispatch recovery transitions.
-//! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
+//! passes over a whole file (a claim pass, a recovery; the finish step is
+//! in [`super::jobs`]). The compiled core decides each pass record by
+//! record (`eukhe_bend::rules::cron`, `bend/cron_file.bend`): which jobs a
+//! claim pass claims, which claim records stay, what each job becomes. This
+//! file gathers the facts (a key per job id, whose each claim is) and
+//! applies the answers. Section of the port of the `AgentCronJobStore`
+//! half of core/cron-jobs.ts.
 //!
-//! A file that exists but cannot be read or parsed is never overwritten:
-//! an update moves it aside (`<name>.corrupt-<ms>-<id>`) and starts from an
-//! empty state. Only a missing file reads as empty. A record that does not
-//! parse is kept as it is and written back unchanged.
+//! A file that exists but cannot be read or parsed: the compiled core
+//! decides (`rules::cron::moves_aside`) that an update moves it aside
+//! (`<name>.corrupt-<ms>-<id>`) and starts from an empty state, and a read
+//! leaves it and reads no jobs. Only a missing file reads as empty. A
+//! record that does not parse is kept as its bytes: the passes answer
+//! for the claim records too, and no pass changes a job record it cannot
+//! read.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use eukhe_bend::rules::cron::{self as rule, Back, Took};
+use eukhe_bend::rules::cron::{self as rule, Back, Hold, Reading, Slot, Took};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -155,10 +163,30 @@ fn is_at_least_as_fresh(candidate: &AgentCronJob, current: &AgentCronJob) -> boo
     candidate_time >= current_time
 }
 
-/// A claim pass (the compiled core decides each job: `rule::take`): a due
-/// job with no claim on record is claimed, its new claim naming `owner`
-/// and counting as a live run of it; a due job with a claim on record only
-/// rolls its next run.
+/// The key of each job id of `jobs`: the place of its first job record.
+/// Equal keys are equal job ids; the compiled core matches a claim record
+/// to its job by key.
+pub(crate) fn id_keys(jobs: &[AgentCronJob]) -> HashMap<&str, u64> {
+    let mut keys = HashMap::new();
+    for (at, job) in (0u64..).zip(jobs) {
+        keys.entry(job.id.as_str()).or_insert(at);
+    }
+    keys
+}
+
+/// The job records of a file as the compiled core reads them.
+pub(crate) fn slots_of(jobs: &[AgentCronJob], keys: &HashMap<&str, u64>) -> Vec<Slot> {
+    jobs.iter()
+        .map(|job| Slot {
+            key: keys[job.id.as_str()],
+            fact: fact_of(job),
+        })
+        .collect()
+}
+
+/// A claim pass (the compiled core decides it: `rule::take_all`): each job
+/// becomes what the core answers; a job it claims gets one claim record,
+/// naming `owner` and counting as a live run of it.
 pub(crate) fn claim_due_in_state(
     state: &mut CronJobsState,
     due_at: u64,
@@ -166,19 +194,18 @@ pub(crate) fn claim_due_in_state(
     owner: &ClaimOwner,
 ) -> Vec<AgentCronDispatch> {
     let claimed_iso = iso_from_millis(claimed_at);
-    let claimed_job_ids: std::collections::HashSet<String> = state
-        .dispatches
-        .iter()
-        .map(|dispatch| dispatch.job_id.clone())
-        .collect();
+    let answers = {
+        let keys = id_keys(&state.jobs);
+        let claims: Vec<Option<u64>> = state
+            .dispatches
+            .iter()
+            .map(|dispatch| keys.get(dispatch.job_id.as_str()).copied())
+            .collect();
+        rule::take_all(&slots_of(&state.jobs, &keys), &claims, due_at, claimed_at)
+    };
     let mut dispatches = Vec::new();
-    for job in &mut state.jobs {
-        let (next, claim) = match rule::take(
-            &fact_of(job),
-            claimed_job_ids.contains(&job.id),
-            due_at,
-            claimed_at,
-        ) {
+    for (job, took) in state.jobs.iter_mut().zip(answers) {
+        let (next, claim) = match took {
             Took::Keep => continue,
             Took::Roll(next) => (next, false),
             Took::Claim(next) => (next, true),
@@ -207,29 +234,37 @@ pub(crate) fn claim_due_in_state(
     dispatches
 }
 
-/// Clear the claims the compiled core clears (`rule::clear`: this
-/// process's own with no live run, or a dead owner's), then let it decide
-/// each job (`rule::recover`): an active job whose claim was cleared
-/// records the interruption; a one-shot is then completed, as its one run
-/// ended.
+/// A recovery (the compiled core decides it: `rule::recover_all`, from
+/// whose each claim record is): the claim records it clears go (this
+/// process's own with no live run, a dead owner's); an active job whose
+/// claim was cleared records the interruption, a one-shot is then
+/// completed, as its one run ended.
 pub(crate) fn recover_interrupted_in_state(
     state: &mut CronJobsState,
     now: u64,
     recovered: &mut Vec<AgentCronJob>,
     owner: &ClaimOwner,
 ) {
-    let mut interrupted_job_ids = std::collections::HashSet::new();
-    state.dispatches.retain(|dispatch| {
-        let clear = rule::clear(owner.who(&dispatch.owner, &dispatch.id));
-        if clear {
-            interrupted_job_ids.insert(dispatch.job_id.clone());
-        }
-        !clear
-    });
-    for job in &mut state.jobs {
-        let Back::Interrupted { status, next } =
-            rule::recover(&fact_of(job), interrupted_job_ids.contains(&job.id))
-        else {
+    let swept = {
+        let keys = id_keys(&state.jobs);
+        let claims: Vec<Hold> = state
+            .dispatches
+            .iter()
+            .map(|dispatch| Hold::Held {
+                key: keys.get(dispatch.job_id.as_str()).copied(),
+                who: owner.who(&dispatch.owner, &dispatch.id),
+            })
+            .chain(state.unread_dispatches.iter().map(|_| Hold::Unheld))
+            .collect();
+        rule::recover_all(&slots_of(&state.jobs, &keys), &claims)
+    };
+    let mut keep = swept.keep.into_iter();
+    state.dispatches.retain(|_| keep.next().unwrap_or(true));
+    state
+        .unread_dispatches
+        .retain(|_| keep.next().unwrap_or(true));
+    for (job, back) in state.jobs.iter_mut().zip(swept.jobs) {
+        let Back::Interrupted { status, next } = back else {
             continue;
         };
         job.status = job_status(status);
@@ -333,21 +368,60 @@ fn read_state_file(path: &Path) -> StateFile {
     })
 }
 
+/// A corrupt jobs file read for `reading`: the compiled core decides
+/// whether it is moved aside (an update) or left in place (a read); either
+/// way the file reads as no jobs.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be moved aside.
+fn open_corrupt(path: &Path, reason: &str, reading: Reading) -> anyhow::Result<CronJobsState> {
+    if !rule::moves_aside(reading) {
+        tracing::warn!(path = %path.display(), %reason, "cron jobs file is corrupt; read as no jobs");
+        return Ok(CronJobsState::default());
+    }
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let aside = path.with_file_name(format!(
+        "{name}.corrupt-{}-{}",
+        now_millis(),
+        Uuid::new_v4().simple()
+    ));
+    std::fs::rename(path, &aside).map_err(|error| {
+        anyhow::anyhow!(
+            "cron jobs file {} {reason} and cannot be moved aside: {error}",
+            path.display()
+        )
+    })?;
+    tracing::warn!(
+        path = %path.display(),
+        aside = %aside.display(),
+        %reason,
+        "cron jobs file is corrupt; moved aside"
+    );
+    Ok(CronJobsState::default())
+}
+
 /// Read a jobs file without changing it. A corrupt file reads as no jobs
-/// and is reported; the next update moves it aside.
+/// and is reported.
 pub(crate) fn read_jobs_state(path: &Path) -> CronJobsState {
     match read_state_file(path) {
         StateFile::Missing => CronJobsState::default(),
         StateFile::Read(state) => state,
         StateFile::Corrupt(reason) => {
-            tracing::warn!(path = %path.display(), %reason, "cron jobs file is corrupt; read as no jobs");
-            CronJobsState::default()
+            open_corrupt(path, &reason, Reading::Read).unwrap_or_else(|error| {
+                tracing::warn!(%error, "cron jobs file is corrupt; read as no jobs");
+                CronJobsState::default()
+            })
         }
     }
 }
 
-/// Read a jobs file for an update, under its lock. A corrupt file is moved
-/// aside and reported, and the update starts from an empty state.
+/// Read a jobs file for an update, under its lock. A corrupt file is
+/// handled as the compiled core decides for an update (moved aside, the
+/// update starting from an empty state).
 ///
 /// # Errors
 ///
@@ -366,30 +440,7 @@ pub(crate) fn load_jobs_state(path: &Path) -> anyhow::Result<CronJobsState> {
             }
             Ok(state)
         }
-        StateFile::Corrupt(reason) => {
-            let name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let aside = path.with_file_name(format!(
-                "{name}.corrupt-{}-{}",
-                now_millis(),
-                Uuid::new_v4().simple()
-            ));
-            std::fs::rename(path, &aside).map_err(|error| {
-                anyhow::anyhow!(
-                    "cron jobs file {} {reason} and cannot be moved aside: {error}",
-                    path.display()
-                )
-            })?;
-            tracing::warn!(
-                path = %path.display(),
-                aside = %aside.display(),
-                %reason,
-                "cron jobs file is corrupt; moved aside"
-            );
-            Ok(CronJobsState::default())
-        }
+        StateFile::Corrupt(reason) => open_corrupt(path, &reason, Reading::Update),
     }
 }
 

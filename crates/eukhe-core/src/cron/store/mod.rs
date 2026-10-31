@@ -21,8 +21,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{is_heartbeat_cron_job, AgentCronJob, AgentCronSchedule, DeliveryMode, JobStatus};
 
-#[cfg(test)]
-mod bridge;
 mod facts;
 mod heartbeat;
 mod jobs;

@@ -16,6 +16,10 @@ import ../../cron_store/cron_recover_exact.bend as PX2
 import ../../cron_store/cron_finish_exact.bend as PX3
 import ../../cron_store/cron_cancel_exact.bend as PX4
 import ../../cron_store/cron_resume_exact.bend as PX5
+import ../../cron_store/cron_halt_exact.bend as PX6
+import ../../cron_store/cron_edit_exact.bend as PX7
+import ../../cron_store/cron_make_exact.bend as PX8
+import ../../cron_store/cron_open_exact.bend as PX9
 
 # Decisions
 # ---------
@@ -122,6 +126,20 @@ def crw.again(x: CS.Again, +rest: String) -> {FC.put_again(x, rest) == Cron.spel
     case CS.NotRecurring{}:
       {==}
 
+def crw.edit(x: CS.Edit, +rest: String) -> {FC.put_edit(x, rest) == Cron.spell_edit(x, rest) : String}:
+  match x:
+    case CS.Locked{}:
+      {==}
+    case CS.Edited{+st, +m}:
+      %crw.mnat(m, rest) : {Wr.put_nat(1n, FC.put_status(st, FC.put_mnat(m, rest))) == Wr.put_nat(1n, Cron.spell_status(st, _)) : String}
+      %crw.status(st, FC.put_mnat(m, rest)) : {Wr.put_nat(1n, FC.put_status(st, FC.put_mnat(m, rest))) == Wr.put_nat(1n, _) : String}
+      {==}
+
+def crw.made(x: CS.Made, +rest: String) -> {FC.put_made(x, rest) == Cron.spell_made(x, rest) : String}:
+  match x:
+    case CS.Made{+st, +n, +k}:
+      crw.status(st, Wr.put_nat(n, Wr.put_nat(k, rest)))
+
 # Answers
 # -------
 
@@ -146,3 +164,15 @@ def cran.answer(a: CS.Ask) -> {FC.answer(a) == Cron.spell_answer(a) : String}:
     case CS.AskResume{+f, +n}:
       %CronStore.cron_resume_exact(f, n) : {FC.put_again(CS.resume(f, n), "") == Cron.spell_again(_, "") : String}
       crw.again(CS.resume(f, n), "")
+    case CS.AskHalt{+f, +h}:
+      %CronStore.cron_halt_exact(f, h) : {FC.put_cut(CS.halt(f, h), "") == Cron.spell_cut(_, "") : String}
+      crw.cut(CS.halt(f, h), "")
+    case CS.AskEdit{+f, +m}:
+      %CronStore.cron_edit_exact(f, m) : {FC.put_edit(CS.edit(f, m), "") == Cron.spell_edit(_, "") : String}
+      crw.edit(CS.edit(f, m), "")
+    case CS.AskMake{+n}:
+      %CronStore.cron_make_exact(n) : {FC.put_made(CS.make(n), "") == Cron.spell_made(_, "") : String}
+      crw.made(CS.make(n), "")
+    case CS.AskOpen{+b}:
+      %CronStore.cron_open_exact(b) : {Wr.put_bool(CS.open(b), "") == Wr.put_bool(_, "") : String}
+      {==}

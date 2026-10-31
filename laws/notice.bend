@@ -19,7 +19,7 @@ import ./base.bend as LawsBase
 # LAW notice_shown_once: an attach never shows a kernel restore notice again. After any
 # restores, live notices and attaches (reconnects, worker restarts), in
 # any order, each stored notice showed at most once (bend/notice.bend;
-# the bridge is crates/eukhe-tui/src/restore_notices.rs)
+# the host is crates/eukhe-tui/src/restore_notices.rs)
 law notice_shown_once:
   for +evs: List<&2, No.Ev>
   {No.once(No.run(evs)) == True{} : Bool}

@@ -178,6 +178,14 @@ def pc.never_drops(s: Cr.S, +e: Cr.Ev, +t: Nat, +i: Nat, nc: {Cr.Ev.is_corrupt(e
           pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
         case Cr.Resume{+p, +ji}:
           pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
+        case Cr.Pause{+p, +ji}:
+          pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
+        case Cr.Stop{+p, +ji}:
+          pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
+        case Cr.Delete{+p, +ji}:
+          pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
+        case Cr.Edit{+p, +ji, +q}:
+          pc.keeps_alive(Cr.has(p, dead), t, i, Cr.S{bad, rs, rd, dead, c, n, aside}, Cr.S{bad, Cr.recs(e, c, dead, rs), rd, dead, c, n, aside}, (h => pc.raw_recs(e, c, dead, rs, t, h), (h => pc.job_recs(e, c, dead, rs, i, h), (h => h, (h => Inl{h}, h => h)))))
         case Cr.Tick{+d}:
           (h => h, (h => h, (h => h, (h => Inl{h}, h => h))))
         case Cr.RawJob{+x}:
