@@ -23,6 +23,7 @@
 # A3 The motion laws (R2, R5) hold from normal mode: after an Esc, which closes a picker, cancels a command line and drops a count or a waiting key.
 # A4 j, k, gg and G keep the column ('nostartofline'): a cursor short of its line's end stays on that column, or on the new line's last character when the line is shorter; a cursor at its line's end stays at least as far right.
 # R8 The window always shows a real buffer: one of the files, a folder of their paths, or the root; the start shows the first file; Esc never changes what the window shows.
+# A6 A click while a command line or picker is open is free (Neovim's command-line mouse is not modeled).
 # A5 After Esc the command line may still show the last message or search, as in Neovim; while a command line or a picker is open, the window behind it is not checked for 'scrolloff'.
 
 import Base
@@ -665,6 +666,119 @@ def Spec.scrolled_any(fs: List<&2, T.Buf>, +s: T.St, +rows: Nat) -> Bool:
   +f = V.Vim.frame(s)
   Spec.implies(Bool.and(Spec.is_none(F.float(f)), Nat.is_lt(F.row(f), Nat.sub(rows, 2n))), Spec.scrolled(fs, s, rows))
 
+# R1: ":" opens the command line with the cursor after it
+def Claim.colon(+s: T.St, +rows: Nat) -> Bool:
+  +f = V.Vim.frame(Spec.press(s, ":"))
+  Bool.and(Bool.and(Nat.is_eq(F.row(f), Nat.sub(rows, 1n)), Nat.is_eq(F.col(f), 1n)), String.eq(F.cmd(f), ":"))
+
+# R4: ":5<CR>" goes to line 5 (the last when shorter)
+def Claim.ex_line(+fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  +s2 = Spec.press(Spec.press(Spec.press(s, ":"), "5"), "<CR>")
+  Spec.moved_line(fs, s, s2, Spec.min(4n, Spec.last(Spec.count(Spec.lines(fs, s)))))
+
+# R8: Esc in normal mode changes nothing on screen
+def Claim.esc_idle(+s: T.St) -> Bool:
+  +a = V.Vim.frame(s)
+  +b = V.Vim.frame(Spec.press(s, "<Esc>"))
+  Bool.and(Bool.and(Spec.same_tgt(F.tgt(a), F.tgt(b)), Bool.and(Nat.is_eq(F.top(a), F.top(b)), Nat.is_eq(F.left(a), F.left(b)))), Bool.and(Nat.is_eq(F.row(a), F.row(b)), Nat.is_eq(F.col(a), F.col(b))))
+
+# R6: "-" then Ctrl-c returns to the file it left
+def Claim.back(+s: T.St) -> Bool:
+  +a = V.Vim.frame(s)
+  +b = V.Vim.frame(Spec.press(Spec.press(s, "-"), "<C-c>"))
+  Bool.pick(Bool, Spec.is_file(F.tgt(a)), Spec.same_tgt(F.tgt(a), F.tgt(b)), True{})
+
+# R6: a listing holds every child of its folder and nothing else
+def Spec.drop_prefix(p: String, s: String) -> String:
+  match p s:
+    case SNil{} _:
+      s
+    case SCon{a, pt} SNil{}:
+      ""
+    case SCon{a, pt} SCon{b, st}:
+      Spec.drop_prefix(pt, st)
+
+def Spec.has_slash(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{h, t}:
+      Bool.or(Char.is_eq(h, '/'), Spec.has_slash(t))
+
+# s up to and with its first "/"
+def Spec.upto_slash(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{+h, t}:
+      Bool.pick(String, Char.is_eq(h, '/'), SCon{h, SNil{}}, SCon{h, Spec.upto_slash(t)})
+
+def Spec.child(+d: String, +p: String) -> String:
+  +rest = Spec.drop_prefix(d, p)
+  Bool.pick(String, Spec.has_slash(rest), Spec.upto_slash(rest), rest)
+
+def Spec.has_line(+x: String, ls: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      Bool.or(String.eq(h, x), Spec.has_line(x, t))
+
+# every file under d has its child in ls
+def Spec.covers(+d: String, fs: List<&2, T.Buf>, +ls: List<&2, String>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Con{T.Buf{+path, lines}, t}:
+      +here = Bool.and(Spec.prefix(d, path), Bool.not(String.eq(d, path)))
+      Bool.and(Spec.implies(here, Spec.has_line(Spec.child(d, path), ls)), Spec.covers(d, t, ls))
+
+def Spec.is_child(+d: String, +x: String, fs: List<&2, T.Buf>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Con{T.Buf{+path, lines}, t}:
+      Bool.or(Bool.and(Bool.and(Spec.prefix(d, path), Bool.not(String.eq(d, path))), String.eq(Spec.child(d, path), x)), Spec.is_child(d, x, t))
+
+# every line after "../" is a child of d
+def Spec.only(+d: String, ls: List<&2, String>, +fs: List<&2, T.Buf>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case Con{h, t}:
+      Bool.and(Spec.is_child(d, h, fs), Spec.only(d, t, fs))
+
+def Spec.tail(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      t
+
+def Claim.listing.of(+fs: List<&2, T.Buf>, +s: T.St, t: T.Tgt) -> Bool:
+  match t:
+    case T.File{i}:
+      True{}
+    case T.Dir{+d}:
+      +ls = V.Vim.lines(s)
+      Bool.and(Spec.covers(d, fs, ls), Spec.only(d, Spec.tail(ls), fs))
+
+def Claim.listing(fs: List<&2, T.Buf>, +s: T.St) -> Bool:
+  Claim.listing.of(fs, s, F.tgt(V.Vim.frame(s)))
+
+# R3: j scrolls only as far as scrolloff needs; below the cursor Neovim
+# keeps min(8, h / 2) lines
+def Claim.j_view(fs: List<&2, T.Buf>, +s: T.St, +rows: Nat) -> Bool:
+  +a = V.Vim.frame(s)
+  +b = V.Vim.frame(Spec.press(s, "j"))
+  +h = Nat.sub(rows, 2n)
+  +so = Spec.min(8n, Nat.div(h, 2n))
+  +l = Spec.at_line(b)
+  +last = Spec.last(Spec.count(Spec.lines(fs, s)))
+  +need = Nat.add(l, Spec.min(so, Nat.sub(last, l)))
+  +bottom = Nat.add(F.top(a), Nat.sub(h, 1n))
+  Nat.is_eq(F.top(b), Bool.pick(Nat, Nat.is_le(need, bottom), F.top(a), Nat.sub(need, Nat.sub(h, 1n))))
+
 # Laws
 # ----
 
@@ -947,3 +1061,51 @@ law urls:
   for +evs: List<&2, T.Ev>
   for e: T.Ev
   {Spec.url_ok(fs, Spec.act(V.Vim.step(Spec.run(fs, rows, cols, evs), e))) == True{} : Bool}
+
+# LAW colon: ":" opens the command line with the cursor right after the colon (R1).
+law colon:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.colon(Spec.normal(fs, rows, cols, evs), Spec.rows(rows, evs)) == True{} : Bool}
+
+# LAW ex_line: ":5<CR>" goes to line 5, or the last line when there are fewer (R4).
+law ex_line:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.ex_line(fs, Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW esc_idle: in normal mode Esc moves neither the cursor nor the view (R8).
+law esc_idle:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.esc_idle(Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW oil_back: from a file, "-" then Ctrl-c returns to that file (R6).
+law oil_back:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.back(Spec.normal(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW oil_listing: after any events, a listing holds every child (file or folder) of its folder and nothing else (R6).
+law oil_listing:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.listing(fs, Spec.run(fs, rows, cols, evs)) == True{} : Bool}
+
+# LAW j_view: j scrolls the view only as far as scrolloff needs (R3).
+law j_view:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Claim.j_view(fs, Spec.normal(fs, rows, cols, evs), Spec.rows(rows, evs)) == True{} : Bool}

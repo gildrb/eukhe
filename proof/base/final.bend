@@ -1,0 +1,165 @@
+# eukhe.com's Neovim: the settled editor
+# ======================================
+#
+# Vim.final (vim/vim.bend) ends Vim.init and every Vim.step. What it gives
+# every editor, whatever came before: a screen of at least 3 x 12, the
+# cursor on a line and a character of the window's lines, and the window
+# scrolled so that 'scrolloff' holds both ways (Band). Final(s) names
+# these facts; Final.of proves them for Vim.final(x), for every x.
+
+import Base
+import ../../vim/types.bend as T
+import ../../vim/buf.bend as B
+import ../../vim/move.bend as M
+import ../../vim/view.bend as V
+import ../../vim/st.bend as S
+import ../../vim/core.bend as C
+import ../../vim/vim.bend as Vim
+import ../base.bend as L
+
+# Bands
+# -----
+
+# the first line the window may take with the cursor on line l
+# ('scrolloff' so above it)
+def Fin.lo(+l: Nat, +so: Nat) -> Nat:
+  Nat.sub(l, Nat.min(so, l))
+
+# the least first line with 'scrolloff' so below line l, in a window of h
+# rows over lines up to last
+def Fin.hi(+l: Nat, +so: Nat, +last: Nat, +h: Nat) -> Nat:
+  Nat.sub(Nat.add(l, Nat.min(so, Nat.sub(last, l))), Nat.sub(h, 1n))
+
+# t between hi and lo
+def Band(t: Nat, lo: Nat, hi: Nat) -> Data:
+  Sigma<&2, &2, L.LE(hi, t), _ => L.LE(t, lo)>
+
+def Band.pick(c: Bool, -x: Nat, -y: Nat, -lo: Nat, -hi: Nat, bx: Band(x, lo, hi), by: Band(y, lo, hi)) -> Band(Bool.pick(Nat, c, x, y), lo, hi):
+  match c:
+    case True{}:
+      bx
+    case False{}:
+      by
+
+# View.fit's and View.fit_side's choice: up when lo < top, down when
+# hi > top, else top
+def Band.pick2(c1: Bool, c2: Bool, +lo: Nat, +hi: Nat, +top: Nat, -up: Nat, -down: Nat, e1: {Nat.is_lt(lo, top) == c1 : Bool}, e2: {Nat.is_gt(hi, top) == c2 : Bool}, bu: Band(up, lo, hi), bd: Band(down, lo, hi))
+  -> Band(Bool.pick(Nat, c1, up, Bool.pick(Nat, c2, down, top)), lo, hi):
+  match c1 c2:
+    case True{} _:
+      bu
+    case False{} True{}:
+      bd
+    case False{} False{}:
+      (L.Nat.not_gt(hi, top, e2), L.Nat.not_lt(lo, top, e1))
+
+# hi is at most l - x when x + a fits the window (a: the scrolloff below)
+def Fit.hi_le(+l: Nat, +a: Nat, +x: Nat, +h: Nat, hx: L.LE(Nat.add(x, a), Nat.sub(h, 1n))) -> L.LE(Nat.sub(Nat.add(l, a), Nat.sub(h, 1n)), Nat.sub(l, x)):
+  L.LE.cast_r(Nat.sub(Nat.add(l, a), Nat.sub(h, 1n)), Nat.sub(Nat.add(l, a), Nat.add(x, a)), Nat.sub(l, x), L.Nat.sub_cancel_r(l, x, a), L.Nat.sub_anti(Nat.add(l, a), Nat.add(x, a), Nat.sub(h, 1n), hx))
+
+# the bands a window of h rows keeps, its scrolloff so at most half of
+# its rows less one on each side
+def Fit.hilo(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +half: Nat, +h1: L.LE(so, half), h2: L.LE(Nat.add(half, half), Nat.sub(h, 1n)))
+  -> L.LE(Fin.hi(l, so, last, h), Fin.lo(l, so)):
+  +a = Nat.min(so, Nat.sub(last, l))
+  +b = Nat.min(so, l)
+  +ha = L.Nat.min_le_l(so, Nat.sub(last, l))
+  +hb = L.Nat.min_le_l(so, l)
+  +sos = L.Nat.le_trans(Nat.add(so, so), Nat.add(half, half), Nat.sub(h, 1n), L.Nat.le_add2(so, half, so, half, h1, h1), h2)
+  Fit.hi_le(l, a, b, h, L.Nat.le_trans(Nat.add(b, a), Nat.add(so, so), Nat.sub(h, 1n), L.Nat.le_add2(b, so, a, so, hb, ha), sos))
+
+def Fit.mid(+l: Nat, +h: Nat, +last: Nat, +so: Nat, +half: Nat, hl: L.LE(l, last), +h1: L.LE(so, half), h2: L.LE(Nat.add(half, half), Nat.sub(h, 1n)))
+  -> Band(Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n)))), Fin.lo(l, so), Fin.hi(l, so, last, h)):
+  +a = Nat.min(so, Nat.sub(last, l))
+  +b = Nat.min(so, l)
+  +lo = Fin.lo(l, so)
+  +hi = Fin.hi(l, so, last, h)
+  +mid = Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))))
+  +ha = L.Nat.min_le_l(so, Nat.sub(last, l))
+  +hb = L.Nat.min_le_l(so, l)
+  +m1 = Fit.hi_le(l, a, half, h, L.Nat.le_trans(Nat.add(half, a), Nat.add(half, half), Nat.sub(h, 1n), L.Nat.le_add_mono(half, a, half, L.Nat.le_trans(a, so, half, ha, h1)), h2))
+  +la = L.LE.cast_r(Nat.add(l, a), Nat.add(l, Nat.sub(last, l)), last, L.Nat.add_sub(last, l, hl), L.Nat.le_add_mono(l, a, Nat.sub(last, l), L.Nat.min_le_r(so, Nat.sub(last, l))))
+  +m2 = L.LE.cast_r(hi, Nat.sub(last, Nat.sub(h, 1n)), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))), L.Nat.sub_min(last, Nat.sub(h, 1n)), L.Nat.sub_mono(Nat.add(l, a), last, Nat.sub(h, 1n), la))
+  +midlo = L.Nat.le_trans(mid, Nat.sub(l, half), lo, L.Nat.min_le_l(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n)))), L.Nat.sub_anti(l, b, half, L.Nat.le_trans(b, so, half, hb, h1)))
+  (L.Nat.le_min(hi, Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))), m1, m2), midlo)
+
+# the scrolloff of a window of h rows is at most half of its rows less one
+def Fit.so_half(+h: Nat) -> L.LE(V.View.so_in(h), Nat.div(Nat.sub(h, 1n), 2n)):
+  L.Nat.min_le_r(V.View.so(), Nat.div(Nat.sub(h, 1n), 2n))
+
+# View.fit keeps the cursor's line in the band
+def Fit.band(+top: Nat, +l: Nat, +h: Nat, +last: Nat, hl: L.LE(l, last)) -> Band(V.View.fit(top, l, h, last), Fin.lo(l, V.View.so_in(h)), Fin.hi(l, V.View.so_in(h), last, h)):
+  +so = V.View.so_in(h)
+  +half = Nat.div(Nat.sub(h, 1n), 2n)
+  +lo = Fin.lo(l, so)
+  +hi = Fin.hi(l, so, last, h)
+  +mid = Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))))
+  +hilo = Fit.hilo(l, h, last, so, half, Fit.so_half(h), L.Nat.div2_twice(Nat.sub(h, 1n)))
+  +bmid = Fit.mid(l, h, last, so, half, hl, Fit.so_half(h), L.Nat.div2_twice(Nat.sub(h, 1n)))
+  +up_c = Nat.is_gt(Nat.sub(top, lo), half)
+  +down_c = Nat.is_gt(Nat.sub(hi, top), half)
+  +up = Bool.pick(Nat, up_c, mid, lo)
+  +down = Bool.pick(Nat, down_c, mid, hi)
+  Band.pick2(Nat.is_lt(lo, top), Nat.is_gt(hi, top), lo, hi, top, up, down, {==}, {==}, Band.pick(up_c, mid, lo, lo, hi, bmid, (hilo, L.Nat.le_refl(lo))), Band.pick(down_c, mid, hi, lo, hi, bmid, (L.Nat.le_refl(hi), hilo)))
+
+# View.fit_side keeps the cursor's column in the band
+def Fit.side(+left: Nat, +c: Nat, +w: Nat, +last: Nat) -> Band(V.View.fit_side(left, c, w, last), Fin.lo(c, V.View.so_in(w)), Fin.hi(c, V.View.so_in(w), last, w)):
+  +so = V.View.so_in(w)
+  +half = Nat.div(Nat.sub(w, 1n), 2n)
+  +lo = Fin.lo(c, so)
+  +hi = Fin.hi(c, so, last, w)
+  +hilo = Fit.hilo(c, w, last, so, half, Fit.so_half(w), L.Nat.div2_twice(Nat.sub(w, 1n)))
+  Band.pick2(Nat.is_lt(lo, left), Nat.is_gt(hi, left), lo, hi, left, lo, hi, {==}, {==}, (hilo, L.Nat.le_refl(lo)), (L.Nat.le_refl(hi), hilo))
+
+# Final
+# -----
+
+def And2(A: Data, B: Data) -> Data:
+  Sigma<&2, &2, A, _ => B>
+
+# a window over lines ls, rows x cols, with the cursor at (line, col) and
+# first line and column (top, left): settled
+def Final.at(+ls: List<&2, String>, +rows: Nat, +cols: Nat, +opts: T.Opts, +onfile: Bool, +line: Nat, +col: Nat, +top: Nat, +left: Nat) -> Data:
+  +last = M.Move.last_line(ls)
+  +h = V.View.text_rows(rows)
+  +w = V.View.text_cols(cols, V.View.gutter(opts, B.Lines.len(ls), onfile, cols))
+  +lc = M.Move.last_col(ls, line)
+  And2(L.LE(3n, rows), And2(L.LE(12n, cols), And2(L.LE(line, last), And2(L.LE(col, lc), And2(Band(top, Fin.lo(line, V.View.so_in(h)), Fin.hi(line, V.View.so_in(h), last, h)), Band(left, Fin.lo(col, V.View.so_in(w)), Fin.hi(col, V.View.so_in(w), lc, w)))))))
+
+# the editor s is settled
+def Final(+s: T.St) -> Data:
+  +w = S.St.win(s)
+  Final.at(C.St.lines(s), S.St.rows(s), S.St.cols(s), S.St.opts(s), C.St.on_file(s), C.St.line(s), C.St.col(s), S.Win.top(w), S.Win.left(w))
+
+# what Win.settle makes of a window over lines ls
+def Final.win(+ls: List<&2, String>, +rows: Nat, +cols: Nat, +opts: T.Opts, +onfile: Bool, +line: Nat, +col: Nat, +top: Nat, +left: Nat)
+  -> Final.at(ls, Nat.max(rows, 3n), Nat.max(cols, 12n), opts, onfile, Nat.min(line, M.Move.last_line(ls)), Nat.min(col, M.Move.last_col(ls, Nat.min(line, M.Move.last_line(ls)))),
+       V.View.fit(Nat.min(top, V.View.max_top(V.View.text_rows(Nat.max(rows, 3n)), M.Move.last_line(ls))), Nat.min(line, M.Move.last_line(ls)), V.View.text_rows(Nat.max(rows, 3n)), M.Move.last_line(ls)),
+       V.View.fit_side(left, Nat.min(col, M.Move.last_col(ls, Nat.min(line, M.Move.last_line(ls)))), V.View.text_cols(Nat.max(cols, 12n), V.View.gutter(opts, B.Lines.len(ls), onfile, Nat.max(cols, 12n))), M.Move.last_col(ls, Nat.min(line, M.Move.last_line(ls))))):
+  +last = M.Move.last_line(ls)
+  +l = Nat.min(line, last)
+  +lc = M.Move.last_col(ls, l)
+  +c = Nat.min(col, lc)
+  +h = V.View.text_rows(Nat.max(rows, 3n))
+  +w = V.View.text_cols(Nat.max(cols, 12n), V.View.gutter(opts, B.Lines.len(ls), onfile, Nat.max(cols, 12n)))
+  (L.Nat.le_max_r(rows, 3n), (L.Nat.le_max_r(cols, 12n), (L.Nat.min_le_r(line, last), (L.Nat.min_le_r(col, lc), (Fit.band(Nat.min(top, V.View.max_top(h, last)), l, h, last, L.Nat.min_le_r(line, last)), Fit.side(left, c, w, lc))))))
+
+# every editor Vim.fit gives is settled
+def Final.of_fit(+x: T.St) -> Final(Vim.Vim.fit(x)):
+  match x:
+    case T.St{+files, +folded, +dirs, +win, +marks, +spots, +opened, +bufs, +back, +fwd, +mode, +count, +pend, +find, +hl, +opts, +rows, +cols, +msg, +stat}:
+      match win:
+        case T.Win{+tgt, +cur, +want, +top, +left}:
+          match tgt:
+            case T.File{+i}:
+              match cur:
+                case T.Pos{+line, +col}:
+                  Final.win(B.Lines.some(B.Buf.lines(B.Files.at(files, i))), rows, cols, opts, True{}, line, col, top, left)
+            case T.Dir{+path}:
+              match cur:
+                case T.Pos{+line, +col}:
+                  Final.win(B.Lines.some(Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), ["../"])), rows, cols, opts, False{}, line, col, top, left)
+
+# every editor Vim.final gives is settled
+def Final.of(+x: T.St) -> Final(Vim.Vim.final(x)):
+  Final.of_fit(S.St.set_win(x, Vim.Vim.real(S.St.files(x), S.St.win(x))))

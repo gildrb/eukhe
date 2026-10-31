@@ -255,6 +255,10 @@ def Text.fit.go(s: String, w: Nat, +pad: Nat, +acc: String) -> String:
 def Text.fit(+s: String, +w: Nat) -> String:
   Text.fit.go(s, w, 0n, " ")
 
+# s in exactly w cells, as Text.fit, with no copy when it already is
+def Text.fitted(+s: String, +w: Nat) -> String:
+  Bool.when(String, Nat.is_eq(Text.cells(s), w), u => Text.fit(s, w), u => s)
+
 def Text.reps(n: Nat, +c: Char, acc: String) -> String:
   match n:
     case 0n:

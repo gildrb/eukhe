@@ -35,9 +35,10 @@ def St.lines.at(+s: T.St, t: T.Tgt) -> List<&2, String>:
     case T.Dir{+path}:
       Maybe.default(&2, List<&2, String>, Listing.find(S.St.dirs(s), path), ["../"])
 
-# the lines the window shows (folders' listings are found at the start)
+# the lines the window shows (folders' listings are found at the start),
+# at least one
 def St.lines(+s: T.St) -> List<&2, String>:
-  St.lines.at(s, S.Win.tgt(S.St.win(s)))
+  B.Lines.some(St.lines.at(s, S.Win.tgt(S.St.win(s))))
 
 def Fold.lines(ls: List<&2, String>, +acc: List<&2, String>) -> List<&2, String>:
   match ls:
@@ -75,7 +76,7 @@ def St.h(+s: T.St) -> Nat:
   V.View.text_rows(S.St.rows(s))
 
 def St.g(+s: T.St) -> Nat:
-  V.View.gutter(S.St.opts(s), B.Lines.len(St.lines(s)), St.on_file(s))
+  V.View.gutter(S.St.opts(s), B.Lines.len(St.lines(s)), St.on_file(s), S.St.cols(s))
 
 def St.w(+s: T.St) -> Nat:
   V.View.text_cols(S.St.cols(s), St.g(s))

@@ -46,9 +46,10 @@ def View.numw(o: T.Opts, n: Nat) -> Nat:
 def View.signw(+sign: Bool) -> Nat:
   Bool.pick(Nat, sign, 2n, 0n)
 
-# where text starts: the sign column, then the number column
-def View.gutter(o: T.Opts, n: Nat, +sign: Bool) -> Nat:
-  Nat.add(View.signw(sign), View.numw(o, n))
+# where text starts: the sign column, then the number column; on a screen
+# of c columns, at least one column is left for the text
+def View.gutter(o: T.Opts, n: Nat, +sign: Bool, c: Nat) -> Nat:
+  Nat.min(Nat.add(View.signw(sign), View.numw(o, n)), Nat.sub(c, 1n))
 
 # the text columns left of a screen of c columns with gutter g
 def View.text_cols(c: Nat, g: Nat) -> Nat:
@@ -57,9 +58,14 @@ def View.text_cols(c: Nat, g: Nat) -> Nat:
 # Scrolling
 # ---------
 
-# the scrolloff a window of h rows can keep on both sides
+# the scrolloff a window of h rows can keep above the cursor
 def View.so_in(h: Nat) -> Nat:
   Nat.min(View.so(), Nat.div(Nat.sub(h, 1n), 2n))
+
+# below it: one more in a window of even height, as Neovim keeps the
+# cursor just above the middle when 'scrolloff' is over half the window
+def View.so_dn(h: Nat) -> Nat:
+  Nat.min(View.so(), Nat.div(h, 2n))
 
 # the first screen line that shows line l in a window of h rows over a
 # buffer whose last line is last: the old first line top moved as little
@@ -70,7 +76,7 @@ def View.fit(+top: Nat, +l: Nat, +h: Nat, +last: Nat) -> Nat:
   +so = View.so_in(h)
   +half = Nat.div(Nat.sub(h, 1n), 2n)
   +lo = Nat.sub(l, Nat.min(so, l))
-  +hi = Nat.sub(Nat.add(l, Nat.min(so, Nat.sub(last, l))), Nat.sub(h, 1n))
+  +hi = Nat.sub(Nat.add(l, Nat.min(View.so_dn(h), Nat.sub(last, l))), Nat.sub(h, 1n))
   +mid = Nat.min(Nat.sub(l, half), Nat.sub(last, Nat.min(last, Nat.sub(h, 1n))))
   +up = Bool.pick(Nat, Nat.is_gt(Nat.sub(top, lo), half), mid, lo)
   +down = Bool.pick(Nat, Nat.is_gt(Nat.sub(hi, top), half), mid, hi)
@@ -98,7 +104,7 @@ def View.band_lo(+top: Nat, +h: Nat) -> Nat:
 
 def View.band_hi(+top: Nat, +h: Nat, +last: Nat) -> Nat:
   +bottom = Nat.add(top, Nat.sub(h, 1n))
-  Bool.pick(Nat, Nat.is_le(last, bottom), last, Nat.sub(bottom, View.so_in(h)))
+  Bool.pick(Nat, Nat.is_le(last, bottom), last, Nat.sub(bottom, View.so_dn(h)))
 
 # l pulled into the band of a window with first line top
 def View.drag(+l: Nat, +top: Nat, +h: Nat, +last: Nat) -> Nat:
@@ -121,18 +127,18 @@ def View.num(o: T.Opts, +k: Nat, +l: Nat, +w: Nat) -> String:
       +text = Bool.pick(String, Bool.and(rnu, Bool.not(here)), X.Text.right(Nat.show(dist), cell), Bool.pick(String, Bool.and(rnu, Bool.and(here, nu)), X.Text.leftpad(abs, cell), Bool.pick(String, nu, X.Text.right(abs, cell), X.Text.right("0", cell))))
       Bool.pick(String, Nat.is_eq(w, 0n), "", text ++ " ")
 
-def View.nums.go(r: Nat, +o: T.Opts, +k: Nat, +l: Nat, +last: Nat, +w: Nat, +sign: String, +blank: String, +acc: List<&2, String>) -> List<&2, String>:
+def View.nums.go(r: Nat, +o: T.Opts, +k: Nat, +l: Nat, +last: Nat, +w: Nat, +g: Nat, +sign: String, +blank: String, +acc: List<&2, String>) -> List<&2, String>:
   match r:
     case 0n:
       List.reverse(&2, String, acc)
     case 1n+p:
-      View.nums.go(p, o, 1n+k, l, last, w, sign, blank, Bool.pick(String, Nat.is_gt(k, last), blank, sign ++ View.num(o, k, l, w)) <> acc)
+      View.nums.go(p, o, 1n+k, l, last, w, g, sign, blank, Bool.pick(String, Nat.is_gt(k, last), blank, X.Text.fitted(sign ++ View.num(o, k, l, w), g)) <> acc)
 
-# the gutter of each text row, from line top: the sign column (blank),
-# then the number column; blanks past the end
-def View.nums(+h: Nat, +o: T.Opts, +top: Nat, +l: Nat, +last: Nat, +w: Nat, +signs: Bool) -> List<&2, String>:
+# the gutter of each text row, g cells, from line top: the sign column
+# (blank), then the number column w cells wide; blanks past the end
+def View.nums(+h: Nat, +o: T.Opts, +top: Nat, +l: Nat, +last: Nat, +w: Nat, +signs: Bool, +g: Nat) -> List<&2, String>:
   +sign = X.Text.spaces(View.signw(signs), SNil{})
-  View.nums.go(h, o, top, l, last, w, sign, X.Text.spaces(Nat.add(View.signw(signs), w), SNil{}), Nil{})
+  View.nums.go(h, o, top, l, last, w, g, sign, X.Text.spaces(g, SNil{}), Nil{})
 
 # Search hits on screen
 # ---------------------
@@ -183,6 +189,6 @@ def View.hits(+ls: List<&2, String>, +fls: List<&2, String>, +f: T.Find, +top: N
 # the thumb over h rows for a buffer of n lines from line top: its first
 # row and its rows in column c; no rows when every line fits
 def View.bar(+n: Nat, +h: Nat, +top: Nat, +c: Nat) -> T.Span:
-  +len = Nat.max(1n, Nat.div(Nat.mul(h, h), Nat.max(n, 1n)))
+  +len = Nat.min(Nat.max(1n, Nat.div(Nat.mul(h, h), Nat.max(n, 1n))), h)
   +start = Nat.min(Nat.div(Nat.mul(top, h), Nat.max(n, 1n)), Nat.sub(h, len))
   Bool.pick(T.Span, Nat.is_gt(n, h), T.Span{start, c, len}, T.Span{0n, c, 0n})

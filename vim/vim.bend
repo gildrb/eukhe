@@ -55,9 +55,38 @@ def Vim.wheel(+s: T.St, m: T.Mode, +down: Bool, +notches: Nat) -> T.St:
 # The editor
 # ----------
 
-# a new screen size, at least View.min_rows() x View.min_cols()
+# a new screen size (Vim.final takes one under View.min_rows() x
+# View.min_cols() as that)
 def Vim.size(+s: T.St, +rows: Nat, +cols: Nat) -> T.St:
-  C.Win.settle(S.St.set_cols(S.St.set_rows(s, Nat.max(rows, V.View.min_rows())), Nat.max(cols, V.View.min_cols())))
+  S.St.set_cols(S.St.set_rows(s, rows), cols)
+
+# the window over files fs: on a buffer it may show (B.Tgt.real), else on
+# the first file's start
+def Vim.real(+fs: List<&2, T.Buf>, w: T.Win) -> T.Win:
+  match w:
+    case T.Win{+tgt, cur, want, top, left}:
+      Bool.pick(T.Win, B.Tgt.real(fs, tgt), T.Win{tgt, cur, want, top, left}, T.Win{T.File{0n}, T.Pos{0n, 0n}, T.Col{0n}, 0n, 0n})
+
+# a screen of at least View.min_rows() x View.min_cols(), the cursor on
+# the text and the window scrolled to it (Win.settle)
+def Vim.fit(+s: T.St) -> T.St:
+  C.Win.settle(S.St.set_cols(S.St.set_rows(s, Nat.max(S.St.rows(s), V.View.min_rows())), Nat.max(S.St.cols(s), V.View.min_cols())))
+
+# the editor settled, as every step leaves it: on a buffer it may show,
+# then fitted (Vim.fit)
+def Vim.final(+s: T.St) -> T.St:
+  Vim.fit(S.St.set_win(s, Vim.real(S.St.files(s), S.St.win(s))))
+
+# st on the files and the screen of s: only the start and a size event
+# set those
+def Vim.keep(+s: T.St, st: T.St) -> T.St:
+  S.St.set_cols(S.St.set_rows(S.St.set_files(st, S.St.files(s)), S.St.rows(s)), S.St.cols(s))
+
+# a step from s, its editor settled
+def Vim.done(+s: T.St, r: T.Step) -> T.Step:
+  match r:
+    case T.Step{st, act}:
+      T.Step{Vim.final(Vim.keep(s, st)), act}
 
 def Vim.fold.lines(ls: List<&2, String>, +acc: List<&2, String>) -> List<&2, String>:
   match ls:
@@ -102,25 +131,29 @@ def Dirs.list(ds: List<&2, String>, +fs: List<&2, T.Buf>, +acc: List<&2, T.Listi
     case Con{+d, t}:
       Dirs.list(t, fs, T.Listing{d, B.Oil.list(fs, d)} <> acc)
 
-# the editor at the start: the first file (the page) at its first line, on
-# a screen of rows x cols
-def Vim.init(fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat) -> T.St:
+# the editor before it settles at the start: the first file (the page) at
+# its first line, on a screen of rows x cols
+def Vim.start(fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat) -> T.St:
   +files = B.Files.some(fs, Nil{})
   +n = B.Files.len(files)
-  +s = {T.St{files, Vim.fold(files, Nil{}), Dirs.list(Dirs.all(files, [""]), files, Nil{}), T.Win{T.File{0n}, T.Pos{0n, 0n}, T.Col{0n}, 0n, 0n}, List.replicate(T.Pos, n, T.Pos{0n, 0n}), Nil{}, [0n], [0n], Nil{}, Nil{}, T.Normal{}, 0n, T.NoPend{}, None{}, False{}, T.Opts{True{}, True{}, True{}}, rows, cols, "", ""} : T.St}
-  Vim.size(s, rows, cols)
+  {T.St{files, Vim.fold(files, Nil{}), Dirs.list(Dirs.all(files, [""]), files, Nil{}), T.Win{T.File{0n}, T.Pos{0n, 0n}, T.Col{0n}, 0n, 0n}, List.replicate(T.Pos, n, T.Pos{0n, 0n}), Nil{}, [0n], [0n], Nil{}, Nil{}, T.Normal{}, 0n, T.NoPend{}, None{}, False{}, T.Opts{True{}, True{}, True{}}, rows, cols, "", ""} : T.St}
+
+# the editor at the start
+def Vim.init(fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat) -> T.St:
+  Vim.final(Vim.start(fs, rows, cols))
 
 # one event
 def Vim.step(+s: T.St, e: T.Ev) -> T.Step:
   match e:
     case T.EvKey{name}:
-      K.Key.in(s, S.St.mode(s), name)
+      Vim.done(s, K.Key.in(s, S.St.mode(s), name))
     case T.EvClick{row, col}:
-      K.Key.ok(Vim.click(s, S.St.mode(s), row, col))
+      Vim.done(s, K.Key.ok(Vim.click(s, S.St.mode(s), row, col)))
     case T.EvWheel{down, notches}:
-      K.Key.ok(Vim.wheel(s, S.St.mode(s), down, notches))
+      Vim.done(s, K.Key.ok(Vim.wheel(s, S.St.mode(s), down, notches)))
     case T.EvSize{rows, cols}:
-      K.Key.ok(Vim.size(s, rows, cols))
+      +s2 = Vim.size(s, rows, cols)
+      Vim.done(s2, K.Key.ok(s2))
 
 # what the screen shows
 def Vim.frame(+s: T.St) -> T.Frame:

@@ -24,10 +24,11 @@ def Scr.ruler(+s: T.St) -> String:
   +c = Bool.pick(Nat, String.is_empty(line), Bool.pick(Nat, C.St.on_file(s), 0n, 6n), Nat.add(1n+oil, X.Text.bytes(line, C.St.col(s))))
   Nat.show(1n+C.St.line(s)) ++ ":" ++ Nat.show(c)
 
-# the statusline, c cells: " %f %m" left, " %l:%c " right
+# the statusline, c cells: " %f %m" left, " %l:%c " right (a ruler wider
+# than the screen is cut at its edge)
 def Scr.status(+name: String, +flag: String, +ruler: String, +c: Nat) -> String:
   +right = " " ++ ruler ++ " "
-  X.Text.fit(" " ++ name ++ " " ++ flag, Nat.sub(c, X.Text.cells(right))) ++ right
+  X.Text.fitted(X.Text.fit(" " ++ name ++ " " ++ flag, Nat.sub(c, X.Text.cells(right))) ++ right, c)
 
 def Scr.status_of(+s: T.St, m: T.Mode) -> String:
   match m:
@@ -109,7 +110,7 @@ def Scr.caret(rc: (Nat & Nat), +by: Nat) -> T.Cell:
 # what the command line shows of a command being typed: its end, so the
 # cursor after it stays on screen (one cell is left for the cursor)
 def Scr.typed(+line: String, +cols: Nat) -> String:
-  X.Text.drop(line, Nat.sub(X.Text.len(line), Nat.sub(cols, 1n)))
+  X.Text.dropc(line, Nat.sub(X.Text.cells(line), Nat.sub(cols, 1n)))
 
 # the cursor's cell: in the text; on the command line after its text; in
 # a picker after its query
@@ -186,6 +187,6 @@ def Scr.frame(+s: T.St) -> T.Frame:
   +h = C.St.h(s)
   +m = S.St.mode(s)
   +numw = V.View.numw(S.St.opts(s), n)
-  +nums = V.View.nums(h, S.St.opts(s), S.Win.top(w), C.St.line(s), Nat.sub(n, 1n), numw, C.St.on_file(s))
+  +nums = V.View.nums(h, S.St.opts(s), S.Win.top(w), C.St.line(s), Nat.sub(n, 1n), numw, C.St.on_file(s), C.St.g(s))
   +fl = Scr.float(s, m)
   T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, Scr.inside(Scr.cell(s, m), fl), Scr.under(s, m), Scr.cmd(s, m), Scr.hits(s, Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), Scr.cl(m), Scr.status_of(s, m), fl}

@@ -271,5 +271,5 @@ def Pick.draw(+s: T.St, k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, 
 
 # picker k's float, kept on screen
 def Pick.float(+s: T.St, k: T.Pick, +q: String, +its: List<&2, T.Item>, +n: Nat, +sel: Nat, +pv: Nat) -> T.Float:
-  Bx.Float.fit(Pick.draw(s, k, q, its, n, sel, pv), S.St.rows(s))
+  Bx.Float.fit(Pick.draw(s, k, q, its, n, sel, pv), S.St.rows(s), S.St.cols(s))
 

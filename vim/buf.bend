@@ -234,3 +234,20 @@ def Tgt.name(+fs: List<&2, T.Buf>, t: T.Tgt) -> String:
       Buf.path(Files.at(fs, i))
     case T.Dir{path}:
       "oil:///" ++ path
+
+# whether a path of fs starts with d (d is a folder holding a file)
+def Files.under(+d: String, fs: List<&2, T.Buf>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Con{T.Buf{p, ls}, t}:
+      Bool.or(X.Text.prefix(d, p), Files.under(d, t))
+
+# whether the window may show target t over files fs: one of them (file 0
+# when there are none), the root, or a folder of their paths
+def Tgt.real(+fs: List<&2, T.Buf>, t: T.Tgt) -> Bool:
+  match t:
+    case T.File{i}:
+      Nat.is_lt(i, Nat.max(Files.len(fs), 1n))
+    case T.Dir{+d}:
+      Bool.or(String.is_empty(d), Bool.and(Path.is_dir(d), Files.under(d, fs)))

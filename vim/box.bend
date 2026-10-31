@@ -70,16 +70,31 @@ def Marks.fit(ms: List<&2, T.Mark>, +n: Nat, +h: Nat, +w: Nat, +acc: List<&2, T.
       +keep = Bool.and(Bool.or(Nat.is_lt(1n+r, h), Nat.is_eq(1n+r, n)), Nat.is_lt(c, w))
       Marks.fit(t, n, h, w, Bool.pick(List<&2, T.Mark>, keep, T.Mark{r2, c, Nat.min(len, Nat.sub(w, c)), g} <> acc, acc))
 
-# a float on a screen of rows rows: its rows are its lines (at most the
-# screen's: the first and its last, the bottom border), moved up as far
-# as it must to stay on screen
-def Float.fit(f: T.Float, +rows: Nat) -> T.Float:
+# a float's rows: the first k of lines, then its last (the bottom
+# border), each fitted to w cells
+def Float.rows(ls: List<&2, String>, k: Nat, +w: Nat) -> List<&2, String>:
+  match ls k:
+    case Nil{} _:
+      Nil{}
+    case Con{x, Nil{}} _:
+      [X.Text.fitted(x, w)]
+    case Con{x, t} 0n:
+      Float.rows(t, 0n, w)
+    case Con{x, t} 1n+p:
+      X.Text.fitted(x, w) <> Float.rows(t, p, w)
+
+# a float on a screen of rows x cols: its rows are its lines (at least
+# one; at most the screen's: the first and its last, the bottom border),
+# each as wide as the float (at least 1 cell, at most the screen's), moved
+# up and left as far as it must to stay on screen
+def Float.fit(f: T.Float, +rows: Nat, +cols: Nat) -> T.Float:
   match f:
-    case T.Float{+row, col, +width, height, +lines, marks}:
-      +n = List.length(&2, String, lines)
+    case T.Float{+row, +col, +width, height, lines, marks}:
+      +w = Nat.max(1n, Nat.min(width, cols))
+      +ls = B.Lines.some(lines)
+      +n = List.length(&2, String, ls)
       +h = Nat.min(n, rows)
-      +ls = X.Bool.when(List<&2, String>, Nat.is_lt(h, n), u => lines, u => List.append(&2, String, List.take(&2, String, lines, Nat.sub(h, 1n)), List.drop(&2, String, lines, Nat.sub(n, 1n))))
-      T.Float{Nat.min(row, Nat.sub(rows, h)), col, width, h, ls, Marks.fit(marks, n, h, width, Nil{})}
+      T.Float{Nat.min(row, Nat.sub(rows, h)), Nat.min(col, Nat.sub(cols, w)), w, h, Float.rows(ls, Nat.sub(h, 1n), w), Marks.fit(marks, n, h, w, Nil{})}
 
 # Previews
 # --------
