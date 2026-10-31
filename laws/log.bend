@@ -1,7 +1,7 @@
 # eukhe: the laws of area log
 
 import Base
-import ../spec/log.bend as Lg
+import ../spec/durable/log.bend as Lg
 import ../bend/log.bend as Lr
 import ../bend/wire.bend as Wr
 import ../bend/ffi_log.bend as FLg
@@ -10,13 +10,13 @@ import ./base.bend as LawsBase
 # ---- storage ----
 
 # LAWS (D2): the durable storage of a session. Each law is an open claim
-# about the models in spec/log.bend and bend/staging.bend; PROOF.bend
+# about the models in spec/durable/log.bend and bend/staging.bend; PROOF.bend
 # proves them (as Log.<law>) with the lemmas of proof/log/
 # and proof/staging/.
 
 # (D2) Storage
 # ------------
-# docs/state.md D2. The commit log `main.jsonl` (spec/log.bend): every
+# docs/state.md D2. The commit log `main.jsonl` (spec/durable/log.bend): every
 # input is free: any disk (any bytes, a torn tail, no file), any commits,
 # any crash point, any number of bytes not flushed that the crash keeps,
 # and whether the crash drops the directory entries not flushed.

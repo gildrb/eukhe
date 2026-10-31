@@ -1,15 +1,16 @@
-# spec: what the laws of LAWS.bend speak of, over the model in
-# bend/optchat/. PROOF.bend and the proof modules beside this file use it
-# too.
+# memory (spec): what the laws of area optchat (laws/optchat.bend) speak
+# of, over the model in bend/optchat/ (Taelin's OptChat gist): Tiles,
+# Merged, Summarized, Before, Prefix. A spec: the shipped code never
+# calls it. The proofs in proof/optchat/ use it too.
 
 import Base
-import ./optchat/bits.bend as OBits
-import ./optchat/node.bend as ONode
-import ./optchat/info.bend as OInfo
-import ./optchat/fit.bend as OFit
-import ./optchat/state.bend as OState
-import ./optchat/step.bend as OStep
-import ./optchat/ctx.bend as OCtx
+import ../../bend/optchat/bits.bend as OBits
+import ../../bend/optchat/node.bend as ONode
+import ../../bend/optchat/info.bend as OInfo
+import ../../bend/optchat/fit.bend as OFit
+import ../../bend/optchat/state.bend as OState
+import ../../bend/optchat/step.bend as OStep
+import ../../bend/optchat/ctx.bend as OCtx
 
 # What the laws speak of
 # ----------------------

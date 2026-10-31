@@ -7,7 +7,7 @@
 # open's plan is the parent's flush, the first step of Lg.run.
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../bend/log.bend as Lr
 import ../../laws/log.bend as Log
 

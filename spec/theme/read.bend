@@ -5,11 +5,11 @@
 # laws/wire.bend). A spec: the shipped code never calls it.
 
 import Base
-import ../bend/wire.bend as Wr
-import ../bend/theme/file.bend as TFile
-import ../bend/theme/bundled.bend as TBundled
-import ../bend/theme/resolve.bend as TResolve
-import ../bend/ffi_theme.bend as FTh
+import ../../bend/wire.bend as Wr
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/bundled.bend as TBundled
+import ../../bend/theme/resolve.bend as TResolve
+import ../../bend/ffi_theme.bend as FTh
 
 # The reader
 # ----------

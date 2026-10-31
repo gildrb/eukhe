@@ -12,7 +12,7 @@ import ../../bend/theme/palette.bend as TPalette
 import ../../bend/theme/bundled.bend as TBundled
 import ../../bend/theme/resolve.bend as TResolve
 import ../../bend/ffi_theme.bend as FTh
-import ../../spec/theme_wire.bend as Tw
+import ../../spec/theme/wire.bend as Tw
 import ../../laws/theme.bend as Theme
 import ./base/ffi_trip.bend as LTTrip
 import ./base/ffi_write.bend as LTWrite

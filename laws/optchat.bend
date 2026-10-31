@@ -12,7 +12,7 @@ import ../bend/optchat/push.bend as OPush
 import ../bend/optchat/queue.bend as OQueue
 import ../bend/optchat/state.bend as OState
 import ../bend/optchat/step.bend as OStep
-import ../bend/spec.bend as S
+import ../spec/memory/optchat.bend as S
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 

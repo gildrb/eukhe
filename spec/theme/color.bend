@@ -3,7 +3,7 @@
 # color_lin_spec). A spec: the shipped code never calls it.
 
 import Base
-import ../bend/color.bend as Co
+import ../../bend/color.bend as Co
 
 # the linear channel of any U32 c: the table of channels 0-255 (the sRGB
 # transfer function, as color_lin_low/high state it) indexed by c's low

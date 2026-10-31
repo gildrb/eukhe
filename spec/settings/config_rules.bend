@@ -5,7 +5,7 @@
 # spec: the shipped code never calls it.
 
 import Base
-import ../bend/config.bend as Cf
+import ../../bend/config.bend as Cf
 
 # Documents
 # ---------

@@ -26,7 +26,7 @@ import ../../../laws/base.bend as LawsBase
 import ../../base/wire.bend as LWire
 import ../../base/wire_dec.bend as LWireDec
 import ../../base/logic/logic.bend as LLogicLogic
-import ../../../bend/spec.bend as S
+import ../../../spec/memory/optchat.bend as S
 import ./step.bend as LAS
 import ./bits.bend as LAB
 import ./ffi_optchat.bend as LAF

@@ -4,7 +4,7 @@
 import Base
 import ../../bend/theme/file.bend as TFile
 import ../../bend/theme/token.bend as TToken
-import ../../spec/theme_model.bend as Tm
+import ../../spec/theme/model.bend as Tm
 import ../../laws/theme_model.bend as ThemeModel
 
 def tg.pick(hit: Bool, v: TFile.Val, o: Maybe<&2, TFile.Val>) -> {TToken.get.pick(hit, v, o) == Tm.pick_val(hit, v, o) : Maybe<&2, TFile.Val>}:

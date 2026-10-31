@@ -8,7 +8,7 @@ import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
 import ../../bend/ffi_config.bend as FC
 import ../../bend/wire.bend as Wr
-import ../../spec/config.bend as CS
+import ../../spec/settings/config.bend as CS
 import ./base/ffi_read.bend as LFR
 import ./base/ffi_spell.bend as LFS
 import ./base/ffi_reply.bend as LFP

@@ -7,16 +7,16 @@
 # the color each token paints. A spec: the shipped code never calls it.
 
 import Base
-import ../bend/wire.bend as Wr
-import ../bend/color.bend as Co
-import ../bend/theme/file.bend as TFile
-import ../bend/theme/palette.bend as TPalette
-import ../bend/theme/bundled.bend as TBundled
-import ../bend/theme/choice.bend as TChoice
-import ../bend/theme/name.bend as TName
-import ../bend/theme/resolve.bend as TResolve
-import ../bend/ffi_theme.bend as FTh
-import ../laws/base.bend as LawsBase
+import ../../bend/wire.bend as Wr
+import ../../bend/color.bend as Co
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/palette.bend as TPalette
+import ../../bend/theme/bundled.bend as TBundled
+import ../../bend/theme/choice.bend as TChoice
+import ../../bend/theme/name.bend as TName
+import ../../bend/theme/resolve.bend as TResolve
+import ../../bend/ffi_theme.bend as FTh
+import ../../laws/base.bend as LawsBase
 
 # Requests, as Rust writes them
 # -----------------------------

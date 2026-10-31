@@ -3,7 +3,7 @@
 import Base
 import ../../bend/theme/file.bend as TFile
 import ../../bend/theme/reader.bend as TReader
-import ../../spec/theme_model.bend as Tm
+import ../../spec/theme/model.bend as Tm
 import ../../laws/theme_model.bend as ThemeModel
 
 def ld.of(r: TReader.Read) -> {TReader.load.of(r) == Tm.loaded(r) : Maybe<&2, TFile.Th>}:

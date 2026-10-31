@@ -5,7 +5,7 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../../spec/config_rules.bend as CR
+import ../../spec/settings/config_rules.bend as CR
 import ./base/config.bend as LA
 
 def Config.save_exact(loaded, r, k, v):

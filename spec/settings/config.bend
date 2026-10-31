@@ -5,10 +5,10 @@
 # it.
 
 import Base
-import ../bend/config.bend as Cf
-import ../bend/ffi_config.bend as FC
-import ../bend/wire.bend as Wr
-import ../laws/base.bend as LawsBase
+import ../../bend/config.bend as Cf
+import ../../bend/ffi_config.bend as FC
+import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
 # Spellers: a request as Rust writes it
 
 def cf_w_entry(e: Cf.Entry, rest: String) -> String:

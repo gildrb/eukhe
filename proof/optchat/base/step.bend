@@ -8,7 +8,7 @@ import ../../../bend/optchat/info.bend as OInfo
 import ../../../bend/optchat/node.bend as ONode
 import ../../../bend/optchat/state.bend as OState
 import ../../../bend/optchat/step.bend as OStep
-import ../../../bend/spec.bend as S
+import ../../../spec/memory/optchat.bend as S
 import ../../base/bool.bend as LBool
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/logic/logic.bend as LLogicLogic

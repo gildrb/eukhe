@@ -6,7 +6,7 @@ import Base
 import ../../bend/color.bend as Co
 import ../../bend/theme/palette.bend as TPalette
 import ../../bend/theme/bundled.bend as TBundled
-import ../../spec/theme_rules.bend as Ts
+import ../../spec/theme/rules.bend as Ts
 import ../../laws/theme.bend as Theme
 import ./theme_legible_spec.bend as PLeg
 

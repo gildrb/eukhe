@@ -50,7 +50,7 @@ cargo test -p eukhe-core --lib memory
 | --- | --- |
 | `bend/optchat/` | Model: nodes, view, due, push, fit, sawtooth, compaction view, work queue; `open.bend` the open of a loaded chat (built nodes, ready merges, missed batch, compaction view). |
 | `bend/ffi_optchat.bend` | Stepper entry (id 422): the chat's planner, its state the model's chat in the Bend heap. |
-| `bend/spec.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
+| `spec/memory/optchat.bend` | Law vocabulary: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
 | `LAWS.bend` | Imports only; `laws/<area>.bend` one area's laws as open claims, `laws/base.bend` shared spec helpers. |
 | `PROOF.bend` | Imports only; `proof/<area>/<law>.bend` one law's proof, `proof/<area>/base/` and `proof/base/` shared lemmas. |
 | `eukhe-bend` `rules/optchat.rs` | `Planner`: opens the stepper, spells each event and query, reads each reply. |

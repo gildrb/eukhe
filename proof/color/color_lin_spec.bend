@@ -1,7 +1,7 @@
 import Base
 import ../../bend/color.bend as Co
 import ../../laws/color.bend as Color
-import ../../spec/color_model.bend as Cm
+import ../../spec/theme/color.bend as Cm
 
 # eukhe: the proof of LAW color_lin_spec: the same tree and bits; the
 # walks agree on every tree (cl.go)

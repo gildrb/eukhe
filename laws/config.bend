@@ -5,8 +5,8 @@ import ../bend/config.bend as Cf
 import ../bend/ffi_config.bend as FC
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
-import ../spec/config.bend as CS
-import ../spec/config_rules.bend as CR
+import ../spec/settings/config.bend as CS
+import ../spec/settings/config_rules.bend as CR
 
 # ---- config ----
 
@@ -778,7 +778,7 @@ law config_ffi_refuses_example:
 # The helpers the laws read, each pinned
 # --------------------------------------
 # Every model function a law or spec helper reads is fixed by an exact law
-# against a restatement that does not call it (spec/config_rules.bend or
+# against a restatement that does not call it (spec/settings/config_rules.bend or
 # the helpers above), so no law holds by a pair of helpers wrong together.
 
 # what a setter writes over the read r: the read document with key k set

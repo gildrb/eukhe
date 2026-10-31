@@ -1,5 +1,5 @@
 # eukhe: lemmas of the theme entry's proofs: every request the laws spell
-# (spec/theme_wire.bend) that fits the wire reads back through the entry's
+# (spec/theme/wire.bend) that fits the wire reads back through the entry's
 # decoders, whatever follows it (the wire's round trips, laws/wire.bend)
 
 import Base
@@ -8,7 +8,7 @@ import ../../../bend/theme/file.bend as TFile
 import ../../../bend/theme/bundled.bend as TBundled
 import ../../../bend/theme/resolve.bend as TResolve
 import ../../../bend/ffi_theme.bend as FTh
-import ../../../spec/theme_wire.bend as Tw
+import ../../../spec/theme/wire.bend as Tw
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../base/logic/bool.bend as LLogicBool

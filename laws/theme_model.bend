@@ -1,7 +1,7 @@
 # eukhe: the laws of area theme_model: the helpers of the theme model
 # (bend/theme/) that the laws of area theme (laws/theme.bend) and the
-# entry's spec (spec/theme_wire.bend) read, each pinned to what it means
-# (spec/theme_model.bend, written without calling the model). With them
+# entry's spec (spec/theme/wire.bend) read, each pinned to what it means
+# (spec/theme/model.bend, written without calling the model). With them
 # every model function those laws and specs reach is pinned exactly.
 
 import Base
@@ -13,9 +13,9 @@ import ../bend/theme/palette.bend as TPalette
 import ../bend/theme/bundled.bend as TBundled
 import ../bend/theme/name.bend as TName
 import ../bend/ffi_theme.bend as FTh
-import ../spec/theme_rules.bend as Ts
-import ../spec/theme_model.bend as Tm
-import ../spec/theme_wire.bend as Tw
+import ../spec/theme/rules.bend as Ts
+import ../spec/theme/model.bend as Tm
+import ../spec/theme/wire.bend as Tw
 
 # LAW theme_tok_get_spec (R4): a file's value of a token is the value of its first entry for
 # that token, for every file and token

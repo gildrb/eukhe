@@ -6,7 +6,7 @@ import Base
 import ../../../bend/config.bend as Cf
 import ../../../bend/ffi_config.bend as FC
 import ../../../bend/wire.bend as Wr
-import ../../../spec/config.bend as CS
+import ../../../spec/settings/config.bend as CS
 
 def pfr.entries_items(d: List<&2, Cf.Entry>, +rest: String) -> {FC.put_entries.items(d, rest) == CS.cf_w_entries.items(d, rest) : String}:
   match d:

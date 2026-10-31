@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW log_only_commits
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../laws/log.bend as Log
 import ./base.bend as LA
 

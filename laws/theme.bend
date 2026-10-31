@@ -12,9 +12,9 @@ import ../bend/theme/reader.bend as TReader
 import ../bend/theme/token.bend as TToken
 import ../bend/tui_color.bend as TC
 import ../bend/ffi_theme.bend as FTh
-import ../spec/theme_wire.bend as Tw
-import ../spec/theme_read.bend as Tr
-import ../spec/theme_rules.bend as Ts
+import ../spec/theme/wire.bend as Tw
+import ../spec/theme/read.bend as Tr
+import ../spec/theme/rules.bend as Ts
 
 # ---- themes ----
 
@@ -824,7 +824,7 @@ law theme_pick_example:
 # (T1) The rules' helpers, pinned
 # --------------------------------
 # The laws above read these helpers of the model; here each is the
-# meaning spec/theme_rules.bend states.
+# meaning spec/theme/rules.bend states.
 
 # LAW theme_hit_spec (R5): a candidate advertises a name only when it is valid and its name is
 # exactly that name
@@ -865,7 +865,7 @@ law theme_light_example:
   {[TPalette.light(TFile.Th{"w", [TFile.Ent{57, TFile.Hex{Co.Rgb{255, 255, 255}}}], None{}, None{}, None{}}), TPalette.light(TFile.Th{"b", [TFile.Ent{57, TFile.Hex{Co.Rgb{0, 0, 0}}}], None{}, None{}, None{}})] == [True{}, False{}] : List<&2, Bool>}
 
 # LAW theme_legible_spec (R4): a table is legible exactly when every ink token meets its
-# contrast on its surface (the pairs of spec/theme_rules.bend), for every
+# contrast on its surface (the pairs of spec/theme/rules.bend), for every
 # table
 # EXCLUDES: an empty or shortened pair list, a constant legibility test
 #   (theme_shipped_legible made vacuous)
@@ -889,7 +889,7 @@ law theme_status_distinct_spec:
 # load (every file the sources reach read, the theme a name picks, the
 # clashes that warn, the picked file's palette) and the shipped themes'
 # colors. The spellers, the reader and the spec of one load live in
-# spec/theme_wire.bend and spec/theme_read.bend, made of the wire
+# spec/theme/wire.bend and spec/theme/read.bend, made of the wire
 # primitives only (bend/wire.bend, laws/wire.bend). Requirements:
 # R6 every request Rust writes (every text, count and variable index
 #    within the wire) is answered with the rules' decision: a load with

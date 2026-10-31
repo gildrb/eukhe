@@ -5,7 +5,7 @@
 import Base
 import ../../bend/theme/file.bend as TFile
 import ../../bend/theme/token.bend as TToken
-import ../../spec/theme_model.bend as Tm
+import ../../spec/theme/model.bend as Tm
 import ../../laws/theme_model.bend as ThemeModel
 import ./theme_tok_get_spec.bend as PGet
 

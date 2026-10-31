@@ -4,7 +4,7 @@
 # the log holds a prefix of the commits (log_only_commits).
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../laws/log.bend as Log
 import ./log_only_commits.bend as POnly
 import ./log_plan_runs_the_model.bend as PRun

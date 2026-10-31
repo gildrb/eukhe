@@ -3,7 +3,7 @@
 
 import Base
 import ../../bend/theme/name.bend as TName
-import ../../spec/theme_rules.bend as Ts
+import ../../spec/theme/rules.bend as Ts
 import ../../laws/theme.bend as Theme
 
 def Theme.theme_hit_spec(src, n):

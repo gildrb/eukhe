@@ -6,10 +6,10 @@
 # calls it.
 
 import Base
-import ../bend/color.bend as Co
-import ../bend/theme/file.bend as TFile
-import ../bend/theme/name.bend as TName
-import ../bend/theme/bundled.bend as TBundled
+import ../../bend/color.bend as Co
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/name.bend as TName
+import ../../bend/theme/bundled.bend as TBundled
 
 # Names
 # -----

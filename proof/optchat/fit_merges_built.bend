@@ -4,7 +4,7 @@ import Base
 import ../../bend/optchat/fit.bend as OFit
 import ../../bend/optchat/info.bend as OInfo
 import ../../bend/optchat/node.bend as ONode
-import ../../bend/spec.bend as S
+import ../../spec/memory/optchat.bend as S
 import ../../laws/optchat.bend as Optchat
 import ./base/step.bend as LA
 

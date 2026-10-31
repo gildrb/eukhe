@@ -6,12 +6,12 @@
 # to these. A spec: the shipped code never calls it.
 
 import Base
-import ../bend/color.bend as Co
-import ../bend/theme/file.bend as TFile
-import ../bend/theme/palette.bend as TPalette
-import ../bend/theme/reader.bend as TReader
-import ../bend/theme/bundled.bend as TBundled
-import ./theme_rules.bend as Ts
+import ../../bend/color.bend as Co
+import ../../bend/theme/file.bend as TFile
+import ../../bend/theme/palette.bend as TPalette
+import ../../bend/theme/reader.bend as TReader
+import ../../bend/theme/bundled.bend as TBundled
+import ./rules.bend as Ts
 
 def pick_val(hit: Bool, v: TFile.Val, other: Maybe<&2, TFile.Val>) -> Maybe<&2, TFile.Val>:
   match hit:

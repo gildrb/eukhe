@@ -10,7 +10,7 @@
 
 import Base
 import ../../../bend/optchat/bits.bend as OBits
-import ../../../bend/spec.bend as S
+import ../../../spec/memory/optchat.bend as S
 import ../../base/logic/logic.bend as LLogicLogic
 import ../../base/nat.bend as LNat
 

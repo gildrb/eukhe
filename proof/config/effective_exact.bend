@@ -3,7 +3,7 @@
 import Base
 import ../../bend/config.bend as Cf
 import ../../laws/config.bend as Config
-import ../../spec/config_rules.bend as CR
+import ../../spec/settings/config_rules.bend as CR
 
 def pe.admits(t: Cf.Trust, c: Cf.Class) -> {Cf.admits(t, c) == CR.cr_admits(t, c) : Bool}:
   match t:

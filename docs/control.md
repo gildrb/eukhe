@@ -121,7 +121,7 @@ Documents: `settings.json` (global, project), `mcp-connections.json`, `auth.json
 6. `mcpServers` entry is a unit: a project entry replaces the same-named global entry, never takes its URL or credential. `kernelTransport` is a unit too.
 7. Sessions directory, one precedence for every reader (CLI, dashboard, gateway, daemon; `settings::resolve_session_dir`): `--session-dir`, `EUKHE_SESSION_DIR` (or legacy `EUKHE_CODING_AGENT_SESSION_DIR`), `sessionDir` setting, `<agent dir>/sessions`.
 
-Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.bend`, entry 60, `eukhe_bend::rules::config`). Laws: `laws/config.bend` (spec helpers `spec/config.bend`). Proofs: `proof/config/`.
+Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.bend`, entry 60, `eukhe_bend::rules::config`). Laws: `laws/config.bend` (spec helpers `spec/settings/config.bend`). Proofs: `proof/config/`.
 
 | Law | Says |
 | --- | --- |
@@ -153,7 +153,7 @@ Model: `bend/config.bend`; it runs as the compiled core (entry `bend/ffi_config.
 | `config_ffi_example`, `config_ffi_refuses_example` | Anchors: request and reply bytes, refused inputs. |
 | `rmw_written_exact` | Write over a read document is exactly that document with the one edit applied (S4b.1). |
 | `save_exact`, `save_refuses_broken_example` | Setter writes exactly the on-disk document with its key set; over an unreadable file it writes nothing (S4b.1-2). |
-| `set_exact`, `lookup_exact`, `kept_exact`, `touches_exact`, `listed_exact`, `leaf_path_exact`, `leaf_in_exact`, `distinct_exact`, `slot_exact`, `val_limit_exact`, `limit_exact`, `malformed_at_exact`, `effective_exact`, `only_guarded_exact`, `has_exact`, `find_exact`, `finds_exact`, `merge_find_exact` | Each model helper a law reads equals an independent restatement (`spec/config_rules.bend`), so no law holds by two helpers wrong together. |
+| `set_exact`, `lookup_exact`, `kept_exact`, `touches_exact`, `listed_exact`, `leaf_path_exact`, `leaf_in_exact`, `distinct_exact`, `slot_exact`, `val_limit_exact`, `limit_exact`, `malformed_at_exact`, `effective_exact`, `only_guarded_exact`, `has_exact`, `find_exact`, `finds_exact`, `merge_find_exact` | Each model helper a law reads equals an independent restatement (`spec/settings/config_rules.bend`), so no law holds by two helpers wrong together. |
 
 Saved default model laws: [inference.md](inference.md) ("S6 models.json and the saved default model"), `laws/default_model.bend`.
 

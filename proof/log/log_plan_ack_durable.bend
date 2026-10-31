@@ -4,7 +4,7 @@
 # acknowledged commits a crash keeps (log_ack_durable).
 
 import Base
-import ../../spec/log.bend as Lg
+import ../../spec/durable/log.bend as Lg
 import ../../laws/log.bend as Log
 import ./log_ack_durable.bend as PAck
 import ./log_plan_runs_the_model.bend as PRun
