@@ -200,11 +200,29 @@ function body(groups: readonly Group[]): ComponentChildren[] {
         ];
       case "Block": {
         const blank = previous?.$ === "Line" && previous.line.text === "";
+        // A fenced block's commands, as the copy button hands them over.
+        const code = item.lines
+          .filter((each) => each.$ === "Code")
+          .map((each) => each.text)
+          .join("\n");
         return (
           <span {...stylex.props(styles.block, styles.anchor, blank && styles.afterBlank)}>
             <Inks rows={item.lines.map(inks)} />
             <span {...stylex.props(styles.scroll)}>
-              {item.lines.map((each, at) => [at === 0 ? "" : "\n", line(each)])}
+              {item.lines.map((each, at) => [
+                at === 0 ? "" : "\n",
+                line(each),
+                at === 0 && each.$ === "Fence" ? (
+                  <button
+                    type="button"
+                    data-copy={code}
+                    aria-label="Copy the commands"
+                    {...stylex.props(styles.copy)}
+                  >
+                    [copy]
+                  </button>
+                ) : null,
+              ])}
             </span>
           </span>
         );
@@ -307,6 +325,27 @@ const styles = stylex.create({
   },
   spaced: { display: "inline-block", marginTop: "80px", position: "relative" },
   muted: { color: colors.tertiary },
+  /** `[copy]` two characters after a fence; not part of the text, so never selected. */
+  copy: {
+    marginLeft: "2ch",
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    lineHeight: "inherit",
+    color: { default: colors.article, ":hover": colors.primary, ":focus-visible": colors.primary },
+    textDecorationLine: "underline",
+    textDecorationColor: { default: colors.tertiary, ":hover": colors.primary },
+    textUnderlineOffset: "3px",
+    cursor: "pointer",
+    userSelect: "none",
+    transitionProperty: "color, text-decoration-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)",
+    outline: { default: null, ":focus-visible": `1px solid ${colors.primary}` },
+    outlineOffset: "2px",
+  },
   heading: {
     display: "inline",
     margin: 0,

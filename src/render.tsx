@@ -29,6 +29,12 @@ const globalCss = [
 /** The favicon: the header's cursor, one block, in each theme's `primary`. */
 export const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><style>rect{fill:${palette.primary.dark}}@media (prefers-color-scheme:light){rect{fill:${palette.primary.light}}}</style><rect x="9" y="4" width="14" height="24"/></svg>\n`;
 
+/**
+ * The page's one script: a `[copy]` button puts its block's commands on the clipboard and says
+ * whether that worked (a browser may refuse clipboard access).
+ */
+const copyScript = `document.addEventListener("click",e=>{const b=e.target instanceof Element&&e.target.closest("[data-copy]");if(!b)return;const say=t=>{b.textContent=t;setTimeout(()=>{b.textContent="[copy]"},1500)};navigator.clipboard.writeText(b.dataset.copy).then(()=>say("[copied]"),()=>say("[copy blocked]"))})`;
+
 function Page({ css, markdown, path }: { css: string; markdown: string; path: string }) {
   return (
     <html lang="en" {...stylex.props(styles.html)}>
@@ -58,6 +64,7 @@ function Page({ css, markdown, path }: { css: string; markdown: string; path: st
         <main {...stylex.props(styles.main)}>
           <Markdown source={markdown} />
         </main>
+        <script dangerouslySetInnerHTML={{ __html: copyScript }} />
       </body>
     </html>
   );

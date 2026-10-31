@@ -4,13 +4,7 @@ PRIVATE AND DURABLE CODING AGENT WITH EFFECTIVELY UNBOUNDED CONTEXT
 
 ~*~ εὐχή: a wish, a prayer ~*~
 
-# ABOUT EUKHE
-
-eukhe is a coding agent whose memory is one endless chat log, shared by all sessions. No empty new session. No compaction drops the start. Each turn starts from a compact view of the full log.
-
-Source at [gildrb/eukhe](https://github.com/gildrb/eukhe). MIT.
-
-## INSTALL
+# INSTALL
 
 ```sh
 curl -fsSL https://eukhe.com/install | sh
@@ -18,9 +12,17 @@ curl -fsSL https://eukhe.com/install | sh
 
 macOS (Apple Silicon), Linux (x64, arm64). Rerun to update.
 
+Source: [github.com/gildrb/eukhe](https://github.com/gildrb/eukhe). MIT.
+
+# ABOUT EUKHE
+
+eukhe is a coding agent whose memory is one endless chat log, shared by all sessions. No empty new session. No compaction drops the start. Each turn starts from a compact view of the full log.
+
+## OTHER INSTALLS
+
 - Nix: `nix run github:gildrb/eukhe`
 - Home Manager: `programs.eukhe.enable = true;`
-- Source: `cargo build --release --locked -p eukhe-cli`
+- From source: `cargo build --release --locked -p eukhe-cli`
 - More: [docs/install.md](https://github.com/gildrb/eukhe/blob/main/docs/install.md)
 
 ## USE
