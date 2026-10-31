@@ -114,11 +114,11 @@ function inks(item: Line): Token[] {
  * the line it is placed in. Not part of the text: hidden from selection and assistive technology,
  * and from screens too narrow for the column.
  */
-function Inks({ rows, tight = false }: { rows: readonly (readonly Token[])[]; tight?: boolean }) {
+function Inks({ rows }: { rows: readonly (readonly Token[])[] }) {
   if (rows.every((row) => row.length === 0)) return null;
   return (
     <span aria-hidden="true" data-inks="" {...stylex.props(styles.anchor)}>
-      <span {...stylex.props(styles.inks, tight && styles.tight)}>
+      <span {...stylex.props(styles.inks)}>
         {rows.map((row, at) => [
           at === 0 ? "" : "\n",
           row.map((token, index) => [
@@ -236,8 +236,8 @@ function body(groups: readonly Group[]): ComponentChildren[] {
 }
 
 /**
- * The page: the header block (the lines before the first blank one) set tight with a blinking
- * cursor after its first line, the motto 80px below, then the document.
+ * The page: the header block (the lines before the first blank one) with a blinking cursor after
+ * its first line, the motto after one blank line, then the document. One 20px line throughout.
  */
 export function Markdown({ source }: { source: string }) {
   const [head = "", motto = "", ...rest] = source.split("\n\n");
@@ -246,8 +246,11 @@ export function Markdown({ source }: { source: string }) {
   return (
     <pre {...stylex.props(styles.pre)}>
       <code {...stylex.props(styles.code)}>
-        <span {...stylex.props(styles.header)}>
-          <Inks rows={[title, ...subtitle].map((): Token[] => ["primary"])} tight />
+        <span
+          style={{ "--header-chars": Math.max(...head.split("\n").map((each) => each.length)) }}
+          {...stylex.props(styles.header)}
+        >
+          <Inks rows={[title, ...subtitle].map((): Token[] => ["primary"])} />
           <h1 {...stylex.props(styles.title)}>{title}</h1>{" "}
           <span aria-hidden="true" {...stylex.props(styles.cursor)}>
             █
@@ -256,7 +259,7 @@ export function Markdown({ source }: { source: string }) {
           {subtitle.join("\n")}
         </span>
         {"\n\n"}
-        <span {...stylex.props(styles.spaced)}>
+        <span {...stylex.props(styles.anchor)}>
           <Inks rows={[inks({ $: "Text", text: motto })]} />
           {inline(motto)}
         </span>
@@ -285,14 +288,13 @@ const styles = stylex.create({
   },
   code: { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit" },
   /**
-   * The header never wraps: on a screen narrower than the measure its type shrinks so the longest
-   * line (68 characters at most, 0.6em each) still fits the column (`main` is the container).
+   * The header never wraps: on a screen narrower than its longest line (`--header-chars`, 0.6em
+   * each) its type shrinks to fit the column (`main` is the container); its lines stay 20px.
    */
   header: {
     display: "inline-block",
     whiteSpace: "pre",
-    fontSize: `min(${type.size}, 100cqi / 40.8)`,
-    lineHeight: "18px",
+    fontSize: `min(${type.size}, 100cqi / (0.6 * var(--header-chars)))`,
     color: colors.primary,
     position: "relative",
   },
@@ -312,8 +314,6 @@ const styles = stylex.create({
     userSelect: "none",
     pointerEvents: "none",
   },
-  /** The header's 18px lines. */
-  tight: { lineHeight: "18px" },
   afterBlank: { marginTop: type.leading },
   /** The page's name, an <h1> set as the line it sits on. */
   title: { display: "inline", margin: 0, fontSize: "inherit", fontWeight: "inherit" },
@@ -323,7 +323,6 @@ const styles = stylex.create({
     animationDuration: "1s",
     animationIterationCount: "infinite",
   },
-  spaced: { display: "inline-block", marginTop: "80px", position: "relative" },
   muted: { color: colors.tertiary },
   /** `[copy]` two characters after a fence; not part of the text, so never selected. */
   copy: {
