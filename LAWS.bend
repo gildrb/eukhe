@@ -22,6 +22,7 @@
 # A2 A file with no lines shows one empty line, as Neovim does; past the last file, the window shows one empty line.
 # A3 The motion laws (R2, R5) hold from normal mode: after an Esc, which closes a picker, cancels a command line and drops a count or a waiting key.
 # A4 j, k, gg and G keep the column ('nostartofline'): a cursor short of its line's end stays on that column, or on the new line's last character when the line is shorter; a cursor at its line's end stays at least as far right.
+# R8 The window always shows a real buffer: one of the files, a folder of their paths, or the root; the start shows the first file; Esc never changes what the window shows.
 # A5 After Esc the command line may still show the last message or search, as in Neovim; while a command line or a picker is open, the window behind it is not checked for 'scrolloff'.
 
 import Base
@@ -623,6 +624,47 @@ def Spec.on_cmdline(+s: T.St, +rows: Nat, +cols: Nat) -> Bool:
   +there = Bool.and(Spec.is_none(F.float(f)), Nat.is_eq(F.row(f), Nat.sub(rows, 1n)))
   Spec.implies(there, Bool.and(Nat.is_eq(F.col(f), Spec.cells(F.cmd(f))), Bool.and(Nat.is_lt(F.col(f), cols), Bool.not(String.is_empty(F.cmd(f))))))
 
+# R8: the window shows a real buffer: a file of fs (file 0 when fs is
+# empty), or the folder of some file's path, or the root
+def Spec.ends_slash(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{h, SNil{}}:
+      Char.is_eq(h, '/')
+    case SCon{h, t}:
+      Spec.ends_slash(t)
+
+def Spec.is_folder(+d: String, fs: List<&2, T.Buf>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Con{T.Buf{path, lines}, t}:
+      Bool.or(Spec.prefix(d, path), Spec.is_folder(d, t))
+
+def Spec.real(fs: List<&2, T.Buf>, t: T.Tgt) -> Bool:
+  match t:
+    case T.File{i}:
+      Nat.is_lt(i, Spec.max(Spec.nfiles(fs), 1n))
+    case T.Dir{+d}:
+      Bool.or(String.is_empty(d), Bool.and(Spec.ends_slash(d), Spec.is_folder(d, fs)))
+
+# R7: an opened URL is a web address written in a file
+def Spec.url_ok(fs: List<&2, T.Buf>, a: T.Act) -> Bool:
+  match a:
+    case T.Nothing{}:
+      True{}
+    case T.CopyText{text}:
+      True{}
+    case T.OpenUrl{+url}:
+      Bool.and(Bool.or(Spec.prefix("https://", url), Spec.prefix("http://", url)), Spec.in_files(url, fs))
+
+# R3 outside Esc: with no float open and the cursor in the text rows,
+# scrolloff holds
+def Spec.scrolled_any(fs: List<&2, T.Buf>, +s: T.St, +rows: Nat) -> Bool:
+  +f = V.Vim.frame(s)
+  Spec.implies(Bool.and(Spec.is_none(F.float(f)), Nat.is_lt(F.row(f), Nat.sub(rows, 2n))), Spec.scrolled(fs, s, rows))
+
 # Laws
 # ----
 
@@ -860,3 +902,48 @@ law honest:
 # first character, right of a 6-cell gutter (2 signs, 4 numbers).
 law start_example:
   {Example.start() == True{} : Bool}
+
+# ---- buffers (R8) ----
+
+# LAW real_buffer: after any events, the window shows a file of fs, a
+# folder of their paths, or the root.
+law real_buffer:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Spec.real(fs, F.tgt(V.Vim.frame(Spec.run(fs, rows, cols, evs)))) == True{} : Bool}
+
+# LAW start_file: the start shows the first file.
+law start_file:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  {F.tgt(V.Vim.frame(V.Vim.init(fs, rows, cols))) == T.File{0n} : T.Tgt}
+
+# LAW esc_keeps: Esc never changes what the window shows.
+law esc_keeps:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Spec.same_tgt(F.tgt(V.Vim.frame(Spec.run(fs, rows, cols, evs))), F.tgt(V.Vim.frame(Spec.normal(fs, rows, cols, evs)))) == True{} : Bool}
+
+# LAW scrolloff_any: after any events, with no float open and the cursor
+# in the text rows, scrolloff holds (R3).
+law scrolloff_any:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  {Spec.scrolled_any(fs, Spec.run(fs, rows, cols, evs), Spec.rows(rows, evs)) == True{} : Bool}
+
+# LAW urls: after any events, the next one opens only a web address
+# (http:// or https://) written in a file (R7).
+law urls:
+  for fs: List<&2, T.Buf>
+  for +rows: Nat
+  for +cols: Nat
+  for +evs: List<&2, T.Ev>
+  for e: T.Ev
+  {Spec.url_ok(fs, Spec.act(V.Vim.step(Spec.run(fs, rows, cols, evs), e))) == True{} : Bool}
