@@ -98,3 +98,6 @@ bend PROOF.bend  # ALL PROOFS CHECK
   [OptMem](https://github.com/VictorTaelin/OptMem).
 - Not affiliated with Prime Intellect, Victor Taelin or Earendil.
 - Made by [Gil Rodrigues](https://gildrb.com).
+- More: [about](https://eukhe.com/about),
+  [contact](https://eukhe.com/contact),
+  [privacy](https://eukhe.com/privacy).

@@ -2,15 +2,102 @@ import * as stylex from "@stylexjs/stylex";
 import { renderToString } from "preact-render-to-string";
 import { type EditorFile, editorFile, Markdown } from "./markdown.tsx";
 import { escape, gutterRows, statusParts, textRows } from "./paint.ts";
-import { notFound, source } from "./source.ts";
+import about from "./content/about.md?raw";
+import contact from "./content/contact.md?raw";
+import privacy from "./content/privacy.md?raw";
+import { install, notFound, source } from "./source.ts";
 import { colors, palette, type } from "./tokens.stylex.ts";
 import Vim, { type BendList, type Buf } from "./vim.mjs";
 
 export const origin = "https://eukhe.com";
 
-const title = "eukhe";
-const description =
-  "A coding agent whose memory is one endless chat log, shared by all sessions. curl -fsSL https://eukhe.com/install | sh";
+const name = "eukhe";
+const summary = "A coding agent whose memory is one endless chat log, shared by all sessions.";
+const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
+
+/** A page of the site: where it is, its title and description, and its Markdown. */
+type Doc = { path: string; title: string; description: string; markdown: string };
+
+const home: Doc = {
+  path: "/",
+  title: "eukhe: coding agent with a memory of all things",
+  description: `${summary} ${install}`,
+  markdown: source,
+};
+
+/** The pages besides the home page; each is also served as Markdown at <path>.md. */
+const docs: readonly Doc[] = [
+  {
+    path: "/about",
+    title: "About | eukhe",
+    description: "What eukhe is, who makes it, its source and license.",
+    markdown: about,
+  },
+  {
+    path: "/contact",
+    title: "Contact | eukhe",
+    description: "How to reach eukhe's author, report a bug or a security problem.",
+    markdown: contact,
+  },
+  {
+    path: "/privacy",
+    title: "Privacy | eukhe",
+    description: "What eukhe.com and the eukhe program store and send.",
+    markdown: privacy,
+  },
+];
+
+const missing: Doc = {
+  path: "/404",
+  title: "Not found | eukhe",
+  description: "No page here.",
+  markdown: notFound,
+};
+
+/** What agents and search engines read about the site: the program, its maker, its contact. */
+const structured = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${origin}/#app`,
+      name,
+      url: `${origin}/`,
+      description: summary,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "macOS, Linux",
+      license: "https://opensource.org/licenses/MIT",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      installUrl: `${origin}/install`,
+      sameAs: ["https://github.com/gildrb/eukhe"],
+      image: `${origin}/og.png`,
+      author: { "@id": `${author.url}/#person` },
+      publisher: { "@id": `${origin}/#org` },
+    },
+    {
+      "@type": "Organization",
+      "@id": `${origin}/#org`,
+      name,
+      url: `${origin}/`,
+      logo: `${origin}/og.png`,
+      founder: { "@id": `${author.url}/#person` },
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "technical support",
+        email: author.email,
+        url: `${origin}/contact`,
+      },
+      sameAs: ["https://github.com/gildrb/eukhe"],
+    },
+    {
+      "@type": "Person",
+      "@id": `${author.url}/#person`,
+      name: author.name,
+      url: author.url,
+      email: `mailto:${author.email}`,
+    },
+  ],
+}).replaceAll("<", "\\u003c");
 
 /** `?v=` names the glyph set: v2 is the Latin and Greek subset (scripts/subset-fonts.sh). */
 const fonts = [
@@ -112,32 +199,44 @@ const noscript = `<style>html[data-vim]{overflow:auto}html[data-vim] main{positi
 
 function Page({
   css,
-  markdown,
-  path,
+  doc,
   script,
   screen,
 }: {
   css: string;
-  markdown: string;
-  path: string;
+  doc: Doc;
   script: string;
   screen: Screen | null;
 }) {
+  const url = `${origin}${doc.path}`;
+  const markdownUrl = doc.path === "/" ? "/index.md" : `${doc.path}.md`;
   return (
     <html lang="en" {...(screen === null ? {} : { "data-vim": "" })} {...stylex.props(styles.html)}>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>{path === "/" ? title : `Not found | ${title}`}</title>
-        <meta name="description" content={description} />
+        <title>{doc.title}</title>
+        <meta name="description" content={doc.description} />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content={palette.bg.dark} />
         <meta name="theme-color" media="(prefers-color-scheme: light)" content={palette.bg.light} />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        {path === "/" ? <link rel="canonical" href={`${origin}/`} /> : null}
-        <link rel="alternate" type="text/markdown" href="/index.md" />
-        <meta property="og:title" content={title} />
-        <meta property="og:description" content={description} />
-        <meta property="og:url" content={`${origin}/`} />
+        {doc === missing ? null : <link rel="canonical" href={url} />}
+        <link
+          rel="alternate"
+          type="text/markdown"
+          href={doc === missing ? "/404.md" : markdownUrl}
+        />
+        <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={name} />
+        <meta property="og:title" content={doc.title} />
+        <meta property="og:description" content={doc.description} />
+        <meta property="og:url" content={url} />
+        <meta property="og:image" content={`${origin}/og.png`} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="eukhe.com: the page as a Neovim terminal" />
+        <meta name="twitter:card" content="summary_large_image" />
         <link
           rel="preload"
           href={fonts[0]?.file}
@@ -147,10 +246,11 @@ function Page({
         />
         <style dangerouslySetInnerHTML={{ __html: globalCss + css }} />
         {screen === null ? null : <noscript dangerouslySetInnerHTML={{ __html: noscript }} />}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structured }} />
       </head>
       <body {...stylex.props(styles.body)}>
         <main {...stylex.props(styles.main)}>
-          <Markdown source={markdown} />
+          <Markdown source={doc.markdown} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div
@@ -189,6 +289,33 @@ function Page({
   );
 }
 
+/** llms.txt: what eukhe is, when an agent should reach for it and how, then the whole page. */
+const llms = `# eukhe
+
+> ${summary}
+
+## When to use eukhe
+
+- A user wants a coding agent in the terminal that remembers every past
+  session of a project: eukhe keeps one chat log per user, never starts
+  empty, and never drops the start of the log.
+- A user asks how to install it: \`${install}\` (macOS on Apple Silicon,
+  Linux x64 and arm64). Nix: \`nix run github:gildrb/eukhe\`.
+- A user asks how it remembers: point to the MEMORY section below and to
+  [docs/memory.md](https://github.com/gildrb/eukhe/blob/bend/all/docs/memory.md).
+- Not for: Windows, untrusted repositories (it runs model-written code
+  with the user's permissions, no sandbox).
+
+## How to read this site
+
+- [Home page as Markdown](${origin}/index.md) (also \`Accept: text/markdown\` on ${origin}/)
+- [About](${origin}/about.md), [Contact](${origin}/contact.md), [Privacy](${origin}/privacy.md)
+- [Source](https://github.com/gildrb/eukhe), MIT license
+
+## The home page
+
+${source}`;
+
 /** A file the editor holds; `plain` files show as they are, not as Markdown. */
 export type SourceFile = { path: string; text: string; plain: boolean };
 
@@ -201,17 +328,26 @@ export function render(css: string, script: string, files: SourceFile[]): Record
   const editor = [{ path: "index.md", text: source, plain: false }, ...files].map((file) =>
     editorFile(file.path, file.text, file.plain),
   );
-  const html = (markdown: string, path: string, screen: Screen | null) =>
-    `<!doctype html>\n${renderToString(<Page css={css} markdown={markdown} path={path} script={script} screen={screen} />)}\n`;
+  const html = (doc: Doc, screen: Screen | null) =>
+    `<!doctype html>\n${renderToString(<Page css={css} doc={doc} script={script} screen={screen} />)}\n`;
+  const pages = Object.fromEntries(
+    docs.flatMap((doc) => [
+      [`${doc.path.slice(1)}.html`, html(doc, null)],
+      [`${doc.path.slice(1)}.md`, doc.markdown],
+    ]),
+  );
+  const urls = [home, ...docs].map((doc) => `  <url><loc>${origin}${doc.path}</loc></url>`);
   return {
-    "index.html": html(source, "/", firstScreen(editor)),
+    "index.html": html(home, firstScreen(editor)),
     "index.md": source,
-    "404.html": html(notFound, "/404", null),
+    ...pages,
+    "404.html": html(missing, null),
+    "404.md": `${notFound.trimEnd()}\n\nSee [llms.txt](${origin}/llms.txt) for what this site holds.\n`,
     "files.json": JSON.stringify(editor),
     "favicon.svg": favicon,
     "robots.txt": `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`,
-    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${origin}/</loc></url>\n</urlset>\n`,
-    "llms.txt": source,
+    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>\n`,
+    "llms.txt": llms,
   };
 }
 
