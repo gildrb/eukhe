@@ -16,14 +16,17 @@ export default {
     if (url.pathname === "/install")
       return new Response(null, { status: 302, headers: { Location: installer } });
     if (url.pathname === "/") {
-      // `curl` sends `Accept: */*`; a browser asks for HTML, an agent for Markdown.
+      // A browser asks for HTML, an agent for Markdown, `curl` and `wget` for anything.
       const accept = request.headers.get("Accept") ?? "";
       if (accept.includes("text/markdown"))
         return markdown(env.ASSETS.fetch(new URL("/index.md", url)));
-      if (!accept.includes("text/html"))
+      // Only `curl` and `wget` get the installer: other clients (crawlers, audit tools) that send
+      // `Accept: */*` get the page, as a browser does.
+      const agent = request.headers.get("User-Agent") ?? "";
+      if (!accept.includes("text/html") && /^(curl|wget)\//i.test(agent))
         return new Response(null, {
           status: 302,
-          headers: { Location: installer, Vary: "Accept" },
+          headers: { Location: installer, Vary: "Accept, User-Agent" },
         });
     }
     if ((request.headers.get("Accept") ?? "").includes("text/markdown")) {

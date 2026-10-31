@@ -13,6 +13,8 @@ The page is a read-only Neovim with Gil's config, on every screen with the scrip
 
 - The whole window, 2px padding (Ghostty). Font 15px (13px on touch screens); cell = one advance of Ioskeley Mono by its line height, measured at start.
 - Layers: number column, text rows, statusline, command line, float, cursor, scrollbar. A key rewrites only the rows that changed.
+- First screen: painted at build by `src/render.tsx` with the browser's own painter (`src/paint.ts`); a row's HTML never depends on the screen width (CSS clips it), so the editor takes it over unchanged.
+- The editor's code loads after the `load` event and starts at the first input (key, click, touch, wheel); `files.json` loads meanwhile.
 - The goose of fff's prompt (U+1FABF) takes two cells; every other character one.
 
 ## Touch
