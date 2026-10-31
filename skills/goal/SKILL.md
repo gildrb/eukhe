@@ -1,52 +1,28 @@
 ---
 name: goal
-description: Manage the persistent thread goal from the Python REPL. Use to read goal status and budget usage, to start a goal when the user explicitly asks for one, or to mark the active goal complete once its objective is fully achieved.
+description: Manage the persistent thread goal the harness keeps you working on across turns - read its status and token budget, start one when the user explicitly asks for a long-running goal, mark it complete once its objective is fully achieved, leave a reminder for the next continuation, or force the next request to call a tool.
 ---
 
 # Goal
 
-The thread goal is a persistent objective the harness keeps re-prompting you to
-pursue across turns until it is complete. Goal state (status, token budget,
-usage accounting) lives in the host; this skill is the kernel-side interface to
-it. Call it directly from the Python REPL:
+## Start
 
-```python
-await goal.get()
-await goal.create("ship the release notes")
-# Only pass token_budget when the user explicitly asks for one:
-# await goal.create("ship the release notes", token_budget=200000)
-await goal.complete()
-```
+- Create a goal only when the user (or system or developer instructions) asks for a persistent goal: `await goal.create("ship the release notes")`. Never infer one from an ordinary task.
+- Pass `token_budget` only when the user names a budget.
+- A pending goal (active, paused, budget-limited) refuses `create`; the error says what the user can do. A completed or failed goal is replaced.
 
-## API
+## Work
 
-- `await goal.get()` — current goal as a dict: `goal` (or `None` when no goal
-  is set), `remaining_tokens`, and `completion_budget_report`. The `goal` dict
-  carries `objective`, `status`, `token_budget`, `tokens_used`,
-  `time_used_seconds`, and timestamps.
-- `await goal.create(objective, token_budget=None)` — start a new active goal.
-  Fails while a goal is still pending (active, paused, or budget-limited); a
-  completed or errored goal is replaced by the new one. Only create a goal when
-  the user or system/developer instructions explicitly ask for a persistent
-  long-running goal; do not infer goals from ordinary tasks. Set `token_budget`
-  only when an explicit token budget is requested.
-- `await goal.complete()` — mark the existing goal achieved. Use only when the
-  objective has actually been achieved and no required work remains; do not
-  call it merely because the budget is nearly exhausted or because you are
-  stopping work. When the result includes a `completion_budget_report`, report
-  that final usage to the user.
-- `await goal.remind(text)` — put a reminder on the Director stack. Its text
-  leads the next goal or autonomous continuation; while no continuation comes,
-  it waits on the stack.
-- `await goal.force_tool(tool, tries=1)` — force the next requests to call
-  `tool` until a response calls it. After `1 + tries` requests without the
-  call, the run fails and the forced call leaves the stack.
+- `await goal.get()` shows the objective, status, usage and remaining tokens.
+- `await goal.remind(text)`: text that leads the next continuation (a note to your future self).
+- `await goal.force_tool(tool, tries=1)`: the next requests must call `tool`; after `1 + tries` misses the run fails.
 
-## Rules
+## Finish
 
-- Goal status transitions other than completion (pause, resume, clear,
-  budget-limiting) are controlled by the user and the host; there is no API for
-  them here.
-- When an active goal is actually complete, call `await goal.complete()`; do
-  not merely say it is done — the harness keeps continuing the goal until the
-  completion call arrives.
+1. Check that the objective is achieved and no required work remains.
+2. `await goal.complete()`. Saying "done" is not enough: the harness continues the goal until this call.
+3. If the result has a `completion_budget_report`, report that usage to the user.
+
+Never complete a goal because the budget is low or you are stopping. Pause, resume and clear belong to the user and the host.
+
+Return shapes: [references/api.md](references/api.md).

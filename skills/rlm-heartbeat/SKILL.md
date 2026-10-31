@@ -1,54 +1,21 @@
 ---
 name: rlm-heartbeat
-description: Manage agent-owned RLM heartbeats from the Python REPL. Use when the user asks the agent to start, create, schedule, or manage a heartbeat, unless they explicitly request the user's /heartbeat.
+description: Create and manage your own recurring wake-ups (agent-owned heartbeats) that re-prompt this session on a schedule with a stored instruction - to check a long build, watch progress or keep coordinating long work. Use when the user asks you to start, schedule or manage a heartbeat, unless they name the user's /heartbeat command, which this skill cannot touch.
 ---
 
 # RLM Heartbeat
 
-RLM heartbeats are internal recurring prompts for the current agent session.
-They are separate from the user's visible `/heartbeat`: this skill cannot read,
-replace, pause, resume, or clear that user-level heartbeat.
+## Steps
 
-Call directly from the Python REPL:
-
-```python
-await rlm_heartbeat.create("check test progress", interval="5m", label="tests")
-await rlm_heartbeat.create("watch build", delivery_mode="follow_up")
-await rlm_heartbeat.list()
-await rlm_heartbeat.update("job-id", status="pause")
-await rlm_heartbeat.delete("job-id")
-```
-
-## API
-
-- `await rlm_heartbeat.list(include_inactive=False)` — list this session's
-  internal RLM heartbeats. By default this includes active and paused entries.
-- `await rlm_heartbeat.create(instruction, interval=None, label=None,
-  delivery_mode=None)` — create a recurring heartbeat for this session. The
-  default interval is every 5 minutes. Multiple RLM heartbeats may run at once;
-  use labels to distinguish them. `delivery_mode` is `"steer"` (default) or
-  `"follow_up"`.
-- `await rlm_heartbeat.update(id, instruction=None, interval=None, label=None,
-  status=None, delivery_mode=None)` — update one RLM heartbeat by id. `status`
-  may be `"pause"` or `"resume"`; `delivery_mode` may be `"steer"` or
-  `"follow_up"`.
-- `await rlm_heartbeat.delete(id)` — cancel one RLM heartbeat by id.
-
-## Delivery mode
-
-Each heartbeat has a delivery mode controlling how the scheduled prompt reaches
-the session when it is busy:
-
-- `steer` (default): interrupt the current turn so the heartbeat runs promptly.
-- `follow_up`: wait for the current turn to finish before running the heartbeat.
+1. Check for an existing one first: `await rlm_heartbeat.list()`. Update it rather than stacking duplicates.
+2. Write the instruction so a cold turn can act on it: what to inspect, what counts as done, what to do then. "check test progress" is weak; "read build.log; when it shows PASS or FAIL, report it and delete heartbeat 'tests'" is strong.
+3. Create: `await rlm_heartbeat.create(instruction, interval="10m", label="tests")`. The default interval is 5 minutes; label each one when several run.
+4. Pick the delivery mode: `"steer"` (default) interrupts a busy turn; `"follow_up"` waits for the turn to end. Use `follow_up` unless the check is urgent.
+5. Stop it when the work ends: `await rlm_heartbeat.delete(id)`, or pause with `update(id, status="pause")`.
 
 ## Rules
 
-- Use this when the user asks you to start, create, schedule, or manage your own
-  heartbeat without explicitly referring to `/heartbeat`.
-- Use this only for agent-internal recurring checks and long-running task
-  coordination.
-- Do not use this skill to satisfy a user's request to configure `/heartbeat`;
-  that is a separate user-level surface.
-- Keep heartbeat instructions specific and actionable so each recurring turn
-  knows exactly what to inspect or continue.
+- Only for agent-internal recurring checks. A request about `/heartbeat` is the user's own surface: tell the user to use `/heartbeat`.
+- Do not use a heartbeat to wait for a child or a `bash()` command: their ends already arrive as messages.
+
+Signatures: [references/api.md](references/api.md).

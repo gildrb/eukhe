@@ -1,84 +1,30 @@
 ---
 name: mcp
-description: Use external MCP services generically from Python - search the supported-service catalog, inspect the user's connections, discover live tool schemas, and call tools on any connection (Notion, Linear, Slack, and the rest of the catalog) without per-service packages.
+description: Use external services over MCP (Notion, Linear, Slack and the rest of the catalog) from the REPL through the pre-imported mcp module - find whether a service is supported and connected, discover a connection's live tool schemas, and call its tools. Use when a task needs data or actions in an external service, or when the user asks which services they can connect.
 ---
 
 # MCP Services
 
-Every external service reachable over MCP uses the same pre-imported `mcp`
-module. Adding a service is data (a catalog entry plus a user login), never a
-new Python package, and there are no per-service skills to read.
+One pre-imported `mcp` module reaches every service; there are no per-service skills or packages.
 
-## Inventory: what can I use?
+## Steps
 
-```python
-# Supported catalog, one bounded page. More pages exist while nextCursor is not None.
-page = await mcp.list_plugins(connection_status="not_connected", limit=50)
-results = await mcp.search_plugins("notion")          # bounded search
-page = await mcp.list_plugins()                       # default: first 50 entries
-
-# The user's actual connections. connectionId is the dispatch id everywhere below.
-connections = await mcp.list_connections()
-```
-
-Catalog entries carry `connectionStatus` (`connected`, `pending`,
-`not_connected`, `setup_required`, `disabled`, `error`), `connectable`, and
-when connected the `connectionIds` you dispatch on. `connected` means a
-verified MCP handshake, not just stored credentials; `pending` means
-credentials exist but verification hasn't run or succeeded yet. Entries may
-also carry `setupHint` (why a service isn't connectable yet), `unverified`
-(imported but not vetted), `verifiedAt`/`toolCount`, and `connectionIds`
-(empty when not dispatchable). Entries with `setup_required` need a developer
-app or API key first — say so honestly instead of promising one-click.
+1. Connections: `await mcp.list_connections()`. A `connectionId` is the id every call below takes.
+2. Not connected: search the catalog narrowly, `await mcp.search_plugins("notion")`. Do not page the whole catalog.
+3. Discover before you call: `await mcp.search_tools("search documents", connection_id="notion")`, then `await mcp.describe_tool("notion", "notion-search")` for its `inputSchema`. Never guess tool names or arguments.
+4. Call: `await mcp.call_tool("notion", "notion-search", {"query": "roadmap"})`. The result is parsed Python (a dict, else a string).
 
 ## Recommend, never connect
 
-If a task would benefit from an unconnected service, name the real catalog
-entry (e.g. "Connecting Notion would let me search your workspace directly")
-and tell the user to open `/plugins` (or run `/mcp login <service>`) to connect.
-Recommendations and catalog lookups never install anything, open a browser,
-use credentials, or request extra scopes. There is no agent-initiated connect
-call in this slice; if the user connects mid-task, the connection activates on
-the next call without a reload.
+- An unconnected service that would help: name the catalog entry and tell the user to open `/plugins` or run `/mcp login <service>`. You cannot connect, log in or ask for scopes.
+- `setup_required` needs a developer app or API key first: say so; do not promise one click.
+- A connection the user adds mid-task works on the next call.
 
-## Discover, then call
+## Failures
 
-```python
-# Live tool metadata is cached per connection; schemas come from the server.
-tools = await mcp.search_tools("search workspace documents", connection_id="notion")
-tool = await mcp.describe_tool("notion", "notion-search")   # {name, description, inputSchema}
-tools = await mcp.list_tools("notion")                     # full tool list with schemas
+- `PermissionError`: the user's tool policy excludes the tool. Do not retry; tell the user.
+- `KeyError`: no such tool or connection; re-list, tools change between sessions.
+- `McpToolError`: the server reported an error. Report it; never blindly retry a write that may have run.
+- Credentials missing: ask the user to connect via `/plugins`, never through environment variables.
 
-result = await mcp.call_tool("notion", "notion-search", {"query": "roadmap"})
-```
-
-- Discover before calling: don't assume tool names or arguments; read the
-  `inputSchema` with `describe_tool` and construct matching arguments.
-- `list_tools` returns the complete inventory or raises — never a silent
-  partial list. Returned schemas are isolated copies; mutate them freely.
-- `search_tools` without a `connection_id` searches at most 8 connections the
-  host reports as connected and reports its scope: `searched`, `unavailable`
-  (per-connection failures as fixed, redaction-safe summaries), and
-  `truncated` (narrow the query or pick a connection when it is set — the
-  result never claims to be exhaustive).
-- Prefer narrow catalog searches over paging the whole catalog; don't dump all
-  schemas into context.
-- Results are already-parsed Python (a `dict` for structured output, otherwise
-  a string). No `json.loads` needed.
-
-## Errors and permissions
-
-- `PermissionError` — the tool is excluded by the user's `enabledTools` /
-  `disabledTools` policy. Don't retry; tell the user.
-- `KeyError` — the tool or connection doesn't exist. Re-check with
-  `list_tools` / `list_connections`; tools can change across sessions.
-- `McpDiscoveryError` — the server's tool listing couldn't complete honestly
-  (broken pagination). No partial inventory is published; re-run, and ask the
-  user to reconnect if it persists.
-- `RuntimeError` — credentials are not available (`McpCredentialsUnavailable`:
-  ask the user to connect via `/plugins` or `/mcp login <service>`, never via
-  environment variables), a refresh failed, or the host bridge is unavailable.
-- `McpToolError` — the server flagged the call as an error. Surface the
-  message; don't blindly retry a write that may have already happened.
-
-Credentials never appear in inventory results, tool schemas, or errors.
+Catalog fields, search scope and every error: [references/api.md](references/api.md).

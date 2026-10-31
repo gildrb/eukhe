@@ -15,11 +15,17 @@
 //! 1. **Cache safety**: the static layer files never contain dynamic
 //!    (session-specific) content, and the assembled prompt's cached prefix is
 //!    byte-identical across sessions with different dynamic tails.
-//! 2. **Tool surface**: the core layer's documented programmatic-tool
-//!    surface matches the real registered surface — kernel-bound names from
-//!    the bootstrap code, host-request handlers registered by the session
-//!    engine, and the bundled Python skills' public functions. Adding or
-//!    removing a tool without updating the prompt fails here.
+//! 2. **Tool surface**: the documented programmatic-tool surface matches
+//!    the real registered surface — kernel-bound names from the bootstrap
+//!    code, host-request handlers registered by the session engine, and the
+//!    bundled Python skills' public functions. Each tool is documented in
+//!    exactly one place: the core layer, or the bundled skill that owns it
+//!    (progressive disclosure: the prompt never carries a skill's API).
+//!    Adding or removing a tool without updating its documentation fails
+//!    here.
+//! 3. **Skill budget**: every bundled skill's description is a distinct
+//!    trigger within the size limit, its body stays small, and its golden
+//!    routing examples (`evals/cases.jsonl`) name real skills.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -466,11 +472,11 @@ fn required_surface_tokens() -> BTreeSet<String> {
     required
 }
 
-/// Surface tokens documented in the core layer: bullet entries whose first
+/// Surface tokens a markdown text documents: bullet entries whose first
 /// backtick token is a lowercase module path.
-fn documented_surface_tokens() -> BTreeSet<String> {
+fn bullet_tokens(text: &str) -> BTreeSet<String> {
     let mut documented = BTreeSet::new();
-    for line in CORE_LAYER.lines() {
+    for line in text.lines() {
         let Some(rest) = line.trim_start().strip_prefix("- `") else {
             continue;
         };
@@ -493,20 +499,46 @@ fn documented_surface_tokens() -> BTreeSet<String> {
     documented
 }
 
+/// Every bundled skill's `SKILL.md` and `references/*.md`, concatenated:
+/// what the model reaches by progressive disclosure.
+fn bundled_skill_text() -> String {
+    let mut text = String::new();
+    for skill in sorted_bundled_skills() {
+        text.push_str(&std::fs::read_to_string(&skill.file_path).expect("read SKILL.md"));
+        let Ok(references) = std::fs::read_dir(skill.base_dir.join("references")) else {
+            continue;
+        };
+        let mut paths: Vec<_> = references
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            text.push('\n');
+            text.push_str(&std::fs::read_to_string(&path).expect("read reference"));
+        }
+    }
+    text
+}
+
 #[test]
-fn core_layer_documents_the_real_tool_surface() {
-    let documented = documented_surface_tokens();
+fn each_tool_is_documented_once_in_the_core_layer_or_its_skill() {
+    let core = bullet_tokens(CORE_LAYER);
+    let skill_text = bundled_skill_text();
+    let skill_bullets = bullet_tokens(&skill_text);
     let allowed = allowed_surface_tokens();
     let required = required_surface_tokens();
 
     assert!(
-        !required.is_empty() && !documented.is_empty(),
+        !required.is_empty() && !core.is_empty() && !skill_bullets.is_empty(),
         "surface extraction produced nothing; the guard would be vacuous"
     );
 
-    // Nothing phantom: every documented token exists on the real surface
-    // (as the exact token, or an entry point of an allowed module).
-    for token in &documented {
+    // Nothing phantom in the core layer: every documented token exists on
+    // the real surface (as the exact token, or an entry point of an allowed
+    // module).
+    for token in &core {
         let root = token.split('.').next().expect("non-empty token");
         let known = allowed.contains(token)
             || allowed.contains(root)
@@ -520,20 +552,48 @@ fn core_layer_documents_the_real_tool_surface() {
         );
     }
 
-    // Nothing missing: every registered surface entry is documented, either
-    // as its own bullet or through a documented member of its module.
+    // Nothing phantom in a skill's API list: a bullet on a skill module or
+    // `mcp` names a real function.
+    let skill_modules: BTreeSet<String> = bundled_python_skills()
+        .into_iter()
+        .map(|(import, _)| import)
+        .chain(["mcp".to_string()])
+        .collect();
+    for token in &skill_bullets {
+        let root = token.split('.').next().expect("non-empty token");
+        if skill_modules.contains(root) {
+            assert!(
+                allowed.contains(token),
+                "a bundled skill documents unknown tool {token:?}"
+            );
+        }
+    }
+
+    // Once: the system prompt never carries a skill's API.
+    let both: Vec<&String> = core.intersection(&skill_bullets).collect();
+    assert!(
+        both.is_empty(),
+        "documented in both prompts/layers/core.md and a bundled skill: {both:?}; \
+         keep it in the skill only"
+    );
+
+    // Nothing missing: every registered surface entry is documented, as a
+    // core bullet (or through a documented member of its module), or named
+    // by a bundled skill (`token(` or `token.`).
     for token in &required {
-        let documented_form = documented.contains(token)
-            || documented
+        let in_core = core.contains(token)
+            || core
                 .iter()
                 .any(|entry| entry.starts_with(&format!("{token}.")))
-            || documented
+            || core
                 .iter()
                 .any(|entry| entry.starts_with(token.as_str()) && entry.contains('.'));
+        let in_skill =
+            skill_text.contains(&format!("{token}(")) || skill_text.contains(&format!("{token}."));
         assert!(
-            documented_form,
-            "tool {token:?} is on the registered surface but the prompt does not \
-             document it: update prompts/layers/core.md"
+            in_core || in_skill,
+            "tool {token:?} is on the registered surface but nothing documents it: \
+             update prompts/layers/core.md or the skill that owns it"
         );
     }
 }
@@ -545,19 +605,24 @@ fn core_layer_documents_the_real_tool_surface() {
 /// The packaged skill set at TS tip `f62dae4d0`
 /// (`packages/coding-agent/skills/`) minus the Prime Intellect product
 /// skill and the network web-search skill this fork drops, and the `edit`
-/// skill the kernel's document functions replaced: 9 skills — the generic
-/// `mcp` doc skill in, the per-service linear/notion pair out (TS removed
-/// theirs when the generic MCP surface landed).
+/// skill the kernel's document functions replaced — the generic `mcp` doc
+/// skill in, the per-service linear/notion pair out (TS removed theirs when
+/// the generic MCP surface landed) — plus this fork's `autoresearch`,
+/// `factory` and `subagents` (the `rlm.*` subagent API the core layer no
+/// longer carries).
 const TS_PACKAGED_SKILL_SET: &[&str] = &[
     "agent-message",
     "agent-observe",
     "attach-image",
+    "autoresearch",
     "compact",
+    "factory",
     "goal",
     "mcp",
     "refine",
     "rlm-heartbeat",
     "skill-creator",
+    "subagents",
 ];
 
 /// The bundled skills directory matches the TS packaged set name-for-name:
@@ -585,10 +650,82 @@ fn bundled_skills_match_the_ts_packaged_set() {
         mcp_skill.python.is_none(),
         "the mcp skill is documentation for the pre-imported runtime module, not a Python package"
     );
+}
+
+/// Description size limit of the Agent Skills standard (bytes).
+const DESCRIPTION_LIMIT: usize = 1024;
+/// Body budget of a bundled `SKILL.md` (bytes after the frontmatter): the
+/// procedure and judgment only; signatures and long reference go to
+/// `references/`.
+const BODY_BUDGET: usize = 2560;
+
+/// Every bundled skill loads without a diagnostic; its description is
+/// within the limit and unlike every other one (distinct triggers); its body
+/// is within the budget; every relative link in it resolves; and every
+/// golden routing example in `evals/cases.jsonl` is a
+/// `{prompt, expect_skill, expect}` object whose `expect_skill` is a
+/// bundled skill or `null`.
+#[test]
+fn bundled_skills_stay_within_the_prompt_budget() {
+    let loaded = load_skills_from_dir(&bundled_skills_dir(), "package");
     assert_eq!(
-        mcp_skill.description,
-        "Use external MCP services generically from Python - search the supported-service catalog, inspect the user's connections, discover live tool schemas, and call tools on any connection (Notion, Linear, Slack, and the rest of the catalog) without per-service packages."
+        loaded.diagnostics,
+        Vec::new(),
+        "bundled skills load cleanly"
     );
+    let names: BTreeSet<&str> = loaded
+        .skills
+        .iter()
+        .map(|skill| skill.name.as_str())
+        .collect();
+    let mut descriptions = BTreeSet::new();
+    for skill in &loaded.skills {
+        let name = &skill.name;
+        assert!(
+            skill.description.len() <= DESCRIPTION_LIMIT,
+            "{name}: description over {DESCRIPTION_LIMIT} bytes"
+        );
+        assert!(
+            descriptions.insert(skill.description.as_str()),
+            "{name}: description duplicates another skill's"
+        );
+        let text = std::fs::read_to_string(&skill.file_path).expect("read SKILL.md");
+        let body = text
+            .splitn(3, "---\n")
+            .nth(2)
+            .expect("SKILL.md has frontmatter");
+        assert!(
+            body.len() <= BODY_BUDGET,
+            "{name}: SKILL.md body is {} bytes, budget {BODY_BUDGET}: move reference material to references/",
+            body.len()
+        );
+        for link in body.split("](").skip(1) {
+            let target = link.split(')').next().unwrap_or_default();
+            if target.contains("://") {
+                continue;
+            }
+            assert!(
+                skill.base_dir.join(target).is_file(),
+                "{name}: link {target:?} does not resolve"
+            );
+        }
+        let Ok(cases) = std::fs::read_to_string(skill.base_dir.join("evals/cases.jsonl")) else {
+            continue;
+        };
+        for line in cases.lines().filter(|line| !line.trim().is_empty()) {
+            let case: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("{name}: eval case {line:?}: {error}"));
+            assert!(
+                case["prompt"].is_string() && case["expect"].is_string(),
+                "{name}: eval case without prompt or expect: {line}"
+            );
+            let expected = &case["expect_skill"];
+            assert!(
+                expected.is_null() || expected.as_str().is_some_and(|skill| names.contains(skill)),
+                "{name}: eval case names no bundled skill: {line}"
+            );
+        }
+    }
 }
 
 /// The generic mcp skill loads through the normal markdown discovery and

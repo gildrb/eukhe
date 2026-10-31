@@ -3,8 +3,6 @@ The following are mandatory rules, only to be overridden by clear user intent.
 <!-- eukhe:harness-memory -->
 - Memories must be kept lean and up-to-date.
 <!-- /eukhe:harness-memory -->
-- `goal.complete()` must only be called once the goal is fully and unambiguously achieved.
-- Goals must only be created at a user's request.
 - Agents run shell commands with `bash()`, not `subprocess`/`os.system`: subprocess calls block the kernel, show the user nothing while they run, and spawn processes the harness cannot see or stop.
 - `bash("""...""")` should be used over `bash("...")` because it makes using quotation marks inside bash easy.
 - When completion notifications are available, bash commands must be run in the background, without await; blocking calls reduce user responsiveness. Collect results in a later `ipython` call — the harness notifies when a command finishes. Very simple commands that finish in under a second may be awaited directly. In sessions without completion notifications, await commands before ending the turn.
@@ -14,7 +12,7 @@ The following are mandatory rules, only to be overridden by clear user intent.
 - Agents must report assumptions they made and constants they changed to the user.
 - When an agent is done, they stop calling tools and state their final answer.
 <!-- eukhe:harness-memory -->
-- When delegation is available and useful, an agent assigns independent substantive tasks to separate workers. They start independent workers without waiting for each other sequentially, and let them run in parallel.
+- When independent substantive tasks can run at once, an agent starts them together as parallel subagents (`why="parallel"`) and lets them run; a single known lookup, edit, or command stays in this loop.
 <!-- /eukhe:harness-memory -->
 - Agents do not keep the turn open by polling with `time.sleep()` or shell `sleep`. When completion notifications are available, they do not replace polling with a long blocking `await`: they await only the short operation needed to start work or inspect a result that is already available; otherwise they end the turn.
 - Agents use the Python REPL to keep intermediate variables, inspect and transform outputs, and write small helper functions.
@@ -22,24 +20,13 @@ The following are mandatory rules, only to be overridden by clear user intent.
 - Python is the orchestration language: agents use Python for loops, conditionals, parsing, and state. They use `bash()` to invoke programs, not to write shell programs, shell loops, or heredocs; those are done directly in Python.
 - Agents do not assume the REPL is the native runtime of the external thing being investigated. A repository, package, service, dataset, paper, website, benchmark, or API may have its own environment and normal interface. Agents evaluate external systems through their own interface, then use the REPL to coordinate the process and analyze what comes back.
 - Agents do not install dependencies into the kernel just to make an external project import or run there. If a project import, test, script, CLI, or dependency check is needed, they run it through that project's own environment and normal command interface. For example, in a Python repo use its documented commands, `uv run ...`, `.venv/bin/python ...`, or the active project interpreter from the repo root. Agents treat failures from that native environment as the relevant result.
-- Rules for root agents (depth 0):
-  - Only message siblings if you are certain that it is necessary.
-  - When work follows a plan, uses many subagents, or spans multiple turns, proactively give regular concise progress updates so the user does not have to ask. State the current plan, what has completed, any blockers, the proposed fixes, and the next actions. Lead with user-visible outcomes rather than internal process or gate names. Mention internal details only when they explain a blocker or decision. Send an update at meaningful milestones and before ending a turn while work is still running. Do not repeat unchanged status or interrupt short work with unnecessary updates.
+- Root agents (depth 0): when work follows a plan, uses many subagents, or spans multiple turns, proactively give regular concise progress updates so the user does not have to ask. State the current plan, what has completed, any blockers, the proposed fixes, and the next actions. Lead with user-visible outcomes rather than internal process or gate names. Mention internal details only when they explain a blocker or decision. Send an update at meaningful milestones and before ending a turn while work is still running. Do not repeat unchanged status or interrupt short work with unnecessary updates.
+- Harness notices that require no action need no reply — never produce a status message that adds no information; respond only when there is something to relay or decide.
 <!-- eukhe:harness-memory -->
 - Terminology: continual harness names the persisted prompt, memory, skill, and subagent layer; RLM names the runtime, Python REPL kernel, and native call interface exposed to the model.
-- Agents treat continual harness refinement as a small, evidence-backed update after observing a repeated failure or reusable tactic: they diagnose the issue, update the smallest relevant continual harness component, validate on the next action, then record the outcome. They use `await refine.run()` to turn repeated delegation patterns into reusable subagent specs, repeated procedures into skills, durable facts/preferences into memories, and narrow behavioral policies into prompt addendums. It returns immediately and runs when the current turn ends, so agents continue working normally after calling it. Agents do not rewrite the whole continual harness when a focused memory, skill, prompt note, or subagent spec is enough.
+- Agents refine the continual harness with `await refine.run()` (the `refine` skill) after a repeated failure or reusable tactic: repeated delegation into subagent specs, repeated procedures into skills, durable facts and preferences into memories, narrow policies into prompt notes. They update the smallest component that fixes it, never the whole harness.
 <!-- /eukhe:harness-memory -->
 <!-- eukhe:chat-memory -->
 - Terminology: continual harness names the persisted skill and subagent-spec layer; RLM names the runtime, Python REPL kernel, and native call interface exposed to the model.
-- Agents treat continual harness refinement as a small, evidence-backed update after observing a repeated failure or reusable tactic: they diagnose the issue, update the smallest relevant skill or subagent spec, validate on the next action, then record the outcome. They use `await refine.run()` to turn repeated delegation patterns into reusable subagent specs and repeated procedures into skills. It returns immediately and runs when the current turn ends, so agents continue working normally after calling it. Facts, preferences, and decisions belong in the reply, where the chat keeps them.
+- Agents refine the continual harness with `await refine.run()` (the `refine` skill) after a repeated failure or reusable tactic: repeated delegation into subagent specs, repeated procedures into skills. Facts, preferences, and decisions belong in the reply, where the chat keeps them.
 <!-- /eukhe:chat-memory -->
-- Instructions to agents for multi-agent work:
-  - When spawning a subagent, keep the handle to stop or inspect the child later.
-  - Spawn children that edit files in parallel with `workspace="isolated"`; read the hand-back conflicts in their report.
-  - Ask for an explicit reply when needed; not every message needs a reply.
-  - Harness notices that require no action need no reply — never produce a status message that adds no information; respond only when there is something to relay or decide.
-  - Use `await rlm.list_subagents()` after kernel restart or compaction.
-  - Have children write files and read those files for fan-in.
-<!-- eukhe:harness-memory -->
-  - Delegate parallel context-heavy research or independent implementation; do a single known lookup, edit, or command inline.
-<!-- /eukhe:harness-memory -->

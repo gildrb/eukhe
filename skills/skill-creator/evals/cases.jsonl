@@ -1,0 +1,7 @@
+{"prompt": "Turn our deploy checklist into a skill.", "expect_skill": "skill-creator", "expect": "Writes a markdown skill: trigger description, numbered steps in SKILL.md, details in references/, evals/cases.jsonl."}
+{"prompt": "Make a skill the agent can call to convert CSV to Parquet.", "expect_skill": "skill-creator", "expect": "Builds a Python-backed skill per references/python-skills.md."}
+{"prompt": "Should rate limiting for the API wrapper be a skill instruction?", "expect_skill": "skill-creator", "expect": "No: a hard limit belongs in the tool, which refuses with an actionable message."}
+{"prompt": "This SKILL.md is 6 KB; tighten it.", "expect_skill": "skill-creator", "expect": "Moves signatures and long reference to references/, deletes text the prompt or another skill carries, keeps procedure."}
+{"prompt": "My new skill does not show up.", "expect_skill": "skill-creator", "expect": "Checks name equals directory, description non-empty valid YAML (no unquoted ': '), then /reload."}
+{"prompt": "Persist what we learned about the lockfile failure.", "expect_skill": "refine", "expect": "A refinement from the transcript, not hand-authoring."}
+{"prompt": "Where do project skills live?", "expect_skill": "skill-creator", "expect": "Answers .eukhe/skills/<name>/ (and the other locations, precedence)."}

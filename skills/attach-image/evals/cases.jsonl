@@ -1,0 +1,6 @@
+{"prompt": "Look at screenshot.png and tell me what the error dialog says.", "expect_skill": "attach-image", "expect": "Calls attach_image(\"screenshot.png\") and reads the dialog."}
+{"prompt": "Compare these two charts visually: a.png and b.png.", "expect_skill": "attach-image", "expect": "Attaches both files in one call."}
+{"prompt": "What is the pixel size of logo.png?", "expect_skill": null, "expect": "Opens the file with Pillow in the REPL; does not attach it."}
+{"prompt": "Compute the SHA-256 of photo.jpg.", "expect_skill": null, "expect": "Hashes the bytes in the REPL; no attachment."}
+{"prompt": "Read the text in the scanned page scan.webp.", "expect_skill": "attach-image", "expect": "Attaches the image and transcribes it."}
+{"prompt": "attach_image raised: the current model is not vision-capable.", "expect_skill": "attach-image", "expect": "Tells the user the model cannot see images; does not retry."}

@@ -1,0 +1,7 @@
+{"prompt": "Search my Notion workspace for the Q3 roadmap.", "expect_skill": "mcp", "expect": "Lists connections, discovers the Notion search tool with describe_tool, calls it with matching arguments."}
+{"prompt": "Which external services can I connect?", "expect_skill": "mcp", "expect": "Searches or pages the catalog narrowly and reports statuses; connects nothing."}
+{"prompt": "Create a Linear issue for this bug.", "expect_skill": "mcp", "expect": "Discovers the Linear create tool's schema before calling it; on McpToolError reports and does not blindly retry."}
+{"prompt": "Linear is not connected; file the issue anyway.", "expect_skill": "mcp", "expect": "Recommends connecting via /plugins or /mcp login linear; does not ask for API keys in env vars."}
+{"prompt": "Post a summary to the #eng Slack channel.", "expect_skill": "mcp", "expect": "Finds the Slack connection and its post tool via search_tools, then calls it."}
+{"prompt": "Fetch https://example.com and summarize it.", "expect_skill": null, "expect": "Not an MCP task."}
+{"prompt": "Message the explorer agent.", "expect_skill": "agent-message", "expect": "Agent messaging, not MCP."}

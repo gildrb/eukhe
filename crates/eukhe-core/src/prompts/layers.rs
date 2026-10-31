@@ -1,8 +1,10 @@
 //! Static system-prompt layers: human-editable markdown files assembled into
 //! the cache-stable prefix of the prompt. The layers are, in order:
 //!
-//! 1. `core.md` — the harness description and the full programmatic-tool API
-//!    surface (one tool: `ipython`; everything else lives in the REPL).
+//! 1. `core.md` — the harness description, the core tools (`bash`, `jobs`,
+//!    the file functions, `rlm.harness`), the one-loop subagent policy, and
+//!    how skills load; every other programmatic tool's API lives in the
+//!    skill that owns it (`skills/*/`), never here.
 //! 2. `usage.md` — mandatory usage rules.
 //! 3. `opinionated.md` — style and engineering guidelines users may override.
 //!
@@ -129,7 +131,7 @@ mod tests {
 
     /// The chat-memory session's layers carry no continual-harness memory
     /// surface and no push toward proactive delegation (the chat is the
-    /// only memory; subagents run when the user asks).
+    /// only memory); both keep the one-loop subagent policy.
     #[test]
     fn chat_memory_layers_drop_harness_memory_and_delegation() {
         let chat = static_prefix(HarnessMemory::Chat);
@@ -147,21 +149,20 @@ mod tests {
             "persistent memories",
             "Memories must be kept lean",
             "into memories",
-            "assigns independent substantive tasks to separate workers",
-            "Delegate parallel context-heavy research",
-            "Write wrappers around `rlm.spawn`",
+            "starts them together as parallel subagents",
         ] {
             assert!(harness.contains(harness_only), "{harness_only:?}");
             assert!(!chat.contains(harness_only), "{harness_only:?}");
         }
-        // The tools stay: subagents, skills, and subagent specs.
-        for tool in [
-            "rlm.spawn(",
+        // Both keep the subagent policy, skills, and subagent specs.
+        for shared in [
+            "Read the `subagents` skill before the first spawn.",
             "rlm.harness.create_skill(",
             "rlm.harness.create_subagent(",
             "refine.run(",
         ] {
-            assert!(chat.contains(tool), "{tool:?}");
+            assert!(chat.contains(shared), "{shared:?}");
+            assert!(harness.contains(shared), "{shared:?}");
         }
     }
 }

@@ -1,0 +1,7 @@
+{"prompt": "Set a goal: ship the release notes, and keep at it until they are done.", "expect_skill": "goal", "expect": "Calls goal.create(\"ship the release notes\") without a token budget."}
+{"prompt": "Make it a goal with a 200k token budget.", "expect_skill": "goal", "expect": "Passes token_budget=200000."}
+{"prompt": "The release notes are merged and published; the goal objective is met.", "expect_skill": "goal", "expect": "Calls goal.complete() and reports the completion_budget_report if present."}
+{"prompt": "Fix this typo in the README.", "expect_skill": null, "expect": "Fixes it; creates no goal."}
+{"prompt": "The budget is almost used up and the work is half done.", "expect_skill": "goal", "expect": "Does not complete the goal; continues or reports progress."}
+{"prompt": "How much of the goal budget is left?", "expect_skill": "goal", "expect": "Calls goal.get() and reports remaining_tokens."}
+{"prompt": "Pause the goal.", "expect_skill": null, "expect": "Tells the user to use /goal pause; the skill has no pause call."}

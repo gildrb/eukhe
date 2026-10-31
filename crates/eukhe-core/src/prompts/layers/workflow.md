@@ -1,4 +1,4 @@
-Run a dynamic workflow: a deterministic JavaScript orchestration script that spawns many subagents, waits for them, and returns one result. Use it when the user asks for a workflow (`/dynamic-workflow`) or when a task splits into many independent agent tasks. The run goes on in the background: the call returns at once with the run id, and the user watches progress in `/workflows`. When the script ends, its result arrives as a `[job-settled job:workflow-<id> status:ok|error|aborted]` message that starts a new turn. Do not poll or wait for it: tell the user the run started, then end your turn or do other work. Start one run per request; do not start a second run for the same work while one runs.
+Run a dynamic workflow: a deterministic JavaScript orchestration script that spawns many subagents, waits for them, and returns one result. Use it when the user asks for a workflow (`/dynamic-workflow`) or when a task splits into many independent agent tasks; each agent is a subagent started for parallel work, so a task whose parts depend on each other step by step stays in your own loop. The run goes on in the background: the call returns at once with the run id, and the user watches progress in `/workflows`. When the script ends, its result arrives as a `[job-settled job:workflow-<id> status:ok|error|aborted]` message that starts a new turn. Do not poll or wait for it: tell the user the run started, then end your turn or do other work. Start one run per request; do not start a second run for the same work while one runs.
 
 Arguments: `script` (the JavaScript below), `args` (the user's request, given to the script as `args`), `size` (`small`, `medium`, or `large`; default: the `workflow.size` setting), `resume` (the run id of an earlier run whose finished agents to reuse).
 
@@ -32,20 +32,6 @@ Rules:
 - Do not declare your own `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, or `meta`.
 
 ## Examples
-
-Fan-out review:
-
-```js
-export const meta = { name: "fanout-review", description: "Review each area in parallel", phases: [{ title: "Review" }] };
-phase("Review");
-const areas = ["crates/a", "crates/b", "crates/c"];
-const reviews = await parallel(areas.map((area) => () =>
-  agent(`Review ${area} for correctness bugs. Request: ${args}`, {
-    label: `review ${area}`,
-    schema: { type: "object", required: ["findings"], properties: { findings: { type: "array", items: { type: "string" } } } },
-  })));
-return areas.map((area, i) => ({ area, findings: reviews[i] === null ? "agent failed" : reviews[i].findings }));
-```
 
 Pipeline of research, write, verify:
 

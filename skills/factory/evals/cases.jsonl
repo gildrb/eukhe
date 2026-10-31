@@ -1,0 +1,6 @@
+{"prompt": "Run the review-sweep machine on this repo.", "expect_skill": "factory", "expect": "Reads rlm.factory.help(), stores or reuses the spec, starts rlm.factory.run, tells the user it started."}
+{"prompt": "Build a saved review-and-fix loop I can rerun and resume.", "expect_skill": "factory", "expect": "Authors a factory spec with a bounded loop after reading the guide."}
+{"prompt": "The call said: the factory is disabled; run /factory on to enable it.", "expect_skill": "factory", "expect": "Tells the user to run /factory on and restart the client; no workaround."}
+{"prompt": "What is the status of factory run r-12?", "expect_skill": "factory", "expect": "Calls rlm.factory.status(\"r-12\")."}
+{"prompt": "Review these four files in parallel once.", "expect_skill": "subagents", "expect": "A one-off fan-out: subagents or the workflow tool, not a factory."}
+{"prompt": "Stop factory run r-12.", "expect_skill": "factory", "expect": "Calls rlm.factory.stop(\"r-12\")."}

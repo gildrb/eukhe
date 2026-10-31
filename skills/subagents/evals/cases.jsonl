@@ -1,0 +1,10 @@
+{"prompt": "Review each of the 6 crates under crates/ for unsafe error handling and report findings per crate.", "expect_skill": "subagents", "expect": "Spawns one child per crate with why=\"parallel\" in one rlm.spawn_batch, each prompt self-contained, asking for a compact findings list; collects the replies."}
+{"prompt": "Search the whole monorepo history for when the retry policy changed and tell me the commit.", "expect_skill": "subagents", "expect": "Judges the search would flood this context; spawns one child with why=\"isolate\" that returns only the commit id and a one-line reason."}
+{"prompt": "Use a subagent to draft the release notes.", "expect_skill": "subagents", "expect": "Spawns one child with why=\"user\" and a full briefing (version, changelog path, format)."}
+{"prompt": "Rename the function parse_cfg to parse_config in src/config.rs.", "expect_skill": null, "expect": "Does the edit in this loop; spawns nothing."}
+{"prompt": "What does the README say about installation?", "expect_skill": null, "expect": "Reads the README directly; spawns nothing."}
+{"prompt": "Implement the parser, then the evaluator that uses it, then the CLI on top.", "expect_skill": null, "expect": "Works the dependent steps in order in this loop; no subagent, the parts share state."}
+{"prompt": "rlm.spawn failed with 'subagent concurrency limit 4 is already full'.", "expect_skill": "subagents", "expect": "Waits for a running child to settle (rlm.collect) or does the work here; does not retry the same spawn unchanged."}
+{"prompt": "Three children are running; collect their results once they finish.", "expect_skill": "subagents", "expect": "Ends the turn or does other work; reads replies as they arrive and the files the children wrote; no polling loop."}
+{"prompt": "Ask the explorer agent where the retry policy lives.", "expect_skill": "agent-message", "expect": "Messages the existing agent instead of spawning a new one."}
+{"prompt": "Run this review/fix loop as a saved machine I can rerun every week.", "expect_skill": "factory", "expect": "Uses a factory, not ad-hoc spawns."}

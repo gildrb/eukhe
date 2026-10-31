@@ -1,42 +1,24 @@
 ---
 name: refine
-description: Trigger continual harness refinement from the Python REPL. Use when you notice a repeated failure, reusable tactic, delegation role, or behavior policy that should be persisted as a harness entry. Returns immediately; refinement runs when the current turn ends.
+description: Ask for a continual-harness refinement from the REPL after you observe a repeated failure, a reusable tactic, a repeated delegation role or a behavior policy worth keeping across sessions. A second model reads the transcript and applies a small, evidence-backed update (a skill or subagent spec, and in harness-memory sessions a memory or prompt note). Returns at once; it runs when the turn ends.
 ---
 
 # Refine
 
-Refinement analyzes the conversation trajectory and applies small, evidence-backed
-updates to the continual harness (prompts, memories, skills, subagent specs).
-The implementation lives in the host (the same one behind the user's `/refine`
-command); this skill is the kernel-side interface to it. Call it directly from
-the Python REPL:
+## When
 
-```python
-await refine.status()
-await refine.run()
-await refine.run("create a memory about always checking git status before committing")
-await refine.run("promote the error-handling pattern to a global skill", global_=True)
-```
+- The same failure happened twice, or a tactic worked that the next session should reuse.
+- You spawned the same kind of child more than once (a subagent spec), or followed the same multi-step procedure more than once (a skill).
+- Not for one-off facts, and not to rewrite the whole harness when one focused entry is enough.
 
-## API
+## How
 
-- `await refine.status()` — current refine state as a dict: `pending` (whether a
-  requested refine is already queued for this turn) and `in_flight` (whether a
-  refine is currently planning or applying).
-- `await refine.run(instructions=None, global_=False)` — schedule refinement.
-  Returns `{"scheduled": True}` immediately, or `{"scheduled": False, "reason": ...}`
-  when refinement cannot start. Optional `instructions` focus the refinement on a
-  specific observation. Set `global_=True` to target the global harness store
-  (cross-session); omit for local (session-scoped) refinement.
+1. `await refine.run("turn the release checklist into a skill")`. The text points the refinement at one observation; it is optional.
+2. `global_=True` writes to the global store (every session); the default is this session's store.
+3. Keep working. The refinement runs when the turn ends, rebuilds the system prompt and resumes you with a harness message that lists the applied edits.
 
 ## Rules
 
-- Refinement never runs mid-cell. A scheduled refinement runs when the current
-  turn ends; the harness applies changes and rebuilds the system prompt, then
-  resumes you automatically. Continue working normally after calling it.
-- One request per turn is enough; calling `run` again before the turn ends only
-  updates the instructions.
-- Use refinement after observing a repeated failure, a reusable tactic, a
-  repeated delegation role, or a behavior policy worth persisting. Do not
-  rewrite the whole harness when a focused memory, skill, prompt note, or
-  subagent spec is enough.
+- `await refine.status()` shows `pending` (queued this turn) and `in_flight` (planning or applying).
+- One request per turn; a second `run` only replaces the instructions.
+- `{"scheduled": False, "reason": ...}`: it cannot start now (no active turn); do not retry in a loop. Refinement runs only in a top-level session; elsewhere the call fails with an error.
