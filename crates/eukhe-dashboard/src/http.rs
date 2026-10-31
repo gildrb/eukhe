@@ -90,7 +90,7 @@ fn route<L: DaemonLauncher>(
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
-        // A forwarder that rewrites `Host` to this address (poros) names the
+        // A forwarder that rewrites `Host` to this address (porthmeus) names the
         // public authority the page was served under; the nearest
         // forwarder's value is the last one.
         let forwarded_host = headers
