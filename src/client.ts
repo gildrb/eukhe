@@ -26,6 +26,7 @@ function isRun(value: unknown): value is Run {
   if (typeof value !== "object" || value === null) return false;
   if (!("from" in value) || typeof value.from !== "number") return false;
   if (!("to" in value) || typeof value.to !== "number") return false;
+  if ("href" in value && typeof value.href !== "string") return false;
   if (!("hl" in value)) return false;
   const hl: unknown = value.hl;
   if (typeof hl === "string") return ["title", "muted", "heading", "link"].includes(hl);
@@ -159,6 +160,9 @@ const statusRight = element("[data-status-r]", HTMLElement);
 const cmdline = element("[data-cmd]", HTMLElement);
 let blink: Animation | undefined;
 
+/** The cell under the mouse, for Enter on a link. */
+let mouse: { row: number; col: number } | null = null;
+
 /** The frame on screen: what a click lands on. */
 let shown: Frame | null = null;
 
@@ -173,7 +177,8 @@ function linkAt(row: number, col: number): string | null {
   if (file === undefined || line === undefined) return null;
   const c = shown.left + col - g;
   const run = (file.runs[l] ?? []).find((r) => r.hl === "link" && r.from <= c && c < r.to);
-  return run === undefined ? null : cells(line).slice(run.from, run.to).join("");
+  if (run === undefined) return null;
+  return run.href ?? cells(line).slice(run.from, run.to).join("");
 }
 
 function setVar(name: string, value: number) {
@@ -320,7 +325,15 @@ function listen() {
     const name = keyName(event);
     if (name === null) return;
     event.preventDefault();
-    ready(() => step({ $: "EvKey", name }));
+    // Enter with the mouse on a link opens it, in normal mode (no picker, no command line). The
+    // editor may still be starting: the link is read once it has.
+    ready(() => {
+      const typing = shown !== null && shown.cur.row >= size().rows - 2;
+      const at = mouse;
+      if (name === "<CR>" && at !== null && !typing && linkAt(at.row, at.col) !== null)
+        tap(at.row, at.col);
+      else step({ $: "EvKey", name });
+    });
   });
   term.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
@@ -328,8 +341,12 @@ function listen() {
     const { row, col } = cellAt(event);
     ready(() => tap(row, col));
   });
+  term.addEventListener("mouseleave", () => {
+    mouse = null;
+  });
   term.addEventListener("mousemove", (event) => {
     const { row, col } = cellAt(event);
+    mouse = { row, col };
     const over =
       linkAt(row, col) !== null ||
       (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to);

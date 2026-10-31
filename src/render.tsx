@@ -270,7 +270,7 @@ function Page({
       </head>
       <body {...stylex.props(styles.body)}>
         <main {...stylex.props(styles.main)}>
-          <Markdown source={doc.markdown} />
+          <Markdown source={doc.markdown} back={doc !== home} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div
@@ -347,10 +347,15 @@ export type SourceFile = { path: string; text: string; plain: boolean };
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
   // The editor's files: the home page, the other pages, then the docs and the source.
   const editor = [
-    { path: "index.md", text: source, plain: false },
-    ...docs.map((doc) => ({ path: `${doc.path.slice(1)}.md`, text: doc.markdown, plain: false })),
-    ...files,
-  ].map((file) => editorFile(file.path, file.text, file.plain));
+    { path: "index.md", text: source, plain: false, back: false },
+    ...docs.map((doc) => ({
+      path: `${doc.path.slice(1)}.md`,
+      text: doc.markdown,
+      plain: false,
+      back: true,
+    })),
+    ...files.map((file) => ({ ...file, back: false })),
+  ].map((file) => editorFile(file.path, file.text, file.plain, file.back));
   // A page opens the editor on its own file: that file first (client.ts orders them the same way).
   const first = (path: string) => {
     const own = editor.filter((file) => file.path === path);

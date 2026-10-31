@@ -42,8 +42,8 @@ function colorsSection(): string {
 /** The whole page as Markdown: what the page shows, and what `Accept: text/markdown` gets. */
 export const source = `${content.trimEnd()}\n\n${colorsSection()}\n`;
 
-export const notFound = `404
-NO PAGE HERE
+export const notFound = `EUKHE
+404: NO PAGE HERE
 2026
 
 ~*~ εὐχή: a wish, a prayer ~*~

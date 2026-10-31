@@ -10,7 +10,7 @@ import { colors, type Token, type } from "./tokens.stylex.ts";
  * right of it, its inks: the color tokens it is drawn in, each name in its own color.
  */
 type Line =
-  | { $: "Header"; text: string; first: boolean }
+  | { $: "Header"; text: string; first: boolean; back: boolean }
   | { $: "Motto"; text: string }
   | { $: "Heading"; marker: string; text: string }
   | { $: "Quote"; text: string }
@@ -27,7 +27,8 @@ type Entry = { n: number; line: Line };
  * The lines before the first blank one are the header, the next text line the motto; then
  * Markdown: headings, `>` quotes, fences, tables, text.
  */
-function classify(source: string, plain: boolean): Entry[] {
+/** `back`: the first header line links home (every page but the home page). */
+function classify(source: string, plain: boolean, back: boolean): Entry[] {
   const lines = source.split("\n");
   if (plain) return lines.map((text, index): Entry => ({ n: index + 1, line: { $: "Raw", text } }));
   const headerEnd = lines.indexOf("");
@@ -35,7 +36,8 @@ function classify(source: string, plain: boolean): Entry[] {
   let fenced = false;
   return lines.map((text, index): Entry => {
     const n = index + 1;
-    if (index < headerEnd) return { n, line: { $: "Header", text, first: index === 0 } };
+    if (index < headerEnd)
+      return { n, line: { $: "Header", text, first: index === 0, back: back && index === 0 } };
     if (index === motto) return { n, line: { $: "Motto", text } };
     if (text.startsWith("```")) {
       fenced = !fenced;
@@ -147,7 +149,15 @@ function content(item: Line): ComponentChildren {
     case "Header":
       return item.first
         ? [
-            <h1 {...stylex.props(styles.title)}>{item.text}</h1>,
+            <h1 {...stylex.props(styles.title)}>
+              {item.back ? (
+                <a href="/" {...stylex.props(styles.link)}>
+                  {item.text}
+                </a>
+              ) : (
+                item.text
+              )}
+            </h1>,
             // Without the script: the blinking cursor of a terminal. With it, the vim cursor.
             <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)} />,
           ]
@@ -293,7 +303,8 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
 export type Hl = "title" | "muted" | "heading" | "link" | { color: string };
 
 /** Characters from..to (code points, end exclusive) of a line drawn in a group. */
-export type Run = { from: number; to: number; hl: Hl };
+/** `href`: where a link run goes when it is not its own text (the header's link home). */
+export type Run = { from: number; to: number; hl: Hl; href?: string };
 
 /**
  * A file as the editor holds it: its lines, each line's highlights, the page's inks, and the line
@@ -338,8 +349,15 @@ function inlineRuns(text: string, offset: number): Run[] {
 /** The highlights of one line: the same rules as the page's styles. */
 function lineRuns(item: Line): Run[] {
   switch (item.$) {
-    case "Header":
-      return [{ from: 0, to: cellCount(item.text), hl: "title" }];
+    case "Header": {
+      const to = cellCount(item.text);
+      return item.back
+        ? [
+            { from: 0, to, hl: "title" },
+            { from: 0, to, hl: "link", href: "/" },
+          ]
+        : [{ from: 0, to, hl: "title" }];
+    }
     case "Motto":
     case "Text":
       return inlineRuns(item.text, 0);
@@ -391,9 +409,14 @@ function copyFence(entries: readonly Entry[]): number | null {
 }
 
 /** A file for the editor: Markdown gets the page's highlights; `inks` only for the page. */
-export function editorFile(path: string, source: string, plain: boolean): EditorFile {
+export function editorFile(
+  path: string,
+  source: string,
+  plain: boolean,
+  back: boolean,
+): EditorFile {
   const text = source.replace(/\n$/, "");
-  const entries = classify(text, plain);
+  const entries = classify(text, plain, back);
   return {
     path,
     lines: text.split("\n"),
@@ -404,8 +427,8 @@ export function editorFile(path: string, source: string, plain: boolean): Editor
 }
 
 /** The page (and the 404 page) as Markdown, for phones and browsers without the script. */
-export function Markdown({ source }: { source: string }) {
-  const entries = classify(source.replace(/\n$/, ""), false);
+export function Markdown({ source, back }: { source: string; back: boolean }) {
+  const entries = classify(source.replace(/\n$/, ""), false, back);
   const headerChars = Math.max(
     0,
     ...entries.map((entry) => (entry.line.$ === "Header" ? entry.line.text.length + 2 : 0)),
