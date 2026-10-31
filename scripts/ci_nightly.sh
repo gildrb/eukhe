@@ -76,9 +76,10 @@ case "${mode}" in
       } | tee -a "${summary}"
       exit 1
     fi
-    # gh resolves the repo from the git remotes and prefers an `upstream`
-    # remote over `origin`, so name the origin repo explicitly.
-    repo="$(git remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+    # The release runs on GitHub (remote `github`); `origin` is the Forgejo
+    # workspace. gh prefers an `upstream` remote over the others, so name the
+    # GitHub repo explicitly.
+    repo="$(git remote get-url github | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
     gh workflow run eukhe-release.yml --repo "${repo}" --ref main -f sha="${sha}"
     echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started" | tee -a "${summary}"
     ;;
