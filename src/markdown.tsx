@@ -149,9 +149,7 @@ function content(item: Line): ComponentChildren {
         ? [
             <h1 {...stylex.props(styles.title)}>{item.text}</h1>,
             // Without the script: the blinking cursor of a terminal. With it, the vim cursor.
-            <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)}>
-              {" █"}
-            </span>,
+            <span aria-hidden="true" data-deco="" {...stylex.props(styles.deco)} />,
           ]
         : item.text;
     case "Motto":
@@ -447,8 +445,14 @@ const styles = stylex.create({
   },
   /** The page's name, an <h1> set as the line it sits on. */
   title: { display: "inline", margin: 0, fontSize: "inherit", fontWeight: "inherit" },
+  /** A block one character wide, a space after the name: drawn, not a glyph (no extra font). */
   deco: {
-    color: colors.primary,
+    display: "inline-block",
+    width: "1ch",
+    height: "1.15em",
+    marginLeft: "1ch",
+    verticalAlign: "text-bottom",
+    backgroundColor: colors.primary,
     userSelect: "none",
     animationName: { default: flash, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "1s",
