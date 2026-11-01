@@ -320,3 +320,6 @@ fn report_model_prompt_errors(deps: &Arc<HostDeps>) {
         .boxed()
     }));
 }
+
+#[cfg(test)]
+mod budget_tests;
