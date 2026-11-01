@@ -25,9 +25,10 @@ use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
 
 /// The most bytes eukhe's own system prompt and tool schemas may take in
 /// one request of a default root session (chat memory on, as the daemon
-/// and headless runs open it): the 58,174 bytes measured after the prompt
-/// trim of e440c7d91 (system prompt 35,055, tool schemas 23,119), plus 5%.
-const PROMPT_BUDGET_BYTES: usize = 61_000;
+/// and headless runs open it): the 51,405 bytes measured on 719c43d61,
+/// after the prompt trims (system prompt 28,286, tool schemas 23,119),
+/// plus 5%.
+const PROMPT_BUDGET_BYTES: usize = 54_000;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
