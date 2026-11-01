@@ -119,6 +119,7 @@ import ./laws/glob.bend as Glob
 import ./laws/phrase.bend as Phrase
 import ./laws/err_text.bend as ErrText
 import ./laws/family.bend as Family
+import ./laws/kin.bend as Kin
 import ./laws/task_life.bend as TaskLife
 import ./laws/autoresearch/model.bend as Autoresearch
 import ./laws/autoresearch/history.bend as AutoresearchHistory

@@ -1,6 +1,6 @@
 //! The `rlm.*` kernel host requests over the durable children registry:
 //! `rlm.run` (`rlm.spawn`),
-//! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
+//! `rlm.find_models`, `rlm.list_subagents`,
 //! `rlm.delete_subagent`, `rlm.collect`, `rlm.answer`, and
 //! `rlm.progress.note`
 //! (`rlm.rename` lives in [`super::rename`]).
@@ -26,9 +26,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
 use super::depth::read_max_depth_override;
-use super::host::{
-    RlmChildDeleteRequest, RlmChildListing, RlmCreateSessionRequest, RlmSubagentHost,
-};
+use super::host::{RlmChildDeleteRequest, RlmChildListing, RlmSubagentHost};
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
@@ -68,7 +66,6 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     handler!("rlm.progress.note", progress_note);
     handler!("rlm.run", run);
     handler!("rlm.run_batch", run_batch);
-    handler!("rlm.create_session", create_session);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
@@ -601,56 +598,6 @@ async fn wait_for_admission(
         watch.stop().await;
     }
     outcome
-}
-
-// ---------------------------------------------------------------------------
-// rlm.create_session
-// ---------------------------------------------------------------------------
-
-async fn create_session(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
-    const OPERATION: &str = "rlm.create_session";
-    let data = &call.data;
-    let Some(prompt) = data.get("prompt").and_then(Value::as_str) else {
-        bail!("rlm.create_session prompt must be a string");
-    };
-    if prompt.trim().is_empty() {
-        bail!("rlm.create_session prompt must not be empty");
-    }
-    let kwargs = kwargs_from_payload(data);
-    reject_unsupported_kwargs(&kwargs, OPERATION, &["name", "model", "thinking", "cwd"])?;
-    let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
-    let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
-    if let Some(name) = &name {
-        assert_direct_agent_message_target(name)?;
-    }
-    let model = optional_string_kwarg(&kwargs, "model", OPERATION)?;
-    let model = normalize_requested_rlm_subagent_model(model, OPERATION)?;
-    let thinking = optional_string_kwarg(&kwargs, "thinking", OPERATION)?;
-    let thinking =
-        normalize_requested_rlm_subagent_thinking_level(thinking, OPERATION)?.map(String::from);
-    let cwd = match kwargs.get("cwd") {
-        None => None,
-        Some(Value::String(cwd)) if !cwd.trim().is_empty() => Some(cwd.trim().to_owned()),
-        Some(_) => bail!("rlm.create_session cwd must be a non-empty string"),
-    };
-    if children.has_runtime && children.services.rlm_depth != 0 {
-        bail!("rlm.create_session is available only from a depth-0 session");
-    }
-    // One resident session per request: the key names this request only.
-    let origin = call
-        .call
-        .as_ref()
-        .map_or_else(|| "host".to_owned(), |api| api.task_id().to_string());
-    let request = RlmCreateSessionRequest {
-        idempotency_key: format!("rlm:create_session:{origin}:{}", uuid::Uuid::now_v7()),
-        prompt: prompt.to_owned(),
-        name,
-        model,
-        thinking,
-        cwd,
-    };
-    let handle = children.services.host.create_session(request).await?;
-    Ok(serde_json::to_value(&handle)?)
 }
 
 // ---------------------------------------------------------------------------

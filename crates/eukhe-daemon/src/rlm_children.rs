@@ -16,12 +16,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle, PromptInput};
+use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle};
 use serde_json::{json, Value};
 
-use crate::rlm_child_model::{
-    assert_thinking_supported, resolve_child_model_from_settings, UnpinnedChildModel,
-};
+use crate::rlm_child_model::{assert_thinking_supported, resolve_child_model_from_settings};
 use crate::supervisor_link::SupervisorLink;
 use crate::util::now_ms;
 
@@ -310,8 +308,8 @@ impl SupervisorChildSessions {
         *self.inner.identity.lock().expect("identity lock") = identity;
     }
 
-    /// Wire the parent's live model reader: each durable spawn and
-    /// `create_session` refreshes the inherited model from it first.
+    /// Wire the parent's live model reader: each durable spawn refreshes
+    /// the inherited model from it first.
     pub fn set_parent_model_source(&self, source: ParentModelSource) {
         *self
             .inner

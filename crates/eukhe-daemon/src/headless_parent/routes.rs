@@ -54,6 +54,8 @@ pub(crate) struct HeadlessParents {
 /// A registered parent a message is routed to.
 pub(crate) struct HeadlessTarget {
     pub(crate) session_id: String,
+    /// The parent's storage (`None`: a memory session).
+    pub(crate) session_file: Option<std::path::PathBuf>,
     outbound: ConnectionOutbound,
 }
 
@@ -72,6 +74,11 @@ impl HeadlessParents {
     pub(crate) fn target(&self, selector: &str) -> Option<HeadlessTarget> {
         self.parents().get(selector).map(|parent| HeadlessTarget {
             session_id: selector.to_string(),
+            session_file: parent
+                .summary
+                .get("sessionFile")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from),
             outbound: parent.outbound.clone(),
         })
     }

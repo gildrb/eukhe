@@ -24,24 +24,21 @@ use eukhe_types::pi_ai::{Usage, UsageCost};
 
 use super::{
     assert_thinking_supported, json, now_ms, resolve_child_model_from_settings, Arc, Context,
-    Duration, Map, Path, PathBuf, Result, SupervisorChildSessions, SupervisorChildSessionsInner,
-    UnpinnedChildModel, Value, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS,
-    WATCH_SETTLE_GRACE_MS,
+    Duration, Map, Path, Result, SupervisorChildSessions, SupervisorChildSessionsInner, Value,
+    PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
 };
 use crate::timeouts;
 
 /// Resolve the child model with the daemon `allowedModels` allowlist
 /// enforced (the parent's cwd scopes the settings read), refusing a model
-/// outside the allowlist loudly with the typed error; `unpinned` picks
-/// what a request without `model` resolves (a spawn reads
-/// `subagentDefaultModel`). The settings read (a synchronous file lock
+/// outside the allowlist loudly with the typed error; a request without
+/// `model` reads `subagentDefaultModel`. The settings read (a synchronous file lock
 /// under `with_lock`) runs on the blocking pool, so a contended settings
 /// lock never stalls this async spawn path's Tokio worker.
 async fn resolve_child_model_allowlisted(
     this: &SupervisorChildSessionsInner,
     reference: Option<&str>,
     target: &'static str,
-    unpinned: UnpinnedChildModel,
 ) -> Result<String> {
     let identity = this.identity.lock().expect("identity lock").clone();
     let cwd = identity.working_dir()?.to_owned();
@@ -54,7 +51,6 @@ async fn resolve_child_model_allowlisted(
             reference.as_deref(),
             identity.model.as_deref(),
             target,
-            unpinned,
         )
     })
     .await
@@ -100,8 +96,6 @@ async fn display_running(child_dir: &Path, child_id: &str) -> Result<bool> {
 pub(super) struct DurableCalls {
     /// Spawned children by durable session id.
     spawned: HashMap<String, durable::RlmChildSession>,
-    /// `rlm.create_session` handles by idempotency key.
-    created: HashMap<String, durable::RlmCreateSessionHandle>,
     /// Served prompt/cancel/delete keys.
     done: HashSet<String>,
     /// Durable ids of children whose run this process saw in flight: a
@@ -270,7 +264,7 @@ impl SupervisorChildSessionsInner {
             prompt: &content,
             message: prompt,
             from: &from,
-            from_relationship: Some(AgentFamilyRelationship::Parent),
+            from_kin: eukhe_types::input_origin::Kin::Parent,
             target: None,
             timestamp: now_ms(),
         });
@@ -318,13 +312,9 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 return Ok(child.clone());
             }
             this.refresh_parent_model().await;
-            let model = resolve_child_model_allowlisted(
-                &this,
-                request.model.as_deref(),
-                "subagent",
-                UnpinnedChildModel::SubagentDefault,
-            )
-            .await?;
+            let model =
+                resolve_child_model_allowlisted(&this, request.model.as_deref(), "subagent")
+                    .await?;
             assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
             let mut identity = this.identity.lock().expect("identity lock").clone();
             identity.rlm_max_depth = request.max_depth;
@@ -395,73 +385,6 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 .spawned
                 .insert(session_id, child.clone());
             Ok(child)
-        })
-    }
-
-    fn create_session(
-        &self,
-        request: durable::RlmCreateSessionRequest,
-    ) -> durable::RlmHostFuture<'_, durable::RlmCreateSessionHandle> {
-        let this = Arc::clone(&self.inner);
-        Box::pin(async move {
-            if let Some(handle) = this.durable_calls().created.get(&request.idempotency_key) {
-                return Ok(handle.clone());
-            }
-            this.refresh_parent_model().await;
-            let identity = this.identity.lock().expect("identity lock").clone();
-            if identity.rlm_depth != 0 {
-                anyhow::bail!("rlm.create_session is available only from a depth-0 session");
-            }
-            let model = resolve_child_model_allowlisted(
-                &this,
-                request.model.as_deref(),
-                "top-level session",
-                UnpinnedChildModel::Parent,
-            )
-            .await?;
-            assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
-            let cwd = match &request.cwd {
-                Some(cwd) if Path::new(cwd).is_absolute() => PathBuf::from(cwd),
-                Some(cwd) => Path::new(identity.working_dir()?).join(cwd),
-                None => PathBuf::from(identity.working_dir()?),
-            };
-            let sessions_dir = crate::paths::sessions_dir(&this.agent_dir)?;
-            crate::paths::ensure_dir(&sessions_dir)?;
-            let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
-            let created = this
-                .launch_child(
-                    "root",
-                    request.name.as_deref(),
-                    &request.prompt,
-                    0,
-                    &model,
-                    thinking,
-                    &cwd.to_string_lossy(),
-                    &sessions_dir,
-                    None,
-                    &identity,
-                )
-                .await?;
-            if created.summary_rlm_depth.is_some_and(|depth| depth != 0) {
-                anyhow::bail!("Daemon supervisor returned an invalid depth-0 session summary");
-            }
-            let handle = durable::RlmCreateSessionHandle {
-                active_session_id: created.active_session_id.clone(),
-                session_id: created
-                    .session_id
-                    .clone()
-                    .unwrap_or_else(|| created.active_session_id.clone()),
-                name: created
-                    .session_name
-                    .clone()
-                    .unwrap_or_else(|| created.active_session_id.clone()),
-                session_file: created.session_file.unwrap_or_default(),
-                model,
-            };
-            this.durable_calls()
-                .created
-                .insert(request.idempotency_key, handle.clone());
-            Ok(handle)
         })
     }
 

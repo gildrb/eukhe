@@ -554,10 +554,6 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_state_rewind_plan", "activeSessionId": "sess", "cursor": 0}"#,
     ),
     (
-        "agent_relay",
-        r#"{"type": "agent_relay", "activeSessionId": "sess", "from": "scout", "to": "builder", "text": "hi"}"#,
-    ),
-    (
         "agent_reply",
         r#"{"type": "agent_reply", "activeSessionId": "sess", "from": "alpha", "text": "42", "replyId": "r1"}"#,
     ),
@@ -622,7 +618,6 @@ fn known_command_types_match_the_ts_list() {
                     | "subscribe_state_tree"
                     | "unsubscribe_state_tree"
                     | "get_state_rewind_plan"
-                    | "agent_relay"
                     | "agent_reply"
                     | "get_run_outcome"
                     | "get_worker_liveness"

@@ -2,9 +2,9 @@
 
 All calls are async unless marked otherwise; `await` works at the top level of the REPL.
 
-## The family
+## The tree
 
-Each session builds a tree of agents, starting at depth 0. An agent below the depth limit (`rlmMaxDepth`, default 2) can spawn children one level deeper. Children are persistent sessions, like the root. The family is every agent under one root session: the parent (none at depth 0), siblings (same parent), children, and relatives (every other agent in the tree). Root sessions are each other's siblings; another root's subagents are outside the family. Messaging and observation: the `agent-message` and `agent-observe` skills.
+Each session builds a tree of agents, starting at depth 0. An agent below the depth limit (`rlmMaxDepth`, default 2) can spawn children one level deeper. Children are persistent sessions, like the root. An agent messages and observes only its parent (none at depth 0) and its own children; siblings, grandchildren and other roots are unreachable. Messaging and observation: the `agent-message` and `agent-observe` skills.
 
 ## Spawn
 
@@ -16,7 +16,6 @@ Each session builds a tree of agents, starting at depth 0. An agent below the de
   - The result never arrives as a return value; it arrives as an agent message. To block until it does, pass the handle to `await jobs.wait(handle)` (or call `await jobs.wait()` for the first of all running work); never poll.
   - Refused when the caller is at the depth limit or the family's running-subagent cap (`subagentMaxConcurrency`) is full.
 - `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`.
-- `rlm.create_session(prompt: str, name: str | None = None, model: str | None = None, thinking: str | None = None, cwd: str | None = None) -> RLMCreateSessionHandle`: creates another depth-0 session (a sibling root, not a child). Only at depth 0 with a daemon; returns after the session exists and its first prompt is sent.
 - `rlm.find_models(query: str = "", limit: int = 8) -> list[RLMModel]`: models backed by active credentials; pass `selector` as `model`.
 
 ## Query (a sub-model call over data)
@@ -58,7 +57,6 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Types
 
 - `RLMSpawnHandle`: `rlm_child_id: str`, `name: str`, `session_dir: Path`, `model: str` (provider/model).
-- `RLMCreateSessionHandle`: `active_session_id: str` (live daemon instance), `session_id: str` (durable identity), `name: str`, `session_file: Path`, `model: str`.
 - `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error"]`, plus the live activity fields.
 - `RLMModel`: `provider: str`, `id: str`, `name: str`, `selector: str` (the exact string to spawn the model).
 

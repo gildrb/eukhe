@@ -103,14 +103,41 @@ impl std::fmt::Display for ChildFailure {
     }
 }
 
+/// Who sent an agent message, seen from the recipient: one of its tree
+/// neighbours (agents message only their parent and their own children),
+/// or a person outside the tree (`eukhe send`, a client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Kin {
+    /// The recipient's parent agent.
+    Parent,
+    /// One of the recipient's children.
+    Child,
+    /// A person (or a client acting for one).
+    User,
+}
+
+impl Kin {
+    /// How a sender called `name` is labeled in report headers and chat
+    /// lines: `parent:name`, `child:name`, or a user's bare name.
+    #[must_use]
+    pub fn sender_label(self, name: &str) -> String {
+        match self {
+            Self::Parent => format!("parent:{name}"),
+            Self::Child => format!("child:{name}"),
+            Self::User => name.to_owned(),
+        }
+    }
+}
+
 /// A report delivered as input. Header values are sanitized by the
 /// producer: they hold no brackets, newlines, commas, or colons.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "report", rename_all = "camelCase")]
+#[serde(tag = "report", rename_all = "camelCase", from = "ReportRecord")]
 pub enum Report {
-    /// A message from another agent session; `sender` is its label
-    /// (`child:name`, `parent:name`, or a bare name).
-    AgentMessage { sender: String },
+    /// A message from the recipient's parent, one of its children, or a
+    /// user; `name` is the sender's name.
+    AgentMessage { from: Kin, name: String },
     /// A child run ended without an explicit reply.
     ChildExited { child: String, exit: ChildExit },
     /// A child run failed. `failure` is absent on reports recorded before
@@ -140,7 +167,9 @@ impl Report {
     #[must_use]
     pub fn header(&self) -> String {
         match self {
-            Self::AgentMessage { sender } => format!("[agent-message from {sender}]"),
+            Self::AgentMessage { from, name } => {
+                format!("[agent-message from {}]", from.sender_label(name))
+            }
             Self::ChildExited { child, exit } => {
                 format!("[child-exited: {} child:{child}]", exit.label())
             }
@@ -241,6 +270,85 @@ pub struct ReportTextError {
     header: String,
 }
 
+/// A stored [`Report`] as it reads back: the shape written today, or an
+/// agent message recorded before senders were typed (`sender`, a label
+/// `child:<name>`, `parent:<name>`, or another text).
+#[derive(Deserialize)]
+#[serde(tag = "report", rename_all = "camelCase")]
+enum ReportRecord {
+    AgentMessage {
+        #[serde(default)]
+        from: Option<Kin>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        sender: Option<String>,
+    },
+    ChildExited {
+        child: String,
+        exit: ChildExit,
+    },
+    ChildFailed {
+        child: String,
+        #[serde(default)]
+        failure: Option<ChildFailure>,
+    },
+    Heartbeat {
+        schedule: String,
+        run: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    BashDone {
+        pid: u32,
+        exit_code: i64,
+        #[serde(default)]
+        stopped_by: Option<BashStopper>,
+    },
+    JobSettled {
+        job: JobId,
+        status: CellStatus,
+    },
+}
+
+impl From<ReportRecord> for Report {
+    fn from(record: ReportRecord) -> Self {
+        match record {
+            ReportRecord::AgentMessage { from, name, sender } => {
+                // A record written before senders were typed carries only
+                // the label: a `child:` or `parent:` label keeps its kin,
+                // any other stays whole as a user's name, so the header
+                // renders as it was recorded.
+                let (from, name) = match (from, sender) {
+                    (Some(from), _) => (from, name.unwrap_or_default()),
+                    (None, Some(sender)) => match (
+                        sender.strip_prefix("child:"),
+                        sender.strip_prefix("parent:"),
+                    ) {
+                        (Some(child), _) => (Kin::Child, child.to_owned()),
+                        (None, Some(parent)) => (Kin::Parent, parent.to_owned()),
+                        (None, None) => (Kin::User, sender),
+                    },
+                    (None, None) => (Kin::User, name.unwrap_or_default()),
+                };
+                Self::AgentMessage { from, name }
+            }
+            ReportRecord::ChildExited { child, exit } => Self::ChildExited { child, exit },
+            ReportRecord::ChildFailed { child, failure } => Self::ChildFailed { child, failure },
+            ReportRecord::Heartbeat { schedule, run } => Self::Heartbeat { schedule, run },
+            ReportRecord::BashDone {
+                pid,
+                exit_code,
+                stopped_by,
+            } => Self::BashDone {
+                pid,
+                exit_code,
+                stopped_by,
+            },
+            ReportRecord::JobSettled { job, status } => Self::JobSettled { job, status },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,11 +402,48 @@ mod tests {
             "[child-exited: cancelled child:scout]\n\nDeleted"
         );
         let message = Report::AgentMessage {
-            sender: "child:scout".to_owned(),
+            from: Kin::Child,
+            name: "scout".to_owned(),
         };
         assert_eq!(
             message.render("hi"),
             "[agent-message from child:scout]\n\nhi"
+        );
+    }
+
+    /// An agent message reads back typed, and one recorded before senders
+    /// were typed keeps its kin and its rendered header.
+    #[test]
+    fn agent_message_reports_read_back_typed_and_legacy() {
+        let read = |json: &str| serde_json::from_str::<Report>(json).expect("a report");
+        let typed = Report::AgentMessage {
+            from: Kin::Parent,
+            name: "lead".to_owned(),
+        };
+        assert_eq!(
+            read(&serde_json::to_string(&typed).expect("serializes")),
+            typed
+        );
+        assert_eq!(
+            [
+                read(r#"{"report":"agentMessage","sender":"child:scout"}"#),
+                read(r#"{"report":"agentMessage","sender":"parent:lead"}"#),
+                read(r#"{"report":"agentMessage","sender":"ops"}"#),
+            ],
+            [
+                Report::AgentMessage {
+                    from: Kin::Child,
+                    name: "scout".to_owned()
+                },
+                Report::AgentMessage {
+                    from: Kin::Parent,
+                    name: "lead".to_owned()
+                },
+                Report::AgentMessage {
+                    from: Kin::User,
+                    name: "ops".to_owned()
+                },
+            ]
         );
     }
 }

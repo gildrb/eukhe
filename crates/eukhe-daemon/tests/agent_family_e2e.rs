@@ -667,16 +667,15 @@ fn cell_turn(code: &str) -> Value {
 }
 
 /// Verifier (the misroute regression, all through the real workers' own
-/// kernels): the family roster derives from durable parent edges, never
-/// from names or runtime kinds. A second root's child is NOT addressable
-/// from the first family by role or name (the sibling send for its name
-/// fails closed), a broadcast reaches only the caller's family (every
-/// agent under its root), the child's parent-reply targets its true
-/// parent with the `child:` label, another family's subagent never
-/// renders as a child of the recipient, and the observe roster labels
-/// only true edges: kid-a's own spawned grandchild nests under kid-a
-/// (a relative in the root's view, never its child), and the other
-/// family's rows never enter either roster.
+/// kernels): an agent reaches only its parent and its own children, by
+/// durable parent edges, never by names or runtime kinds. A second
+/// root's child is NOT addressable by name (the probe fails closed), a
+/// broadcast reaches only the caller's own children, the child's
+/// parent-reply targets its true parent with the `child:` label, the
+/// supervisor refuses an agent's message to a sibling root or to another
+/// family's subagent, and the observe roster lists only true edges:
+/// kid-a's own spawned grandchild is kid-a's child and never in the
+/// root's roster, and the other family's rows never enter either roster.
 #[tokio::test]
 async fn family_edges_never_cross_families_end_to_end() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -716,13 +715,13 @@ async fn family_edges_never_cross_families_end_to_end() {
         "parent-b",
         &json!([{ "text": "parent-b turn done" }]),
     );
-    // Kid-a's kernel turns: the cross-family sibling probe (must fail),
-    // the parent reply (must reach the true parent), its own broadcast
-    // (must stay inside its family under parent-a), and its own observe
-    // roster (the grandchild nests under it, never under the root).
+    // Kid-a's kernel turns: the cross-family name probe (must fail), the
+    // parent reply (must reach the true parent), its own broadcast (only
+    // its own children), and its own observe roster (the grandchild nests
+    // under it, never under the root).
     let kid_cells = [
         record_cell(
-            r#""agent_message.send", {"message": "hello sibling", "receiver_role": "sibling", "receiver_name": "kid-b"}"#,
+            r#""agent_message.send", {"message": "hello sibling", "receiver_name": "kid-b"}"#,
             "kid-sibling-cross",
             &receipts_dir,
         ),
@@ -873,22 +872,41 @@ async fn family_edges_never_cross_families_end_to_end() {
     let (kid_a_active, kid_a_session, kid_a_file) = &kids[0];
     let second_kid_active = &kids[1].0;
 
+    // A sibling root is not kin: the supervisor refuses its agent-origin
+    // message to parent-a before any delivery.
+    client.send_command(
+        "sibling-root-to-parent-a",
+        &json!({
+            "type": "send_message",
+            "targetActiveSessionId": parent_a_active,
+            "message": "hello sibling root",
+            "fromActiveSessionId": sibling_root_active,
+            "agentOrigin": true,
+        }),
+    );
+    let refused = client.read_response("sibling-root-to-parent-a");
+    assert_eq!(refused["success"], false, "{refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(
+            |error| error.ends_with("agents message only their parent and their own children")
+        ),
+        "a sibling root's message is refused: {refused}"
+    );
+
     // Parent-a's first turn runs the cell that sends the broadcast, and
     // the kid's script accounts for that broadcast draining into its
     // steering queue as the spawn turn's follow-up (the filler turn).
-    // That first turn is driven explicitly with the same agentOrigin
-    // delivery shape as every other drive below, and the receipt gate
-    // stays: once the broadcast receipt exists, the broadcast is already
-    // ahead of every drive in the FIFO steering lane, and each scripted
-    // cell lands on its driven turn no matter when the drain fires.
+    // The user drives that first turn (a CLI-origin send), and the
+    // receipt gate stays: once the broadcast receipt exists, the
+    // broadcast is already ahead of every drive in the FIFO steering
+    // lane, and each scripted cell lands on its driven turn no matter
+    // when the drain fires.
     client.send_command(
         "to-parent-a-cells",
         &json!({
             "type": "send_message",
             "targetActiveSessionId": parent_a_active,
             "message": "drive the parent cell turn",
-            "fromActiveSessionId": sibling_root_active,
-            "agentOrigin": true,
         }),
     );
     let response = client.read_response("to-parent-a-cells");
@@ -899,7 +917,7 @@ async fn family_edges_never_cross_families_end_to_end() {
     client.wait_idle("w-parent-a-cells", parent_a_active);
     let _parent_broadcast = read_recorded(&receipts_dir, "parent-broadcast.json");
 
-    // Drive kid-a's kernel turns: the cross-family sibling probe, the
+    // Drive kid-a's kernel turns: the cross-family name probe, the
     // parent reply, and its own broadcast.
     let drive_kid_turn = |client: &mut Client, id: &str, message: &str| {
         client.send_command(
@@ -917,7 +935,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         client.wait_idle(id, kid_a_active);
     };
     for (id, message) in [
-        ("to-kid-1", "drive the sibling probe"),
+        ("to-kid-1", "drive the name probe"),
         ("to-kid-2", "drive the parent reply"),
         ("to-kid-3", "drive the broadcast"),
     ] {
@@ -956,10 +974,8 @@ async fn family_edges_never_cross_families_end_to_end() {
     // Kid-a's own observe roster: the grandchild nests under its true
     // parent.
     drive_kid_turn(&mut client, "to-kid-4", "drive the kid observe");
-    // The cross-family sibling probe fails closed: the kernel raises the
-    // host error, and the recorded traceback carries the TS error text
-    // (the send resolves no sibling — the other family's session is not
-    // addressable by name from this family).
+    // The cross-family name probe fails closed: the kernel raises the
+    // host error (the other family's session is no child of kid-a).
     let Ok(crossed) = std::fs::read_to_string(receipts_dir.join("kid-sibling-cross.error")) else {
         let transcript = client.messages("gm-kid-debug", kid_a_active);
         eprintln!("KEEP-DIR {}", dir.path().display());
@@ -967,15 +983,15 @@ async fn family_edges_never_cross_families_end_to_end() {
             std::mem::forget(dir);
         }
         panic!(
-            "no sibling-probe record: success receipt: {:?}; kid-a transcript: {}; daemon log tail: {}",
+            "no name-probe record: success receipt: {:?}; kid-a transcript: {}; daemon log tail: {}",
             std::fs::read_to_string(receipts_dir.join("kid-sibling-cross.json")).ok(),
             transcript,
             daemon_log_tail(&receipts_dir)
         );
     };
     assert!(
-        crossed.contains("No sibling matches"),
-        "a cross-family sibling send must fail closed: {crossed}"
+        crossed.contains("No child of this agent matches"),
+        "a cross-family name send must fail closed: {crossed}"
     );
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("kid-parent-reply.error")) {
         panic!("kid kernel cell failed: {error}");
@@ -990,10 +1006,10 @@ async fn family_edges_never_cross_families_end_to_end() {
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("kid-broadcast.error")) {
         panic!("kid kernel cell failed: {error}");
     }
-    // The broadcast ("all") reaches the whole family under parent-a: the
-    // parent and, once spawned, kid-a's own child; the grandkid's
-    // presence depends on the broadcast-versus-spawn interleaving, so pin
-    // the isolation, not the exact set.
+    // The broadcast ("all") reaches only kid-a's own children: never its
+    // parent, never the other family. The grandkid's presence depends on
+    // the broadcast-versus-spawn interleaving, so pin the isolation, not
+    // the exact set.
     let kid_broadcast = read_recorded(&receipts_dir, "kid-broadcast.json");
     let kid_targets: Vec<&str> = kid_broadcast["receipts"]
         .as_array()
@@ -1006,19 +1022,11 @@ async fn family_edges_never_cross_families_end_to_end() {
                 .expect("receipt target")
         })
         .collect();
-    let allowed = [parent_a_active.as_str(), grandkid_active.as_str()];
     assert!(
-        kid_targets.iter().all(|target| allowed.contains(target)),
-        "the child's broadcast stays inside its own family: {kid_broadcast}"
-    );
-    assert!(
-        kid_targets.contains(&parent_a_active.as_str()),
-        "the child's broadcast reaches its parent: {kid_broadcast}"
-    );
-    assert!(
-        !kid_targets.contains(&second_kid_active.as_str())
-            && !kid_targets.contains(&sibling_root_active.as_str()),
-        "the child's broadcast never crosses families: {kid_broadcast}"
+        kid_targets
+            .iter()
+            .all(|target| *target == grandkid_active.as_str()),
+        "the child's broadcast reaches only its own children: {kid_broadcast}"
     );
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("kid-observe.error")) {
         panic!("kid kernel cell failed: {error}");
@@ -1071,9 +1079,8 @@ async fn family_edges_never_cross_families_end_to_end() {
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("parent-observe.error")) {
         panic!("parent kernel cell failed: {error}");
     }
-    // The parent's observe roster: itself (isCurrent), the sibling root,
-    // its own child — labeled by durable edges, never another family's
-    // subagent.
+    // The parent's observe roster: itself (isCurrent) and its own child —
+    // never the sibling root or another family's subagent.
     let roster = read_recorded(&receipts_dir, "parent-observe.json");
     let roster = roster
         .get("agents")
@@ -1081,8 +1088,8 @@ async fn family_edges_never_cross_families_end_to_end() {
         .expect("the observe roster is a list of summaries");
     assert_eq!(
         roster.len(),
-        3,
-        "the observe roster is the family (recorded before the grandkid spawned): {roster:?}"
+        2,
+        "the observe roster is the parent and its child (recorded before the grandkid spawned): {roster:?}"
     );
     let by_id = |id: &str| {
         roster
@@ -1097,8 +1104,12 @@ async fn family_edges_never_cross_families_end_to_end() {
     let self_row = by_id(parent_a_session);
     assert_eq!(self_row["isCurrent"], true, "{self_row:?}");
     assert_eq!(self_row["relationship"], Value::Null, "{self_row:?}");
-    let sibling_row = by_id(sibling_root_active);
-    assert_eq!(sibling_row["relationship"], "sibling", "{sibling_row:?}");
+    assert!(
+        !roster.iter().any(|summary| {
+            summary["activeSessionId"].as_str() == Some(sibling_root_active.as_str())
+        }),
+        "a sibling root is never in the observe roster: {roster:?}"
+    );
     let child_row = by_id(kid_a_active);
     assert_eq!(child_row["relationship"], "child", "{child_row:?}");
     assert!(
@@ -1107,21 +1118,18 @@ async fn family_edges_never_cross_families_end_to_end() {
         }),
         "another family's subagent is never in the observe roster: {roster:?}"
     );
-    // The grandchild never renders as the root's child: in the root's
-    // view it is a relative nested under kid-a (the mislabeled-grandchild
-    // regression); this roster predates its spawn.
+    // The grandchild is never in the root's roster: it is kid-a's child.
     assert!(
-        roster
+        !roster
             .iter()
-            .filter(|summary| summary["activeSessionId"] == grandkid_active.as_str())
-            .all(|summary| summary["relationship"] == "relative"),
-        "a grandchild is never the root's child: {roster:?}"
+            .any(|summary| summary["activeSessionId"] == grandkid_active.as_str()),
+        "a grandchild is never in the root's roster: {roster:?}"
     );
     if let Ok(error) = std::fs::read_to_string(receipts_dir.join("parent-broadcast.error")) {
         panic!("parent kernel cell failed: {error}");
     }
-    // The parent's broadcast reaches its sibling root and its own child —
-    // never the other family's child.
+    // The parent's broadcast reaches only its own child — never its
+    // sibling root or the other family's child.
     let parent_broadcast = read_recorded(&receipts_dir, "parent-broadcast.json");
     let mut parent_targets: Vec<&str> = parent_broadcast["receipts"]
         .as_array()
@@ -1135,7 +1143,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         })
         .collect();
     parent_targets.sort_unstable();
-    let mut expected = vec![sibling_root_active.as_str(), kid_a_active.as_str()];
+    let mut expected = vec![kid_a_active.as_str()];
     expected.sort_unstable();
     assert_eq!(
         parent_targets, expected,
@@ -1144,8 +1152,7 @@ async fn family_edges_never_cross_families_end_to_end() {
 
     // The rendered transcript labels: the child's reply rendered with the
     // `child:` prefix on its true parent; another family's subagent
-    // (kid-b, delivered here as a probe) renders WITHOUT the label —
-    // the mislabeled-ack regression.
+    // (kid-b) is refused by the supervisor and never reaches it.
     client.wait_idle("w-child-transcript", kid_a_active);
     let parent_messages = client.messages("gm-parent-transcript", parent_a_active);
     assert!(
@@ -1166,19 +1173,17 @@ async fn family_edges_never_cross_families_end_to_end() {
         }),
     );
     let response = client.read_response("probe-from-kid-b");
-    assert_eq!(response["success"], true, "probe failed: {response}");
-    client.wait_idle("probe-wait", parent_a_active);
+    assert_eq!(response["success"], false, "{response}");
+    assert!(
+        response["error"].as_str().is_some_and(
+            |error| error.ends_with("agents message only their parent and their own children")
+        ),
+        "another family's subagent is refused: {response}"
+    );
     let parent_messages = client.messages("gm-parent-probe", parent_a_active);
     assert!(
-        parent_messages
-            .matches("[agent-message from kid-b]")
-            .count()
-            >= 1,
-        "the foreign subagent renders by name: {parent_messages}"
-    );
-    assert!(
-        !parent_messages.contains("[agent-message from child:kid-b]"),
-        "a subagent of ANOTHER parent never renders as this session's child: {parent_messages}"
+        !parent_messages.contains("foreign probe"),
+        "the refused probe never reaches the parent: {parent_messages}"
     );
 }
 

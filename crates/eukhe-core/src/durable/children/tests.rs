@@ -48,9 +48,8 @@ use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest,
     RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest, RlmHostFuture,
+    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 use crate::child_workspace::Handback;
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry, SessionClosing};
@@ -162,21 +161,6 @@ impl RlmSubagentHost for FakeHost {
         };
         lock(&self.state).spawns.push(request);
         Box::pin(async move { Ok(session) })
-    }
-
-    fn create_session(
-        &self,
-        request: RlmCreateSessionRequest,
-    ) -> RlmHostFuture<'_, RlmCreateSessionHandle> {
-        Box::pin(async move {
-            Ok(RlmCreateSessionHandle {
-                active_session_id: "resident".to_owned(),
-                session_id: "resident".to_owned(),
-                name: request.name.unwrap_or_else(|| "resident".to_owned()),
-                session_file: String::new(),
-                model: "faux/faux-1".to_owned(),
-            })
-        })
     }
 
     fn prompt(&self, request: RlmChildPromptRequest) -> RlmHostFuture<'_, ()> {

@@ -1,19 +1,14 @@
-//! The family mesh: every agent under one root session. A row's parent is
-//! found through its durable parent edge ([`row_is_parent`]), the family
-//! root by walking those edges up, and the caller's family is every row
-//! that reaches the same root. Relationships keep the nuclear labels
-//! (parent, sibling, child) and call everyone else in the tree a relative.
-//! A root session additionally keeps the other root sessions as siblings
-//! (roots are each other's family), never their subtrees.
+//! The caller's place in its tree. A row's parent is found through its
+//! durable parent edge ([`row_is_parent`]); the caller's members are its
+//! parent and its own children, the only agents it messages or observes.
+//! The rest of its tree (every row reaching the same root through those
+//! edges) counts only toward the family-wide spawn cap.
 
 use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::{
-    row_depth, row_is_parent, row_is_sibling, row_str, AgentFamilyRelationship, FamilyIdentity,
-    Value,
-};
+use super::{row_depth, row_is_parent, row_str, AgentFamilyRelationship, FamilyIdentity, Value};
 
 /// One member of the caller's family: its index in the roster slice, its
 /// relationship to the caller, and the `parent/child` path that names it
@@ -25,14 +20,14 @@ pub(crate) struct FamilyRow {
     pub path: Option<String>,
 }
 
-/// The caller's family over `rows`: the family rows (never the caller's
-/// own row), the index of the caller's own row when the roster carries it,
-/// and the family root's live session id when the root is resident.
+/// The caller's family over `rows`: its parent and children (never the
+/// caller's own row), the other rows of its tree, and the index of the
+/// caller's own row when the roster carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Family {
     pub members: Vec<FamilyRow>,
+    pub rest_of_tree: Vec<usize>,
     pub own_index: Option<usize>,
-    pub root_active_session_id: Option<String>,
 }
 
 /// The live session id of one roster row (`activeSessionId`, the
@@ -48,13 +43,6 @@ pub(crate) fn row_target(row: &Value) -> Option<String> {
         .or_else(|| row_str(row, "sessionId"))
         .or_else(|| row_str(row, "id"))
         .map(str::to_string)
-}
-
-/// The display name of one row: its session name, else its address.
-pub(crate) fn row_display_name(row: &Value) -> Option<String> {
-    row_str(row, "sessionName")
-        .map(str::to_string)
-        .or_else(|| row_target(row))
 }
 
 /// The durable family identity a roster row describes (its own ids and
@@ -135,42 +123,30 @@ pub(crate) fn family_of(
         Some(index) => root_of(&parent_of, index),
         None => own_parent.map_or(Root::Caller, |parent| root_of(&parent_of, parent)),
     };
-    let root_active_session_id = match own_root {
-        Root::Row(index) => row_active_id(row_at(index)).map(str::to_string),
-        Root::Caller => Some(identity.active_session_id.clone()),
-    };
     let mut members = Vec::new();
+    let mut rest_of_tree = Vec::new();
     for (index, row) in rows.iter().enumerate() {
         if Some(index) == own_index {
             continue;
         }
-        let forced = forced_child(row);
-        let in_tree = is_child_of_caller(index)
-            || match own_root {
+        let child = forced_child(row) || is_child_of_caller(index);
+        let relationship = if child {
+            AgentFamilyRelationship::Child
+        } else if own_parent == Some(index) {
+            AgentFamilyRelationship::Parent
+        } else {
+            let in_tree = match own_root {
                 Root::Row(root) => root_of(&parent_of, index) == Root::Row(root),
                 Root::Caller => reaches_caller(&parent_of, index, rows, &own),
             };
-        let relationship = if forced || is_child_of_caller(index) {
-            AgentFamilyRelationship::Child
-        } else if !in_tree {
-            // Outside the tree: a root's fellow roots, and a subagent's
-            // siblings under a parent the roster does not list, share
-            // the caller's (absent) parent edge; nothing else enters.
-            if (identity.is_top_level() || own_parent.is_none()) && row_is_sibling(row, identity) {
-                AgentFamilyRelationship::Sibling
-            } else {
-                continue;
+            if in_tree {
+                rest_of_tree.push(index);
             }
-        } else if own_parent == Some(index) {
-            AgentFamilyRelationship::Parent
-        } else if own_parent.is_some() && parent_of[index] == own_parent {
-            AgentFamilyRelationship::Sibling
-        } else {
-            AgentFamilyRelationship::Relative
+            continue;
         };
         let path = match parent_of[index] {
             Some(parent) => parent_path(row_at(parent), row),
-            None if forced || is_child_of_caller(index) => parent_path(&own, row),
+            None if child => parent_path(&own, row),
             None => None,
         };
         members.push(FamilyRow {
@@ -181,8 +157,8 @@ pub(crate) fn family_of(
     }
     Family {
         members,
+        rest_of_tree,
         own_index,
-        root_active_session_id,
     }
 }
 
@@ -275,6 +251,7 @@ pub(crate) fn running_family_subagents(rows: &[Value], active_session_id: &str) 
         .members
         .iter()
         .map(|member| member.index)
+        .chain(family.rest_of_tree.iter().copied())
         .chain(family.own_index)
         .filter_map(|index| {
             let row = &rows[index];

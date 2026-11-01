@@ -10,8 +10,8 @@ from typing import Any, Literal
 
 from rlm import host_request
 
-ReceiverRole = Literal["parent", "sibling", "child", "relative"]
-_ROLES = ("parent", "sibling", "child", "relative")
+ReceiverRole = Literal["parent", "child"]
+_ROLES = ("parent", "child")
 _MESSAGE_DISPLAY_MIME = "application/vnd.eukhe.agent-message+json"
 
 
@@ -22,12 +22,11 @@ async def send(
     receiver_role: ReceiverRole | str | None = None,
     receiver_name: str | None = None,
 ) -> dict[str, Any]:
-    """Send one message to any agent of the family, or broadcast to ``"all"``.
+    """Send one message to the parent or one own child, or broadcast to ``"all"`` children.
 
-    ``receiver_name`` alone addresses any agent under the same root session by
-    name, id, or ``parent/child`` path (needed when two branches share a name).
-    ``receiver_role`` narrows the match to one relationship; ``"parent"`` takes
-    no name.
+    Agents message only their parent and their own children. ``receiver_role="parent"``
+    takes no name; ``receiver_name`` addresses one own child by name, id, or
+    ``parent/child`` path (``receiver_role="child"`` is optional with it).
     """
     if broadcast_message is not None:
         if message != "all":
@@ -43,7 +42,10 @@ async def send(
         }
     else:
         if receiver_role is not None and receiver_role not in _ROLES:
-            raise ValueError('receiver_role must be "parent", "sibling", "child", or "relative"')
+            raise ValueError(
+                'agent_message.send receiver_role must be "parent" or "child"; '
+                "agents message only their parent and their own children"
+            )
         if not isinstance(message, str):
             raise TypeError(f"message must be str, got {type(message).__name__}")
         if receiver_role == "parent":

@@ -3,13 +3,13 @@
 //! Port of the `send_message` block in `modes/daemon/daemon-supervisor.ts`:
 //! resolve the source and target workers, refuse self-targeting, then route
 //! `worker_deliver_message` to the target with sender info from the source
-//! session (agent origin) or the sending client (CLI origin). A target that
-//! is not resident is woken from the saved-session catalog: the selector
-//! resolves to a session file (`session_catalog.rs`), a resident worker
-//! hosting the file is reused, and otherwise a new worker spawns over it
-//! (the headless resume machinery). The TS family-reach assertion needs the
-//! session family catalog, which the thin supervisor does not keep yet; it
-//! stays deferred with it.
+//! session (agent origin) or the sending client (CLI origin). An agent
+//! reaches only its parent and its own children: the kin check
+//! ([`crate::kin_gate`]) runs before any delivery and before a wake. A
+//! target that is not resident is woken from the saved-session catalog:
+//! the selector resolves to a session file (`session_catalog.rs`), a
+//! resident worker hosting the file is reused, and otherwise a new worker
+//! spawns over it (the headless resume machinery).
 
 use std::sync::Arc;
 
@@ -70,6 +70,15 @@ impl Supervisor {
             },
             None => None,
         };
+        // The kin view of an agent sender: every target it reaches is its
+        // parent or one of its children (a CLI-origin send is a user's).
+        let kin = match &source {
+            Some(source) => match self.kin_view(source).await {
+                Ok(view) => Some(view),
+                Err(error) => return fail(format!("{error:#}")),
+            },
+            None => None,
+        };
         // The source summary, once read (the wake reads it for its scope;
         // the sender endpoint reuses it).
         let mut source_summary: Option<Value> = None;
@@ -102,6 +111,7 @@ impl Supervisor {
                             wake_source
                                 .as_ref()
                                 .map(|(resident, summary)| (resident, summary)),
+                            kin.as_ref(),
                         )
                         .await
                     {
@@ -122,6 +132,26 @@ impl Supervisor {
         if let (Some(source), Route::Worker(target)) = (&source, &target) {
             if Arc::ptr_eq(source, target) {
                 return fail("Agent messaging cannot target the sending session".to_string());
+            }
+        }
+        if let Some(kin) = &kin {
+            let admitted = match &target {
+                Route::Worker(resident) => {
+                    let file = resident.descriptor.lock().await.session_file.clone();
+                    kin.admit(
+                        file.as_deref().map(std::path::Path::new),
+                        &resident.worker_id,
+                        target_active_session_id,
+                    )
+                }
+                Route::Headless(parent) => kin.admit(
+                    parent.session_file.as_deref(),
+                    &parent.session_id,
+                    target_active_session_id,
+                ),
+            };
+            if let Err(refusal) = admitted {
+                return fail(refusal);
             }
         }
         let sender = match &source {
@@ -228,12 +258,15 @@ impl Supervisor {
     /// resident worker that already hosts the file, or spawn one over it.
     /// `Unknown` keeps the caller's unknown-session error; `Failed` carries
     /// the wake's own error (a catalog ambiguity outranks the miss, like
-    /// the TS `Ambiguous session selector` propagation).
+    /// the TS `Ambiguous session selector` propagation). An agent sender's
+    /// `kin` view refuses a session that is not its parent or child before
+    /// anything wakes.
     pub(crate) async fn wake_saved_target(
         self: &Arc<Self>,
         resolve_error: &anyhow::Error,
         selector: &str,
         source: Option<(&Arc<ResidentWorker>, &Value)>,
+        kin: Option<&crate::kin_gate::KinView>,
     ) -> WakeOutcome {
         let rendered = resolve_error.to_string();
         if !rendered.starts_with("Unknown active session:") {
@@ -286,13 +319,16 @@ impl Supervisor {
             // child selector falls back to its live edges (child id,
             // session id, or name) and wakes the child's own file.
             Ok(None) => {
-                return match self.wake_ledger_child(selector).await {
+                return match self.wake_ledger_child(selector, kin).await {
                     Some(outcome) => outcome,
                     None => WakeOutcome::Unknown,
                 }
             }
             Err(error) => return WakeOutcome::Failed(error.to_string()),
         };
+        if let Some(Err(refusal)) = kin.map(|kin| kin.admit(Some(&info.path), selector, selector)) {
+            return WakeOutcome::Failed(refusal);
+        }
         let session_path = info.path.to_string_lossy().to_string();
         // A registered headless parent's storage is leased by its client
         // process: it is reached over its registration, never woken.
@@ -379,8 +415,14 @@ impl Supervisor {
     /// admission appends to (TS `rlmSpawnLedger()`). `None` keeps the
     /// caller's unknown-session error; `Some(Failed)` carries the wake's
     /// own error (an ambiguous selector outranks the miss, like the
-    /// catalog's).
-    async fn wake_ledger_child(self: &Arc<Self>, selector: &str) -> Option<WakeOutcome> {
+    /// catalog's). An agent sender's `kin` view keeps only its own
+    /// children (and parent) among the matches, and refuses when every
+    /// match is outside them.
+    async fn wake_ledger_child(
+        self: &Arc<Self>,
+        selector: &str,
+        kin: Option<&crate::kin_gate::KinView>,
+    ) -> Option<WakeOutcome> {
         let ledger = match self.rlm_spawn_ledger_for(None).await {
             Ok(ledger) => ledger,
             Err(error) => return Some(WakeOutcome::Failed(error.to_string())),
@@ -393,6 +435,21 @@ impl Supervisor {
             .iter()
             .filter(|edge| ledger_edge_matches(edge, selector))
             .collect();
+        if let Some(kin) = kin {
+            let mut refusal = None;
+            matches.retain(|edge| {
+                match kin.admit(Some(std::path::Path::new(&edge.child)), selector, selector) {
+                    Ok(()) => true,
+                    Err(refused) => {
+                        refusal.get_or_insert(refused);
+                        false
+                    }
+                }
+            });
+            if let (true, Some(refusal)) = (matches.is_empty(), refusal) {
+                return Some(WakeOutcome::Failed(refusal));
+            }
+        }
         match matches.len() {
             0 => None,
             1 => {

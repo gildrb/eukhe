@@ -205,12 +205,11 @@ fn a_sent_message_echoes_its_target() {
 }
 
 #[test]
-fn a_relay_shows_its_first_line_until_detail_all() {
-    let row = SwarmRow::Relay(AgentRelayEvent {
+fn a_reply_shows_its_first_line_until_detail_all() {
+    let row = SwarmRow::Reply {
         from: "scout".to_string(),
-        to: "builder".to_string(),
         text: "the api is in core\nsee durable/children".to_string(),
-    });
+    };
     assert_eq!(
         [
             plain(&render_swarm_row(
@@ -230,10 +229,10 @@ fn a_relay_shows_its_first_line_until_detail_all() {
             plain(&render_swarm_row(&row, Detail::All, &theme(), 80, false)),
         ],
         [
-            vec![" scout -> builder: the api is in core...".to_string()],
-            vec![" scout -> builder: the api ...".to_string()],
+            vec![" scout -> you: the api is in core...".to_string()],
+            vec![" scout -> you: the api is i...".to_string()],
             vec![
-                " scout -> builder: the api is in core".to_string(),
+                " scout -> you: the api is in core".to_string(),
                 "   see durable/children".to_string(),
             ],
         ]

@@ -308,7 +308,7 @@ fn classify_custom(custom_type: &str) -> CustomRow {
 /// child:x]\n\nbody` and the like); the log holds `[child:x] body`.
 fn report_line(report: &Report, body: &str) -> String {
     let (id, headline) = match report {
-        Report::AgentMessage { sender } => (sender.clone(), String::new()),
+        Report::AgentMessage { from, name } => (from.sender_label(name), String::new()),
         Report::ChildExited { child, exit } => (
             format!("child:{child}"),
             format!("exited ({})", exit.label()),

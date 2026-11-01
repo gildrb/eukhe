@@ -11,8 +11,7 @@
 //! children at a parent replacement: they are archived, aborted, and
 //! disposed with the parent runtime, the replacement session's roster
 //! starts empty, and the close is a plain stop (no ledger tombstone; the
-//! spawn edge and the passive roster row survive). `rlm.create_session`
-//! root sessions are not parent-linked and SURVIVE the replacement.
+//! spawn edge and the passive roster row survive).
 //!
 //! The Rust redesign hosts each child as its own supervisor-owned worker,
 //! so the close ports as a signal through the supervisor: the worker's
@@ -27,8 +26,6 @@
 //!    it, its session file archives, the parent's `get_rlm_children` wire
 //!    surface reads empty, and the replacement session's kernel
 //!    `rlm.list_subagents()` returns an empty roster.
-//! 2. `new_session` KEEPS an `rlm.create_session` depth-0 root session
-//!    running: the close touches parent-linked children only.
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
@@ -295,16 +292,6 @@ fn probe_cell(list_receipt: &Path, send_receipt: &Path, error_receipt: &Path) ->
     )
 }
 
-/// The kernel cell that creates one depth-0 resident root session through
-/// the product `rlm.create_session` surface.
-fn create_session_cell(receipt: &Path, error_receipt: &Path) -> String {
-    format!(
-        "import json, traceback\ntry:\n    handle = await rlm.create_session(\"root session task\", name=\"rootkid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"name\": handle.name}}))\n    print(handle.name)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
-        receipt = receipt.display().to_string(),
-        error_receipt = error_receipt.display().to_string(),
-    )
-}
-
 /// The child's scripted engine: one held response keeps its task turn
 /// running while the replacement fires, so the close lands on a live
 /// child (TS closes running children - abort, archive, dispose).
@@ -513,90 +500,6 @@ fn new_session_closes_the_spawned_child_and_empties_the_roster() {
         await_receipt(&roster_receipt),
         "[]",
         "the replacement session must list no children"
-    );
-}
-
-/// `rlm.create_session` depth-0 root sessions are NOT parent-linked (TS
-/// `createRlmRootSession` builds a root `ActiveSessionState` with no
-/// `parentActiveSessionId`), so `closeChildSessions` never matches them:
-/// a created root session survives the parent's replacement, while the
-/// parent's own child registry still reads empty.
-#[test]
-fn new_session_keeps_a_created_root_session_running() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let socket = dir.path().join("supervisor.sock");
-    let receipts = dir.path().join("receipts");
-    std::fs::create_dir_all(&receipts).expect("receipts dir");
-    let create_receipt = receipts.join("create.json");
-    let create_error = receipts.join("create.error");
-
-    let child_script = write_child_script(dir.path());
-    let parent_script = write_parent_script(
-        dir.path(),
-        &create_session_cell(&create_receipt, &create_error),
-        "pass",
-    );
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
-    let (mut client, hello) = Client::connect(&socket);
-    assert_eq!(hello["type"], "daemon_hello");
-    let parent = create_parent(
-        &mut client,
-        dir.path(),
-        &parent_script,
-        &child_script,
-        None,
-        "c1",
-    );
-    let parent_id = parent["activeSessionId"]
-        .as_str()
-        .or_else(|| parent["id"].as_str())
-        .expect("parent active session id")
-        .to_string();
-
-    // Turn 1: the kernel cell creates the depth-0 root session.
-    run_turn(&mut client, &parent_id, "create the root session", "t1");
-    let created: Value =
-        serde_json::from_str(&await_receipt(&create_receipt)).expect("create receipt json");
-    assert_eq!(
-        created["name"], "rootkid",
-        "the create_session handle must carry the session name: {created}"
-    );
-    assert!(
-        !create_error.exists(),
-        "the create_session cell failed: {}",
-        std::fs::read_to_string(&create_error).unwrap_or_default()
-    );
-    wait_until(&mut client, Duration::from_secs(30), |client| {
-        roster_summaries(client, "l1")
-            .into_iter()
-            .find(|summary| summary["sessionName"] == json!("rootkid"))
-    });
-
-    // The replacement closes the parent's children only.
-    client.send_command(
-        "n1",
-        &json!({ "type": "new_session", "activeSessionId": parent_id }),
-    );
-    let replaced = client.read_response("n1");
-    assert_eq!(replaced["success"], true, "new_session failed: {replaced}");
-    let rows = rlm_children_rows(&mut client, "g1", &parent_id);
-    assert!(
-        rows.is_empty(),
-        "the replacement session's roster must start empty: {rows:?}"
-    );
-    // The created root session is still resident and running: the close
-    // touches parent-linked children only (TS `getChildActiveSessionStates`).
-    let survivor = wait_until(&mut client, Duration::from_secs(30), |client| {
-        roster_summaries(client, "l2")
-            .into_iter()
-            .find(|summary| summary["sessionName"] == json!("rootkid"))
-    });
-    assert_ne!(
-        survivor["activeSessionId"],
-        json!(parent_id),
-        "the created root session is its own session, not the parent's"
     );
 }
 

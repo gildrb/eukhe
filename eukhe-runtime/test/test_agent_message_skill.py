@@ -19,14 +19,14 @@ def _load(name: str):
 
 
 class AgentMessageSkillTest(unittest.TestCase):
-    def test_roled_mesh_and_broadcast_forms(self) -> None:
+    def test_parent_child_and_broadcast_forms(self) -> None:
         module = _load("agent_message_test")
         host = AsyncMock(return_value={"deliveryStatus": "queued"})
         with patch.object(module, "host_request", host), patch.object(module, "_emit_sent_message"):
             asyncio.run(module.send("done", receiver_role="parent"))
             asyncio.run(module.send("all", "follow up"))
             asyncio.run(module.send("who owns the parser?", receiver_name="scout/parser"))
-            asyncio.run(module.send("ping", receiver_role="relative", receiver_name="helper"))
+            asyncio.run(module.send("ping", receiver_role="child", receiver_name="helper"))
         self.assertEqual(
             [call.args for call in host.await_args_list],
             [
@@ -38,7 +38,7 @@ class AgentMessageSkillTest(unittest.TestCase):
                 ),
                 (
                     "agent_message.send",
-                    {"message": "ping", "receiver_role": "relative", "receiver_name": "helper"},
+                    {"message": "ping", "receiver_role": "child", "receiver_name": "helper"},
                 ),
             ],
         )
@@ -51,8 +51,9 @@ class AgentMessageSkillTest(unittest.TestCase):
             asyncio.run(module.send("hello"))
         with self.assertRaisesRegex(ValueError, "omitted"):
             asyncio.run(module.send("hello", receiver_role="parent", receiver_name="x"))
-        with self.assertRaisesRegex(ValueError, "receiver_role must be"):
-            asyncio.run(module.send("hello", receiver_role="uncle", receiver_name="x"))
+        for role in ("sibling", "relative", "uncle"):
+            with self.assertRaisesRegex(ValueError, 'receiver_role must be "parent" or "child"'):
+                asyncio.run(module.send("hello", receiver_role=role, receiver_name="x"))
         with self.assertRaisesRegex(TypeError, "unexpected keyword argument 'mode'"):
             asyncio.run(module.send("hello", receiver_role="parent", mode="follow_up"))
 

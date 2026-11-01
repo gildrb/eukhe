@@ -12,13 +12,12 @@ use std::path::Path;
 use eukhe_core::agent_messaging::{
     agent_session_message_report, assert_agent_message_queue_capacity,
     create_agent_session_message_id, create_agent_session_message_row,
-    normalize_agent_session_message, AgentFamilyRelationship, AgentMessagePromptPayload,
-    AgentSessionMessageRowPayload, AGENT_MESSAGE_SOURCE,
-    DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
+    normalize_agent_session_message, AgentMessagePromptPayload, AgentSessionMessageRowPayload,
+    AGENT_MESSAGE_SOURCE, DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
 };
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_durable::harness::{Conversation, Harness};
-use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::input_origin::{InputOrigin, Kin};
 use serde_json::{json, Value};
 
 use crate::worker::InputRequest;
@@ -115,22 +114,34 @@ impl AgentMessageDelivery {
             .find_map(|key| sender.get(*key).and_then(Value::as_str))
             .unwrap_or("unknown")
             .to_string();
-        let from_relationship =
-            sender_parent_edge_is(&sender, recipient).then_some(AgentFamilyRelationship::Child);
+        // The supervisor admits an agent's message only along a parent
+        // edge (`eukhe_bend::rules::kin`): an agent sender whose recorded
+        // parent is this recipient is its child, any other agent sender
+        // is its parent, and a sender without a session is a user.
+        let from = if sender_parent_edge_is(&sender, recipient) {
+            Kin::Child
+        } else if sender
+            .get("activeSessionId")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            Kin::Parent
+        } else {
+            Kin::User
+        };
         assert_agent_message_queue_capacity(pending, DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION)
             .map_err(|source| DeliveryRefusal::QueueFull { source })?;
-        let child_sender_ids =
-            (from_relationship == Some(AgentFamilyRelationship::Child)).then(|| {
-                ["activeSessionId", "sessionId"]
-                    .iter()
-                    .filter_map(|key| sender.get(*key).and_then(Value::as_str))
-                    .map(str::to_string)
-                    .collect()
-            });
+        let child_sender_ids = (from == Kin::Child).then(|| {
+            ["activeSessionId", "sessionId"]
+                .iter()
+                .filter_map(|key| sender.get(*key).and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        });
         let report = agent_session_message_report(&AgentMessagePromptPayload {
             message: message.to_string(),
             sender_name,
-            from_relationship,
+            from,
         });
         let prompt = report.render(message);
         let id = create_agent_session_message_id();
@@ -139,7 +150,7 @@ impl AgentMessageDelivery {
             prompt: &prompt,
             message,
             from: &sender,
-            from_relationship,
+            from_kin: from,
             target: Some(&target),
             timestamp: crate::util::now_ms(),
         });
@@ -196,8 +207,11 @@ impl AgentMessageDelivery {
     }
 
     /// The receipt of the admitted message, by whether the recipient was
-    /// running when it arrived.
+    /// running when it arrived: the landing is the compiled Bend core's
+    /// (`eukhe_bend::rules::kin::land`, law `kin_wake`); a woken parked
+    /// recipient arrives here idle.
     pub(crate) fn receipt(&self, run: RecipientRun) -> Value {
+        use eukhe_bend::rules::kin::{land, Landing, TargetState};
         let timestamp = crate::util::now_iso();
         let mut receipt = json!({
             "id": self.id,
@@ -206,12 +220,16 @@ impl AgentMessageDelivery {
             "message": self.message,
             "deliveryMode": self.delivery_mode,
         });
-        match run {
-            RecipientRun::Busy => {
+        let state = match run {
+            RecipientRun::Busy => TargetState::Busy,
+            RecipientRun::Idle => TargetState::Idle,
+        };
+        match land(state) {
+            Landing::Queue => {
                 receipt["deliveryStatus"] = json!("queued");
                 receipt["queuedAt"] = json!(timestamp);
             }
-            RecipientRun::Idle => {
+            Landing::Deliver | Landing::WakeThenDeliver => {
                 receipt["deliveryStatus"] = json!("delivered");
                 receipt["deliveredAt"] = json!(timestamp);
             }

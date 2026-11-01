@@ -147,7 +147,6 @@ export type SessionEvent =
   | { type: "goal_update"; goal: unknown }
   | { type: "chat_turn_wait"; waiting: boolean }
   | { type: "memory_update"; update: unknown }
-  | { type: "agent_relay"; from: string; to: string; text: string }
   | { type: "bash_start"; command: string }
   | { type: "bash_output"; chunk: string }
   | { type: "bash_end"; errorMessage?: string }

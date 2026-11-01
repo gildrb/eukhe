@@ -36,7 +36,7 @@ eukhe dashboard  # open the session in a browser; on the phone: porthmeus eukhe 
 
 ## Agents
 
-- The agent spawns subagents (`rlm.spawn` in its Python REPL) and messages any agent of its family from the prompt: `@name message`.
+- The agent spawns subagents (`rlm.spawn` in its Python REPL) and messages its parent or its own children from the prompt: `@name message`.
 - `/agents`: list and open the session's agents.
 - `/autoresearch <goal>`: an experiment loop on an `autoresearch/*` branch; it keeps (commits) only measured improvements. `/autoresearch off|status|clear`.
 

@@ -217,9 +217,10 @@ async fn spawn_settled_child(children: &SupervisorChildSessions) -> RlmChildSess
 }
 
 /// A settled RLM child's whole-worker idle passivation: the stop keeps
-/// the parent's roster row (done — the POSITIVE verdict), the parent's
-/// `agent_message.send` WAKES a fresh worker over the child's session
-/// file and delivers.
+/// the parent's roster row (done — the POSITIVE verdict), and the
+/// parent's `agent_message.send` passes the kin check, WAKES a fresh
+/// worker over the child's session file and delivers it labeled as the
+/// parent's.
 #[tokio::test]
 async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -458,6 +459,11 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    let delivered = storage_text(&child_storage);
+    assert!(
+        delivered.contains("[agent-message from parent:"),
+        "the woken child reads the message as its parent's: {delivered}"
+    );
 }
 
 /// A durable session's stored text: every file of its storage directory

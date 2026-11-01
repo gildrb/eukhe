@@ -887,9 +887,6 @@ impl SessionUi {
             TurnUpdate::MemoryUpdate(update) => {
                 self.apply_memory_update(&update, view);
             }
-            TurnUpdate::AgentRelay(relay) => {
-                self.apply_agent_relay(relay, view);
-            }
             TurnUpdate::BashStart {
                 command,
                 exclude_from_context,

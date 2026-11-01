@@ -112,7 +112,6 @@ pub struct DaemonEventMeta {
     pub replayed: Option<bool>,
 }
 
-mod agent_relay;
 pub mod agent_roster;
 mod chat_view;
 mod command;
@@ -128,7 +127,6 @@ mod state_tree;
 pub mod timing;
 mod worker;
 
-pub use agent_relay::AgentRelayEvent;
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     AdmissionPriority, AgentPeerScope, CycleDirection, DaemonClientKind, DaemonCommand,

@@ -1,8 +1,8 @@
 //! The agent family in the inline transcript: the `you -> worker-1:` echo
 //! of an `@name message` the user sent to another agent, the dim
-//! `worker-1 -> worker-2:` rows of relayed peer messages, and the
-//! `/agents` roster. All of it is client-side display only: never sent to
-//! a model, never logged into the chat.
+//! `worker-1 -> you:` row of that agent's reply, and the `/agents`
+//! roster. All of it is client-side display only: never sent to a model,
+//! never logged into the chat.
 //!
 //! The family is the current session's roster subtree (the same
 //! descendants the activity dock counts). An agent is addressed the way
@@ -14,7 +14,6 @@
 use serde_json::Value;
 
 use eukhe_types::daemon::agent_roster::{summary_admission, AgentRosterStatus, ModelAdmission};
-use eukhe_types::daemon::AgentRelayEvent;
 
 use crate::autocomplete::CompletionItem;
 use crate::chat::Detail;
@@ -34,8 +33,8 @@ pub enum SwarmRow {
     /// The user's `@name message`, delivered to `to` instead of the main
     /// model.
     Sent { to: String, text: String },
-    /// A message one non-root agent of the family sent another.
-    Relay(AgentRelayEvent),
+    /// An agent's answer to the user's `@name` message.
+    Reply { from: String, text: String },
     /// The `/agents` answer: the family, in tree order.
     Roster(Vec<RosterLine>),
 }
@@ -91,7 +90,7 @@ fn session_name(entry: &Value) -> Option<&str> {
     field(&entry["summary"], "sessionName")
 }
 
-/// The display name the relay rows use (the session name, else the
+/// The display name the family rows use (the session name, else the
 /// active session id, else the roster agent id).
 #[must_use]
 pub(crate) fn agent_name(entry: &Value) -> String {
@@ -399,12 +398,11 @@ fn sent_rows(to: &str, text: &str, theme: &Theme, width: usize) -> Vec<Line> {
     out
 }
 
-fn relay_rows(relay: &AgentRelayEvent, detail: Detail, theme: &Theme, width: usize) -> Vec<Line> {
+fn reply_rows(from: &str, text: &str, detail: Detail, theme: &Theme, width: usize) -> Vec<Line> {
     let dim = theme.fg_style(ThemeColor::Dim);
-    let head = format!("{} {ARROW} {}:", relay.from, relay.to);
+    let head = format!("{from} {ARROW} you:");
     match detail {
-        Detail::All => relay
-            .text
+        Detail::All => text
             .split('\n')
             .enumerate()
             .flat_map(|(index, paragraph)| {
@@ -417,7 +415,7 @@ fn relay_rows(relay: &AgentRelayEvent, detail: Detail, theme: &Theme, width: usi
             })
             .collect(),
         Detail::Overview | Detail::Details => {
-            let mut lines = relay.text.lines().filter(|line| !line.trim().is_empty());
+            let mut lines = text.lines().filter(|line| !line.trim().is_empty());
             let first = lines.next().unwrap_or_default().trim();
             let more = if lines.next().is_some() { ELLIPSIS } else { "" };
             let row: Line = vec![
@@ -507,7 +505,7 @@ pub(crate) fn render_swarm_row(
     }
     out.extend(match row {
         SwarmRow::Sent { to, text } => sent_rows(to, text, theme, width),
-        SwarmRow::Relay(relay) => relay_rows(relay, detail, theme, width),
+        SwarmRow::Reply { from, text } => reply_rows(from, text, detail, theme, width),
         SwarmRow::Roster(lines) => roster_rows(lines, theme, width),
     });
     out

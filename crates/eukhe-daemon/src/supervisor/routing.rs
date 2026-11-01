@@ -1125,7 +1125,10 @@ impl Supervisor {
     /// ever wake.
     pub(super) async fn wake_saved_session(self: &Arc<Self>, selector: &str) -> WakeRoute {
         let resolve_error = anyhow!("Unknown active session: {selector}");
-        match self.wake_saved_target(&resolve_error, selector, None).await {
+        match self
+            .wake_saved_target(&resolve_error, selector, None, None)
+            .await
+        {
             crate::messaging::WakeOutcome::Woken(resident) => WakeRoute::Woken(resident),
             crate::messaging::WakeOutcome::Unknown => {
                 // The routing selector is the session's ACTIVE id (the

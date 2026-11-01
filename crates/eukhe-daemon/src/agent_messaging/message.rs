@@ -1,10 +1,8 @@
-//! The `agent_message.send` controller (moved with its concern): the family
-//! roster + message delivery through the supervisor, the direct peer
-//! transport with the supervisor-routed fallback, the root relay of
-//! mesh traffic, and the wire receipt mapping.
-use std::collections::HashMap;
-
-use super::family::{family_of, row_active_id, row_display_name, row_is_subagent, row_target};
+//! The `agent_message.send` controller (moved with its concern): the
+//! parent and children roster + message delivery through the supervisor,
+//! the direct peer transport with the supervisor-routed fallback, and the
+//! wire receipt mapping.
+use super::family::{family_of, row_active_id, row_target};
 use super::{
     json, row_str, AgentFamilyMember, AgentFamilyRelationship, AgentMessageController,
     AgentMessageDeliveryStatus, AgentMessageReceipt, AgentMessageSendInput, Arc, FamilyIdentity,
@@ -29,9 +27,6 @@ pub struct LinkAgentMessageController {
     /// This session's resident RLM children (the same registry
     /// `rlm.list_subagents` reads); `None` for standalone workers.
     pub(super) children: Option<Arc<crate::rlm_children::SupervisorChildSessions>>,
-    /// The relay facts of the last `family()` read (the root and the
-    /// display names a send between two non-root agents relays with).
-    pub(super) relay: std::sync::Mutex<Option<RelayView>>,
 }
 
 impl LinkAgentMessageController {
@@ -48,57 +43,7 @@ impl LinkAgentMessageController {
             worker_token,
             own_summary,
             children,
-            relay: std::sync::Mutex::new(None),
         }
-    }
-}
-
-/// The family facts a send relays to the root with: the family root's
-/// live session, the sender's display name and whether it is a subagent,
-/// and every member target's display name and subagent-ness.
-#[derive(Debug, Clone, Default)]
-pub(super) struct RelayView {
-    root_active_session_id: Option<String>,
-    own_name: String,
-    own_is_subagent: bool,
-    targets: HashMap<String, RelayTarget>,
-}
-
-/// One member target's relay facts.
-#[derive(Debug, Clone)]
-struct RelayTarget {
-    name: String,
-    is_subagent: bool,
-}
-
-/// One root relay of a delivered send.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Relay {
-    root_active_session_id: String,
-    from: String,
-    to: String,
-}
-
-impl RelayView {
-    /// The relay of a send to `target`: only between two non-root agents,
-    /// and only when the family root is resident (and is neither end).
-    fn relay_for(&self, target: &str) -> Option<Relay> {
-        if !self.own_is_subagent {
-            return None;
-        }
-        let member = self
-            .targets
-            .get(target)
-            .filter(|member| member.is_subagent)?;
-        let root = self
-            .root_active_session_id
-            .as_deref()
-            .filter(|root| *root != target)?;
-        Some(Relay {
-            root_active_session_id: root.to_string(),
-            from: self.own_name.clone(),
-            to: member.name.clone(),
-        })
     }
 }
 
@@ -106,12 +51,9 @@ impl RelayView {
 /// `get_direct_worker_transport` window).
 const PEER_TICKET_TIMEOUT_MS: u64 = 5_000;
 
-/// Budget for the root relay of a delivered send.
-const RELAY_TIMEOUT_MS: u64 = 5_000;
-
 /// The supervisor roster read behind `family()`: every roster row (live
 /// sessions, seeded passivated children, and the caller's own row), so
-/// the mesh reaches idle and passivated members too.
+/// idle and passivated parents and children are reached too.
 async fn roster_summaries(
     link: &Arc<crate::supervisor_link::SupervisorLink>,
     worker_token: &str,
@@ -150,13 +92,11 @@ fn push_alias(aliases: &mut Vec<String>, id: &str, alias: &str) {
     }
 }
 
-/// The member order: parent, siblings, children, relatives (each by name).
+/// The member order: the parent, then the children (each by name).
 fn relationship_rank(relationship: AgentFamilyRelationship) -> u8 {
     match relationship {
         AgentFamilyRelationship::Parent => 0,
-        AgentFamilyRelationship::Sibling => 1,
-        AgentFamilyRelationship::Child => 2,
-        AgentFamilyRelationship::Relative => 3,
+        AgentFamilyRelationship::Child => 1,
     }
 }
 
@@ -178,7 +118,6 @@ impl AgentMessageController for LinkAgentMessageController {
             children.iter().any(|child| registry_owns(child, row))
         });
         let mut members = Vec::with_capacity(family.members.len() + children.len());
-        let mut targets = HashMap::new();
         for family_row in &family.members {
             let session = &sessions[family_row.index];
             let Some(id) = row_target(session) else {
@@ -213,13 +152,6 @@ impl AgentMessageController for LinkAgentMessageController {
                     push_alias(&mut aliases, &id, alias);
                 }
             }
-            targets.insert(
-                id.clone(),
-                RelayTarget {
-                    name: name.clone().unwrap_or_else(|| id.clone()),
-                    is_subagent: registry_child.is_some() || row_is_subagent(session),
-                },
-            );
             members.push(AgentFamilyMember {
                 relationship: family_row.relationship,
                 id,
@@ -251,13 +183,6 @@ impl AgentMessageController for LinkAgentMessageController {
                 .as_deref()
                 .zip(name.as_deref())
                 .map(|(parent, name)| format!("{parent}/{name}"));
-            targets.insert(
-                id.clone(),
-                RelayTarget {
-                    name: name.clone().unwrap_or_else(|| id.clone()),
-                    is_subagent: true,
-                },
-            );
             members.push(AgentFamilyMember {
                 relationship: AgentFamilyRelationship::Child,
                 id,
@@ -270,24 +195,6 @@ impl AgentMessageController for LinkAgentMessageController {
             relationship_rank(left.relationship)
                 .cmp(&relationship_rank(right.relationship))
                 .then_with(|| left.member_name().cmp(right.member_name()))
-        });
-        let own_name = identity
-            .session_name
-            .clone()
-            .or_else(|| {
-                family
-                    .own_index
-                    .and_then(|index| row_display_name(&sessions[index]))
-            })
-            .unwrap_or_else(|| self.active_session_id.clone());
-        *self
-            .relay
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(RelayView {
-            root_active_session_id: family.root_active_session_id,
-            own_name,
-            own_is_subagent: !identity.is_top_level(),
-            targets,
         });
         Ok(members)
     }
@@ -310,7 +217,6 @@ impl AgentMessageController for LinkAgentMessageController {
             DirectDelivery::Unavailable => self.deliver_via_supervisor(input.clone()).await?,
             DirectDelivery::Failed(error) => return Err(anyhow::anyhow!(error)),
         };
-        self.relay_to_root(&input).await;
         Ok(receipt)
     }
 }
@@ -411,40 +317,6 @@ impl LinkAgentMessageController {
             .await?;
         receipt_from_wire(&data, input)
             .ok_or_else(|| anyhow::anyhow!("Supervisor returned an invalid agent-message receipt"))
-    }
-
-    /// Relay a delivered send between two non-root agents to the family
-    /// root (the display-only `agent_relay` event its clients render),
-    /// from the last `family()` read. Best-effort: a relay failure is
-    /// logged and never fails the delivered send.
-    async fn relay_to_root(&self, input: &AgentMessageSendInput) {
-        let relay = self
-            .relay
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .and_then(|view| view.relay_for(&input.target));
-        let Some(relay) = relay else {
-            return;
-        };
-        let sent = self
-            .link
-            .request_success(
-                json!({
-                    "type": "agent_relay",
-                    "activeSessionId": relay.root_active_session_id,
-                    "from": relay.from,
-                    "to": relay.to,
-                    "text": input.message,
-                }),
-                std::time::Duration::from_millis(RELAY_TIMEOUT_MS),
-            )
-            .await;
-        if let Err(error) = sent {
-            eprintln!(
-                "eukhe-daemon worker: relaying the agent message to the family root failed: {error:#}"
-            );
-        }
     }
 
     /// This session's durable family identity from its own pushed summary:

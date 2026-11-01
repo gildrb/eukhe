@@ -649,11 +649,6 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
       };
     case "memory_update":
       return { ...session, memory: { stamp: session.memory.stamp + 1, last: event.update } };
-    case "agent_relay":
-      return {
-        ...session,
-        notes: note(session, "relay", `${event.from} → ${event.to}: ${event.text}`, now),
-      };
     case "bash_start":
       return { ...session, bash: { command: event.command, output: "", startedAt: now } };
     case "bash_output": {

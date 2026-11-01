@@ -152,7 +152,6 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetStateRewindPlan { .. } => "get_state_rewind_plan",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
-        DaemonCommand::AgentRelay { .. } => "agent_relay",
         DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
         DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",

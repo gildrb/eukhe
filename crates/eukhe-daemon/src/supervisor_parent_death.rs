@@ -209,8 +209,8 @@ impl Supervisor {
     /// The resident workers whose durable create names `parent_id` as
     /// their RLM parent. The join is the runtime metadata's
     /// `parentActiveSessionId` alone (TS
-    /// `getChildActiveSessionStates`): a depth-0 `rlm.create_session`
-    /// root carries no parent link and never matches, and a resumed or
+    /// `getChildActiveSessionStates`): a top-level session carries no
+    /// parent link and never matches, and a resumed or
     /// forked copy of the parent's session file under another worker
     /// must never adopt another worker's children.
     async fn resident_children_of(&self, parent_id: &str) -> Vec<Arc<ResidentWorker>> {
@@ -229,8 +229,8 @@ impl Supervisor {
 /// Whether one resident's durable create names `parent_id` as its RLM
 /// parent: the supervisor-side copy of the TS create `runtimeMetadata`
 /// (`parentActiveSessionId`, the field `getChildActiveSessionStates`
-/// joins on). A top-level session and a depth-0 `rlm.create_session`
-/// root carry no `parentActiveSessionId` and never match.
+/// joins on). A top-level session carries no `parentActiveSessionId` and
+/// never matches.
 fn child_names_parent(descriptor: &DaemonWorkerDescriptor, parent_id: &str) -> bool {
     descriptor
         .create_command
@@ -294,8 +294,7 @@ mod tests {
     fn a_top_level_session_never_matches_a_parent() {
         // No runtime metadata: a plain top-level session create.
         assert!(!child_names_parent(&descriptor(None), "parent-root"));
-        // A depth-0 `rlm.create_session` root carries metadata with no
-        // parent link.
+        // Runtime metadata without a parent link never matches either.
         let root = descriptor(Some(json!({ "kind": "root" })));
         assert!(!child_names_parent(&root, "parent-root"));
     }

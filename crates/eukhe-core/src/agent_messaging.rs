@@ -5,7 +5,7 @@
 
 use std::future::Future;
 
-use eukhe_types::input_origin::Report;
+use eukhe_types::input_origin::{Kin, Report};
 use serde_json::{json, Value};
 
 use crate::kernel::shared::{host_handler, HostRequestHandlers};
@@ -36,15 +36,12 @@ pub const AGENT_REPLY_CUSTOM_TYPE: &str = "agent_reply";
 /// `details.replyTo`).
 pub const AGENT_REPLY_OWED_CUSTOM_TYPE: &str = "agent_reply_owed";
 
-/// Family relationships between agents. A family is every agent under one
-/// root session; `Relative` is a member outside the nuclear family (a
-/// grandparent, a cousin, a grandchild) the mesh still reaches.
+/// The two relationships an agent messages along: its parent and its own
+/// children. Agents never reach siblings, relatives, or other trees.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentFamilyRelationship {
     Parent,
-    Sibling,
     Child,
-    Relative,
 }
 
 impl std::fmt::Display for AgentFamilyRelationship {
@@ -58,9 +55,7 @@ impl AgentFamilyRelationship {
     pub fn as_str(&self) -> &'static str {
         match self {
             AgentFamilyRelationship::Parent => "parent",
-            AgentFamilyRelationship::Sibling => "sibling",
             AgentFamilyRelationship::Child => "child",
-            AgentFamilyRelationship::Relative => "relative",
         }
     }
 
@@ -68,9 +63,7 @@ impl AgentFamilyRelationship {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "parent" => Some(AgentFamilyRelationship::Parent),
-            "sibling" => Some(AgentFamilyRelationship::Sibling),
             "child" => Some(AgentFamilyRelationship::Child),
-            "relative" => Some(AgentFamilyRelationship::Relative),
             _ => None,
         }
     }
@@ -119,9 +112,8 @@ pub struct AgentMessageReceipt {
     pub queued_at: Option<String>,
 }
 
-/// One addressable family member (TS `AgentFamilyMember`): any agent of the
-/// caller's family (every agent under the same root session), keyed by a
-/// routable target selector.
+/// One addressable member (TS `AgentFamilyMember`): the caller's parent or
+/// one of its own children, keyed by a routable target selector.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentFamilyMember {
     pub relationship: AgentFamilyRelationship,
@@ -137,8 +129,7 @@ pub struct AgentFamilyMember {
     /// one-per-member.
     pub aliases: Vec<String>,
     /// The `parent/child` path form (the parent's name, `/`, this
-    /// member's name) that disambiguates a name two branches share;
-    /// `None` for a member without a named parent.
+    /// member's name); `None` for a member without a named parent.
     pub path: Option<String>,
 }
 
@@ -161,10 +152,8 @@ impl AgentFamilyMember {
 
 /// The controller the daemon supplies for `agent_message.*` requests.
 pub trait AgentMessageController: Send + Sync {
-    /// The addressable family (TS `controller.family()`): every agent under
-    /// this session's root (labeled parent, sibling, child, or relative),
-    /// plus the other root sessions when this session is a root, excluding
-    /// the session itself.
+    /// The addressable members (TS `controller.family()`): this session's
+    /// parent and its own children, never the session itself.
     fn family(&self) -> impl Future<Output = anyhow::Result<Vec<AgentFamilyMember>>> + Send;
     fn send_agent_message(
         &self,
@@ -173,11 +162,12 @@ pub trait AgentMessageController: Send + Sync {
 }
 
 /// Message payload for the rendered `[agent-message from ...]` prompt.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AgentMessagePromptPayload {
     pub message: String,
     pub sender_name: String,
-    pub from_relationship: Option<AgentFamilyRelationship>,
+    /// Who the sender is to the recipient.
+    pub from: Kin,
 }
 
 #[must_use]
@@ -290,11 +280,10 @@ pub fn agent_session_message_report(payload: &AgentMessagePromptPayload) -> Repo
     } else {
         sender
     };
-    let sender = match payload.from_relationship {
-        Some(relationship) => format!("{}:{sender}", relationship.as_str()),
-        None => sender,
-    };
-    Report::AgentMessage { sender }
+    Report::AgentMessage {
+        from: payload.from,
+        name: sender,
+    }
 }
 
 /// The model text of an [`AGENT_REPLY_CUSTOM_TYPE`] row:
@@ -322,7 +311,9 @@ pub struct AgentSessionMessageRowPayload<'a> {
     pub message: &'a str,
     /// The sender endpoint (TS `details.from`).
     pub from: &'a Value,
-    pub from_relationship: Option<AgentFamilyRelationship>,
+    /// Who the sender is to the recipient (`details.fromRelationship`
+    /// names a parent or a child; a user's message carries none).
+    pub from_kin: Kin,
     /// The receiver endpoint (TS `details.target`); `None` omits the key
     /// (TS `spawnMessage` carries none).
     pub target: Option<&'a Value>,
@@ -341,8 +332,14 @@ pub fn create_agent_session_message_row(payload: &AgentSessionMessageRowPayload<
     details.insert("id".to_string(), json!(payload.id));
     details.insert("message".to_string(), json!(payload.message));
     details.insert("from".to_string(), payload.from.clone());
-    if let Some(relationship) = payload.from_relationship {
-        details.insert("fromRelationship".to_string(), json!(relationship.as_str()));
+    match payload.from_kin {
+        Kin::Parent => {
+            details.insert("fromRelationship".to_string(), json!("parent"));
+        }
+        Kin::Child => {
+            details.insert("fromRelationship".to_string(), json!("child"));
+        }
+        Kin::User => {}
     }
     if let Some(target) = payload.target {
         details.insert("target".to_string(), target.clone());
@@ -394,19 +391,16 @@ fn receipt_value(receipt: &AgentMessageReceipt) -> Value {
     })
 }
 
-/// The receiver an addressed `agent_message.send` names.
+/// The receiver an addressed `agent_message.send` names: the parent, or
+/// one of the caller's own children.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentMessageReceiver {
-    /// The unique parent (`receiver_role="parent"`, no name).
+    /// The parent (`receiver_role="parent"`, no name).
     Parent,
-    /// One member of `role` by selector (`receiver_role` + `receiver_name`).
-    Role {
-        role: AgentFamilyRelationship,
-        selector: String,
-    },
-    /// Any family member by selector (`receiver_name` alone): its name,
-    /// one of its ids, or its `parent/child` path.
-    Anyone { selector: String },
+    /// One own child by selector (`receiver_name`, with or without
+    /// `receiver_role="child"`): its name, one of its ids, or its
+    /// `parent/child` path.
+    Child { selector: String },
 }
 
 /// Parse the addressed-send fields of an `agent_message.send` payload.
@@ -414,14 +408,14 @@ pub enum AgentMessageReceiver {
 /// # Errors
 ///
 /// Returns the contract error for an unknown `receiver_role`, a parent
-/// send carrying a name, or a missing/empty `receiver_name`.
+/// send carrying a name, or a child send without a `receiver_name`.
 pub fn parse_receiver(data: &Value) -> anyhow::Result<AgentMessageReceiver> {
     let role = match data.get("receiver_role").filter(|value| !value.is_null()) {
         None => None,
         Some(value) => match value.as_str().and_then(AgentFamilyRelationship::parse) {
             Some(role) => Some(role),
             None => anyhow::bail!(
-                "agent_message.send receiver_role must be \"parent\", \"sibling\", \"child\", or \"relative\""
+                "agent_message.send receiver_role must be \"parent\" or \"child\"; agents message only their parent and their own children"
             ),
         },
     };
@@ -432,28 +426,24 @@ pub fn parse_receiver(data: &Value) -> anyhow::Result<AgentMessageReceiver> {
         }
         return Ok(AgentMessageReceiver::Parent);
     }
-    let selector = receiver_name
+    match receiver_name
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .map(str::to_string);
-    match (role, selector) {
-        (Some(role), Some(selector)) => Ok(AgentMessageReceiver::Role { role, selector }),
-        (None, Some(selector)) => Ok(AgentMessageReceiver::Anyone { selector }),
-        (Some(_), None) => anyhow::bail!(
-            "agent_message.send receiver_name is required for sibling, child, and relative messages"
-        ),
-        (None, None) => anyhow::bail!(
-            "agent_message.send needs receiver_name (an agent name, id, or parent/child path) or receiver_role=\"parent\""
+    {
+        Some(selector) => Ok(AgentMessageReceiver::Child {
+            selector: selector.to_string(),
+        }),
+        None => anyhow::bail!(
+            "agent_message.send needs receiver_role=\"parent\" or receiver_name (one of your children: its name, id, or parent/child path)"
         ),
     }
 }
 
-/// Resolve `receiver` against the caller's family: exactly one member
-/// resolves; none or several is an error. Names are unique family-wide
-/// only by convention (spawn names are unique per parent), so a name two
-/// branches share is ambiguous and the error lists the id and path that
-/// address each candidate.
+/// Resolve `receiver` against the caller's parent and children: exactly
+/// one member resolves; none or several is an error. Spawn names are
+/// unique per parent only by convention, so a name two children share is
+/// ambiguous and the error lists the id that addresses each.
 ///
 /// # Errors
 ///
@@ -466,10 +456,10 @@ pub fn resolve_receiver(
         .into_iter()
         .filter(|member| match receiver {
             AgentMessageReceiver::Parent => member.relationship == AgentFamilyRelationship::Parent,
-            AgentMessageReceiver::Role { role, selector } => {
-                member.relationship == *role && member.matches_selector(selector)
+            AgentMessageReceiver::Child { selector } => {
+                member.relationship == AgentFamilyRelationship::Child
+                    && member.matches_selector(selector)
             }
-            AgentMessageReceiver::Anyone { selector } => member.matches_selector(selector),
         })
         .collect();
     if matches.len() == 1 {
@@ -477,26 +467,14 @@ pub fn resolve_receiver(
     }
     let none = matches.is_empty();
     Err(match receiver {
-        AgentMessageReceiver::Parent => anyhow::anyhow!("No parent matches the current agent"),
-        AgentMessageReceiver::Role { role, selector } if none => {
-            anyhow::anyhow!("No {role} matches \"{selector}\"")
-        }
-        AgentMessageReceiver::Role { role, selector } => {
-            anyhow::anyhow!("{role} selector \"{selector}\" is ambiguous")
-        }
-        AgentMessageReceiver::Anyone { selector } if none => {
-            anyhow::anyhow!("No agent in this family matches \"{selector}\"")
-        }
-        AgentMessageReceiver::Anyone { selector } => {
-            let candidates: Vec<String> = matches
-                .iter()
-                .map(|member| match &member.path {
-                    Some(path) => format!("{} ({path})", member.id),
-                    None => member.id.clone(),
-                })
-                .collect();
+        AgentMessageReceiver::Parent => anyhow::anyhow!("This agent has no parent to message"),
+        AgentMessageReceiver::Child { selector } if none => anyhow::anyhow!(
+            "No child of this agent matches \"{selector}\"; agents message only their parent and their own children"
+        ),
+        AgentMessageReceiver::Child { selector } => {
+            let candidates: Vec<String> = matches.iter().map(|member| member.id.clone()).collect();
             anyhow::anyhow!(
-                "Agent selector \"{selector}\" is ambiguous in this family; address one by id or parent/child path: {}",
+                "Child selector \"{selector}\" is ambiguous; address one by id: {}",
                 candidates.join(", ")
             )
         }
@@ -504,12 +482,11 @@ pub fn resolve_receiver(
 }
 
 /// Register `agent_message.*` handlers onto a handler map. The `send`
-/// contract matches the kernel skill: `receiver_name` alone addresses any
-/// agent of the family (mesh reach: name, id, or `parent/child` path),
-/// `receiver_role` narrows the match to one relationship (`parent` needs
-/// no name), and `target: "all"` is the family-wide broadcast form.
-/// Positional targets other than `"all"` are rejected exactly like the TS
-/// handler.
+/// contract matches the kernel skill: `receiver_role="parent"` addresses
+/// the parent, `receiver_name` (with or without `receiver_role="child"`)
+/// one of the caller's own children (name, id, or `parent/child` path),
+/// and `target: "all"` sends to every own child. Positional targets other
+/// than `"all"` are rejected exactly like the TS handler.
 pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>(
     controller: std::sync::Arc<C>,
     handlers: &mut HostRequestHandlers,
@@ -538,8 +515,8 @@ pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>
                 // TS normalizes inside every send (broadcast included), so
                 // normalizing up front is behaviorally identical.
                 let message = normalize_agent_session_message(message)?;
-                // Broadcast form (`target: "all"`): one send per family
-                // member, all-settled into a receipts array.
+                // Broadcast form (`target: "all"`): one send per own
+                // child, all-settled into a receipts array.
                 if let Some(target) = data.get("target").and_then(Value::as_str) {
                     if target != "all" {
                         return Err(anyhow::anyhow!(
@@ -551,9 +528,14 @@ pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>
                             "agent_message.send broadcast cannot be combined with receiver_role/receiver_name"
                         ));
                     }
-                    let family = controller.family().await?;
-                    let mut receipts = Vec::with_capacity(family.len());
-                    for member in family {
+                    let children: Vec<AgentFamilyMember> = controller
+                        .family()
+                        .await?
+                        .into_iter()
+                        .filter(|member| member.relationship == AgentFamilyRelationship::Child)
+                        .collect();
+                    let mut receipts = Vec::with_capacity(children.len());
+                    for member in children {
                         let result = controller
                             .send_agent_message(AgentMessageSendInput {
                                 target: member.id.clone(),
@@ -571,8 +553,8 @@ pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>
                     }
                     return Ok(json!({ "receipts": receipts }));
                 }
-                // Addressed form: resolve the receiver through the family
-                // roster, then send once.
+                // Addressed form: resolve the receiver among the parent
+                // and the own children, then send once.
                 let receiver = parse_receiver(&data)?;
                 let family = controller.family().await?;
                 let member = resolve_receiver(family, &receiver)?;

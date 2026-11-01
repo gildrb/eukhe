@@ -141,8 +141,8 @@ pub enum ChatEntry {
     /// summary row, the full `<chat>` text when expanded.
     ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
     /// One agent-family row (rendered by the `swarm_block` module): an
-    /// `@name` message the user sent to another agent, a relayed peer
-    /// message, or the `/agents` roster. Display only.
+    /// `@name` message the user sent to another agent, that agent's
+    /// reply, or the `/agents` roster. Display only.
     Swarm(Box<crate::swarm_block::SwarmRow>),
 }
 

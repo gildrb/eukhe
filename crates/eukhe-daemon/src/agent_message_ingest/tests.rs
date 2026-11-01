@@ -117,7 +117,8 @@ async fn status_pause_resume_and_clear_match_ts_shapes() {
 }
 
 /// A follow-up delivery is cleared from the follow-up lane with its prompt
-/// text (TS reports `payload.text`, the created agent-message prompt).
+/// text (TS reports `payload.text`, the created agent-message prompt); an
+/// agent sender that is not the recipient's child is its parent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clear_reports_the_follow_up_lane() {
     let (_dir, worker) = busy_worker().await;
@@ -128,7 +129,7 @@ async fn clear_reports_the_follow_up_lane() {
         cleared.data,
         Some(json!({
             "steering": [],
-            "followUp": ["[agent-message from peer-1]\n\nqueued for later"],
+            "followUp": ["[agent-message from parent:peer-1]\n\nqueued for later"],
         }))
     );
     assert_eq!(worker_inbox(&worker).await, Vec::<(String, String)>::new());

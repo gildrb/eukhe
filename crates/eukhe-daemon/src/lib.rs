@@ -55,6 +55,7 @@ pub mod hold_refusal;
 pub mod input_pause_lease;
 pub mod job_notices;
 pub mod journal;
+pub(crate) mod kin_gate;
 pub mod lease;
 pub mod mcp_connections;
 pub mod mcp_login;

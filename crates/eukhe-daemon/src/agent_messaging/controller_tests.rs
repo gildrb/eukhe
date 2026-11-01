@@ -16,23 +16,17 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// The `agent_relay` commands a fake supervisor received, in order.
-type RelayLog = Arc<std::sync::Mutex<Vec<Value>>>;
-
 /// A scripted JSONL supervisor: answers `list_agent_peers` with a roster,
-/// `get_worker_peer_transport` per script, `send_message` with a TS
-/// receipt addressed to the requested target, and `agent_relay` with
-/// success (recording each relay command).
+/// `get_worker_peer_transport` per script, and `send_message` with a TS
+/// receipt addressed to the requested target.
 async fn spawn_fake_supervisor(
     socket: std::path::PathBuf,
     roster: Value,
     ticket_response: Option<Value>,
-) -> RelayLog {
+) {
     let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
         .await
         .unwrap();
-    let relays = RelayLog::default();
-    let relay_log = Arc::clone(&relays);
     tokio::spawn(async move {
         loop {
             let Ok(stream) = listener.accept().await else {
@@ -40,7 +34,6 @@ async fn spawn_fake_supervisor(
             };
             let roster = roster.clone();
             let ticket_response = ticket_response.clone();
-            let relay_log = Arc::clone(&relay_log);
             tokio::spawn(async move {
                 let (reader, mut writer) = stream.split();
                 let mut reader = BufReader::new(reader);
@@ -93,10 +86,6 @@ async fn spawn_fake_supervisor(
                                 "deliveryMode": "steer",
                             })),
                         ),
-                        "agent_relay" => {
-                            relay_log.lock().unwrap().push(command.clone());
-                            response_success(Some(&id), "agent_relay", None)
-                        }
                         other => response_failure(Some(&id), other, "unexpected command", None),
                     };
                     let mut line = serde_json::to_string(&response).unwrap();
@@ -108,7 +97,6 @@ async fn spawn_fake_supervisor(
             });
         }
     });
-    relays
 }
 
 fn controller(
@@ -121,7 +109,6 @@ fn controller(
         worker_token: "tok-a".to_string(),
         own_summary: Arc::new(std::sync::Mutex::new(own_summary)),
         children: None,
-        relay: std::sync::Mutex::new(None),
     }
 }
 
@@ -180,12 +167,14 @@ fn input() -> AgentMessageSendInput {
     AgentMessageSendInput {
         target: "bbb222".to_string(),
         message: "hello there".to_string(),
-        receiver_role: Some(AgentFamilyRelationship::Sibling),
+        receiver_role: Some(AgentFamilyRelationship::Child),
     }
 }
 
+/// Rows without a parent edge to or from this session never enter its
+/// family: other root sessions are not reachable.
 #[tokio::test]
-async fn family_reads_siblings_from_the_supervisor_roster() {
+async fn family_leaves_other_roots_out() {
     let dir = tempfile::TempDir::new().unwrap();
     let socket = dir.path().join("sup.sock");
     spawn_fake_supervisor(
@@ -199,21 +188,14 @@ async fn family_reads_siblings_from_the_supervisor_roster() {
     )
     .await;
     let controller = controller(socket, None);
-    let family = controller.family().await.unwrap();
-    assert_eq!(family.len(), 2, "{family:?}");
-    assert_eq!(family[0].relationship, AgentFamilyRelationship::Sibling);
-    assert_eq!(family[0].id, "bbb222");
-    assert_eq!(family[0].name.as_deref(), Some("beta"));
-    assert_eq!(family[1].id, "ccc333");
-    assert_eq!(family[1].name, None);
+    assert_eq!(controller.family().await.unwrap(), Vec::new());
 }
 
 /// The family view labels this session's registry children as Child
 /// members (with the RLM child id and persisted session id as alias
-/// selectors) and its own parent as the Parent member; the child row
-/// is not also a sibling. Siblings are the rows sharing this
-/// session's durable parent edge — a top-level row from another
-/// family is NOT a sibling, even with a matching name.
+/// selectors) and its own parent as the Parent member. A sibling (a row
+/// sharing this session's parent) and a top-level row from another
+/// family are not members, even with a matching name.
 #[tokio::test]
 async fn family_labels_children_and_parent_from_the_registry() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -251,30 +233,27 @@ async fn family_labels_children_and_parent_from_the_registry() {
         },
     );
     let family = controller.family().await.unwrap();
-    // TS `selectAgentFamily` order: parent, siblings, children. The
-    // unrelated top-level row (xxx999) never enters the family, and
-    // the second "beta" name cannot cross families.
-    assert_eq!(family.len(), 3, "{family:?}");
-    assert_eq!(family[0].relationship, AgentFamilyRelationship::Parent);
-    assert_eq!(family[0].id, "ppp000");
-    assert_eq!(family[0].name.as_deref(), Some("papa"));
-    assert_eq!(family[1].relationship, AgentFamilyRelationship::Sibling);
-    assert_eq!(family[1].id, "bbb222");
+    // TS `selectAgentFamily` order: parent, then children. Neither the
+    // sibling (bbb222) nor the unrelated top-level row (xxx999) enters.
     assert_eq!(
-        family[2].relationship,
-        AgentFamilyRelationship::Child,
-        "{family:?}"
+        family,
+        vec![
+            AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Parent,
+                id: "ppp000".to_string(),
+                name: Some("papa".to_string()),
+                aliases: vec!["sess-p".to_string()],
+                path: None,
+            },
+            AgentFamilyMember {
+                relationship: AgentFamilyRelationship::Child,
+                id: "ddd444".to_string(),
+                name: Some("worker-a".to_string()),
+                aliases: vec!["sub-kid1".to_string(), "sess-d".to_string()],
+                path: Some("alpha/worker-a".to_string()),
+            },
+        ]
     );
-    assert_eq!(family[2].id, "ddd444");
-    assert_eq!(family[2].name.as_deref(), Some("worker-a"));
-    assert_eq!(family[2].aliases, vec!["sub-kid1", "sess-d"]);
-    // No member duplicates the child as a sibling; no other family's
-    // session appears in any role.
-    assert!(!family
-        .iter()
-        .any(|member| member.id == "ddd444"
-            && member.relationship == AgentFamilyRelationship::Sibling));
-    assert!(!family.iter().any(|member| member.id == "xxx999"));
 }
 
 /// A child resolves its parent by the persisted session id too (the
@@ -355,10 +334,7 @@ async fn refused_ticket_falls_back_to_the_supervisor_route() {
         AgentMessageDeliveryStatus::Delivered
     );
     assert_eq!(receipt.message, "hello there");
-    assert_eq!(
-        receipt.receiver_role,
-        Some(AgentFamilyRelationship::Sibling)
-    );
+    assert_eq!(receipt.receiver_role, Some(AgentFamilyRelationship::Child));
 }
 
 /// The self-target guard answers with the TS string before any wire
@@ -542,11 +518,10 @@ fn same_session_file_resolves_the_storage_root_alias() {
     ));
 }
 
-/// The observe roster is the caller's nuclear family with
-/// edge-derived labels: its own row carries `isCurrent`, its parent
-/// and true siblings label by their durable edges, and subagents
-/// spawned by OTHER parents never appear (the daemon-wide "every
-/// subagent is a child" mislabel regression).
+/// The observe roster is the caller's parent and children with
+/// edge-derived labels plus its own row (`isCurrent`): a sibling, the
+/// subagents spawned by OTHER parents (the daemon-wide "every subagent is
+/// a child" mislabel regression), and other roots never appear.
 #[test]
 fn summaries_label_the_nuclear_family_by_durable_edges() {
     let identity = FamilyIdentity {
@@ -589,7 +564,7 @@ fn summaries_label_the_nuclear_family_by_durable_edges() {
         }),
     ];
     let summaries = summaries_from_roster(&sessions, &identity, &[]);
-    assert_eq!(summaries.len(), 4, "{summaries:?}");
+    assert_eq!(summaries.len(), 3, "{summaries:?}");
     let current = summaries.iter().find(|s| s.is_current).unwrap();
     assert_eq!(current.active_session_id.as_deref(), Some("kid111"));
     assert_eq!(current.relationship, None);
@@ -598,18 +573,16 @@ fn summaries_label_the_nuclear_family_by_durable_edges() {
         .find(|s| s.active_session_id.as_deref() == Some("ppp000"))
         .unwrap();
     assert_eq!(parent.relationship, Some(AgentFamilyRelationship::Parent));
-    let sibling = summaries
+    // The sibling, the other family's subagent and the other root
+    // session are outside the caller's reach: absent, never mislabeled.
+    assert!(!summaries
         .iter()
-        .find(|s| s.active_session_id.as_deref() == Some("sib222"))
-        .unwrap();
-    assert_eq!(sibling.relationship, Some(AgentFamilyRelationship::Sibling));
+        .any(|s| s.active_session_id.as_deref() == Some("sib222")));
     let child = summaries
         .iter()
         .find(|s| s.active_session_id.as_deref() == Some("own333"))
         .unwrap();
     assert_eq!(child.relationship, Some(AgentFamilyRelationship::Child));
-    // The other family's subagent and the other root session are
-    // outside the nuclear family: absent, never mislabeled.
     assert!(!summaries
         .iter()
         .any(|s| s.active_session_id.as_deref() == Some("foreign444")));
@@ -620,9 +593,9 @@ fn summaries_label_the_nuclear_family_by_durable_edges() {
 
 /// A file binding one level down is a Child (a session a user created
 /// under a parent, no spawn ids, exactly like a spawned one); a
-/// same-depth binding — a fork of a non-root session — is neither
-/// the source's child nor a sibling of its children (TS
-/// `selectAgentFamily`).
+/// same-depth binding — a fork of a non-root session — is not the
+/// source's child, and the child never sees its siblings (TS
+/// `selectAgentFamily`, reduced to parent and children).
 #[test]
 fn summaries_bind_a_child_one_level_down_and_leave_a_same_depth_fork_out() {
     let parent = FamilyIdentity {
@@ -662,8 +635,8 @@ fn summaries_bind_a_child_one_level_down_and_leave_a_same_depth_fork_out() {
     );
 
     // From the user child's own view: a binding-only subagent of the
-    // same parent at the same depth is a Sibling; the fork — the
-    // same parent file one level up — is outside the family.
+    // same parent at the same depth is a sibling, outside its reach;
+    // the fork — the same parent file one level up — is outside too.
     let user_child = FamilyIdentity {
         active_session_id: "usr111".to_string(),
         session_id: Some("sess-usr".to_string()),
@@ -691,22 +664,15 @@ fn summaries_bind_a_child_one_level_down_and_leave_a_same_depth_fork_out() {
     ];
     assert_eq!(
         labeled(&sessions, &user_child),
-        vec![
-            (Some("usr111".to_string()), None),
-            (
-                Some("sub333".to_string()),
-                Some(AgentFamilyRelationship::Sibling)
-            ),
-        ]
+        vec![(Some("usr111".to_string()), None)]
     );
 }
 
 /// A depth-0 binding is no parent edge (TS `familyCatalogEntry`): a
-/// root fork names its source at depth 0 yet stays a root — its
-/// source's Sibling, never its Child, and from its own view (built
-/// through `from_summary`, the production path) its source and every
-/// other root are Siblings, never a Parent. A root's user-created
-/// child is still its Child.
+/// root fork names its source at depth 0 yet stays a root — never its
+/// source's Child, and from its own view (built through `from_summary`,
+/// the production path) never a child of its source. A root's
+/// user-created child is still its Child.
 #[test]
 fn summaries_treat_a_root_fork_as_a_root() {
     let parent = FamilyIdentity {
@@ -741,15 +707,11 @@ fn summaries_treat_a_root_fork_as_a_root() {
                 Some("usr111".to_string()),
                 Some(AgentFamilyRelationship::Child)
             ),
-            (
-                Some("frk222".to_string()),
-                Some(AgentFamilyRelationship::Sibling)
-            ),
         ]
     );
 
     // From the root fork's own view: its source and every other root
-    // are Siblings, never a Parent.
+    // are outside its family, never a Parent.
     let fork = FamilyIdentity::from_summary(
         Some(&json!({
             "sessionId": "sess-frk",
@@ -777,22 +739,11 @@ fn summaries_treat_a_root_fork_as_a_root() {
     ];
     assert_eq!(
         labeled(&sessions, &fork),
-        vec![
-            (Some("frk222".to_string()), None),
-            (
-                Some("ppp000".to_string()),
-                Some(AgentFamilyRelationship::Sibling)
-            ),
-            (
-                Some("oth444".to_string()),
-                Some(AgentFamilyRelationship::Sibling)
-            ),
-        ]
+        vec![(Some("frk222".to_string()), None)]
     );
 }
 
-/// A root caller's observe roster lists the other root sessions as
-/// siblings, never another family's subagents, and marks its own row.
+/// A caller's observe roster marks its own row.
 /// TS #2493: observe rows carry the typed family status (the busy
 /// verdict: `running` while work is in flight, `idle` for a
 /// resident-but-quiet session) plus the separate live activity axis —
@@ -877,8 +828,10 @@ fn summaries_carry_the_typed_status_and_activity() {
     assert_eq!(passivated.activity, None);
 }
 
+/// A root caller's observe roster lists neither the other root sessions
+/// nor another family's subagents.
 #[test]
-fn summaries_label_root_siblings_and_never_foreign_children() {
+fn summaries_leave_other_roots_and_foreign_children_out() {
     let identity = FamilyIdentity {
         active_session_id: "root111".to_string(),
         session_id: Some("sess-root".to_string()),
@@ -899,18 +852,10 @@ fn summaries_label_root_siblings_and_never_foreign_children() {
             "runtimeKind": "subagent", "parentActiveSessionId": "root222",
         }),
     ];
-    let summaries = summaries_from_roster(&sessions, &identity, &[]);
-    assert_eq!(summaries.len(), 2, "{summaries:?}");
-    assert!(summaries.iter().any(|s| s.is_current));
-    let sibling = summaries
-        .iter()
-        .find(|s| s.active_session_id.as_deref() == Some("root222"))
-        .unwrap();
-    assert_eq!(sibling.relationship, Some(AgentFamilyRelationship::Sibling));
-    // Another root's subagent child is not this root's child.
-    assert!(!summaries
-        .iter()
-        .any(|s| s.active_session_id.as_deref() == Some("child999")));
+    assert_eq!(
+        labeled(&sessions, &identity),
+        vec![(Some("root111".to_string()), None)]
+    );
 }
 
 /// The peers roster (`list_agent_peers` -> `agent_peer_summary`) carries
@@ -1054,12 +999,10 @@ fn kid_a_summary() -> Option<Value> {
     }))
 }
 
-/// The mesh: a subagent reaches every agent under its root — its parent,
-/// its sibling, and a cousin on the other branch (a relative, named by
-/// its `parent/child` path too) — and a name-addressed send delivers to
-/// the cousin with the relative label.
+/// A subagent reaches only its parent: its sibling and a cousin on the
+/// other branch are outside its family, by name or path alike.
 #[tokio::test]
-async fn a_subagent_reaches_a_cousin_on_another_branch_by_name() {
+async fn a_subagent_reaches_only_its_parent_and_children() {
     let dir = tempfile::TempDir::new().unwrap();
     let socket = dir.path().join("sup.sock");
     spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
@@ -1067,96 +1010,25 @@ async fn a_subagent_reaches_a_cousin_on_another_branch_by_name() {
     let family = controller.family().await.unwrap();
     assert_eq!(
         family,
-        vec![
-            AgentFamilyMember {
-                relationship: AgentFamilyRelationship::Parent,
-                id: "root00".to_string(),
-                name: Some("boss".to_string()),
-                aliases: vec!["sess-root".to_string()],
-                path: None,
-            },
-            AgentFamilyMember {
-                relationship: AgentFamilyRelationship::Sibling,
-                id: "bbb222".to_string(),
-                name: Some("kid-b".to_string()),
-                aliases: vec!["sess-b".to_string()],
-                path: Some("boss/kid-b".to_string()),
-            },
-            AgentFamilyMember {
-                relationship: AgentFamilyRelationship::Relative,
-                id: "ccc333".to_string(),
-                name: Some("cousin".to_string()),
-                aliases: vec!["sess-c".to_string(), "sub-c".to_string()],
-                path: Some("kid-b/cousin".to_string()),
-            },
-        ]
+        vec![AgentFamilyMember {
+            relationship: AgentFamilyRelationship::Parent,
+            id: "root00".to_string(),
+            name: Some("boss".to_string()),
+            aliases: vec!["sess-root".to_string()],
+            path: None,
+        }]
     );
-    let receiver =
-        eukhe_core::agent_messaging::parse_receiver(&json!({ "receiver_name": "cousin" })).unwrap();
-    let member = eukhe_core::agent_messaging::resolve_receiver(family, &receiver).unwrap();
-    let receipt = controller
-        .send_agent_message(AgentMessageSendInput {
-            target: member.id,
-            message: "hello there".to_string(),
-            receiver_role: Some(member.relationship),
-        })
-        .await
-        .unwrap();
-    assert_eq!(receipt.target, "ccc333");
-    assert_eq!(
-        receipt.receiver_role,
-        Some(AgentFamilyRelationship::Relative)
-    );
-}
-
-/// A name that only exists under another root is outside the family:
-/// the mesh never crosses families.
-#[tokio::test]
-async fn a_name_under_another_root_is_rejected() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let socket = dir.path().join("sup.sock");
-    spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
-    let controller = controller(socket, kid_a_summary());
-    let family = controller.family().await.unwrap();
-    let receiver =
-        eukhe_core::agent_messaging::parse_receiver(&json!({ "receiver_name": "stranger" }))
-            .unwrap();
-    let error = eukhe_core::agent_messaging::resolve_receiver(family, &receiver).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "No agent in this family matches \"stranger\""
-    );
-}
-
-/// A delivered send between two non-root agents is relayed to the
-/// resident family root exactly once; a send to the root relays nothing.
-#[tokio::test]
-async fn a_cross_branch_send_relays_to_the_root_once() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let socket = dir.path().join("sup.sock");
-    let relays = spawn_fake_supervisor(socket.clone(), mesh_roster(), None).await;
-    let controller = controller(socket, kid_a_summary());
-    controller.family().await.unwrap();
-    for target in ["ccc333", "root00"] {
-        controller
-            .send_agent_message(AgentMessageSendInput {
-                target: target.to_string(),
-                message: "hello there".to_string(),
-                receiver_role: None,
-            })
-            .await
-            .unwrap();
+    for selector in ["kid-b", "cousin", "kid-b/cousin", "stranger"] {
+        let receiver =
+            eukhe_core::agent_messaging::parse_receiver(&json!({ "receiver_name": selector }))
+                .unwrap();
+        let error =
+            eukhe_core::agent_messaging::resolve_receiver(family.clone(), &receiver).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("No child of this agent matches \"{selector}\"; agents message only their parent and their own children")
+        );
     }
-    assert_eq!(
-        *relays.lock().unwrap(),
-        vec![json!({
-            "type": "agent_relay",
-            "activeSessionId": "root00",
-            "from": "kid-a",
-            "to": "cousin",
-            "text": "hello there",
-        })]
-    );
 }
 
 /// The spawn cap's family view: the running subagents of the caller's
@@ -1172,14 +1044,14 @@ fn running_family_subagents_cover_the_whole_family() {
     );
 }
 
-/// The observe roster spans the family mesh: the cousin on the other
-/// branch is a relative carrying its roster note; the other root's
-/// family stays out.
+/// The observe roster is the caller's parent and children: from `kid-b`,
+/// the root, its own row and its child carrying the roster note; its
+/// sibling and the other root's family stay out.
 #[test]
-fn summaries_reach_relatives_with_their_notes() {
+fn summaries_reach_parent_and_children_with_their_notes() {
     let roster = mesh_roster();
     let sessions = roster["sessions"].as_array().unwrap().clone();
-    let identity = FamilyIdentity::from_summary(kid_a_summary().as_ref(), "aaa111");
+    let identity = FamilyIdentity::from_summary(Some(&sessions[2]), "bbb222");
     let summaries = summaries_from_roster(&sessions, &identity, &[]);
     assert_eq!(
         summaries
@@ -1196,15 +1068,10 @@ fn summaries_reach_relatives_with_their_notes() {
                 Some(AgentFamilyRelationship::Parent),
                 None
             ),
-            (Some("aaa111".to_string()), None, None),
-            (
-                Some("bbb222".to_string()),
-                Some(AgentFamilyRelationship::Sibling),
-                None
-            ),
+            (Some("bbb222".to_string()), None, None),
             (
                 Some("ccc333".to_string()),
-                Some(AgentFamilyRelationship::Relative),
+                Some(AgentFamilyRelationship::Child),
                 Some("mapping the parser".to_string())
             ),
         ]

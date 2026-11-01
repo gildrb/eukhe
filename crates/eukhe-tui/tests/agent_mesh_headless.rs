@@ -1,8 +1,7 @@
 //! Headless e2e for the agent family in the inline client: `@worker-1
 //! message` goes to that agent (steered, it is generating) and never to
 //! the main model, an unknown `@name` is an error row with the text kept
-//! in the editor, `/agents` prints the family as tree rows, and a relayed
-//! peer message lands as a dim `from -> to:` row.
+//! in the editor, and `/agents` prints the family as tree rows.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
@@ -61,8 +60,7 @@ fn roster() -> Value {
 }
 
 /// Serve one connection: the hello, the attach snapshot, the roster, and
-/// an empty success for everything else; every `prompt` is recorded, and
-/// the one to `worker-1` is followed by a relayed peer message.
+/// an empty success for everything else; every `prompt` is recorded.
 fn serve(listener: &UnixListener) -> Vec<Value> {
     let (stream, _) = listener.accept().expect("accept");
     let mut writer = stream.try_clone().expect("clone mock socket");
@@ -108,21 +106,6 @@ fn serve(listener: &UnixListener) -> Vec<Value> {
                 "data": data,
             }),
         );
-        if command_type == "prompt" {
-            write_json(
-                &mut writer,
-                &json!({
-                    "type": "session_event",
-                    "activeSessionId": "s1",
-                    "event": {
-                        "type": "agent_relay",
-                        "from": "worker-1",
-                        "to": "worker-2",
-                        "text": "found the bug in parse.rs\nfix incoming",
-                    },
-                }),
-            );
-        }
     }
     prompts
 }
@@ -225,9 +208,6 @@ fn at_name_talks_to_an_agent_and_agents_lists_the_family() {
             wait("settled answer"),
             HeadlessStep::Submit("@worker-1 check the tests".to_string()),
             wait("you -> worker-1: check the tests"),
-            // The relay the mock pushes after the delivery: its first
-            // line, dim, display only.
-            wait("worker-1 -> worker-2: found the bug in parse.rs..."),
             HeadlessStep::Submit("/agents".to_string()),
             wait("agents: 2 (1 running)"),
             wait("|- worker-1  running (generating)  depth 1  local  triaged the flaky test"),

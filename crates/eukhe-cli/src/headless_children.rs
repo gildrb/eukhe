@@ -242,13 +242,6 @@ impl RlmSubagentHost for HeadlessChildHost {
         Box::pin(async move { self.supervised().await?.spawn(request).await })
     }
 
-    fn create_session(
-        &self,
-        request: durable::RlmCreateSessionRequest,
-    ) -> durable::RlmHostFuture<'_, durable::RlmCreateSessionHandle> {
-        Box::pin(async move { self.supervised().await?.create_session(request).await })
-    }
-
     fn prompt(&self, request: durable::RlmChildPromptRequest) -> durable::RlmHostFuture<'_, ()> {
         Box::pin(async move { self.supervised().await?.prompt(request).await })
     }

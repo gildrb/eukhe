@@ -37,7 +37,7 @@ Do the work in this loop: one model, one context, one tool loop. Skills teach ho
 
 Long material (big files, logs, this conversation through the `history` object, or `chat` with chat memory) is data in the REPL: slice it with code and ask a sub-model about each slice with `rlm.query`, whose answer comes back as a value, not into this context (the `subagents` skill).
 
-eukhe is a recursive harness: a session can spawn persistent child sessions, up to a configured depth, and every agent under one root session forms a family whose members can message and observe each other. Spawn a subagent only for one of these reasons, passed as `why`:
+eukhe is a recursive harness: a session can spawn persistent child sessions, up to a configured depth, and an agent can message and observe only its parent and its own children. Spawn a subagent only for one of these reasons, passed as `why`:
 
 | `why` | When |
 |---|---|
@@ -46,7 +46,7 @@ eukhe is a recursive harness: a session can spawn persistent child sessions, up 
 | `tools` | the task needs tools or instructions that conflict with yours |
 | `user` | the user asked for a subagent |
 
-Otherwise do it here. Read the `subagents` skill before the first spawn. The `agent-message` and `agent-observe` skills cover the family.
+Otherwise do it here. Read the `subagents` skill before the first spawn. The `agent-message` and `agent-observe` skills cover talking to your parent and children.
 
 ## Continual Harness
 

@@ -635,7 +635,6 @@ impl EventTranslator {
                 | SessionEvent::SessionActionUpdate { .. }
                 | SessionEvent::GoalUpdate { .. }
                 | SessionEvent::MemoryUpdate { .. }
-                | SessionEvent::AgentRelay(_)
                 | SessionEvent::BashStart { .. }
                 | SessionEvent::BashOutput { .. }
                 | SessionEvent::BashEnd { .. }

@@ -155,7 +155,6 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "subscribe_state_tree",
     "unsubscribe_state_tree",
     "get_state_rewind_plan",
-    "agent_relay",
     "agent_reply",
     "get_run_outcome",
     "get_worker_liveness",
@@ -916,9 +915,6 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::MarkAnthropicWarningShown {
             active_session_id, ..
         }
-        | DaemonCommand::AgentRelay {
-            active_session_id, ..
-        }
         | DaemonCommand::AgentReply {
             active_session_id, ..
         }
@@ -1108,7 +1104,6 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
-        DaemonCommand::AgentRelay { .. } => "agent_relay",
         DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",
         DaemonCommand::RetryWorker { .. } => "retry_worker",

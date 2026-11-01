@@ -67,9 +67,6 @@ except Exception as _eukhe_rlm_error:
         async def find_models(self, query="", limit=8):
             self._raise_missing()
 
-        async def create_session(self, prompt, **kwargs):
-            self._raise_missing()
-
         async def list_subagents(self):
             self._raise_missing()
 

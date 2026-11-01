@@ -2,7 +2,7 @@
 //! supervisor-backed child sessions spawn through the supervisor link, run
 //! in their own worker processes, appear in the supervisor roster, settle
 //! with an answer, and die on delete (the durable `RlmSubagentHost`
-//! primitives: spawn / prompt / `wait_settled` / delete / `create_session`).
+//! primitives: spawn / prompt / `wait_settled` / delete).
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use eukhe_core::durable::children::{
     RlmChildDeleteRequest, RlmChildIdentity, RlmChildPromptRequest, RlmChildRunState,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionRequest, RlmSubagentHost,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
 };
 use eukhe_daemon::rlm_children::{ParentIdentity, SupervisorChildSessions};
 use eukhe_daemon::supervisor_link::SupervisorLink;
@@ -399,114 +399,6 @@ async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
     });
     children.delete(delete).await.expect("repeated delete");
     assert!(children.list().await.expect("listings").is_empty());
-}
-
-/// `rlm.create_session`: a resident depth-0 daemon session over the link,
-/// prompted, answering through its worker, and not part of the subagent
-/// roster.
-#[tokio::test]
-async fn rlm_create_session_spawns_a_prompted_depth_zero_session() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let socket = dir.path().join("daemon.sock");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let _daemon = spawn_daemon(&socket, &agent_dir);
-    let (mut client, _hello) = Client::connect(&socket);
-    let script = write_script(dir.path(), "root session answer");
-    let children = children(&socket, &agent_dir, &script, 0);
-
-    let handle = children
-        .create_session(RlmCreateSessionRequest {
-            idempotency_key: "rlm.create_session:call-1:0".to_string(),
-            prompt: "start a root session".to_string(),
-            name: Some("root-b".to_string()),
-            model: None,
-            thinking: None,
-            cwd: Some(agent_dir.to_string_lossy().to_string()),
-        })
-        .await
-        .expect("create session");
-    assert_eq!(handle.name, "root-b");
-    // The durable session is its storage directory (`<sessions>/<id>/`,
-    // holding the store's `main.jsonl`), not a `<id>.jsonl` file.
-    assert!(
-        is_durable_storage(Path::new(&handle.session_file)),
-        "{handle:?}"
-    );
-    assert_eq!(handle.model, "scripted/faux-1");
-
-    // A depth-0 resident session, not a subagent roster row.
-    client.send_command("l1", &json!({ "type": "list" }));
-    let list = client.read_response("l1");
-    let sessions = list["data"]["sessions"].as_array().expect("sessions");
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0]["rlmDepth"], 0);
-    assert_eq!(sessions[0]["runtimeKind"], "top-level");
-    let listings = children.list().await.expect("child listings");
-    assert!(
-        listings.is_empty(),
-        "create_session children are not subagents"
-    );
-
-    // The session was prompted: its worker answered.
-    let active_id = handle.active_session_id.clone();
-    let answer = wait_until(Duration::from_secs(10), || {
-        client.send_command(
-            "g1",
-            &json!({ "type": "get_last_assistant_text", "activeSessionId": active_id }),
-        );
-        let final_answer = client.read_response("g1");
-        final_answer["data"]["text"]
-            .as_str()
-            .filter(|text| !text.is_empty())
-            .map(str::to_string)
-    });
-    assert_eq!(answer, "root session answer");
-
-    // Killing the session removes it from the supervisor roster.
-    client.send_command(
-        "k1",
-        &json!({ "type": "kill", "activeSessionId": active_id }),
-    );
-    let killed = client.read_response("k1");
-    assert_eq!(killed["success"], true, "kill failed: {killed}");
-    wait_until(Duration::from_secs(10), || {
-        client.send_command("l2", &json!({ "type": "list" }));
-        let list = client.read_response("l2");
-        list["data"]["sessions"]
-            .as_array()
-            .filter(|sessions| sessions.is_empty())
-            .map(|_| ())
-    });
-}
-
-/// `rlm.create_session` is depth-0 only: the host refuses it from a deeper
-/// session with the TS error (the spawn depth bound lives in the durable
-/// children extension).
-#[tokio::test]
-async fn rlm_create_session_refuses_from_a_nested_session() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let socket = dir.path().join("daemon.sock");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let _daemon = spawn_daemon(&socket, &agent_dir);
-    let script = write_script(dir.path(), "unreachable");
-    let children = children(&socket, &agent_dir, &script, 2);
-    let error = children
-        .create_session(RlmCreateSessionRequest {
-            idempotency_key: "rlm.create_session:call-1:0".to_string(),
-            prompt: "nope".to_string(),
-            name: None,
-            model: None,
-            thinking: None,
-            cwd: None,
-        })
-        .await
-        .expect_err("create_session from depth 2");
-    assert_eq!(
-        error.to_string(),
-        "rlm.create_session is available only from a depth-0 session"
-    );
 }
 
 /// TS #2396's daemon-wide half (`createRlmSubagentRuntime`): the

@@ -1,7 +1,7 @@
 //! The agent family from the main prompt: `@name message` talks to one
 //! agent of this session's family instead of the main model, `/agents`
-//! prints the family inline, relayed peer messages land as dim rows, and
-//! the prompt's `@` completions offer the family's names.
+//! prints the family inline, an agent's reply lands as a dim row, and the
+//! prompt's `@` completions offer the family's names.
 //!
 //! `@` at prompt start is shared with the file mentions. The prompt routes
 //! to an agent only when its first word is `@<token>` (unquoted) and the
@@ -10,7 +10,7 @@
 //! a file mention and goes to the model as before; anything else is an
 //! unknown agent: an error row, and the text stays in the editor.
 
-use eukhe_types::daemon::{AgentRelayEvent, StreamingBehavior};
+use eukhe_types::daemon::StreamingBehavior;
 
 use super::{AgentView, ChatEntry, SessionUi, SubmitBehavior};
 use crate::agent_delivery::{
@@ -230,13 +230,6 @@ impl SessionUi {
         view.push_entry(ChatEntry::Swarm(Box::new(SwarmRow::Roster(roster_lines(
             &members,
         )))));
-        self.last_status_index = None;
-        self.dirty = true;
-    }
-
-    /// One relayed peer message: a dim transcript row.
-    pub(super) fn apply_agent_relay(&mut self, relay: AgentRelayEvent, view: &mut AgentView) {
-        view.push_entry(ChatEntry::Swarm(Box::new(SwarmRow::Relay(relay))));
         self.last_status_index = None;
         self.dirty = true;
     }

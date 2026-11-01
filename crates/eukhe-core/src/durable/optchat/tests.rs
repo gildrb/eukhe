@@ -886,7 +886,8 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
         }),
     };
     let message = Report::AgentMessage {
-        sender: "child:x".to_owned(),
+        from: eukhe_types::input_origin::Kin::Child,
+        name: "x".to_owned(),
     };
     let entries = [
         user_entry(
@@ -940,7 +941,8 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
 fn input_entries_are_logged_by_their_origin() {
     use eukhe_durable::types::{EntryId, EntryRecord};
     let message = Report::AgentMessage {
-        sender: "child:x".to_owned(),
+        from: eukhe_types::input_origin::Kin::Child,
+        name: "x".to_owned(),
     };
     let input = |text: &str, origin: InputOrigin| {
         let entry = crate::durable::input_entry(

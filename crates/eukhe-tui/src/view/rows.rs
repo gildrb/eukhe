@@ -288,20 +288,8 @@ impl AgentView {
             ChatEntry::ChatView(view) => {
                 crate::chat_view_block::render_chat_view(view, detail, &self.theme, width, !first)
             }
-            // Consecutive relayed peer messages stay flush: a burst of
-            // mesh traffic reads as one block.
             ChatEntry::Swarm(row) => {
-                let relay = |entry: &ChatEntry| {
-                    matches!(entry, ChatEntry::Swarm(row)
-                        if matches!(**row, crate::swarm_block::SwarmRow::Relay(_)))
-                };
-                crate::swarm_block::render_swarm_row(
-                    row,
-                    detail,
-                    &self.theme,
-                    width,
-                    !first && (!relay(entry) || !relay(&self.chat[index - 1])),
-                )
+                crate::swarm_block::render_swarm_row(row, detail, &self.theme, width, !first)
             }
         }
     }

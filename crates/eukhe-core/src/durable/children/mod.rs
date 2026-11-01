@@ -40,9 +40,8 @@ pub use host::{
     NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
     RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing, RlmChildObservation,
     RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
-    RLM_CHILD_ANSWER_MAX_BYTES,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
+    RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,

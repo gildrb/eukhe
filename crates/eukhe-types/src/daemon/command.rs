@@ -1432,21 +1432,6 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native worker command: a subagent that messaged another
-    /// non-root agent of its family asks the family root's worker to show
-    /// the exchange (the root emits the display-only `agent_relay` session
-    /// event; never model input, never chat memory).
-    AgentRelay {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        /// The family root's live session.
-        active_session_id: String,
-        from: String,
-        to: String,
-        text: String,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
     /// Rust-native worker command: an agent's final answer to a user's
     /// `@name` message, delivered to the session the user sent it from.
     /// The session commits it as an `agent_reply` row once per `reply_id`
@@ -1601,10 +1586,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_relay_and_roster_scope_roundtrip() {
-        rt::<DaemonCommand>(
-            r#"{"type":"agent_relay","activeSessionId":"root","from":"scout","to":"builder","text":"hi"}"#,
-        );
+    fn roster_scope_roundtrip() {
         rt::<DaemonCommand>(r#"{"type":"list_agent_peers","workerToken":"t","scope":"roster"}"#);
     }
 

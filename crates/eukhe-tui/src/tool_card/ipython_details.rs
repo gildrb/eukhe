@@ -288,7 +288,7 @@ mod tests {
             "id": "agentmsg_2",
             "message": "Ping.",
             "deliveryStatus": "queued",
-            "receiverRole": "sibling",
+            "receiverRole": "child",
             "target": { "activeSessionId": "a1", "sessionId": "s1" },
         }))
         .expect("queued receipt");

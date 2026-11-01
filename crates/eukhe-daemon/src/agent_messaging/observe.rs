@@ -1,6 +1,6 @@
 //! The `agent_observe.*` controller (moved with its concern): message
-//! previews and full session summaries from the supervisor, the
-//! family-mesh roster derivation, and the preview text helpers.
+//! previews and full session summaries from the supervisor, the parent
+//! and children roster derivation, and the preview text helpers.
 use super::family::{family_of, row_active_id};
 use super::{
     json, row_str, AgentFamilyRelationship, AgentFamilyStatus, AgentObserveActivity,
@@ -10,11 +10,11 @@ use super::{
 
 /// `agent_observe.*` controller for daemon workers: message previews and
 /// full session summaries from the supervisor. The roster this controller
-/// reports is the caller's FAMILY MESH (every agent under its root —
-/// parent, siblings, children, relatives — plus the caller's own row),
-/// derived from the same durable parent edges `agent_message.send`
-/// resolves through; a `list_agents()` never spans another family, and a
-/// relationship label never claims an edge the recorded topology lacks.
+/// reports is the caller's parent and own children plus the caller's own
+/// row, derived from the same durable parent edges `agent_message.send`
+/// resolves through; a `list_agents()` never shows a sibling or another
+/// tree, and a relationship label never claims an edge the recorded
+/// topology lacks.
 pub(crate) struct LinkAgentObserveController {
     link: Arc<SupervisorLink>,
     /// This worker's live active session id (the family-scope anchor).
@@ -153,13 +153,11 @@ impl AgentObserveController for LinkAgentObserveController {
 }
 
 /// Flatten the supervisor's roster rows into observation summaries of the
-/// caller's FAMILY MESH: the caller's own row (`isCurrent`) and every
-/// agent under the caller's root (parent, siblings, children, and
-/// relatives), plus the other root sessions when the caller is a root —
-/// and nothing else. The relationship of each row derives from the
-/// recorded durable edges ([`family_of`], the same classification
-/// `agent_message.send` resolves through), never from the row's runtime
-/// kind alone. Rows keep the roster order.
+/// caller's reach: the caller's own row (`isCurrent`), its parent, and its
+/// own children — and nothing else. The relationship of each row derives
+/// from the recorded durable edges ([`family_of`], the same
+/// classification `agent_message.send` resolves through), never from the
+/// row's runtime kind alone. Rows keep the roster order.
 pub(super) fn summaries_from_roster(
     sessions: &[Value],
     identity: &FamilyIdentity,
