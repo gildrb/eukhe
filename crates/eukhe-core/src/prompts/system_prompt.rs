@@ -574,7 +574,7 @@ mod tests {
         let tail = &prompt[breakdown.cached_prefix_len..];
         assert!(tail.contains("Working directory: /w"));
         assert!(tail.contains("Conversation log: /log.jsonl"));
-        assert!(tail.contains("<available_skills>"));
+        assert!(tail.contains("<skills>\n"));
         assert!(tail.contains("Recursive agent depth: 0 (root)"));
         assert!(tail.contains("Pre-installed Python packages: requests, httpx,"));
     }

@@ -161,11 +161,11 @@ mod tests {
             assert!(harness.contains(harness_only), "{harness_only:?}");
             assert!(!chat.contains(harness_only), "{harness_only:?}");
         }
-        // Both keep the subagent policy, skills, and subagent specs.
+        // Both keep the subagent policy, skills, and subagent specs (their
+        // API is the refine skill's reference).
         for shared in [
             "Read the `subagents` skill before the first spawn.",
-            "rlm.harness.create_skill(",
-            "rlm.harness.create_subagent(",
+            "the `refine` skill's `references/api.md`",
             "refine.run(",
         ] {
             assert!(chat.contains(shared), "{shared:?}");

@@ -22,3 +22,5 @@ description: Ask for a continual-harness refinement from the REPL after you obse
 - `await refine.status()` shows `pending` (queued this turn) and `in_flight` (planning or applying).
 - One request per turn; a second `run` only replaces the instructions.
 - `{"scheduled": False, "reason": ...}`: it cannot start now (no active turn); do not retry in a loop. Refinement runs only in a top-level session; elsewhere the call fails with an error.
+
+To change one entry yourself (create, update or delete a skill or subagent spec, search the stored entries): the synchronous `rlm.harness` calls in [references/api.md](references/api.md).

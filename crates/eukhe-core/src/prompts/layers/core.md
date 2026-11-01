@@ -51,101 +51,26 @@ Otherwise do it here. Read the `subagents` skill before the first spawn. The `ag
 ## Continual Harness
 
 <!-- eukhe:harness-memory -->
-eukhe is a continual harness. During a session, persistent memories can be written and read. These stay available even after multiple compactions.
-
-Memories are created by two mechanisms:
+eukhe is a continual harness. During a session, persistent memories, prompt notes, skills and subagent specs can be written and read. These stay available even after multiple compactions.
 <!-- /eukhe:harness-memory -->
 <!-- eukhe:chat-memory -->
 eukhe is a continual harness: reusable skills and subagent specs persist across sessions. They are tools, not memory; the chat is the only memory.
-
-Skills and subagent specs are created by two mechanisms:
 <!-- /eukhe:chat-memory -->
 
-- Refinement
-  - Mechanism:
-    - Another model suggests a refinement based on the transcript
-    - The suggested edits are applied to the harness state
-    - The main agent is notified by a structured harness message and the applied edits are saved
-  - Triggered by:
-    - Calling the programmatic tool `refine.run()` (the `refine` skill says when)
-    - By the user command `/refine`
-  - Effect:
-    - The refinement event is always saved in the harness state's refinement history
-    - A harness message is sent to the agent with the refinement result
+They change in two ways:
+
+- Refinement: `await refine.run()` (the `refine` skill says when) or the user's `/refine`. Another model reads the transcript and applies small edits; the event is always saved in the refinement history, and a harness message tells you the result.
+- Your own synchronous `rlm.harness.*` calls (no `await`) for skills, subagent specs and refinement records: the `refine` skill's `references/api.md`.
 <!-- eukhe:harness-memory -->
-- Active memory management by the agent (the `rlm.harness.*` and `rlm.get_harness_state` calls are synchronous: call them without `await`)
-<!-- /eukhe:harness-memory -->
-<!-- eukhe:chat-memory -->
-- Active management by the agent (the `rlm.harness.*` calls are synchronous: call them without `await`)
-<!-- /eukhe:chat-memory -->
-<!-- eukhe:harness-memory -->
-  - `rlm.harness.create_memory(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: creates a memory; use `global_=True` for cross-session entries (Python reserves `global`, so the parameter is spelled `global_`)
+- Memories and prompt notes (synchronous, like `rlm.get_harness_state`; `global_=True` for cross-session entries):
+  - `rlm.harness.create_memory(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.update_memory(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.delete_memory(id: str, *, global_: bool = False) -> bool`
   - `rlm.harness.create_prompt_note(title: str, content: str, *, id: str | None = None, path: str = "policy", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.update_prompt_note(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
   - `rlm.harness.delete_prompt_note(id: str, *, global_: bool = False) -> bool`
+  - `rlm.get_harness_state(state_dir: str | Path | None = None, *, global_: bool = False) -> HarnessState`: full memory details for the selected scope (`.scope`, `.file_path`, `.entries[kind][id]`, `.refinements`). Can read another agent's `HarnessState` by passing the path to it in `state_dir`
 <!-- /eukhe:harness-memory -->
-<!-- eukhe:harness-memory -->
-  - `rlm.harness.create_skill(title: str, content: str, *, id: str | None = None, path: str = "general", reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: `reference`/`arguments` describe the Python callable (`reference` requires `{"type": "python"}`, a Python import, and a callable or call pattern)
-<!-- /eukhe:harness-memory -->
-<!-- eukhe:chat-memory -->
-  - `rlm.harness.create_skill(title: str, content: str, *, id: str | None = None, path: str = "general", reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`: `reference`/`arguments` describe the Python callable (`reference` requires `{"type": "python"}`, a Python import, and a callable or call pattern); use `global_=True` for cross-session entries (Python reserves `global`, so the parameter is spelled `global_`)
-<!-- /eukhe:chat-memory -->
-  - `rlm.harness.update_skill(id: str, title: str, content: str, *, path: str | None = None, reference: dict | None = None, arguments: dict | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
-  - `rlm.harness.delete_skill(id: str, *, global_: bool = False) -> bool`
-  - `rlm.harness.create_subagent(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
-  - `rlm.harness.update_subagent(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
-  - `rlm.harness.delete_subagent(id: str, *, global_: bool = False) -> bool`
-  - `rlm.harness.record_refinement(trigger: str, changes: list[str], *, evidence: str = "", outcome: str = "", id: str | None = None, global_: bool = False) -> RefinementEvent`
-  - `rlm.harness.plan_refinement(observation: str, *, failing_component: str = "", next_step: str = "") -> list[str]`: a suggested diagnose -> update -> validate plan
-<!-- eukhe:harness-memory -->
-  - `rlm.harness.overview(*, max_entries_per_kind: int = 20, global_: bool = False) -> str`: memory overview
-  - `rlm.harness.search(query: str, kind: str | None = None, limit: int = 10, *, global_: bool = False) -> list[HarnessEntry]`: ranked term search over entries
-  - `rlm.get_harness_state(state_dir: str | Path | None = None, *, global_: bool = False) -> HarnessState`: full memory details for the selected scope. Can read another agent's `HarnessState` by passing the path to it in `state_dir`
-<!-- /eukhe:harness-memory -->
-<!-- eukhe:chat-memory -->
-  - `rlm.harness.overview(*, max_entries_per_kind: int = 20, global_: bool = False) -> str`: overview of the stored skills and subagent specs
-  - `rlm.harness.search(query: str, kind: str | None = None, limit: int = 10, *, global_: bool = False) -> list[HarnessEntry]`: ranked term search over the skills and subagent specs
-<!-- /eukhe:chat-memory -->
-  - `HarnessEntry`
-    - `id: str`
-<!-- eukhe:harness-memory -->
-    - `kind: Literal["prompt", "memory", "skill", "subagent"]`
-<!-- /eukhe:harness-memory -->
-<!-- eukhe:chat-memory -->
-    - `kind: Literal["skill", "subagent"]`
-<!-- /eukhe:chat-memory -->
-    - `title: str`
-    - `content: str`
-<!-- eukhe:harness-memory -->
-    - `path: str`: category path ("general" for memories, "policy" for prompt notes)
-<!-- /eukhe:harness-memory -->
-<!-- eukhe:chat-memory -->
-    - `path: str`: category path
-<!-- /eukhe:chat-memory -->
-    - `scope: Literal["local", "global"]`
-    - `reference: dict[str, Any]`: for skills
-    - `arguments: dict[str, Any]`: for skills
-    - `metadata: dict`
-    - `source: Literal["agent", "refine"]`
-    - `created_at: str`: ISO timestamp of creation
-    - `updated_at: str`: ISO timestamp of latest update
-    - `version: int`: increments with every update, starting at 1
-<!-- eukhe:harness-memory -->
-  - `HarnessState`
-    - `scope: Literal["global", "local"]`
-    - `file_path: Path`
-    - `entries: dict[kind, dict[id, HarnessEntry]]`
-    - `refinements: list[RefinementEvent]`
-<!-- /eukhe:harness-memory -->
-  - `RefinementEvent`
-    - `id: str`
-    - `trigger: str`: what caused the refinement
-    - `changes: list[str]`: applied edits; empty if never edited
-    - `evidence: str`
-    - `outcome: str`
-    - `created_at: str`
 
 ## Compaction
 
@@ -153,6 +78,6 @@ eukhe compacts automatically when only a given number of tokens is left in the c
 
 ## Skills
 
-The skill list at the end of this prompt shows each skill's name and description only. When a task matches a description, read the skill's file (its `<location>`, or `skill://<name>`) and follow it; read the files it links only when a step needs them. A skill with a `python_import` is pre-imported in the REPL under that name (`await <skill>.<function>(...)`, or `await <skill>(...)` when it is callable); `help(<skill>)` shows its API.
+The `<skills>` list below shows each skill's name and description only, under the path of its `SKILL.md`. When a task matches a description, read that file (or `skill://<name>`) before you act and follow it; read the files it links only when a step needs them. A relative path in a skill file is under the skill's directory. A skill marked `(python: <import>)` is pre-imported in the REPL under that name (`await <import>.<function>(...)`, or `await <import>(...)` when it is callable); `help(<import>)` shows its API.
 
-This prompt documents only `bash`, `jobs`, the file functions and the `rlm.harness` calls. Every other programmatic tool is documented by the skill that owns it: `rlm.*` subagent calls (`subagents`), `rlm.factory` (`factory`), `agent_message` and `agent_observe`, `mcp` (MCP services), `compact`, `goal`, `refine`, `rlm_heartbeat`, `attach_image`, `autoresearch`.
+This prompt documents only the calls listed above. Every other programmatic tool is documented by the skill that owns it: `rlm.*` subagent calls (`subagents`), `rlm.factory` (`factory`), `rlm.harness` and `refine` (`refine`), `agent_message` and `agent_observe`, `mcp` (MCP services), `compact`, `goal`, `rlm_heartbeat`, `attach_image`, `autoresearch`.

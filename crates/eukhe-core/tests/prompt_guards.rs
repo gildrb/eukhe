@@ -68,7 +68,7 @@ const DYNAMIC_ONLY_MARKERS: &[&str] = &[
     "Conversation log:",
     "Recursive agent depth:",
     "Current date:",
-    "<available_skills>",
+    "<skills>\n",
     "Enabled generic MCP servers:",
     "# Project Context",
     "# Additional Guidance",
@@ -139,7 +139,7 @@ fn cached_prefix_is_stable_across_sessions() {
     assert!(first_tail.contains("Current date: "));
     assert!(first_tail.contains("Working directory: /first/cwd"));
     assert!(first_tail.contains("Recursive agent depth: 0 (root)"));
-    assert!(first_tail.contains("<available_skills>"));
+    assert!(first_tail.contains("<skills>\n"));
     assert!(first_tail.contains("Pre-installed Python packages:"));
     let second_tail = &second.assembled[second.cached_prefix_len..];
     assert!(second_tail.contains("/completely/different"));
@@ -734,9 +734,8 @@ fn bundled_skills_stay_within_the_prompt_budget() {
 }
 
 /// The generic mcp skill loads through the normal markdown discovery and
-/// renders in the `<available_skills>` inventory exactly like any other
-/// markdown skill: the `[skill name location]`-style XML the TS
-/// `formatSkillsForPrompt` emits, without a `python_import` line.
+/// renders in the `<skills>` inventory exactly like any other markdown
+/// skill: one `- name: description` line, without a `(python: ...)` import.
 #[test]
 fn generic_mcp_skill_renders_in_the_prompt_inventory() {
     let mut options = BuildSystemPromptOptions {
@@ -751,23 +750,13 @@ fn generic_mcp_skill_renders_in_the_prompt_inventory() {
         .segments
         .iter()
         .find(|segment| {
-            matches!(segment.kind, SegmentKind::Dynamic)
-                && segment.text.contains("<available_skills>")
+            matches!(segment.kind, SegmentKind::Dynamic) && segment.text.starts_with("<skills>")
         })
         .map(|segment| segment.text.clone())
         .expect("the skills inventory segment renders");
-    assert!(inventory.contains("<name>mcp</name>"));
-    assert!(inventory.contains("<type>markdown</type>"));
-    let mcp_block_start = inventory
-        .find("<name>mcp</name>")
-        .expect("the mcp skill block");
-    let mcp_block_end = inventory[mcp_block_start..]
-        .find("</skill>")
-        .map_or(inventory.len(), |end| mcp_block_start + end);
-    let mcp_block = &inventory[mcp_block_start..mcp_block_end];
     assert!(
-        !mcp_block.contains("python_import"),
-        "a markdown skill never carries a python_import line"
+        inventory.lines().any(|line| line.starts_with("- mcp: ")),
+        "a markdown skill's line names no python import:\n{inventory}"
     );
     // The prompt documents the discovery surface the skill describes.
     options.generic_mcp_servers = vec!["notion".into()];

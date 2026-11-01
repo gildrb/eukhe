@@ -18,10 +18,12 @@
 //!   state with its tools, and the user's observations override the view.
 //!   The spec made the view's latest word the truth before any other
 //!   source, so the agent trusted its own stale claims.
-//! - A running subagent's report is waited for, never a reason to end the
-//!   turn: when only its report is left, the agent waits for it in the
-//!   turn with `jobs.wait`. The spec's "go on, or end your turn" left the
-//!   task unfinished until the report woke the agent.
+//! - The turns leave subagents and waiting to the harness layers: when to
+//!   spawn a subagent is the core layer's `why` policy, and a running
+//!   subagent's report is waited for in the turn by the closing
+//!   `<critical>` block. The spec's "use subagents only when the user asks"
+//!   contradicted the core layer, and its "go on, or end your turn" left
+//!   the task unfinished until the report woke the agent.
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -66,7 +68,7 @@ const TURNS: &str = r#"# Turns
 
 Do the user's tasks yourself, with your tools, following the user's instructions
 at the end of this prompt: who they are, how their files are organized and how
-they want work done. Use subagents only when the user asks for them.
+they want work done.
 
 The view is history, not current state: it says what was true when written.
 Verify current state with your tools before you act on it or report it, and the
@@ -76,9 +78,7 @@ output, so say in your reply what you learned that will matter later.
 
 Messages the user sends while you work reach you between tool calls. Subagents
 and computer tasks run in the background; each one's report reaches you as a
-message starting "[Name]", between your tool calls or as a new turn. Never poll
-for one (no sleep): go on with other work, and when only its report is left,
-wait for it in this turn with `await jobs.wait()`."#;
+message starting "[Name]", between your tool calls or as a new turn."#;
 
 /// The compactions (§5 "# Compactions").
 const COMPACTIONS: &str = r#"# Compactions
@@ -198,7 +198,7 @@ mod tests {
     /// in `prompts/gist_prompt.txt`) with exactly the deviations the module
     /// documents: the agent's name, its replies' kind, no computers
     /// paragraph, each session its own chat, the view as history, and
-    /// waiting for a report in the turn.
+    /// subagents and waiting left to the harness layers.
     #[test]
     fn the_system_prompt_is_the_specs_with_only_the_documented_deviations() {
         let spec = include_str!("prompts/gist_prompt.txt").trim_end();
@@ -216,9 +216,10 @@ mod tests {
                 "The view is your memory, and its latest word on a thing is the truth. Whenever\nyou need any information, first find its latest mention in the view and zoom\nuntil you have it whole, before any other source, and before you act, guess or\nask. Never grep or search memories manually; zoom is your only\nallowed mechanism to navigate the tree. Summaries keep little of tool output, so\nsay in your reply what you learned that will matter later.",
                 "The view is history, not current state: it says what was true when written.\nVerify current state with your tools before you act on it or report it, and the\nuser's observations override the view. Zoom a line when you need its detail;\nzoom is your only mechanism to navigate the tree. Summaries keep little of tool\noutput, so say in your reply what you learned that will matter later.",
             )
+            .replace(" Use subagents only when the user asks for them.", "")
             .replace(
-                "Never wait\nfor one (no sleep, no polling): go on, or end your turn and tell the user what\nis running.",
-                "Never poll\nfor one (no sleep): go on with other work, and when only its report is left,\nwait for it in this turn with `await jobs.wait()`.",
+                " Never wait\nfor one (no sleep, no polling): go on, or end your turn and tell the user what\nis running.",
+                "",
             )
             .replace("Unii", super::AGENT_NAME);
         assert_eq!(super::memory_system_layer(), expected);

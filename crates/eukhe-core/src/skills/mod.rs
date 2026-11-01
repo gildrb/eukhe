@@ -106,69 +106,54 @@ impl Skill {
     pub fn is_python(&self) -> bool {
         self.kind == SkillKind::Python
     }
-
-    /// The kind label the prompt inventory shows (`<type>` in
-    /// `format_skills_for_prompt`).
-    #[must_use]
-    pub fn kind_label(&self) -> &'static str {
-        if self.is_python() {
-            "python"
-        } else {
-            "markdown"
-        }
-    }
 }
 
-/// Format skills for a system prompt (Agent Skills XML standard).
-/// Skills with disableModelInvocation are excluded.
+/// Format skills for a system prompt: inside `<skills>` tags, one
+/// `- name: description` line per skill, a Python skill's line naming its
+/// import (`- name (python: import): description`), under a heading that
+/// says where the skills' files are: `<dir>/<name>/SKILL.md:` for a run of
+/// skills whose directory is their name under one parent, else the skill's
+/// own file path. The core layer says how to load one. Skills with
+/// disableModelInvocation are excluded.
 #[must_use]
 pub fn format_skills_for_prompt(skills: &[Skill]) -> String {
-    let visible: Vec<&Skill> = skills
+    let mut text = String::new();
+    let mut heading = String::new();
+    for skill in skills
         .iter()
         .filter(|skill| !skill.disable_model_invocation)
-        .collect();
-    if visible.is_empty() {
-        return String::new();
-    }
-    let mut lines = vec![
-        "\n\nThe following skills teach how to do specific tasks. Only each skill's name and description are listed here.".to_string(),
-        "When a task matches a description, read that skill's file before you act; read the files it links only when a step needs them.".to_string(),
-        "Skills with a python_import are prepared in the persistent Python kernel when available and can be called directly by that import name.".to_string(),
-        "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.".to_string(),
-        String::new(),
-        "<available_skills>".to_string(),
-    ];
-    for skill in visible {
-        lines.push("  <skill>".to_string());
-        lines.push(format!("    <name>{}</name>", escape_xml(&skill.name)));
-        lines.push(format!("    <type>{}</type>", skill.kind_label()));
-        if let Some(python) = &skill.python {
-            lines.push(format!(
-                "    <python_import>{}</python_import>",
-                escape_xml(&python.import_name)
-            ));
+    {
+        let named_dir = skill.base_dir.file_name() == Some(std::ffi::OsStr::new(&skill.name))
+            && skill.file_path == skill.base_dir.join("SKILL.md");
+        let this_heading = match skill.base_dir.parent() {
+            Some(parent) if named_dir => format!("{}/<name>/SKILL.md:", parent.display()),
+            Some(_) | None => format!("{}:", skill.file_path.display()),
+        };
+        if this_heading != heading {
+            text.push_str("\n\n");
+            text.push_str(&this_heading);
+            heading = this_heading;
         }
-        lines.push(format!(
-            "    <description>{}</description>",
-            escape_xml(&skill.description)
-        ));
-        lines.push(format!(
-            "    <location>{}</location>",
-            escape_xml(&skill.file_path.display().to_string())
-        ));
-        lines.push("  </skill>".to_string());
+        text.push_str("\n- ");
+        text.push_str(&skill.name);
+        if let Some(python) = &skill.python {
+            text.push_str(" (python: ");
+            text.push_str(&python.import_name);
+            text.push(')');
+        }
+        text.push_str(": ");
+        // One line: every run of whitespace a single space.
+        for (index, word) in skill.description.split_whitespace().enumerate() {
+            if index > 0 {
+                text.push(' ');
+            }
+            text.push_str(word);
+        }
     }
-    lines.push("</available_skills>".to_string());
-    lines.join("\n")
-}
-
-pub(crate) fn escape_xml(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+    if text.is_empty() {
+        return text;
+    }
+    format!("<skills>\n{}\n</skills>", text.trim_start_matches('\n'))
 }
 
 /// Expand skill commands (`/skill:<name> [args]`) into the `<skill ...>`
@@ -333,22 +318,43 @@ mod tests {
     }
 
     #[test]
-    fn prompt_formatting_excludes_hidden() {
-        let skill = |name: &str, disable: bool| Skill {
+    fn prompt_formatting_lists_one_line_per_visible_skill_under_its_directory() {
+        let skill = |name: &str, dir: &str, disable: bool| Skill {
             name: name.to_string(),
-            description: format!("Does {name}"),
-            file_path: PathBuf::from("/s/SKILL.md"),
-            base_dir: PathBuf::from("/s"),
-            source_info: create_synthetic_source_info("/s", "user", SourceScope::User, None),
+            description: format!("Does {name},\n  then  stops."),
+            file_path: PathBuf::from(dir).join("SKILL.md"),
+            base_dir: PathBuf::from(dir),
+            source_info: create_synthetic_source_info(dir, "user", SourceScope::User, None),
             disable_model_invocation: disable,
             kind: SkillKind::Markdown,
             python: None,
         };
-        let hidden = format_skills_for_prompt(&[skill("hidden", true)]);
-        assert_eq!(hidden, "");
-        let formatted = format_skills_for_prompt(&[skill("web-search", false)]);
-        assert!(formatted.contains("<name>web-search</name>"));
-        assert!(formatted.contains("<type>markdown</type>"));
-        assert!(formatted.contains("<description>Does web-search</description>"));
+        assert_eq!(
+            format_skills_for_prompt(&[skill("hidden", "/r/hidden", true)]),
+            ""
+        );
+        let mut python = skill("web-tool", "/r/web-tool", false);
+        python.kind = SkillKind::Python;
+        python.python = Some(SkillPythonMetadata {
+            import_name: "web_tool".to_string(),
+            package_path: PathBuf::from("/r/web-tool/src"),
+            pyproject_path: PathBuf::from("/r/web-tool/pyproject.toml"),
+        });
+        assert_eq!(
+            format_skills_for_prompt(&[
+                skill("web-search", "/r/web-search", false),
+                skill("hidden", "/r/hidden", true),
+                python,
+                skill("odd", "/p/elsewhere", false),
+                skill("other", "/r/other", false),
+            ]),
+            "<skills>\n/r/<name>/SKILL.md:\n\
+             - web-search: Does web-search, then stops.\n\
+             - web-tool (python: web_tool): Does web-tool, then stops.\n\n\
+             /p/elsewhere/SKILL.md:\n\
+             - odd: Does odd, then stops.\n\n\
+             /r/<name>/SKILL.md:\n\
+             - other: Does other, then stops.\n</skills>"
+        );
     }
 }
