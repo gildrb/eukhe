@@ -8,17 +8,19 @@
 //! - Mapped (`CLASS_<n>`, one index space per class), for every personal
 //!   value: the phrases of `privacy.terms` (`PERSON`), emails, phone
 //!   numbers, IP addresses and US social security numbers (`EMAIL`,
-//!   `PHONE`, `IP`, `ID`). The map is in memory and append-only: the
-//!   same value keeps its index for the daemon's life, and
-//!   [`restore_message`] maps every token of the model's answer (text,
-//!   thinking, tool call arguments) back, so the transcript, the user
-//!   and every tool see the real bytes. A false positive therefore never
-//!   reaches a file.
+//!   `PHONE`, `IP`, `ID`). The map runs as the compiled core
+//!   (`bend/privacy/token.bend`, laws `laws/privacy/token.bend`), in
+//!   memory and append-only: the same value keeps its index for the
+//!   daemon's life, and [`restore_message`] maps every token of the
+//!   model's answer (text, thinking, tool call arguments) back, so the
+//!   transcript, the user and every tool see the real bytes. A false
+//!   positive therefore never reaches a file.
 //! - Hashed (`CLASS_<6 hex of the value's SHA-256>`, one way), only for
 //!   credentials: API keys and tokens, private key blocks (`KEY`), card
 //!   numbers (`CARD`), IBANs (`IBAN`). Their detectors are strict
 //!   (vendor prefix, length and mixed characters; network prefix and
-//!   Luhn; country length and mod-97).
+//!   Luhn; country length and mod-97). Which classes map back is the
+//!   core's: it answers them when the map opens.
 //!
 //! Paths and domains are not scrubbed: a coding model reads them to work
 //! (a file you point at, a screenshot's path, an endpoint to deploy). A
@@ -26,7 +28,8 @@
 //! `privacy.terms`.
 //!
 //! The detectors (`detect.rs`) are hand-written grammars, one per class,
-//! that match only well-formed values between word boundaries. The scrub
+//! that match only well-formed values between word boundaries (the IP
+//! addresses are the compiled core's, `bend/privacy/ip.bend`). The scrub
 //! is one left-to-right pass; a literal in the text that reads as a
 //! mapped token (`IP_1` in someone's code) is itself mapped, so every
 //! token maps back to exactly one value and restoring a scrubbed text
@@ -40,7 +43,6 @@ mod corpus_tests;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use eukhe_types::pi_ai::{
@@ -51,7 +53,8 @@ use futures::StreamExt;
 use sha2::{Digest, Sha256};
 
 use crate::utils::event_stream::AssistantMessageEventStream;
-use detect::{is_word, Class};
+use detect::{is_word, Ips};
+use eukhe_bend::rules::privacy::{Class, Token, Tokens};
 
 /// Whether the model's endpoint leaves the machine: loopback hosts
 /// (`localhost`, `127.0.0.0/8`, `::1`) are local, everything else is
@@ -90,35 +93,13 @@ fn pseudonym(class: Class, value: &str) -> String {
 // The map of the mapped classes
 // -----------------------------
 
-/// The in-memory map: append-only, one index space per class (from 1),
-/// stable for the daemon's life.
-#[derive(Default)]
-struct Map {
-    indexes: HashMap<(Class, String), u32>,
-    originals: HashMap<(Class, u32), String>,
-    last: HashMap<Class, u32>,
-}
+/// The token map of the daemon, kept in the compiled core: append-only,
+/// one index space per class (from 1), stable for the daemon's life.
+static MAP: LazyLock<Mutex<Tokens>> = LazyLock::new(Mutex::default);
 
-static MAP: LazyLock<Mutex<Map>> = LazyLock::new(Mutex::default);
-
-fn map() -> MutexGuard<'static, Map> {
+fn map() -> MutexGuard<'static, Tokens> {
     MAP.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// The mapped token of `original` in `class` (`PERSON_1`): the existing
-/// index when the map holds one, the next free index otherwise.
-fn mapped(class: Class, original: &str) -> String {
-    let mut map = map();
-    if let Some(index) = map.indexes.get(&(class, original.to_owned())) {
-        return format!("{}_{index}", class.name());
-    }
-    let last = map.last.entry(class).or_insert(0);
-    *last += 1;
-    let index = *last;
-    map.indexes.insert((class, original.to_owned()), index);
-    map.originals.insert((class, index), original.to_owned());
-    format!("{}_{index}", class.name())
 }
 
 // The scrubber
@@ -149,26 +130,22 @@ impl Scrubber {
 
     /// Scrub one string in one left-to-right pass: at each position whose
     /// char before (in the output) is no word char, the first class whose
-    /// grammar matches replaces the value with its token.
+    /// grammar matches replaces the value with its token. One call to the
+    /// core decides the string's IP addresses, one step asks the tokens
+    /// of its values.
     #[must_use]
     pub fn scrub_str(&self, input: &str) -> String {
-        let mut out = String::with_capacity(input.len());
-        let mut copied = 0;
+        let mut tokens = map();
+        let ips = Ips::of(input);
+        // Each value: where it starts, where it ends, its class.
+        let mut found = Vec::new();
         let mut at = 0;
         let mut after_word = false;
         while let Some(c) = input[at..].chars().next() {
             if !after_word {
-                if let Some(found) = detect::detect(input, at, &self.terms) {
-                    let value_start = at + found.keep;
-                    let value = &input[value_start..found.end];
-                    out.push_str(&input[copied..value_start]);
-                    out.push_str(&if found.class.reversible() {
-                        mapped(found.class, value)
-                    } else {
-                        pseudonym(found.class, value)
-                    });
-                    copied = found.end;
-                    at = found.end;
+                if let Some(value) = detect::detect(input, at, &self.terms, &ips, tokens.mapped()) {
+                    found.push((at + value.keep, value.end, value.class));
+                    at = value.end;
                     // A token ends in a word char.
                     after_word = true;
                     continue;
@@ -176,6 +153,32 @@ impl Scrubber {
             }
             after_word = is_word(c);
             at += c.len_utf8();
+        }
+        if found.is_empty() {
+            return input.to_owned();
+        }
+        let values: Vec<(Class, &str)> = found
+            .iter()
+            .map(|&(start, end, class)| (class, &input[start..end]))
+            .collect();
+        // A value longer than the wire carries (never a real one) goes one
+        // way: nothing of it leaves in clear.
+        let asked = tokens
+            .scrub(&values)
+            .unwrap_or_else(|_| vec![Token::OneWay; values.len()]);
+        let mut out = String::with_capacity(input.len());
+        let mut copied = 0;
+        for (&(start, end, class), token) in found.iter().zip(asked) {
+            out.push_str(&input[copied..start]);
+            match token {
+                Token::Mapped(index) => {
+                    out.push_str(class.name());
+                    out.push('_');
+                    out.push_str(&index.to_string());
+                }
+                Token::OneWay => out.push_str(&pseudonym(class, &input[start..end])),
+            }
+            copied = end;
         }
         out.push_str(&input[copied..]);
         out
@@ -286,36 +289,50 @@ impl Scrubber {
 /// Map every mapped token of `text` back to its value: the inverse of
 /// [`Scrubber::scrub_str`] on every reversible class. A token is read
 /// where the scrub writes one (no word char before or after); a token
-/// the map does not hold, and every one-way token, stays as it is.
+/// the map does not hold, and every one-way token, stays as it is. One
+/// step asks the core the values of the text's tokens.
 #[must_use]
 pub fn restore(text: &str) -> String {
     if !text.contains('_') {
         return text.to_owned();
     }
-    let map = map();
-    let mut out = String::with_capacity(text.len());
-    let mut copied = 0;
+    let mut tokens = map();
+    // Each token: where it starts, where it ends, its class and index.
+    let mut found = Vec::new();
     let mut at = 0;
     let mut after_word = false;
     while let Some(c) = text[at..].chars().next() {
         if !after_word {
-            let original = detect::token_at(text, at).and_then(|(class, end)| {
+            let token = detect::token_at(text, at, tokens.mapped()).and_then(|(class, end)| {
                 let index = text[at + class.name().len() + 1..end].parse::<u32>().ok()?;
-                map.originals
-                    .get(&(class, index))
-                    .map(|original| (original, end))
+                Some((at, end, class, index))
             });
-            if let Some((original, end)) = original {
-                out.push_str(&text[copied..at]);
-                out.push_str(original);
-                copied = end;
-                at = end;
+            if let Some(token) = token {
+                found.push(token);
+                at = token.1;
                 after_word = true;
                 continue;
             }
         }
         after_word = is_word(c);
         at += c.len_utf8();
+    }
+    if found.is_empty() {
+        return text.to_owned();
+    }
+    let asked: Vec<(Class, u32)> = found
+        .iter()
+        .map(|&(_, _, class, index)| (class, index))
+        .collect();
+    let values = tokens.restore(&asked);
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    for ((start, end, _, _), value) in found.into_iter().zip(values) {
+        if let Some(value) = value {
+            out.push_str(&text[copied..start]);
+            out.push_str(&value);
+            copied = end;
+        }
     }
     out.push_str(&text[copied..]);
     out

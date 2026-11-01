@@ -238,6 +238,8 @@ pub enum Entry {
     Thread = 443,
     /// `bend/ffi_job_notice.bend`: a call.
     JobNotice = 450,
+    /// `bend/ffi_privacy.bend`: a call and a stepper.
+    Privacy = 451,
     /// `bend/ffi_tool_result.bend`: a call.
     ToolResult = 452,
 }
@@ -361,6 +363,7 @@ impl Entry {
         Entry::Kin,
         Entry::Thread,
         Entry::JobNotice,
+        Entry::Privacy,
         Entry::ToolResult,
     ];
 

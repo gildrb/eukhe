@@ -8,65 +8,22 @@
 //! between boundaries and [`token_at`] finds exactly it again.
 //!
 //! The grammars are strict on purpose: a false positive rewrites code
-//! the model reads. `::` paths and CSS pseudo-elements are no IPv6 (an
-//! IPv6 needs a digit-bearing group, three explicit groups when
-//! compressed, and boundaries on both sides), a version is no IPv4, a
-//! digit run is a card only with a network prefix, the network's length
-//! and the Luhn sum, an uppercase run is an IBAN only with its country's
-//! length and the mod-97 sum, a key only with its vendor prefix, length
-//! and mixed characters.
+//! the model reads. A digit run is a card only with a network prefix, the
+//! network's length and the Luhn sum, an uppercase run is an IBAN only
+//! with its country's length and the mod-97 sum, a key only with its
+//! vendor prefix, length and mixed characters.
+//!
+//! IP addresses are the compiled core's (`bend/privacy/ip.bend`, laws
+//! `laws/privacy/ip.bend`): [`Ips::of`] asks it, in one call per text,
+//! about every position that could start one, and [`detect`] reads the
+//! answer. `::` paths and CSS pseudo-elements are no IPv6 (an IPv6 needs
+//! a digit-bearing group, three explicit groups when compressed, and
+//! boundaries on both sides); a version, a loopback, 0.x and 255.x are no
+//! IPv4.
 
-/// The class of a detected value: its token name, and whether its token
-/// maps back to it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) enum Class {
-    /// A phrase of `privacy.terms`.
-    Person,
-    Email,
-    Phone,
-    /// An IPv4 or IPv6 address.
-    Ip,
-    /// A US social security number.
-    Id,
-    /// An API key, token or private key.
-    Key,
-    Card,
-    Iban,
-}
-
-impl Class {
-    /// The classes whose tokens map back (`CLASS_<n>`); the others are
-    /// credentials, hashed one way (`CLASS_<6 hex>`).
-    pub(super) const REVERSIBLE: [Class; 5] = [
-        Class::Person,
-        Class::Email,
-        Class::Phone,
-        Class::Ip,
-        Class::Id,
-    ];
-
-    /// The token name.
-    pub(super) const fn name(self) -> &'static str {
-        match self {
-            Class::Person => "PERSON",
-            Class::Email => "EMAIL",
-            Class::Phone => "PHONE",
-            Class::Ip => "IP",
-            Class::Id => "ID",
-            Class::Key => "KEY",
-            Class::Card => "CARD",
-            Class::Iban => "IBAN",
-        }
-    }
-
-    /// Whether a token of the class maps back to its value.
-    pub(super) const fn reversible(self) -> bool {
-        match self {
-            Class::Person | Class::Email | Class::Phone | Class::Ip | Class::Id => true,
-            Class::Key | Class::Card | Class::Iban => false,
-        }
-    }
-}
+use eukhe_bend::rules::privacy::{
+    ip_ends, Candidate, Class, BEFORE_BYTES, OTHER_MARK, REST_CHARS, WORD_MARK,
+};
 
 /// A detected value: it runs from the position [`detect`] ran at to
 /// `end`; its first `keep` bytes (the `Bearer ` of a credential) stay
@@ -88,6 +45,102 @@ fn word_at(text: &str, at: usize) -> bool {
     text.get(at..)
         .and_then(|rest| rest.chars().next())
         .is_some_and(is_word)
+}
+
+// IP addresses (the compiled core)
+// --------------------------------
+
+/// The IP addresses of one text, as the compiled core decides them: the
+/// start and the end of each, in order.
+pub(super) struct Ips {
+    found: Vec<(usize, usize)>,
+}
+
+impl Ips {
+    /// Ask the core, in one call, about every position of `text` that
+    /// could start an address: no word char before it, and a `:` or `.`
+    /// where one must come (an IPv6 starts with `::` or with a group of
+    /// one to four hex digits and a `:`; an IPv4 with one to three digits
+    /// and a `.`).
+    pub(super) fn of(text: &str) -> Ips {
+        let mut starts = Vec::new();
+        let mut candidates = Vec::new();
+        let mut after_word = false;
+        for (at, c) in text.char_indices() {
+            if !after_word && could_start_ip(text.as_bytes(), at) {
+                starts.push(at);
+                candidates.push(candidate(text, at));
+            }
+            after_word = is_word(c);
+        }
+        let found = starts
+            .into_iter()
+            .zip(ip_ends(&candidates))
+            .filter_map(|(at, chars)| {
+                chars.map(|chars| (at, at + chars_to_bytes(&text[at..], chars)))
+            })
+            .collect();
+        Ips { found }
+    }
+
+    /// The end of the address that starts at `at`.
+    pub(super) fn at(&self, at: usize) -> Option<usize> {
+        self.found
+            .binary_search_by_key(&at, |&(start, _)| start)
+            .ok()
+            .map(|index| self.found[index].1)
+    }
+}
+
+/// Whether an address can start at `at`: `::`, one to four hex digits and
+/// a `:`, or one to three digits and a `.` (every address of
+/// laws/privacy/ip.bend starts so; the corpus bridge test asks the core at
+/// every position without this gate and finds the same addresses).
+fn could_start_ip(bytes: &[u8], at: usize) -> bool {
+    let at_most = |from: usize, to: usize, want: u8| {
+        bytes
+            .get(at + from..bytes.len().min(at + to + 1))
+            .is_some_and(|run| run.contains(&want))
+    };
+    match bytes.get(at) {
+        Some(b':') => bytes.get(at + 1) == Some(&b':'),
+        Some(b) if b.is_ascii_digit() => at_most(1, 4, b':') || at_most(1, 3, b'.'),
+        Some(b) if b.is_ascii_hexdigit() => at_most(1, 4, b':'),
+        Some(_) | None => false,
+    }
+}
+
+/// The candidate at `at`: the line before it (at most [`BEFORE_BYTES`]),
+/// the text from it (at most [`REST_CHARS`] chars), each non-ASCII char as
+/// its class.
+pub(super) fn candidate(text: &str, at: usize) -> Candidate {
+    let mut start = at.saturating_sub(BEFORE_BYTES);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    Candidate {
+        before: text[start..at].chars().map(wire_char).collect(),
+        rest: text[at..].chars().take(REST_CHARS).map(wire_char).collect(),
+    }
+}
+
+/// A char as a candidate carries it: an ASCII char as itself, any other
+/// as [`WORD_MARK`] or [`OTHER_MARK`].
+fn wire_char(c: char) -> char {
+    if c.is_ascii() {
+        c
+    } else if is_word(c) {
+        WORD_MARK
+    } else {
+        OTHER_MARK
+    }
+}
+
+/// The byte length of the first `chars` chars of `text`.
+pub(super) fn chars_to_bytes(text: &str, chars: usize) -> usize {
+    text.char_indices()
+        .nth(chars)
+        .map_or(text.len(), |(index, _)| index)
 }
 
 /// The byte at `at`, when there is one.
@@ -122,11 +175,18 @@ fn run_at_most(text: &str, at: usize, limit: usize, keep: impl Fn(u8) -> bool) -
     end
 }
 
-/// The first class whose grammar matches at `at`. The caller holds that
-/// `at` is a char boundary and that the scrubbed output's char before it
-/// is no word char.
-pub(super) fn detect(text: &str, at: usize, terms: &[Vec<char>]) -> Option<Found> {
-    if let Some((class, end)) = token_at(text, at) {
+/// The first class whose grammar matches at `at`: a literal that reads as
+/// a token of a `mapped` class, then each class's grammar; the IP
+/// addresses are `ips`'s. The caller holds that `at` is a char boundary
+/// and that the scrubbed output's char before it is no word char.
+pub(super) fn detect(
+    text: &str,
+    at: usize,
+    terms: &[Vec<char>],
+    ips: &Ips,
+    mapped: &[Class],
+) -> Option<Found> {
+    if let Some((class, end)) = token_at(text, at, mapped) {
         // A literal that reads as a token is itself a value of its class:
         // it gets a token of its own, so a token maps back to one value.
         return Some(Found {
@@ -144,18 +204,21 @@ pub(super) fn detect(text: &str, at: usize, terms: &[Vec<char>]) -> Option<Found
         .or_else(|| card(text, at))
         .or_else(|| ssn(text, at))
         .or_else(|| phone(text, at))
-        .or_else(|| ipv6(text, at))
-        .or_else(|| ipv4(text, at))
+        .or_else(|| {
+            ips.at(at).map(|end| Found {
+                class: Class::Ip,
+                keep: 0,
+                end,
+            })
+        })
 }
 
-/// A token of a reversible class at `at` (`IP_12`), followed by no word
+/// A token of a `mapped` class at `at` (`IP_12`), followed by no word
 /// char: its class and end.
-pub(super) fn token_at(text: &str, at: usize) -> Option<(Class, usize)> {
+pub(super) fn token_at(text: &str, at: usize, mapped: &[Class]) -> Option<(Class, usize)> {
     let name_end = run(text, at, |b| b.is_ascii_uppercase());
     let name = text.get(at..name_end)?;
-    let class = Class::REVERSIBLE
-        .into_iter()
-        .find(|class| class.name() == name)?;
+    let class = *mapped.iter().find(|class| class.name() == name)?;
     if byte(text, name_end) != Some(b'_') {
         return None;
     }
@@ -935,162 +998,4 @@ fn north_american_phone(text: &str, at: usize) -> Option<Found> {
         keep: 0,
         end,
     })
-}
-
-/// Four dotted decimal octets from `at`, each 0 to 255 without a leading
-/// zero: the end and the first octet.
-fn dotted_quad(text: &str, at: usize) -> Option<(usize, u32)> {
-    let mut index = at;
-    let mut first = 0;
-    for octet in 0..4 {
-        if octet > 0 {
-            if byte(text, index) != Some(b'.') {
-                return None;
-            }
-            index += 1;
-        }
-        let end = run(text, index, |b| b.is_ascii_digit());
-        let digits = text.get(index..end)?;
-        if digits.is_empty() || digits.len() > 3 || (digits.len() > 1 && digits.starts_with('0')) {
-            return None;
-        }
-        let value: u32 = digits.parse().ok()?;
-        if value > 255 {
-            return None;
-        }
-        if octet == 0 {
-            first = value;
-        }
-        index = end;
-    }
-    Some((index, first))
-}
-
-/// An IPv6 address (RFC 4291 text form): eight groups of 1 to 4 hex
-/// digits, or fewer around one `::`, the last two may be an IPv4. It
-/// needs a group with a decimal digit and, compressed, three explicit
-/// groups (an IPv4 counts two), so `dead::beef`, `a::b`, `xs[1::2]`, the
-/// loopback `::1` and the link-local `fe80::1` pass; no word char, `:` or
-/// `.` touches it.
-fn ipv6(text: &str, at: usize) -> Option<Found> {
-    if matches!(byte_before(text, at), Some(b':' | b'.')) {
-        return None;
-    }
-    let first = byte(text, at)?;
-    if !(first.is_ascii_hexdigit() || first == b':') {
-        return None;
-    }
-    let mut index = at;
-    let mut compressed = false;
-    let mut groups = 0;
-    let mut digit = false;
-    if text.get(index..)?.starts_with("::") {
-        compressed = true;
-        index += 2;
-    }
-    loop {
-        let start = index;
-        let end = run(text, start, |b| b.is_ascii_hexdigit());
-        if end == start {
-            break;
-        }
-        if byte(text, end) == Some(b'.') {
-            // The last two groups as an IPv4.
-            let (quad_end, _) = dotted_quad(text, start)?;
-            groups += 2;
-            digit = true;
-            index = quad_end;
-            break;
-        }
-        if end - start > 4 {
-            return None;
-        }
-        groups += 1;
-        digit |= text.as_bytes()[start..end].iter().any(u8::is_ascii_digit);
-        index = end;
-        if text[index..].starts_with("::") {
-            if compressed {
-                break;
-            }
-            compressed = true;
-            index += 2;
-        } else if byte(text, index) == Some(b':')
-            && byte(text, index + 1).is_some_and(|b| b.is_ascii_hexdigit())
-        {
-            index += 1;
-        } else {
-            break;
-        }
-    }
-    let counted = if compressed {
-        (3..=7).contains(&groups)
-    } else {
-        groups == 8
-    };
-    (counted && digit && !word_at(text, index) && !matches!(byte(text, index), Some(b':' | b'.')))
-        .then_some(Found {
-            class: Class::Ip,
-            keep: 0,
-            end: index,
-        })
-}
-
-/// An IPv4 address: four octets, not a version. Passes: the unspecified
-/// `0.x`, loopback `127.x` and mask/broadcast `255.x` ranges; a fifth
-/// part or a pre-release suffix (`1.2.3.4.5`, `1.2.3.4-rc1`); a product
-/// version (`Chrome/120.0.0.0`); a version context (a `version`, `ver`,
-/// `release` or `tag` word just before, or a requirement operator
-/// `==`, `>=`, `<=`, `~=`, `!=`, `^`, `~`).
-fn ipv4(text: &str, at: usize) -> Option<Found> {
-    if !byte(text, at)?.is_ascii_digit() || byte_before(text, at) == Some(b'.') {
-        return None;
-    }
-    let (end, first) = dotted_quad(text, at)?;
-    let goes_on = |b: u8| {
-        matches!(byte(text, end), Some(sep) if sep == b)
-            && byte(text, end + 1).is_some_and(|next| next.is_ascii_alphanumeric())
-    };
-    if word_at(text, end) || goes_on(b'.') || goes_on(b'-') || matches!(first, 0 | 127 | 255) {
-        return None;
-    }
-    if byte_before(text, at) == Some(b'/')
-        && at
-            .checked_sub(2)
-            .and_then(|before| byte(text, before))
-            .is_some_and(|b| b.is_ascii_alphabetic())
-    {
-        return None;
-    }
-    (!version_context(text, at)).then_some(Found {
-        class: Class::Ip,
-        keep: 0,
-        end,
-    })
-}
-
-/// Whether the line before `at` reads as a version's context: a
-/// requirement operator, or a version word as the last identifier.
-fn version_context(text: &str, at: usize) -> bool {
-    let mut start = at.saturating_sub(48);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    let start = text[start..at]
-        .rfind('\n')
-        .map_or(start, |newline| start + newline + 1);
-    let before = text[start..at].trim_end_matches([' ', '\t']);
-    if ["==", ">=", "<=", "~=", "!=", "^", "~"]
-        .iter()
-        .any(|operator| before.ends_with(operator))
-    {
-        return true;
-    }
-    let before = before.trim_end_matches([' ', '\t', '"', '\'', '=', ':', '(', '<', '>', '[', ',']);
-    let word_start = before
-        .char_indices()
-        .rev()
-        .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_'))
-        .map_or(0, |(index, c)| index + c.len_utf8());
-    let word = before[word_start..].to_ascii_lowercase();
-    word.contains("version") || matches!(word.as_str(), "ver" | "v" | "release" | "tag")
 }

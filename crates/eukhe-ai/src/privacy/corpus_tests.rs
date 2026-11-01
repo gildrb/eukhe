@@ -294,6 +294,85 @@ fn the_corpus_round_trips() {
     }
 }
 
+/// The addresses of `spans` (start, end) that the scan reaches: none
+/// inside another.
+fn reached(text: &str, spans: impl Iterator<Item = (usize, usize)>) -> Vec<&str> {
+    let mut done = 0;
+    let mut found = Vec::new();
+    for (at, end) in spans {
+        if at >= done {
+            done = end;
+            found.push(&text[at..end]);
+        }
+    }
+    found
+}
+
+/// The addresses the core answers at every position of `text` where an
+/// address could start after a boundary (no word char before it), asked
+/// directly, one candidate per position: no gate.
+fn core_addresses(text: &str) -> Vec<&str> {
+    let mut starts = Vec::new();
+    let mut candidates = Vec::new();
+    let mut after_word = false;
+    for (at, c) in text.char_indices() {
+        if !after_word {
+            starts.push(at);
+            candidates.push(detect::candidate(text, at));
+        }
+        after_word = detect::is_word(c);
+    }
+    let ends = eukhe_bend::rules::privacy::ip_ends(&candidates);
+    reached(
+        text,
+        starts.into_iter().zip(ends).filter_map(|(at, chars)| {
+            chars.map(|chars| (at, at + detect::chars_to_bytes(&text[at..], chars)))
+        }),
+    )
+}
+
+/// The addresses the scrubber's one call per text finds (`Ips::of`).
+fn scrubber_addresses(text: &str) -> Vec<&str> {
+    let ips = detect::Ips::of(text);
+    reached(
+        text,
+        text.char_indices()
+            .filter_map(|(at, _)| ips.at(at).map(|end| (at, end))),
+    )
+}
+
+/// Bridge (the core's IP grammar, laws/privacy/ip.bend): every position
+/// of every snippet, asked of the core directly, holds no address in code
+/// and data, and exactly the personal values that are IP addresses
+/// (`std::net::IpAddr` reads them); the scrubber's gated call finds the
+/// same addresses.
+#[test]
+fn the_core_finds_exactly_the_personal_addresses() {
+    let secrets = secrets();
+    let texts: Vec<(&str, Vec<&str>)> = UNTOUCHED
+        .iter()
+        .map(|text| (*text, Vec::new()))
+        .chain(PERSONAL.iter().map(|(text, value)| {
+            let ips = if value.parse::<std::net::IpAddr>().is_ok() {
+                vec![*value]
+            } else {
+                Vec::new()
+            };
+            (*text, ips)
+        }))
+        .chain(secrets.iter().map(|(text, _)| (text.as_str(), Vec::new())))
+        .collect();
+    let seen: Vec<(&str, Vec<&str>, Vec<&str>)> = texts
+        .iter()
+        .map(|(text, _)| (*text, core_addresses(text), scrubber_addresses(text)))
+        .collect();
+    let expected: Vec<(&str, Vec<&str>, Vec<&str>)> = texts
+        .iter()
+        .map(|(text, ips)| (*text, ips.clone(), ips.clone()))
+        .collect();
+    assert_eq!(seen, expected);
+}
+
 /// Regression (a remote session corrupted a stylesheet): the model read
 /// `a::before` as `aIP_4d040core` and wrote that back. Now the model reads
 /// the stylesheet as it is (a personal value in it as a token), and the

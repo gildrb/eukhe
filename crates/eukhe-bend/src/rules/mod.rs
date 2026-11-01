@@ -35,6 +35,7 @@ pub mod model_roles;
 pub mod optchat;
 pub mod overflow;
 pub mod package_source;
+pub mod privacy;
 pub mod quirks;
 pub mod rebase;
 pub mod redirect_input;

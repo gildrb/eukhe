@@ -141,3 +141,6 @@ import ./laws/headless_exit.bend as HeadlessExit
 import ./laws/thread.bend as Thread
 import ./laws/tool_result.bend as ToolResult
 import ./laws/job_notice.bend as JobNotice
+import ./laws/privacy/ip.bend as PrivacyIp
+import ./laws/privacy/token.bend as PrivacyToken
+import ./laws/privacy/entry.bend as PrivacyEntry
