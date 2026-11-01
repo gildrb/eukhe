@@ -18,7 +18,7 @@ use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Sum
 use crate::memory::chat::{Batch, Budgets, Chat, Nodes, Step, Zoom};
 use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
 use crate::memory::prompts::{compress_task, merge_task};
-use crate::memory::saved::{self, CompactionPrompt};
+use crate::memory::saved;
 use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
 use crate::memory::view::{NodeTexts, Part};
 use crate::memory::{cut, labeled, AppendKey, Kind, FAILURES, NODE, RETRY};
@@ -33,8 +33,6 @@ pub(super) struct Actor {
     summarizer: Arc<dyn Summarizer>,
     runtime: tokio::runtime::Handle,
     commands: mpsc::Sender<Command>,
-    /// The turns' system prompt and tools, which compactions reuse.
-    prompt: Arc<CompactionPrompt>,
     /// Turns waiting for the view to settle (§6), by deadline (H2.3), then
     /// arrival.
     view_waiters: BTreeMap<(Instant, u64), oneshot::Sender<Outcome>>,
@@ -60,8 +58,6 @@ pub(super) struct Actor {
     /// Why the last save of `view.json` failed; cleared by the next
     /// successful one (every change saves the whole view again).
     save_error: Option<String>,
-    /// Bumped whenever the prompt changes: part of every cache prefix.
-    prompt_generation: u64,
     /// One writer per new cache prefix (§3.3).
     gate: PrefixGate,
     persisting: bool,
@@ -118,8 +114,6 @@ impl Actor {
         let mut problems = loaded.problems.clone();
         let scopes = std::mem::take(&mut loaded.scopes);
         let saved_view = readable(saved::load_view(dir), saved::VIEW_FILE, &mut problems)?;
-        let prompt = readable(saved::load_prompt(dir), saved::PROMPT_FILE, &mut problems)?
-            .unwrap_or_else(CompactionPrompt::memory_layer);
         let (chat, unlogged) = Chat::from_loaded(
             Budgets::default(),
             loaded,
@@ -146,7 +140,6 @@ impl Actor {
             summarizer,
             runtime,
             commands,
-            prompt: Arc::new(prompt),
             view_waiters: BTreeMap::new(),
             next_waiter: 0,
             scopes,
@@ -157,7 +150,6 @@ impl Actor {
             subscribers: Vec::new(),
             built_lines: Vec::new(),
             save_error: None,
-            prompt_generation: 0,
             gate: PrefixGate::default(),
             persisting: false,
             persist_again: false,
@@ -289,7 +281,6 @@ impl Actor {
                     .map(|part| (part.l, part.i))
                     .collect(),
             }),
-            Request::SetPrompt { prompt } => self.set_prompt(prompt).map(|()| Reply::PromptSet),
             // A connection streams its subscription itself; a request
             // channel has nowhere to stream it to.
             Request::Subscribe => Err(anyhow::anyhow!(
@@ -301,16 +292,6 @@ impl Actor {
             Ok(reply) => Outcome::Ok(reply),
             Err(error) => Outcome::Error(format!("{error:#}")),
         });
-    }
-
-    fn set_prompt(&mut self, prompt: CompactionPrompt) -> anyhow::Result<()> {
-        if *self.prompt == prompt {
-            return Ok(());
-        }
-        saved::save_prompt(&self.dir, &prompt)?;
-        self.prompt = Arc::new(prompt);
-        self.prompt_generation += 1;
-        Ok(())
     }
 
     fn append(
@@ -510,7 +491,7 @@ impl Actor {
                     },
                     Ok(Prepared::Model(request)) => {
                         self.chat.mark_busy(part);
-                        let key = prefix_key(self.prompt_generation, &request);
+                        let key = prefix_key(&request);
                         if let Some(request) = self.gate.admit(key, part, request) {
                             self.spawn_build(part, request);
                         }
@@ -529,20 +510,13 @@ impl Actor {
     /// before the line is done.
     fn spawn_build(&mut self, part: Part, request: NodeRequest) {
         let summarizer = Arc::clone(&self.summarizer);
-        let prompt = Arc::clone(&self.prompt);
         let commands = self.commands.clone();
         let build = self.next_build;
         self.next_build += 1;
         let task = self.runtime.spawn(async move {
             let result = {
                 let (started, response) = ResponseStarted::channel();
-                let line = build_line(
-                    summarizer.as_ref(),
-                    &prompt,
-                    &request,
-                    now_millis(),
-                    started,
-                );
+                let line = build_line(summarizer.as_ref(), &request, now_millis(), started);
                 tokio::pin!(line);
                 tokio::select! {
                     biased;
@@ -896,13 +870,13 @@ fn readable<T>(
 
 /// The chat directory's runtime files, never committed: the lock socket,
 /// the takeover lock, the turn file, the temporary files of atomic saves,
-/// the compaction prompt (derived from the turns, rewritten often), and
-/// the view cache (a fold of the logs).
+/// the compaction prompt older versions saved, and the view cache (a fold
+/// of the logs).
 const IGNORED: [&str; 5] = [
     "lock",
     "lock.lock/",
     ".*.tmp",
-    saved::PROMPT_FILE,
+    "prompt.json",
     saved::VIEW_FILE,
 ];
 

@@ -8,14 +8,11 @@
 //! the transcript, and pins them in `eukhe.optchat.call`; every request of
 //! the run then sends the pinned lines ahead of the transcript, so the
 //! prompt-cache prefix holds across tool rounds and across a crash. A
-//! newly pinned root call also hands its system prompt and tools to the
-//! compactor, which reuses them (§4). A subagent pins one view for its
-//! whole conversation and logs nothing.
+//! subagent pins one view for its whole conversation and logs nothing.
 
 use std::sync::Arc;
 
-use eukhe_ai::utils::text::get_system_message_text;
-use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
+use eukhe_ai::utils::transcript::get_current_system_message;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{HookApi, HookResult, RequestMessages};
 use eukhe_durable::harness::{Harness, LiveRun, LiveState, LIVE_DOC};
@@ -29,7 +26,7 @@ use super::docs::{decode, write, CallState, CALL_DOC};
 use super::lines::{entry_lines, lead_of, Lead};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::{CompactionPrompt, MemoryRole};
+use crate::memory::MemoryRole;
 
 /// The `before_request` transform of one request.
 pub(super) async fn transform(
@@ -81,8 +78,8 @@ pub(super) async fn transform(
         }));
     };
     let key = run_key(&run);
-    let (call, pinned) = match call_state(&harness, conversation, &cx).await? {
-        Some(call) if call.run_key.as_deref() == Some(key.as_str()) => (call, false),
+    let call = match call_state(&harness, conversation, &cx).await? {
+        Some(call) if call.run_key.as_deref() == Some(key.as_str()) => call,
         Some(_) | None => {
             // Everything before the run is in the log before the view
             // renders; the view keeps only what the transcript no longer
@@ -100,16 +97,10 @@ pub(super) async fn transform(
             )
             .await?;
             chat.wake();
-            (call, true)
+            call
         }
     };
     let messages = root_request(&call, request.messages);
-    if pinned {
-        chat.memory
-            .set_compaction_prompt(compaction_prompt(&messages))
-            .await
-            .map_err(|error| memory_error(&error))?;
-    }
     Ok(Some(RequestMessages {
         messages,
         force_tool: request.force_tool,
@@ -128,16 +119,6 @@ fn verbatim_lines(entries: &[EntryRecord], start: Option<EntryId>) -> SessionRes
         lines += entry_lines(entry)?.len() as u64;
     }
     Ok(lines)
-}
-
-/// The system prompt and tools a request sends, as compactions reuse them.
-fn compaction_prompt(messages: &[Message]) -> CompactionPrompt {
-    CompactionPrompt {
-        system: get_current_system_message(messages)
-            .map(|system| get_system_message_text(&system))
-            .unwrap_or_default(),
-        tools: get_current_tools(messages),
-    }
 }
 
 /// Whether `conversation` is a root conversation of the session (no task

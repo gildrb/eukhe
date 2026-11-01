@@ -17,7 +17,7 @@ use super::actor::commit;
 use super::{ImportItem, KeyedAppend, Memory, MemoryStatus, RenderedView, Reply, Request, Zoomed};
 use crate::memory::compactor::tests::{reply, thinking_only, Scripted, Silent};
 use crate::memory::prompts::{compress_task, merge_task};
-use crate::memory::saved::{CompactionPrompt, VIEW_FILE};
+use crate::memory::saved::VIEW_FILE;
 use crate::memory::{
     cut, AppendKey, Kind, ResponseStarted, Summarizer, SummarizerFuture, FAILURES, NODE,
     PLACEHOLDER, RETRY, SETTLE_TIMEOUT,
@@ -307,12 +307,13 @@ async fn short_messages_are_their_own_lines() {
     assert_eq!(summarizer.requests(), Vec::new());
 }
 
-/// Every compactor call sends the turns' system prompt and tools, then
-/// its own view up to its node (only built lines, `id+n|text`), then the
-/// task, marked as the request's end; messages compress in parallel. The
-/// view then shows the model's lines, the message stays one zoom away.
+/// Every compactor call sends the compactor's own system prompt and no
+/// tools, then its own view up to its node (only built lines,
+/// `id+n|text`), then the task, marked as the request's end; messages
+/// compress in parallel. The view then shows the model's lines, the
+/// message stays one zoom away.
 #[tokio::test]
-async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
+async fn compactions_send_their_own_prompt_and_see_built_lines_only() {
     let dir = tempfile::tempdir().unwrap();
     let first = format!("echo: first, {}", "a".repeat(287));
     let second = format!("echo: second, {}", "b".repeat(286));
@@ -322,16 +323,6 @@ async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
         Ok(reply("echo: both listings")),
     ]);
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
-    let prompt = CompactionPrompt {
-        system: "You are Eukhe. The user's instructions follow.".to_string(),
-        tools: vec![serde_json::from_value(serde_json::json!({
-            "name": "zoom",
-            "description": "Open a line.",
-            "parameters": {"type": "object", "properties": {}}
-        }))
-        .unwrap()],
-    };
-    memory.set_compaction_prompt(prompt.clone()).await.unwrap();
     let long = |c: &str| c.repeat(NODE);
     let item = |text: String| ImportItem {
         kind: Kind::Echo,
@@ -350,8 +341,13 @@ async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
         .map(request_shape)
         .collect();
     requests[..2].sort();
-    let shape =
-        |texts: Vec<(String, bool)>| (Some(prompt.system.clone()), vec!["zoom".to_string()], texts);
+    let shape = |texts: Vec<(String, bool)>| {
+        (
+            Some(crate::memory::prompts::compactor_system_prompt()),
+            Vec::new(),
+            texts,
+        )
+    };
     let rendered = memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text;
     // Both messages compressed at once: the second did not wait for the
     // first, and saw no line of it.

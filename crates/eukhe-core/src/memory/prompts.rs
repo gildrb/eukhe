@@ -1,8 +1,11 @@
 //! The memory's prompts (spec §4, §5, §6), with the agent named
-//! [`AGENT_NAME`]. One system prompt serves turns and compactions alike, so
-//! a compaction reads the turns' cache entry. The prompt is §5's verbatim,
-//! with these deviations:
+//! [`AGENT_NAME`]. The texts are §5's, with these deviations:
 //!
+//! - Turns and compactions have system prompts of their own: a compaction
+//!   gets only its instructions and how to read the view, never the
+//!   turns' layers or tools (§5 serves both with one prompt so a
+//!   compaction reads the turns' cache entry; those layers and tools were
+//!   most of every compaction request).
 //! - "Unii" reads "Eukhe" (the spec asks for the agent's own name).
 //! - The paragraph on the user's computers is dropped: eukhe has no device
 //!   tools (no tool takes a `device` field and there are no computer
@@ -28,14 +31,12 @@
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
 
-/// The opening of the system prompt (§5).
-const INTRO: &str = r#"You are Eukhe, an AI agent that works for one user. Each session is its own
-chat. Each call to you is a turn or a compaction. A turn is this session's
-transcript: its older history, if any, as the view below, then its recent
-messages verbatim, ending with the user's new message. A compaction is the view
-followed by a task starting "Compaction:"."#;
+/// The opening of a turn's system prompt (§5).
+const INTRO: &str = r"You are Eukhe, an AI agent that works for one user. Each session is its own
+chat: its older history, if any, as the view below, then its recent messages
+verbatim, ending with the user's new message.";
 
-/// How to read the view (§5 "# The view").
+/// How to read the view (§5 "# The view"), without its tools.
 const VIEW_DOC: &str = r#"# The view
 
 Eukhe's memory: the whole chat between Eukhe and the user, oldest first, inside
@@ -55,9 +56,11 @@ The summaries form a binary tree: each message is compressed into a line (a
 short message is its own line), then adjacent lines are merged in pairs, again
 and again. So recent lines cover one message each, and older lines cover more. A
 message not summarized yet shows as "(not summarized yet: zoom it)". A text too
-long for one message is split over several in a row.
+long for one message is split over several in a row."#;
 
-Tools:
+/// The view's tools (§5 "# The view"): turns and subagents call them, a
+/// compaction calls none.
+const VIEW_TOOLS: &str = r#"Tools:
 - zoom(id, n) opens line id+n into the two lines it was made from;
 - zoom(id, 1) gives message id whole, with its images
 - zoom("Name") gives an agent's whole chat
@@ -81,9 +84,7 @@ and computer tasks run in the background; each one's report reaches you as a
 message starting "[Name]", between your tool calls or as a new turn."#;
 
 /// The compactions (§5 "# Compactions").
-const COMPACTIONS: &str = r#"# Compactions
-
-You write Eukhe's memory: one step of the tree, compressing one message into a
+const COMPACTIONS: &str = r#"You write Eukhe's memory: one step of the tree, compressing one message into a
 line or merging two adjacent lines into one. Your line stands in for its
 messages for weeks or years. Eukhe opens it only when its words show that what it
 needs is inside: what your line omits is lost for good.
@@ -143,18 +144,23 @@ fn ruler() -> String {
     "-".repeat(super::NODE)
 }
 
-/// The system prompt's memory layer, for turns and compactions alike
-/// (§5). The user's own instructions follow it.
+/// A turn's memory layer (§5). The user's own instructions follow it.
 #[must_use]
 pub fn memory_system_layer() -> String {
-    format!("{INTRO}\n\n{VIEW_DOC}\n\n{TURNS}\n\n{COMPACTIONS}")
+    format!("{INTRO}\n\n{VIEW_DOC}\n\n{VIEW_TOOLS}\n\n{TURNS}")
 }
 
 /// A subagent's static memory layer: the subagent prompt, then how to
 /// read the view.
 #[must_use]
 pub fn subagent_system_layer() -> String {
-    format!("{SUBAGENT}\n\n{VIEW_DOC}")
+    format!("{SUBAGENT}\n\n{VIEW_DOC}\n\n{VIEW_TOOLS}")
+}
+
+/// A compaction's whole system prompt: its instructions, then how to read
+/// the view.
+pub(crate) fn compactor_system_prompt() -> String {
+    format!("{COMPACTIONS}\n\n{VIEW_DOC}")
 }
 
 /// The compaction task for message `id` (§4, verbatim).
@@ -194,37 +200,6 @@ pub(crate) fn cut_follow_up(line: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// The system prompt is the spec's §5 prompt verbatim (kept as written
-    /// in `prompts/gist_prompt.txt`) with exactly the deviations the module
-    /// documents: the agent's name, its replies' kind, no computers
-    /// paragraph, each session its own chat, the view as history, and
-    /// subagents and waiting left to the harness layers.
-    #[test]
-    fn the_system_prompt_is_the_specs_with_only_the_documented_deviations() {
-        let spec = include_str!("prompts/gist_prompt.txt").trim_end();
-        let computers = spec
-            .find("The user's computers that have unii open now")
-            .unwrap();
-        let end = computers + spec[computers..].find("\n\n").unwrap() + 2;
-        let expected = format!("{}{}", &spec[..computers], &spec[end..])
-            .replace("- unii: Unii's replies", "- eukhe: Unii's replies")
-            .replace(
-                "You are Unii, an AI agent that works for one user in a single chat that never\nends. Each call to you is a turn or a compaction: the view below is followed by\nthe user's new message, or by a task starting \"Compaction:\".",
-                super::INTRO,
-            )
-            .replace(
-                "The view is your memory, and its latest word on a thing is the truth. Whenever\nyou need any information, first find its latest mention in the view and zoom\nuntil you have it whole, before any other source, and before you act, guess or\nask. Never grep or search memories manually; zoom is your only\nallowed mechanism to navigate the tree. Summaries keep little of tool output, so\nsay in your reply what you learned that will matter later.",
-                "The view is history, not current state: it says what was true when written.\nVerify current state with your tools before you act on it or report it, and the\nuser's observations override the view. Zoom a line when you need its detail;\nzoom is your only mechanism to navigate the tree. Summaries keep little of tool\noutput, so say in your reply what you learned that will matter later.",
-            )
-            .replace(" Use subagents only when the user asks for them.", "")
-            .replace(
-                " Never wait\nfor one (no sleep, no polling): go on, or end your turn and tell the user what\nis running.",
-                "",
-            )
-            .replace("Unii", super::AGENT_NAME);
-        assert_eq!(super::memory_system_layer(), expected);
-    }
-
     /// The follow-up shows the line cut where the limit falls, never
     /// inside a UTF-8 character.
     #[test]

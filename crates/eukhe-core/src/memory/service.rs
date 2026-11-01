@@ -40,7 +40,6 @@ use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::Mutex;
 
 use super::compactor::Summarizer;
-use super::saved::CompactionPrompt;
 use super::view::pieces;
 use super::{AppendKey, Kind};
 use client::{claim, Claim, Client, Disconnected, Subscription};
@@ -201,11 +200,6 @@ enum Request {
     Status,
     Persist,
     Parts,
-    /// Compactions reuse this system prompt and these tools from now on
-    /// (a root turn reports its own, §4).
-    SetPrompt {
-        prompt: CompactionPrompt,
-    },
     /// Stream every update on this connection, as `Update` replies under
     /// the request's id, until it closes.
     Subscribe,
@@ -249,7 +243,6 @@ enum Reply {
     Parts {
         parts: Vec<(u32, u64)>,
     },
-    PromptSet,
     /// A subscription is registered: every update from here on reaches
     /// it, and so does the effect of any request sent after this reply.
     Subscribed,
@@ -514,21 +507,6 @@ impl Memory {
         }
     }
 
-    /// Compactions reuse `prompt` from now on (§4): the system prompt and
-    /// tools of the root turns, so each compaction reads them from the
-    /// turns' cache entry. Saved, so a restarted owner keeps it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the prompt cannot be saved or the owner
-    /// cannot be reached.
-    pub async fn set_compaction_prompt(&self, prompt: CompactionPrompt) -> anyhow::Result<()> {
-        match self.request(Request::SetPrompt { prompt }).await? {
-            Reply::PromptSet => Ok(()),
-            other => Err(unexpected(&other)),
-        }
-    }
-
     /// The compactor's progress from now on, from whichever process owns
     /// the chat (display only: never log an update or send it to a model).
     ///
@@ -595,8 +573,7 @@ impl Memory {
                             | Request::Tree { .. }
                             | Request::Status
                             | Request::Persist
-                            | Request::Parts
-                            | Request::SetPrompt { .. } => {}
+                            | Request::Parts => {}
                         }
                     }
                 },
@@ -743,7 +720,6 @@ impl Request {
             | Request::Status
             | Request::Persist
             | Request::Parts
-            | Request::SetPrompt { .. }
             | Request::Subscribe => REPLY_DEADLINE,
         }
     }

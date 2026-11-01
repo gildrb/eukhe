@@ -21,8 +21,6 @@
 //! - `view.json`: the live view as `[l, i]` pairs, a cache: the view is the
 //!   fold of the messages and the merge batches (§3.2), checked against it
 //!   at load.
-//! - `prompt.json`: the turns' system prompt and tools, which compactions
-//!   reuse so they read the turns' cache entry (§4).
 //! - `lock`: the owner's Unix socket. One process owns the chat for its whole
 //!   life and is the only writer; every other process is its client.
 //! - `turn`: locked by the process whose root turn holds the chat's
@@ -54,7 +52,6 @@ pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
 };
-pub use saved::CompactionPrompt;
 pub use service::{KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, Zoomed};
 pub use summarizer::{configured_memory_model, SettingsSummarizer};
 

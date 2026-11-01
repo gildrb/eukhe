@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use eukhe_types::pi_ai::{Tool, Usage};
+use eukhe_types::pi_ai::Usage;
 
 use super::*;
 
@@ -106,18 +106,6 @@ fn request() -> NodeRequest {
     }
 }
 
-fn prompt() -> CompactionPrompt {
-    CompactionPrompt {
-        system: "You are Eukhe. User instructions follow.".to_string(),
-        tools: vec![serde_json::from_value::<Tool>(serde_json::json!({
-            "name": "zoom",
-            "description": "Open a line.",
-            "parameters": {"type": "object", "properties": {}}
-        }))
-        .expect("a tool")],
-    }
-}
-
 fn user(blocks: Vec<UserContentBlock>) -> Message {
     Message::User(UserMessage {
         content: UserContent::Blocks(blocks),
@@ -125,30 +113,24 @@ fn user(blocks: Vec<UserContentBlock>) -> Message {
     })
 }
 
-/// The first request: the turns' system prompt and tools, then ONE user
-/// message with the view and the task, the task marked as the request's
-/// end (a view shorter than one block carries no mark of its own).
+/// The first request: the compactor's system prompt and no tools, then ONE
+/// user message with the view and the task, the task marked as the
+/// request's end (a view shorter than one block carries no mark of its
+/// own).
 fn first_request() -> Context {
     Context {
-        system_prompt: Some(prompt().system),
+        system_prompt: Some(compactor_system_prompt()),
         messages: vec![user(vec![
             text_block(CONTEXT.to_string(), None),
             text_block(TASK.to_string(), Some(CacheBreakpoint::Ephemeral)),
         ])],
-        tools: Some(prompt().tools),
+        tools: None,
     }
 }
 
-/// `build_line` on `summarizer` with the test's prompt and request.
+/// `build_line` on `summarizer` with the test's request.
 async fn line_of(summarizer: &dyn Summarizer) -> anyhow::Result<String> {
-    build_line(
-        summarizer,
-        &prompt(),
-        &request(),
-        7,
-        ResponseStarted::default(),
-    )
-    .await
+    build_line(summarizer, &request(), 7, ResponseStarted::default()).await
 }
 
 #[tokio::test]
@@ -271,7 +253,6 @@ async fn the_view_is_marked_at_its_last_whole_block() {
     let summarizer = Scripted::with(vec![Ok(reply("done"))]);
     build_line(
         summarizer.as_ref(),
-        &CompactionPrompt::memory_layer(),
         &NodeRequest {
             context,
             task: "task".to_string(),
@@ -285,7 +266,7 @@ async fn the_view_is_marked_at_its_last_whole_block() {
     assert_eq!(
         summarizer.requests(),
         vec![Context {
-            system_prompt: Some(crate::memory::memory_system_layer()),
+            system_prompt: Some(compactor_system_prompt()),
             messages: vec![user(vec![
                 text_block(
                     "<chat>\n0+1|l0\n1+1|l1\n2+1|l2\n3+1|l3\n".to_string(),

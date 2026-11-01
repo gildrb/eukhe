@@ -158,8 +158,8 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         None => crate::refinement::HarnessMemory::Harness,
     };
 
-    // The chat memory layer leads (`OptChat` §5: one system prompt for
-    // turns and compactions, the user's instructions after it). It is
+    // The chat memory layer leads (`OptChat` §5, the user's instructions
+    // after it). It is
     // static and survives a replaced prompt: the model must know how to
     // read the view either way.
     if let Some(role) = options.memory {

@@ -36,8 +36,8 @@ use super::request::{request_messages, root_request};
 use super::OptChat;
 use crate::durable::HarnessCell;
 use crate::memory::{
-    AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
-    DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION,
+    AppendKey, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP, DATE_TOOL_DESCRIPTION,
+    ZOOM_TOOL_DESCRIPTION,
 };
 
 fn cx() -> &'static Context {
@@ -523,22 +523,6 @@ async fn a_run_sends_its_thread_verbatim_after_the_older_history_and_logs_it() {
     // The first message of a run is byte-identical across its requests.
     let all = requests.all();
     assert_eq!(all[0][1], all[1][1]);
-    // The run handed its system prompt and tools to the compactor, saved
-    // for a restarted owner too: compactions reuse the turns' prefix.
-    let Message::System(system) = &all[0][0] else {
-        panic!("a system message leads the request");
-    };
-    let saved: CompactionPrompt = serde_json::from_str(
-        &std::fs::read_to_string(setup.chat_dir().join("prompt.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        saved,
-        CompactionPrompt {
-            system: eukhe_ai::utils::text::get_system_message_text(system),
-            tools: eukhe_ai::utils::transcript::get_current_tools(&all[0]),
-        }
-    );
     session.close(&setup).await;
 }
 

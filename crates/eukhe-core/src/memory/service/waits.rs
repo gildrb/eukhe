@@ -8,7 +8,7 @@ use eukhe_types::platform::transport::bind_transport;
 
 use super::{ImportItem, Memory, Request, IMPORT_ITEM_DEADLINE, REPLY_DEADLINE};
 use crate::memory::compactor::tests::Scripted;
-use crate::memory::{AppendKey, CompactionPrompt, Kind};
+use crate::memory::{AppendKey, Kind};
 
 /// One request of each kind.
 fn every_request() -> Vec<Request> {
@@ -46,12 +46,6 @@ fn every_request() -> Vec<Request> {
         Request::Status,
         Request::Persist,
         Request::Parts,
-        Request::SetPrompt {
-            prompt: CompactionPrompt {
-                system: String::new(),
-                tools: Vec::new(),
-            },
-        },
         Request::Subscribe,
     ]
 }
@@ -80,7 +74,6 @@ fn every_request_to_a_remote_owner_has_a_reply_deadline() {
             | Request::Status
             | Request::Persist
             | Request::Parts
-            | Request::SetPrompt { .. }
             | Request::Subscribe => REPLY_DEADLINE,
         };
         assert!(deadline >= least, "{request:?}: {deadline:?}");

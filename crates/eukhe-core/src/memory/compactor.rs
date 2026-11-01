@@ -1,9 +1,9 @@
-//! Building one node with the model (spec §4): a call like a turn, with
-//! the turns' system prompt and tools (declared, never called) so it reads
-//! them from the turns' cache entry, then its own `<chat>` view and its
-//! task. The view goes in blocks of [`super::BLOCK`] lines with one cache
-//! mark on the last whole block and one on the request's end (§3.3). An
-//! over-long line gets the cut follow-up in the SAME conversation.
+//! Building one node with the model (spec §4): a call with the compactor's
+//! own system prompt (its instructions and how to read the view; no tools),
+//! then its `<chat>` view and its task. The view goes in blocks of
+//! [`super::BLOCK`] lines with one cache mark on the last whole block and
+//! one on the request's end (§3.3). An over-long line gets the cut
+//! follow-up in the SAME conversation.
 //!
 //! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
 //! model replies (spec/README.md M2): the compiled Bend core decides each
@@ -24,8 +24,7 @@ use eukhe_types::pi_ai::{
     TextContent, UserContent, UserContentBlock, UserMessage,
 };
 
-use super::prompts::cut_follow_up;
-use super::saved::CompactionPrompt;
+use super::prompts::{compactor_system_prompt, cut_follow_up};
 use super::{cut, view, CALL_DEADLINE, NODE, TRIES};
 
 /// The future one summarizer call returns.
@@ -101,7 +100,6 @@ pub(crate) struct NodeRequest {
 /// [`CALL_DEADLINE`], or a reply stops with an error.
 pub(crate) async fn build_line(
     summarizer: &dyn Summarizer,
-    prompt: &CompactionPrompt,
     request: &NodeRequest,
     timestamp: u64,
     mut started: ResponseStarted,
@@ -120,12 +118,12 @@ pub(crate) async fn build_line(
         Some(CacheBreakpoint::Ephemeral),
     ));
     let mut context = Context {
-        system_prompt: Some(prompt.system.clone()),
+        system_prompt: Some(compactor_system_prompt()),
         messages: vec![Message::User(UserMessage {
             content: UserContent::Blocks(blocks),
             timestamp,
         })],
-        tools: (!prompt.tools.is_empty()).then(|| prompt.tools.clone()),
+        tools: None,
     };
     let mut next = open(TRIES);
     // The shortest reply so far: each follow-up must be shorter.
