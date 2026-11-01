@@ -141,6 +141,16 @@ pub struct YieldContinuation {
     pub origin: InputOrigin,
 }
 
+/// `before_prepare`'s decision: place the queued steers (and writes) before
+/// this request is built, as the `postTools` boundary places them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlaceQueued;
+
+/// Before every preparation of a request, before the context is read. It
+/// may wait (a paused run holds here); [`PlaceQueued`] then lets the inputs
+/// queued meanwhile join this request instead of the next round's.
+pub type BeforePrepareHook =
+    Arc<dyn Fn(&HookApi, &Context) -> HookFuture<PlaceQueued> + Send + Sync>;
 /// Before every request attempt, including recovery.
 pub type BeforeRequestHook =
     Arc<dyn Fn(&RequestMessages, &HookApi, &Context) -> HookFuture<RequestMessages> + Send + Sync>;
@@ -158,6 +168,10 @@ pub type AfterToolsHook =
 /// Hooks of the built-in generation task.
 #[derive(Clone, Default)]
 pub struct GenerationHooks {
+    /// Before every preparation of a request; any handler's [`PlaceQueued`]
+    /// places the queued steers first, unless a reset is queued (the next
+    /// boundary applies it).
+    pub before_prepare: Option<BeforePrepareHook>,
     /// Before every request attempt, including recovery; the result is used
     /// for that request only.
     pub before_request: Option<BeforeRequestHook>,
@@ -175,6 +189,7 @@ impl fmt::Debug for GenerationHooks {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GenerationHooks")
+            .field("before_prepare", &self.before_prepare.is_some())
             .field("before_request", &self.before_request.is_some())
             .field("after_response", &self.after_response.is_some())
             .field("on_yield", &self.on_yield.is_some())

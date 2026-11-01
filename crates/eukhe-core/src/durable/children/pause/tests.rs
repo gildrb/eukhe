@@ -1,11 +1,13 @@
 //! The run pause on a real session: a pause lets the running tool call
 //! finish and holds the next model request; messages that arrive while it
 //! holds are kept and placed once, in arrival order, when a user's message
-//! wakes the run, which goes on with its whole context.
+//! wakes the run, which goes on with its whole context. A run that starts
+//! while paused holds before its first request and takes the messages that
+//! woke it into that request.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
-use eukhe_durable::types::{EntryRecord, SubmissionStatus};
+use eukhe_durable::types::{EntryRecord, SubmissionId, SubmissionStatus};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
 
@@ -40,10 +42,15 @@ fn user_texts(all: &[EntryRecord]) -> Vec<String> {
         .collect()
 }
 
-/// Queue `text` as a steer of `origin` while the run is busy, then tell
-/// the run pause it arrived.
-async fn deliver(session: &EukheSession, text: &str, origin: InputOrigin, wake: Wake) {
-    session
+/// Queue `text` as a steer of `origin` (it starts a run when the session
+/// is idle), then tell the run pause it arrived.
+async fn deliver(
+    session: &EukheSession,
+    text: &str,
+    origin: InputOrigin,
+    wake: Wake,
+) -> SubmissionId {
+    let id = session
         .root()
         .submit(
             InputSubmissionDraft {
@@ -61,6 +68,7 @@ async fn deliver(session: &EukheSession, text: &str, origin: InputOrigin, wake: 
         .message(wake, &BACKGROUND_CONTEXT)
         .await
         .expect("the pause hears the message");
+    id.id()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -129,6 +137,56 @@ async fn a_pause_finishes_the_running_call_holds_the_next_request_and_keeps_mess
         ["go", "a note from a sibling", "the user's words"]
     );
     assert_eq!(fixture.faux.state().call_count, 2);
+    assert_eq!(pause.view(), PauseView::default());
+    session.close(&BACKGROUND_CONTEXT).await.expect("close");
+}
+
+/// Bug 5a (docs/harness.md H5.7): a report reaches the paused idle worker
+/// and starts a run, which holds before its first request; the user's
+/// message that wakes it joins that first request, not the next round.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_run_started_while_paused_takes_the_waking_message_into_its_first_request() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    fixture.faux.set_responses(vec![text("done")]);
+    let session = fixture.open_configured(|_| {}).await;
+    let pause = std::sync::Arc::clone(&session.deps().run_pause);
+    pause
+        .set(PauseAction::Pause, &BACKGROUND_CONTEXT)
+        .await
+        .expect("paused");
+
+    let report = deliver(
+        &session,
+        "a report from a subagent",
+        InputOrigin::User,
+        Wake::Waits,
+    )
+    .await;
+    pause
+        .subscribe()
+        .wait_for(|view| view.held)
+        .await
+        .expect("the run parks before its first request");
+    assert_eq!(fixture.faux.state().call_count, 0);
+    let words = deliver(&session, "the user's words", InputOrigin::User, Wake::Wakes).await;
+
+    assert_eq!(settle(&session, report).await, SubmissionStatus::Done);
+    assert_eq!(settle(&session, words).await, SubmissionStatus::Done);
+    let all = entries(&session).await;
+    // One request, which read the report and the user's words, in order,
+    // before its reply.
+    assert_eq!(fixture.faux.state().call_count, 1);
+    assert_eq!(
+        user_texts(&all),
+        ["a report from a subagent", "the user's words"]
+    );
+    let kinds: Vec<&str> = all
+        .iter()
+        .map(|entry| entry.kind.as_str())
+        .filter(|kind| matches!(*kind, "pi.user" | "pi.assistant"))
+        .collect();
+    assert_eq!(kinds, ["pi.user", "pi.user", "pi.assistant"]);
     assert_eq!(pause.view(), PauseView::default());
     session.close(&BACKGROUND_CONTEXT).await.expect("close");
 }

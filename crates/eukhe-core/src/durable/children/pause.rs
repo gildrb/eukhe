@@ -6,10 +6,12 @@
 //! and waits where it says `Hold`:
 //!
 //! - the next model request (after a tool round, before the boundary that
-//!   places the queued inputs, and before every request attempt), the next
-//!   model-issued tool call and the next spawn ask at a gate; while paused
-//!   they hold there. The current model request and the current tool calls
-//!   finish: nothing is cancelled.
+//!   places the queued inputs; before every preparation of a request, which
+//!   places what was queued while it held, so a run that held before its
+//!   first request takes the messages that woke it into that request; and
+//!   before every request attempt), the next model-issued tool call and the
+//!   next spawn ask at a gate; while paused they hold there. The current
+//!   model request and the current tool calls finish: nothing is cancelled.
 //! - a message that reaches the session while it is paused is kept: it
 //!   waits in the durable inbox, unplaced, because the boundary that would
 //!   place it holds. A user's message or main's forward wakes the run (a
@@ -30,7 +32,7 @@ use eukhe_bend::rules::worker::{
 use eukhe_chord::context::{await_with_context, Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{DocDefinition, SessionDoc};
-use eukhe_durable::harness::types::{GenerationHooks, HookRegistration, ToolHooks};
+use eukhe_durable::harness::types::{GenerationHooks, HookRegistration, PlaceQueued, ToolHooks};
 use eukhe_durable::harness::{GENERATION_TASK, TOOL_TASK};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::DocumentReaderExt;
@@ -234,20 +236,23 @@ impl RunPause {
     }
 
     /// The run is about to start a boundary of `kind`: returns when it may
-    /// start; while the run is paused, waits for a resume or a waking
-    /// message. An abort of the run ends the wait (and the run).
+    /// start, and whether it held; while the run is paused, waits for a
+    /// resume or a waking message. An abort of the run ends the wait (and
+    /// the run).
     ///
     /// # Errors
     ///
     /// The run was aborted while it waited, or the pause state cannot be
     /// read or committed.
-    pub(crate) async fn gate(&self, kind: GateKind, cx: &Context) -> SessionResult<()> {
+    pub(crate) async fn gate(&self, kind: GateKind, cx: &Context) -> SessionResult<Gated> {
         let mut shown = self.subscribe();
+        let mut gated = Gated::Went;
         loop {
             let id = self.next_id();
             match self.step(PauseEvent::Gate { kind, id }, cx).await? {
-                PauseVerdict::Go => return Ok(()),
+                PauseVerdict::Go => return Ok(gated),
                 PauseVerdict::Hold => {
+                    gated = Gated::Held;
                     let resumed = async { shown.wait_for(|view| !view.paused).await.map(drop) };
                     let waited = await_with_context(resumed, cx).await;
                     match waited {
@@ -285,12 +290,24 @@ impl RunPause {
     }
 }
 
+/// Whether a gate let its boundary start at once or held it first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gated {
+    Went,
+    Held,
+}
+
 /// The hooks that hold a paused run: the next model request (after a tool
-/// round, before its boundary; before every request attempt), the next
-/// model-issued tool call, and the run's end.
+/// round, before its boundary; before each preparation of a request, which
+/// then places what was queued while it held; before every request
+/// attempt), the next model-issued tool call, and the run's end.
 pub(super) fn pause_hooks(pause: &Arc<RunPause>) -> Vec<HookRegistration> {
-    let (after_tools, before_request, on_yield) =
-        (Arc::clone(pause), Arc::clone(pause), Arc::clone(pause));
+    let (after_tools, before_prepare, before_request, on_yield) = (
+        Arc::clone(pause),
+        Arc::clone(pause),
+        Arc::clone(pause),
+        Arc::clone(pause),
+    );
     let (before_tool, after_tool) = (Arc::clone(pause), Arc::clone(pause));
     vec![
         hook(
@@ -298,7 +315,20 @@ pub(super) fn pause_hooks(pause: &Arc<RunPause>) -> Vec<HookRegistration> {
             GenerationHooks {
                 after_tools: Some(Arc::new(move |_, _, _, cx| {
                     let (pause, cx) = (Arc::clone(&after_tools), cx.clone());
-                    async move { pause.gate(GateKind::Request, &cx).await }.boxed()
+                    async move { pause.gate(GateKind::Request, &cx).await.map(drop) }.boxed()
+                })),
+                // A run that held before its first request (a report woke
+                // the idle session while it was paused) places the
+                // messages that woke it into that request, not the next.
+                before_prepare: Some(Arc::new(move |_, cx| {
+                    let (pause, cx) = (Arc::clone(&before_prepare), cx.clone());
+                    async move {
+                        Ok(match pause.gate(GateKind::Request, &cx).await? {
+                            Gated::Held => Some(PlaceQueued),
+                            Gated::Went => None,
+                        })
+                    }
+                    .boxed()
                 })),
                 before_request: Some(Arc::new(move |_, _, cx| {
                     let (pause, cx) = (Arc::clone(&before_request), cx.clone());
