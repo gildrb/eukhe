@@ -55,16 +55,11 @@ pub struct Forward {
 
 impl Forward {
     /// The forward a row's or a tool result's `details` carry
-    /// (`deliveryKind`, `userMessages`, `note`, `worker`); `None` when
-    /// they carry none.
+    /// (`deliveryKind`, `userMessages`: each message's text, `images`: the
+    /// image count, `note`, `worker`); `None` when they carry none.
     #[must_use]
     pub fn from_details(details: &Value) -> Option<Self> {
         let kind = ForwardKind::parse(details.get("deliveryKind")?.as_str()?)?;
-        let messages = details
-            .get("userMessages")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
         let text = |key: &str| {
             details
                 .get(key)
@@ -74,16 +69,19 @@ impl Forward {
         };
         Some(Self {
             kind,
-            user_messages: messages
-                .iter()
-                .filter_map(|message| message.get("text").and_then(Value::as_str))
+            user_messages: details
+                .get("userMessages")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
                 .map(str::to_string)
                 .collect(),
-            images: messages
-                .iter()
-                .filter_map(|message| message.get("images").and_then(Value::as_array))
-                .map(Vec::len)
-                .sum(),
+            images: details
+                .get("images")
+                .and_then(Value::as_u64)
+                .and_then(|count| usize::try_from(count).ok())
+                .unwrap_or_default(),
             note: text("note"),
             worker: text("worker"),
         })
@@ -117,7 +115,8 @@ mod tests {
     fn a_forward_keeps_the_users_words_in_order_and_labels_the_note() {
         let forward = Forward::from_details(&json!({
             "deliveryKind": "context",
-            "userMessages": [{"text": "use  tabs\n"}, {"text": "and the v2 api", "images": [{}]}],
+            "userMessages": ["use  tabs\n", "and the v2 api"],
+            "images": 1,
             "note": "the user asked this mid-run",
             "worker": "worker",
         }))

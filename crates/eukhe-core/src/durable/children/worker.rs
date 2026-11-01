@@ -264,11 +264,15 @@ struct HandOver {
 
 impl HandOver {
     /// The row details the worker's message carries, and main's tool row
-    /// shows: exactly what went.
+    /// shows: exactly what went (`userMessages`: each message's text, in
+    /// order; `images`: how many images rode them).
     fn details(&self, kind: ChildMessageKind, worker: &str) -> Map<String, Value> {
         let mut details = Map::new();
         details.insert("deliveryKind".to_owned(), json!(kind.as_str()));
         details.insert("userMessages".to_owned(), json!(self.messages));
+        if !self.images.is_empty() {
+            details.insert("images".to_owned(), json!(self.images.len()));
+        }
         if let Some(note) = &self.note {
             details.insert("note".to_owned(), json!(note));
         }

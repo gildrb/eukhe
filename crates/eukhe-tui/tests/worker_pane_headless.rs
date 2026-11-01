@@ -128,7 +128,7 @@ fn stream_worker(writer: &mut UnixStream) {
                     "display": true,
                     "details": {
                         "deliveryKind": "context",
-                        "userMessages": [{ "text": "use the v2 api" }],
+                        "userMessages": ["use the v2 api"],
                         "note": "asked mid-run",
                         "from": { "sessionName": "lead" },
                     },

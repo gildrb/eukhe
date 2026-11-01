@@ -255,6 +255,30 @@ async fn a_hand_over_carries_the_users_images_and_file_references_once_in_order(
             ),
         ]
     );
+    // The rows show what went: each message's text, verbatim, and how many
+    // images rode them (the TUI's forwarded rows read exactly this).
+    let details: Vec<_> = lock(&host.state)
+        .prompts
+        .iter()
+        .map(|prompt| prompt.details.clone().map(serde_json::Value::Object))
+        .collect();
+    assert_eq!(
+        details,
+        vec![
+            Some(json!({
+                "deliveryKind": "task",
+                "userMessages": ["fix @src/lib.rs like  this\n[image: image/png]"],
+                "images": 1,
+                "worker": "worker",
+            })),
+            Some(json!({
+                "deliveryKind": "context",
+                "userMessages": ["and @docs/a.md:3-9 too\n[image: image/jpeg]\n[image: image/png]"],
+                "images": 2,
+                "worker": "worker",
+            })),
+        ]
+    );
     opened.harness.close(cx()).await.unwrap();
 }
 

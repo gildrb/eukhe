@@ -115,7 +115,7 @@ mod tests {
                 content: vec![json!({"type": "text", "text": "forwarded"})],
                 details: json!({
                     "deliveryKind": "redirect",
-                    "userMessages": [{"text": "actually, keep the old API"}],
+                    "userMessages": ["actually, keep the old API"],
                     "note": "stop the refactor",
                     "worker": "worker",
                 }),
