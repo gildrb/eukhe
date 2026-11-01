@@ -3,12 +3,12 @@
 //! plus session-teardown cancellation).
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
+use std::cell::RefCell;
+
 use crate::cron::JobSource;
 use uuid::Uuid;
 
-use eukhe_bend::rules::cron::{self as rule, Again};
-
-use super::facts::{fact_of, job_status, next_text};
+use super::serve::{Resumed, Update};
 use super::state::{compare_optional_iso, normalize_optional_label};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
@@ -93,14 +93,17 @@ impl AgentCronJobStore {
             run_count: 0,
             failure_streak: 0,
         };
-        let mut jobs = self.read_jobs();
-        jobs.push(job.clone());
-        self.write_jobs(&jobs)?;
+        self.update(&Update::Create { job: &job })?;
         Ok(job)
     }
 
     /// Apply label, prompt, schedule, status, or delivery-mode updates to an
-    /// RLM heartbeat job. Returns `Ok(None)` when no matching job exists.
+    /// RLM heartbeat job. Returns `Ok(None)` when no matching job exists. A
+    /// resume is one update of the jobs file under its lock: the edits are
+    /// made on the job as read, then the compiled core resumes the edited
+    /// job (its next run recomputed, its failures in a row forgotten; a rule
+    /// that cannot be evaluated leaves no next run), and the file is written
+    /// once.
     ///
     /// # Errors
     ///
@@ -116,78 +119,51 @@ impl AgentCronJobStore {
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now = update.now.unwrap_or_else(now_millis);
         let now_iso = iso_from_millis(now);
+        if update.status == Some(RlmHeartbeatStatusUpdate::Resume) {
+            let edited: RefCell<Option<AgentCronJob>> = RefCell::new(None);
+            let edit = |job: &AgentCronJob| -> anyhow::Result<Option<AgentCronJob>> {
+                match rlm_edit(job, active_session_id, id, update, now, &now_iso) {
+                    RlmEdit::Other => Ok(None),
+                    RlmEdit::Rejected => Err(rlm_rejected()),
+                    RlmEdit::Edited(next) => {
+                        *edited.borrow_mut() = Some((*next).clone());
+                        Ok(Some(*next))
+                    }
+                }
+            };
+            return Ok(match self.resume_edited(id, now, &edit)? {
+                Resumed::Job(job) => Some(*job),
+                Resumed::Ended | Resumed::NotRecurring | Resumed::Missing => edited.into_inner(),
+            });
+        }
         let mut updated: Option<AgentCronJob> = None;
         let mut matched = false;
         let jobs: Vec<AgentCronJob> = self
             .read_jobs()
             .into_iter()
-            .map(|job| {
-                if job.id != id
-                    || job.active_session_id != active_session_id
-                    || job.source != JobSource::RlmHeartbeat
-                {
-                    return job;
-                }
-                matched = true;
-                if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
-                    return job;
-                }
-                let mut next = job.clone();
-                if let Some(label) = &update.label {
-                    next.label = normalize_optional_label(Some(label));
-                }
-                if let Some(delivery_mode) = &update.delivery_mode {
-                    next.delivery_mode = Some(*delivery_mode);
-                }
-                if let Some(prompt) = &update.prompt {
-                    let prompt = prompt.trim();
-                    if prompt.is_empty() {
-                        return job; // caller surfaces the error via !updated
+            .map(
+                |job| match rlm_edit(&job, active_session_id, id, update, now, &now_iso) {
+                    RlmEdit::Other => job,
+                    RlmEdit::Rejected => {
+                        matched = true;
+                        job
                     }
-                    next.prompt = prompt.to_string();
-                }
-                if let Some(schedule_text) = &update.schedule_text {
-                    match parse_agent_cron_schedule(schedule_text, now) {
-                        Ok(parsed) if parsed.0.kind != ScheduleKind::Once => {
-                            next.schedule = parsed.0;
-                            next.next_run_at = if next.status == JobStatus::Paused {
-                                None
-                            } else {
-                                Some(iso_from_millis(parsed.1))
-                            };
-                        }
-                        _ => return job,
+                    RlmEdit::Edited(next) => {
+                        matched = true;
+                        updated = Some((*next).clone());
+                        *next
                     }
-                }
-                match update.status {
-                    Some(RlmHeartbeatStatusUpdate::Pause) => {
-                        next.status = JobStatus::Paused;
-                        next.next_run_at = None;
-                    }
-                    Some(RlmHeartbeatStatusUpdate::Resume) => {
-                        if let Again::Resumed(becomes) = rule::resume(&fact_of(&next), now) {
-                            next.next_run_at = next_text(&next, becomes.next, now).ok().flatten();
-                            next.status = job_status(becomes.status);
-                            next.failure_streak = becomes.streak;
-                        }
-                    }
-                    None => {}
-                }
-                next.updated_at.clone_from(&now_iso);
-                updated = Some(next.clone());
-                next
-            })
+                },
+            )
             .collect();
-        if matched {
-            if let Some(updated_job) = &updated {
-                self.write_jobs(&jobs)?;
-                return Ok(Some(updated_job.clone()));
-            }
-            anyhow::bail!(
-                "RLM heartbeat update rejected (empty instruction or non-recurring schedule)"
-            );
+        if !matched {
+            return Ok(None);
         }
-        Ok(None)
+        let Some(updated_job) = updated else {
+            return Err(rlm_rejected());
+        };
+        self.write_jobs(&jobs)?;
+        Ok(Some(updated_job))
     }
 
     /// # Errors
@@ -264,6 +240,78 @@ impl AgentCronJobStore {
     }
 }
 
+/// What an RLM heartbeat update makes of one job record.
+enum RlmEdit {
+    /// Not the job the update names.
+    Other,
+    /// The job, but the update is refused: the job is cancelled or
+    /// completed, the new instruction is empty, or the new schedule is
+    /// invalid or not recurring.
+    Rejected,
+    /// The job as edited (a resume is the compiled core's, after).
+    Edited(Box<AgentCronJob>),
+}
+
+fn rlm_rejected() -> anyhow::Error {
+    anyhow::anyhow!("RLM heartbeat update rejected (empty instruction or non-recurring schedule)")
+}
+
+/// The field edits of `update` on `job`.
+fn rlm_edit(
+    job: &AgentCronJob,
+    active_session_id: &str,
+    id: &str,
+    update: &RlmHeartbeatUpdate,
+    now: u64,
+    now_iso: &str,
+) -> RlmEdit {
+    if job.id != id
+        || job.active_session_id != active_session_id
+        || job.source != JobSource::RlmHeartbeat
+    {
+        return RlmEdit::Other;
+    }
+    if matches!(job.status, JobStatus::Cancelled | JobStatus::Completed) {
+        return RlmEdit::Rejected;
+    }
+    let mut next = job.clone();
+    if let Some(label) = &update.label {
+        next.label = normalize_optional_label(Some(label));
+    }
+    if let Some(delivery_mode) = &update.delivery_mode {
+        next.delivery_mode = Some(*delivery_mode);
+    }
+    if let Some(prompt) = &update.prompt {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return RlmEdit::Rejected;
+        }
+        next.prompt = prompt.to_string();
+    }
+    if let Some(schedule_text) = &update.schedule_text {
+        match parse_agent_cron_schedule(schedule_text, now) {
+            Ok(parsed) if parsed.0.kind != ScheduleKind::Once => {
+                next.schedule = parsed.0;
+                next.next_run_at = if next.status == JobStatus::Paused {
+                    None
+                } else {
+                    Some(iso_from_millis(parsed.1))
+                };
+            }
+            _ => return RlmEdit::Rejected,
+        }
+    }
+    match update.status {
+        Some(RlmHeartbeatStatusUpdate::Pause) => {
+            next.status = JobStatus::Paused;
+            next.next_run_at = None;
+        }
+        Some(RlmHeartbeatStatusUpdate::Resume) | None => {}
+    }
+    next.updated_at = now_iso.to_string();
+    RlmEdit::Edited(Box::new(next))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +347,7 @@ mod tests {
                 &rlm.id,
                 &RlmHeartbeatUpdate {
                     status: Some(RlmHeartbeatStatusUpdate::Resume),
+                    label: Some("pods".to_string()),
                     now: Some(now + 2),
                     ..Default::default()
                 },
@@ -306,6 +355,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(resumed.status, JobStatus::Active);
+        // The edit and the resume land in one update.
+        assert_eq!(resumed.label.as_deref(), Some("pods"));
+        let stored = store.list_rlm_heartbeats("live-1", false);
+        assert_eq!(stored[0].label.as_deref(), Some("pods"));
+        assert_eq!(stored[0].status, JobStatus::Active);
+        assert!(stored[0].next_run_at.is_some());
         // Delete cancels.
         let deleted = store
             .delete_rlm_heartbeat("live-1", &rlm.id, now + 3)

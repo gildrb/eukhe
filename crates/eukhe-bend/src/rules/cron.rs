@@ -1,12 +1,16 @@
-//! The per-job decisions of the cron job store (`bend/cron_store.bend`,
-//! entry `bend/ffi_cron.bend`; `laws/cron.bend` section D2.2): a claim
-//! pass, the verdict on a claim on record, a recovery, the finish step of
-//! a run, a cancel and a resume. Each function encodes the facts the store
-//! read of one job, calls [`Entry::Cron`] and decodes what the job becomes.
-//! Times are ms since the epoch.
+//! The cron job store's updates (`bend/cron_serve.bend`, stepper entry
+//! `bend/ffi_cron_serve.bend`; laws `laws/cron_serve/`). The store is an
+//! event loop with no policy: under a jobs file's lock it reads the file,
+//! numbers what the decisions compare, and asks [`Runs::serve`] what the
+//! whole new file is: which records change and how (the per-job decisions
+//! of `bend/cron_store.bend`), which claims go and which are made, whether
+//! an unreadable file moves aside first and whether anything is written.
+//! The stepper's state is the process's runs: the dispatch ids it runs
+//! now; a claim adds the dispatches it makes, a finish of its own run or
+//! [`Runs::end`] removes one. Times are ms since the epoch.
 
-use crate::wire::{Reader, Writer, NAT_MAX};
-use crate::{call, expect_core, Entry, Error};
+use crate::wire::{Reader, WireError, Writer, NAT_MAX};
+use crate::{call, expect_core, Entry, Stepper};
 
 /// The largest time the store encodes: half the wire's largest Nat, so
 /// that a time plus an interval or a pause still fits the reply. A later
@@ -50,8 +54,8 @@ pub struct Fact {
 pub enum Next {
     None,
     At(u64),
-    /// The schedule rule's next match after the decision's clock: the
-    /// store evaluates the rule.
+    /// The schedule rule's next match after the update's clock: the store
+    /// evaluates the rule.
     Roll,
 }
 
@@ -62,17 +66,8 @@ pub enum Took {
     Keep,
     /// Due with a claim on record: only its next run rolls.
     Roll(Next),
-    /// Due with no claim on record: claim it; its next run rolls.
+    /// Due with no claim on record: claimed; its next run rolls.
     Claim(Next),
-}
-
-/// Whose claim is on record.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Who {
-    /// This process's, and whether this process still runs it.
-    Mine { running: bool },
-    /// Another process's, and whether that process is dead.
-    Theirs { dead: bool },
 }
 
 /// A recovery of one job.
@@ -127,31 +122,286 @@ pub enum Again {
     NotRecurring,
 }
 
+/// A job record of the file, in file order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobRec {
+    /// One this build reads: its id (the store's number for it) and facts.
+    Known { id: u64, fact: Fact },
+    /// One this build cannot read.
+    Raw,
+}
+
+/// A claim record of the file, in file order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClaimRec<'a> {
+    /// One this build reads: its dispatch id, its job's id and its owner
+    /// (the store's numbers for them).
+    Known {
+        dispatch: &'a str,
+        job: u64,
+        owner: u64,
+    },
+    /// One this build cannot read.
+    Raw,
+}
+
+/// The jobs file as an update reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Disk<'a> {
+    Missing,
+    /// There, but it cannot be read or parsed.
+    Torn,
+    Parsed {
+        jobs: &'a [JobRec],
+        claims: &'a [ClaimRec<'a>],
+    },
+}
+
+/// An update, with the facts the store gathered for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op<'a> {
+    /// A claim pass at `now` over the jobs due by `due`; `fresh`: dispatch
+    /// ids to use, in order (one per job record is enough).
+    Claim {
+        due: u64,
+        now: u64,
+        fresh: &'a [String],
+    },
+    /// A recovery; `dead`: the claim owners on record that are dead.
+    Recover {
+        dead: &'a [u64],
+    },
+    /// The finish of the run of `dispatch`.
+    Finish {
+        dispatch: &'a str,
+        ran: bool,
+        failed: bool,
+        now: u64,
+    },
+    Cancel {
+        job: u64,
+    },
+    Resume {
+        job: u64,
+        now: u64,
+    },
+    /// A new job record with the fresh id `job`, last in the file.
+    Create {
+        job: u64,
+        fact: Fact,
+    },
+}
+
+/// What a job record becomes, in file order (a new one last).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobOut {
+    /// Kept as read.
+    Same,
+    Took(Took),
+    Back(Back),
+    Finished(Finished),
+    Cut(Cut),
+    Again(Again),
+    /// The created job.
+    New,
+}
+
+/// What a claim record becomes, in file order (new ones last).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClaimOut {
+    Keep,
+    Drop,
+    /// A claim of the job record at position `at`, owned by this process.
+    New {
+        at: usize,
+        dispatch: String,
+    },
+}
+
+/// The whole new file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Served {
+    /// Move the unreadable file aside first.
+    pub aside: bool,
+    /// Write the records (else leave the file as it is).
+    pub write: bool,
+    pub jobs: Vec<JobOut>,
+    pub claims: Vec<ClaimOut>,
+}
+
+/// The runs of one process, kept in the compiled core: the dispatch ids
+/// it runs now.
+#[derive(Debug)]
+pub struct Runs {
+    stepper: Stepper,
+}
+
+impl Default for Runs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Runs {
+    /// No runs.
+    #[must_use]
+    pub fn new() -> Self {
+        let (stepper, reply) = expect_core(Entry::CronServe, Stepper::open(Entry::CronServe, ""));
+        expect_core(
+            Entry::CronServe,
+            Reader::reply(&reply).and_then(Reader::end),
+        );
+        Runs { stepper }
+    }
+
+    /// The update `op` of the file `disk` by the process numbered `me`.
+    pub fn serve(&mut self, me: u64, disk: &Disk<'_>, op: &Op<'_>) -> Served {
+        let mut event = Writer::new();
+        event.tag(0).nat(me);
+        put_disk(&mut event, disk);
+        put_op(&mut event, op);
+        let event = expect_core(Entry::CronServe, event.finish());
+        let reply = expect_core(Entry::CronServe, self.stepper.step(&event));
+        expect_core(Entry::CronServe, read_served(&reply))
+    }
+
+    /// The run of `dispatch` ended (its guard dropped).
+    pub fn end(&mut self, dispatch: &str) {
+        let event = expect_core(
+            Entry::CronServe,
+            Writer::new().tag(1).str(dispatch).finish(),
+        );
+        let reply = expect_core(Entry::CronServe, self.stepper.step(&event));
+        expect_core(
+            Entry::CronServe,
+            Reader::reply(&reply).and_then(Reader::end),
+        );
+    }
+}
+
+/// Whether a job is due at `now`: a claim pass at `now` would claim it or
+/// roll its next run.
+#[must_use]
+pub fn due(fact: &Fact, now: u64) -> bool {
+    let mut question = Writer::new();
+    question.nat(time(now));
+    put_fact(&mut question, fact);
+    let question = expect_core(Entry::CronServe, question.finish());
+    let reply = expect_core(Entry::CronServe, call(Entry::CronServe, &question));
+    expect_core(
+        Entry::CronServe,
+        Reader::reply(&reply).and_then(|mut r| {
+            let due = r.bool()?;
+            r.end()?;
+            Ok(due)
+        }),
+    )
+}
+
 fn time(ms: u64) -> u64 {
     ms.min(TIME_MAX)
 }
 
-fn put_fact(request: &mut Writer, fact: &Fact) {
-    request.tag(match fact.status {
+fn put_fact(w: &mut Writer, fact: &Fact) {
+    w.tag(match fact.status {
         Status::Active => 0,
         Status::Paused => 1,
         Status::Completed => 2,
         Status::Cancelled => 3,
     });
     match fact.plan {
-        Plan::Once => request.tag(0),
-        Plan::Every(ms) => request.tag(1).nat(time(ms)),
-        Plan::Rule => request.tag(2),
+        Plan::Once => w.tag(0),
+        Plan::Every(ms) => w.tag(1).nat(time(ms)),
+        Plan::Rule => w.tag(2),
     };
     match fact.next {
-        None => request.none(),
-        Some(ms) => request.some().nat(time(ms)),
+        None => w.none(),
+        Some(ms) => w.some().nat(time(ms)),
     };
-    request.nat(u64::from(fact.streak));
+    w.nat(u64::from(fact.streak));
 }
 
-fn get_status(reader: &mut Reader<'_>) -> Result<Status, Error> {
-    Ok(match reader.tag_of(4, "a cron job status")? {
+fn put_disk(w: &mut Writer, disk: &Disk<'_>) {
+    match disk {
+        Disk::Missing => {
+            w.tag(0);
+        }
+        Disk::Torn => {
+            w.tag(1);
+        }
+        Disk::Parsed { jobs, claims } => {
+            w.tag(2).count(jobs.len());
+            for job in *jobs {
+                match job {
+                    JobRec::Known { id, fact } => {
+                        w.tag(0).nat(*id);
+                        put_fact(w, fact);
+                    }
+                    JobRec::Raw => {
+                        w.tag(1);
+                    }
+                }
+            }
+            w.count(claims.len());
+            for claim in *claims {
+                match claim {
+                    ClaimRec::Known {
+                        dispatch,
+                        job,
+                        owner,
+                    } => {
+                        w.tag(0).str(dispatch).nat(*job).nat(*owner);
+                    }
+                    ClaimRec::Raw => {
+                        w.tag(1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn put_op(w: &mut Writer, op: &Op<'_>) {
+    match op {
+        Op::Claim { due, now, fresh } => {
+            w.tag(0).nat(time(*due)).nat(time(*now)).count(fresh.len());
+            for dispatch in *fresh {
+                w.str(dispatch);
+            }
+        }
+        Op::Recover { dead } => {
+            w.tag(1).count(dead.len());
+            for owner in *dead {
+                w.nat(*owner);
+            }
+        }
+        Op::Finish {
+            dispatch,
+            ran,
+            failed,
+            now,
+        } => {
+            w.tag(2)
+                .str(dispatch)
+                .bool(*ran)
+                .bool(*failed)
+                .nat(time(*now));
+        }
+        Op::Cancel { job } => {
+            w.tag(3).nat(*job);
+        }
+        Op::Resume { job, now } => {
+            w.tag(4).nat(*job).nat(time(*now));
+        }
+        Op::Create { job, fact } => {
+            w.tag(5).nat(*job);
+            put_fact(w, fact);
+        }
+    }
+}
+
+fn get_status(r: &mut Reader<'_>) -> Result<Status, WireError> {
+    Ok(match r.tag_of(4, "a cron job status")? {
         0 => Status::Active,
         1 => Status::Paused,
         2 => Status::Completed,
@@ -160,27 +410,23 @@ fn get_status(reader: &mut Reader<'_>) -> Result<Status, Error> {
     })
 }
 
-fn get_time(reader: &mut Reader<'_>) -> Result<Option<u64>, Error> {
-    Ok(if reader.maybe()? {
-        Some(reader.nat()?)
-    } else {
-        None
-    })
+fn get_time(r: &mut Reader<'_>) -> Result<Option<u64>, WireError> {
+    Ok(if r.maybe()? { Some(r.nat()?) } else { None })
 }
 
-fn get_next(reader: &mut Reader<'_>) -> Result<Next, Error> {
-    Ok(match reader.tag_of(3, "a cron next run")? {
+fn get_next(r: &mut Reader<'_>) -> Result<Next, WireError> {
+    Ok(match r.tag_of(3, "a cron next run")? {
         0 => Next::None,
-        1 => Next::At(reader.nat()?),
+        1 => Next::At(r.nat()?),
         // `tag_of` answers a tag below 3: this is 2.
         _ => Next::Roll,
     })
 }
 
-fn get_become(reader: &mut Reader<'_>) -> Result<Become, Error> {
-    let status = get_status(reader)?;
-    let next = get_next(reader)?;
-    let streak = u32::try_from(reader.nat()?).unwrap_or(u32::MAX);
+fn get_become(r: &mut Reader<'_>) -> Result<Become, WireError> {
+    let status = get_status(r)?;
+    let next = get_next(r)?;
+    let streak = u32::try_from(r.nat()?).unwrap_or(u32::MAX);
     Ok(Become {
         status,
         next,
@@ -188,178 +434,181 @@ fn get_become(reader: &mut Reader<'_>) -> Result<Become, Error> {
     })
 }
 
-/// Call the core on `request` and decode its reply with `decode`.
-fn ask<T>(
-    request: &mut Writer,
-    decode: impl FnOnce(&mut Reader<'_>) -> Result<T, Error>,
-) -> Result<T, Error> {
-    let reply = call(Entry::Cron, &request.finish()?)?;
-    let mut reader = Reader::reply(&reply)?;
-    let value = decode(&mut reader)?;
-    reader.end()?;
-    Ok(value)
-}
-
-/// A claim pass at `now` over a job due by `due`; `claimed`: a claim of
-/// it is on record.
-#[must_use]
-pub fn take(fact: &Fact, claimed: bool, due: u64, now: u64) -> Took {
-    let mut request = Writer::new();
-    request.tag(0);
-    put_fact(&mut request, fact);
-    request.bool(claimed).nat(time(due)).nat(time(now));
-    expect_core(
-        Entry::Cron,
-        ask(&mut request, |reader| {
-            Ok(match reader.tag_of(3, "a claim pass")? {
-                0 => Took::Keep,
-                1 => Took::Roll(get_next(reader)?),
-                // `tag_of` answers a tag below 3: this is 2.
-                _ => Took::Claim(get_next(reader)?),
-            })
+fn get_job_out(r: &mut Reader<'_>) -> Result<JobOut, WireError> {
+    Ok(match r.tag_of(7, "a job record's answer")? {
+        0 => JobOut::Same,
+        1 => JobOut::Took(match r.tag_of(3, "a claim pass")? {
+            0 => Took::Keep,
+            1 => Took::Roll(get_next(r)?),
+            // `tag_of` answers a tag below 3: this is 2.
+            _ => Took::Claim(get_next(r)?),
         }),
-    )
-}
-
-/// Whether a recovery clears a claim on record of `who`.
-#[must_use]
-pub fn clear(who: Who) -> bool {
-    let mut request = Writer::new();
-    request.tag(1);
-    match who {
-        Who::Mine { running } => request.tag(0).bool(running),
-        Who::Theirs { dead } => request.tag(1).bool(dead),
-    };
-    expect_core(Entry::Cron, ask(&mut request, |reader| Ok(reader.bool()?)))
-}
-
-/// A recovery of a job; `cleared`: a claim of it was cleared.
-#[must_use]
-pub fn recover(fact: &Fact, cleared: bool) -> Back {
-    let mut request = Writer::new();
-    request.tag(2);
-    put_fact(&mut request, fact);
-    request.bool(cleared);
-    expect_core(
-        Entry::Cron,
-        ask(&mut request, |reader| {
-            Ok(match reader.tag_of(2, "a recovery")? {
-                0 => Back::Kept,
-                // `tag_of` answers a tag below 2: this is 1.
-                _ => Back::Interrupted {
-                    status: get_status(reader)?,
-                    next: get_time(reader)?,
-                },
-            })
+        2 => JobOut::Back(match r.tag_of(2, "a recovery")? {
+            0 => Back::Kept,
+            // `tag_of` answers a tag below 2: this is 1.
+            _ => Back::Interrupted {
+                status: get_status(r)?,
+                next: get_time(r)?,
+            },
         }),
-    )
+        3 => JobOut::Finished(match r.tag_of(3, "a finish step")? {
+            0 => Finished::Untouched,
+            1 => Finished::Ran(get_become(r)?),
+            // `tag_of` answers a tag below 3: this is 2.
+            _ => Finished::Skipped(get_become(r)?),
+        }),
+        4 => JobOut::Cut(match r.tag_of(2, "a cancel")? {
+            0 => Cut::Same,
+            // `tag_of` answers a tag below 2: this is 1.
+            _ => Cut::Cut {
+                status: get_status(r)?,
+                next: get_time(r)?,
+            },
+        }),
+        5 => JobOut::Again(match r.tag_of(3, "a resume")? {
+            0 => Again::Resumed(get_become(r)?),
+            1 => Again::Ended,
+            // `tag_of` answers a tag below 3: this is 2.
+            _ => Again::NotRecurring,
+        }),
+        // `tag_of` answers a tag below 7: this is 6.
+        _ => JobOut::New,
+    })
 }
 
-/// The finish step at `now` of a run of a job that `ran` (else it was
-/// skipped) and `failed` (or not).
-#[must_use]
-pub fn finish(fact: &Fact, ran: bool, failed: bool, now: u64) -> Finished {
-    let mut request = Writer::new();
-    request.tag(3);
-    put_fact(&mut request, fact);
-    request.bool(ran).bool(failed).nat(time(now));
-    expect_core(
-        Entry::Cron,
-        ask(&mut request, |reader| {
-            Ok(match reader.tag_of(3, "a finish step")? {
-                0 => Finished::Untouched,
-                1 => Finished::Ran(get_become(reader)?),
-                // `tag_of` answers a tag below 3: this is 2.
-                _ => Finished::Skipped(get_become(reader)?),
-            })
-        }),
-    )
+fn get_claim_out(r: &mut Reader<'_>) -> Result<ClaimOut, WireError> {
+    Ok(match r.tag_of(3, "a claim record's answer")? {
+        0 => ClaimOut::Keep,
+        1 => ClaimOut::Drop,
+        // `tag_of` answers a tag below 3: this is 2.
+        _ => {
+            let at = r.count()?;
+            ClaimOut::New {
+                at,
+                dispatch: r.str()?.to_string(),
+            }
+        }
+    })
 }
 
-/// A cancel of a job.
-#[must_use]
-pub fn cancel(fact: &Fact) -> Cut {
-    let mut request = Writer::new();
-    request.tag(4);
-    put_fact(&mut request, fact);
-    expect_core(
-        Entry::Cron,
-        ask(&mut request, |reader| {
-            Ok(match reader.tag_of(2, "a cancel")? {
-                0 => Cut::Same,
-                // `tag_of` answers a tag below 2: this is 1.
-                _ => Cut::Cut {
-                    status: get_status(reader)?,
-                    next: get_time(reader)?,
-                },
-            })
-        }),
-    )
-}
-
-/// A resume of a job at `now`.
-#[must_use]
-pub fn resume(fact: &Fact, now: u64) -> Again {
-    let mut request = Writer::new();
-    request.tag(5);
-    put_fact(&mut request, fact);
-    request.nat(time(now));
-    expect_core(
-        Entry::Cron,
-        ask(&mut request, |reader| {
-            Ok(match reader.tag_of(3, "a resume")? {
-                0 => Again::Resumed(get_become(reader)?),
-                1 => Again::Ended,
-                // `tag_of` answers a tag below 3: this is 2.
-                _ => Again::NotRecurring,
-            })
-        }),
-    )
+fn read_served(reply: &str) -> Result<Served, WireError> {
+    let mut r = Reader::reply(reply)?;
+    let aside = r.bool()?;
+    let write = r.bool()?;
+    let count = r.count()?;
+    let mut jobs = Vec::with_capacity(count);
+    for _ in 0..count {
+        jobs.push(get_job_out(&mut r)?);
+    }
+    let count = r.count()?;
+    let mut claims = Vec::with_capacity(count);
+    for _ in 0..count {
+        claims.push(get_claim_out(&mut r)?);
+    }
+    r.end()?;
+    Ok(Served {
+        aside,
+        write,
+        jobs,
+        claims,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Every decision comes from the compiled core.
+    const EVERY: Fact = Fact {
+        status: Status::Active,
+        plan: Plan::Every(600_000),
+        next: Some(1_000),
+        streak: 0,
+    };
+
+    /// The compiled core is reached: a claim pass claims the due job with
+    /// no claim and rolls the one with a claim, keeping the record it
+    /// cannot read in place; the finish of the claimed run settles it; a
+    /// finish of a dispatch this process does not run changes nothing
+    /// (the rule itself is pinned by `laws/cron_serve/`).
     #[test]
-    fn the_cron_decisions_come_from_the_compiled_core() {
-        let every = Fact {
-            status: Status::Active,
-            plan: Plan::Every(600_000),
-            next: Some(1_000),
-            streak: 3,
+    fn the_cron_store_updates_run_in_the_core() {
+        let mut runs = Runs::new();
+        let jobs = [
+            JobRec::Known { id: 0, fact: EVERY },
+            JobRec::Raw,
+            JobRec::Known { id: 1, fact: EVERY },
+        ];
+        let claims = [ClaimRec::Known {
+            dispatch: "theirs",
+            job: 1,
+            owner: 1,
+        }];
+        let fresh = ["mine".to_string(), "spare".to_string()];
+        let disk = Disk::Parsed {
+            jobs: &jobs,
+            claims: &claims,
         };
+        let claimed = runs.serve(
+            0,
+            &disk,
+            &Op::Claim {
+                due: 1_000,
+                now: 1_000,
+                fresh: &fresh,
+            },
+        );
+        let after = [ClaimRec::Known {
+            dispatch: "mine",
+            job: 0,
+            owner: 0,
+        }];
+        let finish = |dispatch| Op::Finish {
+            dispatch,
+            ran: true,
+            failed: false,
+            now: 2_000,
+        };
+        let disk = Disk::Parsed {
+            jobs: &jobs[..1],
+            claims: &after,
+        };
+        let stranger = runs.serve(0, &disk, &finish("theirs"));
+        let settled = runs.serve(0, &disk, &finish("mine"));
         assert_eq!(
+            (claimed, stranger, settled),
             (
-                take(&every, false, 1_000, 1_000),
-                clear(Who::Theirs { dead: false }),
-                recover(&every, true),
-                finish(&every, true, true, 5_000),
-                cancel(&every),
-                resume(&every, 9),
-            ),
-            (
-                Took::Claim(Next::At(601_000)),
-                false,
-                Back::Interrupted {
-                    status: Status::Active,
-                    next: Some(1_000),
+                Served {
+                    aside: false,
+                    write: true,
+                    jobs: vec![
+                        JobOut::Took(Took::Claim(Next::At(601_000))),
+                        JobOut::Same,
+                        JobOut::Took(Took::Roll(Next::At(601_000))),
+                    ],
+                    claims: vec![
+                        ClaimOut::Keep,
+                        ClaimOut::New {
+                            at: 0,
+                            dispatch: "mine".to_string(),
+                        },
+                    ],
                 },
-                Finished::Ran(Become {
-                    status: Status::Active,
-                    next: Next::At(965_000),
-                    streak: 4,
-                }),
-                Cut::Cut {
-                    status: Status::Cancelled,
-                    next: None,
+                Served {
+                    aside: false,
+                    write: false,
+                    jobs: vec![JobOut::Same],
+                    claims: vec![ClaimOut::Keep],
                 },
-                Again::Resumed(Become {
-                    status: Status::Active,
-                    next: Next::At(600_009),
-                    streak: 0,
-                }),
+                Served {
+                    aside: false,
+                    write: true,
+                    jobs: vec![JobOut::Finished(Finished::Ran(Become {
+                        status: Status::Active,
+                        next: Next::At(1_000),
+                        streak: 0,
+                    }))],
+                    claims: vec![ClaimOut::Drop],
+                },
             )
         );
     }

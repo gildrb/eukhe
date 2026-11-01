@@ -132,8 +132,6 @@ pub enum Entry {
     JobRewind = 80,
     /// `bend/ffi_job_wait.bend`: a stepper.
     JobWait = 81,
-    /// `bend/ffi_cron.bend`: a call.
-    Cron = 82,
     /// `bend/ffi_work.bend`: a call and a stepper.
     Work = 83,
     /// `bend/ffi_retry_idle.bend`: a call.
@@ -190,6 +188,8 @@ pub enum Entry {
     McpUrl = 290,
     /// `bend/ffi_slash_args.bend`: a call.
     SlashArgs = 291,
+    /// `bend/ffi_cron_serve.bend`: a call and a stepper.
+    CronServe = 410,
 }
 
 impl Entry {
@@ -258,7 +258,6 @@ impl Entry {
         Entry::Tokens,
         Entry::JobRewind,
         Entry::JobWait,
-        Entry::Cron,
         Entry::Work,
         Entry::RetryIdle,
         Entry::Lease,
@@ -287,6 +286,7 @@ impl Entry {
         Entry::DocPlan,
         Entry::McpUrl,
         Entry::SlashArgs,
+        Entry::CronServe,
     ];
 
     /// The id `bend/core.bend` dispatches on.

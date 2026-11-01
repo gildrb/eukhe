@@ -46,6 +46,10 @@ import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cron
 import ./laws/cron_store.bend as CronStore
 import ./laws/cron_terms.bend as CronTerms
+import ./laws/cron_serve/serve.bend as CronServe
+import ./laws/cron_serve/entry.bend as CronServeEntry
+import ./laws/cron_serve/safety.bend as CronServeSafety
+import ./laws/cron_serve/model.bend as CronServeModel
 import ./laws/supervise.bend as Supervise
 import ./laws/timeouts.bend as Timeouts
 import ./laws/revive.bend as Revive

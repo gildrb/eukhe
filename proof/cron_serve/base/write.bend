@@ -1,41 +1,13 @@
-# eukhe: lemmas the proofs of area cron share: the model's pause in
-# minutes is the spec's table, the entry's reply writers write what the
-# laws' spellers write, and the entry's answer to every request is the
-# laws' reply (each decision being its spec: the cron_store laws).
+# eukhe: lemmas the proofs of area cron_serve share: the entry's writers
+# of the per-job decisions (bend/ffi_cron_serve.bend) write what the laws'
+# spellers write.
 
 import Base
 import ../../../bend/cron.bend as Cr
 import ../../../bend/cron_store.bend as CS
-import ../../../bend/ffi_cron.bend as FC
+import ../../../bend/ffi_cron_serve.bend as FC
 import ../../../bend/wire.bend as Wr
 import ../../../laws/cron.bend as Cron
-import ../../../laws/cron_store.bend as CronStore
-import ../../cron_store/cron_take_exact.bend as PX0
-import ../../cron_store/cron_clear_exact.bend as PX1
-import ../../cron_store/cron_recover_exact.bend as PX2
-import ../../cron_store/cron_finish_exact.bend as PX3
-import ../../cron_store/cron_cancel_exact.bend as PX4
-import ../../cron_store/cron_resume_exact.bend as PX5
-
-# Decisions
-# ---------
-
-def creq.delay(k: Nat) -> {Cr.delay(k) == CronStore.pause_min_spec(k) : Nat}:
-  match k:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      {==}
-    case 3n:
-      {==}
-    case 4n:
-      {==}
-    case 5n:
-      {==}
-    case 6n+r:
-      {==}
 
 # Writers
 # -------
@@ -121,28 +93,3 @@ def crw.again(x: CS.Again, +rest: String) -> {FC.put_again(x, rest) == Cron.spel
       {==}
     case CS.NotRecurring{}:
       {==}
-
-# Answers
-# -------
-
-# the entry's answer to every request is the laws' reply to it
-def cran.answer(a: CS.Ask) -> {FC.answer(a) == Cron.spell_answer(a) : String}:
-  match a:
-    case CS.AskTake{+f, +c, +d, +n}:
-      %CronStore.cron_take_exact(f, c, d, n) : {FC.put_took(CS.take(f, c, d, n), "") == Cron.spell_took(_, "") : String}
-      crw.took(CS.take(f, c, d, n), "")
-    case CS.AskClear{+w}:
-      %CronStore.cron_clear_exact(w) : {Wr.put_bool(CS.clear(w), "") == Wr.put_bool(_, "") : String}
-      {==}
-    case CS.AskRecover{+f, +c}:
-      %CronStore.cron_recover_exact(f, c) : {FC.put_back(CS.recover(f, c), "") == Cron.spell_back(_, "") : String}
-      crw.back(CS.recover(f, c), "")
-    case CS.AskFinish{+f, +r, +b, +n}:
-      %CronStore.cron_finish_exact(60000n, f, r, b, n) : {FC.put_fin(CS.finish(60000n, f, r, b, n), "") == Cron.spell_fin(_, "") : String}
-      crw.fin(CS.finish(60000n, f, r, b, n), "")
-    case CS.AskCancel{+f}:
-      %CronStore.cron_cancel_exact(f) : {FC.put_cut(CS.cancel(f), "") == Cron.spell_cut(_, "") : String}
-      crw.cut(CS.cancel(f), "")
-    case CS.AskResume{+f, +n}:
-      %CronStore.cron_resume_exact(f, n) : {FC.put_again(CS.resume(f, n), "") == Cron.spell_again(_, "") : String}
-      crw.again(CS.resume(f, n), "")

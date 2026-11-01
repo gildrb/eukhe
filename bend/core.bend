@@ -16,7 +16,7 @@ import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_config.bend as ffi_config
-import ./ffi_cron.bend as ffi_cron
+import ./ffi_cron_serve.bend as ffi_cron_serve
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
@@ -215,8 +215,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tokens.ffi(input)
     case 80:
       ffi_job_rewind.ffi(input)
-    case 82:
-      ffi_cron.ffi(input)
     case 83:
       ffi_work.ffi(input)
     case 84:
@@ -269,6 +267,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_mcp_url.ffi(input)
     case 291:
       ffi_slash_args.ffi(input)
+    case 410:
+      ffi_cron_serve.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -295,6 +295,7 @@ type State is Type:
   Work{s: ffi_work.St}
   Lease{s: ffi_lease.St}
   AuthFlight{s: ffi_auth_flight.St}
+  CronServe{s: ffi_cron_serve.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -377,6 +378,11 @@ def open.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def open.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (CronServe{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -411,6 +417,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.lease(ffi_lease.open(input))
     case 92:
       open.auth_flight(ffi_auth_flight.open(input))
+    case 410:
+      open.cron_serve(ffi_cron_serve.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -499,6 +507,11 @@ def step.auth_flight(r: ffi_auth_flight.St & String) -> State & String:
     case (s, reply):
       (AuthFlight{s}, reply)
 
+def step.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (CronServe{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -533,6 +546,8 @@ def step.go(state: State, input: String) -> State & String:
       step.lease(ffi_lease.step(s, input))
     case AuthFlight{s}:
       step.auth_flight(ffi_auth_flight.step(s, input))
+    case CronServe{s}:
+      step.cron_serve(ffi_cron_serve.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -574,6 +589,8 @@ def close.go(state: State) -> Unit:
     case Lease{s}:
       Unit{}
     case AuthFlight{s}:
+      Unit{}
+    case CronServe{s}:
       Unit{}
     case Unknown{}:
       Unit{}

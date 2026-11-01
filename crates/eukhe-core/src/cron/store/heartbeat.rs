@@ -5,9 +5,7 @@
 use crate::cron::JobSource;
 use uuid::Uuid;
 
-use eukhe_bend::rules::cron::{self as rule, Again};
-
-use super::facts::{fact_of, job_status, next_text};
+use super::serve::Resumed;
 use super::state::normalize_optional_label;
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CreateAgentCronJobInput,
@@ -136,8 +134,9 @@ impl AgentCronJobStore {
         Ok(paused)
     }
 
-    /// Resume the heartbeat for a session, recomputing its next run time.
-    /// Returns `Ok(None)` when the session has no heartbeat.
+    /// Resume the heartbeat for a session, as the compiled core decides it:
+    /// its failures in a row forgotten, its next run recomputed. Returns
+    /// `Ok(None)` when the session has no heartbeat to resume.
     ///
     /// # Errors
     ///
@@ -151,34 +150,11 @@ impl AgentCronJobStore {
         let Some(current) = self.get_heartbeat(active_session_id) else {
             return Ok(None);
         };
-        let becomes = match rule::resume(&fact_of(&current), now) {
-            Again::Resumed(becomes) => becomes,
-            Again::Ended => return Ok(None),
-            Again::NotRecurring => anyhow::bail!("Heartbeat schedule must be recurring"),
-        };
-        let next_run_at = next_text(&current, becomes.next, now)?;
-        let now_iso = iso_from_millis(now);
-        let mut resumed = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
-            .into_iter()
-            .map(|job| {
-                if job.id != current.id {
-                    return job;
-                }
-                let resumed_job = AgentCronJob {
-                    status: job_status(becomes.status),
-                    next_run_at: next_run_at.clone(),
-                    updated_at: now_iso.clone(),
-                    failure_streak: becomes.streak,
-                    ..job
-                };
-                resumed = Some(resumed_job.clone());
-                resumed_job
-            })
-            .collect();
-        self.write_jobs(&jobs)?;
-        Ok(resumed)
+        match self.resume(&current.id, now)? {
+            Resumed::Job(job) => Ok(Some(*job)),
+            Resumed::Ended | Resumed::Missing => Ok(None),
+            Resumed::NotRecurring => anyhow::bail!("Heartbeat schedule must be recurring"),
+        }
     }
 
     /// # Errors
@@ -250,16 +226,13 @@ impl AgentCronJobStore {
                 job.next_run_at = None;
             }
             HeartbeatManagementAction::Resume => {
-                let becomes = match rule::resume(&fact_of(job), now) {
-                    Again::Resumed(becomes) => becomes,
-                    Again::Ended => return Ok(None),
-                    Again::NotRecurring => {
+                return match self.resume(id, now)? {
+                    Resumed::Job(job) => Ok(Some(*job)),
+                    Resumed::Ended | Resumed::Missing => Ok(None),
+                    Resumed::NotRecurring => {
                         anyhow::bail!("Heartbeat schedule must be recurring")
                     }
                 };
-                job.next_run_at = next_text(job, becomes.next, now)?;
-                job.status = job_status(becomes.status);
-                job.failure_streak = becomes.streak;
             }
         }
         job.updated_at = now_iso;

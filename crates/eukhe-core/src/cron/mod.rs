@@ -914,11 +914,10 @@ fn parse_offset(text: &str) -> Option<i64> {
 }
 
 /// Whether a job is due at `now_millis`: what a claim pass of the compiled
-/// core (`eukhe_bend::rules::cron::take`) makes of it.
+/// core makes of it (`eukhe_bend::rules::cron::due`).
 #[must_use]
 pub fn is_due_job(job: &AgentCronJob, now_millis: u64) -> bool {
-    eukhe_bend::rules::cron::take(&store::fact_of(job), false, now_millis, now_millis)
-        != eukhe_bend::rules::cron::Took::Keep
+    eukhe_bend::rules::cron::due(&store::fact_of(job), now_millis)
 }
 
 #[cfg(test)]
