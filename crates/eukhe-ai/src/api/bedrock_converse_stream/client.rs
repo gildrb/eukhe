@@ -14,12 +14,11 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::VecDeque;
-use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use eukhe_bend::rules::aws_text;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{IndexMap, JsonObject, JsonValue, Model, ProviderResponse};
-use regex::Regex;
 
 use super::client_config::{AwsCredentials, BedrockClientConfig, BedrockRequestHandler};
 use super::credentials::{resolve_default_credentials, resolve_default_region};
@@ -231,89 +230,28 @@ fn is_reserved_header(key: &str) -> bool {
     lower.starts_with("x-amz-") || lower == "authorization" || lower == "host"
 }
 
-/// The `aws.partition` outputs: `(dnsSuffix, dualStackDnsSuffix)`.
+/// The `aws.partition` outputs: `(dnsSuffix, dualStackDnsSuffix)` of the
+/// partition a `<partition>-global` pseudo-region names, else of the
+/// partition whose region shape `region` has (the compiled core's
+/// [`aws_text::partition`]), else of `aws`.
 fn partition_dns_suffixes(region: &str) -> (&'static str, &'static str) {
-    static PARTITIONS: LazyLock<Vec<(Regex, &'static str, &'static str, &'static str)>> =
-        LazyLock::new(|| {
-            [
-                (
-                    r"^(us|eu|ap|sa|ca|me|af|il|mx)\-\w+\-\d+$",
-                    "aws",
-                    "amazonaws.com",
-                    "api.aws",
-                ),
-                (
-                    r"^cn\-\w+\-\d+$",
-                    "aws-cn",
-                    "amazonaws.com.cn",
-                    "api.amazonwebservices.com.cn",
-                ),
-                (
-                    r"^eusc\-(de)\-\w+\-\d+$",
-                    "aws-eusc",
-                    "amazonaws.eu",
-                    "api.amazonwebservices.eu",
-                ),
-                (
-                    r"^us\-iso\-\w+\-\d+$",
-                    "aws-iso",
-                    "c2s.ic.gov",
-                    "api.aws.ic.gov",
-                ),
-                (
-                    r"^us\-isob\-\w+\-\d+$",
-                    "aws-iso-b",
-                    "sc2s.sgov.gov",
-                    "api.aws.scloud",
-                ),
-                (
-                    r"^eu\-isoe\-\w+\-\d+$",
-                    "aws-iso-e",
-                    "cloud.adc-e.uk",
-                    "api.cloud-aws.adc-e.uk",
-                ),
-                (
-                    r"^us\-isof\-\w+\-\d+$",
-                    "aws-iso-f",
-                    "csp.hci.ic.gov",
-                    "api.aws.hci.ic.gov",
-                ),
-                (
-                    r"^us\-gov\-\w+\-\d+$",
-                    "aws-us-gov",
-                    "amazonaws.com",
-                    "api.aws",
-                ),
-            ]
-            .into_iter()
-            .map(|(pattern, id, dns, dual)| {
-                (
-                    Regex::new(pattern).unwrap_or_else(|_| unreachable!("static regex")),
-                    id,
-                    dns,
-                    dual,
-                )
-            })
-            .collect()
-        });
-    // Global pseudo-regions name their partition.
-    if let Some(id) = region.strip_suffix("-global") {
-        if let Some((_, _, dns, dual)) = PARTITIONS.iter().find(|(_, pid, _, _)| *pid == id) {
-            return (dns, dual);
-        }
-    }
-    // `us-gov-*` also matches the `aws` pattern's `us-…` prefix; the SDK
-    // checks the explicit region lists first, which keep GovCloud separate.
-    let mut matched = None;
-    for (pattern, id, dns, dual) in PARTITIONS.iter() {
-        if pattern.is_match(region) {
-            matched = Some((*id, *dns, *dual));
-            if *id != "aws" {
-                break;
-            }
-        }
-    }
-    matched.map_or(("amazonaws.com", "api.aws"), |(_, dns, dual)| (dns, dual))
+    /// Per partition of [`aws_text::PARTITIONS`], in its order.
+    const SUFFIXES: [(&str, &str); 8] = [
+        ("amazonaws.com", "api.aws"),
+        ("amazonaws.com.cn", "api.amazonwebservices.com.cn"),
+        ("amazonaws.eu", "api.amazonwebservices.eu"),
+        ("c2s.ic.gov", "api.aws.ic.gov"),
+        ("sc2s.sgov.gov", "api.aws.scloud"),
+        ("cloud.adc-e.uk", "api.cloud-aws.adc-e.uk"),
+        ("csp.hci.ic.gov", "api.aws.hci.ic.gov"),
+        ("amazonaws.com", "api.aws"),
+    ];
+    let global = region
+        .strip_suffix("-global")
+        .and_then(|id| aws_text::PARTITIONS.iter().position(|name| *name == id));
+    SUFFIXES[global
+        .or_else(|| aws_text::partition(region))
+        .unwrap_or_default()]
 }
 
 /// The SDK's boolean env config (`booleanSelector`).
@@ -365,15 +303,11 @@ fn resolve_endpoint(config: &BedrockClientConfig, region: &str) -> Result<url::U
 }
 
 /// `findHeader(/^x-[\w-]+-request-?id$/, headers)` of the deserializer
-/// middleware.
+/// middleware: the value of the first request-id header (the compiled
+/// core's [`aws_text::request_id_header`]).
 fn find_request_id_header(headers: &[(String, String)]) -> Option<String> {
-    static PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^x-[\w-]+-request-?id$").unwrap_or_else(|_| unreachable!("static regex"))
-    });
-    headers
-        .iter()
-        .find(|(name, _)| PATTERN.is_match(name))
-        .map(|(_, value)| value.clone())
+    let names: Vec<&str> = headers.iter().map(|(name, _)| name.as_str()).collect();
+    aws_text::request_id_header(&names).map(|index| headers[index].1.clone())
 }
 
 /// `deserializeMetadata().requestId`.

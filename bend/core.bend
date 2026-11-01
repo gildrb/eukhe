@@ -3,9 +3,11 @@
 import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
+import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_aws_text.bend as ffi_aws_text
 import ./ffi_bound.bend as ffi_bound
 import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_catalog_union.bend as ffi_catalog_union
@@ -58,6 +60,7 @@ import ./ffi_lease.bend as ffi_lease
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
+import ./ffi_model_name.bend as ffi_model_name
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
@@ -285,6 +288,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_glob.ffi(input)
     case 381:
       ffi_err_text.ffi(input)
+    case 382:
+      ffi_model_name.ffi(input)
+    case 383:
+      ffi_aws_text.ffi(input)
+    case 384:
+      ffi_ai_text.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -52,15 +52,28 @@ fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
             "missing {expected} in {flagged_models:?}"
         );
     }
-    let pattern = regex::Regex::new(
-        r"(opus[-.](4[-.][678]|5)|sonnet[-.]4[-.]6|sonnet[-.]5|haiku[-.]5[-.]5|fable[-.]5|kimi-coding/)",
-    )
-    .expect("regex");
+    // The adaptive model names, `.` read as `-` (opus 4.6-4.8 and 5, sonnet
+    // 4.6 and 5, haiku 5.5, fable 5, kimi-coding).
+    let adaptive_names = [
+        "opus-4-6",
+        "opus-4-7",
+        "opus-4-8",
+        "opus-5",
+        "sonnet-4-6",
+        "sonnet-5",
+        "haiku-5-5",
+        "fable-5",
+        "kimi-coding/",
+    ];
     let allowed: Vec<String> = flagged_models
         .iter()
         // Regression for #9323: Fireworks uses catalog effort metadata and
         // verified fallbacks, not a fixed set of adaptive model names.
-        .filter(|model_id| model_id.starts_with("fireworks/") || pattern.is_match(model_id))
+        .filter(|model_id| {
+            let dashed = model_id.replace('.', "-");
+            model_id.starts_with("fireworks/")
+                || adaptive_names.iter().any(|name| dashed.contains(name))
+        })
         .cloned()
         .collect();
     assert_eq!(flagged_models, allowed);

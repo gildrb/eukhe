@@ -4,10 +4,9 @@
 //! `api/bedrock-converse-stream.ts`.
 
 use std::fmt;
-use std::sync::LazyLock;
 
+use eukhe_bend::rules::aws_text;
 use eukhe_types::pi_ai::{Model, ProviderEnv};
-use regex::Regex;
 
 use super::BedrockOptions;
 use crate::env_api_keys::{
@@ -104,29 +103,16 @@ fn get_configured_bedrock_credentials(env: Option<&ProviderEnv>) -> Option<AwsCr
     })
 }
 
-/// `/^bedrock-runtime(?:-fips)?\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$/`.
-static STANDARD_ENDPOINT_HOST: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^bedrock-runtime(?:-fips)?\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$")
-        .unwrap_or_else(|_| unreachable!("static regex"))
-});
-
-/// `/^arn:aws(?:-[a-z0-9-]+)?:bedrock:([a-z0-9-]+):/`.
-static ARN_REGION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^arn:aws(?:-[a-z0-9-]+)?:bedrock:([a-z0-9-]+):")
-        .unwrap_or_else(|_| unreachable!("static regex"))
-});
-
-/// TS `getStandardBedrockEndpointRegion`.
+/// TS `getStandardBedrockEndpointRegion`: the region of a standard Bedrock
+/// runtime endpoint host, `/^bedrock-runtime(?:-fips)?\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$/`
+/// (the compiled core's [`aws_text::endpoint_region`]).
 pub(crate) fn get_standard_bedrock_endpoint_region(base_url: &str) -> Option<String> {
     if base_url.is_empty() {
         return None;
     }
     let url = url::Url::parse(base_url).ok()?;
     let hostname = url.host_str()?.to_lowercase();
-    STANDARD_ENDPOINT_HOST
-        .captures(&hostname)
-        .and_then(|captures| captures.get(1))
-        .map(|region| region.as_str().to_owned())
+    aws_text::endpoint_region(&hostname)
 }
 
 /// TS `shouldUseExplicitBedrockEndpoint`.
@@ -185,8 +171,10 @@ pub(crate) fn resolve_client_config(
 
     // Region resolution: ARN-embedded > explicit option > env vars > SDK
     // default chain.
-    let region = if let Some(captures) = ARN_REGION.captures(&model.id) {
-        captures.get(1).map(|region| region.as_str().to_owned())
+    // `/^arn:aws(?:-[a-z0-9-]+)?:bedrock:([a-z0-9-]+):/` (the compiled
+    // core's `aws_text::arn_region`).
+    let region = if let Some(region) = aws_text::arn_region(&model.id) {
+        Some(region)
     } else if configured_region.is_some() {
         configured_region
     } else if endpoint_region.is_some() && use_explicit_endpoint {

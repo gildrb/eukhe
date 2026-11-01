@@ -4,11 +4,10 @@
 //! `endpoint_url`, `[services]`), the endpoint rule sets, the standard retry
 //! strategy around each HTTP call, and the `restJson1` error shape.
 
-use std::sync::LazyLock;
 use std::time::SystemTime;
 
+use eukhe_bend::rules::aws_text;
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
-use regex::Regex;
 use reqwest::header::HeaderMap;
 use reqwest::Method;
 use url::Url;
@@ -64,11 +63,11 @@ impl AwsService {
     }
 }
 
-/// One AWS partition of the SDK's `partitions.json`.
+/// One AWS partition of the SDK's `partitions.json` (in the order of
+/// [`aws_text::PARTITIONS`], whose rule reads a region's shape).
 struct Partition {
     name: &'static str,
     regions: &'static [&'static str],
-    region_regex: &'static str,
     dns_suffix: &'static str,
     dual_stack_dns_suffix: &'static str,
 }
@@ -113,70 +112,56 @@ const PARTITIONS: [Partition; 8] = [
             "us-west-1",
             "us-west-2",
         ],
-        region_regex: r"^(us|eu|ap|sa|ca|me|af|il|mx)-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "amazonaws.com",
         dual_stack_dns_suffix: "api.aws",
     },
     Partition {
         name: "aws-cn",
         regions: &["aws-cn-global", "cn-north-1", "cn-northwest-1"],
-        region_regex: r"^cn-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "amazonaws.com.cn",
         dual_stack_dns_suffix: "api.amazonwebservices.com.cn",
     },
     Partition {
         name: "aws-eusc",
         regions: &["eusc-de-east-1"],
-        region_regex: r"^eusc-(de)-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "amazonaws.eu",
         dual_stack_dns_suffix: "api.amazonwebservices.eu",
     },
     Partition {
         name: "aws-iso",
         regions: &["aws-iso-global", "us-iso-east-1", "us-iso-west-1"],
-        region_regex: r"^us-iso-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "c2s.ic.gov",
         dual_stack_dns_suffix: "api.aws.ic.gov",
     },
     Partition {
         name: "aws-iso-b",
         regions: &["aws-iso-b-global", "us-isob-east-1", "us-isob-west-1"],
-        region_regex: r"^us-isob-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "sc2s.sgov.gov",
         dual_stack_dns_suffix: "api.aws.scloud",
     },
     Partition {
         name: "aws-iso-e",
         regions: &["aws-iso-e-global", "eu-isoe-west-1"],
-        region_regex: r"^eu-isoe-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "cloud.adc-e.uk",
         dual_stack_dns_suffix: "api.cloud-aws.adc-e.uk",
     },
     Partition {
         name: "aws-iso-f",
         regions: &["aws-iso-f-global", "us-isof-east-1", "us-isof-south-1"],
-        region_regex: r"^us-isof-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "csp.hci.ic.gov",
         dual_stack_dns_suffix: "api.aws.hci.ic.gov",
     },
     Partition {
         name: "aws-us-gov",
         regions: &["aws-us-gov-global", "us-gov-east-1", "us-gov-west-1"],
-        region_regex: r"^us-gov-[A-Za-z0-9_]+-[0-9]+$",
         dns_suffix: "amazonaws.com",
         dual_stack_dns_suffix: "api.aws",
     },
 ];
 
-static PARTITION_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    PARTITIONS
-        .iter()
-        .map(|partition| Regex::new(partition.region_regex).expect("static partition regex"))
-        .collect()
-});
-
 /// `partition(region)` of `@aws-sdk/core/client`: an explicit region match,
-/// then the region regexes, else `aws`.
+/// then the region shapes (the compiled core's [`aws_text::partition`]),
+/// else `aws`.
 fn partition(region: &str) -> &'static Partition {
     if let Some(found) = PARTITIONS
         .iter()
@@ -184,11 +169,7 @@ fn partition(region: &str) -> &'static Partition {
     {
         return found;
     }
-    PARTITIONS
-        .iter()
-        .zip(PARTITION_REGEXES.iter())
-        .find(|(_, regex)| regex.is_match(region))
-        .map_or(&PARTITIONS[0], |(partition, _)| partition)
+    &PARTITIONS[aws_text::partition(region).unwrap_or_default()]
 }
 
 /// `isFipsRegion`.
@@ -196,10 +177,8 @@ fn is_fips_region(region: &str) -> bool {
     region.starts_with("fips-") || region.ends_with("-fips")
 }
 
-static FIPS_REGION_PARTS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new("fips-(dkr-|prod-)?|-fips").expect("static fips regex"));
-
-/// `getRealRegion`.
+/// `getRealRegion`: the FIPS part cut out of a FIPS pseudo-region (the
+/// compiled core's [`aws_text::without_fips`]).
 fn get_real_region(region: &str) -> String {
     if !is_fips_region(region) {
         return region.to_owned();
@@ -207,7 +186,7 @@ fn get_real_region(region: &str) -> String {
     if matches!(region, "fips-aws-global" | "aws-fips") {
         return "us-east-1".to_owned();
     }
-    FIPS_REGION_PARTS.replace(region, "").into_owned()
+    aws_text::without_fips(region)
 }
 
 /// `isValidHostLabel(value)`: `/^(?!.*-$)(?!-)[a-zA-Z0-9-]{1,63}$/`.

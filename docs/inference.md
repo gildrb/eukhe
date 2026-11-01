@@ -50,7 +50,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
 11. Provider default model: `provider_defaults` (provider id → model id, `quirks::provider_default_model`). Read by startup model chain, fallback model template, onboarding after Prime Inference sign-in. Unlisted → no default.
 12. Prices missing from catalog rows:
     - `service_tier_prices`: row = provider, wire API, tiers (response `service_tier`, else request's), multiplier, optional model id. Cost = base × multiplier of provider+API+id row, else provider+API row without id; none → base. Shipped: `openai` on `openai-responses`, `openai-completions`: `flex` 0.5; `priority`, `fast` (API's Fast-mode value) 2, `gpt-5.5` 2.5. `openai-codex`: `flex` 0.5; `priority` 2, `gpt-5.5` 2.5.
-    - `cache_write_1h_prices`: row = regex on lowercased model id + input-rate multiplier; first match prices 1h cache writes; none → model's cache write rate. Shipped: `claude` 2 (Anthropic's price; Bedrock and gateways reselling Claude at Anthropic list rates charge it too).
+    - `cache_write_1h_prices`: row = name rules on lowercased model id (below) + input-rate multiplier; first row whose rules hold prices 1h cache writes; none → model's cache write rate. Shipped: `contains claude` 2 (Anthropic's price; Bedrock and gateways reselling Claude at Anthropic list rates charge it too).
 
     Read by `models::calculate_cost`, `models::apply_service_tier_pricing` (`quirks::cache_write_1h_multiplier`, `quirks::service_tier_multiplier`).
 13. Every other model fact a wire API reads is rulebook data (S6.10); wire APIs never test the model id.
@@ -62,7 +62,7 @@ Between harness and wire APIs; decides what a request may ask of a provider.
     - `thinking_budgets` (`gemini-2.5-pro` 128, 2048, 8192, 32768; `gemini-2.5-flash` 128, 2048, 8192, 24576; `gemini-2.5-flash-lite` 512, 2048, 8192, 24576): Google per-level budget, Gemini API and Vertex. User `thinkingBudgets` wins, clamped to the rule's `minimal`..`high`. No rule → user budget, else `-1` (dynamic). Unordered rule budgets (not `minimal` ≤ `low` ≤ `medium` ≤ `high`) → error, never a clamp (rulebook compiler refuses).
     - `thinking_defaults.budgets` (1024, 2048, 8192, 16384): budget when neither user nor rule gives one, every token-budget wire API.
 
-    Family `except` regex excludes matches (families stay disjoint). Bedrock effort = model's thinking-level map (native `xhigh`: `xhigh: "xhigh"`), else Bedrock default.
+    Family `match` and `except` are lists of explicit name rules (one holds), run by the compiled core (`bend/model_name.bend`, entry 382, `laws/model_name.bend`): `contains` (a part), `is` (the whole name), `starts` (a head), `then` (a part, later on the same line another), `number` (after a head, a run of digits at least n, leading zeros aside; `whole`: the run ends the name or `-` follows), `segment_starts` (the part after the last `/` begins with one). `except` excludes matches (families stay disjoint). `on: names` matches the lowercased id and name, each also with every run of separators (Unicode White_Space, `_`, `.`, `:`) as one `-`. Bedrock effort = model's thinking-level map (native `xhigh`: `xhigh: "xhigh"`), else Bedrock default.
 
 Model `bend/infer.bend`. Laws: `laws/infer.bend` (S6), `laws/quirks.bend` (the rulebook entry `bend/ffi_quirks.bend`), `laws/infer.bend` and `laws/effort.bend` (S6.9). Proofs: `proof/infer/`, `proof/quirks/` and `proof/effort/`. Free inputs: rulebook, query, directive, model replies, provider support, tools, stream, context sizes.
 

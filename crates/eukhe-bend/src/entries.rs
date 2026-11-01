@@ -198,6 +198,12 @@ pub enum Entry {
     Glob = 380,
     /// `bend/ffi_err_text.bend`: a call.
     ErrText = 381,
+    /// `bend/ffi_model_name.bend`: a call.
+    ModelName = 382,
+    /// `bend/ffi_aws_text.bend`: a call.
+    AwsText = 383,
+    /// `bend/ffi_ai_text.bend`: a call.
+    AiText = 384,
     /// `bend/ffi_tiny_run.bend`: a stepper.
     TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
@@ -303,6 +309,9 @@ impl Entry {
         Entry::RefinePlan,
         Entry::Glob,
         Entry::ErrText,
+        Entry::ModelName,
+        Entry::AwsText,
+        Entry::AiText,
         Entry::TinyRun,
         Entry::WaitRace,
     ];

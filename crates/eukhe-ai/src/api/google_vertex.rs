@@ -7,10 +7,10 @@
 #[cfg(test)]
 mod tests;
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use eukhe_bend::rules::ai_text;
 use eukhe_types::pi_ai::{Model, ProviderEnv, ProviderHeaders, TranscriptContext};
-use regex::Regex;
 
 use super::google_shared::genai::{
     GoogleAuthOptions, GoogleGenAi, GoogleGenAiOptions, HttpOptions, ResourceScope,
@@ -152,19 +152,13 @@ fn resolve_custom_base_url(base_url: &str) -> Option<String> {
     (!trimmed.is_empty() && !trimmed.contains("{location}")).then(|| trimmed.to_owned())
 }
 
-static API_VERSION_SEGMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^v\d+(?:beta\d*)?$").unwrap_or_else(|error| panic!("{error}")));
-static API_VERSION_IN_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|/)v\d+(?:beta\d*)?(?:/|$)").unwrap_or_else(|error| panic!("{error}"))
-});
-
+/// Whether the base URL names an API version: a part of its path (or of
+/// the text, when it is no URL) between slashes is `v<digits>`, optionally
+/// `beta<digits>` after (the compiled core's [`ai_text::api_version`]).
 fn base_url_includes_api_version(base_url: &str) -> bool {
     match url::Url::parse(base_url) {
-        Ok(url) => url
-            .path()
-            .split('/')
-            .any(|part| API_VERSION_SEGMENT.is_match(part)),
-        Err(_) => API_VERSION_IN_TEXT.is_match(base_url),
+        Ok(url) => ai_text::api_version(url.path()),
+        Err(_) => ai_text::api_version(base_url),
     }
 }
 

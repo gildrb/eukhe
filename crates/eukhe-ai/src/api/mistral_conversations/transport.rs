@@ -4,10 +4,10 @@
 
 use std::sync::LazyLock;
 
+use eukhe_bend::rules::ai_text;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{JsonValue, Model, ProviderHeaders, ProviderResponse};
 use futures::future::BoxFuture;
-use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::{type_error, MistralFailure, MistralOptions};
@@ -210,15 +210,6 @@ fn has_header_override(overrides: Option<&ProviderHeaders>, target: &str) -> boo
     overrides.is_some_and(|overrides| overrides.keys().any(|name| name.to_lowercase() == target))
 }
 
-/// TS `findMistralEventBoundary`.
-static EVENT_BOUNDARY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\r\n\r\n|\r\n\r|\r\n\n|\r\r\n|\n\r\n|\r\r|\n\r|\n\n").expect("valid regex")
-});
-
-/// TS `/\r\n|\r|\n/u`.
-static LINE_BREAK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\r\n|\r|\n").expect("valid regex"));
-
 /// What one raw SSE event holds (TS `parseMistralEvent` result).
 enum ParsedEvent {
     Event(JsonValue),
@@ -226,10 +217,11 @@ enum ParsedEvent {
     Empty,
 }
 
-/// TS `parseMistralEvent`.
+/// TS `parseMistralEvent` (its line split `/\r\n|\r|\n/u`: the compiled
+/// core's [`ai_text::lines`]).
 fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, Thrown> {
-    let data = LINE_BREAK
-        .split(raw)
+    let data = ai_text::lines(raw)
+        .iter()
         .filter_map(|line| line.strip_prefix("data:"))
         .map(|line| line.trim_start_matches(is_js_whitespace))
         .collect::<Vec<_>>()
@@ -324,9 +316,12 @@ impl MistralEventReader {
             return Ok(None);
         }
         loop {
-            while let Some(boundary) = EVENT_BOUNDARY.find(&self.buffer) {
-                let raw = self.buffer[..boundary.start()].to_owned();
-                self.buffer.drain(..boundary.end());
+            // TS `findMistralEventBoundary`
+            // (`\r\n\r\n|\r\n\r|\r\n\n|\r\r\n|\n\r\n|\r\r|\n\r|\n\n`): the
+            // compiled core's `ai_text::event_boundary`.
+            while let Some(boundary) = ai_text::event_boundary(&self.buffer) {
+                let raw = self.buffer[..boundary.start].to_owned();
+                self.buffer.drain(..boundary.end);
                 match parse_mistral_event(&raw)? {
                     ParsedEvent::Done => {
                         self.finished = true;

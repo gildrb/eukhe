@@ -13,17 +13,11 @@
 // cold path.
 #![allow(clippy::result_large_err)]
 
-use std::sync::LazyLock;
-
+use eukhe_bend::rules::aws_text::{self, Base64};
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
-use regex::Regex;
 
 use crate::utils::diagnostics::ErrorObject;
 
-/// The SDK's `BASE64_REGEX`.
-static BASE64: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[A-Za-z0-9+/]*={0,2}$").unwrap_or_else(|_| unreachable!("static regex"))
-});
 /// A Smithy shape.
 pub(crate) enum Shape {
     String,
@@ -176,17 +170,21 @@ fn deserialize(shape: &Shape, value: &JsonValue) -> Result<JsonValue, ErrorObjec
                 .collect::<Result<_, ErrorObject>>()?,
         ),
         (Shape::Blob, JsonValue::String(text)) => {
-            // `fromBase64`: the length check counts UTF-16 code units.
-            if !(crate::utils::js::utf16_len(text) * 3).is_multiple_of(4) {
-                return Err(ErrorObject::named(
-                    "TypeError",
-                    "Incorrect padding on base64 string.",
-                ));
+            // `fromBase64`: the length check (UTF-16 code units), then the
+            // SDK's `BASE64_REGEX` `/^[A-Za-z0-9+/]*={0,2}$/` (the compiled
+            // core's `aws_text::base64`).
+            match aws_text::base64(text) {
+                Base64::Valid => value.clone(),
+                Base64::BadPadding => {
+                    return Err(ErrorObject::named(
+                        "TypeError",
+                        "Incorrect padding on base64 string.",
+                    ))
+                }
+                Base64::Invalid => {
+                    return Err(ErrorObject::named("TypeError", "Invalid base64 string."))
+                }
             }
-            if !BASE64.is_match(text) {
-                return Err(ErrorObject::named("TypeError", "Invalid base64 string."));
-            }
-            value.clone()
         }
         _ => value.clone(),
     })

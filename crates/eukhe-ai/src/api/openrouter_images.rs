@@ -2,8 +2,9 @@
 //! `src/api/openrouter-images.ts`), sent through the `openai` SDK request
 //! path ([`super::openai_sdk`]) with SDK retries disabled.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use eukhe_bend::rules::ai_text;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     AssistantImages, ImageContent, ImageModel, ImagesContext, ImagesStopReason, JsonValue,
@@ -148,23 +149,19 @@ async fn run(
             let Some(image_url) = image_url.filter(|url| url.starts_with("data:")) else {
                 continue;
             };
-            let Some(captures) = DATA_URL.captures(image_url) else {
+            // TS `/^data:([^;]+);base64,(.+)$/` (JS `.` excludes line
+            // terminators): the compiled core's `ai_text::data_url`.
+            let Some((mime_type, data)) = ai_text::data_url(image_url) else {
                 continue;
             };
             output.output.push(UserContentBlock::Image(ImageContent {
-                mime_type: captures[1].to_owned(),
-                data: captures[2].to_owned(),
+                mime_type: mime_type.to_owned(),
+                data: data.to_owned(),
             }));
         }
     }
     Ok(())
 }
-
-/// TS `/^data:([^;]+);base64,(.+)$/` (JS `.` excludes line terminators).
-static DATA_URL: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"^data:([^;]+);base64,([^\n\r\u{2028}\u{2029}]+)$")
-        .unwrap_or_else(|error| unreachable!("static regex: {error}"))
-});
 
 /// `new OpenAI({ apiKey, baseURL, fetch, defaultHeaders })` with
 /// `defaultHeaders: providerHeadersToRecord({ ...model.headers, ...optionsHeaders })`.

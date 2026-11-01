@@ -22,7 +22,6 @@ use eukhe_ai::providers::all::{get_builtin_model, get_builtin_models};
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_types::pi_ai::{AssistantMessage, Context, Model, StopReason, Usage};
-use regex::Regex;
 use serde_json::json;
 
 /// Lorem ipsum paragraph for realistic token estimation.
@@ -121,16 +120,29 @@ fn log_result(result: &OverflowResult) {
     println!("  hasUsageData: {}", result.has_usage_data);
 }
 
-/// `expect(result.errorMessage).toMatch(pattern)`.
+/// `expect(result.errorMessage).toMatch(pattern)`, the pattern spelled as
+/// alternatives of phrases: the lowercased message holds one alternative's
+/// phrases in order.
 #[track_caller]
-fn assert_error_matches(result: &OverflowResult, pattern: &str) {
+fn assert_error_matches(result: &OverflowResult, expected: &[&[&str]]) {
     let message = result
         .error_message
         .as_deref()
-        .unwrap_or_else(|| panic!("errorMessage missing; expected to match {pattern}"));
+        .unwrap_or_else(|| panic!("errorMessage missing; expected {expected:?}"));
+    let lower = message.to_lowercase();
+    let holds = |phrases: &&[&str]| {
+        let mut rest = lower.as_str();
+        phrases.iter().all(|phrase| match rest.find(phrase) {
+            Some(at) => {
+                rest = &rest[at + phrase.len()..];
+                true
+            }
+            None => false,
+        })
+    };
     assert!(
-        Regex::new(pattern).expect("pattern").is_match(message),
-        "errorMessage {message:?} does not match {pattern}"
+        expected.iter().any(holds),
+        "errorMessage {message:?} does not hold {expected:?}"
     );
 }
 
@@ -144,13 +156,13 @@ fn assert_overflow(result: &OverflowResult, model: &Model) {
 
 /// The common shape: `stopReason` "error", optional message pattern, and
 /// overflow detection.
-async fn expect_error_overflow(model: &Model, api_key: &str, pattern: Option<&str>) {
+async fn expect_error_overflow(model: &Model, api_key: &str, expected: Option<&[&[&str]]>) {
     let result = test_context_overflow(model, api_key).await;
     log_result(&result);
 
     assert_eq!(result.stop_reason, StopReason::Error);
-    if let Some(pattern) = pattern {
-        assert_error_matches(&result, pattern);
+    if let Some(expected) = expected {
+        assert_error_matches(&result, expected);
     }
     assert_overflow(&result, model);
 }
@@ -177,7 +189,7 @@ async fn expect_length_overflow(model: &Model, api_key: &str) {
 async fn anthropic_api_key_claude_haiku_4_5_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("ANTHROPIC_API_KEY");
     let model = builtin("anthropic", "claude-haiku-4-5");
-    expect_error_overflow(&model, &api_key, Some("(?i)prompt is too long")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["prompt is too long"]])).await;
 }
 
 #[tokio::test]
@@ -185,7 +197,7 @@ async fn anthropic_api_key_claude_haiku_4_5_should_detect_overflow_via_is_contex
 async fn anthropic_oauth_claude_sonnet_4_should_detect_overflow_via_is_context_overflow() {
     let token = require_env("ANTHROPIC_OAUTH_TOKEN");
     let model = builtin("anthropic", "claude-sonnet-4-6");
-    expect_error_overflow(&model, &token, Some("(?i)prompt is too long")).await;
+    expect_error_overflow(&model, &token, Some(&[&["prompt is too long"]])).await;
 }
 
 // =============================================================================
@@ -200,7 +212,7 @@ async fn github_copilot_google_model_should_detect_overflow_via_is_context_overf
         .into_iter()
         .find(|candidate| candidate.id.starts_with("gemini-"))
         .expect("No Google models available through GitHub Copilot");
-    expect_error_overflow(&model, &token, Some(r"(?i)exceeds the limit of \d+")).await;
+    expect_error_overflow(&model, &token, Some(&[&["exceeds the limit of "]])).await;
 }
 
 #[tokio::test]
@@ -211,7 +223,7 @@ async fn github_copilot_claude_sonnet_4_should_detect_overflow_via_is_context_ov
     expect_error_overflow(
         &model,
         &token,
-        Some(r"(?i)exceeds the limit of \d+|input is too long"),
+        Some(&[&["exceeds the limit of "], &["input is too long"]]),
     )
     .await;
 }
@@ -229,7 +241,7 @@ async fn openai_completions_gpt_4o_mini_should_detect_overflow_via_is_context_ov
         api: "openai-completions".into(),
         ..builtin("openai", "gpt-4o-mini")
     };
-    expect_error_overflow(&model, &api_key, Some("(?i)maximum context length")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["maximum context length"]])).await;
 }
 
 #[tokio::test]
@@ -237,7 +249,7 @@ async fn openai_completions_gpt_4o_mini_should_detect_overflow_via_is_context_ov
 async fn openai_responses_gpt_4o_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("OPENAI_API_KEY");
     let model = builtin("openai", "gpt-4o");
-    expect_error_overflow(&model, &api_key, Some("(?i)exceeds the context window")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["exceeds the context window"]])).await;
 }
 
 #[tokio::test]
@@ -250,7 +262,7 @@ async fn azure_openai_responses_gpt_4o_mini_should_detect_overflow_via_is_contex
         "Missing AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME"
     );
     let model = builtin("azure", "gpt-4o-mini");
-    expect_error_overflow(&model, &api_key, Some("(?i)context|maximum")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["context"], &["maximum"]])).await;
 }
 
 // =============================================================================
@@ -266,7 +278,7 @@ async fn google_gemini_2_5_flash_should_detect_overflow_via_is_context_overflow(
     expect_error_overflow(
         &model,
         &api_key,
-        Some("(?i)input token count.*exceeds the maximum"),
+        Some(&[&["input token count", "exceeds the maximum"]]),
     )
     .await;
 }
@@ -315,7 +327,7 @@ async fn amazon_bedrock_claude_sonnet_4_5_should_detect_overflow_via_is_context_
 async fn xai_grok_4_3_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("XAI_API_KEY");
     let model = builtin("xai", "grok-4.3");
-    expect_error_overflow(&model, &api_key, Some(r"(?i)maximum prompt length is \d+")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["maximum prompt length is "]])).await;
 }
 
 // =============================================================================
@@ -331,7 +343,7 @@ async fn groq_llama_3_3_70b_versatile_should_detect_overflow_via_is_context_over
     expect_error_overflow(
         &model,
         &api_key,
-        Some("(?i)reduce the length of the messages"),
+        Some(&[&["reduce the length of the messages"]]),
     )
     .await;
 }
@@ -355,7 +367,16 @@ async fn cerebras_available_model_should_detect_overflow_via_is_context_overflow
         .expect("No Cerebras models available");
 
     // Cerebras returns status code with no body (400, 413, or 429 for token rate limit).
-    expect_error_overflow(&model, &api_key, Some(r"(?i)4(00|13|29).*\(no body\)")).await;
+    expect_error_overflow(
+        &model,
+        &api_key,
+        Some(&[
+            &["400", "(no body)"],
+            &["413", "(no body)"],
+            &["429", "(no body)"],
+        ]),
+    )
+    .await;
 }
 
 // =============================================================================
@@ -399,14 +420,13 @@ async fn zai_glm_5_2_should_detect_overflow_via_is_context_overflow_when_zai_rep
     // - Sometimes returns explicit overflow error text via non-standard finish_reason handling
     // - Sometimes accepts overflow and returns successfully with usage.input > contextWindow
     // - Sometimes returns rate limit error
-    let overflow_text = Regex::new("(?i)model_context_window_exceeded").expect("pattern");
     match result.stop_reason {
         StopReason::Error => {
-            if result
-                .error_message
-                .as_deref()
-                .is_some_and(|message| overflow_text.is_match(message))
-            {
+            if result.error_message.as_deref().is_some_and(|message| {
+                message
+                    .to_lowercase()
+                    .contains("model_context_window_exceeded")
+            }) {
                 assert_overflow(&result, &model);
             } else {
                 println!("  z.ai returned non-overflow error (possibly rate limited), skipping overflow detection");
@@ -441,7 +461,7 @@ async fn mistral_devstral_medium_latest_should_detect_overflow_via_is_context_ov
     expect_error_overflow(
         &model,
         &api_key,
-        Some(r"(?i)too large for model with \d+ maximum context length"),
+        Some(&[&["too large for model with ", " maximum context length"]]),
     )
     .await;
 }
@@ -499,7 +519,7 @@ async fn xiaomi_token_plan_sgp_mimo_v2_5_pro_should_detect_overflow_via_is_conte
 async fn qwen_token_plan_qwen3_7_max_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("QWEN_TOKEN_PLAN_API_KEY");
     let model = builtin("qwen-token-plan", "qwen3.7-max");
-    expect_error_overflow(&model, &api_key, Some("(?i)input length")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["input length"]])).await;
 }
 
 #[tokio::test]
@@ -507,7 +527,7 @@ async fn qwen_token_plan_qwen3_7_max_should_detect_overflow_via_is_context_overf
 async fn qwen_token_plan_individual_qwen3_8_max_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("QWEN_TOKEN_PLAN_API_KEY");
     let model = builtin("qwen-token-plan-individual", "qwen3.8-max");
-    expect_error_overflow(&model, &api_key, Some("(?i)input length")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["input length"]])).await;
 }
 
 #[tokio::test]
@@ -515,7 +535,7 @@ async fn qwen_token_plan_individual_qwen3_8_max_should_detect_overflow_via_is_co
 async fn qwen_token_plan_cn_qwen3_7_max_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("QWEN_TOKEN_PLAN_CN_API_KEY");
     let model = builtin("qwen-token-plan-cn", "qwen3.7-max");
-    expect_error_overflow(&model, &api_key, Some("(?i)input length")).await;
+    expect_error_overflow(&model, &api_key, Some(&[&["input length"]])).await;
 }
 
 // =============================================================================
@@ -548,7 +568,7 @@ async fn vercel_ai_gateway_google_gemini_2_5_flash_should_detect_overflow_via_is
 // Expected pattern: "maximum context length is X tokens"
 // =============================================================================
 
-const OPENROUTER_PATTERN: &str = r"(?i)maximum context length is \d+ tokens";
+const OPENROUTER_PATTERN: &[&[&str]] = &[&["maximum context length is ", " tokens"]];
 
 async fn openrouter_case(id: &str) {
     let api_key = require_env("OPENROUTER_API_KEY");

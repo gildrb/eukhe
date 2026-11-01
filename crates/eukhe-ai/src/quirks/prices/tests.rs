@@ -275,7 +275,7 @@ fn rulebook_with(section: &str) -> Result<Rulebook, Vec<QuirksError>> {
 }
 
 /// Two rows that price one tier of one provider, API and model, a
-/// negative multiplier and a pattern that is not a regex: each table does
+/// negative multiplier and a name rule that is not one: each table does
 /// not load.
 #[test]
 fn a_price_table_that_is_not_one_price_per_key_does_not_load() {
@@ -287,8 +287,8 @@ fn a_price_table_that_is_not_one_price_per_key_does_not_load() {
         r#""service_tier_prices": [
             { "provider": "openai", "api": "openai-responses", "tiers": ["flex"], "multiplier": -0.5 }
         ]"#,
-        r#""cache_write_1h_prices": [{ "match": "claude(", "input_multiplier": 2.0 }]"#,
-        r#""cache_write_1h_prices": [{ "match": "claude", "input_multiplier": -2.0 }]"#,
+        r#""cache_write_1h_prices": [{ "match": [{ "number": { "after": ["claude-"], "at_least": 0 } }], "input_multiplier": 2.0 }]"#,
+        r#""cache_write_1h_prices": [{ "match": [{ "contains": ["claude"] }], "input_multiplier": -2.0 }]"#,
     ]
     .into_iter()
     .map(|section| match rulebook_with(section) {
@@ -307,10 +307,10 @@ fn a_price_table_that_is_not_one_price_per_key_does_not_load() {
              openai/openai-responses (model None) at line 4 column 11",
             "the rulebook is not valid: service_tier_prices: the multiplier -0.5 of \
              openai/openai-responses is not a price at line 3 column 11",
-            "the rulebook is not valid: cache_write_1h_prices: regex parse error:\n    \
-             claude(\n          ^\nerror: unclosed group at line 1 column 120",
-            "the rulebook is not valid: cache_write_1h_prices: the multiplier -2 of `claude` \
-             is not a price at line 1 column 120",
+            "the rulebook is not valid: cache_write_1h_prices: row 0: a `number` rule needs \
+             `at_least` from 1 to 9, not 0 at line 1 column 166",
+            "the rulebook is not valid: cache_write_1h_prices: the multiplier -2 of row 0 \
+             is not a price at line 1 column 140",
         ]
     );
 }

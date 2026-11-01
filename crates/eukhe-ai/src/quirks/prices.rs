@@ -6,10 +6,11 @@
 use std::collections::HashSet;
 
 use eukhe_bend::rules::model_facts::{tier_row, TierRow};
-use regex::Regex;
+use eukhe_bend::rules::model_name::{self, NameRule};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
+use super::name_rules::{self, NameRuleEntry};
 use super::{ModelKey, Rulebook};
 
 /// One row of `service_tier_prices`: a response of `provider` over the
@@ -86,22 +87,23 @@ pub fn service_tier_multiplier(model: ModelKey<'_>, tier: &str) -> Option<f64> {
 #[serde(deny_unknown_fields)]
 struct LongWriteEntry {
     #[serde(rename = "match")]
-    pattern: String,
+    rules: Vec<NameRuleEntry>,
     input_multiplier: f64,
 }
 
-/// One row of `cache_write_1h_prices`: a 1h cache write of a model whose
-/// lowercased id `pattern` matches costs `input_multiplier` times the
-/// model's input rate.
+/// One row of `cache_write_1h_prices`: a 1h cache write of a model for
+/// whose lowercased id one of `rules` holds costs `input_multiplier` times
+/// the model's input rate.
 #[derive(Debug)]
 struct LongWriteRow {
-    pattern: Regex,
+    rules: Vec<NameRule>,
     input_multiplier: f64,
 }
 
 /// The `cache_write_1h_prices` table, in rulebook order: the first row
-/// that matches a model prices its 1h cache writes. Each pattern is a
-/// regex; each multiplier is finite and not negative.
+/// whose rules hold for a model prices its 1h cache writes. Each `match`
+/// is a list of name rules ([`name_rules`]); each multiplier is finite and
+/// not negative.
 #[derive(Debug, Default)]
 pub(super) struct LongWritePrices(Vec<LongWriteRow>);
 
@@ -109,19 +111,22 @@ impl<'de> Deserialize<'de> for LongWritePrices {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Vec::<LongWriteEntry>::deserialize(deserializer)?
             .into_iter()
-            .map(|entry| {
+            .enumerate()
+            .map(|(row, entry)| {
                 if !entry.input_multiplier.is_finite() || entry.input_multiplier < 0.0 {
                     return Err(D::Error::custom(format!(
-                        "cache_write_1h_prices: the multiplier {} of `{}` is not a price",
-                        entry.input_multiplier, entry.pattern
+                        "cache_write_1h_prices: the multiplier {} of row {row} is not a price",
+                        entry.input_multiplier
                     )));
                 }
-                Regex::new(&entry.pattern)
-                    .map(|pattern| LongWriteRow {
-                        pattern,
+                name_rules::rules(entry.rules)
+                    .map(|rules| LongWriteRow {
+                        rules,
                         input_multiplier: entry.input_multiplier,
                     })
-                    .map_err(|error| D::Error::custom(format!("cache_write_1h_prices: {error}")))
+                    .map_err(|reason| {
+                        D::Error::custom(format!("cache_write_1h_prices: row {row}: {reason}"))
+                    })
             })
             .collect::<Result<_, _>>()
             .map(Self)
@@ -130,17 +135,19 @@ impl<'de> Deserialize<'de> for LongWritePrices {
 
 /// The multiplier of the input rate that a 1h cache write of the model
 /// with id `model_id` costs: the first shipped `cache_write_1h_prices` row
-/// that matches the lowercased id ([`LongWriteRow`]). `None` when no row
-/// matches: a 1h cache write costs the model's own cache write rate.
+/// whose rules hold for the lowercased id ([`LongWriteRow`], the compiled
+/// core's [`model_name::holds`]). `None` when no row does: a 1h cache
+/// write costs the model's own cache write rate.
 #[must_use]
 pub fn cache_write_1h_multiplier(model_id: &str) -> Option<f64> {
-    let lower_id = model_id.to_lowercase();
-    Rulebook::shipped()
-        .cache_write_1h_prices
-        .0
-        .iter()
-        .find(|row| row.pattern.is_match(&lower_id))
-        .map(|row| row.input_multiplier)
+    let rows = &Rulebook::shipped().cache_write_1h_prices.0;
+    let sets: Vec<&[NameRule]> = rows.iter().map(|row| row.rules.as_slice()).collect();
+    let lower_id = [model_id.to_lowercase()];
+    let verdicts = model_name::holds(&sets, &[&lower_id]);
+    rows.iter()
+        .zip(verdicts)
+        .find(|(_, holds)| *holds)
+        .map(|(row, _)| row.input_multiplier)
 }
 
 #[cfg(test)]

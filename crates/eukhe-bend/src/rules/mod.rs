@@ -2,7 +2,9 @@
 //! (`pub mod <area>;`, one per line), each encoding its input with the wire
 //! format, calling its entry and decoding the reply.
 
+pub mod ai_text;
 pub mod approvals;
+pub mod aws_text;
 pub mod bound;
 pub mod cache_marks;
 pub mod codemode_id;
@@ -25,6 +27,7 @@ pub mod infer_threshold;
 pub mod lease;
 pub mod mcp_url;
 pub mod model_facts;
+pub mod model_name;
 pub mod overflow;
 pub mod package_source;
 pub mod quirks;

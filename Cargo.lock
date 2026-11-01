@@ -539,7 +539,6 @@ dependencies = [
  "hmac",
  "http",
  "rand 0.9.5",
- "regex",
  "regress",
  "reqwest",
  "ring",
