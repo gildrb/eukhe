@@ -3,6 +3,7 @@
 import Base
 import ../bend/cron.bend as Cr
 import ../bend/cron_store.bend as CS
+import ../bend/cron_beats.bend as CB
 import ../bend/ffi_cron.bend as FC
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
@@ -880,3 +881,57 @@ law cron_resume_refines:
   for +c: Nat
   for +j: Cr.Job
   {again_view(CronStore.resume_spec(fact_of(j, 1n+v), Nat.mul(c, 1n+v)), j, 1n+v) == view(Cr.resume(c, j), 1n+v) : View()}
+
+# (D2.3) One heartbeat per session
+# --------------------------------
+# The store's actions on its records (bend/cron_beats.bend): a new
+# heartbeat (heartbeat.rs `create_heartbeat`), a new job of another source,
+# every per-job decision on any record, a rebind of a live session to a
+# session file (jobs.rs `rebind_session_jobs`, after every session
+# replacement), a corrupt file. The `/heartbeat` job is one per session
+# (`heartbeat_get` reads one): it fires the session's heartbeat prompt.
+
+# a status that still fires or may resume: active or paused
+def live_spec(st: Cr.Status) -> Bool:
+  match st:
+    case Cr.Active{}:
+      True{}
+    case Cr.Paused{}:
+      True{}
+    case Cr.Finished{}:
+      False{}
+    case Cr.Cancelled{}:
+      False{}
+
+def live_fact_spec(f: CS.Fact) -> Bool:
+  match f:
+    case CS.Fact{st, p, nx, k}:
+      live_spec(st)
+
+# a live heartbeat of session s: its `/heartbeat` job, active or paused
+def beat_spec(+s: Nat, r: CB.Row) -> Bool:
+  match r:
+    case CB.Row{s2, fl, hb, f}:
+      Bool.and(Nat.is_eq(s2, s), Bool.and(hb, live_fact_spec(f)))
+
+# no live heartbeat of session s in rs
+def no_beat_spec(+s: Nat, rs: List<&2, CB.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> t:
+      Bool.and(Bool.not(beat_spec(s, r)), no_beat_spec(s, t))
+
+# at most one live heartbeat of session s in rs: none after a live one
+def one_beat_spec(+s: Nat, rs: List<&2, CB.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> +t:
+      Bool.and(Bool.or(Bool.not(beat_spec(s, r)), no_beat_spec(s, t)), one_beat_spec(s, t))
+
+# LAW cron_heartbeat_unique: after any store actions (new heartbeats, new jobs of other sources, any per-job decision on any record, rebinds of live sessions to session files, a corrupt file), every session has at most one active-or-paused `/heartbeat` job
+law cron_heartbeat_unique:
+  for +s: Nat
+  for +acts: List<&2, CB.Act>
+  {one_beat_spec(s, CB.run(acts)) == True{} : Bool}

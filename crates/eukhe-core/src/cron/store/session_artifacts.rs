@@ -175,12 +175,15 @@ mod tests {
         let state_b = read_jobs_state(&artifacts_b.join(SESSION_SCHEDULED_JOBS_FILENAME));
         assert_eq!(state_b.jobs.len(), 1);
         let rebound = store
-            .rebind_session_jobs(&SessionBinding {
-                active_session_id: "live-2".to_string(),
-                session_id: "session-1".to_string(),
-                session_file: "/w/session.jsonl".to_string(),
-                cwd: "/w".to_string(),
-            })
+            .rebind_session_jobs(
+                &SessionBinding {
+                    active_session_id: "live-2".to_string(),
+                    session_id: "session-1".to_string(),
+                    session_file: "/w/session.jsonl".to_string(),
+                    cwd: "/w".to_string(),
+                },
+                now,
+            )
             .unwrap();
         assert_eq!(rebound.len(), 2);
         assert!(rebound.iter().all(|job| job.active_session_id == "live-2"));

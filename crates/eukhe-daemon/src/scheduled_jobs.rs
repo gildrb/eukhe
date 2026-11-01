@@ -328,7 +328,8 @@ impl ScheduledJobs {
 
     /// Bind the live session (TS `rebindCronJobsToState`): register the
     /// session's artifact partition, move its stored jobs onto the live
-    /// ids, and start (or wake) the scheduler.
+    /// ids (a heartbeat the move stops withdraws its queued fire), and
+    /// start (or wake) the scheduler.
     ///
     /// # Errors
     ///
@@ -346,7 +347,14 @@ impl ScheduledJobs {
                 .register_session_artifact(&binding.session_id, &dir);
         }
         if !binding.session_file.is_empty() {
-            self.store.rebind_session_jobs(&binding)?;
+            let changed = self
+                .store
+                .rebind_session_jobs(&binding, crate::util::now_ms())?;
+            for job in changed.iter().filter(|job| {
+                job.source == JobSource::Heartbeat && job.status == JobStatus::Cancelled
+            }) {
+                self.remove_queued_heartbeat_follow_up(job).await;
+            }
         }
         let mut guard = self.scheduler.lock().await;
         if let Some(scheduler) = guard.as_ref() {

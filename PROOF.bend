@@ -959,6 +959,7 @@ import ./proof/cron/cron_once_finished_after_end.bend as PCronOnceFinishedAfterE
 import ./proof/cron/cron_never_drops.bend as PCronNeverDrops
 import ./proof/cron/cron_claim_owned.bend as PCronClaimOwned
 import ./proof/cron/cron_backoff_bounded.bend as PCronBackoffBounded
+import ./proof/cron/cron_heartbeat_unique.bend as PCronHeartbeatUnique
 import ./proof/cron/base/scale.bend as LACronScale
 import ./proof/cron/base/entry.bend as LACronEntry
 import ./proof/cron/base/answer.bend as LACronAnswer

@@ -80,18 +80,28 @@ impl AgentCronJobStore {
     }
 
     /// Bind jobs stored for a session file to a live session id on restore, or
-    /// move a live session's jobs to a new file when it switches.
+    /// move a live session's jobs to a new file when it switches. A session
+    /// keeps one `/heartbeat` job: when the move brings the live session a
+    /// second active or paused one (a switch to a session file that kept its
+    /// own heartbeat), the newest stays and the compiled core stops the
+    /// others (`rule::halt` with [`Halt::Stop`]; laws/cron.bend
+    /// `cron_heartbeat_unique`). Returns the jobs it changed, as written.
     ///
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
-    pub fn rebind_session_jobs(&self, input: &SessionBinding) -> anyhow::Result<Vec<AgentCronJob>> {
+    pub fn rebind_session_jobs(
+        &self,
+        input: &SessionBinding,
+        now: u64,
+    ) -> anyhow::Result<Vec<AgentCronJob>> {
         let target_session_file = resolve_path(&input.session_file);
-        let mut rebound_jobs = Vec::new();
-        let jobs: Vec<AgentCronJob> = self
+        let mut changed = Vec::new();
+        let mut jobs: Vec<AgentCronJob> = self
             .read_jobs()
             .into_iter()
-            .map(|job| {
+            .enumerate()
+            .map(|(index, job)| {
                 if job.active_session_id != input.active_session_id
                     && resolve_path(&job.session_file) != target_session_file
                 {
@@ -104,21 +114,58 @@ impl AgentCronJobStore {
                 {
                     return job;
                 }
-                let rebound = AgentCronJob {
+                changed.push(index);
+                AgentCronJob {
                     active_session_id: input.active_session_id.clone(),
                     session_id: input.session_id.clone(),
                     session_file: input.session_file.clone(),
                     cwd: input.cwd.clone(),
                     ..job
-                };
-                rebound_jobs.push(rebound.clone());
-                rebound
+                }
             })
             .collect();
-        if !rebound_jobs.is_empty() {
-            self.write_jobs(&jobs)?;
+        let heartbeats: Vec<usize> = jobs
+            .iter()
+            .enumerate()
+            .filter(|(_, job)| {
+                job.active_session_id == input.active_session_id
+                    && job.source == JobSource::Heartbeat
+                    && matches!(job.status, JobStatus::Active | JobStatus::Paused)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        // The heartbeat `get_heartbeat` reads: the newest.
+        let newest = heartbeats
+            .iter()
+            .copied()
+            .max_by_key(|index| parse_iso_millis(&jobs[*index].updated_at).unwrap_or(0));
+        let now_iso = iso_from_millis(now);
+        for index in heartbeats {
+            if Some(index) == newest {
+                continue;
+            }
+            let job = &jobs[index];
+            let Cut::Cut { status, next } = rule::halt(&fact_of(job), Halt::Stop) else {
+                continue;
+            };
+            jobs[index] = AgentCronJob {
+                status: job_status(status),
+                next_run_at: next_text_at(job, next),
+                updated_at: now_iso.clone(),
+                ..job.clone()
+            };
+            changed.push(index);
         }
-        Ok(rebound_jobs)
+        if changed.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.write_jobs(&jobs)?;
+        changed.sort_unstable();
+        changed.dedup();
+        Ok(changed
+            .into_iter()
+            .map(|index| jobs[index].clone())
+            .collect())
     }
     /// Stop the jobs of a session (the compiled core decides each:
     /// `rule::halt` with [`Halt::Stop`]: an active or paused job is
@@ -366,6 +413,54 @@ mod tests {
         assert_eq!(store.list()[0].status, JobStatus::Cancelled);
         // Empty prompt rejected.
         assert!(store.create(&input("  ", "every 10m", now)).is_err());
+    }
+
+    /// A switch to a session that kept its own heartbeat moves it onto the
+    /// live session beside the live session's own: the newest stays, the
+    /// other stops (regression: both stayed active and both fired).
+    #[test]
+    fn a_switch_keeps_one_heartbeat() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = AgentCronJobStore::new(dir.path().join("jobs.json"));
+        let now = 1_700_000_000_000;
+        let own = store
+            .create_heartbeat(&input("own heartbeat", "every 5m", now))
+            .unwrap();
+        let mut kept_input = input("kept heartbeat", "every 10m", now + 1);
+        kept_input.active_session_id = "live-0".to_string();
+        kept_input.session_id = "session-2".to_string();
+        kept_input.session_file = "/w/other.jsonl".to_string();
+        let kept = store.create_heartbeat(&kept_input).unwrap();
+        let binding = SessionBinding {
+            active_session_id: "live-1".to_string(),
+            session_id: "session-2".to_string(),
+            session_file: "/w/other.jsonl".to_string(),
+            cwd: "/w".to_string(),
+        };
+        let changed = store.rebind_session_jobs(&binding, now + 2).unwrap();
+        let moved = |job: &AgentCronJob| AgentCronJob {
+            active_session_id: "live-1".to_string(),
+            session_id: "session-2".to_string(),
+            session_file: "/w/other.jsonl".to_string(),
+            ..job.clone()
+        };
+        let mut expected = vec![
+            AgentCronJob {
+                status: JobStatus::Cancelled,
+                next_run_at: None,
+                updated_at: iso_from_millis(now + 2),
+                ..moved(&own)
+            },
+            moved(&kept),
+        ];
+        expected.sort_by(|left, right| left.id.cmp(&right.id));
+        let by_id = |mut jobs: Vec<AgentCronJob>| {
+            jobs.sort_by(|left, right| left.id.cmp(&right.id));
+            jobs
+        };
+        assert_eq!(by_id(changed), expected);
+        assert_eq!(by_id(store.read_jobs()), expected);
+        assert_eq!(store.get_heartbeat("live-1"), Some(moved(&kept)));
     }
 
     #[test]
