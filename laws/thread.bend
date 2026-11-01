@@ -30,6 +30,9 @@ import ./base.bend as LawsBase
 #     within the wire) with the model's count, reads exactly the request
 #     and nothing after it, and answers any other input with the exact
 #     error form `E thread: malformed request`.
+# R6: the request is the spec's, whole: each kept view line carries the
+#     messages of its own span, the chat's count messages from its start
+#     (S6).
 
 # Spec helpers
 # ------------
@@ -148,6 +151,32 @@ law thread_history_lines_example:
 #   dropped
 law thread_request_example:
   {Th.request(1n, [Th.Msg{1n, 10n}, Th.Msg{2n, 20n}, Th.Msg{1n, 11n}, Th.Msg{1n, 12n}, Th.Msg{2n, 21n}, Th.Msg{1n, 13n}], [Th.Span{0n, 2n}, Th.Span{2n, 1n}, Th.Span{3n, 1n}], 3n) == [Th.Line{0n, [Th.Msg{1n, 10n}, Th.Msg{1n, 11n}]}, Th.Turn{Th.Msg{1n, 11n}}, Th.Turn{Th.Msg{1n, 12n}}, Th.Turn{Th.Msg{1n, 13n}}] : List<&2, Th.Item>}
+
+# Laws: the request, whole (R6)
+# -----------------------------
+
+# LAW thread_request_spec (R6): every session's request over every event
+# stream, view and window is the spec's: the leading view lines that start
+# before end = T - V, each Line{start, covers} with covers the chat's count
+# messages from start on (List.take(List.drop(chat, start), count)), then
+# the turns of the chat's messages from end on
+# EXCLUDES: a view line that covers messages from another start (the
+#   chat's first ones), a cut or padded cover, a kept line past end, a
+#   transcript off by one
+law thread_request_spec:
+  for +s: Nat
+  for +evs: List<&2, Th.Msg>
+  for +view: List<&2, Th.Span>
+  for +w: Nat
+  {Th.request(s, evs, view, w) == S.request(s, evs, view, w) : List<&2, Th.Item>}
+
+# LAW thread_request_covers_example (R6): anchor: six messages of session
+# 1, view [0..1], [2..3], 2 verbatim: end 4 keeps both lines, the second
+# over messages 12 and 13 (its own start), then 14 and 15 verbatim
+# EXCLUDES: a line that covers the chat's first messages whatever its
+#   start
+law thread_request_covers_example:
+  {Th.request(1n, [Th.Msg{1n, 10n}, Th.Msg{1n, 11n}, Th.Msg{1n, 12n}, Th.Msg{1n, 13n}, Th.Msg{1n, 14n}, Th.Msg{1n, 15n}], [Th.Span{0n, 2n}, Th.Span{2n, 2n}], 2n) == [Th.Line{0n, [Th.Msg{1n, 10n}, Th.Msg{1n, 11n}]}, Th.Line{2n, [Th.Msg{1n, 12n}, Th.Msg{1n, 13n}]}, Th.Turn{Th.Msg{1n, 14n}}, Th.Turn{Th.Msg{1n, 15n}}] : List<&2, Th.Item>}
 
 # Laws: the entry (R5)
 # --------------------

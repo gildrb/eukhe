@@ -2686,6 +2686,8 @@ import ./proof/thread/thread_history_kept.bend as PThreadHistoryKept
 import ./proof/thread/thread_history_lines_spec.bend as PThreadHistoryLinesSpec
 import ./proof/thread/thread_history_lines_example.bend as PThreadHistoryLinesExample
 import ./proof/thread/thread_request_example.bend as PThreadRequestExample
+import ./proof/thread/thread_request_spec.bend as PThreadRequestSpec
+import ./proof/thread/thread_request_covers_example.bend as PThreadRequestCoversExample
 import ./proof/thread/thread_history_lines_is_model.bend as PThreadHistoryLinesIsModel
 import ./proof/thread/thread_entry_reads.bend as PThreadEntryReads
 import ./proof/thread/thread_entry_exact.bend as PThreadEntryExact

@@ -17,6 +17,9 @@
 #     request holds exactly the view lines that start before end, in order.
 # S5: the count of kept lines is the length of the longest run of leading
 #     starts below end.
+# S6: the request, whole: the leading view lines that start before end,
+#     each with the count messages of the chat from its own start, then
+#     the turns of the chat's messages from end on.
 
 import Base
 import ../../bend/thread.bend as Th
@@ -192,3 +195,44 @@ def run(+e: Nat, xs: List<&2, Nat>) -> List<&2, Nat>:
 # S5: how many leading items of xs are below e
 def lead(+e: Nat, xs: List<&2, Nat>) -> Nat:
   List.length(&2, Nat, run(e, xs))
+
+# The request (S6)
+# ----------------
+
+def keep.span(b: Bool, sp: Th.Span, rest: List<&2, Th.Span>) -> List<&2, Th.Span>:
+  match b:
+    case True{}:
+      sp <> rest
+    case False{}:
+      Nil{}
+
+# the leading lines of a view that start before e: the lines kept
+def kept(+e: Nat, view: List<&2, Th.Span>) -> List<&2, Th.Span>:
+  match view:
+    case Nil{}:
+      Nil{}
+    case sp <> t:
+      match sp:
+        case Th.Span{+st, c}:
+          keep.span(Nat.is_lt(st, e), Th.Span{st, c}, kept(e, t))
+
+# a view line over the chat ch: its start, and the messages of its span,
+# the count messages of ch from its start on
+def line(+ch: List<&2, Th.Msg>, sp: Th.Span) -> Th.Item:
+  match sp:
+    case Th.Span{+st, c}:
+      Th.Line{st, List.take(&2, Th.Msg, List.drop(&2, Th.Msg, ch, st), c)}
+
+def lines(+ch: List<&2, Th.Msg>, view: List<&2, Th.Span>) -> List<&2, Th.Item>:
+  match view:
+    case Nil{}:
+      Nil{}
+    case sp <> t:
+      line(ch, sp) <> lines(ch, t)
+
+# the request of session s over the stream evs, its view and window: the
+# kept view lines over its chat, then the turns of the chat from end on
+def request(+s: Nat, evs: List<&2, Th.Msg>, view: List<&2, Th.Span>, +w: Nat) -> List<&2, Th.Item>:
+  +ch = chat(s, evs)
+  +e = end(ch, w)
+  List.append(&2, Th.Item, lines(ch, kept(e, view)), turns(List.drop(&2, Th.Msg, ch, e)))
