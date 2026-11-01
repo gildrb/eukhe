@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 
 def pfs.wait(m: Maybe<&2, F.Out>, +k: Nat, +f: Nat, +c: Nat, +fresh: Bool, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, +cs: List<&2, F.Leg>) -> {F.put(k, F.adv.wait.got(f, m, F.W{F.Sto{c, fresh}, fl, ld, n}), cs) == AuthFlight.am_put(k, AuthFlight.am_wait(m, f, F.W{F.Sto{c, fresh}, fl, ld, n}), cs) : F.St}:
   match m:

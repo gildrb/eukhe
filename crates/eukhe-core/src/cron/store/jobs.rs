@@ -1,8 +1,9 @@
 //! Generic cron job operations: create/list/cancel, session binding and
 //! rebinding, due-claim dispatch, the finish step that records a dispatch's
-//! result, and interrupted-dispatch recovery. The compiled core decides
-//! each job (`eukhe_bend::rules::cron`: when it is due, the failure backoff
-//! and stop, cancel); this file reads and writes the file around it.
+//! result, and interrupted-dispatch recovery. Create, cancel, the claim
+//! pass, the finish step and the recovery are updates the compiled core
+//! decides whole (`super::serve`, `bend/cron_serve.bend`); this file asks
+//! for them and hands their answers back.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use std::sync::Arc;
@@ -10,16 +11,13 @@ use std::sync::Arc;
 use crate::cron::JobSource;
 use uuid::Uuid;
 
-use super::state::{
-    claim_due_in_state, compare_optional_iso, normalize_optional_label,
-    recover_interrupted_in_state, resolve_path,
-};
-use eukhe_bend::rules::cron::{self as rule, Cut, Finished};
+use super::serve::Update;
+use super::state::{compare_optional_iso, normalize_optional_label, resolve_path};
+use eukhe_bend::rules::cron::{Back, Cut, Finished, JobOut};
 
-use super::facts::{fact_of, job_status, next_text, next_text_at};
 use super::{
     iso_from_millis, now_millis, AgentCronJobStore, CancelJobsFilter, CreateAgentCronJobInput,
-    DispatchOutcome, DispatchResultOptions, RunningDispatch, SessionBinding,
+    DispatchResultOptions, RunningDispatch, SessionBinding,
 };
 use crate::cron::{
     is_due_job, parse_agent_cron_schedule, parse_iso_millis, AgentCronJob, JobStatus,
@@ -70,9 +68,7 @@ impl AgentCronJobStore {
             run_count: 0,
             failure_streak: 0,
         };
-        let mut jobs = self.read_jobs();
-        jobs.push(job.clone());
-        self.write_jobs(&jobs)?;
+        self.update(&Update::Create { job: &job })?;
         Ok(job)
     }
 
@@ -161,36 +157,20 @@ impl AgentCronJobStore {
         }
         Ok(cancelled)
     }
+    /// Cancel the job `id`, as the compiled core decides it: a job that is
+    /// not cancelled is cancelled, with no next run. Returns the cancelled
+    /// job, or `None` when no job `id` was cancelled now.
+    ///
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
     pub fn cancel(&self, id: &str, now: u64) -> anyhow::Result<Option<AgentCronJob>> {
-        let now_iso = iso_from_millis(now);
-        let mut cancelled = None;
-        let jobs: Vec<AgentCronJob> = self
-            .read_jobs()
+        let settled = self.update(&Update::Cancel { id, now })?;
+        Ok(settled
+            .answered
             .into_iter()
-            .map(|job| {
-                if job.id != id {
-                    return job;
-                }
-                let Cut::Cut { status, next } = rule::cancel(&fact_of(&job)) else {
-                    return job;
-                };
-                let cancelled_job = AgentCronJob {
-                    status: job_status(status),
-                    next_run_at: next_text_at(&job, next),
-                    updated_at: now_iso.clone(),
-                    ..job
-                };
-                cancelled = Some(cancelled_job.clone());
-                cancelled_job
-            })
-            .collect();
-        if cancelled.is_some() {
-            self.write_jobs(&jobs)?;
-        }
-        Ok(cancelled)
+            .find(|answered| matches!(answered.out, JobOut::Cut(Cut::Cut { .. })))
+            .map(|answered| answered.job))
     }
 
     pub fn due(&self, now: u64) -> Vec<AgentCronJob> {
@@ -200,17 +180,22 @@ impl AgentCronJobStore {
             .collect()
     }
 
-    /// Atomically claim due jobs: advance their schedule and record
-    /// dispatches owned by this process. Each claimed dispatch runs until
-    /// its [`RunningDispatch`] drops.
+    /// Atomically claim due jobs, as the compiled core decides it: a due
+    /// active job with no claim on record is claimed by this process (a
+    /// new dispatch), its next run rolled; a due job with a claim on record
+    /// only rolls its next run. Each claimed dispatch runs until its result
+    /// is recorded or its [`RunningDispatch`] drops.
     ///
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
     pub fn claim_due(&self, due_at: u64, claimed_at: u64) -> anyhow::Result<Vec<RunningDispatch>> {
-        let dispatches =
-            self.mutate_states(|state| claim_due_in_state(state, due_at, claimed_at, &self.owner))?;
-        Ok(dispatches
+        let settled = self.update(&Update::Claim {
+            due: due_at,
+            now: claimed_at,
+        })?;
+        Ok(settled
+            .claimed
             .into_iter()
             .map(|dispatch| RunningDispatch::new(dispatch, Arc::clone(&self.owner)))
             .collect())
@@ -219,28 +204,28 @@ impl AgentCronJobStore {
     pub fn get_claimed_job(&self, id: &str) -> Option<AgentCronJob> {
         for state in self.read_states() {
             if !state
-                .dispatches
-                .iter()
+                .read_dispatches()
                 .any(|dispatch| dispatch.job_id == id)
             {
                 continue;
             }
             return state
-                .jobs
-                .into_iter()
-                .find(|job| job.id == id && job.status == JobStatus::Active);
+                .read_jobs()
+                .find(|job| job.id == id && job.status == JobStatus::Active)
+                .cloned();
         }
         None
     }
 
-    /// The finish step of a claimed dispatch: release the claim and record
-    /// the result on its job, as the compiled core decides it
-    /// (`rule::finish`): only an active job counts a result; a one-shot is
-    /// completed; a failed run of a repeating job counts one more failure
-    /// in a row, pushes the next run out by the backoff (never earlier than
-    /// the schedule) or, at the cap, pauses the job; a good run sets the
-    /// count back to 0; a skip leaves it. Returns the updated job, or
-    /// `None` when the dispatch is no longer pending or its job is not
+    /// The finish step of this process's run of a claimed dispatch, as the
+    /// compiled core decides it: the run ends; its claim, when this
+    /// process owns it, goes, and its job records the result: only an
+    /// active job counts a result; a one-shot is completed; a failed run of
+    /// a repeating job counts one more failure in a row, pushes the next
+    /// run out by the backoff (never earlier than the schedule) or, at the
+    /// cap, pauses the job; a good run sets the count back to 0; a skip
+    /// leaves it. Returns the updated job, or `None` when the dispatch is
+    /// not this process's live run, no longer pending, or its job is not
     /// active.
     ///
     /// # Errors
@@ -252,62 +237,39 @@ impl AgentCronJobStore {
         result: &DispatchResultOptions,
     ) -> anyhow::Result<Option<AgentCronJob>> {
         let now = result.now.unwrap_or_else(now_millis);
-        let now_iso = iso_from_millis(now);
-        let mut updated = None;
-        self.mutate_states(|state| {
-            let Some(at) = state
-                .dispatches
-                .iter()
-                .position(|candidate| candidate.id == dispatch_id)
-            else {
-                return Vec::new();
-            };
-            let dispatch = state.dispatches.remove(at);
-            let Some(job) = state.jobs.iter_mut().find(|job| job.id == dispatch.job_id) else {
-                return Vec::new();
-            };
-            let (ran, becomes) = match rule::finish(
-                &fact_of(job),
-                result.outcome == DispatchOutcome::Ran,
-                result.error.is_some(),
-                now,
-            ) {
-                Finished::Untouched => return Vec::new(),
-                Finished::Ran(becomes) => (true, becomes),
-                Finished::Skipped(becomes) => (false, becomes),
-            };
-            if ran {
-                job.last_run_at = Some(now_iso.clone());
-                job.last_error.clone_from(&result.error);
-                job.run_count += 1;
-            } else {
-                job.last_skipped_at = Some(now_iso.clone());
-            }
-            job.next_run_at = next_text(job, becomes.next, now).ok().flatten();
-            job.status = job_status(becomes.status);
-            job.failure_streak = becomes.streak;
-            job.updated_at.clone_from(&now_iso);
-            updated = Some(job.clone());
-            Vec::new()
+        let settled = self.update(&Update::Finish {
+            dispatch: dispatch_id,
+            result,
+            now,
         })?;
-        Ok(updated)
+        Ok(settled
+            .answered
+            .into_iter()
+            .find(|answered| {
+                matches!(
+                    answered.out,
+                    JobOut::Finished(Finished::Ran(_) | Finished::Skipped(_))
+                )
+            })
+            .map(|answered| answered.job))
     }
 
-    /// Clear the claims this process may clear: its own claims with no live
-    /// run (their pass unwound), and the claims of dead processes. The live
-    /// claim of another process is never cleared. Returns the active jobs
-    /// whose run was interrupted.
+    /// Clear the claims this process may clear, as the compiled core
+    /// decides it: its own claims with no live run (their pass unwound),
+    /// and the claims of dead processes. The live claim of another process
+    /// is never cleared. Returns the active jobs whose run was interrupted.
     ///
     /// # Errors
     ///
     /// Returns an error when the state lock or write fails.
     pub fn recover_interrupted_dispatches(&self, now: u64) -> anyhow::Result<Vec<AgentCronJob>> {
-        let mut recovered = Vec::new();
-        self.mutate_states(|state| {
-            recover_interrupted_in_state(state, now, &mut recovered, &self.owner);
-            Vec::new()
-        })?;
-        Ok(recovered)
+        let settled = self.update(&Update::Recover { now })?;
+        Ok(settled
+            .answered
+            .into_iter()
+            .filter(|answered| matches!(answered.out, JobOut::Back(Back::Interrupted { .. })))
+            .map(|answered| answered.job)
+            .collect())
     }
 
     pub fn next_active_run_at(&self) -> Option<u64> {
@@ -321,8 +283,12 @@ impl AgentCronJobStore {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::sync::{Barrier, Mutex};
+
     use super::*;
-    use crate::cron::store::input;
+    use crate::cron::store::owner::ClaimOwner;
+    use crate::cron::store::{input, DispatchOutcome};
     use crate::cron::ScheduleKind;
 
     #[test]
@@ -439,7 +405,7 @@ mod tests {
 
     /// Audit F6: a job record this build cannot read was dropped by the
     /// next write. Now it, an unread claim and an unknown key stay as
-    /// they are.
+    /// they are, where they are: the new job goes after them.
     #[test]
     fn an_unread_job_survives_a_create() {
         let dir = tempfile::tempdir().unwrap();
@@ -462,11 +428,65 @@ mod tests {
         assert_eq!(
             written,
             serde_json::json!({
-                "jobs": [serde_json::to_value(&job).unwrap(), unread_job],
+                "jobs": [unread_job, serde_json::to_value(&job).unwrap()],
                 "dispatches": [unread_claim],
                 "note": 1.5
             })
         );
+    }
+
+    /// Two processes (a store each, simulated owners) race recoveries and
+    /// claim passes on one real file from real threads, every pass at a
+    /// later due time, each keeping its runs live: each job is claimed
+    /// once in all, and no recovery clears the other's live claim.
+    #[test]
+    fn racing_processes_claim_each_job_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jobs.json");
+        let dead = Arc::new(Mutex::new(HashSet::new()));
+        let now = 1_700_000_000_000;
+        let maker = AgentCronJobStore::with_owner(path.clone(), ClaimOwner::simulated(1, &dead));
+        let mut made: Vec<String> = (0..8)
+            .map(|k| {
+                maker
+                    .create(&input(&format!("job {k}"), "every 10m", now))
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let start = Arc::new(Barrier::new(2));
+        let racers: Vec<_> = [1, 2]
+            .into_iter()
+            .map(|pid| {
+                let (path, dead, start) = (path.clone(), Arc::clone(&dead), Arc::clone(&start));
+                std::thread::spawn(move || {
+                    let store =
+                        AgentCronJobStore::with_owner(path, ClaimOwner::simulated(pid, &dead));
+                    let mut runs = Vec::new();
+                    let mut recovered = Vec::new();
+                    start.wait();
+                    for round in 1..=6 {
+                        let at = now + round * 600_000;
+                        recovered.extend(store.recover_interrupted_dispatches(at).unwrap());
+                        runs.extend(store.claim_due(at, at).unwrap());
+                    }
+                    let claimed: Vec<String> = runs
+                        .iter()
+                        .map(|run| run.dispatch().job.id.clone())
+                        .collect();
+                    (claimed, recovered)
+                })
+            })
+            .collect();
+        let mut claimed = Vec::new();
+        for racer in racers {
+            let (ids, recovered) = racer.join().unwrap();
+            assert_eq!(recovered, Vec::new());
+            claimed.extend(ids);
+        }
+        claimed.sort();
+        made.sort();
+        assert_eq!(claimed, made);
     }
 
     /// Audit F6: a corrupt file read as empty and the next write replaced

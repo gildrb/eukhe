@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW flight_step_example
-# Closed books and strings that compute.
+# Closed: both sides compute.
 
 import Base
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/entry.bend as AuthFlightEntry
 
-def AuthFlight.flight_step_example():
-  ({==}, {==}, {==}, {==}, {==}, {==}, {==}, {==}, {==})
+def AuthFlightEntry.flight_step_example():
+  ({==}, {==}, {==})

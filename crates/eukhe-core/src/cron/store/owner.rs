@@ -1,14 +1,15 @@
 //! The owner of cron dispatch claims: each dispatch record names the
-//! process that claimed it ([`ProcessIdentity`]), and this process keeps
-//! the set of the dispatches it runs now. For a claim on record it tells
-//! whose the claim is: this process's, and whether it still runs it, or
-//! another's, and whether that process is dead. The compiled core decides
-//! from that whether a recovery clears the claim.
+//! process that claimed it ([`ProcessIdentity`]). This process's runs (the
+//! dispatches it runs now) live in the compiled core
+//! ([`eukhe_bend::rules::cron::Runs`]), which decides every update of a
+//! jobs file: a claim adds the dispatches it makes, a finish of its own
+//! run or the end of a run ([`RunningDispatch`] drops) removes one, and a
+//! recovery reads them. This file holds the identity, the stepper and the
+//! liveness probe the store asks about the other owners on record.
 
-use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use eukhe_bend::rules::cron::Who;
+use eukhe_bend::rules::cron::{Disk, Op, Runs, Served};
 use eukhe_types::platform::process::ProcessIdentity;
 
 use super::AgentCronDispatch;
@@ -35,14 +36,13 @@ impl OwnerLiveness for PlatformLiveness {
 /// This process as the owner of cron dispatch claims.
 pub(crate) struct ClaimOwner {
     identity: ProcessIdentity,
-    /// The ids of the dispatches this process runs now.
-    running: Mutex<HashSet<String>>,
+    /// The dispatches this process runs now, in the compiled core.
+    runs: Mutex<Runs>,
     liveness: Box<dyn OwnerLiveness>,
 }
 
 /// The one owner of every store of this process: stores of one process
-/// share their running dispatches, so one store never clears the live
-/// claim of another.
+/// share their runs, so one store never clears the live claim of another.
 static THIS_PROCESS: LazyLock<Arc<ClaimOwner>> = LazyLock::new(|| {
     Arc::new(ClaimOwner::new(
         ProcessIdentity::current(),
@@ -51,12 +51,13 @@ static THIS_PROCESS: LazyLock<Arc<ClaimOwner>> = LazyLock::new(|| {
 });
 
 impl ClaimOwner {
-    /// An owner with this identity that judges other owners with `liveness`.
+    /// An owner with this identity, no runs, that judges other owners with
+    /// `liveness`.
     #[must_use]
     pub(crate) fn new(identity: ProcessIdentity, liveness: Box<dyn OwnerLiveness>) -> Self {
         Self {
             identity,
-            running: Mutex::new(HashSet::new()),
+            runs: Mutex::new(Runs::new()),
             liveness,
         }
     }
@@ -70,42 +71,29 @@ impl ClaimOwner {
         &self.identity
     }
 
-    pub(crate) fn start_running(&self, dispatch_id: &str) {
-        self.running
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(dispatch_id.to_string());
+    pub(crate) fn is_alive(&self, owner: &ProcessIdentity) -> bool {
+        self.liveness.is_alive(owner)
     }
 
-    pub(crate) fn stop_running(&self, dispatch_id: &str) {
-        self.running
+    /// The update `op` of the file `disk` by this process, numbered `me`.
+    pub(crate) fn serve(&self, me: u64, disk: &Disk<'_>, op: &Op<'_>) -> Served {
+        self.runs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .remove(dispatch_id);
+            .serve(me, disk, op)
     }
 
-    /// Whose the claim `dispatch_id` of `owner` is: this owner's (and
-    /// whether its run is live here), or another's (and whether that
-    /// process is dead). Only another's claim asks the liveness probe.
-    pub(crate) fn who(&self, owner: &ProcessIdentity, dispatch_id: &str) -> Who {
-        if *owner == self.identity {
-            return Who::Mine {
-                running: self
-                    .running
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .contains(dispatch_id),
-            };
-        }
-        Who::Theirs {
-            dead: !self.liveness.is_alive(owner),
-        }
+    fn end(&self, dispatch: &str) {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .end(dispatch);
     }
 }
 
-/// A claimed dispatch this process runs. Its run is live until it drops:
-/// after the result is recorded, or when the pass that runs it unwinds.
-/// Then a recovery of this process may clear a claim left on record.
+/// A claimed dispatch this process runs. Its run is live until its result
+/// is recorded or it drops (the pass that runs it unwinds). Then a
+/// recovery of this process may clear a claim left on record.
 pub struct RunningDispatch {
     dispatch: AgentCronDispatch,
     owner: Arc<ClaimOwner>,
@@ -124,14 +112,14 @@ impl RunningDispatch {
 
 impl Drop for RunningDispatch {
     fn drop(&mut self) {
-        self.owner.stop_running(&self.dispatch.id);
+        self.owner.end(&self.dispatch.id);
     }
 }
 
 /// Simulated processes for tests: a process is dead once its pid is in
 /// the shared set.
 #[cfg(test)]
-struct SimulatedLiveness(Arc<Mutex<HashSet<u32>>>);
+struct SimulatedLiveness(Arc<Mutex<std::collections::HashSet<u32>>>);
 
 #[cfg(test)]
 impl OwnerLiveness for SimulatedLiveness {
@@ -148,7 +136,10 @@ impl OwnerLiveness for SimulatedLiveness {
 impl ClaimOwner {
     /// The simulated process `pid`, which sees the processes in `dead` as
     /// dead.
-    pub(crate) fn simulated(pid: u32, dead: &Arc<Mutex<HashSet<u32>>>) -> Arc<Self> {
+    pub(crate) fn simulated(
+        pid: u32,
+        dead: &Arc<Mutex<std::collections::HashSet<u32>>>,
+    ) -> Arc<Self> {
         Arc::new(Self::new(
             ProcessIdentity {
                 pid,

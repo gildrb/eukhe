@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::state::{
-    load_jobs_state, merge_fresh_jobs, read_jobs_state, with_state_locks, write_jobs_state,
+    load_jobs_state, merge_fresh_jobs, merge_records, read_jobs_state, with_state_locks,
+    write_jobs_state,
 };
-use super::{AgentCronJobStore, CronJobsState, SESSION_SCHEDULED_JOBS_FILENAME};
+use super::{AgentCronJobStore, CronJobsState, Record, SESSION_SCHEDULED_JOBS_FILENAME};
 use crate::cron::AgentCronJob;
 
 impl AgentCronJobStore {
@@ -69,8 +70,7 @@ impl AgentCronJobStore {
             let mut merged_by_session_id: HashMap<String, Vec<AgentCronJob>> = HashMap::new();
             for (session_id, current) in &current_by_session_id {
                 let retained: Vec<AgentCronJob> = current
-                    .jobs
-                    .iter()
+                    .read_jobs()
                     .filter(|job| {
                         incoming_by_id
                             .get(job.id.as_str())
@@ -100,27 +100,39 @@ impl AgentCronJobStore {
                     continue;
                 };
                 // A dispatch goes to the file of its job's session; a
-                // dispatch of no known job stays in its own file.
-                let dispatches = current_by_session_id
+                // dispatch of no known job stays in its own file, and so
+                // does a record this build cannot read, where it is.
+                let mut dispatches: Vec<Record<_>> = current
+                    .dispatches
                     .iter()
-                    .flat_map(|(from, state)| {
-                        state.dispatches.iter().filter(move |dispatch| {
-                            match session_id_by_job_id.get(&dispatch.job_id) {
-                                Some(to) => to == session_id,
-                                None => from == session_id,
-                            }
-                        })
+                    .filter(|record| match record {
+                        Record::Read(dispatch) => session_id_by_job_id
+                            .get(&dispatch.job_id)
+                            .is_none_or(|to| to == session_id),
+                        Record::Unread(_) => true,
                     })
                     .cloned()
                     .collect();
-                let next_state = CronJobsState {
-                    jobs: merged_by_session_id
-                        .get(session_id)
+                dispatches.extend(
+                    current_by_session_id
+                        .iter()
+                        .filter(|(from, _)| *from != session_id)
+                        .flat_map(|(_, state)| state.read_dispatches())
+                        .filter(|dispatch| {
+                            session_id_by_job_id.get(&dispatch.job_id) == Some(session_id)
+                        })
                         .cloned()
-                        .unwrap_or_default(),
+                        .map(Record::Read),
+                );
+                let next_state = CronJobsState {
+                    jobs: merge_records(
+                        &current.jobs,
+                        merged_by_session_id
+                            .get(session_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    ),
                     dispatches,
-                    unread_jobs: current.unread_jobs.clone(),
-                    unread_dispatches: current.unread_dispatches.clone(),
                     other_keys: current.other_keys.clone(),
                 };
                 if serde_json::to_string(current).unwrap_or_default()
@@ -142,7 +154,7 @@ impl AgentCronJobStore {
 /// re-arm. A missing or unparseable file reads as no jobs.
 #[must_use]
 pub fn read_scheduled_jobs_artifact(path: &Path) -> Vec<AgentCronJob> {
-    read_jobs_state(path).jobs
+    read_jobs_state(path).read_jobs().cloned().collect()
 }
 
 #[cfg(test)]
@@ -169,11 +181,13 @@ mod tests {
         let jobs = store.list();
         assert_eq!(jobs.len(), 2);
         // Each artifact file holds only its session's jobs.
-        let state_a = read_jobs_state(&artifacts_a.join(SESSION_SCHEDULED_JOBS_FILENAME));
-        assert_eq!(state_a.jobs.len(), 1);
-        assert_eq!(state_a.jobs[0].prompt, "job a");
-        let state_b = read_jobs_state(&artifacts_b.join(SESSION_SCHEDULED_JOBS_FILENAME));
-        assert_eq!(state_b.jobs.len(), 1);
+        let state_a =
+            read_scheduled_jobs_artifact(&artifacts_a.join(SESSION_SCHEDULED_JOBS_FILENAME));
+        assert_eq!(state_a.len(), 1);
+        assert_eq!(state_a[0].prompt, "job a");
+        let state_b =
+            read_scheduled_jobs_artifact(&artifacts_b.join(SESSION_SCHEDULED_JOBS_FILENAME));
+        assert_eq!(state_b.len(), 1);
         let rebound = store
             .rebind_session_jobs(&SessionBinding {
                 active_session_id: "live-2".to_string(),

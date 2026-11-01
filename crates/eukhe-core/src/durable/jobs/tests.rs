@@ -249,7 +249,8 @@ async fn the_wait_settles_before_the_deadline_and_detaches_at_it() {
     let waited = wait_until(started + budget, late.ended()).await;
     assert_eq!((waited, started.elapsed()), (Wait::Detached, budget));
     exit.await.expect("the exit task");
-    // A passed deadline detaches even when the end is ready.
+    // A passed deadline detaches even when the end is ready: within one
+    // poll the host sends the timer's tick before the end.
     assert_eq!(
         wait_until(started + budget, late.ended()).await,
         Wait::Detached

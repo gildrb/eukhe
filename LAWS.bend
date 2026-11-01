@@ -27,7 +27,6 @@ import ./laws/tiny/run.bend as TinyRun
 import ./laws/effort.bend as Effort
 import ./laws/run.bend as Run
 import ./laws/semver.bend as Semver
-import ./laws/auth_flight.bend as AuthFlight
 import ./laws/theme.bend as Theme
 import ./laws/color.bend as Color
 import ./laws/theme_model.bend as ThemeModel
@@ -117,3 +116,11 @@ import ./laws/refine_plan/entry.bend as RefinePlanEntry
 import ./laws/glob.bend as Glob
 import ./laws/phrase.bend as Phrase
 import ./laws/err_text.bend as ErrText
+import ./laws/job_wait.bend as JobWait
+import ./laws/auth_flight/model.bend as AuthFlight
+import ./laws/auth_flight/entry.bend as AuthFlightEntry
+import ./laws/auth_flight/safety.bend as AuthFlightSafety
+import ./laws/cron_serve/serve.bend as CronServe
+import ./laws/cron_serve/entry.bend as CronServeEntry
+import ./laws/cron_serve/safety.bend as CronServeSafety
+import ./laws/cron_serve/model.bend as CronServeModel

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 import ./base.bend as LA
 
 def pf.after_of.load(+c2: Nat, +fl: Bool, +ld: List<&2, F.Out>, +n: Nat, +cs: List<&2, F.Leg>, +ok: Bool) -> {List.get(&2, F.Leg, F.St.cs(F.step.at(List.get(&2, F.Leg, List.append(&2, F.Leg, cs, [F.Load{}]), List.length(&2, F.Leg, cs)), List.length(&2, F.Leg, cs), ok, F.W{F.Sto{c2, True{}}, fl, ld, n}, List.append(&2, F.Leg, cs, [F.Load{}]))), List.length(&2, F.Leg, cs)) == Some{F.Served{None{}, F.Ok{c2}}} : Maybe<&2, F.Leg>}:

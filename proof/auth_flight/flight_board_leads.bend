@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 import ./base.bend as LA
 
 def pfb.leg(s: F.St, +k: Nat, +ok: Bool, +boards: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}, free: {F.W.fl(F.St.w(s)) == False{} : Bool}) -> {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Check{List.length(&2, F.Out, F.W.landed(F.St.w(s)))}} : Maybe<&2, F.Leg>}:

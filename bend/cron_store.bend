@@ -1,16 +1,15 @@
 # cron_store: the per-job decisions of the cron job store
-# (`AgentCronJobStore`, crates/eukhe-core/src/cron/store/), the code the
-# entry bend/ffi_cron.bend runs. The store's clock counts milliseconds;
-# the model of the shared file (bend/cron.bend) counts minutes: each
-# decision here takes the clock unit `u` (MINUTE in the shipped entry), and
-# the laws (laws/cron.bend, the `cron_*_refines` laws) tie each one to the
-# model's `take`, `recover`, `finish`, `cancel` and `resume` on every unit.
+# (`AgentCronJobStore`, crates/eukhe-core/src/cron/store/), the code
+# bend/cron_serve.bend runs on each job record (entry
+# bend/ffi_cron_serve.bend). The store's clock counts milliseconds; the
+# model of the shared file (bend/cron.bend) counts minutes: each decision
+# here takes the clock unit `u` (MINUTE in the shipped entry), and the laws
+# (laws/cron.bend, the `cron_*_refines` laws) tie each one to the model's
+# `take`, `recover`, `finish`, `cancel` and `resume` on every unit.
 #
-# Rust reads the jobs file and gathers the facts of one job (its status,
-# its schedule, its next run, its failures in a row, whether a claim of it
-# is on record or was cleared, the clock); each decision answers what the
-# job becomes. Rust keeps the file, its lock, the claim records, the ids,
-# the liveness probe and the set of the runs of this process.
+# Each decision reads the facts of one job (its status, its schedule, its
+# next run, its failures in a row, whether a claim of it is on record or
+# was cleared, the clock) and answers what the job becomes.
 
 import Base
 import ./cron.bend as Cr
@@ -42,15 +41,6 @@ type Next is Data:
 type Who is Data:
   Mine{running: Bool}
   Theirs{dead: Bool}
-
-# what Rust asks about one job
-type Ask is Data:
-  AskTake{f: Fact, claimed: Bool, due: Nat, now: Nat}
-  AskClear{w: Who}
-  AskRecover{f: Fact, cleared: Bool}
-  AskFinish{f: Fact, ran: Bool, failed: Bool, now: Nat}
-  AskCancel{f: Fact}
-  AskResume{f: Fact, now: Nat}
 
 # Answers
 # -------

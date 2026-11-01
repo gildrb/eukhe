@@ -16,7 +16,7 @@ import ./ffi_color.bend as ffi_color
 import ./ffi_command.bend as ffi_command
 import ./ffi_compactor.bend as ffi_compactor
 import ./ffi_config.bend as ffi_config
-import ./ffi_cron.bend as ffi_cron
+import ./ffi_cron_serve.bend as ffi_cron_serve
 import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_cvar_layers.bend as ffi_cvar_layers
 import ./ffi_dash.bend as ffi_dash
@@ -222,18 +222,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tokens.ffi(input)
     case 80:
       ffi_job_rewind.ffi(input)
-    case 81:
-      ffi_job_wait.ffi(input)
-    case 82:
-      ffi_cron.ffi(input)
     case 83:
       ffi_work.ffi(input)
     case 90:
       ffi_timeouts.ffi(input)
     case 91:
       ffi_revive.ffi(input)
-    case 92:
-      ffi_auth_flight.ffi(input)
     case 101:
       ffi_dash.ffi(input)
     case 102:
@@ -286,6 +280,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_glob.ffi(input)
     case 381:
       ffi_err_text.ffi(input)
+    case 410:
+      ffi_cron_serve.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -309,11 +305,13 @@ type State is Type:
   Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
+  JobWait{s: ffi_job_wait.St}
   Work{s: ffi_work.St}
   RetryIdle{s: ffi_retry_idle.St}
   AuthFlight{s: ffi_auth_flight.St}
   Dash{s: ffi_dash.St}
   TinyRun{s: ffi_tiny_run.St}
+  CronServe{s: ffi_cron_serve.St}
   WaitRace{s: ffi_wait_race.St}
   ToolCall{s: ffi_tool_call.St}
   Optchat{s: ffi_optchat.St}
@@ -384,6 +382,11 @@ def open.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def open.job_wait(r: ffi_job_wait.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (JobWait{s}, reply)
+
 def open.work(r: ffi_work.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -408,6 +411,11 @@ def open.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
   match r:
     case (s, reply):
       (TinyRun{s}, reply)
+
+def open.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (CronServe{s}, reply)
 
 def open.wait_race(r: ffi_wait_race.St & String) -> State & String:
   match r:
@@ -452,6 +460,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.infer_guard(ffi_infer_guard.open(input))
     case 76:
       open.bound(ffi_bound.open(input))
+    case 81:
+      open.job_wait(ffi_job_wait.open(input))
     case 83:
       open.work(ffi_work.open(input))
     case 84:
@@ -462,6 +472,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.dash(ffi_dash.open(input))
     case 400:
       open.tiny_run(ffi_tiny_run.open(input))
+    case 410:
+      open.cron_serve(ffi_cron_serve.open(input))
     case 420:
       open.wait_race(ffi_wait_race.open(input))
     case 421:
@@ -541,6 +553,11 @@ def step.bound(r: ffi_bound.St & String) -> State & String:
     case (s, reply):
       (Bound{s}, reply)
 
+def step.job_wait(r: ffi_job_wait.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (JobWait{s}, reply)
+
 def step.work(r: ffi_work.St & String) -> State & String:
   match r:
     case (s, reply):
@@ -565,6 +582,11 @@ def step.tiny_run(r: ffi_tiny_run.St & String) -> State & String:
   match r:
     case (s, reply):
       (TinyRun{s}, reply)
+
+def step.cron_serve(r: ffi_cron_serve.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (CronServe{s}, reply)
 
 def step.wait_race(r: ffi_wait_race.St & String) -> State & String:
   match r:
@@ -609,6 +631,8 @@ def step.go(state: State, input: String) -> State & String:
       step.infer_guard(ffi_infer_guard.step(s, input))
     case Bound{s}:
       step.bound(ffi_bound.step(s, input))
+    case JobWait{s}:
+      step.job_wait(ffi_job_wait.step(s, input))
     case Work{s}:
       step.work(ffi_work.step(s, input))
     case RetryIdle{s}:
@@ -619,6 +643,8 @@ def step.go(state: State, input: String) -> State & String:
       step.dash(ffi_dash.step(s, input))
     case TinyRun{s}:
       step.tiny_run(ffi_tiny_run.step(s, input))
+    case CronServe{s}:
+      step.cron_serve(ffi_cron_serve.step(s, input))
     case WaitRace{s}:
       step.wait_race(ffi_wait_race.step(s, input))
     case ToolCall{s}:
@@ -661,6 +687,8 @@ def close.go(state: State) -> Unit:
       Unit{}
     case Bound{s}:
       Unit{}
+    case JobWait{s}:
+      Unit{}
     case Work{s}:
       Unit{}
     case RetryIdle{s}:
@@ -670,6 +698,8 @@ def close.go(state: State) -> Unit:
     case Dash{s}:
       Unit{}
     case TinyRun{s}:
+      Unit{}
+    case CronServe{s}:
       Unit{}
     case WaitRace{s}:
       Unit{}

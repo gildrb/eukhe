@@ -4,8 +4,10 @@
 //!
 //! Split across submodules: construction, the public input types, and the
 //! heartbeat catalog signature live here; state save/load in [`state`],
-//! generic job and dispatch operations in [`jobs`], the facts of a job the
-//! compiled core decides on in [`facts`], the owners of dispatch claims in
+//! the updates the compiled core decides (claim, recover, finish, cancel,
+//! resume, create) in [`serve`], generic job operations in [`jobs`], the
+//! facts of a job the compiled core decides on in [`facts`], the owner of
+//! the claims this process makes (its runs, kept in the compiled core) in
 //! [`owner`], `/heartbeat` job management in [`heartbeat`], RLM heartbeat
 //! operations in [`rlm_heartbeat`], and per-session artifact partitioning
 //! in [`session_artifacts`].
@@ -16,18 +18,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eukhe_types::platform::process::ProcessIdentity;
-use serde::ser::{SerializeMap, SerializeSeq};
+use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{is_heartbeat_cron_job, AgentCronJob, AgentCronSchedule, DeliveryMode, JobStatus};
 
-#[cfg(test)]
-mod bridge;
 mod facts;
 mod heartbeat;
 mod jobs;
 mod owner;
 mod rlm_heartbeat;
+mod serve;
 mod session_artifacts;
 mod state;
 
@@ -55,42 +56,60 @@ pub(crate) struct AgentCronDispatchRecord {
     pub owner: ProcessIdentity,
 }
 
-/// One jobs file. Records this build cannot read (a newer writer's, or a
-/// claim of an older build without an owner) and top-level keys it does not
-/// know are kept as they are and written back unchanged.
+/// One record of a list of the jobs file: one this build reads, or one it
+/// cannot read (a newer writer's, or a claim of an older build without an
+/// owner), kept as it is.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Record<T> {
+    Read(T),
+    Unread(serde_json::Value),
+}
+
+impl<T> Record<T> {
+    pub(crate) fn read(&self) -> Option<&T> {
+        match self {
+            Record::Read(value) => Some(value),
+            Record::Unread(_) => None,
+        }
+    }
+}
+
+impl<T: Serialize> Serialize for Record<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Record::Read(value) => value.serialize(serializer),
+            Record::Unread(value) => value.serialize(serializer),
+        }
+    }
+}
+
+/// One jobs file: its job and claim records in file order (each read or
+/// kept as it is), and the top-level keys this build does not know, kept
+/// as they are and written back unchanged.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct CronJobsState {
-    pub(crate) jobs: Vec<AgentCronJob>,
-    pub(crate) dispatches: Vec<AgentCronDispatchRecord>,
-    pub(crate) unread_jobs: Vec<serde_json::Value>,
-    pub(crate) unread_dispatches: Vec<serde_json::Value>,
+    pub(crate) jobs: Vec<Record<AgentCronJob>>,
+    pub(crate) dispatches: Vec<Record<AgentCronDispatchRecord>>,
     pub(crate) other_keys: serde_json::Map<String, serde_json::Value>,
 }
 
-/// The read jobs come first and the unread ones after them, in their order.
-struct Records<'a, T>(&'a [T], &'a [serde_json::Value]);
+impl CronJobsState {
+    /// The job records this build reads, in file order.
+    pub(crate) fn read_jobs(&self) -> impl Iterator<Item = &AgentCronJob> {
+        self.jobs.iter().filter_map(Record::read)
+    }
 
-impl<T: Serialize> Serialize for Records<'_, T> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len() + self.1.len()))?;
-        for record in self.0 {
-            seq.serialize_element(record)?;
-        }
-        for record in self.1 {
-            seq.serialize_element(record)?;
-        }
-        seq.end()
+    /// The claim records this build reads, in file order.
+    pub(crate) fn read_dispatches(&self) -> impl Iterator<Item = &AgentCronDispatchRecord> {
+        self.dispatches.iter().filter_map(Record::read)
     }
 }
 
 impl Serialize for CronJobsState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(2 + self.other_keys.len()))?;
-        map.serialize_entry("jobs", &Records(&self.jobs, &self.unread_jobs))?;
-        map.serialize_entry(
-            "dispatches",
-            &Records(&self.dispatches, &self.unread_dispatches),
-        )?;
+        map.serialize_entry("jobs", &self.jobs)?;
+        map.serialize_entry("dispatches", &self.dispatches)?;
         for (key, value) in &self.other_keys {
             map.serialize_entry(key, value)?;
         }

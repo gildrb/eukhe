@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 import ./base.bend as LA
 
 def pfl.leg(s: F.St, +k: Nat, +f: Nat, +o: F.Out, +ok: Bool, +lands: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Land{f, o}} : Maybe<&2, F.Leg>}) -> {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}:

@@ -130,10 +130,8 @@ pub enum Entry {
     Tokens = 78,
     /// `bend/ffi_job_rewind.bend`: a call.
     JobRewind = 80,
-    /// `bend/ffi_job_wait.bend`: a call.
+    /// `bend/ffi_job_wait.bend`: a stepper.
     JobWait = 81,
-    /// `bend/ffi_cron.bend`: a call.
-    Cron = 82,
     /// `bend/ffi_work.bend`: a call and a stepper.
     Work = 83,
     /// `bend/ffi_retry_idle.bend`: a stepper.
@@ -142,7 +140,7 @@ pub enum Entry {
     Timeouts = 90,
     /// `bend/ffi_revive.bend`: a call.
     Revive = 91,
-    /// `bend/ffi_auth_flight.bend`: a call and a stepper.
+    /// `bend/ffi_auth_flight.bend`: a stepper.
     AuthFlight = 92,
     /// `bend/ffi_dash.bend`: a call and a stepper.
     Dash = 101,
@@ -198,6 +196,8 @@ pub enum Entry {
     ErrText = 381,
     /// `bend/ffi_tiny_run.bend`: a stepper.
     TinyRun = 400,
+    /// `bend/ffi_cron_serve.bend`: a call and a stepper.
+    CronServe = 410,
     /// `bend/ffi_wait_race.bend`: a stepper.
     WaitRace = 420,
     /// `bend/ffi_tool_call.bend`: a stepper.
@@ -272,7 +272,6 @@ impl Entry {
         Entry::Tokens,
         Entry::JobRewind,
         Entry::JobWait,
-        Entry::Cron,
         Entry::Work,
         Entry::RetryIdle,
         Entry::Timeouts,
@@ -305,6 +304,7 @@ impl Entry {
         Entry::Glob,
         Entry::ErrText,
         Entry::TinyRun,
+        Entry::CronServe,
         Entry::WaitRace,
         Entry::ToolCall,
         Entry::Optchat,

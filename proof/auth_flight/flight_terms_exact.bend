@@ -3,7 +3,7 @@
 
 import Base
 import ../../bend/auth_flight.bend as F
-import ../../laws/auth_flight.bend as AuthFlight
+import ../../laws/auth_flight/model.bend as AuthFlight
 
 def pft.fetching(cs: List<&2, F.Leg>) -> {F.fetching(cs) == AuthFlight.af_fetching(cs) : Nat}:
   match cs:
