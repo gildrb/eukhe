@@ -63,12 +63,25 @@ def qp.total.go(xs: List<&2, Nat>, +acc: Nat) -> {Rq.total.go(xs, acc) == Nat.ad
 def qp.total(+xs: List<&2, Nat>) -> {Rq.total(xs) == QSpec.total(xs) : Nat}:
   qp.total.go(xs, 0n)
 
-def qp.over(b: Nat, +u: Nat, +t: Nat) -> {Rq.over(b, u, t) == QSpec.over_budget(b, u, t) : Bool}:
+# xs add up past l: the sum is past l
+def qp.past(xs: List<&2, Nat>, +l: Nat) -> {Rq.past(xs, l) == Nat.is_lt(l, QSpec.total(xs)) : Bool}:
+  match xs:
+    case Nil{}:
+      match l:
+        case 0n:
+          {==}
+        case 1n+q:
+          {==}
+    case Con{+x, +t}:
+      Equal.trans(Bool, Bool.or(Nat.is_lt(l, x), Rq.past(t, Nat.sub(l, x))), Bool.or(Nat.is_lt(l, x), Nat.is_lt(Nat.sub(l, x), QSpec.total(t))), Nat.is_lt(l, Nat.add(x, QSpec.total(t))), Equal.cong(Bool, Bool, z => Bool.or(Nat.is_lt(l, x), z), Rq.past(t, Nat.sub(l, x)), Nat.is_lt(Nat.sub(l, x), QSpec.total(t)), qp.past(t, Nat.sub(l, x))), LN.rq.lt_or(x, l, QSpec.total(t)))
+
+# the budget test, by what is left of the budget, is the spec's
+def qp.over(b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> {Rq.over(b, u, sizes) == QSpec.over_budget(b, u, QSpec.total(sizes)) : Bool}:
   match b:
     case 0n:
       {==}
-    case 1n+k:
-      {==}
+    case 1n++k:
+      qp.past(u <> sizes, 1n+k)
 
 def qp.width.succ(x: Bool, +p: Nat, +q: Nat) -> {Rq.width.of(x, 1n+p, 1n+q) == 1n+Rq.width.of(x, p, q) : Nat}:
   match x:
@@ -141,17 +154,16 @@ def qp.full(f: Bool, +c: Nat, +r: Nat, +w: Nat, +n: Nat) -> {Rq.plan.full(f, c, 
       %Equal.sym(Nat, Rq.width(w, Nat.sub(c, r)), QSpec.wave(w, Nat.sub(c, r)), qp.width(w, Nat.sub(c, r))) : {Rq.Waves{Rq.waves(n, _)} == Rq.Waves{QSpec.waves(n, QSpec.wave(w, Nat.sub(c, r)))} : Rq.Plan}
       Equal.cong(List<&2, Nat>, Rq.Plan, z => Rq.Waves{z}, Rq.waves(n, QSpec.wave(w, Nat.sub(c, r))), QSpec.waves(n, QSpec.wave(w, Nat.sub(c, r))), qp.waves(QSpec.wave(w, Nat.sub(c, r)), n))
 
-def qp.budget(o: Bool, +r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> {Rq.plan.budget(o, r, c, w, b, u, QSpec.total(sizes), List.length(&2, Nat, sizes)) == QSpec.plan.of(o, r, c, w, b, u, sizes) : Rq.Plan}:
+def qp.budget(o: Bool, +r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> {Rq.plan.budget(o, r, c, w, b, u, sizes) == QSpec.plan.of(o, r, c, w, b, u, sizes) : Rq.Plan}:
   match o:
     case True{}:
-      {==}
+      Equal.cong(Nat, Rq.Plan, z => Rq.Refused{Rq.OverBudget{z, Nat.sub(b, u), b}}, Rq.total(sizes), QSpec.total(sizes), qp.total(sizes))
     case False{}:
       qp.full(Nat.is_le(c, r), c, r, w, List.length(&2, Nat, sizes))
 
 # the decision is the spec's
 def qp.plan(+r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> {Rq.plan(r, c, w, b, u, sizes) == QSpec.plan(r, c, w, b, u, sizes) : Rq.Plan}:
-  %Equal.sym(Nat, Rq.total(sizes), QSpec.total(sizes), qp.total(sizes)) : {Rq.plan.budget(Rq.over(b, u, _), r, c, w, b, u, _, List.length(&2, Nat, sizes)) == QSpec.plan(r, c, w, b, u, sizes) : Rq.Plan}
-  %Equal.sym(Bool, Rq.over(b, u, QSpec.total(sizes)), QSpec.over_budget(b, u, QSpec.total(sizes)), qp.over(b, u, QSpec.total(sizes))) : {Rq.plan.budget(_, r, c, w, b, u, QSpec.total(sizes), List.length(&2, Nat, sizes)) == QSpec.plan(r, c, w, b, u, sizes) : Rq.Plan}
+  %Equal.sym(Bool, Rq.over(b, u, sizes), QSpec.over_budget(b, u, QSpec.total(sizes)), qp.over(b, u, sizes)) : {Rq.plan.budget(_, r, c, w, b, u, sizes) == QSpec.plan(r, c, w, b, u, sizes) : Rq.Plan}
   qp.budget(QSpec.over_budget(b, u, QSpec.total(sizes)), r, c, w, b, u, sizes)
 
 # What an admitted plan is

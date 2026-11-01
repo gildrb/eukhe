@@ -234,7 +234,7 @@ async fn query_batch(
             budget: settings.get_rlm_query_budget_bytes(),
             used: ledger.used,
             sizes: &sizes,
-        });
+        })?;
         match plan {
             Plan::Refuse(text) => return Ok(json!({ "refused": text })),
             Plan::Admit { waves } => {

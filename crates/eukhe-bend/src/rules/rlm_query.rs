@@ -8,12 +8,35 @@
 //! limit in UTF-8 bytes.
 //!
 //! Numbers the wire cannot carry (above [`NAT_MAX`]) are saturated to
-//! [`NAT_MAX`]. The sizes are the byte lengths of strings held in memory, so
-//! their sum, with the saturated spent bytes, stays below the core's 2^48
-//! bound on a Nat.
+//! [`NAT_MAX`], below the runtime's bound on a Nat ([`CORE_NAT_MAX`]). The
+//! core tests the budget by taking each size from what is left of it, so
+//! no sum is formed there; only a refusal for the budget sums the sizes, to
+//! name them. A batch whose saturated sizes add up past [`CORE_NAT_MAX`]
+//! under a set budget would stop the process there, so [`plan`] refuses it
+//! with [`PlanError::TooLarge`] before the call. This is a trusted boundary:
+//! the laws reason about unbounded numbers and cannot see the runtime's.
 
 use crate::wire::{Reader, Writer, NAT_MAX, STR_MAX};
 use crate::{call, expect_core, Entry, Error};
+
+/// The largest Nat the compiled core holds (2^48 - 1): forming a larger one
+/// stops the process.
+pub const CORE_NAT_MAX: u64 = (1 << 48) - 1;
+
+/// Why a batch has no decision.
+#[derive(Debug, thiserror::Error)]
+pub enum PlanError {
+    /// Under a set budget the batch's input bytes, each saturated to
+    /// [`NAT_MAX`], add up past [`CORE_NAT_MAX`]: the core would name that
+    /// sum in its refusal and stop the process, so it is not asked.
+    #[error(
+        "rlm.query batch of {calls} calls sends more input bytes than the compiled core can count ({CORE_NAT_MAX})"
+    )]
+    TooLarge { calls: usize },
+    /// The compiled core failed (an inconsistent build).
+    #[error("the compiled Bend core failed on rlm.query: {0}")]
+    Core(#[from] Error),
+}
 
 /// The facts a batch of rlm.query calls is admitted on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,9 +76,27 @@ pub enum Cut {
 }
 
 /// The decision on the batch `facts`, from the compiled core.
-#[must_use]
-pub fn plan(facts: &PlanFacts<'_>) -> Plan {
-    expect_core(Entry::RlmQuery, plan_call(facts))
+///
+/// # Errors
+///
+/// [`PlanError::TooLarge`] when a budget is set and the sizes, each
+/// saturated to [`NAT_MAX`], add up past [`CORE_NAT_MAX`] (the core is not
+/// called); [`PlanError::Core`] when the core fails.
+pub fn plan(facts: &PlanFacts<'_>) -> Result<Plan, PlanError> {
+    let countable = facts
+        .sizes
+        .iter()
+        .try_fold(0u64, |sum, size| {
+            sum.checked_add((*size).min(NAT_MAX))
+                .filter(|sum| *sum <= CORE_NAT_MAX)
+        })
+        .is_some();
+    if facts.budget > 0 && !countable {
+        return Err(PlanError::TooLarge {
+            calls: facts.sizes.len(),
+        });
+    }
+    Ok(plan_call(facts)?)
 }
 
 fn plan_call(facts: &PlanFacts<'_>) -> Result<Plan, Error> {
@@ -134,33 +175,43 @@ fn cut_call(room: u64, piece: &str) -> Result<Cut, Error> {
 mod tests {
     use super::*;
 
-    /// The anchors of `rlm_query_plan_example` and `rlm_query_text_example`:
-    /// ten calls under the cap 4 run 4, 4, 2; with width 3, 3, 3, 3, 1;
-    /// with 3 of 4 running, one at a time; a batch over budget and a full
-    /// cap are refused; a budget exactly met admits; no calls, no waves.
-    #[test]
-    fn the_core_plans_batches() {
-        let facts = |running, width, budget, used, sizes| PlanFacts {
+    fn facts(running: u64, width: u64, budget: u64, used: u64, sizes: &[u64]) -> PlanFacts<'_> {
+        PlanFacts {
             running,
             cap: 4,
             width,
             budget,
             used,
             sizes,
-        };
-        let admit = |waves: &[usize]| Plan::Admit {
+        }
+    }
+
+    fn decide(facts: &PlanFacts<'_>) -> Plan {
+        plan(facts).expect("the core decides")
+    }
+
+    fn admit(waves: &[usize]) -> Plan {
+        Plan::Admit {
             waves: waves.to_vec(),
-        };
+        }
+    }
+
+    /// The anchors of `rlm_query_plan_example` and `rlm_query_text_example`:
+    /// ten calls under the cap 4 run 4, 4, 2; with width 3, 3, 3, 3, 1;
+    /// with 3 of 4 running, one at a time; a batch over budget and a full
+    /// cap are refused; a budget exactly met admits; no calls, no waves.
+    #[test]
+    fn the_core_plans_batches() {
         let ten = [1; 10];
         assert_eq!(
             [
-                plan(&facts(0, 0, 0, 0, &ten)),
-                plan(&facts(0, 3, 0, 0, &ten)),
-                plan(&facts(3, 0, 0, 0, &[1, 1, 1])),
-                plan(&facts(0, 0, 10, 4, &[5, 5])),
-                plan(&facts(0, 0, 10, 4, &[3, 3])),
-                plan(&facts(4, 0, 0, 0, &[1])),
-                plan(&facts(0, 0, 0, 0, &[])),
+                decide(&facts(0, 0, 0, 0, &ten)),
+                decide(&facts(0, 3, 0, 0, &ten)),
+                decide(&facts(3, 0, 0, 0, &[1, 1, 1])),
+                decide(&facts(0, 0, 10, 4, &[5, 5])),
+                decide(&facts(0, 0, 10, 4, &[3, 3])),
+                decide(&facts(4, 0, 0, 0, &[1])),
+                decide(&facts(0, 0, 0, 0, &[])),
             ],
             [
                 admit(&[4, 4, 2]),
@@ -175,6 +226,47 @@ mod tests {
                 admit(&[]),
             ]
         );
+    }
+
+    /// Regression (ATTACK `0,0,4,0,0,0,3,99999999999999,...` and
+    /// `0,0,4,0,1000000,0,1,5,`): numbers that pass the runtime's 2^48 - 1
+    /// when added never stop the process. A large budget, or no budget with
+    /// sizes adding up past it, decides; spent bytes plus sizes past it
+    /// decide; a refusal naming exactly 2^48 - 1 bytes decides; one byte
+    /// more under a set budget is refused before the core is asked.
+    #[test]
+    fn sums_past_the_core_bound_never_stop_the_process() {
+        let huge = [NAT_MAX, NAT_MAX, u64::MAX];
+        let edge = [NAT_MAX, NAT_MAX, CORE_NAT_MAX - 2 * NAT_MAX];
+        let past = [NAT_MAX, NAT_MAX, CORE_NAT_MAX - 2 * NAT_MAX + 1];
+        assert_eq!(
+            [
+                decide(&facts(0, 0, 1_000_000, 0, &[5])),
+                decide(&facts(0, 0, 0, 0, &huge)),
+                decide(&facts(0, 0, NAT_MAX, NAT_MAX, &[NAT_MAX, 1, 1])),
+                decide(&facts(0, 0, 1, NAT_MAX, &edge)),
+            ],
+            [
+                admit(&[1]),
+                admit(&[3]),
+                Plan::Refuse(
+                    "rlm.query needs 100000000000001 bytes of input; the session's query budget has 0 of 99999999999999 bytes left (rlm.queryBudgetBytes)"
+                        .to_owned()
+                ),
+                Plan::Refuse(
+                    "rlm.query needs 281474976710655 bytes of input; the session's query budget has 0 of 1 bytes left (rlm.queryBudgetBytes)"
+                        .to_owned()
+                ),
+            ]
+        );
+        assert!(matches!(
+            plan(&facts(0, 0, 1, 0, &past)),
+            Err(PlanError::TooLarge { calls: 3 })
+        ));
+        assert!(matches!(
+            plan(&facts(0, 0, 1, 0, &huge)),
+            Err(PlanError::TooLarge { calls: 3 })
+        ));
     }
 
     /// The anchors of `rlm_query_cut_example`: "héllo" under 2 keeps "h",

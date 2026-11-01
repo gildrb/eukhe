@@ -11,6 +11,9 @@ links = "eukhe_bend"
 # The command language's vocabulary (`rules::cvar`): eukhe-types holds no
 # behavior and no C; the rule over its types lives here.
 eukhe-types.workspace = true
+# Typed errors of the rules that refuse an input before the core
+# (`rules::rlm_query::PlanError`).
+thiserror.workspace = true
 
 [build-dependencies]
 # Compiles c/shim.c (which includes the generated c/core.c). Already in the

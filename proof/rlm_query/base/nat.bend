@@ -211,3 +211,16 @@ def rq.sub_sub(m: Nat, w: Nat, +u: Nat) -> {Nat.sub(m, Nat.add(w, u)) == Nat.sub
       {==}
     case 1n+p 1n+q:
       rq.sub_sub(p, q, u)
+
+# l is below x + t exactly when it is below x, or what is left of l after
+# x is below t
+def rq.lt_or(x: Nat, l: Nat, -t: Nat) -> {Bool.or(Nat.is_lt(l, x), Nat.is_lt(Nat.sub(l, x), t)) == Nat.is_lt(l, Nat.add(x, t)) : Bool}:
+  match x l:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      rq.lt_or(p, q, t)

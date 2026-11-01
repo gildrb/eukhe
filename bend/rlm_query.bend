@@ -40,17 +40,27 @@ def total.go(xs: List<&2, Nat>, acc: Nat) -> Nat:
     case Con{x, t}:
       total.go(t, Nat.add(acc, x))
 
-# the input bytes of a batch: the sum of its calls' sizes
+# the input bytes of a batch: the sum of its calls' sizes (formed only to
+# name it in a refusal)
 def total(xs: List<&2, Nat>) -> Nat:
   total.go(xs, 0n)
 
-# u bytes already sent plus t more pass the budget b (0: no budget)
-def over(b: Nat, +u: Nat, +t: Nat) -> Bool:
+# xs add up past l: each is taken from what is left of l, so no value
+# grows past the inputs (the runtime holds a Nat below 2^48)
+def past(xs: List<&2, Nat>, +l: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{+x, t}:
+      Bool.or(Nat.is_lt(l, x), past(t, Nat.sub(l, x)))
+
+# u bytes already sent plus the sizes pass the budget b (0: no budget)
+def over(b: Nat, +u: Nat, sizes: List<&2, Nat>) -> Bool:
   match b:
     case 0n:
       False{}
     case 1n+k:
-      Nat.is_lt(1n+k, Nat.add(u, t))
+      past(u <> sizes, 1n+k)
 
 def width.of(le: Bool, +w: Nat, +room: Nat) -> Nat:
   match le:
@@ -102,19 +112,20 @@ def plan.full(full: Bool, +c: Nat, +r: Nat, +w: Nat, +n: Nat) -> Plan:
     case False{}:
       Waves{waves(n, width(w, Nat.sub(c, r)))}
 
-def plan.budget(over: Bool, +r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +t: Nat, +n: Nat) -> Plan:
+def plan.budget(over: Bool, +r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> Plan:
   match over:
     case True{}:
-      Refused{OverBudget{t, Nat.sub(b, u), b}}
+      Refused{OverBudget{total(sizes), Nat.sub(b, u), b}}
     case False{}:
-      plan.full(Nat.is_le(c, r), c, r, w, n)
+      plan.full(Nat.is_le(c, r), c, r, w, List.length(&2, Nat, sizes))
 
 # the decision on a batch whose calls send sizes bytes each, r query
 # calls of the session running under the cap c, the caller's width w, the
-# budget b (0: none) of which u bytes are spent
+# budget b (0: none) of which u bytes are spent. Only a refusal for the
+# budget sums the sizes (eukhe-bend rules/rlm_query.rs keeps that sum
+# within the runtime's bound).
 def plan(+r: Nat, +c: Nat, +w: Nat, +b: Nat, +u: Nat, +sizes: List<&2, Nat>) -> Plan:
-  +t = total(sizes)
-  plan.budget(over(b, u, t), r, c, w, b, u, t, List.length(&2, Nat, sizes))
+  plan.budget(over(b, u, sizes), r, c, w, b, u, sizes)
 
 # the text of a refusal
 def text(f: Refusal) -> String:

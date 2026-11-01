@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW rlm_query_plan_spec
 #
-# PROOF: the code's total, budget test, wave width and waves are the spec's (qp.total, qp.over, qp.width; the waves follow Nat.divmod's loop, qp.go).
+# PROOF: the code's total, budget test (by what is left of the budget: qp.past, rq.lt_or), wave width and waves are the spec's (qp.total, qp.over, qp.width; the waves follow Nat.divmod's loop, qp.go).
 
 import Base
 import ../../bend/rlm_query.bend as Rq
