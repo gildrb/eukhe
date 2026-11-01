@@ -2453,6 +2453,9 @@ import ./proof/cron_user/cron_delete_refines.bend as PCronDeleteRefines
 import ./proof/cron_user/cron_edit_refines.bend as PCronEditRefines
 import ./proof/cron_user/cron_make_refines.bend as PCronMakeRefines
 import ./proof/cron_user/cron_entry_user_example.bend as PCronEntryUserExample
+import ./proof/cron_beats/cron_heartbeat_flags.bend as PCronHeartbeatFlags
+import ./proof/cron_beats/cron_heartbeat_replaces.bend as PCronHeartbeatReplaces
+import ./proof/cron_beats/cron_heartbeat_replaces_example.bend as PCronHeartbeatReplacesExample
 import ./proof/cron_file/base/logic.bend as LACronFileLogic
 import ./proof/cron_file/base/wire.bend as LACronFileWire
 import ./proof/cron_file/base/file.bend as LACronFileFile

@@ -519,6 +519,9 @@
     "laws/cron.bend::cron_recover_refines": "967df9933b5aed615820a2a75ec2dcf9ea1c9221ea16b252229b019285689711",
     "laws/cron.bend::cron_resume_refines": "f82769cd5ff863086ac0c5d2a795ac8773ad96dbc4440d0e597028529398eef1",
     "laws/cron.bend::cron_take_refines": "ace538ea73eb1429baaa7a55f8cad92987d30e50c5ea81440b0b70d88e2b4b0e",
+    "laws/cron_beats.bend::cron_heartbeat_flags": "4f90007c130df8432b4eb8a716eb27540a48ffdcb78480cc6e70811f154097fc",
+    "laws/cron_beats.bend::cron_heartbeat_replaces": "6f8f94fc5dc8d7e8d7614553f90226e9b0e23cf95709b7e74fc058a231fa3b83",
+    "laws/cron_beats.bend::cron_heartbeat_replaces_example": "a1ba53a93a00f578d8010f23f81af0d1789b32d17aaa3c7744987ac705ff1c46",
     "laws/cron_file/entry.bend::cron_file_entry_answers": "f5c6b68e66ceaf29ecae63d646f2eb9fe5d6fc3fd32342eb8fe9f24669604704",
     "laws/cron_file/entry.bend::cron_file_entry_example": "45b9362297ba137ae03af68194cadfbab505b17daf36aedf6aaaf5017fcd8df7",
     "laws/cron_file/entry.bend::cron_file_entry_fits_example": "107597e10d7bd28d47ae31e18496ed8cbd160517f772738fded1a04d10f2a51a",
@@ -2471,7 +2474,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "dd88efb1ebfdb9b75720f3a7fef88cb595273bddbdab9bac3884e122c1b23ef4",
+    "LAWS.bend": "9ec53f611f39cc2ce38c369d7a0850e9b47c46b177b2b63998d26eb225360ac0",
     "laws/admission.bend": "848617737e0db43b23f7330adc23c0256f6bfbe6a2f008b68f7512a842fb7e1c",
     "laws/approvals/desk.bend": "038c21ac209aaaf412f1cabb60ab38520c03876dc10e9b6a08ca448303938ceb",
     "laws/approvals/entry.bend": "f11860d871473f27c940018c7482c58f4ab000901f74c5419b842967b085a429",
@@ -2498,6 +2501,7 @@
     "laws/compactor.bend": "8891e66af67f0e1f1904e58b857d8e7d783534cc9886350d05aedc8143cff8f1",
     "laws/config.bend": "47d905b509c3bb2c60bf8c1944fd56ec24e8e0a02e71152abf7f869f82a5c1d5",
     "laws/cron.bend": "0805cfd886b14d57eb14a342c4a4e284a9fb4f55b9493425ea1ff01674e1892c",
+    "laws/cron_beats.bend": "f2c8386fd2550325200ce092305766a171c4413a05802337e745b3d99682452e",
     "laws/cron_file/entry.bend": "a1bf470868d5609c071434d6bd19e3a8ed9d5f850b37ed94a4b3efbca86ab6ca",
     "laws/cron_file/pass.bend": "594aed97a52093e0e03e2f01e2d7766793f7458ba50423294919ae2e8904cd43",
     "laws/cron_file/view.bend": "f1cc2b7d05f531de1f65b6e2a6ac73cb2d330d8a3cfa150d1340350ca4b82348",
