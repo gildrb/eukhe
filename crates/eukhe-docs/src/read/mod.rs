@@ -3,8 +3,11 @@
 //! files, without syntax-aware block context). A read records the file's
 //! snapshot but not its seen lines: the caller records the [`Row`]s that
 //! reach the model. A read without a selector shows the whole file, as in
-//! omp; output is bounded once, by the caller.
+//! omp; output is bounded once, by the caller. A PNG or JPEG read without a
+//! selector is an image ([`ReadContent::Image`]), as in omp; `:raw` reads
+//! its bytes.
 
+mod image;
 mod listing;
 pub(crate) mod selector;
 mod view;
@@ -20,6 +23,7 @@ use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
 use crate::text::{encoding_name, format_bytes, Line, Projection};
 use crate::url::{Located, Url, UrlError};
 
+pub use image::{ImageFormat, ImageView};
 pub use listing::DirEntry;
 use selector::Selector;
 pub use selector::SelectorError;
@@ -100,6 +104,8 @@ pub struct ReadView {
 pub enum ReadContent {
     File(FileView),
     Directory(Vec<DirEntry>),
+    /// A PNG or JPEG read without a selector: the model sees the image.
+    Image(ImageView),
 }
 
 /// A read file.
@@ -279,6 +285,26 @@ fn project_path(
         display: display.clone(),
         source,
     })?;
+    if matches!(selector, Selector::Whole) {
+        if let Some((format, width, height)) = image::sniff(&bytes) {
+            return Ok(ReadView {
+                rendered: format!(
+                    "[{display}: {width}x{height} {} image, {}]",
+                    format.name(),
+                    format_bytes(metadata.len())
+                ),
+                path: display,
+                absolute,
+                content: ReadContent::Image(ImageView {
+                    format,
+                    width,
+                    height,
+                    bytes,
+                }),
+                diags: Vec::new(),
+            });
+        }
+    }
     let sniffed_nul = bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0);
     let utf8 = std::str::from_utf8(&bytes).is_ok();
     let utf16 = matches!(bytes.as_slice(), [0xFF, 0xFE, ..] | [0xFE, 0xFF, ..]);

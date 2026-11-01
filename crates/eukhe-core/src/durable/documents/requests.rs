@@ -75,6 +75,15 @@ enum Reply {
     Rejected(Rejection),
 }
 
+/// The image of a read: its file, mime type, pixel size, and bytes.
+pub(super) struct ReadImage<'a> {
+    pub(super) absolute: Option<&'a Path>,
+    pub(super) mime_type: &'static str,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) bytes: &'a [u8],
+}
+
 /// A performed call's typed result.
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -95,6 +104,31 @@ impl Done {
             Self::Edit(reply) => &reply.rendered,
             Self::Grep(reply) => &reply.rendered,
             Self::Glob(reply) => &reply.rendered,
+        }
+    }
+
+    /// The image a read returned (a PNG or JPEG without a selector).
+    pub(super) fn image(&self) -> Option<ReadImage<'_>> {
+        match self {
+            Self::Read(ReadReply {
+                absolute,
+                content:
+                    ReadReplyContent::Image {
+                        mime_type,
+                        width,
+                        height,
+                        bytes,
+                        ..
+                    },
+                ..
+            }) => Some(ReadImage {
+                absolute: absolute.as_deref(),
+                mime_type,
+                width: *width,
+                height: *height,
+                bytes,
+            }),
+            Self::Read(_) | Self::Write(_) | Self::Edit(_) | Self::Grep(_) | Self::Glob(_) => None,
         }
     }
 
@@ -250,6 +284,16 @@ enum ReadReplyContent {
     Text {
         text: String,
     },
+    /// A PNG or JPEG: the wire tool shows it as an image, within the
+    /// model's image limits; the kernel's reply carries these facts only.
+    Image {
+        mime_type: &'static str,
+        width: u32,
+        height: u32,
+        size: usize,
+        #[serde(skip)]
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Serialize)]
@@ -356,6 +400,16 @@ pub(super) fn read_reply(view: ReadView) -> ReadReply {
                         modified_ms: entry.modified_ms,
                     })
                     .collect(),
+            },
+            Vec::new(),
+        ),
+        ReadContent::Image(image) => (
+            ReadReplyContent::Image {
+                mime_type: image.format.mime_type(),
+                width: image.width,
+                height: image.height,
+                size: image.bytes.len(),
+                bytes: image.bytes,
             },
             Vec::new(),
         ),

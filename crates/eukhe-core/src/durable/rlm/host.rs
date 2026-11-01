@@ -133,7 +133,8 @@ fn fallback_binding(deps: &HostDeps) -> SessionBinding {
 }
 
 /// `model.info`: the model the requesting conversation runs now (`id`,
-/// `provider`, input modalities); nulls and no inputs when it has none.
+/// `provider`, input modalities, and its catalog `inputLimits`, `null`
+/// when it has none); nulls and no inputs when it has none.
 fn register_model_info(runtime: &Arc<RlmRuntime>) {
     let weak: Weak<RlmRuntime> = Arc::downgrade(runtime);
     let handler: HostCallHandler = Arc::new(move |call: HostCall| {
@@ -156,10 +157,11 @@ fn model_info(
     model: Option<&eukhe_durable::harness::types::ModelRef>,
 ) -> Value {
     let Some(model) = model else {
-        return json!({ "id": Value::Null, "provider": Value::Null, "input": [] });
+        return json!({ "id": Value::Null, "provider": Value::Null, "input": [], "inputLimits": Value::Null });
     };
-    let input: Vec<&'static str> = runtime
-        .model(model)
+    let catalog = runtime.model(model);
+    let input: Vec<&'static str> = catalog
+        .as_ref()
         .map(|catalog| {
             catalog
                 .input
@@ -172,5 +174,6 @@ fn model_info(
         "id": model.model_id,
         "provider": model.provider,
         "input": input,
+        "inputLimits": catalog.and_then(|catalog| catalog.input_limits),
     })
 }

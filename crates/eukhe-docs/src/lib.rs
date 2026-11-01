@@ -57,8 +57,8 @@ pub use hashline::{
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{lexical_normalize, resolve};
 pub use read::{
-    display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, Row,
-    SelectorError,
+    display_path, DirEntry, FileView, ImageFormat, ImageView, LineSpan, ReadContent, ReadError,
+    ReadView, Row, SelectorError,
 };
 pub use store::{
     file_hash, payload_hash, seen_lines_from_body, Clipboard, EditStore, Snapshot,
