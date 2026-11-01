@@ -147,6 +147,9 @@ pub struct Supervisor {
     /// effective client id (TS `this.clients` + `protocolClientId`).
     pub(crate) client_connections:
         std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<String>>>>,
+    /// The headless (print/json/RPC) sessions registered as their daemon
+    /// children's parent, each for the life of its client connection.
+    pub(crate) headless_parents: crate::headless_parent::HeadlessParents,
     /// The supervisor's agent roster (classified entries; the roster arms
     /// live in `supervisor_roster.rs`).
     pub(crate) roster: std::sync::Mutex<crate::agent_roster::AgentRoster>,
@@ -299,6 +302,7 @@ impl Supervisor {
             session_subscribers: subscribers::SessionSubscribers::new(),
             state_tree_subscribers: subscribers::SessionSubscribers::new(),
             client_connections: std::sync::Mutex::new(std::collections::HashMap::new()),
+            headless_parents: crate::headless_parent::HeadlessParents::default(),
             roster: std::sync::Mutex::new(crate::agent_roster::AgentRoster::new()),
             last_published_roster: std::sync::Mutex::new(std::collections::HashMap::new()),
             pending_registration_seeds: std::sync::Mutex::new(Vec::new()),

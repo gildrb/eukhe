@@ -1094,13 +1094,21 @@ impl Supervisor {
             );
         };
         if *scope == Some(eukhe_types::daemon::AgentPeerScope::Roster) {
-            let peers: Vec<Value> = {
+            let mut peers: Vec<Value> = {
                 let roster = self
                     .roster
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 roster.entries().iter().map(roster_peer_summary).collect()
             };
+            // The registered headless parents: client-hosted roots their
+            // children's family reaches as the parent.
+            peers.extend(self.headless_parents.rows().iter().map(|row| {
+                let mut peer = agent_peer_summary(row);
+                peer["id"] = row["id"].clone();
+                peer["agentId"] = row["id"].clone();
+                peer
+            }));
             return (
                 vec![response_line(&response_success(
                     Some(command_id),

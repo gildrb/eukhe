@@ -32,6 +32,7 @@
 )]
 pub mod acp;
 pub mod agent_message_broadcast;
+pub(crate) mod agent_message_delivery;
 pub mod agent_message_ingest;
 pub mod agent_messaging;
 pub(crate) mod agent_roster;
@@ -47,6 +48,7 @@ pub(crate) mod create_reuse;
 pub mod descriptor;
 pub(crate) mod factory_activity;
 pub mod framing;
+pub mod headless_parent;
 pub(crate) mod herdr;
 pub mod hold_refusal;
 pub mod input_pause_lease;

@@ -10,22 +10,32 @@
 //! The supervisor starts on demand: the first host call that reaches it
 //! ensures one listens at the run's daemon socket (a background start,
 //! which never replaces a running daemon). A run that never spawns never
-//! touches a daemon.
+//! touches a daemon. A supervisor this run starts lives only as long as
+//! this process ([`SupervisorLife::Caller`]); a daemon that was already
+//! running is the user's and keeps running.
+//!
+//! On that supervisor the session registers as its children's parent
+//! ([`HeadlessParentLink`]) for the life of this process: a child's
+//! `agent_message.send(..., receiver_role="parent")` reaches the session's
+//! main conversation, and when this process ends, however it ends, the
+//! supervisor closes the children it still hosts.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use anyhow::Context as _;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::child_workspace::Handback;
 use eukhe_core::durable::children::{self as durable, RlmSubagentHost};
 use eukhe_core::durable::EukheSession;
+use eukhe_daemon::headless_parent::{HeadlessParentIdentity, HeadlessParentLink};
 use eukhe_daemon::rlm_children::{
     durable_child_identities, ParentIdentity, SupervisorChildSessions,
 };
 use eukhe_daemon::supervisor_link::SupervisorLink;
 use eukhe_types::ai::ModelThinkingLevel;
 
+use crate::interactive_mode::{Launch, SupervisorLife};
 use crate::mode::RunOptions;
 
 /// Verification seam: the scripted-engine FILE every child of a scripted
@@ -43,12 +53,21 @@ pub(crate) struct HeadlessChildren {
 /// [`SupervisorChildSessions`] behind an on-demand supervisor start.
 struct HeadlessChildHost {
     sessions: SupervisorChildSessions,
+    link: Arc<SupervisorLink>,
     socket_path: PathBuf,
     spawn_cwd: PathBuf,
+    /// The session as its children's parent registers.
+    parent: HeadlessParentIdentity,
+    /// The opened session ([`HeadlessChildren::bind`]), held weakly (the
+    /// session's own deps hold this host).
+    session: OnceLock<Weak<EukheSession>>,
     /// Set once a supervisor answered on `socket_path`; concurrent first
     /// calls share the one in-flight start, and a failed start leaves it
-    /// unset so a later call tries again.
-    supervisor: tokio::sync::OnceCell<()>,
+    /// unset so a later call tries again. It holds the session's
+    /// registration as its children's parent for the life of the host;
+    /// `None` when the supervisor refused it (an older daemon): the
+    /// children run, but cannot message the session.
+    supervisor: tokio::sync::OnceCell<Option<HeadlessParentLink>>,
 }
 
 impl HeadlessChildren {
@@ -67,8 +86,9 @@ impl HeadlessChildren {
     ) -> Self {
         let socket_path =
             crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
+        let link = Arc::new(SupervisorLink::new(socket_path.clone()));
         let sessions = SupervisorChildSessions::new(
-            Arc::new(SupervisorLink::new(socket_path.clone())),
+            Arc::clone(&link),
             options.config.agent_dir.clone(),
             session_id.to_owned(),
         );
@@ -92,8 +112,16 @@ impl HeadlessChildren {
         Self {
             host: Arc::new(HeadlessChildHost {
                 sessions,
+                link,
                 socket_path,
                 spawn_cwd: options.config.cwd.clone(),
+                parent: HeadlessParentIdentity {
+                    session_id: session_id.to_owned(),
+                    session_name: None,
+                    session_file: session_file.map(Path::to_path_buf),
+                    cwd: cwd.to_path_buf(),
+                },
+                session: OnceLock::new(),
                 supervisor: tokio::sync::OnceCell::new(),
             }),
         }
@@ -111,6 +139,9 @@ impl HeadlessChildren {
     /// the main conversation's durable children. The readers hold the
     /// session weakly (the session's own deps hold this host).
     pub(crate) fn bind(&self, session: &Arc<EukheSession>) {
+        // A second bind keeps the first session: one host belongs to one
+        // open.
+        let _first_bind_wins = self.host.session.set(Arc::downgrade(session));
         let sessions = &self.host.sessions;
         let weak = Arc::downgrade(session);
         sessions.set_parent_model_source(Arc::new(move || {
@@ -150,15 +181,20 @@ impl HeadlessChildren {
 
 impl HeadlessChildHost {
     /// The child sessions, once a supervisor listens on the run's socket
-    /// (started here when none does).
+    /// (started here, tied to this process, when none does) and the
+    /// session registered as their parent.
     #[tracing::instrument(level = "debug", skip_all, fields(socket = %self.socket_path.display()))]
     async fn supervised(&self) -> anyhow::Result<&SupervisorChildSessions> {
         self.supervisor
             .get_or_try_init(|| async {
-                let ready = crate::interactive_mode::ensure_daemon_running(
+                let exe = std::env::current_exe().context("resolve the eukhe executable")?;
+                let (ready, launch) = crate::interactive_mode::ensure_daemon(
+                    &exe,
+                    eukhe_tui::daemon_build::Build::THIS,
                     &self.socket_path,
                     &self.spawn_cwd,
                     eukhe_tui::daemon_build::Caller::Background,
+                    SupervisorLife::Caller,
                 )
                 .await
                 .with_context(|| {
@@ -170,7 +206,28 @@ impl HeadlessChildHost {
                 if let Some(notice) = ready.notice() {
                     tracing::warn!("{notice}");
                 }
-                anyhow::Ok(())
+                match launch {
+                    Launch::Started { pid } => tracing::debug!(
+                        pid,
+                        "started the subagent supervisor; it stops when this process exits"
+                    ),
+                    Launch::Found => {}
+                }
+                let session = self.session.get().cloned().unwrap_or_default();
+                anyhow::Ok(
+                    match HeadlessParentLink::register(&self.link, self.parent.clone(), session)
+                        .await
+                    {
+                        Ok(parent) => Some(parent),
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                "this session's subagents cannot message it, and outlive a crash of this run"
+                            );
+                            None
+                        }
+                    },
+                )
             })
             .await?;
         Ok(&self.sessions)

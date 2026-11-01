@@ -577,6 +577,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "relay_shell_approval",
         r#"{"type": "relay_shell_approval", "activeSessionId": "sess", "request": {"requestId": "r1", "step": 0, "command": "touch a", "effects": ["write"]}, "agent": "scout"}"#,
     ),
+    (
+        "register_headless_parent",
+        r#"{"type": "register_headless_parent", "sessionId": "s1", "sessionName": "lead", "cwd": "/repo"}"#,
+    ),
+    (
+        "headless_parent_receipt",
+        r#"{"type": "headless_parent_receipt", "deliveryId": "d1", "receipt": {"id": "m1"}}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -620,6 +628,8 @@ fn known_command_types_match_the_ts_list() {
                     | "get_worker_liveness"
                     | "cvar"
                     | "cvar_save"
+                    | "register_headless_parent"
+                    | "headless_parent_receipt"
             ),
             "unexpected non-TS command type: {extra}"
         );

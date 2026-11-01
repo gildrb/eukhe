@@ -119,6 +119,8 @@ impl Supervisor {
         // held free, and its waits end (a closed worker connection — a
         // finished request or a dead worker — gives its slots back).
         self.provider_admission.close_connection(&connection_id);
+        // The headless parents this connection registered left with it.
+        self.headless_connection_closed(&connection_id).await;
         let owner = effective_client_id.lock().unwrap().clone();
         self.schedule_owned_worker_cleanup_for_client(&owner).await;
         served
@@ -675,6 +677,27 @@ impl Supervisor {
     ) -> (Vec<Value>, bool) {
         match command {
             DaemonCommand::AckResult { .. } => (Vec::new(), false),
+            DaemonCommand::RegisterHeadlessParent { .. } => {
+                let response = self
+                    .handle_register_headless_parent(
+                        command,
+                        connection_id,
+                        stream,
+                        &command_id,
+                        &type_name,
+                    )
+                    .await;
+                (vec![response_line(&response)], false)
+            }
+            DaemonCommand::HeadlessParentReceipt { .. } => {
+                let response = self.handle_headless_parent_receipt(
+                    command,
+                    connection_id,
+                    &command_id,
+                    &type_name,
+                );
+                (vec![response_line(&response)], false)
+            }
             DaemonCommand::Restart { .. } | DaemonCommand::Shutdown { .. } => {
                 // `ifIdle`: the supervisor decides, atomically with the
                 // stop, that no session holds work; a busy daemon refuses

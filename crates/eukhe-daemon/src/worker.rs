@@ -209,42 +209,6 @@ pub struct Worker {
     title_started: std::sync::atomic::AtomicBool,
 }
 
-/// Whether a delivery's sender is one of THIS session's children, by the
-/// sender's recorded durable parent edge: the persisted session id first,
-/// then the live active id, then the session-storage alias.
-fn sender_is_child_of(sender: &Value, core: &SessionCore) -> bool {
-    sender_parent_edge_is(
-        sender,
-        (!core.session_id.is_empty()).then_some(core.session_id.as_str()),
-        &core.active_session_id,
-        core.session_dir.as_deref(),
-    )
-}
-
-/// The edge test behind [`sender_is_child_of`], pure over the recipient's
-/// durable identity: the sender block's parent edge (persisted id, live
-/// id, or session path) must point back at this session.
-fn sender_parent_edge_is(
-    sender: &Value,
-    own_session_id: Option<&str>,
-    own_active_session_id: &str,
-    own_session_file: Option<&std::path::Path>,
-) -> bool {
-    let text = |key: &str| sender.get(key).and_then(Value::as_str);
-    if let (Some(parent), Some(own)) = (text("parentSessionId"), own_session_id) {
-        if parent == own {
-            return true;
-        }
-    }
-    if text("parentActiveSessionId") == Some(own_active_session_id) {
-        return true;
-    }
-    match (text("parentSessionPath"), own_session_file) {
-        (Some(parent), Some(own)) => std::path::Path::new(parent) == own,
-        _ => false,
-    }
-}
-
 impl Worker {
     /// Build the worker: the session core, the event pump, and the
     /// feature managers. The session itself opens at `create`.

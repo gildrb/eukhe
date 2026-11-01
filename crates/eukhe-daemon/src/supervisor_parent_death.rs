@@ -56,13 +56,44 @@ impl Supervisor {
         self: &Arc<Self>,
         parent: &Arc<ResidentWorker>,
     ) {
-        let children = self.resident_children_of(parent).await;
+        let parent_id = {
+            let descriptor = parent.descriptor.lock().await;
+            descriptor.root_active_session_id.clone()
+        };
+        let mut children = self.resident_children_of(&parent_id).await;
+        // The dead parent itself never matches.
+        children.retain(|child| child.worker_id != parent.worker_id);
+        self.close_orphaned_children(
+            &format!("session worker {} died", parent.worker_id),
+            children,
+        )
+        .await;
+    }
+
+    /// Close the resident RLM children of the headless parent session
+    /// `parent_id` whose registration ended
+    /// ([`crate::headless_parent`]): its connection closed, so the client
+    /// process that hosted it exited, normally, on an error or killed.
+    /// The same close as a dead parent worker's: the parent is gone and
+    /// nothing will collect the children.
+    pub(crate) async fn close_children_of_headless_parent(self: &Arc<Self>, parent_id: &str) {
+        let children = self.resident_children_of(parent_id).await;
+        self.close_orphaned_children(&format!("headless parent {parent_id} left"), children)
+            .await;
+    }
+
+    /// Close `children`, whose parent is gone (`why` says how, for the
+    /// log); the ones not closable yet go to the bounded retry walk.
+    async fn close_orphaned_children(
+        self: &Arc<Self>,
+        why: &str,
+        children: Vec<Arc<ResidentWorker>>,
+    ) {
         if children.is_empty() {
             return;
         }
         self.log_line(&format!(
-            "session worker {} died with {} resident RLM child(ren); closing them with the parent",
-            parent.worker_id,
+            "{why} with {} resident RLM child(ren); closing them with the parent",
             children.len()
         ));
         let mut unclosed: Vec<Arc<ResidentWorker>> = Vec::new();
@@ -175,26 +206,18 @@ impl Supervisor {
         }
     }
 
-    /// The resident workers whose durable create names the dead worker as
+    /// The resident workers whose durable create names `parent_id` as
     /// their RLM parent. The join is the runtime metadata's
     /// `parentActiveSessionId` alone (TS
     /// `getChildActiveSessionStates`): a depth-0 `rlm.create_session`
     /// root carries no parent link and never matches, and a resumed or
     /// forked copy of the parent's session file under another worker
-    /// must never adopt another worker's children. The dead parent
-    /// itself never matches.
-    async fn resident_children_of(&self, parent: &Arc<ResidentWorker>) -> Vec<Arc<ResidentWorker>> {
-        let parent_id = {
-            let descriptor = parent.descriptor.lock().await;
-            descriptor.root_active_session_id.clone()
-        };
+    /// must never adopt another worker's children.
+    async fn resident_children_of(&self, parent_id: &str) -> Vec<Arc<ResidentWorker>> {
         let mut children = Vec::new();
         for resident in self.registry.list().await {
-            if resident.worker_id == parent.worker_id {
-                continue;
-            }
             let descriptor = resident.descriptor.lock().await;
-            if child_names_parent(&descriptor, &parent_id) {
+            if child_names_parent(&descriptor, parent_id) {
                 drop(descriptor);
                 children.push(resident);
             }

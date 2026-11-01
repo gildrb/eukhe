@@ -1522,6 +1522,42 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native client command: a headless (print/json/RPC) session
+    /// that hosts subagents on this supervisor joins the roster as their
+    /// parent, for the life of the connection that sent it. The session
+    /// runs in the client process, so its live session id is its
+    /// `session_id`. The supervisor routes every message to it over that
+    /// connection (`headless_parent_delivery` frames, answered with
+    /// [`DaemonCommand::HeadlessParentReceipt`]); the connection's close
+    /// unregisters it and stops its resident children.
+    RegisterHeadlessParent {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_name: Option<String>,
+        /// The session's storage; absent for a memory session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_file: Option<String>,
+        cwd: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native client command: a registered headless parent's answer
+    /// to the `headless_parent_delivery` frame `delivery_id`: the
+    /// delivery receipt (the shape `worker_deliver_message` answers), or
+    /// the error that refused the message.
+    HeadlessParentReceipt {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        delivery_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -74,6 +74,35 @@ impl DaemonReady {
     }
 }
 
+/// How a supervisor that [`ensure_daemon`] starts relates to the caller's
+/// life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SupervisorLife {
+    /// It outlives the caller (the shared daemon every client starts).
+    Detached,
+    /// It drains and exits when this process exits, however it ends (a
+    /// crash or a kill included): its stdin is a pipe whose only write end
+    /// this process holds ([`OWNED_SUPERVISORS`],
+    /// [`crate::daemon_mode::DAEMON_OWNER_STDIN_ENV`]).
+    Caller,
+}
+
+/// Who started the supervisor [`ensure_daemon`] left on the socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Launch {
+    /// It was there already, or another launcher's won the socket: this
+    /// process never stops it.
+    Found,
+    /// This call started it (process `pid`).
+    Started { pid: u32 },
+}
+
+/// The supervisors this process started with [`SupervisorLife::Caller`],
+/// held for the life of the process: each handle keeps its supervisor's
+/// stdin pipe open, and the process's exit closes them all.
+static OWNED_SUPERVISORS: std::sync::LazyLock<std::sync::Mutex<Vec<std::process::Child>>> =
+    std::sync::LazyLock::new(std::sync::Mutex::default);
+
 /// Whether a daemon's protocol version and schema match this build's.
 #[derive(Clone, Copy)]
 enum Protocol {
@@ -138,9 +167,34 @@ pub async fn ensure_daemon_running(
     ensure_daemon_running_with(&exe, Build::THIS, socket_path, spawn_cwd, caller).await
 }
 
-/// [`ensure_daemon_running`] with an explicit supervisor executable and
-/// client build (the product path uses this process's own binary and
-/// build, TS parity). The daemon on the socket is replaced only when
+/// [`ensure_daemon`] for a supervisor that outlives the caller (the TS
+/// `ensureDaemonRunning` the integration tests drive).
+///
+/// # Errors
+///
+/// See [`ensure_daemon`].
+pub async fn ensure_daemon_running_with(
+    exe: &Path,
+    client: Build<'_>,
+    socket_path: &Path,
+    spawn_cwd: &Path,
+    caller: Caller,
+) -> Result<DaemonReady> {
+    ensure_daemon(
+        exe,
+        client,
+        socket_path,
+        spawn_cwd,
+        caller,
+        SupervisorLife::Detached,
+    )
+    .await
+    .map(|(ready, _launch)| ready)
+}
+
+/// Ensure a daemon is listening on `socket_path`, spawning `exe` as the
+/// supervisor (living as `life` says) when none is; also reports whether
+/// this call started it. The daemon on the socket is replaced only when
 /// [`replacement_verdict`] says so (an interactive start of a newer build)
 /// and only when the daemon is idle ([`stop_daemon_if_idle`]); every other
 /// daemon of a compatible protocol is kept with a notice. A client older
@@ -154,13 +208,14 @@ pub async fn ensure_daemon_running(
 /// client, started by a background client, or busy), when a foreign holder
 /// of the socket cannot or may not be stopped, when the supervisor process
 /// cannot be spawned, or when no daemon starts before the startup timeout.
-pub async fn ensure_daemon_running_with(
+pub(crate) async fn ensure_daemon(
     exe: &Path,
     client: Build<'_>,
     socket_path: &Path,
     spawn_cwd: &Path,
     caller: Caller,
-) -> Result<DaemonReady> {
+    life: SupervisorLife,
+) -> Result<(DaemonReady, Launch)> {
     let incompatible = |why: &str| {
         anyhow!(
             "An incompatible Eukhe daemon is running on {} ({why}).\n\nRun:\n  {}\n\nThen retry the original command.",
@@ -197,7 +252,7 @@ pub async fn ensure_daemon_running_with(
             };
             if let Some(outcome) = kept {
                 daemon_client.close();
-                return outcome;
+                return outcome.map(|ready| (ready, Launch::Found));
             }
             match (
                 stop_daemon_if_idle(&daemon_client, socket_path).await?,
@@ -205,7 +260,7 @@ pub async fn ensure_daemon_running_with(
             ) {
                 (IdleStop::Stopped, Protocol::Compatible | Protocol::Incompatible) => {}
                 (IdleStop::Busy, Protocol::Compatible) => {
-                    return Ok(DaemonReady::using(client, daemon));
+                    return Ok((DaemonReady::using(client, daemon), Launch::Found));
                 }
                 (IdleStop::Busy, Protocol::Incompatible) => {
                     return Err(incompatible("the running daemon has active work"));
@@ -213,7 +268,7 @@ pub async fn ensure_daemon_running_with(
             }
         }
     }
-    spawn_supervisor_detached(socket_path, spawn_cwd, exe)?;
+    let supervisor = spawn_supervisor(socket_path, spawn_cwd, exe, life)?;
     let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
     loop {
         match probe_daemon(socket_path).await {
@@ -222,10 +277,30 @@ pub async fn ensure_daemon_running_with(
                 protocol: Protocol::Compatible,
             } => {
                 // A concurrent launcher of another build may have won the
-                // socket: it serves, so use it (the notice names it).
+                // socket: it serves, so use it (the notice names it). Only
+                // the supervisor this call spawned is the caller's own.
                 let ready = DaemonReady::using(client, daemon_client.daemon_build());
+                let pid = supervisor.id();
+                let ours = daemon_client
+                    .hello()
+                    .get("supervisorPid")
+                    .and_then(serde_json::Value::as_u64)
+                    == Some(u64::from(pid));
                 daemon_client.close();
-                return Ok(ready);
+                let launch = match (life, ours) {
+                    (SupervisorLife::Caller, true) => {
+                        OWNED_SUPERVISORS
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .push(supervisor);
+                        Launch::Started { pid }
+                    }
+                    (SupervisorLife::Detached, true) => Launch::Started { pid },
+                    // The spawned process lost the socket and exits on its
+                    // own (its owner pipe, if any, closes with the handle).
+                    (SupervisorLife::Caller | SupervisorLife::Detached, false) => Launch::Found,
+                };
+                return Ok((ready, launch));
             }
             DaemonProbe::Answered {
                 client: daemon_client,
@@ -379,15 +454,24 @@ async fn wait_for_socket_gone(socket_path: &Path) -> bool {
     false
 }
 
-/// Spawn a detached supervisor on `socket_path` (TS spawns its own entrypoint
-/// with `--mode daemon --daemon-socket`; the child outlives this CLI).
-fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -> Result<()> {
+/// Spawn a supervisor on `socket_path` in its own session (TS spawns its
+/// own entrypoint with `--mode daemon --daemon-socket`). A
+/// [`SupervisorLife::Detached`] one outlives this CLI; a
+/// [`SupervisorLife::Caller`] one gets a stdin pipe whose write end only
+/// the returned handle holds (std pipes are close-on-exec, so no other
+/// child of this process inherits it): the supervisor drains when it
+/// closes.
+fn spawn_supervisor(
+    socket_path: &Path,
+    spawn_cwd: &Path,
+    exe: &Path,
+    life: SupervisorLife,
+) -> Result<std::process::Child> {
     let mut command = Command::new(exe);
     command
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(socket_path)
         .current_dir(spawn_cwd)
-        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         // Strip inherited worker/supervisor role env vars so the spawned
@@ -407,6 +491,14 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
         // lease this daemon's workers write -- TS `daemon-launch.ts`
         // deletes the same var before spawning the supervisor.
         .env_remove(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);
+    match life {
+        SupervisorLife::Detached => command
+            .stdin(Stdio::null())
+            .env_remove(crate::daemon_mode::DAEMON_OWNER_STDIN_ENV),
+        SupervisorLife::Caller => command
+            .stdin(Stdio::piped())
+            .env(crate::daemon_mode::DAEMON_OWNER_STDIN_ENV, "1"),
+    };
     // A daemon must not share the launching TUI's terminal session: a
     // session-wide terminal cleanup could hang it up after the TUI exits.
     // setsid (run by the child at startup) also creates its own process
@@ -414,6 +506,5 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
     eukhe_core::platform::process::request_new_session(&mut command);
     command
         .spawn()
-        .with_context(|| format!("spawn the Eukhe daemon on {}", socket_path.display()))?;
-    Ok(())
+        .with_context(|| format!("spawn the Eukhe daemon on {}", socket_path.display()))
 }

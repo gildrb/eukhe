@@ -7,10 +7,6 @@
 use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_core::agent_messaging::{
-    AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
-    DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
-};
 use eukhe_core::durable::input_entry;
 use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
@@ -20,7 +16,8 @@ use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBloc
 use serde_json::{json, Value};
 
 use super::durable_host::suspended::WithdrawnInput;
-use super::{sender_is_child_of, HostedSession, RunAdmission, Worker};
+use super::{HostedSession, RunAdmission, Worker};
+use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRun};
 use crate::compaction::durable::ManualCompactionError;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
@@ -494,148 +491,72 @@ impl Worker {
     }
 
     /// Agent-to-agent message delivery, routed by the supervisor's
-    /// `send_message` arm: the `[agent-message from ...]` prompt is admitted
-    /// as input on the requested lane, preceded by the `agent_message`
-    /// display row (the collapsed card). Answers with the delivery receipt:
-    /// `queued` while a run is busy, else `delivered`.
+    /// `send_message` arm: the shared delivery
+    /// ([`AgentMessageDelivery`]) behind this worker's pause gate and
+    /// input-pause lease. Answers with the delivery receipt: `queued`
+    /// while a run is busy, else `delivered`.
     pub(crate) async fn handle_worker_deliver_message(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "worker_deliver_message";
         let hosted = match self.hosted(COMMAND) {
             Ok(hosted) => hosted,
             Err(response) => return response,
         };
-        let message = payload
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if let Err(error) = eukhe_core::agent_messaging::normalize_agent_session_message(message) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
+        let message = match AgentMessageDelivery::validated_message(payload) {
+            Ok(message) => message,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
+        };
         if let Err(response) = self.refuse_delivery_if_paused() {
             return response;
         }
-        let sender = payload.get("sender").cloned().unwrap_or(Value::Null);
-        // Sender label precedence: session name, session id, active session
-        // id, client id.
-        let sender_name = ["sessionName", "sessionId", "activeSessionId", "clientId"]
-            .iter()
-            .find_map(|key| sender.get(*key).and_then(Value::as_str))
-            .unwrap_or("unknown")
-            .to_string();
-        let (from_relationship, pending, queued, summary) = {
+        let prepared = {
             let core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (
-                sender_is_child_of(&sender, &core).then_some(AgentFamilyRelationship::Child),
-                core.view.as_ref().map_or(0, |view| view.inbox.len()),
-                core.is_busy(),
-                self.summary_locked(&core),
-            )
-        };
-        if let Err(error) = eukhe_core::agent_messaging::assert_agent_message_queue_capacity(
-            pending,
-            DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
-        ) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
-        // A child's message to this parent is its reply: its settle owes no
-        // no-reply notice (and so no extra parent turn restating it). The
-        // mark commits on the child's durable row before the receipt
-        // answers, so the child's own settle can never overtake it.
-        if from_relationship == Some(AgentFamilyRelationship::Child) {
-            let sender_ids = ["activeSessionId", "sessionId"]
-                .iter()
-                .filter_map(|key| sender.get(*key).and_then(Value::as_str))
-                .map(str::to_string)
-                .collect();
-            let marked = async {
-                let main = hosted.main()?;
-                eukhe_core::durable::children::mark_child_replied(
-                    hosted.harness(),
-                    main.id(),
-                    sender_ids,
-                )
-                .await
-            }
-            .await;
-            if let Err(error) = marked {
-                eprintln!("eukhe-daemon worker: recording the child's reply failed: {error:#}");
-            }
-        }
-        let report =
-            eukhe_core::agent_messaging::agent_session_message_report(&AgentMessagePromptPayload {
-                message: message.to_string(),
-                sender_name,
-                from_relationship,
+            let summary = self.summary_locked(&core);
+            let mut target = json!({
+                "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
+                "sessionId": summary.session_id,
+                "runtimeKind": summary
+                    .runtime_kind
+                    .clone()
+                    .unwrap_or_else(|| "top-level".to_string()),
             });
-        let prompt = report.render(message);
-        let id = eukhe_core::agent_messaging::create_agent_session_message_id();
-        let mut target = json!({
-            "activeSessionId": summary.active_session_id.clone().unwrap_or_default(),
-            "sessionId": summary.session_id,
-            "runtimeKind": summary
-                .runtime_kind
-                .clone()
-                .unwrap_or_else(|| "top-level".to_string()),
-        });
-        if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
-            target["sessionName"] = json!(name);
-        }
-        let row = eukhe_core::agent_messaging::create_agent_session_message_row(
-            &eukhe_core::agent_messaging::AgentSessionMessageRowPayload {
-                id: &id,
-                prompt: &prompt,
-                message,
-                from: &sender,
-                from_relationship,
-                target: Some(&target),
-                timestamp: crate::util::now_ms(),
-            },
-        );
-        let follow_up = payload.get("deliveryMode").and_then(Value::as_str) == Some("follow_up");
-        let request = InputRequest {
-            text: prompt,
-            images: Vec::new(),
-            custom_row: Some(row),
-            when_busy: if follow_up {
-                WhenBusy::FollowUp
+            if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
+                target["sessionName"] = json!(name);
+            }
+            let recipient = Recipient {
+                session_id: (!core.session_id.is_empty()).then_some(core.session_id.as_str()),
+                active_session_id: &core.active_session_id,
+                session_file: core.session_dir.as_deref(),
+            };
+            let pending = core.view.as_ref().map_or(0, |view| view.inbox.len());
+            let run = if core.is_busy() {
+                RecipientRun::Busy
             } else {
-                WhenBusy::Steer
-            },
-            request_id: Some(format!("agent-message:{id}")),
-            origin: InputOrigin::Report { report },
+                RecipientRun::Idle
+            };
+            AgentMessageDelivery::prepare(payload, message, &recipient, pending, target)
+                .map(|delivery| (delivery, run))
         };
+        let (delivery, run) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => return response_failure(None, COMMAND, &error, None),
+        };
+        delivery
+            .record_child_reply(hosted.harness(), || Ok(hosted.main()?))
+            .await;
         // A live input-pause lease holds the delivery's input like any
         // admission; the card row above already committed, and the
         // release delivers the prompt.
         if self.input_pauses.paused() {
             return self
-                .hold_input(&hosted, &request, COMMAND, false, false)
+                .hold_input(&hosted, &delivery.request, COMMAND, false, false)
                 .await;
         }
-        if let Err(error) = self.admit_input(&hosted, &request).await {
+        if let Err(error) = self.admit_input(&hosted, &delivery.request).await {
             return response_failure(None, COMMAND, &error, None);
         }
-        let timestamp = crate::util::now_iso();
-        let mut receipt = json!({
-            "id": id,
-            "source": AGENT_MESSAGE_SOURCE,
-            "target": target,
-            "message": message,
-            "deliveryMode": if follow_up { "follow_up" } else { "steer" },
-        });
-        if queued {
-            receipt["deliveryStatus"] = json!("queued");
-            receipt["queuedAt"] = json!(timestamp);
-        } else {
-            receipt["deliveryStatus"] = json!("delivered");
-            receipt["deliveredAt"] = json!(timestamp);
-        }
-        if !sender.is_null() {
-            receipt["from"] = json!(sender);
-        }
-        response_success(None, COMMAND, Some(receipt))
+        response_success(None, COMMAND, Some(delivery.receipt(run)))
     }
 }

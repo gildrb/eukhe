@@ -71,24 +71,7 @@ impl LinkClient {
         deadline: Option<tokio::time::Instant>,
         on_frame: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<DaemonResponse> {
-        let id = format!("link-{}", self.next_id);
-        self.next_id += 1;
-        let envelope = json!({
-            "type": "command",
-            "id": id,
-            "protocol": current_protocol_info(),
-            "command": command,
-        });
-        let mut line = serde_json::to_string(&envelope).context("serialize link command")?;
-        line.push('\n');
-        self.writer
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|error| anyhow::Error::new(LinkWriteFailed).context(error))?;
-        self.writer
-            .flush()
-            .await
-            .map_err(|error| anyhow::Error::new(LinkWriteFailed).context(error))?;
+        let id = self.write(command).await?;
         loop {
             let mut line = String::new();
             let read = match deadline {
@@ -115,12 +98,36 @@ impl LinkClient {
             on_frame(&value);
         }
     }
+
+    /// Write one command envelope; returns its id. A write failure is
+    /// tagged [`LinkWriteFailed`] (the command was not sent).
+    async fn write(&mut self, command: Value) -> Result<String> {
+        let id = format!("link-{}", self.next_id);
+        self.next_id += 1;
+        let envelope = json!({
+            "type": "command",
+            "id": id,
+            "protocol": current_protocol_info(),
+            "command": command,
+        });
+        let mut line = serde_json::to_string(&envelope).context("serialize link command")?;
+        line.push('\n');
+        self.writer
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|error| anyhow::Error::new(LinkWriteFailed).context(error))?;
+        self.writer
+            .flush()
+            .await
+            .map_err(|error| anyhow::Error::new(LinkWriteFailed).context(error))?;
+        Ok(id)
+    }
 }
 
 /// A supervisor connection kept open after its response: the supervisor
-/// holds what the request acquired (a provider admission slot) until the
-/// connection closes, so dropping this — or the worker process dying —
-/// releases it.
+/// holds what the request acquired (a provider admission slot, a headless
+/// parent registration) until the connection closes, so dropping this —
+/// or the process dying — releases it.
 pub(crate) struct HeldLink {
     client: LinkClient,
 }
@@ -135,6 +142,23 @@ impl HeldLink {
     /// line that is not JSON.
     #[tracing::instrument(level = "debug", skip(self))]
     pub(crate) async fn until_frame(&mut self, frame_type: &str) -> Result<()> {
+        while let Some(frame) = self.next_frame().await? {
+            if frame.get("type").and_then(Value::as_str) == Some(frame_type) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    /// The next frame the supervisor sends on this connection; `None` once
+    /// it closes the connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the connection cannot be read or carries a
+    /// line that is not JSON.
+    #[tracing::instrument(level = "trace", skip(self))]
+    pub(crate) async fn next_frame(&mut self) -> Result<Option<Value>> {
         let mut line = String::new();
         loop {
             line.clear();
@@ -145,17 +169,26 @@ impl HeldLink {
                 .await
                 .context("read the held supervisor connection")?;
             if read == 0 {
-                return Ok(());
+                return Ok(None);
             }
             if line.trim().is_empty() {
                 continue;
             }
-            let frame: Value = serde_json::from_str(line.trim())
-                .with_context(|| format!("invalid held link frame: {line}"))?;
-            if frame.get("type").and_then(Value::as_str) == Some(frame_type) {
-                return Ok(());
-            }
+            return serde_json::from_str(line.trim())
+                .map(Some)
+                .with_context(|| format!("invalid held link frame: {line}"));
         }
+    }
+
+    /// Send one more command on this connection without waiting for its
+    /// answer: the answer arrives as a later frame ([`Self::next_frame`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the command cannot be written.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) async fn send(&mut self, command: Value) -> Result<()> {
+        self.client.write(command).await.map(drop)
     }
 }
 

@@ -159,6 +159,8 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::RetryWorker { .. } => "retry_worker",
         DaemonCommand::Restart { .. } => "restart",
         DaemonCommand::Shutdown { .. } => "shutdown",
+        DaemonCommand::RegisterHeadlessParent { .. } => "register_headless_parent",
+        DaemonCommand::HeadlessParentReceipt { .. } => "headless_parent_receipt",
         DaemonCommand::WorkerRegister { .. } => "worker_register",
         DaemonCommand::WorkflowCancel { .. } => "workflow_cancel",
     }

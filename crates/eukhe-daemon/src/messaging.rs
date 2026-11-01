@@ -18,6 +18,7 @@ use eukhe_types::daemon::{DaemonCommand, DaemonWorkerCommand};
 use serde_json::{json, Map, Value};
 
 use crate::backpressure::RouteAdmission;
+use crate::headless_parent::HeadlessTarget;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::registry::ResidentWorker;
 use crate::supervisor::Supervisor;
@@ -29,10 +30,19 @@ use crate::supervisor::Supervisor;
 /// for the 24 h turn budget of `routing::WORKER_REQUEST_TIMEOUT_MS`.
 const MESSAGE_ROUTE_TIMEOUT_MS: u64 = 30_000;
 
+/// Where one `send_message` delivers.
+enum Route {
+    /// A session worker (resident, or woken from its saved session).
+    Worker(Arc<ResidentWorker>),
+    /// A registered headless parent, over its client connection.
+    Headless(HeadlessTarget),
+}
+
 impl Supervisor {
-    /// `send_message`: route to the target worker as `worker_deliver_message`.
-    /// An unknown target is not final: the supervisor wakes the saved session
-    /// the selector names (catalog resolve + worker reuse) before giving up
+    /// `send_message`: route to the target worker as `worker_deliver_message`,
+    /// or to the registered headless parent the target names. An unknown
+    /// target is not final: the supervisor wakes the saved session the
+    /// selector names (catalog resolve + worker reuse) before giving up
     /// with the TS unknown-session error.
     pub(crate) async fn handle_send_message(
         self: &Arc<Self>,
@@ -63,50 +73,56 @@ impl Supervisor {
         // The source summary, once read (the wake reads it for its scope;
         // the sender endpoint reuses it).
         let mut source_summary: Option<Value> = None;
-        let target = match self.registry.resolve(target_active_session_id).await {
-            Ok(resident) => resident,
-            Err(error) => {
-                // The wake scope needs the source summary (its cwd filters
-                // the catalog's local pass, TS `source?.summary.cwd`); a
-                // wake is the only path that reads it before the
-                // self-target guard, and a woken target is never the
-                // source, so the guard's error precedence is unchanged.
-                let wake_source = match &source {
-                    Some(source) => match self.source_worker_summary(source).await {
-                        Ok(summary) => Some((Arc::clone(source), summary)),
-                        Err(error) => return fail(format!("{error:#}")),
-                    },
-                    None => None,
-                };
-                let woken_summary = wake_source.as_ref().map(|(_, summary)| summary.clone());
-                match self
-                    .wake_saved_target(
-                        &error,
-                        target_active_session_id,
-                        wake_source
-                            .as_ref()
-                            .map(|(resident, summary)| (resident, summary)),
-                    )
-                    .await
-                {
-                    WakeOutcome::Woken(resident) => {
-                        source_summary = woken_summary;
-                        resident
+        // A registered headless parent first: it runs in its client, and
+        // a wake must never launch a worker over its leased storage.
+        let target = if let Some(parent) = self.headless_parents.target(target_active_session_id) {
+            Route::Headless(parent)
+        } else {
+            match self.registry.resolve(target_active_session_id).await {
+                Ok(resident) => Route::Worker(resident),
+                Err(error) => {
+                    // The wake scope needs the source summary (its cwd
+                    // filters the catalog's local pass, TS
+                    // `source?.summary.cwd`); a wake is the only path that
+                    // reads it before the self-target guard, and a woken
+                    // target is never the source, so the guard's error
+                    // precedence is unchanged.
+                    let wake_source = match &source {
+                        Some(source) => match self.source_worker_summary(source).await {
+                            Ok(summary) => Some((Arc::clone(source), summary)),
+                            Err(error) => return fail(format!("{error:#}")),
+                        },
+                        None => None,
+                    };
+                    let woken_summary = wake_source.as_ref().map(|(_, summary)| summary.clone());
+                    match self
+                        .wake_saved_target(
+                            &error,
+                            target_active_session_id,
+                            wake_source
+                                .as_ref()
+                                .map(|(resident, summary)| (resident, summary)),
+                        )
+                        .await
+                    {
+                        WakeOutcome::Woken(resident) => {
+                            source_summary = woken_summary;
+                            Route::Worker(resident)
+                        }
+                        WakeOutcome::Unknown => {
+                            return fail(format!(
+                                "Unknown active session: {target_active_session_id}"
+                            ))
+                        }
+                        WakeOutcome::Failed(error) => return fail(error),
                     }
-                    WakeOutcome::Unknown => {
-                        return fail(format!(
-                            "Unknown active session: {target_active_session_id}"
-                        ))
-                    }
-                    WakeOutcome::Failed(error) => return fail(error),
                 }
             }
         };
-        if source
-            .as_ref()
-            .is_some_and(|source| Arc::ptr_eq(source, &target))
-        {
-            return fail("Agent messaging cannot target the sending session".to_string());
+        if let (Some(source), Route::Worker(target)) = (&source, &target) {
+            if Arc::ptr_eq(source, target) {
+                return fail("Agent messaging cannot target the sending session".to_string());
+            }
         }
         let sender = match &source {
             Some(source) => {
@@ -128,7 +144,10 @@ impl Supervisor {
         };
         let delivery = DaemonWorkerCommand::WorkerDeliverMessage {
             id: None,
-            target_active_session_id: target.worker_id.clone(),
+            target_active_session_id: match &target {
+                Route::Worker(resident) => resident.worker_id.clone(),
+                Route::Headless(parent) => parent.session_id.clone(),
+            },
             message: message.clone(),
             sender,
             delivery_mode: delivery_mode.clone(),
@@ -137,6 +156,24 @@ impl Supervisor {
         let payload = match serde_json::to_value(&delivery) {
             Ok(payload) => payload,
             Err(error) => return fail(format!("invalid delivery command: {error}")),
+        };
+        let target = match target {
+            Route::Worker(target) => target,
+            Route::Headless(parent) => {
+                return match self
+                    .deliver_to_headless_parent(
+                        &parent,
+                        payload,
+                        std::time::Duration::from_millis(MESSAGE_ROUTE_TIMEOUT_MS),
+                    )
+                    .await
+                {
+                    Ok(receipt) => {
+                        response_success(Some(command_id), "send_message", Some(receipt))
+                    }
+                    Err(error) => fail(error),
+                };
+            }
         };
         let response = self
             .route_command_typed(
@@ -257,6 +294,13 @@ impl Supervisor {
             Err(error) => return WakeOutcome::Failed(error.to_string()),
         };
         let session_path = info.path.to_string_lossy().to_string();
+        // A registered headless parent's storage is leased by its client
+        // process: it is reached over its registration, never woken.
+        if self.headless_parents.hosts_file(&info.path) {
+            return WakeOutcome::Failed(format!(
+                "Session {selector} runs in a headless client, not in this daemon"
+            ));
+        }
         // Reuse before spawning (TS `createOrReuseWorker`): a resident
         // worker already hosting the file serves the wake.
         if let Some(resident) = self.registry.find_by_session_file(&session_path).await {
