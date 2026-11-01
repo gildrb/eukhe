@@ -145,6 +145,12 @@ unnecessary_literal_bound = "warn"
 unnecessary_semicolon = "warn"
 used_underscore_binding = "warn"
 
+# Dev and test builds keep file:line in backtraces and drop the rest of the
+# debug info (variables, types): smaller objects, faster links. A debugger
+# session that needs locals: CARGO_PROFILE_DEV_DEBUG=full.
+[profile.dev]
+debug = "line-tables-only"
+
 # Shipping posture, pinned (Kevin, Option C): thin LTO plus 4 codegen
 # units for cross-crate inlining in the hot render path. Builds emit line
 # tables and do NOT strip at link: the release pipeline's split_debug step

@@ -8,13 +8,18 @@ check:
 	cargo build --release --workspace --locked
 
 # The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
-# here. ci-fast is the pre-commit gate: rustfmt, the secrets scan of the
-# staged diff (when gitleaks is installed), clippy on the crates the staged
-# change touches (scripts/ci_pr_crates.py). The pre-push gate checks the
-# pushed commits: rustfmt, their secrets scan, clippy and tests on the
-# crates they touch, `bend PROOF.bend`. ci-local is the full gate; the
-# nightly run (scripts/ci_nightly.sh, a systemd user timer) runs it on
-# origin/main and starts the release only when it passes.
+# here. ci-fast is the pre-commit gate (< 1 min): rustfmt, the secrets scan
+# of the staged diff (when gitleaks is installed), clippy on the crates the
+# staged change touches (scripts/ci_pr_crates.py). The pre-push gate
+# (< 5 min) checks the pushed commits: rustfmt, their secrets scan, clippy
+# and the unit tests (nextest profile pre-push, .config/nextest.toml: no
+# e2e suite) of the crates they touch, the proofs their Bend change can
+# reach (scripts/bend_proofs.py), the laws against LAWS.lock. ci-local is
+# the full gate (< 30 min): every test (nextest profile nightly) and `bend
+# PROOF.bend --verdict`; the nightly run (scripts/ci_nightly.sh, a systemd
+# user timer) runs it on origin/main and starts the release only when it
+# passes. lock re-locks the laws in seconds: the proofs the change since
+# origin/main can reach, then LAWS.lock. Tools: mise.toml.
 # `make hooks` makes git run the hooks through prek (.pre-commit-config.yaml;
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
@@ -23,6 +28,9 @@ ci-fast:
 
 ci-local:
 	@scripts/ci_local.sh full
+
+lock:
+	@scripts/ci_local.sh lock
 
 nightly:
 	@scripts/ci_nightly.sh run
@@ -228,4 +236,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui

@@ -148,15 +148,19 @@ fn sigtstp_session_runner() -> bool {
 
 /// Whether the runner had a controlling-terminal session, sampled once
 /// before this test process's single setsid (`get_or_init` blocks the
-/// other harness threads until the session change has landed).
+/// other harness threads until the session change has landed). Without
+/// one the tests skip before the setsid: nextest starts every test as a
+/// process-group leader, and setsid fails (EPERM) for a group leader.
 fn lead_fresh_session() -> bool {
     static HAD_CTTY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *HAD_CTTY.get_or_init(|| {
-        let had = sigtstp_session_runner();
+        if !sigtstp_session_runner() {
+            return false;
+        }
         if let Err(error) = nix::unistd::setsid() {
             panic!("the harness could not start a fresh session: {error}");
         }
-        had
+        true
     })
 }
 

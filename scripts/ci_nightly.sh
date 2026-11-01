@@ -72,7 +72,7 @@ case "${mode}" in
     if [[ ${rc} -ne 0 ]]; then
       {
         echo "${stamp} ${sha:0:12} FAILED after ${minutes} min: no release (full output: ${last})"
-        { grep -E "gate '.*' FAILED|FAILED UNITS|^test .* FAILED$" "${last}" || true; } | sed 's/^/  /' | sort -u
+        { grep -E "gate '.*' FAILED|^ +(TRY 2 )?FAIL \[|^test .* FAILED$|^  flaky: " "${last}" || true; } | sed 's/^ */  /' | sort -u
       } | tee -a "${summary}"
       exit 1
     fi
