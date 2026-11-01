@@ -108,12 +108,18 @@ impl Skill {
     }
 }
 
+/// The longest skill description the prompt lists, in characters.
+const SKILL_DESCRIPTION_CHARS: usize = 80;
+
 /// Format skills for a system prompt: inside `<skills>` tags, one
 /// `- name: description` line per skill, a Python skill's line naming its
 /// import (`- name (python: import): description`), under a heading that
 /// says where the skills' files are: `<dir>/<name>/SKILL.md:` for a run of
 /// skills whose directory is their name under one parent, else the skill's
-/// own file path. The core layer says how to load one. Skills with
+/// own file path. A description longer than [`SKILL_DESCRIPTION_CHARS`]
+/// keeps its first sentence when that has at least 40 characters, else its
+/// words up to the limit and `…` (omp's preview); the skill file has the
+/// rest. The core layer says how to load one. Skills with
 /// disableModelInvocation are excluded.
 #[must_use]
 pub fn format_skills_for_prompt(skills: &[Skill]) -> String {
@@ -143,11 +149,31 @@ pub fn format_skills_for_prompt(skills: &[Skill]) -> String {
         }
         text.push_str(": ");
         // One line: every run of whitespace a single space.
-        for (index, word) in skill.description.split_whitespace().enumerate() {
-            if index > 0 {
-                text.push(' ');
+        let description = skill.description.split_whitespace().collect::<Vec<_>>();
+        let description = description.join(" ");
+        if description.chars().count() <= SKILL_DESCRIPTION_CHARS {
+            text.push_str(&description);
+        } else {
+            let window_end = description
+                .char_indices()
+                .nth(SKILL_DESCRIPTION_CHARS - 1)
+                .map_or(description.len(), |(at, _)| at);
+            let window = &description[..window_end];
+            let sentence = window
+                .match_indices(['.', '!', '?'])
+                .map(|(at, _)| at + 1)
+                .find(|&end| description[end..].starts_with(' '))
+                .map(|end| &window[..end])
+                .filter(|sentence| sentence.chars().count() >= 40);
+            if let Some(sentence) = sentence {
+                text.push_str(sentence);
+            } else {
+                let words = window
+                    .rfind(' ')
+                    .map_or(window, |space| window[..space].trim_end());
+                text.push_str(words);
+                text.push('…');
             }
-            text.push_str(word);
         }
     }
     if text.is_empty() {
@@ -355,6 +381,40 @@ mod tests {
              - odd: Does odd, then stops.\n\n\
              /r/<name>/SKILL.md:\n\
              - other: Does other, then stops.\n</skills>"
+        );
+    }
+
+    /// A long description keeps its first sentence when that is long
+    /// enough, else its whole words up to the limit and `…`.
+    #[test]
+    fn long_descriptions_are_cut_at_a_sentence_or_a_word() {
+        let skill = |name: &str, description: &str| Skill {
+            name: name.to_string(),
+            description: description.to_string(),
+            file_path: PathBuf::from("/r").join(name).join("SKILL.md"),
+            base_dir: PathBuf::from("/r").join(name),
+            source_info: create_synthetic_source_info("/r", "user", SourceScope::User, None),
+            disable_model_invocation: false,
+            kind: SkillKind::Markdown,
+            python: None,
+        };
+        let words = "word ".repeat(30);
+        assert_eq!(
+            format_skills_for_prompt(&[
+                skill(
+                    "sentence",
+                    &format!("Build decks from lecture notes and slides. {words}")
+                ),
+                skill("short", &format!("Short one. {words}")),
+                skill("fits", "Fits the limit."),
+            ]),
+            format!(
+                "<skills>\n/r/<name>/SKILL.md:\n\
+                 - sentence: Build decks from lecture notes and slides.\n\
+                 - short: Short one. {}…\n\
+                 - fits: Fits the limit.\n</skills>",
+                "word ".repeat(13).trim_end()
+            )
         );
     }
 }
