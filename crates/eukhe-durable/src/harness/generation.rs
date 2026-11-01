@@ -662,8 +662,9 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
     };
     let sent_at = runtime.now()?;
-    // A remote provider sees pseudonyms, not the memory's text: the
-    // provider runtime scrubs every stream request (`privacy.anonymizeRemote`).
+    // A remote provider sees tokens, not the memory's text, and its answer
+    // comes back restored: the provider runtime scrubs every stream request
+    // and restores its terminal message (`privacy.anonymizeRemote`).
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,

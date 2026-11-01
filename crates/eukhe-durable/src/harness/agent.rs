@@ -123,7 +123,7 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         },
         privacy_anonymize_remote: settings
             .and_then(|settings| settings.privacy_anonymize_remote)
-            .unwrap_or(true),
+            .unwrap_or(false),
         privacy_terms: settings
             .and_then(|settings| settings.privacy_terms.clone())
             .unwrap_or_default(),

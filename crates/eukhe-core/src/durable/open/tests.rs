@@ -443,6 +443,131 @@ async fn a_model_reads_then_edits_through_the_wire_tools() {
     session.close(cx()).await.expect("close");
 }
 
+/// Regression (a remote session corrupted a stylesheet): the scrubber of a
+/// remote model's requests (`privacy.anonymizeRemote`) read `::before` as
+/// an IPv6 and hashed it one way, so the model read `.cardIP_<hash>` and
+/// its edit wrote that into the file. Now the model reads the stylesheet
+/// as it is (only the address in its comment becomes a token), its edit
+/// names that token, and the file on disk is the edit applied to the real
+/// bytes.
+#[tokio::test]
+async fn a_remote_model_edits_a_stylesheet_through_the_scrub_without_corrupting_it() {
+    let fixture = fixture();
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        serde_json::json!({ "privacy": { "anonymizeRemote": true } }).to_string(),
+    )
+    .expect("settings");
+    // The faux model behind a remote endpoint.
+    let mut provider = fixture.faux.provider.clone();
+    let mut remote = fixture.faux.get_model();
+    remote.base_url = "https://api.example.com/v1".to_owned();
+    let listed: Arc<[eukhe_types::pi_ai::AnyModel]> =
+        Arc::new([eukhe_types::pi_ai::AnyModel::Chat(remote)]);
+    provider.get_models = Arc::new(move || Ok(Arc::clone(&listed)));
+    fixture.models.set_provider(provider);
+    let file = fixture.cwd.join("style.css");
+    let css = "/* origin 203.0.113.7 */\n.card::before { content: \"\"; }\nli::marker { color: #ffcc00; }\n";
+    std::fs::write(&file, css).expect("file");
+    let reads: Arc<Mutex<Vec<String>>> = Arc::default();
+    let recorded = Arc::clone(&reads);
+    let edit = FauxResponseStep::factory(
+        move |context: &eukhe_types::pi_ai::TranscriptContext,
+              _options: Option<&eukhe_ai::types::SimpleStreamOptions>,
+              _state: &eukhe_ai::providers::faux::FauxProviderState,
+              _model: &eukhe_types::pi_ai::Model| {
+            // The model edits rows 1 and 2 as it read them.
+            let read = context
+                .messages()
+                .iter()
+                .rev()
+                .find_map(|message| match message {
+                    Message::ToolResult(result) => {
+                        result.content.iter().find_map(|block| match block {
+                            UserContentBlock::Text(text) => Some(text.text.clone()),
+                            UserContentBlock::Image(_) => None,
+                        })
+                    }
+                    Message::System(_) | Message::User(_) | Message::Assistant(_) => None,
+                })
+                .unwrap_or_default();
+            recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(read.clone());
+            let header = read.lines().next().unwrap_or_default();
+            let row = |number: usize| {
+                read.lines()
+                    .find_map(|line| line.strip_prefix(&format!("{number}:")))
+                    .unwrap_or_default()
+            };
+            let serde_json::Value::Object(arguments) = serde_json::json!({
+                "i": "Marking the origin",
+                "input": format!(
+                    "{header}\nPUT 1.=2:\n+{}\n+{}",
+                    row(1).replace(" */", ", staging */"),
+                    row(2).replace("\"\"", "\"\\2192\""),
+                ),
+            }) else {
+                unreachable!("an object literal");
+            };
+            Ok(faux_assistant_message(
+                faux_tool_call("edit", arguments, Some("call-edit".to_owned())),
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::ToolUse),
+                    ..FauxAssistantMessageOptions::default()
+                },
+            ))
+        },
+    );
+    fixture.faux.set_responses(vec![
+        tool_call(
+            "read",
+            serde_json::json!({"i": "Reading the stylesheet", "path": "style.css"}),
+            "call-read",
+        ),
+        edit,
+        answer("done"),
+    ]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    let session = open_session(config, cx()).await.expect("open");
+    // A caller-supplied collection stays unwrapped at open; the session's
+    // own collection gets the provider runtime, whose dispatch scrubs a
+    // remote model's requests and restores its answers.
+    let _runtime = ProviderRuntime::install(&session.deps().models, session.deps());
+    ask(
+        &session,
+        "mark the origin as staging and give the card an arrow",
+    )
+    .await;
+    let read = reads.lock().unwrap_or_else(PoisonError::into_inner)[0].clone();
+    let rows: Vec<&str> = read.lines().skip(1).take(3).collect();
+    assert!(
+        rows[0].starts_with("1:/* origin IP_") && rows[0].ends_with(" */"),
+        "the address became a token: {read}"
+    );
+    assert_eq!(
+        rows[1..],
+        [
+            "2:.card::before { content: \"\"; }",
+            "3:li::marker { color: #ffcc00; }"
+        ],
+        "the code reads as it is: {read}"
+    );
+    let results = tool_results(&entries(&session).await);
+    assert_eq!(
+        (results[1].0.as_str(), results[1].1),
+        ("edit", false),
+        "{results:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("file"),
+        "/* origin 203.0.113.7, staging */\n.card::before { content: \"\\2192\"; }\nli::marker { color: #ffcc00; }\n"
+    );
+    session.close(cx()).await.expect("close");
+}
+
 #[tokio::test]
 async fn a_new_root_takes_the_settings_default_model() {
     let fixture = fixture();

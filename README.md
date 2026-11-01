@@ -31,7 +31,7 @@ eukhe dashboard  # open the session in a browser; on the phone: porthmeus eukhe 
 
 ## Privacy
 
-- `privacy.anonymizeRemote` (default on): a remote provider gets tokens (`PERSON_1`, mapped back so tool calls run) for your terms and emails, and hashes for keys, cards, phones, IPs, IDs. Paths and domains pass (the model must read them). Loopback providers see raw text; the log always keeps it.
+- `privacy.anonymizeRemote` (opt-in, default off): a remote provider gets tokens for your terms, emails, phone numbers, IP addresses and IDs (`PERSON_1`, `IP_2`), mapped back in the model's answer, so the transcript and every tool call see the real text; only credentials (API keys and tokens, private keys, card numbers, IBANs) are hashed one way. The detectors match only well-formed values: code passes as it is (`a::before`, `std::fmt`, versions, hashes). Paths and domains pass (the model must read them). Loopback providers see raw text; the log always keeps it. Turn it on with `"privacy": { "anonymizeRemote": true }`.
 - `privacy.terms`: your phrases (your name, your domain). `"privacy": { "terms": ["Your Name", "yourdomain.tld"] }` in `~/.eukhe/settings.json`.
 
 ## Agents

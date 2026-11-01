@@ -275,9 +275,10 @@ pub struct TtsSettings {
 #[serde(rename_all = "camelCase")]
 pub struct PrivacySettings {
     /// Scrub the outbound request text of a remote (non-loopback)
-    /// provider: emails, phones, payment instruments, government IDs, API
-    /// keys, IP addresses, absolute paths, hosts and domains become
-    /// stable pseudonyms (default true).
+    /// provider (opt-in, default false): your terms, emails, phone numbers, IP
+    /// addresses and IDs become tokens mapped back in the model's answer;
+    /// credentials (API keys, private keys, cards, IBANs) are hashed one
+    /// way. Paths and domains pass.
     pub anonymize_remote: Option<bool>,
     /// Phrases a remote provider must not see: free-text names (a person,
     /// a company, a project) become `PERSON_<n>` tokens at word

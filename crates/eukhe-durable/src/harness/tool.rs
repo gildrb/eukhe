@@ -214,13 +214,11 @@ pub static TOOL_TASK: LazyLock<ToolTask> = LazyLock::new(|| {
 /// runs only when a committed entry holds it and its tool is offered.
 async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let input = task.input;
-    let call = read_call(&runtime, &input, &cx).await?.map(|mut call| {
-        // A remote model wrote pseudonym tokens; the tool runs against the
-        // real strings (`privacy.anonymizeRemote`, harness/privacy).
-        call.call.arguments = eukhe_ai::privacy::Scrubber::new(&runtime.settings().privacy_terms)
-            .unredact_arguments(&call.call.arguments);
-        call
-    });
+    // A remote model's call arrives restored (the provider runtime maps
+    // its tokens back before the entry commits, `privacy.anonymizeRemote`):
+    // the arguments are the real strings already, and a second restore
+    // would rewrite a literal that reads as a token.
+    let call = read_call(&runtime, &input, &cx).await?;
     let tool = match &call {
         Some(call) => offered(resolve_tool(&runtime, &input, &call.name, &cx).await?),
         None => None,

@@ -631,7 +631,7 @@ impl SettingsManager {
     }
 
     /// `privacy.anonymizeRemote`: scrub outbound request text of a remote
-    /// provider (default true).
+    /// provider (opt-in, default false).
     #[must_use]
     pub fn get_privacy_anonymize_remote(&self) -> bool {
         self.cvars().bool(&table::PRIVACY_ANONYMIZE_REMOTE)

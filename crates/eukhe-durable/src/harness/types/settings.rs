@@ -326,7 +326,7 @@ pub struct HarnessSettings {
     /// Default 250; `0` takes the default.
     pub max_tool_rounds: Option<u32>,
     /// Scrub outbound request text of a remote provider (harness/privacy).
-    /// Default true.
+    /// Default false (opt-in).
     pub privacy_anonymize_remote: Option<bool>,
     /// Free-text phrases a remote provider must not see.
     pub privacy_terms: Option<Vec<String>>,

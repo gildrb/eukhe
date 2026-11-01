@@ -839,14 +839,15 @@ pub const TERMINAL_SHOW_SPEED: Decl = Decl {
     init: Init::Bool(true),
 };
 
-/// Scrub outbound request text for a remote provider (harness/privacy).
+/// Scrub outbound request text for a remote provider (harness/privacy;
+/// opt-in, default off).
 pub const PRIVACY_ANONYMIZE_REMOTE: Decl = Decl {
     id: "privacy.anonymizeRemote",
     ty: CvarType::Bool,
     scope: CvarScope::Global,
     persist: true,
     replicate: true,
-    init: Init::Bool(true),
+    init: Init::Bool(false),
 };
 
 /// Phrases a remote provider must not see (`PERSON_<n>` tokens;
