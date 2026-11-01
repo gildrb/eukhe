@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn a_local_build_never_claims_a_release() {
         assert_eq!(
-            product_version("0.10.0", None),
+            product_version("0.10.0", None).map_err(|error| error.to_string()),
             Ok("0.10.0-dev".to_string())
         );
         assert_eq!(VERSION, concat!(env!("CARGO_PKG_VERSION"), "-dev"));
@@ -60,8 +60,9 @@ mod tests {
     /// (`laws/semver.bend` pins the rule): one answer of each kind.
     #[test]
     fn a_release_build_names_a_release_of_the_workspace_series() {
-        let checked =
-            ["0.10.7", "0.11.0", "0.10.07"].map(|release| product_version("0.10.0", Some(release)));
+        let checked = ["0.10.7", "0.11.0", "0.10.07"].map(|release| {
+            product_version("0.10.0", Some(release)).map_err(|error| error.to_string())
+        });
         assert_eq!(
             checked,
             [

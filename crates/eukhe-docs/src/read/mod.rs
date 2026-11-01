@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use eukhe_types::path_policy::{resolve, RealPath};
 
-use crate::gate::{Access, AccessGate};
+use crate::gate::{Access, AccessGate, AccessRefusal};
 use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
 use crate::text::{encoding_name, format_bytes, Line, Projection};
@@ -60,7 +60,11 @@ pub enum ReadError {
     #[error(transparent)]
     Url(#[from] crate::url::UrlError),
     #[error("Did not read {display}: {reason}")]
-    Refused { display: String, reason: String },
+    Refused {
+        display: String,
+        #[source]
+        reason: AccessRefusal,
+    },
 }
 
 /// One inclusive, one-based span of source lines.

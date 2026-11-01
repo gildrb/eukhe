@@ -14,16 +14,29 @@ use eukhe_core::durable::goals::goal_state;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
+use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use super::error::RpcSessionError;
 use super::event_pump::EventPump;
 use super::reads::{is_busy, rpc_context};
 use super::LineWriter;
 
-/// The refusal every replacement answers once a signal exit began.
-const SIGNAL_EXIT_IN_PROGRESS: &str = "A signal exit is in progress";
+/// The composition root's failure to open a session for the RPC mode
+/// (eukhe-cli owns the assembly and its error type); its Display is the
+/// assembly error's own text, the wire error of the replacement command.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct RpcEngineError(Box<dyn std::error::Error + Send + Sync>);
+
+impl RpcEngineError {
+    /// Wrap the composition root's assembly error.
+    pub fn new(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self(error.into())
+    }
+}
 
 /// One opened durable session plus the runtime session lease the factory
 /// acquired for its storage directory (dropped with the handle on
@@ -69,7 +82,7 @@ pub enum RpcEngineRequest {
 pub type RpcEngineFactory = Arc<
     dyn Fn(
             RpcEngineRequest,
-        ) -> Pin<Box<dyn Future<Output = Result<RpcEngineHandle, String>> + Send>>
+        ) -> Pin<Box<dyn Future<Output = Result<RpcEngineHandle, RpcEngineError>> + Send>>
         + Send
         + Sync,
 >;
@@ -182,16 +195,13 @@ impl RpcSession {
     pub(crate) async fn start(
         factory: RpcEngineFactory,
         outputs: ConnectionOutputs,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, RpcSessionError> {
         let handle = factory(RpcEngineRequest::Startup).await?;
         let cx = rpc_context();
-        let initial_goal = goal_state(handle.session.harness(), handle.session.main().id(), &cx)
-            .await
-            .map_err(|error| error.to_string())?;
+        let initial_goal =
+            goal_state(handle.session.harness(), handle.session.main().id(), &cx).await?;
         let last_goal = Arc::new(Mutex::new(initial_goal));
-        let pump = EventPump::attach(&handle.session, &outputs, &last_goal, &cx)
-            .await
-            .map_err(|error| error.to_string())?;
+        let pump = EventPump::attach(&handle.session, &outputs, &last_goal, &cx).await?;
         Ok(Self {
             handle: tokio::sync::RwLock::new(handle),
             outputs,
@@ -226,10 +236,9 @@ impl RpcSession {
     /// # Errors
     ///
     /// The pump cannot attach.
-    pub(crate) async fn reattach_pump(&self, session: &EukheSession) -> Result<(), String> {
-        let pump = EventPump::attach(session, &self.outputs, &self.last_goal, &rpc_context())
-            .await
-            .map_err(|error| error.to_string())?;
+    pub(crate) async fn reattach_pump(&self, session: &EukheSession) -> SessionResult<()> {
+        let pump =
+            EventPump::attach(session, &self.outputs, &self.last_goal, &rpc_context()).await?;
         let previous = self.pump.lock().await.replace(pump);
         if let Some(previous) = previous {
             previous.stop().await;
@@ -262,9 +271,9 @@ impl RpcSession {
     ///
     /// The factory's assembly error, a signal exit in progress, or the
     /// replacement's pump cannot attach.
-    pub async fn replace_locked(&self, request: RpcEngineRequest) -> Result<(), String> {
+    pub async fn replace_locked(&self, request: RpcEngineRequest) -> Result<(), RpcSessionError> {
         if self.signal_shutdown.is_cancelled() {
-            return Err(SIGNAL_EXIT_IN_PROGRESS.to_string());
+            return Err(RpcSessionError::SignalExitInProgress);
         }
         let cx = rpc_context();
         let mut request = request;
@@ -279,15 +288,15 @@ impl RpcSession {
             let settled = tokio::select! {
                 settled = main.wait_for_idle(&cx) => settled,
                 () = self.signal_shutdown.cancelled() => {
-                    return Err(SIGNAL_EXIT_IN_PROGRESS.to_string());
+                    return Err(RpcSessionError::SignalExitInProgress);
                 }
             };
-            settled.map_err(|error| error.to_string())?;
+            settled?;
         }
         let mut handle = tokio::select! {
             guard = self.handle.write() => guard,
             () = self.signal_shutdown.cancelled() => {
-                return Err(SIGNAL_EXIT_IN_PROGRESS.to_string());
+                return Err(RpcSessionError::SignalExitInProgress);
             }
         };
         // Reopening the currently-owned session: ADOPT the current lease
@@ -311,8 +320,8 @@ impl RpcSession {
             }
         }
         let built = tokio::select! {
-            built = (self.factory)(request) => built,
-            () = self.signal_shutdown.cancelled() => Err(SIGNAL_EXIT_IN_PROGRESS.to_string()),
+            built = (self.factory)(request) => built.map_err(RpcSessionError::Engine),
+            () = self.signal_shutdown.cancelled() => Err(RpcSessionError::SignalExitInProgress),
         };
         let mut replacement = match built {
             Ok(replacement) => replacement,
@@ -340,7 +349,7 @@ impl RpcSession {
                 if adopted_lease.is_some() {
                     handle.session_lease = adopted_lease;
                 }
-                return Err(error.to_string());
+                return Err(error.into());
             }
         };
         // The teardown aborts only now that the replacement exists (TS
@@ -384,7 +393,7 @@ impl RpcSession {
     /// # Errors
     ///
     /// See [`RpcSession::replace_locked`].
-    pub async fn replace(&self, request: RpcEngineRequest) -> Result<(), String> {
+    pub async fn replace(&self, request: RpcEngineRequest) -> Result<(), RpcSessionError> {
         let _lease = self.replacement.lock().await;
         self.replace_locked(request).await
     }
@@ -395,13 +404,12 @@ impl RpcSession {
     /// # Errors
     ///
     /// The abort fails (the Harness is closed).
-    pub async fn abort(&self) -> Result<(), String> {
+    pub async fn abort(&self) -> SessionResult<()> {
         let session = self.session().await;
         session
             .main()
             .abort(ConversationAbortOptions::default(), &rpc_context())
             .await
-            .map_err(|error| error.to_string())
     }
 
     /// The exit settle (TS `onInputEnd` -> `waitForIdle` -> `shutdown`):

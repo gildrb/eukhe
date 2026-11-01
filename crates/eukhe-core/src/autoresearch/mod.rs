@@ -35,7 +35,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_bend::rules::autoresearch::{Event, Lab, Outcome};
 
-pub(crate) use command::execute as execute_command;
+pub(crate) use command::{execute as execute_command, AutoresearchCommandError};
 pub(crate) use host::register_host_requests;
 
 use self::git::Workspace;

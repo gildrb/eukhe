@@ -171,7 +171,14 @@ fn enter_submits_the_reply_and_the_outcomes_land() {
     );
     // The failure restores the draft and reports; a re-armed composer on
     // the same key keeps its fresh compose (the in-flight guard).
-    mode.reply_result("p-live", Err("daemon down".to_string()));
+    mode.reply_result(
+        "p-live",
+        Err(crate::agent_delivery::DeliveryError::Command(
+            crate::daemon_client::CommandFailed::Refused {
+                message: Some("daemon down".to_string()),
+            },
+        )),
+    );
     assert_eq!(
         mode.status_text(),
         Some("Failed to send reply: daemon down")

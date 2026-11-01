@@ -18,20 +18,18 @@ use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
 use super::commands::{set_session_cvar, settings_for, RpcState};
+use super::error::RpcCommandError;
 use super::protocol::ResponseData;
 use super::reads::{agent_model, main_agent, rpc_context};
 
-/// The valid thinking-level wire names (TS `ThinkingLevel`).
-const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
 /// The models whose providers have credentials (TS `getAvailable`).
-async fn available_models(session: &EukheSession) -> Result<Vec<Model>, String> {
+async fn available_models(session: &EukheSession) -> Result<Vec<Model>, RpcCommandError> {
     session
         .deps()
         .models
         .get_available(None, AuthOperationOptions::default())
         .await
-        .map_err(|error| error.to_string())
+        .map_err(RpcCommandError::Models)
 }
 
 /// `set_model` (TS `session.setModel`): resolve through the available
@@ -40,27 +38,28 @@ async fn available_models(session: &EukheSession) -> Result<Vec<Model>, String> 
 pub(crate) async fn set_model(
     state: &Arc<RpcState>,
     payload: &Value,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let _ops = state.model_ops.lock().await;
     let provider = payload
         .get("provider")
         .and_then(Value::as_str)
-        .ok_or_else(|| "set_model requires a provider".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("set_model", "a provider"))?;
     let model_id = payload
         .get("modelId")
         .and_then(Value::as_str)
-        .ok_or_else(|| "set_model requires a modelId".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("set_model", "a modelId"))?;
     let handle = state.session.handle().await;
     let session = &handle.session;
     let model = available_models(session)
         .await?
         .into_iter()
         .find(|candidate| candidate.provider == provider && candidate.id == model_id)
-        .ok_or_else(|| format!("Model not found: {provider}/{model_id}"))?;
+        .ok_or_else(|| RpcCommandError::ModelNotFound {
+            provider: provider.to_string(),
+            model_id: model_id.to_string(),
+        })?;
     apply_model_selection(session, &model, &rpc_context()).await?;
-    Ok(ResponseData::Present(
-        serde_json::to_value(&model).map_err(|error| error.to_string())?,
-    ))
+    Ok(ResponseData::Present(serde_json::to_value(&model)?))
 }
 
 /// Apply one model selection (the shared `set_model`/`cycle_model`
@@ -71,7 +70,7 @@ async fn apply_model_selection(
     session: &EukheSession,
     model: &Model,
     cx: &Context,
-) -> Result<(), String> {
+) -> Result<(), RpcCommandError> {
     let agent = main_agent(session, cx).await?;
     let level = clamp_thinking_level(model, agent.thinking_level);
     session
@@ -87,18 +86,17 @@ async fn apply_model_selection(
             },
             cx,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     settings_for(session)
         .set_default_model_and_provider(&model.provider, &model.id)
         .and_then(eukhe_core::settings::Persisted::applied)
-        .map_err(|error| format!("{error:#}"))
+        .map_err(|source| RpcCommandError::Settings { source })
 }
 
 /// `cycle_model` (TS `session.cycleModel`, forward only on this wire):
 /// cycle within the available catalog; fewer than two candidates answer
 /// `null` like TS.
-pub(crate) async fn cycle_model(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+pub(crate) async fn cycle_model(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let _ops = state.model_ops.lock().await;
     let handle = state.session.handle().await;
     let session = &handle.session;
@@ -132,7 +130,9 @@ pub(crate) async fn cycle_model(state: &Arc<RpcState>) -> Result<ResponseData, S
 /// `get_available_models` (TS `refreshAvailableModels`): the available
 /// catalog (the session's model collection refreshes its catalogs in the
 /// background from open).
-pub(crate) async fn get_available_models(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+pub(crate) async fn get_available_models(
+    state: &Arc<RpcState>,
+) -> Result<ResponseData, RpcCommandError> {
     let session = state.session.session().await;
     let models = available_models(&session).await?;
     Ok(ResponseData::Present(json!({ "models": models })))
@@ -143,17 +143,16 @@ pub(crate) async fn get_available_models(state: &Arc<RpcState>) -> Result<Respon
 pub(crate) async fn set_thinking_level(
     state: &Arc<RpcState>,
     payload: &Value,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let _ops = state.model_ops.lock().await;
     let level = payload
         .get("level")
         .and_then(Value::as_str)
-        .ok_or_else(|| "Invalid thinking level: expected a string".to_string())?;
+        .ok_or(RpcCommandError::ThinkingLevelNotString)?;
     let Some(parsed) = ModelThinkingLevel::parse(level) else {
-        return Err(format!(
-            "Invalid thinking level \"{level}\". Valid values: {}",
-            THINKING_LEVELS.join(", ")
-        ));
+        return Err(RpcCommandError::UnknownThinkingLevel {
+            level: level.to_string(),
+        });
     };
     apply_thinking_level(state, parsed).await?;
     Ok(ResponseData::Absent)
@@ -179,7 +178,7 @@ fn thinking_level_setting(level: ModelThinkingLevel) -> ThinkingLevelSetting {
 async fn apply_thinking_level(
     state: &Arc<RpcState>,
     level: ModelThinkingLevel,
-) -> Result<(), String> {
+) -> Result<(), RpcCommandError> {
     let handle = state.session.handle().await;
     let session = &handle.session;
     let cx = rpc_context();
@@ -200,13 +199,12 @@ async fn apply_thinking_level(
             },
             &cx,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     if model.as_ref().is_some_and(|model| model.reasoning) || clamped != ModelThinkingLevel::Off {
         settings_for(session)
             .set_default_thinking_level(thinking_level_setting(clamped))
             .and_then(eukhe_core::settings::Persisted::applied)
-            .map_err(|error| format!("{error:#}"))?;
+            .map_err(|source| RpcCommandError::Settings { source })?;
     }
     state.session.outputs().write(json!({
         "type": "thinking_level_changed",
@@ -218,7 +216,9 @@ async fn apply_thinking_level(
 /// `cycle_thinking_level` (TS `session.cycleThinkingLevel`): one forward
 /// step through the levels the model offers (`cycle_thinking_level`); a
 /// ladder of fewer than two levels answers `null`.
-pub(crate) async fn cycle_thinking_level(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+pub(crate) async fn cycle_thinking_level(
+    state: &Arc<RpcState>,
+) -> Result<ResponseData, RpcCommandError> {
     let _ops = state.model_ops.lock().await;
     let next = {
         let session = state.session.session().await;
@@ -245,15 +245,15 @@ pub(crate) async fn set_queue_mode(
     state: &Arc<RpcState>,
     payload: &Value,
     name: &str,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let mode = payload
         .get("mode")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{name} requires a mode"))?;
+        .ok_or_else(|| RpcCommandError::missing(name, "a mode"))?;
     if !matches!(mode, "all" | "one-at-a-time") {
-        return Err(format!(
-            "Invalid queue mode \"{mode}\". Valid values: all, one-at-a-time"
-        ));
+        return Err(RpcCommandError::UnknownQueueMode {
+            mode: mode.to_string(),
+        });
     }
     let decl = if name == "set_steering_mode" {
         &table::STEERING_MODE
@@ -266,6 +266,7 @@ pub(crate) async fn set_queue_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::error::THINKING_LEVELS;
 
     #[test]
     fn thinking_level_settings_share_the_wire_names() {

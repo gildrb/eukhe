@@ -6,8 +6,20 @@
 
 use serde_json::Value;
 
-use crate::daemon_client::DaemonClient;
+use crate::daemon_client::{CommandFailed, DaemonClient};
 use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior};
+
+/// Why a delivery failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DeliveryError {
+    #[error("Cannot resume a session without a saved session file")]
+    NoSessionFile,
+    #[error("Daemon returned a session without an active session id")]
+    NoActiveSession,
+    /// The resume's `create` or the `prompt` did not go through.
+    #[error(transparent)]
+    Command(#[from] CommandFailed),
+}
 
 /// One message for one agent: the CURRENT summary the send resolves
 /// to, the text, the streaming behavior, the resume config the saved
@@ -81,7 +93,7 @@ pub(crate) async fn deliver_agent_message(
     client: &DaemonClient,
     delivery: AgentDelivery,
     before_prompt: impl FnOnce() + Send,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, DeliveryError> {
     let mut resumed = None;
     let active_session_id = if let Some(id) = live_id(&delivery.summary) {
         id
@@ -93,7 +105,7 @@ pub(crate) async fn deliver_agent_message(
             .filter(|path| !path.is_empty())
             .map(str::to_string)
         else {
-            return Err("Cannot resume a session without a saved session file".to_string());
+            return Err(DeliveryError::NoSessionFile);
         };
         // The resumed session runs in THIS pane: the create carries the
         // client's Herdr pane identity like every create (a client
@@ -118,17 +130,9 @@ pub(crate) async fn deliver_agent_message(
                 rest: serde_json::Map::default(),
             })
             .await;
-        let summary = match created {
-            Ok(response) if response.success => response.data.unwrap_or(Value::Null),
-            Ok(response) => {
-                return Err(response
-                    .error
-                    .unwrap_or_else(|| "the command failed".into()))
-            }
-            Err(error) => return Err(format!("{error:#}")),
-        };
+        let summary = CommandFailed::check(created)?.data.unwrap_or(Value::Null);
         let Some(active) = live_id(&summary) else {
-            return Err("Daemon returned a session without an active session id".to_string());
+            return Err(DeliveryError::NoActiveSession);
         };
         resumed = Some(summary);
         active
@@ -157,13 +161,8 @@ pub(crate) async fn deliver_agent_message(
             rest: serde_json::Map::default(),
         })
         .await;
-    match prompt {
-        Ok(response) if response.success => Ok(resumed),
-        Ok(response) => Err(response
-            .error
-            .unwrap_or_else(|| "the command failed".into())),
-        Err(error) => Err(format!("{error:#}")),
-    }
+    CommandFailed::check(prompt)?;
+    Ok(resumed)
 }
 
 #[cfg(test)]

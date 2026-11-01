@@ -24,6 +24,7 @@ use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{Entry, Stepper};
 
+use super::refresh_error::{AuthFileError, RefreshError};
 use super::types::AuthCredential;
 
 #[cfg(test)]
@@ -31,7 +32,7 @@ mod tests;
 
 /// What a refresh gives its caller: the credential to serve, or why there
 /// is none.
-pub(crate) type Outcome = Result<AuthCredential, String>;
+pub(crate) type Outcome = Result<AuthCredential, RefreshError>;
 
 /// One refresh flight of a document, numbered in the order flights start.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,9 +60,13 @@ enum Leg {
 }
 
 /// What a read of the auth document found under the provider.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a read lives for one step; boxing the credential would allocate on every read"
+)]
 pub(crate) enum Stored {
     /// The document could not be read or parsed: why.
-    Unreadable(String),
+    Unreadable(AuthFileError),
     /// No credential under the provider.
     Missing,
     /// The provider's credential.
@@ -210,11 +215,11 @@ pub(crate) fn fresh(credential: &AuthCredential, now: i64) -> bool {
 enum Found {
     LoadFresh(AuthCredential),
     LoadExpired,
-    LoadFailed(String),
+    LoadFailed(RefreshError),
     CheckFresh(FlightId, AuthCredential),
     CheckExpired(FlightId),
     FetchOk(FlightId, AuthCredential),
-    FetchFailed(FlightId, String),
+    FetchFailed(FlightId, RefreshError),
     Stored(FlightId, Outcome),
 }
 
@@ -236,13 +241,19 @@ impl Leg {
                         Ok(Found::LoadFresh(credential))
                     }
                     (Verdict::Refresh, _) => Ok(Found::LoadExpired),
-                    (Verdict::Refuse, Stored::Unreadable(cause)) => Ok(Found::LoadFailed(cause)),
-                    (Verdict::Refuse, Stored::Missing) => Ok(Found::LoadFailed(format!(
-                        "no stored credential for {provider}"
-                    ))),
-                    (Verdict::Refuse, Stored::Credential(_)) => Ok(Found::LoadFailed(format!(
-                        "the stored credential for {provider} is not OAuth"
-                    ))),
+                    (Verdict::Refuse, Stored::Unreadable(cause)) => {
+                        Ok(Found::LoadFailed(cause.into()))
+                    }
+                    (Verdict::Refuse, Stored::Missing) => {
+                        Ok(Found::LoadFailed(RefreshError::NotStored {
+                            provider: provider.to_string(),
+                        }))
+                    }
+                    (Verdict::Refuse, Stored::Credential(_)) => {
+                        Ok(Found::LoadFailed(RefreshError::NotOAuth {
+                            provider: provider.to_string(),
+                        }))
+                    }
                     (Verdict::Serve, Stored::Unreadable(_) | Stored::Missing)
                     | (Verdict::KeepPeer | Verdict::Write, _) => {
                         Err(inconsistent("a load's serve, refresh or refusal"))
@@ -574,10 +585,9 @@ struct Lead<'a> {
 impl Drop for Lead<'_> {
     fn drop(&mut self) {
         if let Some(flight) = self.flight.take() {
-            let outcome = Err(format!(
-                "the token refresh of {} ended without an outcome",
-                self.provider
-            ));
+            let outcome = Err(RefreshError::Unlanded {
+                provider: self.provider.to_string(),
+            });
             self.flights
                 .book()
                 .advance(self.provider, Leg::Land(flight, outcome));

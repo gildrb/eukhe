@@ -574,6 +574,7 @@ name = "eukhe-build-info"
 version = "0.10.0"
 dependencies = [
  "eukhe-bend",
+ "thiserror",
  "toml",
 ]
 
@@ -804,6 +805,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tracing",
 ]
 
@@ -819,6 +821,7 @@ dependencies = [
  "nix",
  "parking_lot",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
 ]
@@ -830,6 +833,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]
@@ -888,6 +892,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
  "unicode-properties",

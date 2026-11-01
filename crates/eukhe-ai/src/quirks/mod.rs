@@ -68,6 +68,7 @@ mod tiers;
 
 pub use prices::{cache_write_1h_multiplier, service_tier_multiplier};
 pub use provider_defaults::{provider_default_model, provider_defaults};
+pub use revision::RevisionRangeError;
 pub use tiers::{service_tiers, supports_service_tier};
 
 #[cfg(test)]
@@ -576,10 +577,18 @@ pub enum QuirksError {
     },
     #[error("the rulebook is not valid: {0}")]
     Format(String),
-    #[error("family `{family}` has a bad pattern: {reason}")]
-    BadPattern { family: String, reason: String },
-    #[error("family `{family}` has a bad revision range: {reason}")]
-    BadRevision { family: String, reason: String },
+    #[error("family `{family}` has a bad pattern: {source}")]
+    BadPattern {
+        family: String,
+        #[source]
+        source: regex::Error,
+    },
+    #[error("family `{family}` has a bad revision range: {source}")]
+    BadRevision {
+        family: String,
+        #[source]
+        source: RevisionRangeError,
+    },
     #[error("two {layer} definitions have the id `{id}`")]
     DuplicateId { layer: Layer, id: String },
     #[error("`{key}` names two hosts: `{first}` and `{second}`")]
@@ -1072,10 +1081,10 @@ impl Rulebook {
             let revision = match family.revision {
                 Some(RevisionEntry { prefix, range }) => match revision::Range::parse(&range) {
                     Ok(range) => Some((prefix.to_lowercase(), range)),
-                    Err(reason) => {
+                    Err(source) => {
                         errors.push(QuirksError::BadRevision {
                             family: family.id,
-                            reason,
+                            source,
                         });
                         continue;
                     }
@@ -1095,9 +1104,9 @@ impl Rulebook {
                         outside: Vec::new(),
                     });
                 }
-                (Err(error), _) | (Ok(_), Err(error)) => errors.push(QuirksError::BadPattern {
+                (Err(source), _) | (Ok(_), Err(source)) => errors.push(QuirksError::BadPattern {
                     family: family.id,
-                    reason: error.to_string(),
+                    source,
                 }),
             }
         }

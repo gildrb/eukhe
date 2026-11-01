@@ -15,6 +15,7 @@ use eukhe_core::models::ModelRegistry;
 use eukhe_durable::harness::compaction::estimate_context;
 use eukhe_durable::harness::types::{ContextOptions, ContextView, PromptInput};
 use eukhe_durable::harness::{derive_view, Conversation};
+use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::EntryRecord;
 use eukhe_types::daemon::{
     MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree, MemoryTreeReply, MemoryZoom,
@@ -202,14 +203,14 @@ impl Worker {
         };
         let cx = &BACKGROUND_CONTEXT;
         let read = async {
-            let main = hosted.main().map_err(|error| error.to_string())?;
+            let main = hosted.main()?;
             let messages = context_messages(&main, cx).await?;
-            let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
-            Ok::<_, String>((messages, agent))
+            let agent = main.agent(cx).await?;
+            SessionResult::Ok((messages, agent))
         };
         let (messages, agent) = match read.await {
             Ok(read) => read,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         let service_tier = self
             .core
@@ -243,7 +244,7 @@ impl Worker {
         };
         match render_system_prompt(&hosted, &BACKGROUND_CONTEXT).await {
             Ok(prompt) => response_success(None, COMMAND, Some(json!({ "systemPrompt": prompt }))),
-            Err(error) => response_failure(None, COMMAND, &error, None),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
@@ -405,11 +406,8 @@ impl Worker {
 
 /// The active context of `conversation` as wire `AgentMessage` rows (TS
 /// `session.state.messages`).
-async fn context_messages(conversation: &Conversation, cx: &Context) -> Result<Vec<Value>, String> {
-    let view = conversation
-        .context(cx, ContextOptions::default())
-        .await
-        .map_err(|error| error.to_string())?;
+async fn context_messages(conversation: &Conversation, cx: &Context) -> SessionResult<Vec<Value>> {
+    let view = conversation.context(cx, ContextOptions::default()).await?;
     Ok(transcript_messages(&view.entries))
 }
 
@@ -536,13 +534,12 @@ fn unframed_view(text: &str) -> &str {
 /// the text the transcript shows for it, as the request preparation does.
 /// Sections render without an execution environment (the eukhe prompt
 /// reads none).
-async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> Result<String, String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
-    let agent = Arc::new(main.agent(cx).await.map_err(|error| error.to_string())?);
+async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> SessionResult<String> {
+    let main = hosted.main()?;
+    let agent = Arc::new(main.agent(cx).await?);
     let view = main
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     let shown: IndexMap<String, String> = get_current_system_message(&view.messages)
         .and_then(|message| message.sections)
         .map(|sections| {
@@ -573,7 +570,7 @@ async fn render_system_prompt(hosted: &HostedSession, cx: &Context) -> Result<St
             Ok(None) => continue,
             Err(error) => {
                 if cx.aborted() {
-                    return Err(error.to_string());
+                    return Err(error);
                 }
                 match shown.get(&section.key) {
                     Some(kept) => kept.clone(),

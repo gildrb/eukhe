@@ -53,7 +53,27 @@ pub(crate) enum SummaryOutcome {
     Complete(Box<BranchSummary>),
     /// `abort_branch_summary` cancelled it.
     Aborted,
-    Failed(String),
+    Failed(SummaryError),
+}
+
+/// Why a branch summary produced no summary.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SummaryError {
+    /// The main conversation's agent did not resolve.
+    #[error(transparent)]
+    Agent(#[from] SessionError),
+    #[error("No model selected for the branch summary")]
+    NoModel,
+    #[error("Model {provider}/{model_id} not found")]
+    ModelNotFound { provider: String, model_id: String },
+    /// The provider's error text, as the reply carried it.
+    #[error("{0}")]
+    Provider(String),
+    /// The reply ended in error without a message.
+    #[error("Branch summary failed")]
+    Failed,
+    #[error("Branch summary did not complete")]
+    Incomplete,
 }
 
 /// A summary run: how it ended, and the notice to show when the
@@ -80,25 +100,25 @@ pub(crate) async fn generate(
     signal: AbortSignal,
     cx: &Context,
 ) -> SummaryRun {
-    let failed = |error: String| SummaryRun {
+    let failed = |error: SummaryError| SummaryRun {
         outcome: SummaryOutcome::Failed(error),
         notice: None,
     };
     let model_ref = match main.agent(cx).await {
         Ok(agent) => agent.model,
-        Err(error) => return failed(error.to_string()),
+        Err(error) => return failed(error.into()),
     };
     let Some(model_ref) = model_ref else {
-        return failed("No model selected for the branch summary".to_owned());
+        return failed(SummaryError::NoModel);
     };
     let Some(session_model) = deps
         .models
         .get_model(&model_ref.provider, &model_ref.model_id)
     else {
-        return failed(format!(
-            "Model {}/{} not found",
-            model_ref.provider, model_ref.model_id
-        ));
+        return failed(SummaryError::ModelNotFound {
+            provider: model_ref.provider,
+            model_id: model_ref.model_id,
+        });
     };
     let settings = deps.settings.manager();
     let reserve = settings.get_branch_summary_reserve_tokens();
@@ -216,11 +236,11 @@ pub(crate) async fn generate(
                 return SummaryOutcome::Failed(
                     reply
                         .error_message
-                        .unwrap_or_else(|| "Branch summary failed".to_owned()),
+                        .map_or(SummaryError::Failed, SummaryError::Provider),
                 )
             }
             StopReason::Pending | StopReason::Deferred => {
-                return SummaryOutcome::Failed("Branch summary did not complete".to_owned())
+                return SummaryOutcome::Failed(SummaryError::Incomplete)
             }
             StopReason::Stop | StopReason::Length | StopReason::ToolUse | StopReason::Aborted => {}
         }

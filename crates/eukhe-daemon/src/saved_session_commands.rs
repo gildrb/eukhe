@@ -51,12 +51,36 @@ use crate::worker::Worker;
 /// The durable storage's commit log; a directory without it is no session.
 const MAIN_FILE: &str = "main.jsonl";
 
-/// The session-name-unavailability error (TS
+/// The session-name-unavailability refusal (TS
 /// `formatAgentSessionNameUnavailable`).
-pub(crate) fn name_unavailable_error(name: &str, depth: u32) -> String {
-    format!(
-        "Agent name \"{name}\" is unavailable: an agent of that name already exists at depth {depth} under this parent"
-    )
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "Agent name \"{name}\" is unavailable: an agent of that name already exists at depth {depth} under this parent"
+)]
+pub(crate) struct NameUnavailable {
+    pub(crate) name: String,
+    pub(crate) depth: u32,
+}
+
+/// No live roster row and no saved session at the renamed path.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Session not found: {path}")]
+pub(crate) struct SessionNotFound {
+    pub(crate) path: String,
+}
+
+/// Why a saved session's files were not all removed.
+#[derive(Debug, thiserror::Error)]
+enum SavedSessionRemoveError {
+    /// Neither a storage nor a legacy file is at the path.
+    #[error("{}", std::io::ErrorKind::NotFound)]
+    Missing,
+    #[error("remove {}: {source}", path.display())]
+    Remove {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// The reservation key (TS `sessionNameReservationKey`): the JSON-encoded
@@ -382,7 +406,7 @@ pub(crate) async fn delete_saved_session_storage(
             remove_session_artifacts(path);
             json!({ "ok": true, "method": method })
         }
-        Ok(Err(error)) => json!({ "ok": false, "error": error }),
+        Ok(Err(error)) => json!({ "ok": false, "error": error.to_string() }),
         Err(error) => json!({ "ok": false, "error": error.to_string() }),
     }
 }
@@ -393,15 +417,23 @@ pub(crate) async fn delete_saved_session_storage(
 /// the trash is first renamed to a hidden tombstone beside it (the roster
 /// and open skip hidden directories), so a crash inside the recursive
 /// removal never leaves a half-removed storage listed.
-fn remove_all(sidecars: &[PathBuf], targets: &[PathBuf]) -> Result<&'static str, String> {
+fn remove_all(
+    sidecars: &[PathBuf],
+    targets: &[PathBuf],
+) -> Result<&'static str, SavedSessionRemoveError> {
     if targets.is_empty() {
-        return Err(std::io::Error::from(std::io::ErrorKind::NotFound).to_string());
+        return Err(SavedSessionRemoveError::Missing);
     }
     for sidecar in sidecars {
         match std::fs::remove_file(sidecar) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("remove {}: {error}", sidecar.display())),
+            Err(source) => {
+                return Err(SavedSessionRemoveError::Remove {
+                    path: sidecar.clone(),
+                    source,
+                })
+            }
         }
     }
     let mut method = "trash";
@@ -431,7 +463,10 @@ fn remove_all(sidecars: &[PathBuf], targets: &[PathBuf]) -> Result<&'static str,
         } else {
             std::fs::remove_file(target)
         };
-        removed.map_err(|error| format!("remove {}: {error}", target.display()))?;
+        removed.map_err(|source| SavedSessionRemoveError::Remove {
+            path: target.clone(),
+            source,
+        })?;
     }
     Ok(method)
 }
@@ -633,14 +668,17 @@ impl Supervisor {
 
     /// TS `assertAgentSessionNameAvailable`: a same-name, same-depth,
     /// same-parent row that is not the renamed session itself conflicts.
-    async fn assert_family_name_available(&self, scope: &NameScope) -> Result<(), String> {
+    async fn assert_family_name_available(&self, scope: &NameScope) -> Result<(), NameUnavailable> {
         let rows = self.family_rows(self.sessions_dir_path().as_deref()).await;
         for row in rows {
             if row.id == scope.id || row.name.as_deref() != Some(scope.name.as_str()) {
                 continue;
             }
             if row.depth == scope.depth && same_name_parent(&row, scope) {
-                return Err(name_unavailable_error(&scope.name, scope.depth));
+                return Err(NameUnavailable {
+                    name: scope.name.clone(),
+                    depth: scope.depth,
+                });
             }
         }
         Ok(())
@@ -659,7 +697,7 @@ impl Supervisor {
         &self,
         session_path: &str,
         name: String,
-    ) -> Result<NameScope, String> {
+    ) -> Result<NameScope, SessionNotFound> {
         let canonical = canonical_session_path(Path::new(session_path))
             .to_string_lossy()
             .to_string();
@@ -689,7 +727,9 @@ impl Supervisor {
                     parent_session_path: role.parent_session_path,
                 })
             }
-            None => Err(format!("Session not found: {session_path}")),
+            None => Err(SessionNotFound {
+                path: session_path.to_owned(),
+            }),
         }
     }
 
@@ -730,7 +770,7 @@ impl Supervisor {
                     vec![response_line(&response_failure(
                         Some(command_id),
                         type_name,
-                        &error,
+                        &error.to_string(),
                         None,
                     ))],
                     false,
@@ -806,7 +846,7 @@ impl Supervisor {
                 vec![response_line(&response_failure(
                     Some(command_id),
                     type_name,
-                    &error,
+                    &error.to_string(),
                     None,
                 ))],
                 false,
@@ -827,7 +867,7 @@ impl Supervisor {
         &self,
         scope: &NameScope,
         action: impl std::future::Future<Output = T>,
-    ) -> Result<T, String> {
+    ) -> Result<T, NameUnavailable> {
         let key = reservation_key(scope);
         let reserved = {
             let mut pending = self
@@ -837,7 +877,10 @@ impl Supervisor {
             pending.insert(key.clone())
         };
         if !reserved {
-            return Err(name_unavailable_error(&scope.name, scope.depth));
+            return Err(NameUnavailable {
+                name: scope.name.clone(),
+                depth: scope.depth,
+            });
         }
         let output = match self.assert_family_name_available(scope).await {
             Ok(()) => Ok(action.await),
@@ -858,7 +901,7 @@ impl Supervisor {
         &self,
         active_session_id: &str,
         name: String,
-    ) -> Result<NameScope, String> {
+    ) -> Result<NameScope, crate::ownership::UnknownActiveSession> {
         let scope = {
             let roster = self
                 .roster
@@ -868,7 +911,9 @@ impl Supervisor {
                 .by_active_session_id(active_session_id)
                 .map(|entry| name_scope_from_summary(&entry.summary, name))
         };
-        scope.ok_or_else(|| format!("Unknown active session: {active_session_id}"))
+        scope.ok_or_else(|| crate::ownership::UnknownActiveSession {
+            selector: active_session_id.to_owned(),
+        })
     }
 
     /// The roster row rewrite of an offline rename (TS `writeRosterEntry`

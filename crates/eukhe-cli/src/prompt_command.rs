@@ -16,38 +16,51 @@ struct PromptCommandArgs {
     json: bool,
 }
 
-fn parse_args(args: &[String]) -> Result<PromptCommandArgs, String> {
+/// What the `prompt` arguments ask for.
+#[derive(Debug, PartialEq, Eq)]
+enum PromptRequest {
+    /// `--help` / `-h`: the usage (the help surface prints it).
+    Help,
+    Run(PromptCommandArgs),
+}
+
+/// Why the `prompt` arguments do not parse.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum PromptUsageError {
+    #[error("{0} requires a value")]
+    MissingValue(&'static str),
+    #[error("unknown option {0:?}")]
+    UnknownOption(String),
+}
+
+fn parse_args(args: &[String]) -> Result<PromptRequest, PromptUsageError> {
     let mut parsed = PromptCommandArgs::default();
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--json" => parsed.json = true,
             "--model" => {
-                let Some(value) = rest.next() else {
-                    return Err("--model requires a value".to_string());
-                };
+                let value = rest
+                    .next()
+                    .ok_or(PromptUsageError::MissingValue("--model"))?;
                 parsed.model = Some(value.clone());
             }
             "--cwd" => {
-                let Some(value) = rest.next() else {
-                    return Err("--cwd requires a value".to_string());
-                };
+                let value = rest.next().ok_or(PromptUsageError::MissingValue("--cwd"))?;
                 parsed.cwd = Some(value.clone());
             }
-            "--help" | "-h" => {
-                return Err(String::new());
-            }
-            other => return Err(format!("unknown option {other:?}")),
+            "--help" | "-h" => return Ok(PromptRequest::Help),
+            other => return Err(PromptUsageError::UnknownOption(other.to_owned())),
         }
     }
-    Ok(parsed)
+    Ok(PromptRequest::Run(parsed))
 }
 
 /// Run the `prompt` command; returns the process exit code.
 pub fn run_prompt_command(args: &[String]) -> i32 {
     let parsed = match parse_args(args) {
-        Ok(parsed) => parsed,
-        Err(help_request) if help_request.is_empty() => return 0,
+        Ok(PromptRequest::Run(parsed)) => parsed,
+        Ok(PromptRequest::Help) => return 0,
         Err(error) => {
             eprintln!("Error: {error}");
             eprintln!("Run `eukhe help prompt` for usage.");
@@ -193,23 +206,24 @@ mod tests {
 
     #[test]
     fn parses_flags() {
-        let parsed = parse_args(&[
+        let Ok(PromptRequest::Run(parsed)) = parse_args(&[
             "--model".to_string(),
             "mock/mock-1".to_string(),
             "--json".to_string(),
             "--cwd".to_string(),
             "/w".to_string(),
-        ])
-        .unwrap();
+        ]) else {
+            panic!("the flags parse");
+        };
         assert_eq!(parsed.model.as_deref(), Some("mock/mock-1"));
         assert_eq!(parsed.cwd.as_deref(), Some("/w"));
         assert!(parsed.json);
         assert_eq!(
-            parse_args(&["--bogus".to_string()]),
+            parse_args(&["--bogus".to_string()]).map_err(|error| error.to_string()),
             Err("unknown option \"--bogus\"".to_string())
         );
         assert_eq!(
-            parse_args(&["--model".to_string()]),
+            parse_args(&["--model".to_string()]).map_err(|error| error.to_string()),
             Err("--model requires a value".to_string())
         );
     }

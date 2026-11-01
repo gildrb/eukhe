@@ -107,21 +107,25 @@ fn remote_tool(deps: Weak<HostDeps>, announcement: Announcement) -> ToolRegistra
                 };
                 let budget_ms =
                     u64::try_from(deps.blocking_budget().as_millis()).unwrap_or(u64::MAX);
-                let called_back = match kernel_manager(&deps, &*api, &cx).await {
-                    Ok(manager) => manager
-                        .remote_call(&module, &function, &args, budget_ms)
-                        .await
-                        .map_err(|error| error.to_string()),
-                    Err(error) => Err(error),
-                };
-                Ok(match called_back {
-                    Ok(Value::String(text)) => result(text, details, Outcome::Done),
-                    Ok(value) => result(value.to_string(), details, Outcome::Done),
-                    Err(error) => result(
+                let failed = |error: &dyn std::fmt::Display, details| {
+                    result(
                         format!("{called} failed: {error}"),
                         details,
                         Outcome::Failed,
-                    ),
+                    )
+                };
+                Ok(match kernel_manager(&deps, &*api, &cx).await {
+                    Err(error) => failed(&error, details),
+                    Ok(manager) => {
+                        match manager
+                            .remote_call(&module, &function, &args, budget_ms)
+                            .await
+                        {
+                            Ok(Value::String(text)) => result(text, details, Outcome::Done),
+                            Ok(value) => result(value.to_string(), details, Outcome::Done),
+                            Err(error) => failed(&error, details),
+                        }
+                    }
                 })
             }
         },

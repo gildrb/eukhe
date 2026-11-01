@@ -52,7 +52,7 @@ use self::decide::{
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
-use self::leak::{scan, Leak};
+use self::leak::{scan, Leak, LeakParseError};
 use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
@@ -1216,7 +1216,14 @@ async fn classify(
                 calls
                     .iter()
                     .find(|call| !offered.contains(&call.name))
-                    .map(|call| (*markup, format!("it names no offered tool {:?}", call.name)))
+                    .map(|call| {
+                        (
+                            *markup,
+                            LeakParseError::UnknownTool {
+                                name: call.name.clone(),
+                            },
+                        )
+                    })
             });
             if unknown.is_some() {
                 broken = unknown;
@@ -1399,7 +1406,7 @@ async fn classify(
                             );
                             let cause = NoteCause::Leaked {
                                 markup: markup.as_str().to_owned(),
-                                reason,
+                                reason: reason.to_string(),
                                 row,
                             };
                             (redo, Some(cause), Some(error))

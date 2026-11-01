@@ -19,7 +19,8 @@ use super::cvar::{
 use super::load::load_document;
 use super::merge::{deep_merge, migrate};
 use super::persist::{
-    edit_document, edit_read, read_document, DocRead, KeyEdit, Persisted, Shadow,
+    edit_document, edit_read, read_document, BrokenDocument, DocRead, KeyEdit, Persisted,
+    SettingsEditError, Shadow,
 };
 use super::storage::{SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
@@ -64,7 +65,17 @@ pub struct SettingsManager {
 
 /// A change of a settings document read under its lock: the document to
 /// write (`None`: it changed nothing), or why it cannot apply.
-type DocumentEdit<'a> = dyn FnMut(DocRead) -> Result<Option<Map<String, Value>>, String> + 'a;
+type DocumentEdit<'a> =
+    dyn FnMut(DocRead) -> Result<Option<Map<String, Value>>, SettingsEditError> + 'a;
+
+/// Why a write of a settings document under its lock wrote nothing.
+#[derive(Debug, thiserror::Error)]
+enum WriteFailure {
+    #[error(transparent)]
+    Edit(SettingsEditError),
+    #[error("{0}")]
+    Serialize(#[source] serde_json::Error),
+}
 
 /// One loaded scope.
 struct ScopeLoad {
@@ -482,7 +493,7 @@ impl SettingsManager {
             SettingsScope::Global => "Global",
             SettingsScope::Project => "Project",
         };
-        let mut failure: Option<String> = None;
+        let mut failure: Option<WriteFailure> = None;
         let mut written: Option<Map<String, Value>> = None;
         self.storage
             .with_lock(scope, &mut |current| {
@@ -490,7 +501,7 @@ impl SettingsManager {
                 written = None;
                 let read = match read_document(current.as_deref()) {
                     DocRead::Broken(reason) => {
-                        DocRead::Broken(format!("the settings file does not parse: {reason}"))
+                        DocRead::Broken(BrokenDocument::Unparsed(Box::new(reason)))
                     }
                     read @ (DocRead::Missing | DocRead::Parsed(_)) => read,
                 };
@@ -498,7 +509,7 @@ impl SettingsManager {
                     Ok(Some(document)) => document,
                     Ok(None) => return None,
                     Err(reason) => {
-                        failure = Some(reason);
+                        failure = Some(WriteFailure::Edit(reason));
                         return None;
                     }
                 };
@@ -508,7 +519,7 @@ impl SettingsManager {
                         Some(text)
                     }
                     Err(error) => {
-                        failure = Some(error.to_string());
+                        failure = Some(WriteFailure::Serialize(error));
                         None
                     }
                 }
@@ -563,7 +574,7 @@ impl SettingsManager {
     ) -> Result<Persisted> {
         let path: Vec<&str> = decl.id.split('.').collect();
         let (probe, _) = edit_read(DocRead::Missing, &path, &KeyEdit::Set(value.clone()))
-            .map_err(|error| anyhow!(error))?;
+            .map_err(|error| anyhow!("{error}"))?;
         if let Some(error) = load_document(&probe).rejected.into_iter().next() {
             return Err(anyhow!(error));
         }
@@ -877,7 +888,7 @@ fn load_scope(
     // process-cached copy on a hit (see `SettingsStorage::read`).
     let read = match storage.read(scope) {
         Ok(content) => read_document(content.as_deref()),
-        Err(error) => DocRead::Broken(format!("{error:#}")),
+        Err(error) => DocRead::Broken(BrokenDocument::Unreadable(error)),
     };
     let mut document = match read {
         DocRead::Missing => {
@@ -888,7 +899,10 @@ fn load_scope(
             }
         }
         DocRead::Parsed(document) => document,
-        DocRead::Broken(message) => {
+        DocRead::Broken(reason) => {
+            // The load diagnostic: rendered once, for the error list and
+            // the scope's load error.
+            let message = reason.to_string();
             errors.push(SettingsError {
                 scope,
                 message: message.clone(),

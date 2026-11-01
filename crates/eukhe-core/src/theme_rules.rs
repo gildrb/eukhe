@@ -6,7 +6,7 @@
 use eukhe_bend::rules::theme as core;
 use eukhe_theme::{
     Cause, Choice, ColorValue, Mode, Outcome, Palette, PaletteParts, Picked, RawSource, RawTheme,
-    RawValue, Rgb, ThemeRules, Token,
+    RawValue, Rgb, ThemeLoadError, ThemeRules, Token,
 };
 
 /// The compiled core's theme rules.
@@ -62,16 +62,18 @@ fn palette(name: &str, painted: &core::Painted) -> Palette {
 }
 
 /// The reason a user reads for `fault`, tokens by their names.
-fn reason(fault: &core::Fault) -> String {
-    fault.reason(|t| {
-        usize::try_from(t)
-            .ok()
-            .and_then(|at| Token::ALL.get(at))
-            .map_or_else(|| t.to_string(), |token| token.name().to_string())
-    })
+fn reason(fault: &core::Fault) -> ThemeLoadError {
+    ThemeLoadError {
+        reason: fault.reason(|t| {
+            usize::try_from(t)
+                .ok()
+                .and_then(|at| Token::ALL.get(at))
+                .map_or_else(|| t.to_string(), |token| token.name().to_string())
+        }),
+    }
 }
 
-fn load(theme: &RawTheme) -> Result<Palette, String> {
+fn load(theme: &RawTheme) -> Result<Palette, ThemeLoadError> {
     match core::load(&file(theme)) {
         core::Parsed::Rejected(fault) => Err(reason(&fault)),
         core::Parsed::Painted(painted) => Ok(palette(&theme.name, &painted)),

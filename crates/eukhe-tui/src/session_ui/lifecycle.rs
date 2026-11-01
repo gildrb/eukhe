@@ -18,7 +18,7 @@ impl SessionUi {
     pub(crate) async fn open(
         client: DaemonClient,
         options: &InteractiveOptions,
-        notes: mpsc::UnboundedSender<String>,
+        notes: mpsc::UnboundedSender<super::AbortFailed>,
         compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
         prompt_notes: mpsc::UnboundedSender<PromptSubmitNote>,
         reload_notes: mpsc::UnboundedSender<ReloadNote>,

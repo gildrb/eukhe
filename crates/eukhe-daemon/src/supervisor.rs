@@ -82,7 +82,7 @@ use crate::protocol::{
 use crate::registry::{
     ResidentWorker, SessionRegistry, WorkerRegistration, WorkerReply, WorkerRequest,
 };
-use crate::saved_session_commands::{name_unavailable_error, reservation_key, NameScope};
+use crate::saved_session_commands::{reservation_key, NameScope, NameUnavailable};
 use crate::session_store::list_sessions;
 use crate::snapshot_stream::{attach_client_capabilities, stream_attach, wants_chunked};
 use crate::{socket, util};

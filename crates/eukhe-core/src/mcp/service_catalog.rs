@@ -257,13 +257,9 @@ pub fn resolve_mcp_service_catalog(
                     add_entry(entry, true, &mut by_id, &mut order, &mut diagnostics);
                 }
             }
-            Err(reason) => {
+            Err(error) => {
                 // Bounded, visible, never a startup failure.
-                let reason = if reason.is_empty() {
-                    "unknown error".to_string()
-                } else {
-                    reason.chars().take(200).collect()
-                };
+                let reason: String = error.to_string().chars().take(200).collect();
                 diagnostics.push(format!(
                     "MCP catalog source failed to load: {}: {reason}",
                     source.path.display()

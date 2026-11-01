@@ -6,8 +6,10 @@
 //! clock and expiries the core judges.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use super::{fresh, FlightBook, FlightId, Leg, Outcome, Read, RefreshFlights, RefreshIo, Stored};
+use crate::auth::refresh_error::{AuthFileError, OAuthRefreshError, RefreshError};
 use crate::auth::types::AuthCredential;
 
 const PROVIDER: &str = "x-flight";
@@ -107,7 +109,10 @@ impl RefreshIo for Doc {
         if self.fetch_ok {
             Ok(credential(self.fetches, self.now + FETCHED_LIFETIME))
         } else {
-            Err(format!("e{}", self.fetches))
+            // The flow's failure displays as its own text: `e<n>`.
+            Err(RefreshError::Fetch(Arc::new(OAuthRefreshError::Flow(
+                Arc::new(std::io::Error::other(format!("e{}", self.fetches))),
+            ))))
         }
     }
 
@@ -123,7 +128,7 @@ impl RefreshIo for Doc {
 fn show_outcome(outcome: &Outcome) -> String {
     match outcome {
         Ok(credential) => access(credential).to_owned(),
-        Err(cause) => cause.clone(),
+        Err(cause) => cause.to_string(),
     }
 }
 
@@ -408,7 +413,7 @@ impl RefreshIo for Fixed {
 fn a_load_that_finds_no_oauth_credential_refuses_to_refresh() {
     let flights = RefreshFlights::default();
     let refused = [
-        Fixed(|| Stored::Unreadable("could not read the auth file: gone".to_owned())),
+        Fixed(|| Stored::Unreadable(AuthFileError::Read(Arc::new(anyhow::anyhow!("gone"))))),
         Fixed(|| Stored::Missing),
         Fixed(|| {
             Stored::Credential(AuthCredential::ApiKey {
@@ -423,7 +428,11 @@ fn a_load_that_finds_no_oauth_credential_refuses_to_refresh() {
             })
         }),
     ]
-    .map(|mut io| flights.refresh(PROVIDER, &mut io));
+    .map(|mut io| {
+        flights
+            .refresh(PROVIDER, &mut io)
+            .map_err(|error| error.to_string())
+    });
     assert_eq!(
         refused,
         [
@@ -437,7 +446,10 @@ fn a_load_that_finds_no_oauth_credential_refuses_to_refresh() {
         PROVIDER,
         &mut Fixed(|| Stored::Credential(credential(7, 6))),
     );
-    assert_eq!(served, Ok(credential(7, 6)));
+    assert_eq!(
+        served.map_err(|error| error.to_string()),
+        Ok(credential(7, 6))
+    );
 }
 
 #[test]

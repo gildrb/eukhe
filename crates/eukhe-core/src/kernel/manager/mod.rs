@@ -51,18 +51,70 @@ const MCP_STATUS_SETTLE_MARGIN_MS: u64 = 5_000;
 const REMOTE_CALL_SETTLE_MARGIN_MS: u64 = 5_000;
 
 /// Why a `@remote` call ([`ReplKernelManager::remote_call`]) failed.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum RemoteCallError {
     #[error("the kernel is not running")]
     NotRunning,
-    #[error("the call could not reach the kernel: {0}")]
-    Unreachable(String),
+    /// The call frame could not be written to the kernel.
+    #[error("the call could not reach the kernel: {0:#}")]
+    Unreachable(#[source] anyhow::Error),
+    /// The kernel stopped or restarted before it answered the call.
+    #[error("the call could not reach the kernel: the kernel stopped before it replied")]
+    Stopped,
     #[error("{function} is not a @remote function of this kernel")]
     Unknown { function: String },
     #[error("{function} did not finish within {timeout_ms} ms")]
     Timeout { function: String, timeout_ms: u64 },
     #[error("{function} failed: {message}")]
     Failed { function: String, message: String },
+}
+
+/// The MCP lane request an [`McpLaneError`] names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpLaneRequest {
+    /// [`ReplKernelManager::mcp_tool_call`] of `tool` on `server`.
+    ToolCall { server: String, tool: String },
+    /// [`ReplKernelManager::mcp_resource`] on `server`.
+    Resource { server: String },
+}
+
+impl std::fmt::Display for McpLaneRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ToolCall { server, tool } => write!(f, "mcp tool call {server}/{tool}"),
+            Self::Resource { server } => write!(f, "mcp resource request to {server}"),
+        }
+    }
+}
+
+/// Why an MCP lane request ([`ReplKernelManager::mcp_tool_call`],
+/// [`ReplKernelManager::mcp_resource`]) failed.
+#[derive(Debug, thiserror::Error)]
+pub enum McpLaneError {
+    #[error("the kernel is not running")]
+    NotRunning,
+    /// The request frame could not be written to the kernel.
+    #[error("{request} could not reach the kernel: {source:#}")]
+    Unreachable {
+        request: McpLaneRequest,
+        #[source]
+        source: anyhow::Error,
+    },
+    /// No reply inside the kernel's bound plus the lane's settle margin.
+    #[error("{request} did not settle within {bound_ms} ms")]
+    Unsettled {
+        request: McpLaneRequest,
+        bound_ms: u64,
+    },
+    /// The server or tool failed: the kernel's error text.
+    #[error("{message}")]
+    Failed { message: String },
+    /// A non-ok reply without an error text (`status` absent: unset).
+    #[error("{request} failed: {}", status.as_deref().unwrap_or("unset status"))]
+    Status {
+        request: McpLaneRequest,
+        status: Option<String>,
+    },
 }
 
 /// What a [`ReplKernelManager::mcp_resource`] request asks of a server.
@@ -1143,16 +1195,16 @@ impl ReplKernelManager {
     ///
     /// # Errors
     ///
-    /// The kernel isn't running, the frame can't be written, the call
-    /// doesn't settle inside its bound, or the server/tool call failed
-    /// (the kernel's error text).
+    /// [`McpLaneError`]: the kernel isn't running, the frame can't be
+    /// written, the call doesn't settle inside its bound, or the
+    /// server/tool call failed (the kernel's error text).
     pub async fn mcp_tool_call(
         &self,
         server: &str,
         tool: &str,
         arguments: &Value,
         timeout_ms: u64,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, McpLaneError> {
         let frame = json!({
             "type": "mcp_call",
             "server": server,
@@ -1160,8 +1212,11 @@ impl ReplKernelManager {
             "arguments": arguments,
             "timeout_ms": timeout_ms,
         });
-        self.mcp_lane(frame, &format!("mcp tool call {server}/{tool}"), timeout_ms)
-            .await
+        let request = || McpLaneRequest::ToolCall {
+            server: server.to_owned(),
+            tool: tool.to_owned(),
+        };
+        self.mcp_lane(frame, request, timeout_ms).await
     }
 
     /// Lists the resources of one configured generic MCP server, or reads
@@ -1180,7 +1235,7 @@ impl ReplKernelManager {
         server: &str,
         request: McpResource<'_>,
         timeout_ms: u64,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, McpLaneError> {
         let mut frame = json!({
             "type": "mcp_resource",
             "server": server,
@@ -1190,27 +1245,25 @@ impl ReplKernelManager {
             McpResource::List => {}
             McpResource::Read { uri } => frame["uri"] = json!(uri),
         }
-        self.mcp_lane(
-            frame,
-            &format!("mcp resource request to {server}"),
-            timeout_ms,
-        )
-        .await
+        let request = || McpLaneRequest::Resource {
+            server: server.to_owned(),
+        };
+        self.mcp_lane(frame, request, timeout_ms).await
     }
 
     /// Send `frame` (an MCP lane request; its id is added here) and wait
     /// for its `done` frame: the kernel bounds the work by `timeout_ms`,
-    /// the host waits that plus the lane's settle margin. `label` names the
-    /// request in errors.
-    #[tracing::instrument(level = "debug", skip(self, frame))]
+    /// the host waits that plus the lane's settle margin. `request` names
+    /// the request in errors.
+    #[tracing::instrument(level = "debug", skip(self, frame, request))]
     async fn mcp_lane(
         &self,
         mut frame: Value,
-        label: &str,
+        request: impl FnOnce() -> McpLaneRequest,
         timeout_ms: u64,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, McpLaneError> {
         if !self.is_running() {
-            return Err("the kernel is not running".to_string());
+            return Err(McpLaneError::NotRunning);
         }
         let request_id = uuid::Uuid::new_v4().to_string();
         frame["id"] = json!(request_id);
@@ -1218,11 +1271,14 @@ impl ReplKernelManager {
         lock(&self.inner.guarded)
             .mcp_status_waiters
             .insert(request_id.clone(), tx);
-        if let Err(error) = self.inner.write_line(&frame).await {
+        if let Err(source) = self.inner.write_line(&frame).await {
             lock(&self.inner.guarded)
                 .mcp_status_waiters
                 .remove(&request_id);
-            return Err(format!("{label} could not reach the kernel: {error:#}"));
+            return Err(McpLaneError::Unreachable {
+                request: request(),
+                source,
+            });
         }
         let bound_ms = timeout_ms.saturating_add(MCP_STATUS_SETTLE_MARGIN_MS);
         let Ok(Ok(mut fields)) = tokio::time::timeout(Duration::from_millis(bound_ms), rx).await
@@ -1230,14 +1286,22 @@ impl ReplKernelManager {
             lock(&self.inner.guarded)
                 .mcp_status_waiters
                 .remove(&request_id);
-            return Err(format!("{label} did not settle within {bound_ms} ms"));
+            return Err(McpLaneError::Unsettled {
+                request: request(),
+                bound_ms,
+            });
         };
         match fields.get("status").and_then(Value::as_str) {
             Some("ok") => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
-            status => Err(fields.get("error").and_then(Value::as_str).map_or_else(
-                || format!("{label} failed: {}", status.unwrap_or("unset status")),
-                str::to_string,
-            )),
+            status => Err(match fields.get("error").and_then(Value::as_str) {
+                Some(message) => McpLaneError::Failed {
+                    message: message.to_owned(),
+                },
+                None => McpLaneError::Status {
+                    request: request(),
+                    status: status.map(str::to_owned),
+                },
+            }),
         }
     }
 
@@ -1284,17 +1348,13 @@ impl ReplKernelManager {
             lock(&self.inner.guarded)
                 .mcp_status_waiters
                 .remove(&request_id);
-            return Err(RemoteCallError::Unreachable(format!("{error:#}")));
+            return Err(RemoteCallError::Unreachable(error));
         }
         let bound_ms = timeout_ms.saturating_add(REMOTE_CALL_SETTLE_MARGIN_MS);
         let mut fields = match tokio::time::timeout(Duration::from_millis(bound_ms), rx).await {
             Ok(Ok(fields)) => fields,
             // The waiter was dropped: the kernel stopped or restarted.
-            Ok(Err(_)) => {
-                return Err(RemoteCallError::Unreachable(
-                    "the kernel stopped before it replied".to_owned(),
-                ));
-            }
+            Ok(Err(_)) => return Err(RemoteCallError::Stopped),
             Err(_) => {
                 lock(&self.inner.guarded)
                     .mcp_status_waiters

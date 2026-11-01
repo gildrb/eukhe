@@ -54,6 +54,28 @@ pub struct RefinementProposal {
     pub edits: Vec<RefinementEdit>,
 }
 
+/// Why a refiner reply yields no proposal JSON. The causes are held typed
+/// but not as `source()`: the text already quotes them, and refine runs
+/// render their errors with `{error:#}`, which would repeat each source.
+#[derive(Debug, thiserror::Error)]
+pub enum RefineParseError {
+    /// The compiled core could not scan the reply for truncation.
+    #[error("the model's reply could not be checked for truncation: {0}")]
+    TruncationCheck(eukhe_bend::Error),
+    /// The reply ends mid-value.
+    #[error("{}", TRUNCATED_JSON_ERROR)]
+    Truncated,
+    /// The JSON candidate is malformed but balanced.
+    #[error("the model did not return valid JSON: {0}")]
+    InvalidJson(serde_json::Error),
+    /// The reply holds no JSON object.
+    #[error("Refiner did not return a JSON object")]
+    NoJsonObject,
+    /// The reply's JSON is not an object.
+    #[error("Refiner JSON must be an object")]
+    NotAnObject,
+}
+
 /// Whether a JSON candidate ends mid-value (unterminated string, unclosed
 /// object/array): a truncated reply, as opposed to a malformed-but-balanced
 /// one. The compiled core scans it (`bend/refine_plan.bend`, R7).
@@ -62,19 +84,18 @@ pub struct RefinementProposal {
 ///
 /// The candidate is longer than the compiled core reads (the wire's
 /// longest string), so it cannot be scanned.
-pub fn is_incomplete_json(candidate: &str) -> Result<bool, String> {
-    rule::incomplete(candidate)
-        .map_err(|error| format!("the model's reply could not be checked for truncation: {error}"))
+pub fn is_incomplete_json(candidate: &str) -> Result<bool, RefineParseError> {
+    rule::incomplete(candidate).map_err(RefineParseError::TruncationCheck)
 }
 
-fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
+fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, RefineParseError> {
     match serde_json::from_str::<serde_json::Value>(candidate) {
         Ok(value) => Ok(value),
         Err(error) => {
             if is_incomplete_json(candidate)? {
-                Err(TRUNCATED_JSON_ERROR.to_string())
+                Err(RefineParseError::Truncated)
             } else {
-                Err(format!("the model did not return valid JSON: {error}"))
+                Err(RefineParseError::InvalidJson(error))
             }
         }
     }
@@ -85,9 +106,9 @@ fn parse_json_candidate(candidate: &str) -> Result<serde_json::Value, String> {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the reply contains no JSON
-/// object, the candidate JSON is invalid, or the reply looks truncated.
-pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
+/// The reply contains no JSON object, the candidate JSON is invalid, or
+/// the reply looks truncated.
+pub fn extract_json_object(text: &str) -> Result<serde_json::Value, RefineParseError> {
     let trimmed = text.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         return parse_json_candidate(trimmed);
@@ -111,9 +132,9 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
         }
     }
     if is_incomplete_json(trimmed)? {
-        return Err(TRUNCATED_JSON_ERROR.to_string());
+        return Err(RefineParseError::Truncated);
     }
-    Err("Refiner did not return a JSON object".to_string())
+    Err(RefineParseError::NoJsonObject)
 }
 
 /// Normalize an untrusted proposal, preserving invalid edit fields for
@@ -150,12 +171,11 @@ pub fn normalize_refinement_proposal(value: &serde_json::Value) -> RefinementPro
 ///
 /// # Errors
 ///
-/// Returns a human-readable error string when the reply's JSON cannot be
-/// extracted or its top level is not an object.
-pub fn parse_proposal(text: &str) -> Result<RefinementProposal, String> {
+/// The reply's JSON cannot be extracted or its top level is not an object.
+pub fn parse_proposal(text: &str) -> Result<RefinementProposal, RefineParseError> {
     let value = extract_json_object(text)?;
     if !value.is_object() {
-        return Err("Refiner JSON must be an object".to_string());
+        return Err(RefineParseError::NotAnObject);
     }
     Ok(normalize_refinement_proposal(&value))
 }
@@ -517,7 +537,7 @@ mod tests {
     #[test]
     fn a_reply_too_long_to_scan_is_an_error() {
         let reply = "[".repeat(eukhe_bend::wire::STR_MAX + 1);
-        let error = extract_json_object(&reply).unwrap_err();
+        let error = extract_json_object(&reply).unwrap_err().to_string();
         assert!(
             error.starts_with("the model's reply could not be checked for truncation: "),
             "{error}"
@@ -547,11 +567,13 @@ mod tests {
         let prose = parse_proposal("Here you go:\n{\"summary\":\"sliced\"}\nAll set.").unwrap();
         assert_eq!(prose.summary, "sliced");
         // Truncated JSON reports the output-budget cause.
-        let error = parse_proposal(r#"{"summary":"cut","edits":[{"action":"cre"#).unwrap_err();
+        let error = parse_proposal(r#"{"summary":"cut","edits":[{"action":"cre"#)
+            .unwrap_err()
+            .to_string();
         assert_eq!(error, TRUNCATED_JSON_ERROR);
         // Non-JSON text reports missing JSON.
         assert_eq!(
-            parse_proposal("no json here").unwrap_err(),
+            parse_proposal("no json here").unwrap_err().to_string(),
             "Refiner did not return a JSON object"
         );
     }

@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::schema::{parse_model_catalog, InvalidEntries};
+use crate::schema::{parse_model_catalog, InvalidEntries, ModelCatalogError};
 use crate::Model;
 
 /// A template's request headers.
@@ -56,6 +56,23 @@ impl PinnedTemplates {
     }
 }
 
+/// No catalog entry pins to a compiled transport: the catalog carried
+/// nothing this client supports.
+#[derive(Debug, thiserror::Error)]
+#[error("Catalog has no models supported by this client")]
+pub struct NoSupportedModels;
+
+/// Why a provider catalog payload yields no models.
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderCatalogError {
+    /// The payload fails schema parsing.
+    #[error(transparent)]
+    Catalog(#[from] ModelCatalogError),
+    /// No entry pins to a compiled transport.
+    #[error(transparent)]
+    NoSupportedModels(#[from] NoSupportedModels),
+}
+
 /// Catalog data can select installed transports, but cannot change where
 /// credentials are sent: parse the payload with skip-invalid semantics and
 /// keep only entries whose `(provider, api, baseUrl)` matches a compiled
@@ -69,9 +86,9 @@ impl PinnedTemplates {
 pub fn parse_provider_model_catalog(
     payload: &serde_json::Value,
     templates: &PinnedTemplates,
-) -> Result<Vec<Model>, String> {
+) -> Result<Vec<Model>, ProviderCatalogError> {
     let catalog = parse_model_catalog(payload, InvalidEntries::SkipInvalid)?;
-    pin_catalog_models(catalog.models, templates)
+    Ok(pin_catalog_models(catalog.models, templates)?)
 }
 
 /// Pin an already-parsed catalog's models to compiled transports.
@@ -83,7 +100,7 @@ pub fn parse_provider_model_catalog(
 pub fn pin_catalog_models(
     catalog_models: Vec<Model>,
     templates: &PinnedTemplates,
-) -> Result<Vec<Model>, String> {
+) -> Result<Vec<Model>, NoSupportedModels> {
     let mut models = Vec::with_capacity(catalog_models.len());
     for model in catalog_models {
         // Prime Inference ships compiled; the provider catalog never
@@ -109,7 +126,7 @@ pub fn pin_catalog_models(
         models.push(pinned);
     }
     if models.is_empty() {
-        return Err("Catalog has no models supported by this client".into());
+        return Err(NoSupportedModels);
     }
     Ok(models)
 }

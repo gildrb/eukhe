@@ -22,8 +22,24 @@ fn matches_namespace(namespace: &StartNamespace, query: &str) -> bool {
         || to_codemode_identifier(&namespace.name) == to_codemode_identifier(query)
 }
 
+/// Why a discovery global's arguments are refused; its Display is the
+/// thrown error's message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(super) enum DiscoverError {
+    #[error("describeTool() expects a tool name")]
+    NoToolName,
+    #[error("describeNamespace() expects a namespace name")]
+    NoNamespaceName,
+    #[error("searchTools() expects a query string")]
+    NoQuery,
+    #[error("searchTools() limit must be a positive integer")]
+    BadLimit,
+    #[error("searchTools() namespace must be a string")]
+    NamespaceNotAString,
+}
+
 /// What discovery global `name` resolves to with the script's argument list
-/// `args`; `Ok(None)` is `undefined`, `Err` the thrown error's message.
+/// `args`; `Ok(None)` is `undefined`, `Err` the thrown error.
 #[expect(
     clippy::too_many_lines,
     reason = "one ported upstream routine dispatching every discovery global"
@@ -32,7 +48,7 @@ pub(super) fn discover(
     start: &CodemodeStart,
     name: &str,
     args: Option<&JsonValue>,
-) -> Result<Option<JsonValue>, String> {
+) -> Result<Option<JsonValue>, DiscoverError> {
     let args = args.and_then(JsonValue::as_array).unwrap_or_default();
     let argument = |index: usize| args.get(index);
     let tools: Vec<_> = start.tools.iter().filter(|tool| !tool.hidden).collect();
@@ -45,7 +61,7 @@ pub(super) fn discover(
     match name {
         "describeTool" => {
             let Some(name) = argument(0).and_then(JsonValue::as_str) else {
-                return Err("describeTool() expects a tool name".to_owned());
+                return Err(DiscoverError::NoToolName);
             };
             Ok(tools
                 .iter()
@@ -54,7 +70,7 @@ pub(super) fn discover(
         }
         "describeNamespace" => {
             let Some(name) = argument(0).and_then(JsonValue::as_str) else {
-                return Err("describeNamespace() expects a namespace name".to_owned());
+                return Err(DiscoverError::NoNamespaceName);
             };
             let Some(namespace) = start
                 .namespaces
@@ -82,7 +98,7 @@ pub(super) fn discover(
         }
         _ => {
             let Some(query) = argument(0).and_then(JsonValue::as_str) else {
-                return Err("searchTools() expects a query string".to_owned());
+                return Err(DiscoverError::NoQuery);
             };
             let options = argument(1);
             let limit = match options.and_then(|options| options.get("limit")) {
@@ -91,12 +107,12 @@ pub(super) fn discover(
                     .as_u64()
                     .filter(|limit| *limit > 0)
                     .and_then(|limit| usize::try_from(limit).ok())
-                    .ok_or_else(|| "searchTools() limit must be a positive integer".to_owned())?,
+                    .ok_or(DiscoverError::BadLimit)?,
             };
             let namespace = match options.and_then(|options| options.get("namespace")) {
                 None | Some(JsonValue::Null) => None,
                 Some(JsonValue::String(namespace)) => Some(namespace.as_ref()),
-                Some(_) => return Err("searchTools() namespace must be a string".to_owned()),
+                Some(_) => return Err(DiscoverError::NamespaceNotAString),
             };
             let documents: Vec<SearchDocument> = tools
                 .iter()

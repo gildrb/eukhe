@@ -4,8 +4,6 @@
 //! client method a key bind runs its commands through
 //! ([`SessionUi::send_cvar_line`]).
 
-use std::fmt;
-
 use eukhe_types::cvar::{parse_list, render_list, Command};
 use eukhe_types::daemon::{CvarFailureData, CvarReply, CvarValue};
 
@@ -22,29 +20,33 @@ pub(crate) enum CvarLineTarget {
     Global,
 }
 
-/// Why a cvar line did not apply: the daemon's message, and the typed
-/// data of a rejected command (`None` for a transport or write failure).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CvarLineFailure {
-    pub(crate) message: String,
-    pub(crate) data: Option<CvarFailureData>,
-}
-
-impl fmt::Display for CvarLineFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for CvarLineFailure {}
-
-impl CvarLineFailure {
-    fn untyped(message: String) -> Self {
-        Self {
-            message,
-            data: None,
-        }
-    }
+/// Why a cvar line did not apply.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CvarLineFailure {
+    #[error(
+        "timed out after {}ms waiting for the Eukhe daemon response",
+        timeout.as_millis()
+    )]
+    TimedOut { timeout: Duration },
+    /// The request failed (the connection, a closed link).
+    #[error("{0:#}")]
+    Request(#[source] anyhow::Error),
+    /// The daemon rejected the line: its message, or the typed data of a
+    /// rejected command (a failure line with `data` has no `error`: the
+    /// typed data carries the message).
+    #[error(
+        "{}",
+        error
+            .as_deref()
+            .or(data.as_ref().map(|data| data.message.as_str()))
+            .unwrap_or("unknown error")
+    )]
+    Rejected {
+        error: Option<String>,
+        data: Option<CvarFailureData>,
+    },
+    #[error("invalid cvar reply: {0}")]
+    Malformed(#[source] serde_json::Error),
 }
 
 /// A value as a cvar command writes it (a text bare, anything else as
@@ -77,27 +79,18 @@ impl SessionUi {
         let timeout = Duration::from_millis(UI_REQUEST_TIMEOUT_MS);
         let response = tokio::time::timeout(timeout, self.client.request(command))
             .await
-            .map_err(|_| {
-                CvarLineFailure::untyped(format!(
-                    "timed out after {}ms waiting for the Eukhe daemon response",
-                    timeout.as_millis()
-                ))
-            })?
-            .map_err(|error| CvarLineFailure::untyped(format!("{error:#}")))?;
+            .map_err(|_| CvarLineFailure::TimedOut { timeout })?
+            .map_err(CvarLineFailure::Request)?;
         if !response.success {
-            let data: Option<CvarFailureData> = response
-                .data
-                .and_then(|data| serde_json::from_value(data).ok());
-            // A failure line with `data` has no `error`: the typed data
-            // carries the message.
-            let message = response
-                .error
-                .or_else(|| data.as_ref().map(|data| data.message.clone()))
-                .unwrap_or_else(|| "unknown error".to_string());
-            return Err(CvarLineFailure { message, data });
+            return Err(CvarLineFailure::Rejected {
+                error: response.error,
+                data: response
+                    .data
+                    .and_then(|data| serde_json::from_value(data).ok()),
+            });
         }
         serde_json::from_value(response.data.unwrap_or(Value::Null))
-            .map_err(|error| CvarLineFailure::untyped(format!("invalid cvar reply: {error}")))
+            .map_err(CvarLineFailure::Malformed)
     }
 
     /// Run `line` and report it: the new value of `shown` (when the reply
@@ -156,7 +149,7 @@ impl SessionUi {
                 Some(reply)
             }
             Err(failure) => {
-                self.error_row(&failure.message, view);
+                self.error_row(&failure.to_string(), view);
                 None
             }
         }
@@ -188,7 +181,7 @@ impl SessionUi {
                             .collect();
                         self.plain_row(&rows.join("\n"), view);
                     }
-                    Err(failure) => self.error_row(&failure.message, view),
+                    Err(failure) => self.error_row(&failure.to_string(), view),
                 },
                 "save" => {
                     let saved = self

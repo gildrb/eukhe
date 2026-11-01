@@ -24,6 +24,7 @@ use eukhe_ai::auth::oauth::{anthropic_oauth, github_copilot_oauth, openai_codex_
 use eukhe_ai::auth::{OAuthAuth, OAuthCredential};
 use eukhe_chord::context::AbortController;
 
+use crate::auth::refresh_error::OAuthRefreshError;
 use crate::auth::types::{AuthCredential, AuthStorageData};
 
 /// The Codex Subscription provider id (the wire identifiers the TS
@@ -167,25 +168,27 @@ impl ProviderOAuth {
         flow: Arc<dyn OAuthAuth>,
         provider_id: &str,
         credential: &AuthCredential,
-    ) -> Result<AuthCredential, String> {
-        let credential = flow_credential(credential)
-            .ok_or_else(|| format!("the stored {provider_id} credential has no refresh token"))?;
+    ) -> Result<AuthCredential, OAuthRefreshError> {
+        let credential =
+            flow_credential(credential).ok_or_else(|| OAuthRefreshError::NoRefreshToken {
+                provider: provider_id.to_string(),
+            })?;
         std::thread::Builder::new()
             .name("provider-oauth-refresh".to_string())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .map_err(|error| format!("could not start the refresh runtime: {error}"))?;
+                    .map_err(OAuthRefreshError::Runtime)?;
                 let signal = AbortController::new().signal();
                 runtime
                     .block_on(flow.refresh(credential, signal))
                     .map(|refreshed| stored_oauth_credential(&refreshed))
-                    .map_err(|error| error.to_string())
+                    .map_err(OAuthRefreshError::Flow)
             })
-            .map_err(|error| format!("could not start the refresh thread: {error}"))?
+            .map_err(OAuthRefreshError::Thread)?
             .join()
-            .map_err(|_| "the refresh thread panicked".to_string())?
+            .map_err(|_| OAuthRefreshError::Panicked)?
     }
 }
 
@@ -201,14 +204,19 @@ impl crate::auth::OAuthIntegration for ProviderOAuth {
         &self,
         provider_id: &str,
         credentials: &AuthStorageData,
-    ) -> Result<AuthCredential, String> {
+    ) -> Result<AuthCredential, OAuthRefreshError> {
         let flow = self
             .flows
             .get(provider_id)
-            .ok_or_else(|| format!("{provider_id} has no token refresh flow"))?;
-        let credential = credentials
-            .credential(provider_id)
-            .ok_or_else(|| format!("no stored credential for {provider_id}"))?;
+            .ok_or_else(|| OAuthRefreshError::NoFlow {
+                provider: provider_id.to_string(),
+            })?;
+        let credential =
+            credentials
+                .credential(provider_id)
+                .ok_or_else(|| OAuthRefreshError::NotStored {
+                    provider: provider_id.to_string(),
+                })?;
         Self::refresh_blocking(Arc::clone(flow), provider_id, &credential)
     }
 }

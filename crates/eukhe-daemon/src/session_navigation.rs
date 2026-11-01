@@ -117,7 +117,7 @@ impl SessionNavigation {
         const COMMAND: &str = "new_session";
         let live = self.live(COMMAND)?;
         let session_dir = sessions_dir_of(live.storage_dir.as_deref(), agent_dir)
-            .map_err(|error| response_failure(None, COMMAND, &error, None))?;
+            .map_err(|error| response_failure(None, COMMAND, &error.to_string(), None))?;
         let no_session = live.storage_dir.is_none();
         Ok(PreparedReplacement {
             params: replacement_params(live, None, no_session, session_dir, None),
@@ -169,7 +169,7 @@ impl SessionNavigation {
         const COMMAND: &str = "fork";
         let live = self.live(COMMAND)?;
         let session_dir = sessions_dir_of(Some(&forked), agent_dir)
-            .map_err(|error| response_failure(None, COMMAND, &error, None))?;
+            .map_err(|error| response_failure(None, COMMAND, &error.to_string(), None))?;
         Ok(PreparedReplacement {
             params: replacement_params(live, Some(forked), false, session_dir, None),
             agent_cwd: None,
@@ -206,7 +206,8 @@ impl SessionNavigation {
             ));
         }
         let live = self.live(COMMAND)?;
-        let sessions_dir = sessions_dir_of(live.storage_dir.as_deref(), agent_dir).map_err(fail)?;
+        let sessions_dir = sessions_dir_of(live.storage_dir.as_deref(), agent_dir)
+            .map_err(|error| fail(error.to_string()))?;
         let stem = input
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -284,7 +285,7 @@ impl SessionNavigation {
                 || sessions_dir_of(None, agent_dir),
                 |dir| Ok(dir.to_path_buf()),
             )
-            .map_err(|error| response_failure(None, command, &error, None))?;
+            .map_err(|error| response_failure(None, command, &error.to_string(), None))?;
         let agent_cwd = cwd_override.filter(|cwd| stored.as_ref() != Some(cwd));
         Ok(PreparedReplacement {
             params: replacement_params(
@@ -301,10 +302,14 @@ impl SessionNavigation {
 
 /// The sessions directory a replacement lives in: the live storage's
 /// parent, else the agent's sessions directory.
-fn sessions_dir_of(storage_dir: Option<&Path>, agent_dir: &Path) -> Result<PathBuf, String> {
+///
+/// # Errors
+///
+/// The agent's sessions directory does not resolve.
+fn sessions_dir_of(storage_dir: Option<&Path>, agent_dir: &Path) -> anyhow::Result<PathBuf> {
     match storage_dir.and_then(Path::parent) {
         Some(dir) => Ok(dir.to_path_buf()),
-        None => crate::paths::sessions_dir(agent_dir).map_err(|error| error.to_string()),
+        None => crate::paths::sessions_dir(agent_dir),
     }
 }
 

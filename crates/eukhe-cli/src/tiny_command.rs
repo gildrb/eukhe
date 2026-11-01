@@ -49,16 +49,15 @@ struct RoleContext {
 }
 
 impl RoleContext {
-    fn open() -> Result<Self, String> {
-        let cwd = std::env::current_dir().map_err(|error| format!("Cannot read cwd: {error}"))?;
+    fn open() -> Result<Self, TinyCommandError> {
+        let cwd = std::env::current_dir().map_err(TinyCommandError::Cwd)?;
         Self::in_dirs(&cwd, get_agent_dir())
     }
 
     /// The settings of `cwd` and the tiny home and client of `agent_dir`.
-    fn in_dirs(cwd: &Path, agent_dir: PathBuf) -> Result<Self, String> {
+    fn in_dirs(cwd: &Path, agent_dir: PathBuf) -> Result<Self, TinyCommandError> {
         let settings = SettingsManager::create(cwd, &agent_dir);
-        let worker_exe = eukhe_core::tiny::worker_exe()
-            .map_err(|error| format!("Cannot find the {APP_NAME} executable: {error}"))?;
+        let worker_exe = eukhe_core::tiny::worker_exe().map_err(TinyCommandError::WorkerExe)?;
         let client = eukhe_core::tiny::client(&agent_dir, settings.cvars(), worker_exe);
         Ok(Self {
             home: TinyHome::under(&agent_dir),
@@ -73,28 +72,84 @@ impl RoleContext {
     }
 
     /// The local model `role` resolves to (speech and dictation).
-    fn local_model(&self, role: Role) -> Result<&'static CatalogModel, String> {
+    fn local_model(&self, role: Role) -> Result<&'static CatalogModel, TinyCommandError> {
         let settings = self.role_settings(role);
         match eukhe_core::tiny::resolve(role, &settings, &self.home, "") {
-            Pick::Use(candidate) => match candidate.local_model() {
-                Some(model) => Ok(model),
-                None => Err(format!("the {} role takes local models only", role.id())),
-            },
-            Pick::Unavailable => Err(RoleUnavailable::new(role, &settings, "").to_string()),
+            Pick::Use(candidate) => candidate
+                .local_model()
+                .ok_or(TinyCommandError::LocalOnly(role)),
+            Pick::Unavailable => Err(RoleUnavailable::new(role, &settings, "").into()),
         }
     }
 }
 
-fn block_on<T>(future: impl Future<Output = T>) -> Result<T, String> {
+/// The usage line a malformed role command prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum TinyUsage {
+    #[error("Usage: {} translate <lang> <text...>", APP_NAME)]
+    Translate,
+    #[error("Usage: {} say <text...> [--out <file.wav>] [--voice <id>]", APP_NAME)]
+    Say,
+    #[error("Usage: {} transcribe <file.wav> [--language <code>]", APP_NAME)]
+    Transcribe,
+}
+
+/// Why a role command (`translate`, `say`, `transcribe`, the TUI's
+/// dictation transcriber) failed; [`exit`] prints it.
+#[derive(Debug, thiserror::Error)]
+enum TinyCommandError {
+    #[error(transparent)]
+    Usage(#[from] TinyUsage),
+    #[error("Cannot read cwd: {0}")]
+    Cwd(#[source] std::io::Error),
+    #[error("Cannot find the {app} executable: {0}", app = APP_NAME)]
+    WorkerExe(#[source] std::io::Error),
+    /// The command's tokio runtime did not start.
+    #[error("{0}")]
+    Runtime(#[source] std::io::Error),
+    #[error("the {} role takes local models only", .0.id())]
+    LocalOnly(Role),
+    #[error("{0}")]
+    Unavailable(#[from] RoleUnavailable),
+    #[error("{0}")]
+    DefaultModel(#[source] eukhe_core::durable::ModelsError),
+    #[error("{0}")]
+    Run(#[from] eukhe_core::tiny::RoleRunError),
+    #[error("{source} (model {model}; modelRoles.translate picks another)")]
+    Translation {
+        model: String,
+        #[source]
+        source: eukhe_tiny::TranslationError,
+    },
+    #[error("{0}")]
+    Worker(#[from] eukhe_tiny::TinyError),
+    #[error("{0}")]
+    Audio(#[from] eukhe_tiny_onnx::AudioFileError),
+    #[error("no audio player found ({}); write the speech to a file with --out <file.wav>", PLAYERS.join(", "))]
+    NoPlayer,
+    #[error("{} exited with {status}", .player.display())]
+    PlayerExit {
+        player: PathBuf,
+        status: std::process::ExitStatus,
+    },
+    #[error("{}: {source}", .player.display())]
+    PlayerSpawn {
+        player: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+fn block_on<T>(future: impl Future<Output = T>) -> Result<T, TinyCommandError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(TinyCommandError::Runtime)?;
     Ok(runtime.block_on(future))
 }
 
 /// Prints `result`'s error and maps it to an exit code.
-fn exit(result: Result<(), String>) -> i32 {
+fn exit(result: Result<(), TinyCommandError>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
@@ -109,12 +164,11 @@ pub fn run_translate_command(args: &[String]) -> i32 {
     exit(translate(args))
 }
 
-fn translate(args: &[String]) -> Result<(), String> {
-    let usage = || format!("Usage: {APP_NAME} translate <lang> <text...>");
-    let (language, words) = args.split_first().ok_or_else(usage)?;
+fn translate(args: &[String]) -> Result<(), TinyCommandError> {
+    let (language, words) = args.split_first().ok_or(TinyUsage::Translate)?;
     let text = words.join(" ");
     if text.trim().is_empty() {
-        return Err(usage());
+        return Err(TinyUsage::Translate.into());
     }
     let context = RoleContext::open()?;
     let settings = context.role_settings(Role::Translate);
@@ -138,8 +192,9 @@ fn translate(args: &[String]) -> Result<(), String> {
                     ) {
                         Pick::Use(candidate) => (candidate, Some(models), session),
                         Pick::Unavailable => {
-                            return Err(RoleUnavailable::new(Role::Translate, &settings, &selector)
-                                .to_string())
+                            return Err(
+                                RoleUnavailable::new(Role::Translate, &settings, &selector).into()
+                            )
                         }
                     }
                 }
@@ -154,15 +209,14 @@ fn translate(args: &[String]) -> Result<(), String> {
             eukhe_tiny::translate_request(language, &text),
             &backends,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
         let translation =
-            eukhe_tiny::translation_text(language, &text, &reply).map_err(|error| {
+            eukhe_tiny::translation_text(language, &text, &reply).map_err(|source| {
                 let model = match &candidate {
                     Candidate::Local(id) => format!("{}{id}", eukhe_tiny::LOCAL_PREFIX),
                     Candidate::Remote(selector) => selector.clone(),
                 };
-                format!("{error} (model {model}; modelRoles.translate picks another)")
+                TinyCommandError::Translation { model, source }
             })?;
         println!("{translation}");
         Ok(())
@@ -175,7 +229,7 @@ fn translate(args: &[String]) -> Result<(), String> {
 #[tracing::instrument(skip_all)]
 async fn default_model(
     context: &RoleContext,
-) -> Result<(eukhe_ai::models::Models, Option<Model>), String> {
+) -> Result<(eukhe_ai::models::Models, Option<Model>), TinyCommandError> {
     let loaded = eukhe_core::durable::create_models(&context.agent_dir);
     if !loaded.diagnostics.is_empty() {
         eprintln!(
@@ -192,7 +246,7 @@ async fn default_model(
         &BACKGROUND_CONTEXT,
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(TinyCommandError::DefaultModel)?;
     if let Some(substitution) = resolved
         .as_ref()
         .and_then(|resolved| resolved.substituted.as_ref())
@@ -215,22 +269,21 @@ struct SayArgs {
     voice: Option<String>,
 }
 
-fn parse_say(args: &[String]) -> Result<SayArgs, String> {
-    let usage = || format!("Usage: {APP_NAME} say <text...> [--out <file.wav>] [--voice <id>]");
+fn parse_say(args: &[String]) -> Result<SayArgs, TinyUsage> {
     let mut words = Vec::new();
     let mut out = None;
     let mut voice = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            "--out" => out = Some(PathBuf::from(rest.next().ok_or_else(usage)?)),
-            "--voice" => voice = Some(rest.next().ok_or_else(usage)?.clone()),
+            "--out" => out = Some(PathBuf::from(rest.next().ok_or(TinyUsage::Say)?)),
+            "--voice" => voice = Some(rest.next().ok_or(TinyUsage::Say)?.clone()),
             _ => words.push(arg.as_str()),
         }
     }
     let text = words.join(" ");
     if text.trim().is_empty() {
-        return Err(usage());
+        return Err(TinyUsage::Say);
     }
     Ok(SayArgs { text, out, voice })
 }
@@ -240,7 +293,7 @@ pub fn run_say_command(args: &[String]) -> i32 {
     exit(say(args))
 }
 
-fn say(args: &[String]) -> Result<(), String> {
+fn say(args: &[String]) -> Result<(), TinyCommandError> {
     let args = parse_say(args)?;
     let context = RoleContext::open()?;
     let model = context.local_model(Role::Speech)?;
@@ -251,10 +304,9 @@ fn say(args: &[String]) -> Result<(), String> {
             .unwrap_or_else(|| eukhe_core::tiny::local_voice(context.settings.cvars())),
         speed: 1.0,
     };
-    let audio =
-        block_on(context.client.speak(model, request))?.map_err(|error| error.to_string())?;
+    let audio = block_on(context.client.speak(model, request))??;
     match args.out {
-        Some(out) => eukhe_tiny_onnx::write_wav(&out, &audio).map_err(|error| error.to_string()),
+        Some(out) => Ok(eukhe_tiny_onnx::write_wav(&out, &audio)?),
         None => play(&audio),
     }
 }
@@ -270,21 +322,18 @@ fn find_player(path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
 }
 
 /// Plays `audio` through a temp WAV with the first player found.
-fn play(audio: &eukhe_tiny::Audio) -> Result<(), String> {
+fn play(audio: &eukhe_tiny::Audio) -> Result<(), TinyCommandError> {
     let Some(player) = find_player(std::env::var_os("PATH").as_deref()) else {
-        return Err(format!(
-            "no audio player found ({}); write the speech to a file with --out <file.wav>",
-            PLAYERS.join(", ")
-        ));
+        return Err(TinyCommandError::NoPlayer);
     };
     let wav = std::env::temp_dir().join(format!("eukhe-say-{}.wav", std::process::id()));
-    eukhe_tiny_onnx::write_wav(&wav, audio).map_err(|error| error.to_string())?;
+    eukhe_tiny_onnx::write_wav(&wav, audio)?;
     let status = std::process::Command::new(&player).arg(&wav).status();
     let _ = std::fs::remove_file(&wav);
     match status {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!("{} exited with {status}", player.display())),
-        Err(error) => Err(format!("{}: {error}", player.display())),
+        Ok(status) => Err(TinyCommandError::PlayerExit { player, status }),
+        Err(source) => Err(TinyCommandError::PlayerSpawn { player, source }),
     }
 }
 
@@ -295,20 +344,19 @@ struct TranscribeArgs {
     language: String,
 }
 
-fn parse_transcribe(args: &[String]) -> Result<TranscribeArgs, String> {
-    let usage = || format!("Usage: {APP_NAME} transcribe <file.wav> [--language <code>]");
+fn parse_transcribe(args: &[String]) -> Result<TranscribeArgs, TinyUsage> {
     let mut file = None;
     let mut language = String::new();
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            "--language" => language.clone_from(rest.next().ok_or_else(usage)?),
+            "--language" => language.clone_from(rest.next().ok_or(TinyUsage::Transcribe)?),
             _ if file.is_none() => file = Some(PathBuf::from(arg)),
-            _ => return Err(usage()),
+            _ => return Err(TinyUsage::Transcribe),
         }
     }
     Ok(TranscribeArgs {
-        file: file.ok_or_else(usage)?,
+        file: file.ok_or(TinyUsage::Transcribe)?,
         language,
     })
 }
@@ -318,9 +366,9 @@ pub fn run_transcribe_command(args: &[String]) -> i32 {
     exit(transcribe(args))
 }
 
-fn transcribe(args: &[String]) -> Result<(), String> {
+fn transcribe(args: &[String]) -> Result<(), TinyCommandError> {
     let args = parse_transcribe(args)?;
-    let cwd = std::env::current_dir().map_err(|error| format!("Cannot read cwd: {error}"))?;
+    let cwd = std::env::current_dir().map_err(TinyCommandError::Cwd)?;
     let text = block_on(transcribe_file(
         cwd,
         get_agent_dir(),
@@ -340,15 +388,14 @@ async fn transcribe_file(
     agent_dir: PathBuf,
     wav: PathBuf,
     language: String,
-) -> Result<String, String> {
-    let audio = eukhe_tiny_onnx::read_wav(&wav).map_err(|error| error.to_string())?;
+) -> Result<String, TinyCommandError> {
+    let audio = eukhe_tiny_onnx::read_wav(&wav)?;
     let context = RoleContext::in_dirs(&cwd, agent_dir)?;
     let model = context.local_model(Role::Dictation)?;
     let transcript = context
         .client
         .transcribe(model, TranscribeRequest { audio, language })
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     Ok(transcript.text.trim().to_owned())
 }
 
@@ -361,12 +408,12 @@ pub(crate) struct RoleTranscriber {
 
 impl eukhe_tui::dictation::Transcriber for RoleTranscriber {
     fn transcribe(&self, wav: PathBuf) -> eukhe_tui::dictation::DictationFuture<String> {
-        Box::pin(transcribe_file(
-            self.cwd.clone(),
-            self.agent_dir.clone(),
-            wav,
-            String::new(),
-        ))
+        let (cwd, agent_dir) = (self.cwd.clone(), self.agent_dir.clone());
+        Box::pin(async move {
+            transcribe_file(cwd, agent_dir, wav, String::new())
+                .await
+                .map_err(|error| eukhe_tui::dictation::DictationError::Backend(Box::new(error)))
+        })
     }
 }
 

@@ -109,7 +109,7 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
         .write(&ws, "a/../x", "text", &gate)
         .map(|outcome| outcome.bytes)
         .map_err(|error| match error {
-            WriteError::Refused { reason, .. } => reason,
+            WriteError::Refused { reason, .. } => reason.to_string(),
             WriteError::IsDirectory { .. }
             | WriteError::Changed { .. }
             | WriteError::Unseen { .. }

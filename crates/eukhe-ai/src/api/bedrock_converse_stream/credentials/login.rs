@@ -120,10 +120,35 @@ fn to_credentials(token: &JsonObject) -> AwsCredentials {
     }
 }
 
+/// Why a `DPoP` proof could not be made; shown after `Failed to generate
+/// Dpop proof: `.
+#[derive(Debug, thiserror::Error)]
+enum DpopError {
+    /// The cached `dpopKey` PEM body is not base64.
+    #[error("{source}")]
+    KeyEncoding {
+        #[source]
+        source: base64::DecodeError,
+    },
+    #[error("Invalid EC private key")]
+    InvalidPrivateKey,
+    #[error("EC private key has no public key")]
+    NoPublicKey,
+    /// ring refused the key pair (its error is a fixed description; ring
+    /// implements `std::error::Error` only with its `std` feature).
+    #[error("{rejected}")]
+    KeyRejected { rejected: ring::error::KeyRejected },
+    #[error("Invalid EC public key")]
+    InvalidPublicKey,
+    /// Signing failed (ring's unspecified error).
+    #[error("{failure}")]
+    Sign { failure: ring::error::Unspecified },
+}
+
 /// The SEC1 `ECPrivateKey` DER fields: the 32-byte private scalar and the
 /// uncompressed public point.
-fn sec1_key_parts(der: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let invalid = || "Invalid EC private key".to_owned();
+fn sec1_key_parts(der: &[u8]) -> Result<(Vec<u8>, Vec<u8>), DpopError> {
+    let invalid = || DpopError::InvalidPrivateKey;
     let mut reader = DerReader { bytes: der };
     let mut sequence = DerReader {
         bytes: reader.read(0x30).ok_or_else(invalid)?,
@@ -138,7 +163,7 @@ fn sec1_key_parts(der: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
             public_key = bits.get(1..).map(<[u8]>::to_vec);
         }
     }
-    let public_key = public_key.ok_or_else(|| "EC private key has no public key".to_owned())?;
+    let public_key = public_key.ok_or(DpopError::NoPublicKey)?;
     Ok((private_key, public_key))
 }
 
@@ -176,8 +201,8 @@ impl<'a> DerReader<'a> {
 /// cached `dpopKey`.
 fn generate_dpop(token_path: &str, method: &str, endpoint: &str) -> ProviderResult<String> {
     let token = load_token(token_path)?;
-    let dpop_failure = |message: String| {
-        ProviderFailure::credentials_final(format!("Failed to generate Dpop proof: {message}"))
+    let dpop_failure = |error: DpopError| {
+        ProviderFailure::credentials_final(format!("Failed to generate Dpop proof: {error}"))
     };
     let pem = token.get("dpopKey").map(js_to_string).unwrap_or_default();
     let body: String = pem
@@ -187,7 +212,7 @@ fn generate_dpop(token_path: &str, method: &str, endpoint: &str) -> ProviderResu
         .collect();
     let der = STANDARD
         .decode(body)
-        .map_err(|error| dpop_failure(error.to_string()))?;
+        .map_err(|source| dpop_failure(DpopError::KeyEncoding { source }))?;
     let (private_key, public_key) = sec1_key_parts(&der).map_err(dpop_failure)?;
     let rng = SystemRandom::new();
     let key_pair = EcdsaKeyPair::from_private_key_and_public_key(
@@ -196,10 +221,10 @@ fn generate_dpop(token_path: &str, method: &str, endpoint: &str) -> ProviderResu
         &public_key,
         &rng,
     )
-    .map_err(|error| dpop_failure(error.to_string()))?;
+    .map_err(|rejected| dpop_failure(DpopError::KeyRejected { rejected }))?;
     let point = key_pair.public_key().as_ref();
     let (Some(x), Some(y)) = (point.get(1..33), point.get(33..65)) else {
-        return Err(dpop_failure("Invalid EC public key".to_owned()));
+        return Err(dpop_failure(DpopError::InvalidPublicKey));
     };
     let header = serde_json::json!({
         "alg": "ES256",
@@ -225,7 +250,7 @@ fn generate_dpop(token_path: &str, method: &str, endpoint: &str) -> ProviderResu
     );
     let signature = key_pair
         .sign(&rng, message.as_bytes())
-        .map_err(|error| dpop_failure(error.to_string()))?;
+        .map_err(|failure| dpop_failure(DpopError::Sign { failure }))?;
     Ok(format!(
         "{message}.{}",
         URL_SAFE_NO_PAD.encode(signature.as_ref())

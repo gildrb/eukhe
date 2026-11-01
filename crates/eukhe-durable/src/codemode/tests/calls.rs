@@ -10,7 +10,8 @@ use serde_json::json;
 
 use super::{options, run_script, sandbox, setup, setup_with, text, Setup};
 use crate::codemode::{
-    ClassifierDefault, ClassifierResolver, CodemodeCallStatus, CodemodeModels, CodemodeToolDetails,
+    ClassifierDefault, ClassifierResolveError, ClassifierResolver, CodemodeCallStatus,
+    CodemodeModels, CodemodeToolDetails,
 };
 use crate::harness::tests::chat_support::{all_entries, open_chat};
 use crate::harness::tests::support::context;
@@ -222,7 +223,11 @@ async fn a_classification_without_a_model_asks_the_default_classifier() {
     let seen = Arc::clone(&asked);
     let resolver: ClassifierResolver = Arc::new(move |_models, session_model| {
         lock(&seen).push(session_model);
-        Box::pin(async { Err("no model of the judge role is available".to_owned()) })
+        Box::pin(async {
+            Err(ClassifierResolveError::from(
+                "no model of the judge role is available",
+            ))
+        })
     });
     let setup = setup_with(crate::codemode::CodemodeToolOptions {
         models: CodemodeModels::Included,

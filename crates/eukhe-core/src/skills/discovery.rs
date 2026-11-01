@@ -82,9 +82,9 @@ pub(crate) fn load_skill_from_file(
     };
     let frontmatter = match parse_frontmatter(&raw_content) {
         Ok((frontmatter, _body)) => frontmatter,
-        Err(message) => {
+        Err(error) => {
             diagnostics.push(ResourceDiagnostic::Warning {
-                message,
+                message: error.to_string(),
                 path: Some(file_path.display().to_string()),
             });
             return (None, diagnostics);
@@ -432,7 +432,7 @@ mod tests {
             ),
             warning(
                 root.join("malformed").join("SKILL.md"),
-                parse_frontmatter(malformed).unwrap_err(),
+                parse_frontmatter(malformed).unwrap_err().to_string(),
             ),
             warning(
                 root.join("dangling").join("SKILL.md"),

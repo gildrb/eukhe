@@ -12,6 +12,7 @@
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::AbortSubmissionResult;
+use eukhe_durable::session::SessionResult;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Value};
@@ -41,6 +42,11 @@ enum Origin {
     Withdrawn,
 }
 
+/// The mutation's `type` is none of `delete`, `move`, `replace`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("mutate_queued_message requires mutation.type \"delete\", \"move\", or \"replace\"")]
+struct UnknownMutationType;
+
 /// One parsed mutation.
 enum Mutation {
     Delete,
@@ -55,7 +61,7 @@ enum Mutation {
 }
 
 impl Mutation {
-    fn parse(mutation: &Value) -> Result<Self, &'static str> {
+    fn parse(mutation: &Value) -> Result<Self, UnknownMutationType> {
         match mutation.get("type").and_then(Value::as_str) {
             Some("delete") => Ok(Self::Delete),
             Some("move") => Ok(Self::Move {
@@ -84,9 +90,7 @@ impl Mutation {
                     lane: wire_lane(mutation.get("lane")),
                 })
             }
-            _ => Err(
-                "mutate_queued_message requires mutation.type \"delete\", \"move\", or \"replace\"",
-            ),
+            _ => Err(UnknownMutationType),
         }
     }
 }
@@ -133,14 +137,14 @@ impl Worker {
         };
         let mutation = match Mutation::parse(mutation) {
             Ok(mutation) => mutation,
-            Err(error) => return response_failure(None, COMMAND, error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         let status = match self
             .mutate_queue(&hosted, lane, index, expected, mutation)
             .await
         {
             Ok(status) => status,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         if status == "applied" {
             self.emit_action_update();
@@ -155,7 +159,7 @@ impl Worker {
         index: usize,
         expected: &str,
         mutation: Mutation,
-    ) -> Result<&'static str, String> {
+    ) -> SessionResult<&'static str> {
         // The queue as the client saw it: inbox inputs, then the
         // withdrawn ones (suspended and held keep their membership).
         let (inbox, withdrawn) = {
@@ -252,13 +256,13 @@ impl Worker {
         hosted: &HostedSession,
         original: &[(Origin, QueuedInput)],
         next: Vec<(Origin, QueuedInput)>,
-    ) -> Result<&'static str, String> {
+    ) -> SessionResult<&'static str> {
         let unchanged = original
             .iter()
             .zip(&next)
             .take_while(|((_, before), (_, after))| before == after)
             .count();
-        let main = hosted.main().map_err(|error| error.to_string())?;
+        let main = hosted.main()?;
         // The run gate is passed before any inbox input is withdrawn: an
         // input taken out while a quiesce holds the gate would be lost to
         // the stop that follows it.
@@ -271,8 +275,7 @@ impl Worker {
             match hosted
                 .harness()
                 .abort_submission(input.id, Some(main.id()), &BACKGROUND_CONTEXT)
-                .await
-                .map_err(|error| error.to_string())?
+                .await?
             {
                 AbortSubmissionResult::Aborted => {}
                 // A run already placed it: the queue moved under the edit.
@@ -310,8 +313,7 @@ impl Worker {
                         },
                         &BACKGROUND_CONTEXT,
                     )
-                    .await
-                    .map_err(|error| error.to_string())?;
+                    .await?;
                 }
                 Origin::Inbox => {}
             }
@@ -337,7 +339,7 @@ impl Worker {
         };
         let resumed = match self.resume_suspended_inputs(&hosted).await {
             Ok(resumed) => resumed,
-            Err(error) => return response_failure(None, RESUME, &error, None),
+            Err(error) => return response_failure(None, RESUME, &error.to_string(), None),
         };
         let queued = self
             .core

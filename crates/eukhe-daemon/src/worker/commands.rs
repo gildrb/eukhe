@@ -8,6 +8,7 @@ use eukhe_core::agent_messaging::AgentFamilyRelationship;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::session::SessionResult;
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
 
@@ -336,7 +337,7 @@ impl Worker {
         .await
         {
             Ok(cleared) => cleared,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         self.emit_action_update();
         let data = match queue {
@@ -344,7 +345,7 @@ impl Worker {
             AbortQueue::Send => {
                 if let Some(admission) = &admission {
                     if let Err(error) = resubmit(&hosted, cleared, admission).await {
-                        return response_failure(None, command, &error, None);
+                        return response_failure(None, command, &error.to_string(), None);
                     }
                 }
                 None
@@ -361,7 +362,7 @@ impl Worker {
     pub(crate) async fn resume_suspended_inputs(
         &self,
         hosted: &HostedSession,
-    ) -> Result<bool, String> {
+    ) -> SessionResult<bool> {
         resubmit_suspended(hosted, &self.core, &self.events).await
     }
 
@@ -571,7 +572,7 @@ impl Worker {
         .await
         {
             Ok(withdrawn) => withdrawn,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         cleared.extend(withdrawn);
         self.emit_action_update();
@@ -759,7 +760,7 @@ impl Worker {
             .clone();
         let summary = match self.commit_session_name(&hosted, name).await {
             Ok(summary) => summary,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // TS #2529 `applyStateSessionName`: a rename that changed an
         // existing name leaves the renamed session a displayed transcript
@@ -798,19 +799,18 @@ impl Worker {
     ///
     /// # Errors
     ///
-    /// The durable commit's failure text.
+    /// The durable commit's failure.
     pub(crate) async fn commit_session_name(
         &self,
         hosted: &HostedSession,
         name: &str,
-    ) -> Result<eukhe_types::daemon::SessionSummary, String> {
+    ) -> SessionResult<eukhe_types::daemon::SessionSummary> {
         meta::set_session_name(
             hosted.harness(),
             Some(name.to_string()),
             &BACKGROUND_CONTEXT,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
         let summary = {
             let mut core = self
                 .core
@@ -856,8 +856,8 @@ async fn resubmit(
     hosted: &HostedSession,
     inputs: Vec<QueuedInput>,
     _admission: &RunAdmission,
-) -> Result<(), String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+) -> SessionResult<()> {
+    let main = hosted.main()?;
     for input in inputs {
         main.submit(
             InputSubmissionDraft {
@@ -872,8 +872,7 @@ async fn resubmit(
             },
             &BACKGROUND_CONTEXT,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     }
     Ok(())
 }
@@ -915,7 +914,7 @@ pub(crate) async fn mutate_withdrawn<T, F>(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     decide: F,
-) -> Result<T, String>
+) -> SessionResult<T>
 where
     F: FnOnce(SuspendedState) -> (SuspendedState, T),
 {
@@ -933,10 +932,8 @@ where
         withdrawn_of(&core)
     };
     let (next, outcome) = decide(current);
-    let main = hosted.main().map_err(|error| error.to_string())?;
-    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
-        .await
-        .map_err(|error| error.to_string())?;
+    let main = hosted.main()?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT).await?;
     {
         let mut core = core
             .lock()
@@ -954,7 +951,7 @@ pub(crate) async fn set_withdrawn(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     state: SuspendedState,
-) -> Result<(), String> {
+) -> SessionResult<()> {
     mutate_withdrawn(hosted, core, events, move |_| (state, ())).await
 }
 
@@ -977,7 +974,7 @@ pub(crate) async fn drain_withdrawn(
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
     list: WithdrawnList,
-) -> Result<bool, String> {
+) -> SessionResult<bool> {
     let gate = {
         let core = core
             .lock()
@@ -1020,10 +1017,8 @@ pub(crate) async fn drain_withdrawn(
             held: Vec::new(),
         },
     };
-    let main = hosted.main().map_err(|error| error.to_string())?;
-    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT)
-        .await
-        .map_err(|error| error.to_string())?;
+    let main = hosted.main()?;
+    write_suspended(hosted.harness(), main.id(), &next, &BACKGROUND_CONTEXT).await?;
     {
         let mut core = core
             .lock()
@@ -1040,6 +1035,6 @@ pub(crate) async fn resubmit_suspended(
     hosted: &HostedSession,
     core: &Arc<std::sync::Mutex<super::SessionCore>>,
     events: &Arc<super::EventPump>,
-) -> Result<bool, String> {
+) -> SessionResult<bool> {
     drain_withdrawn(hosted, core, events, WithdrawnList::Suspended).await
 }

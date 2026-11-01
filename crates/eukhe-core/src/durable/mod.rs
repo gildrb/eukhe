@@ -85,7 +85,8 @@ pub use prompt::{section_keys, PROMPT_EXTENSION};
 pub use registry::create_eukhe_registry;
 pub use session_commands::{
     classify_session_command, commit_session_command_echo, commit_session_command_failure,
-    execute_session_command, SessionCommand, SessionCommandName, SessionCommandOutcome,
+    execute_session_command, SessionCommand, SessionCommandError, SessionCommandName,
+    SessionCommandOutcome,
 };
 pub use settings::{default_thinking_level, harness_settings, thinking_level, EukheSettings};
 pub use staging::{sweep_stale_staging_dirs, StagingSweep};

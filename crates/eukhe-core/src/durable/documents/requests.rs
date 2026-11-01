@@ -451,11 +451,11 @@ fn edit_reply(outcome: HashlineOutcome) -> EditReply {
 /// The rejection reason of an edit: what the model must fix.
 fn edit_rejection(error: &EditError) -> &'static str {
     match error {
-        EditError::Parse { .. } => "parse",
+        EditError::Parse { .. } | EditError::Syntax(_) => "parse",
         EditError::Apply(_) => "apply",
         EditError::Match(_) => "anchor",
         EditError::Io { .. } => "io",
-        EditError::Refused(_) => "refused",
+        EditError::Refused { .. } => "refused",
     }
 }
 
@@ -489,7 +489,7 @@ fn grep_rejection(error: &GrepError) -> &'static str {
         GrepError::InvalidSelector { .. } => "selector",
         GrepError::TimedOut => "timeout",
         GrepError::AllPathsMissing { .. } => "not_found",
-        GrepError::Workspace { .. } => "io",
+        GrepError::Workspace(_) | GrepError::WalkGlob(_) => "io",
         GrepError::Refused { .. } => "refused",
     }
 }
@@ -513,7 +513,7 @@ fn glob_rejection(error: &GlobError) -> &'static str {
         GlobError::PathNotFound { .. } => "not_found",
         GlobError::PathNotDirectory { .. } => "not_directory",
         GlobError::InvalidPattern { .. } => "pattern",
-        GlobError::Workspace { .. } => "io",
+        GlobError::Workspace(_) | GlobError::EscapedRoot => "io",
         GlobError::Refused { .. } => "refused",
     }
 }

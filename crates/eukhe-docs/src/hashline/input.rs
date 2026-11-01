@@ -53,7 +53,7 @@ impl PatchSection {
     /// Parse this section's body. Interleaved same-path sections may not use
     /// the clipboard; a `MV` destination loses apply-patch path noise.
     pub(crate) fn parse(&self) -> Result<Parsed, EditError> {
-        let mut parsed = parse_patch(&self.diff).map_err(EditError::parse)?;
+        let mut parsed = parse_patch(&self.diff)?;
         if self.interleaved && has_clipboard_edit(&parsed.edits) {
             return Err(EditError::parse(CLIPBOARD_INTERLEAVED_SECTIONS));
         }

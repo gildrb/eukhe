@@ -117,12 +117,15 @@ fn parses_cut_clipboard_and_register_pastes() {
 fn rejects_body_rows_for_bodyless_ops() {
     assert!(parse_patch("CUT 2\n+replacement")
         .unwrap_err()
+        .to_string()
         .contains("takes no body rows"));
     assert!(parse_patch("PUT >2 @name:")
         .unwrap_err()
+        .to_string()
         .contains("never takes `:`"));
     assert!(parse_patch("PUT <2\n+X")
         .unwrap_err()
+        .to_string()
         .contains("without `:` is clipboard-backed"));
 }
 
@@ -136,6 +139,7 @@ fn empty_put_deletes_but_empty_insert_is_rejected() {
         .any(|warning| warning.contains("empty `PUT` body as deletion")));
     assert!(parse_patch("PUT >$:")
         .unwrap_err()
+        .to_string()
         .contains("promises body rows"));
 }
 
@@ -147,7 +151,9 @@ fn recovers_bare_snapshot_rows_and_rejects_duplicates() {
         .warnings
         .iter()
         .any(|warning| warning.contains("snapshot row")));
-    let error = parse_patch("2:B\n4:first\n4:second").unwrap_err();
+    let error = parse_patch("2:B\n4:first\n4:second")
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("name line 4") && error.contains("keep only the last row"));
 }
 
@@ -194,6 +200,7 @@ fn preserves_numeric_keyed_bodies() {
 fn handles_minus_rows_and_markdown_bullets() {
     assert!(parse_patch("PUT 2:\n-old")
         .unwrap_err()
+        .to_string()
         .contains("`-` rows are not valid"));
     let parsed = parse_patch("PUT 2:\n- item\n  - nested").unwrap();
     assert!(parsed
@@ -221,15 +228,19 @@ fn warns_when_literal_payload_is_an_op() {
 fn rejects_contaminated_patch_syntax() {
     assert!(parse_patch("*** Update File: a.ts\nPUT 2:\n+X")
         .unwrap_err()
+        .to_string()
         .contains("apply_patch sentinel"));
     assert!(parse_patch("@@ -1,3 +1,3 @@\nPUT 2:\n+X")
         .unwrap_err()
+        .to_string()
         .contains("unified-diff hunk header"));
     assert!(parse_patch("2\n+B")
         .unwrap_err()
+        .to_string()
         .contains("hunk headers need a verb"));
     assert!(parse_patch("2 3\n+X")
         .unwrap_err()
+        .to_string()
         .contains("Hunk headers need a verb"));
 }
 
@@ -358,13 +369,16 @@ fn removed_del_and_copy_headers_are_orphan_rows() {
     for header in ["DEL 2", "DEL.BLK 2", "COPY 2", "COPY.BLK 2"] {
         assert!(parse_patch(header)
             .unwrap_err()
+            .to_string()
             .contains("payload line has no preceding hunk header"));
     }
 }
 
 #[test]
 fn detects_and_coalesces_overlapping_hunks() {
-    let error = parse_patch("PUT 2.=4:\n+A\nPUT 3.=5:\n+B").unwrap_err();
+    let error = parse_patch("PUT 2.=4:\n+A\nPUT 3.=5:\n+B")
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("anchor line 3 is already targeted by another hunk on line 1"));
     let parsed = parse_patch("2:b\nPUT 2:\n+B").unwrap();
     assert!(parsed.edits.iter().all(|edit| edit.line_num() != 1));
@@ -383,9 +397,13 @@ fn parses_file_ops_and_rejects_invalid_combinations() {
             dest: "next.ts".into()
         })
     );
-    assert!(parse_patch("PUT 1:\n+x\nREM").unwrap_err().contains("REM"));
+    assert!(parse_patch("PUT 1:\n+x\nREM")
+        .unwrap_err()
+        .to_string()
+        .contains("REM"));
     assert!(parse_patch("REM\nMV b.ts")
         .unwrap_err()
+        .to_string()
         .contains("only one file-level op"));
 }
 
@@ -529,11 +547,12 @@ fn tokenizer_recognizes_headers_ops_payloads_and_envelope() {
 
 #[test]
 fn reports_invalid_absolute_ranges_and_limits() {
-    let error = parse_patch("CUT 5.=2").unwrap_err();
+    let error = parse_patch("CUT 5.=2").unwrap_err().to_string();
     assert!(error.contains("For one line use `CUT 5`"));
     assert!(error.contains("For 2 lines starting at 5, use `CUT 5.=6`"));
     assert!(parse_patch("PUT 1.=100001:\n+x")
         .unwrap_err()
+        .to_string()
         .contains("maximum is 100000"));
 }
 

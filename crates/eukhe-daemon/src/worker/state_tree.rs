@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, Weak};
 
 use eukhe_core::durable::{EukheSession, TreeCursor};
 use eukhe_durable::tree::{
-    NodeId, RewindEffect, StateKey, StateKind, StateNode, StateTree, TreeOp, TreeRecord,
+    CursorAhead, NodeId, RewindEffect, StateKey, StateKind, StateNode, StateTree, TreeOp,
+    TreeRecord,
 };
 use eukhe_types::daemon::{
     DaemonOutbound, DaemonResponse, StateRewindPlanReply, StateTreeEffect, StateTreeKind,
@@ -22,6 +23,17 @@ use tokio::sync::watch;
 
 use super::{EventPump, HostedSession, OutboundFrame, SessionCore, Worker};
 use crate::protocol::{response_failure, response_success};
+
+/// Why the state tree did not convert to its wire form.
+#[derive(Debug, thiserror::Error)]
+enum StateTreeWireError {
+    /// The client's cursor is past the tree's.
+    #[error(transparent)]
+    CursorAhead(#[from] CursorAhead),
+    /// A node the tree holds has no key.
+    #[error("state tree node {} has no key", .id.0)]
+    NoKey { id: NodeId },
+}
 
 impl Worker {
     /// Follow the state tree of `hosted` (the installed session; `None`
@@ -125,8 +137,7 @@ impl Worker {
             .state_tree()
             .read(|state| {
                 let effects = state
-                    .rewind_plan(target)
-                    .map_err(|error| error.to_string())?
+                    .rewind_plan(target)?
                     .into_iter()
                     .map(|effect| {
                         Ok(match effect {
@@ -137,7 +148,7 @@ impl Worker {
                             }
                         })
                     })
-                    .collect::<Result<Vec<_>, String>>()?;
+                    .collect::<Result<Vec<_>, StateTreeWireError>>()?;
                 Ok(StateRewindPlanReply {
                     cursor: wire_cursor(state.cursor()),
                     target: wire_cursor(target),
@@ -150,13 +161,16 @@ impl Worker {
 }
 
 /// The response for a read of the tree: `None` when its build failed.
-fn respond<T: serde::Serialize>(command: &str, reply: Option<Result<T, String>>) -> DaemonResponse {
+fn respond<T: serde::Serialize>(
+    command: &str,
+    reply: Option<Result<T, StateTreeWireError>>,
+) -> DaemonResponse {
     match reply {
         Some(Ok(reply)) => match serde_json::to_value(reply) {
             Ok(data) => response_success(None, command, Some(data)),
             Err(error) => response_failure(None, command, &error.to_string(), None),
         },
-        Some(Err(message)) => response_failure(None, command, &message, None),
+        Some(Err(error)) => response_failure(None, command, &error.to_string(), None),
         None => response_failure(None, command, "the state tree build failed", None),
     }
 }
@@ -239,13 +253,11 @@ fn wire_kind(kind: StateKind) -> StateTreeKind {
     }
 }
 
-fn key_of(state: &StateTree, id: NodeId) -> Result<&StateKey, String> {
-    state
-        .key(id)
-        .ok_or_else(|| format!("state tree node {} has no key", id.0))
+fn key_of(state: &StateTree, id: NodeId) -> Result<&StateKey, StateTreeWireError> {
+    state.key(id).ok_or(StateTreeWireError::NoKey { id })
 }
 
-fn node_ref(state: &StateTree, id: NodeId) -> Result<StateTreeNodeRef, String> {
+fn node_ref(state: &StateTree, id: NodeId) -> Result<StateTreeNodeRef, StateTreeWireError> {
     let key = key_of(state, id)?;
     Ok(StateTreeNodeRef {
         id: id.0,
@@ -259,7 +271,7 @@ fn wire_node(
     id: NodeId,
     parent: NodeId,
     node: &StateNode,
-) -> Result<StateTreeNode, String> {
+) -> Result<StateTreeNode, StateTreeWireError> {
     Ok(StateTreeNode {
         id: id.0,
         parent: parent.0,
@@ -269,7 +281,7 @@ fn wire_node(
     })
 }
 
-fn wire_op(state: &StateTree, op: &TreeOp<StateNode>) -> Result<StateTreeOp, String> {
+fn wire_op(state: &StateTree, op: &TreeOp<StateNode>) -> Result<StateTreeOp, StateTreeWireError> {
     Ok(match op {
         TreeOp::Put { id, parent, value } => {
             StateTreeOp::Put(wire_node(state, *id, *parent, value)?)
@@ -278,10 +290,9 @@ fn wire_op(state: &StateTree, op: &TreeOp<StateNode>) -> Result<StateTreeOp, Str
     })
 }
 
-fn records(state: &StateTree, from: usize) -> Result<StateTreeRecords, String> {
+fn records(state: &StateTree, from: usize) -> Result<StateTreeRecords, StateTreeWireError> {
     let records = state
-        .records_since(from)
-        .map_err(|error| error.to_string())?
+        .records_since(from)?
         .iter()
         .map(|record| {
             Ok(match record {
@@ -289,11 +300,11 @@ fn records(state: &StateTree, from: usize) -> Result<StateTreeRecords, String> {
                 TreeRecord::Rewind(ops) => StateTreeRecord::Rewind(
                     ops.iter()
                         .map(|op| wire_op(state, op))
-                        .collect::<Result<_, String>>()?,
+                        .collect::<Result<_, StateTreeWireError>>()?,
                 ),
             })
         })
-        .collect::<Result<_, String>>()?;
+        .collect::<Result<_, StateTreeWireError>>()?;
     Ok(StateTreeRecords {
         from: wire_cursor(from),
         cursor: wire_cursor(state.cursor()),

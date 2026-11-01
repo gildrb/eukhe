@@ -24,10 +24,26 @@ use eukhe_durable::harness::{bound_output, OutputLimits, Truncation};
 /// The artifacts' directory in the session's storage directory.
 const ARTIFACT_DIR: &str = "tool-output";
 
+/// Why the full output of a spilled run is not kept; the diagnostic
+/// reads its `Display`.
+#[derive(Debug, thiserror::Error)]
+enum SpillError {
+    #[error("the session has no storage directory")]
+    NoStorageDir,
+    #[error("saving it to {} failed: {source}", path.display())]
+    Save {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("writing the full output failed: {0}")]
+    Write(#[source] std::io::Error),
+}
+
 /// The kept head and the open artifact of an output past the bound.
 struct Spilled {
     head: String,
-    artifact: Result<(PathBuf, std::io::BufWriter<std::fs::File>), String>,
+    artifact: Result<(PathBuf, std::io::BufWriter<std::fs::File>), SpillError>,
 }
 
 /// One run's output: whole while within the bound, then head, tail window,
@@ -35,9 +51,9 @@ struct Spilled {
 pub struct BoundedOutput {
     /// The bound; `None` under the opt-out, which keeps everything.
     bound: Option<OutputLimits>,
-    /// Where the full output goes once it passes the bound; `Err`: why it
-    /// cannot be kept.
-    artifact_path: Result<PathBuf, String>,
+    /// Where the full output goes once it passes the bound; `None`: the
+    /// session has no storage directory.
+    artifact_path: Option<PathBuf>,
     /// All of the output within the bound; past it, a suffix holding the
     /// tail window.
     window: String,
@@ -69,8 +85,7 @@ impl BoundedOutput {
         Self {
             bound: truncation.limits(),
             artifact_path: storage_dir
-                .map(|dir| dir.join(ARTIFACT_DIR).join(format!("{name}.txt")))
-                .ok_or_else(|| "the session has no storage directory".to_owned()),
+                .map(|dir| dir.join(ARTIFACT_DIR).join(format!("{name}.txt"))),
             window: String::new(),
             spilled: None,
             bytes: 0,
@@ -102,7 +117,7 @@ impl BoundedOutput {
             Some(spilled) => {
                 if let Ok((_, file)) = &mut spilled.artifact {
                     if let Err(error) = file.write_all(text.as_bytes()) {
-                        spilled.artifact = Err(format!("writing the full output failed: {error}"));
+                        spilled.artifact = Err(SpillError::Write(error));
                     }
                 }
                 // Keep the tail window and the byte before it, so the window
@@ -135,17 +150,22 @@ impl BoundedOutput {
 
     fn spill(&mut self, bound: OutputLimits) {
         let head = bound_output(&self.window, &half(bound, OutputRetain::Head)).text;
-        let artifact = self.artifact_path.clone().and_then(|path| {
-            let opened = path
-                .parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::File::create(&path))
-                .map(std::io::BufWriter::new)
-                .and_then(|mut file| file.write_all(self.window.as_bytes()).map(|()| file));
-            opened
-                .map(|file| (path.clone(), file))
-                .map_err(|error| format!("saving it to {} failed: {error}", path.display()))
-        });
+        let artifact = self
+            .artifact_path
+            .clone()
+            .ok_or(SpillError::NoStorageDir)
+            .and_then(|path| {
+                let opened = path
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| std::fs::File::create(&path))
+                    .map(std::io::BufWriter::new)
+                    .and_then(|mut file| file.write_all(self.window.as_bytes()).map(|()| file));
+                match opened {
+                    Ok(file) => Ok((path, file)),
+                    Err(source) => Err(SpillError::Save { path, source }),
+                }
+            });
         self.spilled = Some(Spilled { head, artifact });
     }
 
@@ -165,12 +185,16 @@ impl BoundedOutput {
             return (self.window.clone(), None);
         };
         let tail = bound_output(&self.window, &half(bound, OutputRetain::Tail)).text;
+        let flushed;
         let artifact = match artifact {
-            Ok((path, file)) => file
-                .flush()
-                .map(|()| path.to_string_lossy().into_owned())
-                .map_err(|error| format!("writing the full output failed: {error}")),
-            Err(reason) => Err(reason.clone()),
+            Ok((path, file)) => match file.flush() {
+                Ok(()) => Ok(path.to_string_lossy().into_owned()),
+                Err(source) => {
+                    flushed = SpillError::Write(source);
+                    Err(&flushed)
+                }
+            },
+            Err(reason) => Err(&*reason),
         };
         let head = head.clone();
         let after_line = newlines(&head);

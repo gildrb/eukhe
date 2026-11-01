@@ -19,7 +19,7 @@ use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::{call, expect_core, Entry};
 
 use crate::kernel::shared::KeptCredentials;
-use crate::kernel::transport::{KernelTransport, KernelWrapper};
+use crate::kernel::transport::{KernelTransport, KernelWrapper, PathMapError};
 
 // ---------------------------------------------------------------------------
 // Startup and child wiring
@@ -33,6 +33,17 @@ static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 enum Launch<'a> {
     Local(std::path::PathBuf),
     Wrapped(&'a KernelWrapper),
+}
+
+/// Why the kernel process did not spawn.
+#[derive(Debug, thiserror::Error)]
+enum SpawnError {
+    /// The transport cannot map the launch (its cwd is outside every mount).
+    #[error("kernel transport: {0}")]
+    Transport(#[source] PathMapError),
+    /// The OS refused the process.
+    #[error(transparent)]
+    Spawn(#[from] std::io::Error),
 }
 
 /// The environment of every program the host runs for an agent outside the
@@ -351,7 +362,7 @@ impl Inner {
                         |name| std::env::var(name).ok(),
                         &python_paths,
                     )
-                    .map_err(|error| format!("kernel transport: {error}"));
+                    .map_err(SpawnError::Transport);
                 let program = wrapper.argv_prefix.join(" ");
                 let command = started.map(|launch| {
                     for key in &launch.unmapped_env {
@@ -376,7 +387,7 @@ impl Inner {
             // with it. A wrapped kernel's group is the wrapper's: killing
             // it ends the wrapper, and the stub sees its stdin close.
             command.process_group(0);
-            command.spawn().map_err(|error| error.to_string())
+            command.spawn().map_err(SpawnError::from)
         });
         let child = match spawned {
             Ok(child) => child,

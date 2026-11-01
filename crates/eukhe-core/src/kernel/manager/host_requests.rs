@@ -76,10 +76,7 @@ impl Inner {
         let held = BlockingWait::of(self, &data);
         let task = tokio::spawn(async move {
             let _held = held;
-            let result = inner
-                .handle_host_request(&data)
-                .await
-                .map_err(|error| format!("{error:#}"));
+            let result = inner.handle_host_request(&data).await;
             inner.send_host_reply(&request_id, result).await;
         });
         let mut g = lock(&self.guarded);
@@ -89,12 +86,14 @@ impl Inner {
     }
 
     /// Send the one reply to host request `request_id`: its handler's
-    /// result, or the error of a failed request.
+    /// result, or the error of a failed request (rendered with its chain,
+    /// the reply frame's `error` text).
     #[tracing::instrument(level = "debug", skip(self, reply))]
-    pub(crate) async fn send_host_reply(&self, request_id: &str, reply: Result<Value, String>) {
+    pub(crate) async fn send_host_reply(&self, request_id: &str, reply: anyhow::Result<Value>) {
         let data = match reply {
             Ok(result) => json!({ "status": "ok", "result": result }),
             Err(error) => {
+                let error = format!("{error:#}");
                 self.append_diagnostic(&format!("host request failed for {request_id}: {error}"));
                 json!({ "status": "error", "error": error })
             }

@@ -182,6 +182,25 @@ struct Wired {
     stderr: File,
 }
 
+/// Why a command's streams could not be wired; its Display is the line
+/// the script's stderr gets.
+#[derive(Debug, thiserror::Error)]
+enum WireError {
+    /// A pipe between commands, or to a captured stream, could not open.
+    #[error("eukhe-shell: pipe: {source}\n")]
+    Pipe {
+        #[source]
+        source: std::io::Error,
+    },
+    /// A redirection's file could not open.
+    #[error("eukhe-shell: {target}: {source}\n")]
+    Redirect {
+        target: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// A chunk a command wrote to the script's stdout or stderr.
 struct Chunk {
     step: u64,
@@ -638,12 +657,12 @@ impl Shell {
                     Target::Open(File::from(OwnedFd::from(writer)))
                 })
             }
-            .map_err(|error| format!("eukhe-shell: pipe: {error}\n"))
+            .map_err(|source| WireError::Pipe { source })
             .and_then(|stdout| self.wire(stage, stdin, stdout, &chunks, &mut readers));
             let mut wired = match wired {
                 Ok(wired) => wired,
-                Err(message) => {
-                    sink.output(stage.step, Stream::Stderr, message.as_bytes());
+                Err(error) => {
+                    sink.output(stage.step, Stream::Stderr, error.to_string().as_bytes());
                     continue;
                 }
             };
@@ -678,7 +697,7 @@ impl Shell {
     /// The streams of `stage`: `stdin` (the pipe from the command before
     /// it), `stdout` (the pipe to the command after it, or the script's
     /// stdout), and the script's stderr, then its redirections in order.
-    /// The error is the message of a redirection that could not open.
+    /// The error is the redirection or pipe that could not open.
     fn wire(
         &self,
         stage: &Planned,
@@ -686,12 +705,15 @@ impl Shell {
         stdout: Target,
         chunks: &mpsc::Sender<Chunk>,
         readers: &mut JoinSet<()>,
-    ) -> Result<Wired, String> {
+    ) -> Result<Wired, WireError> {
         let mut stdin = stdin;
         let mut fds = [stdout, Target::Capture(Stream::Stderr)];
         for (fd, op, target) in &stage.redirects {
             let path = self.cwd.join(target);
-            let failed = |error: std::io::Error| format!("eukhe-shell: {target}: {error}\n");
+            let failed = |source: std::io::Error| WireError::Redirect {
+                target: target.clone(),
+                source,
+            };
             let slot = (*fd as usize).clamp(1, 2) - 1;
             match op {
                 RedirectOp::Read(_) => stdin = Some(File::open(&path).map_err(failed)?),
@@ -735,7 +757,7 @@ impl Shell {
             }
         };
         let [fd1, fd2] = fds;
-        let failed = |error: std::io::Error| format!("eukhe-shell: pipe: {error}\n");
+        let failed = |source: std::io::Error| WireError::Pipe { source };
         Ok(Wired {
             stdin,
             stdout: open(fd1).map_err(failed)?,

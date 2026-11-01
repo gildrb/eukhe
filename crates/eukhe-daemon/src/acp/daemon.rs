@@ -42,7 +42,10 @@ use super::wire_config::{
 };
 use super::wire_events::{self, WireMappingState};
 
+pub(super) mod error;
 mod stop;
+
+use error::{AcpRefusal, DaemonCommandError, DaemonLinkError};
 
 use stop::{
     cancel_order, handle_session_close, release_session_input_pause, run_cancel_stop, teardown,
@@ -77,13 +80,14 @@ pub(crate) struct DaemonLink {
 
 impl DaemonLink {
     /// Connect and complete the `daemon_hello` handshake.
-    async fn connect(socket_path: &Path) -> anyhow::Result<Self> {
+    async fn connect(socket_path: &Path) -> Result<Self, DaemonLinkError> {
         let stream = tokio::time::timeout(
             std::time::Duration::from_secs(3),
             eukhe_types::platform::transport::connect_transport(socket_path),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("timed out connecting to the daemon socket"))??;
+        .map_err(|_| DaemonLinkError::ConnectTimeout)?
+        .map_err(DaemonLinkError::Connect)?;
         let (reader_half, writer_half) = stream.split();
         let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel::<LinkFrame>();
@@ -150,8 +154,8 @@ impl DaemonLink {
 
         let hello = tokio::time::timeout(std::time::Duration::from_secs(3), hello_rx)
             .await
-            .map_err(|_| anyhow::anyhow!("the daemon did not send its handshake"))?
-            .map_err(|_| anyhow::anyhow!("the daemon connection closed before the handshake"))?;
+            .map_err(|_| DaemonLinkError::HandshakeTimeout)?
+            .map_err(|_| DaemonLinkError::HandshakeClosed)?;
         let protocol = hello
             .get("protocol")
             .cloned()
@@ -173,16 +177,22 @@ impl DaemonLink {
 
     /// Send one command envelope and wait for the matching response
     /// under the session-scoped response timeout.
-    pub(crate) async fn request(&self, command: DaemonCommand) -> anyhow::Result<DaemonResponse> {
+    pub(crate) async fn request(
+        &self,
+        command: DaemonCommand,
+    ) -> Result<DaemonResponse, DaemonLinkError> {
         self.exchange(command, Some(REQUEST_TIMEOUT)).await
     }
 
-    pub(crate) async fn request_ok(&self, command: DaemonCommand) -> anyhow::Result<()> {
+    pub(crate) async fn request_ok(
+        &self,
+        command: DaemonCommand,
+    ) -> Result<(), DaemonCommandError> {
         let response = self.request(command).await?;
         if !response.success {
-            anyhow::bail!(response
-                .error
-                .unwrap_or_else(|| "unknown error".to_string()));
+            return Err(DaemonCommandError::Refused {
+                message: response.error,
+            });
         }
         Ok(())
     }
@@ -191,7 +201,10 @@ impl DaemonLink {
     /// link close ends the wait (turn-long commands — declared
     /// divergence, TS caps them at 24 h; the link-close signal is the
     /// liveness bound here, not a timer).
-    async fn request_until_close(&self, command: DaemonCommand) -> anyhow::Result<DaemonResponse> {
+    async fn request_until_close(
+        &self,
+        command: DaemonCommand,
+    ) -> Result<DaemonResponse, DaemonLinkError> {
         self.exchange(command, None).await
     }
 
@@ -201,7 +214,7 @@ impl DaemonLink {
         &self,
         command: DaemonCommand,
         timeout: Option<std::time::Duration>,
-    ) -> anyhow::Result<DaemonResponse> {
+    ) -> Result<DaemonResponse, DaemonLinkError> {
         use std::sync::atomic::Ordering;
         let id = format!(
             "acp-{}",
@@ -217,7 +230,7 @@ impl DaemonLink {
             client_id: Some(format!("acp:{}", std::process::id())),
             command,
         };
-        let line = serde_json::to_string(&envelope)?;
+        let line = serde_json::to_string(&envelope).map_err(DaemonLinkError::Encode)?;
         let (tx, rx) = oneshot::channel::<DaemonResponse>();
         self.pending.lock().unwrap().insert(id.clone(), tx);
         // A request that races the close loses either way: the flag
@@ -226,23 +239,23 @@ impl DaemonLink {
         // parks unnoticed.
         if self.closed.load(Ordering::SeqCst) {
             self.pending.lock().unwrap().remove(&id);
-            anyhow::bail!("the daemon connection is closed");
+            return Err(DaemonLinkError::Closed);
         }
         if self.writer.send(line).is_err() {
             // A closed writer leaves the pending slot behind otherwise; a
             // link that never answers again would grow one entry per
             // request.
             self.pending.lock().unwrap().remove(&id);
-            anyhow::bail!("the daemon connection is closed");
+            return Err(DaemonLinkError::Closed);
         }
         match timeout {
             Some(timeout) => tokio::time::timeout(timeout, rx).await.map_err(|_| {
                 self.pending.lock().unwrap().remove(&id);
-                anyhow::anyhow!("timed out waiting for the daemon response")
+                DaemonLinkError::ResponseTimeout
             })?,
             None => rx.await,
         }
-        .map_err(|_| anyhow::anyhow!("the daemon connection closed mid-request"))
+        .map_err(|_| DaemonLinkError::ClosedMidRequest)
     }
 }
 
@@ -277,7 +290,7 @@ pub(crate) struct HostedSession {
     /// the serialized config queue (`configTask`).
     pub(crate) config: Arc<HostedConfig>,
     cancelling: bool,
-    stop_failure: Option<String>,
+    stop_failure: Option<Arc<DaemonCommandError>>,
     input_pause_key: Option<String>,
     input_pause_id: Option<String>,
     cancel_task: Option<tokio::sync::watch::Receiver<bool>>,
@@ -535,8 +548,8 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
             }
             // A refused prompt or close answers from the prefix; the
             // running turn is untouched.
-            FrameOrder::Refused { id, message } => {
-                let _ = tx.send(super::internal_error(&id, &message));
+            FrameOrder::Refused { id, refusal } => {
+                let _ = tx.send(super::internal_error(&id, &refusal.to_string()));
             }
             FrameOrder::Close { id, params, done } => {
                 let link = Arc::clone(&link);
@@ -590,7 +603,7 @@ async fn bind_daemon_session(
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
     create: DaemonCommand,
-) -> anyhow::Result<DaemonBinding> {
+) -> Result<DaemonBinding, DaemonCommandError> {
     let client_owned = matches!(
         create,
         DaemonCommand::Create {
@@ -600,7 +613,9 @@ async fn bind_daemon_session(
     );
     let created = link.request(create).await?;
     if !created.success {
-        anyhow::bail!(created.error.unwrap_or_else(|| "unknown error".to_string()));
+        return Err(DaemonCommandError::Refused {
+            message: created.error,
+        });
     }
     let binding = DaemonBinding {
         active_session_id: created
@@ -627,13 +642,14 @@ async fn bind_daemon_session(
             rest: Map::default(),
         })
         .await
+        .map_err(DaemonCommandError::from)
         .and_then(|response| {
             if response.success {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!(response
-                    .error
-                    .unwrap_or_else(|| "unknown error".to_string())))
+                Err(DaemonCommandError::Refused {
+                    message: response.error,
+                })
             }
         });
     if let Err(error) = attached {
@@ -652,7 +668,7 @@ enum FrameOrder {
     },
     Refused {
         id: Value,
-        message: String,
+        refusal: AcpRefusal,
     },
     Close {
         id: Value,
@@ -685,9 +701,9 @@ async fn frame_order_prefix(incoming: &Incoming, state: &Arc<Mutex<DaemonAcpStat
                     params: params.clone(),
                     admission_id,
                 },
-                Err(message) => FrameOrder::Refused {
+                Err(refusal) => FrameOrder::Refused {
                     id: id.clone(),
-                    message,
+                    refusal,
                 },
             }
         }
@@ -706,13 +722,13 @@ async fn frame_order_prefix(incoming: &Incoming, state: &Arc<Mutex<DaemonAcpStat
             {
                 return FrameOrder::Refused {
                     id: id.clone(),
-                    message: format!("Unknown ACP session: {session_id}"),
+                    refusal: AcpRefusal::UnknownSession { session_id },
                 };
             }
             if guard.session_close_done.is_some() {
                 return FrameOrder::Refused {
                     id: id.clone(),
-                    message: format!("ACP session is already closing: {session_id}"),
+                    refusal: AcpRefusal::AlreadyClosing { session_id },
                 };
             }
             guard.session_close_done = Some(done_rx);
@@ -735,7 +751,7 @@ async fn frame_order_prefix(incoming: &Incoming, state: &Arc<Mutex<DaemonAcpStat
 async fn admit_prompt(
     params: &Value,
     state: &Arc<Mutex<DaemonAcpState>>,
-) -> Result<String, String> {
+) -> Result<String, AcpRefusal> {
     let session_id = params
         .get("sessionId")
         .and_then(Value::as_str)
@@ -747,19 +763,27 @@ async fn admit_prompt(
         .as_mut()
         .filter(|hosted| hosted.acp_session_id == session_id)
     else {
-        return Err(format!("Unknown ACP session: {session_id}"));
+        return Err(AcpRefusal::UnknownSession {
+            session_id: session_id.to_string(),
+        });
     };
     if session_closing {
-        return Err(format!("ACP session is closing: {session_id}"));
+        return Err(AcpRefusal::Closing {
+            session_id: session_id.to_string(),
+        });
     }
     if hosted.cancelling {
-        return Err(format!("ACP session is cancelling: {session_id}"));
+        return Err(AcpRefusal::Cancelling {
+            session_id: session_id.to_string(),
+        });
     }
     if let Some(stop_failure) = hosted.stop_failure.as_ref() {
-        return Err(format!("ACP session stop failed: {stop_failure}"));
+        return Err(AcpRefusal::StopFailed {
+            source: Arc::clone(stop_failure),
+        });
     }
     if hosted.turn.is_some() {
-        return Err("A prompt turn is already running for this ACP session".to_string());
+        return Err(AcpRefusal::TurnRunning);
     }
     let admission_id = format!("prompt-admission:{}", uuid::Uuid::new_v4());
     // The stop reason is per-turn: a turn that runs no model call (a
@@ -894,14 +918,14 @@ async fn handle_session_new(
                     &id,
                     jsonrpc::INVALID_PARAMS,
                     "Invalid params",
-                    Some(&json!({ "reason": reason })),
+                    Some(&json!({ "reason": reason.to_string() })),
                 ));
                 return;
             }
         };
     if let Err(details) = super::mcp::acp_mcp_tool_names(&resolved) {
         state.lock().await.session_new_in_flight = false;
-        let _ = tx.send(super::internal_error(&id, &details));
+        let _ = tx.send(super::internal_error(&id, &details.to_string()));
         return;
     }
 
@@ -1078,7 +1102,7 @@ async fn handle_session_new(
                     .as_mut()
                     .filter(|hosted| hosted.input_pause_id.as_deref() == Some(&pause_id))
                 {
-                    hosted.stop_failure = Some(error.to_string());
+                    hosted.stop_failure = Some(Arc::new(error));
                 }
             }
         }
@@ -1091,12 +1115,12 @@ async fn replace_connection_servers(
     daemon_session_id: &str,
     owner_id: &str,
     resolved: &[eukhe_core::mcp::AcpMcpServerConfig],
-) -> anyhow::Result<()> {
+) -> Result<(), DaemonCommandError> {
     link.request_ok(DaemonCommand::ReplaceAcpMcpServers {
         id: None,
         active_session_id: daemon_session_id.to_string(),
         owner_id: owner_id.to_string(),
-        servers: serde_json::to_value(resolved)?,
+        servers: serde_json::to_value(resolved).map_err(DaemonCommandError::Encode)?,
         rest: Map::default(),
     })
     .await
@@ -1107,7 +1131,7 @@ async fn clear_connection_servers(
     daemon_session_id: &str,
     owner_id: &str,
     state: &Arc<Mutex<DaemonAcpState>>,
-) -> anyhow::Result<()> {
+) -> Result<(), DaemonCommandError> {
     replace_connection_servers(link, daemon_session_id, owner_id, &[]).await?;
     state.lock().await.mcp_server_names.clear();
     Ok(())
@@ -1340,9 +1364,9 @@ async fn prompt_turn(
             })
             .await?;
         if !response.success {
-            anyhow::bail!(response
-                .error
-                .unwrap_or_else(|| "unknown error".to_string()));
+            return Err(DaemonCommandError::Refused {
+                message: response.error,
+            });
         }
         let waiting_on = response
             .data
@@ -1350,9 +1374,8 @@ async fn prompt_turn(
             .and_then(|state| state.get("waitingOn"))
             .cloned()
             .unwrap_or(Value::Null);
-        anyhow::Ok(serde_json::from_value::<
-            Option<eukhe_types::daemon::WaitingOn>,
-        >(waiting_on)?)
+        serde_json::from_value::<Option<eukhe_types::daemon::WaitingOn>>(waiting_on)
+            .map_err(DaemonCommandError::Decode)
     }
     .await;
     let waiting_on = match waiting_on {
@@ -1560,7 +1583,7 @@ async fn fetch_autonomous_status(
     link: &Arc<DaemonLink>,
     active_session_id: &str,
     wait: CompletionWait,
-) -> anyhow::Result<eukhe_core::autonomous::AgentAutonomousStatus> {
+) -> Result<eukhe_core::autonomous::AgentAutonomousStatus, DaemonCommandError> {
     let (wait_for_rlm_quiescence, rest) = match wait {
         CompletionWait::Run => (None, Map::default()),
         CompletionWait::Quiescence => (
@@ -1577,13 +1600,11 @@ async fn fetch_autonomous_status(
         })
         .await?;
     if !response.success {
-        anyhow::bail!(response
-            .error
-            .unwrap_or_else(|| "unknown error".to_string()));
+        return Err(DaemonCommandError::Refused {
+            message: response.error,
+        });
     }
-    Ok(serde_json::from_value(
-        response.data.unwrap_or(Value::Null),
-    )?)
+    serde_json::from_value(response.data.unwrap_or(Value::Null)).map_err(DaemonCommandError::Decode)
 }
 
 /// The live child roster (`get_rlm_children` on the daemon wire; TS
@@ -1597,7 +1618,7 @@ async fn fetch_autonomous_status(
 async fn fetch_rlm_children(
     link: &Arc<DaemonLink>,
     active_session_id: &str,
-) -> anyhow::Result<Vec<Value>> {
+) -> Result<Vec<Value>, DaemonCommandError> {
     let response = link
         .request(DaemonCommand::GetRlmChildren {
             id: None,
@@ -1606,9 +1627,9 @@ async fn fetch_rlm_children(
         })
         .await?;
     if !response.success {
-        anyhow::bail!(response
-            .error
-            .unwrap_or_else(|| "unknown error".to_string()));
+        return Err(DaemonCommandError::Refused {
+            message: response.error,
+        });
     }
     response
         .data
@@ -1616,7 +1637,7 @@ async fn fetch_rlm_children(
         .get("children")
         .cloned()
         .and_then(|children| children.as_array().cloned())
-        .ok_or_else(|| anyhow::anyhow!("get_rlm_children answered no children array"))
+        .ok_or(DaemonCommandError::NoChildrenArray)
 }
 
 /// TS `outstandingSubagentCount`: the roster's live statuses, verbatim.
@@ -1845,7 +1866,8 @@ mod tests {
         assert_eq!(
             admit_prompt(&json!({ "sessionId": "nope" }), &none)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .to_string(),
             "Unknown ACP session: nope"
         );
 
@@ -1858,7 +1880,8 @@ mod tests {
         assert_eq!(
             admit_prompt(&json!({ "sessionId": "acp-1" }), &closing)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .to_string(),
             "ACP session is closing: acp-1"
         );
 
@@ -1868,12 +1891,16 @@ mod tests {
         assert_eq!(
             admit_prompt(&json!({ "sessionId": "acp-1" }), &cancelling)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .to_string(),
             "ACP session is cancelling: acp-1"
         );
 
         let mut failed = state(Some(hosted_session()));
-        failed.session.as_mut().unwrap().stop_failure = Some("boom".to_string());
+        failed.session.as_mut().unwrap().stop_failure =
+            Some(Arc::new(DaemonCommandError::Refused {
+                message: Some("boom".to_string()),
+            }));
         failed.session.as_mut().unwrap().turn = Some(ActiveTurn {
             admission_id: "prompt-admission:1".to_string(),
             cancelled: false,
@@ -1882,7 +1909,8 @@ mod tests {
         assert_eq!(
             admit_prompt(&json!({ "sessionId": "acp-1" }), &failed)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .to_string(),
             "ACP session stop failed: boom"
         );
 
@@ -1894,7 +1922,8 @@ mod tests {
         assert_eq!(
             admit_prompt(&json!({ "sessionId": "acp-1" }), &clean)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .to_string(),
             "A prompt turn is already running for this ACP session"
         );
     }
@@ -1923,7 +1952,10 @@ mod tests {
         assert!(idle.session.as_ref().unwrap().turn.is_none());
 
         let mut failed = state(Some(hosted_session()));
-        failed.session.as_mut().unwrap().stop_failure = Some("boom".to_string());
+        failed.session.as_mut().unwrap().stop_failure =
+            Some(Arc::new(DaemonCommandError::Refused {
+                message: Some("boom".to_string()),
+            }));
         let CancelOrder::Armed(stop) = arm_cancel_locked("acp-1", &mut failed) else {
             panic!("a stop failure arms the retry");
         };

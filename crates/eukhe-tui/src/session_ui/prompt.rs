@@ -715,17 +715,15 @@ impl SessionUi {
         // first (TS `onSubmit` flushes `pendingBashComponents` before the
         // prompt travels).
         Self::flush_pending_bash(view);
-        if let Some(error) = self.reconnection_failed.clone() {
+        if let Some(error) = &self.reconnection_failed {
             // The re-attach window expired (TS terminal close): the session
             // connection is closed, so nothing dispatches. The error row
             // surfaces the terminal cause and the draft returns to the
             // editor (TS keeps the input buffer on a failed submit).
-            self.error_row(
-                &format!(
-                    "Daemon reconnection failed: {error}{SEP}Next: restart Eukhe, then send the message again (it is back in the editor)."
-                ),
-                view,
+            let row = format!(
+                "Daemon reconnection failed: {error}{SEP}Next: restart Eukhe, then send the message again (it is back in the editor)."
             );
+            self.error_row(&row, view);
             view.editor.set_text(text);
             return Ok(());
         }

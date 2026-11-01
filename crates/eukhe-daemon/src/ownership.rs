@@ -25,6 +25,13 @@ use crate::protocol::{response_failure, response_line, response_success};
 use crate::registry::ResidentWorker;
 use crate::supervisor::{Supervisor, ROUTE_TIMEOUT_MS};
 
+/// No resident session answers to the selector.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Unknown active session: {selector}")]
+pub(crate) struct UnknownActiveSession {
+    pub(crate) selector: String,
+}
+
 impl Supervisor {
     /// Resolve the resident a `retry_worker` targets: the direct match on
     /// the root active session id or the root persisted session id (TS
@@ -38,7 +45,10 @@ impl Supervisor {
     /// wrong session, and a disconnected one would RELAUNCH the stale
     /// persisted create path). The refusal reads as the unknown session —
     /// the conservative miss, never a route on the unreconciled identity.
-    async fn resolve_retry_target(&self, selector: &str) -> Result<Arc<ResidentWorker>, String> {
+    async fn resolve_retry_target(
+        &self,
+        selector: &str,
+    ) -> Result<Arc<ResidentWorker>, UnknownActiveSession> {
         for resident in self.registry.list().await {
             if resident.identity_quarantined() {
                 continue;
@@ -52,10 +62,14 @@ impl Supervisor {
                 return Ok(resident);
             }
         }
-        match self.registry.resolve(selector).await {
-            Ok(resident) => Ok(resident),
-            Err(_) => Err(format!("Unknown active session: {selector}")),
-        }
+        // The registry's miss is this refusal: the selector names no
+        // resident the owned-session arms may reach.
+        self.registry
+            .resolve(selector)
+            .await
+            .map_err(|_| UnknownActiveSession {
+                selector: selector.to_owned(),
+            })
     }
 
     /// `complete_owned_session`: the owner stops its session worker (the
@@ -75,7 +89,7 @@ impl Supervisor {
         };
         let resident = match self.resolve_retry_target(active_session_id).await {
             Ok(resident) => resident,
-            Err(error) => return Self::owned_failure(command_id, type_name, &error),
+            Err(error) => return Self::owned_failure(command_id, type_name, &error.to_string()),
         };
         let owner = resident.descriptor.lock().await.owner_client_id.clone();
         if owner.as_deref() != Some(effective_client_id) {
@@ -126,7 +140,7 @@ impl Supervisor {
         };
         let resident = match self.resolve_retry_target(active_session_id).await {
             Ok(resident) => resident,
-            Err(error) => return Self::owned_failure(command_id, type_name, &error),
+            Err(error) => return Self::owned_failure(command_id, type_name, &error.to_string()),
         };
         let previous_owner = {
             let mut descriptor = resident.descriptor.lock().await;
@@ -193,7 +207,7 @@ impl Supervisor {
         };
         let resident = match self.resolve_retry_target(active_session_id).await {
             Ok(resident) => resident,
-            Err(error) => return Self::owned_failure(command_id, type_name, &error),
+            Err(error) => return Self::owned_failure(command_id, type_name, &error.to_string()),
         };
         // The client access gate (TS `assertWorkerAccessibleToClient`): a
         // worker another client owns is invisible through this selector.

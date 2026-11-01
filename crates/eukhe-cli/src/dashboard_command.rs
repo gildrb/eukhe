@@ -33,7 +33,22 @@ fn usage() -> String {
     )
 }
 
-fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
+/// Why the `dashboard` arguments do not parse; printed before the usage.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum DashboardUsageError {
+    /// A flag that takes a value came last.
+    #[error("{0} requires a value")]
+    MissingValue(String),
+    #[error("--port takes a port number (1-65535), not {0:?}")]
+    Port(String),
+    #[error("--allow-host takes a host name such as box.tail1234.ts.net, not {0:?}")]
+    Host(String),
+    #[error("unknown argument {0:?}")]
+    UnknownArgument(String),
+}
+
+fn parse_args(args: &[String]) -> Result<Args<'_>, DashboardUsageError> {
+    let missing = |flag: &str| DashboardUsageError::MissingValue(flag.to_owned());
     let mut parsed = Args {
         daemon_socket: None,
         port: eukhe_dashboard::Port::Free,
@@ -47,18 +62,16 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
             "--no-open" => parsed.browser = Browser::Skip,
             "--rotate-token" => parsed.rotation = eukhe_dashboard::Rotation::Rotate,
             "--port" => {
-                let value = rest.next().ok_or("--port requires a value")?;
+                let value = rest.next().ok_or_else(|| missing("--port"))?;
                 let port = value
                     .parse::<u16>()
                     .ok()
                     .filter(|port| *port != 0)
-                    .ok_or_else(|| {
-                        format!("--port takes a port number (1-65535), not {value:?}")
-                    })?;
+                    .ok_or_else(|| DashboardUsageError::Port(value.clone()))?;
                 parsed.port = eukhe_dashboard::Port::Fixed(port);
             }
             "--allow-host" => {
-                let value = rest.next().ok_or("--allow-host requires a value")?;
+                let value = rest.next().ok_or_else(|| missing("--allow-host"))?;
                 // A bare host name: no scheme, port, path, or brackets
                 // (the port does not matter; the Origin check pins it).
                 let valid = !value.is_empty()
@@ -66,16 +79,14 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
                         .chars()
                         .all(|char| char.is_ascii_alphanumeric() || matches!(char, '.' | '-'));
                 if !valid {
-                    return Err(format!(
-                        "--allow-host takes a host name such as box.tail1234.ts.net, not {value:?}"
-                    ));
+                    return Err(DashboardUsageError::Host(value.clone()));
                 }
                 parsed.allowed_hosts.push(value.to_ascii_lowercase());
             }
             "--daemon-socket" | "--socket" => {
-                parsed.daemon_socket = Some(rest.next().ok_or(format!("{arg} requires a value"))?);
+                parsed.daemon_socket = Some(rest.next().ok_or_else(|| missing(arg))?);
             }
-            other => return Err(format!("unknown argument {other:?}")),
+            other => return Err(DashboardUsageError::UnknownArgument(other.to_owned())),
         }
     }
     Ok(parsed)
@@ -263,7 +274,12 @@ mod tests {
             strings(&["--allow-host", "box.ts.net:443"]),
         ]
         .iter()
-        .map(|args| parse_args(args).err().unwrap_or_default())
+        .map(|args| {
+            parse_args(args)
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_default()
+        })
         .collect();
         assert_eq!(
             errors,

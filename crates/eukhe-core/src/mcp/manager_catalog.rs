@@ -167,21 +167,22 @@ impl McpManager {
     ///
     /// # Errors
     ///
-    /// Returns a human-readable error when the server is not a known
-    /// service that collects exactly one pasted credential.
+    /// Returns [`McpConnectionError::NotPasteable`] when the server is not
+    /// a known service that collects exactly one pasted credential.
     ///
     /// # Panics
     ///
     /// The `expect` on the service's endpoint is unreachable: the
     /// pasteability filter already rejects services without an endpoint.
-    pub fn paste_install_inputs(&self, server: &str) -> Result<PasteInstallInputs, String> {
-        let token = String::new();
-        let _ = token;
+    pub fn paste_install_inputs(
+        &self,
+        server: &str,
+    ) -> Result<PasteInstallInputs, McpConnectionError> {
         let service = self
             .service_descriptor(server)
             .filter(|service| is_pasteable_token_service(service))
-            .ok_or_else(|| {
-                format!("{server} does not collect a single credential; it is not pasteable.")
+            .ok_or_else(|| McpConnectionError::NotPasteable {
+                server: server.to_string(),
             })?;
         let endpoint = service
             .transport
@@ -459,6 +460,22 @@ fn disabled_config(config: McpServerConfig) -> McpServerConfig {
     }
 }
 
+/// Why a connection's paste install or removal failed.
+#[derive(Debug, thiserror::Error)]
+pub enum McpConnectionError {
+    #[error("{server} does not collect a single credential; it is not pasteable.")]
+    NotPasteable { server: String },
+    #[error("The pasted token is empty.")]
+    EmptyToken,
+    #[error("could not save the token: {0}")]
+    SaveToken(#[source] crate::auth::AuthWriteError),
+    #[error("could not remove the credential: {0}")]
+    RemoveCredential(#[source] crate::auth::AuthWriteError),
+    /// The connection record store failed (its top-level message renders).
+    #[error("connection record write failed: {0}")]
+    RecordWrite(#[source] anyhow::Error),
+}
+
 /// The async handles for one connection's install/remove flow.
 #[derive(Clone)]
 pub struct McpConnectionHandles {
@@ -483,7 +500,7 @@ pub struct PasteInstallInputs {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error when the pasted token is empty, the
+/// Returns [`McpConnectionError`] when the pasted token is empty, the
 /// credential cannot be saved, or the connection record cannot be written.
 ///
 /// # Panics
@@ -492,10 +509,10 @@ pub struct PasteInstallInputs {
 pub async fn install_static_token(
     inputs: PasteInstallInputs,
     token: &str,
-) -> Result<StaticTokenInstall, String> {
+) -> Result<StaticTokenInstall, McpConnectionError> {
     let token = token.trim();
     if token.is_empty() {
-        return Err("The pasted token is empty.".to_string());
+        return Err(McpConnectionError::EmptyToken);
     }
     // The credential: bound to exactly this endpoint (the pin), stored under
     // `mcp:<server>`. Setup field ids are metadata, never env vars.
@@ -509,7 +526,7 @@ pub async fn install_static_token(
                 endpoint: Some(inputs.endpoint.clone()),
             },
         )
-        .map_err(|error| format!("could not save the token: {error}"))?;
+        .map_err(McpConnectionError::SaveToken)?;
     }
     // Verify with a real handshake against the pinned endpoint.
     let outcome = inputs.probe.probe(&inputs.endpoint, token).await;
@@ -550,7 +567,7 @@ pub async fn install_static_token(
     let mut store = inputs.store.lock().unwrap();
     let committed = store
         .apply_verify_result(&record, still_current)
-        .map_err(|error| format!("connection record write failed: {error}"))?;
+        .map_err(McpConnectionError::RecordWrite)?;
     let committed_record = store.get(&inputs.server).cloned();
     drop(store);
     if !committed {
@@ -582,7 +599,7 @@ pub async fn install_static_token(
 ///
 /// # Errors
 ///
-/// Returns a human-readable error when the credential cannot be removed
+/// Returns [`McpConnectionError`] when the credential cannot be removed
 /// (then the connection record stays) or when the connection record cannot
 /// be written.
 ///
@@ -592,18 +609,18 @@ pub async fn install_static_token(
 pub async fn remove_mcp_connection(
     handles: &McpConnectionHandles,
     server: &str,
-) -> Result<(), String> {
+) -> Result<(), McpConnectionError> {
     let provider_id = format!("mcp:{server}");
     handles
         .auth_storage
         .lock()
         .await
         .remove(&provider_id)
-        .map_err(|error| format!("could not remove the credential: {error}"))?;
+        .map_err(McpConnectionError::RemoveCredential)?;
     let mut store = handles.store.lock().unwrap();
     store
         .remove(server)
-        .map_err(|error| format!("connection record write failed: {error}"))
+        .map_err(McpConnectionError::RecordWrite)
 }
 
 // The unit battery lives in the child module (manager_catalog::tests);

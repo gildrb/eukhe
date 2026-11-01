@@ -171,7 +171,7 @@ impl Supervisor {
                     Ok(receipt) => {
                         response_success(Some(command_id), "send_message", Some(receipt))
                     }
-                    Err(error) => fail(error),
+                    Err(error) => fail(error.to_string()),
                 };
             }
         };

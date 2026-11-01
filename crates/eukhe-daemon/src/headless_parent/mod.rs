@@ -24,14 +24,18 @@ use std::sync::Weak;
 use std::time::Duration;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_chord::json::{from_json, JsonError, JsonValue};
 use eukhe_core::durable::EukheSession;
 use eukhe_durable::harness::{InboxState, INBOX_DOC};
+use eukhe_durable::session::SessionError;
 use futures::FutureExt as _;
 use serde_json::{json, Value};
 
-use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRun};
+use crate::agent_message_delivery::{
+    AgentMessageDelivery, DeliveryRefusal, Recipient, RecipientRun,
+};
 use crate::supervisor_link::{HeldLink, SupervisorLink};
+use crate::worker::InputRowError;
 
 pub(crate) use routes::{HeadlessParents, HeadlessTarget};
 
@@ -171,7 +175,7 @@ async fn serve(
         let payload = frame.get("delivery").cloned().unwrap_or(Value::Null);
         let answer = match session.upgrade() {
             Some(session) => deliver(&session, &identity, &payload).await,
-            None => Err("The headless session closed".to_string()),
+            None => Err(DeliverError::Closed),
         };
         let mut receipt = json!({
             "type": "headless_parent_receipt",
@@ -179,13 +183,29 @@ async fn serve(
         });
         match answer {
             Ok(value) => receipt["receipt"] = value,
-            Err(error) => receipt["error"] = json!(error),
+            Err(error) => receipt["error"] = json!(error.to_string()),
         }
         if let Err(error) = held.send(receipt).await {
             tracing::warn!(%error, "the headless parent receipt was not sent");
             return;
         }
     }
+}
+
+/// Why a delivered message was not admitted; the receipt carries the text.
+#[derive(Debug, thiserror::Error)]
+enum DeliverError {
+    #[error("The headless session closed")]
+    Closed,
+    #[error(transparent)]
+    Refused(#[from] DeliveryRefusal),
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    /// The inbox document does not decode.
+    #[error(transparent)]
+    Inbox(#[from] JsonError),
+    #[error(transparent)]
+    Row(#[from] InputRowError),
 }
 
 /// Admit one delivered message into `session`'s main conversation; the
@@ -195,25 +215,20 @@ async fn deliver(
     session: &EukheSession,
     identity: &HeadlessParentIdentity,
     payload: &Value,
-) -> Result<Value, String> {
+) -> Result<Value, DeliverError> {
     let message = AgentMessageDelivery::validated_message(payload)?;
     let cx = &BACKGROUND_CONTEXT;
     let main = session.main();
     let harness = session.harness();
-    let pending = match harness
-        .snapshot(&INBOX_DOC, main.id(), cx)
-        .await
-        .map_err(|error| format!("{error:#}"))?
-    {
-        Some(inbox) => from_json::<InboxState>(&JsonValue::Object(inbox))
-            .map_err(|error| format!("{error:#}"))?
+    let pending = match harness.snapshot(&INBOX_DOC, main.id(), cx).await? {
+        Some(inbox) => from_json::<InboxState>(&JsonValue::Object(inbox))?
             .items
             .len(),
         None => 0,
     };
     let run = match main.wait_for_idle(cx).now_or_never() {
         Some(idle) => {
-            idle.map_err(|error| format!("{error:#}"))?;
+            idle?;
             RecipientRun::Idle
         }
         None => RecipientRun::Busy,
@@ -239,12 +254,7 @@ async fn deliver(
     delivery
         .record_child_reply(harness, || Ok(session.main()))
         .await;
-    let draft = delivery
-        .request
-        .draft()
-        .map_err(|error| format!("{error:#}"))?;
-    main.submit(draft, cx)
-        .await
-        .map_err(|error| format!("{error:#}"))?;
+    let draft = delivery.request.draft()?;
+    main.submit(draft, cx).await?;
     Ok(delivery.receipt(run))
 }

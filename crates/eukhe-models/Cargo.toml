@@ -13,6 +13,7 @@ eukhe-types = { path = "../eukhe-types" }
 eukhe-bend.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tracing = { version = "0.1", features = ["attributes"] }
 
 [dev-dependencies]

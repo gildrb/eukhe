@@ -28,7 +28,7 @@ use eukhe_types::path_policy::{real_path, resolve};
 use twox_hash::XxHash64;
 
 use crate::error::EditError;
-use crate::gate::{Access, AccessGate};
+use crate::gate::{Access, AccessGate, AccessRefusal};
 use crate::hashline::{EditWriter, Published, WriteOp, WriteRequest as EditWriteRequest};
 use crate::store::EditStore;
 use crate::text::{self, encoding_name, LineEnding, Projection, BOM};
@@ -246,13 +246,29 @@ pub enum WriteError {
     #[error("Cannot write {display}: it changed since you last read it, or you never read it. Nothing was written; read it, then write again.")]
     Unseen { display: String },
     #[error("Did not write {display}: {reason}")]
-    Refused { display: String, reason: String },
+    Refused {
+        display: String,
+        #[source]
+        reason: WriteRefusal,
+    },
     #[error("Cannot write {display}: {source}")]
     Io {
         display: String,
         #[source]
         source: std::io::Error,
     },
+}
+
+/// Why a write did not happen before it touched the file.
+#[derive(Debug, thiserror::Error)]
+pub enum WriteRefusal {
+    /// The host's gate refused it.
+    #[error(transparent)]
+    Gate(#[from] AccessRefusal),
+    /// The real path changed between the gate and the path lock (a link
+    /// was made or moved meanwhile).
+    #[error("its real path changed while the write waited (a symlink was made or moved). Nothing was written; retry.")]
+    Moved,
 }
 
 /// Whether a write created or replaced its target.
@@ -341,11 +357,11 @@ pub(crate) fn write_file(
     };
     let resolved = resolve(absolute);
     gate.check(Access::Write, &resolved, display)
-        .map_err(refused)?;
+        .map_err(|refusal| refused(WriteRefusal::Gate(refusal)))?;
     let canonical = resolved.into_path();
     let _lock = lock(lock_dir, &canonical).map_err(io)?;
     if real_path(absolute) != canonical {
-        return Err(refused(MOVED.to_owned()));
+        return Err(refused(WriteRefusal::Moved));
     }
     let existing = match std::fs::metadata(&canonical) {
         Ok(metadata) if metadata.is_dir() => {
@@ -486,10 +502,6 @@ pub(crate) fn write_file(
     })
 }
 
-/// Why a write stops when the real path changed between the gate and the
-/// lock (a link was made or moved meanwhile).
-const MOVED: &str = "its real path changed while the write waited (a symlink was made or moved). Nothing was written; retry.";
-
 /// The [`EditWriter`] of a session: a call lets `gate` check each real
 /// path it changes, takes the path locks of every file it touches, checks
 /// each file's current bytes against the bytes the edit was applied to
@@ -515,7 +527,10 @@ impl LockedWriter<'_> {
         let real = resolve(absolute);
         self.gate
             .check(Access::Write, &real, display)
-            .map_err(|reason| EditError::Refused(format!("Did not write {display}: {reason}")))?;
+            .map_err(|refusal| EditError::Refused {
+                display: display.to_owned(),
+                reason: WriteRefusal::Gate(refusal),
+            })?;
         Ok(real.into_path())
     }
 
@@ -540,9 +555,10 @@ impl LockedWriter<'_> {
             .iter()
             .find(|(absolute, real, _)| real_path(absolute) != *real)
         {
-            Some((_, _, display)) => Err(EditError::Refused(format!(
-                "Did not write {display}: {MOVED}"
-            ))),
+            Some((_, _, display)) => Err(EditError::Refused {
+                display: (*display).to_owned(),
+                reason: WriteRefusal::Moved,
+            }),
             None => Ok(locks),
         }
     }

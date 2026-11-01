@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use eukhe_bend::rules::config;
 
+use super::refresh_error::{OAuthRefreshError, RefreshFailed};
 use super::resolve_config_value::{resolve_config_value, resolve_config_value_uncached};
 use super::storage::{edit_storage_data, parse_storage_data, AuthStorageBackend};
 use super::types::{
@@ -97,7 +98,7 @@ pub struct AuthApiKeyResult {
     /// Why an expired OAuth credential resolved no key: the failed
     /// refresh's reason. The credential stays stored for a later
     /// `/login` retry.
-    pub refresh_error: Option<String>,
+    pub refresh_error: Option<RefreshFailed>,
 }
 
 /// OAuth integration seam: the eukhe-ai oauth provider registry implements this
@@ -116,7 +117,7 @@ pub trait OAuthIntegration: Send + Sync {
         &self,
         provider_id: &str,
         credentials: &AuthStorageData,
-    ) -> Result<AuthCredential, String>;
+    ) -> Result<AuthCredential, OAuthRefreshError>;
 }
 
 /// No OAuth provider registry available (embedded hosts); stored OAuth
@@ -136,8 +137,10 @@ impl OAuthIntegration for NoOAuth {
         &self,
         provider: &str,
         _credentials: &AuthStorageData,
-    ) -> Result<AuthCredential, String> {
-        Err(format!("no OAuth integration can refresh {provider}"))
+    ) -> Result<AuthCredential, OAuthRefreshError> {
+        Err(OAuthRefreshError::NoIntegration {
+            provider: provider.to_string(),
+        })
     }
 }
 
@@ -254,22 +257,53 @@ pub type FallbackResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Deferred value-fingerprint resolver (command keys).
 type ValueFingerprintResolver = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// Why the auth document did not load (its whole cause chain renders).
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{0:#}")]
+pub struct AuthLoadError(#[source] Arc<anyhow::Error>);
+
 /// An auth document write that did not happen. Nothing was written.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to write {location}: {cause}")]
 pub struct AuthWriteError {
     /// The auth document: its file path, or a label for a backend without a file.
     pub location: String,
     /// Why the write did not happen.
-    pub cause: String,
+    #[source]
+    pub cause: AuthWriteCause,
 }
 
-impl std::fmt::Display for AuthWriteError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Failed to write {}: {}", self.location, self.cause)
-    }
+/// Why an auth document write did not happen.
+#[derive(Debug, thiserror::Error)]
+pub enum AuthWriteCause {
+    /// The credential did not serialize.
+    #[error("{0}")]
+    Serialize(#[source] serde_json::Error),
+    /// The document failed to load, and the core refuses the edit over a
+    /// broken read.
+    #[error("the document failed to load: {0}")]
+    Unloaded(#[source] AuthLoadError),
+    /// The locked read-modify-write failed (its whole cause chain renders).
+    #[error("{0:#}")]
+    Write(#[source] anyhow::Error),
 }
 
-impl std::error::Error for AuthWriteError {}
+/// A failure the storage reports on its errors channel
+/// ([`AuthStorage::drain_errors`]): a failed load or a refused Prime
+/// credential write.
+#[derive(Debug, thiserror::Error)]
+pub enum AuthStorageError {
+    #[error(transparent)]
+    Load(AuthLoadError),
+    /// The Prime Inference credential write failed.
+    #[error("{0}")]
+    PrimeWrite(#[source] anyhow::Error),
+    /// The Prime API key is not a literal token.
+    #[error(
+        "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters"
+    )]
+    InvalidPrimeKey,
+}
 
 pub struct AuthStorage {
     storage: Arc<dyn AuthStorageBackend>,
@@ -279,8 +313,8 @@ pub struct AuthStorage {
     runtime_overrides: HashMap<String, String>,
     stale_auth_sources: HashMap<String, Vec<AuthSourceToken>>,
     fallback_resolver: Option<FallbackResolver>,
-    load_error: Option<String>,
-    errors: Vec<String>,
+    load_error: Option<AuthLoadError>,
+    errors: Vec<AuthStorageError>,
     /// Memoized auth-source candidates (TS #2479's `authCandidateMemos`),
     /// keyed by `source:provider`, superseded exactly when the candidate's
     /// hashed material changes. Reuse skips only the SHA-256 work: the
@@ -390,11 +424,11 @@ impl AuthStorage {
         auth
     }
 
-    pub fn load_error(&self) -> Option<&str> {
-        self.load_error.as_deref()
+    pub fn load_error(&self) -> Option<&AuthLoadError> {
+        self.load_error.as_ref()
     }
 
-    pub fn drain_errors(&mut self) -> Vec<String> {
+    pub fn drain_errors(&mut self) -> Vec<AuthStorageError> {
         std::mem::take(&mut self.errors)
     }
 
@@ -409,9 +443,9 @@ impl AuthStorage {
                 self.load_error = None;
             }
             Err(error) => {
-                let message = format!("{error:#}");
-                self.load_error = Some(message.clone());
-                self.errors.push(message);
+                let error = AuthLoadError(Arc::new(error));
+                self.load_error = Some(error.clone());
+                self.errors.push(AuthStorageError::Load(error));
             }
         }
     }
@@ -817,7 +851,7 @@ impl AuthStorage {
             .transpose()
             .map_err(|error| AuthWriteError {
                 location: self.storage.location(),
-                cause: error.to_string(),
+                cause: AuthWriteCause::Serialize(error),
             })?;
         let edit = match value {
             Some(value) => config::Edit::Set(provider.to_string(), value),
@@ -827,7 +861,7 @@ impl AuthStorage {
             if config::rmw(config::Read::Broken, edit.clone()).is_none() {
                 return Err(AuthWriteError {
                     location: self.storage.location(),
-                    cause: format!("the document failed to load: {load_error}"),
+                    cause: AuthWriteCause::Unloaded(load_error.clone()),
                 });
             }
         }
@@ -841,7 +875,7 @@ impl AuthStorage {
             })
             .map_err(|error| AuthWriteError {
                 location: self.storage.location(),
-                cause: format!("{error:#}"),
+                cause: AuthWriteCause::Write(error),
             })?;
         // Reload from what we wrote.
         self.reload();

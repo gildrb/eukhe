@@ -4,10 +4,10 @@
 use futures::future::join_all;
 
 use super::{
-    anyhow, bail, json, list_sessions, mpsc, name_unavailable_error, paths, reservation_key,
-    response_failure, response_line, response_success, subscribers, Arc, DaemonCommand,
-    DaemonResponse, DaemonSessionLifecycle, NameScope, Outbound, Path, PathBuf, ResidentWorker,
-    Result, RouteAdmission, Supervisor, Value, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS,
+    anyhow, json, list_sessions, mpsc, paths, reservation_key, response_failure, response_line,
+    response_success, subscribers, Arc, DaemonCommand, DaemonResponse, DaemonSessionLifecycle,
+    NameScope, NameUnavailable, Outbound, Path, PathBuf, ResidentWorker, Result, RouteAdmission,
+    Supervisor, Value, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS,
 };
 
 /// One spawn-name reservation held across a fresh-launch create (TS
@@ -810,7 +810,11 @@ impl Supervisor {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(key.clone());
         if !reserved {
-            bail!(name_unavailable_error(name, scope.depth));
+            return Err(NameUnavailable {
+                name: name.to_owned(),
+                depth: scope.depth,
+            }
+            .into());
         }
         Ok(Some(CreateNameReservation {
             supervisor: Arc::clone(self),

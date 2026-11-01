@@ -72,14 +72,47 @@ impl fmt::Display for Persisted {
 }
 
 /// How a read of a settings document ended.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(crate) enum DocRead {
     /// No file: a write starts from the empty document.
     Missing,
     /// The document, a JSON object.
     Parsed(Map<String, Value>),
     /// The file is there but it is not a JSON object: the reason.
-    Broken(String),
+    Broken(BrokenDocument),
+}
+
+/// Why a settings document (or a parent on a key path) cannot be edited.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BrokenDocument {
+    /// The document parses, but not to an object.
+    #[error("the document is not a JSON object")]
+    NotAnObject,
+    /// The document does not parse.
+    #[error("{0}")]
+    Json(#[source] serde_json::Error),
+    /// The file could not be read (the whole cause chain renders).
+    #[error("{0:#}")]
+    Unreadable(#[source] anyhow::Error),
+    /// A writer's read of the settings file that does not parse.
+    #[error("the settings file does not parse: {0}")]
+    Unparsed(#[source] Box<BrokenDocument>),
+    /// A parent on the key path is not an object.
+    #[error("`{at}` is not an object, so `{path}` cannot be written")]
+    ParentNotObject { at: String, path: String },
+}
+
+/// Why an edit of a settings document cannot apply.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SettingsEditError {
+    #[error("an empty key path")]
+    EmptyPath,
+    /// The core refuses an edit of a broken read: its reason.
+    #[error(transparent)]
+    Broken(BrokenDocument),
+    /// The core refuses an edit of a read that is not broken.
+    #[error("the document was refused")]
+    Refused,
 }
 
 /// Classify the content of a settings file (`None`: no file).
@@ -91,8 +124,8 @@ pub(crate) fn read_document(content: Option<&str>) -> DocRead {
         Ok(Value::Object(document)) => DocRead::Parsed(document),
         Ok(
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
-        ) => DocRead::Broken("the document is not a JSON object".to_string()),
-        Err(error) => DocRead::Broken(error.to_string()),
+        ) => DocRead::Broken(BrokenDocument::NotAnObject),
+        Err(error) => DocRead::Broken(BrokenDocument::Json(error)),
     }
 }
 
@@ -111,11 +144,10 @@ fn child_read(document: &Map<String, Value>, at: &[&str], path: &[&str]) -> DocR
         None | Some(Value::Null) => DocRead::Missing,
         Some(Value::Object(child)) => DocRead::Parsed(child.clone()),
         Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
-            DocRead::Broken(format!(
-                "`{}` is not an object, so `{}` cannot be written",
-                at.join("."),
-                path.join(".")
-            ))
+            DocRead::Broken(BrokenDocument::ParentNotObject {
+                at: at.join("."),
+                path: path.join("."),
+            })
         }
     }
 }
@@ -135,7 +167,7 @@ pub(crate) fn edit_read(
     read: DocRead,
     path: &[&str],
     edit: &KeyEdit,
-) -> Result<(Map<String, Value>, Option<Value>), String> {
+) -> Result<(Map<String, Value>, Option<Value>), SettingsEditError> {
     edit_level(read, path, 1, edit)
 }
 
@@ -150,7 +182,7 @@ pub(crate) fn edit_read(
 pub(crate) fn edit_document(
     read: DocRead,
     edits: Vec<(Vec<&str>, KeyEdit)>,
-) -> Result<Option<Map<String, Value>>, String> {
+) -> Result<Option<Map<String, Value>>, SettingsEditError> {
     let mut read = read;
     let mut changed = false;
     for (path, edit) in edits {
@@ -170,9 +202,9 @@ fn edit_level(
     path: &[&str],
     depth: usize,
     edit: &KeyEdit,
-) -> Result<(Map<String, Value>, Option<Value>), String> {
+) -> Result<(Map<String, Value>, Option<Value>), SettingsEditError> {
     let Some(key) = depth.checked_sub(1).and_then(|at| path.get(at)) else {
-        return Err("an empty key path".to_string());
+        return Err(SettingsEditError::EmptyPath);
     };
     let (document, missing, refused) = match read {
         DocRead::Missing => (Map::new(), true, None),
@@ -201,7 +233,7 @@ fn edit_level(
     };
     match config::rmw(read, edit) {
         Some(written) => Ok((written.into_iter().collect(), replaced)),
-        None => Err(refused.unwrap_or_else(|| "the document was refused".to_string())),
+        None => Err(refused.map_or(SettingsEditError::Refused, SettingsEditError::Broken)),
     }
 }
 
@@ -223,6 +255,16 @@ mod tests {
         }
     }
 
+    /// A read as data: missing, the parsed document, or the broken
+    /// reason's text.
+    fn shown(read: DocRead) -> Result<Option<Map<String, Value>>, String> {
+        match read {
+            DocRead::Missing => Ok(None),
+            DocRead::Parsed(document) => Ok(Some(document)),
+            DocRead::Broken(reason) => Err(reason.to_string()),
+        }
+    }
+
     /// The glue around the compiled core: each level of a path is read as
     /// missing, parsed or broken, and the document comes back in order.
     #[test]
@@ -235,18 +277,21 @@ mod tests {
                 &KeyEdit::Set(json!(true)),
             )
             .map(|(written, replaced)| (Value::Object(written), replaced))
+            .map_err(|error| error.to_string())
         };
         assert_eq!(
             (
                 set(&["b", "c"]),
                 set(&["e", "g"]),
                 set(&["f", "g"]),
-                edit_read(DocRead::Missing, &["x", "y"], &KeyEdit::Remove),
+                edit_read(DocRead::Missing, &["x", "y"], &KeyEdit::Remove)
+                    .map_err(|error| error.to_string()),
                 edit_read(
-                    DocRead::Broken("unparsed".to_string()),
+                    DocRead::Broken(BrokenDocument::Unreadable(anyhow::anyhow!("unparsed"))),
                     &["a"],
                     &KeyEdit::Remove
-                ),
+                )
+                .map_err(|error| error.to_string()),
             ),
             (
                 Ok((
@@ -266,18 +311,18 @@ mod tests {
 
     #[test]
     fn a_read_is_missing_parsed_or_broken() {
-        assert_eq!(read_document(None), DocRead::Missing);
+        assert_eq!(shown(read_document(None)), Ok(None));
         assert_eq!(
-            read_document(Some("{\"a\": 1}")),
-            DocRead::Parsed(object(json!({ "a": 1 })))
+            shown(read_document(Some("{\"a\": 1}"))),
+            Ok(Some(object(json!({ "a": 1 }))))
         );
         assert_eq!(
-            read_document(Some("[]")),
-            DocRead::Broken("the document is not a JSON object".to_string())
+            shown(read_document(Some("[]"))),
+            Err("the document is not a JSON object".to_string())
         );
         assert_eq!(
-            read_document(Some("{\"a\": 1,}")),
-            DocRead::Broken("trailing comma at line 1 column 9".to_string())
+            shown(read_document(Some("{\"a\": 1,}"))),
+            Err("trailing comma at line 1 column 9".to_string())
         );
     }
 }

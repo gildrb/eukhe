@@ -33,9 +33,72 @@ const HOLD_FIRST_REPEAT: Duration = Duration::from_millis(800);
 /// is the release.
 const HOLD_RELEASE: Duration = Duration::from_millis(300);
 
-/// The boxed future of the dictation backends; the error is the text the
-/// error row shows.
-pub type DictationFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
+/// The boxed future of the dictation backends; the error row shows the
+/// error's text.
+pub type DictationFuture<T> = Pin<Box<dyn Future<Output = Result<T, DictationError>> + Send>>;
+
+/// Why a take failed: the subprocess recorder's own failures, or the
+/// error of an external [`Recorder`] or [`Transcriber`] implementation.
+#[derive(Debug, thiserror::Error)]
+pub enum DictationError {
+    /// An external backend failed (the CLI's transcriber).
+    #[error(transparent)]
+    Backend(Box<dyn std::error::Error + Send + Sync>),
+    #[error("cannot make a temporary WAV file: {0}")]
+    TempFile(#[source] std::io::Error),
+    #[error("cannot start {}: {source}", program.display())]
+    Start {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(
+        "no audio recorder found; install one of: {}",
+        programs.iter().map(|program| program.display().to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    NoRecorder { programs: Vec<PathBuf> },
+    #[error("{} has no output pipes", program.display())]
+    NoPipes { program: PathBuf },
+    #[error("cannot read {}: {source}", program.display())]
+    Read {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("cannot stop {}: {source}", program.display())]
+    Stop {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("cannot wait for {}: {source}", program.display())]
+    Wait {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The recorder exited by itself with a failure and said nothing.
+    #[error("{} stopped: {status}", program.display())]
+    Stopped {
+        program: PathBuf,
+        status: std::process::ExitStatus,
+    },
+    /// The recorder exited by itself with a failure: its stderr.
+    #[error("{}: {stderr}", program.display())]
+    Failed { program: PathBuf, stderr: String },
+    /// The recorder wrote no sample and said nothing.
+    #[error("{} recorded no audio", program.display())]
+    Silent { program: PathBuf },
+    /// The recorder wrote no sample: its stderr.
+    #[error("{} recorded no audio: {stderr}", program.display())]
+    SilentWithStderr { program: PathBuf, stderr: String },
+    #[error("cannot write {}: {source}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 /// Records the microphone. An implementation captures from the default
 /// input device until `stop` resolves (a dropped sender counts as a
@@ -94,20 +157,20 @@ pub enum Phase {
 }
 
 /// A step of a take, sent to the run loop.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct DictationUpdate {
     pub(crate) take: u64,
     pub(crate) event: TakeEvent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum TakeEvent {
     /// The recording ended; the transcription runs.
     Transcribing,
     /// The trimmed transcript (empty: no speech heard).
     Transcript(String),
     /// Why the take failed.
-    Failed(String),
+    Failed(DictationError),
 }
 
 /// Records and transcribes take `take`, then reports through `updates`.
@@ -133,9 +196,7 @@ pub(crate) async fn run_take(
     {
         Ok(file) => file,
         Err(error) => {
-            send(TakeEvent::Failed(format!(
-                "cannot make a temporary WAV file: {error}"
-            )));
+            send(TakeEvent::Failed(DictationError::TempFile(error)));
             return;
         }
     };
@@ -311,7 +372,7 @@ async fn record_with(
     programs: Vec<RecorderProgram>,
     wav: PathBuf,
     stop: oneshot::Receiver<()>,
-) -> Result<(), String> {
+) -> Result<(), DictationError> {
     let mut started = None;
     for candidate in &programs {
         match tokio::process::Command::new(&candidate.program)
@@ -327,27 +388,25 @@ async fn record_with(
                 break;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "cannot start {}: {error}",
-                    candidate.program.display()
-                ))
+            Err(source) => {
+                return Err(DictationError::Start {
+                    program: candidate.program.clone(),
+                    source,
+                })
             }
         }
     }
     let Some((candidate, mut child)) = started else {
-        let names: Vec<String> = programs
-            .iter()
-            .map(|candidate| candidate.program.display().to_string())
-            .collect();
-        return Err(format!(
-            "no audio recorder found; install one of: {}",
-            names.join(", ")
-        ));
+        return Err(DictationError::NoRecorder {
+            programs: programs
+                .into_iter()
+                .map(|candidate| candidate.program)
+                .collect(),
+        });
     };
-    let name = candidate.program.display().to_string();
+    let program = candidate.program.clone();
     let (Some(stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
-        return Err(format!("{name} has no output pipes"));
+        return Err(DictationError::NoPipes { program });
     };
     // The stderr pipe drains on its own task: a chatty recorder never
     // blocks on a full pipe.
@@ -364,43 +423,46 @@ async fn record_with(
             read = stdout.read_buf(&mut pcm) => match read {
                 Ok(0) => break true,
                 Ok(_) => {}
-                Err(error) => return Err(format!("cannot read {name}: {error}")),
+                Err(source) => return Err(DictationError::Read { program, source }),
             },
             _ = &mut stop => break false,
         }
     };
     if !ended_by_itself {
-        child
-            .start_kill()
-            .map_err(|error| format!("cannot stop {name}: {error}"))?;
+        if let Err(source) = child.start_kill() {
+            return Err(DictationError::Stop { program, source });
+        }
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| format!("cannot wait for {name}: {error}"))?;
+    let status = match child.wait().await {
+        Ok(status) => status,
+        Err(source) => return Err(DictationError::Wait { program, source }),
+    };
     let stderr = stderr_text.await.unwrap_or_default();
     if ended_by_itself && !status.success() {
         return Err(if stderr.is_empty() {
-            format!("{name} stopped: {status}")
+            DictationError::Stopped { program, status }
         } else {
-            format!("{name}: {stderr}")
+            DictationError::Failed { program, stderr }
         });
     }
     if pcm.len() < 2 {
         return Err(if stderr.is_empty() {
-            format!("{name} recorded no audio")
+            DictationError::Silent { program }
         } else {
-            format!("{name} recorded no audio: {stderr}")
+            DictationError::SilentWithStderr { program, stderr }
         });
     }
     write_wav(&wav, &pcm).await
 }
 
 /// Writes `pcm` as the WAV file `wav`.
-async fn write_wav(wav: &Path, pcm: &[u8]) -> Result<(), String> {
+async fn write_wav(wav: &Path, pcm: &[u8]) -> Result<(), DictationError> {
     tokio::fs::write(wav, wav_bytes(pcm))
         .await
-        .map_err(|error| format!("cannot write {}: {error}", wav.display()))
+        .map_err(|source| DictationError::Write {
+            path: wav.to_path_buf(),
+            source,
+        })
 }
 
 #[cfg(test)]

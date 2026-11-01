@@ -10,6 +10,7 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::input_entry;
 use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
+use eukhe_durable::session::SessionError;
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
@@ -19,7 +20,34 @@ use super::durable_host::suspended::WithdrawnInput;
 use super::{HostedSession, RunAdmission, Worker};
 use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRun};
 use crate::compaction::durable::ManualCompactionError;
+use crate::error_chain::ErrorChain;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+
+/// Why an input's display row does not build its input entry.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum InputRowError {
+    /// The row's `content` is not user content.
+    #[error(transparent)]
+    Content(#[from] serde_json::Error),
+    /// The row's `details` are not strict JSON.
+    #[error(transparent)]
+    Details(#[from] eukhe_chord::json::JsonError),
+}
+
+/// Why an input was not admitted.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AdmitError {
+    #[error(transparent)]
+    Row(#[from] InputRowError),
+    /// A closed Harness, a rejected busy input, a failed commit.
+    #[error(transparent)]
+    Session(#[from] SessionError),
+}
+
+/// The wire `customMessage` is not a custom row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid customMessage: expected a custom message object with a customType")]
+pub(crate) struct InvalidCustomMessage;
 
 /// One input to admit on the main conversation.
 pub(crate) struct InputRequest {
@@ -50,7 +78,7 @@ impl InputRequest {
     /// # Errors
     ///
     /// The row's content or details are malformed.
-    fn entry(&self) -> anyhow::Result<Option<InputEntry>> {
+    fn entry(&self) -> Result<Option<InputEntry>, InputRowError> {
         let Some(row) = &self.custom_row else {
             return Ok(None);
         };
@@ -81,7 +109,7 @@ impl InputRequest {
     /// # Errors
     ///
     /// The row's content or details are malformed.
-    pub(crate) fn draft(&self) -> anyhow::Result<InputSubmissionDraft> {
+    pub(crate) fn draft(&self) -> Result<InputSubmissionDraft, InputRowError> {
         Ok(InputSubmissionDraft {
             request_id: self.request_id.clone(),
             content: self.content(),
@@ -117,23 +145,23 @@ pub(crate) fn parse_prompt_images(payload: &Value) -> Vec<ImageContent> {
 ///
 /// # Errors
 ///
-/// The wire message of a malformed row (never silently degraded into a
-/// plain prompt).
-pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value>, String> {
+/// A malformed row (never silently degraded into a plain prompt).
+pub(crate) fn parse_custom_message(
+    value: Option<&Value>,
+) -> Result<Option<Value>, InvalidCustomMessage> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
-    let invalid = "Invalid customMessage: expected a custom message object with a customType";
-    let object = value.as_object().ok_or(invalid)?;
+    let object = value.as_object().ok_or(InvalidCustomMessage)?;
     if object.get("role").and_then(Value::as_str) != Some("custom") {
-        return Err(invalid.to_string());
+        return Err(InvalidCustomMessage);
     }
     if object
         .get("customType")
         .and_then(Value::as_str)
         .is_none_or(str::is_empty)
     {
-        return Err(invalid.to_string());
+        return Err(InvalidCustomMessage);
     }
     Ok(Some(value.clone()))
 }
@@ -151,7 +179,7 @@ pub(crate) async fn submit_input(
     request: &InputRequest,
     _admission: &RunAdmission,
     cx: &Context,
-) -> anyhow::Result<SubmissionHandle> {
+) -> Result<SubmissionHandle, AdmitError> {
     Ok(conversation.submit(request.draft()?, cx).await?)
 }
 
@@ -174,17 +202,15 @@ impl Worker {
     ///
     /// # Errors
     ///
-    /// The admission failure text.
+    /// The admission failure.
     pub(crate) async fn admit_input(
         &self,
         hosted: &HostedSession,
         request: &InputRequest,
-    ) -> Result<SubmissionHandle, String> {
-        let main = hosted.main().map_err(|error| error.to_string())?;
+    ) -> Result<SubmissionHandle, AdmitError> {
+        let main = hosted.main()?;
         let admission = RunAdmission::enter(&self.core).await;
-        submit_input(&main, request, &admission, &BACKGROUND_CONTEXT)
-            .await
-            .map_err(|error| format!("{error:#}"))
+        submit_input(&main, request, &admission, &BACKGROUND_CONTEXT).await
     }
 
     /// Hold one admission under a live input-pause lease (TS
@@ -201,23 +227,27 @@ impl Worker {
         wait: bool,
         queued_payload: bool,
     ) -> DaemonResponse {
-        let held = (|| async {
-            let held = WithdrawnInput {
-                id: None,
-                mode: request.when_busy.into(),
-                content: request.content(),
-                entry: request.entry().map_err(|error| format!("{error:#}"))?,
-                origin: request.origin.clone(),
-            };
+        let entry = match request.entry() {
+            Ok(entry) => entry,
+            Err(error) => {
+                return response_failure(None, command, &ErrorChain(&error).to_string(), None)
+            }
+        };
+        let held = WithdrawnInput {
+            id: None,
+            mode: request.when_busy.into(),
+            content: request.content(),
+            entry,
+            origin: request.origin.clone(),
+        };
+        if let Err(error) =
             super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
                 state.held.push(held);
                 (state, ())
             })
             .await
-        })()
-        .await;
-        if let Err(error) = held {
-            return response_failure(None, command, &error, None);
+        {
+            return response_failure(None, command, &error.to_string(), None);
         }
         if wait {
             return response_failure(None, command, "Session input is paused", None);
@@ -244,7 +274,7 @@ impl Worker {
         }
         let custom_row = match parse_custom_message(payload.get("customMessage")) {
             Ok(row) => row,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // The reserved child-status kinds are daemon provenance: a prompt
         // row claiming one is a spoof, answered loudly.
@@ -319,7 +349,9 @@ impl Worker {
         }
         let handle = match self.admit_input(&hosted, &request).await {
             Ok(handle) => handle,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => {
+                return response_failure(None, command, &ErrorChain(&error).to_string(), None)
+            }
         };
         if let Some(id) = &admission_id {
             // The admission stays owned until its submission settles.
@@ -382,11 +414,13 @@ impl Worker {
         // A successful `/refine` surfaces `refine_complete` through its
         // committed audit row; a failed run commits no audit, so the
         // failure event (TS `refine_failed`) is emitted here.
-        if let Some(error) = outcome.refinement_failed {
-            self.emit_worker_event(eukhe_types::daemon::SessionEvent::RefineFailed { error });
+        if let Some(error) = outcome.refinement_failed() {
+            self.emit_worker_event(eukhe_types::daemon::SessionEvent::RefineFailed {
+                error: error.to_string(),
+            });
         }
         match outcome.error {
-            Some(error) => response_failure(None, command, &error, None),
+            Some(error) => response_failure(None, command, &error.to_string(), None),
             None => response_success(None, command, None),
         }
     }
@@ -408,7 +442,7 @@ impl Worker {
         if let Err(error) =
             eukhe_core::durable::commit_session_command_echo(main, session_command, cx).await
         {
-            return response_failure(None, command, &error, None);
+            return response_failure(None, command, &error.to_string(), None);
         }
         let instructions = (!session_command.args.is_empty()).then(|| session_command.args.clone());
         let response = match self.compaction.compact(instructions).await {
@@ -424,7 +458,7 @@ impl Worker {
                 .await
                 {
                     Ok(()) => response_failure(None, command, &message, None),
-                    Err(commit) => response_failure(None, command, &commit, None),
+                    Err(commit) => response_failure(None, command, &commit.to_string(), None),
                 }
             }
         };
@@ -451,7 +485,7 @@ impl Worker {
             .unwrap_or_default();
         let custom_row = match parse_custom_message(payload.get("customMessage")) {
             Ok(row) => row,
-            Err(error) => return response_failure(None, command, &error, None),
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
         // Only the daemon's own durable notice producer writes the reserved
         // child-status kinds; any row claiming them on intake is refused.
@@ -486,7 +520,7 @@ impl Worker {
         }
         match self.admit_input(&hosted, &request).await {
             Ok(_) => response_success(None, command, Some(json!({ "queued": true }))),
-            Err(error) => response_failure(None, command, &error, None),
+            Err(error) => response_failure(None, command, &ErrorChain(&error).to_string(), None),
         }
     }
 
@@ -503,7 +537,7 @@ impl Worker {
         };
         let message = match AgentMessageDelivery::validated_message(payload) {
             Ok(message) => message,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         if let Err(response) = self.refuse_delivery_if_paused() {
             return response;
@@ -541,7 +575,7 @@ impl Worker {
         };
         let (delivery, run) = match prepared {
             Ok(prepared) => prepared,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         delivery
             .record_child_reply(hosted.harness(), || Ok(hosted.main()?))
@@ -555,7 +589,7 @@ impl Worker {
                 .await;
         }
         if let Err(error) = self.admit_input(&hosted, &delivery.request).await {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &ErrorChain(&error).to_string(), None);
         }
         response_success(None, COMMAND, Some(delivery.receipt(run)))
     }

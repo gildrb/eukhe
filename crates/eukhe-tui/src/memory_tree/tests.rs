@@ -344,7 +344,7 @@ fn failures_and_missing_lines_show_inline_and_retry_on_reopen() {
     );
     tree.apply(MemoryTreeFetch {
         node: Some(zoom),
-        reply: Err("timed out".to_string()),
+        reply: Err(UiFetchError::Daemon(anyhow::anyhow!("timed out"))),
     });
     assert_eq!(
         render(&mut tree)[4..6].to_vec(),

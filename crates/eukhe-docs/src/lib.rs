@@ -47,12 +47,12 @@ mod write;
 
 pub use documents::Documents;
 pub use error::{EditError, EditResult};
-pub use gate::{Access, AccessGate};
+pub use gate::{Access, AccessGate, AccessRefusal};
 pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest};
 pub use grep::{ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest};
 pub use hashline::{
     apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
-    HashlineOutcome, Published, WriteOp, WriteRequest, HASHLINE_DESCRIPTION,
+    HashlineOutcome, HashlineParseError, Published, WriteOp, WriteRequest, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{lexical_normalize, resolve};
@@ -66,4 +66,4 @@ pub use store::{
     MAX_SNAPSHOT_FILE_BYTES, NOOP_HARD_LIMIT,
 };
 pub use url::{Located, Remote, Scheme, Url, UrlError};
-pub use write::{WriteDisposition, WriteError, WriteOutcome};
+pub use write::{WriteDisposition, WriteError, WriteOutcome, WriteRefusal};

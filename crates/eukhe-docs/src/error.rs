@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+use crate::hashline::HashlineParseError;
+use crate::write::WriteRefusal;
+
 /// Failure raised while parsing, locating, staging, or writing an edit.
 #[derive(Debug, thiserror::Error)]
 pub enum EditError {
@@ -18,6 +21,9 @@ pub enum EditError {
         /// Line.
         line: Option<u32>,
     },
+    /// A section body did not parse.
+    #[error(transparent)]
+    Syntax(#[from] HashlineParseError),
     /// The payload parsed but could not be applied (missing file, overlap,
     /// invalid op, auto-generated target, no-op, …).
     #[error("{0}")]
@@ -25,9 +31,16 @@ pub enum EditError {
     /// A search anchor could not be located in the target text.
     #[error("{0}")]
     Match(String),
-    /// The host's gate refused a write (the path policy, or the user).
-    #[error("{0}")]
-    Refused(String),
+    /// The host's gate refused a write (the path policy, or the user), or
+    /// its real path moved before the lock.
+    #[error("Did not write {display}: {reason}")]
+    Refused {
+        /// The path as the model wrote it.
+        display: String,
+        /// Why the write did not happen.
+        #[source]
+        reason: WriteRefusal,
+    },
     /// Filesystem failure reading or writing a target; the message names
     /// the path, so a payload of many files shows which one failed.
     #[error("{display}: {source}")]

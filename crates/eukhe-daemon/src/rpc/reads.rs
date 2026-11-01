@@ -9,10 +9,12 @@ use eukhe_durable::harness::types::Agent;
 use eukhe_durable::harness::{
     Conversation, ConversationEntryQuery, Harness, InboxState, LiveState, INBOX_DOC, LIVE_DOC,
 };
+use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, EntryRecord};
 use eukhe_types::pi_ai::{Model, UserContent, UserContentBlock};
 use serde_json::Value;
 
+use super::error::DocReadError;
 use crate::worker::durable_host::wire_messages::transcript_messages;
 
 /// Entries read per history page.
@@ -31,13 +33,9 @@ pub(crate) async fn live_state(
     harness: &Harness,
     conversation_id: ConversationId,
     cx: &Context,
-) -> Result<LiveState, String> {
-    match harness
-        .snapshot(&LIVE_DOC, conversation_id, cx)
-        .await
-        .map_err(|error| error.to_string())?
-    {
-        Some(value) => from_json(&JsonValue::Object(value)).map_err(|error| error.to_string()),
+) -> Result<LiveState, DocReadError> {
+    match harness.snapshot(&LIVE_DOC, conversation_id, cx).await? {
+        Some(value) => Ok(from_json(&JsonValue::Object(value))?),
         None => Ok(LiveState::default()),
     }
 }
@@ -47,13 +45,9 @@ pub(crate) async fn inbox_state(
     harness: &Harness,
     conversation_id: ConversationId,
     cx: &Context,
-) -> Result<InboxState, String> {
-    match harness
-        .snapshot(&INBOX_DOC, conversation_id, cx)
-        .await
-        .map_err(|error| error.to_string())?
-    {
-        Some(value) => from_json(&JsonValue::Object(value)).map_err(|error| error.to_string()),
+) -> Result<InboxState, DocReadError> {
+    match harness.snapshot(&INBOX_DOC, conversation_id, cx).await? {
+        Some(value) => Ok(from_json(&JsonValue::Object(value))?),
         None => Ok(InboxState::default()),
     }
 }
@@ -63,7 +57,7 @@ pub(crate) async fn is_busy(
     harness: &Harness,
     conversation_id: ConversationId,
     cx: &Context,
-) -> Result<bool, String> {
+) -> Result<bool, DocReadError> {
     Ok(live_state(harness, conversation_id, cx)
         .await?
         .run
@@ -74,14 +68,13 @@ pub(crate) async fn is_busy(
 pub(crate) async fn history_entries(
     conversation: &Conversation,
     cx: &Context,
-) -> Result<Vec<EntryRecord>, String> {
+) -> SessionResult<Vec<EntryRecord>> {
     let mut entries = Vec::new();
     let mut cursor = None;
     loop {
         let page = conversation
             .entries(ConversationEntryQuery::default(), HISTORY_PAGE, cursor, cx)
-            .await
-            .map_err(|error| error.to_string())?;
+            .await?;
         entries.extend(page.items);
         match page.next {
             Some(next) => cursor = Some(next),
@@ -97,21 +90,16 @@ pub(crate) async fn history_entries(
 pub(crate) async fn context_messages(
     conversation: &Conversation,
     cx: &Context,
-) -> Result<Vec<Value>, String> {
+) -> SessionResult<Vec<Value>> {
     let view = conversation
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     Ok(transcript_messages(&view.entries))
 }
 
 /// The main conversation's resolved agent.
-pub(crate) async fn main_agent(session: &EukheSession, cx: &Context) -> Result<Agent, String> {
-    session
-        .main()
-        .agent(cx)
-        .await
-        .map_err(|error| error.to_string())
+pub(crate) async fn main_agent(session: &EukheSession, cx: &Context) -> SessionResult<Agent> {
+    session.main().agent(cx).await
 }
 
 /// The catalog model the agent's model reference names, when it resolves.

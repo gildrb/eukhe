@@ -9,12 +9,11 @@
 //! is there but damaged, the compiled model definitions serve. The loader
 //! keeps the reason ([`BundledCatalogFallback`]), so the user can see it.
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::pinning::{pin_catalog_models, PinnedTemplates};
+use crate::pinning::{pin_catalog_models, NoSupportedModels, PinnedTemplates};
 use crate::prime_inference::is_private_prime_inference_model_id;
-use crate::schema::{parse_model_catalog, InvalidEntries};
+use crate::schema::{parse_model_catalog, InvalidEntries, ModelCatalogError};
 use crate::Model;
 
 /// The packaged models asset file name.
@@ -94,59 +93,35 @@ impl BundledAssets {
 }
 
 /// Why the install's bundled models snapshot is not used.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum BundledModelsDefect {
     /// The file is there, but it cannot be read.
-    Unreadable(String),
+    #[error("it cannot be read: {0}")]
+    Unreadable(#[source] std::io::Error),
     /// The file is not valid JSON.
-    InvalidJson(String),
+    #[error("it is not valid JSON: {0}")]
+    InvalidJson(#[source] serde_json::Error),
     /// The file does not match the model catalog schema.
-    InvalidCatalog(String),
+    #[error("it is not a valid model catalog: {0}")]
+    InvalidCatalog(#[source] ModelCatalogError),
     /// No entry of the file pins to a transport of this client.
-    Unpinnable(String),
-}
-
-impl fmt::Display for BundledModelsDefect {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BundledModelsDefect::Unreadable(detail) => {
-                write!(formatter, "it cannot be read: {detail}")
-            }
-            BundledModelsDefect::InvalidJson(detail) => {
-                write!(formatter, "it is not valid JSON: {detail}")
-            }
-            BundledModelsDefect::InvalidCatalog(detail) => {
-                write!(formatter, "it is not a valid model catalog: {detail}")
-            }
-            BundledModelsDefect::Unpinnable(detail) => {
-                write!(
-                    formatter,
-                    "its models do not pin to a transport of this client: {detail}"
-                )
-            }
-        }
-    }
+    #[error("its models do not pin to a transport of this client: {0}")]
+    Unpinnable(#[source] NoSupportedModels),
 }
 
 /// The compiled catalog serves in place of a damaged bundled snapshot.
 /// This is the reason, for the user to see.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "the bundled model catalog {} is not used, because {defect}; the compiled catalog serves in its place",
+    path.display()
+)]
 pub struct BundledCatalogFallback {
     /// The path of the damaged snapshot.
     pub path: PathBuf,
     /// What is wrong with the snapshot.
+    #[source]
     pub defect: BundledModelsDefect,
-}
-
-impl fmt::Display for BundledCatalogFallback {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "the bundled model catalog {} is not used, because {}; the compiled catalog serves in its place",
-            self.path.display(),
-            self.defect
-        )
-    }
 }
 
 /// Load and pin the bundled models snapshot. The same steps as TS
@@ -160,8 +135,8 @@ pub fn load_bundled_models(
     asset: &str,
     templates: &PinnedTemplates,
 ) -> Result<Vec<Model>, BundledModelsDefect> {
-    let payload: serde_json::Value = serde_json::from_str(asset)
-        .map_err(|error| BundledModelsDefect::InvalidJson(error.to_string()))?;
+    let payload: serde_json::Value =
+        serde_json::from_str(asset).map_err(BundledModelsDefect::InvalidJson)?;
     let catalog = parse_model_catalog(&payload, InvalidEntries::Reject)
         .map_err(BundledModelsDefect::InvalidCatalog)?;
     let mut models = pin_catalog_models(catalog.models.clone(), templates)
@@ -229,8 +204,10 @@ mod tests {
         let not_json = "{\"not json";
         let json_error = serde_json::from_str::<serde_json::Value>(not_json).unwrap_err();
         assert_eq!(
-            load_bundled_models(not_json, &PinnedTemplates::from_compiled()),
-            Err(BundledModelsDefect::InvalidJson(json_error.to_string()))
+            load_bundled_models(not_json, &PinnedTemplates::from_compiled())
+                .unwrap_err()
+                .to_string(),
+            BundledModelsDefect::InvalidJson(json_error).to_string()
         );
         let damaged = asset(vec![json!({"id": "broken"})]);
         let schema_error = parse_model_catalog(
@@ -239,8 +216,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            load_bundled_models(&damaged, &PinnedTemplates::from_compiled()),
-            Err(BundledModelsDefect::InvalidCatalog(schema_error))
+            load_bundled_models(&damaged, &PinnedTemplates::from_compiled())
+                .unwrap_err()
+                .to_string(),
+            BundledModelsDefect::InvalidCatalog(schema_error).to_string()
         );
     }
 

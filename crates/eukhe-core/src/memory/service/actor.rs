@@ -849,7 +849,7 @@ impl Actor {
         });
     }
 
-    fn persisted(&mut self, result: Result<(), String>) {
+    fn persisted(&mut self, result: Result<(), MemoryCommitError>) {
         self.persisting = false;
         match result {
             Ok(()) => self.persist_reported = false,
@@ -906,12 +906,26 @@ const IGNORED: [&str; 5] = [
     saved::VIEW_FILE,
 ];
 
+/// Why the chat directory was not committed.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum MemoryCommitError {
+    #[error("cannot run git: {0}")]
+    Spawn(#[source] std::io::Error),
+    /// A git step exited unsuccessfully: its trimmed stderr.
+    #[error("git {what} failed: {stderr}")]
+    Git { what: &'static str, stderr: String },
+    #[error("cannot read .gitignore: {0}")]
+    ReadIgnore(#[source] std::io::Error),
+    #[error("cannot write .gitignore: {0}")]
+    WriteIgnore(#[source] std::io::Error),
+}
+
 /// `git add` + `git commit` of the chat directory, initializing the repo on
 /// first use. The runtime files are ignored (an ignore file from before a
 /// runtime file existed gets its line); hooks and signing are off so a
 /// global configuration cannot block or prompt in the background.
-pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
-    let git = |args: &[&str]| -> Result<std::process::Output, String> {
+pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), MemoryCommitError> {
+    let git = |args: &[&str]| -> Result<std::process::Output, MemoryCommitError> {
         std::process::Command::new("git")
             .arg("-C")
             .arg(dir)
@@ -924,19 +938,20 @@ pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
             .args(args)
             .stdin(std::process::Stdio::null())
             .output()
-            .map_err(|error| format!("cannot run git: {error}"))
+            .map_err(MemoryCommitError::Spawn)
     };
-    let check =
-        |output: std::process::Output, what: &str| -> Result<std::process::Output, String> {
-            if output.status.success() {
-                Ok(output)
-            } else {
-                Err(format!(
-                    "git {what} failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ))
-            }
-        };
+    let check = |output: std::process::Output,
+                 what: &'static str|
+     -> Result<std::process::Output, MemoryCommitError> {
+        if output.status.success() {
+            Ok(output)
+        } else {
+            Err(MemoryCommitError::Git {
+                what,
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            })
+        }
+    };
     if !git_dir.exists() {
         check(git(&["init", "-q"])?, "init")?;
     }
@@ -944,7 +959,7 @@ pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
     let mut ignored = match std::fs::read_to_string(&ignore) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("cannot read .gitignore: {error}")),
+        Err(error) => return Err(MemoryCommitError::ReadIgnore(error)),
     };
     let missing: Vec<&str> = IGNORED
         .into_iter()
@@ -958,8 +973,7 @@ pub(super) fn commit(dir: &Path, git_dir: &Path) -> Result<(), String> {
             ignored.push_str(entry);
             ignored.push('\n');
         }
-        std::fs::write(&ignore, ignored)
-            .map_err(|error| format!("cannot write .gitignore: {error}"))?;
+        std::fs::write(&ignore, ignored).map_err(MemoryCommitError::WriteIgnore)?;
     }
     // A chat committed before the view was a cache tracks it: untrack it.
     check(

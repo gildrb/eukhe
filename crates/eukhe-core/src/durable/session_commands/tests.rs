@@ -27,6 +27,11 @@ fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
 }
 
+/// The failure text of `outcome`.
+fn failed(outcome: &SessionCommandOutcome) -> Option<String> {
+    outcome.error.as_ref().map(ToString::to_string)
+}
+
 struct Fixture {
     _dir: tempfile::TempDir,
     session: EukheSession,
@@ -241,7 +246,7 @@ fn classify_recognizes_only_session_commands() {
 async fn goal_status_without_a_goal_answers_no_active_goal() {
     let fixture = open(&[]).await;
     let outcome = fixture.run("/goal").await;
-    assert_eq!(outcome.error, None);
+    assert_eq!(failed(&outcome), None);
     assert_eq!(outcome.goal, Some(GoalState::default()));
     assert_eq!(
         fixture.command_rows().await,
@@ -255,7 +260,7 @@ async fn goal_start_submits_its_continuation_and_reports_the_goal() {
     // The first run fails at the provider: no continuation follows it.
     let fixture = open(&[error_response("provider exploded")]).await;
     let outcome = fixture.run("/goal ship it").await;
-    assert_eq!(outcome.error, None);
+    assert_eq!(failed(&outcome), None);
     let goal = outcome.goal.expect("the goal");
     assert_eq!(goal.status, GoalStatus::Active);
     assert_eq!(goal.objective.as_deref(), Some("ship it"));
@@ -306,7 +311,7 @@ async fn goal_pause_resume_and_clear_report_each_state() {
     requested.notified().await;
 
     let paused = fixture.run("/goal pause").await;
-    assert_eq!(paused.error, None);
+    assert_eq!(failed(&paused), None);
     assert_eq!(
         paused.goal.as_ref().map(|goal| goal.status),
         Some(GoalStatus::Paused)
@@ -319,7 +324,7 @@ async fn goal_pause_resume_and_clear_report_each_state() {
         .expect("abort the held run");
 
     let resumed = fixture.run("/goal resume").await;
-    assert_eq!(resumed.error, None);
+    assert_eq!(failed(&resumed), None);
     assert_eq!(
         resumed.goal.as_ref().map(|goal| goal.status),
         Some(GoalStatus::Active)
@@ -329,7 +334,7 @@ async fn goal_pause_resume_and_clear_report_each_state() {
     assert_eq!(texts.len(), 2, "{texts:?}");
 
     let cleared = fixture.run("/goal clear").await;
-    assert_eq!(cleared.error, None);
+    assert_eq!(failed(&cleared), None);
     let cleared_goal = cleared.goal.expect("the goal");
     assert_eq!(
         (cleared_goal.status, cleared_goal.objective),
@@ -366,11 +371,11 @@ async fn an_invalid_goal_command_appends_the_failure_row() {
     let text = "/goal --budget nope ship it";
     let expected = parse_goal_command(&command(text).args).expect_err("an invalid budget");
     let outcome = fixture.run(text).await;
-    assert_eq!(outcome.error.as_deref(), Some(expected.as_str()));
+    assert_eq!(failed(&outcome), Some(expected.to_string()));
     assert_eq!(outcome.goal, None);
     assert_eq!(
         fixture.command_rows().await,
-        vec![echo(text), failure(text, &expected)]
+        vec![echo(text), failure(text, &expected.text)]
     );
     fixture.close().await;
 }
@@ -379,12 +384,12 @@ async fn an_invalid_goal_command_appends_the_failure_row() {
 async fn autonomous_status_on_and_off_append_status_rows() {
     let fixture = open(&[]).await;
     let status = fixture.run("/autonomous").await;
-    assert_eq!(status.error, None);
+    assert_eq!(failed(&status), None);
     let off = status.autonomous.expect("the status");
     assert!(!off.enabled);
 
     let on = fixture.run("/autonomous on --max-turns 5").await;
-    assert_eq!(on.error, None);
+    assert_eq!(failed(&on), None);
     let enabled = on.autonomous.expect("the status");
     assert!(enabled.enabled);
     let AutonomousCommand::On { config } =
@@ -395,7 +400,7 @@ async fn autonomous_status_on_and_off_append_status_rows() {
     assert_ne!(config, AgentAutonomousConfig::default());
 
     let disabled = fixture.run("/autonomous off").await;
-    assert_eq!(disabled.error, None);
+    assert_eq!(failed(&disabled), None);
     let disabled = disabled.autonomous.expect("the status");
     assert!(!disabled.enabled);
 
@@ -455,11 +460,11 @@ async fn an_invalid_autonomous_command_appends_the_failure_row() {
     let text = "/autonomous status now";
     let expected = parse_autonomous_command(&command(text).args).expect_err("extra arguments");
     let outcome = fixture.run(text).await;
-    assert_eq!(outcome.error.as_deref(), Some(expected.as_str()));
+    assert_eq!(failed(&outcome), Some(expected.to_string()));
     assert_eq!(outcome.autonomous, None);
     assert_eq!(
         fixture.command_rows().await,
-        vec![echo(text), failure(text, &expected)]
+        vec![echo(text), failure(text, &expected.text)]
     );
     fixture.close().await;
 }
@@ -474,7 +479,7 @@ async fn compact_admits_a_compaction_task() {
     fixture.ask("hello").await;
     fixture.ask("again").await;
     let outcome = fixture.run("/compact keep the greeting").await;
-    assert_eq!(outcome.error, None);
+    assert_eq!(failed(&outcome), None);
     let task = outcome.compaction.expect("the compaction task");
     let settled = fixture
         .session
@@ -522,8 +527,14 @@ async fn local_refine_without_a_session_directory_fails() {
     let outcome = fixture.run("/refine").await;
     let error =
         "Local harness refinement requires a session directory; use global refinement instead.";
-    assert_eq!(outcome.error.as_deref(), Some(error));
-    assert_eq!(outcome.refinement_failed.as_deref(), Some(error));
+    assert_eq!(failed(&outcome).as_deref(), Some(error));
+    assert_eq!(
+        outcome
+            .refinement_failed()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some(error)
+    );
     assert_eq!(
         fixture.command_rows().await,
         vec![echo("/refine"), failure("/refine", error)]
@@ -536,9 +547,9 @@ async fn refine_rollback_without_an_id_fails_with_the_usage() {
     let fixture = open(&[]).await;
     let outcome = fixture.run("/refine rollback").await;
     let error = "Usage: /refine rollback <refinement-id>";
-    assert_eq!(outcome.error.as_deref(), Some(error));
+    assert_eq!(failed(&outcome).as_deref(), Some(error));
     // A usage error never ran a refinement.
-    assert_eq!(outcome.refinement_failed, None);
+    assert!(outcome.refinement_failed().is_none());
     assert_eq!(
         fixture.command_rows().await,
         vec![echo("/refine rollback"), failure("/refine rollback", error)]
@@ -551,8 +562,8 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
     let plan = r#"{"summary":"global lesson","edits":[{"action":"create","kind":"memory","id":"g1","title":"Lesson","content":"durable"}]}"#;
     let fixture = open(&[json!(plan)]).await;
     let outcome = fixture.run("/refine --global").await;
-    assert_eq!(outcome.error, None);
-    assert_eq!(outcome.refinement_failed, None);
+    assert_eq!(failed(&outcome), None);
+    assert!(outcome.refinement_failed().is_none());
     let rows = fixture
         .rows(&[
             SESSION_SLASH_COMMAND_CUSTOM_TYPE,
@@ -627,22 +638,24 @@ fn refine_options_parsing() {
             .global
     );
     assert_eq!(
-        parse_refine_command_options("rollback").unwrap_err(),
+        parse_refine_command_options("rollback")
+            .unwrap_err()
+            .to_string(),
         "Usage: /refine rollback <refinement-id>"
     );
     assert_eq!(
-        parse_refine_command_options("rollback ").unwrap_err(),
+        parse_refine_command_options("rollback ")
+            .unwrap_err()
+            .to_string(),
         "Usage: /refine rollback <refinement-id>"
     );
 }
 
 #[test]
 fn force_options_parsing() {
-    assert_eq!(parse_force_command("lookup"), Ok(("lookup".to_owned(), 1)));
-    assert_eq!(
-        parse_force_command(" lookup --tries 3 "),
-        Ok(("lookup".to_owned(), 3))
-    );
+    let text = |args| parse_force_command(args).map_err(|error| error.to_string());
+    assert_eq!(text("lookup"), Ok(("lookup".to_owned(), 1)));
+    assert_eq!(text(" lookup --tries 3 "), Ok(("lookup".to_owned(), 3)));
     let usage = Err("Usage: /force <tool> [--tries <n>]".to_owned());
     for args in [
         "",
@@ -651,7 +664,7 @@ fn force_options_parsing() {
         "lookup --tries -1",
         "lookup extra",
     ] {
-        assert_eq!(parse_force_command(args), usage, "{args:?}");
+        assert_eq!(text(args), usage, "{args:?}");
     }
 }
 
@@ -659,10 +672,13 @@ fn force_options_parsing() {
 async fn remind_and_force_put_their_layers_on_the_director_stack() {
     let fixture = open(&[]).await;
     for text in ["/remind Run the tests first.", "/force lookup --tries 2"] {
-        assert_eq!(fixture.run(text).await.error, None, "{text}");
+        assert_eq!(failed(&fixture.run(text).await), None, "{text}");
     }
     let usage = "Usage: /remind <text>";
-    assert_eq!(fixture.run("/remind").await.error.as_deref(), Some(usage));
+    assert_eq!(
+        failed(&fixture.run("/remind").await).as_deref(),
+        Some(usage)
+    );
     assert_eq!(
         fixture.command_rows().await,
         vec![
@@ -727,7 +743,7 @@ async fn a_forced_call_never_made_fails_once_and_the_next_ask_is_not_forced() {
         // Taken only by a forced second ask.
         recorded(&seen, "unused"),
     ]);
-    assert_eq!(fixture.run("/force lookup --tries 0").await.error, None);
+    assert_eq!(failed(&fixture.run("/force lookup --tries 0").await), None);
 
     fixture.ask("go").await;
     fixture.ask("again").await;

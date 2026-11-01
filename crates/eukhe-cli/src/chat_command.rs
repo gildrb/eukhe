@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+use crate::config::APP_NAME;
+
 /// The parsed `chat` invocation.
 #[derive(Debug, PartialEq, Eq)]
 enum ChatCommand {
@@ -16,22 +18,49 @@ enum ChatCommand {
     ImportSessions { paths: Vec<String> },
 }
 
-/// Parse the subcommand and its flags; `Err` carries a usage hint (empty
-/// when the subcommand is missing).
-fn parse_chat_command(args: &[String]) -> Result<ChatCommand, String> {
+/// Why the `chat` arguments do not parse.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum ChatUsageError {
+    /// No subcommand.
+    #[error("Missing chat command.")]
+    Missing,
+    #[error(
+        "Unknown chat command: {subcommand}{}",
+        .suggestion.as_ref().map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
+    )]
+    Unknown {
+        subcommand: String,
+        suggestion: Option<String>,
+    },
+    #[error("--out requires a file path")]
+    OutWithoutPath,
+    #[error("unknown option {0:?}")]
+    UnknownOption(String),
+    #[error("Usage: {app} chat view", app = APP_NAME)]
+    ViewUsage,
+    #[error("Usage: {app} chat status [--json]", app = APP_NAME)]
+    StatusUsage,
+    #[error("Usage: {app} chat browse [--out <path>]", app = APP_NAME)]
+    BrowseUsage,
+    #[error("Usage: {app} chat import sessions <path>...", app = APP_NAME)]
+    ImportUsage,
+}
+
+/// Parse the subcommand and its flags.
+fn parse_chat_command(args: &[String]) -> Result<ChatCommand, ChatUsageError> {
     let children: Vec<&str> = crate::command_registry::get_child_command_specs(&["chat"])
         .into_iter()
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     let Some(subcommand) = args.first() else {
-        return Err(String::new());
+        return Err(ChatUsageError::Missing);
     };
     if !children.contains(&subcommand.as_str()) {
-        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
-        return Err(format!(
-            "Unknown chat command: {subcommand}{}",
-            suggestion.map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
-        ));
+        return Err(ChatUsageError::Unknown {
+            subcommand: subcommand.clone(),
+            suggestion: eukhe_bend::rules::slash::suggestion(subcommand, &children)
+                .map(str::to_owned),
+        });
     }
     let mut json = false;
     let mut out: Option<String> = None;
@@ -42,40 +71,40 @@ fn parse_chat_command(args: &[String]) -> Result<ChatCommand, String> {
             "--json" => json = true,
             "--out" => {
                 let Some(value) = rest.next() else {
-                    return Err("--out requires a file path".to_string());
+                    return Err(ChatUsageError::OutWithoutPath);
                 };
                 out = Some(value.clone());
             }
-            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other if other.starts_with('-') => {
+                return Err(ChatUsageError::UnknownOption(other.to_owned()))
+            }
             other => operands.push(other.to_string()),
         }
     }
-    let app = crate::config::APP_NAME;
     match subcommand.as_str() {
         "view" if operands.is_empty() && !json && out.is_none() => Ok(ChatCommand::View),
-        "view" => Err(format!("Usage: {app} chat view")),
+        "view" => Err(ChatUsageError::ViewUsage),
         "status" if operands.is_empty() && out.is_none() => Ok(ChatCommand::Status { json }),
-        "status" => Err(format!("Usage: {app} chat status [--json]")),
+        "status" => Err(ChatUsageError::StatusUsage),
         "browse" if operands.is_empty() && !json => Ok(ChatCommand::Browse { out }),
-        "browse" => Err(format!("Usage: {app} chat browse [--out <path>]")),
+        "browse" => Err(ChatUsageError::BrowseUsage),
         "import" => {
-            let usage = format!("Usage: {app} chat import sessions <path>...");
             if json || out.is_some() {
-                return Err(usage);
+                return Err(ChatUsageError::ImportUsage);
             }
             let mut operands = operands.into_iter();
             match operands.next().as_deref() {
                 Some("sessions") => {
                     let paths: Vec<String> = operands.collect();
                     if paths.is_empty() {
-                        return Err(usage);
+                        return Err(ChatUsageError::ImportUsage);
                     }
                     Ok(ChatCommand::ImportSessions { paths })
                 }
-                _ => Err(usage),
+                _ => Err(ChatUsageError::ImportUsage),
             }
         }
-        _ => Err(String::new()),
+        _ => Err(ChatUsageError::Missing),
     }
 }
 
@@ -83,9 +112,9 @@ fn parse_chat_command(args: &[String]) -> Result<ChatCommand, String> {
 pub fn run_chat_command(args: &[String]) -> i32 {
     let command = match parse_chat_command(args) {
         Ok(command) => command,
-        Err(empty_hint) if empty_hint.is_empty() => {
-            eprintln!("Missing chat command.");
-            eprintln!("Run \"{} help chat\" for usage.", crate::config::APP_NAME);
+        Err(error @ ChatUsageError::Missing) => {
+            eprintln!("{error}");
+            eprintln!("Run \"{APP_NAME} help chat\" for usage.");
             return 1;
         }
         Err(error) => {

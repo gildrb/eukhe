@@ -255,13 +255,16 @@ impl Supervisor {
         target: &HeadlessTarget,
         delivery: Value,
         budget: Duration,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, HeadlessDeliveryError> {
         let delivery_id = uuid::Uuid::new_v4().to_string();
         let (answer_tx, answer_rx) = oneshot::channel();
+        let left = || HeadlessDeliveryError::Left {
+            session_id: target.session_id.clone(),
+        };
         let connection_id = {
             let parents = self.headless_parents.parents();
             let Some(parent) = parents.get(&target.session_id) else {
-                return Err(left_error(&target.session_id));
+                return Err(left());
             };
             parent.connection_id.clone()
         };
@@ -285,22 +288,20 @@ impl Supervisor {
                 .await
                 .is_err()
             {
-                return Err(left_error(&target.session_id));
+                return Err(left());
             }
-            answer_rx
-                .await
-                .map_err(|_departed| left_error(&target.session_id))
+            answer_rx.await.map_err(|_departed| left())
         })
         .await;
         self.headless_parents.deliveries().remove(&delivery_id);
         match answered {
             Ok(Ok(Answer::Receipt(receipt))) => Ok(receipt),
-            Ok(Ok(Answer::Refused(error)) | Err(error)) => Err(error),
-            Err(_elapsed) => Err(format!(
-                "The headless session {} did not take the message within {} s",
-                target.session_id,
-                budget.as_secs()
-            )),
+            Ok(Ok(Answer::Refused(error))) => Err(HeadlessDeliveryError::Refused(error)),
+            Ok(Err(error)) => Err(error),
+            Err(_elapsed) => Err(HeadlessDeliveryError::TimedOut {
+                session_id: target.session_id.clone(),
+                seconds: budget.as_secs(),
+            }),
         }
     }
 
@@ -318,7 +319,15 @@ impl Supervisor {
     }
 }
 
-/// The error of a delivery whose parent left before it answered.
-fn left_error(session_id: &str) -> String {
-    format!("The headless session {session_id} left before it took the message")
+/// Why a headless parent did not take a delivered message.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HeadlessDeliveryError {
+    /// The parent's receipt refused it (the receipt's text).
+    #[error("{0}")]
+    Refused(String),
+    /// The parent left before it answered.
+    #[error("The headless session {session_id} left before it took the message")]
+    Left { session_id: String },
+    #[error("The headless session {session_id} did not take the message within {seconds} s")]
+    TimedOut { session_id: String, seconds: u64 },
 }

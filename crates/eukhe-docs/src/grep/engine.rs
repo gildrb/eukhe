@@ -272,9 +272,7 @@ pub(super) fn compile_walk_glob(glob: &str) -> Result<GlobMatcher, GrepError> {
         .literal_separator(true)
         .build()
         .map(|glob| glob.compile_matcher())
-        .map_err(|error| GrepError::Workspace {
-            message: format!("invalid glob pattern: {error}"),
-        })
+        .map_err(GrepError::WalkGlob)
 }
 
 /// What a directory walk found: the files to search, and the entries it

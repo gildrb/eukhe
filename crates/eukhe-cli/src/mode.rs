@@ -156,14 +156,6 @@ impl MissingSubsystem {
             MissingSubsystem::PackageManager => "the capability package manager (eukhe-core)",
         }
     }
-
-    #[must_use]
-    pub fn error_message(&self) -> String {
-        format!(
-            "this invocation needs {}, which is not linked into the binary yet",
-            self.subsystem_name()
-        )
-    }
 }
 
 impl std::fmt::Display for MissingSubsystem {
@@ -201,19 +193,39 @@ impl Runtime for UnavailableRuntime {
     }
 }
 
+/// A `--system-prompt-file` / `--append-system-prompt-file` that cannot
+/// be used; the run stops before a session starts.
+#[derive(Debug, thiserror::Error)]
+pub enum PromptFileError {
+    #[error("{flag} {}: {} is not a file", .file.display(), .path.display())]
+    NotAFile {
+        flag: &'static str,
+        file: PathBuf,
+        path: PathBuf,
+    },
+    #[error("{flag} {}: cannot read {}: {source}", .file.display(), .path.display())]
+    Unreadable {
+        flag: &'static str,
+        file: PathBuf,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Build the runtime config from parsed args, mirroring `runtimeConfigFromArgs`.
 ///
 /// # Errors
 ///
-/// Returns the message for a `--system-prompt-file` or
-/// `--append-system-prompt-file` that cannot be opened or is not a file.
+/// A `--system-prompt-file` or `--append-system-prompt-file` that cannot
+/// be opened or is not a file.
 pub fn runtime_config_from_args(
     parsed: &Args,
     cwd: PathBuf,
     agent_dir: PathBuf,
     session_dir: Option<PathBuf>,
     app_mode: AppMode,
-) -> Result<RuntimeConfig, String> {
+) -> Result<RuntimeConfig, PromptFileError> {
     // isLocalPath (the compiled core's): only npm:/git:/github:/http(s):/ssh:
     // sources are not local; everything else resolves against the session
     // cwd (utils/paths.ts).
@@ -238,30 +250,32 @@ pub fn runtime_config_from_args(
     let themes = resolve_cli_path(&parsed.themes);
     // A prompt file resolves against the session cwd, like `--skill`. A file
     // that cannot be opened stops the run here, before a session starts.
-    let resolve_prompt_input =
-        |input: &SystemPromptInput, file_flag: &str| -> Result<SystemPromptInput, String> {
-            match input {
-                SystemPromptInput::Text(text) => Ok(SystemPromptInput::Text(text.clone())),
-                SystemPromptInput::File { file } => {
-                    let path = cwd.join(file);
-                    match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
-                        Ok(metadata) if metadata.is_file() => {
-                            Ok(SystemPromptInput::File { file: path })
-                        }
-                        Ok(_) => Err(format!(
-                            "{file_flag} {}: {} is not a file",
-                            file.display(),
-                            path.display()
-                        )),
-                        Err(error) => Err(format!(
-                            "{file_flag} {}: cannot read {}: {error}",
-                            file.display(),
-                            path.display()
-                        )),
+    let resolve_prompt_input = |input: &SystemPromptInput,
+                                flag: &'static str|
+     -> Result<SystemPromptInput, PromptFileError> {
+        match input {
+            SystemPromptInput::Text(text) => Ok(SystemPromptInput::Text(text.clone())),
+            SystemPromptInput::File { file } => {
+                let path = cwd.join(file);
+                match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
+                    Ok(metadata) if metadata.is_file() => {
+                        Ok(SystemPromptInput::File { file: path })
                     }
+                    Ok(_) => Err(PromptFileError::NotAFile {
+                        flag,
+                        file: file.clone(),
+                        path,
+                    }),
+                    Err(source) => Err(PromptFileError::Unreadable {
+                        flag,
+                        file: file.clone(),
+                        path,
+                        source,
+                    }),
                 }
             }
-        };
+        }
+    };
     let system_prompt = parsed
         .system_prompt
         .as_ref()
@@ -328,7 +342,7 @@ mod tests {
             panic!("a missing prompt file is an error");
         };
         assert_eq!(
-            error,
+            error.to_string(),
             format!(
                 "--system-prompt-file ./missing.md: cannot read {}: {io_error}",
                 path.display()

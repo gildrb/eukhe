@@ -23,6 +23,23 @@ use serde_json::{json, Value};
 
 use crate::worker::InputRequest;
 
+/// Why an agent message is not delivered.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DeliveryRefusal {
+    /// The message is empty or past the message limit.
+    #[error("{source}")]
+    Message {
+        #[source]
+        source: anyhow::Error,
+    },
+    /// The recipient's inbox holds as many queued messages as it takes.
+    #[error("{source}")]
+    QueueFull {
+        #[source]
+        source: anyhow::Error,
+    },
+}
+
 /// The recipient's durable identity, which a sender's parent edge is read
 /// against.
 pub(crate) struct Recipient<'a> {
@@ -64,13 +81,14 @@ impl AgentMessageDelivery {
     ///
     /// # Errors
     ///
-    /// The limit error text (an empty or oversized message).
-    pub(crate) fn validated_message(payload: &Value) -> Result<&str, String> {
+    /// [`DeliveryRefusal::Message`] for an empty or oversized message.
+    pub(crate) fn validated_message(payload: &Value) -> Result<&str, DeliveryRefusal> {
         let message = payload
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        normalize_agent_session_message(message).map_err(|error| error.to_string())?;
+        normalize_agent_session_message(message)
+            .map_err(|source| DeliveryRefusal::Message { source })?;
         Ok(message)
     }
 
@@ -81,14 +99,14 @@ impl AgentMessageDelivery {
     ///
     /// # Errors
     ///
-    /// The queue-capacity error text when the recipient's inbox is full.
+    /// [`DeliveryRefusal::QueueFull`] when the recipient's inbox is full.
     pub(crate) fn prepare(
         payload: &Value,
         message: &str,
         recipient: &Recipient<'_>,
         pending: usize,
         target: Value,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, DeliveryRefusal> {
         let sender = payload.get("sender").cloned().unwrap_or(Value::Null);
         // Sender label precedence: session name, session id, active session
         // id, client id.
@@ -100,7 +118,7 @@ impl AgentMessageDelivery {
         let from_relationship =
             sender_parent_edge_is(&sender, recipient).then_some(AgentFamilyRelationship::Child);
         assert_agent_message_queue_capacity(pending, DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION)
-            .map_err(|error| error.to_string())?;
+            .map_err(|source| DeliveryRefusal::QueueFull { source })?;
         let child_sender_ids =
             (from_relationship == Some(AgentFamilyRelationship::Child)).then(|| {
                 ["activeSessionId", "sessionId"]

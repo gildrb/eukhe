@@ -4,13 +4,29 @@
 use eukhe_bend::rules::headless::{settle, Settle, SettleFacts};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
-use eukhe_core::durable::pending::pending_work;
+use eukhe_core::durable::pending::{pending_work, PendingWorkError};
 use eukhe_core::durable::rlm::kernel_background_jobs_settled;
 use eukhe_core::durable::workflow::unsettled_run_tasks;
+use eukhe_durable::session::SessionError;
 use futures::FutureExt;
 use serde_json::Value;
 
 use super::{response_failure, response_success, DaemonResponse, Worker};
+
+/// Why an idle wait ended without the session settling.
+#[derive(Debug, thiserror::Error)]
+enum IdleWaitError {
+    /// No hosted session (or no notice seam) yet.
+    #[error("Session is still initializing")]
+    Initializing,
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    #[error(transparent)]
+    Pending(#[from] PendingWorkError),
+    /// The compiled core's quiescence rule answered no decision.
+    #[error(transparent)]
+    Settle(#[from] eukhe_bend::Error),
+}
 
 impl Worker {
     /// Graceful stop: abort the run, close the session (the Harness
@@ -90,13 +106,13 @@ impl Worker {
     /// jobs and the kernel's background jobs) and while a settled job's
     /// notice is being admitted: each wakes the session into another run,
     /// so the session is not quiescent before they end.
-    async fn wait_until_idle(&self, payload: &Value) -> Result<(), String> {
+    async fn wait_until_idle(&self, payload: &Value) -> Result<(), IdleWaitError> {
         let cx = &BACKGROUND_CONTEXT;
         let flag = |name: &str| payload.get(name).and_then(Value::as_bool).unwrap_or(false);
         let rlm_quiescence = flag("waitForRlmQuiescence");
         let background_jobs = flag("waitForBackgroundJobs");
-        let hosted = self.session.get().ok_or("Session is still initializing")?;
-        let main = hosted.main().map_err(|error| error.to_string())?;
+        let hosted = self.session.get().ok_or(IdleWaitError::Initializing)?;
+        let main = hosted.main()?;
         // The hosted session's notice seam: wired with its config, so a
         // hosted session always has one.
         let notices = self
@@ -104,29 +120,17 @@ impl Worker {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
-            .ok_or("Session is still initializing")?;
+            .ok_or(IdleWaitError::Initializing)?;
         loop {
-            main.wait_for_idle(cx)
-                .await
-                .map_err(|error| error.to_string())?;
+            main.wait_for_idle(cx).await?;
             if !rlm_quiescence {
                 break;
             }
-            let mut unsettled = unsettled_child_tasks(hosted.harness(), main.id(), cx)
-                .await
-                .map_err(|error| error.to_string())?;
-            unsettled.extend(
-                unsettled_run_tasks(hosted.harness(), main.id(), cx)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            );
+            let mut unsettled = unsettled_child_tasks(hosted.harness(), main.id(), cx).await?;
+            unsettled.extend(unsettled_run_tasks(hosted.harness(), main.id(), cx).await?);
             if !unsettled.is_empty() {
                 for task in unsettled {
-                    hosted
-                        .harness()
-                        .wait_for_task(task, cx)
-                        .await
-                        .map_err(|error| error.to_string())?;
+                    hosted.harness().wait_for_task(task, cx).await?;
                 }
                 continue;
             }
@@ -142,19 +146,12 @@ impl Worker {
             // wait limit. A result held for a watching wait needs no hold
             // of its own: the wait runs inside a turn, and a wait that ends
             // without taking it hands it to a notice.
-            let pending = pending_work(hosted.deps(), hosted.harness(), main.id(), cx)
-                .await
-                .map_err(|error| error.to_string())?;
+            let pending = pending_work(hosted.deps(), hosted.harness(), main.id(), cx).await?;
             let changed = notices.changed();
             tokio::pin!(changed);
             changed.as_mut().enable();
             let wakes = notices.in_flight();
-            let busy = main
-                .wait_for_idle(cx)
-                .now_or_never()
-                .transpose()
-                .map_err(|error| error.to_string())?
-                .is_none();
+            let busy = main.wait_for_idle(cx).now_or_never().transpose()?.is_none();
             let count = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
             let facts = SettleFacts {
                 busy,
@@ -166,7 +163,7 @@ impl Worker {
                 unknown: false,
                 limit_hit: false,
             };
-            match settle(&facts).map_err(|error| error.to_string())? {
+            match settle(&facts)? {
                 // With no limit stated the rule never gives up; a give-up
                 // would end the hold like a finish.
                 Settle::Done | Settle::GiveUp => break,
@@ -195,7 +192,7 @@ impl Worker {
     pub(crate) async fn handle_wait_for_idle(&self, payload: &Value) -> DaemonResponse {
         match self.wait_until_idle(payload).await {
             Ok(()) => response_success(None, "wait_for_idle", None),
-            Err(error) => response_failure(None, "wait_for_idle", &error, None),
+            Err(error) => response_failure(None, "wait_for_idle", &error.to_string(), None),
         }
     }
 
@@ -212,7 +209,7 @@ impl Worker {
             Err(response) => return response,
         };
         if let Err(error) = self.wait_until_idle(payload).await {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         let main = match hosted.main() {
             Ok(main) => main,

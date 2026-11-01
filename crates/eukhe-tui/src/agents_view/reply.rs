@@ -9,7 +9,9 @@ use super::delete::PendingDelete;
 use super::rename::{Rename, RenameTarget};
 use super::status::{Status, StatusTone};
 use super::{AgentsViewMode, Composer, DaemonClient, UiInput};
+use crate::agent_delivery::DeliveryError;
 use crate::agents_view_forest::RowKind;
+use crate::daemon_client::CommandFailed;
 use crate::editor::{Editor, EditorEvent};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
@@ -615,7 +617,11 @@ impl AgentsViewMode {
     /// header renders the first line of the fetched text -- a
     /// re-targeted or disarmed composer drops the result (the key
     /// comparison, TS's `replyTarget?.key === key` guard).
-    pub(super) fn headline_result(&mut self, key: &str, result: Result<Option<String>, String>) {
+    pub(super) fn headline_result(
+        &mut self,
+        key: &str,
+        result: Result<Option<String>, CommandFailed>,
+    ) {
         if !self.reply_armed_on(key) {
             return;
         }
@@ -639,7 +645,7 @@ impl AgentsViewMode {
     /// selects when the composer still targets it, and the composer
     /// disarms under TS's unchanged-target-empty-editor guard), the
     /// failure status and the draft restore on error.
-    pub(super) fn reply_result(&mut self, key: &str, outcome: Result<ReplySent, String>) {
+    pub(super) fn reply_result(&mut self, key: &str, outcome: Result<ReplySent, DeliveryError>) {
         match outcome {
             Ok(sent) => {
                 if let Some(notice) = sent.cwd_notice {
@@ -674,7 +680,7 @@ impl AgentsViewMode {
     /// composer disarms under the unchanged-target guard, the status
     /// reports the stop, and the roster push refreshes the rows behind
     /// it (the live row leaves the Running section on the next push).
-    pub(super) fn kill_result(&mut self, key: &str, outcome: Result<(), String>) {
+    pub(super) fn kill_result(&mut self, key: &str, outcome: Result<(), CommandFailed>) {
         match outcome {
             Ok(()) => {
                 // TS's kill arm disarms the unchanged composer with no
@@ -815,32 +821,22 @@ pub(super) fn spawn_headline_fetch(
 ) {
     let client = client.clone();
     tokio::spawn(async move {
-        let result = match client
+        let settled = client
             .request(DaemonCommand::GetLastAssistantText {
                 id: None,
                 active_session_id: active_session_id.clone(),
                 rest: serde_json::Map::default(),
             })
-            .await
-        {
-            Ok(response) if response.success => Ok(response
+            .await;
+        let result = CommandFailed::check(settled).map(|response| {
+            response
                 .data
                 .as_ref()
                 .and_then(|data| data.get("text"))
-                .cloned()
-                .and_then(|text| text.as_str().map(str::to_string))),
-            Ok(response) => Err(response
-                .error
-                .unwrap_or_else(|| "the command failed".into())),
-            Err(error) => Err(format!("{error:#}")),
-        };
-        let _ = ui_tx.send(UiInput::HeadlineResult {
-            key,
-            result: match result {
-                Ok(text) => Ok(text),
-                Err(error) => Err(error),
-            },
+                .and_then(Value::as_str)
+                .map(str::to_string)
         });
+        let _ = ui_tx.send(UiInput::HeadlineResult { key, result });
     });
 }
 
@@ -865,7 +861,7 @@ async fn send_reply(
     client: DaemonClient,
     ui_tx: &mpsc::UnboundedSender<UiInput>,
     request: ReplyRequest,
-) -> Result<ReplySent, String> {
+) -> Result<ReplySent, DeliveryError> {
     let resumed = crate::agent_delivery::deliver_agent_message(
         &client,
         crate::agent_delivery::AgentDelivery {
@@ -900,27 +896,24 @@ pub(super) fn spawn_kill_dispatch(
     let client = client.clone();
     let key = request.key.clone();
     tokio::spawn(async move {
-        let outcome = match client
+        let settled = client
             .request(DaemonCommand::Kill {
                 id: None,
                 active_session_id: request.active_session_id,
                 rest: serde_json::Map::default(),
             })
-            .await
-        {
-            Ok(response) if response.success => Ok(()),
+            .await;
+        let outcome = match settled {
             Ok(response)
-                if response
-                    .error
-                    .as_deref()
-                    .is_some_and(|error| error.starts_with("Unknown active session:")) =>
+                if !response.success
+                    && response
+                        .error
+                        .as_deref()
+                        .is_some_and(|error| error.starts_with("Unknown active session:")) =>
             {
                 Ok(())
             }
-            Ok(response) => Err(response
-                .error
-                .unwrap_or_else(|| "the command failed".into())),
-            Err(error) => Err(format!("{error:#}")),
+            settled => CommandFailed::check(settled).map(drop),
         };
         let _ = ui_tx.send(UiInput::KillResult { key, outcome });
     })

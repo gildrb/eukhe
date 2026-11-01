@@ -10,27 +10,54 @@ pub(crate) const SHORT_COMMIT_LEN: usize = 12;
 /// The suffix of a build's version that is no release.
 pub(crate) const DEV_SUFFIX: &str = "-dev";
 
+/// Why `EUKHE_RELEASE_VERSION` names no release of the workspace series.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ReleaseVersionError {
+    #[error("EUKHE_RELEASE_VERSION {release:?} is not a version major.minor.patch")]
+    NoVersion { release: String },
+    #[error(
+        "EUKHE_RELEASE_VERSION {release} is not of the series of the workspace version {workspace}"
+    )]
+    OtherSeries { release: String, workspace: String },
+    /// The compiled rule refused the inputs (an inconsistent build).
+    #[error(
+        "EUKHE_RELEASE_VERSION {release:?} against the workspace version {workspace}: {source}"
+    )]
+    Rule {
+        release: String,
+        workspace: String,
+        #[source]
+        source: eukhe_bend::Error,
+    },
+}
+
 /// The product version of a build of workspace version `workspace`
 /// (`X.Y.Z`, the series `X.Y`). A release build names its release
 /// (`release`, from `EUKHE_RELEASE_VERSION`): a version of the
 /// workspace's series (`eukhe-next-version` computes it; the rule runs as
 /// its compiled Bend model, `eukhe_bend::rules::semver::series`). Any
 /// other build is `<workspace>-dev`, so it never claims a release.
-pub(crate) fn product_version(workspace: &str, release: Option<&str>) -> Result<String, String> {
+pub(crate) fn product_version(
+    workspace: &str,
+    release: Option<&str>,
+) -> Result<String, ReleaseVersionError> {
     let Some(release) = release else {
         return Ok(format!("{workspace}{DEV_SUFFIX}"));
     };
     match series(workspace, release) {
         Ok(Series::Of) => Ok(release.to_string()),
-        Ok(Series::NoVersion) => Err(format!(
-            "EUKHE_RELEASE_VERSION {release:?} is not a version major.minor.patch"
-        )),
-        Ok(Series::Other) => Err(format!(
-            "EUKHE_RELEASE_VERSION {release} is not of the series of the workspace version {workspace}"
-        )),
-        Err(error) => Err(format!(
-            "EUKHE_RELEASE_VERSION {release:?} against the workspace version {workspace}: {error}"
-        )),
+        Ok(Series::NoVersion) => Err(ReleaseVersionError::NoVersion {
+            release: release.to_owned(),
+        }),
+        Ok(Series::Other) => Err(ReleaseVersionError::OtherSeries {
+            release: release.to_owned(),
+            workspace: workspace.to_owned(),
+        }),
+        Err(source) => Err(ReleaseVersionError::Rule {
+            release: release.to_owned(),
+            workspace: workspace.to_owned(),
+            source,
+        }),
     }
 }
 

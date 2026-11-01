@@ -130,7 +130,8 @@ fn load_template_from_file(
     };
     let raw_content = std::fs::read_to_string(file_path)
         .map_err(|error| failed(format!("prompt template not read: {error}")))?;
-    let (frontmatter, body) = parse_frontmatter(&raw_content).map_err(failed)?;
+    let (frontmatter, body) =
+        parse_frontmatter(&raw_content).map_err(|error| failed(error.to_string()))?;
     let name = file_path
         .file_name()
         .ok_or_else(|| failed("prompt template path has no file name".to_owned()))?
@@ -491,7 +492,7 @@ mod tests {
             ),
             warning(
                 &prompts.join("malformed.md"),
-                parse_frontmatter(malformed).unwrap_err(),
+                parse_frontmatter(malformed).unwrap_err().to_string(),
             ),
             warning(
                 &prompts.join("dangling.md"),

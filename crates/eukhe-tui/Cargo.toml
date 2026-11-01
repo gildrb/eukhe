@@ -27,6 +27,8 @@ ignore = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 anyhow = "1"
+# Typed errors: every failure the UI shows is an enum, rendered at the row.
+thiserror = { workspace = true }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net", "process"] }

@@ -17,6 +17,7 @@ use super::config_options::{
     config_options_value, model_value, publish_config_options, session_config_options, PickerModel,
     SessionConfigOption,
 };
+use super::daemon::error::DaemonLinkError;
 use super::daemon::{DaemonAcpState, DaemonLink};
 use super::jsonrpc;
 use super::producer::{self, UpdateProducer};
@@ -60,12 +61,12 @@ pub(super) async fn handle_set_config_option(
             })
     };
     let Some((daemon_session_id, config, producer)) = resolved else {
-        let _ = tx.send(jsonrpc::error_response(
-            &id,
-            jsonrpc::INVALID_PARAMS,
-            "Invalid params",
-            Some(&json!({ "reason": format!("Unknown ACP session: {}", params.session_id) })),
-        ));
+        let _ = tx.send(
+            WireConfigError::UnknownSession {
+                session_id: params.session_id,
+            }
+            .response(&id),
+        );
         return;
     };
     // One config operation at a time (TS `enqueueConfig`).
@@ -91,9 +92,7 @@ pub(super) async fn handle_set_config_option(
         )
         .await
     } else {
-        Err(WireConfigError::invalid_params(
-            "ACP session is closed or closing",
-        ))
+        Err(WireConfigError::SessionClosed)
     };
     if let Err(error) = outcome {
         let _ = tx.send(error.response(&id));
@@ -113,38 +112,85 @@ pub(super) async fn handle_set_config_option(
 }
 
 /// One failed wire config operation: the TS handler's `RequestError`
-/// shapes.
+/// shapes. Display is the `reason` (invalid params) or `details`
+/// (internal error) payload.
+#[derive(Debug, thiserror::Error)]
 pub(super) enum WireConfigError {
-    InvalidParams(String),
-    Internal(String),
+    #[error("Unknown ACP session: {session_id}")]
+    UnknownSession { session_id: String },
+    #[error("ACP session is closed or closing")]
+    SessionClosed,
+    #[error("Model discovery is unavailable; try again later")]
+    DiscoveryUnavailable {
+        #[source]
+        source: ModelDiscoveryError,
+    },
+    #[error("Unavailable model: {value}")]
+    UnavailableModel { value: String },
+    #[error("Unsupported reasoning effort: {value}")]
+    UnsupportedEffort { value: String },
+    #[error("Invalid configuration option: {config_id}")]
+    InvalidOption { config_id: String },
+    #[error(transparent)]
+    Link(#[from] DaemonLinkError),
+    /// The worker refused `set_model`: its error text, verbatim.
+    #[error("{}", message.as_deref().unwrap_or("the model switch failed"))]
+    ModelSwitchRefused { message: Option<String> },
+    /// The worker refused `set_thinking_level`: its error text, verbatim.
+    #[error("{}", message.as_deref().unwrap_or("the thinking level switch failed"))]
+    ThinkingSwitchRefused { message: Option<String> },
+    #[error("the worker's live state could not be read; try again")]
+    StateUnreadable,
+    #[error("the worker's state did not answer the supported levels; try again")]
+    LevelsMissing,
+    #[error("the worker's state did not answer the supported levels; try again")]
+    LevelsMalformed {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("the post-apply refresh failed: the worker's live state could not be read")]
+    RefreshStateUnreadable,
 }
 
 impl WireConfigError {
-    fn invalid_params(reason: impl Into<String>) -> WireConfigError {
-        WireConfigError::InvalidParams(reason.into())
-    }
-
-    fn internal(details: impl Into<String>) -> WireConfigError {
-        WireConfigError::Internal(details.into())
-    }
-
     /// The JSON-RPC error frame (the TS `invalidParams` data shape).
     fn response(self, id: &Value) -> Value {
         match self {
-            WireConfigError::InvalidParams(reason) => jsonrpc::error_response(
+            WireConfigError::UnknownSession { .. }
+            | WireConfigError::SessionClosed
+            | WireConfigError::DiscoveryUnavailable { .. }
+            | WireConfigError::UnavailableModel { .. }
+            | WireConfigError::UnsupportedEffort { .. }
+            | WireConfigError::InvalidOption { .. } => jsonrpc::error_response(
                 id,
                 jsonrpc::INVALID_PARAMS,
                 "Invalid params",
-                Some(&json!({ "reason": reason })),
+                Some(&json!({ "reason": self.to_string() })),
             ),
-            WireConfigError::Internal(details) => jsonrpc::error_response(
+            WireConfigError::Link(_)
+            | WireConfigError::ModelSwitchRefused { .. }
+            | WireConfigError::ThinkingSwitchRefused { .. }
+            | WireConfigError::StateUnreadable
+            | WireConfigError::LevelsMissing
+            | WireConfigError::LevelsMalformed { .. }
+            | WireConfigError::RefreshStateUnreadable => jsonrpc::error_response(
                 id,
                 jsonrpc::INTERNAL_ERROR,
                 "Internal error",
-                Some(&json!({ "details": details })),
+                Some(&json!({ "details": self.to_string() })),
             ),
         }
     }
+}
+
+/// A failed `get_available_models` (TS `getAvailableModels` rejects).
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ModelDiscoveryError {
+    #[error(transparent)]
+    Link(#[from] DaemonLinkError),
+    /// The worker refused discovery: its error text, verbatim.
+    #[error("{}", message.as_deref().unwrap_or("model discovery failed"))]
+    Refused { message: Option<String> },
 }
 
 /// Apply one selection (TS `session/set_config_option`'s handler body):
@@ -176,17 +222,13 @@ async fn apply_wire_config(
             }
             let models = fetch_available_models(link, daemon_session_id)
                 .await
-                .map_err(|_| {
-                    WireConfigError::invalid_params(
-                        "Model discovery is unavailable; try again later",
-                    )
-                })?;
+                .map_err(|source| WireConfigError::DiscoveryUnavailable { source })?;
             let model = models
                 .iter()
                 .find(|model| model_value(&model.provider, &model.id) == value)
                 .cloned()
-                .ok_or_else(|| {
-                    WireConfigError::invalid_params(format!("Unavailable model: {value}"))
+                .ok_or_else(|| WireConfigError::UnavailableModel {
+                    value: value.to_string(),
                 })?;
             let response = link
                 .request(DaemonCommand::SetModel {
@@ -196,14 +238,11 @@ async fn apply_wire_config(
                     model_id: model.id.clone(),
                     rest: Map::default(),
                 })
-                .await
-                .map_err(|error| WireConfigError::internal(error.to_string()))?;
+                .await?;
             if !response.success {
-                return Err(WireConfigError::internal(
-                    response
-                        .error
-                        .unwrap_or_else(|| "the model switch failed".to_string()),
-                ));
+                return Err(WireConfigError::ModelSwitchRefused {
+                    message: response.error,
+                });
             }
             *config.models.lock().await = models;
             Ok(())
@@ -213,25 +252,16 @@ async fn apply_wire_config(
             // never a verdict on the client's value (TS's handler
             // surfaces a failed `getState`; the refresh does the same).
             let Some(state) = fetch_connection_state(link, daemon_session_id).await else {
-                return Err(WireConfigError::internal(
-                    "the worker's live state could not be read; try again",
-                ));
+                return Err(WireConfigError::StateUnreadable);
             };
             // The levels list is part of the state's contract (the
             // worker always answers it); its absence or a malformed
             // shape is the same unreadable-state error, not an empty
             // list the gate would blame the selection for.
             let levels: Vec<String> = match state.get("availableThinkingLevels") {
-                Some(levels) => serde_json::from_value(levels.clone()).map_err(|_| {
-                    WireConfigError::internal(
-                        "the worker's state did not answer the supported levels; try again",
-                    )
-                })?,
-                None => {
-                    return Err(WireConfigError::internal(
-                        "the worker's state did not answer the supported levels; try again",
-                    ))
-                }
+                Some(levels) => serde_json::from_value(levels.clone())
+                    .map_err(|source| WireConfigError::LevelsMalformed { source })?,
+                None => return Err(WireConfigError::LevelsMissing),
             };
             // The worker's levels are #2858's map-driven capability
             // (`get_supported_thinking_levels` over the resolved model):
@@ -242,9 +272,9 @@ async fn apply_wire_config(
             let supported = levels.iter().any(|level| level != "off")
                 && levels.iter().any(|level| level == value);
             if !supported {
-                return Err(WireConfigError::invalid_params(format!(
-                    "Unsupported reasoning effort: {value}"
-                )));
+                return Err(WireConfigError::UnsupportedEffort {
+                    value: value.to_string(),
+                });
             }
             let response = link
                 .request(DaemonCommand::SetThinkingLevel {
@@ -253,20 +283,17 @@ async fn apply_wire_config(
                     level: value.to_string(),
                     rest: Map::default(),
                 })
-                .await
-                .map_err(|error| WireConfigError::internal(error.to_string()))?;
+                .await?;
             if !response.success {
-                return Err(WireConfigError::internal(
-                    response
-                        .error
-                        .unwrap_or_else(|| "the thinking level switch failed".to_string()),
-                ));
+                return Err(WireConfigError::ThinkingSwitchRefused {
+                    message: response.error,
+                });
             }
             Ok(())
         }
-        _ => Err(WireConfigError::invalid_params(format!(
-            "Invalid configuration option: {config_id}"
-        ))),
+        _ => Err(WireConfigError::InvalidOption {
+            config_id: config_id.to_string(),
+        }),
     }
 }
 
@@ -294,7 +321,7 @@ pub(super) async fn fetch_connection_state(
 pub(super) async fn fetch_available_models(
     link: &Arc<DaemonLink>,
     active_session_id: &str,
-) -> anyhow::Result<Vec<eukhe_types::ai::Model>> {
+) -> Result<Vec<eukhe_types::ai::Model>, ModelDiscoveryError> {
     let response = link
         .request(DaemonCommand::GetAvailableModels {
             id: None,
@@ -303,9 +330,9 @@ pub(super) async fn fetch_available_models(
         })
         .await?;
     if !response.success {
-        anyhow::bail!(response
-            .error
-            .unwrap_or_else(|| "model discovery failed".to_string()));
+        return Err(ModelDiscoveryError::Refused {
+            message: response.error,
+        });
     }
     let models = response
         .data
@@ -350,9 +377,7 @@ pub(super) async fn refresh_wire_config(
     producer: &Arc<UpdateProducer>,
 ) -> Result<Vec<SessionConfigOption>, WireConfigError> {
     let Some(state) = fetch_connection_state(link, daemon_session_id).await else {
-        return Err(WireConfigError::internal(
-            "the post-apply refresh failed: the worker's live state could not be read",
-        ));
+        return Err(WireConfigError::RefreshStateUnreadable);
     };
     let options = picker_options_from_state(Some(&state), &config.models.lock().await);
     publish_config_options(producer, &config.published, options.clone()).await;

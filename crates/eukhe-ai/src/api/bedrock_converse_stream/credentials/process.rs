@@ -19,33 +19,66 @@ use crate::utils::json_parse::js_json_parse;
 /// `exec`'s default `maxBuffer` (bytes per output stream).
 const MAX_BUFFER: usize = 1024 * 1024;
 
-/// Read the `name` stream (`stdout` / `stderr`) up to `limit` bytes; the
-/// error message once it exceeds the limit or the read fails.
+/// Why `exec` failed; its Display is Node's error message.
+#[derive(Debug, thiserror::Error)]
+enum ExecError {
+    #[error("spawn /bin/sh {source}")]
+    Spawn {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("spawn /bin/sh: missing stdio pipes")]
+    MissingPipes,
+    /// Reading the `stream` output (`stdout` / `stderr`) failed.
+    #[error("{stream} {source}")]
+    Read {
+        stream: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The `stream` output passed `maxBuffer`.
+    #[error("{stream} maxBuffer length exceeded")]
+    MaxBuffer { stream: &'static str },
+    #[error("{source}")]
+    Wait {
+        #[source]
+        source: std::io::Error,
+    },
+    /// The command exited unsuccessfully.
+    #[error("Command failed: {command}\n{stderr}")]
+    Failed { command: String, stderr: String },
+}
+
+/// Read the `name` stream (`stdout` / `stderr`) up to `limit` bytes; fails
+/// once it exceeds the limit or the read fails.
 async fn read_limited(
     mut stream: impl AsyncRead + Unpin,
-    name: &str,
+    name: &'static str,
     limit: usize,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ExecError> {
     let mut collected = Vec::new();
     let mut chunk = vec![0_u8; 8192];
     loop {
         let read = stream
             .read(&mut chunk)
             .await
-            .map_err(|error| format!("{name} {error}"))?;
+            .map_err(|source| ExecError::Read {
+                stream: name,
+                source,
+            })?;
         if read == 0 {
             return Ok(collected);
         }
         collected.extend_from_slice(&chunk[..read]);
         if collected.len() > limit {
-            return Err(format!("{name} maxBuffer length exceeded"));
+            return Err(ExecError::MaxBuffer { stream: name });
         }
     }
 }
 
 /// Node `promisify(exec)(command)`: stdout on a zero exit, else the error
-/// message (`Command failed: <command>\n<stderr>`).
-async fn exec(command: &str) -> Result<String, String> {
+/// (`Command failed: <command>\n<stderr>`).
+async fn exec(command: &str) -> Result<String, ExecError> {
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg(command)
@@ -54,11 +87,11 @@ async fn exec(command: &str) -> Result<String, String> {
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| format!("spawn /bin/sh {error}"))?;
+        .map_err(|source| ExecError::Spawn { source })?;
     // exec leaves the child's stdin pipe open.
     let stdin = child.stdin.take();
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
-        return Err("spawn /bin/sh: missing stdio pipes".to_owned());
+        return Err(ExecError::MissingPipes);
     };
     let output = tokio::try_join!(
         read_limited(stdout, "stdout", MAX_BUFFER),
@@ -66,19 +99,24 @@ async fn exec(command: &str) -> Result<String, String> {
     );
     let (stdout, stderr) = match output {
         Ok(output) => output,
-        Err(message) => {
+        Err(error) => {
             child.start_kill().ok();
-            return Err(message);
+            return Err(error);
         }
     };
-    let status = child.wait().await.map_err(|error| error.to_string())?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|source| ExecError::Wait { source })?;
     drop(stdin);
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
     if status.success() {
         Ok(stdout)
     } else {
-        let stderr = String::from_utf8_lossy(&stderr);
-        Err(format!("Command failed: {command}\n{stderr}"))
+        Err(ExecError::Failed {
+            command: command.to_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        })
     }
 }
 
@@ -147,7 +185,7 @@ async fn resolve_process_credentials(
     let stdout = resolution
         .abortable(exec(command))
         .await?
-        .map_err(ProviderFailure::credentials)?;
+        .map_err(|error| ProviderFailure::credentials(error.to_string()))?;
     let data = js_json_parse(js_trim(&stdout)).map_err(|_| {
         ProviderFailure::credentials(format!(
             "Profile {profile_name} credential_process returned invalid JSON."

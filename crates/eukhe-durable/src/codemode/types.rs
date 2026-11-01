@@ -149,22 +149,27 @@ struct OutcomeRepr {
     properties: Option<JsonValue>,
 }
 
+/// Why a recorded outcome does not read back.
+#[derive(Debug, thiserror::Error)]
+enum OutcomeReprError {
+    #[error("a failed outcome has no message")]
+    NoMessage,
+    #[error("the properties of a failed outcome are not an object")]
+    PropertiesNotAnObject,
+}
+
 impl TryFrom<OutcomeRepr> for CodemodeOutcome {
-    type Error = String;
+    type Error = OutcomeReprError;
 
     fn try_from(repr: OutcomeRepr) -> Result<Self, Self::Error> {
         if repr.ok {
             return Ok(Self::Ok { value: repr.value });
         }
-        let message = repr
-            .message
-            .ok_or_else(|| "a failed outcome has no message".to_owned())?;
+        let message = repr.message.ok_or(OutcomeReprError::NoMessage)?;
         let properties = match repr.properties {
             None => None,
             Some(JsonValue::Object(object)) => Some(JsonObject::clone(&object)),
-            Some(_) => {
-                return Err("the properties of a failed outcome are not an object".to_owned())
-            }
+            Some(_) => return Err(OutcomeReprError::PropertiesNotAnObject),
         };
         Ok(Self::Err {
             message,

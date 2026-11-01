@@ -88,7 +88,7 @@ async fn run(
     .expect("the prompt loop runs");
     let failure = match ended {
         PromptsEnd::Completed => None,
-        PromptsEnd::CommandFailed(error) => Some(error),
+        PromptsEnd::CommandFailed(error) => Some(error.to_string()),
         PromptsEnd::GaveUp(work) => panic!("nothing runs in the background: {work:?}"),
     };
     let result = select_terminal_result(&conversation, cx)
@@ -427,16 +427,20 @@ fn print_lease_outlives_runtime_writers_on_every_return_path() {
                     writer_ready_rx.await.unwrap();
                     match fixture.outcome {
                         Outcome::Success => Ok(0),
-                        Outcome::Error => Err("failed after lease acquisition".to_string()),
+                        Outcome::Error => Err(HeadlessModeError::Runtime(std::io::Error::other(
+                            "failed after lease acquisition",
+                        ))),
                         Outcome::Panic => panic!("unwind after lease acquisition"),
                     }
                 })
             })
         }));
         match outcome {
-            Outcome::Success => assert_eq!(result.unwrap(), Ok(0)),
+            Outcome::Success => {
+                assert_eq!(result.unwrap().map_err(|error| error.to_string()), Ok(0));
+            }
             Outcome::Error => assert_eq!(
-                result.unwrap(),
+                result.unwrap().map_err(|error| error.to_string()),
                 Err("failed after lease acquisition".to_string())
             ),
             Outcome::Panic => assert!(result.is_err()),

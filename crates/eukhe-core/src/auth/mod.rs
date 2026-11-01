@@ -4,17 +4,23 @@ pub(crate) mod failure_text;
 pub(crate) mod flight;
 pub(crate) mod manager;
 pub(crate) mod prime_browser_login;
+pub(crate) mod prime_error;
 pub(crate) mod prime_inference;
 pub(crate) mod prime_inference_login;
 pub(crate) mod provider_oauth;
 pub(crate) mod redirect_input;
+pub(crate) mod refresh_error;
 pub(crate) mod resolve_config_value;
 pub(crate) mod storage;
 pub(crate) mod types;
 
 pub use flight::RefreshFlights;
-pub use manager::{AuthApiKeyResult, AuthStorage, AuthWriteError, NoOAuth, OAuthIntegration};
+pub use manager::{
+    AuthApiKeyResult, AuthLoadError, AuthStorage, AuthStorageError, AuthWriteCause, AuthWriteError,
+    NoOAuth, OAuthIntegration,
+};
 pub use prime_browser_login::PrimeAuthInfo;
+pub use prime_error::{PrimeCheckError, PrimeHttpError, PrimeLoginError, PrimeTeamsError};
 pub use prime_inference::{
     check_prime_inference_access, default_prime_cli_config_path, fetch_prime_teams,
     read_prime_cli_config, resolve_prime_inference_auth_config, PrimeAccessError,
@@ -34,6 +40,7 @@ pub use redirect_input::{
     clean_paste, exchange_retry_notice, parse_redirect_input, PastedAuthorization,
     RedirectInputError, VerifiedAuthorization,
 };
+pub use refresh_error::{AuthFileError, OAuthRefreshError, RefreshError, RefreshFailed};
 pub use storage::{
     edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
     InMemoryAuthStorageBackend, AUTH_FILE_NAME,

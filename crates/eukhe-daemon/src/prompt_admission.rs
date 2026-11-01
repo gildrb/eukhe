@@ -42,6 +42,22 @@ fn prompt_admission_key(active_session_id: &str, admission_id: &str) -> String {
     format!("{active_session_id}\u{0}{admission_id}")
 }
 
+/// Why a prompt admission id was not registered (the TS parse-time
+/// errors).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum AdmissionRegisterError {
+    #[error("admissionId must not be empty")]
+    EmptyAdmissionId,
+    #[error("admissionId must not contain NUL")]
+    NulInAdmissionId,
+    #[error("Prompt admission requires string activeSessionId and admissionId")]
+    MissingSession,
+    #[error("activeSessionId must not contain NUL")]
+    NulInSessionId,
+    #[error("Prompt admission id is already in use: {admission_id}")]
+    InUse { admission_id: String },
+}
+
 /// One registered admission (the TS supervisor record).
 struct PromptAdmission {
     worker_admission_id: String,
@@ -63,11 +79,11 @@ impl PromptAdmissionTable {
         &self,
         active_session_id: &str,
         admission_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdmissionRegisterError> {
         // The TS checks in order: the empty admission id answers its own
         // error, then a missing session selector answers the generic one.
         if admission_id.is_empty() {
-            return Err("admissionId must not be empty".to_string());
+            return Err(AdmissionRegisterError::EmptyAdmissionId);
         }
         // The registry key joins its halves with NUL, so a NUL in either
         // half makes the separator ambiguous: an admission id carrying NUL
@@ -76,15 +92,13 @@ impl PromptAdmissionTable {
         // same exact key. Registered halves stay NUL-free, so every key
         // carries exactly one NUL and both lookups are unambiguous.
         if admission_id.contains('\0') {
-            return Err("admissionId must not contain NUL".to_string());
+            return Err(AdmissionRegisterError::NulInAdmissionId);
         }
         if active_session_id.is_empty() {
-            return Err(
-                "Prompt admission requires string activeSessionId and admissionId".to_string(),
-            );
+            return Err(AdmissionRegisterError::MissingSession);
         }
         if active_session_id.contains('\0') {
-            return Err("activeSessionId must not contain NUL".to_string());
+            return Err(AdmissionRegisterError::NulInSessionId);
         }
         let key = prompt_admission_key(active_session_id, admission_id);
         let mut admissions = self
@@ -92,9 +106,9 @@ impl PromptAdmissionTable {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if admissions.contains_key(&key) {
-            return Err(format!(
-                "Prompt admission id is already in use: {admission_id}"
-            ));
+            return Err(AdmissionRegisterError::InUse {
+                admission_id: admission_id.to_owned(),
+            });
         }
         admissions.insert(
             key,
@@ -729,14 +743,18 @@ mod tests {
         // NUL-prefixed suffix match ("prefix<NUL>target" ends with
         // "<NUL>target").
         assert_eq!(
-            table.register("sess-a", "prefix\0target"),
+            table
+                .register("sess-a", "prefix\0target")
+                .map_err(|error| error.to_string()),
             Err("admissionId must not contain NUL".to_string())
         );
         // A NUL in the session id forges a different half-split of the
         // same exact key (session "s<NUL>t" + admission "u" builds the
         // key that session "s" + admission "t<NUL>u" addresses).
         assert_eq!(
-            table.register("s\0t", "u"),
+            table
+                .register("s\0t", "u")
+                .map_err(|error| error.to_string()),
             Err("activeSessionId must not contain NUL".to_string())
         );
         // Both refusals left nothing registered, so neither forged key

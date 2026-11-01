@@ -9,8 +9,8 @@ use super::{
 use eukhe_types::shell::ShellVerdict;
 
 /// The `/reload` task's report: the daemon reloaded the session's live
-/// inputs, or the failure message (TS `handleReloadCommand`'s outcome).
-pub(crate) type ReloadNote = Result<(), String>;
+/// inputs, or why the reload failed (TS `handleReloadCommand`'s outcome).
+pub(crate) type ReloadNote = Result<()>;
 
 /// The question a pending confirm answers (callers await inline in TS;
 /// the TUI loop parks the continuation instead).
@@ -952,8 +952,7 @@ impl SessionUi {
                     rest: Map::default(),
                 })
                 .await
-                .map(|_| ())
-                .map_err(|error| format!("{error:#}"));
+                .map(|_| ());
             let _ = notes.send(outcome);
         });
         self.reload = Some(task);
@@ -1003,7 +1002,7 @@ impl SessionUi {
                 self.note("Reloaded keybindings, skills, prompts, themes", view);
             }
             Err(error) => {
-                self.error_row(&format!("Reload failed: {error}"), view);
+                self.error_row(&format!("Reload failed: {error:#}"), view);
             }
         }
         self.dirty = true;

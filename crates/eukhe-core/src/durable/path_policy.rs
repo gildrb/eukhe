@@ -30,7 +30,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eukhe_bend::rules::shell::Gate;
-use eukhe_docs::{Access, AccessGate};
+use eukhe_docs::{Access, AccessGate, AccessRefusal};
 use eukhe_shell::Refusal;
 use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
 use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects};
@@ -182,15 +182,24 @@ pub(crate) struct DocumentsGate {
     pub(crate) runtime: tokio::runtime::Handle,
 }
 
+/// Why a [`DocumentsGate`] refused an access. The effects open the
+/// refusal, as a `bash` step's stop line names them: the model learns
+/// which effect needs the user's approval.
+#[derive(Debug, thiserror::Error)]
+#[error("({}) {refusal}", effects.names())]
+pub(crate) struct DocumentsRefusal {
+    effects: ShellEffects,
+    refusal: RefusalText,
+}
+
 impl AccessGate for DocumentsGate {
-    fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), String> {
+    fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
         let effects = effects(&self.policy, access, real);
         if eukhe_bend::rules::shell::allows(self.auto, effects) == Gate::Unasked {
             return Ok(());
         }
-        // The effects open the refusal, as a `bash` step's stop line names
-        // them: the model learns which effect needs the user's approval.
-        let refused = |refusal: RefusalText| Err(format!("({}) {refusal}", effects.names()));
+        let refused =
+            |refusal: RefusalText| Err(AccessRefusal::new(DocumentsRefusal { effects, refusal }));
         let Some(sink) = &self.sink else {
             return refused(RefusalText::of(Refusal::Unanswered));
         };

@@ -18,7 +18,7 @@ pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod agent_reply;
 mod input;
-pub(crate) use input::{parse_prompt_images, submit_input, InputRequest};
+pub(crate) use input::{parse_prompt_images, submit_input, InputRequest, InputRowError};
 mod harness_end;
 mod lifecycle;
 mod memory_updates;

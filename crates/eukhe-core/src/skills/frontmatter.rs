@@ -33,13 +33,18 @@ fn extract_frontmatter(content: &str) -> (Option<String>, String) {
     (Some(yaml.to_string()), body)
 }
 
+/// The frontmatter block is not valid YAML (TS `yaml.parse` throws, and
+/// the skill loader reports it).
+#[derive(Debug, thiserror::Error)]
+#[error("invalid frontmatter: {0}")]
+pub struct FrontmatterError(#[source] serde_saphyr::Error);
+
 /// Parse `---` YAML frontmatter into a JSON object plus the body.
 ///
 /// # Errors
 ///
-/// The frontmatter block is not valid YAML: the message of the YAML
-/// parser (TS `yaml.parse` throws, and the skill loader reports it).
-pub fn parse_frontmatter(content: &str) -> Result<(Value, String), String> {
+/// [`FrontmatterError`]: the frontmatter block is not valid YAML.
+pub fn parse_frontmatter(content: &str) -> Result<(Value, String), FrontmatterError> {
     let (yaml_string, body) = extract_frontmatter(content);
     let Some(yaml_string) = yaml_string else {
         return Ok((serde_json::Map::new().into(), body));
@@ -47,8 +52,8 @@ pub fn parse_frontmatter(content: &str) -> Result<(Value, String), String> {
     // YAML 1.2 booleans only, as the TS `yaml` package: `off`/`yes` stay
     // strings.
     let options = serde_saphyr::options! { strict_booleans: true };
-    let converted: Value = serde_saphyr::from_str_with_options(&yaml_string, options)
-        .map_err(|error| format!("invalid frontmatter: {error}"))?;
+    let converted: Value =
+        serde_saphyr::from_str_with_options(&yaml_string, options).map_err(FrontmatterError)?;
     let frontmatter = if converted.is_null() {
         serde_json::Map::new().into()
     } else {
@@ -139,7 +144,9 @@ mod tests {
     /// frontmatter (the loaders report it with the file's path).
     #[test]
     fn invalid_yaml_is_an_error() {
-        let error = parse_frontmatter("---\nname: [x\n---\nbody").unwrap_err();
+        let error = parse_frontmatter("---\nname: [x\n---\nbody")
+            .unwrap_err()
+            .to_string();
         assert!(error.starts_with("invalid frontmatter: "), "{error}");
         assert_eq!(
             strip_frontmatter("---\nname: [x\n---\nbody"),

@@ -17,6 +17,7 @@ use eukhe_types::daemon::{
 use crate::keybindings::KeybindingsManager;
 use crate::memory_block::{memory_status_header, one_line, wrapped};
 use crate::menu_panel::{fill_row, hint_row, key_hint, menu_list_layout, rule_row, scroll_row};
+use crate::session_ui::UiFetchError;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{spans_width, truncate_line};
 use crate::{Line, Span};
@@ -67,7 +68,7 @@ impl From<NodeKey> for MemoryZoom {
 }
 
 /// What one level of the tree holds on the client.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 enum Level {
     /// Asked, not answered yet.
     Loading,
@@ -80,7 +81,7 @@ enum Level {
     /// The session keeps no chat memory.
     NoMemory,
     /// The fetch failed; opening the line again asks again.
-    Failed(String),
+    Failed(UiFetchError),
 }
 
 /// A selectable row group: a node's line (with its full summary while
@@ -113,7 +114,7 @@ enum RowKind<'a> {
     Loading,
     NoLine,
     NoMemory,
-    Failed(&'a str),
+    Failed(&'a UiFetchError),
 }
 
 impl FlatRow<'_> {
@@ -143,10 +144,10 @@ enum OpenKey {
 
 /// One fetched level: the line asked (`None` for the view) and the
 /// daemon's answer (`Ok(None)`: the session keeps no chat memory).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct MemoryTreeFetch {
     pub node: Option<MemoryZoom>,
-    pub reply: Result<Option<MemoryTree>, String>,
+    pub reply: Result<Option<MemoryTree>, UiFetchError>,
 }
 
 /// The outcome of one key press on the tree.
@@ -161,7 +162,7 @@ pub enum MemoryTreeAction {
 }
 
 /// The `/memory` tree panel's state.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct MemoryTreeView {
     /// The newest status a reply carried; `None` until the first lands.
     status: Option<MemoryStatusSnapshot>,
@@ -552,7 +553,7 @@ impl MemoryTreeView {
                     width,
                 )),
                 RowKind::Failed(error) => lines.extend(wrapped(
-                    &format!("{} {}", crate::glyphs::WARN, one_line(error)),
+                    &format!("{} {}", crate::glyphs::WARN, one_line(&error.to_string())),
                     indent,
                     theme.fg_style(ThemeColor::Error),
                     width,

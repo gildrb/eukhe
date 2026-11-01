@@ -11,6 +11,7 @@ use std::path::Path;
 
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
+use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{default_thinking_level, HostDeps};
 use eukhe_core::models::SetModelSelectionError;
@@ -18,6 +19,7 @@ use eukhe_core::settings::{
     Persisted, SettingsError, SettingsManager, SettingsScope, ThinkingLevelSetting,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
+use eukhe_durable::session::SessionResult;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
 
@@ -35,7 +37,7 @@ pub(crate) enum ModelResolutionError {
     /// model is available.
     Selection(SetModelSelectionError),
     /// The credential store or a provider catalog could not be read.
-    Models(String),
+    Models(Thrown),
 }
 
 impl ModelResolutionError {
@@ -54,7 +56,7 @@ impl ModelResolutionError {
                     }
                 }),
             ),
-            Self::Models(message) => response_failure(None, command, message, None),
+            Self::Models(error) => response_failure(None, command, &error.to_string(), None),
         }
     }
 }
@@ -92,7 +94,7 @@ impl Worker {
             return refusal;
         }
         if let Err(error) = apply_model(&hosted, &model, None).await {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         // TS `session.setModel` re-clamps the tier for the switched model
         // (`_clampServiceTierForModel`): a preference the new model does
@@ -148,7 +150,7 @@ impl Worker {
                 }
                 response_success(None, COMMAND, None)
             }
-            Err(error) => response_failure(None, COMMAND, &error, None),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
 
@@ -188,7 +190,7 @@ pub(crate) async fn resolve_available_model(
     let available = models
         .get_available(Some(provider), AuthOperationOptions::default())
         .await
-        .map_err(|error| ModelResolutionError::Models(error.to_string()))?;
+        .map_err(ModelResolutionError::Models)?;
     if let Some(model) = available.into_iter().find(|model| model.id == model_id) {
         return Ok(model);
     }
@@ -204,7 +206,7 @@ pub(crate) async fn resolve_available_model(
     let auth = models
         .check_auth(provider, AuthOperationOptions::default())
         .await
-        .map_err(|error| ModelResolutionError::Models(error.to_string()))?;
+        .map_err(ModelResolutionError::Models)?;
     match auth {
         None => Err(ModelResolutionError::Selection(
             SetModelSelectionError::ProviderUnauthenticated {
@@ -229,14 +231,14 @@ pub(crate) async fn apply_model(
     hosted: &HostedSession,
     model: &Model,
     thinking: Option<ModelThinkingLevel>,
-) -> Result<ModelThinkingLevel, String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+) -> SessionResult<ModelThinkingLevel> {
+    let main = hosted.main()?;
     let cx = &BACKGROUND_CONTEXT;
     let deps = hosted.deps();
     let current = if let Some(level) = thinking {
         level
     } else {
-        let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+        let agent = main.agent(cx).await?;
         let current_thinks = agent
             .model
             .as_ref()
@@ -260,8 +262,7 @@ pub(crate) async fn apply_model(
         },
         cx,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
     // The tier re-clamp and the roster push read the mirror.
     hosted.events_delivered().await;
     // The switch itself landed; a default that is not saved, or that a
@@ -281,10 +282,10 @@ pub(crate) async fn apply_model(
 pub(crate) async fn apply_thinking_level(
     hosted: &HostedSession,
     requested: ModelThinkingLevel,
-) -> Result<bool, String> {
-    let main = hosted.main().map_err(|error| error.to_string())?;
+) -> SessionResult<bool> {
+    let main = hosted.main()?;
     let cx = &BACKGROUND_CONTEXT;
-    let agent = main.agent(cx).await.map_err(|error| error.to_string())?;
+    let agent = main.agent(cx).await?;
     let deps = hosted.deps();
     let model = agent
         .model
@@ -303,8 +304,7 @@ pub(crate) async fn apply_thinking_level(
         },
         cx,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
     hosted.events_delivered().await;
     if model.as_ref().is_some_and(|model| model.reasoning) || effective != ModelThinkingLevel::Off {
         let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)

@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::{
     compile, Answer, Directive, FamilyOverlap, Layer, Lookup, Query, Quirks, QuirksError, RawRule,
-    Rulebook, Value, ValueKind,
+    RevisionRangeError, Rulebook, Value, ValueKind,
 };
 use crate::capabilities::{Capability, Dialect};
 use crate::types::{MaxTokensField, Model, SessionAffinityFormat, ThinkingFormat};
@@ -632,7 +632,9 @@ fn a_bad_revision_range_an_undefined_tier_family_and_a_bad_ladder_do_not_compile
         vec![
             QuirksError::BadRevision {
                 family: "a".to_owned(),
-                reason: "`3.8` has no comparison".to_owned(),
+                source: RevisionRangeError::NoComparison {
+                    term: "3.8".to_owned(),
+                },
             },
             QuirksError::BadValue {
                 layer: Layer::Model,

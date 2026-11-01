@@ -307,10 +307,10 @@ fn no_matches_renders_the_omp_message() {
 fn faults_keep_the_omp_messages() {
     let directory = fixture(&[("live.txt", "needle\n")]);
     let store = EditStore::new();
-    assert_eq!(
+    assert!(matches!(
         grep(&store, directory.path(), &request("  ", "."), &Open),
         Err(GrepError::EmptyPattern)
-    );
+    ));
     let missing = grep(
         &store,
         directory.path(),

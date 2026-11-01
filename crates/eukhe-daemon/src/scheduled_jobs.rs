@@ -250,9 +250,7 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // TS cron fires resume the suspension before admission
         // (`promptHeartbeat`/`promptUntilAccepted` carry `resumeIfIdle:
         // true`): a fire on a post-abort session is a resume site.
-        crate::worker::resubmit_suspended(&hosted, &self.core, &self.events)
-            .await
-            .map_err(|error| anyhow::anyhow!(error))?;
+        crate::worker::resubmit_suspended(&hosted, &self.core, &self.events).await?;
         // The TS `heartbeat:<id>` queue key: a later fire replaces the
         // queued one instead of stacking.
         self.remove_queued_heartbeat_follow_up(job).await;

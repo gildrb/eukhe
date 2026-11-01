@@ -26,7 +26,7 @@ impl Transcriber for FakeTranscriber {
         Box::pin(async move {
             let bytes = tokio::fs::read(&wav)
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| DictationError::Backend(Box::new(error)))?;
             let samples: Vec<String> = bytes[44..]
                 .chunks(2)
                 .map(|pair| i16::from_le_bytes([pair[0], pair[1]]).to_string())
@@ -43,24 +43,35 @@ fn backends(recorder: impl Recorder + 'static) -> Dictation {
     }
 }
 
+/// What one update shows: its take, and its event with a failure as the
+/// error row's text.
+#[derive(Debug, PartialEq, Eq)]
+enum Shown {
+    Transcribing,
+    Transcript(String),
+    Failed(String),
+}
+
 /// Every update of take 1 until the task ends.
 async fn updates_of(
     task: tokio::task::JoinHandle<()>,
     mut updates: mpsc::UnboundedReceiver<DictationUpdate>,
-) -> Vec<DictationUpdate> {
+) -> Vec<(u64, Shown)> {
     task.await.expect("take task");
     let mut seen = Vec::new();
-    while let Ok(update) = updates.try_recv() {
-        seen.push(update);
+    while let Ok(DictationUpdate { take, event }) = updates.try_recv() {
+        let shown = match event {
+            TakeEvent::Transcribing => Shown::Transcribing,
+            TakeEvent::Transcript(text) => Shown::Transcript(text),
+            TakeEvent::Failed(error) => Shown::Failed(error.to_string()),
+        };
+        seen.push((take, shown));
     }
     seen
 }
 
-fn take_events(events: Vec<TakeEvent>) -> Vec<DictationUpdate> {
-    events
-        .into_iter()
-        .map(|event| DictationUpdate { take: 1, event })
-        .collect()
+fn take_events(events: Vec<Shown>) -> Vec<(u64, Shown)> {
+    events.into_iter().map(|event| (1, event)).collect()
 }
 
 #[tokio::test]
@@ -82,8 +93,8 @@ async fn a_toggle_take_records_until_the_next_press_then_transcribes() {
     assert_eq!(
         updates_of(task, updates_rx).await,
         take_events(vec![
-            TakeEvent::Transcribing,
-            TakeEvent::Transcript("samples 1 2 -1".to_owned()),
+            Shown::Transcribing,
+            Shown::Transcript("samples 1 2 -1".to_owned()),
         ])
     );
 }
@@ -107,8 +118,8 @@ async fn a_hold_take_ends_when_the_key_repeats_stop() {
     assert_eq!(
         updates,
         take_events(vec![
-            TakeEvent::Transcribing,
-            TakeEvent::Transcript("samples 7".to_owned()),
+            Shown::Transcribing,
+            Shown::Transcript("samples 7".to_owned()),
         ])
     );
 }
@@ -119,7 +130,7 @@ struct BrokenRecorder;
 
 impl Recorder for BrokenRecorder {
     fn record(&self, _wav: PathBuf, _stop: oneshot::Receiver<()>) -> DictationFuture<()> {
-        Box::pin(async { Err("no capture device".to_owned()) })
+        Box::pin(async { Err(DictationError::Backend("no capture device".into())) })
     }
 }
 
@@ -136,7 +147,7 @@ async fn a_recorder_failure_ends_the_take_with_its_reason() {
     ));
     assert_eq!(
         updates_of(task, updates_rx).await,
-        take_events(vec![TakeEvent::Failed("no capture device".to_owned())])
+        take_events(vec![Shown::Failed("no capture device".to_owned())])
     );
 }
 
@@ -164,7 +175,7 @@ impl Recorder for EndlessRecorder {
             if let Some(started) = started {
                 let _ = started.send(wav);
             }
-            std::future::pending::<Result<(), String>>().await
+            std::future::pending::<Result<(), DictationError>>().await
         })
     }
 }
@@ -195,9 +206,9 @@ async fn an_aborted_take_stops_the_recorder_and_removes_the_wav() {
             aborted,
             dropped.load(Ordering::SeqCst),
             wav.exists(),
-            updates_rx.try_recv().ok()
+            updates_rx.try_recv().is_ok()
         ),
-        (true, true, true, false, None)
+        (true, true, true, false, false)
     );
 }
 
@@ -233,7 +244,8 @@ fn missing(name: &str) -> RecorderProgram {
 }
 
 /// Runs the subprocess recorder with `programs`, the stop never sent:
-/// the result, and the WAV file when one was written.
+/// the result (a failure as the error row's text), and the WAV file when
+/// one was written.
 async fn record_programs(programs: Vec<RecorderProgram>) -> (Result<(), String>, Option<Vec<u8>>) {
     let dir = tempfile::tempdir().expect("temp dir");
     let wav = dir.path().join("take.wav");
@@ -241,7 +253,10 @@ async fn record_programs(programs: Vec<RecorderProgram>) -> (Result<(), String>,
     let result = SubprocessRecorder { programs }
         .record(wav.clone(), stop_rx)
         .await;
-    (result, std::fs::read(&wav).ok())
+    (
+        result.map_err(|error| error.to_string()),
+        std::fs::read(&wav).ok(),
+    )
 }
 
 #[cfg(unix)]

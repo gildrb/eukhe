@@ -611,7 +611,7 @@ impl Supervisor {
                     vec![Outbound::Line(response_line(&response_failure(
                         Some(&command_id),
                         "parse",
-                        &error,
+                        &error.to_string(),
                         None,
                     )))],
                     false,

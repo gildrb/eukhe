@@ -314,7 +314,7 @@ mod tests {
         let without = codemode_description(CodemodeModels::Excluded, &ClassifierDefault::Unset);
         let with = codemode_description(CodemodeModels::Included, &ClassifierDefault::Unset);
         let resolver: crate::codemode::ClassifierResolver =
-            Arc::new(|_, _| Box::pin(async { Err("none".to_owned()) }));
+            Arc::new(|_, _| Box::pin(async { Err("none".into()) }));
         let with_default = codemode_description(
             CodemodeModels::Included,
             &ClassifierDefault::Resolver(resolver),

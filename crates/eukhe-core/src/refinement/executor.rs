@@ -274,7 +274,7 @@ pub async fn plan_refinement(
     let reply = refine_call(request_model, REFINEMENT_SYSTEM_PROMPT, user_prompt).await?;
     let text = assistant_text(&reply);
     Ok(RefinementPlan {
-        proposal: parse_proposal(&text).map_err(anyhow::Error::msg)?,
+        proposal: parse_proposal(&text)?,
         id,
         rollback_of: None,
         rollback_scope: None,
@@ -341,7 +341,7 @@ pub struct AutoRefineReviewContext {
 }
 
 fn parse_auto_refine_review(text: &str) -> anyhow::Result<AutoRefineReview> {
-    let value = super::planner::extract_json_object(text).map_err(anyhow::Error::msg)?;
+    let value = super::planner::extract_json_object(text)?;
     let record = value.as_object().cloned().unwrap_or_default();
     Ok(AutoRefineReview {
         should_refine: record.get("shouldRefine") == Some(&serde_json::Value::Bool(true)),

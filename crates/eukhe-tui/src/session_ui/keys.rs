@@ -562,7 +562,7 @@ impl SessionUi {
                         })
                         .await
                     {
-                        let _ = notes.send(format!("the side question abort failed: {error:#}"));
+                        let _ = notes.send(super::AbortFailed::SideQuestion(error));
                     }
                 });
             }

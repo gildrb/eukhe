@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use eukhe_tui::dictation::{wav_bytes, Dictation, DictationFuture, Recorder, Transcriber};
+use eukhe_tui::dictation::{
+    wav_bytes, Dictation, DictationError, DictationFuture, Recorder, Transcriber,
+};
 use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,
     SessionSelection, UiMode,
@@ -110,30 +112,42 @@ impl Recorder for FakeRecorder {
             let _ = stop.await;
             tokio::fs::write(&wav, wav_bytes(&[1, 0]))
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| DictationError::Backend(Box::new(error)))
         })
     }
+}
+
+/// What the fake transcriber answers for the recorder's WAV.
+#[derive(Clone, Copy)]
+enum Reply {
+    /// [`TRANSCRIPT`].
+    Transcript,
+    /// A failure with this text.
+    Fails(&'static str),
 }
 
 /// Answers `reply` for the recorder's WAV (anything else is an error),
 /// and counts its calls.
 struct FakeTranscriber {
-    reply: Result<String, String>,
+    reply: Reply,
     calls: Arc<AtomicUsize>,
 }
 
 impl Transcriber for FakeTranscriber {
     fn transcribe(&self, wav: PathBuf) -> DictationFuture<String> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let reply = self.reply.clone();
+        let reply = self.reply;
         Box::pin(async move {
             let bytes = tokio::fs::read(&wav)
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| DictationError::Backend(Box::new(error)))?;
             if bytes != wav_bytes(&[1, 0]) {
-                return Err("not the recorder's WAV".to_owned());
+                return Err(DictationError::Backend("not the recorder's WAV".into()));
             }
-            reply
+            match reply {
+                Reply::Transcript => Ok(TRANSCRIPT.to_owned()),
+                Reply::Fails(reason) => Err(DictationError::Backend(reason.into())),
+            }
         })
     }
 }
@@ -206,7 +220,7 @@ impl Run {
     }
 }
 
-fn run(stt_enabled: bool, reply: Result<String, String>, steps: Vec<HeadlessStep>) -> Run {
+fn run(stt_enabled: bool, reply: Reply, steps: Vec<HeadlessStep>) -> Run {
     // The ambient TMUX variable adds a startup notice; scrub it.
     std::env::remove_var("TMUX");
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -254,7 +268,7 @@ fn run(stt_enabled: bool, reply: Result<String, String>, steps: Vec<HeadlessStep
 fn the_toggle_key_records_until_its_next_press_and_types_the_transcript() {
     let run = run(
         true,
-        Ok(TRANSCRIPT.to_owned()),
+        Reply::Transcript,
         vec![
             HeadlessStep::Type("note: ".to_string()),
             key(KeyCode::F(8)),
@@ -281,7 +295,7 @@ fn the_push_to_talk_key_records_while_it_is_held() {
     // One press and no auto-repeat: the hold ends at the release window.
     let run = run(
         true,
-        Ok(TRANSCRIPT.to_owned()),
+        Reply::Transcript,
         vec![key(KeyCode::F(9)), wait(RECORDING), wait(TRANSCRIPT)],
     );
     assert_eq!(
@@ -300,7 +314,7 @@ fn the_push_to_talk_key_records_while_it_is_held() {
 fn escape_cancels_a_take_before_it_transcribes() {
     let run = run(
         true,
-        Ok(TRANSCRIPT.to_owned()),
+        Reply::Transcript,
         vec![
             key(KeyCode::F(8)),
             wait(RECORDING),
@@ -324,7 +338,7 @@ fn escape_cancels_a_take_before_it_transcribes() {
 fn a_transcription_failure_shows_an_error_row() {
     let run = run(
         true,
-        Err("no model of the dictation chain is installed".to_owned()),
+        Reply::Fails("no model of the dictation chain is installed"),
         vec![
             key(KeyCode::F(8)),
             wait(RECORDING),
@@ -344,7 +358,7 @@ fn a_transcription_failure_shows_an_error_row() {
 fn a_dictation_key_with_stt_off_says_how_to_turn_it_on() {
     let run = run(
         false,
-        Ok(TRANSCRIPT.to_owned()),
+        Reply::Transcript,
         vec![
             key(KeyCode::F(8)),
             wait("Dictation is off. Turn it on with /set stt.enabled true"),

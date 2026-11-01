@@ -6,7 +6,7 @@ use super::bash::BashSettled;
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
     CompactionReason, CompactionState, DaemonClientEvent, DaemonCommand, Duration, Map,
-    MessageBlock, Result, RetryState, SessionUi, StatusKind, ToolResultView, TurnUpdate, Value,
+    MessageBlock, RetryState, SessionUi, StatusKind, ToolResultView, TurnUpdate, Value,
     UI_REQUEST_TIMEOUT_MS,
 };
 use crate::activity::TurnPhase;
@@ -25,7 +25,19 @@ pub(crate) struct CompactionAbortNote {
     /// to the exact `compaction_start` that was on screen when the abort
     /// was sent -- a newer run's loader is never cleared by a stale one.
     pub(crate) compaction_generation: u64,
-    pub(crate) outcome: Result<(), String>,
+    /// Why the abort request failed.
+    pub(crate) error: anyhow::Error,
+}
+
+/// A backgrounded abort request that failed: the transcript note.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AbortFailed {
+    #[error("the abort failed: {0:#}")]
+    Turn(#[source] anyhow::Error),
+    #[error("the bash abort failed: {0:#}")]
+    Bash(#[source] anyhow::Error),
+    #[error("the side question abort failed: {0:#}")]
+    SideQuestion(#[source] anyhow::Error),
 }
 
 impl SessionUi {
@@ -75,7 +87,7 @@ impl SessionUi {
                     .await;
             }
             if let Err(error) = result {
-                let _ = notes.send(format!("the abort failed: {error:#}"));
+                let _ = notes.send(AbortFailed::Turn(error));
             }
         });
     }
@@ -108,7 +120,7 @@ impl SessionUi {
                 let _ = abort_notes.send(CompactionAbortNote {
                     active_session_id,
                     compaction_generation,
-                    outcome: Err(format!("{error:#}")),
+                    error,
                 });
             }
         });
@@ -130,16 +142,15 @@ impl SessionUi {
         {
             return;
         }
-        if let Err(error) = note.outcome {
-            self.note(&format!("the compaction abort failed: {error:#}"), view);
-            view.compaction = None;
-            self.settle_compaction_loader(view);
-        }
+        let error = note.error;
+        self.note(&format!("the compaction abort failed: {error:#}"), view);
+        view.compaction = None;
+        self.settle_compaction_loader(view);
     }
 
     /// Apply one background note (a failed abort request) to the transcript.
-    pub(crate) fn apply_background_note(&mut self, text: &str, view: &mut AgentView) {
-        self.note(text, view);
+    pub(crate) fn apply_background_note(&mut self, failure: &AbortFailed, view: &mut AgentView) {
+        self.note(&failure.to_string(), view);
     }
 
     /// A compaction succeeded and the durable transcript was rebuilt (it

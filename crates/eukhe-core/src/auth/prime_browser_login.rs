@@ -10,7 +10,8 @@ use base64::Engine as _;
 use rsa::pkcs8::EncodePublicKey;
 use serde_json::{json, Value};
 
-use super::prime_inference::{read_response_message, PrimeHttp};
+use super::prime_error::PrimeLoginError;
+use super::prime_inference::{object_body, PrimeHttp};
 
 /// TS `DEFAULT_POLL_INTERVAL_MS` (the challenge status poll).
 pub const DEFAULT_POLL_INTERVAL_MS: u64 = 5_000;
@@ -35,27 +36,26 @@ async fn generate_prime_challenge(
     base_url: &str,
     public_key: &str,
     timeout_ms: u64,
-) -> Result<PrimeChallenge, String> {
+) -> Result<PrimeChallenge, PrimeLoginError> {
     let url = format!("{base_url}/api/v1/auth_challenge/generate");
     let body = json!({"encryptionPublicKey": public_key}).to_string();
     let response = http.post_json(&url, &body, None, timeout_ms).await?;
     if !(200..300).contains(&response.status) {
-        return Err(format!(
-            "Failed to generate Prime login challenge (HTTP {}): {}",
-            response.status,
-            read_response_message(response.status, &response.body)
-        ));
+        return Err(PrimeLoginError::ChallengeStatus {
+            status: response.status,
+            body: response.body,
+        });
     }
-    let invalid = || {
-        format!(
-            "Prime login challenge returned an invalid response (HTTP {}): {}",
-            response.status,
-            crate::auth::failure_text::response_snippet(&response.body)
-        )
+    let data = match object_body(&response.body) {
+        Ok(data) => data,
+        Err(source) => {
+            return Err(PrimeLoginError::ChallengeInvalid {
+                status: response.status,
+                body: response.body,
+                source,
+            })
+        }
     };
-    let data: Value = serde_json::from_str(&response.body)
-        .map_err(|_| invalid())
-        .and_then(|data: Value| data.is_object().then_some(data).ok_or_else(invalid))?;
     let string_field = |key: &str| {
         data.get(key)
             .and_then(Value::as_str)
@@ -64,10 +64,10 @@ async fn generate_prime_challenge(
             .map(str::to_string)
     };
     let Some(challenge) = string_field("challenge") else {
-        return Err("Prime login challenge response missing required fields".to_string());
+        return Err(PrimeLoginError::ChallengeFields);
     };
     let Some(status_auth_token) = string_field("status_auth_token") else {
-        return Err("Prime login challenge response missing required fields".to_string());
+        return Err(PrimeLoginError::ChallengeFields);
     };
     Ok(PrimeChallenge {
         challenge,
@@ -84,7 +84,7 @@ async fn poll_prime_challenge_result(
     private_key: &rsa::RsaPrivateKey,
     timeout_ms: u64,
     poll_interval_ms: u64,
-) -> Result<String, String> {
+) -> Result<String, PrimeLoginError> {
     loop {
         let query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("challenge", &challenge.challenge)
@@ -94,25 +94,24 @@ async fn poll_prime_challenge_result(
             .get(&status_url, &challenge.status_auth_token, timeout_ms)
             .await?;
         if response.status == 404 {
-            return Err("Prime login challenge expired".to_string());
+            return Err(PrimeLoginError::Expired);
         }
         if !(200..300).contains(&response.status) {
-            return Err(format!(
-                "Failed to check Prime login status (HTTP {}): {}",
-                response.status,
-                read_response_message(response.status, &response.body)
-            ));
+            return Err(PrimeLoginError::PollStatus {
+                status: response.status,
+                body: response.body,
+            });
         }
-        let invalid = || {
-            format!(
-                "Prime login status returned an invalid response (HTTP {}): {}",
-                response.status,
-                crate::auth::failure_text::response_snippet(&response.body)
-            )
+        let data = match object_body(&response.body) {
+            Ok(data) => data,
+            Err(source) => {
+                return Err(PrimeLoginError::PollInvalid {
+                    status: response.status,
+                    body: response.body,
+                    source,
+                })
+            }
         };
-        let data: Value = serde_json::from_str(&response.body)
-            .map_err(|_| invalid())
-            .and_then(|data: Value| data.is_object().then_some(data).ok_or_else(invalid))?;
         if let Some(encrypted) = data
             .get("result")
             .and_then(Value::as_str)
@@ -129,16 +128,15 @@ async fn poll_prime_challenge_result(
 fn decrypt_prime_challenge_result(
     private_key: &rsa::RsaPrivateKey,
     encrypted_result: &str,
-) -> Result<String, String> {
+) -> Result<String, PrimeLoginError> {
     let ciphertext = base64::engine::general_purpose::STANDARD
         .decode(encrypted_result.as_bytes())
-        .map_err(|_| "Prime login challenge result could not be decoded".to_string())?;
+        .map_err(PrimeLoginError::ResultDecode)?;
     let padding = rsa::Oaep::new::<sha2::Sha256>();
     let decrypted = private_key
         .decrypt(padding, &ciphertext)
-        .map_err(|_| "Prime login challenge result could not be decrypted".to_string())?;
-    String::from_utf8(decrypted)
-        .map_err(|_| "Prime login challenge result is not UTF-8".to_string())
+        .map_err(PrimeLoginError::ResultDecrypt)?;
+    String::from_utf8(decrypted).map_err(PrimeLoginError::ResultUtf8)
 }
 
 /// The challenge URL's query: the code. A plain sync fn on purpose: the
@@ -160,13 +158,13 @@ pub(super) async fn run_prime_browser_login(
     on_auth: &(dyn Fn(&PrimeAuthInfo) + Send + Sync),
     timeout_ms: u64,
     poll_interval_ms: u64,
-) -> Result<String, String> {
+) -> Result<String, PrimeLoginError> {
     let mut rng = rsa::rand_core::OsRng;
-    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).map_err(|error| error.to_string())?;
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).map_err(PrimeLoginError::KeyPair)?;
     let public_key = private_key
         .to_public_key()
         .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
-        .map_err(|error| error.to_string())?;
+        .map_err(PrimeLoginError::PublicKey)?;
     let challenge = generate_prime_challenge(http, base_url, &public_key, timeout_ms).await?;
     // TS builds the URL with `URLSearchParams` (space encodes as `+`).
     let query = prime_challenge_query(&challenge.challenge);

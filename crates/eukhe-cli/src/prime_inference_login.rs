@@ -21,7 +21,8 @@ use eukhe_core::auth::{
     check_prime_inference_access, fetch_prime_teams, login_prime_inference, AuthStorage,
     PrimeAccessError, PrimeAuthInfo, PrimeHttp, PrimeInferenceAuthConfig,
     PrimeInferenceLoginCallbacks, PrimeInferenceLoginOptions, PrimeInferenceLoginResult,
-    PrimeTeamAssignment, PrimeTeamCredential, StoredPrimeTeam, DEFAULT_REQUEST_TIMEOUT_MS,
+    PrimeLoginError, PrimeTeamAssignment, PrimeTeamCredential, StoredPrimeTeam,
+    DEFAULT_REQUEST_TIMEOUT_MS,
 };
 use eukhe_tui::auth_panel::{PastePromptTone, PasteStyle, PrimeTeamOption, PrimeTeamPick};
 use eukhe_tui::provider_auth::ProviderAuthOutcome;
@@ -152,7 +153,7 @@ pub(crate) async fn run_prime_inference_login(
         // dropped (the browser poll on a manual key, the paste read on a
         // browser key -- the pane exit tears the whole flow down).
         enum Step {
-            Login(Result<PrimeInferenceLoginResult, String>),
+            Login(Result<PrimeInferenceLoginResult, PrimeLoginError>),
             Armed,
             Manual(Option<String>),
         }
@@ -457,6 +458,7 @@ pub(crate) fn prime_cli_config_path(agent_dir: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use base64::Engine as _;
+    use eukhe_core::auth::PrimeHttpError;
     use rsa::pkcs8::DecodePublicKey;
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicBool;
@@ -520,8 +522,9 @@ mod tests {
             url: &str,
             _api_key: &str,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn std::future::Future<Output = Result<PrimeHttpResponse, String>> + Send>>
-        {
+        ) -> Pin<
+            Box<dyn std::future::Future<Output = Result<PrimeHttpResponse, PrimeHttpError>> + Send>,
+        > {
             // The trait's boxed answer is 'static, so the whole read
             // resolves before the future arms.
             let url = url.to_string();
@@ -559,8 +562,13 @@ mod tests {
             body: &'a str,
             _bearer: Option<&'a str>,
             _timeout_ms: u64,
-        ) -> Pin<Box<dyn std::future::Future<Output = Result<PrimeHttpResponse, String>> + Send + 'a>>
-        {
+        ) -> Pin<
+            Box<
+                dyn std::future::Future<Output = Result<PrimeHttpResponse, PrimeHttpError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
             let url = url.to_string();
             let body = body.to_string();
             self.served.lock().unwrap().push(url.clone());

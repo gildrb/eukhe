@@ -12,12 +12,23 @@ use eukhe_core::resources::ThemePathOptions;
 
 use crate::args::Args;
 
+/// Why the export did not run; the main entry prints it as `Error: ...`.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SessionExportError {
+    #[error("--export requires a value")]
+    MissingInput,
+    #[error("starting the export runtime: {0}")]
+    Runtime(#[source] std::io::Error),
+    #[error("{0:#}")]
+    Export(#[source] anyhow::Error),
+}
+
 /// Run the export and print the TS output: the written path on success
 /// (`Exported to: ...`), the error message on failure (the main entry's
 /// `Error: ...` prefix + exit 1). Theme warnings print before it.
-pub fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, String> {
+pub(crate) fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, SessionExportError> {
     let Some(input) = parsed.export.as_deref() else {
-        return Err("--export requires a value".to_string());
+        return Err(SessionExportError::MissingInput);
     };
     let output = parsed.messages.first().map(String::as_str);
     let sources = eukhe_core::resources::theme_sources(&ThemePathOptions {
@@ -36,7 +47,7 @@ pub fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("starting the export runtime: {error}"))?;
+        .map_err(SessionExportError::Runtime)?;
     let exported = runtime.block_on(eukhe_core::export_html::export_from_path(
         Path::new(input),
         output,
@@ -48,7 +59,7 @@ pub fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, String> {
             println!("Exported to: {path}");
             Ok(0)
         }
-        Err(error) => Err(format!("{error:#}")),
+        Err(error) => Err(SessionExportError::Export(error)),
     }
 }
 
@@ -113,7 +124,10 @@ mod tests {
         let parsed = parsed_with(Some("/nonexistent/session.jsonl"), &[]);
         let error = run(&parsed, dir.path(), &dir.path().join("agent"))
             .expect_err("missing file must fail");
-        assert!(error.starts_with("File not found:"), "unexpected: {error}");
+        assert!(
+            error.to_string().starts_with("File not found:"),
+            "unexpected: {error}"
+        );
     }
 
     /// The session data an export file embeds, decoded.
@@ -203,7 +217,10 @@ mod tests {
         let out = dir.path().join("exported.html");
         let parsed = parsed_with(Some(storage.to_str().unwrap()), &[out.to_str().unwrap()]);
 
-        assert_eq!(run(&parsed, dir.path(), &agent_dir), Ok(0));
+        assert_eq!(
+            run(&parsed, dir.path(), &agent_dir).map_err(|error| error.to_string()),
+            Ok(0)
+        );
 
         let data = embedded_data(&std::fs::read_to_string(&out).expect("read export"));
         assert_eq!(
@@ -253,7 +270,7 @@ mod tests {
             run(&parsed, dir.path(), &dir.path().join("agent")).expect_err("must not export");
 
         assert_eq!(
-            error,
+            error.to_string(),
             format!(
                 "reading session storage {0}: no durable session storage at {0}",
                 input.display()

@@ -379,7 +379,10 @@ fn prime_inference_key_writes_refuse_command_and_malformed_keys() {
         }));
         auth.set_prime_inference_api_key(rejected, PrimeTeamAssignment::PersonalAccount);
         assert_eq!(
-            auth.drain_errors(),
+            auth.drain_errors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
             vec![
                 "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters".to_string()
             ],
@@ -618,14 +621,17 @@ fn set_over_an_unreadable_auth_file_is_refused_and_writes_nothing() {
         return;
     };
     let before = file_state(&path);
-    let result = auth.set("b", api_key("kb"));
+    let result = auth
+        .set("b", api_key("kb"))
+        .map_err(|error| error.to_string());
     assert_eq!(
         (result, file_state(&path)),
         (
-            Err(AuthWriteError {
-                location: path.display().to_string(),
-                cause: format!("Failed to read {}: {read_error}", path.display()),
-            }),
+            Err(format!(
+                "Failed to write {}: Failed to read {}: {read_error}",
+                path.display(),
+                path.display()
+            )),
             before,
         )
     );
@@ -639,14 +645,20 @@ fn set_over_an_unreadable_auth_file_is_refused_and_writes_nothing() {
     let before = file_state(&path);
     let mut auth = AuthStorage::create(dir.path());
     let load_error = format!("Failed to read {}: {read_error}", path.display());
-    assert_eq!(auth.load_error(), Some(load_error.as_str()));
     assert_eq!(
-        (auth.remove("a"), file_state(&path)),
+        auth.load_error().map(ToString::to_string),
+        Some(load_error.clone())
+    );
+    assert_eq!(
         (
-            Err(AuthWriteError {
-                location: path.display().to_string(),
-                cause: format!("the document failed to load: {load_error}"),
-            }),
+            auth.remove("a").map_err(|error| error.to_string()),
+            file_state(&path)
+        ),
+        (
+            Err(format!(
+                "Failed to write {}: the document failed to load: {load_error}",
+                path.display()
+            )),
             before,
         )
     );
@@ -665,24 +677,29 @@ fn set_over_an_invalid_auth_file_is_refused_and_writes_nothing() {
     std::fs::write(&path, broken).unwrap();
     let before = file_state(&path);
     assert_eq!(
-        (auth.set("b", api_key("kb")), file_state(&path)),
         (
-            Err(AuthWriteError {
-                location: path.display().to_string(),
-                cause: parse_error.clone(),
-            }),
+            auth.set("b", api_key("kb"))
+                .map_err(|error| error.to_string()),
+            file_state(&path)
+        ),
+        (
+            Err(format!("Failed to write {}: {parse_error}", path.display())),
             before.clone(),
         )
     );
     // The file is broken at load.
     let mut auth = AuthStorage::create(dir.path());
     assert_eq!(
-        (auth.set("b", api_key("kb")), file_state(&path)),
         (
-            Err(AuthWriteError {
-                location: path.display().to_string(),
-                cause: format!("the document failed to load: {parse_error}"),
-            }),
+            auth.set("b", api_key("kb"))
+                .map_err(|error| error.to_string()),
+            file_state(&path)
+        ),
+        (
+            Err(format!(
+                "Failed to write {}: the document failed to load: {parse_error}",
+                path.display()
+            )),
             before,
         )
     );
@@ -752,7 +769,7 @@ impl OAuthIntegration for CountingOAuth {
         &self,
         _provider: &str,
         _credentials: &AuthStorageData,
-    ) -> Result<AuthCredential, String> {
+    ) -> Result<AuthCredential, OAuthRefreshError> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(self.delay_ms));
@@ -908,18 +925,19 @@ impl OAuthIntegration for GatedOAuth {
         &self,
         _provider: &str,
         _credentials: &AuthStorageData,
-    ) -> Result<AuthCredential, String> {
+    ) -> Result<AuthCredential, OAuthRefreshError> {
+        let failed = |text: &str| OAuthRefreshError::Flow(Arc::new(std::io::Error::other(text)));
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.started
             .lock()
             .unwrap()
             .send(())
-            .map_err(|_| "the test stopped listening".to_string())?;
+            .map_err(|_| failed("the test stopped listening"))?;
         let answer = self.answers.lock().unwrap().recv();
         match answer {
             Ok(GateAnswer::Credential) => Ok(CountingOAuth::fetched_credential()),
             Ok(GateAnswer::Panic) => panic!("the token endpoint client panicked"),
-            Err(_) => Err("the test answers no more fetches".to_string()),
+            Err(_) => Err(failed("the test answers no more fetches")),
         }
     }
 }
@@ -997,7 +1015,10 @@ fn a_leader_that_panics_lands_its_flight_with_a_failure() {
     assert!(leader.join().is_err(), "the leader's fetch panicked");
     let served = joiner.join().unwrap();
     assert_eq!(
-        (served.api_key, served.refresh_error),
+        (
+            served.api_key,
+            served.refresh_error.map(|error| error.to_string())
+        ),
         (
             None,
             Some(

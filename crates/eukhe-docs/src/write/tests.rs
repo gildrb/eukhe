@@ -14,15 +14,20 @@ struct Recorder {
     checks: Mutex<Vec<(Access, PathBuf, String)>>,
 }
 
+/// The refusal of [`Recorder`].
+#[derive(Debug, thiserror::Error)]
+#[error("the user denied it")]
+struct Denied;
+
 impl AccessGate for Recorder {
-    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), String> {
+    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), AccessRefusal> {
         let real = real.path();
         self.checks
             .lock()
             .unwrap()
             .push((access, real.to_path_buf(), display.to_owned()));
         if real.starts_with(&self.refused) {
-            Err("the user denied it".to_owned())
+            Err(AccessRefusal::new(Denied))
         } else {
             Ok(())
         }

@@ -16,7 +16,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::catalog_schema::{McpServiceEntry, ProvenanceSource, VerificationStatus};
+use super::catalog_schema::{
+    CatalogEntryError, McpServiceEntry, ProvenanceSource, VerificationStatus,
+};
 
 /// Maximum accepted local source file size.
 pub const MAX_LOCAL_CATALOG_BYTES: u64 = 256 * 1024;
@@ -41,6 +43,80 @@ struct LocalCatalogFile {
     entries: Vec<McpServiceEntry>,
 }
 
+/// Why a local service source was refused. Never echoes raw input values:
+/// a JSON failure keeps only its position, since the parser's text can
+/// quote the input.
+#[derive(Debug, thiserror::Error)]
+pub enum LocalCatalogError {
+    #[error(
+        "Local service source {} is not a regular file; directories, FIFOs and devices are refused",
+        path.display()
+    )]
+    NotRegularFile { path: PathBuf },
+    #[error("Local service source {} could not be read", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Local service source {} exceeds the maximum of {max_bytes} bytes", path.display())]
+    TooLarge { path: PathBuf, max_bytes: u64 },
+    #[error(
+        "Local service source {} is not valid JSON (parse error near line {line} column {column})",
+        path.display()
+    )]
+    Json {
+        path: PathBuf,
+        line: usize,
+        column: usize,
+    },
+    #[error("Local service source {} has an unsupported version; expected 1", path.display())]
+    UnsupportedVersion { path: PathBuf },
+    #[error(
+        "Local service source {} has {count} entries; the maximum is {MAX_LOCAL_CATALOG_ENTRIES}",
+        path.display()
+    )]
+    TooManyEntries { path: PathBuf, count: usize },
+    /// Entry `index` of the file breaks a rule; the fault's text follows
+    /// the entry's position directly.
+    #[error("Local service source {}, entry {index}{fault}", path.display())]
+    Entry {
+        path: PathBuf,
+        index: usize,
+        #[source]
+        fault: LocalEntryFault,
+    },
+}
+
+/// The rule a local entry breaks. Each text continues `…, entry <index>`.
+#[derive(Debug, thiserror::Error)]
+pub enum LocalEntryFault {
+    #[error(": {0}")]
+    Invalid(#[source] CatalogEntryError),
+    #[error(" ({id}): local entries may only carry provenance source \"user\"")]
+    ForeignProvenance { id: String },
+    #[error(" ({id}): local entries need at least one provenance record with source \"user\"")]
+    NoProvenance { id: String },
+    #[error(
+        " ({id}): local entries cannot claim legacyBuiltin; it is reserved for Prime built-ins"
+    )]
+    LegacyBuiltin { id: String },
+    #[error(
+        " ({id}): local entries cannot claim \"{status}\"; local sources are always unverified"
+    )]
+    Verified { id: String, status: &'static str },
+    #[error(
+        " ({id}): local entries cannot claim setup.readiness; readiness is a Prime audit assessment"
+    )]
+    Readiness { id: String },
+    #[error(": duplicate local id \"{id}\"")]
+    Duplicate { id: String },
+    #[error(
+        ": id \"{id}\" collides with the bundled catalog entry for \"{label}\"; local sources cannot shadow or rebind built-ins -- pick another id"
+    )]
+    Reserved { id: String, label: String },
+}
+
 /// Load and validate one local service source file. A missing file is not an
 /// error and yields zero entries; every problem with an existing file is a
 /// returned error naming the path (and entry index where applicable).
@@ -52,94 +128,88 @@ struct LocalCatalogFile {
 pub fn load_local_service_catalog(
     path: &Path,
     reserved: &HashMap<String, String>,
-) -> Result<LocalCatalogLoadResult, String> {
+) -> Result<LocalCatalogLoadResult, LocalCatalogError> {
     if !path.exists() {
         return Ok(LocalCatalogLoadResult::default());
     }
-    let metadata = std::fs::metadata(path).map_err(|_| {
-        // Vanished between the existence check and stat: treat as absent —
-        // the caller re-resolves on the next refresh.
-        String::new()
-    });
-    let Ok(metadata) = metadata else {
+    // Vanished between the existence check and stat: treat as absent —
+    // the caller re-resolves on the next refresh.
+    let Ok(metadata) = std::fs::metadata(path) else {
         return Ok(LocalCatalogLoadResult::default());
     };
     // Only regular files (symlinks to regular files included): FIFOs,
     // sockets and devices are refused so a special file never hangs the read.
     if !metadata.is_file() {
-        return Err(format!(
-            "Local service source {} is not a regular file; directories, FIFOs and devices are refused",
-            path.display()
-        ));
+        return Err(LocalCatalogError::NotRegularFile {
+            path: path.to_path_buf(),
+        });
     }
     let bytes = read_bounded(path, MAX_LOCAL_CATALOG_BYTES)?;
-    let file: LocalCatalogFile = serde_json::from_slice(&bytes).map_err(|error| {
-        let (line, column) = (error.line(), error.column());
-        format!(
-            "Local service source {} is not valid JSON (parse error near line {line} column {column})",
-            path.display()
-        )
-    })?;
+    let file: LocalCatalogFile =
+        serde_json::from_slice(&bytes).map_err(|error| LocalCatalogError::Json {
+            path: path.to_path_buf(),
+            line: error.line(),
+            column: error.column(),
+        })?;
     if file.version != 1 {
-        return Err(format!(
-            "Local service source {} has an unsupported version; expected 1",
-            path.display()
-        ));
+        return Err(LocalCatalogError::UnsupportedVersion {
+            path: path.to_path_buf(),
+        });
     }
     if file.entries.len() > MAX_LOCAL_CATALOG_ENTRIES {
-        return Err(format!(
-            "Local service source {} has {} entries; the maximum is {MAX_LOCAL_CATALOG_ENTRIES}",
-            path.display(),
-            file.entries.len()
-        ));
+        return Err(LocalCatalogError::TooManyEntries {
+            path: path.to_path_buf(),
+            count: file.entries.len(),
+        });
     }
     let mut entries = Vec::with_capacity(file.entries.len());
     let mut seen_local = std::collections::HashSet::new();
     for (index, entry) in file.entries.iter().enumerate() {
-        let at = format!("Local service source {}, entry {index}", path.display());
-        entry.validate().map_err(|error| format!("{at}: {error}"))?;
+        let refuse = |fault| {
+            Err(LocalCatalogError::Entry {
+                path: path.to_path_buf(),
+                index,
+                fault,
+            })
+        };
+        if let Err(error) = entry.validate() {
+            return refuse(LocalEntryFault::Invalid(error));
+        }
         let id = entry.server.clone();
         if entry
             .provenance
             .iter()
             .any(|prov| prov.source != ProvenanceSource::User)
         {
-            return Err(format!(
-                "{at} ({id}): local entries may only carry provenance source \"user\""
-            ));
+            return refuse(LocalEntryFault::ForeignProvenance { id });
         }
         if entry.provenance.is_empty() {
-            return Err(format!(
-                "{at} ({id}): local entries need at least one provenance record with source \"user\""
-            ));
+            return refuse(LocalEntryFault::NoProvenance { id });
         }
         // Review status and legacy-builtin trust cannot be self-asserted.
         if entry.legacy_builtin {
-            return Err(format!(
-                "{at} ({id}): local entries cannot claim legacyBuiltin; it is reserved for Prime built-ins"
-            ));
+            return refuse(LocalEntryFault::LegacyBuiltin { id });
         }
         if entry.verification.status != VerificationStatus::Unverified {
-            return Err(format!(
-                "{at} ({id}): local entries cannot claim \"{}\"; local sources are always unverified",
-                match entry.verification.status {
+            return refuse(LocalEntryFault::Verified {
+                id,
+                status: match entry.verification.status {
                     VerificationStatus::MetadataReviewed => "metadata-reviewed",
                     VerificationStatus::Unverified => "unverified",
-                }
-            ));
+                },
+            });
         }
         if entry.setup.readiness.is_some() {
-            return Err(format!(
-                "{at} ({id}): local entries cannot claim setup.readiness; readiness is a Prime audit assessment"
-            ));
+            return refuse(LocalEntryFault::Readiness { id });
         }
         if !seen_local.insert(id.clone()) {
-            return Err(format!("{at}: duplicate local id \"{id}\""));
+            return refuse(LocalEntryFault::Duplicate { id });
         }
         if let Some(label) = reserved.get(&id) {
-            return Err(format!(
-                "{at}: id \"{id}\" collides with the bundled catalog entry for \"{label}\"; local sources cannot shadow or rebind built-ins -- pick another id"
-            ));
+            return refuse(LocalEntryFault::Reserved {
+                id,
+                label: label.clone(),
+            });
         }
         entries.push(entry.clone());
     }
@@ -152,27 +222,28 @@ pub fn load_local_service_catalog(
 /// Bounded read: chunked until the running total exceeds `max_bytes`, so at
 /// most `max_bytes` + one chunk is ever read before an oversized file is
 /// refused from the read itself.
-fn read_bounded(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+fn read_bounded(path: &Path, max_bytes: u64) -> Result<Vec<u8>, LocalCatalogError> {
     use std::io::Read;
-    let file = std::fs::File::open(path)
-        .map_err(|_| format!("Local service source {} could not be read", path.display()))?;
+    let unreadable = |source| LocalCatalogError::Read {
+        path: path.to_path_buf(),
+        source,
+    };
+    let file = std::fs::File::open(path).map_err(unreadable)?;
     let mut reader = std::io::BufReader::new(file);
     let mut chunks: Vec<u8> = Vec::new();
     let mut total: u64 = 0;
     loop {
         let mut chunk = vec![0u8; READ_CHUNK];
-        let read = reader
-            .read(&mut chunk)
-            .map_err(|_| format!("Local service source {} could not be read", path.display()))?;
+        let read = reader.read(&mut chunk).map_err(unreadable)?;
         if read == 0 {
             break;
         }
         total += read as u64;
         if total > max_bytes {
-            return Err(format!(
-                "Local service source {} exceeds the maximum of {max_bytes} bytes",
-                path.display()
-            ));
+            return Err(LocalCatalogError::TooLarge {
+                path: path.to_path_buf(),
+                max_bytes,
+            });
         }
         chunk.truncate(read);
         chunks.extend_from_slice(&chunk);

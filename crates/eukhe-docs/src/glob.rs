@@ -22,7 +22,7 @@ use globset::GlobBuilder;
 
 use self::ranking::{Page, Ranking};
 use crate::{
-    gate::{Access, AccessGate},
+    gate::{Access, AccessGate, AccessRefusal},
     notice::{Notice, NoticeKind, Tally},
     path_tree::format_grouped_paths,
     scope::{
@@ -53,7 +53,7 @@ pub struct GlobRequest {
 }
 
 /// A failed `glob`. `Display` is the model-facing message.
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum GlobError {
     /// The input contained no usable path target.
     #[error("`path` must contain non-empty globs or paths")]
@@ -80,12 +80,13 @@ pub enum GlobError {
         scheme: String,
     },
     /// A glob did not compile.
-    #[error("invalid glob pattern {pattern}: {message}")]
+    #[error("invalid glob pattern {pattern}: {source}")]
     InvalidPattern {
         /// The rejected pattern.
         pattern: String,
         /// The parser's explanation.
-        message: String,
+        #[source]
+        source: globset::Error,
     },
     /// The host's gate refused a target.
     #[error("Did not list {path}: {reason}")]
@@ -93,14 +94,15 @@ pub enum GlobError {
         /// The target as the model wrote it.
         path: String,
         /// Why the host's gate refused it.
-        reason: String,
+        #[source]
+        reason: AccessRefusal,
     },
     /// The filesystem failed.
-    #[error("{message}")]
-    Workspace {
-        /// The failure.
-        message: String,
-    },
+    #[error(transparent)]
+    Workspace(#[from] std::io::Error),
+    /// A walk result lay outside the canonical traversal root.
+    #[error("glob result escaped the canonical traversal root")]
+    EscapedRoot,
 }
 
 /// One matching path.
@@ -187,7 +189,7 @@ fn glob_until(
     if raw.is_empty() {
         return Err(GlobError::EmptyPath);
     }
-    let root = fs::canonicalize(cwd).map_err(workspace_error)?;
+    let root = fs::canonicalize(cwd)?;
     let inputs = split_inputs(&root, raw)?;
     if inputs
         .iter()
@@ -219,12 +221,12 @@ fn glob_until(
                         missing_paths.push(input);
                         continue;
                     }
-                    Err(error) => return Err(workspace_error(error)),
+                    Err(error) => return Err(GlobError::Workspace(error)),
                 }
             }
-            Err(error) => return Err(workspace_error(error)),
+            Err(error) => return Err(GlobError::Workspace(error)),
         };
-        let canonical = fs::canonicalize(&target_path).map_err(workspace_error)?;
+        let canonical = fs::canonicalize(&target_path)?;
         let resolved = eukhe_types::path_policy::resolve(&canonical);
         gate.check(Access::List, &resolved, &input)
             .map_err(|reason| GlobError::Refused {
@@ -267,7 +269,7 @@ fn glob_until(
             break;
         }
         if !target.is_dir {
-            let metadata = fs::metadata(&target.canonical).map_err(workspace_error)?;
+            let metadata = fs::metadata(&target.canonical)?;
             let modified_ms = modified_ms(&metadata);
             ranking.meet(modified_ms, || {
                 display_path(
@@ -433,9 +435,9 @@ fn walk_target(
     let pattern_matcher = GlobBuilder::new(pattern)
         .literal_separator(true)
         .build()
-        .map_err(|error| GlobError::InvalidPattern {
+        .map_err(|source| GlobError::InvalidPattern {
             pattern: pattern.to_owned(),
-            message: error.to_string(),
+            source,
         })?
         .compile_matcher();
     let mentions_node_modules = pattern.contains("node_modules");
@@ -539,15 +541,13 @@ fn display_path(
     if let (false, Some(visible_root)) = (path.starts_with(root), visible_root) {
         let relative = path
             .strip_prefix(canonical_root)
-            .map_err(|_| GlobError::Workspace {
-                message: "glob result escaped the canonical traversal root".to_owned(),
-            })?;
+            .map_err(|_| GlobError::EscapedRoot)?;
         return Ok(visible_root
             .join(relative)
             .to_string_lossy()
             .replace('\\', "/"));
     }
-    workspace_relative(root, path).map_err(workspace_error)
+    Ok(workspace_relative(root, path)?)
 }
 
 fn lexical_normalize_absolute(path: &Path) -> PathBuf {
@@ -579,12 +579,6 @@ fn modified_ms(metadata: &fs::Metadata) -> u64 {
         .map_or(0, |duration| {
             u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
         })
-}
-
-fn workspace_error(error: impl std::fmt::Display) -> GlobError {
-    GlobError::Workspace {
-        message: error.to_string(),
-    }
 }
 
 #[cfg(test)]

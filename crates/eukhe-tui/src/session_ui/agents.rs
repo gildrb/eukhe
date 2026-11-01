@@ -14,7 +14,7 @@ use eukhe_types::daemon::{AgentRelayEvent, StreamingBehavior};
 
 use super::{AgentView, ChatEntry, SessionUi, SubmitBehavior};
 use crate::agent_delivery::{
-    deliver_agent_message, resume_config_for, steer_when_streaming, AgentDelivery,
+    deliver_agent_message, resume_config_for, steer_when_streaming, AgentDelivery, DeliveryError,
 };
 use crate::swarm_block::{
     agent_name, family_members, mention_items, resolve_agent, roster_lines, AgentLookup, SwarmRow,
@@ -34,7 +34,7 @@ pub(crate) struct AgentMessageOutcome {
     pub(crate) draft: String,
     /// The resume's missing-directory notice on success; the daemon
     /// failure otherwise.
-    pub(crate) result: Result<Option<String>, String>,
+    pub(crate) result: Result<Option<String>, DeliveryError>,
 }
 
 /// Whether the main prompt's leading `@token` was an agent message.
@@ -140,8 +140,9 @@ impl SessionUi {
             self.error_row(&format!("Usage: @{token} <message>"), view);
             return MentionRoute::Handled;
         }
-        if let Some(error) = self.reconnection_failed.clone() {
-            self.error_row(&format!("Daemon reconnection failed: {error}"), view);
+        if let Some(error) = &self.reconnection_failed {
+            let row = format!("Daemon reconnection failed: {error}");
+            self.error_row(&row, view);
             view.editor.set_text(text);
             return MentionRoute::Handled;
         }

@@ -152,14 +152,13 @@ enum Step {
 pub(crate) async fn select_terminal_result(
     conversation: &Conversation,
     cx: &Context,
-) -> Result<HeadlessTerminalResult, String> {
+) -> Result<HeadlessTerminalResult, eukhe_durable::session::SessionError> {
     let mut result = HeadlessTerminalResult::default();
     let mut cursor = None;
     loop {
         let page = conversation
             .entries(ConversationEntryQuery::default(), PAGE, cursor, cx)
-            .await
-            .map_err(|error| format!("{error:#}"))?;
+            .await?;
         for entry in page.items {
             match step(entry) {
                 Step::Outcome(outcome) => result.compaction_outcomes.insert(0, outcome),

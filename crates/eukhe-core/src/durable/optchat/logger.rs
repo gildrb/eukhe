@@ -51,7 +51,7 @@ enum Command {
     Wake,
     /// A root conversation was created.
     Follow(ConversationId),
-    Request(LoggerRequest, oneshot::Sender<Result<(), String>>),
+    Request(LoggerRequest, oneshot::Sender<SessionResult<()>>),
     /// Log what is held under a lease this session already has, give the
     /// lease back, and stop.
     Stop(oneshot::Sender<()>),
@@ -74,10 +74,7 @@ impl LoggerLink {
         self.commands
             .send(Command::Request(request, reply))
             .map_err(|_| stopped())?;
-        answer
-            .await
-            .map_err(|_| stopped())?
-            .map_err(SessionError::error)
+        answer.await.map_err(|_| stopped())?
     }
 }
 
@@ -240,7 +237,7 @@ impl Logger {
             }
             if let Some(done) = stop {
                 for waiter in waiters {
-                    let _ = waiter.send(Err("the chat logger has stopped".to_string()));
+                    let _ = waiter.send(Err(stopped()));
                 }
                 self.close().await;
                 let _ = done.send(());
@@ -254,10 +251,9 @@ impl Logger {
                     Some(tokio::time::Instant::now() + RETRY)
                 }
             };
-            let answer = passed.map_err(|error| error.to_string());
             for waiter in waiters {
                 // The asking call may have been aborted meanwhile.
-                let _ = waiter.send(answer.clone());
+                let _ = waiter.send(passed.clone());
             }
         }
         self.close().await;

@@ -24,8 +24,8 @@ pub use catalog_views::{
 };
 pub use login::{wire_begin_login, McpLoginContext, McpOAuth};
 pub use manager_catalog::{
-    install_static_token, remove_mcp_connection, McpConnectionHandles, PasteInstallInputs,
-    StaticTokenInstall,
+    install_static_token, remove_mcp_connection, McpConnectionError, McpConnectionHandles,
+    PasteInstallInputs, StaticTokenInstall,
 };
 pub use oauth::{mcp_login, mcp_refresh_token, McpLoginUi, McpOAuthConfig};
 pub use oauth_http::{OAuthHttp, OAuthHttpRequest, OAuthHttpResponse, ReqwestOAuthHttp};
@@ -801,8 +801,10 @@ impl McpManager {
                     let cursor = match payload.data.get("cursor") {
                         None => 0,
                         Some(Value::String(cursor)) => {
+                            // The host reply renders the whole chain: the
+                            // cursor's own text goes alone.
                             crate::mcp::catalog_plugin_views::decode_plugin_cursor(Some(cursor))
-                                .map_err(anyhow::Error::msg)?
+                                .map_err(|error| anyhow::anyhow!("{error}"))?
                         }
                         Some(_) => {
                             return Err(anyhow::anyhow!(

@@ -25,12 +25,13 @@ use crate::agents_view_state::{
     reconcile_unified_sessions, section_title, RowLayout, Section,
 };
 
+use crate::agent_delivery::DeliveryError;
 /// The scope a scoped view opened on (TS `AgentsViewScopeKey` plus the
 /// display name): the view lists this session's descendants and the back
 /// key returns to it.
 pub use crate::agents_view_forest::AgentsViewScope;
 pub use crate::agents_view_forest::SelectionKey as AgentsViewSelectionKey;
-use crate::daemon_client::{DaemonClient, DaemonClientEvent};
+use crate::daemon_client::{CommandFailed, DaemonClient, DaemonClientEvent};
 use crate::interactive::SessionSelection;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{pad_line, str_width};
@@ -287,7 +288,7 @@ enum UiInput {
     },
     /// The saved-catalog fetch failed; the status line reports it.
     SavedFailed {
-        error: String,
+        error: SavedCatalogError,
     },
     /// One stop-or-delete dispatch landed (the ctrl+x flow): the status
     /// line reports the outcome in the tone the dispatch classified it
@@ -303,14 +304,14 @@ enum UiInput {
     /// reports the outcome and a saved target's row patches in place.
     RenameResult {
         rename: Rename,
-        outcome: Result<(), String>,
+        outcome: Result<(), CommandFailed>,
     },
     /// The armed target's last-assistant headline landed (or failed):
     /// the header renders it; a re-targeted or disarmed composer drops
     /// it.
     HeadlineResult {
         key: String,
-        result: Result<Option<String>, String>,
+        result: Result<Option<String>, CommandFailed>,
     },
     /// The saved-resume path's mid-send status (TS `sendReply`: the
     /// "Sending reply..." after "Resuming session..." -- the loop paints
@@ -320,12 +321,12 @@ enum UiInput {
     /// notice on success, the wire's error on failure.
     ReplyResult {
         key: String,
-        outcome: Result<reply::ReplySent, String>,
+        outcome: Result<reply::ReplySent, DeliveryError>,
     },
     /// One `/kill` view-command dispatch landed.
     KillResult {
         key: String,
-        outcome: Result<(), String>,
+        outcome: Result<(), CommandFailed>,
     },
     /// A heartbeat-catalog fetch landed (TS `refreshHeartbeats`'s apply):
     /// rows re-render their `@` counts.
@@ -333,6 +334,16 @@ enum UiInput {
         generation: u64,
         heartbeats: Vec<crate::heartbeats_picker::HeartbeatEntry>,
     },
+}
+
+/// Why the saved-catalog fetch failed: the daemon's refusal (its message,
+/// when it gave one), or the request's own failure.
+#[derive(Debug, thiserror::Error)]
+enum SavedCatalogError {
+    #[error("{}", message.as_deref().unwrap_or("unknown error"))]
+    Refused { message: Option<String> },
+    #[error("{0}")]
+    Request(#[source] anyhow::Error),
 }
 
 /// The flow's roster connection (TS `AgentsViewPersistentState.rosterClient`):
@@ -761,10 +772,12 @@ fn spawn_saved_catalog_fetch(
                     .unwrap_or_default(),
             },
             Ok(response) => UiInput::SavedFailed {
-                error: response.error.unwrap_or_else(|| "unknown error".into()),
+                error: SavedCatalogError::Refused {
+                    message: response.error,
+                },
             },
             Err(error) => UiInput::SavedFailed {
-                error: error.to_string(),
+                error: SavedCatalogError::Request(error),
             },
         };
         let _ = ui_tx.send(input);

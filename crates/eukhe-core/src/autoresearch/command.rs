@@ -10,6 +10,7 @@ use eukhe_bend::rules::autoresearch::{Direction, Mode, Snapshot};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::Conversation;
+use eukhe_durable::session::SessionError;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 use serde_json::Value;
@@ -18,19 +19,30 @@ use super::host::{follow_mode, of};
 use super::ops::Reply;
 use crate::durable::EukheSession;
 
+/// Why `/autoresearch` failed; the result row reads its `Display`.
+#[derive(Debug, thiserror::Error)]
+pub enum AutoresearchCommandError {
+    /// The Lab or its mode change failed.
+    #[error("{0:#}")]
+    Lab(#[source] anyhow::Error),
+    /// The turn that starts the loop was not admitted.
+    #[error(transparent)]
+    Submit(#[from] SessionError),
+}
+
 /// Run `/autoresearch <args>` on `conversation`; the text of its result
 /// row.
 ///
 /// # Errors
 ///
-/// The failure as the result row reads it.
+/// The failure the result row reads.
 pub(crate) async fn execute(
     session: &EukheSession,
     conversation: &Conversation,
     args: &str,
     cx: &Context,
-) -> Result<String, String> {
-    let failed = |error: anyhow::Error| format!("{error:#}");
+) -> Result<String, AutoresearchCommandError> {
+    let failed = AutoresearchCommandError::Lab;
     let lab = of(session.deps());
     let harness = session.harness();
     let id = conversation.id();
@@ -90,8 +102,7 @@ baseline."
                     },
                     cx,
                 )
-                .await
-                .map_err(|error| error.to_string())?;
+                .await?;
             Ok(format!("Autoresearch mode on. {branch}"))
         }
     }

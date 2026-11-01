@@ -14,7 +14,7 @@ pub(crate) mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use eukhe_ai::utils::validation::validate_tool_arguments;
+use eukhe_ai::utils::validation::{validate_tool_arguments, ValidationError};
 use eukhe_bend::rules::tool_call::{
     self as effect, AbortCause, Attempt, Begin, CallJournal, Enter, Intent, Recover, Replay, Stop,
 };
@@ -250,7 +250,7 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
         &tool.dialect,
         call.arguments.clone(),
     )
-    .map_err(|error| error.to_string())
+    .map_err(|source| ToolArgumentError::Repair { source })
     .and_then(|repaired| {
         let args = prepare(&tool, repaired.arguments)?;
         Ok((validate(&tool, &call, args)?, repaired.repairs))
@@ -543,17 +543,44 @@ async fn read_call(
     Ok(call.map(|call| ToolHookCall { call, parent: None }))
 }
 
+/// Why a call's arguments are invalid; its Display is the
+/// `invalid_arguments` result's text.
+#[derive(Debug, thiserror::Error)]
+enum ToolArgumentError {
+    /// The Harness's repair refused them.
+    #[error("{source}")]
+    Repair {
+        #[source]
+        source: ArgumentError,
+    },
+    /// The tool's own repair (`prepare_arguments`) failed.
+    #[error("{source}")]
+    Prepare {
+        #[source]
+        source: SessionError,
+    },
+    /// They do not match the implementation's schema.
+    #[error("{source}")]
+    Validation {
+        #[source]
+        source: ValidationError,
+    },
+    /// Repaired or coerced arguments that are not an object.
+    #[error("Tool arguments must be an object, got {value}")]
+    NotAnObject { value: PiJsonValue },
+}
+
 /// The call's arguments as repaired by the tool; a failing repair makes them
 /// invalid (the error is why).
-fn prepare(tool: &ToolRegistration, args: PiJsonObject) -> Result<PiJsonObject, String> {
+fn prepare(tool: &ToolRegistration, args: PiJsonObject) -> Result<PiJsonObject, ToolArgumentError> {
     let Some(prepare_arguments) = &tool.prepare_arguments else {
         return Ok(args);
     };
     match prepare_arguments(PiJsonValue::Object(args)) {
         Ok(PiJsonValue::Object(args)) => Ok(args),
         // TS casts the repaired value; validation then rejects a non-object.
-        Ok(other) => Err(not_an_object(&other)),
-        Err(error) => Err(error.to_string()),
+        Ok(value) => Err(ToolArgumentError::NotAnObject { value }),
+        Err(source) => Err(ToolArgumentError::Prepare { source }),
     }
 }
 
@@ -562,23 +589,18 @@ fn validate(
     tool: &ToolRegistration,
     call: &ToolCall,
     args: PiJsonObject,
-) -> Result<PiJsonObject, String> {
+) -> Result<PiJsonObject, ToolArgumentError> {
     let mut probe = call.clone();
     probe.arguments = args;
     match validate_tool_arguments(&tool.tool(), &probe) {
         Ok(PiJsonValue::Object(args)) => Ok(args),
-        Ok(other) => Err(not_an_object(&other)),
-        Err(error) => Err(error.to_string()),
+        Ok(value) => Err(ToolArgumentError::NotAnObject { value }),
+        Err(source) => Err(ToolArgumentError::Validation { source }),
     }
 }
 
-/// Repaired or coerced arguments that are not an object.
-fn not_an_object(value: &PiJsonValue) -> String {
-    format!("Tool arguments must be an object, got {value}")
-}
-
-fn invalid(message: &str) -> ToolExecutionResult {
-    harness_error("invalid_arguments", message)
+fn invalid(error: &ToolArgumentError) -> ToolExecutionResult {
+    harness_error("invalid_arguments", &error.to_string())
 }
 
 /// Settle a call that never executed with the Harness's own `result`.

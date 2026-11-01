@@ -173,7 +173,7 @@ impl Worker {
         // `_getThinkingLevelForModelSwitch(next.thinkingLevel)`).
         let thinking_level = match apply_model(&hosted, next_model, *scoped_thinking).await {
             Ok(level) => level,
-            Err(error) => return response_failure(None, COMMAND, &error, None),
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         // The clamp runs BEFORE the roster flush so the published snapshot
         // carries the clamped tier with the switched-to model.
@@ -600,15 +600,15 @@ impl Worker {
         let Some(withdrawn) = withdrawn else {
             return response_success(None, COMMAND, None);
         };
-        let aborted = match hosted.main() {
-            Ok(main) => main
+        let aborted = async {
+            hosted
+                .main()?
                 .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)
                 .await
-                .map_err(|error| error.to_string()),
-            Err(error) => Err(error.to_string()),
-        };
+        }
+        .await;
         if let Err(error) = aborted {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         if let Err(error) =
             crate::worker::mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
@@ -619,7 +619,7 @@ impl Worker {
             })
             .await
         {
-            return response_failure(None, COMMAND, &error, None);
+            return response_failure(None, COMMAND, &error.to_string(), None);
         }
         self.emit_action_update();
         hosted.events_delivered().await;

@@ -228,7 +228,12 @@ impl Worker {
             };
             if let Err(error) = submit_input(&main, &request, &admission, &BACKGROUND_CONTEXT).await
             {
-                return response_failure(None, "restore_actions", &format!("{error:#}"), None);
+                return response_failure(
+                    None,
+                    "restore_actions",
+                    &crate::error_chain::ErrorChain(&error).to_string(),
+                    None,
+                );
             }
         }
         response_success(

@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use eukhe_durable::codemode::sandbox::{CodemodeSandbox, CodemodeSandboxOptions};
 use eukhe_durable::codemode::{
-    create_codemode_extension, ClassifierDefault, ClassifierResolver, CodemodeToolOptions,
+    create_codemode_extension, ClassifierDefault, ClassifierResolveError, ClassifierResolver,
+    CodemodeToolOptions,
 };
 use eukhe_durable::harness::types::Extension;
 
@@ -35,7 +36,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
                 eukhe_tiny::installed(&home, model)
             })
             .await
-            .map_err(|error| error.to_string())
+            .map_err(ClassifierResolveError::from)
         })
     });
     create_codemode_extension(CodemodeToolOptions {

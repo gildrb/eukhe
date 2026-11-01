@@ -12,8 +12,8 @@ use eukhe_types::pi_ai::{
 
 use crate::utils::js::{js_trim, json_stringify};
 
-/// Errors of constrained-sampling resolution. Both variants display the TS
-/// message verbatim.
+/// Errors of constrained-sampling resolution. Every variant displays the
+/// TS message verbatim.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConstrainedSamplingError {
     /// TS `UnsupportedStrictJsonSchemaError`: the schema is outside the
@@ -23,6 +23,26 @@ pub enum ConstrainedSamplingError {
     /// A plain TS `Error`.
     #[error("{0}")]
     Invalid(String),
+    /// A grammar tool's schema has no single string input property.
+    #[error("Tool \"{tool}\" cannot use grammar constrained sampling: {source}.")]
+    GrammarInput {
+        tool: String,
+        #[source]
+        source: GrammarInputError,
+    },
+}
+
+/// Why a grammar tool's parameter schema names no input property.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GrammarInputError {
+    #[error("grammar constrained sampling requires an object parameter schema")]
+    NotAnObject,
+    #[error("grammar constrained sampling requires exactly one required string property")]
+    NotOneRequired,
+    #[error("grammar constrained sampling requires a properties entry for {property}")]
+    NoPropertiesEntry { property: String },
+    #[error("grammar constrained sampling property {property} must have type string")]
+    NotAString { property: String },
 }
 
 impl From<ConstrainedSamplingError> for crate::utils::diagnostics::Thrown {
@@ -363,44 +383,35 @@ fn is_truthy(value: &JsonValue) -> bool {
     }
 }
 
-fn infer_grammar_input_property(tool: &Tool) -> Result<String, String> {
+fn infer_grammar_input_property(tool: &Tool) -> Result<String, GrammarInputError> {
     let Some(schema) = tool
         .parameters
         .as_object()
         .filter(|schema| schema.get("type").and_then(JsonValue::as_str) == Some("object"))
     else {
-        return Err("grammar constrained sampling requires an object parameter schema".to_owned());
+        return Err(GrammarInputError::NotAnObject);
     };
-    let input_property =
-        match schema.get("required") {
-            Some(JsonValue::Array(required)) if required.len() == 1 => match &required[0] {
-                JsonValue::String(name) => name.clone(),
-                _ => return Err(
-                    "grammar constrained sampling requires exactly one required string property"
-                        .to_owned(),
-                ),
-            },
-            _ => {
-                return Err(
-                    "grammar constrained sampling requires exactly one required string property"
-                        .to_owned(),
-                )
-            }
-        };
+    let input_property = match schema.get("required") {
+        Some(JsonValue::Array(required)) if required.len() == 1 => match &required[0] {
+            JsonValue::String(name) => name.clone(),
+            _ => return Err(GrammarInputError::NotOneRequired),
+        },
+        _ => return Err(GrammarInputError::NotOneRequired),
+    };
     let property = schema
         .get("properties")
         .and_then(JsonValue::as_object)
         .and_then(|properties| properties.get(&input_property))
         .filter(|property| is_truthy(property));
     let Some(property) = property else {
-        return Err(format!(
-            "grammar constrained sampling requires a properties entry for {input_property}"
-        ));
+        return Err(GrammarInputError::NoPropertiesEntry {
+            property: input_property,
+        });
     };
     if property.get("type").and_then(JsonValue::as_str) != Some("string") {
-        return Err(format!(
-            "grammar constrained sampling property {input_property} must have type string"
-        ));
+        return Err(GrammarInputError::NotAString {
+            property: input_property,
+        });
     }
     Ok(input_property)
 }
@@ -444,7 +455,10 @@ pub fn resolve_json_schema_strict_sampling(
                     tool.name
                 ))),
             },
-            Err(error @ ConstrainedSamplingError::Invalid(_)) => Err(error),
+            Err(
+                error @ (ConstrainedSamplingError::Invalid(_)
+                | ConstrainedSamplingError::GrammarInput { .. }),
+            ) => Err(error),
         };
     }
     match strict {
@@ -647,11 +661,11 @@ pub fn resolve_grammar_constrained_sampling(
             )))
         }
     };
-    let input_property = infer_grammar_input_property(tool).map_err(|message| {
-        ConstrainedSamplingError::Invalid(format!(
-            "Tool \"{}\" cannot use grammar constrained sampling: {message}.",
-            tool.name
-        ))
+    let input_property = infer_grammar_input_property(tool).map_err(|source| {
+        ConstrainedSamplingError::GrammarInput {
+            tool: tool.name.clone(),
+            source,
+        }
     })?;
     Ok(Some(GrammarConstrainedSampling {
         format,

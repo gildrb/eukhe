@@ -4,12 +4,15 @@
 //! staleness gate, the OAuth expiry refresh through the document's
 //! refresh flights, and the passthrough `get_api_key` (TS getApiKey).
 
+use std::sync::Arc;
+
 use super::{
     config, edit_storage_data, now_epoch_ms, parse_storage_data, resolve_config_value,
     resolve_config_value_uncached, AuthApiKeyResult, AuthCredential, AuthStorage,
     AuthStorageBackend, AuthStorageData, OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
 };
 use crate::auth::flight::{fresh, Read, RefreshIo, Stored};
+use crate::auth::refresh_error::{AuthFileError, RefreshError, RefreshFailed};
 
 impl AuthStorage {
     pub fn get_api_key_with_source_token(
@@ -88,9 +91,10 @@ impl AuthStorage {
                                         refresh_error: None,
                                     };
                                 }
-                                Err(cause) => format!(
-                                    "OAuth token refresh failed for \"{provider_id}\": {cause}"
-                                ),
+                                Err(cause) => RefreshFailed {
+                                    provider: provider_id.to_string(),
+                                    cause,
+                                },
                             };
                             // The reason rides the result, not `errors`: that
                             // channel reports the caller's own writes (login
@@ -204,7 +208,7 @@ impl AuthStorage {
     ///    peer's.
     /// 6. LAND: the flight ends, after the store, so a caller that loads
     ///    after the end reads the stored credential.
-    fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, String> {
+    fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, RefreshError> {
         let outcome = self.storage.flights().refresh(
             provider_id,
             &mut DocumentRefresh {
@@ -226,11 +230,14 @@ impl AuthStorage {
 
 /// What a read of the auth document found under `provider`, at the clock
 /// of the read.
-fn read_of(provider: &str, content: Result<Option<String>, String>) -> (Read, AuthStorageData) {
+fn read_of(
+    provider: &str,
+    content: Result<Option<String>, AuthFileError>,
+) -> (Read, AuthStorageData) {
     let at = now_epoch_ms();
     let parsed = content.and_then(|content| {
         parse_storage_data(content.as_deref())
-            .map_err(|error| format!("could not parse the auth file: {error:#}"))
+            .map_err(|error| AuthFileError::Parse(Arc::new(error)))
     });
     match parsed {
         Ok(data) => {
@@ -265,7 +272,7 @@ impl RefreshIo for DocumentRefresh<'_> {
         let content = self
             .storage
             .read()
-            .map_err(|error| format!("could not read the auth file: {error:#}"));
+            .map_err(|error| AuthFileError::Read(Arc::new(error)));
         let (read, data) = read_of(self.provider, content);
         self.loaded = data;
         read
@@ -275,19 +282,21 @@ impl RefreshIo for DocumentRefresh<'_> {
         let content = self
             .storage
             .read()
-            .map_err(|error| format!("could not read the auth file: {error:#}"));
+            .map_err(|error| AuthFileError::Read(Arc::new(error)));
         read_of(self.provider, content).0
     }
 
-    fn fetch(&mut self) -> Result<AuthCredential, String> {
-        self.oauth.refresh(self.provider, &self.loaded)
+    fn fetch(&mut self) -> Result<AuthCredential, RefreshError> {
+        self.oauth
+            .refresh(self.provider, &self.loaded)
+            .map_err(|error| RefreshError::Fetch(Arc::new(error)))
     }
 
     fn store(
         &mut self,
         credential: AuthCredential,
         stands: &dyn Fn(&Read) -> bool,
-    ) -> Result<AuthCredential, String> {
+    ) -> Result<AuthCredential, RefreshError> {
         let provider = self.provider;
         let mut stored = credential.clone();
         self.storage
@@ -318,7 +327,7 @@ impl RefreshIo for DocumentRefresh<'_> {
                     .transpose()?;
                 Ok(((), content))
             })
-            .map_err(|error| format!("could not save the refreshed credential: {error:#}"))?;
+            .map_err(|error| RefreshError::Save(Arc::new(error)))?;
         Ok(stored)
     }
 }

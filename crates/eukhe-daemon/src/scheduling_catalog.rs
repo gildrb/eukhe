@@ -34,6 +34,20 @@ use crate::supervisor::{client_command_payload, Supervisor};
 /// The catalog merge forwards (TS `forwardToWorker(worker, command, 5000)`).
 const CATALOG_FORWARD_TIMEOUT_MS: u64 = 5000;
 
+/// Why a scheduled add did not promote the owned worker.
+#[derive(Debug, thiserror::Error)]
+enum PromoteError {
+    /// The cleared ownership did not persist.
+    #[error("{source}")]
+    Persist {
+        #[source]
+        source: anyhow::Error,
+    },
+    /// Another client owns the session.
+    #[error("Session is not owned by this client")]
+    NotOwner,
+}
+
 /// One passive scheduled job: a job in the session-artifacts tree whose
 /// session has no live worker (TS `{ rootSessionFile, job, info }`; the
 /// root-session walk feeds the TS wake timers, which this port keeps out
@@ -890,7 +904,7 @@ impl Supervisor {
                 vec![response_line(&response_failure(
                     Some(command_id),
                     type_name,
-                    &error,
+                    &error.to_string(),
                     None,
                 ))],
                 false,
@@ -905,7 +919,7 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
         client_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), PromoteError> {
         let mut descriptor = resident.descriptor.lock().await;
         match descriptor.owner_client_id.clone() {
             Some(owner) if owner == client_id => {
@@ -914,7 +928,7 @@ impl Supervisor {
                     .rest
                     .insert("promotedOwnerClientId".to_string(), json!(owner));
                 crate::descriptor::persist_worker(&resident.descriptor_path, &descriptor)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|source| PromoteError::Persist { source })?;
                 Ok(())
             }
             // An already-promoted session stays promoted; a foreign owner
@@ -927,7 +941,7 @@ impl Supervisor {
             {
                 Ok(())
             }
-            _ => Err("Session is not owned by this client".to_string()),
+            _ => Err(PromoteError::NotOwner),
         }
     }
 

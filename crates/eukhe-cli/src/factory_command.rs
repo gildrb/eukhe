@@ -55,21 +55,70 @@ enum FactoryCommand {
     },
 }
 
-/// Parse the subcommand and its flags; `Err` carries a usage hint.
-fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
+/// Why the `factory` arguments do not parse; printed with the help hint.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum FactoryUsageError {
+    /// No subcommand.
+    #[error("Missing factory command.")]
+    Missing,
+    #[error(
+        "Unknown factory command: {subcommand}{}",
+        .suggestion.as_ref().map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
+    )]
+    Unknown {
+        subcommand: String,
+        suggestion: Option<String>,
+    },
+    #[error("--out requires a file path")]
+    OutWithoutPath,
+    #[error("unknown option {0:?}")]
+    UnknownOption(String),
+    #[error("Usage: eukhe factory list [--json]")]
+    ListUsage,
+    #[error("Usage: eukhe factory import <path> [--json]")]
+    ImportUsage,
+    #[error("Usage: eukhe factory export <name> --out <path> [--json]")]
+    ExportUsage,
+}
+
+/// Why one kernel dispatch did not produce a result.
+#[derive(Debug, thiserror::Error)]
+enum FactoryDispatchError {
+    #[error("failed to start the CLI runtime: {0}")]
+    Runtime(#[source] std::io::Error),
+    #[error("kernel python unavailable: {0:#}")]
+    KernelPython(#[source] anyhow::Error),
+    #[error("failed to run the kernel python: {0}")]
+    Spawn(#[source] std::io::Error),
+    #[error("failed to send the payload: {0}")]
+    SendPayload(#[source] std::io::Error),
+    #[error("failed to wait for the kernel python: {0}")]
+    Wait(#[source] std::io::Error),
+    /// The runner exited non-zero; the last stderr lines say why.
+    #[error("the kernel python failed (exit {status}): {}", .stderr_tail.join(" | "))]
+    Failed {
+        status: std::process::ExitStatus,
+        stderr_tail: Vec<String>,
+    },
+    #[error("unreadable kernel result: {0}")]
+    Unreadable(#[source] serde_json::Error),
+}
+
+/// Parse the subcommand and its flags.
+fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, FactoryUsageError> {
     let children: Vec<&str> = crate::command_registry::get_child_command_specs(&["factory"])
         .into_iter()
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     let Some(subcommand) = args.first() else {
-        return Err(String::new());
+        return Err(FactoryUsageError::Missing);
     };
     if !children.contains(&subcommand.as_str()) {
-        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
-        return Err(format!(
-            "Unknown factory command: {subcommand}{}",
-            suggestion.map_or_else(String::new, |s| format!(" (did you mean \"{s}\"?)"))
-        ));
+        return Err(FactoryUsageError::Unknown {
+            subcommand: subcommand.clone(),
+            suggestion: eukhe_bend::rules::slash::suggestion(subcommand, &children)
+                .map(str::to_owned),
+        });
     }
     let mut json = false;
     let mut operands: Vec<String> = Vec::new();
@@ -80,12 +129,12 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
             "--json" => json = true,
             "--out" => {
                 let Some(value) = rest.next() else {
-                    return Err("--out requires a file path".to_string());
+                    return Err(FactoryUsageError::OutWithoutPath);
                 };
                 out = Some(value.clone());
             }
             other if other.starts_with('-') => {
-                return Err(format!("unknown option {other:?}"));
+                return Err(FactoryUsageError::UnknownOption(other.to_owned()));
             }
             other => operands.push(other.to_string()),
         }
@@ -93,13 +142,13 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
     match subcommand.as_str() {
         "list" => {
             if !operands.is_empty() {
-                return Err("Usage: eukhe factory list [--json]".to_string());
+                return Err(FactoryUsageError::ListUsage);
             }
             Ok(FactoryCommand::List { json })
         }
         "import" => {
             if operands.len() != 1 {
-                return Err("Usage: eukhe factory import <path> [--json]".to_string());
+                return Err(FactoryUsageError::ImportUsage);
             }
             Ok(FactoryCommand::Import {
                 path: operands.remove(0),
@@ -108,10 +157,10 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
         }
         "export" => {
             if operands.len() != 1 {
-                return Err("Usage: eukhe factory export <name> --out <path> [--json]".to_string());
+                return Err(FactoryUsageError::ExportUsage);
             }
             let Some(out) = out else {
-                return Err("Usage: eukhe factory export <name> --out <path> [--json]".to_string());
+                return Err(FactoryUsageError::ExportUsage);
             };
             Ok(FactoryCommand::Export {
                 name: operands.remove(0),
@@ -119,7 +168,7 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
                 json,
             })
         }
-        _ => Err(String::new()),
+        _ => Err(FactoryUsageError::Missing),
     }
 }
 
@@ -127,8 +176,8 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, String> {
 pub fn run_factory_command(args: &[String]) -> i32 {
     let command = match parse_factory_command(args) {
         Ok(command) => command,
-        Err(empty_hint) if empty_hint.is_empty() => {
-            eprintln!("Missing factory command.");
+        Err(error @ FactoryUsageError::Missing) => {
+            eprintln!("{error}");
             eprintln!("Run \"eukhe help factory\" for usage.");
             return 1;
         }
@@ -249,52 +298,52 @@ fn listing_row(machine: &MachineListing, name_width: usize) -> String {
 
 /// Resolve the kernel Python (bootstrapping the venv on first use), the
 /// same interpreter the factory gate lives in.
-fn resolve_kernel_python() -> Result<PathBuf, String> {
+fn resolve_kernel_python() -> Result<PathBuf, FactoryDispatchError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("failed to start the CLI runtime: {error}"))?;
+        .map_err(FactoryDispatchError::Runtime)?;
     runtime
         .block_on(eukhe_core::kernel::ensure_kernel_python(
             eukhe_core::kernel::EnsureKernelPythonOptions::default(),
         ))
-        .map_err(|error| format!("kernel python unavailable: {error:#}"))
+        .map_err(FactoryDispatchError::KernelPython)
 }
 
 /// Drive one `rlm.factory.cli_dispatch` payload through the kernel Python.
-fn dispatch_via_kernel(python: &std::path::Path, payload: &Value) -> Result<Value, String> {
+fn dispatch_via_kernel(
+    python: &std::path::Path,
+    payload: &Value,
+) -> Result<Value, FactoryDispatchError> {
     let mut child = Command::new(python);
     child
         .args(["-c", CLI_DISPATCH_RUNNER])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = child
-        .spawn()
-        .map_err(|error| format!("failed to run the kernel python: {error}"))?;
+    let mut child = child.spawn().map_err(FactoryDispatchError::Spawn)?;
     {
         let stdin = child.stdin.as_mut().expect("stdin was piped on this child");
         stdin
             .write_all(payload.to_string().as_bytes())
-            .map_err(|error| format!("failed to send the payload: {error}"))?;
+            .map_err(FactoryDispatchError::SendPayload)?;
     }
     let output = child
         .wait_with_output()
-        .map_err(|error| format!("failed to wait for the kernel python: {error}"))?;
+        .map_err(FactoryDispatchError::Wait)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: Vec<&str> = stderr.lines().rev().take(3).collect::<Vec<_>>();
-        let mut lines = tail;
-        lines.reverse();
-        return Err(format!(
-            "the kernel python failed (exit {}): {}",
-            output.status,
-            lines.join(" | ")
-        ));
+        let mut stderr_tail: Vec<String> =
+            stderr.lines().rev().take(3).map(str::to_owned).collect();
+        stderr_tail.reverse();
+        return Err(FactoryDispatchError::Failed {
+            status: output.status,
+            stderr_tail,
+        });
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     serde_json::from_str(stdout.trim_end_matches(['\n', '\r']))
-        .map_err(|error| format!("unreadable kernel result: {error}"))
+        .map_err(FactoryDispatchError::Unreadable)
 }
 
 /// `factory import <path>`: validate through the kernel gate and persist.
@@ -426,21 +475,27 @@ mod tests {
 
     #[test]
     fn rejects_missing_and_unknown_subcommands() {
-        assert_eq!(parse_factory_command(&arg(&[])), Err(String::new()));
+        assert_eq!(
+            parse_factory_command(&arg(&[])),
+            Err(FactoryUsageError::Missing)
+        );
         let unknown = parse_factory_command(&arg(&["run"]));
         assert!(unknown.is_err());
         assert!(unknown
             .unwrap_err()
+            .to_string()
             .contains("Unknown factory command: run"));
         let missing_out = parse_factory_command(&arg(&["export", "sweep"]));
         assert!(missing_out.is_err());
         assert!(missing_out
             .unwrap_err()
+            .to_string()
             .starts_with("Usage: eukhe factory export"));
         let dangling_out = parse_factory_command(&arg(&["export", "sweep", "--out"]));
         assert!(dangling_out.is_err());
         assert!(dangling_out
             .unwrap_err()
+            .to_string()
             .starts_with("--out requires a file path"));
         let extra = parse_factory_command(&arg(&["list", "extra"]));
         assert!(extra.is_err());

@@ -27,6 +27,7 @@ mod endings;
 mod input;
 mod messages;
 mod mismatch;
+mod parse_error;
 mod parser;
 mod patcher;
 mod prefixes;
@@ -41,6 +42,8 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use eukhe_types::path_policy::real_path;
+
+pub use self::parse_error::HashlineParseError;
 
 use self::{
     input::split_sections,

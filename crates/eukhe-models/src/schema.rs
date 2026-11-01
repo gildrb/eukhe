@@ -81,6 +81,52 @@ struct CatalogEnvelope {
     models: Vec<serde_json::Value>,
 }
 
+/// Why a catalog payload is rejected.
+#[derive(Debug, thiserror::Error)]
+pub enum ModelCatalogError {
+    /// The payload is not an object, or its `schemaVersion` is not `1`.
+    #[error("Unsupported model catalog schema version")]
+    UnsupportedSchemaVersion,
+    /// `models` is missing, not a list, empty, or over the size limit.
+    #[error("Invalid model catalog model count")]
+    InvalidModelCount,
+    /// The envelope or an entry fails the strict schema.
+    #[error("Invalid model catalog entry")]
+    InvalidEntry(#[source] EntryDefect),
+    /// Two entries share a `(provider, id)` pair.
+    #[error("Duplicate model catalog entry [\"{provider}\",\"{id}\"]")]
+    DuplicateEntry { provider: String, id: String },
+    /// No entry survives validation.
+    #[error("Model catalog has no compatible entries")]
+    NoCompatibleEntries,
+}
+
+/// What is wrong with one catalog entry (or the envelope around them).
+#[derive(Debug, thiserror::Error)]
+pub enum EntryDefect {
+    /// The value does not deserialize into the strict shape.
+    #[error("it does not match the schema: {0}")]
+    Schema(#[from] serde_json::Error),
+    /// A text field is shorter or longer than its bounds.
+    #[error("{field} is out of its length bounds")]
+    FieldLength { field: &'static str },
+    /// A text field carries a control character.
+    #[error("{field} carries a control character")]
+    ControlCharacter { field: &'static str },
+    /// `input` lists no modality or more than two.
+    #[error("input lists {count} modalities")]
+    InputCount { count: usize },
+    /// A cost is not finite or out of `0..=1_000_000`.
+    #[error("a cost is out of range")]
+    CostOutOfRange,
+    /// `contextWindow` or `maxTokens` is out of `1..=100_000_000`.
+    #[error("contextWindow or maxTokens is out of range")]
+    TokenLimitOutOfRange,
+    /// The `compat` block does not fit the entry's `api`.
+    #[error("the compat block does not fit api {api}")]
+    Compat { api: String },
+}
+
 /// Parse a catalog payload against the strict schema.
 ///
 /// # Errors
@@ -92,27 +138,27 @@ struct CatalogEnvelope {
 pub fn parse_model_catalog(
     value: &serde_json::Value,
     policy: InvalidEntries,
-) -> Result<ModelCatalogV1, String> {
+) -> Result<ModelCatalogV1, ModelCatalogError> {
     let Some(object) = value.as_object() else {
-        return Err("Unsupported model catalog schema version".into());
+        return Err(ModelCatalogError::UnsupportedSchemaVersion);
     };
     if object
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
         != Some(1)
     {
-        return Err("Unsupported model catalog schema version".into());
+        return Err(ModelCatalogError::UnsupportedSchemaVersion);
     }
     let Some(models) = object.get("models").and_then(serde_json::Value::as_array) else {
-        return Err("Invalid model catalog model count".into());
+        return Err(ModelCatalogError::InvalidModelCount);
     };
     if models.is_empty() || models.len() > MAX_MODEL_CATALOG_MODELS {
-        return Err("Invalid model catalog model count".into());
+        return Err(ModelCatalogError::InvalidModelCount);
     }
     // The envelope accepts only the declared keys (schemaVersion literal +
     // the models array); unknown top-level keys are not rejected (TS parity).
     let envelope: CatalogEnvelope = serde_json::from_value(value.clone())
-        .map_err(|_| "Invalid model catalog entry".to_string())?;
+        .map_err(|error| ModelCatalogError::InvalidEntry(error.into()))?;
     let _ = envelope.models.len();
 
     let mut parsed: Vec<Model> = Vec::with_capacity(models.len());
@@ -120,24 +166,24 @@ pub fn parse_model_catalog(
     for candidate in models {
         let model = match parse_entry(candidate) {
             Ok(model) => model,
-            Err(error) => match policy {
+            Err(defect) => match policy {
                 InvalidEntries::SkipInvalid => {
-                    tracing::debug!(error, "skipping invalid model catalog entry");
+                    tracing::debug!(%defect, "skipping invalid model catalog entry");
                     continue;
                 }
-                InvalidEntries::Reject => return Err(error),
+                InvalidEntries::Reject => return Err(ModelCatalogError::InvalidEntry(defect)),
             },
         };
         if !seen.insert((model.provider.clone(), model.id.clone())) {
-            return Err(format!(
-                "Duplicate model catalog entry [\"{}\",\"{}\"]",
-                model.provider, model.id
-            ));
+            return Err(ModelCatalogError::DuplicateEntry {
+                provider: model.provider,
+                id: model.id,
+            });
         }
         parsed.push(model);
     }
     if parsed.is_empty() {
-        return Err("Model catalog has no compatible entries".into());
+        return Err(ModelCatalogError::NoCompatibleEntries);
     }
     Ok(ModelCatalogV1 {
         schema_version: 1,
@@ -145,12 +191,11 @@ pub fn parse_model_catalog(
     })
 }
 
-fn parse_entry(candidate: &serde_json::Value) -> Result<Model, String> {
-    let entry: CatalogModelSchema = serde_json::from_value(candidate.clone())
-        .map_err(|_| "Invalid model catalog entry".to_string())?;
+fn parse_entry(candidate: &serde_json::Value) -> Result<Model, EntryDefect> {
+    let entry: CatalogModelSchema = serde_json::from_value(candidate.clone())?;
     validate_entry(&entry)?;
     if !is_model_compat(&entry.api, entry.compat.as_ref()) {
-        return Err("Invalid model catalog entry".into());
+        return Err(EntryDefect::Compat { api: entry.api });
     }
     Ok(Model {
         id: entry.id,
@@ -176,14 +221,16 @@ fn parse_entry(candidate: &serde_json::Value) -> Result<Model, String> {
     })
 }
 
-fn validate_entry(entry: &CatalogModelSchema) -> Result<(), String> {
-    no_control_chars_nonempty(&entry.id, 1_024)?;
-    no_control_chars_nonempty(&entry.name, 1_024)?;
-    bounded(&entry.api, 1, 128)?;
-    bounded(&entry.provider, 1, 128)?;
-    bounded(&entry.base_url, 0, 2_048)?;
+fn validate_entry(entry: &CatalogModelSchema) -> Result<(), EntryDefect> {
+    no_control_chars_nonempty("id", &entry.id, 1_024)?;
+    no_control_chars_nonempty("name", &entry.name, 1_024)?;
+    bounded("api", &entry.api, 1, 128)?;
+    bounded("provider", &entry.provider, 1, 128)?;
+    bounded("baseUrl", &entry.base_url, 0, 2_048)?;
     if entry.input.is_empty() || entry.input.len() > 2 {
-        return Err("Invalid model catalog entry".into());
+        return Err(EntryDefect::InputCount {
+            count: entry.input.len(),
+        });
     }
     for cost in [
         entry.cost.input,
@@ -193,37 +240,41 @@ fn validate_entry(entry: &CatalogModelSchema) -> Result<(), String> {
     ] {
         let value = cost.as_f64();
         if !value.is_finite() || !(0.0..=1_000_000.0).contains(&value) {
-            return Err("Invalid model catalog entry".into());
+            return Err(EntryDefect::CostOutOfRange);
         }
     }
     if !(1..=100_000_000).contains(&entry.context_window)
         || !(1..=100_000_000).contains(&entry.max_tokens)
     {
-        return Err("Invalid model catalog entry".into());
+        return Err(EntryDefect::TokenLimitOutOfRange);
     }
     if let Some(map) = &entry.thinking_level_map {
         for value in map.values().flatten() {
-            bounded(value, 1, 128)?;
+            bounded("thinkingLevelMap", value, 1, 128)?;
         }
     }
     Ok(())
 }
 
-fn bounded(value: &str, min: usize, max: usize) -> Result<(), String> {
+fn bounded(field: &'static str, value: &str, min: usize, max: usize) -> Result<(), EntryDefect> {
     let length = value.chars().count();
     if length < min || length > max {
-        return Err("Invalid model catalog entry".into());
+        return Err(EntryDefect::FieldLength { field });
     }
     Ok(())
 }
 
-fn no_control_chars_nonempty(value: &str, max: usize) -> Result<(), String> {
-    bounded(value, 1, max)?;
+fn no_control_chars_nonempty(
+    field: &'static str,
+    value: &str,
+    max: usize,
+) -> Result<(), EntryDefect> {
+    bounded(field, value, 1, max)?;
     if value
         .chars()
         .any(|c| (c as u32) <= 0x1f || (0x7f..=0x9f).contains(&(c as u32)))
     {
-        return Err("Invalid model catalog entry".into());
+        return Err(EntryDefect::ControlCharacter { field });
     }
     Ok(())
 }
@@ -350,7 +401,7 @@ mod tests {
         let payload = catalog(vec![entry(&json!({})), entry(&json!({}))]);
         let err = parse_model_catalog(&payload, InvalidEntries::SkipInvalid)
             .expect_err("duplicate rejected");
-        assert!(err.contains("Duplicate"), "{err}");
+        assert!(err.to_string().contains("Duplicate"), "{err}");
     }
 
     #[test]

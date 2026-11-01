@@ -246,7 +246,9 @@ async fn execute(
     let resume = optional_text(args, "resume")?
         .map(|run| run.trim().to_owned())
         .filter(|run| !run.is_empty());
-    let parsed = parse_script(&script).map_err(SessionError::type_error)?;
+    // The script sees the meta error as a TypeError message.
+    let parsed =
+        parse_script(&script).map_err(|error| SessionError::type_error(error.to_string()))?;
     let limits = effective_limits(
         size,
         shared.settings.manager().get_subagent_max_concurrency(),

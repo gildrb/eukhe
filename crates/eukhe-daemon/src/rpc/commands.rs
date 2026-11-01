@@ -20,6 +20,7 @@ use eukhe_types::cvar::Command;
 use eukhe_types::daemon::{CompactionReason, SessionEvent};
 use serde_json::{json, Value};
 
+use super::error::RpcCommandError;
 use super::model_commands;
 use super::prompt_commands;
 use super::protocol::{self, ResponseData};
@@ -63,10 +64,15 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
     let id = command.id.clone();
     let payload = command.payload.clone();
     let name = command.command.as_str();
-    let outcome: Result<ResponseData, String> = match name {
+    let outcome: Result<ResponseData, RpcCommandError> = match name {
         "prompt" => prompt_commands::prompt(state, &payload).await,
         "steer" | "follow_up" => prompt_commands::steer_or_follow_up(state, &payload, name).await,
-        "abort" => state.session.abort().await.map(|()| ResponseData::Absent),
+        "abort" => state
+            .session
+            .abort()
+            .await
+            .map(|()| ResponseData::Absent)
+            .map_err(RpcCommandError::from),
         "new_session" => new_session(state).await,
         "get_state" => get_state(state).await,
         "set_model" => model_commands::set_model(state, &payload).await,
@@ -89,7 +95,7 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
     };
     match outcome {
         Ok(data) => protocol::success(id.as_ref(), name, data),
-        Err(message) => protocol::error(id.as_ref(), name, &message),
+        Err(error) => protocol::error(id.as_ref(), name, &error.to_string()),
     }
 }
 
@@ -97,7 +103,7 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
 /// ACTIVE session's project. A `parentSession` is accepted for protocol
 /// compatibility but has no durable record to land in (durable storage
 /// carries no session header with a parent link).
-async fn new_session(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn new_session(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     // Serialize the cwd sample with the replacement it seeds: a
     // `switch_session` landing between them would build the session over
     // the retired session's project.
@@ -121,7 +127,7 @@ pub(crate) fn queue_mode_wire_name(mode: QueueModeSetting) -> &'static str {
 }
 
 /// `get_state` (TS `RpcSessionState`) over the main conversation.
-async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     let handle = state.session.handle().await;
     let session = &handle.session;
     let harness = session.harness();
@@ -132,20 +138,13 @@ async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, String> {
     let live = live_state(harness, main.id(), &cx).await?;
     let inbox = inbox_state(harness, main.id(), &cx).await?;
     let messages = context_messages(&main, &cx).await?;
-    let meta = read_session_meta(harness, &cx)
-        .await
-        .map_err(|error| error.to_string())?;
-    let goal = goal_state(harness, main.id(), &cx)
-        .await
-        .map_err(|error| error.to_string())?;
+    let meta = read_session_meta(harness, &cx).await?;
+    let goal = goal_state(harness, main.id(), &cx).await?;
     let settings = deps.settings.manager();
 
     let mut object = serde_json::Map::new();
     if let Some(model) = agent_model(session, &agent) {
-        object.insert(
-            "model".to_string(),
-            serde_json::to_value(model).map_err(|error| error.to_string())?,
-        );
+        object.insert("model".to_string(), serde_json::to_value(model)?);
     }
     object.insert(
         "thinkingLevel".to_string(),
@@ -184,10 +183,7 @@ async fn get_state(state: &Arc<RpcState>) -> Result<ResponseData, String> {
         "sessionActions".to_string(),
         session_actions_snapshot(&inbox.items, streaming),
     );
-    object.insert(
-        "goal".to_string(),
-        serde_json::to_value(goal).map_err(|error| error.to_string())?,
-    );
+    object.insert("goal".to_string(), serde_json::to_value(goal)?);
     Ok(ResponseData::Present(Value::Object(object)))
 }
 
@@ -220,7 +216,7 @@ fn session_actions_snapshot(items: &[InboxItem], streaming: bool) -> Value {
 /// `CompactionResult`; a skip answers the TS `CompactionSkippedError`
 /// message with the compaction frames around it (a compaction that ran
 /// publishes its own frames through the event pump).
-async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, RpcCommandError> {
     let instructions = payload
         .get("customInstructions")
         .and_then(Value::as_str)
@@ -235,9 +231,7 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     // TS `session.compact` aborts the running turn before the snapshot:
     // the compaction summarizes a settled transcript.
     if !matches!(is_busy(session.harness(), main.id(), &cx).await, Ok(false)) {
-        main.abort(ConversationAbortOptions::default(), &cx)
-            .await
-            .map_err(|error| error.to_string())?;
+        main.abort(ConversationAbortOptions::default(), &cx).await?;
     }
     match run_manual_compaction(
         session.harness(),
@@ -248,10 +242,8 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
     )
     .await
     {
-        Ok(result) => serde_json::to_value(result)
-            .map(ResponseData::Present)
-            .map_err(|error| error.to_string()),
-        Err(ManualCompactionError::Skipped(message)) => {
+        Ok(result) => Ok(ResponseData::Present(serde_json::to_value(result)?)),
+        Err(skipped @ ManualCompactionError::Skipped(_)) => {
             state.session.outputs().write_events([
                 SessionEvent::CompactionStart {
                     reason: CompactionReason::Manual,
@@ -267,15 +259,15 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
                     custom_instructions: instructions,
                 },
             ]);
-            Err(message.to_string())
+            Err(skipped.into())
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.into()),
     }
 }
 
 /// `refine` (TS `session.refine`): run the refinement on the main
 /// conversation and answer with the `RefinementResult`.
-async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, RpcCommandError> {
     let request = RefineRequest {
         global: payload
             .get("global")
@@ -295,10 +287,8 @@ async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, 
     let _ops = state.session_ops.lock().await;
     let result = refine_now(session.deps(), &session.main(), request, &rpc_context())
         .await
-        .map_err(|error| format!("{error:#}"))?;
-    Ok(ResponseData::Present(
-        serde_json::to_value(result).map_err(|error| error.to_string())?,
-    ))
+        .map_err(|source| RpcCommandError::Refine { source })?;
+    Ok(ResponseData::Present(serde_json::to_value(result)?))
 }
 
 /// `set_auto_compaction` (TS `session.setAutoCompactionEnabled`): the
@@ -306,21 +296,24 @@ async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, 
 async fn set_auto_compaction(
     state: &Arc<RpcState>,
     payload: &Value,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let enabled = payload
         .get("enabled")
         .and_then(Value::as_bool)
-        .ok_or_else(|| "set_auto_compaction requires enabled".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("set_auto_compaction", "enabled"))?;
     set_session_cvar(state, &table::COMPACTION_ENABLED, &enabled.to_string()).await
 }
 
 /// `set_auto_retry` (TS `session.setAutoRetryEnabled`): the session's own
 /// `retry.enabled`, which its retry policy reads.
-async fn set_auto_retry(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
+async fn set_auto_retry(
+    state: &Arc<RpcState>,
+    payload: &Value,
+) -> Result<ResponseData, RpcCommandError> {
     let enabled = payload
         .get("enabled")
         .and_then(Value::as_bool)
-        .ok_or_else(|| "set_auto_retry requires enabled".to_string())?;
+        .ok_or_else(|| RpcCommandError::missing("set_auto_retry", "enabled"))?;
     set_session_cvar(state, &table::RETRY_ENABLED, &enabled.to_string()).await
 }
 
@@ -331,16 +324,14 @@ pub(crate) async fn set_session_cvar(
     state: &Arc<RpcState>,
     decl: &Decl,
     value: &str,
-) -> Result<ResponseData, String> {
+) -> Result<ResponseData, RpcCommandError> {
     let line = Command::Set {
         id: decl.id.to_string(),
         value: value.to_string(),
     }
     .to_string();
     let session = state.session.session().await;
-    run_cvar_line(&session, &line, CvarLineScope::Session, &rpc_context())
-        .await
-        .map_err(|error| error.to_string())?;
+    run_cvar_line(&session, &line, CvarLineScope::Session, &rpc_context()).await?;
     Ok(ResponseData::Absent)
 }
 
