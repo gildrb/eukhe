@@ -30,11 +30,13 @@ use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_chord::context::AbortController;
 use eukhe_types::ai::{Model, ModelThinkingLevel};
 use eukhe_types::daemon::AdmissionPriority;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{self, Context, ThinkingBudgets};
 use futures::StreamExt;
 
 use super::compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, QueuedNotice};
+use crate::models::roles::{role_model, role_table};
 
 /// The `session_id` of every compactor request: providers key prompt-cache
 /// routing on it, and the compactor's `<chat>` prefix is shared across
@@ -206,9 +208,10 @@ impl Summarizer for SettingsSummarizer {
     }
 }
 
-/// The compactor model as configured: `memory.model`, else
-/// `auxiliaryModel` (`provider/model-id`); `None` when it follows the
-/// default model. Reads the global settings of `agent_dir`.
+/// The compactor model as configured: the memory role's model
+/// (`memory.model`, else `modelRoles.all`), else `auxiliaryModel`
+/// (`provider/model-id`); `None` when it follows the default model. Reads
+/// the global settings of `agent_dir`.
 #[must_use]
 pub fn configured_memory_model(agent_dir: &Path) -> Option<String> {
     let settings = crate::settings::SettingsManager::create(agent_dir, agent_dir);
@@ -216,12 +219,15 @@ pub fn configured_memory_model(agent_dir: &Path) -> Option<String> {
 }
 
 fn explicit_model(settings: &crate::settings::SettingsManager) -> Option<String> {
-    settings.get_memory_model().or_else(|| {
-        settings
-            .get_auxiliary_model()
-            .map(|model| model.trim().to_string())
-            .filter(|model| !model.is_empty())
-    })
+    let rows = role_table(settings.cvars());
+    let selector = |role: ModelRole| {
+        rows.iter()
+            .find(|row| row.role == role)
+            .and_then(|row| row.selector.clone())
+    };
+    // The memory role's default is the auxiliary model's own setting
+    // (with `modelRoles.all` set the memory role never defaults).
+    selector(ModelRole::Memory).or_else(|| selector(ModelRole::Auxiliary))
 }
 
 /// The pi-ai reasoning option of a thinking level (`off` sends none).
@@ -275,26 +281,27 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
         // The default model: the same chain that picks the agent's model
         // when no flag or session pins one. A saved default that cannot
         // run fails the call with its reason; the compactor never moves
-        // past it in silence.
+        // past it in silence. The memory role defaults only with
+        // `modelRoles.all` unset, so the chat role's model here is its
+        // own (`defaultProvider`/`defaultModel`).
         let all: Vec<Model> = registry.get_all().cloned().collect();
         let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
-        let default_provider = settings.get_default_provider();
-        let default_model_id = settings.get_default_model();
+        let chat = role_model(settings.cvars(), ModelRole::Chat);
+        let saved = chat.provider_model();
         let options = crate::models::InitialModelOptions {
             cli_provider: None,
             cli_model: None,
             scoped_models: &[],
             is_continuing: false,
-            default_provider: default_provider.as_deref(),
-            default_model_id: default_model_id.as_deref(),
+            default_provider: saved.map(|(provider, _)| provider),
+            default_model_id: saved.map(|(_, model_id)| model_id),
             all_models: &all,
             available_models: &available,
         };
         if let Some(reason) = crate::models::saved_default_miss(&options) {
             anyhow::bail!(
-                "the saved default model {}/{} did not run the memory compactor: {reason}{models_json}. Fix the default, or set memory.model (provider/model-id) in settings.json.",
-                default_provider.as_deref().unwrap_or_default(),
-                default_model_id.as_deref().unwrap_or_default()
+                "the saved default model {} did not run the memory compactor: {reason}{models_json}. Fix the default, or set memory.model (provider/model-id) in settings.json.",
+                chat.selector.as_deref().unwrap_or_default()
             );
         }
         let model = crate::models::find_initial_model(&options).ok_or_else(|| {

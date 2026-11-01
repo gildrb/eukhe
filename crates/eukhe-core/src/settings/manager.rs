@@ -942,17 +942,26 @@ mod tests {
             .unwrap()
             .applied()
             .expect("the value applies");
+        let chat = |manager: &SettingsManager| {
+            crate::models::roles::role_model(
+                manager.cvars(),
+                eukhe_types::model_roles::ModelRole::Chat,
+            )
+            .selector
+        };
         assert_eq!(
-            manager.get_default_provider().as_deref(),
-            Some("prime-inference")
+            chat(&manager).as_deref(),
+            Some("prime-inference/z-ai/glm-5.3")
         );
-        assert_eq!(manager.get_default_model().as_deref(), Some("z-ai/glm-5.3"));
         assert_eq!(
             manager.get_recent_models(),
             vec!["prime-inference/z-ai/glm-5.3".to_string()]
         );
         manager.reload().unwrap();
-        assert_eq!(manager.get_default_model().as_deref(), Some("z-ai/glm-5.3"));
+        assert_eq!(
+            chat(&manager).as_deref(),
+            Some("prime-inference/z-ai/glm-5.3")
+        );
     }
 
     /// `factory.enabled` reads the GLOBAL scope only (the agent-dir
@@ -1229,7 +1238,10 @@ mod tests {
             })
             .unwrap();
         let manager = SettingsManager::from_storage(storage);
-        assert_eq!(manager.get_default_provider(), None);
+        assert_eq!(
+            manager.cvars().optional_text(&table::DEFAULT_PROVIDER),
+            None
+        );
         assert_eq!(manager.get_theme().as_deref(), Some("eukhe"));
     }
 
@@ -1316,27 +1328,6 @@ mod tests {
                 max_sessions: Some(50),
             }
         );
-    }
-
-    /// TS `getImageModel`: the `imageModel` reference reads trimmed, and
-    /// malformed values (empty/whitespace) behave as unset.
-    #[test]
-    fn image_model_reads_trimmed_or_unset() {
-        let manager = SettingsManager::in_memory(&Settings {
-            image_model: Some("  battery/mock-vision  ".to_string()),
-            ..Settings::default()
-        });
-        assert_eq!(
-            manager.get_image_model().as_deref(),
-            Some("battery/mock-vision")
-        );
-        let manager = SettingsManager::in_memory(&Settings {
-            image_model: Some("   ".to_string()),
-            ..Settings::default()
-        });
-        assert_eq!(manager.get_image_model(), None);
-        let manager = SettingsManager::in_memory(&Settings::default());
-        assert_eq!(manager.get_image_model(), None);
     }
 
     /// `memory.settleTimeoutMs`: unset and `0` take the default (as

@@ -83,6 +83,13 @@ def gcb.bare(i: Nat) -> {Gc.command(i, []) == GatewayCommands.gc_command(i, []) 
     case 10n+u:
       {==}
 
+def gcb.model_one(b: Bool, +a: String) -> {Gc.model.first(b, a, []) == GatewayCommands.gc_model_one(b, a) : Maybe<&2, Gc.Cmd>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 def gcb.one(i: Nat, +a: String) -> {Gc.command(i, [a]) == GatewayCommands.gc_command(i, [a]) : Maybe<&2, Gc.Cmd>}:
   match i:
     case 0n:
@@ -102,13 +109,20 @@ def gcb.one(i: Nat, +a: String) -> {Gc.command(i, [a]) == GatewayCommands.gc_com
     case 7n:
       {==}
     case 8n:
-      {==}
+      gcb.model_one(String.eq(a, "all"), a)
     case 9n:
       {==}
     case 10n+u:
       {==}
 
-def gcb.more(i: Nat, +a: String, +b: String, +u: List<&2, String>) -> {Gc.command(i, a <> b <> u) == GatewayCommands.gc_command(i, a <> b <> u) : Maybe<&2, Gc.Cmd>}:
+def gcb.model_two(b: Bool, +a: String, +n: String) -> {Gc.model.first(b, a, [n]) == GatewayCommands.gc_model_two(b, n) : Maybe<&2, Gc.Cmd>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def gcb.two(i: Nat, +a: String, +b: String) -> {Gc.command(i, [a, b]) == GatewayCommands.gc_command(i, [a, b]) : Maybe<&2, Gc.Cmd>}:
   match i:
     case 0n:
       {==}
@@ -127,10 +141,42 @@ def gcb.more(i: Nat, +a: String, +b: String, +u: List<&2, String>) -> {Gc.comman
     case 7n:
       {==}
     case 8n:
-      {==}
+      gcb.model_two(String.eq(a, "all"), a, b)
     case 9n:
       {==}
-    case 10n+v:
+    case 10n+u:
+      {==}
+
+def gcb.model_more(b: Bool, +a: String, +n: String, +c: String, +v: List<&2, String>) -> {Gc.model.first(b, a, n <> c <> v) == None{} : Maybe<&2, Gc.Cmd>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def gcb.more(i: Nat, +a: String, +b: String, +c: String, +v: List<&2, String>) -> {Gc.command(i, a <> b <> c <> v) == GatewayCommands.gc_command(i, a <> b <> c <> v) : Maybe<&2, Gc.Cmd>}:
+  match i:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n:
+      {==}
+    case 4n:
+      {==}
+    case 5n:
+      {==}
+    case 6n:
+      {==}
+    case 7n:
+      {==}
+    case 8n:
+      gcb.model_more(String.eq(a, "all"), a, b, c, v)
+    case 9n:
+      {==}
+    case 10n+w:
       {==}
 
 # the code's command of an index and arguments is the spec's
@@ -143,7 +189,11 @@ def gcb.command(+i: Nat, args: List<&2, String>) -> {Gc.command(i, args) == Gate
         case Nil{}:
           gcb.one(i, a)
         case b <> u:
-          gcb.more(i, a, b, u)
+          match u:
+            case Nil{}:
+              gcb.two(i, a, b)
+            case c <> v:
+              gcb.more(i, a, b, c, v)
 
 # Texts
 # -----

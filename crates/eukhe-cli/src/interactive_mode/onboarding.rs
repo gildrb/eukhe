@@ -44,14 +44,21 @@ impl StartupModelProbe {
                 eukhe_core::models::resolve_model_scope_from_models(patterns, &available)
             })
             .unwrap_or_default();
+        // The saved chat model: the chat role's (`defaultProvider`/
+        // `defaultModel`, else `modelRoles.all`).
+        let chat = eukhe_core::models::roles::role_model(
+            settings.cvars(),
+            eukhe_types::model_roles::ModelRole::Chat,
+        );
+        let saved = chat.provider_model();
         let startup_model =
             eukhe_core::models::find_initial_model(&eukhe_core::models::InitialModelOptions {
                 cli_provider: self.cli_provider.as_deref(),
                 cli_model: self.cli_model.as_deref(),
                 scoped_models: &scoped,
                 is_continuing: self.is_continuing,
-                default_provider: settings.get_default_provider().as_deref(),
-                default_model_id: settings.get_default_model().as_deref(),
+                default_provider: saved.map(|(provider, _)| provider),
+                default_model_id: saved.map(|(_, model_id)| model_id),
                 all_models: &all,
                 available_models: &available,
             });
@@ -91,8 +98,8 @@ impl eukhe_tui::interactive::OnboardingSink for SettingsOnboardingSink {
 /// branch and gates the completion marker), and the provider auth surface
 /// the full flow signs in through. The startup model follows the TS
 /// `findInitialModel` chain -- explicit flags, the `--models` scope, the
-/// saved settings default, the featured default, the first available
-/// model.
+/// saved chat model (the settings default, else `modelRoles.all`), the
+/// featured default, the first available model.
 pub(super) fn onboarding_task(
     options: &RunOptions,
     provider_auth: Option<eukhe_tui::provider_auth::ProviderAuthCommandsHandle>,

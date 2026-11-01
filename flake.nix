@@ -59,6 +59,7 @@
             pkgs.rustfmt
             pkgs.uv
             pkgs.git
+            pkgs.jq
             pkgs.onnxruntime
           ];
           env.ORT_DYLIB_PATH = "${lib.getLib pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";

@@ -10,6 +10,15 @@ let
   cfg = config.programs.eukhe;
   json = pkgs.formats.json { };
   stateDir = "${config.home.homeDirectory}/.eukhe";
+  # The declared settings over the file eukhe also writes (merge-settings.sh).
+  mergeSettings = pkgs.writeShellApplication {
+    name = "eukhe-merge-settings";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.jq
+    ];
+    text = builtins.readFile ./merge-settings.sh;
+  };
 in
 {
   options.programs.eukhe = {
@@ -35,9 +44,12 @@ in
         }
       '';
       description = ''
-        Written to ~/.eukhe/settings.json at activation. eukhe also writes
-        this file (model choices), so it is copied, not linked: the declared
-        settings win at every activation.
+        Merged into ~/.eukhe/settings.json at activation. eukhe also writes
+        this file (the model choices: `defaultProvider`, `defaultModel`,
+        `recentModels`), so it is neither linked nor replaced: every declared
+        key wins at every activation, and every key eukhe wrote that the
+        declaration does not name stays. A file that is not a JSON object is
+        left as it is (the activation says so).
       '';
     };
 
@@ -119,8 +131,8 @@ in
 
     home.activation.eukheSettings = lib.mkIf (cfg.settings != { }) (
       lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-        run ${pkgs.coreutils}/bin/install -D -m 0600 \
-          ${json.generate "eukhe-settings.json" cfg.settings} ${lib.escapeShellArg "${stateDir}/settings.json"}
+        run ${lib.getExe mergeSettings} ${lib.escapeShellArg "${stateDir}/settings.json"} \
+          ${json.generate "eukhe-settings.json" cfg.settings}
       ''
     );
 

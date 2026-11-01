@@ -1,10 +1,11 @@
 //! The `/model` hub: every model role ([`ModelRole::ALL`]) with the model
-//! it runs on and where that value comes from. Enter on a role opens the
-//! models the role accepts (the [`ModelPicker`] for a chat-group role, the
-//! local choice list for a local role); Enter there assigns; Backspace or
-//! `x` (with an empty search) clears the role; Esc goes back, then closes;
-//! typing searches. The session reads and writes the settings; this
-//! module owns the lists and the keys.
+//! it runs on and where that value comes from, then the all-roles model
+//! (`modelRoles.all`, the model of every role without its own). Enter on a
+//! row opens the models it accepts (the [`ModelPicker`] for a chat-group
+//! role and the all-roles model, the local choice list for a local role);
+//! Enter there assigns; Backspace or `x` (with an empty search) clears the
+//! row; Esc goes back, then closes; typing searches. The session reads and
+//! writes the settings; this module owns the lists and the keys.
 
 use eukhe_types::model_roles::ModelRole;
 
@@ -22,40 +23,70 @@ use crate::Line;
 /// The provider part of a local catalog model's selector (`local/<id>`).
 pub const LOCAL_PROVIDER: &str = "local";
 
-/// One role row: the model the role runs on and its source.
+/// What a hub row sets: one model role, or the all-roles model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubTarget {
+    Role(ModelRole),
+    /// `modelRoles.all`: the model of every role without its own.
+    AllRoles,
+}
+
+impl HubTarget {
+    /// The row's label.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            HubTarget::Role(role) => role.label(),
+            HubTarget::AllRoles => "All roles",
+        }
+    }
+
+    /// The word the row's search matches besides its label (a role's id).
+    fn id(self) -> &'static str {
+        match self {
+            HubTarget::Role(role) => role.id(),
+            HubTarget::AllRoles => "all",
+        }
+    }
+}
+
+/// One hub row: the model the target runs on and its source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleRow {
-    pub role: ModelRole,
-    /// The set selector (with the thinking level a role keeps), or the
-    /// fallback that runs while it is unset.
+    pub target: HubTarget,
+    /// The selector that applies (with the thinking level a role keeps),
+    /// or the fallback that runs while nothing is set.
     pub value: String,
-    /// `session`, `global`, `project`, or `default` (unset).
+    /// `session`, `global`, `project`, `all roles` (the all-roles model),
+    /// or `default` (unset).
     pub source: &'static str,
-    /// Whether `value` is set (not the fallback).
+    /// Whether `value` is the target's own setting (not the all-roles
+    /// model, not the fallback).
     pub set: bool,
 }
 
 impl RoleRow {
-    /// The row of a role read from the settings.
+    /// The row of a target read from the settings.
     #[must_use]
-    pub fn from_value(role: ModelRole, value: &ModelRoleValue) -> Self {
-        let source = match value.source {
-            ModelRoleSource::Unset => "default",
-            ModelRoleSource::Global => "global",
-            ModelRoleSource::Project => "project",
+    pub fn from_value(target: HubTarget, value: &ModelRoleValue) -> Self {
+        let (source, own) = match value.source {
+            ModelRoleSource::Unset => ("default", false),
+            ModelRoleSource::Global => ("global", true),
+            ModelRoleSource::Project => ("project", true),
+            ModelRoleSource::AllRoles => ("all roles", false),
         };
         match &value.selector {
             Some(selector) => RoleRow {
-                role,
+                target,
                 value: match value.thinking {
                     Some(level) => format!("{selector} ({})", level.wire_name()),
                     None => selector.clone(),
                 },
                 source,
-                set: true,
+                set: own,
             },
             None => RoleRow {
-                role,
+                target,
                 value: format!("auto: {}", value.fallback),
                 source,
                 set: false,
@@ -67,7 +98,7 @@ impl RoleRow {
     #[must_use]
     pub fn chat(model: Option<String>) -> Self {
         RoleRow {
-            role: ModelRole::Chat,
+            target: HubTarget::Role(ModelRole::Chat),
             set: model.is_some(),
             value: model.unwrap_or_else(|| "no model".to_owned()),
             source: "session",
@@ -198,9 +229,9 @@ impl List {
 #[derive(Debug)]
 enum Step {
     Roles,
-    /// A chat-group role's model list.
+    /// A chat-group role's or the all-roles model's model list.
     Models {
-        role: ModelRole,
+        target: HubTarget,
         picker: Box<ModelPicker>,
     },
     /// A local role's choice list.
@@ -218,13 +249,13 @@ pub enum ModelHubAction {
     None,
     /// Esc on the roles: close the hub.
     Close,
-    /// Enter on a role: the caller opens its model step.
-    Choose(ModelRole),
-    /// Backspace or `x` on a role: the caller clears it.
-    Clear(ModelRole),
-    /// Enter on a model: the caller assigns it to the role.
+    /// Enter on a row: the caller opens its model step.
+    Choose(HubTarget),
+    /// Backspace or `x` on a row: the caller clears it.
+    Clear(HubTarget),
+    /// Enter on a model: the caller assigns it to the target.
     Assign {
-        role: ModelRole,
+        target: HubTarget,
         selection: ModelSelectionApplied,
     },
 }
@@ -250,65 +281,67 @@ impl ModelHub {
         }
     }
 
-    /// The role rows, in hub order.
+    /// The rows, in hub order.
     #[must_use]
     pub fn rows(&self) -> &[RoleRow] {
         &self.rows
     }
 
-    /// Replace the rows (after a write); the selection stays on its role.
+    /// Replace the rows (after a write); the selection stays on its row.
     pub fn set_rows(&mut self, rows: Vec<RoleRow>) {
-        let selected = self.selected_role();
+        let selected = self.selected_target();
         self.rows = rows;
         let texts = self.role_texts();
         self.roles.refilter(&texts);
-        if let Some(role) = selected {
-            self.select_role(role);
+        if let Some(target) = selected {
+            self.select_target(target);
         }
     }
 
-    /// Select `role`'s row.
-    pub fn select_role(&mut self, role: ModelRole) {
-        if let Some(at) = self.rows.iter().position(|row| row.role == role) {
+    /// Select `target`'s row.
+    pub fn select_target(&mut self, target: HubTarget) {
+        if let Some(at) = self.rows.iter().position(|row| row.target == target) {
             self.roles.select(at);
         }
     }
 
-    /// The role the roles step has selected.
+    /// The target the roles step has selected.
     #[must_use]
-    pub fn selected_role(&self) -> Option<ModelRole> {
-        self.roles.current().map(|at| self.rows[at].role)
+    pub fn selected_target(&self) -> Option<HubTarget> {
+        self.roles.current().map(|at| self.rows[at].target)
     }
 
-    /// The role whose model step is open.
+    /// The target whose model step is open.
     #[must_use]
-    pub fn step_role(&self) -> Option<ModelRole> {
+    pub fn step_target(&self) -> Option<HubTarget> {
         match &self.step {
             Step::Roles => None,
-            Step::Models { role, .. } | Step::Choices { role, .. } => Some(*role),
+            Step::Models { target, .. } => Some(*target),
+            Step::Choices { role, .. } => Some(HubTarget::Role(*role)),
         }
     }
 
-    /// The open model picker and its role (a catalog refresh lands in it).
-    pub fn picker_mut(&mut self) -> Option<(ModelRole, &mut ModelPicker)> {
+    /// The open model picker and its target (a catalog refresh lands in
+    /// it).
+    pub fn picker_mut(&mut self) -> Option<(HubTarget, &mut ModelPicker)> {
         match &mut self.step {
-            Step::Models { role, picker } => Some((*role, picker.as_mut())),
+            Step::Models { target, picker } => Some((*target, picker.as_mut())),
             Step::Roles | Step::Choices { .. } => None,
         }
     }
 
-    /// Open a chat-group role's model step.
-    pub fn open_models(&mut self, role: ModelRole, picker: ModelPicker) {
-        self.select_role(role);
+    /// Open the model step of a chat-group role or the all-roles model.
+    pub fn open_models(&mut self, target: HubTarget, picker: ModelPicker) {
+        self.select_target(target);
         self.step = Step::Models {
-            role,
+            target,
             picker: Box::new(picker),
         };
     }
 
     /// Open a local role's choice step, `current` (a selector) selected.
     pub fn open_choices(&mut self, role: ModelRole, items: Vec<ChoiceItem>, current: Option<&str>) {
-        self.select_role(role);
+        self.select_target(HubTarget::Role(role));
         let mut list = List::new(items.len());
         if let Some(at) =
             current.and_then(|current| items.iter().position(|item| item.selector() == current))
@@ -344,14 +377,14 @@ impl ModelHub {
         let page = self.list_rows();
         match &mut self.step {
             Step::Roles => self.handle_roles_key(key, kb, page),
-            Step::Models { role, picker } => match picker.handle_key(key, kb) {
+            Step::Models { target, picker } => match picker.handle_key(key, kb) {
                 ModelPickerAction::None => ModelHubAction::None,
                 ModelPickerAction::Cancel => {
                     self.step = Step::Roles;
                     ModelHubAction::None
                 }
                 ModelPickerAction::Apply(selection) => ModelHubAction::Assign {
-                    role: *role,
+                    target: *target,
                     selection: *selection,
                 },
             },
@@ -366,7 +399,7 @@ impl ModelHub {
                 if kb.matches(key, "tui.select.confirm") {
                     return match list.current() {
                         Some(at) => ModelHubAction::Assign {
-                            role: *role,
+                            target: HubTarget::Role(*role),
                             selection: ModelSelectionApplied {
                                 provider: items[at].provider.clone(),
                                 model_id: items[at].model_id.clone(),
@@ -405,12 +438,12 @@ impl ModelHub {
         }
         if kb.matches(key, "tui.select.confirm") {
             return self
-                .selected_role()
+                .selected_target()
                 .map_or(ModelHubAction::None, ModelHubAction::Choose);
         }
         if !searching && (key == "x" || kb.matches(key, "tui.editor.deleteCharBackward")) {
             return self
-                .selected_role()
+                .selected_target()
                 .map_or(ModelHubAction::None, ModelHubAction::Clear);
         }
         let before = self.roles.search.value().to_owned();
@@ -425,27 +458,34 @@ impl ModelHub {
     fn role_texts(&self) -> Vec<String> {
         self.rows
             .iter()
-            .map(|row| format!("{} {}", row.role.id(), row.role.label()))
+            .map(|row| format!("{} {}", row.target.id(), row.target.label()))
             .collect()
     }
 
     /// The list rows the viewport leaves after the frame's fixed rows
-    /// (title, search field, scroll row, hint, blank).
+    /// (title, search field, scroll row, hint, blank): every row when
+    /// they fit.
     fn list_rows(&self) -> usize {
-        menu_list_layout(Some(self.viewport_rows), 12, self.rows.len(), 7, 1)
+        menu_list_layout(
+            Some(self.viewport_rows),
+            self.rows.len(),
+            self.rows.len(),
+            7,
+            1,
+        )
     }
 
     /// The hub's frame.
     pub fn render(&mut self, theme: &Theme, width: usize, kb: &KeybindingsManager) -> Vec<Line> {
         let visible = self.list_rows();
         match &mut self.step {
-            Step::Models { role, picker } => {
-                let mut lines = vec![title_row(theme, width, *role)];
+            Step::Models { target, picker } => {
+                let mut lines = vec![title_row(theme, width, *target)];
                 lines.extend(picker.render(theme, width, kb));
                 lines
             }
             Step::Choices { role, items, list } => {
-                let mut lines = vec![title_row(theme, width, *role)];
+                let mut lines = vec![title_row(theme, width, HubTarget::Role(*role))];
                 lines.extend(search_field_lines(
                     theme,
                     width,
@@ -505,7 +545,7 @@ impl ModelHub {
                 let (start, end) = self.roles.window(visible);
                 for position in start..end {
                     let row = &self.rows[self.roles.filtered[position]];
-                    let primary = vec![theme.fg_span(ThemeColor::Text, row.role.label())];
+                    let primary = vec![theme.fg_span(ThemeColor::Text, row.target.label())];
                     let value_color = if row.set {
                         ThemeColor::Accent
                     } else {
@@ -563,12 +603,12 @@ fn join_hints(hints: &[Option<String>]) -> String {
         .join(crate::glyphs::SEP)
 }
 
-/// The model step's title: the role being assigned.
-fn title_row(theme: &Theme, width: usize, role: ModelRole) -> Line {
+/// The model step's title: the row being assigned.
+fn title_row(theme: &Theme, width: usize, target: HubTarget) -> Line {
     crate::width::truncate_line(
         &vec![
             crate::Span::raw(" "),
-            theme.fg_span(ThemeColor::Text, format!("Model for {}", role.label())),
+            theme.fg_span(ThemeColor::Text, format!("Model for {}", target.label())),
         ],
         width,
         crate::glyphs::ELLIPSIS,
@@ -584,12 +624,15 @@ mod tests {
         KeybindingsManager::new()
     }
 
+    /// Every role, then the all-roles row.
     fn rows() -> Vec<RoleRow> {
         ModelRole::ALL
             .into_iter()
-            .map(|role| RoleRow {
-                role,
-                value: format!("p/{}", role.id()),
+            .map(HubTarget::Role)
+            .chain([HubTarget::AllRoles])
+            .map(|target| RoleRow {
+                target,
+                value: format!("p/{}", target.id()),
                 source: "global",
                 set: true,
             })
@@ -597,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn the_roles_step_lists_every_role_with_its_value_and_source() {
+    fn the_roles_step_lists_every_row_with_its_value_and_source() {
         let mut hub = ModelHub::new(rows(), 30);
         let text: Vec<String> = hub
             .render(
@@ -608,32 +651,92 @@ mod tests {
             .iter()
             .map(|line| line.iter().map(|span| span.content.as_str()).collect())
             .collect();
-        for role in ModelRole::ALL {
+        for target in ModelRole::ALL
+            .into_iter()
+            .map(HubTarget::Role)
+            .chain([HubTarget::AllRoles])
+        {
             assert!(
-                text.iter().any(|line| line.contains(role.label())
-                    && line.contains(&format!("p/{}", role.id()))
+                text.iter().any(|line| line.contains(target.label())
+                    && line.contains(&format!("p/{}", target.id()))
                     && line.contains("global")),
                 "{} in {text:#?}",
-                role.id()
+                target.id()
             );
         }
+    }
+
+    /// A role's own setting is set; a role on the all-roles model shows
+    /// that model under `all roles`, not as its own; an unset one its
+    /// fallback.
+    #[test]
+    fn a_row_names_where_its_model_comes_from() {
+        let value = |selector: Option<&str>, source| ModelRoleValue {
+            selector: selector.map(str::to_owned),
+            source,
+            fallback: "the session model".to_owned(),
+            thinking: None,
+        };
+        let memory = HubTarget::Role(ModelRole::Memory);
+        assert_eq!(
+            [
+                RoleRow::from_value(memory, &value(Some("p/own"), ModelRoleSource::Project)),
+                RoleRow::from_value(memory, &value(Some("p/all"), ModelRoleSource::AllRoles)),
+                RoleRow::from_value(memory, &value(None, ModelRoleSource::Unset)),
+                RoleRow::from_value(
+                    HubTarget::AllRoles,
+                    &value(Some("p/all"), ModelRoleSource::Global)
+                ),
+            ],
+            [
+                RoleRow {
+                    target: memory,
+                    value: "p/own".to_owned(),
+                    source: "project",
+                    set: true,
+                },
+                RoleRow {
+                    target: memory,
+                    value: "p/all".to_owned(),
+                    source: "all roles",
+                    set: false,
+                },
+                RoleRow {
+                    target: memory,
+                    value: "auto: the session model".to_owned(),
+                    source: "default",
+                    set: false,
+                },
+                RoleRow {
+                    target: HubTarget::AllRoles,
+                    value: "p/all".to_owned(),
+                    source: "global",
+                    set: true,
+                },
+            ]
+        );
     }
 
     #[test]
     fn enter_chooses_backspace_and_x_clear_esc_closes() {
         let mut hub = ModelHub::new(rows(), 30);
+        let memory = HubTarget::Role(ModelRole::Memory);
         assert_eq!(hub.handle_key("down", &kb()), ModelHubAction::None);
         assert_eq!(
             hub.handle_key("enter", &kb()),
-            ModelHubAction::Choose(ModelRole::Memory)
+            ModelHubAction::Choose(memory)
         );
         assert_eq!(
             hub.handle_key("backspace", &kb()),
-            ModelHubAction::Clear(ModelRole::Memory)
+            ModelHubAction::Clear(memory)
         );
+        assert_eq!(hub.handle_key("x", &kb()), ModelHubAction::Clear(memory));
+        // Up from the first row wraps to the all-roles row, the last.
+        assert_eq!(hub.handle_key("up", &kb()), ModelHubAction::None);
+        assert_eq!(hub.handle_key("up", &kb()), ModelHubAction::None);
         assert_eq!(
-            hub.handle_key("x", &kb()),
-            ModelHubAction::Clear(ModelRole::Memory)
+            hub.handle_key("enter", &kb()),
+            ModelHubAction::Choose(HubTarget::AllRoles)
         );
         assert_eq!(hub.handle_key("escape", &kb()), ModelHubAction::Close);
     }
@@ -644,11 +747,17 @@ mod tests {
         for key in ["d", "i", "c"] {
             hub.handle_key(key, &kb());
         }
-        assert_eq!(hub.selected_role(), Some(ModelRole::Dictation));
+        assert_eq!(
+            hub.selected_target(),
+            Some(HubTarget::Role(ModelRole::Dictation))
+        );
         // With a search typed, Backspace edits it instead of clearing.
         assert_eq!(hub.handle_key("backspace", &kb()), ModelHubAction::None);
         assert_eq!(hub.handle_key("escape", &kb()), ModelHubAction::None);
-        assert_eq!(hub.selected_role(), Some(ModelRole::Chat));
+        assert_eq!(
+            hub.selected_target(),
+            Some(HubTarget::Role(ModelRole::Chat))
+        );
         assert_eq!(hub.handle_key("escape", &kb()), ModelHubAction::Close);
     }
 
@@ -664,13 +773,14 @@ mod tests {
         };
         let items = local_choice_items(&choices, &[("prov".to_owned(), "m1".to_owned())]);
         assert_eq!(items[0].detail, "LFM2.5 230M (not installed)");
+        let titles = HubTarget::Role(ModelRole::Titles);
         let mut hub = ModelHub::new(rows(), 30);
         hub.open_choices(ModelRole::Titles, items, Some("prov/m1"));
-        assert_eq!(hub.step_role(), Some(ModelRole::Titles));
+        assert_eq!(hub.step_target(), Some(titles));
         assert_eq!(
             hub.handle_key("enter", &kb()),
             ModelHubAction::Assign {
-                role: ModelRole::Titles,
+                target: titles,
                 selection: ModelSelectionApplied {
                     provider: "prov".to_owned(),
                     model_id: "m1".to_owned(),
@@ -679,8 +789,8 @@ mod tests {
             }
         );
         assert_eq!(hub.handle_key("escape", &kb()), ModelHubAction::None);
-        assert_eq!(hub.step_role(), None);
-        assert_eq!(hub.selected_role(), Some(ModelRole::Titles));
+        assert_eq!(hub.step_target(), None);
+        assert_eq!(hub.selected_target(), Some(titles));
     }
 
     #[test]

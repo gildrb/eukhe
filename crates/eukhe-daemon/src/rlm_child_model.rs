@@ -8,7 +8,9 @@ use std::path::Path;
 use anyhow::{anyhow, bail, Result};
 use eukhe_ai::models::registry_thinking_levels;
 use eukhe_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
+use eukhe_core::models::roles::role_model;
 use eukhe_types::ai::ModelThinkingLevel;
+use eukhe_types::model_roles::ModelRole;
 
 /// Close matches listed in model-resolution errors (TS suggestion limit).
 const MODEL_ERROR_SUGGESTION_LIMIT: usize = 3;
@@ -65,8 +67,8 @@ pub fn resolve_child_model(
 /// What a child created without a `model` reference runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnpinnedChildModel {
-    /// `rlm.spawn`: the `subagentDefaultModel` setting when set, else the
-    /// parent's model.
+    /// `rlm.spawn`: the subagent role's model (`subagentDefaultModel`,
+    /// else `modelRoles.all`) when set, else the parent's model.
     SubagentDefault,
     /// `rlm.create_session`: the parent's model.
     Parent,
@@ -74,9 +76,9 @@ pub enum UnpinnedChildModel {
 
 /// [`resolve_child_model`] with the settings document of `cwd` read once:
 /// the `allowedModels` gate, and for [`UnpinnedChildModel::SubagentDefault`]
-/// the `subagentDefaultModel` reference a spawn without `model` resolves.
-/// The settings read is a synchronous file read (callers on an async path
-/// run it on the blocking pool).
+/// the subagent role's reference a spawn without `model` resolves. The
+/// settings read is a synchronous file read (callers on an async path run
+/// it on the blocking pool).
 ///
 /// # Errors
 ///
@@ -94,7 +96,9 @@ pub fn resolve_child_model_from_settings(
     let settings = eukhe_core::settings::SettingsManager::create(cwd, agent_dir);
     let allowlist = crate::model_allowlist::from_settings(&settings);
     let default_reference = match unpinned {
-        UnpinnedChildModel::SubagentDefault => settings.get_subagent_default_model(),
+        UnpinnedChildModel::SubagentDefault => {
+            role_model(settings.cvars(), ModelRole::Subagent).selector
+        }
         UnpinnedChildModel::Parent => None,
     };
     let reference = reference.map(str::to_string).or(default_reference);

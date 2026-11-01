@@ -47,6 +47,11 @@ hooks:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
+# The Home Manager module's settings merge (nix/merge-settings.sh): the
+# declared settings never drop the model choice eukhe saved. Needs jq.
+nix-test:
+	python3 nix/test_merge_settings.py
+
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
 include scripts/toolchain.env
 
@@ -236,4 +241,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui

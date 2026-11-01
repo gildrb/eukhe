@@ -4,10 +4,11 @@
 use super::{
     key_event_to_id, streaming_tray_hint, AgentView, ChatEntry, CurrentModel, CycleDirection,
     DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerOptions, ModelSelectionApplied,
-    Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
+    Result, SessionUi, SetModelOutcome, StatusKind, SwitchScope, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::client_settings::ModelRoleSource;
 use crate::glyphs::WARN;
-use crate::model_hub::{local_choice_items, ModelHub, ModelHubAction, RoleRow};
+use crate::model_hub::{local_choice_items, HubTarget, ModelHub, ModelHubAction, RoleRow};
 use eukhe_types::ai::{CatalogModel, ModelInput, ModelThinkingLevel};
 use eukhe_types::model_roles::{ModelRole, ModelRoleGroup};
 use serde_json::Value;
@@ -42,20 +43,20 @@ impl SessionUi {
     }
 
     /// Open the `/model` hub (TS `showModelSelector` -> the model hub) on
-    /// its roles, or at `role`'s model step. A stale catalog refreshes in
+    /// its rows, or at `target`'s model step. A stale catalog refreshes in
     /// the background and lands in the open hub.
     pub(crate) async fn open_model_hub(
         &mut self,
         view: &mut AgentView,
-        role: Option<ModelRole>,
+        target: Option<HubTarget>,
     ) -> Result<()> {
         let rows = self.model_role_rows(view);
         view.model_hub = Some(ModelHub::new(
             rows,
             picker_viewport_rows(view.terminal_rows()),
         ));
-        if let Some(role) = role {
-            self.open_role_models(role, view).await;
+        if let Some(target) = target {
+            self.open_role_models(target, view).await;
         }
         if self.model_refresh_due(false) {
             self.spawn_model_catalog_refresh();
@@ -77,76 +78,100 @@ impl SessionUi {
     }
 
     /// The hub's rows: the live session model for `chat`, every other
-    /// role as the settings resolve it.
+    /// role as the settings resolve it (its own setting, the all-roles
+    /// model, or its fallback), then the all-roles model.
     fn model_role_rows(&self, view: &AgentView) -> Vec<RoleRow> {
         let session = Self::session_model_selector(view);
-        ModelRole::ALL
+        let unavailable = |target| RoleRow {
+            target,
+            value: "settings unavailable".to_owned(),
+            source: "",
+            set: false,
+        };
+        let settings = self.client_settings.as_ref();
+        let mut rows: Vec<RoleRow> = ModelRole::ALL
             .into_iter()
             .map(|role| {
                 if role == ModelRole::Chat {
                     return RoleRow::chat((!session.is_empty()).then(|| session.clone()));
                 }
-                match self
-                    .client_settings
-                    .as_ref()
-                    .and_then(|settings| settings.model_role(role, &session))
-                {
-                    Some(value) => RoleRow::from_value(role, &value),
-                    None => RoleRow {
-                        role,
-                        value: "settings unavailable".to_owned(),
-                        source: "",
-                        set: false,
-                    },
+                let target = HubTarget::Role(role);
+                match settings.and_then(|settings| settings.model_role(role, &session)) {
+                    Some(value) => RoleRow::from_value(target, &value),
+                    None => unavailable(target),
                 }
             })
-            .collect()
+            .collect();
+        rows.push(
+            match settings.and_then(|settings| settings.all_roles_model()) {
+                Some(value) => RoleRow::from_value(HubTarget::AllRoles, &value),
+                None => unavailable(HubTarget::AllRoles),
+            },
+        );
+        rows
     }
 
-    /// Open `role`'s model step in the hub: the model picker over the
-    /// models a chat-group role accepts, the choice list of a local role.
-    async fn open_role_models(&mut self, role: ModelRole, view: &mut AgentView) {
-        match role.group() {
-            ModelRoleGroup::Chat => {
-                let picker = self.role_picker(role, view).await;
-                if let Some(hub) = view.model_hub.as_mut() {
-                    hub.open_models(role, picker);
-                }
+    /// Open `target`'s model step in the hub: the model picker over the
+    /// models a chat-group role (or the all-roles model) accepts, the
+    /// choice list of a local role.
+    async fn open_role_models(&mut self, target: HubTarget, view: &mut AgentView) {
+        let local = match target {
+            HubTarget::Role(role) => match role.group() {
+                ModelRoleGroup::Chat => None,
+                ModelRoleGroup::Local => Some(role),
+            },
+            HubTarget::AllRoles => None,
+        };
+        let Some(role) = local else {
+            let picker = self.role_picker(target, view).await;
+            if let Some(hub) = view.model_hub.as_mut() {
+                hub.open_models(target, picker);
             }
-            ModelRoleGroup::Local => {
-                let Some(settings) = self.client_settings.clone() else {
-                    self.error_row("Settings are not available in this client", view);
-                    return;
-                };
-                let remote: Vec<(String, String)> = self
-                    .model_catalog
-                    .iter()
-                    .filter(|entry| {
-                        self.model_configured_providers
-                            .contains(&entry.model.provider)
-                    })
-                    .map(|entry| (entry.model.provider.clone(), entry.model.id.clone()))
-                    .collect();
-                let items = local_choice_items(&settings.local_role_choices(role), &remote);
-                let current = settings
-                    .model_role(role, "")
-                    .and_then(|value| value.selector);
-                if let Some(hub) = view.model_hub.as_mut() {
-                    hub.open_choices(role, items, current.as_deref());
-                }
-            }
+            return;
+        };
+        let Some(settings) = self.client_settings.clone() else {
+            self.error_row("Settings are not available in this client", view);
+            return;
+        };
+        let remote: Vec<(String, String)> = self
+            .model_catalog
+            .iter()
+            .filter(|entry| {
+                self.model_configured_providers
+                    .contains(&entry.model.provider)
+            })
+            .map(|entry| (entry.model.provider.clone(), entry.model.id.clone()))
+            .collect();
+        let items = local_choice_items(&settings.local_role_choices(role), &remote);
+        let current = settings
+            .model_role(role, "")
+            .and_then(|value| value.selector);
+        if let Some(hub) = view.model_hub.as_mut() {
+            hub.open_choices(role, items, current.as_deref());
         }
     }
 
-    /// The model picker of a chat-group role. `chat` opens over the
-    /// session (its model current, its scoped list, its effort); every
-    /// other role over the models it accepts, its setting current.
-    async fn role_picker(&mut self, role: ModelRole, view: &mut AgentView) -> ModelPicker {
+    /// The selector `target` is set to in the settings (`None` for `chat`,
+    /// whose current model is the session's).
+    fn target_selector(&self, target: HubTarget, view: &AgentView) -> Option<String> {
+        let settings = self.client_settings.as_ref()?;
+        match target {
+            HubTarget::Role(role) => settings.model_role(role, &Self::session_model_selector(view)),
+            HubTarget::AllRoles => settings.all_roles_model(),
+        }
+        .and_then(|value| value.selector)
+    }
+
+    /// The model picker of a chat-group role or the all-roles model.
+    /// `chat` opens over the session (its model current, its scoped list,
+    /// its effort); every other target over the models it accepts, its
+    /// setting current.
+    async fn role_picker(&mut self, target: HubTarget, view: &mut AgentView) -> ModelPicker {
         // One row of the viewport carries the hub's title.
         let viewport_rows = picker_viewport_rows(view.terminal_rows())
             .saturating_sub(1)
             .max(1);
-        if role == ModelRole::Chat {
+        if target == HubTarget::Role(ModelRole::Chat) {
             let current = self.current_model(view);
             let state = self.connection_state(view).await;
             let thinking_level =
@@ -181,19 +206,23 @@ impl SessionUi {
                 viewport_rows,
             });
         }
-        let value = self
-            .client_settings
-            .as_ref()
-            .and_then(|settings| settings.model_role(role, &Self::session_model_selector(view)));
-        ModelPicker::new(ModelPickerOptions {
-            models: role_catalog(role, &self.model_catalog),
-            current: value
+        let thinking = match target {
+            HubTarget::Role(role) => self
+                .client_settings
                 .as_ref()
-                .and_then(|value| value.selector.as_deref())
+                .and_then(|settings| settings.model_role(role, &Self::session_model_selector(view)))
+                .and_then(|value| value.thinking),
+            HubTarget::AllRoles => None,
+        };
+        ModelPicker::new(ModelPickerOptions {
+            models: role_catalog(target, &self.model_catalog),
+            current: self
+                .target_selector(target, view)
+                .as_deref()
                 .and_then(current_model_from_selector),
             configured_providers: self.model_configured_providers.clone(),
             recent_models: self.model_recent_models.clone(),
-            thinking_level: value.and_then(|value| value.thinking),
+            thinking_level: thinking,
             scoped_models: Vec::new(),
             viewport_rows,
         })
@@ -242,10 +271,10 @@ impl SessionUi {
         match hub.handle_key(&id, view.editor.keybindings()) {
             ModelHubAction::None => {}
             ModelHubAction::Close => view.model_hub = None,
-            ModelHubAction::Choose(role) => self.open_role_models(role, view).await,
-            ModelHubAction::Clear(role) => self.clear_model_role(role, view),
-            ModelHubAction::Assign { role, selection } => {
-                self.assign_model_role(role, &selection, view).await;
+            ModelHubAction::Choose(target) => self.open_role_models(target, view).await,
+            ModelHubAction::Clear(target) => self.clear_model_role(target, view),
+            ModelHubAction::Assign { target, selection } => {
+                self.assign_model_role(target, &selection, view).await;
             }
         }
         self.update_model_eligibility_filters(view);
@@ -253,35 +282,41 @@ impl SessionUi {
         Ok(())
     }
 
-    /// Assign a picked model to `role`, then show the roles again. `chat`
+    /// Assign a picked model to `target`, then show the rows again. `chat`
     /// switches the live session (the daemon saves it as the default; an
-    /// unauthenticated provider routes to the sign-in flow); every other
-    /// role is saved globally.
+    /// unauthenticated provider routes to the sign-in flow); the all-roles
+    /// model switches the live session too and the daemon saves it as
+    /// `modelRoles.all`; every other role is saved globally.
     async fn assign_model_role(
         &mut self,
-        role: ModelRole,
+        target: HubTarget,
         applied: &ModelSelectionApplied,
         view: &mut AgentView,
     ) {
-        if role == ModelRole::Chat {
-            match self
-                .try_set_model(&applied.provider, &applied.model_id, view)
-                .await
-            {
-                SetModelOutcome::Switched => {
-                    if let Some(level) = &applied.effort {
-                        self.apply_thinking_level(level, view).await;
-                    }
-                }
-                SetModelOutcome::NeedsSignIn => {
-                    view.model_hub = None;
-                    self.begin_model_sign_in(applied, view).await;
-                    return;
-                }
-                SetModelOutcome::Failed => {}
+        let scope = match target {
+            HubTarget::Role(ModelRole::Chat) => SwitchScope::Session,
+            HubTarget::AllRoles => SwitchScope::AllRoles,
+            HubTarget::Role(role) => {
+                self.save_model_role(role, applied, view);
+                self.show_model_roles(view);
+                return;
             }
-        } else {
-            self.save_model_role(role, applied, view);
+        };
+        match self
+            .try_set_model(&applied.provider, &applied.model_id, scope, view)
+            .await
+        {
+            SetModelOutcome::Switched => {
+                if let Some(level) = &applied.effort {
+                    self.apply_thinking_level(level, view).await;
+                }
+            }
+            SetModelOutcome::NeedsSignIn => {
+                view.model_hub = None;
+                self.begin_model_sign_in(applied, scope, view).await;
+                return;
+            }
+            SetModelOutcome::Failed => {}
         }
         self.show_model_roles(view);
     }
@@ -332,9 +367,11 @@ impl SessionUi {
         );
     }
 
-    /// Unset `role` globally: it falls back to its default chain.
-    fn clear_model_role(&mut self, role: ModelRole, view: &mut AgentView) {
-        let label = role.label();
+    /// Unset `target` globally: a role falls back to the all-roles model
+    /// or its default chain; without the all-roles model every role
+    /// without its own falls back to its default.
+    fn clear_model_role(&mut self, target: HubTarget, view: &mut AgentView) {
+        let label = target.label();
         let Some(settings) = self.client_settings.clone() else {
             self.error_row(
                 &format!("Could not clear {label}: Settings are unavailable"),
@@ -342,16 +379,31 @@ impl SessionUi {
             );
             return;
         };
-        if let Err(error) = settings.clear_model_role(role) {
+        let cleared = match target {
+            HubTarget::Role(role) => settings.clear_model_role(role),
+            HubTarget::AllRoles => settings.clear_all_roles_model(),
+        };
+        if let Err(error) = cleared {
             self.error_row(&format!("Could not clear {label}: {error:#}"), view);
         } else {
-            let fallback = settings
-                .model_role(role, &Self::session_model_selector(view))
-                .map(|value| value.fallback);
-            match fallback {
-                Some(fallback) => {
-                    self.note(&format!("{label}: cleared, runs on {fallback}"), view);
+            let now = match target {
+                HubTarget::Role(role) => settings
+                    .model_role(role, &Self::session_model_selector(view))
+                    .map(|value| {
+                        match value
+                            .selector
+                            .filter(|_| value.source == ModelRoleSource::AllRoles)
+                        {
+                            Some(selector) => format!("runs on {selector} (all roles)"),
+                            None => format!("runs on {}", value.fallback),
+                        }
+                    }),
+                HubTarget::AllRoles => {
+                    Some("each role runs on its own model or its default".to_owned())
                 }
+            };
+            match now {
+                Some(now) => self.note(&format!("{label}: cleared, {now}"), view),
                 None => self.note(&format!("{label}: cleared"), view),
             }
         }
@@ -443,24 +495,22 @@ impl SessionUi {
         self.model_catalog = update.models;
         self.model_configured_providers = update.configured_providers;
         self.models_fetched_at = Some(std::time::Instant::now());
-        let role = view
+        let target = view
             .model_hub
             .as_ref()
-            .and_then(ModelHub::step_role)
-            .filter(|role| role.group() == ModelRoleGroup::Chat);
-        if let Some(role) = role {
-            let current = if role == ModelRole::Chat {
+            .and_then(ModelHub::step_target)
+            .filter(|target| match target {
+                HubTarget::Role(role) => role.group() == ModelRoleGroup::Chat,
+                HubTarget::AllRoles => true,
+            });
+        if let Some(target) = target {
+            let current = if target == HubTarget::Role(ModelRole::Chat) {
                 self.current_model(view)
             } else {
-                self.client_settings
-                    .as_ref()
-                    .and_then(|settings| {
-                        settings.model_role(role, &Self::session_model_selector(view))
-                    })
-                    .and_then(|value| value.selector)
+                self.target_selector(target, view)
                     .and_then(|selector| current_model_from_selector(&selector))
             };
-            let models = role_catalog(role, &self.model_catalog);
+            let models = role_catalog(target, &self.model_catalog);
             if let Some((_, picker)) = view.model_hub.as_mut().and_then(ModelHub::picker_mut) {
                 picker.update_state(current, models, self.model_configured_providers.clone());
             }
@@ -503,15 +553,23 @@ impl SessionUi {
     /// `completeModelSelection` status row): the daemon `set_model` command
     /// switches the live session -- the agent, the provider target, and the
     /// session's settings default follow -- then the client refreshes its
-    /// model label and records the `Model: <id>` status row. The typed
+    /// model label and records the `Model: <id>` status row. With
+    /// [`SwitchScope::AllRoles`] the daemon also saves the model as the
+    /// all-roles model, and a row names it with the roles that keep their
+    /// own model and the ones it does not cover. The typed
     /// provider-unauthenticated refusal is the sign-in route (`NeedsSignIn`);
     /// every other failure surfaces as the error note.
     pub(super) async fn try_set_model(
         &mut self,
         provider: &str,
         model_id: &str,
+        scope: SwitchScope,
         view: &mut AgentView,
     ) -> SetModelOutcome {
+        let rest = match scope {
+            SwitchScope::Session => Map::default(),
+            SwitchScope::AllRoles => Map::from_iter([("allRoles".to_owned(), Value::Bool(true))]),
+        };
         let switched = self
             .bounded_request(
                 Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
@@ -520,7 +578,7 @@ impl SessionUi {
                     active_session_id: self.active_session_id.clone(),
                     provider: provider.to_string(),
                     model_id: model_id.to_string(),
-                    rest: Map::default(),
+                    rest,
                 },
             )
             .await;
@@ -532,6 +590,42 @@ impl SessionUi {
                 self.model_selection.model = Some(model_id.to_string());
                 self.refresh_model_label(provider, model_id, view).await;
                 self.note(&format!("Model: {model_id}"), view);
+                if scope == SwitchScope::AllRoles {
+                    // What each role runs on now, as the settings resolve
+                    // it: a role with its own other model keeps it; a role
+                    // left on its default is one the all-roles model does
+                    // not serve.
+                    let selector = format!("{provider}/{model_id}");
+                    let session = Self::session_model_selector(view);
+                    let mut own = Vec::new();
+                    let mut uncovered = Vec::new();
+                    for (role, value) in ModelRole::ALL.into_iter().filter_map(|role| {
+                        let settings = self.client_settings.as_ref()?;
+                        Some((role, settings.model_role(role, &session)?))
+                    }) {
+                        match value.source {
+                            ModelRoleSource::Global | ModelRoleSource::Project => {
+                                if let Some(kept) = value.selector.filter(|kept| *kept != selector)
+                                {
+                                    own.push(format!("{} ({kept})", role.label()));
+                                }
+                            }
+                            ModelRoleSource::Unset => uncovered.push(role.label()),
+                            ModelRoleSource::AllRoles => {}
+                        }
+                    }
+                    let mut lines = vec![format!("All roles: {selector}")];
+                    if !own.is_empty() {
+                        lines.push(format!("Own model kept: {}", own.join(", ")));
+                    }
+                    if !uncovered.is_empty() {
+                        lines.push(format!(
+                            "Not covered (default kept): {}",
+                            uncovered.join(", ")
+                        ));
+                    }
+                    self.note(&lines.join("\n"), view);
+                }
                 self.maybe_warn_anthropic_subscription_auth_if_subscribed(Some(provider), view)
                     .await;
                 SetModelOutcome::Switched
@@ -564,7 +658,10 @@ impl SessionUi {
         model_id: &str,
         view: &mut AgentView,
     ) {
-        match self.try_set_model(provider, model_id, view).await {
+        match self
+            .try_set_model(provider, model_id, SwitchScope::Session, view)
+            .await
+        {
             // The switch recorded its own `Model: <id>` row; every other
             // failure already rendered the error row.
             SetModelOutcome::Switched | SetModelOutcome::Failed => {}
@@ -783,26 +880,31 @@ impl SessionUi {
     }
 }
 
-/// The catalog models `role` (a chat-group role) accepts: an image-input
-/// model for `image`; the levels a model offers only where the role keeps
-/// a reasoning effort (`chat`, `memory`), so no other role shows the
-/// thinking strip.
-fn role_catalog(role: ModelRole, catalog: &[CatalogModel]) -> Vec<CatalogModel> {
-    let takes_thinking = match role {
-        ModelRole::Chat | ModelRole::Memory => true,
-        ModelRole::Auxiliary
-        | ModelRole::Image
-        | ModelRole::Subagent
-        | ModelRole::Gateway
-        | ModelRole::Titles
-        | ModelRole::Judge
-        | ModelRole::Translate
-        | ModelRole::Speech
-        | ModelRole::Dictation => false,
+/// The catalog models `target` (a chat-group role or the all-roles model)
+/// accepts: an image-input model for `image`; the levels a model offers
+/// only where the role keeps a reasoning effort (`chat`, `memory`), so no
+/// other target shows the thinking strip.
+fn role_catalog(target: HubTarget, catalog: &[CatalogModel]) -> Vec<CatalogModel> {
+    let takes_thinking = match target {
+        HubTarget::Role(ModelRole::Chat | ModelRole::Memory) => true,
+        HubTarget::Role(
+            ModelRole::Auxiliary
+            | ModelRole::Image
+            | ModelRole::Subagent
+            | ModelRole::Gateway
+            | ModelRole::Query
+            | ModelRole::Titles
+            | ModelRole::Judge
+            | ModelRole::Translate
+            | ModelRole::Speech
+            | ModelRole::Dictation,
+        )
+        | HubTarget::AllRoles => false,
     };
+    let image_only = target == HubTarget::Role(ModelRole::Image);
     catalog
         .iter()
-        .filter(|entry| role != ModelRole::Image || entry.model.input.contains(&ModelInput::Image))
+        .filter(|entry| !image_only || entry.model.input.contains(&ModelInput::Image))
         .map(|entry| {
             let mut entry = entry.clone();
             if !takes_thinking {

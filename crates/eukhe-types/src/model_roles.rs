@@ -16,6 +16,8 @@ pub enum ModelRole {
     Subagent,
     /// The phone gateway (`gateway.signal.model`).
     Gateway,
+    /// `rlm.query` calls (`rlm.queryModel`).
+    Query,
     /// Session titles (`modelRoles.tiny`).
     Titles,
     /// The judge (`modelRoles.judge`).
@@ -39,13 +41,14 @@ pub enum ModelRoleGroup {
 
 impl ModelRole {
     /// Every role, in hub order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Chat,
         Self::Memory,
         Self::Auxiliary,
         Self::Image,
         Self::Subagent,
         Self::Gateway,
+        Self::Query,
         Self::Titles,
         Self::Judge,
         Self::Translate,
@@ -63,6 +66,7 @@ impl ModelRole {
             Self::Image => "image",
             Self::Subagent => "subagent",
             Self::Gateway => "gateway",
+            Self::Query => "query",
             Self::Titles => "titles",
             Self::Judge => "judge",
             Self::Translate => "translate",
@@ -81,6 +85,7 @@ impl ModelRole {
             Self::Image => "Image turns",
             Self::Subagent => "Subagents",
             Self::Gateway => "Phone gateway",
+            Self::Query => "rlm.query calls",
             Self::Titles => "Titles",
             Self::Judge => "Judge",
             Self::Translate => "Translation",
@@ -98,7 +103,8 @@ impl ModelRole {
             | Self::Auxiliary
             | Self::Image
             | Self::Subagent
-            | Self::Gateway => ModelRoleGroup::Chat,
+            | Self::Gateway
+            | Self::Query => ModelRoleGroup::Chat,
             Self::Titles | Self::Judge | Self::Translate | Self::Speech | Self::Dictation => {
                 ModelRoleGroup::Local
             }

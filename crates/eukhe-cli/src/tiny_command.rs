@@ -225,7 +225,7 @@ fn translate(args: &[String]) -> Result<(), TinyCommandError> {
 
 /// The model collection and the default provider model (the one a fresh
 /// session would use), when one has credentials. The models.json errors
-/// and a saved default model that did not run go to stderr.
+/// and a saved chat model that did not run go to stderr.
 #[tracing::instrument(skip_all)]
 async fn default_model(
     context: &RoleContext,
@@ -251,10 +251,7 @@ async fn default_model(
         .as_ref()
         .and_then(|resolved| resolved.substituted.as_ref())
     {
-        eprintln!(
-            "Warning: the saved default model {}/{} did not run: {}.",
-            substitution.wanted.provider, substitution.wanted.model_id, substitution.reason
-        );
+        eprintln!("Warning: {}", substitution.missed());
     }
     let model = resolved
         .and_then(|resolved| models.get_model(&resolved.model.provider, &resolved.model.model_id));

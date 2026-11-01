@@ -222,6 +222,9 @@ pub struct FallbackChainsSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelRolesSettings {
+    /// The `provider/model` of every role (speech and dictation excepted)
+    /// whose own setting is unset (`crate::models::roles`).
+    pub all: Option<String>,
     /// Session titles.
     pub tiny: Option<String>,
     /// Typed judgments (classification).
@@ -437,9 +440,10 @@ pub struct SignalGatewaySettings {
     pub cli_path: Option<String>,
     /// The working directory of new sessions. Absent means `$HOME`.
     pub cwd: Option<String>,
-    /// The model (`provider/model-id`) that Signal messages run on. The
-    /// gateway switches the session to it before each message. Absent
-    /// means the session keeps its model.
+    /// The model (`provider/model-id`) that Signal messages run on: the
+    /// gateway role's own setting. The gateway switches the session to
+    /// it before each message. Absent means `modelRoles.all`, else the
+    /// session keeps its model (`crate::models::roles`).
     pub model: Option<String>,
 }
 

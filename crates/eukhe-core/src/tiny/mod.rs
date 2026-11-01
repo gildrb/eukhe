@@ -1,9 +1,11 @@
-//! The S9 roles: each role's settings from its cvars
-//! (`modelRoles.<role>`, `retry.fallbackChains.<role>`, `providers.tiny*`),
-//! the resolution of a role to one model of its chain, and the run of a
-//! text role's request on the picked model: a local catalog model through
-//! the shared tiny worker ([`eukhe_tiny::TinyClient`]), the session's
-//! provider model through the one-shot `complete_simple` path.
+//! The S9 roles: each role's settings from its cvars (the role's model
+//! through [`crate::models::roles`]: `modelRoles.<role>`, else
+//! `modelRoles.all` for every role but speech and dictation;
+//! `retry.fallbackChains.<role>`, `providers.tiny*`), the resolution of a
+//! role to one model of its chain, and the run of a text role's request
+//! on the picked model: a local catalog model through the shared tiny
+//! worker ([`eukhe_tiny::TinyClient`]), the session's provider model
+//! through the one-shot `complete_simple` path.
 //!
 //! A task uses the first available model of its chain and only that one:
 //! a failing local model never falls through to another (a local primary
@@ -16,12 +18,14 @@ use std::path::{Path, PathBuf};
 use eukhe_ai::models::{Models, ModelsSimpleStreamOptions};
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_tiny::{CatalogModel, ChatRequest, ChatRole, EngineOptions, FallbackChain};
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context as PiContext, Message, Model, StopReason, UserContent,
     UserMessage,
 };
 use serde_json::Value;
 
+use crate::models::roles::role_model;
 use crate::settings::cvar::{table, Cvars, Decl};
 
 pub use eukhe_tiny::{Candidate, Pick, Role, RoleSettings, TinyClient, TinyError, TinyHome};
@@ -33,20 +37,15 @@ mod smoke_tests;
 mod tests;
 pub mod title;
 
-/// The `modelRoles.<role>` and `retry.fallbackChains.<role>` cvars.
-fn role_decls(role: Role) -> (&'static Decl, &'static Decl) {
+/// The model role and the `retry.fallbackChains.<role>` cvar of a tiny
+/// role.
+fn role_decls(role: Role) -> (ModelRole, &'static Decl) {
     match role {
-        Role::Tiny => (&table::MODEL_ROLE_TINY, &table::FALLBACK_CHAIN_TINY),
-        Role::Judge => (&table::MODEL_ROLE_JUDGE, &table::FALLBACK_CHAIN_JUDGE),
-        Role::Translate => (
-            &table::MODEL_ROLE_TRANSLATE,
-            &table::FALLBACK_CHAIN_TRANSLATE,
-        ),
-        Role::Speech => (&table::MODEL_ROLE_SPEECH, &table::FALLBACK_CHAIN_SPEECH),
-        Role::Dictation => (
-            &table::MODEL_ROLE_DICTATION,
-            &table::FALLBACK_CHAIN_DICTATION,
-        ),
+        Role::Tiny => (ModelRole::Titles, &table::FALLBACK_CHAIN_TINY),
+        Role::Judge => (ModelRole::Judge, &table::FALLBACK_CHAIN_JUDGE),
+        Role::Translate => (ModelRole::Translate, &table::FALLBACK_CHAIN_TRANSLATE),
+        Role::Speech => (ModelRole::Speech, &table::FALLBACK_CHAIN_SPEECH),
+        Role::Dictation => (ModelRole::Dictation, &table::FALLBACK_CHAIN_DICTATION),
     }
 }
 
@@ -69,12 +68,13 @@ fn fallback_chain(value: &Value) -> FallbackChain {
     }
 }
 
-/// The settings of `role`.
+/// The settings of `role`: its primary is the role's model (its own
+/// setting, else `modelRoles.all`; empty: unset).
 #[must_use]
 pub fn role_settings(cvars: &Cvars, role: Role) -> RoleSettings {
-    let (primary, fallback) = role_decls(role);
+    let (model_role, fallback) = role_decls(role);
     RoleSettings {
-        primary: cvars.optional_text(primary).unwrap_or_default(),
+        primary: role_model(cvars, model_role).selector.unwrap_or_default(),
         fallback: fallback_chain(&cvars.value(fallback)),
     }
 }

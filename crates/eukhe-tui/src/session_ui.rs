@@ -29,7 +29,7 @@ mod workflows;
 
 pub(crate) use agents::AgentMessageOutcome;
 pub(crate) use apply::{AbortFailed, CompactionAbortNote};
-use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome};
+use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome, SwitchScope};
 pub(crate) use bash::BashActivityUpdate;
 use bash::{ResyncBash, SideBashRun};
 pub(crate) use chat_view::{ChatViewUpdate, UiFetchError};

@@ -1,11 +1,12 @@
 //! The abandoned-branch summary of a tree move (TS `generateBranchSummary`
 //! over `collectEntriesForBranchSummary`): the summarizer call runs on the
-//! session's models with the `auxiliaryModel` setting's model (TS #2411),
-//! falling back to the main conversation's model (a set selector that is
-//! not used yields a notice for the session), and the summary lands in
-//! the moved-to conversation as an `eukhe.branch-summary` entry written
-//! through a write submission, with the call's spend added to that
-//! conversation's `pi.usage` under the serving model.
+//! session's models with the auxiliary role's model (`auxiliaryModel`,
+//! else `modelRoles.all`; TS #2411), falling back to the main
+//! conversation's model (a set selector that is not used yields a notice
+//! for the session), and the summary lands in the moved-to conversation
+//! as an `eukhe.branch-summary` entry written through a write submission,
+//! with the call's spend added to that conversation's `pi.usage` under
+//! the serving model.
 
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
@@ -21,11 +22,13 @@ use eukhe_core::durable::compaction::auxiliary_model::{
 use eukhe_core::durable::compaction::utils::SUMMARIZATION_SYSTEM_PROMPT;
 use eukhe_core::durable::messages::{BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX};
 use eukhe_core::durable::{BranchSummaryData, HostDeps, BRANCH_SUMMARY_ENTRY};
+use eukhe_core::models::roles::role_model;
 use eukhe_durable::harness::types::WriteSubmissionDraft;
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryId, TypedEntryDraft};
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context as PiContext, Message, StopReason, TextContent, Usage,
     UserContent, UserContentBlock, UserMessage,
@@ -136,8 +139,9 @@ pub(crate) async fn generate(
     // collection, with the decision the compaction summary uses: a set
     // selector that is not used falls back to the session model with a
     // notice. The list of available models is read only for another model.
+    let role = role_model(settings.cvars(), ModelRole::Auxiliary);
     let selector = AuxiliarySelector::of(
-        settings.get_auxiliary_model().as_deref(),
+        role.selector.as_deref(),
         &session_model.provider,
         &session_model.id,
     );
@@ -171,6 +175,7 @@ pub(crate) async fn generate(
         "branch summary",
         &route,
         &format!("{}/{}", session_model.provider, session_model.id),
+        role.source,
     );
     let model = match route {
         AuxiliaryRoute::Routed(model) => model,

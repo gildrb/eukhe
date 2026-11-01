@@ -15,11 +15,13 @@ use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{default_thinking_level, HostDeps};
 use eukhe_core::models::SetModelSelectionError;
+use eukhe_core::settings::cvar::table;
 use eukhe_core::settings::{
     Persisted, SettingsError, SettingsManager, SettingsScope, ThinkingLevelSetting,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
 use eukhe_durable::session::SessionResult;
+use eukhe_types::cvar::Command;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
 
@@ -62,14 +64,16 @@ impl ModelResolutionError {
 }
 
 impl Worker {
-    /// `set_model { provider, modelId }`: resolve the model in the
-    /// session's available catalog, enforce the daemon model allowlist
+    /// `set_model { provider, modelId, allRoles? }`: resolve the model in
+    /// the session's available catalog, enforce the daemon model allowlist
     /// (settings `allowedModels`: a model outside the allowlist fails
     /// loudly, never a fallback), switch the main conversation (the
     /// thinking level clamps to the new model), and persist the settings
-    /// default (TS `session.setModel`). Unknown models fail with the TS
-    /// message; a model whose provider is not signed in fails with the
-    /// typed sign-in refusal.
+    /// default (TS `session.setModel`). With `allRoles: true` the model
+    /// also becomes the all-roles model (`modelRoles.all` in the global
+    /// config.cfg), which every role without its own setting runs on.
+    /// Unknown models fail with the TS message; a model whose provider is
+    /// not signed in fails with the typed sign-in refusal.
     pub(crate) async fn handle_set_model(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_model";
         let hosted = match self.hosted(COMMAND) {
@@ -95,6 +99,29 @@ impl Worker {
         }
         if let Err(error) = apply_model(&hosted, &model, None).await {
             return response_failure(None, COMMAND, &error.to_string(), None);
+        }
+        if payload.get("allRoles").and_then(Value::as_bool) == Some(true) {
+            // The switch landed; an all-roles model that is not saved, or
+            // that the project config.cfg shadows, is a row of the
+            // session, like the default model.
+            let deps = hosted.deps();
+            let saved = deps
+                .settings
+                .run_global(&[Command::Set {
+                    id: table::MODEL_ROLE_ALL.id.to_owned(),
+                    value: format!("{}/{}", model.provider, model.id),
+                }])
+                .map_err(|error| anyhow::anyhow!("{error}"))
+                .and_then(|()| {
+                    match deps.settings.manager().config_scope(&table::MODEL_ROLE_ALL) {
+                        Some(SettingsScope::Project) => Err(anyhow::anyhow!(
+                            "the project config.cfg sets {}",
+                            table::MODEL_ROLE_ALL.id
+                        )),
+                        Some(SettingsScope::Global) | None => Ok(()),
+                    }
+                });
+            report_unsaved(deps, "the all-roles model", saved);
         }
         // TS `session.setModel` re-clamps the tier for the switched model
         // (`_clampServiceTierForModel`): a preference the new model does

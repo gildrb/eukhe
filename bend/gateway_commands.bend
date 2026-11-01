@@ -7,9 +7,9 @@
 #   ASCII letters, digits, `-` or `_` (empty allowed); else a prompt.
 # - The name is read lowercased (ASCII). A session command name (the list
 #   Rust sends) is a prompt: the session runs it.
-# - A command name with exactly its arguments (`/use` one, `/model` and
-#   `/reasoning` none or one, the others none) is that command; with other
-#   arguments, its usage line.
+# - A command name with exactly its arguments (`/use` one, `/model` none,
+#   one, `all`, or `all` and one, `/reasoning` none or one, the others
+#   none) is that command; with other arguments, its usage line.
 # - Another name alone answers suggestions: a lone `/` the command list,
 #   the commands the name starts, else the closest command, else the
 #   command list; another name with more words is a prompt.
@@ -34,6 +34,9 @@ type Cmd is Data:
   CModel{arg: Maybe<&2, String>}
   # `/reasoning` shows the thinking level; `/reasoning L` sets it
   CReasoning{arg: Maybe<&2, String>}
+  # `/model all` lists the models for the all-roles model; `/model all N`
+  # makes N, as written, the model of every role
+  CModelAll{arg: Maybe<&2, String>}
 
 # What one text message means
 type Out is Data:
@@ -48,7 +51,7 @@ type Spec is Data:
 
 # The commands, in PhoneCommand order
 def specs() -> List<&2, Spec>:
-  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [N]", "Show the models; N switches to one."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}]
+  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [all] [N]", "Show the models; N switches to one; all N uses it for every role."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}]
 
 # Text
 # ----
@@ -168,12 +171,28 @@ def upto(args: List<&2, String>) -> Maybe<&2, Maybe<&2, String>>:
         case b <> more:
           None{}
 
-def model(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
-  match m:
-    case None{}:
-      None{}
-    case Some{a}:
-      Some{CModel{a}}
+def model.all(rest: List<&2, String>) -> Maybe<&2, Cmd>:
+  match rest:
+    case Nil{}:
+      Some{CModelAll{None{}}}
+    case n <> more:
+      none(more, CModelAll{Some{n}})
+
+def model.first(all: Bool, a: String, rest: List<&2, String>) -> Maybe<&2, Cmd>:
+  match all:
+    case True{}:
+      model.all(rest)
+    case False{}:
+      none(rest, CModel{Some{a}})
+
+# `/model` given args: none lists, `N` switches, `all` lists for the
+# all-roles model, `all N` sets it; anything else is no command
+def model(args: List<&2, String>) -> Maybe<&2, Cmd>:
+  match args:
+    case Nil{}:
+      Some{CModel{None{}}}
+    case +a <> rest:
+      model.first(String.eq(a, "all"), a, rest)
 
 def reasoning(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
   match m:
@@ -202,7 +221,7 @@ def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
     case 7n:
       none(args, CMemory{})
     case 8n:
-      model(upto(args))
+      model(args)
     case 9n:
       reasoning(upto(args))
     case 10n+u:

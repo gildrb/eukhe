@@ -14,7 +14,8 @@ pub(crate) mod trust;
 pub(crate) mod types;
 
 pub use getters::{
-    resolve_session_dir, SessionDir, SessionDirSource, LEGACY_SESSION_DIR_ENV, SESSION_DIR_ENV,
+    resolve_session_dir, SessionDir, SessionDirSource, SignalGateway, LEGACY_SESSION_DIR_ENV,
+    SESSION_DIR_ENV,
 };
 pub use manager::{IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager};
 pub use persist::{Persisted, Shadow};

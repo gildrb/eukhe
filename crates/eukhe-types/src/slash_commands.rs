@@ -91,13 +91,18 @@ const MEMORY_SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
-/// `/model <role>`: one subcommand per model role, in hub order.
-const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len()] = {
+/// The `/model` subcommand that sets the all-roles model (`modelRoles.all`).
+pub const MODEL_ALL_ROLES_SUBCOMMAND: &str = "--all";
+
+/// `/model <role>`: one subcommand per model role, in hub order, then
+/// `/model --all [provider/model]` (the all-roles model, the hub's last
+/// row).
+const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len() + 1] = {
     let mut out = [Subcommand {
         name: "",
         description: "",
         usage: None,
-    }; ModelRole::ALL.len()];
+    }; ModelRole::ALL.len() + 1];
     let mut i = 0;
     while i < ModelRole::ALL.len() {
         let role = ModelRole::ALL[i];
@@ -108,6 +113,11 @@ const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len()] = {
         };
         i += 1;
     }
+    out[i] = Subcommand {
+        name: MODEL_ALL_ROLES_SUBCOMMAND,
+        description: "The model of every role without its own: switches the session to it and saves it (no model: opens the picker)",
+        usage: Some("[provider/model]"),
+    };
     out
 };
 
@@ -143,7 +153,7 @@ const AUTORESEARCH_SUBCOMMANDS: &[Subcommand] = &[
 
 const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "settings", description: "Open settings menu", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
-    BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
+    BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role; /model --all <provider/model> sets the model of every role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role|--all]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "memory", description: "Browse the chat memory as a dated, expandable tree", execution: SlashCommandExecution::Client, argument_hint: Some("[view|model]"), aliases: &[], takes_argument: false, subcommands: MEMORY_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "effort", description: "Select reasoning/thinking level (opens selector UI)", execution: SlashCommandExecution::Client, argument_hint: Some("[level]"), aliases: &["thinking"], takes_argument: false, subcommands: &[], subcommand_optional: true },
     BuiltinSlashCommand { name: "fast", description: "Toggle OpenAI Fast mode", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },

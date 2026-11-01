@@ -29,6 +29,7 @@ pub mod infer_guard;
 pub mod infer_threshold;
 pub mod mcp_url;
 pub mod model_facts;
+pub mod model_roles;
 pub mod optchat;
 pub mod overflow;
 pub mod package_source;

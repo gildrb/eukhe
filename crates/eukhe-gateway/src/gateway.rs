@@ -3,9 +3,11 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
+use eukhe_tui::client_settings::ClientSettings;
 use eukhe_tui::daemon_build::{relation, Build, Relation};
 use eukhe_tui::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{UserContent, UserContentBlock};
@@ -46,6 +48,15 @@ struct TypingShown {
     since: Instant,
 }
 
+/// What `/model N` switches: the session's model alone, or also the
+/// all-roles model (`/model all N`: the daemon saves it as
+/// `modelRoles.all`, the model of every role without its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelSwitch {
+    Session,
+    AllRoles,
+}
+
 /// The daemon connection's state.
 enum DaemonState {
     Up,
@@ -63,6 +74,8 @@ enum DaemonState {
 
 pub(crate) struct Gateway<L> {
     config: GatewayConfig,
+    /// The settings the `/model` reply reads (the all-roles model).
+    settings: Arc<dyn ClientSettings>,
     signal: SignalCli,
     inbound: mpsc::Receiver<Inbound>,
     link: Link<L>,
@@ -96,7 +109,11 @@ impl<L: DaemonLauncher> Gateway<L> {
     /// A handler cannot install, the first daemon connection fails, or
     /// `signal-cli` cannot start.
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn start(config: GatewayConfig, launcher: L) -> anyhow::Result<Self> {
+    pub(crate) async fn start(
+        config: GatewayConfig,
+        launcher: L,
+        settings: Arc<dyn ClientSettings>,
+    ) -> anyhow::Result<Self> {
         let mut interrupt =
             signal(SignalKind::interrupt()).context("install the SIGINT handler")?;
         let mut terminate =
@@ -119,6 +136,7 @@ impl<L: DaemonLauncher> Gateway<L> {
         tracing::info!("the gateway runs");
         Ok(Self {
             config,
+            settings,
             signal,
             inbound,
             link,
@@ -411,8 +429,9 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
             PhoneCommand::Status => self.status().await,
             PhoneCommand::Memory => self.memory().await,
-            PhoneCommand::Model(number) => self.model(number).await,
+            PhoneCommand::Model(number) => self.model(number, ModelSwitch::Session).await,
             PhoneCommand::Reasoning(level) => self.reasoning(level).await,
+            PhoneCommand::ModelAll(number) => self.model(number, ModelSwitch::AllRoles).await,
         }
     }
 
@@ -572,14 +591,15 @@ impl<L: DaemonLauncher> Gateway<L> {
             .context("read the session state")
     }
 
-    /// The `/model` reply: the current model and the discovered models;
-    /// `/model N` switches to the Nth one.
+    /// The `/model` reply: the current model, the all-roles model when one
+    /// is set, and the discovered models; `/model N` switches to the Nth
+    /// one, `/model all N` also makes it the all-roles model.
     ///
     /// # Errors
     ///
     /// No session state, no model discovery, or the switch failed.
     #[tracing::instrument(skip_all)]
-    async fn model(&self, number: Option<String>) -> anyhow::Result<String> {
+    async fn model(&self, number: Option<String>, switch: ModelSwitch) -> anyhow::Result<String> {
         let Some(binding) = &self.binding else {
             return Ok("Session: none open. The next message opens one.".to_string());
         };
@@ -594,6 +614,13 @@ impl<L: DaemonLauncher> Gateway<L> {
         let Some(number) = number else {
             let models = self.available_models(&binding.active_session_id).await?;
             let mut lines = vec![format!("Model: {}", current.as_deref().unwrap_or("none"))];
+            if let Some(all) = self
+                .settings
+                .all_roles_model()
+                .and_then(|value| value.selector)
+            {
+                lines.push(format!("All roles: {all}"));
+            }
             for (index, entry) in models.iter().enumerate() {
                 lines.push(format!(
                     "{}. {}/{} - {}",
@@ -606,16 +633,28 @@ impl<L: DaemonLauncher> Gateway<L> {
             if models.is_empty() {
                 lines.push("No other model is configured.".to_string());
             }
-            lines.push("Send /model N to switch.".to_string());
+            lines.push(
+                match switch {
+                    ModelSwitch::Session => {
+                        "Send /model N to switch, /model all N to use it for every role."
+                    }
+                    ModelSwitch::AllRoles => "Send /model all N to use it for every role.",
+                }
+                .to_string(),
+            );
             return Ok(lines.join("\n"));
+        };
+        let list = match switch {
+            ModelSwitch::Session => "/model",
+            ModelSwitch::AllRoles => "/model all",
         };
         let models = self.available_models(&binding.active_session_id).await?;
         let index: usize = number
             .parse()
-            .map_err(|_| anyhow::anyhow!("No model {number}. Send /model for the list."))?;
+            .map_err(|_| anyhow::anyhow!("No model {number}. Send {list} for the list."))?;
         let entry = models
             .get(index.wrapping_sub(1))
-            .ok_or_else(|| anyhow::anyhow!("No model {number}. Send /model for the list."))?;
+            .ok_or_else(|| anyhow::anyhow!("No model {number}. Send {list} for the list."))?;
         let provider = entry
             .get("provider")
             .and_then(Value::as_str)
@@ -624,6 +663,16 @@ impl<L: DaemonLauncher> Gateway<L> {
             .get("id")
             .and_then(Value::as_str)
             .context("the model has no id")?;
+        let (rest, reply) = match switch {
+            ModelSwitch::Session => (
+                Map::default(),
+                format!("Model set to {provider}/{model_id}."),
+            ),
+            ModelSwitch::AllRoles => (
+                Map::from_iter([("allRoles".to_string(), Value::Bool(true))]),
+                format!("Model set to {provider}/{model_id}, for every role without its own."),
+            ),
+        };
         self.link
             .client
             .request_ok(DaemonCommand::SetModel {
@@ -631,10 +680,10 @@ impl<L: DaemonLauncher> Gateway<L> {
                 active_session_id: binding.active_session_id.clone(),
                 provider: provider.to_string(),
                 model_id: model_id.to_string(),
-                rest: Map::default(),
+                rest,
             })
             .await
-            .map(|_| format!("Model set to {provider}/{model_id}."))
+            .map(|_| reply)
     }
 
     /// The session's discovered models (`get_available_models`).

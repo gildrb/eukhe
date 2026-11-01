@@ -89,7 +89,14 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
         socket_path: config.socket_path.clone(),
         spawn_cwd: config.new_session_cwd.clone(),
     };
-    match runtime.block_on(eukhe_gateway::run(config, launcher)) {
+    // `/model` reads the all-roles model from the settings the gateway's
+    // sessions run with.
+    let settings = crate::client_settings::CliClientSettings::new(
+        config.new_session_cwd.clone(),
+        crate::config::get_agent_dir(),
+        crate::client_settings::CliThemeFlags::default(),
+    );
+    match runtime.block_on(eukhe_gateway::run(config, launcher, settings)) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
@@ -129,8 +136,14 @@ fn gateway_config(
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
     let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
-    // `provider/model-id`: a provider name has no `/`, a model id may.
-    let model = match signal.model.as_deref().map(str::trim) {
+    // The gateway role's model (`gateway.signal.model`, else
+    // `modelRoles.all`): `provider/model-id`, a provider name has no `/`,
+    // a model id may.
+    let role = eukhe_core::models::roles::role_model(
+        settings.cvars(),
+        eukhe_types::model_roles::ModelRole::Gateway,
+    );
+    let model = match role.selector.as_deref() {
         None => None,
         Some(model) => match model.split_once('/') {
             Some((provider, model_id)) if !provider.is_empty() && !model_id.is_empty() => {
@@ -139,10 +152,18 @@ fn gateway_config(
                     model_id: model_id.to_string(),
                 })
             }
-            Some(_) | None => anyhow::bail!(
-                "gateway.signal.model in {} is {model:?}; set it to provider/model-id (see eukhe model list) or remove it",
-                global_path.display()
-            ),
+            Some(_) | None => {
+                let setting = match role.source {
+                    eukhe_core::models::roles::RoleSource::All => "modelRoles.all".to_owned(),
+                    eukhe_core::models::roles::RoleSource::Own
+                    | eukhe_core::models::roles::RoleSource::Default => {
+                        format!("gateway.signal.model in {}", global_path.display())
+                    }
+                };
+                anyhow::bail!(
+                    "{setting} is {model:?}; set it to provider/model-id (see eukhe model list) or remove it"
+                )
+            }
         },
     };
     Ok(eukhe_gateway::GatewayConfig {

@@ -381,13 +381,19 @@ fn clear_global_unsets_the_cvar_in_both_global_files() {
         )],
     );
     let mut manager = SettingsManager::from_storage(Arc::clone(&store));
-    assert_eq!(manager.get_memory_model().as_deref(), Some("c/d"));
+    assert_eq!(
+        manager
+            .cvars()
+            .optional_text(&table::MEMORY_MODEL)
+            .as_deref(),
+        Some("c/d")
+    );
     manager
         .clear_global(&[&table::MEMORY_MODEL])
         .expect("clear");
     assert_eq!(
         (
-            manager.get_memory_model(),
+            manager.cvars().optional_text(&table::MEMORY_MODEL),
             manager.config_scope(&table::MEMORY_MODEL),
             store
                 .read_cfg(SettingsScope::Global, "config.cfg")
@@ -428,7 +434,10 @@ fn a_session_in_the_agent_dirs_parent_reads_its_config_once() {
     );
     assert_eq!(
         (
-            manager.get_memory_model().as_deref(),
+            manager
+                .cvars()
+                .optional_text(&crate::settings::cvar::table::MEMORY_MODEL)
+                .as_deref(),
             manager.get_memory_thinking()
         ),
         (

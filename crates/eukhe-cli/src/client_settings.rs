@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eukhe_core::agent_log::{AgentLog, AgentLogLevel};
+use eukhe_core::models::roles::{role_model, RoleSource};
 use eukhe_core::resources::ThemePathOptions;
 use eukhe_core::settings::cvar::{table, Decl};
-use eukhe_core::settings::SettingsScope;
+use eukhe_core::settings::{SettingsManager, SettingsScope};
 use eukhe_core::tiny::{Candidate, Pick};
 use eukhe_theme::ThemeSources;
 use eukhe_tiny::LOCAL_PREFIX;
@@ -53,8 +54,8 @@ impl CliClientSettings {
         })
     }
 
-    fn manager(&self) -> eukhe_core::settings::SettingsManager {
-        eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
+    fn manager(&self) -> SettingsManager {
+        SettingsManager::create(&self.cwd, &self.agent_dir)
     }
 }
 
@@ -102,11 +103,22 @@ fn role_target(role: ModelRole) -> RoleTarget {
         ModelRole::Image => RoleTarget::Remote(&table::IMAGE_MODEL),
         ModelRole::Subagent => RoleTarget::Remote(&table::SUBAGENT_DEFAULT_MODEL),
         ModelRole::Gateway => RoleTarget::Remote(&table::GATEWAY_SIGNAL_MODEL),
+        ModelRole::Query => RoleTarget::Remote(&table::RLM_QUERY_MODEL),
         ModelRole::Titles => RoleTarget::Local(Role::Tiny, &table::MODEL_ROLE_TINY),
         ModelRole::Judge => RoleTarget::Local(Role::Judge, &table::MODEL_ROLE_JUDGE),
         ModelRole::Translate => RoleTarget::Local(Role::Translate, &table::MODEL_ROLE_TRANSLATE),
         ModelRole::Speech => RoleTarget::Local(Role::Speech, &table::MODEL_ROLE_SPEECH),
         ModelRole::Dictation => RoleTarget::Local(Role::Dictation, &table::MODEL_ROLE_DICTATION),
+    }
+}
+
+/// Where the config layer takes setting `decl` from (the hub's source
+/// column): no file, the global files, or the project's.
+fn config_source(manager: &SettingsManager, decl: &Decl) -> ModelRoleSource {
+    match manager.config_scope(decl) {
+        None => ModelRoleSource::Unset,
+        Some(SettingsScope::Global) => ModelRoleSource::Global,
+        Some(SettingsScope::Project) => ModelRoleSource::Project,
     }
 }
 
@@ -224,16 +236,11 @@ impl ClientSettings for CliClientSettings {
     );
 
     fn image_model(&self) -> Option<String> {
-        self.manager().get_image_model()
+        role_model(self.manager().cvars(), ModelRole::Image).selector
     }
 
     fn model_role(&self, role: ModelRole, session_model: &str) -> Option<ModelRoleValue> {
         let manager = self.manager();
-        let source = |decl: &Decl| match manager.config_scope(decl) {
-            None => ModelRoleSource::Unset,
-            Some(SettingsScope::Global) => ModelRoleSource::Global,
-            Some(SettingsScope::Project) => ModelRoleSource::Project,
-        };
         let session = || {
             if session_model.is_empty() {
                 "the session model".to_owned()
@@ -241,24 +248,26 @@ impl ClientSettings for CliClientSettings {
                 session_model.to_owned()
             }
         };
-        let (selector, source, fallback) = match role_target(role) {
+        // The role's own setting, else the all-roles model, else its
+        // default (`role_model`, the compiled core's rule).
+        let resolved = role_model(manager.cvars(), role);
+        let (decl, fallback) = match role_target(role) {
             RoleTarget::Chat => (
-                manager
-                    .get_default_provider()
-                    .zip(manager.get_default_model())
-                    .map(|(provider, model)| format!("{provider}/{model}")),
-                source(&table::DEFAULT_MODEL),
+                &table::DEFAULT_MODEL,
                 "the built-in default model".to_owned(),
             ),
             RoleTarget::Remote(decl) => {
                 let fallback = match role {
-                    ModelRole::Memory => manager
-                        .get_auxiliary_model()
-                        .map(|model| model.trim().to_owned())
-                        .filter(|model| !model.is_empty())
+                    // The memory default: the auxiliary model's own
+                    // setting, else the session model (it applies only
+                    // while the all-roles model is unset, so the
+                    // auxiliary role is its own or its default).
+                    ModelRole::Memory => role_model(manager.cvars(), ModelRole::Auxiliary)
+                        .selector
                         .unwrap_or_else(session),
                     ModelRole::Subagent => "the parent's model".to_owned(),
                     ModelRole::Gateway => "the gateway session's model".to_owned(),
+                    ModelRole::Query => "the calling session's model".to_owned(),
                     ModelRole::Chat
                     | ModelRole::Auxiliary
                     | ModelRole::Image
@@ -268,7 +277,7 @@ impl ClientSettings for CliClientSettings {
                     | ModelRole::Speech
                     | ModelRole::Dictation => session(),
                 };
-                (manager.cvars().optional_text(decl), source(decl), fallback)
+                (decl, fallback)
             }
             RoleTarget::Local(tiny, decl) => {
                 // What runs once the primary is unset: the role's chain
@@ -284,8 +293,13 @@ impl ClientSettings for CliClientSettings {
                         Pick::Use(Candidate::Remote(selector)) => selector,
                         Pick::Unavailable => "no model available".to_owned(),
                     };
-                (manager.cvars().optional_text(decl), source(decl), fallback)
+                (decl, fallback)
             }
+        };
+        let source = match resolved.source {
+            RoleSource::Own => config_source(&manager, decl),
+            RoleSource::All => ModelRoleSource::AllRoles,
+            RoleSource::Default => ModelRoleSource::Unset,
         };
         let thinking = match role {
             ModelRole::Memory => Some(manager.get_memory_thinking().model_level()),
@@ -294,6 +308,7 @@ impl ClientSettings for CliClientSettings {
             | ModelRole::Image
             | ModelRole::Subagent
             | ModelRole::Gateway
+            | ModelRole::Query
             | ModelRole::Titles
             | ModelRole::Judge
             | ModelRole::Translate
@@ -301,11 +316,25 @@ impl ClientSettings for CliClientSettings {
             | ModelRole::Dictation => None,
         };
         Some(ModelRoleValue {
-            selector,
+            selector: resolved.selector,
             source,
             fallback,
             thinking,
         })
+    }
+
+    fn all_roles_model(&self) -> Option<ModelRoleValue> {
+        let manager = self.manager();
+        Some(ModelRoleValue {
+            selector: manager.get_all_roles_model(),
+            source: config_source(&manager, &table::MODEL_ROLE_ALL),
+            fallback: "each role's default".to_owned(),
+            thinking: None,
+        })
+    }
+
+    fn clear_all_roles_model(&self) -> Result<()> {
+        self.manager().clear_global(&[&table::MODEL_ROLE_ALL])
     }
 
     fn set_model_role(
@@ -336,6 +365,7 @@ impl ClientSettings for CliClientSettings {
                 | ModelRole::Image
                 | ModelRole::Subagent
                 | ModelRole::Gateway
+                | ModelRole::Query
                 | ModelRole::Titles
                 | ModelRole::Judge
                 | ModelRole::Translate
@@ -565,12 +595,13 @@ mod tests {
     }
 
     /// Every non-chat role's global key, in `ModelRole::ALL` order.
-    const ROLE_KEYS: [(ModelRole, &str); 10] = [
+    const ROLE_KEYS: [(ModelRole, &str); 11] = [
         (ModelRole::Memory, "memory.model"),
         (ModelRole::Auxiliary, "auxiliaryModel"),
         (ModelRole::Image, "imageModel"),
         (ModelRole::Subagent, "subagentDefaultModel"),
         (ModelRole::Gateway, "gateway.signal.model"),
+        (ModelRole::Query, "rlm.queryModel"),
         (ModelRole::Titles, "modelRoles.tiny"),
         (ModelRole::Judge, "modelRoles.judge"),
         (ModelRole::Translate, "modelRoles.translate"),
@@ -719,6 +750,70 @@ mod tests {
             "speech takes no remote model"
         );
         assert!(settings.clear_model_role(ModelRole::Chat).is_err());
+    }
+
+    /// With the all-roles model set, the hub reads every role's source:
+    /// its own model where it has one, the all-roles model for the others
+    /// that take it, the default for speech and dictation; clearing the
+    /// all-roles model returns them to their defaults.
+    #[test]
+    fn roles_without_their_own_model_read_the_all_roles_model() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let settings = role_settings(dir.path());
+        std::fs::write(
+            dir.path().join("agent").join("config.cfg"),
+            "set modelRoles.all p/all\nset memory.model p/own\n",
+        )
+        .expect("config.cfg");
+        let sources: Vec<(ModelRole, Option<String>, ModelRoleSource)> = ModelRole::ALL
+            .into_iter()
+            .map(|role| {
+                let value = settings.model_role(role, "p/session").expect("store");
+                (role, value.selector, value.source)
+            })
+            .collect();
+        let all = |role| (role, Some("p/all".to_owned()), ModelRoleSource::AllRoles);
+        assert_eq!(
+            sources,
+            [
+                all(ModelRole::Chat),
+                (
+                    ModelRole::Memory,
+                    Some("p/own".to_owned()),
+                    ModelRoleSource::Global
+                ),
+                all(ModelRole::Auxiliary),
+                all(ModelRole::Image),
+                all(ModelRole::Subagent),
+                all(ModelRole::Gateway),
+                all(ModelRole::Query),
+                all(ModelRole::Titles),
+                all(ModelRole::Judge),
+                all(ModelRole::Translate),
+                (ModelRole::Speech, None, ModelRoleSource::Unset),
+                (ModelRole::Dictation, None, ModelRoleSource::Unset),
+            ]
+        );
+        assert_eq!(
+            settings.all_roles_model(),
+            Some(ModelRoleValue {
+                selector: Some("p/all".to_owned()),
+                source: ModelRoleSource::Global,
+                fallback: "each role's default".to_owned(),
+                thinking: None,
+            })
+        );
+        assert_eq!(settings.image_model().as_deref(), Some("p/all"));
+        settings.clear_all_roles_model().expect("clear");
+        assert_eq!(
+            (
+                settings.all_roles_model().map(|value| value.selector),
+                settings
+                    .model_role(ModelRole::Auxiliary, "p/session")
+                    .map(|value| (value.selector, value.source)),
+            ),
+            (Some(None), Some((None, ModelRoleSource::Unset)))
+        );
     }
 
     /// Regression (audit M2): a theme pick that the global config.cfg

@@ -65,6 +65,7 @@ import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
+import ./ffi_model_roles.bend as ffi_model_roles
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
@@ -325,6 +326,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_exit.ffi(input)
     case 440:
       ffi_stop.ffi(input)
+    case 441:
+      ffi_model_roles.ffi(input)
     case _:
       W.err("unknown entry")
 

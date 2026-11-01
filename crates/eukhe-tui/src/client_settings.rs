@@ -17,6 +17,9 @@ pub enum ModelRoleSource {
     Global,
     /// The project's settings (they win over the global ones).
     Project,
+    /// The role has no setting of its own: it runs on the all-roles model
+    /// (`modelRoles.all`).
+    AllRoles,
 }
 
 /// A model role's value as the settings resolve it.
@@ -140,15 +143,33 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_block_images(&self, blocked: bool) -> Result<()>;
-    /// `imageModel` (TS `getImageModel`: "provider/model-id" or a bare id;
-    /// unset by default). Read-only for the paste-time hint that names the
-    /// setting when the session model lacks image input.
+    /// The model the image role runs on (`imageModel`, else the all-roles
+    /// model; `provider/model-id` or a bare id; unset by default).
+    /// Read-only for the paste-time hint that names the setting when the
+    /// session model lacks image input.
     fn image_model(&self) -> Option<String>;
     /// The value of model role `role` as the settings resolve it;
     /// `session_model` (`provider/id`, empty: none) is the session's model
     /// the role's fallback may name. `None` without a settings store.
     fn model_role(&self, _role: ModelRole, _session_model: &str) -> Option<ModelRoleValue> {
         None
+    }
+    /// The all-roles model (`modelRoles.all`: the model of every role
+    /// without its own) as the settings resolve it, its source `Global`,
+    /// `Project` or `Unset`. `None` without a settings store. It is set
+    /// through the session (`set_model` with `allRoles`), never here.
+    fn all_roles_model(&self) -> Option<ModelRoleValue> {
+        None
+    }
+    /// Unsets the all-roles model in the global settings (the
+    /// `/set --global` path): every role without its own setting falls
+    /// back to its default.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings store fails.
+    fn clear_all_roles_model(&self) -> Result<()> {
+        anyhow::bail!("Model role settings are unavailable")
     }
     /// Persists `selector` (`provider/id`, or `local/<id>` for a local
     /// role) as model role `role` globally (the `/set --global` path),

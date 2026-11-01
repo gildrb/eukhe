@@ -230,6 +230,8 @@ pub enum Entry {
     HeadlessExit = 439,
     /// `bend/ffi_stop.bend`: a call.
     Stop = 440,
+    /// `bend/ffi_model_roles.bend`: a call.
+    ModelRoles = 441,
 }
 
 impl Entry {
@@ -347,6 +349,7 @@ impl Entry {
         Entry::HeadlessSettle,
         Entry::HeadlessExit,
         Entry::Stop,
+        Entry::ModelRoles,
     ];
 
     /// The id `bend/core.bend` dispatches on.

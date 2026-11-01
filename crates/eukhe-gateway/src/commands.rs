@@ -27,6 +27,9 @@ pub(crate) enum PhoneCommand {
     Model(Option<String>),
     /// `/reasoning` shows; `/reasoning <level>` sets it.
     Reasoning(Option<String>),
+    /// `/model all` lists; `/model all N` makes the Nth listed model the
+    /// model of every role.
+    ModelAll(Option<String>),
 }
 
 /// What one text message means to the gateway.
@@ -77,7 +80,7 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
     let reply = call(Entry::GatewayCommands, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let parsed = match reader.tag_of(3, "a message meaning")? {
-        0 => Parsed::Command(match reader.tag_of(10, "a phone command")? {
+        0 => Parsed::Command(match reader.tag_of(11, "a phone command")? {
             0 => PhoneCommand::Help,
             1 => PhoneCommand::Sessions,
             2 => PhoneCommand::Use(reader.str()?.to_owned()),
@@ -87,7 +90,8 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
             6 => PhoneCommand::Status,
             7 => PhoneCommand::Memory,
             8 => PhoneCommand::Model(maybe_str(&mut reader)?),
-            9.. => PhoneCommand::Reasoning(maybe_str(&mut reader)?),
+            9 => PhoneCommand::Reasoning(maybe_str(&mut reader)?),
+            10.. => PhoneCommand::ModelAll(maybe_str(&mut reader)?),
         }),
         1 => Parsed::Answer(reader.str()?.to_owned()),
         2.. => Parsed::Prompt,
@@ -96,7 +100,8 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
     Ok(parsed)
 }
 
-/// An optional argument of the reply: `/model N`, `/reasoning <level>`.
+/// An optional argument of the reply: `/model N`, `/reasoning <level>`,
+/// `/model all N`.
 fn maybe_str(reader: &mut Reader<'_>) -> Result<Option<String>, WireError> {
     Ok(if reader.maybe()? {
         Some(reader.str()?.to_owned())
@@ -135,10 +140,12 @@ mod tests {
         );
     }
 
-    /// `/model` and `/reasoning` take no argument or one; a wrong argument
-    /// count gets the usage line, never the agent.
+    /// `/model` takes no argument, one, or `all` and one; `/reasoning`
+    /// none or one; a wrong argument count gets the usage line, never the
+    /// agent.
     #[test]
     fn model_and_reasoning_parse_with_and_without_arguments() {
+        let model_usage = "Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.";
         assert_eq!(
             [
                 parse("/model"),
@@ -147,19 +154,23 @@ mod tests {
                 parse("/reasoning high"),
                 parse("/model 2 3"),
                 parse("/reasoning low extra"),
+                parse("/model all"),
+                parse("/model all 3"),
+                parse("/model all 3 4"),
             ],
             [
                 Parsed::Command(PhoneCommand::Model(None)),
                 Parsed::Command(PhoneCommand::Model(Some("2".to_string()))),
                 Parsed::Command(PhoneCommand::Reasoning(None)),
                 Parsed::Command(PhoneCommand::Reasoning(Some("high".to_string()))),
-                Parsed::Answer(
-                    "Usage: /model [N] - Show the models; N switches to one.".to_string()
-                ),
+                Parsed::Answer(model_usage.to_string()),
                 Parsed::Answer(
                     "Usage: /reasoning [level] - Show the thinking level; a level sets it."
                         .to_string()
                 ),
+                Parsed::Command(PhoneCommand::ModelAll(None)),
+                Parsed::Command(PhoneCommand::ModelAll(Some("3".to_string()))),
+                Parsed::Answer(model_usage.to_string()),
             ]
         );
     }

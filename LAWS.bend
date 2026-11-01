@@ -84,6 +84,7 @@ import ./laws/doc_search.bend as DocSearch
 import ./laws/doc_glob.bend as DocGlob
 import ./laws/config.bend as Config
 import ./laws/default_model.bend as DefaultModel
+import ./laws/model_roles.bend as ModelRoles
 import ./laws/workflow.bend as Workflow
 import ./laws/command/paths.bend as Command
 import ./laws/command/entry.bend as CommandEntry

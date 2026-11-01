@@ -344,6 +344,7 @@ side_lane() {
   gate deny make --no-print-directory deny
   gate laws laws
   gate runtime-test make --no-print-directory runtime-test
+  gate nix-test make --no-print-directory nix-test
   gate dashboard-ui dashboard_ui
 }
 
@@ -360,7 +361,7 @@ case "${mode}" in
     # worktree's path is the same every night). clean_env passes it on.
     export CARGO_INCREMENTAL=0
     start=${SECONDS}
-    gate tools check_tools cargo cargo-nextest uv npm python3 cargo-deny
+    gate tools check_tools cargo cargo-nextest uv npm python3 cargo-deny jq
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
@@ -382,7 +383,7 @@ case "${mode}" in
     wait "${side}"
     side_rc=$?
     set -e
-    echo "==> ci-full: secrets, deny, laws, runtime-test, dashboard-ui log"
+    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
     echo "ci-full: $((SECONDS - start))s"

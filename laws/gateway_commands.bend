@@ -24,9 +24,11 @@ import ./doc_commit.bend as DocCommit
 #     session command names Rust sends is a prompt (the session runs it).
 # R4: the commands, in order: help, sessions, use, latest, new, stop,
 #     status, memory, model, reasoning. `/use` takes exactly one argument
-#     (kept as written), `/model` and `/reasoning` none or one (kept as
-#     written), the others none; a command name with exactly its arguments
-#     is that command.
+#     (kept as written), `/reasoning` none or one (kept as written),
+#     `/model` none, one, or the two `all` and N: one argument `all` is the
+#     all-roles listing, another one argument a switch (kept as written),
+#     `all` then N sets the all-roles model (N kept as written); the others
+#     none; a command name with exactly its arguments is that command.
 # R5: a command name with other arguments answers
 #     `Usage: <usage> - <description>` (its line of gc_lines).
 # R6: another name followed by more words is a prompt. Alone it answers:
@@ -42,8 +44,8 @@ import ./doc_commit.bend as DocCommit
 #     `Other text goes to the agent.`, one per line.
 # R8: the entry answers each request Rust writes (the text and the session
 #     names, every length within the wire) with the meaning of R1-R7 (a
-#     command by its tag, `/use` with its argument, `/model` and
-#     `/reasoning` with their optional argument; an answer with its
+#     command by its tag, `/use` with its argument, `/model`, `/model all`
+#     and `/reasoning` with their optional argument; an answer with its
 #     text; a prompt), reads exactly the request and nothing after it, and
 #     answers any other input with the exact error form
 #     `E gateway_commands: malformed request`.
@@ -57,11 +59,11 @@ def gc_names() -> List<&2, String>:
 
 # R5: the command lines, in the same order
 def gc_lines() -> List<&2, String>:
-  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [N] - Show the models; N switches to one.", "/reasoning [level] - Show the thinking level; a level sets it."]
+  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "/reasoning [level] - Show the thinking level; a level sets it."]
 
 # R7
 def gc_help() -> String:
-  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [N] - Show the models; N switches to one.\n/reasoning [level] - Show the thinking level; a level sets it.\nOther text goes to the agent."
+  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\n/reasoning [level] - Show the thinking level; a level sets it.\nOther text goes to the agent."
 
 # the text at index i of xs; "" past the end
 def gc_at(xs: List<&2, String>, i: Nat) -> String:
@@ -138,8 +140,17 @@ def gc_bare(i: Nat) -> Maybe<&2, Gc.Cmd>:
     case 10n+u:
       None{}
 
+# R4: `/model` with the one argument a: `all` is the all-roles listing,
+# any other a a switch
+def gc_model_one(all: Bool, a: String) -> Maybe<&2, Gc.Cmd>:
+  match all:
+    case True{}:
+      Some{Gc.CModelAll{None{}}}
+    case False{}:
+      Some{Gc.CModel{Some{a}}}
+
 # R4: the command at index i with the one argument a
-def gc_one(i: Nat, a: String) -> Maybe<&2, Gc.Cmd>:
+def gc_one(i: Nat, +a: String) -> Maybe<&2, Gc.Cmd>:
   match i:
     case 0n:
       None{}
@@ -158,9 +169,43 @@ def gc_one(i: Nat, a: String) -> Maybe<&2, Gc.Cmd>:
     case 7n:
       None{}
     case 8n:
-      Some{Gc.CModel{Some{a}}}
+      gc_model_one(String.eq(a, "all"), a)
     case 9n:
       Some{Gc.CReasoning{Some{a}}}
+    case 10n+u:
+      None{}
+
+# R4: `/model` with the two arguments `all` (when all) and n
+def gc_model_two(all: Bool, n: String) -> Maybe<&2, Gc.Cmd>:
+  match all:
+    case True{}:
+      Some{Gc.CModelAll{Some{n}}}
+    case False{}:
+      None{}
+
+# R4: the command at index i with the two arguments a and b
+def gc_two(i: Nat, a: String, b: String) -> Maybe<&2, Gc.Cmd>:
+  match i:
+    case 0n:
+      None{}
+    case 1n:
+      None{}
+    case 2n:
+      None{}
+    case 3n:
+      None{}
+    case 4n:
+      None{}
+    case 5n:
+      None{}
+    case 6n:
+      None{}
+    case 7n:
+      None{}
+    case 8n:
+      gc_model_two(String.eq(a, "all"), b)
+    case 9n:
+      None{}
     case 10n+u:
       None{}
 
@@ -174,7 +219,11 @@ def gc_command(i: Nat, args: List<&2, String>) -> Maybe<&2, Gc.Cmd>:
         case Nil{}:
           gc_one(i, a)
         case b <> u:
-          None{}
+          match u:
+            case Nil{}:
+              gc_two(i, a, b)
+            case c <> v:
+              None{}
 
 def gc_keep(b: Bool, l: String, rest: List<&2, String>) -> List<&2, String>:
   match b:
@@ -320,6 +369,8 @@ def gc_w_cmd(c: Gc.Cmd) -> String:
       Wr.put_nat(8n, gc_w_arg(m))
     case Gc.CReasoning{m}:
       Wr.put_nat(9n, gc_w_arg(m))
+    case Gc.CModelAll{m}:
+      Wr.put_nat(10n, gc_w_arg(m))
 
 def gc_w_out(o: Gc.Out) -> String:
   match o:
@@ -351,10 +402,11 @@ def gc_fit_req(q: FGc.Req) -> Bool:
 #   name, a session command answered by the gateway, an argument count
 #   ignored or checked for the wrong command, `/use` losing its argument,
 #   `/model` or `/reasoning` losing or inventing its optional argument,
-#   a usage line of another command, an unknown name with more words
-#   answered, a listing out of order or missing a starting command, a near
-#   miss named past the slash_suggest limit, a missing help text after a
-#   far miss
+#   `/model all` taken for a switch to a model named `all`, `/model all N`
+#   losing N or taken for another word than `all`, a usage line of
+#   another command, an unknown name with more words answered, a listing
+#   out of order or missing a starting command, a near miss named past the
+#   slash_suggest limit, a missing help text after a far miss
 law gateway_commands_spec:
   for +text: String
   for +sess: List<&2, String>
@@ -365,10 +417,12 @@ law gateway_commands_spec:
 # path, an unknown name with words, a session command, an uppercase name,
 # a far miss, a blank text, a prefix of three commands, extra spaces;
 # `/model` and `/reasoning` with no argument, one argument and two, an
-# uppercase `/Reasoning`, the prefix `/m` of memory and model
+# uppercase `/Reasoning`, the prefix `/m` of memory and model; `/model all`
+# alone, with N, with two more words, and `/model ALL N` (only the word
+# `all` as written)
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law gateway_commands_example:
-  {[Gc.parse("/help", []), Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/hlep", []), Gc.parse("/use 3", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/compact", ["compact"]), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/model", []), Gc.parse("/model 2", []), Gc.parse("/model 2 3", []), Gc.parse("/Reasoning", []), Gc.parse("/reasoning high", []), Gc.parse("/reasoning low extra", []), Gc.parse("/m", [])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OAnswer{"Usage: /model [N] - Show the models; N switches to one."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [N] - Show the models; N switches to one.\nSend one of these. Send / for all commands."}] : List<&2, Gc.Out>}
+  {[Gc.parse("/help", []), Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/hlep", []), Gc.parse("/use 3", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/compact", ["compact"]), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/model", []), Gc.parse("/model 2", []), Gc.parse("/model 2 3", []), Gc.parse("/Reasoning", []), Gc.parse("/reasoning high", []), Gc.parse("/reasoning low extra", []), Gc.parse("/m", []), Gc.parse("/model all", []), Gc.parse("/model all 3", []), Gc.parse("/model all 3 4", []), Gc.parse("/model ALL 3", [])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CModelAll{None{}}}, Gc.OCommand{Gc.CModelAll{Some{"3"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
 
 # Laws: the entry (R8)
 # --------------------
@@ -378,7 +432,8 @@ law gateway_commands_example:
 # the spec
 # EXCLUDES: the text and the session names swapped, a session name
 #   dropped, command tags in another order, `/use` without its argument,
-#   an answer spelled as a prompt, a default
+#   `/model all` spelled as `/model`, an answer spelled as a prompt, a
+#   default
 law gateway_commands_entry_answers:
   for +q: FGc.Req
   for h: {gc_fit_req(q) == True{} : Bool}
@@ -415,7 +470,8 @@ law gateway_commands_entry_refuses:
 # sends and the replies it reads: a command, `/use` with its argument, a
 # usage answer, a session command, a prompt; input left over and a
 # malformed request; `/model` without and with its argument, `/reasoning`
-# with its argument, a `/model` usage answer
+# with its argument, a `/model` usage answer; `/model all` without and
+# with its argument
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law gateway_commands_entry_example:
-  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,55,Usage: /model [N] - Show the models; N switches to one."] : List<&2, String>}
+  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3"] : List<&2, String>}

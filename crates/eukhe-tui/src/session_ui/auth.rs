@@ -16,6 +16,15 @@ pub(super) enum SetModelOutcome {
     Failed,
 }
 
+/// What a `set_model` switch covers: the session's model alone, or also
+/// the all-roles model (`allRoles`: the daemon saves it as
+/// `modelRoles.all`, the model of every role without its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SwitchScope {
+    Session,
+    AllRoles,
+}
+
 /// A model selection parked on the provider's sign-in (TS
 /// `ensureModelProviderConfigured` -> `completeModelSelection`): the
 /// picker applied a model whose provider is not signed in, the sign-in
@@ -28,6 +37,8 @@ pub(super) struct PendingModelSignIn {
     model_id: String,
     /// The picked model's user-edited effort, applied after the retry.
     effort: Option<String>,
+    /// What the retried switch covers.
+    scope: SwitchScope,
 }
 
 impl SessionUi {
@@ -552,13 +563,15 @@ impl SessionUi {
 
     /// Route a picked model whose provider is not signed in to the
     /// provider sign-in flow (TS `ensureModelProviderConfigured`): park
-    /// the selection, then mount the `/login` provider menu preselected on
-    /// the provider's row -- a successful login retries the switch
-    /// automatically, a cancelled or failed login leaves it parked off.
-    /// A provider without a login row keeps the TS external-config error.
+    /// the selection (with the `scope` of its switch), then mount the
+    /// `/login` provider menu preselected on the provider's row -- a
+    /// successful login retries the switch automatically, a cancelled or
+    /// failed login leaves it parked off. A provider without a login row
+    /// keeps the TS external-config error.
     pub(crate) async fn begin_model_sign_in(
         &mut self,
         applied: &ModelSelectionApplied,
+        scope: SwitchScope,
         view: &mut AgentView,
     ) {
         let provider = &applied.provider;
@@ -582,6 +595,7 @@ impl SessionUi {
             provider: provider.clone(),
             model_id: model_id.clone(),
             effort: applied.effort.clone(),
+            scope,
         });
         self.note(
             &format!("Sign in to {provider} to use {provider}/{model_id}"),
@@ -607,9 +621,10 @@ impl SessionUi {
             provider,
             model_id,
             effort,
+            scope,
         } = pending;
         self.spawn_model_catalog_refresh();
-        match self.try_set_model(&provider, &model_id, view).await {
+        match self.try_set_model(&provider, &model_id, scope, view).await {
             SetModelOutcome::Switched => {
                 if let Some(level) = &effort {
                     self.apply_thinking_level(level, view).await;

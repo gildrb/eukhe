@@ -185,6 +185,7 @@ fn populated() -> Settings {
             hosts: Some(vec![]),
         }),
         model_roles: Some(ModelRolesSettings {
+            all: Some("m".into()),
             tiny: Some("m".into()),
             judge: Some("m".into()),
             translate: Some("m".into()),

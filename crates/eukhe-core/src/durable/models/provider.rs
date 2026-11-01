@@ -301,11 +301,17 @@ async fn run_request(
 ) {
     let settings = inner.deps.settings.manager();
     // Image-model routing: images on a text-only session model route to
-    // `settings.imageModel` or fail with the actionable refusal.
+    // the image role's model (`imageModel`, else `modelRoles.all`) or fail
+    // with the actionable refusal.
     let mut serving = match image_route::resolve(
         context_has_images(&context),
         &model,
-        settings.get_image_model().as_deref(),
+        || {
+            crate::models::roles::role_model(
+                settings.cvars(),
+                eukhe_types::model_roles::ModelRole::Image,
+            )
+        },
         &inner.models,
     ) {
         ImageRoute::None => model,

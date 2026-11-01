@@ -62,16 +62,21 @@
 //!
 //! # The saved default model
 //!
-//! [`resolve_session_model`] never moves past the saved default
-//! (`defaultProvider`/`defaultModel`) in silence. A saved default that is
-//! not in the catalog, or not in the `enabledModels` scope, gives the next
-//! startup default with the [`Substitution`]. A saved default whose
+//! The saved chat model is the chat role's model
+//! ([`crate::models::roles`]): `defaultProvider`/`defaultModel`, else the
+//! all-roles model `modelRoles.all`. [`resolve_session_model`] never moves
+//! past it in silence. A saved model that is not in the catalog, or not
+//! in the `enabledModels` scope, gives the next startup default with the
+//! [`Substitution`], which names the setting. A saved model whose
 //! provider has no credentials is the typed error
 //! [`ModelsError::DefaultUnusable`]: the session never moves to another
 //! provider. A session opens on [`resolve_open_model`] and shows the
-//! notice row [`DEFAULT_MODEL_NOTICE_CUSTOM_TYPE`]. The Bend model is
-//! `bend/default_model.bend`.
+//! notice row [`DEFAULT_MODEL_NOTICE_CUSTOM_TYPE`]. The resolution never
+//! writes settings. The Bend models are `bend/default_model.bend` and
+//! `bend/model_roles.bend`.
 
+#[cfg(test)]
+mod chat_role_tests;
 mod compose;
 pub(crate) mod failover;
 pub(crate) mod image_route;
@@ -91,10 +96,12 @@ use eukhe_ai::providers::all::builtin_providers;
 use eukhe_ai::utils::abort::operation_signal;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::ModelRef;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
 
 use super::deps::ModelRequest;
+use crate::models::roles::{role_model, RoleSource};
 use crate::models::{
     find_initial_model, model_allowed, resolve_cli_model, resolve_default,
     resolve_model_scope_from_models, saved_default_facts, DefaultMiss, DefaultResolution,
@@ -141,36 +148,57 @@ pub enum ModelsError {
     Cancelled,
 }
 
-/// The saved default model a session does not run on, and why.
+/// The setting that holds the saved chat model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavedSetting {
+    /// `defaultProvider`/`defaultModel` (the chat role's own setting).
+    DefaultModel,
+    /// `modelRoles.all`, the all-roles model.
+    AllRoles,
+}
+
+/// The saved chat model a session does not run on, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Substitution {
-    /// The saved default (`defaultProvider`/`defaultModel`).
-    pub wanted: ModelRef,
+    /// The saved model as its setting holds it (`provider/model`).
+    pub wanted: String,
+    pub setting: SavedSetting,
     pub reason: DefaultMiss,
 }
 
 impl Substitution {
-    /// The sentence that names the saved default and the reason.
-    fn missed(&self) -> String {
-        format!(
-            "The saved default model {}/{} did not run: {}.",
-            self.wanted.provider, self.wanted.model_id, self.reason
-        )
+    /// The sentence that names the saved model, its setting, and the
+    /// reason.
+    #[must_use]
+    pub fn missed(&self) -> String {
+        let (wanted, reason) = (&self.wanted, self.reason);
+        match self.setting {
+            SavedSetting::DefaultModel => {
+                format!("The saved default model {wanted} did not run: {reason}.")
+            }
+            SavedSetting::AllRoles => {
+                format!("The all-roles model {wanted} (modelRoles.all) did not run: {reason}.")
+            }
+        }
     }
 
-    /// The text of [`ModelsError::DefaultUnusable`]: the saved default,
-    /// the reason, and what to do.
+    /// The text of [`ModelsError::DefaultUnusable`]: the saved model, the
+    /// reason, and what to do.
     #[must_use]
     pub fn refusal(&self) -> String {
+        let setting = match self.setting {
+            SavedSetting::DefaultModel => "defaultProvider/defaultModel",
+            SavedSetting::AllRoles => "modelRoles.all",
+        };
         let fix = match self.reason {
-            DefaultMiss::NoCredentials => {
-                "eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change defaultProvider/defaultModel."
-            }
-            DefaultMiss::NotInCatalog => {
-                "No other model has credentials. Run \"eukhe model list\", fix models.json, or change defaultProvider/defaultModel."
-            }
+            DefaultMiss::NoCredentials => format!(
+                "eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change {setting}."
+            ),
+            DefaultMiss::NotInCatalog => format!(
+                "No other model has credentials. Run \"eukhe model list\", fix models.json, or change {setting}."
+            ),
             DefaultMiss::NotInScope => {
-                "No other model is in the scope. Change enabledModels or defaultProvider/defaultModel."
+                format!("No other model is in the scope. Change enabledModels or {setting}.")
             }
         };
         format!("{} {fix}", self.missed())
@@ -182,9 +210,9 @@ impl Substitution {
 pub struct ResolvedModel {
     pub model: ModelRef,
     pub thinking: ModelThinkingLevel,
-    /// The saved default this model runs in place of; `None` when the
-    /// model is the saved default, nothing is saved, or the caller
-    /// requested the model.
+    /// The saved chat model this model runs in place of; `None` when the
+    /// model is the saved one, nothing is saved, or the caller requested
+    /// the model.
     pub substituted: Option<Substitution>,
 }
 
@@ -256,11 +284,12 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Vec<String> {
 ///    `--model` (`resolve_cli_model`), whether or not it has credentials;
 /// 2. otherwise the startup chain over the models with credentials
 ///    (`find_initial_model`): the settings `enabledModels` scope (the saved
-///    default when in scope, else the first scoped model), the settings
-///    `defaultProvider`/`defaultModel`, the featured default, the first
-///    available model. A saved default that is not in the catalog or not
-///    in the scope gives the next startup default with the
-///    [`Substitution`]; a saved default whose provider has no
+///    chat model when in scope, else the first scoped model), the saved
+///    chat model (the chat role's: `defaultProvider`/`defaultModel`, else
+///    `modelRoles.all`), the featured default, the first available model.
+///    A saved model that is not in the catalog (a `modelRoles.all` without
+///    `/` never is) or not in the scope gives the next startup default
+///    with the [`Substitution`]; a saved model whose provider has no
 ///    credentials is [`ModelsError::DefaultUnusable`];
 /// 3. the result must pass the settings `allowedModels` allowlist (no
 ///    fallback on refusal; an unreadable global settings document fails
@@ -327,32 +356,34 @@ pub async fn resolve_session_model(
         } else {
             resolve_model_scope_from_models(&patterns, &available_legacy)
         };
-        let default_provider = settings.get_default_provider();
-        let default_model_id = settings.get_default_model();
+        let chat = role_model(settings.cvars(), ModelRole::Chat);
+        let setting = match chat.source {
+            RoleSource::Own => Some(SavedSetting::DefaultModel),
+            RoleSource::All => Some(SavedSetting::AllRoles),
+            RoleSource::Default => None,
+        };
+        let saved = chat.provider_model();
         let options = InitialModelOptions {
             cli_provider: None,
             cli_model: None,
             scoped_models: &scoped,
             is_continuing: false,
-            default_provider: default_provider.as_deref(),
-            default_model_id: default_model_id.as_deref(),
+            default_provider: saved.map(|(provider, _)| provider),
+            default_model_id: saved.map(|(_, model_id)| model_id),
             all_models: &all_legacy,
             available_models: &available_legacy,
         };
-        // The chain's pick past the saved default.
+        // The chain's pick past the saved model.
         let next = find_initial_model(&InitialModelOptions {
             default_model_id: None,
             ..options
         });
         let substitution = |reason| {
-            default_provider
-                .as_deref()
-                .zip(default_model_id.as_deref())
-                .map(|(provider, model_id)| Substitution {
-                    wanted: ModelRef {
-                        provider: provider.to_owned(),
-                        model_id: model_id.to_owned(),
-                    },
+            setting
+                .zip(chat.selector.as_deref())
+                .map(|(setting, wanted)| Substitution {
+                    wanted: wanted.to_owned(),
+                    setting,
                     reason,
                 })
         };
@@ -720,10 +751,8 @@ mod tests {
 
     fn substitution(provider: &str, model_id: &str, reason: DefaultMiss) -> Substitution {
         Substitution {
-            wanted: ModelRef {
-                provider: provider.to_owned(),
-                model_id: model_id.to_owned(),
-            },
+            wanted: format!("{provider}/{model_id}"),
+            setting: SavedSetting::DefaultModel,
             reason,
         }
     }

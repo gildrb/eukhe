@@ -185,8 +185,8 @@ pub const SUBAGENT_STALL_MS: Decl = Decl {
     init: Init::Nat(600_000),
 };
 
-/// The `provider/id` an `rlm.query` without a `model` asks; `""`: the
-/// calling session's model.
+/// The `provider/id` an `rlm.query` without a `model` asks; `""`:
+/// `modelRoles.all`, else the calling session's model.
 pub const RLM_QUERY_MODEL: Decl = Decl {
     id: "rlm.queryModel",
     ty: CvarType::Text,
@@ -364,7 +364,8 @@ pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
     init: Init::Bool(false),
 };
 
-/// `provider/model-id`; unset falls back to `auxiliaryModel`.
+/// `provider/model-id`; unset falls back to `modelRoles.all`, then
+/// `auxiliaryModel`.
 pub const MEMORY_MODEL: Decl = Decl {
     id: "memory.model",
     ty: CvarType::Text,
@@ -1188,7 +1189,10 @@ pub const SSH_HOSTS: Decl = Decl {
 };
 
 /// `modelRoles.<role>`: the primary model of an S9 role (`local/<id>` or
-/// `provider/model`); `""`: unset (`eukhe_tiny::chain`).
+/// `provider/model`); `""`: unset (`eukhe_tiny::chain`). `modelRoles.all`:
+/// the `provider/model` every role but speech and dictation uses when its
+/// own setting is unset. A role's model: its own setting, else
+/// `modelRoles.all`, else its default (`crate::models::roles`).
 const fn model_role(id: &'static str) -> Decl {
     Decl {
         id,
@@ -1200,6 +1204,7 @@ const fn model_role(id: &'static str) -> Decl {
     }
 }
 
+pub const MODEL_ROLE_ALL: Decl = model_role("modelRoles.all");
 pub const MODEL_ROLE_TINY: Decl = model_role("modelRoles.tiny");
 pub const MODEL_ROLE_JUDGE: Decl = model_role("modelRoles.judge");
 pub const MODEL_ROLE_TRANSLATE: Decl = model_role("modelRoles.translate");
@@ -1403,6 +1408,7 @@ pub const DECLS: &[Decl] = &[
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
     SSH_HOSTS,
+    MODEL_ROLE_ALL,
     MODEL_ROLE_TINY,
     MODEL_ROLE_JUDGE,
     MODEL_ROLE_TRANSLATE,

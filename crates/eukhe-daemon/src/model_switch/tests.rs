@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use eukhe_core::models::roles::role_model;
+use eukhe_types::model_roles::ModelRole;
 use serde_json::{json, Value};
 
 use super::*;
@@ -116,9 +118,43 @@ async fn set_model_refuses_models_outside_the_allowlist() {
     let response = worker.dispatch("set_model", &set_model).await;
     assert!(response.success, "unrestricted switch: {response:?}");
     let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
-    assert_eq!(settings.get_default_provider(), Some(provider.clone()));
-    assert_eq!(settings.get_default_model().as_deref(), Some("faux-1"));
+    assert_eq!(
+        role_model(settings.cvars(), ModelRole::Chat).selector,
+        Some(format!("{provider}/faux-1"))
+    );
     assert_eq!(connection_state(&worker).await["model"]["id"], "faux-1");
+}
+
+/// `set_model` with `allRoles: true` switches the session and writes the
+/// model as the all-roles model into the global config.cfg (the default
+/// model goes to settings.json as without it).
+#[tokio::test]
+async fn set_model_with_all_roles_saves_the_all_roles_model() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), Some(faux_script(false))).await;
+    let provider = connection_state(&worker).await["model"]["provider"]
+        .as_str()
+        .expect("the scripted model's provider")
+        .to_string();
+    let response = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": provider, "modelId": "faux-1", "allRoles": true }),
+        )
+        .await;
+    assert!(response.success, "all-roles switch: {response:?}");
+    let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
+    assert_eq!(
+        (
+            std::fs::read_to_string(dir.path().join("agent").join("config.cfg"))
+                .expect("config.cfg"),
+            role_model(settings.cvars(), ModelRole::Chat).selector,
+        ),
+        (
+            format!("set modelRoles.all {provider}/faux-1\n"),
+            Some(format!("{provider}/faux-1")),
+        )
+    );
 }
 
 /// The `set_model` refusal for a catalog model whose provider is not

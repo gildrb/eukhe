@@ -11,7 +11,9 @@ mod signal;
 mod style;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use eukhe_tui::client_settings::ClientSettings;
 use eukhe_tui::saved_sessions::DaemonLauncher;
 pub use setup::{link_device, linked_accounts, restart_service, service_installed};
 
@@ -58,7 +60,9 @@ pub struct SignalConfig {
 
 /// Run the gateway until SIGINT or SIGTERM: relay the allowed Signal
 /// senders' messages into the daemon session the CLI uses, and the agent's
-/// replies back. On a signal it stops the typing indicator and detaches.
+/// replies back. `settings` is the settings store `/model` reads (the
+/// all-roles model). On a signal it stops the typing indicator and
+/// detaches.
 ///
 /// # Errors
 ///
@@ -66,8 +70,12 @@ pub struct SignalConfig {
 /// connection fails, or when the signal handlers cannot install. Later
 /// daemon failures reconnect with backoff instead.
 #[tracing::instrument(skip_all, fields(account = %config.signal.account))]
-pub async fn run(config: GatewayConfig, launcher: impl DaemonLauncher) -> anyhow::Result<()> {
-    gateway::Gateway::start(config, launcher)
+pub async fn run(
+    config: GatewayConfig,
+    launcher: impl DaemonLauncher,
+    settings: Arc<dyn ClientSettings>,
+) -> anyhow::Result<()> {
+    gateway::Gateway::start(config, launcher, settings)
         .await?
         .serve()
         .await

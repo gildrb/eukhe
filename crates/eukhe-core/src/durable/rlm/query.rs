@@ -28,6 +28,7 @@ use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_bend::rules::rlm_query::{self, Cut, Plan, PlanFacts};
 use eukhe_chord::context::AbortController;
 use eukhe_durable::harness::types::ToolExecutionApi;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Context, Message, StopReason, TextContent,
     ThinkingLevel, UserContent, UserContentBlock, UserMessage,
@@ -39,6 +40,7 @@ use serde_json::{json, Value};
 use super::history::serve;
 use super::{background, now_millis, RlmRuntime};
 use crate::kernel::rlm_runtime::normalize_requested_rlm_subagent_thinking_level;
+use crate::models::roles::role_model;
 use crate::models::{model_allowed, ModelAllowlistRefusal};
 
 const REQUEST: &str = "rlm.query_batch";
@@ -259,7 +261,11 @@ async fn query_batch(
         .model
         .as_ref()
         .map(|model| format!("{}/{}", model.provider, model.model_id));
-    let default_model = settings.get_rlm_query_model().or(session_model);
+    // The query role's model (`rlm.queryModel`, else `modelRoles.all`),
+    // else the session's.
+    let default_model = role_model(settings.cvars(), ModelRole::Query)
+        .selector
+        .or(session_model);
     let planned = calls.len();
     let mut calls = calls.into_iter();
     let mut results = Vec::with_capacity(planned);

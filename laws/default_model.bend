@@ -115,6 +115,27 @@ law default_unscoped_refused:
   for m: Nat
   {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, True{}, Dm.NoNext{}}) == Dm.Refused{Dm.K{m, Dm.NotInScope{}}} : Dm.Res}
 
+# LAW default_catalog_change_keeps_choice: a new chain pick (a catalog refresh, another featured
+# model) never changes the answer for a saved default that runs
+# EXCLUDES: the featured or first available model replacing a usable
+#   saved default, an answer that depends on the chain's pick
+law default_catalog_change_keeps_choice:
+  for m: Nat
+  for n1: Nat
+  for n2: Nat
+  {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, False{}, Dm.Next{n1}}) == Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, False{}, Dm.Next{n2}}) : Dm.Res}
+
+# LAW default_unresolvable_names_choice: a saved default the catalog no longer has is reported once,
+# by name, with the reason "not in the catalog"
+# EXCLUDES: a silent swap, a notice that names the replacement or
+#   another reason, the notice given twice
+law default_unresolvable_names_choice:
+  for m: Nat
+  for key: Bool
+  for out: Bool
+  for n: Nat
+  {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, False{}, key, out, Dm.Next{n}}))) == [Dm.K{m, Dm.NotInCatalog{}}] : List<&2, Dm.Key>}
+
 # The wire codec of bend/ffi_default_model.bend (grammar: that file's
 # header, crates/eukhe-bend/WIRE.md). R1: the request and every reply
 # read back; R2: a well-formed request answers the resolver's answer

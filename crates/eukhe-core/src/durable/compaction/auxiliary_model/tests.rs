@@ -156,6 +156,29 @@ fn a_fallback_tells_its_cause_once_per_session() {
     );
 }
 
+/// The auxiliary role's selector from `modelRoles.all` routes like its
+/// own setting, and a fallback names `modelRoles.all`, not
+/// `auxiliaryModel`.
+#[test]
+fn the_all_roles_model_routes_and_its_fallback_names_it() {
+    let routed = Setup::new(&serde_json::json!({ "modelRoles": { "all": "testaux/aux-model" } }));
+    let missing = Setup::new(&serde_json::json!({ "modelRoles": { "all": "testaux/missing" } }));
+    assert_eq!(
+        [
+            summary(&routed.resolve(None)),
+            summary(&missing.resolve(None)),
+        ],
+        [
+            ("aux-model", Some("aux-key"), None),
+            (
+                "session-model",
+                None,
+                Some("The all-roles model \"testaux/missing\" (modelRoles.all) was not used for the compaction summary: no model with a configured key has this name. The session model faux/session-model ran it.")
+            ),
+        ]
+    );
+}
+
 #[test]
 fn too_small_window_falls_back_and_a_fitting_one_routes() {
     let setup = Setup::new(&serde_json::json!({ "auxiliaryModel": "testaux/aux-model" }));

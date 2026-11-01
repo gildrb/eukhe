@@ -1,10 +1,10 @@
-//! Image-model routing for dispatched durable turns (the
-//! `settings.imageModel` behavior, TS `resolveImageModelOverride`): a
-//! request whose context attaches image blocks, served on a model without
-//! image input, routes to the configured image-capable model instead. An
-//! unusable or missing reference fails the turn with the actionable refusal
-//! naming the setting — nothing silently downgrades the images to
-//! "(image omitted)" placeholders.
+//! Image-model routing for dispatched durable turns (the image role's
+//! model, TS `resolveImageModelOverride`): a request whose context
+//! attaches image blocks, served on a model without image input, routes to
+//! the image role's model ([`crate::models::roles`]: `imageModel`, else
+//! `modelRoles.all`) instead. An unusable or missing reference fails the
+//! turn with the actionable refusal naming the setting — nothing silently
+//! downgrades the images to "(image omitted)" placeholders.
 //!
 //! The decision is pure and synchronous: it resolves against the
 //! collection's last-known chat catalog (`Models::get_models`), so the
@@ -16,6 +16,8 @@
 
 use eukhe_ai::models::Models;
 use eukhe_types::pi_ai::{Modality, Model};
+
+use crate::models::roles::{RoleModel, RoleSource};
 
 /// The image-routing decision for one dispatched request: serve on the
 /// session model, serve on a routed image model, or fail the turn with the
@@ -47,12 +49,27 @@ fn format_image_model_required_message(session_model_id: &str) -> String {
     )
 }
 
-/// TS `formatImageModelUnusableMessage`: the configured `imageModel` could
-/// not be resolved to an available, image-capable model.
-fn format_image_model_unusable_message(reference: &str) -> String {
-    format!(
-        "imageModel \"{reference}\" could not be resolved to an available, image-capable, authenticated model.\n\nFix the imageModel setting (settings.json) or authenticate the provider, then resend the message."
-    )
+/// TS `formatImageModelUnusableMessage`: the image role's model could not
+/// be resolved to an available, image-capable model. Names the setting it
+/// came from (`imageModel`, or `modelRoles.all`).
+fn format_image_model_unusable_message(source: ImageSetting, reference: &str) -> String {
+    match source {
+        ImageSetting::ImageModel => format!(
+            "imageModel \"{reference}\" could not be resolved to an available, image-capable, authenticated model.\n\nFix the imageModel setting (settings.json) or authenticate the provider, then resend the message."
+        ),
+        ImageSetting::AllRoles => format!(
+            "modelRoles.all \"{reference}\" could not be resolved to an available, image-capable, authenticated model.\n\nSet imageModel to an image-capable model (\"provider/model-id\" or a bare id), change modelRoles.all, or authenticate the provider, then resend the message."
+        ),
+    }
+}
+
+/// The setting the image role's model came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageSetting {
+    /// `imageModel`.
+    ImageModel,
+    /// `modelRoles.all`.
+    AllRoles,
 }
 
 /// Exact reference match against the catalog (over pi-ai models): canonical
@@ -108,39 +125,41 @@ fn find_exact_model_reference_match<'a>(
     }
 }
 
-/// Resolve the routing decision for one dispatched request: the configured
-/// `imageModel` (a bare model id or `provider/model-id`) when the serving
-/// model has no image input and the request's context attaches image
-/// blocks; [`ImageRoute::None`] when the serving model accepts images or
-/// the request carries none; the actionable refusal when the turn cannot be
-/// served honestly (a text-only serving model would otherwise downgrade the
-/// images to an "(image omitted)" placeholder). A blank `image_model`
-/// reference (empty or whitespace) behaves as unset, like the settings
-/// read.
+/// Resolve the routing decision for one dispatched request: the image
+/// role's model (`image_model`, read only for an image turn on a model
+/// without image input; a bare model id or `provider/model-id`) when the
+/// serving model has no image input and the request's context attaches
+/// image blocks; [`ImageRoute::None`] when the serving model accepts
+/// images or the request carries none; the actionable refusal when the
+/// turn cannot be served honestly (a text-only serving model would
+/// otherwise downgrade the images to an "(image omitted)" placeholder).
 pub(crate) fn resolve(
     context_has_images: bool,
     model: &Model,
-    image_model: Option<&str>,
+    image_model: impl FnOnce() -> RoleModel,
     models: &Models,
 ) -> ImageRoute {
     if !context_has_images || takes_image_input(model) {
         return ImageRoute::None;
     }
-    let Some(reference) = image_model
-        .map(str::trim)
-        .filter(|reference| !reference.is_empty())
-    else {
-        return ImageRoute::Refuse(format_image_model_required_message(&format!(
-            "{}/{}",
-            model.provider, model.id
-        )));
+    let image_model = image_model();
+    let setting = match image_model.source {
+        RoleSource::Own => ImageSetting::ImageModel,
+        RoleSource::All => ImageSetting::AllRoles,
+        RoleSource::Default => {
+            return ImageRoute::Refuse(format_image_model_required_message(&format!(
+                "{}/{}",
+                model.provider, model.id
+            )))
+        }
     };
+    let reference = image_model.selector.as_deref().unwrap_or_default();
     let catalog = models.get_models(None);
     let Some(routed) = find_exact_model_reference_match(reference, &catalog) else {
-        return ImageRoute::Refuse(format_image_model_unusable_message(reference));
+        return ImageRoute::Refuse(format_image_model_unusable_message(setting, reference));
     };
     if !takes_image_input(routed) {
-        return ImageRoute::Refuse(format_image_model_unusable_message(reference));
+        return ImageRoute::Refuse(format_image_model_unusable_message(setting, reference));
     }
     ImageRoute::Route(routed.clone())
 }
@@ -178,6 +197,20 @@ mod tests {
         (models, text, vision)
     }
 
+    /// The image role's model, as [`resolve`] reads it.
+    fn image_role(source: RoleSource, selector: Option<&str>) -> impl FnOnce() -> RoleModel {
+        let selector = selector.map(str::to_owned);
+        move || RoleModel {
+            role: eukhe_types::model_roles::ModelRole::Image,
+            source,
+            selector,
+        }
+    }
+
+    fn own(selector: &str) -> impl FnOnce() -> RoleModel {
+        image_role(RoleSource::Own, Some(selector))
+    }
+
     // The old table (eukhe-core models/image_model_routing.rs tests, TS
     // test/image-model-override.test.ts): routes image turns to imageModel;
     // a vision session model serves image turns natively; refusals name the
@@ -186,12 +219,12 @@ mod tests {
     fn routes_image_turns_to_image_model() {
         let (models, text, vision) = models();
         assert_eq!(
-            resolve(true, &text, Some("vision"), &models),
+            resolve(true, &text, own("vision"), &models),
             ImageRoute::Route(vision)
         );
         // Canonical provider/id reference and a bare id resolve alike.
         assert!(matches!(
-            resolve(true, &text, Some("faux/vision"), &models),
+            resolve(true, &text, own("faux/vision"), &models),
             ImageRoute::Route(_)
         ));
     }
@@ -200,7 +233,7 @@ mod tests {
     fn vision_session_model_serves_image_turns() {
         let (models, _text, vision) = models();
         assert_eq!(
-            resolve(true, &vision, Some("vision"), &models),
+            resolve(true, &vision, own("vision"), &models),
             ImageRoute::None
         );
     }
@@ -209,7 +242,7 @@ mod tests {
     fn no_routing_without_images() {
         let (models, text, _vision) = models();
         assert_eq!(
-            resolve(false, &text, Some("vision"), &models),
+            resolve(false, &text, own("vision"), &models),
             ImageRoute::None
         );
     }
@@ -217,7 +250,9 @@ mod tests {
     #[test]
     fn refuses_without_image_model() {
         let (models, text, _vision) = models();
-        let ImageRoute::Refuse(error) = resolve(true, &text, None, &models) else {
+        let ImageRoute::Refuse(error) =
+            resolve(true, &text, image_role(RoleSource::Default, None), &models)
+        else {
             panic!("expected refusal");
         };
         assert!(
@@ -225,18 +260,12 @@ mod tests {
             "{error}"
         );
         assert!(error.contains("Set imageModel in settings.json"), "{error}");
-        // A blank reference behaves as unset, like the settings read.
-        let ImageRoute::Refuse(blank) = resolve(true, &text, Some("   "), &models) else {
-            panic!("expected refusal");
-        };
-        assert_eq!(blank, error);
     }
 
     #[test]
     fn refuses_unusable_reference() {
         let (models, text, _vision) = models();
-        let ImageRoute::Refuse(error) = resolve(true, &text, Some("openai/gpt-5.4"), &models)
-        else {
+        let ImageRoute::Refuse(error) = resolve(true, &text, own("openai/gpt-5.4"), &models) else {
             panic!("expected refusal");
         };
         assert!(
@@ -248,13 +277,35 @@ mod tests {
     #[test]
     fn refuses_text_only_image_model() {
         let (models, text, _vision) = models();
-        let ImageRoute::Refuse(error) = resolve(true, &text, Some("faux/text-only"), &models)
-        else {
+        let ImageRoute::Refuse(error) = resolve(true, &text, own("faux/text-only"), &models) else {
             panic!("expected refusal");
         };
         assert!(
             error.contains("could not be resolved to an available, image-capable"),
             "{error}"
+        );
+    }
+
+    /// The all-roles model serves image turns when it takes images. When
+    /// it is the text-only session model itself, text turns run as before
+    /// and an image turn's refusal names `modelRoles.all`.
+    #[test]
+    fn the_all_roles_model_serves_as_the_image_model() {
+        let (models, text, vision) = models();
+        let all = |selector| image_role(RoleSource::All, Some(selector));
+        assert_eq!(
+            [
+                resolve(true, &text, all("faux/vision"), &models),
+                resolve(false, &text, all("faux/text-only"), &models),
+                resolve(true, &text, all("faux/text-only"), &models),
+            ],
+            [
+                ImageRoute::Route(vision),
+                ImageRoute::None,
+                ImageRoute::Refuse(
+                    "modelRoles.all \"faux/text-only\" could not be resolved to an available, image-capable, authenticated model.\n\nSet imageModel to an image-capable model (\"provider/model-id\" or a bare id), change modelRoles.all, or authenticate the provider, then resend the message.".to_owned()
+                ),
+            ]
         );
     }
 }

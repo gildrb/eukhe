@@ -670,16 +670,19 @@ async fn settings_changes_reach_the_open_session() {
     config.model = Some(fixture.model().into());
     let session = open_session(config, cx()).await.expect("open");
     let settings = &session.deps().settings;
-    assert_eq!(settings.manager().get_default_model(), None);
+    let default_model = || {
+        settings
+            .manager()
+            .cvars()
+            .optional_text(&crate::settings::cvar::table::DEFAULT_MODEL)
+    };
+    assert_eq!(default_model(), None);
     std::fs::write(
         fixture.agent_dir.join("settings.json"),
         r#"{"defaultModel":"other","retry":{"maxRetries":9}}"#,
     )
     .expect("settings");
-    assert_eq!(
-        settings.manager().get_default_model(),
-        Some("other".to_string())
-    );
+    assert_eq!(default_model(), Some("other".to_string()));
     let resolved = eukhe_durable::harness::agent::resolve_settings(Some(&settings.harness()));
     assert_eq!(resolved.retry.max_retries, 9);
     session.close(cx()).await.expect("close");

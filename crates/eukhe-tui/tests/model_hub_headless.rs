@@ -1,7 +1,9 @@
 //! Headless e2e for the `/model` hub: the roles list with each role's
 //! value and source, a memory pick that saves `memory` through the
 //! settings seam (never the session), a chat pick that switches the live
-//! session through `set_model`, and a cleared role that falls back.
+//! session through `set_model`, a cleared role that falls back, and the
+//! all-roles model: `/model --all` switches with `allRoles` and the hub
+//! shows which roles run on it.
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
 #![allow(clippy::large_futures)]
@@ -64,7 +66,9 @@ fn respond(writer: &mut UnixStream, id: &str, command: &str, data: &Value) {
 }
 
 /// The mock daemon: one empty session; every command it gets is recorded.
-fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>) {
+/// A `set_model` with `allRoles` saves the all-roles model like the
+/// daemon (into the settings seam's store).
+fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>, settings: &HubSettings) {
     let (stream, _) = listener.accept().expect("accept");
     let mut writer = stream.try_clone().expect("clone mock socket");
     let mut reader = BufReader::new(stream);
@@ -95,6 +99,13 @@ fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>) {
             .unwrap_or_default()
             .to_string();
         commands.lock().expect("commands").push(command.clone());
+        if kind == "set_model" && command.get("allRoles") == Some(&Value::Bool(true)) {
+            *settings.all.lock().expect("all") = Some(format!(
+                "{}/{}",
+                command["provider"].as_str().unwrap_or_default(),
+                command["modelId"].as_str().unwrap_or_default()
+            ));
+        }
         let data = match kind.as_str() {
             "create" => json!({
                 "activeSessionId": "s1", "id": "s1", "sessionId": "sess-1",
@@ -129,10 +140,12 @@ fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>) {
     }
 }
 
-/// The settings seam over an in-memory role table; every write is logged.
+/// The settings seam over an in-memory role table and all-roles model;
+/// every write is logged.
 #[derive(Default)]
 struct HubSettings {
     roles: Mutex<HashMap<&'static str, String>>,
+    all: Mutex<Option<String>>,
     writes: Mutex<Vec<String>>,
 }
 
@@ -143,8 +156,30 @@ impl HubSettings {
 }
 
 impl eukhe_tui::client_settings::ClientSettings for HubSettings {
+    /// A role's own setting, else the all-roles model (every role but
+    /// speech and dictation), else its fallback.
     fn model_role(&self, role: ModelRole, _session_model: &str) -> Option<ModelRoleValue> {
-        let selector = self.roles.lock().expect("roles").get(role.id()).cloned();
+        let own = self.roles.lock().expect("roles").get(role.id()).cloned();
+        let all = self
+            .all
+            .lock()
+            .expect("all")
+            .clone()
+            .filter(|_| !matches!(role, ModelRole::Speech | ModelRole::Dictation));
+        let (selector, source) = match (own, all) {
+            (Some(own), _) => (Some(own), ModelRoleSource::Global),
+            (None, Some(all)) => (Some(all), ModelRoleSource::AllRoles),
+            (None, None) => (None, ModelRoleSource::Unset),
+        };
+        Some(ModelRoleValue {
+            selector,
+            source,
+            fallback: format!("fallback-of-{}", role.id()),
+            thinking: None,
+        })
+    }
+    fn all_roles_model(&self) -> Option<ModelRoleValue> {
+        let selector = self.all.lock().expect("all").clone();
         Some(ModelRoleValue {
             source: if selector.is_some() {
                 ModelRoleSource::Global
@@ -152,9 +187,17 @@ impl eukhe_tui::client_settings::ClientSettings for HubSettings {
                 ModelRoleSource::Unset
             },
             selector,
-            fallback: format!("fallback-of-{}", role.id()),
+            fallback: "each role's default".to_owned(),
             thinking: None,
         })
+    }
+    fn clear_all_roles_model(&self) -> Result<()> {
+        *self.all.lock().expect("all") = None;
+        self.writes
+            .lock()
+            .expect("writes")
+            .push("clear all".to_owned());
+        Ok(())
     }
     fn set_model_role(
         &self,
@@ -385,8 +428,9 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
     let listener = UnixListener::bind(&socket).expect("bind mock socket");
     let commands: Arc<Mutex<Vec<Value>>> = Arc::default();
     let recorded = Arc::clone(&commands);
-    let handle = std::thread::spawn(move || serve(&listener, &recorded));
     let settings = Arc::new(HubSettings::default());
+    let served = Arc::clone(&settings);
+    let handle = std::thread::spawn(move || serve(&listener, &recorded, &served));
     let steps = vec![
         HeadlessStep::WaitMs(300),
         HeadlessStep::Submit("/model".to_string()),
@@ -403,7 +447,8 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
         wait_for("Model for Chat"),
         key(KeyCode::Enter),
         wait_for("Model: "),
-        // Titles: clear it; it falls back.
+        // Titles (the eighth role): clear it; it falls back.
+        key(KeyCode::Down),
         key(KeyCode::Down),
         key(KeyCode::Down),
         key(KeyCode::Down),
@@ -435,12 +480,19 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
     handle.join().expect("mock daemon finished");
     let frames = outcome.frames;
 
-    // Every role shows, the chat row with the session's model, an unset
-    // role with its fallback.
-    let roles = first_frame_with(&frames, "Model roles");
+    // Every role shows (the list scrolls: 12 roles and the all-roles row
+    // need more rows than the viewport), the chat row with the session's
+    // model, an unset role with its fallback.
     for role in ModelRole::ALL {
-        assert!(roles.contains(role.label()), "{} in {roles}", role.id());
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.contains("Model roles") && frame.contains(role.label())),
+            "{} in a roles frame",
+            role.id()
+        );
     }
+    let roles = first_frame_with(&frames, "Model roles");
     assert!(roles.contains("prov/beta"), "chat shows the session model");
     assert!(roles.contains("auto: fallback-of-memory"), "{roles}");
     // After the memory pick its row shows the saved model and source.
@@ -481,4 +533,147 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
     assert_eq!(switches[0]["provider"], "prov");
     // The memory pick never touched the session.
     assert!(memory.starts_with("set memory=prov/"));
+}
+
+/// `/model --all prov/alpha` switches the session with `allRoles` and
+/// names the roles that keep their own model and the ones it does not
+/// cover; the hub then shows the all-roles row and each role's source;
+/// clearing the all-roles row clears it through the settings seam.
+#[test]
+fn the_all_roles_model_switches_and_shows_each_roles_source() {
+    std::env::remove_var("TMUX");
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("tui.sock");
+    let listener = UnixListener::bind(&socket).expect("bind mock socket");
+    let commands: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let recorded = Arc::clone(&commands);
+    let settings = Arc::new(HubSettings::default());
+    settings
+        .roles
+        .lock()
+        .expect("roles")
+        .insert(ModelRole::Memory.id(), "prov/own".to_owned());
+    let served = Arc::clone(&settings);
+    let handle = std::thread::spawn(move || serve(&listener, &recorded, &served));
+    let steps = vec![
+        HeadlessStep::WaitMs(300),
+        HeadlessStep::Submit("/model --all prov/alpha".to_string()),
+        wait_for("All roles: prov/alpha"),
+        HeadlessStep::Submit("/model".to_string()),
+        wait_for("Model roles"),
+        // Up from the first row wraps to the all-roles row, the last.
+        key(KeyCode::Up),
+        wait_for("> All roles"),
+        key(KeyCode::Backspace),
+        wait_for("All roles: cleared"),
+        key(KeyCode::Esc),
+        HeadlessStep::WaitGone {
+            needle: "Model roles".to_string(),
+            timeout_ms: 5000,
+        },
+    ];
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let outcome = runtime
+        .block_on(run_interactive(
+            options(socket, Arc::clone(&settings)),
+            UiMode::Headless(HeadlessPlan {
+                steps,
+                width: 120,
+                height: 30,
+            }),
+        ))
+        .expect("interactive run");
+    handle.join().expect("mock daemon finished");
+    let frames = outcome.frames;
+
+    let switches: Vec<Value> = commands
+        .lock()
+        .expect("commands")
+        .iter()
+        .filter(|command| command.get("type").and_then(Value::as_str) == Some("set_model"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        switches,
+        [json!({
+            "type": "set_model",
+            "activeSessionId": "s1",
+            "provider": "prov",
+            "modelId": "alpha",
+            "allRoles": true,
+        })]
+    );
+    let outcome_frame = first_frame_with(&frames, "All roles: prov/alpha");
+    for line in [
+        "Own model kept: Memory compactor (prov/own)".to_owned(),
+        format!(
+            "Not covered (default kept): {}, {}",
+            ModelRole::Speech.label(),
+            ModelRole::Dictation.label()
+        ),
+    ] {
+        assert!(outcome_frame.contains(&line), "{line} in {outcome_frame}");
+    }
+
+    // The rows of the hub before the clear: the first roles frame (the
+    // top of the list) and the frame on the all-roles row (its bottom).
+    // A row is `<marker> <label>  <source> - <value>`.
+    let shown: Vec<&str> = [
+        first_frame_with(&frames, "Model roles"),
+        first_frame_with(&frames, "> All roles"),
+    ]
+    .into_iter()
+    .flat_map(str::lines)
+    .collect();
+    let labels: Vec<&str> = ModelRole::ALL
+        .iter()
+        .map(|role| role.label())
+        .chain(["All roles"])
+        .collect();
+    let rows: Vec<(&str, String)> = labels
+        .iter()
+        .map(|label| {
+            let rest = shown
+                .iter()
+                .rev()
+                .find_map(|line| {
+                    line.get(2..)?
+                        .strip_prefix(label)
+                        .filter(|rest| rest.starts_with("  "))
+                })
+                .map(|rest| rest.split_whitespace().collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            (*label, rest)
+        })
+        .collect();
+    let row = |role: ModelRole, rest: &str| (role.label(), rest.to_owned());
+    let on_all = |role: ModelRole| row(role, "all roles - prov/alpha");
+    assert_eq!(
+        rows,
+        [
+            row(ModelRole::Chat, "session - prov/alpha"),
+            row(ModelRole::Memory, "global - prov/own"),
+            on_all(ModelRole::Auxiliary),
+            on_all(ModelRole::Image),
+            on_all(ModelRole::Subagent),
+            on_all(ModelRole::Gateway),
+            on_all(ModelRole::Query),
+            on_all(ModelRole::Titles),
+            on_all(ModelRole::Judge),
+            on_all(ModelRole::Translate),
+            row(ModelRole::Speech, "default - auto: fallback-of-speech"),
+            row(
+                ModelRole::Dictation,
+                "default - auto: fallback-of-dictation"
+            ),
+            ("All roles", "global - prov/alpha".to_owned()),
+        ]
+    );
+    assert_eq!(
+        (settings.log(), settings.all.lock().expect("all").clone()),
+        (vec!["clear all".to_owned()], None)
+    );
 }
