@@ -23,6 +23,7 @@ use crate::api::constrained_sampling::{
     StrictToolParameters,
 };
 use crate::api::simple_options::thinking_budget_for_level;
+use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::quirks::Quirks;
@@ -280,10 +281,6 @@ fn decode_redacted_content(signature: Option<&str>) -> Option<String> {
     atob(signature).ok().map(|bytes| STANDARD.encode(bytes))
 }
 
-/// The line an image of an error tool result becomes: Anthropic models
-/// take only text in an error tool result.
-const ERROR_RESULT_IMAGE: &str = "[image omitted: error result]";
-
 /// Whether a tool result failed: its images then go as text lines.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ResultStatus {
@@ -291,18 +288,16 @@ enum ResultStatus {
     Error,
 }
 
-/// TS `convertToolResultContent`. eukhe addition: an error result's images
-/// are sent as [`ERROR_RESULT_IMAGE`] lines.
+/// TS `convertToolResultContent`. eukhe addition: the blocks sent are the
+/// compiled core's ([`sent_blocks`]): an error result's images go as text
+/// lines, as Anthropic models take only text in an error tool result.
 fn convert_tool_result_content(
     content: &[UserContentBlock],
     status: ResultStatus,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let mut result = Vec::new();
-    for block in content {
-        match block {
-            UserContentBlock::Image(_) if status == ResultStatus::Error => {
-                result.push(json!({ "text": ERROR_RESULT_IMAGE }));
-            }
+    for block in sent_blocks(content, status == ResultStatus::Error) {
+        match block.as_ref() {
             UserContentBlock::Image(image) => {
                 result.push(json!({ "image": create_image_block(&image.mime_type, &image.data)? }));
             }
@@ -683,7 +678,7 @@ mod tests {
             (
                 vec![
                     json!({ "text": "failed" }),
-                    json!({ "text": ERROR_RESULT_IMAGE })
+                    json!({ "text": "[image omitted: error result]" })
                 ],
                 2,
             )

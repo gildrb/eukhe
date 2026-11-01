@@ -108,6 +108,7 @@ import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_run.bend as ffi_tiny_run
 import ./ffi_tokens.bend as ffi_tokens
 import ./ffi_tool_call.bend as ffi_tool_call
+import ./ffi_tool_result.bend as ffi_tool_result
 import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
@@ -334,6 +335,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_kin.ffi(input)
     case 443:
       ffi_thread.ffi(input)
+    case 452:
+      ffi_tool_result.ffi(input)
     case _:
       W.err("unknown entry")
 

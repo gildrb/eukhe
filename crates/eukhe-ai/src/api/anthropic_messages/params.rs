@@ -2,12 +2,13 @@
 //! `buildParams`, `convertMessages`, `insertThinkingLevelMessages`,
 //! `convertTools`, and the content/tool helpers they use.
 
+use std::borrow::Borrow;
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, TextContent, ThinkingLevel, Tool, ToolResultMessage,
-    UserContent, UserContentBlock,
+    ModelThinkingLevel, ProviderEnv, ThinkingLevel, Tool, ToolResultMessage, UserContent,
+    UserContentBlock,
 };
 use serde_json::json;
 
@@ -20,6 +21,7 @@ use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::simple_options::thinking_budget_for_level;
+use crate::api::tool_result_content::sent_blocks;
 use crate::api::transform_messages::transform_messages;
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::utils::diagnostics::Thrown;
@@ -144,14 +146,14 @@ fn image_block(data: &str, mime_type: &str) -> JsonValue {
 }
 
 /// TS `convertContentBlocks`.
-fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
+fn convert_content_blocks<B: Borrow<UserContentBlock>>(content: &[B]) -> JsonValue {
     let has_images = content
         .iter()
-        .any(|block| matches!(block, UserContentBlock::Image(_)));
+        .any(|block| matches!(block.borrow(), UserContentBlock::Image(_)));
     if !has_images {
         let text: Vec<&str> = content
             .iter()
-            .map(|block| match block {
+            .map(|block| match block.borrow() {
                 UserContentBlock::Text(text) => text.text.as_str(),
                 UserContentBlock::Image(_) => "",
             })
@@ -160,7 +162,7 @@ fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
     }
     let mut blocks: Vec<JsonValue> = content
         .iter()
-        .map(|block| match block {
+        .map(|block| match block.borrow() {
             UserContentBlock::Text(text) => {
                 json!({ "type": "text", "text": sanitize_surrogates(&text.text) })
             }
@@ -169,44 +171,23 @@ fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
         .collect();
     let has_text = content
         .iter()
-        .any(|block| matches!(block, UserContentBlock::Text(_)));
+        .any(|block| matches!(block.borrow(), UserContentBlock::Text(_)));
     if !has_text {
         blocks.insert(0, json!({ "type": "text", "text": "(see attached image)" }));
     }
     JsonValue::Array(blocks)
 }
 
-/// The line an image of an error tool result becomes: Anthropic takes
-/// only text in a `tool_result` marked `is_error` (a 400 otherwise, and
-/// the result stays in the transcript for every later request).
-const ERROR_RESULT_IMAGE: &str = "[image omitted: error result]";
-
-/// TS `convertToolResult`. eukhe addition: an error result's images are
-/// sent as [`ERROR_RESULT_IMAGE`] lines.
+/// TS `convertToolResult`. eukhe addition: the blocks sent are the
+/// compiled core's ([`sent_blocks`]): an error result's images go as text
+/// lines, as Anthropic takes only text in a `tool_result` marked
+/// `is_error` (a 400 otherwise, and the result stays in the transcript for
+/// every later request).
 fn convert_tool_result(message: &ToolResultMessage) -> JsonValue {
-    let has_images = message
-        .content
-        .iter()
-        .any(|block| matches!(block, UserContentBlock::Image(_)));
-    let content = if message.is_error && has_images {
-        let text_only: Vec<UserContentBlock> = message
-            .content
-            .iter()
-            .map(|block| match block {
-                UserContentBlock::Text(_) => block.clone(),
-                UserContentBlock::Image(_) => {
-                    UserContentBlock::Text(TextContent::new(ERROR_RESULT_IMAGE))
-                }
-            })
-            .collect();
-        convert_content_blocks(&text_only)
-    } else {
-        convert_content_blocks(&message.content)
-    };
     json!({
         "type": "tool_result",
         "tool_use_id": message.tool_call_id,
-        "content": content,
+        "content": convert_content_blocks(&sent_blocks(&message.content, message.is_error)),
         "is_error": message.is_error,
     })
 }
@@ -931,6 +912,7 @@ pub(crate) fn build_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::pi_ai::TextContent;
 
     fn tool_result(is_error: bool) -> ToolResultMessage {
         ToolResultMessage {
@@ -968,7 +950,7 @@ mod tests {
                 json!({
                     "type": "tool_result",
                     "tool_use_id": "c1",
-                    "content": format!("failed\n{ERROR_RESULT_IMAGE}"),
+                    "content": "failed\n[image omitted: error result]",
                     "is_error": true,
                 }),
                 json!({

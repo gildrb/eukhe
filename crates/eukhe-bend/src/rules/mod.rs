@@ -54,6 +54,7 @@ pub mod theme;
 pub mod thread;
 pub mod tokens;
 pub mod tool_call;
+pub mod tool_result;
 pub mod tool_surface;
 pub mod tui_color;
 pub mod wait;

@@ -236,6 +236,8 @@ pub enum Entry {
     Kin = 442,
     /// `bend/ffi_thread.bend`: a call.
     Thread = 443,
+    /// `bend/ffi_tool_result.bend`: a call.
+    ToolResult = 452,
 }
 
 impl Entry {
@@ -356,6 +358,7 @@ impl Entry {
         Entry::ModelRoles,
         Entry::Kin,
         Entry::Thread,
+        Entry::ToolResult,
     ];
 
     /// The id `bend/core.bend` dispatches on.

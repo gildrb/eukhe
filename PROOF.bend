@@ -2674,3 +2674,17 @@ import ./proof/thread/thread_entry_reads.bend as PThreadEntryReads
 import ./proof/thread/thread_entry_exact.bend as PThreadEntryExact
 import ./proof/thread/thread_entry_refuses.bend as PThreadEntryRefuses
 import ./proof/thread/thread_entry_example.bend as PThreadEntryExample
+import ./proof/tool_result/base.bend as LAToolResult
+import ./proof/tool_result/tool_result_spec.bend as PToolResultSpec
+import ./proof/tool_result/tool_result_error_text_only.bend as PToolResultErrorTextOnly
+import ./proof/tool_result/tool_result_success_keeps.bend as PToolResultSuccessKeeps
+import ./proof/tool_result/tool_result_error_keeps_text.bend as PToolResultErrorKeepsText
+import ./proof/tool_result/tool_result_error_image_line.bend as PToolResultErrorImageLine
+import ./proof/tool_result/tool_result_count.bend as PToolResultCount
+import ./proof/tool_result/tool_result_plan_one_each.bend as PToolResultPlanOneEach
+import ./proof/tool_result/tool_result_example.bend as PToolResultExample
+import ./proof/tool_result/tool_result_entry_is_model.bend as PToolResultEntryIsModel
+import ./proof/tool_result/tool_result_entry_reads.bend as PToolResultEntryReads
+import ./proof/tool_result/tool_result_entry_exact.bend as PToolResultEntryExact
+import ./proof/tool_result/tool_result_entry_refuses.bend as PToolResultEntryRefuses
+import ./proof/tool_result/tool_result_entry_example.bend as PToolResultEntryExample
