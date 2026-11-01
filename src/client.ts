@@ -243,7 +243,7 @@ function step(event: Ev) {
     case "Nothing":
       break;
     case "OpenUrl":
-      window.open(act.url, "_blank", "noopener");
+      location.assign(act.url);
       break;
     case "CopyText":
       void navigator.clipboard.writeText(act.text);
@@ -265,9 +265,8 @@ function tap(row: number, col: number) {
   const url = linkAt(row, col);
   step({ $: "EvClick", row, col });
   if (url === null) return;
-  // eukhe.com's own pages open here, as terminals too; other sites in a new tab.
-  if (new URL(url, location.href).origin === location.origin) location.assign(url);
-  else window.open(url, "_blank", "noopener");
+  // In this tab, as a page link: the browser's back (a swipe, a key) returns here.
+  location.assign(url);
 }
 
 /** The cell under a pointer event. */
@@ -353,12 +352,34 @@ function listen() {
     term.style.cursor = over ? "pointer" : "";
   });
   // A notch is about 100px of wheel; a trackpad sends many small moves, summed until they make one.
+  // Sideways, a column a cell. A gesture that starts to the left with the view already at its first
+  // column is the browser's (a trackpad swipe back a page), to its end and momentum.
   let wheel = 0;
+  let wheelX = 0;
+  let wheelLast = Number.NEGATIVE_INFINITY;
+  let wheelOwner: "page" | "browser" = "page";
   term.addEventListener(
     "wheel",
     (event) => {
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 33 : 1;
+      const dx = event.deltaX * unit;
+      const dy = event.deltaY * unit;
+      const sideways = Math.abs(dx) > Math.abs(dy);
+      if (event.timeStamp - wheelLast > 150) {
+        const atLeft = shown === null || shown.left === 0;
+        wheelOwner = atLeft && dx < 0 && -dx >= Math.abs(dy) ? "browser" : "page";
+      }
+      wheelLast = event.timeStamp;
+      if (wheelOwner === "browser") return;
       event.preventDefault();
-      wheel += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 33 : event.deltaY;
+      if (sideways) {
+        wheelX += dx;
+        const cols = Math.trunc(wheelX / cw);
+        wheelX -= cols * cw;
+        scrollCols(cols);
+        return;
+      }
+      wheel += dy;
       const notches = Math.trunc(wheel / 100);
       if (notches === 0) return;
       wheel -= notches * 100;
@@ -400,14 +421,15 @@ function scrollCols(n: number) {
 /**
  * A finger, as in a terminal over SSH on a phone: a drag scrolls the text with it (a line a row,
  * Ctrl-e and Ctrl-y; a column a cell, zl and zh), a flick keeps it going and slows down, a tap
- * puts the cursor there or opens the link under it. No keyboard comes up.
+ * puts the cursor there or opens the link under it. No keyboard comes up. A drag from the screen's
+ * left edge, or to the right with the view at its first column, is the browser's: back a page.
  */
 function touchScroll() {
   let x = 0;
   let y = 0;
   let startX = 0;
   let startY = 0;
-  let axis: "none" | "x" | "y" = "none";
+  let axis: "none" | "x" | "y" | "browser" = "none";
   let rows = 0;
   let cols = 0;
   let speed = 0;
@@ -432,11 +454,21 @@ function touchScroll() {
   term.addEventListener(
     "touchmove",
     (event) => {
-      event.preventDefault();
       const t = event.touches[0];
-      if (t === undefined) return;
-      if (axis === "none" && Math.hypot(t.clientX - startX, t.clientY - startY) > 8)
-        axis = Math.abs(t.clientX - startX) > Math.abs(t.clientY - startY) ? "x" : "y";
+      if (t === undefined || axis === "browser") return;
+      if (axis === "none") {
+        const dx = t.clientX - startX;
+        const dy = t.clientY - startY;
+        if (Math.hypot(dx, dy) > 8) {
+          const atLeft = shown === null || shown.left === 0;
+          if (startX < 24 || (atLeft && dx > 0 && dx >= Math.abs(dy))) {
+            axis = "browser";
+            return;
+          }
+          axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        }
+      }
+      event.preventDefault();
       const dt = Math.max(1, event.timeStamp - last);
       if (axis === "y") {
         speed = (y - t.clientY) / dt;
