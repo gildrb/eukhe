@@ -27,18 +27,25 @@ def core_mbudgets_fit(m: Maybe<&2, Fx.Budgets>) -> Bool:
     case Some{b}:
       core_budgets_fit(b)
 
+def core_win_fit(w: Fx.Win) -> Bool:
+  match w:
+    case Fx.Win{n, p, s, f, st}:
+      Bool.and(LawsBase.wire_fits(n), Bool.and(LawsBase.wire_fits(p), Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(f))))
+
 def core_facts_req_fits(q: FFx.Req) -> Bool:
   match q:
     case FFx.Level{l, c, d}:
       Bool.and(core_customs_fit(c), core_budgets_fit(d))
     case FFx.Room{b, m, a}:
       Bool.and(LawsBase.wire_fits(b), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(a)))
-    case FFx.Adjust{base, mm, l, c, d, a}:
-      Bool.and(LawsBase.core_mfits(base), Bool.and(LawsBase.wire_fits(mm), Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), LawsBase.wire_fits(a)))))
+    case FFx.Adjust{base, mm, l, c, d, a, w}:
+      Bool.and(LawsBase.core_mfits(base), Bool.and(LawsBase.wire_fits(mm), Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), core_win_fit(w))))))
     case FFx.Google{rule, c, l}:
       Bool.and(core_mbudgets_fit(rule), core_customs_fit(c))
     case FFx.Aux{c, d, a, top}:
       Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top))))
+    case FFx.Cap{x, mm, n, w}:
+      Bool.and(LawsBase.core_mfits(x), Bool.and(LawsBase.wire_fits(mm), core_win_fit(w)))
 
 # LAW core_facts_round_trip (R1): a budget request that fits reads back, and the rest is untouched
 # EXCLUDES: a level, a user's budget, a default budget, a cap or the
@@ -69,7 +76,8 @@ law core_facts_room:
 
 # LAW core_facts_adjust (R2): the adjust request answers the fitted ceiling and budget
 # EXCLUDES: the caller's cap read as none, the model's cap and the answer's
-#   tokens swapped, the ceiling and the budget swapped in the reply
+#   tokens swapped, the ceiling and the budget swapped in the reply, the
+#   window facts lost or misread
 law core_facts_adjust:
   for +base: Maybe<&2, Nat>
   for +mm: Nat
@@ -77,8 +85,20 @@ law core_facts_adjust:
   for +c: Fx.Customs
   for +d: Fx.Budgets
   for +a: Nat
-  for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a), "") : String}
+  for +w: Fx.Win
+  for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a, w}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a, w}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a, w), "") : String}
+
+# LAW core_facts_cap (R2): the cap request answers the output cap of the request: none (0) or the cap
+# EXCLUDES: the caller's cap read as none, the catalog's max and the window
+#   swapped, needs or stops lost or flipped, an omitted cap read back as a cap
+law core_facts_cap:
+  for +x: Maybe<&2, Nat>
+  for +mm: Nat
+  for +n: Bool
+  for +w: Fx.Win
+  for h: {core_facts_req_fits(FFx.Cap{x, mm, n, w}) == True{} : Bool}
+  {FFx.ffi(FFx.put_req(FFx.Cap{x, mm, n, w}, "")) == FFx.put_mnat(Fx.cap(x, mm, n, w), "") : String}
 
 # LAW core_facts_google (R2): the Google request answers the Google budget, the refusal of an
 # unordered rule included
@@ -117,12 +137,22 @@ law core_facts_left_over:
   {FFx.ffi(FFx.put_req(q, SCon{c, rest})) == Wr.err("budget request: input left over") : String}
 
 # LAW core_facts_req_example (R1): anchor and witness: an adjust request is its tag, the caller's
-# cap, the model's cap, the level, the user's budgets, the defaults and
-# the answer's tokens, as `api/simple_options.rs` writes them
+# cap, the model's cap, the level, the user's budgets, the defaults, the
+# answer's tokens and the window facts (window, prompt, safety, floor,
+# stops), as `api/simple_options.rs` writes them
 # EXCLUDES: a vacuous core_facts_round_trip, fields or tags in another
 #   order than Rust's
 law core_facts_req_example:
-  {core_facts_req_fits(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}) == True{} : Bool} & {FFx.put_req(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}, "") == "2,1,100,64,4,0,1,5,0,0,1,2,3,4,8," : String}
+  {core_facts_req_fits(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n, Fx.Win{9n, 5n, 4n, 1n, False{}}}) == True{} : Bool} & {FFx.put_req(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n, Fx.Win{9n, 5n, 4n, 1n, False{}}}, "") == "2,1,100,64,4,0,1,5,0,0,1,2,3,4,8,9,5,4,1,F" : String}
+
+# LAW core_facts_cap_example (R1): anchor: a cap request is its tag, the caller's cap, the
+# catalog's max, needs, then the window facts, as `api/simple_options.rs`
+# writes them; a catalog max at the window of a wire API that does not
+# need the field answers none (0), one far below the window its own max
+# EXCLUDES: a vacuous core_facts_cap, fields in another order than Rust's,
+#   none and a cap swapped in the reply
+law core_facts_cap_example:
+  {FFx.put_req(FFx.Cap{None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}}, "") == "5,0,64,F64,30,4,1,F" : String} & {FFx.ffi("5,0,64,F64,30,4,1,F") == "0," : String} & {FFx.ffi("5,0,20,F100,10,4,1,F") == "1,20," : String}
 
 # LAW core_facts_reply_example (R2): anchor: a Google budget is 0 dynamic, 1 then the tokens, 2
 # unordered; a fit is the ceiling, then the budget
@@ -133,7 +163,7 @@ law core_facts_reply_example:
 # LAW core_facts_malformed_example (R3): witness: a malformed budget request exists (an unknown tag)
 # EXCLUDES: a vacuous core_facts_malformed
 law core_facts_malformed_example:
-  {FFx.get_req("5,") == Wr.Bad{} : Wr.Dec<FFx.Req>} & {FFx.ffi("5,") == Wr.err("budget request: malformed") : String}
+  {FFx.get_req("6,") == Wr.Bad{} : Wr.Dec<FFx.Req>} & {FFx.ffi("6,") == Wr.err("budget request: malformed") : String}
 
 # ---- model_facts ----
 
@@ -196,15 +226,24 @@ law facts_fit_budget_under_ceiling:
   for +mm: Nat
   for +b: Nat
   for +a: Nat
-  {Nat.is_le(Fx.Fit.budget(Fx.fit(base, mm, b, a)), Fx.Fit.max(Fx.fit(base, mm, b, a))) == True{} : Bool}
+  for +win: Fx.Win
+  {Nat.is_le(Fx.Fit.budget(Fx.fit(base, mm, b, a, win)), Fx.Fit.max(Fx.fit(base, mm, b, a, win))) == True{} : Bool}
 
 # LAW facts_fit_ceiling_under_model: and the response ceiling is never above the model's output cap
+# (with a floor at most that cap)
+# EXCLUDES: a thinking request past the catalog's max
 law facts_fit_ceiling_under_model:
   for +base: Maybe<&2, Nat>
   for +mm: Nat
   for +b: Nat
   for +a: Nat
-  {Nat.is_le(Fx.Fit.max(Fx.fit(base, mm, b, a)), mm) == True{} : Bool}
+  for +w: Nat
+  for +p: Nat
+  for +s: Nat
+  for +f: Nat
+  for +st: Bool
+  for hf: {Nat.is_le(f, mm) == True{} : Bool}
+  {Nat.is_le(Fx.Fit.max(Fx.fit(base, mm, b, a, Fx.Win{w, p, s, f, st})), mm) == True{} : Bool}
 
 # LAW facts_room_leaves_the_answer: a budget capped for answer room leaves the answer its tokens under
 # the ceiling
@@ -296,34 +335,33 @@ law facts_budget_default:
   {Fx.budget(c, d, l) == Fx.Budgets.at(d, l) : Nat}
 
 # the fit of the response ceiling m: the budget b, capped so that a
-# tokens stay for the answer when it fills the ceiling
-def budgets.fit.at(over: Bool, +m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
-  match over:
-    case True{}:
-      Fx.Fit{m, Nat.min(b, Nat.sub(m, a))}
-    case False{}:
-      Fx.Fit{m, b}
-
+# tokens stay for the answer
 def budgets.fit(+m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
-  budgets.fit.at(Nat.is_le(m, b), m, b, a)
+  Fx.Fit{m, Nat.min(b, Nat.sub(m, a))}
 
-# LAW facts_fit_exact_caller: with the caller's cap x, the ceiling is x plus the budget, at most
-# the model's cap, and the budget is capped for answer room when it fills
-# the ceiling; EXCLUDES: any other ceiling or budget (the two laws above
-# only bound them)
+# LAW facts_fit_exact_caller: with the caller's cap x, the thinking ceiling is x plus the budget
+# (thinking on top of the answer cap), at most the model's cap, through
+# the window; the budget is capped so that the answer keeps a tokens
+# EXCLUDES: any other ceiling or budget (the laws above only bound them);
+#   thinking taken out of the answer's cap; a budget kept whole that leaves
+#   the answer less than its tokens
 law facts_fit_exact_caller:
   for +x: Nat
   for +mm: Nat
   for +b: Nat
   for +a: Nat
-  {Fx.fit(Some{x}, mm, b, a) == budgets.fit(Nat.min(Nat.add(x, b), mm), b, a) : Fx.Fit}
+  for +win: Fx.Win
+  {Fx.fit(Some{x}, mm, b, a, win) == budgets.fit(Fx.cap.shrink(Nat.min(Nat.add(x, b), mm), win), b, a) : Fx.Fit}
 
-# LAW facts_fit_exact_model: without the caller's cap, the ceiling is the model's cap
+# LAW facts_fit_exact_model: without the caller's cap, the thinking ceiling is the model's cap,
+# through the window
+# EXCLUDES: a ceiling below the catalog's max with room to spare
 law facts_fit_exact_model:
   for +mm: Nat
   for +b: Nat
   for +a: Nat
-  {Fx.fit(None{}, mm, b, a) == budgets.fit(mm, b, a) : Fx.Fit}
+  for +win: Fx.Win
+  {Fx.fit(None{}, mm, b, a, win) == budgets.fit(Fx.cap.shrink(mm, win), b, a) : Fx.Fit}
 
 # LAW facts_fit_saturated_caller (the Nat range): : a caller's cap at or above the model's cap fits as
 # no cap, so the cap Rust saturates at the wire's largest Nat (10^14-1)
@@ -333,21 +371,199 @@ law facts_fit_saturated_caller:
   for +mm: Nat
   for +b: Nat
   for +a: Nat
+  for +win: Fx.Win
   for +above: {Nat.is_le(mm, x) == True{} : Bool}
-  {Fx.fit(Some{x}, mm, b, a) == Fx.fit(None{}, mm, b, a) : Fx.Fit}
+  {Fx.fit(Some{x}, mm, b, a, win) == Fx.fit(None{}, mm, b, a, win) : Fx.Fit}
 
-# LAW facts_fit_saturated_budget (the Nat range): : two budgets at or above the model's cap fit alike,
-# so a budget Rust saturates at the wire's largest Nat fits as it did
-# unsaturated whenever the model's cap is below it
+# LAW facts_fit_saturated_budget (the Nat range): : two budgets at or above the model's cap fit alike
+# (with a floor at most that cap), so a budget Rust saturates at the
+# wire's largest Nat fits as it did unsaturated whenever the model's cap is
+# below it
 law facts_fit_saturated_budget:
   for +base: Maybe<&2, Nat>
   for +mm: Nat
   for +b1: Nat
   for +b2: Nat
   for +a: Nat
+  for +w: Nat
+  for +p: Nat
+  for +s: Nat
+  for +f: Nat
+  for +st: Bool
   for +h1: {Nat.is_le(mm, b1) == True{} : Bool}
   for +h2: {Nat.is_le(mm, b2) == True{} : Bool}
-  {Fx.fit(base, mm, b1, a) == Fx.fit(base, mm, b2, a) : Fx.Fit}
+  for +hf: {Nat.is_le(f, mm) == True{} : Bool}
+  {Fx.fit(base, mm, b1, a, Fx.Win{w, p, s, f, st}) == Fx.fit(base, mm, b2, a, Fx.Win{w, p, s, f, st}) : Fx.Fit}
+
+# LAW facts_fit_ceiling_on_the_cap: the thinking ceiling is the output cap of a request that needs
+# its cap, with the thinking ceiling as the caller's cap: one decision
+# EXCLUDES: a second window clamp of the thinking ceiling (the double clamp
+#   of the Anthropic path), a thinking ceiling that bypasses the cap rule
+law facts_fit_ceiling_on_the_cap:
+  for base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +win: Fx.Win
+  {Some{Fx.Fit.max(Fx.fit(base, mm, b, a, win))} == Fx.cap(Some{Fx.fit.cap(base, mm, b)}, mm, True{}, win) : Maybe<&2, Nat>}
+
+# LAW facts_fit_answer_room: the thinking budget never starves the answer: when the ceiling holds
+# the answer's tokens a, the budget plus a is at most the ceiling
+# EXCLUDES: a reply that spends its whole output cap on thinking (stop
+#   reason length, no text: the budget under the ceiling but over the
+#   ceiling minus the answer's room)
+law facts_fit_answer_room:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +win: Fx.Win
+  for h: {Nat.is_le(a, Fx.Fit.max(Fx.fit(base, mm, b, a, win))) == True{} : Bool}
+  {Nat.is_le(Nat.add(Fx.Fit.budget(Fx.fit(base, mm, b, a, win)), a), Fx.Fit.max(Fx.fit(base, mm, b, a, win))) == True{} : Bool}
+
+# LAW facts_fit_no_room_no_thinking: a ceiling below the answer's tokens leaves no thinking budget
+# EXCLUDES: a budget that takes the little room the answer has
+law facts_fit_no_room_no_thinking:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +win: Fx.Win
+  for h: {Nat.is_lt(Fx.Fit.max(Fx.fit(base, mm, b, a, win)), a) == True{} : Bool}
+  {Fx.Fit.budget(Fx.fit(base, mm, b, a, win)) == 0n : Nat}
+
+# (facts) The output cap
+# ----------------------
+
+# the request's wish: the caller's cap, else the catalog's max
+def cap_want(caller: Maybe<&2, Nat>, mm: Nat) -> Nat:
+  Maybe.default(&2, Nat, caller, mm)
+
+# a real conflict with the window: a known window, a model that does not
+# stop at it, and the prompt, the safety and the wish x past it
+def cap_conflict(x: Nat, win: Fx.Win) -> Bool:
+  match win:
+    case Fx.Win{+w, p, s, f, st}:
+      Bool.and(Bool.not(st), Bool.and(Nat.is_lt(0n, w), Nat.is_lt(w, Nat.add(Nat.add(p, s), x))))
+
+# the room the window leaves after the prompt and the safety, at least the
+# floor
+def cap_room(win: Fx.Win) -> Nat:
+  match win:
+    case Fx.Win{w, p, s, f, st}:
+      Nat.max(f, Nat.sub(w, Nat.add(p, s)))
+
+# the max is unknown: no caller's cap, a wire API that does not need the
+# field, a known window the catalog's max does not go past
+def cap_unknown(caller: Maybe<&2, Nat>, mm: Nat, needs: Bool, win: Fx.Win) -> Bool:
+  match caller:
+    case Some{x}:
+      False{}
+    case None{}:
+      match win:
+        case Fx.Win{+w, p, s, f, st}:
+          Bool.and(Bool.not(needs), Bool.and(Nat.is_lt(0n, w), Nat.is_le(w, mm)))
+
+def cap_present(m: Maybe<&2, Nat>) -> Bool:
+  match m:
+    case Some{x}:
+      True{}
+    case None{}:
+      False{}
+
+# LAW facts_cap_keeps_the_want: without a window conflict, the request carries its wish: the
+# caller's cap, else the catalog's max
+# EXCLUDES: a made-up default cap (16384) or any cap below the catalog's
+#   max while the window has room (a reasoning model cut short: stop
+#   reason length, thinking only); a shrink with no conflict
+law facts_cap_keeps_the_want:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +needs: Bool
+  for +win: Fx.Win
+  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h2: {cap_conflict(cap_want(caller, mm), win) == False{} : Bool}
+  {Fx.cap(caller, mm, needs, win) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
+
+# LAW facts_cap_shrinks_on_conflict: on a real window conflict, the cap is the room the window leaves
+# after the prompt and the safety, at least the floor
+# EXCLUDES: a request past the window (the provider refuses it), a shrink
+#   to less than the room, a shrink below the floor
+law facts_cap_shrinks_on_conflict:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +needs: Bool
+  for +win: Fx.Win
+  for h1: {cap_unknown(caller, mm, needs, win) == False{} : Bool}
+  for h2: {cap_conflict(cap_want(caller, mm), win) == True{} : Bool}
+  {Fx.cap(caller, mm, needs, win) == Some{cap_room(win)} : Maybe<&2, Nat>}
+
+# LAW facts_cap_never_below_floor: a cap the window shrinks is at least the floor
+# EXCLUDES: a cap of 0 (or below the floor) for a prompt that fills the
+#   window
+law facts_cap_never_below_floor:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +needs: Bool
+  for +w: Nat
+  for +p: Nat
+  for +s: Nat
+  for +f: Nat
+  for +st: Bool
+  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, st}) == False{} : Bool}
+  for h2: {cap_conflict(cap_want(caller, mm), Fx.Win{w, p, s, f, st}) == True{} : Bool}
+  {Nat.is_le(f, Maybe.default(&2, Nat, Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, st}), 0n)) == True{} : Bool}
+
+# LAW facts_cap_stops_never_shrinks: a model that ends its output at the window itself is never
+# shrunk: the request carries its wish whatever the prompt
+# EXCLUDES: a shrink of a model the provider stops at the window (Claude
+#   4.5+ on the Claude API)
+law facts_cap_stops_never_shrinks:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +needs: Bool
+  for +w: Nat
+  for +p: Nat
+  for +s: Nat
+  for +f: Nat
+  for h1: {cap_unknown(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == False{} : Bool}
+  {Fx.cap(caller, mm, needs, Fx.Win{w, p, s, f, True{}}) == Some{cap_want(caller, mm)} : Maybe<&2, Nat>}
+
+# LAW facts_cap_omits_unknown: with an unknown max (no caller's cap, a wire API that does not need
+# the field, a catalog max at or past the window) the field is omitted:
+# the provider's own max applies
+# EXCLUDES: a made-up cap sent for a model whose max the catalog does not
+#   know (a models.json model without maxTokens)
+law facts_cap_omits_unknown:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +needs: Bool
+  for +win: Fx.Win
+  for h: {cap_unknown(caller, mm, needs, win) == True{} : Bool}
+  {Fx.cap(caller, mm, needs, win) == None{} : Maybe<&2, Nat>}
+
+# LAW facts_cap_needs_never_omits: a wire API that needs the field (Anthropic Messages, Bedrock
+# Claude) always carries a cap
+# EXCLUDES: a request the provider refuses for a missing max_tokens
+law facts_cap_needs_never_omits:
+  for +caller: Maybe<&2, Nat>
+  for +mm: Nat
+  for +win: Fx.Win
+  {cap_present(Fx.cap(caller, mm, True{}, win)) == True{} : Bool}
+
+# LAW facts_cap_example: anchor: the user's case and its neighbours at small scale: a catalog max
+# at the window without a caller's cap is omitted; a max far below the
+# window is sent whole; a long prompt shrinks it to the room; a model that
+# stops at the window is not shrunk; a wire API that needs the field
+# shrinks a max at the window
+# EXCLUDES: a spec that is wrong on the cases the Rust tests pin
+law facts_cap_example:
+  {Fx.cap(None{}, 64n, False{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == None{} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 10n, 4n, 1n, False{}}) == Some{20n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, False{}, Fx.Win{100n, 90n, 4n, 1n, False{}}) == Some{6n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 20n, True{}, Fx.Win{100n, 90n, 4n, 1n, True{}}) == Some{20n} : Maybe<&2, Nat>} &
+  {Fx.cap(None{}, 64n, True{}, Fx.Win{64n, 30n, 4n, 1n, False{}}) == Some{30n} : Maybe<&2, Nat>} &
+  {Fx.cap(Some{8n}, 64n, False{}, Fx.Win{64n, 99n, 4n, 1n, False{}}) == Some{1n} : Maybe<&2, Nat>}
 
 # LAW facts_aux_cap_within (the Nat range): : the compactor's cap is the thinking budget plus the
 # answer, at most top (Rust passes the wire's largest Nat): below top

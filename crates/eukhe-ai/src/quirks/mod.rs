@@ -213,6 +213,12 @@ pub enum Directive {
     /// `reasoning` field but signs it `reasoning_content`. No rule: the
     /// field is its own signature.
     ReasoningContentSignature,
+    /// The provider ends a model's output at the context window itself (the
+    /// Claude API's `model_context_window_exceeded` stop, Claude 4.5 and
+    /// later) instead of refusing a prompt plus output cap past the window,
+    /// so the output cap is never shrunk to fit the window. No rule: it
+    /// does not.
+    StopsOutputAtWindow,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -255,6 +261,7 @@ impl Directive {
         Self::ReasoningOffField,
         Self::EncryptedReasoning,
         Self::ReasoningContentSignature,
+        Self::StopsOutputAtWindow,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -303,6 +310,7 @@ impl Directive {
             Self::ReasoningOffField => "reasoning_off_field",
             Self::EncryptedReasoning => "encrypted_reasoning",
             Self::ReasoningContentSignature => "reasoning_content_signature",
+            Self::StopsOutputAtWindow => "stops_output_at_window",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -365,7 +373,8 @@ impl Directive {
             | Self::ServiceTierField
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
-            | Self::ReasoningContentSignature => None,
+            | Self::ReasoningContentSignature
+            | Self::StopsOutputAtWindow => None,
         }
     }
 
@@ -396,7 +405,8 @@ impl Directive {
             | Self::ServiceTierField
             | Self::ReasoningOffField
             | Self::EncryptedReasoning
-            | Self::ReasoningContentSignature => ValueKind::Bool,
+            | Self::ReasoningContentSignature
+            | Self::StopsOutputAtWindow => ValueKind::Bool,
             Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
                 ValueKind::Prefixes
             }
@@ -1627,6 +1637,12 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn adaptive_thinking(&self) -> Option<bool> {
         self.flag(Directive::AdaptiveThinking)
+    }
+
+    /// [`Directive::StopsOutputAtWindow`].
+    #[must_use]
+    pub fn stops_output_at_window(&self) -> Option<bool> {
+        self.flag(Directive::StopsOutputAtWindow)
     }
 
     /// [`Directive::ThinkingBlockBinding`].

@@ -4,7 +4,10 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_thinking, FauxAssistantMessageOptions, FauxModelDefinition,
+    RegisterFauxProviderOptions,
+};
 use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageDiagnostic, Message, StopReason};
 use futures::FutureExt;
 
@@ -262,6 +265,66 @@ async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
         SubmissionStatus::Done
     );
     assert!(chat.faux.summary_requests().is_empty());
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A length stop with no text that ran into the context window (a
+/// 9000-token window; its prompt and 600 output tokens within 8192 of it,
+/// below the catalog max of 900) compacts and sends the request again,
+/// with no note: the window ran out, not the model's reasoning. The cut
+/// reasoning is no error and is not sent again.
+#[tokio::test]
+async fn compacts_when_a_length_stop_while_reasoning_ran_into_the_window() {
+    let chat = open(OpenOptions {
+        context_window: Some(9_000),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        enabled: true,
+        ..MANUAL
+    });
+    chat.faux.agent(faux_assistant_message(
+        vec![faux_thinking(text("plan", 600))],
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Length),
+            ..FauxAssistantMessageOptions::default()
+        },
+    ));
+    chat.faux.summary(summary("SUMMARY"));
+    chat.faux.agent(with_stop("done", StopReason::Stop));
+    let input = submit(&chat, "go").await;
+    assert_eq!(
+        input.wait(context()).await.unwrap().state.status(),
+        SubmissionStatus::Done
+    );
+    let retry = chat.faux.last_agent_messages();
+    let cut = all_entries(&chat.root, context())
+        .await
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry.model.iter().flatten())
+        .filter_map(Message::as_assistant)
+        .find(|message| message.stop_reason == StopReason::Length)
+        .map(|message| message.error_message.clone());
+    assert_eq!(
+        (
+            chat.faux.summary_requests().len(),
+            user_text(
+                retry
+                    .iter()
+                    .rev()
+                    .find(|message| matches!(message, Message::User(_)))
+            ),
+            retry
+                .iter()
+                .filter_map(Message::as_assistant)
+                .any(|message| message.stop_reason == StopReason::Length),
+            cut
+        ),
+        (1, "go".to_owned(), false, Some(None))
+    );
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -645,16 +708,46 @@ async fn treats_silent_overflow_as_an_ordinary_answer_a_stop_whose_input_exceeds
     treats_silent_overflow_as_an_ordinary_answer(vec![answer("fine")]).await;
 }
 
-/// A reply with no output is no answer (LAWS.bend H4.7): it is
-/// retried as a model error, never compacted as an overflow.
+/// A length stop with no output and the input filling the window is no
+/// answer, and no overflow either: the window ran out while the model
+/// still reasoned, so the length ladder (laws/stop.bend R7) compacts. In a
+/// 300-token window the compaction cannot make room, so the run fails with
+/// the ladder's text and sends the same full request no more (the
+/// thresholds, out of reach, start nothing).
 #[tokio::test]
-async fn treats_silent_overflow_as_an_ordinary_answer_a_length_stop_that_fills_the_window_without_output(
-) {
-    treats_silent_overflow_as_an_ordinary_answer(vec![
-        with_stop("", StopReason::Length),
-        answer("fine"),
-    ])
+async fn a_length_stop_that_fills_a_window_too_small_to_compact_fails_with_its_reason() {
+    let chat = open(OpenOptions {
+        context_window: Some(300),
+        ..OpenOptions::default()
+    })
     .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        enabled: true,
+        reserve_tokens: -100_000.0,
+        keep_recent_tokens: 150.0,
+        background: BackgroundMargin::Tokens(0.0),
+        token_count: ThresholdTokens::Estimate,
+    });
+    chat.faux.agent(with_stop("", StopReason::Length));
+    let input = submit(&chat, "go").await;
+    let settled = input.wait(context()).await.unwrap();
+    assert_eq!(
+        (
+            settled.state.status(),
+            settled.state.detail().cloned(),
+            chat.faux.agent_requests().len() - 3
+        ),
+        (
+            SubmissionStatus::Unanswered,
+            Some(eukhe_chord::json::JsonValue::from(
+                "The model ran out of the context window while it was still reasoning, and \
+                 compaction could not make room"
+            )),
+            1
+        )
+    );
+    chat.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]

@@ -12,6 +12,7 @@ mod opencode_provider_headers;
 mod openrouter_cache_control_models;
 mod openrouter_cache_write_repro;
 mod openrouter_reasoning_options;
+mod output_cap;
 mod prompt_cache;
 mod prompt_progress;
 mod provider_stream_event;

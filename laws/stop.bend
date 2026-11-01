@@ -41,6 +41,14 @@ import ../spec/harness/stop.bend as StSpec
 #     note's text, or the round note (0, none | 1, then the text); reads
 #     exactly the request; answers a tag past 2 and input left over with
 #     `E stop: malformed request`.
+# R7: a length stop with no text (the model still reasoned) climbs the
+#     spec's ladder (S8), never failing the run while a rung remains:
+#     compact when the window ran out and a compaction can run (the row
+#     stays); else a length note under the cap; else, once, a length note
+#     with the request one thinking level lower (the lower level rides
+#     that one noted retry: the note's request only); else the run fails.
+#     Each rung is a noted retry or the overflow's compaction, so every
+#     run still ends (run_ends: notes and compactions are bounded).
 
 # Spec helpers
 # ------------
@@ -116,6 +124,49 @@ def rust_empty(+k: RnRecovery.Rk, +row: Nat) -> RnDecision.Help:
 
 def rust_promise(+k: RnRecovery.Rk, +row: Nat) -> RnDecision.Help:
   rust_promise.at(Nat.is_lt(rust_promise_row(k, row), StSpec.promise_cap()), rust_promise_row(k, row))
+
+# the length notes in a row that a note of recovery k with row `row`
+# makes (decide.rs `recover` over `NoteCause::row`)
+def rust_long_row(k: RnRecovery.Rk, row: Nat) -> Nat:
+  match k:
+    case RnRecovery.Free{}:
+      0n
+    case RnRecovery.Longs{}:
+      row
+    case RnRecovery.Leaks{}:
+      0n
+    case RnRecovery.Loops{}:
+      0n
+    case RnRecovery.Empties{}:
+      0n
+    case RnRecovery.Promises{}:
+      0n
+
+# R7: what `recover` does with a length stop with no text, the cap of
+# length notes `long`, after the request whose note counts row notes of
+# the recovery k
+def rust_think(+long: Nat, +k: RnRecovery.Rk, +row: Nat, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool, lower: Bool) -> RnDecision.Help:
+  StSpec.ladder(Bool.and(cuttable, StSpec.ran_out(window, catalog, prompt, out)), lower, rust_long_row(k, row), long)
+
+# the act ends the run
+def quits(a: RnRecovery.Act) -> Bool:
+  match a:
+    case RnRecovery.Pass{}:
+      False{}
+    case RnRecovery.Exec{}:
+      False{}
+    case RnRecovery.Redo{}:
+      False{}
+    case RnRecovery.Stand{}:
+      False{}
+    case RnRecovery.Quit{}:
+      True{}
+    case RnRecovery.Remind{}:
+      False{}
+    case RnRecovery.Shrink{}:
+      False{}
+    case RnRecovery.Lower{}:
+      False{}
 
 # R6: the spelling of a request and of its answer
 def sp_w_facts(f: S.Facts, rest: String) -> String:
@@ -361,6 +412,137 @@ law stop_remind_spends_a_note:
   for +m: Nat
   for +p: Nat
   {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Remind{}, pass), r, c, a, 1n+m, p) == RnState.St{RnState.Prepare{}, r, c, a, m, RnState.Cfg.polls(cfg)} : RnState.St}
+
+# Laws: the ladder of a length stop with no text (R7)
+# ---------------------------------------------------
+
+# LAW stop_think_compacts (R7): a length stop with no text, when the
+# window ran out and a compaction can run, compacts and goes again; the
+# row of length notes stays as it was
+# EXCLUDES: a retry at the same cap while the window is what ran out
+#   (the 3 identical retries of v0.10.59), a compaction that spends or
+#   resets the length row
+law stop_think_compacts:
+  for +rc: RnRecovery.RCfg
+  for lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{True{}, lower}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Shrink{}, RnRecovery.Rec{k, row, same, last}} : RnRecovery.Dec}
+
+# LAW stop_think_notes (R7): with no compaction to make, under the cap a
+# length stop with no text is retried with the next length note, at the
+# agent's thinking level
+# EXCLUDES: a ladder that skips the notes, a level dropped before the
+#   notes run out, a row that does not count
+law stop_think_notes:
+  for +rc: RnRecovery.RCfg
+  for lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, lower}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
+
+# LAW stop_think_lowers_last (R7): at the cap, when a level below the
+# agent's exists, the last rung retries once more with the next length
+# note, one thinking level lower
+# EXCLUDES: a run failed while the lower level was still untried
+law stop_think_lowers_last:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +at: {Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, True{}}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Lower{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
+
+# LAW stop_think_never_fails_early (R7): while a rung remains (a
+# compaction, a note under the cap, the lower level), a length stop with
+# no text never fails the run
+# EXCLUDES: "The model gave no answer" while a better path exists
+law stop_think_never_fails_early:
+  for +rc: RnRecovery.RCfg
+  for +shrink: Bool
+  for +lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for left: {StSpec.rung_left(shrink, lower, RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
+  {quits(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Think{shrink, lower}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool}
+
+# LAW stop_think_gives_up (R7): with every rung tried, a length stop with
+# no text fails the run, its row as it was
+# EXCLUDES: an endless ladder, a retry past the last rung
+law stop_think_gives_up:
+  for +rc: RnRecovery.RCfg
+  for +shrink: Bool
+  for +lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for spent: {StSpec.rung_left(shrink, lower, RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == False{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{shrink, lower}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Quit{}, RnRecovery.Rec{k, row, same, last}} : RnRecovery.Dec}
+
+# LAW stop_think_lowers_once (R7): after the lower rung, a length stop
+# with no text and nothing to compact fails the run: the level drops once
+# EXCLUDES: a level lowered again and again, a lowered level kept for
+#   later replies
+law stop_think_lowers_once:
+  for +rc: RnRecovery.RCfg
+  for lower: Bool
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, lower}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.RCfg.long(rc), same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+
+# LAW stop_lower_spends_a_note (R7): the lower rung is a noted retry: it
+# spends a note (its note carries the lower level, so only that one
+# request thinks lower) and every run still ends (run_ends)
+# EXCLUDES: a lower rung outside the run's budgets, one that ends the run
+law stop_lower_spends_a_note:
+  for +cfg: RnState.Cfg
+  for -pass: RnState.Reply
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +m: Nat
+  for +p: Nat
+  {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Lower{}, pass), r, c, a, 1n+m, p) == RnState.St{RnState.Prepare{}, r, c, a, m, RnState.Cfg.polls(cfg)} : RnState.St}
+
+# LAW stop_shrink_compacts_once (R7): the compaction rung is the
+# overflow's compaction: it spends the generation's one compaction
+# EXCLUDES: a compaction outside the run's budgets, two in a generation
+law stop_shrink_compacts_once:
+  for +cfg: RnState.Cfg
+  for -pass: RnState.Reply
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass), r, 1n+c, a, n, p) == RnState.St{RnState.Compact{True{}}, r, c, a, n, p} : RnState.St}
+
+# LAW stop_bound_exact (R7): the window ran out exactly as the spec says
+# EXCLUDES: a compaction when the catalog cap stopped the reply, or when
+#   the window is unknown; none when the reply filled the window
+law stop_bound_exact:
+  for +window: Nat
+  for +catalog: Nat
+  for +prompt: Nat
+  for +out: Nat
+  {RnRecovery.bound(window, catalog, prompt, out) == StSpec.ran_out(window, catalog, prompt, out) : Bool}
+
+# LAW stop_think_example (R7): anchor: the user's stop (a 262144 window, a
+# 16384 cap reached with a 48106 prompt: no compaction) at rows 0 to 4 of
+# 3 with a lower level, at row 3 with none; a stop at the window of a
+# 200000 window (compacts); an unknown window (no compaction)
+# EXCLUDES: a ladder that drifts from the shipped rungs
+law stop_think_example:
+  {[RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 2n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, True{}}, RnRecovery.Longs{}, 4n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{262144n, 16384n, 48106n, 16384n, True{}, False{}}, RnRecovery.Longs{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{200000n, 64000n, 180000n, 15000n, False{}, True{}}, RnRecovery.Longs{}, 1n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Thought{0n, 64000n, 180000n, 15000n, True{}, True{}}, RnRecovery.Free{}, 0n)] == [RnDecision.Redoes{1n}, RnDecision.Redoes{3n}, RnDecision.Lowers{4n}, RnDecision.Quits{}, RnDecision.Quits{}, RnDecision.Compacts{}, RnDecision.Redoes{2n}, RnDecision.Redoes{1n}] : List<&2, RnDecision.Help>}
 
 # Laws: the texts (R5)
 # --------------------

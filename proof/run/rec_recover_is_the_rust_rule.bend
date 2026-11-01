@@ -6,6 +6,7 @@ import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 import ../../laws/stop.bend as LawsStop
+import ../../spec/harness/stop.bend as StSpec
 
 def rk.below(+a: Nat, +b: Nat) -> {Nat.is_lt(a, b) == RnRecovery.below(a, b) : Bool}:
   match a b:
@@ -139,6 +140,50 @@ def rk.promise_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.promises(k, r
     case RnRecovery.Promises{}:
       {==}
 
+def rk.long_row_stop(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, row) == LawsStop.rust_long_row(k, row) : Nat}:
+  match k:
+    case RnRecovery.Free{}:
+      {==}
+    case RnRecovery.Longs{}:
+      {==}
+    case RnRecovery.Leaks{}:
+      {==}
+    case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
+      {==}
+
+# the spec's window test is the model's
+def rk.bound(+w: Nat, +c: Nat, +p: Nat, +o: Nat) -> {StSpec.ran_out(w, c, p, o) == RnRecovery.bound(w, c, p, o) : Bool}:
+  match w:
+    case 0n:
+      {==}
+    case 1n+v:
+      {==}
+
+def rk.at_cap(le: Bool, +x: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think.note(False{}, le, x, 0n, 0n, r)) == StSpec.at_cap(le, x) : RnDecision.Help}:
+  match le:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.think_note(lt: Bool, +lower: Bool, +x: Nat, +long: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think.note(lt, Bool.and(lower, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.under(lt, lower, x, long) : RnDecision.Help}:
+  match lt:
+    case True{}:
+      {==}
+    case False{}:
+      rk.at_cap(Bool.and(lower, Nat.is_eq(x, long)), x, r)
+
+def rk.think(s: Bool, +lower: Bool, +x: Nat, +long: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think(s, Nat.is_lt(x, long), Bool.and(lower, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(s, lower, x, long) : RnDecision.Help}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      rk.think_note(Nat.is_lt(x, long), lower, x, long, r)
+
 def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, +k: RnRecovery.Rk, +row: Nat) -> {RnDecision.decide.recover(rc, s, k, row) == Run.rust.recover(rc, s, k, row) : RnDecision.Help}:
   match rc:
     case RnRecovery.RCfg{+long, +leak, +redirect, +repeat}:
@@ -175,6 +220,13 @@ def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, 
           %rk.promise_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.promise(RnRecovery.below(x, Stop.promise_cap()), x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(_, Stop.promise_cap()), _) : RnDecision.Help}
           %rk.below(x, Stop.promise_cap()) : {RnDecision.Help.of(RnRecovery.rec.promise(_, x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(x, Stop.promise_cap()), x) : RnDecision.Help}
           rk.promise(Nat.is_lt(x, Stop.promise_cap()), x, 0n, 0n, r)
+        case RnDecision.Thought{+w, +c, +p, +o, +cu, +lo}:
+          +x = RnRecovery.Rk.longs(k, row)
+          +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
+          %rk.long_row_stop(k, row) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, RnRecovery.bound(w, c, p, o)), RnRecovery.below(x, long), Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, _, long) : RnDecision.Help}
+          %rk.bound(w, c, p, o) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, _), RnRecovery.below(x, long), Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long) : RnDecision.Help}
+          %rk.below(x, long) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, StSpec.ran_out(w, c, p, o)), _, Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long) : RnDecision.Help}
+          rk.think(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long, r)
 
 def Run.rec_recover_is_the_rust_rule(rc, s, k, row):
   rk.rec_recover_is_the_rust_rule(rc, s, k, row)

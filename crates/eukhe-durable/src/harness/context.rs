@@ -27,13 +27,22 @@ const MISSING_RESULT_TEXT: &str =
     "Tool result unavailable: history ends before this call completed.";
 
 /// Whether an assistant message is left out of model context: `aborted`,
-/// `error`, and `deferred` answers stay in the transcript only.
+/// `error`, and `deferred` answers stay in the transcript only, and so does
+/// a `length` stop with no text and no tool call: cut reasoning, which
+/// replayed leads the model down the same dead end (the length ladder of
+/// laws/stop.bend R7 retries without it; omp
+/// `shouldDropTruncatedThinkingOnlyAssistant`).
 fn is_excluded(message: &Message) -> bool {
     match message {
-        Message::Assistant(assistant) => matches!(
-            assistant.stop_reason,
-            StopReason::Aborted | StopReason::Error | StopReason::Deferred
-        ),
+        Message::Assistant(assistant) => match assistant.stop_reason {
+            StopReason::Aborted | StopReason::Error | StopReason::Deferred => true,
+            StopReason::Length => assistant.content.iter().all(|block| match block {
+                AssistantContentBlock::Text(text) => text.text.trim().is_empty(),
+                AssistantContentBlock::Thinking(_) => true,
+                AssistantContentBlock::ToolCall(_) => false,
+            }),
+            StopReason::Stop | StopReason::ToolUse | StopReason::Pending => false,
+        },
         Message::System(_) | Message::User(_) | Message::ToolResult(_) => false,
     }
 }

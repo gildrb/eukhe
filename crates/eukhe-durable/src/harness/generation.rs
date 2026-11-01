@@ -24,7 +24,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::capabilities::CapabilityOptions;
-use eukhe_ai::models::ModelsCapabilityOptions;
+use eukhe_ai::models::{get_supported_thinking_levels, ModelsCapabilityOptions};
 use eukhe_ai::types::{
     DeferredCancelOptions, DeferredFetchOptions, DeferredRequest, DeferredWindow,
     ProviderRequestOptions,
@@ -53,7 +53,7 @@ use self::decide::{
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
 use self::leak::{scan, Leak, LeakParseError};
-use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
+use self::note::{NoteCause, Recovery, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
 use self::stop::{said, Facts};
@@ -343,7 +343,12 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let (Some(model), Some(resolved)) = (reference.clone(), resolved) else {
         return fail_no_model(&runtime, reference.as_ref(), &cx).await;
     };
-    let thinking_level = agent.thinking_level;
+    // The length ladder's last rung lowers the level of this one request
+    // (its note's); every other request thinks at the agent's level.
+    let thinking_level = note
+        .as_ref()
+        .and_then(RetryNote::lowered)
+        .unwrap_or(agent.thinking_level);
     // The compaction this preparation waited for, if it resumes after one.
     let waited = match (compacted, &overflow) {
         (Some(child), Some(_)) => Some((child, Compaction::Overflow)),
@@ -1157,6 +1162,8 @@ async fn classify(
             repoll_wait.map(|_| poll.handle.clone())
         }
     };
+    // The overflow text a compaction of the length ladder fails with.
+    let mut shrink = None;
     let (reply, cause) = if let Some(handle) = &deferred {
         (Reply::Deferred(handle), None)
     } else if cancelled {
@@ -1281,6 +1288,56 @@ async fn classify(
             }),
             Reply::Deferred(_) | Reply::Overflow { .. } => None,
         };
+        // A length stop with no text: the model still reasoned. Its ladder
+        // (`Stuck::Thought`) reads whether the window ran out, whether a
+        // compaction can run, and the level one below the agent's in the
+        // model's ladder.
+        let mut lower_level = None;
+        let stuck = match stuck {
+            Some(Stuck::Length) if !text => {
+                let model = runtime
+                    .models()
+                    .get_model(&request.model.provider, &request.model.model_id);
+                let (window, catalog) = model
+                    .as_ref()
+                    .map_or((0, 0), |model| (model.context_window, model.max_tokens));
+                let cuttable = compacted.is_none()
+                    && settings.compaction.enabled
+                    && select_cut(
+                        &runtime
+                            .context(
+                                conversation_id,
+                                cx,
+                                ContextOptions {
+                                    at: Some(request.cutoff),
+                                },
+                            )
+                            .await?,
+                        settings.compaction.keep_window(window),
+                    )
+                    .is_some();
+                let level = runtime.agent(cx).await?.thinking_level;
+                lower_level = model.as_ref().and_then(|model| {
+                    let levels = get_supported_thinking_levels(model);
+                    let at = levels.iter().position(|supported| *supported == level)?;
+                    at.checked_sub(1)
+                        .and_then(|below| levels.get(below).copied())
+                });
+                let usage = &message.usage;
+                Some(Stuck::Thought {
+                    window,
+                    catalog,
+                    prompt: usage
+                        .input
+                        .saturating_add(usage.cache_read)
+                        .saturating_add(usage.cache_write),
+                    output: usage.output,
+                    cuttable,
+                    lower: lower_level.is_some(),
+                })
+            }
+            other => other,
+        };
         let thinking: usize = message
             .content
             .iter()
@@ -1367,34 +1424,83 @@ async fn classify(
                     }
                     (Stuck::Length, Act::Redo { row }) => {
                         let tokens = message.usage.output;
-                        if text {
-                            let error = "The model hit the output limit before it finished its \
-                                         answer; the harness did not take the cut text as the \
-                                         answer"
-                                .to_owned();
-                            (redo, Some(NoteCause::Cut { tokens, row }), Some(error))
-                        } else {
-                            (
-                                redo,
-                                Some(NoteCause::Length { tokens, row }),
-                                Some(no_answer),
-                            )
-                        }
+                        let error = "The model hit the output limit before it finished its \
+                                     answer; the harness did not take the cut text as the answer"
+                            .to_owned();
+                        (redo, Some(NoteCause::Cut { tokens, row }), Some(error))
                     }
                     (Stuck::Length, Act::Quit) => {
-                        let error = if text {
-                            format!(
-                                "The model hit the output limit before it finished its answer, \
-                                 after {LENGTH_NOTES} length notes in a row: use a different \
-                                 model or raise the model's max output tokens"
-                            )
-                        } else {
-                            format!(
-                                "{no_answer}. The model hit the output limit while it was still \
-                                 reasoning after {LENGTH_NOTES} length notes in a row: use a \
-                                 different model or raise the model's max output tokens"
-                            )
+                        let error = format!(
+                            "The model hit the output limit before it finished its answer, after \
+                             {LENGTH_NOTES} length notes in a row: use a different model or \
+                             raise the model's max output tokens"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    // The ladder of a length stop with no text: each rung is
+                    // a quiet note (no error on the reply, which the next
+                    // request leaves out); only the last rung's end fails.
+                    (Stuck::Thought { .. }, Act::Compact) => {
+                        shrink = Some(
+                            "The model ran out of the context window while it was still \
+                             reasoning, and compaction could not make room"
+                                .to_owned(),
+                        );
+                        (Reply::Overflow { cut: true }, None, None)
+                    }
+                    (Stuck::Thought { lower, .. }, Act::Redo { row }) => {
+                        let cause = NoteCause::Length {
+                            tokens: message.usage.output,
+                            row,
+                            cap: LENGTH_NOTES + u32::from(lower),
+                            lowered: None,
                         };
+                        (redo, Some(cause), None)
+                    }
+                    (Stuck::Thought { .. }, Act::Lower { row }) => {
+                        let cause = NoteCause::Length {
+                            tokens: message.usage.output,
+                            row,
+                            cap: row,
+                            lowered: lower_level,
+                        };
+                        (redo, Some(cause), None)
+                    }
+                    (Stuck::Thought { .. }, Act::Quit) => {
+                        let lowered = request.note.as_ref().and_then(RetryNote::lowered);
+                        let rows = match note {
+                            Some((Recovery::Length, row)) => row,
+                            Some(_) | None => 0,
+                        };
+                        let notes = rows.saturating_sub(u32::from(lowered.is_some()));
+                        let mut tried = Vec::new();
+                        if compacted.is_some() {
+                            tried.push("compacting the context".to_owned());
+                        }
+                        if notes > 0 {
+                            tried.push(format!(
+                                "{notes} retries with a note to reason only about the next step"
+                            ));
+                        }
+                        if let Some(level) = lowered {
+                            tried.push(format!(
+                                "a retry at the lower thinking level {}",
+                                level.as_str()
+                            ));
+                        }
+                        let limit = match message.usage.output {
+                            0 => "the output limit".to_owned(),
+                            tokens => format!("the {tokens}-token output limit"),
+                        };
+                        let after = if tried.is_empty() {
+                            String::new()
+                        } else {
+                            format!(", again after {}", tried.join(", then "))
+                        };
+                        let error = format!(
+                            "{no_answer}. It hit {limit} while it was still reasoning{after}: \
+                             use a different model or raise the model's max output tokens"
+                        );
                         (quit, None, Some(error))
                     }
                     (Stuck::Leak, Act::Redo { row }) => match broken {
@@ -1438,8 +1544,16 @@ async fn classify(
                     }
                     (Stuck::Promise, Act::Stand) => (Reply::Text, None, None),
                     (
-                        Stuck::Length | Stuck::Leak | Stuck::Empty,
+                        Stuck::Length | Stuck::Leak | Stuck::Empty | Stuck::Thought { .. },
                         Act::Run | Act::Stand | Act::Remind { .. },
+                    )
+                    | (
+                        Stuck::Length
+                        | Stuck::Leak
+                        | Stuck::Calls { .. }
+                        | Stuck::Empty
+                        | Stuck::Promise,
+                        Act::Compact | Act::Lower { .. },
                     )
                     | (Stuck::Calls { .. }, Act::Stand | Act::Remind { .. })
                     | (Stuck::Promise, Act::Run | Act::Redo { .. } | Act::Quit) => {
@@ -1451,7 +1565,8 @@ async fn classify(
         // A run that fails at the length cap ended on the output limit: its
         // last message keeps the stop reason length (ACP reports
         // `max_tokens`); every other failed reply is an error.
-        let at_limit = stuck == Some(Stuck::Length) && cause.is_none();
+        let at_limit =
+            matches!(stuck, Some(Stuck::Length | Stuck::Thought { .. })) && cause.is_none();
         if let Some(error) = error {
             message.error_message = Some(error);
             if !at_limit {
@@ -1657,9 +1772,8 @@ async fn classify(
         Step::Tools => start_tool_round(runtime, request, message, calls, cx).await,
         Step::Answer => answer(runtime, message, cx).await,
         Step::Compact => {
-            let text = message
-                .error_message
-                .clone()
+            let text = shrink
+                .or_else(|| message.error_message.clone())
                 .unwrap_or_else(|| "Context overflow".to_owned());
             let compaction = runtime.registry().builtins().compaction.clone();
             let note = request.note;

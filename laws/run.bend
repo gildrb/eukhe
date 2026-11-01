@@ -808,6 +808,8 @@ def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +r
           LawsStop.rust_empty(k, row)
         case RnDecision.Promised{}:
           LawsStop.rust_promise(k, row)
+        case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+          LawsStop.rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower)
 
 # LAW rec_recover_is_the_rust_rule: what a recovery does with any stuck reply, after any note, under
 # any caps, is what `recover` did: the code that runs is the recoveries
@@ -858,6 +860,8 @@ def run.stuck_fits(s: RnDecision.Stuck) -> Bool:
       True{}
     case RnDecision.Promised{}:
       True{}
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
+      Bool.and(Bool.and(LawsBase.wire_fits(window), LawsBase.wire_fits(catalog)), Bool.and(LawsBase.wire_fits(prompt), LawsBase.wire_fits(out)))
 
 def run.ask_fits(a: FRn.Ask) -> Bool:
   match a:
@@ -899,6 +903,10 @@ def run.help_fits(h: RnDecision.Help) -> Bool:
     case RnDecision.Quits{}:
       True{}
     case RnDecision.Reminds{row}:
+      LawsBase.wire_fits(row)
+    case RnDecision.Compacts{}:
+      True{}
+    case RnDecision.Lowers{row}:
       LawsBase.wire_fits(row)
 
 # LAW run_ffi_ask_round_trip: every request whose Nats fit the wire reads back as itself, and its

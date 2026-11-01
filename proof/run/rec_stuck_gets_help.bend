@@ -45,6 +45,21 @@ def help_ran(fresh: Bool, u: Bool, -kept: Bool, -m: Nat, -h: Nat, -n: Nat, -same
     case False{} False{}:
       {==}
 
+def help_think(s: Bool, u: Bool, l: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.think(s, u, l, n, same, last, r))) == True{} : Bool}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      match u:
+        case True{}:
+          {==}
+        case False{}:
+          match l:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+
 def help_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.go(rc, o, k, row, same, last)))) == True{} : Bool}:
   match o:
     case RnRecovery.Long{}:
@@ -69,6 +84,8 @@ def help_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: N
       help_empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), RnRecovery.Rk.empties(k, row), same, last, RnRecovery.Rec{k, row, same, last})
     case RnRecovery.Promise{}:
       help_promise(RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), RnRecovery.Rk.promises(k, row), same, last, RnRecovery.Rec{k, row, same, last})
+    case RnRecovery.Think{shrink, lower}:
+      help_think(shrink, RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Bool.and(lower, Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc))), RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last})
 
 def stuck_gets_help(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}:
   match r:

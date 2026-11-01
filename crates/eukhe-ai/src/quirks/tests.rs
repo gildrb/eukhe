@@ -578,6 +578,45 @@ fn the_shipped_family_and_api_rules_give_the_former_checks() {
     );
 }
 
+/// `stops_output_at_window` holds for Claude 4.5 and later on the Claude
+/// API only: not for older Claude there, not for the same model on
+/// Bedrock, and not on a gateway that shares the Claude API's model ids.
+#[test]
+fn claude_4_5_and_later_stop_at_the_window_on_the_claude_api_only() {
+    let stops = |api: &str, provider: &str, id: &str, url: &str| {
+        Quirks::of(&model(api, provider, id, url)).stops_output_at_window()
+    };
+    assert_eq!(
+        [
+            stops(
+                "anthropic-messages",
+                "anthropic",
+                "claude-sonnet-4-5",
+                "https://api.anthropic.com"
+            ),
+            stops(
+                "anthropic-messages",
+                "anthropic",
+                "claude-opus-4-1",
+                "https://api.anthropic.com"
+            ),
+            stops(
+                "bedrock-converse-stream",
+                "amazon-bedrock",
+                "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "",
+            ),
+            stops(
+                "anthropic-messages",
+                "opencode",
+                "claude-sonnet-4-5",
+                "https://opencode.ai/zen"
+            ),
+        ],
+        [Some(true), None, None, Some(false)]
+    );
+}
+
 /// The shipped Qwen families split at the revision 3.8 (omp's class
 /// `qwen`, `revision ">=3.8"`): the revision follows `qwen` in the bare
 /// name; a size (`8b`) is not a revision, and an id with no revision is

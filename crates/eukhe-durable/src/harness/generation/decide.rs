@@ -69,8 +69,8 @@ pub(crate) const CAPS: Caps = Caps {
 /// Directors of [`super::stop`] pick the ones with no tool call).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stuck {
-    /// A length stop with no tool call (`LengthStop`): the model hit the
-    /// output limit, while it still reasoned or in the middle of its text.
+    /// A length stop with text and no tool call (`LengthStop`): the model
+    /// hit the output limit in the middle of its text.
     Length,
     /// Tool-call markup in the text and no tool call, and the harness
     /// could not rebuild every leaked call (`MarkupStop`).
@@ -84,6 +84,21 @@ pub(crate) enum Stuck {
     /// An answer that announces a next step it did not take, asking the
     /// user nothing, with no work running (`UnexpectedStop`).
     Promise,
+    /// A length stop with no text and no tool call (`LengthStop`): the
+    /// model hit the output limit while it still reasoned. Its ladder reads
+    /// whether the window ran out (the model's context window, 0 when
+    /// unknown, and catalog max output; the reply's prompt and output
+    /// tokens), whether a compaction can run (`cuttable`: compaction on, a
+    /// cut, the generation has not compacted) and whether a thinking level
+    /// below the agent's exists (`lower`).
+    Thought {
+        window: u64,
+        catalog: u64,
+        prompt: u64,
+        output: u64,
+        cuttable: bool,
+        lower: bool,
+    },
 }
 
 /// What a recovery does with a stuck reply.
@@ -101,17 +116,26 @@ pub(crate) enum Act {
     /// The reply stays in the transcript and the run asks again with the
     /// `row`th note of the recovery in a row (a noted retry).
     Remind { row: u32 },
+    /// The context is compacted (an overflow's compaction), then the
+    /// request goes again.
+    Compact,
+    /// A noted retry with the `row`th note of the recovery in a row, its
+    /// one request one thinking level lower.
+    Lower { row: u32 },
 }
 
 /// What a recovery does with a stuck reply (H4.8), given the recovery and
 /// the row of notes in a row that the request's note counts (`note`,
-/// [`NoteCause::recovery`]): a length stop is redone under its cap, then
-/// quits; leaked calls are redone under their cap, then quit; calls run
-/// below the repeat cap, else are redone under the redirect cap, then quit;
-/// an empty reply is redone under its cap, then quits; an announced step
-/// is reminded under its cap, then stands. A recovery does not read the
-/// retry policy: its note is a new request, not a transient error. The
-/// decision is `decide.recover` of `bend/run/decision.bend` (laws
+/// [`NoteCause::recovery`]): a length stop with text is redone under its
+/// cap, then quits; a length stop with no text climbs its ladder (compact
+/// when the window ran out and a compaction can run, else a note under the
+/// cap, else once a note one thinking level lower, else quit); leaked calls
+/// are redone under their cap, then quit; calls run below the repeat cap,
+/// else are redone under the redirect cap, then quit; an empty reply is
+/// redone under its cap, then quits; an announced step is reminded under
+/// its cap, then stands. A recovery does not read the retry policy: its
+/// note is a new request, not a transient error. The decision is
+/// `decide.recover` of `bend/run/decision.bend` (laws
 /// `rec_recover_is_the_rust_rule`, `stop_*` of `laws/stop.bend`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
     entry::ask(
@@ -127,6 +151,21 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
                 Stuck::Empty => w.tag(3),
                 Stuck::Promise => w.tag(4),
+                Stuck::Thought {
+                    window,
+                    catalog,
+                    prompt,
+                    output,
+                    cuttable,
+                    lower,
+                } => w
+                    .tag(5)
+                    .nat(entry::saturated(window))
+                    .nat(entry::saturated(catalog))
+                    .nat(entry::saturated(prompt))
+                    .nat(entry::saturated(output))
+                    .bool(cuttable)
+                    .bool(lower),
             };
             match note {
                 None => w.tag(0).nat(0),
@@ -141,13 +180,15 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
             let row = |r: &mut eukhe_bend::wire::Reader<'_>| {
                 u32::try_from(r.nat()?).map_err(|_| entry::mismatch("a u32 row"))
             };
-            match r.tag_of(5, "a recovery's act")? {
+            match r.tag_of(7, "a recovery's act")? {
                 0 => Ok(Act::Run),
                 1 => Ok(Act::Redo { row: row(r)? }),
                 2 => Ok(Act::Stand),
                 3 => Ok(Act::Quit),
                 4 => Ok(Act::Remind { row: row(r)? }),
-                5..=u32::MAX => Err(entry::mismatch("a recovery's act")),
+                5 => Ok(Act::Compact),
+                6 => Ok(Act::Lower { row: row(r)? }),
+                7..=u32::MAX => Err(entry::mismatch("a recovery's act")),
             }
         },
     )

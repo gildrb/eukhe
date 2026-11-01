@@ -24,7 +24,7 @@
 
 mod client;
 mod client_config;
-mod convert;
+pub(crate) mod convert;
 mod credentials;
 mod event_stream_codec;
 mod events;
@@ -47,10 +47,7 @@ use self::client::{BedrockFailure, SendRequest, StreamValue};
 use self::events::{handle_metadata, StreamBlocks};
 use super::cache_breakpoints::{excess_breakpoints_error, placed_marks};
 use super::lazy::lazy_stream;
-use super::simple_options::{
-    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
-    clamp_reasoning, clamp_thinking_budget_to_answer_room,
-};
+use super::simple_options::{adjust_max_tokens_for_thinking, build_base_options, clamp_reasoning};
 use super::ProviderStreams;
 use crate::models::adaptive_thinking;
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
@@ -775,17 +772,22 @@ pub fn stream_simple(
 
     let mut thinking_budgets = options.thinking_budgets.clone();
     if convert::is_anthropic_claude_model(model) && !adaptive_thinking(model) {
-        // `None` means the caller did not request an output cap; the helper
-        // uses the model cap.
+        // Thinking on top of the caller's answer cap (`None`: the catalog's
+        // max), through the one output cap rule, the answer's room kept.
         let adjusted = adjust_max_tokens_for_thinking(
-            base.max_tokens,
-            model.max_tokens,
+            model,
+            context,
+            options.stream.max_tokens,
             reasoning,
             options.thinking_budgets.as_ref(),
         );
-        let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
-        base.max_tokens = Some(max_tokens);
-        let budget = clamp_thinking_budget_to_answer_room(adjusted.thinking_budget, max_tokens);
+        base.max_tokens = Some(adjusted.max_tokens);
+        let budget = adjusted.thinking_budget;
+        if budget == 0 {
+            // No room to think under the cap: the request answers without
+            // thinking rather than send a budget the model refuses.
+            extra.remove("reasoning");
+        }
         let mut budgets = thinking_budgets.take().unwrap_or_default();
         match clamp_reasoning(Some(reasoning)) {
             Some(ThinkingLevel::Minimal) => budgets.minimal = Some(budget),

@@ -22,6 +22,11 @@ def rk.rt_help(x: RnDecision.Help, +rest: String, +h: {Run.run.help_fits(x) == T
     case RnDecision.Reminds{+row}:
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Wire.wire_nat_round_trip(row, rest, h)) : {FRn.get_help.c4.f0(_) == Wr.Got{RnDecision.Reminds{row}, rest} : Wr.Dec<RnDecision.Help>}
       {==}
+    case RnDecision.Compacts{}:
+      {==}
+    case RnDecision.Lowers{+row}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Wire.wire_nat_round_trip(row, rest, h)) : {FRn.get_help.c6.f0(_) == Wr.Got{RnDecision.Lowers{row}, rest} : Wr.Dec<RnDecision.Help>}
+      {==}
 
 def Run.run_ffi_help_round_trip(x, rest, h):
   rk.rt_help(x, rest, h)

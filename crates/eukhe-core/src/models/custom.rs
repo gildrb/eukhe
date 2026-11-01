@@ -418,13 +418,14 @@ impl ProviderConfig {
                     "cacheWrite": cost.cache_write.unwrap_or(0.0),
                 }),
             );
-            object.insert(
-                "contextWindow".to_owned(),
-                json!(definition.context_window.unwrap_or(128_000)),
-            );
+            // Without `maxTokens` the window is the model's only known
+            // limit: the output cap rule then omits the field and the
+            // provider's own max applies (no made-up cap).
+            let context_window = definition.context_window.unwrap_or(128_000);
+            object.insert("contextWindow".to_owned(), json!(context_window));
             object.insert(
                 "maxTokens".to_owned(),
-                json!(definition.max_tokens.unwrap_or(16_384)),
+                json!(definition.max_tokens.unwrap_or(context_window)),
             );
             if let Some(headers) = definition.headers.as_ref().filter(|h| !h.is_empty()) {
                 object.insert("headers".to_owned(), json!(headers));
@@ -774,9 +775,10 @@ mod tests {
         assert_eq!(models[0].id, "llama3");
         assert_eq!(models[0].base_url, "http://localhost:11434");
         assert_eq!(models[0].context_window, 128_000);
-        // A custom model that omits `maxTokens` defaults to 16384 and stays
-        // catalog-like: only a configured value is explicit.
-        assert_eq!(models[1].max_tokens, 16_384);
+        // A custom model that omits `maxTokens` takes its context window
+        // (the only limit it declares) and stays catalog-like: only a
+        // configured value is explicit.
+        assert_eq!(models[1].max_tokens, 128_000);
         assert!(!config.configures_max_tokens("bare"));
     }
 

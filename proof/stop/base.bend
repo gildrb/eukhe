@@ -21,6 +21,7 @@ import ../text_pat/text_pat_fold.bend as PTextPatFold
 import ../phrase/phrase_any.bend as PPhraseAny
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
+import ../../bend/run/recovery.bend as RnRecovery
 
 # Logic
 # -----
@@ -302,3 +303,77 @@ def stb.reply(q: FS.Ask) -> {FS.answer(q) == Stop.sp_w_reply(q) : String}:
     case FS.AskRounds{+m, +d}:
       %Equal.sym(Maybe<&2, String>, S.rounds(m, d), StSpec.rounds(m, d), stb.rounds(m, d)) : {FS.put_text(_, "") == Stop.sp_w_reply(FS.AskRounds{m, d}) : String}
       stb.w_round(StSpec.rounds(m, d))
+
+# The ladder
+# ----------
+
+# the model's test of a row under the cap is Nat's
+def stb.below(+a: Nat, +b: Nat) -> {Nat.is_lt(a, b) == RnRecovery.below(a, b) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      stb.below(p, q)
+
+# a row at the cap is not under it
+def stb.eq_not_below(+a: Nat, +b: Nat, h: {Nat.is_eq(a, b) == True{} : Bool}) -> {RnRecovery.below(a, b) == False{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      stb.absurd({RnRecovery.below(0n, 1n+q) == False{} : Bool}, h)
+    case 1n+p 0n:
+      stb.absurd({RnRecovery.below(1n+p, 0n) == False{} : Bool}, h)
+    case 1n+p 1n+q:
+      stb.eq_not_below(p, q, h)
+
+# a row one past the cap is neither under it nor at it
+def stb.succ_not_below(+m: Nat) -> {RnRecovery.below(1n+m, m) == False{} : Bool}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+q:
+      stb.succ_not_below(q)
+
+def stb.succ_not_eq(+m: Nat) -> {Nat.is_eq(1n+m, m) == False{} : Bool}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+q:
+      stb.succ_not_eq(q)
+
+# a rung that remains never fails the run
+def stb.think_left(s: Bool, u: Bool, l: Bool, -x: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec, h: {Bool.or(s, Bool.or(u, l)) == True{} : Bool}) -> {Stop.quits(RnRecovery.Dec.act(RnRecovery.rec.think(s, u, l, x, same, last, r))) == False{} : Bool}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      match u:
+        case True{}:
+          {==}
+        case False{}:
+          match l:
+            case True{}:
+              {==}
+            case False{}:
+              stb.absurd({Stop.quits(RnRecovery.Dec.act(RnRecovery.rec.think(False{}, False{}, False{}, x, same, last, r))) == False{} : Bool}, h)
+
+# with every rung spent the run fails, the row as it was
+def stb.think_spent(s: Bool, u: Bool, l: Bool, -x: Nat, -same: Nat, -last: Nat, +r: RnRecovery.Rec, h: {Bool.or(s, Bool.or(u, l)) == False{} : Bool}) -> {RnRecovery.rec.think(s, u, l, x, same, last, r) == RnRecovery.Dec{RnRecovery.Quit{}, r} : RnRecovery.Dec}:
+  match s:
+    case True{}:
+      stb.absurd({RnRecovery.rec.think(True{}, u, l, x, same, last, r) == RnRecovery.Dec{RnRecovery.Quit{}, r} : RnRecovery.Dec}, Equal.sym(Bool, True{}, False{}, h))
+    case False{}:
+      match u:
+        case True{}:
+          stb.absurd({RnRecovery.rec.think(False{}, True{}, l, x, same, last, r) == RnRecovery.Dec{RnRecovery.Quit{}, r} : RnRecovery.Dec}, Equal.sym(Bool, True{}, False{}, h))
+        case False{}:
+          match l:
+            case True{}:
+              stb.absurd({RnRecovery.rec.think(False{}, False{}, True{}, x, same, last, r) == RnRecovery.Dec{RnRecovery.Quit{}, r} : RnRecovery.Dec}, Equal.sym(Bool, True{}, False{}, h))
+            case False{}:
+              {==}

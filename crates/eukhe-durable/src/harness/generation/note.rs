@@ -16,6 +16,7 @@
 use eukhe_bend::rules::retry_note::{self, Call, Cause};
 use eukhe_bend::wire::NAT_MAX;
 use eukhe_bend::{expect_core, Entry};
+use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde::{Deserialize, Serialize};
 
 use super::decide::{LEAK_NOTES, LENGTH_NOTES, REDIRECT_NOTES};
@@ -36,8 +37,19 @@ pub enum NoteCause {
     },
     /// The reply hit the output limit (`tokens`, 0 when the provider
     /// reported none) while it still reasoned: no text and no tool call.
-    /// `row`: the length notes in a row, this one included.
-    Length { tokens: u64, row: u32 },
+    /// `row`: the length notes in a row, this one included, of `cap` (the
+    /// length notes, and the lower-level rung when there is one;
+    /// [`LENGTH_NOTES`] in a record from before the ladder). `lowered`: the
+    /// thinking level of the retry's one request, when the ladder's last
+    /// rung lowered it (the agent's level otherwise).
+    Length {
+        tokens: u64,
+        row: u32,
+        #[serde(default = "length_notes")]
+        cap: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lowered: Option<ModelThinkingLevel>,
+    },
     /// The reply hit the output limit (`tokens`, as in `Length`) in the
     /// middle of its text, with no tool call (`LengthStop`): its cut text is
     /// not the answer. `row`: the length notes in a row.
@@ -104,6 +116,11 @@ impl NoteCause {
     }
 }
 
+/// The cap a length note of a record from before the ladder names.
+fn length_notes() -> u32 {
+    LENGTH_NOTES
+}
+
 /// The note of a retry: the attempt it names and what went wrong.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,6 +135,21 @@ pub struct RetryNote {
 }
 
 impl RetryNote {
+    /// The thinking level the request of this note thinks at, when the
+    /// length ladder's last rung lowered it for this one request.
+    pub(crate) fn lowered(&self) -> Option<ModelThinkingLevel> {
+        match &self.cause {
+            NoteCause::Length { lowered, .. } => *lowered,
+            NoteCause::Repeated { .. }
+            | NoteCause::NoAnswer { .. }
+            | NoteCause::Cut { .. }
+            | NoteCause::Leaked { .. }
+            | NoteCause::Redirect { .. }
+            | NoteCause::Stalled { .. }
+            | NoteCause::Promised { .. } => None,
+        }
+    }
+
     /// The text of the note: the last user message of the request, before
     /// the soft prompt of a forced call. The compiled core writes it
     /// (`eukhe_bend::rules::retry_note`, law `retry_note_exact`; the stop
@@ -152,10 +184,12 @@ impl RetryNote {
                 }
             }
             NoteCause::NoAnswer { .. } => Cause::NoAnswer,
-            NoteCause::Length { tokens, row } => Cause::Length {
+            NoteCause::Length {
+                tokens, row, cap, ..
+            } => Cause::Length {
                 tokens: (*tokens).min(NAT_MAX),
                 row: *row,
-                cap: LENGTH_NOTES,
+                cap: *cap,
             },
             NoteCause::Leaked {
                 markup,

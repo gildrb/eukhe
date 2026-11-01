@@ -119,6 +119,22 @@ def same_promise(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +la
     case False{}:
       ok
 
+# a length stop with no text keeps the row of rounds, on every rung
+def same_think(s: Bool, u: Bool, l: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.think(s, u, l, RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
+  match s:
+    case True{}:
+      ok
+    case False{}:
+      match u:
+        case True{}:
+          ok
+        case False{}:
+          match l:
+            case True{}:
+              ok
+            case False{}:
+              ok
+
 # a round that ran: m < repeat, so whichever row it makes is below the cap
 def same_kept(kept: Bool, +m: Nat, +b: Nat, pos: {RnRecovery.below(0n, m) == True{} : Bool}, e: {RnRecovery.below(m, b) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.ran.same(kept, m), Nat.max(b, 1n)) == True{} : Bool}:
   match kept:
@@ -160,6 +176,8 @@ def same_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: N
       same_empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
     case RnRecovery.Promise{}:
       same_promise(RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
+    case RnRecovery.Think{shrink, lower}:
+      same_think(shrink, RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Bool.and(lower, Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc))), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
 
 def same_step(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec, ok: {RnRecovery.below(RnRecovery.Rec.same(r), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, o, r))), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}:
   match r:

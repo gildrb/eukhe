@@ -35,9 +35,7 @@ use self::federation::{get_anthropic_federation, has_request_auth, AnthropicFede
 use super::ProviderStreams;
 use crate::api::cache_breakpoints::excess_breakpoints_error;
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use crate::api::simple_options::{
-    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
-};
+use crate::api::simple_options::{adjust_max_tokens_for_thinking, build_base_options};
 use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::types::{FetchFunction, ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
@@ -744,26 +742,26 @@ pub fn stream_simple(
         );
     }
 
+    // Thinking on top of the caller's answer cap (`None`: the catalog's
+    // max), through the one output cap rule, the answer's room kept; no
+    // room to think leaves thinking off.
     let adjusted = adjust_max_tokens_for_thinking(
-        base.max_tokens,
-        model.max_tokens,
+        model,
+        context,
+        options.stream.max_tokens,
         reasoning,
         options.thinking_budgets.as_ref(),
     );
-    let max_tokens = clamp_max_tokens_to_context(model, context, adjusted.max_tokens);
-    let thinking_budget = adjusted
-        .thinking_budget
-        .min(max_tokens.saturating_sub(1024));
     stream_anthropic(
         model,
         context,
         AnthropicOptions {
             stream: StreamOptions {
-                max_tokens: Some(max_tokens),
+                max_tokens: Some(adjusted.max_tokens),
                 ..base
             },
-            thinking_enabled: Some(true),
-            thinking_budget_tokens: Some(thinking_budget),
+            thinking_enabled: Some(adjusted.thinking_budget > 0),
+            thinking_budget_tokens: Some(adjusted.thinking_budget),
             tool_choice,
             ..AnthropicOptions::default()
         },

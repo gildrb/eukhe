@@ -26,7 +26,8 @@ type Cause is Data:
   # no text and no tool call
   NoAnswer{}
   # the output limit (`tokens`, 0: not reported) while still reasoning; the
-  # length note `row` of `cap`
+  # length note `row` of `cap` (the length notes, and the lower-level
+  # rung when there is one)
   Length{tokens: Nat, row: Nat, cap: Nat}
   # tool calls written as `markup` text that could not be read, for
   # `reason`; the leak note `row` of `cap`
@@ -97,7 +98,7 @@ def body(c: Cause) -> String:
     case NoAnswer{}:
       "your previous reply gave no text and no tool call. Give the answer again, as text or as a tool call."
     case Length{t, r, k}:
-      String.concat(["your previous reply hit ", limit(t), " while it was still reasoning. It gave no text and no tool call, so the harness discarded it with every tool call that it planned. If you plan the whole task again in your reasoning, you hit the same limit. Reason only about the next step, then call its tool. For a large answer (a file, a document, a long text), write a minimal working version first, then extend it with more edits in later turns. Length note ", Nat.show(r), " of ", Nat.show(k), "."])
+      String.concat(["your previous reply hit ", limit(t), " while still reasoning, so the harness discarded it unseen, with every tool call it planned. Reason only about the next step, then call its tool. For a large deliverable (a file, a document, a long answer), write a minimal working version now and extend it in later turns. Length note ", Nat.show(r), " of ", Nat.show(k), "."])
     case Leaked{m, why, r, k}:
       String.concat(["your previous reply wrote a tool call as ", m, " markup in its text, and the harness could not read it (", why, "). No tool ran. Make the call again through the tool-calling interface, with its arguments as one JSON object that agrees with the schema of the tool. Do not write a tool call as text. If you need no tool, give the answer as plain text. Leak note ", Nat.show(r), " of ", Nat.show(k), "."])
     case Redirect{cs, n, r, k}:

@@ -42,9 +42,17 @@
 # S7: the round note after `done` tool rounds of `max`: left = max - 1 -
 #     done (0 at least): the rounds whose results the model still reads.
 #     A note when left <= 10: none left, 1 left, or <left> left.
+# S8: a length stop with no text (the model still reasoned) climbs a
+#     ladder: when the window ran out (a window is known, the output is
+#     below the model's catalog max output, prompt + output + 8192 >=
+#     window) and a compaction can run, compact and send again (no note);
+#     else, under the cap of `long` length notes in a row, the next note;
+#     else, once, when a level below the agent's exists, the next note
+#     with the request one thinking level lower; else the run fails.
 
 import Base
 import ../../bend/stop.bend as S
+import ../../bend/run/decision.bend as RnDecision
 import ../../bend/phrase.bend as P
 import ../../laws/text_pat.bend as TextPat
 import ../../laws/phrase.bend as Phrase
@@ -228,3 +236,45 @@ def round_at(near: Bool, +left: Nat, +max: Nat) -> Maybe<&2, String>:
 def rounds(+max: Nat, +done: Nat) -> Maybe<&2, String>:
   +left = Nat.sub(Nat.sub(max, 1n), done)
   round_at(Nat.is_le(left, 10n), left, max)
+
+# S8: the ladder of a length stop with no text
+# --------------------------------------------
+
+# the window ran out: a window is known, the output is below the catalog
+# max output, and the prompt and the output reach the window within 8192
+# tokens
+def ran_out(+window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat) -> Bool:
+  match window:
+    case 0n:
+      False{}
+    case 1n+w:
+      Bool.and(Nat.is_lt(out, catalog), Nat.is_le(1n+w, Nat.add(Nat.add(prompt, out), 8192n)))
+
+def at_cap(lowers: Bool, +n: Nat) -> RnDecision.Help:
+  match lowers:
+    case True{}:
+      RnDecision.Lowers{1n+n}
+    case False{}:
+      RnDecision.Quits{}
+
+def under(lt: Bool, lower: Bool, +n: Nat, +long: Nat) -> RnDecision.Help:
+  match lt:
+    case True{}:
+      RnDecision.Redoes{1n+n}
+    case False{}:
+      at_cap(Bool.and(lower, Nat.is_eq(n, long)), n)
+
+# the rung after n length notes in a row, of the cap `long`: compact when
+# the window ran out and a compaction can run (shrink); else the next note
+# under the cap; else, when a level below the agent's exists and n is the
+# cap, the next note one level lower; else the run fails
+def ladder(shrink: Bool, lower: Bool, +n: Nat, +long: Nat) -> RnDecision.Help:
+  match shrink:
+    case True{}:
+      RnDecision.Compacts{}
+    case False{}:
+      under(Nat.is_lt(n, long), lower, n, long)
+
+# a rung remains: a compaction, a note under the cap, or the lower note
+def rung_left(shrink: Bool, lower: Bool, +n: Nat, +long: Nat) -> Bool:
+  Bool.or(shrink, Bool.or(Nat.is_lt(n, long), Bool.and(lower, Nat.is_eq(n, long))))

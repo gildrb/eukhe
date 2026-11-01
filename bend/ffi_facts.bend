@@ -1,21 +1,25 @@
 # ffi_facts: the entry of the compiled Bend core for the thinking budgets
-# of bend/facts.bend section 2 (crates/eukhe-ai `api/simple_options.rs`,
-# `api/google_shared/options.rs`; crates/eukhe-core `memory/summarizer.rs`).
-# One request, one reply, in the wire format of bend/wire.bend:
+# and the output cap of bend/facts.bend section 2 (crates/eukhe-ai
+# `api/simple_options.rs`, `api/google_shared/options.rs`; crates/eukhe-core
+# `memory/summarizer.rs`). One request, one reply, in the wire format of
+# bend/wire.bend:
 #
 #   request (a constructor)                          reply
 #   0 Level{l: ELv, c: Customs, d: Budgets}          Nat   budget(c, d, Lv.of(l))
 #   1 Room{b: Nat, m: Nat, a: Nat}                   Nat   room(b, m, a)
-#   2 Adjust{base: Maybe<Nat>, mm: Nat, l: ELv,      Fit   adjust(base, mm, l, c, d, a)
-#       c: Customs, d: Budgets, a: Nat}                    (max, then budget)
+#   2 Adjust{base: Maybe<Nat>, mm: Nat, l: ELv,      Fit   adjust(base, mm, l, c, d, a, win)
+#       c: Customs, d: Budgets, a: Nat, win: Win}          (max, then budget)
 #   3 Google{rule: Maybe<Budgets>, c: Customs,       GB    gbudget(rule, c, l)
 #       l: Lv}                                             (0 Dynamic, 1 Tokens{n}, 2 Unordered)
 #   4 Aux{c: Customs, d: Budgets, a: Nat, top: Nat}  Nat   aux(c, d, a, top)
+#   5 Cap{caller: Maybe<Nat>, mm: Nat, needs: Bool,  Maybe<Nat>  cap(caller, mm, needs, win)
+#       win: Win}                                          (0 None, 1 then the cap)
 #
 # A level is its tag in declaration order (ELv: minimal 0 .. max 5; Lv:
 # minimal 0 .. high 3), Customs are 4 Maybe<Nat>, Budgets 4 Nat, both in
-# level order. A malformed request, or one with input left over, answers
-# the error form. Pure: no IO, no @unsafe, no foreign effect.
+# level order. A Win is the window, the prompt, the safety, the floor (4
+# Nat) and stops (a Bool). A malformed request, or one with input left
+# over, answers the error form. Pure: no IO, no @unsafe, no foreign effect.
 
 import Base
 import ./wire.bend as W
@@ -197,15 +201,32 @@ def get_mbudgets.go(d: W.Dec<Nat>) -> W.Dec<Maybe<&2, Fx.Budgets>>:
 def get_mbudgets(s: String) -> W.Dec<Maybe<&2, Fx.Budgets>>:
   get_mbudgets.go(W.get_nat(s))
 
+# the window facts: the window, the prompt, the safety, the floor (4 Nat),
+# then stops (a Bool)
+def get_win.of(d: W.Dec<P2<P2<P2<P2<Nat, Nat>, Nat>, Nat>, Bool>>) -> W.Dec<Fx.Win>:
+  match d:
+    case W.Got{q, r}:
+      P2{q4, st} = q
+      P2{q3, f} = q4
+      P2{q2, s} = q3
+      P2{w, p} = q2
+      W.Got{Fx.Win{w, p, s, f, st}, r}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_win(s: String) -> W.Dec<Fx.Win>:
+  get_win.of(seq(~P2<P2<P2<Nat, Nat>, Nat>, Nat>, ~Bool, ~W.get_bool, seq(~P2<P2<Nat, Nat>, Nat>, ~Nat, ~W.get_nat, seq(~P2<Nat, Nat>, ~Nat, ~W.get_nat, seq(~Nat, ~Nat, ~W.get_nat, W.get_nat(s))))))
+
 # Requests
 # --------
 
 type Req is Data:
   Level{l: Fx.ELv, c: Fx.Customs, d: Fx.Budgets}
   Room{b: Nat, m: Nat, a: Nat}
-  Adjust{base: Maybe<&2, Nat>, mm: Nat, l: Fx.ELv, c: Fx.Customs, d: Fx.Budgets, a: Nat}
+  Adjust{base: Maybe<&2, Nat>, mm: Nat, l: Fx.ELv, c: Fx.Customs, d: Fx.Budgets, a: Nat, win: Fx.Win}
   Google{rule: Maybe<&2, Fx.Budgets>, c: Fx.Customs, l: Fx.Lv}
   Aux{c: Fx.Customs, d: Fx.Budgets, a: Nat, top: Nat}
+  Cap{caller: Maybe<&2, Nat>, mm: Nat, needs: Bool, win: Fx.Win}
 
 def get_level.of(d: W.Dec<P2<P2<Fx.ELv, Fx.Customs>, Fx.Budgets>>) -> W.Dec<Req>:
   match d:
@@ -225,15 +246,16 @@ def get_room.of(d: W.Dec<P2<P2<Nat, Nat>, Nat>>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
-def get_adjust.of(d: W.Dec<P2<P2<P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, Nat>>) -> W.Dec<Req>:
+def get_adjust.of(d: W.Dec<P2<P2<P2<P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, Nat>, Fx.Win>>) -> W.Dec<Req>:
   match d:
     case W.Got{q, r}:
-      P2{q5, a} = q
+      P2{q6, w} = q
+      P2{q5, a} = q6
       P2{q4, b} = q5
       P2{q3, c} = q4
       P2{q2, l} = q3
       P2{base, mm} = q2
-      W.Got{Adjust{base, mm, l, c, b, a}, r}
+      W.Got{Adjust{base, mm, l, c, b, a, w}, r}
     case W.Bad{}:
       W.Bad{}
 
@@ -256,6 +278,16 @@ def get_aux.of(d: W.Dec<P2<P2<P2<Fx.Customs, Fx.Budgets>, Nat>, Nat>>) -> W.Dec<
     case W.Bad{}:
       W.Bad{}
 
+def get_cap.of(d: W.Dec<P2<P2<P2<Maybe<&2, Nat>, Nat>, Bool>, Fx.Win>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{q, r}:
+      P2{q3, w} = q
+      P2{q2, n} = q3
+      P2{x, mm} = q2
+      W.Got{Cap{x, mm, n, w}, r}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -267,7 +299,7 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
         case 1n+b:
           match b:
             case 0n:
-              get_adjust.of(seq(~P2<P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~W.get_nat, seq(~P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~get_budgets, seq(~P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~get_customs, seq(~P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~get_elv, seq(~Maybe<&2, Nat>, ~Nat, ~W.get_nat, get_mnat(s)))))))
+              get_adjust.of(seq(~P2<P2<P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, Nat>, ~Fx.Win, ~get_win, seq(~P2<P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, Fx.Budgets>, ~Nat, ~W.get_nat, seq(~P2<P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, Fx.Customs>, ~Fx.Budgets, ~get_budgets, seq(~P2<P2<Maybe<&2, Nat>, Nat>, Fx.ELv>, ~Fx.Customs, ~get_customs, seq(~P2<Maybe<&2, Nat>, Nat>, ~Fx.ELv, ~get_elv, seq(~Maybe<&2, Nat>, ~Nat, ~W.get_nat, get_mnat(s))))))))
             case 1n+c:
               match c:
                 case 0n:
@@ -277,7 +309,11 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
                     case 0n:
                       get_aux.of(seq(~P2<P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~W.get_nat, seq(~P2<Fx.Customs, Fx.Budgets>, ~Nat, ~W.get_nat, seq(~Fx.Customs, ~Fx.Budgets, ~get_budgets, get_customs(s)))))
                     case 1n+f:
-                      W.Bad{}
+                      match f:
+                        case 0n:
+                          get_cap.of(seq(~P2<P2<Maybe<&2, Nat>, Nat>, Bool>, ~Fx.Win, ~get_win, seq(~P2<Maybe<&2, Nat>, Nat>, ~Bool, ~W.get_bool, seq(~Maybe<&2, Nat>, ~Nat, ~W.get_nat, get_mnat(s)))))
+                        case 1n+g:
+                          W.Bad{}
 
 def get_req.go(d: W.Dec<Nat>) -> W.Dec<Req>:
   match d:
@@ -345,18 +381,25 @@ def put_mbudgets(m: Maybe<&2, Fx.Budgets>, rest: String) -> String:
     case Some{b}:
       W.put_nat(1n, put_budgets(b, rest))
 
+def put_win(w: Fx.Win, rest: String) -> String:
+  match w:
+    case Fx.Win{n, p, s, f, st}:
+      W.put_nat(n, W.put_nat(p, W.put_nat(s, W.put_nat(f, W.put_bool(st, rest)))))
+
 def put_req(q: Req, rest: String) -> String:
   match q:
     case Level{l, c, d}:
       W.put_nat(0n, put_elv(l, put_customs(c, put_budgets(d, rest))))
     case Room{b, m, a}:
       W.put_nat(1n, W.put_nat(b, W.put_nat(m, W.put_nat(a, rest))))
-    case Adjust{base, mm, l, c, d, a}:
-      W.put_nat(2n, put_mnat(base, W.put_nat(mm, put_elv(l, put_customs(c, put_budgets(d, W.put_nat(a, rest)))))))
+    case Adjust{base, mm, l, c, d, a, w}:
+      W.put_nat(2n, put_mnat(base, W.put_nat(mm, put_elv(l, put_customs(c, put_budgets(d, W.put_nat(a, put_win(w, rest))))))))
     case Google{rule, c, l}:
       W.put_nat(3n, put_mbudgets(rule, put_customs(c, put_lv(l, rest))))
     case Aux{c, d, a, top}:
       W.put_nat(4n, put_customs(c, put_budgets(d, W.put_nat(a, W.put_nat(top, rest)))))
+    case Cap{x, mm, n, w}:
+      W.put_nat(5n, put_mnat(x, W.put_nat(mm, W.put_bool(n, put_win(w, rest)))))
 
 # Replies
 # -------
@@ -382,12 +425,14 @@ def answer(q: Req) -> String:
       W.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "")
     case Room{b, m, a}:
       W.put_nat(Fx.room(b, m, a), "")
-    case Adjust{base, mm, l, c, d, a}:
-      put_fit(Fx.adjust(base, mm, l, c, d, a), "")
+    case Adjust{base, mm, l, c, d, a, w}:
+      put_fit(Fx.adjust(base, mm, l, c, d, a, w), "")
     case Google{rule, c, l}:
       put_gb(Fx.gbudget(rule, c, l), "")
     case Aux{c, d, a, top}:
       W.put_nat(Fx.aux(c, d, a, top), "")
+    case Cap{x, mm, n, w}:
+      put_mnat(Fx.cap(x, mm, n, w), "")
 
 # whole is W.end(rest): nothing is left after the request
 def ffi.done(whole: Bool, q: Req) -> String:

@@ -755,7 +755,7 @@ mod tests {
         );
         let plain = models.get_model("battery", "mock-plain").unwrap();
         assert_eq!(plain.input, [Modality::Text, Modality::Image]);
-        assert_eq!((plain.context_window, plain.max_tokens), (128_000, 16_384));
+        assert_eq!((plain.context_window, plain.max_tokens), (128_000, 128_000));
 
         let overridden = models.get_model("anthropic", &anthropic.id).unwrap();
         assert_eq!(overridden.name, "Renamed");
@@ -904,6 +904,30 @@ mod tests {
         let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
         let base = eukhe_ai::api::simple_options::build_base_options(&model, &context, None, None);
         assert_eq!(base.max_tokens, Some(131_072));
+    }
+
+    /// Regression (v0.10.59: "no answer ... only 58076 characters of
+    /// thinking"): a models.json model without `maxTokens` got a made-up
+    /// cap of 16384, sent as `max_tokens`, and a reasoning model spent all
+    /// of it on thinking with the window far away. Its max is unknown now:
+    /// the request omits the field and the provider's own max applies.
+    #[test]
+    fn a_models_json_model_without_max_tokens_omits_the_request_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(
+            dir.path(),
+            r#"{ "providers": { "elpis-fast": {
+                "baseUrl": "http://127.0.0.1:9/v1",
+                "api": "openai-completions",
+                "apiKey": "TEST_KEY",
+                "models": [ { "id": "qwen3.8-27b", "reasoning": true,
+                              "contextWindow": 262144 } ]
+            } } }"#,
+        );
+        let model = models.get_model("elpis-fast", "qwen3.8-27b").unwrap();
+        let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
+        let base = eukhe_ai::api::simple_options::build_base_options(&model, &context, None, None);
+        assert_eq!((model.max_tokens, base.max_tokens), (262_144, None));
     }
 
     /// Regression (audit M1): a models.json with one bad provider entry
