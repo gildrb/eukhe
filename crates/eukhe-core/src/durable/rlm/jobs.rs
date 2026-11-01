@@ -175,14 +175,25 @@ async fn wait_event(runtime: Arc<RlmRuntime>, call: HostCall) -> anyhow::Result<
 
 /// `jobs.cancel`: stop one job (a cell through the kernel's abort, a
 /// script through its kill) and wait, within the budget, for it to settle.
+/// The cancel watches the job while it waits and takes a result that
+/// settles in time (its reply carries it), so the agent's own stop never
+/// wakes the session; a job still running at the budget goes to the
+/// notice when it settles.
 #[tracing::instrument(skip_all)]
 async fn cancel(runtime: Arc<RlmRuntime>, call: HostCall) -> anyhow::Result<Value> {
     let job = find_job(&runtime, &call.data)?;
+    job.watch();
     job.kill();
-    let _settled_or_detached = jobs::wait_until(
+    let settled = jobs::wait_until(
         tokio::time::Instant::now() + runtime.deps.blocking_budget(),
         job.ended(),
     )
     .await;
+    match settled {
+        jobs::Wait::Settled(_) => {
+            let _in_the_reply = job.take();
+        }
+        jobs::Wait::Detached => job.unwatch(runtime.deps.job_settled.as_ref()),
+    }
     Ok(job_json(&job))
 }

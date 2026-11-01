@@ -1,7 +1,8 @@
 //! The one job-settled wake (ADR 0010): every job a session started that
 //! settles after its call stopped blocking the turn — a background kernel
 //! `bash()` command, a detached `ipython` cell — wakes the session through
-//! [`JobNotices::deliver`].
+//! [`JobNotices::deliver`]; the end of a `bash()` command the agent itself
+//! stopped (`handle.kill()`) is dropped, never a wake.
 //!
 //! Bash commands are the port of the TS async-bash-completion wake
 //! (agent-session.ts `_createKernelHostHandlers`' `bash.completed`/
@@ -194,9 +195,20 @@ impl JobNotices {
     /// Admit one settled job (TS `bash.completed` ->
     /// `_promptInjectedMessage(message, { streamingBehavior: "steer",
     /// queueIfBusy: true, resumeIfIdle: true })`). A closed or closing
-    /// session refuses it silently, like TS `_disposed`.
+    /// session refuses it silently, like TS `_disposed`. A `bash()` command
+    /// the agent itself stopped (`handle.kill()`) is dropped: its end is no
+    /// news to the agent, so it neither wakes the session nor steers its
+    /// turn.
     async fn deliver(&self, settled: JobSettled) -> anyhow::Result<()> {
+        if let JobSettled::Bash {
+            stopped_by: Some(BashStopper::Agent),
+            ..
+        } = &settled
+        {
+            return Ok(());
+        }
         let row = create_job_settled_message(&settled, crate::util::now_ms());
+        let report = settled.report();
         let request_id = format!("job-settled:{}", uuid::Uuid::new_v4());
         let request = InputRequest {
             text: row.content.text(),
@@ -204,9 +216,7 @@ impl JobNotices {
             custom_row: Some(crate::session_custom::custom_row_value(&row)),
             when_busy: WhenBusy::Steer,
             request_id: Some(request_id.clone()),
-            origin: InputOrigin::Report {
-                report: settled.report(),
-            },
+            origin: InputOrigin::Report { report },
         };
         match &self.target {
             WakeTarget::Worker { session, core } => {
@@ -512,6 +522,67 @@ mod tests {
         assert_eq!(users.len(), 0, "the notice row is the input's entry");
         let answers = worker_rows(&worker, "pi.assistant").await;
         assert_eq!(answers.len(), 1);
+    }
+
+    /// The drill's dev server, stopped by the agent's own `kill()` after
+    /// its final answer: an idle session stays idle, with no row; no turn
+    /// repeats the answer.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_stopped_command_does_not_wake_an_idle_session() {
+        let (_dir, worker) = created_worker(SESSION, json!(["repeated report"])).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        notices
+            .deliver(JobSettled::Bash {
+                pid: 4321,
+                command: "npm run dev".to_owned(),
+                exit_code: -15,
+                stopped_by: Some(BashStopper::Agent),
+            })
+            .await
+            .expect("notice");
+        let waited = worker
+            .dispatch("wait_for_idle", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(waited.success, "{waited:?}");
+        assert_eq!(
+            (
+                worker_rows(&worker, "eukhe.custom").await,
+                worker_rows(&worker, "pi.assistant").await,
+                worker_inbox(&worker).await,
+            ),
+            (Vec::new(), Vec::new(), Vec::new())
+        );
+    }
+
+    /// A busy session gets nothing queued for the agent's own stop: no
+    /// steer into its turn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_stopped_command_never_steers_a_busy_turn() {
+        let (_dir, worker) =
+            created_worker(SESSION, json!([{ "text": "held", "delayMs": 600_000 }])).await;
+        let prompt = worker
+            .dispatch(
+                "prompt",
+                &json!({ "activeSessionId": SESSION, "message": "work" }),
+            )
+            .await;
+        assert!(prompt.success, "{prompt:?}");
+        wait_busy(&worker, true).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        notices
+            .deliver(JobSettled::Bash {
+                pid: 4321,
+                command: "npm run dev".to_owned(),
+                exit_code: -15,
+                stopped_by: Some(BashStopper::Agent),
+            })
+            .await
+            .expect("notice");
+        assert_eq!(worker_inbox(&worker).await, Vec::new());
+        let aborted = worker
+            .dispatch("abort", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(aborted.success, "{aborted:?}");
     }
 
     #[test]

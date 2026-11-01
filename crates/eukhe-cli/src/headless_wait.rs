@@ -14,6 +14,7 @@ use std::time::Duration;
 use eukhe_bend::rules::headless::{settle, RunEnd, Settle, SettleFacts, Unanswered};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::pending::{pending_work, PendingWork};
+use eukhe_core::durable::rlm::kernel_background_jobs_settled;
 use eukhe_durable::harness::{watch_events, AgentEvent, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::SubmissionId;
@@ -215,9 +216,13 @@ pub(crate) async fn wait_quiescent(
             Settle::GiveUp => return Ok(Settled::GaveUp(work)),
             Settle::Wait if busy => {}
             Settle::Wait => {
+                // A kernel command that ends with no notice (read before it
+                // settled, or stopped by the agent itself) moves no event
+                // and no wake: its settle is a wake of its own.
                 tokio::select! {
                     () = events => {}
                     () = wakes => {}
+                    () = kernel_background_jobs_settled(deps, conversation.id()), if work.kernel_jobs > 0 => {}
                     () = tokio::time::sleep_until(deadline) => {}
                 }
             }

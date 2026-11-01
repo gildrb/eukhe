@@ -6,7 +6,7 @@ The harness often sends messages to the agent. These are user messages starting 
 
 ## Core tools
 
-- `bash(command: str) -> BashHandle`: synchronous, returns immediately and runs the command in the background; when a command is finished outside the calling `ipython` block, a notification is sent to the agent; each `bash()` call is its own process, so shell state does not persist between calls
+- `bash(command: str) -> BashHandle`: synchronous, returns immediately and runs the command in the background; when a command is finished outside the calling `ipython` block, a notification is sent to the agent (none after the agent's own `.kill()`); each `bash()` call is its own process, so shell state does not persist between calls
   - `BashHandle`:
     - `.pid: int`
     - `.running: bool`

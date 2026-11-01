@@ -1218,7 +1218,8 @@ async fn a_waited_job_is_delivered_by_the_wait_alone() {
 
 /// A call that finds the kernel held by a detached cell waits for it only
 /// within its own budget, then reports the job without running its code;
-/// `jobs.cancel` stops the job through the kernel's abort and the kernel
+/// `jobs.cancel` stops the job through the kernel's abort, its reply
+/// carries the end (the agent's own stop sends no notice), and the kernel
 /// serves the next cell.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the_job() {
@@ -1251,17 +1252,7 @@ async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the
 
     let cancelled = job_request(&session, "jobs.cancel", json!({ "job": job })).await;
     assert_eq!(cancelled["state"], "aborted", "{cancelled}");
-    let settled = settled.recv().await.expect("the cancelled job settles");
-    assert!(
-        matches!(
-            settled,
-            JobSettled::Cell {
-                status: CellStatus::Aborted,
-                ..
-            }
-        ),
-        "{settled:?}"
-    );
+    assert_eq!(settled.try_recv().ok(), None::<JobSettled>);
 
     fixture
         .faux
