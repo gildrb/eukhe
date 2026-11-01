@@ -32,6 +32,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
+use eukhe_bend::rules::job_notice::{self, Notice, Stopper};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::messages::create_job_settled_message;
 use eukhe_core::durable::{EukheSession, SessionConfig, SessionStorage};
@@ -195,17 +196,15 @@ impl JobNotices {
     /// Admit one settled job (TS `bash.completed` ->
     /// `_promptInjectedMessage(message, { streamingBehavior: "steer",
     /// queueIfBusy: true, resumeIfIdle: true })`). A closed or closing
-    /// session refuses it silently, like TS `_disposed`. A `bash()` command
-    /// the agent itself stopped (`handle.kill()`) is dropped: its end is no
-    /// news to the agent, so it neither wakes the session nor steers its
-    /// turn.
+    /// session refuses it silently, like TS `_disposed`. Whether the end
+    /// wakes is the compiled core's (`bend/ffi_job_notice.bend`): a
+    /// `bash()` command the agent itself stopped (`handle.kill()`) is
+    /// dropped, its end no news to the agent, so it neither wakes the
+    /// session nor steers its turn. A notice holds a result no call took.
     async fn deliver(&self, settled: JobSettled) -> anyhow::Result<()> {
-        if let JobSettled::Bash {
-            stopped_by: Some(BashStopper::Agent),
-            ..
-        } = &settled
-        {
-            return Ok(());
+        match job_notice::notice(stopper_of(&settled), false) {
+            Notice::Drop => return Ok(()),
+            Notice::Wake => {}
         }
         let row = create_job_settled_message(&settled, crate::util::now_ms());
         let report = settled.report();
@@ -383,6 +382,20 @@ impl HeadlessWakes {
     /// [`HeadlessWakes::in_flight`]); enable it before a check.
     pub fn changed(&self) -> Notified<'_> {
         self.notices.changed()
+    }
+}
+
+/// Who stopped a settled job, as the compiled core's notice reads it: a
+/// `bash()` command's `stopped_by`; a detached cell or a `bash` tool
+/// script carries no stopper.
+fn stopper_of(settled: &JobSettled) -> Option<Stopper> {
+    match settled {
+        JobSettled::Bash { stopped_by, .. } => stopped_by.map(|by| match by {
+            BashStopper::Agent => Stopper::Agent,
+            BashStopper::User => Stopper::User,
+            BashStopper::Interrupt => Stopper::Interrupt,
+        }),
+        JobSettled::Cell { .. } | JobSettled::Shell { .. } => None,
     }
 }
 
@@ -579,6 +592,51 @@ mod tests {
             .await
             .expect("notice");
         assert_eq!(worker_inbox(&worker).await, Vec::new());
+        let aborted = worker
+            .dispatch("abort", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(aborted.success, "{aborted:?}");
+    }
+
+    /// A command the user stopped from the bash view, or an interrupt
+    /// stopped, is news to the agent: each notice queues as a steer into
+    /// the busy turn (a natural end wakes too: the tests above).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_externally_stopped_command_steers_a_busy_turn() {
+        let (_dir, worker) =
+            created_worker(SESSION, json!([{ "text": "held", "delayMs": 600_000 }])).await;
+        let prompt = worker
+            .dispatch(
+                "prompt",
+                &json!({ "activeSessionId": SESSION, "message": "work" }),
+            )
+            .await;
+        assert!(prompt.success, "{prompt:?}");
+        wait_busy(&worker, true).await;
+        let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
+        for stopper in [BashStopper::User, BashStopper::Interrupt] {
+            notices
+                .deliver(JobSettled::Bash {
+                    pid: 4321,
+                    command: "npm run dev".to_owned(),
+                    exit_code: -15,
+                    stopped_by: Some(stopper),
+                })
+                .await
+                .expect("notice");
+        }
+        let steer = |by: &str| {
+            (
+                "steer".to_owned(),
+                format!(
+                    "[bash-done pid:4321 exit:-15 stopped-by:{by}]\n\nResume your work using the result below.\n\nCommand: \"npm run dev\""
+                ),
+            )
+        };
+        assert_eq!(
+            worker_inbox(&worker).await,
+            vec![steer("user"), steer("interrupt")]
+        );
         let aborted = worker
             .dispatch("abort", &json!({ "activeSessionId": SESSION }))
             .await;

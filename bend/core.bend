@@ -58,6 +58,7 @@ import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
 import ./ffi_job.bend as ffi_job
+import ./ffi_job_notice.bend as ffi_job_notice
 import ./ffi_job_rewind.bend as ffi_job_rewind
 import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
@@ -335,6 +336,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_kin.ffi(input)
     case 443:
       ffi_thread.ffi(input)
+    case 450:
+      ffi_job_notice.ffi(input)
     case 452:
       ffi_tool_result.ffi(input)
     case _:

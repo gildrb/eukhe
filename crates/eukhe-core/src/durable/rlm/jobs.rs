@@ -19,6 +19,7 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
+use eukhe_bend::rules::job_notice::{self, Notice};
 use eukhe_types::job::CellStatus;
 use futures::FutureExt;
 use serde_json::{json, Value};
@@ -175,10 +176,12 @@ async fn wait_event(runtime: Arc<RlmRuntime>, call: HostCall) -> anyhow::Result<
 
 /// `jobs.cancel`: stop one job (a cell through the kernel's abort, a
 /// script through its kill) and wait, within the budget, for it to settle.
-/// The cancel watches the job while it waits and takes a result that
-/// settles in time (its reply carries it), so the agent's own stop never
-/// wakes the session; a job still running at the budget goes to the
-/// notice when it settles.
+/// The cancel watches the job while it waits; the compiled core's notice
+/// (`bend/ffi_job_notice.bend`) decides the rest: a result that settles in
+/// time is taken into the reply (its end is dropped, so the agent's own
+/// stop never wakes the session); a job still running at the budget goes
+/// to the notice when it settles. A cell or a script's end carries no
+/// stopper.
 #[tracing::instrument(skip_all)]
 async fn cancel(runtime: Arc<RlmRuntime>, call: HostCall) -> anyhow::Result<Value> {
     let job = find_job(&runtime, &call.data)?;
@@ -189,11 +192,15 @@ async fn cancel(runtime: Arc<RlmRuntime>, call: HostCall) -> anyhow::Result<Valu
         job.ended(),
     )
     .await;
-    match settled {
-        jobs::Wait::Settled(_) => {
+    let taken = match settled {
+        jobs::Wait::Settled(_) => true,
+        jobs::Wait::Detached => false,
+    };
+    match job_notice::notice(None, taken) {
+        Notice::Drop => {
             let _in_the_reply = job.take();
         }
-        jobs::Wait::Detached => job.unwatch(runtime.deps.job_settled.as_ref()),
+        Notice::Wake => job.unwatch(runtime.deps.job_settled.as_ref()),
     }
     Ok(job_json(&job))
 }

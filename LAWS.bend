@@ -139,3 +139,4 @@ import ./laws/headless_settle.bend as HeadlessSettle
 import ./laws/headless_exit.bend as HeadlessExit
 import ./laws/thread.bend as Thread
 import ./laws/tool_result.bend as ToolResult
+import ./laws/job_notice.bend as JobNotice

@@ -2693,3 +2693,13 @@ import ./proof/tool_result/tool_result_entry_reads.bend as PToolResultEntryReads
 import ./proof/tool_result/tool_result_entry_exact.bend as PToolResultEntryExact
 import ./proof/tool_result/tool_result_entry_refuses.bend as PToolResultEntryRefuses
 import ./proof/tool_result/tool_result_entry_example.bend as PToolResultEntryExample
+import ./proof/job_notice/base.bend as LAJobNotice
+import ./proof/job_notice/job_notice_agent_never_wakes.bend as PJobNoticeAgentNeverWakes
+import ./proof/job_notice/job_notice_taken_never_wakes.bend as PJobNoticeTakenNeverWakes
+import ./proof/job_notice/job_notice_untaken_wakes.bend as PJobNoticeUntakenWakes
+import ./proof/job_notice/job_notice_refines_spec.bend as PJobNoticeRefinesSpec
+import ./proof/job_notice/job_notice_entry_is_spec.bend as PJobNoticeEntryIsSpec
+import ./proof/job_notice/job_notice_entry_reads.bend as PJobNoticeEntryReads
+import ./proof/job_notice/job_notice_entry_exact.bend as PJobNoticeEntryExact
+import ./proof/job_notice/job_notice_entry_refuses.bend as PJobNoticeEntryRefuses
+import ./proof/job_notice/job_notice_entry_example.bend as PJobNoticeEntryExample
