@@ -46,6 +46,11 @@ import ../spec/harness/arguments.bend as ArgSpec
 #     spec's verdict spelled, reads exactly the request and nothing after
 #     it, and answers any other input with the exact error form
 #     `E arg_repair: malformed request`.
+# R9: an alias's canonical name is admitted as that name sent would be: a
+#     refused name refuses the call (its first hint), a name a closed
+#     schema does not declare is unknown (the declared names), each
+#     naming the canonical name; so every repaired call repairs to itself,
+#     whatever the dialect.
 
 # Spec helpers
 # ------------
@@ -302,6 +307,32 @@ def ar_some_unknown(sc: Ar.Schema, d: Ar.Dialect, +args: List<&2, Ar.Arg>) -> Bo
       match d:
         case Ar.Dialect{als, rs}:
           ar_some_unknown.go(ps, als, ArgSpec.sent_keys(args), args)
+
+def ar_bad_target(+ps: List<&2, Ar.Prop>, cl: Bool, +rs: List<&2, Ar.KV>, m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+c}:
+      Bool.or(Maybe.is_some(&2, String, ArgSpec.first_text(c, rs)), Bool.and(cl, Bool.not(ArgSpec.is_some(ArgSpec.declared(c, ps)))))
+
+def ar_some_bad_alias.go(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks: List<&2, String>, args: List<&2, Ar.Arg>) -> Bool:
+  match args:
+    case Nil{}:
+      False{}
+    case a <> t:
+      match a:
+        case Ar.Arg{+k, p, v}:
+          +cur = ar_cur(ArgSpec.decoding(ks, k, p), k)
+          Bool.or(Bool.and(Bool.not(ArgSpec.is_some(ArgSpec.declared(cur, ps))), ar_bad_target(ps, cl, rs, ArgSpec.first_text(cur, als))), ar_some_bad_alias.go(ps, cl, als, rs, ks, t))
+
+# R9: some argument's key (decoded) is an undeclared alias whose first
+# canonical name is refused, or not declared by a closed schema
+def ar_some_bad_alias(sc: Ar.Schema, d: Ar.Dialect, +args: List<&2, Ar.Arg>) -> Bool:
+  match sc:
+    case Ar.Schema{ps, cl}:
+      match d:
+        case Ar.Dialect{als, rs}:
+          ar_some_bad_alias.go(ps, cl, als, rs, ArgSpec.sent_keys(args), args)
 
 def ar_is_kind(m: Maybe<&2, String>, +t: String) -> Bool:
   match m:
@@ -686,6 +717,74 @@ law arg_repair_unknown_exact:
   for na: {ArgSpec.first_text(k, als) == None{} : Maybe<&2, String>}
   for nd: {ArgSpec.declared(k, ps) == None{} : Maybe<&2, Ar.Prop>}
   {Ar.repair(Ar.Schema{ps, True{}}, Ar.Dialect{als, rs}, Ar.Arg{k, None{}, v} <> t) == Ar.Rejected{Ar.Unknown{k, ArgSpec.declared_names(ps)}} : Ar.Verdict}
+
+# LAW arg_repair_alias_refused_exact (R9): a first argument whose key (not
+# decoded, not refused) is an undeclared alias of a refused name refuses
+# the call as that name sent would: the name and its first hint
+# EXCLUDES: the refused name passed to the tool under the alias, the alias
+#   named instead of the refused name, another hint
+law arg_repair_alias_refused_exact:
+  for +ps: List<&2, Ar.Prop>
+  for +cl: Bool
+  for +als: List<&2, Ar.KV>
+  for +rs: List<&2, Ar.KV>
+  for +k: String
+  for +c: String
+  for +h: String
+  for +v: Ar.Val
+  for +t: List<&2, Ar.Arg>
+  for nr: {ArgSpec.first_text(k, rs) == None{} : Maybe<&2, String>}
+  for nd: {ArgSpec.declared(k, ps) == None{} : Maybe<&2, Ar.Prop>}
+  for al: {ArgSpec.first_text(k, als) == Some{c} : Maybe<&2, String>}
+  for hit: {ArgSpec.first_text(c, rs) == Some{h} : Maybe<&2, String>}
+  {Ar.repair(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, Ar.Arg{k, None{}, v} <> t) == Ar.Rejected{Ar.Refused{c, h}} : Ar.Verdict}
+
+# LAW arg_repair_alias_unknown_exact (R9): a closed schema's first argument
+# whose key (not decoded, not refused) is an undeclared alias of a name it
+# does not declare (and no refusal names) is unknown as that name sent
+# would be: the name and the declared names in order
+# EXCLUDES: an undeclared name passed to the tool under the alias, the
+#   alias named instead of its canonical name
+law arg_repair_alias_unknown_exact:
+  for +ps: List<&2, Ar.Prop>
+  for +als: List<&2, Ar.KV>
+  for +rs: List<&2, Ar.KV>
+  for +k: String
+  for +c: String
+  for +v: Ar.Val
+  for +t: List<&2, Ar.Arg>
+  for nr: {ArgSpec.first_text(k, rs) == None{} : Maybe<&2, String>}
+  for nd: {ArgSpec.declared(k, ps) == None{} : Maybe<&2, Ar.Prop>}
+  for al: {ArgSpec.first_text(k, als) == Some{c} : Maybe<&2, String>}
+  for cr: {ArgSpec.first_text(c, rs) == None{} : Maybe<&2, String>}
+  for cd: {ArgSpec.declared(c, ps) == None{} : Maybe<&2, Ar.Prop>}
+  {Ar.repair(Ar.Schema{ps, True{}}, Ar.Dialect{als, rs}, Ar.Arg{k, None{}, v} <> t) == Ar.Rejected{Ar.Unknown{c, ArgSpec.declared_names(ps)}} : Ar.Verdict}
+
+# LAW arg_repair_alias_rejects (R9): a call with an argument, anywhere,
+# whose key (decoded) is an undeclared alias of a refused name, or of a
+# name a closed schema does not declare, is refused
+# EXCLUDES: an alias's canonical name passed without the check a sent key
+#   gets, for a later argument too
+law arg_repair_alias_rejects:
+  for +sc: Ar.Schema
+  for +d: Ar.Dialect
+  for +args: List<&2, Ar.Arg>
+  for bad: {ar_some_bad_alias(sc, d, args) == True{} : Bool}
+  {ar_rejected(Ar.repair(sc, d, args)) == True{} : Bool}
+
+# LAW arg_repair_idempotent_any (R3, R9): repairing a repaired call changes
+# nothing, for every dialect: the same names, no value read, no record
+# EXCLUDES: an alias read as a name the schema does not declare or the
+#   dialect refuses, which the call repaired again rejects; an alias chain
+#   read one link per repair; a value read twice
+law arg_repair_idempotent_any:
+  for +sc: Ar.Schema
+  for +d: Ar.Dialect
+  for +args: List<&2, Ar.Arg>
+  for +os: List<&2, Ar.Out>
+  for +rs: List<&2, Ar.Record>
+  for ok: {Ar.repair(sc, d, args) == Ar.Repaired{os, rs} : Ar.Verdict}
+  {Ar.repair(sc, d, ar_after(args, os)) == Ar.Repaired{ar_kept(os), Nil{}} : Ar.Verdict}
 
 # LAW arg_repair_coerce_spec (R7): every value is read as the spec's S4
 # reads it, for every declared argument

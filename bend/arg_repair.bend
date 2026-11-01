@@ -8,7 +8,9 @@
 # - its key: a key sent as a JSON string (Rust: decoded up to 3 layers) is
 #   read as the decoded key, unless that key is sent too; a key the dialect
 #   refuses refuses the call with the dialect's hint; an undeclared key that
-#   is an alias is read as the alias's canonical name; any other undeclared
+#   is an alias is read as the alias's canonical name, which is admitted as
+#   that name sent would be (refused, or unknown to a closed schema that
+#   does not declare it; an alias chain is unknown); any other undeclared
 #   key of a closed schema refuses the call (naming the declared keys); two
 #   arguments read as one name refuse the call;
 # - its value: a value in another spelling of the declared `type` is read as
@@ -112,10 +114,11 @@ type Ty is Data:
   KOther{}
 
 # What a key is read as, before the keys sent with it count: refused (the
-# hint), unknown (the declared names), or a name.
+# key refused and its hint), unknown (the key unknown and the declared
+# names), or a name.
 type Named is Data:
-  NRefused{hint: String}
-  NUnknown{valid: List<&2, String>}
+  NRefused{key: String, hint: String}
+  NUnknown{key: String, valid: List<&2, String>}
   NAs{name: String}
 
 # A name read so far: the name and the key sent for it.
@@ -571,37 +574,63 @@ def named.closed(dec: Bool, cl: Bool, +k: String, ps: List<&2, Prop>) -> Named:
     case False{}:
       match cl:
         case True{}:
-          NUnknown{names(ps)}
+          NUnknown{k, names(ps)}
         case False{}:
           NAs{k}
 
-def named.alias(al: Maybe<&2, String>, dec: Bool, cl: Bool, +k: String, ps: List<&2, Prop>) -> Named:
+def named.chain(al: Maybe<&2, String>, +c: String, ps: List<&2, Prop>) -> Named:
   match al:
-    case Some{c}:
+    case None{}:
+      NAs{c}
+    case Some{e}:
+      NUnknown{c, names(ps)}
+
+# an alias's canonical name c, admitted as the key c sent would be: refused
+# (its first hint); itself when declared; unknown to a closed schema; to an
+# open one itself, unless c is an alias too (a chain is unknown)
+def named.target(h: Maybe<&2, String>, dec: Bool, cl: Bool, al: Maybe<&2, String>, +c: String, ps: List<&2, Prop>) -> Named:
+  match h:
+    case Some{x}:
+      NRefused{c, x}
+    case None{}:
+      match dec:
+        case True{}:
+          NAs{c}
+        case False{}:
+          match cl:
+            case True{}:
+              NUnknown{c, names(ps)}
+            case False{}:
+              named.chain(al, c, ps)
+
+def named.alias(al: Maybe<&2, String>, dec: Bool, cl: Bool, +k: String, +ps: List<&2, Prop>, as: List<&2, KV>, rs: List<&2, KV>) -> Named:
+  match al:
+    case Some{+c}:
       match dec:
         case True{}:
           NAs{k}
         case False{}:
-          NAs{c}
+          named.target(lookup(c, rs), found(prop(c, ps)), cl, lookup(c, as), c, ps)
     case None{}:
       named.closed(dec, cl, k, ps)
 
-def named.hint(h: Maybe<&2, String>, sc: Schema, as: List<&2, KV>, +k: String) -> Named:
+def named.hint(h: Maybe<&2, String>, sc: Schema, +as: List<&2, KV>, rs: List<&2, KV>, +k: String) -> Named:
   match h:
     case Some{x}:
-      NRefused{x}
+      NRefused{k, x}
     case None{}:
       match sc:
         case Schema{+ps, cl}:
-          named.alias(lookup(k, as), found(prop(k, ps)), cl, k, ps)
+          named.alias(lookup(k, as), found(prop(k, ps)), cl, k, ps, as, rs)
 
 # what the key k is read as: a refused key refuses (its first hint); an
-# undeclared alias is its first canonical name; a declared key is itself;
-# another key is unknown to a closed schema, itself to an open one
+# undeclared alias is its first canonical name, admitted as that name sent
+# would be (named.target); a declared key is itself; another key is
+# unknown to a closed schema, itself to an open one
 def named(sc: Schema, d: Dialect, +k: String) -> Named:
   match d:
-    case Dialect{as, rs}:
-      named.hint(lookup(k, rs), sc, as, k)
+    case Dialect{as, +rs}:
+      named.hint(lookup(k, rs), sc, as, rs, k)
 
 # Steps
 # -----
@@ -636,10 +665,10 @@ def step.seen(+c: String, ps: List<&2, Prop>, ss: List<&2, Seen>, r0: List<&2, R
 
 def step.named(n: Named, ps: List<&2, Prop>, ss: List<&2, Seen>, r0: List<&2, Record>, +k: String, v: Val) -> Step:
   match n:
-    case NRefused{x}:
-      StepNo{Refused{k, x}}
-    case NUnknown{ns}:
-      StepNo{Unknown{k, ns}}
+    case NRefused{j, x}:
+      StepNo{Refused{j, x}}
+    case NUnknown{j, ns}:
+      StepNo{Unknown{j, ns}}
     case NAs{c}:
       step.seen(c, ps, ss, r0, k, v)
 

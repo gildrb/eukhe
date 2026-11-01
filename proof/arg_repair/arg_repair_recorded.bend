@@ -61,7 +61,7 @@ def rc.cons(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<
         case Ar.StepOk{o, +r, +s}:
           match o:
             case Ar.Out{+c, +to}:
-              (hn, (hf, (hto, (hs, hr)))) = h
+              (hn, (hf, (hto, (hs, (hr, hx))))) = h
               rc.ok(ks, k, m, v, c, to, r, s, t, rest, hr, ih)
 
 def rc.go(args: List<&2, Ar.Arg>, +ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks: List<&2, String>, +ss: List<&2, Ar.Seen>) -> {Ar.go(args, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks, ss) == rc.RC(ks, args, Ar.go(args, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks, ss)) : Ar.Verdict}:

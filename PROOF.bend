@@ -2557,6 +2557,10 @@ import ./proof/arg_repair/arg_repair_refused_rejects.bend as PArgRepairRefusedRe
 import ./proof/arg_repair/arg_repair_unknown_rejects.bend as PArgRepairUnknownRejects
 import ./proof/arg_repair/arg_repair_refused_exact.bend as PArgRepairRefusedExact
 import ./proof/arg_repair/arg_repair_unknown_exact.bend as PArgRepairUnknownExact
+import ./proof/arg_repair/arg_repair_alias_refused_exact.bend as PArgRepairAliasRefusedExact
+import ./proof/arg_repair/arg_repair_alias_unknown_exact.bend as PArgRepairAliasUnknownExact
+import ./proof/arg_repair/arg_repair_alias_rejects.bend as PArgRepairAliasRejects
+import ./proof/arg_repair/arg_repair_idempotent_any.bend as PArgRepairIdempotentAny
 import ./proof/arg_repair/arg_repair_example.bend as PArgRepairExample
 import ./proof/arg_repair/arg_repair_refusal_example.bend as PArgRepairRefusalExample
 import ./proof/arg_repair/arg_repair_decoded_example.bend as PArgRepairDecodedExample

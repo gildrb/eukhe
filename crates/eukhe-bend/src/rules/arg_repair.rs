@@ -91,9 +91,11 @@ pub enum Record {
 /// Why no repair makes the arguments valid.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
-    /// A key of another dialect, with the hint that teaches this one.
+    /// A key of another dialect, with the hint that teaches this one; an
+    /// alias whose canonical name is refused names that name.
     Refused { key: String, hint: String },
-    /// A key a closed schema does not declare, no alias of a declared one.
+    /// A key a closed schema does not declare, no alias of a declared one;
+    /// an alias whose canonical name it does not declare names that name.
     Unknown { key: String, valid: Vec<String> },
     /// Two keys read as one name: the name, the key sent first, this key.
     Ambiguous {
@@ -416,6 +418,59 @@ mod tests {
             Verdict::Rejected(Refusal::Unknown {
                 key: "off".to_owned(),
                 valid: vec!["on".to_owned(), "paths".to_owned()],
+            })
+        );
+    }
+
+    /// An alias's canonical name is admitted as that name sent would be: a
+    /// closed schema that does not declare it, or a dialect that refuses
+    /// it, rejects the call naming the canonical name.
+    #[test]
+    fn an_alias_is_admitted_as_its_canonical_name_sent() {
+        let command = [Prop {
+            name: "command",
+            kind: Some("string"),
+            items: None,
+        }];
+        assert_eq!(
+            repair(
+                Schema {
+                    props: command.into_iter(),
+                    closed: true,
+                },
+                Dialect {
+                    aliases: [("file_path", "path")].into_iter(),
+                    refused: [].into_iter(),
+                },
+                vec![arg("file_path", text("a.rs"))],
+            )
+            .unwrap(),
+            Verdict::Rejected(Refusal::Unknown {
+                key: "path".to_owned(),
+                valid: vec!["command".to_owned()],
+            })
+        );
+        let old_string = [Prop {
+            name: "old_string",
+            kind: None,
+            items: None,
+        }];
+        assert_eq!(
+            repair(
+                Schema {
+                    props: old_string.into_iter(),
+                    closed: true,
+                },
+                Dialect {
+                    aliases: [("old_str", "old_string")].into_iter(),
+                    refused: [("old_string", "send a hashline patch")].into_iter(),
+                },
+                vec![arg("old_str", text("x"))],
+            )
+            .unwrap(),
+            Verdict::Rejected(Refusal::Refused {
+                key: "old_string".to_owned(),
+                hint: "send a hashline patch".to_owned(),
             })
         );
     }

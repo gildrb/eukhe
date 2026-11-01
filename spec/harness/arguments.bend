@@ -8,8 +8,12 @@
 #     key.
 # S2: the key read so is refused when the dialect refuses it (the first
 #     hint); else read as the canonical name of its first alias when it is
-#     an undeclared alias; else as itself when it is declared or the schema
-#     is open; else it is unknown (the declared names, in order).
+#     an undeclared alias, that name admitted as it would be sent: refused
+#     when the dialect refuses it, unknown when a closed schema does not
+#     declare it or when it is itself an undeclared alias (a chain); else
+#     as itself when it is declared or the schema is open; else it is
+#     unknown (the declared names, in order). A refusal names the key
+#     refused: the canonical name for an alias's.
 # S3: the arguments are read in order; the first that is refused, unknown,
 #     or read as a name an earlier argument took (the key that took it
 #     first) refuses the whole call.
@@ -121,35 +125,58 @@ def name.own(dec: Bool, closed: Bool, +k: String, ps: List<&2, Ar.Prop>) -> Ar.N
     case False{}:
       match closed:
         case True{}:
-          Ar.NUnknown{declared_names(ps)}
+          Ar.NUnknown{k, declared_names(ps)}
         case False{}:
           Ar.NAs{k}
 
-def name.alias(al: Maybe<&2, String>, dec: Bool, closed: Bool, +k: String, ps: List<&2, Ar.Prop>) -> Ar.Named:
+def name.chain(al: Maybe<&2, String>, +c: String, ps: List<&2, Ar.Prop>) -> Ar.Named:
   match al:
-    case Some{c}:
+    case None{}:
+      Ar.NAs{c}
+    case Some{e}:
+      Ar.NUnknown{c, declared_names(ps)}
+
+# S2: an alias's canonical name c, admitted as the key c sent would be
+def name.target(h: Maybe<&2, String>, dec: Bool, closed: Bool, al: Maybe<&2, String>, +c: String, ps: List<&2, Ar.Prop>) -> Ar.Named:
+  match h:
+    case Some{x}:
+      Ar.NRefused{c, x}
+    case None{}:
+      match dec:
+        case True{}:
+          Ar.NAs{c}
+        case False{}:
+          match closed:
+            case True{}:
+              Ar.NUnknown{c, declared_names(ps)}
+            case False{}:
+              name.chain(al, c, ps)
+
+def name.alias(al: Maybe<&2, String>, dec: Bool, closed: Bool, +k: String, +ps: List<&2, Ar.Prop>, als: List<&2, Ar.KV>, rs: List<&2, Ar.KV>) -> Ar.Named:
+  match al:
+    case Some{+c}:
       match dec:
         case True{}:
           Ar.NAs{k}
         case False{}:
-          Ar.NAs{c}
+          name.target(first_text(c, rs), is_some(declared(c, ps)), closed, first_text(c, als), c, ps)
     case None{}:
       name.own(dec, closed, k, ps)
 
-def name.refused(h: Maybe<&2, String>, sc: Ar.Schema, als: List<&2, Ar.KV>, +k: String) -> Ar.Named:
+def name.refused(h: Maybe<&2, String>, sc: Ar.Schema, +als: List<&2, Ar.KV>, rs: List<&2, Ar.KV>, +k: String) -> Ar.Named:
   match h:
     case Some{x}:
-      Ar.NRefused{x}
+      Ar.NRefused{k, x}
     case None{}:
       match sc:
         case Ar.Schema{+ps, cl}:
-          name.alias(first_text(k, als), is_some(declared(k, ps)), cl, k, ps)
+          name.alias(first_text(k, als), is_some(declared(k, ps)), cl, k, ps, als, rs)
 
 # S2: what the key read is
 def name(sc: Ar.Schema, d: Ar.Dialect, +k: String) -> Ar.Named:
   match d:
-    case Ar.Dialect{als, rs}:
-      name.refused(first_text(k, rs), sc, als, k)
+    case Ar.Dialect{als, +rs}:
+      name.refused(first_text(k, rs), sc, als, rs, k)
 
 # S4: values
 # ----------
@@ -518,10 +545,10 @@ def take.free(f: Maybe<&2, String>, +c: String, ps: List<&2, Ar.Prop>, pre: List
 
 def take.named(n: Ar.Named, ps: List<&2, Ar.Prop>, ss: List<&2, Ar.Seen>, pre: List<&2, Ar.Record>, +k: String, v: Ar.Val) -> Ar.Step:
   match n:
-    case Ar.NRefused{x}:
-      Ar.StepNo{Ar.Refused{k, x}}
-    case Ar.NUnknown{ns}:
-      Ar.StepNo{Ar.Unknown{k, ns}}
+    case Ar.NRefused{j, x}:
+      Ar.StepNo{Ar.Refused{j, x}}
+    case Ar.NUnknown{j, ns}:
+      Ar.StepNo{Ar.Unknown{j, ns}}
     case Ar.NAs{+c}:
       take.free(taken(c, ss), c, ps, pre, k, v)
 

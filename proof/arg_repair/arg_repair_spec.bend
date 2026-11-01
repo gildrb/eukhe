@@ -126,40 +126,68 @@ def rs.closed(dec: Bool, cl: Bool, +k: String, +ps: List<&2, Ar.Prop>) -> {Ar.na
     case False{}:
       match cl:
         case True{}:
-          %rs.names(ps) : {Ar.NUnknown{Ar.names(ps)} == Ar.NUnknown{_} : Ar.Named}
+          %rs.names(ps) : {Ar.NUnknown{k, Ar.names(ps)} == Ar.NUnknown{k, _} : Ar.Named}
           {==}
         case False{}:
           {==}
 
-def rs.alias(al: Maybe<&2, String>, dec: Bool, cl: Bool, +k: String, +ps: List<&2, Ar.Prop>) -> {Ar.named.alias(al, dec, cl, k, ps) == ArgSpec.name.alias(al, dec, cl, k, ps) : Ar.Named}:
+def rs.chain(al: Maybe<&2, String>, +c: String, +ps: List<&2, Ar.Prop>) -> {Ar.named.chain(al, c, ps) == ArgSpec.name.chain(al, c, ps) : Ar.Named}:
+  match al:
+    case None{}:
+      {==}
+    case Some{+e}:
+      %rs.names(ps) : {Ar.NUnknown{c, Ar.names(ps)} == Ar.NUnknown{c, _} : Ar.Named}
+      {==}
+
+def rs.target(h: Maybe<&2, String>, dec: Bool, cl: Bool, al: Maybe<&2, String>, +c: String, +ps: List<&2, Ar.Prop>) -> {Ar.named.target(h, dec, cl, al, c, ps) == ArgSpec.name.target(h, dec, cl, al, c, ps) : Ar.Named}:
+  match h:
+    case Some{+x}:
+      {==}
+    case None{}:
+      match dec:
+        case True{}:
+          {==}
+        case False{}:
+          match cl:
+            case True{}:
+              %rs.names(ps) : {Ar.NUnknown{c, Ar.names(ps)} == Ar.NUnknown{c, _} : Ar.Named}
+              {==}
+            case False{}:
+              rs.chain(al, c, ps)
+
+def rs.alias(al: Maybe<&2, String>, dec: Bool, cl: Bool, +k: String, +ps: List<&2, Ar.Prop>, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>) -> {Ar.named.alias(al, dec, cl, k, ps, als, rs) == ArgSpec.name.alias(al, dec, cl, k, ps, als, rs) : Ar.Named}:
   match al:
     case Some{+c}:
       match dec:
         case True{}:
           {==}
         case False{}:
-          {==}
+          %rs.lookup(c, rs) : {Ar.named.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, Ar.lookup(c, als), c, ps) == ArgSpec.name.target(_, ArgSpec.is_some(ArgSpec.declared(c, ps)), cl, ArgSpec.first_text(c, als), c, ps) : Ar.Named}
+          %rs.prop(c, ps) : {Ar.named.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, Ar.lookup(c, als), c, ps) == ArgSpec.name.target(Ar.lookup(c, rs), ArgSpec.is_some(_), cl, ArgSpec.first_text(c, als), c, ps) : Ar.Named}
+          %rs.found(Ar.prop(c, ps)) : {Ar.named.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, Ar.lookup(c, als), c, ps) == ArgSpec.name.target(Ar.lookup(c, rs), _, cl, ArgSpec.first_text(c, als), c, ps) : Ar.Named}
+          %rs.lookup(c, als) : {Ar.named.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, Ar.lookup(c, als), c, ps) == ArgSpec.name.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, _, c, ps) : Ar.Named}
+          rs.target(Ar.lookup(c, rs), Ar.found(Ar.prop(c, ps)), cl, Ar.lookup(c, als), c, ps)
     case None{}:
       rs.closed(dec, cl, k, ps)
 
-def rs.hint(h: Maybe<&2, String>, sc: Ar.Schema, +als: List<&2, Ar.KV>, +k: String) -> {Ar.named.hint(h, sc, als, k) == ArgSpec.name.refused(h, sc, als, k) : Ar.Named}:
+def rs.hint(h: Maybe<&2, String>, sc: Ar.Schema, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +k: String) -> {Ar.named.hint(h, sc, als, rs, k) == ArgSpec.name.refused(h, sc, als, rs, k) : Ar.Named}:
   match h:
     case Some{+x}:
       {==}
     case None{}:
       match sc:
         case Ar.Schema{+ps, +cl}:
-          %rs.lookup(k, als) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps) == ArgSpec.name.alias(_, ArgSpec.is_some(ArgSpec.declared(k, ps)), cl, k, ps) : Ar.Named}
-          %rs.prop(k, ps) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps) == ArgSpec.name.alias(Ar.lookup(k, als), ArgSpec.is_some(_), cl, k, ps) : Ar.Named}
-          %rs.found(Ar.prop(k, ps)) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps) == ArgSpec.name.alias(Ar.lookup(k, als), _, cl, k, ps) : Ar.Named}
-          rs.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps)
+          %rs.lookup(k, als) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps, als, rs) == ArgSpec.name.alias(_, ArgSpec.is_some(ArgSpec.declared(k, ps)), cl, k, ps, als, rs) : Ar.Named}
+          %rs.prop(k, ps) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps, als, rs) == ArgSpec.name.alias(Ar.lookup(k, als), ArgSpec.is_some(_), cl, k, ps, als, rs) : Ar.Named}
+          %rs.found(Ar.prop(k, ps)) : {Ar.named.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps, als, rs) == ArgSpec.name.alias(Ar.lookup(k, als), _, cl, k, ps, als, rs) : Ar.Named}
+          rs.alias(Ar.lookup(k, als), Ar.found(Ar.prop(k, ps)), cl, k, ps, als, rs)
 
 # the name a key is read as is the spec's
 def rs.named(+sc: Ar.Schema, d: Ar.Dialect, +k: String) -> {Ar.named(sc, d, k) == ArgSpec.name(sc, d, k) : Ar.Named}:
   match d:
     case Ar.Dialect{+als, +rs}:
-      %rs.lookup(k, rs) : {Ar.named.hint(Ar.lookup(k, rs), sc, als, k) == ArgSpec.name.refused(_, sc, als, k) : Ar.Named}
-      rs.hint(Ar.lookup(k, rs), sc, als, k)
+      %rs.lookup(k, rs) : {Ar.named.hint(Ar.lookup(k, rs), sc, als, rs, k) == ArgSpec.name.refused(_, sc, als, rs, k) : Ar.Named}
+      rs.hint(Ar.lookup(k, rs), sc, als, rs, k)
 
 # Steps
 # -----
@@ -194,9 +222,9 @@ def rs.free(f: Maybe<&2, String>, +c: String, +ps: List<&2, Ar.Prop>, -r0: List<
 
 def rs.step_named(n: Ar.Named, +ps: List<&2, Ar.Prop>, +ss: List<&2, Ar.Seen>, -r0: List<&2, Ar.Record>, +k: String, +v: Ar.Val) -> {Ar.step.named(n, ps, ss, r0, k, v) == ArgSpec.take.named(n, ps, ss, r0, k, v) : Ar.Step}:
   match n:
-    case Ar.NRefused{+x}:
+    case Ar.NRefused{+j, +x}:
       {==}
-    case Ar.NUnknown{+ns}:
+    case Ar.NUnknown{+j, +ns}:
       {==}
     case Ar.NAs{+c}:
       %rs.first(c, ss) : {Ar.step.first(Ar.first_of(c, ss), c, ps, r0, k, v) == ArgSpec.take.free(_, c, ps, r0, k, v) : Ar.Step}

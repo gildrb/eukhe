@@ -3,19 +3,19 @@
 # PROOF: by induction over the arguments of the first repair, the sent
 # keys of both repairs and the names taken generalized (equal names,
 # id.go): each repaired argument comes back plain, under the name c the
-# first repair read (sv.step); a well-formed dialect reads c as itself
-# (id.idn), no earlier argument took c (id.fo_*: the same names are taken),
-# and its value as read reads as nothing more (id.cp, from the readings'
-# types, arg_repair_coerce_typed); so its step keeps it with no record
-# (id.st2), and the rest repairs to itself (the hypothesis).
+# first repair read (sv.step), and every dialect reads c sent as c again
+# (sv.fix: an alias's canonical name is admitted only as itself), no
+# earlier argument took c (id.fo_*: the same names are taken), and its
+# value as read reads as nothing more (id.cp, from the readings' types,
+# arg_repair_coerce_typed); so its step keeps it with no record (id.st2),
+# and the rest repairs to itself (the hypothesis). The well-formed dialect
+# is not needed (arg_repair_idempotent_any).
 
 import Base
 import ../../bend/arg_repair.bend as Ar
-import ../../spec/harness/arguments.bend as ArgSpec
 import ../../laws/arg_repair.bend as ArgRepair
 import ./base.bend as AB
 import ./base/step.bend as SV
-import ./arg_repair_spec.bend as PSpec
 import ./arg_repair_coerce_typed.bend as PCoerceTyped
 
 # Terms
@@ -47,104 +47,6 @@ def id.is_rep(v: Ar.Verdict) -> Bool:
 # a refusal is no repair
 def id.no(-G: Type, -x: Ar.Refusal, -os: List<&2, Ar.Out>, -xs: List<&2, Ar.Record>, e: {Ar.Rejected{x} == Ar.Repaired{os, xs} : Ar.Verdict}) -> G:
   AB.ab.absurd(G, Equal.cong(Ar.Verdict, Bool, w => id.is_rep(w), Ar.Rejected{x}, Ar.Repaired{os, xs}, e))
-
-# Well-formed aliases
-# -------------------
-
-def id.wt(m: Maybe<&2, String>, +ps: List<&2, Ar.Prop>, +rs: List<&2, Ar.KV>) -> Bool:
-  match m:
-    case None{}:
-      True{}
-    case Some{+a}:
-      Bool.and(ArgSpec.is_some(ArgSpec.declared(a, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(a, rs))))
-
-def id.wf_at(b: Bool, +c: String, -r: Maybe<&2, String>, +ps: List<&2, Ar.Prop>, +rs: List<&2, Ar.KV>, hc: {Bool.and(ArgSpec.is_some(ArgSpec.declared(c, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(c, rs)))) == True{} : Bool}, hr: {id.wt(r, ps, rs) == True{} : Bool}) -> {id.wt(Ar.pick.at(b, c, r), ps, rs) == True{} : Bool}:
-  match b:
-    case True{}:
-      hc
-    case False{}:
-      hr
-
-# in a well-formed dialect, the first alias of k names a declared,
-# unrefused argument
-def id.wf(+ps: List<&2, Ar.Prop>, +rs: List<&2, Ar.KV>, als: List<&2, Ar.KV>, +k: String, h: {ArgRepair.ar_wf.alias(ps, rs, als) == True{} : Bool}) -> {id.wt(Ar.lookup(k, als), ps, rs) == True{} : Bool}:
-  match als:
-    case Nil{}:
-      {==}
-    case +e <> +t:
-      match e:
-        case Ar.KV{+x, +c}:
-          +hh = h
-          +a1 = Bool.and(ArgSpec.is_some(ArgSpec.declared(c, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(c, rs))))
-          id.wf_at(String.eq(k, x), c, Ar.lookup(k, t), ps, rs, AB.ab.and_l(a1, ArgRepair.ar_wf.alias(ps, rs, t), hh), id.wf(ps, rs, t, k, AB.ab.and_r(a1, ArgRepair.ar_wf.alias(ps, rs, t), hh)))
-
-# Names
-# -----
-
-def id.alias_dec(ha: Maybe<&2, String>, cl: Bool, +k: String, ps: List<&2, Ar.Prop>) -> {Ar.named.alias(ha, True{}, cl, k, ps) == Ar.NAs{k} : Ar.Named}:
-  match ha:
-    case Some{a}:
-      {==}
-    case None{}:
-      {==}
-
-def id.not_some(m: Maybe<&2, String>, h: {Bool.not(Maybe.is_some(&2, String, m)) == True{} : Bool}) -> {m == None{} : Maybe<&2, String>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{x}:
-      AB.ab.absurd({Some{x} == None{} : Maybe<&2, String>}, h)
-
-# a declared, unrefused name is read as itself
-def id.own(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +a: String, h: {Bool.and(ArgSpec.is_some(ArgSpec.declared(a, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(a, rs)))) == True{} : Bool}) -> {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, a) == Ar.NAs{a} : Ar.Named}:
-  +hh = h
-  +hd = AB.ab.and_l(ArgSpec.is_some(ArgSpec.declared(a, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(a, rs))), hh)
-  +hr = AB.ab.and_r(ArgSpec.is_some(ArgSpec.declared(a, ps)), Bool.not(Maybe.is_some(&2, String, ArgSpec.first_text(a, rs))), hh)
-  +er = Equal.trans(Maybe<&2, String>, Ar.lookup(a, rs), ArgSpec.first_text(a, rs), None{}, PSpec.rs.lookup(a, rs), id.not_some(ArgSpec.first_text(a, rs), hr))
-  %Equal.sym(Maybe<&2, String>, Ar.lookup(a, rs), None{}, er) : {Ar.named.hint(_, Ar.Schema{ps, cl}, als, a) == Ar.NAs{a} : Ar.Named}
-  +ed = Equal.trans(Bool, Ar.found(Ar.prop(a, ps)), ArgSpec.is_some(ArgSpec.declared(a, ps)), True{}, Equal.trans(Bool, Ar.found(Ar.prop(a, ps)), ArgSpec.is_some(Ar.prop(a, ps)), ArgSpec.is_some(ArgSpec.declared(a, ps)), PSpec.rs.found(Ar.prop(a, ps)), Equal.cong(Maybe<&2, Ar.Prop>, Bool, q => ArgSpec.is_some(q), Ar.prop(a, ps), ArgSpec.declared(a, ps), PSpec.rs.prop(a, ps))), hd)
-  %Equal.sym(Bool, Ar.found(Ar.prop(a, ps)), True{}, ed) : {Ar.named.alias(Ar.lookup(a, als), _, cl, a, ps) == Ar.NAs{a} : Ar.Named}
-  id.alias_dec(Ar.lookup(a, als), cl, a, ps)
-
-# the name c a key cur was read as, under the naming facts, is read as c
-# again in a well-formed dialect
-def id.idn(hr: Maybe<&2, String>, ha: Maybe<&2, String>, dec: Bool, +ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +cur: String, +c: String, h: {SV.sv.nok2(hr, ha, dec, cl, cur, c) == True{} : Bool}, er: {Ar.lookup(cur, rs) == hr : Maybe<&2, String>}, ea: {Ar.lookup(cur, als) == ha : Maybe<&2, String>}, ed: {Ar.found(Ar.prop(cur, ps)) == dec : Bool}, hw: {id.wt(ha, ps, rs) == True{} : Bool}) -> {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, c) == Ar.NAs{c} : Ar.Named}:
-  match hr:
-    case Some{x}:
-      AB.ab.absurd({Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, c) == Ar.NAs{c} : Ar.Named}, h)
-    case None{}:
-      match ha:
-        case Some{+a}:
-          match dec:
-            case True{}:
-              +ec = AB.ab.str_eq(c, cur, SV.sv.nok_dec(None{}, Some{a}, True{}, cl, cur, c, h))
-              %Equal.sym(String, c, cur, ec) : {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, _) == Ar.NAs{_} : Ar.Named}
-              %Equal.sym(Maybe<&2, String>, Ar.lookup(cur, rs), None{}, er) : {Ar.named.hint(_, Ar.Schema{ps, cl}, als, cur) == Ar.NAs{cur} : Ar.Named}
-              %Equal.sym(Bool, Ar.found(Ar.prop(cur, ps)), True{}, ed) : {Ar.named.alias(Ar.lookup(cur, als), _, cl, cur, ps) == Ar.NAs{cur} : Ar.Named}
-              id.alias_dec(Ar.lookup(cur, als), cl, cur, ps)
-            case False{}:
-              +ec = AB.ab.str_eq(c, a, SV.sv.nok_alias(None{}, Some{a}, False{}, cl, cur, c, h))
-              %Equal.sym(String, c, a, ec) : {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, _) == Ar.NAs{_} : Ar.Named}
-              id.own(ps, cl, als, rs, a, hw)
-        case None{}:
-          match dec:
-            case True{}:
-              +ec = AB.ab.str_eq(c, cur, SV.sv.nok_dec(None{}, None{}, True{}, cl, cur, c, h))
-              %Equal.sym(String, c, cur, ec) : {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, _) == Ar.NAs{_} : Ar.Named}
-              %Equal.sym(Maybe<&2, String>, Ar.lookup(cur, rs), None{}, er) : {Ar.named.hint(_, Ar.Schema{ps, cl}, als, cur) == Ar.NAs{cur} : Ar.Named}
-              %Equal.sym(Bool, Ar.found(Ar.prop(cur, ps)), True{}, ed) : {Ar.named.alias(Ar.lookup(cur, als), _, cl, cur, ps) == Ar.NAs{cur} : Ar.Named}
-              id.alias_dec(Ar.lookup(cur, als), cl, cur, ps)
-            case False{}:
-              match cl:
-                case True{}:
-                  AB.ab.absurd({Ar.named(Ar.Schema{ps, True{}}, Ar.Dialect{als, rs}, c) == Ar.NAs{c} : Ar.Named}, SV.sv.nok_cl(None{}, None{}, False{}, True{}, cur, c, h))
-                case False{}:
-                  +ec = AB.ab.str_eq(c, cur, SV.sv.nok_alias(None{}, None{}, False{}, False{}, cur, c, h))
-                  %Equal.sym(String, c, cur, ec) : {Ar.named(Ar.Schema{ps, False{}}, Ar.Dialect{als, rs}, _) == Ar.NAs{_} : Ar.Named}
-                  %Equal.sym(Maybe<&2, String>, Ar.lookup(cur, rs), None{}, er) : {Ar.named.hint(_, Ar.Schema{ps, False{}}, als, cur) == Ar.NAs{cur} : Ar.Named}
-                  %Equal.sym(Maybe<&2, String>, Ar.lookup(cur, als), None{}, ea) : {Ar.named.alias(_, Ar.found(Ar.prop(cur, ps)), False{}, cur, ps) == Ar.NAs{cur} : Ar.Named}
-                  %Equal.sym(Bool, Ar.found(Ar.prop(cur, ps)), False{}, ed) : {Ar.named.alias(None{}, _, False{}, cur, ps) == Ar.NAs{cur} : Ar.Named}
-                  {==}
 
 # Names taken
 # -----------
@@ -363,23 +265,21 @@ def id.eto(+c: String, +ps: List<&2, Ar.Prop>, +v: Ar.Val, to: Maybe<&2, Ar.To>,
   id.cp(Ar.prop(c, ps), v)
 
 
-def id.ok(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +wf: {ArgRepair.ar_wf.alias(ps, rs, als) == True{} : Bool}, +k: String, +m: Maybe<&2, String>, +v: Ar.Val, +t: List<&2, Ar.Arg>, +c: String, +to: Maybe<&2, Ar.To>, -r: List<&2, Ar.Record>, +s: Ar.Seen, +os1: List<&2, Ar.Out>, -xs1: List<&2, Ar.Record>, +os: List<&2, Ar.Out>, -xs: List<&2, Ar.Record>, eos: {Ar.Out{c, to} <> os1 == os : List<&2, Ar.Out>}, hn: {SV.sv.nok2(Ar.lookup(ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), rs), Ar.lookup(ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), als), Ar.found(Ar.prop(ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), ps)), cl, ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), c) == True{} : Bool}, hf: {Ar.first_of(c, ss1) == None{} : Maybe<&2, String>}, hto: {to == Ar.coerce(Ar.prop(c, ps), v) : Maybe<&2, Ar.To>}, hs: {s == Ar.Seen{c, ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k)} : Ar.Seen}, ih: {Ar.go(ArgRepair.ar_after(t, os1), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, Ar.Seen{c, c} <> ss2) == Ar.Repaired{ArgRepair.ar_kept(os1), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
-  +cur = ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k)
+def id.ok(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +k: String, +m: Maybe<&2, String>, +v: Ar.Val, +t: List<&2, Ar.Arg>, +c: String, +to: Maybe<&2, Ar.To>, -r: List<&2, Ar.Record>, +s: Ar.Seen, +os1: List<&2, Ar.Out>, -xs1: List<&2, Ar.Record>, +os: List<&2, Ar.Out>, -xs: List<&2, Ar.Record>, eos: {Ar.Out{c, to} <> os1 == os : List<&2, Ar.Out>}, hx: {Ar.named(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, c) == Ar.NAs{c} : Ar.Named}, hf: {Ar.first_of(c, ss1) == None{} : Maybe<&2, String>}, hto: {to == Ar.coerce(Ar.prop(c, ps), v) : Maybe<&2, Ar.To>}, hs: {s == Ar.Seen{c, ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k)} : Ar.Seen}, ih: {Ar.go(ArgRepair.ar_after(t, os1), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, Ar.Seen{c, c} <> ss2) == Ar.Repaired{ArgRepair.ar_kept(os1), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
   +val = ArgRepair.ar_value(v, to)
   %eos : {Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, _), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(_), Nil{}} : Ar.Verdict}
-  +en = id.idn(Ar.lookup(cur, rs), Ar.lookup(cur, als), Ar.found(Ar.prop(cur, ps)), ps, cl, als, rs, cur, c, hn, {==}, {==}, {==}, id.wf(ps, rs, als, cur, wf))
   +eto = id.eto(c, ps, v, to, hto)
   +st2 = Ar.step(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2, Ar.Arg{c, None{}, val})
-  %Equal.sym(Ar.Step, st2, Ar.StepOk{Ar.Out{c, None{}}, Nil{}, Ar.Seen{c, c}}, id.st2(ps, cl, als, rs, ks2, ss2, c, val, en, id.fo(c, ss1, ss2, hss, hf), eto)) : {Ar.go.cons(_, Ar.go(ArgRepair.ar_after(t, os1), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, Ar.seen.next(_, ss2))) == Ar.Repaired{Ar.Out{c, None{}} <> ArgRepair.ar_kept(os1), Nil{}} : Ar.Verdict}
+  %Equal.sym(Ar.Step, st2, Ar.StepOk{Ar.Out{c, None{}}, Nil{}, Ar.Seen{c, c}}, id.st2(ps, cl, als, rs, ks2, ss2, c, val, hx, id.fo(c, ss1, ss2, hss, hf), eto)) : {Ar.go.cons(_, Ar.go(ArgRepair.ar_after(t, os1), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, Ar.seen.next(_, ss2))) == Ar.Repaired{Ar.Out{c, None{}} <> ArgRepair.ar_kept(os1), Nil{}} : Ar.Verdict}
   %Equal.sym(Ar.Verdict, Ar.go(ArgRepair.ar_after(t, os1), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, Ar.Seen{c, c} <> ss2), Ar.Repaired{ArgRepair.ar_kept(os1), Nil{}}, ih) : {Ar.go.cons(Ar.StepOk{Ar.Out{c, None{}}, Nil{}, Ar.Seen{c, c}}, _) == Ar.Repaired{Ar.Out{c, None{}} <> ArgRepair.ar_kept(os1), Nil{}} : Ar.Verdict}
   {==}
 
-def id.repaired(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +wf: {ArgRepair.ar_wf.alias(ps, rs, als) == True{} : Bool}, +k: String, +m: Maybe<&2, String>, +v: Ar.Val, +t: List<&2, Ar.Arg>, +c: String, +to: Maybe<&2, Ar.To>, +r: List<&2, Ar.Record>, +s: Ar.Seen, h: SV.sv.SVo(ps, cl, als, rs, ss1, Ar.decoded(ks1, k, m), k, v, Ar.Out{c, to}, r, s), +os1: List<&2, Ar.Out>, +xs1: List<&2, Ar.Record>, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.Repaired{Ar.Out{c, to} <> os1, List.append(&2, Ar.Record, r, xs1)} == Ar.Repaired{os, xs} : Ar.Verdict}, ih: @s2: List<&2, Ar.Seen> -> {id.names(s <> ss1) == id.names(s2) : List<&2, String>} -> @o2: List<&2, Ar.Out> -> @x2: List<&2, Ar.Record> -> {Ar.Repaired{os1, xs1} == Ar.Repaired{o2, x2} : Ar.Verdict} -> {Ar.go(ArgRepair.ar_after(t, o2), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, s2) == Ar.Repaired{ArgRepair.ar_kept(o2), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
-  (hn, (hf, (hto, (hs, hr)))) = h
+def id.repaired(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +k: String, +m: Maybe<&2, String>, +v: Ar.Val, +t: List<&2, Ar.Arg>, +c: String, +to: Maybe<&2, Ar.To>, +r: List<&2, Ar.Record>, +s: Ar.Seen, h: SV.sv.SVo(ps, cl, als, rs, ss1, Ar.decoded(ks1, k, m), k, v, Ar.Out{c, to}, r, s), +os1: List<&2, Ar.Out>, +xs1: List<&2, Ar.Record>, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.Repaired{Ar.Out{c, to} <> os1, List.append(&2, Ar.Record, r, xs1)} == Ar.Repaired{os, xs} : Ar.Verdict}, ih: @s2: List<&2, Ar.Seen> -> {id.names(s <> ss1) == id.names(s2) : List<&2, String>} -> @o2: List<&2, Ar.Out> -> @x2: List<&2, Ar.Record> -> {Ar.Repaired{os1, xs1} == Ar.Repaired{o2, x2} : Ar.Verdict} -> {Ar.go(ArgRepair.ar_after(t, o2), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, s2) == Ar.Repaired{ArgRepair.ar_kept(o2), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
+  (hn, (hf, (hto, (hs, (hr, hx))))) = h
   +hs2 = hs
-  id.ok(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, wf, k, m, v, t, c, to, r, s, os1, xs1, os, xs, Equal.cong(Ar.Verdict, List<&2, Ar.Out>, w => id.outs(w), Ar.Repaired{Ar.Out{c, to} <> os1, List.append(&2, Ar.Record, r, xs1)}, Ar.Repaired{os, xs}, ok), hn, hf, hto, hs2, ih(Ar.Seen{c, c} <> ss2, id.hs(c, ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), s, ss1, ss2, hs2, hss), os1, xs1, {==}))
+  id.ok(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, k, m, v, t, c, to, r, s, os1, xs1, os, xs, Equal.cong(Ar.Verdict, List<&2, Ar.Out>, w => id.outs(w), Ar.Repaired{Ar.Out{c, to} <> os1, List.append(&2, Ar.Record, r, xs1)}, Ar.Repaired{os, xs}, ok), hx, hf, hto, hs2, ih(Ar.Seen{c, c} <> ss2, id.hs(c, ArgRepair.ar_cur(Ar.decoded(ks1, k, m), k), s, ss1, ss2, hs2, hss), os1, xs1, {==}))
 
-def id.cons(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +wf: {ArgRepair.ar_wf.alias(ps, rs, als) == True{} : Bool}, a: Ar.Arg, +t: List<&2, Ar.Arg>, st: Ar.Step, h: SV.sv.SVa(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1, a, st), rest: Ar.Verdict, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.go.cons(st, rest) == Ar.Repaired{os, xs} : Ar.Verdict}, ih: @s2: List<&2, Ar.Seen> -> {id.names(Ar.seen.next(st, ss1)) == id.names(s2) : List<&2, String>} -> @o2: List<&2, Ar.Out> -> @x2: List<&2, Ar.Record> -> {rest == Ar.Repaired{o2, x2} : Ar.Verdict} -> {Ar.go(ArgRepair.ar_after(t, o2), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, s2) == Ar.Repaired{ArgRepair.ar_kept(o2), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(a <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
+def id.cons(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, a: Ar.Arg, +t: List<&2, Ar.Arg>, st: Ar.Step, h: SV.sv.SVa(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1, a, st), rest: Ar.Verdict, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.go.cons(st, rest) == Ar.Repaired{os, xs} : Ar.Verdict}, ih: @s2: List<&2, Ar.Seen> -> {id.names(Ar.seen.next(st, ss1)) == id.names(s2) : List<&2, String>} -> @o2: List<&2, Ar.Out> -> @x2: List<&2, Ar.Record> -> {rest == Ar.Repaired{o2, x2} : Ar.Verdict} -> {Ar.go(ArgRepair.ar_after(t, o2), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, s2) == Ar.Repaired{ArgRepair.ar_kept(o2), Nil{}} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(a <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
   match a:
     case Ar.Arg{+k, +m, +v}:
       match st:
@@ -392,20 +292,24 @@ def id.cons(+ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<
                 case Ar.Rejected{x}:
                   id.no({Ar.go(ArgRepair.ar_after(Ar.Arg{k, m, v} <> t, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}, x, os, xs, ok)
                 case Ar.Repaired{+os1, +xs1}:
-                  id.repaired(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, wf, k, m, v, t, c, to, r, s, h, os1, xs1, os, xs, ok, ih)
+                  id.repaired(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, k, m, v, t, c, to, r, s, h, os1, xs1, os, xs, ok, ih)
 
-def id.go(args: List<&2, Ar.Arg>, +ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +wf: {ArgRepair.ar_wf.alias(ps, rs, als) == True{} : Bool}, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.go(args, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1) == Ar.Repaired{os, xs} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(args, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
+def id.go(args: List<&2, Ar.Arg>, +ps: List<&2, Ar.Prop>, +cl: Bool, +als: List<&2, Ar.KV>, +rs: List<&2, Ar.KV>, +ks1: List<&2, String>, +ss1: List<&2, Ar.Seen>, +ks2: List<&2, String>, +ss2: List<&2, Ar.Seen>, +hss: {id.names(ss1) == id.names(ss2) : List<&2, String>}, +os: List<&2, Ar.Out>, +xs: List<&2, Ar.Record>, ok: {Ar.go(args, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1) == Ar.Repaired{os, xs} : Ar.Verdict}) -> {Ar.go(ArgRepair.ar_after(args, os), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
   match args:
     case Nil{}:
       %Equal.cong(Ar.Verdict, List<&2, Ar.Out>, w => id.outs(w), Ar.Repaired{Nil{}, Nil{}}, Ar.Repaired{os, xs}, ok) : {Ar.go(ArgRepair.ar_after(Nil{}, _), Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks2, ss2) == Ar.Repaired{ArgRepair.ar_kept(_), Nil{}} : Ar.Verdict}
       {==}
     case +a <> +t:
       +st = Ar.step(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1, a)
-      id.cons(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, wf, a, t, st, SV.sv.step(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1, a), Ar.go(t, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, Ar.seen.next(st, ss1)), os, xs, ok, s2 => hs => o2 => x2 => e => id.go(t, ps, cl, als, rs, ks1, Ar.seen.next(st, ss1), ks2, s2, hs, wf, o2, x2, e))
+      id.cons(ps, cl, als, rs, ks1, ss1, ks2, ss2, hss, a, t, st, SV.sv.step(Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, ss1, a), Ar.go(t, Ar.Schema{ps, cl}, Ar.Dialect{als, rs}, ks1, Ar.seen.next(st, ss1)), os, xs, ok, s2 => hs => o2 => x2 => e => id.go(t, ps, cl, als, rs, ks1, Ar.seen.next(st, ss1), ks2, s2, hs, o2, x2, e))
 
-def ArgRepair.arg_repair_idempotent(sc, d, args, os, rs, wf, ok):
+# every repaired call repairs to itself, for every dialect
+def id.all(sc: Ar.Schema, d: Ar.Dialect, +args: List<&2, Ar.Arg>, +os: List<&2, Ar.Out>, +rs: List<&2, Ar.Record>, ok: {Ar.repair(sc, d, args) == Ar.Repaired{os, rs} : Ar.Verdict}) -> {Ar.repair(sc, d, ArgRepair.ar_after(args, os)) == Ar.Repaired{ArgRepair.ar_kept(os), Nil{}} : Ar.Verdict}:
   match sc:
     case Ar.Schema{+ps, +cl}:
       match d:
         case Ar.Dialect{+als, +xs}:
-          id.go(args, ps, cl, als, xs, Ar.keys(args), Nil{}, Ar.keys(ArgRepair.ar_after(args, os)), Nil{}, {==}, wf, os, rs, ok)
+          id.go(args, ps, cl, als, xs, Ar.keys(args), Nil{}, Ar.keys(ArgRepair.ar_after(args, os)), Nil{}, {==}, os, rs, ok)
+
+def ArgRepair.arg_repair_idempotent(sc, d, args, os, rs, wf, ok):
+  id.all(sc, d, args, os, rs, ok)
