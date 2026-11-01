@@ -103,11 +103,16 @@ pub struct BranchSummarySettings {
     pub skip_prompt: Option<bool>,
 }
 
-/// The chat memory's compactor (`memory`): the cheap model that builds the
-/// summary tree, its reasoning effort, and how long a turn waits for it.
+/// The chat memory (`memory`): whether a root session keeps one, the
+/// cheap model that builds the summary tree, its reasoning effort, and how
+/// long a turn waits for it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySettings {
+    /// Whether a root session keeps chat memory (its own chat, the view of
+    /// its older history); `false` sends the plain transcript, compacted
+    /// when it fills. Unset means on.
+    pub chat: Option<bool>,
     /// `provider/model-id`; unset falls back to `auxiliaryModel`, then to
     /// the default model.
     pub model: Option<String>,

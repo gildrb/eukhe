@@ -558,17 +558,22 @@ async fn session_config(
         // (its scripts assert carried context; no chat memory offline).
     } else {
         session.model = flag_model(options);
-        // The chat memory: this process owns it when no daemon (or
-        // other process) does, else it is the owner's client.
-        let memory = eukhe_core::memory::Memory::open(
-            eukhe_core::memory::chat_dir(&config.agent_dir),
-            Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
-                config.agent_dir.clone(),
-            )),
-        )
-        .await
-        .map_err(HeadlessSessionError::ChatMemory)?;
-        session.memory = Some(memory);
+        // The chat memory (`memory.chat`, on by default): the session's own
+        // chat, which this process owns when no daemon (or other process)
+        // does, else it is the owner's client.
+        let chat_memory =
+            eukhe_core::settings::SettingsManager::create(cwd, &config.agent_dir).get_memory_chat();
+        if chat_memory {
+            let memory = eukhe_core::memory::Memory::open(
+                eukhe_core::memory::session_chat_dir(&config.agent_dir, session_id),
+                Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
+                    config.agent_dir.clone(),
+                )),
+            )
+            .await
+            .map_err(HeadlessSessionError::ChatMemory)?;
+            session.memory = Some(memory);
+        }
         // TS `createAgentSessionServices` builds every CLI session on a
         // manager whose settings closures re-read settings on each
         // resolution; auth construction blocks, so it runs off the

@@ -137,3 +137,4 @@ import ./laws/wait_any.bend as WaitAny
 import ./laws/stop.bend as LawsStop
 import ./laws/headless_settle.bend as HeadlessSettle
 import ./laws/headless_exit.bend as HeadlessExit
+import ./laws/thread.bend as Thread

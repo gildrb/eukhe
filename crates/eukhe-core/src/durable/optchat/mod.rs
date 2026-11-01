@@ -1,14 +1,16 @@
 //! `eukhe.optchat`: the chat memory in a durable session (`OptChat` spec
-//! §1, §3.3, §6). A root conversation logs everything it says and does to
-//! the endless chat and starts every call (run) from the settled view; a
-//! subagent starts from the view at its first request and logs nothing to
-//! the chat (its own steps stay in its own session).
+//! §1, §3.3, §6). Each session is its own thread: a root conversation logs
+//! everything it says and does to the session's own chat and sends its own
+//! transcript verbatim, after the view of the history that scrolled out of
+//! it; a subagent starts from the view at its first request and logs
+//! nothing to the chat (its own steps stay in its own session).
 //!
 //! - Tools `zoom(id, n)`, `zoom("Name")` and `date(id)`.
-//! - `pi.generation` `before_request`: the call's request — the pinned
-//!   view (`eukhe.optchat.call`) with the call's leading user texts as ONE
-//!   user message, then the rest of the call; what came before the call is
-//!   in the chat log and dropped ([`request`]).
+//! - `pi.generation` `before_request`: a root call's request is its
+//!   transcript with the pinned view (`eukhe.optchat.call`) of the older
+//!   history leading its first user message; a subagent's is the view with
+//!   its leading user texts as ONE user message, then the rest
+//!   ([`request`]).
 //! - The post-commit logger (root sessions): appends finished entries to
 //!   the chat log with idempotent keys and a durable cursor
 //!   (`eukhe.optchat.logged`), and gives the root-turn lease back when the

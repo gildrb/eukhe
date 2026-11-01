@@ -9,10 +9,15 @@
 //!   tasks), and the spec says to drop it then.
 //! - The agent's replies are the `talk` kind, the name eukhe's logs have
 //!   always used, where the spec writes `unii`.
-//! - A turn's new message comes after a [`TURN_TASK`] line, as a
-//!   compaction's comes after "Compaction:", and the opening says so. The
-//!   spec marks only compactions, so a model had to tell a turn by the
-//!   missing mark; one took a bare user message for a compaction input.
+//! - Each session is its own chat: a turn is the session's own transcript,
+//!   verbatim, with the view holding only its older history (what scrolled
+//!   out), and the opening says so. The spec starts every turn from one
+//!   endless chat's view; a turn then saw its own last steps only as
+//!   summaries, mixed with other sessions' lines.
+//! - The view is history, not current state: the agent verifies current
+//!   state with its tools, and the user's observations override the view.
+//!   The spec made the view's latest word the truth before any other
+//!   source, so the agent trusted its own stale claims.
 //! - A running subagent's report is waited for, never a reason to end the
 //!   turn: when only its report is left, the agent waits for it in the
 //!   turn with `jobs.wait`. The spec's "go on, or end your turn" left the
@@ -22,14 +27,11 @@
 pub const AGENT_NAME: &str = "Eukhe";
 
 /// The opening of the system prompt (§5).
-const INTRO: &str = r#"You are Eukhe, an AI agent that works for one user in a single chat that never
-ends. Each call to you is a turn or a compaction: the view below is followed by
-a task starting "Turn:" and the user's new message, or by a task starting
-"Compaction:"."#;
-
-/// The line before a turn's new message, after the view.
-pub(crate) const TURN_TASK: &str =
-    "Turn: the new message follows. Answer it as Eukhe, with your tools; do not summarize it.";
+const INTRO: &str = r#"You are Eukhe, an AI agent that works for one user. Each session is its own
+chat. Each call to you is a turn or a compaction. A turn is this session's
+transcript: its older history, if any, as the view below, then its recent
+messages verbatim, ending with the user's new message. A compaction is the view
+followed by a task starting "Compaction:"."#;
 
 /// How to read the view (§5 "# The view").
 const VIEW_DOC: &str = r#"# The view
@@ -66,12 +68,11 @@ Do the user's tasks yourself, with your tools, following the user's instructions
 at the end of this prompt: who they are, how their files are organized and how
 they want work done. Use subagents only when the user asks for them.
 
-The view is your memory, and its latest word on a thing is the truth. Whenever
-you need any information, first find its latest mention in the view and zoom
-until you have it whole, before any other source, and before you act, guess or
-ask. Never grep or search memories manually; zoom is your only
-allowed mechanism to navigate the tree. Summaries keep little of tool output, so
-say in your reply what you learned that will matter later.
+The view is history, not current state: it says what was true when written.
+Verify current state with your tools before you act on it or report it, and the
+user's observations override the view. Zoom a line when you need its detail;
+zoom is your only mechanism to navigate the tree. Summaries keep little of tool
+output, so say in your reply what you learned that will matter later.
 
 Messages the user sends while you work reach you between tool calls. Subagents
 and computer tasks run in the background; each one's report reaches you as a
@@ -196,7 +197,8 @@ mod tests {
     /// The system prompt is the spec's §5 prompt verbatim (kept as written
     /// in `prompts/gist_prompt.txt`) with exactly the deviations the module
     /// documents: the agent's name, its replies' kind, no computers
-    /// paragraph, the turn mark, and waiting for a report in the turn.
+    /// paragraph, each session its own chat, the view as history, and
+    /// waiting for a report in the turn.
     #[test]
     fn the_system_prompt_is_the_specs_with_only_the_documented_deviations() {
         let spec = include_str!("prompts/gist_prompt.txt").trim_end();
@@ -207,8 +209,12 @@ mod tests {
         let expected = format!("{}{}", &spec[..computers], &spec[end..])
             .replace("- unii: Unii's replies", "- eukhe: Unii's replies")
             .replace(
-                "followed by\nthe user's new message, or by a task starting \"Compaction:\".",
-                "followed by\na task starting \"Turn:\" and the user's new message, or by a task starting\n\"Compaction:\".",
+                "You are Unii, an AI agent that works for one user in a single chat that never\nends. Each call to you is a turn or a compaction: the view below is followed by\nthe user's new message, or by a task starting \"Compaction:\".",
+                super::INTRO,
+            )
+            .replace(
+                "The view is your memory, and its latest word on a thing is the truth. Whenever\nyou need any information, first find its latest mention in the view and zoom\nuntil you have it whole, before any other source, and before you act, guess or\nask. Never grep or search memories manually; zoom is your only\nallowed mechanism to navigate the tree. Summaries keep little of tool output, so\nsay in your reply what you learned that will matter later.",
+                "The view is history, not current state: it says what was true when written.\nVerify current state with your tools before you act on it or report it, and the\nuser's observations override the view. Zoom a line when you need its detail;\nzoom is your only mechanism to navigate the tree. Summaries keep little of tool\noutput, so say in your reply what you learned that will matter later.",
             )
             .replace(
                 "Never wait\nfor one (no sleep, no polling): go on, or end your turn and tell the user what\nis running.",

@@ -215,14 +215,14 @@ pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot
 }
 
 /// A socket belongs to the root when it is in the root's scope and not
-/// contained away (never-touch paths, the chat memory's lock socket).
+/// contained away (never-touch paths, the chat memories' lock sockets).
 fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if is_never_touch(socket_path) {
         return false;
     }
-    // The chat memory's lock socket is not a daemon: its owner (usually the
-    // supervisor itself) answers only chat requests.
-    if socket_path == eukhe_core::memory::chat_dir(&root.agent_dir).join("lock") {
+    // A chat memory's lock socket (the shared chat's or a session's) is
+    // not a daemon: its owner answers only chat requests.
+    if eukhe_core::memory::is_chat_lock(&root.agent_dir, socket_path) {
         return false;
     }
     root.scope_contains(socket_path)

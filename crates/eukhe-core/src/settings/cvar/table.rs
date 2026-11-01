@@ -364,6 +364,18 @@ pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// Chat memory for root sessions: each session logs to its own chat and
+/// carries the older history that scrolled out of its transcript as the
+/// view; `false` sends the plain transcript, compacted when it fills.
+pub const MEMORY_CHAT: Decl = Decl {
+    id: "memory.chat",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Bool(true),
+};
+
 /// `provider/model-id`; unset falls back to `modelRoles.all`, then
 /// `auxiliaryModel`.
 pub const MEMORY_MODEL: Decl = Decl {
@@ -1354,6 +1366,7 @@ pub const DECLS: &[Decl] = &[
     COMPACTION_KEEP_RECENT_TOKENS,
     COMPACTION_AGENT_CALLABLE,
     COMPACTION_PROVIDER_TOKEN_COUNT,
+    MEMORY_CHAT,
     MEMORY_MODEL,
     MEMORY_THINKING,
     MEMORY_SETTLE_TIMEOUT_MS,

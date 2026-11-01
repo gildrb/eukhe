@@ -294,7 +294,7 @@ async fn report_overflow(
         (
             format!(
                 "Auto-compaction skipped: {}",
-                skip_message(deps, &conversation, &cx).await
+                skip_message(&conversation, &cx).await
             ),
             CompactionOutcomeKind::Skipped,
         )
@@ -432,7 +432,7 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
             });
         }
         SettledOutcome::Skipped => {
-            let message = skip_message(deps, &conversation, &cx).await;
+            let message = skip_message(&conversation, &cx).await;
             outcome_row(
                 &conversation,
                 &event.task_id,
@@ -476,15 +476,8 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
 }
 
 /// The skip message of a compaction that completed without a summary: the
-/// chat-memory decline, the already-compacted head, or nothing to
-/// summarize.
-async fn skip_message(deps: &HostDeps, conversation: &Conversation, cx: &Context) -> String {
-    if super::summary::chat_memory_root_of(deps, conversation.id(), cx)
-        .await
-        .unwrap_or(false)
-    {
-        return "Nothing to compact: the chat memory keeps this chat, and every turn starts fresh from its view".to_owned();
-    }
+/// already-compacted head, or nothing to summarize.
+async fn skip_message(conversation: &Conversation, cx: &Context) -> String {
     match conversation
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await

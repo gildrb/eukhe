@@ -97,10 +97,9 @@ fn assemble_breakdown(
 ) -> anyhow::Result<(eukhe_core::prompts::SystemPromptBreakdown, Vec<String>)> {
     let agent_dir = get_agent_dir();
     let model_prompts = eukhe_core::prompts::model_prompts::load_model_prompts(model, &agent_dir);
-    // Every chat-memory session names the chat log (one path for all).
-    let chat_log = eukhe_core::memory::chat_dir(&agent_dir)
-        .display()
-        .to_string();
+    // Every chat-memory session names its own chat log; the preview has no
+    // session yet, so it names the session's place.
+    let chat_log = preview_chat_log(&agent_dir);
     let settings = SettingsManager::create(cwd, &agent_dir);
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
@@ -141,6 +140,15 @@ fn assemble_breakdown(
     let mut errors = model_prompts.errors;
     errors.extend(mcp_diagnostics.iter().map(ToString::to_string));
     Ok((breakdown, errors))
+}
+
+/// The chat log a session's prompt names, with `<session>` for its id.
+fn preview_chat_log(agent_dir: &std::path::Path) -> String {
+    eukhe_core::memory::chat_dir(agent_dir)
+        .join("sessions")
+        .join("<session>")
+        .display()
+        .to_string()
 }
 
 fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
@@ -246,10 +254,9 @@ mod tests {
         assert!(breakdown
             .assembled
             .contains("Recursive agent depth: 0 (root)"));
-        assert!(breakdown.assembled.contains(&format!(
-            "Chat log: {}",
-            eukhe_core::memory::chat_dir(&get_agent_dir()).display()
-        )));
+        assert!(breakdown
+            .assembled
+            .contains(&format!("Chat log: {}", preview_chat_log(&get_agent_dir()))));
         // Every static segment sits inside the cached prefix.
         for segment in &breakdown.segments {
             let inside = breakdown

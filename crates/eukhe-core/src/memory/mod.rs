@@ -1,10 +1,17 @@
 //! The chat memory, after Victor Taelin's `OptChat` spec
 //! (<https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449>):
 //! one endless, append-only chat log,
-//! a binary tree of one-line summaries over it, the fixed-budget view every
-//! root turn starts from, and the background compactor that builds the tree.
+//! a binary tree of one-line summaries over it, the fixed-budget view, and
+//! the background compactor that builds the tree.
 //!
-//! Layout under `<agent-dir>/chat/`:
+//! Each session is its own thread with its own chat
+//! ([`session_chat_dir`]): its log holds that session's messages alone, and
+//! its view shows a turn only the history that scrolled out of the
+//! session's verbatim transcript. No session reads another's chat.
+//!
+//! Layout under a chat directory (`<agent-dir>/chat/sessions/<session>/`;
+//! `<agent-dir>/chat/` holds the shared chat of earlier versions and
+//! `chat import`):
 //!
 //! - `main/YYYY-MM-DD.jsonl`: one message per line, `{i, kind, text, size, date}`.
 //! - `images/<i>.json`: the images message `i` carried, written and fsynced
@@ -19,7 +26,7 @@
 //! - `lock`: the owner's Unix socket. One process owns the chat for its whole
 //!   life and is the only writer; every other process is its client.
 //! - `turn`: locked by the process whose root turn holds the chat's
-//!   root-turn lease (one root turn at a time across every process).
+//!   root-turn lease (one root turn of the thread at a time).
 //!
 //! Node `(l, i)` covers messages `[i·2^l, (i+1)·2^l)` and is named `id+n`
 //! with `id = i·2^l` and `n = 2^l`. Level 0 summarizes one message; level
@@ -43,7 +50,6 @@ use std::time::Duration;
 pub use browse::{read_view, write_browse_page, BrowseSummary, ReadView};
 pub use compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 pub use import::{import_sessions, ImportReport};
-pub(crate) use prompts::TURN_TASK;
 pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
@@ -94,20 +100,58 @@ pub const CAP: usize = 30_000;
 /// The text of a view line whose message is not summarized yet.
 pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
 
-/// Which side of the chat a session is: the root logs to the chat and
-/// starts every fresh turn from the view; a subagent starts from the view
-/// at its spawn and logs nothing to the chat (§6: its own steps stay in its
-/// own log).
+/// Which side of the chat a session is: the root logs to its own chat and
+/// carries the view of the history that scrolled out of its transcript; a
+/// subagent starts from the view at its spawn and logs nothing to the chat
+/// (§6: its own steps stay in its own log).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryRole {
     Root,
     Subagent,
 }
 
-/// The directory of the chat memory under an agent directory.
+/// The shared chat directory under an agent directory: the chat of
+/// earlier versions and of `chat import`. Sessions use
+/// [`session_chat_dir`].
 #[must_use]
 pub fn chat_dir(agent_dir: &std::path::Path) -> std::path::PathBuf {
     agent_dir.join("chat")
+}
+
+/// The chat of one session (its own thread): every message it logs and
+/// every view it reads stay in it. A character outside `[A-Za-z0-9._-]`
+/// in the id becomes `_`, so the id names one directory.
+#[must_use]
+pub fn session_chat_dir(agent_dir: &std::path::Path, session_id: &str) -> std::path::PathBuf {
+    let name: String = session_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let name = if name.is_empty() || name.chars().all(|c| c == '.') {
+        format!("_{name}")
+    } else {
+        name
+    };
+    chat_dir(agent_dir).join("sessions").join(name)
+}
+
+/// Whether `path` is the owner socket of a chat (shared or a session's):
+/// a chat's `lock`, never a daemon.
+#[must_use]
+pub fn is_chat_lock(agent_dir: &std::path::Path, path: &std::path::Path) -> bool {
+    let chat = chat_dir(agent_dir);
+    path == chat.join("lock")
+        || (path.file_name() == Some(std::ffi::OsStr::new("lock"))
+            && path
+                .parent()
+                .and_then(std::path::Path::parent)
+                .is_some_and(|sessions| sessions == chat.join("sessions")))
 }
 
 /// The idempotency key of a keyed append ([`Memory::append_keyed`]): the

@@ -73,11 +73,6 @@ async fn decide(
         "compact.enter",
         &json!({ "customInstructions": request.instructions.is_some() }),
     );
-    // A chat-memory root's next turn starts fresh from the settled view;
-    // the history lives in the chat, so the compaction is declined.
-    if chat_memory_root(deps, api.conversation_id(), cx).await? {
-        return Ok(Some(CompactionDecision::Decline));
-    }
     let harness = deps.harness.require()?;
     let Some(conversation) = harness.conversation(api.conversation_id(), cx).await? else {
         return Ok(Some(CompactionDecision::Decline));
@@ -269,32 +264,6 @@ async fn decide(
         text: head::rendered_summary(&summary),
         summary,
     }))
-}
-
-/// Whether the compaction's conversation is a chat-memory root (a session
-/// with chat memory, root role, whose conversation no task owns).
-async fn chat_memory_root(
-    deps: &super::HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> SessionResult<bool> {
-    if deps.memory.is_none() || deps.role.memory_role() != crate::memory::MemoryRole::Root {
-        return Ok(false);
-    }
-    let harness = deps.harness.require()?;
-    let root =
-        crate::durable::optchat::request::is_root_conversation(&harness, conversation, cx).await;
-    root.map_err(SessionError::other)
-}
-
-/// Whether `conversation` is a chat-memory root (the observer's skip
-/// message reads the same decline the hook applies).
-pub(super) async fn chat_memory_root_of(
-    deps: &super::HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> SessionResult<bool> {
-    chat_memory_root(deps, conversation, cx).await
 }
 
 /// The recent-state anchor over the kept tail: the newest assistant text

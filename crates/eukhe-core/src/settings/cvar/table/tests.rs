@@ -49,6 +49,7 @@ fn populated() -> Settings {
             provider_token_count: Some(true),
         }),
         memory: Some(MemorySettings {
+            chat: Some(false),
             model: Some("m".into()),
             thinking: Some(ThinkingLevelSetting::Low),
             settle_timeout_ms: Some(1),

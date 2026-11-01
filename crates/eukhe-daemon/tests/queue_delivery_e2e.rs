@@ -248,8 +248,7 @@ fn serve(
     // hold (the full parked lane was observed while the turn was busy).
     // The gate matches the prompt TEXT, so extract it from the last
     // user message whether the provider payload carries it as a plain
-    // string or as text parts. A chat-memory turn leads its text with a
-    // "Turn:" line; the prompt is what follows it.
+    // string or as text parts.
     let marker_text = body["messages"]
         .as_array()
         .and_then(|messages| {
@@ -264,10 +263,6 @@ fn serve(
                     }),
                     _ => None,
                 })
-        })
-        .map(|text| match text.split_once('\n') {
-            Some((first, prompt)) if first.starts_with("Turn:") => prompt.to_string(),
-            Some(_) | None => text,
         })
         .unwrap_or_default();
     let gate_observed = hold.observe(&marker_text);

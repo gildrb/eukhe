@@ -102,6 +102,7 @@ import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_task_life.bend as ffi_task_life
 import ./ffi_theme.bend as ffi_theme
+import ./ffi_thread.bend as ffi_thread
 import ./ffi_timeouts.bend as ffi_timeouts
 import ./ffi_tiny.bend as ffi_tiny
 import ./ffi_tiny_run.bend as ffi_tiny_run
@@ -331,6 +332,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_model_roles.ffi(input)
     case 442:
       ffi_kin.ffi(input)
+    case 443:
+      ffi_thread.ffi(input)
     case _:
       W.err("unknown entry")
 

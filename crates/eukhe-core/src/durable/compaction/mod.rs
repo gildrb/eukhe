@@ -80,16 +80,3 @@ pub(crate) async fn digest_render_of(
         .map_err(eukhe_durable::session::SessionError::other)?;
     Ok((!render.digest.is_empty()).then_some(render))
 }
-
-/// Whether `conversation` is a chat-memory root (the compaction surfaces
-/// decline or skip for it).
-/// # Errors
-///
-/// The conversation record cannot be read.
-pub async fn chat_memory_root(
-    deps: &HostDeps,
-    conversation: eukhe_durable::types::ConversationId,
-    cx: &Context,
-) -> eukhe_durable::session::SessionResult<bool> {
-    summary::chat_memory_root_of(deps, conversation, cx).await
-}

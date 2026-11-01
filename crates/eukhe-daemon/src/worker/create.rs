@@ -543,16 +543,21 @@ impl Worker {
         }
         // A faux script keeps its sessions without the chat memory unless
         // it opts in (`"chatMemory": true`, a verification seam): then its
-        // root sessions share the memory, compacted on the script.
+        // root sessions keep it, compacted on the script. Any other root
+        // session keeps it while `memory.chat` is on.
         let scripted = self
             .scripted_models()
             .map_err(|error| anyhow::anyhow!("invalid create script: {error}"))?;
         let memory_summarizer = match &scripted {
-            None => Some(None),
+            None => {
+                eukhe_core::settings::SettingsManager::create(&params.cwd, &self.config.agent_dir)
+                    .get_memory_chat()
+                    .then_some(None)
+            }
             Some(scripted) => scripted.chat_memory_summarizer().map(Some),
         };
         if let (Some(summarizer), true) = (memory_summarizer, config.role.is_root()) {
-            config.memory = Some(self.chat_memory(summarizer).await?);
+            config.memory = Some(self.chat_memory(&config.session_id, summarizer).await?);
         }
         let summary_core = Arc::clone(&self.core);
         let summary_events = Arc::clone(&self.events);
@@ -648,32 +653,36 @@ impl Worker {
         })
     }
 
-    /// The chat memory every root session of this worker shares (opened
-    /// once). When this worker owns the chat, its compactor takes the
-    /// supervisor's background slots; a faux script that opts into the
-    /// memory brings its own compactor (`scripted`).
+    /// The chat memory of root session `session_id`: its own chat, opened
+    /// once per session. When this worker owns the chat, its compactor
+    /// takes the supervisor's background slots; a faux script that opts
+    /// into the memory brings its own compactor (`scripted`).
     async fn chat_memory(
         &self,
+        session_id: &str,
         scripted: Option<durable_host::ScriptedSummarizer>,
     ) -> anyhow::Result<eukhe_core::memory::Memory> {
-        self.chat_memory
-            .get_or_try_init(|| {
-                let agent_dir = self.config.agent_dir.clone();
-                let chat = eukhe_core::memory::chat_dir(&agent_dir);
-                let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
-                    match (scripted, self.supervisor_admission()) {
-                        (Some(scripted), _) => Arc::new(scripted),
-                        (None, Some(admission)) => Arc::new(
-                            eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission),
-                        ),
-                        (None, None) => Arc::new(
-                            eukhe_core::memory::SettingsSummarizer::in_process(agent_dir),
-                        ),
-                    };
-                eukhe_core::memory::Memory::open(chat, summarizer)
-            })
-            .await
-            .cloned()
+        let agent_dir = self.config.agent_dir.clone();
+        let chat = eukhe_core::memory::session_chat_dir(&agent_dir, session_id);
+        let mut opened = self.chat_memory.lock().await;
+        if let Some((dir, memory)) = opened.as_ref() {
+            if *dir == chat {
+                return Ok(memory.clone());
+            }
+        }
+        let summarizer: Arc<dyn eukhe_core::memory::Summarizer> =
+            match (scripted, self.supervisor_admission()) {
+                (Some(scripted), _) => Arc::new(scripted),
+                (None, Some(admission)) => Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+                    agent_dir, admission,
+                )),
+                (None, None) => Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
+                    agent_dir,
+                )),
+            };
+        let memory = eukhe_core::memory::Memory::open(chat.clone(), summarizer).await?;
+        *opened = Some((chat, memory.clone()));
+        Ok(memory)
     }
 
     /// The worker's faux script models (`None` without a create script),

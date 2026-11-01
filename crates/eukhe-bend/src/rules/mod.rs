@@ -51,6 +51,7 @@ pub mod stream_failure;
 pub mod submission;
 pub mod task_life;
 pub mod theme;
+pub mod thread;
 pub mod tokens;
 pub mod tool_call;
 pub mod tool_surface;

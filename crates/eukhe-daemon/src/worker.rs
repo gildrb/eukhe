@@ -173,9 +173,10 @@ pub struct Worker {
     /// Renames are one serialized critical section: the previous-name read,
     /// the name write, and its `session_renamed` notice stay together.
     pub(crate) rename_gate: tokio::sync::Mutex<()>,
-    /// The chat memory root sessions share (`<agent-dir>/chat`), opened at
-    /// the first root create.
-    chat_memory: tokio::sync::OnceCell<eukhe_core::memory::Memory>,
+    /// The chat memory of the root session this worker hosts (its own
+    /// chat, `<agent-dir>/chat/sessions/<session>`), with its directory:
+    /// a create of the same session reuses it.
+    chat_memory: tokio::sync::Mutex<Option<(std::path::PathBuf, eukhe_core::memory::Memory)>>,
     /// The installed session's `memory_update` forwarder (see
     /// `memory_updates`); aborted when the session closes or is replaced.
     memory_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -342,7 +343,7 @@ impl Worker {
             park_notify,
             replacement_gate: tokio::sync::Mutex::new(()),
             rename_gate: tokio::sync::Mutex::new(()),
-            chat_memory: tokio::sync::OnceCell::new(),
+            chat_memory: tokio::sync::Mutex::new(None),
             memory_updates: std::sync::Mutex::new(None),
             state_tree_updates: std::sync::Mutex::new(None),
             scripted_models: std::sync::OnceLock::new(),

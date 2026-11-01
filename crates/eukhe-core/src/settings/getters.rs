@@ -266,6 +266,14 @@ impl SettingsManager {
         (budgets != eukhe_types::pi_ai::ThinkingBudgets::default()).then_some(budgets)
     }
 
+    /// `memory.chat`: whether a root session keeps chat memory (its own
+    /// chat, the view of its older history); off, it sends the plain
+    /// transcript, compacted when it fills.
+    #[must_use]
+    pub fn get_memory_chat(&self) -> bool {
+        self.cvars().bool(&table::MEMORY_CHAT)
+    }
+
     /// `memory.settleTimeoutMs`: how long a turn waits for the view's
     /// lines to be summarized; then it goes on with the view as it is,
     /// each line not summarized yet as its input cut to 512 bytes. `0`

@@ -67,6 +67,45 @@ impl RenderedView {
     pub fn pieces(&self) -> Vec<String> {
         pieces(&self.text)
     }
+
+    /// The view of the history that scrolled out of a transcript still
+    /// holding the chat's last `verbatim` messages: its leading lines that
+    /// start before `messages - verbatim` (a line reaching past it stays
+    /// whole; the compiled core decides, `laws/thread.bend`), framed as the
+    /// view is. A view with no such line is empty: no lines, no frame.
+    #[must_use]
+    pub fn history(&self, verbatim: u64) -> Self {
+        let lines: Vec<&str> = self
+            .text
+            .lines()
+            .filter(|line| *line != "<chat>" && *line != "</chat>")
+            .collect();
+        let starts: Vec<u64> = lines
+            .iter()
+            .map(|line| {
+                line.split_once('+')
+                    .and_then(|(id, _)| id.parse::<u64>().ok())
+                    .unwrap_or(u64::MAX)
+            })
+            .collect();
+        let kept = eukhe_bend::rules::thread::history_lines(self.messages, verbatim, &starts);
+        if kept == 0 {
+            return Self {
+                messages: 0,
+                text: String::new(),
+            };
+        }
+        let mut text = String::from("<chat>\n");
+        for line in &lines[..kept.min(lines.len())] {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text.push_str("</chat>");
+        Self {
+            messages: self.messages.saturating_sub(verbatim),
+            text,
+        }
+    }
 }
 
 /// What `zoom` gives: lines or a message as text, and the images of a

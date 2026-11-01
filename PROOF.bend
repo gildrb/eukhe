@@ -2668,3 +2668,17 @@ import ./proof/headless_exit/headless_exit_transcript_before_flags.bend as PHead
 import ./proof/headless_exit/headless_exit_unfailed_run_neutral.bend as PHeadlessExitUnfailedRunNeutral
 import ./proof/headless_exit/headless_exit_unfinished_fails.bend as PHeadlessExitUnfinishedFails
 import ./proof/headless_exit/headless_exit_zero_iff_answered.bend as PHeadlessExitZeroIffAnswered
+import ./proof/thread/base.bend as LAThread
+import ./proof/thread/thread_log_chat.bend as PThreadLogChat
+import ./proof/thread/thread_request_own.bend as PThreadRequestOwn
+import ./proof/thread/thread_newest_verbatim.bend as PThreadNewestVerbatim
+import ./proof/thread/thread_history_before.bend as PThreadHistoryBefore
+import ./proof/thread/thread_history_kept.bend as PThreadHistoryKept
+import ./proof/thread/thread_history_lines_spec.bend as PThreadHistoryLinesSpec
+import ./proof/thread/thread_history_lines_example.bend as PThreadHistoryLinesExample
+import ./proof/thread/thread_request_example.bend as PThreadRequestExample
+import ./proof/thread/thread_history_lines_is_model.bend as PThreadHistoryLinesIsModel
+import ./proof/thread/thread_entry_reads.bend as PThreadEntryReads
+import ./proof/thread/thread_entry_exact.bend as PThreadEntryExact
+import ./proof/thread/thread_entry_refuses.bend as PThreadEntryRefuses
+import ./proof/thread/thread_entry_example.bend as PThreadEntryExample

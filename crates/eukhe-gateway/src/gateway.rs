@@ -565,9 +565,8 @@ impl<L: DaemonLauncher> Gateway<L> {
         ))
     }
 
-    /// The `/memory` reply: the chat memory's size and compactor state.
-    /// Every root session shares the one chat memory, so this opens the
-    /// routed session when none is bound.
+    /// The `/memory` reply: the routed session's own chat memory, its size
+    /// and compactor state; opens the routed session when none is bound.
     ///
     /// # Errors
     ///

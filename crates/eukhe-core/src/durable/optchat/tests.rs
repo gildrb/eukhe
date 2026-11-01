@@ -32,12 +32,12 @@ use tokio::sync::Notify;
 use super::docs::{decode, write, CallState, LoggedState, LOGGED_DOC};
 use super::lines::LogLine;
 use super::logger::LoggerHandle;
-use super::request::request_messages;
+use super::request::{request_messages, root_request};
 use super::OptChat;
 use crate::durable::HarnessCell;
 use crate::memory::{
     AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
-    DATE_TOOL_DESCRIPTION, TURN_TASK, ZOOM_TOOL_DESCRIPTION,
+    DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION,
 };
 
 fn cx() -> &'static Context {
@@ -428,7 +428,7 @@ fn hold_tool(started: Arc<Notify>, release: Arc<Notify>) -> Arc<ToolRegistration
     ))
 }
 
-/// The view as the call's first message describes it: its pieces, the
+/// The view as a subagent's first message describes it: its pieces, the
 /// first marked at the view's last whole block of lines.
 async fn view_text(memory: &Memory) -> String {
     let pieces = memory.render().await.unwrap().pieces();
@@ -447,8 +447,28 @@ async fn view_text(memory: &Memory) -> String {
         .join("|")
 }
 
+/// The view of the history before the chat's last `verbatim` messages as
+/// a root call's first message describes it: its pieces, the last marked
+/// at the view's end.
+async fn history_text(memory: &Memory, verbatim: u64) -> String {
+    let pieces = memory.render().await.unwrap().history(verbatim).pieces();
+    let last = pieces.len() - 1;
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(at, piece)| {
+            if at == last {
+                format!("{piece}[cache]")
+            } else {
+                piece.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[tokio::test]
-async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
+async fn a_run_sends_its_thread_verbatim_after_the_older_history_and_logs_it() {
     let setup = Setup::new(MemoryRole::Root).await;
     setup.memory.append(Kind::User, "earlier").await.unwrap();
     let requests = Requests::default();
@@ -460,15 +480,17 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     let session = setup
         .open(Arc::new(MemoryStorage::new()), Logging::On)
         .await;
-    let first_view = view_text(&setup.memory).await;
+    // "earlier" is history the transcript never held: the view keeps it.
+    let history = history_text(&setup.memory, 0).await;
     session.run(&setup.chat, "hello").await;
     let zoomed = setup.memory.zoom(0, 1).await.unwrap().text;
     let after_first = chat_lines(&setup.chat_dir());
-    let second_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "again").await;
-    // The end of the call's first message carries the request's end mark.
-    // The turn line goes to the model only; the chat logs the words alone.
-    let first_user = format!("user:{first_view}|{TURN_TASK}\nhello[cache]");
+    // The view of the older history leads the first message, marked at
+    // its end; the user's words follow as they were sent. The second run
+    // sees the first verbatim (its tool call and result too), and its view
+    // still holds only what the transcript does not.
+    let first_user = format!("user:{history}|hello");
     assert_eq!(
         (requests.described(), after_first,),
         (
@@ -476,13 +498,17 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                 vec!["system".to_string(), first_user.clone()],
                 vec![
                     "system".to_string(),
-                    first_user,
+                    first_user.clone(),
                     "assistant:call zoom".to_string(),
                     format!("toolResult:{zoomed}"),
                 ],
                 vec![
                     "system".to_string(),
-                    format!("user:{second_view}|{TURN_TASK}\nagain[cache]"),
+                    first_user,
+                    "assistant:call zoom".to_string(),
+                    format!("toolResult:{zoomed}"),
+                    "assistant:done".to_string(),
+                    "user:again".to_string(),
                 ],
             ],
             vec![
@@ -755,16 +781,14 @@ fn system(text: &str, timestamp: u64) -> Message {
     })
 }
 
-/// The request shape: systems before the call's first non-user message
-/// replayed into one; the view pieces (all but the last cache-marked), the
-/// leading user texts joined, their images after; harness state after the
-/// first message; earlier messages dropped. A root call marks its texts
-/// as a turn (a bare message once read as a compaction input); a
-/// subagent's texts are its task alone.
+/// A subagent's request shape: systems before the call's first non-user
+/// message replayed into one; the view pieces (all but the last
+/// cache-marked), the leading user texts joined, their images after;
+/// harness state after the first message; earlier messages dropped.
 #[test]
-fn a_request_joins_the_leading_user_texts_behind_the_view() {
+fn a_subagent_request_joins_the_leading_user_texts_behind_the_view() {
     let call = CallState {
-        run_key: Some("input:1".to_string()),
+        run_key: None,
         pieces: vec!["<chat>\n0+1|a\n".to_string(), "1+1|b\n</chat>".to_string()],
         through: 2,
         timestamp: 7,
@@ -782,23 +806,14 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         Message::User(UserMessage {
             content: UserContent::Blocks(vec![
                 UserContentBlock::Text(TextContent::new("second")),
-                image.clone(),
+                image,
             ]),
             timestamp: 4,
         }),
         state.clone(),
         Message::Assistant(answer("reply")),
     ];
-    let subagent = request_messages(
-        &call,
-        MemoryRole::Subagent,
-        messages.clone(),
-        2,
-        |message| *message == state,
-    );
-    let request = request_messages(&call, MemoryRole::Root, messages, 2, |message| {
-        *message == state
-    });
+    let request = request_messages(&call, messages, 2, |message| *message == state);
     let Message::System(system) = &request[0] else {
         panic!("a system message leads");
     };
@@ -806,35 +821,74 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         (
             system.content.clone(),
             request[1..].iter().map(describe).collect::<Vec<_>>(),
-            request[1].clone(),
-            describe(&subagent[1]),
         ),
         (
             SystemContent::Text("base\n\npatch".to_string()),
             vec![
-                format!("user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|{TURN_TASK}\nfirst\n\nsecond[cache]|[image image/png]"),
+                "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
+                    .to_string(),
                 "user:[state] kernel restored".to_string(),
                 "assistant:reply".to_string(),
             ],
-            Message::User(UserMessage {
-                content: UserContent::Blocks(vec![
-                    UserContentBlock::Text(TextContent {
-                        text: "<chat>\n0+1|a\n".to_string(),
-                        text_signature: None,
-                        cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
-                    }),
-                    UserContentBlock::Text(TextContent::new("1+1|b\n</chat>")),
-                    UserContentBlock::Text(TextContent {
-                        text: format!("{TURN_TASK}\nfirst\n\nsecond"),
-                        text_signature: None,
-                        cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
-                    }),
-                    image,
-                ]),
-                timestamp: 7,
-            }),
-            "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
-                .to_string(),
+        )
+    );
+}
+
+/// A root call's request is its own transcript verbatim: every earlier
+/// turn with its tool calls, results and images stays as the harness built
+/// it. The view of the older history leads the first user message, marked
+/// at its end; with no older history the transcript goes unchanged.
+#[test]
+fn a_root_request_keeps_its_thread_verbatim_behind_the_older_history() {
+    let image = UserContentBlock::Image(ImageContent {
+        data: "AA==".to_string(),
+        mime_type: "image/png".to_string(),
+    });
+    let shot = Message::ToolResult(eukhe_types::pi_ai::ToolResultMessage {
+        tool_call_id: "c1".to_string(),
+        tool_name: "shot".to_string(),
+        content: vec![UserContentBlock::Text(TextContent::new("1440x900")), image],
+        details: None,
+        usage: None,
+        nested_calls: None,
+        is_error: false,
+        timestamp: 4,
+        duration_ms: None,
+    });
+    let messages = vec![
+        system("base", 1),
+        user("make the page", 2),
+        Message::Assistant(call("shot", serde_json::json!({}))),
+        shot,
+        Message::Assistant(answer("done")),
+        user("the button is still wrong", 5),
+    ];
+    let call = |pieces: Vec<String>| CallState {
+        run_key: Some("input:2".to_string()),
+        pieces,
+        through: 9,
+        timestamp: 7,
+    };
+    let plain = root_request(&call(Vec::new()), messages.clone());
+    let request = root_request(
+        &call(vec![
+            "<chat>\n0+1|a\n".to_string(),
+            "1+1|b\n</chat>".to_string(),
+        ]),
+        messages.clone(),
+    );
+    assert_eq!(
+        (plain, request.iter().map(describe).collect::<Vec<_>>()),
+        (
+            messages,
+            vec![
+                "system".to_string(),
+                "user:<chat>\n0+1|a\n|1+1|b\n</chat>[cache]|make the page".to_string(),
+                "assistant:call shot".to_string(),
+                "toolResult:1440x900|[image image/png]".to_string(),
+                "assistant:done".to_string(),
+                "user:the button is still wrong".to_string(),
+            ],
         )
     );
 }
