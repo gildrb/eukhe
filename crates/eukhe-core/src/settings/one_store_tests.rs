@@ -76,12 +76,12 @@ fn a_thinking_level_set_in_the_ui_reads_back() {
         (
             Persisted::Applies,
             Some(ThinkingLevelSetting::Max),
-            "set memory.model elpis/qwen3.8-27b\n\
+            "set memory.model local/qwen3.8-27b\n\
              set memory.thinking low\n\
-             set auxiliaryModel elpis/qwen3.8-27b\n\
+             set auxiliaryModel local/qwen3.8-27b\n\
              set modelRoles.tiny zai/glm-5.3-flash\n\
              set defaultThinkingLevel max\n\
-             set gateway.signal.model elpis/qwen3.8-27b\n\
+             set gateway.signal.model local/qwen3.8-27b\n\
              set modelRoles.all anthropic/claude-fable-5\n"
                 .to_owned(),
             USER_SETTINGS.to_owned(),
@@ -113,7 +113,7 @@ fn a_model_switch_saves_where_reads_look() {
             vec![
                 "anthropic/claude-opus-5-5".to_owned(),
                 "anthropic/claude-fable-5".to_owned(),
-                "elpis/qwen3.8-27b".to_owned(),
+                "local/qwen3.8-27b".to_owned(),
             ],
         )
     );

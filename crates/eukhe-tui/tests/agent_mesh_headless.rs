@@ -41,7 +41,7 @@ fn child(id: &str, name: &str) -> Value {
 fn roster() -> Value {
     let mut busy = child("c1", "worker-1");
     busy["isStreaming"] = json!(true);
-    busy["model"] = json!("elpis/elpis");
+    busy["model"] = json!("local/local");
     busy["admission"] = json!("generating");
     busy["note"] = json!("triaged the flaky test");
     json!([
@@ -230,7 +230,7 @@ fn at_name_talks_to_an_agent_and_agents_lists_the_family() {
             wait("worker-1 -> worker-2: found the bug in parse.rs..."),
             HeadlessStep::Submit("/agents".to_string()),
             wait("agents: 2 (1 running)"),
-            wait("|- worker-1  running (generating)  depth 1  elpis  triaged the flaky test"),
+            wait("|- worker-1  running (generating)  depth 1  local  triaged the flaky test"),
             wait("`- worker-2  idle                  depth 1  -"),
             HeadlessStep::Submit("@nobody hello".to_string()),
             wait("Error: No agent named @nobody in this session (/agents lists them)"),

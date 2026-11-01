@@ -511,7 +511,7 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
     ),
     (
         "provider_admission_acquire",
-        r#"{"type": "provider_admission_acquire", "workerToken": "token", "providerId": "elpis"}"#,
+        r#"{"type": "provider_admission_acquire", "workerToken": "token", "providerId": "local"}"#,
     ),
     (
         "get_worker_peer_transport",

@@ -181,14 +181,14 @@ async fn clamps_explicit_max_tokens_to_remaining_context() {
 #[tokio::test]
 async fn loopback_custom_models_omit_the_store_field() {
     let model = gpt_4o_mini_completions(&json!({
-        "provider": "elpis",
+        "provider": "local",
         "baseUrl": "http://127.0.0.1:18020/v1",
     }));
     let params = simple_payload(&model, &hi_context(), None).await;
     assert_eq!(params.get("store"), None);
 
     let localhost = gpt_4o_mini_completions(&json!({
-        "provider": "elpis",
+        "provider": "local",
         "baseUrl": "http://localhost:18020/v1",
     }));
     let params = simple_payload(&localhost, &hi_context(), None).await;
@@ -196,7 +196,7 @@ async fn loopback_custom_models_omit_the_store_field() {
 
     // A non-loopback custom endpoint keeps the detected default.
     let remote = gpt_4o_mini_completions(&json!({
-        "provider": "elpis",
+        "provider": "local",
         "baseUrl": "http://10.0.0.7:18020/v1",
     }));
     let params = simple_payload(&remote, &hi_context(), None).await;
@@ -210,7 +210,7 @@ async fn loopback_custom_models_omit_the_store_field() {
 async fn loopback_reasoning_models_send_the_system_role() {
     let system_role = |base_url: &str| {
         let model = gpt_4o_mini_completions(&json!({
-            "provider": "elpis",
+            "provider": "local",
             "baseUrl": base_url,
             "reasoning": true,
         }));

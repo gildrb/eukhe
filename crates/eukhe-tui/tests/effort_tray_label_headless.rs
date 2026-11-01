@@ -93,11 +93,11 @@ fn plain_session() -> MockSession {
     }
 }
 
-/// The Elpis `qwen3.8` model: its thinking level map offers the ladder
+/// A local OpenAI-compatible `qwen3.8` model: its thinking level map offers the ladder
 /// off, low, medium, xhigh. The session starts at `low`.
-fn elpis_session() -> MockSession {
+fn local_session() -> MockSession {
     MockSession {
-        model: json!({ "id": "qwen3.8", "name": "Qwen 3.8", "provider": "elpis", "reasoning": true }),
+        model: json!({ "id": "qwen3.8", "name": "Qwen 3.8", "provider": "local", "reasoning": true }),
         levels: vec![
             "off".to_string(),
             "low".to_string(),
@@ -502,11 +502,11 @@ fn tray_label_stays_bare_without_reasoning() {
 const MEDIUM: &str = "[M] glm-5.3 auto - [med]";
 const HIGH: &str = "[M] glm-5.3 auto - [high]";
 
-/// The status line's model segment of the Elpis session at each level.
-const ELPIS_OFF: &str = "[M] qwen3.8 auto - [ ] off";
-const ELPIS_LOW: &str = "[M] qwen3.8 auto - [low]";
-const ELPIS_MEDIUM: &str = "[M] qwen3.8 auto - [med]";
-const ELPIS_XHIGH: &str = "[M] qwen3.8 auto - [xhi]";
+/// The status line's model segment of the local session at each level.
+const LOCAL_OFF: &str = "[M] qwen3.8 auto - [ ] off";
+const LOCAL_LOW: &str = "[M] qwen3.8 auto - [low]";
+const LOCAL_MEDIUM: &str = "[M] qwen3.8 auto - [med]";
+const LOCAL_XHIGH: &str = "[M] qwen3.8 auto - [xhi]";
 
 /// Shift+Tab as the input reader decodes `\x1b[Z`.
 fn shift_tab() -> HeadlessStep {
@@ -528,12 +528,12 @@ fn wait_render(needle: &str) -> HeadlessStep {
     }
 }
 
-/// The Elpis tray labels in the order the frames show them (one entry per
+/// The local tray labels in the order the frames show them (one entry per
 /// change of the label).
-fn elpis_label_sequence(frames: &[String]) -> Vec<&'static str> {
+fn local_label_sequence(frames: &[String]) -> Vec<&'static str> {
     let mut sequence: Vec<&'static str> = Vec::new();
     for frame in frames {
-        let label = [ELPIS_OFF, ELPIS_LOW, ELPIS_MEDIUM, ELPIS_XHIGH]
+        let label = [LOCAL_OFF, LOCAL_LOW, LOCAL_MEDIUM, LOCAL_XHIGH]
             .into_iter()
             .find(|label| frame.contains(label));
         if let Some(label) = label {
@@ -558,54 +558,54 @@ fn assert_note_with_label(frames: &[String], note: &str, label: &str) {
     );
 }
 
-/// Shift+Tab steps the Elpis ladder forward with wrap: low, medium,
+/// Shift+Tab steps the local ladder forward with wrap: low, medium,
 /// xhigh, off, low. Each press sends one forward cycle, and the tray
 /// label follows each applied level.
 #[test]
 fn shift_tab_cycles_the_offered_ladder_forward() {
     let steps = vec![
-        wait_render(ELPIS_LOW),
+        wait_render(LOCAL_LOW),
         shift_tab(),
-        wait_render(ELPIS_MEDIUM),
+        wait_render(LOCAL_MEDIUM),
         shift_tab(),
-        wait_render(ELPIS_XHIGH),
+        wait_render(LOCAL_XHIGH),
         shift_tab(),
-        wait_render(ELPIS_OFF),
+        wait_render(LOCAL_OFF),
         shift_tab(),
-        wait_render(ELPIS_LOW),
+        wait_render(LOCAL_LOW),
         HeadlessStep::WaitMs(200),
     ];
-    let (frames, cycles) = run_plan(elpis_session(), steps);
+    let (frames, cycles) = run_plan(local_session(), steps);
     assert_eq!(cycles, vec![json!("forward"); 4]);
     assert_eq!(
-        elpis_label_sequence(&frames),
-        vec![ELPIS_LOW, ELPIS_MEDIUM, ELPIS_XHIGH, ELPIS_OFF, ELPIS_LOW]
+        local_label_sequence(&frames),
+        vec![LOCAL_LOW, LOCAL_MEDIUM, LOCAL_XHIGH, LOCAL_OFF, LOCAL_LOW]
     );
-    assert_note_with_label(&frames, "Thinking level: medium", ELPIS_MEDIUM);
-    assert_note_with_label(&frames, "Thinking level: xhigh", ELPIS_XHIGH);
-    assert_note_with_label(&frames, "Thinking level: off", ELPIS_OFF);
-    assert_note_with_label(&frames, "Thinking level: low", ELPIS_LOW);
+    assert_note_with_label(&frames, "Thinking level: medium", LOCAL_MEDIUM);
+    assert_note_with_label(&frames, "Thinking level: xhigh", LOCAL_XHIGH);
+    assert_note_with_label(&frames, "Thinking level: off", LOCAL_OFF);
+    assert_note_with_label(&frames, "Thinking level: low", LOCAL_LOW);
 }
 
 /// Shift+Alt+Tab steps the ladder backward with wrap: low, off, xhigh.
 #[test]
 fn shift_alt_tab_cycles_the_offered_ladder_backward() {
     let steps = vec![
-        wait_render(ELPIS_LOW),
+        wait_render(LOCAL_LOW),
         shift_alt_tab(),
-        wait_render(ELPIS_OFF),
+        wait_render(LOCAL_OFF),
         shift_alt_tab(),
-        wait_render(ELPIS_XHIGH),
+        wait_render(LOCAL_XHIGH),
         HeadlessStep::WaitMs(200),
     ];
-    let (frames, cycles) = run_plan(elpis_session(), steps);
+    let (frames, cycles) = run_plan(local_session(), steps);
     assert_eq!(cycles, vec![json!("backward"); 2]);
     assert_eq!(
-        elpis_label_sequence(&frames),
-        vec![ELPIS_LOW, ELPIS_OFF, ELPIS_XHIGH]
+        local_label_sequence(&frames),
+        vec![LOCAL_LOW, LOCAL_OFF, LOCAL_XHIGH]
     );
-    assert_note_with_label(&frames, "Thinking level: off", ELPIS_OFF);
-    assert_note_with_label(&frames, "Thinking level: xhigh", ELPIS_XHIGH);
+    assert_note_with_label(&frames, "Thinking level: off", LOCAL_OFF);
+    assert_note_with_label(&frames, "Thinking level: xhigh", LOCAL_XHIGH);
 }
 
 /// `/effort` lists exactly the offered levels, in ladder order, and marks
@@ -613,12 +613,12 @@ fn shift_alt_tab_cycles_the_offered_ladder_backward() {
 #[test]
 fn effort_picker_lists_the_offered_levels_with_the_effective_one_marked() {
     let steps = vec![
-        wait_render(ELPIS_LOW),
+        wait_render(LOCAL_LOW),
         HeadlessStep::Submit("/effort".to_string()),
         wait_render("Thinking Level"),
         HeadlessStep::WaitMs(100),
     ];
-    let (frames, cycles) = run_plan(elpis_session(), steps);
+    let (frames, cycles) = run_plan(local_session(), steps);
     assert_eq!(cycles, Vec::<Value>::new());
     let picker = frames
         .iter()
@@ -678,7 +678,7 @@ fn shift_tab_on_an_off_only_ladder_changes_nothing() {
 /// the bare model id, and `/effort` marks no row as current.
 #[test]
 fn an_unset_level_never_shows_as_off() {
-    let mut session = elpis_session();
+    let mut session = local_session();
     session.level = "default".to_string();
     let steps = vec![
         wait_render("[M] qwen3.8 auto - [T] /tmp"),
@@ -689,7 +689,7 @@ fn an_unset_level_never_shows_as_off() {
     let (frames, cycles) = run_plan(session, steps);
     assert_eq!(cycles, Vec::<Value>::new());
     let all = frames.join("\n---\n");
-    assert!(!all.contains(ELPIS_OFF), "{all}");
+    assert!(!all.contains(LOCAL_OFF), "{all}");
     let picker = frames
         .iter()
         .rev()
@@ -706,7 +706,7 @@ fn an_unset_level_never_shows_as_off() {
 #[test]
 fn settings_menu_keeps_shift_tab_for_its_tabs() {
     let steps = vec![
-        wait_render(ELPIS_LOW),
+        wait_render(LOCAL_LOW),
         HeadlessStep::Submit("/settings".to_string()),
         wait_render("General"),
         HeadlessStep::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
@@ -715,7 +715,7 @@ fn settings_menu_keeps_shift_tab_for_its_tabs() {
         wait_render("Auto-compact"),
         HeadlessStep::WaitMs(200),
     ];
-    let (frames, cycles) = run_plan(elpis_session(), steps);
+    let (frames, cycles) = run_plan(local_session(), steps);
     assert_eq!(cycles, Vec::<Value>::new());
     let last = frames.last().expect("the run captured frames");
     assert!(last.contains("Auto-compact"), "{last}");

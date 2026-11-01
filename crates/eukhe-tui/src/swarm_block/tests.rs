@@ -39,7 +39,7 @@ fn summary(id: &str, name: &str, parent: &str) -> Value {
 fn roster() -> Vec<Value> {
     let mut busy = summary("c1", "worker-1", "p1");
     busy["isStreaming"] = json!(true);
-    busy["model"] = json!("elpis/elpis");
+    busy["model"] = json!("local/local");
     busy["admission"] = json!("generating");
     busy["note"] = json!("wrote the\nparser");
     let mut done = summary("c2", "worker-2", "p1");
@@ -83,7 +83,7 @@ fn the_family_lists_in_tree_order_with_connectors() {
                 status: "running".to_string(),
                 admission: Some(ModelAdmission::Generating),
                 depth: 1,
-                model: "elpis".to_string(),
+                model: "local".to_string(),
                 note: Some("wrote the parser".to_string()),
             },
             RosterLine {
@@ -176,7 +176,7 @@ fn the_roster_renders_aligned_columns() {
         vec![
             String::new(),
             " agents: 3 (1 running)".to_string(),
-            " |- worker-1     running (generating)  depth 1  elpis  wrote the parser".to_string(),
+            " |- worker-1     running (generating)  depth 1  local  wrote the parser".to_string(),
             " |  `- worker-2  idle                  depth 2  -".to_string(),
             " `- worker-2     done                  depth 1  -".to_string(),
         ]

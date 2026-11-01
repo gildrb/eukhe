@@ -13,7 +13,7 @@
   "followUpMode": "one-at-a-time",
   "gateway": {
     "signal": {
-      "model": "elpis/qwen3.8-27b"
+      "model": "local/qwen3.8-27b"
     }
   },
   "images": {
@@ -29,7 +29,7 @@
   },
   "onboardingShown": true,
   "providerMaxInFlight": {
-    "elpis": 4
+    "local": 4
   },
   "quietStartup": true,
   "retry": {
@@ -60,7 +60,7 @@
   "recentModels": [
     "anthropic/claude-fable-5",
     "anthropic/claude-opus-5-5",
-    "elpis/qwen3.8-27b"
+    "local/qwen3.8-27b"
   ],
   "defaultThinkingLevel": "low"
 }
