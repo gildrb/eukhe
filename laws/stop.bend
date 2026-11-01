@@ -442,6 +442,35 @@ law stop_empty_gives_up:
   for over: {RnRecovery.below(RnRecovery.Rk.empties(k, row), StSpec.empty_cap()) == False{} : Bool}
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
 
+# LAW stop_empty_row_exact (R4): the empty notes in a row that the next
+# request's note counts are its row when it is an empty note, else 0
+# (decide.rs `NoteCause::row`): the count the cap of empty notes reads
+# EXCLUDES: a count of empty notes that stays 0 or resets, so the cap is
+#   never reached (the caps laws above are stated over this count); a row
+#   of another recovery counted as empty notes
+law stop_empty_row_exact:
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  {RnRecovery.Rk.empties(k, row) == rust_empty_row(k, row) : Nat}
+
+# LAW stop_empty_recover_is_rust (R4): what `recover` does with an empty
+# reply, under any caps, after any note of any row, is the spec's: the
+# next empty note while fewer than 3 empty notes are in a row, else the
+# run fails
+# EXCLUDES: an empty reply nudged forever (another "1 of 3" note at every
+#   row), a cap off by one, a row of another recovery counted
+law stop_empty_recover_is_rust:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  {RnDecision.decide.recover(rc, RnDecision.Emptied{}, k, row) == rust_empty(k, row) : RnDecision.Help}
+
+# LAW stop_empty_example (R4): anchor: an empty reply after no note, then
+# after 0, 2, 3 and 100 empty notes in a row, and after 3 length notes
+# EXCLUDES: a cap that drifts from 3, an empty row that never grows
+law stop_empty_example:
+  {[RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 2n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 100n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Longs{}, 3n)] == [RnDecision.Redoes{1n}, RnDecision.Redoes{1n}, RnDecision.Redoes{3n}, RnDecision.Quits{}, RnDecision.Quits{}, RnDecision.Redoes{1n}] : List<&2, RnDecision.Help>}
+
 # Laws: the ladder of a length stop with no text (R7)
 # ---------------------------------------------------
 
@@ -527,6 +556,36 @@ law stop_think_lowers_once:
   for +same: Nat
   for +last: Nat
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, lower}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.RCfg.long(rc), same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+
+# LAW stop_long_row_exact (R7): the length notes in a row that the next
+# request's note counts are its row when it is a length note, else 0
+# (decide.rs `NoteCause::row`): the count every rung of the ladder reads
+# EXCLUDES: a count of length notes that stays 0 or resets (an endless
+#   ladder), a row of another recovery counted as length notes
+law stop_long_row_exact:
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  {RnRecovery.Rk.longs(k, row) == rust_long_row(k, row) : Nat}
+
+# LAW stop_think_recover_is_rust (R7): what `recover` does with a length
+# stop with no text, under any caps, after any note of any row, with any
+# window, catalog cap, tokens and levels, is the spec's ladder
+# EXCLUDES: a rung picked from a miscounted row, a compaction the spec's
+#   window test does not allow, a ladder that never fails the run
+law stop_think_recover_is_rust:
+  for +long: Nat
+  for +leak: Nat
+  for +redirect: Nat
+  for +repeat: Nat
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +window: Nat
+  for +catalog: Nat
+  for +prompt: Nat
+  for +out: Nat
+  for +cuttable: Bool
+  for +lower: Bool
+  {RnDecision.decide.recover(RnRecovery.RCfg{long, leak, redirect, repeat}, RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}, k, row) == rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower) : RnDecision.Help}
 
 # LAW stop_lower_spends_a_note (R7): the lower rung is a noted retry: it
 # spends a note (its note carries the lower level, so only that one

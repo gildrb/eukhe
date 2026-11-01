@@ -1,6 +1,8 @@
 # eukhe: lemmas shared by the proofs of area stop: the walk is the
-# spec's case by case (stb.walk), a spelled request reads back (stb.req)
-# and the answer is the spelled spec answer (stb.reply).
+# spec's case by case (stb.walk), a spelled request reads back (stb.req),
+# the answer is the spelled spec answer (stb.reply), and `recover` on an
+# empty reply and on a length stop with no text is the spec's
+# (stb.empty_recover, stb.think_recover).
 
 import Base
 import ../../bend/stop.bend as S
@@ -13,6 +15,7 @@ import ../../spec/harness/stop.bend as StSpec
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ../../bend/run/recovery.bend as RnRecovery
+import ../../bend/run/decision.bend as RnDecision
 
 # Logic
 # -----
@@ -279,3 +282,87 @@ def stb.think_spent(s: Bool, u: Bool, l: Bool, -x: Nat, -same: Nat, -last: Nat, 
               stb.absurd({RnRecovery.rec.think(False{}, False{}, True{}, x, same, last, r) == RnRecovery.Dec{RnRecovery.Quit{}, r} : RnRecovery.Dec}, Equal.sym(Bool, True{}, False{}, h))
             case False{}:
               {==}
+
+# The rows and `recover`
+# ----------------------
+
+# the code's count of empty notes is decide.rs `NoteCause::row`
+def stb.empty_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.empties(k, row) == Stop.rust_empty_row(k, row) : Nat}:
+  match k:
+    case RnRecovery.Free{}:
+      {==}
+    case RnRecovery.Longs{}:
+      {==}
+    case RnRecovery.Leaks{}:
+      {==}
+    case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+
+# the code's count of length notes is decide.rs `NoteCause::row`
+def stb.long_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, row) == Stop.rust_long_row(k, row) : Nat}:
+  match k:
+    case RnRecovery.Free{}:
+      {==}
+    case RnRecovery.Longs{}:
+      {==}
+    case RnRecovery.Leaks{}:
+      {==}
+    case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+
+def stb.empty(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.empty(b, n, same, last, r)) == Stop.rust_empty.at(b, n) : RnDecision.Help}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# `recover` on an empty reply is the spec's
+def stb.empty_recover(+rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat) -> {RnDecision.decide.recover(rc, RnDecision.Emptied{}, k, row) == Stop.rust_empty(k, row) : RnDecision.Help}:
+  +x = RnRecovery.Rk.empties(k, row)
+  +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
+  %stb.empty_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.empty(RnRecovery.below(x, S.empty_cap()), x, 0n, 0n, r)) == Stop.rust_empty.at(Nat.is_lt(_, S.empty_cap()), _) : RnDecision.Help}
+  %stb.below(x, S.empty_cap()) : {RnDecision.Help.of(RnRecovery.rec.empty(_, x, 0n, 0n, r)) == Stop.rust_empty.at(Nat.is_lt(x, S.empty_cap()), x) : RnDecision.Help}
+  stb.empty(Nat.is_lt(x, S.empty_cap()), x, 0n, 0n, r)
+
+# the spec's window test is the model's
+def stb.bound(+w: Nat, +c: Nat, +p: Nat, +o: Nat) -> {StSpec.ran_out(w, c, p, o) == RnRecovery.bound(w, c, p, o) : Bool}:
+  match w:
+    case 0n:
+      {==}
+    case 1n+v:
+      {==}
+
+def stb.at_cap(le: Bool, +x: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think.note(False{}, le, x, 0n, 0n, r)) == StSpec.at_cap(le, x) : RnDecision.Help}:
+  match le:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def stb.think_note(lt: Bool, +lower: Bool, +x: Nat, +long: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think.note(lt, Bool.and(lower, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.under(lt, lower, x, long) : RnDecision.Help}:
+  match lt:
+    case True{}:
+      {==}
+    case False{}:
+      stb.at_cap(Bool.and(lower, Nat.is_eq(x, long)), x, r)
+
+def stb.think(s: Bool, +lower: Bool, +x: Nat, +long: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.think(s, Nat.is_lt(x, long), Bool.and(lower, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(s, lower, x, long) : RnDecision.Help}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      stb.think_note(Nat.is_lt(x, long), lower, x, long, r)
+
+# `recover` on a length stop with no text is the spec's ladder
+def stb.think_recover(+long: Nat, +leak: Nat, +redirect: Nat, +repeat: Nat, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +c: Nat, +p: Nat, +o: Nat, +cu: Bool, +lo: Bool) -> {RnDecision.decide.recover(RnRecovery.RCfg{long, leak, redirect, repeat}, RnDecision.Thought{w, c, p, o, cu, lo}, k, row) == Stop.rust_think(long, k, row, w, c, p, o, cu, lo) : RnDecision.Help}:
+  +x = RnRecovery.Rk.longs(k, row)
+  +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
+  %stb.long_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, RnRecovery.bound(w, c, p, o)), RnRecovery.below(x, long), Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, _, long) : RnDecision.Help}
+  %stb.bound(w, c, p, o) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, _), RnRecovery.below(x, long), Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long) : RnDecision.Help}
+  %stb.below(x, long) : {RnDecision.Help.of(RnRecovery.rec.think(Bool.and(cu, StSpec.ran_out(w, c, p, o)), _, Bool.and(lo, Nat.is_eq(x, long)), x, 0n, 0n, r)) == StSpec.ladder(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long) : RnDecision.Help}
+  stb.think(Bool.and(cu, StSpec.ran_out(w, c, p, o)), lo, x, long, r)

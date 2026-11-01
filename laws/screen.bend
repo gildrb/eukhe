@@ -240,6 +240,24 @@ law rec_leak_retries_with_a_note:
   for under: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Leaks{}, 1n+RnRecovery.Rk.leaks(k, row), same, last}} : RnRecovery.Dec}
 
+# LAW rec_length_row_exact: the length notes in a row that the next request's note counts
+# are its row when it is a length note, else 0 (decide.rs `NoteCause::row`)
+# EXCLUDES: a count of length notes that stays 0 or resets, so the cap of
+#   rec_length_retries_with_a_note is never reached; a row of another
+#   recovery counted as length notes
+law rec_length_row_exact:
+  for +row: Nat
+  {[RnRecovery.Rk.longs(RnRecovery.Free{}, row), RnRecovery.Rk.longs(RnRecovery.Longs{}, row), RnRecovery.Rk.longs(RnRecovery.Leaks{}, row), RnRecovery.Rk.longs(RnRecovery.Loops{}, row), RnRecovery.Rk.longs(RnRecovery.Empties{}, row)] == [0n, row, 0n, 0n, 0n] : List<&2, Nat>}
+
+# LAW rec_leak_row_exact: the leak notes in a row that the next request's note counts are
+# its row when it is a leak note, else 0 (decide.rs `NoteCause::row`)
+# EXCLUDES: a count of leak notes that stays 0 or resets, so the cap of
+#   rec_leak_retries_with_a_note is never reached; a row of another
+#   recovery counted as leak notes
+law rec_leak_row_exact:
+  for +row: Nat
+  {[RnRecovery.Rk.leaks(RnRecovery.Free{}, row), RnRecovery.Rk.leaks(RnRecovery.Longs{}, row), RnRecovery.Rk.leaks(RnRecovery.Leaks{}, row), RnRecovery.Rk.leaks(RnRecovery.Loops{}, row), RnRecovery.Rk.leaks(RnRecovery.Empties{}, row)] == [0n, 0n, row, 0n, 0n] : List<&2, Nat>}
+
 # ---- screen: the entry ----
 
 # LAWS (S8, the compiled core): the interface's rules run as the model of

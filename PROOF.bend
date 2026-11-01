@@ -482,6 +482,8 @@ import ./proof/screen/all_comm_example.bend as PAllCommExample
 import ./proof/screen/all_comm_rejects.bend as PAllCommRejects
 import ./proof/screen/rec_length_retries_with_a_note.bend as PRecLengthRetriesWithANote
 import ./proof/screen/rec_leak_retries_with_a_note.bend as PRecLeakRetriesWithANote
+import ./proof/screen/rec_length_row_exact.bend as PRecLengthRowExact
+import ./proof/screen/rec_leak_row_exact.bend as PRecLeakRowExact
 import ./proof/screen/screen_ffi_run.bend as PScreenFfiRun
 import ./proof/screen/screen_ffi_pace.bend as PScreenFfiPace
 import ./proof/screen/screen_ffi_stack.bend as PScreenFfiStack
@@ -2594,6 +2596,11 @@ import ./proof/stop/stop_cut_continues.bend as PStopCutContinues
 import ./proof/stop/stop_empty_continues.bend as PStopEmptyContinues
 import ./proof/stop/stop_empty_gives_up.bend as PStopEmptyGivesUp
 import ./proof/stop/stop_empty_redoes.bend as PStopEmptyRedoes
+import ./proof/stop/stop_empty_row_exact.bend as PStopEmptyRowExact
+import ./proof/stop/stop_empty_recover_is_rust.bend as PStopEmptyRecoverIsRust
+import ./proof/stop/stop_empty_example.bend as PStopEmptyExample
+import ./proof/stop/stop_long_row_exact.bend as PStopLongRowExact
+import ./proof/stop/stop_think_recover_is_rust.bend as PStopThinkRecoverIsRust
 import ./proof/stop/stop_entry_decides.bend as PStopEntryDecides
 import ./proof/stop/stop_entry_example.bend as PStopEntryExample
 import ./proof/stop/stop_entry_left_over.bend as PStopEntryLeftOver
