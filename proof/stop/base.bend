@@ -90,9 +90,9 @@ def stb.promises(+s: String) -> {S.promises(s) == StSpec.promises(s) : Bool}:
   Phrase.phrase_any(StSpec.heard(s), StSpec.promise_table())
 
 def stb.asks(+s: String) -> {S.asks(s) == StSpec.asks(s) : Bool}:
-  %Equal.sym(String, S.heard(s), StSpec.heard(s), stb.heard(s)) : {P.any(_, S.ask_phs()) == StSpec.asks(s) : Bool}
-  %Equal.sym(List<&2, P.Ph>, S.ask_phs(), StSpec.ask_table(), stb.ask_table()) : {P.any(StSpec.heard(s), _) == StSpec.asks(s) : Bool}
-  Phrase.phrase_any(StSpec.heard(s), StSpec.ask_table())
+  %Equal.sym(String, Tp.fold_str(s), TextPat.sp_fold(s), TextPat.text_pat_fold(s)) : {P.any(_, S.ask_phs()) == StSpec.asks(s) : Bool}
+  %Equal.sym(List<&2, P.Ph>, S.ask_phs(), StSpec.ask_table(), stb.ask_table()) : {P.any(TextPat.sp_fold(s), _) == StSpec.asks(s) : Bool}
+  Phrase.phrase_any(TextPat.sp_fold(s), StSpec.ask_table())
 
 # The verdicts and the walk
 # -------------------------

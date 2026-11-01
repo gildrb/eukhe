@@ -14,16 +14,17 @@
 #     workflow runs), said (its text).
 # S2: the end of a reply is its last 400 chars (all of it when shorter),
 #     folded (laws/text_pat.bend: A-Z as a-z, the Kelvin sign as k, the
-#     long s as s). It announces a next step when it holds, starting a
-#     word (laws/phrase.bend: the char before is no ASCII letter, digit or
-#     `_`, or there is none), one of: "i'll ", "we'll ", "i'm going to ",
+#     long s as s). It announces a next step when its end holds, starting
+#     a word (laws/phrase.bend: the char before is no ASCII letter, digit
+#     or `_`, or there is none), one of: "i'll ", "we'll ", "i'm going to ",
 #     "i'm about to ", "let's " (each with the apostrophe ' and with ’),
 #     "i will ", "we will ", "i am going to ", "let me ", "next, i ",
 #     "next i ", "now running", "now i ", "then i ". It asks the user when
-#     it holds a question mark (? or the fullwidth ？) anywhere, or,
-#     starting a word, one of: "let me know", "let us know", "would you
-#     like", "do you want", "should i ", "shall i ", "please confirm",
-#     "can you confirm", "your call".
+#     the whole reply, folded (not only its end: a question that opens a
+#     long reply ending in a promise asks), holds a question mark (? or the
+#     fullwidth ？) anywhere, or, starting a word, one of: "let me know",
+#     "let us know", "would you like", "do you want", "should i ",
+#     "shall i ", "please confirm", "can you confirm", "your call".
 # S3: the verdicts: LengthStop continues a cut reply, EmptyStop a reply
 #     with no text, MarkupStop a broken reply, UnexpectedStop a reply that
 #     announces a next step and asks the user nothing; PendingWork yields
@@ -101,7 +102,7 @@ def promises(+said: String) -> Bool:
   Phrase.sp_any(heard(said), promise_table())
 
 def asks(+said: String) -> Bool:
-  Phrase.sp_any(heard(said), ask_table())
+  Phrase.sp_any(TextPat.sp_fold(said), ask_table())
 
 # S3: the verdicts
 # ----------------

@@ -24,9 +24,10 @@ import ../spec/harness/stop.bend as StSpec
 #     outside; the first that does not pass decides.
 # R2: each Director's verdict is the spec's (S3): Continue, Pass or Yield
 #     exactly.
-# R3: a stop never continues while the reply asks the user something, nor
-#     while the session owns running work: both stand (PendingWork never
-#     continues).
+# R3: a stop never continues while the reply asks the user something
+#     (anywhere in it: a question that opens a long reply ending in a
+#     promise asks), nor while the session owns running work: both stand
+#     (PendingWork never continues).
 # R4: the caps (S5): an empty reply is retried with a note at most 3
 #     times in a row, then the run fails; an announced step not taken is
 #     reminded at most 3 times in a row (the reply stays), then the reply
@@ -307,6 +308,17 @@ law stop_asked_stands:
   for asked: {StSpec.asks(s) == True{} : Bool}
   {S.walk(S.Facts{False{}, True{}, False{}, p, s}) == S.Stands{} : S.Pick}
 
+# LAW stop_question_anywhere_stands (R3): a whole, readable reply with a
+# question mark anywhere stands, whatever comes before or after it (a
+# closing promise too, however long the reply)
+# EXCLUDES: a question to the user read only in the end of the reply (the
+#   last 400 chars), so a reminder talks over a question asked earlier
+law stop_question_anywhere_stands:
+  for p: Bool
+  for +a: String
+  for +b: String
+  {S.walk(S.Facts{False{}, True{}, False{}, p, String.append(a, SCon{'?', b})}) == S.Stands{} : S.Pick}
+
 # LAW stop_promise_continues (R1): a whole, readable reply that announces
 # a next step, asks nothing, with no work running, never stands:
 # UnexpectedStop continues it
@@ -344,6 +356,15 @@ law stop_text_example:
 # EXCLUDES: a walk that drifts from the Directors' order
 law stop_walk_example:
   {[S.walk(S.Facts{False{}, True{}, False{}, False{}, "The suite is running now. I'll commit once it passes."}), S.walk(S.Facts{False{}, True{}, False{}, True{}, "The suite is running now. I'll commit once it passes."}), S.walk(S.Facts{False{}, True{}, False{}, False{}, "I'll commit it. Let me know."}), S.walk(S.Facts{False{}, False{}, False{}, True{}, ""}), S.walk(S.Facts{True{}, True{}, False{}, False{}, "Done."})] == [S.Goes{S.UnexpectedStop{}}, S.Stands{}, S.Stands{}, S.Goes{S.EmptyStop{}}, S.Goes{S.LengthStop{}}] : List<&2, S.Pick>}
+
+# LAW stop_asked_early_example (R3, R6): anchor: a 670-char reply that
+# asks the user first ("Postgres or Redis?") and ends with a promise
+# ("I'll wire up whichever one you choose.") stands, on the wire too
+# EXCLUDES: a keep-working reminder that talks over the user's question
+#   (the ask test reading only the end of the reply)
+law stop_asked_early_example:
+  {[S.walk(S.Facts{False{}, True{}, False{}, False{}, "Which database should I use for the session cache, Postgres or Redis? Here is the trade-off. Postgres is already deployed, so it adds no new service, backups are covered by the nightly job, and the cache table can live in the existing schema with a TTL column swept by a cron task. The cost is write load on the primary and a slower hit path, roughly 2-4 ms per lookup under current traffic. Redis gives sub-millisecond hits and native expiry, but it is a new service to run, monitor and secure, and the staging cluster has no Redis today. Both options keep the same cache interface in src/cache.rs, so switching later stays cheap. I'll wire up whichever one you choose."})] == [S.Stands{}] : List<&2, S.Pick>} &
+  {[FS.ffi("0,FTFF670,Which database should I use for the session cache, Postgres or Redis? Here is the trade-off. Postgres is already deployed, so it adds no new service, backups are covered by the nightly job, and the cache table can live in the existing schema with a TTL column swept by a cron task. The cost is write load on the primary and a slower hit path, roughly 2-4 ms per lookup under current traffic. Redis gives sub-millisecond hits and native expiry, but it is a new service to run, monitor and secure, and the staging cluster has no Redis today. Both options keep the same cache interface in src/cache.rs, so switching later stays cheap. I'll wire up whichever one you choose.")] == ["0,"] : List<&2, String>}
 
 # Laws: the caps (R4)
 # -------------------
