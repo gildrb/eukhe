@@ -2583,9 +2583,6 @@ import ./proof/wait_any/wait_any_entry_reads.bend as PWaitAnyEntryReads
 import ./proof/wait_any/wait_any_entry_malformed_exact.bend as PWaitAnyEntryMalformedExact
 import ./proof/wait_any/wait_any_entry_premises_witness.bend as PWaitAnyEntryPremisesWitness
 import ./proof/stop/base.bend as LAStop
-import ./proof/stop/stop_asked_stands.bend as PStopAskedStands
-import ./proof/stop/stop_question_anywhere_stands.bend as PStopQuestionAnywhereStands
-import ./proof/stop/stop_asked_early_example.bend as PStopAskedEarlyExample
 import ./proof/stop/stop_bound_exact.bend as PStopBoundExact
 import ./proof/stop/stop_cut_continues.bend as PStopCutContinues
 import ./proof/stop/stop_empty_continues.bend as PStopEmptyContinues
@@ -2602,11 +2599,7 @@ import ./proof/stop/stop_note_exact.bend as PStopNoteExact
 import ./proof/stop/stop_note_example.bend as PStopNoteExample
 import ./proof/stop/stop_pending_never_continues.bend as PStopPendingNeverContinues
 import ./proof/stop/stop_pending_pauses.bend as PStopPendingPauses
-import ./proof/stop/stop_plain_stands.bend as PStopPlainStands
-import ./proof/stop/stop_promise_continues.bend as PStopPromiseContinues
-import ./proof/stop/stop_promise_reminds.bend as PStopPromiseReminds
-import ./proof/stop/stop_promise_stands.bend as PStopPromiseStands
-import ./proof/stop/stop_remind_spends_a_note.bend as PStopRemindSpendsANote
+import ./proof/stop/stop_reply_stands.bend as PStopReplyStands
 import ./proof/stop/stop_rounds_exact.bend as PStopRoundsExact
 import ./proof/stop/stop_rounds_example.bend as PStopRoundsExample
 import ./proof/stop/stop_shrink_compacts_once.bend as PStopShrinkCompactsOnce
@@ -2617,7 +2610,6 @@ import ./proof/stop/stop_think_lowers_last.bend as PStopThinkLowersLast
 import ./proof/stop/stop_think_lowers_once.bend as PStopThinkLowersOnce
 import ./proof/stop/stop_think_never_fails_early.bend as PStopThinkNeverFailsEarly
 import ./proof/stop/stop_think_notes.bend as PStopThinkNotes
-import ./proof/stop/stop_text_example.bend as PStopTextExample
 import ./proof/stop/stop_verdict_exact.bend as PStopVerdictExact
 import ./proof/stop/stop_walk_example.bend as PStopWalkExample
 import ./proof/stop/stop_walk_refines.bend as PStopWalkRefines

@@ -40,13 +40,6 @@ def rk.empty(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {
     case False{}:
       {==}
 
-def rk.promise(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.promise(b, n, same, last, r)) == LawsStop.rust_promise.at(b, n) : RnDecision.Help}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
 def rk.ran(+fresh: Bool, +under: Bool, +m: Nat, +h: Nat, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.ran(fresh, under, True{}, m, h, n, same, last, r)) == Run.rust.calls(fresh, Run.rust.redo(under, n, RnDecision.Quits{})) : RnDecision.Help}:
   match fresh under:
     case True{} True{}:
@@ -77,8 +70,6 @@ def rk.long_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, row) ==
       {==}
     case RnRecovery.Empties{}:
       {==}
-    case RnRecovery.Promises{}:
-      {==}
 
 def rk.leak_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.leaks(k, row) == Run.rust.leak_row(k, row) : Nat}:
   match k:
@@ -91,8 +82,6 @@ def rk.leak_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.leaks(k, row) ==
     case RnRecovery.Loops{}:
       {==}
     case RnRecovery.Empties{}:
-      {==}
-    case RnRecovery.Promises{}:
       {==}
 
 def rk.loop_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.loops(k, row) == Run.rust.loop_row(k, row) : Nat}:
@@ -107,8 +96,6 @@ def rk.loop_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.loops(k, row) ==
       {==}
     case RnRecovery.Empties{}:
       {==}
-    case RnRecovery.Promises{}:
-      {==}
 
 def rk.empty_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.empties(k, row) == LawsStop.rust_empty_row(k, row) : Nat}:
   match k:
@@ -122,24 +109,6 @@ def rk.empty_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.empties(k, row)
       {==}
     case RnRecovery.Empties{}:
       {==}
-    case RnRecovery.Promises{}:
-      {==}
-
-def rk.promise_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.promises(k, row) == LawsStop.rust_promise_row(k, row) : Nat}:
-  match k:
-    case RnRecovery.Free{}:
-      {==}
-    case RnRecovery.Longs{}:
-      {==}
-    case RnRecovery.Leaks{}:
-      {==}
-    case RnRecovery.Loops{}:
-      {==}
-    case RnRecovery.Empties{}:
-      {==}
-    case RnRecovery.Promises{}:
-      {==}
-
 def rk.long_row_stop(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, row) == LawsStop.rust_long_row(k, row) : Nat}:
   match k:
     case RnRecovery.Free{}:
@@ -151,8 +120,6 @@ def rk.long_row_stop(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, ro
     case RnRecovery.Loops{}:
       {==}
     case RnRecovery.Empties{}:
-      {==}
-    case RnRecovery.Promises{}:
       {==}
 
 # the spec's window test is the model's
@@ -214,12 +181,6 @@ def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, 
           %rk.empty_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.empty(RnRecovery.below(x, Stop.empty_cap()), x, 0n, 0n, r)) == LawsStop.rust_empty.at(Nat.is_lt(_, Stop.empty_cap()), _) : RnDecision.Help}
           %rk.below(x, Stop.empty_cap()) : {RnDecision.Help.of(RnRecovery.rec.empty(_, x, 0n, 0n, r)) == LawsStop.rust_empty.at(Nat.is_lt(x, Stop.empty_cap()), x) : RnDecision.Help}
           rk.empty(Nat.is_lt(x, Stop.empty_cap()), x, 0n, 0n, r)
-        case RnDecision.Promised{}:
-          +x = RnRecovery.Rk.promises(k, row)
-          +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
-          %rk.promise_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.promise(RnRecovery.below(x, Stop.promise_cap()), x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(_, Stop.promise_cap()), _) : RnDecision.Help}
-          %rk.below(x, Stop.promise_cap()) : {RnDecision.Help.of(RnRecovery.rec.promise(_, x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(x, Stop.promise_cap()), x) : RnDecision.Help}
-          rk.promise(Nat.is_lt(x, Stop.promise_cap()), x, 0n, 0n, r)
         case RnDecision.Thought{+w, +c, +p, +o, +cu, +lo}:
           +x = RnRecovery.Rk.longs(k, row)
           +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}

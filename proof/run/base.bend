@@ -495,8 +495,6 @@ def rk.rt_stuck(x: RnDecision.Stuck, +rest: String, +h: {Run.run.stuck_fits(x) =
       {==}
     case RnDecision.Emptied{}:
       {==}
-    case RnDecision.Promised{}:
-      {==}
     case RnDecision.Thought{+w, +c, +p, +o, +cu, +lo}:
       +fw = LawsBase.wire_fits(w)
       +fc = LawsBase.wire_fits(c)
@@ -510,12 +508,12 @@ def rk.rt_stuck(x: RnDecision.Stuck, +rest: String, +h: {Run.run.stuck_fits(x) =
       +r2 = Wr.put_nat(p, r3)
       +r1 = Wr.put_nat(c, r2)
       +x = {RnDecision.Thought{w, c, p, o, cu, lo} : RnDecision.Stuck}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(w, r1)), Wr.Got{w, r1}, Wire.wire_nat_round_trip(w, r1, rk.and_l(fw, fc, ha))) : {FRn.get_stuck.c5.f0(_) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r1), Wr.Got{c, r2}, Wire.wire_nat_round_trip(c, r2, rk.and_r(fw, fc, ha))) : {FRn.get_stuck.c5.f1(w, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r2), Wr.Got{p, r3}, Wire.wire_nat_round_trip(p, r3, rk.and_l(fp, fo, hb))) : {FRn.get_stuck.c5.f2(w, c, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r3), Wr.Got{o, r4}, Wire.wire_nat_round_trip(o, r4, rk.and_r(fp, fo, hb))) : {FRn.get_stuck.c5.f3(w, c, p, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r4), Wr.Got{cu, r5}, Wire.wire_bool_round_trip(cu, r5)) : {FRn.get_stuck.c5.f4(w, c, p, o, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r5), Wr.Got{lo, rest}, Wire.wire_bool_round_trip(lo, rest)) : {FRn.get_stuck.c5.f5(w, c, p, o, cu, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(w, r1)), Wr.Got{w, r1}, Wire.wire_nat_round_trip(w, r1, rk.and_l(fw, fc, ha))) : {FRn.get_stuck.c4.f0(_) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r1), Wr.Got{c, r2}, Wire.wire_nat_round_trip(c, r2, rk.and_r(fw, fc, ha))) : {FRn.get_stuck.c4.f1(w, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r2), Wr.Got{p, r3}, Wire.wire_nat_round_trip(p, r3, rk.and_l(fp, fo, hb))) : {FRn.get_stuck.c4.f2(w, c, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(r3), Wr.Got{o, r4}, Wire.wire_nat_round_trip(o, r4, rk.and_r(fp, fo, hb))) : {FRn.get_stuck.c4.f3(w, c, p, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r4), Wr.Got{cu, r5}, Wire.wire_bool_round_trip(cu, r5)) : {FRn.get_stuck.c4.f4(w, c, p, o, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r5), Wr.Got{lo, rest}, Wire.wire_bool_round_trip(lo, rest)) : {FRn.get_stuck.c4.f5(w, c, p, o, cu, _) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Stuck>}
       {==}
 
 def rk.rt_rk(x: RnRecovery.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnRecovery.Rk>}:
@@ -529,8 +527,6 @@ def rk.rt_rk(x: RnRecovery.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)
     case RnRecovery.Loops{}:
       {==}
     case RnRecovery.Empties{}:
-      {==}
-    case RnRecovery.Promises{}:
       {==}
 
 def rk.rt_ask(x: FRn.Ask, +rest: String, +h: {Run.run.ask_fits(x) == True{} : Bool}) -> {FRn.get_ask(FRn.put_ask(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FRn.Ask>}:

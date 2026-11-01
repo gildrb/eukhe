@@ -56,7 +56,7 @@ use self::leak::{scan, Leak, LeakParseError};
 use self::note::{NoteCause, Recovery, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
-use self::stop::{said, Facts};
+use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{estimate_context, select_cut};
@@ -1280,12 +1280,11 @@ async fn classify(
             Reply::Calls => Some(Stuck::Calls {
                 rounds: rounds_in_a_row(context, &calls),
             }),
-            Reply::Text | Reply::Error { .. } => stop::walk(&Facts {
+            Reply::Text | Reply::Error { .. } => stop::walk(Facts {
                 cut: message.stop_reason == StopReason::Length,
                 text,
                 broken: broken.is_some(),
                 pending: stop::pending(runtime, cx).await?,
-                said: &said(&message),
             }),
             Reply::Deferred(_) | Reply::Overflow { .. } => None,
         };
@@ -1539,27 +1538,14 @@ async fn classify(
                         );
                         (quit, None, Some(error))
                     }
-                    // The answer stays: the run asks again with a note.
-                    (Stuck::Promise, Act::Remind { row }) => {
-                        (redo, Some(NoteCause::Promised { row }), None)
-                    }
-                    (Stuck::Promise, Act::Stand) => (Reply::Text, None, None),
                     (
                         Stuck::Length | Stuck::Leak | Stuck::Empty | Stuck::Thought { .. },
-                        Act::Run | Act::Stand | Act::Remind { .. },
+                        Act::Run,
                     )
                     | (
-                        Stuck::Length
-                        | Stuck::Leak
-                        | Stuck::Calls { .. }
-                        | Stuck::Empty
-                        | Stuck::Promise,
+                        Stuck::Length | Stuck::Leak | Stuck::Calls { .. } | Stuck::Empty,
                         Act::Compact | Act::Lower { .. },
-                    )
-                    | (Stuck::Calls { .. }, Act::Stand | Act::Remind { .. })
-                    | (Stuck::Promise, Act::Run | Act::Redo { .. } | Act::Quit) => {
-                        (reply, None, None)
-                    }
+                    ) => (reply, None, None),
                 }
             }
         };

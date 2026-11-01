@@ -1,24 +1,15 @@
-# eukhe: lemmas shared by the proofs of area stop: the code's end of a
-# reply is the spec's (stb.drop, stb.heard), its tables are the spec's
-# (both compute to the same phrases), its text tests are the spec's
-# (text_pat_fold, phrase_any), the walk is the spec's case by case
-# (stb.walk), a spelled request reads back (stb.req) and the answer is the
-# spelled spec answer (stb.reply).
+# eukhe: lemmas shared by the proofs of area stop: the walk is the
+# spec's case by case (stb.walk), a spelled request reads back (stb.req)
+# and the answer is the spelled spec answer (stb.reply).
 
 import Base
-import ../../bend/text_pat.bend as Tp
-import ../../bend/phrase.bend as P
 import ../../bend/stop.bend as S
 import ../../bend/ffi_stop.bend as FS
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
-import ../../laws/text_pat.bend as TextPat
-import ../../laws/phrase.bend as Phrase
 import ../../laws/stop.bend as Stop
 import ../../spec/harness/stop.bend as StSpec
-import ../text_pat/text_pat_fold.bend as PTextPatFold
-import ../phrase/phrase_any.bend as PPhraseAny
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ../../bend/run/recovery.bend as RnRecovery
@@ -51,49 +42,6 @@ def stb.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == 
     case False{}:
       stb.absurd({b == True{} : Bool}, h)
 
-# The text tests
-# --------------
-
-# the code drops the chars the spec drops
-def stb.drop(k: Nat, s: String) -> {S.drop(k, s) == StSpec.drop(k, s) : String}:
-  match k:
-    case 0n:
-      match s:
-        case SNil{}:
-          {==}
-        case SCon{c, t}:
-          {==}
-    case 1n+j:
-      match s:
-        case SNil{}:
-          {==}
-        case SCon{c, t}:
-          stb.drop(j, t)
-
-# the end of a reply, folded, is the spec's
-def stb.heard(+s: String) -> {S.heard(s) == StSpec.heard(s) : String}:
-  +n = Nat.sub(String.length(s), 400n)
-  %Equal.sym(String, S.drop(n, s), StSpec.drop(n, s), stb.drop(n, s)) : {Tp.fold_str(_) == StSpec.heard(s) : String}
-  %Equal.sym(String, Tp.fold_str(StSpec.drop(n, s)), TextPat.sp_fold(StSpec.drop(n, s)), TextPat.text_pat_fold(StSpec.drop(n, s))) : {_ == StSpec.heard(s) : String}
-  {==}
-
-def stb.promise_table() -> {S.promise_phs() == StSpec.promise_table() : List<&2, P.Ph>}:
-  {==}
-
-def stb.ask_table() -> {S.ask_phs() == StSpec.ask_table() : List<&2, P.Ph>}:
-  {==}
-
-# the code's tests are the spec's
-def stb.promises(+s: String) -> {S.promises(s) == StSpec.promises(s) : Bool}:
-  %Equal.sym(String, S.heard(s), StSpec.heard(s), stb.heard(s)) : {P.any(_, S.promise_phs()) == StSpec.promises(s) : Bool}
-  %Equal.sym(List<&2, P.Ph>, S.promise_phs(), StSpec.promise_table(), stb.promise_table()) : {P.any(StSpec.heard(s), _) == StSpec.promises(s) : Bool}
-  Phrase.phrase_any(StSpec.heard(s), StSpec.promise_table())
-
-def stb.asks(+s: String) -> {S.asks(s) == StSpec.asks(s) : Bool}:
-  %Equal.sym(String, Tp.fold_str(s), TextPat.sp_fold(s), TextPat.text_pat_fold(s)) : {P.any(_, S.ask_phs()) == StSpec.asks(s) : Bool}
-  %Equal.sym(List<&2, P.Ph>, S.ask_phs(), StSpec.ask_table(), stb.ask_table()) : {P.any(TextPat.sp_fold(s), _) == StSpec.asks(s) : Bool}
-  Phrase.phrase_any(TextPat.sp_fold(s), StSpec.ask_table())
-
 # The verdicts and the walk
 # -------------------------
 
@@ -104,32 +52,15 @@ def stb.on(b: Bool) -> {S.on(b) == StSpec.go_if(b) : S.Verdict}:
     case False{}:
       {==}
 
-def stb.unexpected(a: Bool, p: Bool) -> {S.on(Bool.and(p, Bool.not(a))) == StSpec.unexpected(a, p) : S.Verdict}:
-  match a p:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-# the last Director's verdict, its tests rewritten to the spec's
-def stb.unexpected_said(+s: String) -> {S.on(Bool.and(S.promises(s), Bool.not(S.asks(s)))) == StSpec.unexpected(StSpec.asks(s), StSpec.promises(s)) : S.Verdict}:
-  %Equal.sym(Bool, S.promises(s), StSpec.promises(s), stb.promises(s)) : {S.on(Bool.and(_, Bool.not(S.asks(s)))) == StSpec.unexpected(StSpec.asks(s), StSpec.promises(s)) : S.Verdict}
-  %Equal.sym(Bool, S.asks(s), StSpec.asks(s), stb.asks(s)) : {S.on(Bool.and(StSpec.promises(s), Bool.not(_))) == StSpec.unexpected(StSpec.asks(s), StSpec.promises(s)) : S.Verdict}
-  stb.unexpected(StSpec.asks(s), StSpec.promises(s))
-
 def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f) : S.Verdict}:
   match d:
     case S.LengthStop{}:
       match f:
-        case S.Facts{c, t, b, p, s}:
+        case S.Facts{c, t, b, p}:
           stb.on(c)
     case S.EmptyStop{}:
       match f:
-        case S.Facts{c, t, b, p, s}:
+        case S.Facts{c, t, b, p}:
           match t:
             case True{}:
               {==}
@@ -137,41 +68,20 @@ def stb.verdict(d: S.Dir, f: S.Facts) -> {S.verdict(d, f) == StSpec.verdict(d, f
               {==}
     case S.MarkupStop{}:
       match f:
-        case S.Facts{c, t, b, p, s}:
+        case S.Facts{c, t, b, p}:
           stb.on(b)
     case S.PendingWork{}:
       match f:
-        case S.Facts{c, t, b, p, s}:
+        case S.Facts{c, t, b, p}:
           match p:
             case True{}:
               {==}
             case False{}:
               {==}
-    case S.UnexpectedStop{}:
-      match f:
-        case S.Facts{c, t, b, p, +s}:
-          stb.unexpected_said(s)
-
-# the walk's last step: UnexpectedStop decides, then the stack is empty
-def stb.announced(a: Bool, p: Bool) -> {S.pick(S.on(Bool.and(p, Bool.not(a))), S.UnexpectedStop{}, u => S.Stands{}) == StSpec.announced(a, p) : S.Pick}:
-  match a p:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
-def stb.announced_said(+s: String) -> {S.pick(S.on(Bool.and(S.promises(s), Bool.not(S.asks(s)))), S.UnexpectedStop{}, u => S.Stands{}) == StSpec.announced(StSpec.asks(s), StSpec.promises(s)) : S.Pick}:
-  %Equal.sym(Bool, S.promises(s), StSpec.promises(s), stb.promises(s)) : {S.pick(S.on(Bool.and(_, Bool.not(S.asks(s)))), S.UnexpectedStop{}, u => S.Stands{}) == StSpec.announced(StSpec.asks(s), StSpec.promises(s)) : S.Pick}
-  %Equal.sym(Bool, S.asks(s), StSpec.asks(s), stb.asks(s)) : {S.pick(S.on(Bool.and(StSpec.promises(s), Bool.not(_))), S.UnexpectedStop{}, u => S.Stands{}) == StSpec.announced(StSpec.asks(s), StSpec.promises(s)) : S.Pick}
-  stb.announced(StSpec.asks(s), StSpec.promises(s))
 
 def stb.walk(f: S.Facts) -> {S.walk(f) == StSpec.pick(f) : S.Pick}:
   match f:
-    case S.Facts{c, t, b, p, +s}:
+    case S.Facts{c, t, b, p}:
       match c:
         case True{}:
           {==}
@@ -188,13 +98,13 @@ def stb.walk(f: S.Facts) -> {S.walk(f) == StSpec.pick(f) : S.Pick}:
                     case True{}:
                       {==}
                     case False{}:
-                      stb.announced_said(s)
+                      {==}
 
 # The entry
 # ---------
 
 # a spelled note reads back, the rest untouched
-def stb.note(+a: Nat, n: S.Note, +rest: String, +h: {Stop.sp_fit_note(n) == True{} : Bool}) -> {FS.get_note.tag(a, Wr.get_nat(Stop.sp_w_note(n, rest))) == Wr.Got{FS.AskNote{a, n}, rest} : Wr.Dec<FS.Ask>}:
+def stb.note(+a: Nat, n: S.Note, +rest: String, +h: {Stop.sp_fit_note(n) == True{} : Bool}) -> {FS.get_cut(a, Wr.get_nat(Stop.sp_w_note(n, rest))) == Wr.Got{FS.AskNote{a, n}, rest} : Wr.Dec<FS.Ask>}:
   match n:
     case S.Cut{+t, +r, +k}:
       +h0 = stb.and_l(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(k)), h)
@@ -203,21 +113,17 @@ def stb.note(+a: Nat, n: S.Note, +rest: String, +h: {Stop.sp_fit_note(n) == True
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(r, Wr.put_nat(k, rest))), Wr.Got{r, Wr.put_nat(k, rest)}, Wire.wire_nat_round_trip(r, Wr.put_nat(k, rest), stb.and_l(LawsBase.wire_fits(r), LawsBase.wire_fits(k), h1))) : {FS.get_cut.row(a, t, _) == Wr.Got{FS.AskNote{a, S.Cut{t, r, k}}, rest} : Wr.Dec<FS.Ask>}
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(k, rest)), Wr.Got{k, rest}, Wire.wire_nat_round_trip(k, rest, stb.and_r(LawsBase.wire_fits(r), LawsBase.wire_fits(k), h1))) : {FS.get_cut.cap(a, t, r, _) == Wr.Got{FS.AskNote{a, S.Cut{t, r, k}}, rest} : Wr.Dec<FS.Ask>}
       {==}
-    case S.Promised{+r}:
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(r, rest)), Wr.Got{r, rest}, Wire.wire_nat_round_trip(r, rest, h)) : {FS.get_promised(a, _) == Wr.Got{FS.AskNote{a, S.Promised{r}}, rest} : Wr.Dec<FS.Ask>}
-      {==}
 
 # a spelled request that fits reads back, the rest untouched
 def stb.req(q: FS.Ask, +rest: String, +h: {Stop.sp_fit(q) == True{} : Bool}) -> {FS.get_ask(Stop.sp_w_ask(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FS.Ask>}:
   match q:
     case FS.AskWalk{f}:
       match f:
-        case S.Facts{+c, +t, +b, +p, +s}:
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest)))))), Wr.Got{c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest))))}, Wire.wire_bool_round_trip(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest)))))) : {FS.get_walk(_) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p, s}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest))))), Wr.Got{t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest)))}, Wire.wire_bool_round_trip(t, Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest))))) : {FS.get_walk.text(c, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p, s}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, Wr.put_bool(p, Wr.put_str(s, rest)))), Wr.Got{b, Wr.put_bool(p, Wr.put_str(s, rest))}, Wire.wire_bool_round_trip(b, Wr.put_bool(p, Wr.put_str(s, rest)))) : {FS.get_walk.broken(c, t, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p, s}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(p, Wr.put_str(s, rest))), Wr.Got{p, Wr.put_str(s, rest)}, Wire.wire_bool_round_trip(p, Wr.put_str(s, rest))) : {FS.get_walk.pending(c, t, b, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p, s}}, rest} : Wr.Dec<FS.Ask>}
-          %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(s, rest)), Wr.Got{s, rest}, Wire.wire_str_round_trip(s, rest, h)) : {FS.get_walk.said(c, t, b, p, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p, s}}, rest} : Wr.Dec<FS.Ask>}
+        case S.Facts{+c, +t, +b, +p}:
+          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest))))), Wr.Got{c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest)))}, Wire.wire_bool_round_trip(c, Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest))))) : {FS.get_walk(_) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
+          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(t, Wr.put_bool(b, Wr.put_bool(p, rest)))), Wr.Got{t, Wr.put_bool(b, Wr.put_bool(p, rest))}, Wire.wire_bool_round_trip(t, Wr.put_bool(b, Wr.put_bool(p, rest)))) : {FS.get_walk.text(c, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
+          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, Wr.put_bool(p, rest))), Wr.Got{b, Wr.put_bool(p, rest)}, Wire.wire_bool_round_trip(b, Wr.put_bool(p, rest))) : {FS.get_walk.broken(c, t, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
+          %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(p, rest)), Wr.Got{p, rest}, Wire.wire_bool_round_trip(p, rest)) : {FS.get_walk.pending(c, t, b, _) == Wr.Got{FS.AskWalk{S.Facts{c, t, b, p}}, rest} : Wr.Dec<FS.Ask>}
           {==}
     case FS.AskNote{+a, +n}:
       +h0 = stb.and_l(LawsBase.wire_fits(a), Stop.sp_fit_note(n), h)
@@ -246,8 +152,6 @@ def stb.w_pick(p: S.Pick) -> {FS.put_pick(p, "") == Stop.sp_w_pick(p) : String}:
           {==}
         case S.PendingWork{}:
           {==}
-        case S.UnexpectedStop{}:
-          {==}
 
 def stb.w_round(m: Maybe<&2, String>) -> {FS.put_text(m, "") == Stop.sp_w_round(m) : String}:
   match m:
@@ -268,8 +172,6 @@ def stb.note_text(a: Nat, n: S.Note) -> {S.note(a, n) == StSpec.note(a, n) : Str
           {==}
         case 1n+u:
           {==}
-    case S.Promised{r}:
-      {==}
 
 def stb.round_text(left: Nat, +max: Nat) -> {S.rounds.text(left, max) == StSpec.round_text(left, max) : String}:
   match left:

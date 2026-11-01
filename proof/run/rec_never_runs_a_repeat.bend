@@ -112,13 +112,6 @@ def same_empty(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last
     case False{}:
       ok
 
-def same_promise(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.promise(u, RnRecovery.Rk.promises(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
-  match u:
-    case True{}:
-      ok
-    case False{}:
-      ok
-
 # a length stop with no text keeps the row of rounds, on every rung
 def same_think(s: Bool, u: Bool, l: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.think(s, u, l, RnRecovery.Rk.longs(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
   match s:
@@ -174,8 +167,6 @@ def same_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: N
       ok
     case RnRecovery.Empty{}:
       same_empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
-    case RnRecovery.Promise{}:
-      same_promise(RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
     case RnRecovery.Think{shrink, lower}:
       same_think(shrink, RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Bool.and(lower, Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc))), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
 

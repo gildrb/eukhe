@@ -293,10 +293,8 @@ def put_stuck(x: MDecision.Stuck, rest: String) -> String:
       W.put_nat(2n, W.put_nat(before, rest))
     case MDecision.Emptied{}:
       W.put_nat(3n, rest)
-    case MDecision.Promised{}:
-      W.put_nat(4n, rest)
     case MDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
-      W.put_nat(5n, W.put_nat(window, W.put_nat(catalog, W.put_nat(prompt, W.put_nat(out, W.put_bool(cuttable, W.put_bool(lower, rest)))))))
+      W.put_nat(4n, W.put_nat(window, W.put_nat(catalog, W.put_nat(prompt, W.put_nat(out, W.put_bool(cuttable, W.put_bool(lower, rest)))))))
 
 def get_stuck.c2.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
@@ -305,45 +303,45 @@ def get_stuck.c2.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f5(window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f5(window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{lower, r}:
       W.Got{MDecision.Thought{window, catalog, prompt, out, cuttable, lower}, r}
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f4(window: Nat, catalog: Nat, prompt: Nat, out: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f4(window: Nat, catalog: Nat, prompt: Nat, out: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{cuttable, r}:
-      get_stuck.c5.f5(window, catalog, prompt, out, cuttable, W.get_bool(r))
+      get_stuck.c4.f5(window, catalog, prompt, out, cuttable, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f3(window: Nat, catalog: Nat, prompt: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f3(window: Nat, catalog: Nat, prompt: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{out, r}:
-      get_stuck.c5.f4(window, catalog, prompt, out, W.get_bool(r))
+      get_stuck.c4.f4(window, catalog, prompt, out, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f2(window: Nat, catalog: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f2(window: Nat, catalog: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{prompt, r}:
-      get_stuck.c5.f3(window, catalog, prompt, W.get_nat(r))
+      get_stuck.c4.f3(window, catalog, prompt, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f1(window: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f1(window: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{catalog, r}:
-      get_stuck.c5.f2(window, catalog, W.get_nat(r))
+      get_stuck.c4.f2(window, catalog, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
-def get_stuck.c5.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
+def get_stuck.c4.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
   match d:
     case W.Got{window, r}:
-      get_stuck.c5.f1(window, W.get_nat(r))
+      get_stuck.c4.f1(window, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -368,13 +366,9 @@ def get_stuck.tag(d: W.Dec<Nat>) -> W.Dec<MDecision.Stuck>:
                     case 1n+p3:
                       match p3:
                         case 0n:
-                          W.Got{MDecision.Promised{}, r}
+                          get_stuck.c4.f0(W.get_nat(r))
                         case 1n+p4:
-                          match p4:
-                            case 0n:
-                              get_stuck.c5.f0(W.get_nat(r))
-                            case 1n+p5:
-                              W.Bad{}
+                          W.Bad{}
     case W.Bad{}:
       W.Bad{}
 
@@ -393,8 +387,6 @@ def put_rk(x: MRecovery.Rk, rest: String) -> String:
       W.put_nat(3n, rest)
     case MRecovery.Empties{}:
       W.put_nat(4n, rest)
-    case MRecovery.Promises{}:
-      W.put_nat(5n, rest)
 
 def get_rk.tag(d: W.Dec<Nat>) -> W.Dec<MRecovery.Rk>:
   match d:
@@ -419,11 +411,7 @@ def get_rk.tag(d: W.Dec<Nat>) -> W.Dec<MRecovery.Rk>:
                         case 0n:
                           W.Got{MRecovery.Empties{}, r}
                         case 1n+p4:
-                          match p4:
-                            case 0n:
-                              W.Got{MRecovery.Promises{}, r}
-                            case 1n+p5:
-                              W.Bad{}
+                          W.Bad{}
     case W.Bad{}:
       W.Bad{}
 
@@ -761,16 +749,12 @@ def put_help(x: MDecision.Help, rest: String) -> String:
       W.put_nat(0n, rest)
     case MDecision.Redoes{row}:
       W.put_nat(1n, W.put_nat(row, rest))
-    case MDecision.Stands{}:
-      W.put_nat(2n, rest)
     case MDecision.Quits{}:
-      W.put_nat(3n, rest)
-    case MDecision.Reminds{row}:
-      W.put_nat(4n, W.put_nat(row, rest))
+      W.put_nat(2n, rest)
     case MDecision.Compacts{}:
-      W.put_nat(5n, rest)
+      W.put_nat(3n, rest)
     case MDecision.Lowers{row}:
-      W.put_nat(6n, W.put_nat(row, rest))
+      W.put_nat(4n, W.put_nat(row, rest))
 
 def get_help.c1.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Help>:
   match d:
@@ -780,13 +764,6 @@ def get_help.c1.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Help>:
       W.Bad{}
 
 def get_help.c4.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Help>:
-  match d:
-    case W.Got{row, r}:
-      W.Got{MDecision.Reminds{row}, r}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_help.c6.f0(d: W.Dec<Nat>) -> W.Dec<MDecision.Help>:
   match d:
     case W.Got{row, r}:
       W.Got{MDecision.Lowers{row}, r}
@@ -806,25 +783,17 @@ def get_help.tag(d: W.Dec<Nat>) -> W.Dec<MDecision.Help>:
             case 1n+p1:
               match p1:
                 case 0n:
-                  W.Got{MDecision.Stands{}, r}
+                  W.Got{MDecision.Quits{}, r}
                 case 1n+p2:
                   match p2:
                     case 0n:
-                      W.Got{MDecision.Quits{}, r}
+                      W.Got{MDecision.Compacts{}, r}
                     case 1n+p3:
                       match p3:
                         case 0n:
                           get_help.c4.f0(W.get_nat(r))
                         case 1n+p4:
-                          match p4:
-                            case 0n:
-                              W.Got{MDecision.Compacts{}, r}
-                            case 1n+p5:
-                              match p5:
-                                case 0n:
-                                  get_help.c6.f0(W.get_nat(r))
-                                case 1n+p6:
-                                  W.Bad{}
+                          W.Bad{}
     case W.Bad{}:
       W.Bad{}
 

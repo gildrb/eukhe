@@ -744,8 +744,6 @@ def rust.long_row(k: RnRecovery.Rk, row: Nat) -> Nat:
       0n
     case RnRecovery.Empties{}:
       0n
-    case RnRecovery.Promises{}:
-      0n
 
 def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
   match k:
@@ -759,8 +757,6 @@ def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
       0n
     case RnRecovery.Empties{}:
       0n
-    case RnRecovery.Promises{}:
-      0n
 
 def rust.loop_row(k: RnRecovery.Rk, row: Nat) -> Nat:
   match k:
@@ -773,8 +769,6 @@ def rust.loop_row(k: RnRecovery.Rk, row: Nat) -> Nat:
     case RnRecovery.Loops{}:
       row
     case RnRecovery.Empties{}:
-      0n
-    case RnRecovery.Promises{}:
       0n
 
 # under the cap a retry with the next note of the recovery; at it, cap
@@ -806,8 +800,6 @@ def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +r
           rust.calls(Nat.is_lt(1n+before, repeat), rust.redo(Nat.is_lt(rust.loop_row(k, row), redirect), rust.loop_row(k, row), RnDecision.Quits{}))
         case RnDecision.Emptied{}:
           LawsStop.rust_empty(k, row)
-        case RnDecision.Promised{}:
-          LawsStop.rust_promise(k, row)
         case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
           LawsStop.rust_think(long, k, row, window, catalog, prompt, out, cuttable, lower)
 
@@ -858,8 +850,6 @@ def run.stuck_fits(s: RnDecision.Stuck) -> Bool:
       LawsBase.wire_fits(before)
     case RnDecision.Emptied{}:
       True{}
-    case RnDecision.Promised{}:
-      True{}
     case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
       Bool.and(Bool.and(LawsBase.wire_fits(window), LawsBase.wire_fits(catalog)), Bool.and(LawsBase.wire_fits(prompt), LawsBase.wire_fits(out)))
 
@@ -898,12 +888,8 @@ def run.help_fits(h: RnDecision.Help) -> Bool:
       True{}
     case RnDecision.Redoes{row}:
       LawsBase.wire_fits(row)
-    case RnDecision.Stands{}:
-      True{}
     case RnDecision.Quits{}:
       True{}
-    case RnDecision.Reminds{row}:
-      LawsBase.wire_fits(row)
     case RnDecision.Compacts{}:
       True{}
     case RnDecision.Lowers{row}:

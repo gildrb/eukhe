@@ -81,9 +81,6 @@ pub(crate) enum Stuck {
     Calls { rounds: NonZeroU32 },
     /// No text and no tool call (`EmptyStop`): a thinking-only reply.
     Empty,
-    /// An answer that announces a next step it did not take, asking the
-    /// user nothing, with no work running (`UnexpectedStop`).
-    Promise,
     /// A length stop with no text and no tool call (`LengthStop`): the
     /// model hit the output limit while it still reasoned. Its ladder reads
     /// whether the window ran out (the model's context window, 0 when
@@ -109,13 +106,8 @@ pub(crate) enum Act {
     /// A noted error, retried with a note: the `row`th note of the
     /// recovery in a row.
     Redo { row: u32 },
-    /// The reply answers as text.
-    Stand,
     /// The recovery reached its cap: the run fails on the model.
     Quit,
-    /// The reply stays in the transcript and the run asks again with the
-    /// `row`th note of the recovery in a row (a noted retry).
-    Remind { row: u32 },
     /// The context is compacted (an overflow's compaction), then the
     /// request goes again.
     Compact,
@@ -132,10 +124,9 @@ pub(crate) enum Act {
 /// cap, else once a note one thinking level lower, else quit); leaked calls
 /// are redone under their cap, then quit; calls run below the repeat cap,
 /// else are redone under the redirect cap, then quit; an empty reply is
-/// redone under its cap, then quits; an announced step is reminded under
-/// its cap, then stands. A recovery does not read the retry policy: its
-/// note is a new request, not a transient error. The decision is
-/// `decide.recover` of `bend/run/decision.bend` (laws
+/// redone under its cap, then quits. A recovery does not read the retry
+/// policy: its note is a new request, not a transient error. The decision
+/// is `decide.recover` of `bend/run/decision.bend` (laws
 /// `rec_recover_is_the_rust_rule`, `stop_*` of `laws/stop.bend`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
     entry::ask(
@@ -150,7 +141,6 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 Stuck::Leak => w.tag(1),
                 Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
                 Stuck::Empty => w.tag(3),
-                Stuck::Promise => w.tag(4),
                 Stuck::Thought {
                     window,
                     catalog,
@@ -159,7 +149,7 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                     cuttable,
                     lower,
                 } => w
-                    .tag(5)
+                    .tag(4)
                     .nat(entry::saturated(window))
                     .nat(entry::saturated(catalog))
                     .nat(entry::saturated(prompt))
@@ -173,22 +163,19 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 Some((Recovery::Leak, row)) => w.tag(2).nat(u64::from(row)),
                 Some((Recovery::Redirect, row)) => w.tag(3).nat(u64::from(row)),
                 Some((Recovery::Empty, row)) => w.tag(4).nat(u64::from(row)),
-                Some((Recovery::Promise, row)) => w.tag(5).nat(u64::from(row)),
             };
         },
         |r| {
             let row = |r: &mut eukhe_bend::wire::Reader<'_>| {
                 u32::try_from(r.nat()?).map_err(|_| entry::mismatch("a u32 row"))
             };
-            match r.tag_of(7, "a recovery's act")? {
+            match r.tag_of(5, "a recovery's act")? {
                 0 => Ok(Act::Run),
                 1 => Ok(Act::Redo { row: row(r)? }),
-                2 => Ok(Act::Stand),
-                3 => Ok(Act::Quit),
-                4 => Ok(Act::Remind { row: row(r)? }),
-                5 => Ok(Act::Compact),
-                6 => Ok(Act::Lower { row: row(r)? }),
-                7..=u32::MAX => Err(entry::mismatch("a recovery's act")),
+                2 => Ok(Act::Quit),
+                3 => Ok(Act::Compact),
+                4 => Ok(Act::Lower { row: row(r)? }),
+                5..=u32::MAX => Err(entry::mismatch("a recovery's act")),
             }
         },
     )

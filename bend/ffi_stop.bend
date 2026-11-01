@@ -2,11 +2,10 @@
 # candidate stop (bend/stop.bend; Rust: eukhe-durable
 # harness/generation/stop.rs). Grammar: crates/eukhe-bend/WIRE.md.
 #
-#   request  0, cut, text, broken, pending (Bools), said (String)
+#   request  0, cut, text, broken, pending (Bools)
 #              -> the pick (Nat): 0 stands | 1 LengthStop | 2 EmptyStop |
-#                 3 MarkupStop | 4 PendingWork | 5 UnexpectedStop
-#            1, attempt (Nat), the note: 0, tokens, row, cap (Nats) |
-#               1, row (Nat)
+#                 3 MarkupStop | 4 PendingWork
+#            1, attempt (Nat), the length note: tokens, row, cap (Nats)
 #              -> the note's text (String)
 #            2, max, done (Nats)
 #              -> the round note (Maybe<String>: 0, | 1, then the text)
@@ -28,17 +27,10 @@ type Ask is Data:
 # Reading a request
 # -----------------
 
-def get_walk.said(c: Bool, t: Bool, b: Bool, p: Bool, d: W.Dec<String>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{said, r}:
-      W.Got{AskWalk{S.Facts{c, t, b, p, said}}, r}
-    case W.Bad{}:
-      W.Bad{}
-
 def get_walk.pending(c: Bool, t: Bool, b: Bool, d: W.Dec<Bool>) -> W.Dec<Ask>:
   match d:
     case W.Got{p, r}:
-      get_walk.said(c, t, b, p, W.get_str(r))
+      W.Got{AskWalk{S.Facts{c, t, b, p}}, r}
     case W.Bad{}:
       W.Bad{}
 
@@ -84,30 +76,10 @@ def get_cut(a: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
     case W.Bad{}:
       W.Bad{}
 
-def get_promised(a: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{w, r}:
-      W.Got{AskNote{a, S.Promised{w}}, r}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_note.tag(a: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{n, r}:
-      match n:
-        case 0n:
-          get_cut(a, W.get_nat(r))
-        case 1n:
-          get_promised(a, W.get_nat(r))
-        case 2n+k:
-          W.Bad{}
-    case W.Bad{}:
-      W.Bad{}
-
 def get_note(d: W.Dec<Nat>) -> W.Dec<Ask>:
   match d:
     case W.Got{a, r}:
-      get_note.tag(a, W.get_nat(r))
+      get_cut(a, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -161,8 +133,6 @@ def put_pick(p: S.Pick, rest: String) -> String:
           W.put_nat(3n, rest)
         case S.PendingWork{}:
           W.put_nat(4n, rest)
-        case S.UnexpectedStop{}:
-          W.put_nat(5n, rest)
 
 def put_text(m: Maybe<&2, String>, rest: String) -> String:
   match m:

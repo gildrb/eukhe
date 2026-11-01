@@ -1,21 +1,21 @@
 //! The Directors at a candidate stop (omp2 ADR 0015; the model
 //! `bend/stop.bend`, entry `bend/ffi_stop.bend`, laws `laws/stop.bend`): a
 //! reply that ends the model's turn with no tool call is walked through
-//! `LengthStop`, `EmptyStop`, `MarkupStop`, `PendingWork` and
-//! `UnexpectedStop`, inside to outside. The first that does not pass
-//! decides: a Director that continues the run is the recovery
-//! [`super::decide::recover`] caps ([`Stuck`]); `PendingWork` yields, so a
-//! stop while the session owns running work is a pause that their ends
-//! wake. Rust gathers the facts; the compiled core picks, writes the
-//! reminders, and the round cap's note.
+//! `LengthStop`, `EmptyStop`, `MarkupStop` and `PendingWork`, inside to
+//! outside. The first that does not pass decides: a Director that
+//! continues the run is the recovery [`super::decide::recover`] caps
+//! ([`Stuck`]); `PendingWork` yields, so a stop while the session owns
+//! running work is a pause that their ends wake. With every Director
+//! passing, the reply is the answer, whatever its text says. Rust gathers
+//! the facts; the compiled core picks, writes the reminders, and the round
+//! cap's note.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX, STR_MAX};
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{call, expect_core, Entry};
 use eukhe_chord::context::Context;
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage};
 
 use super::decide::Stuck;
 use super::entry::mismatch;
@@ -29,7 +29,7 @@ use crate::session::SessionResult;
     clippy::struct_excessive_bools,
     reason = "the four independent facts of `Facts` in bend/stop.bend, as the entry reads them"
 )]
-pub(crate) struct Facts<'a> {
+pub(crate) struct Facts {
     /// The reply hit the output limit.
     pub(crate) cut: bool,
     /// The reply has a text block that is not blank.
@@ -38,21 +38,6 @@ pub(crate) struct Facts<'a> {
     pub(crate) broken: bool,
     /// The session owns running work whose end wakes it.
     pub(crate) pending: bool,
-    /// The reply's text.
-    pub(crate) said: &'a str,
-}
-
-/// The text of a reply: its text blocks, one per line.
-pub(super) fn said(message: &AssistantMessage) -> String {
-    message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            AssistantContentBlock::Text(text) => Some(text.text.as_str()),
-            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Whether the session owns running work whose end wakes it (the
@@ -80,14 +65,14 @@ pub(super) async fn pending(runtime: &Runtime, cx: &Context) -> SessionResult<bo
     Ok(pending.load(Ordering::Relaxed))
 }
 
-/// A reminder the stop Directors write (`Note` of `bend/stop.bend`).
+/// The reminder the stop Directors write (`Note` of `bend/stop.bend`): a
+/// length stop with text, its limit (`tokens`, 0: not reported) and the
+/// length note `row` of `cap`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Note {
-    /// A length stop with text: the limit (`tokens`, 0: not reported) and
-    /// the length note `row` of `cap`.
-    Cut { tokens: u64, row: u32, cap: u32 },
-    /// An announced step not taken: the stop note `row`.
-    Promised { row: u32 },
+pub(crate) struct Note {
+    pub(crate) tokens: u64,
+    pub(crate) row: u32,
+    pub(crate) cap: u32,
 }
 
 /// The answer of the stop entry to the request `write` writes, as `read`
@@ -111,37 +96,24 @@ fn ask<T>(
     )
 }
 
-/// The end of `text` the wire carries: its last [`STR_MAX`] chars (8 Mi).
-/// The walk reads the end of a reply for an announced step (`tail_len`)
-/// and the whole carried reply for a question to the user; a reply past
-/// the bound is asked about only in its last 8 Mi chars.
-fn carried(text: &str) -> &str {
-    let skip = text.chars().count().saturating_sub(STR_MAX);
-    text.char_indices()
-        .nth(skip)
-        .map_or("", |(at, _)| &text[at..])
-}
-
 /// The Director that continues the run at the stop `facts`, as the
 /// recovery that caps it; `None`: the stop stands (laws
 /// `stop_walk_refines`, `stop_pending_never_continues`).
-pub(crate) fn walk(facts: &Facts<'_>) -> Option<Stuck> {
+pub(crate) fn walk(facts: Facts) -> Option<Stuck> {
     ask(
         |w| {
             w.tag(0)
                 .bool(facts.cut)
                 .bool(facts.text)
                 .bool(facts.broken)
-                .bool(facts.pending)
-                .str(carried(facts.said));
+                .bool(facts.pending);
         },
-        |r| match r.tag_of(6, "a stop pick")? {
+        |r| match r.tag_of(5, "a stop pick")? {
             0 => Ok(None),
             1 => Ok(Some(Stuck::Length)),
             2 => Ok(Some(Stuck::Empty)),
             3 => Ok(Some(Stuck::Leak)),
-            5 => Ok(Some(Stuck::Promise)),
-            4 | 6..=u32::MAX => Err(mismatch("a Director that continues")),
+            4..=u32::MAX => Err(mismatch("a Director that continues")),
         },
     )
 }
@@ -151,15 +123,11 @@ pub(crate) fn walk(facts: &Facts<'_>) -> Option<Stuck> {
 pub(crate) fn note_text(attempt: u64, note: Note) -> String {
     ask(
         |w| {
-            w.tag(1).nat(attempt.min(NAT_MAX));
-            match note {
-                Note::Cut { tokens, row, cap } => w
-                    .tag(0)
-                    .nat(tokens.min(NAT_MAX))
-                    .nat(u64::from(row))
-                    .nat(u64::from(cap)),
-                Note::Promised { row } => w.tag(1).nat(u64::from(row)),
-            };
+            w.tag(1)
+                .nat(attempt.min(NAT_MAX))
+                .nat(note.tokens.min(NAT_MAX))
+                .nat(u64::from(note.row))
+                .nat(u64::from(note.cap));
         },
         |r| Ok(r.str()?.to_owned()),
     )

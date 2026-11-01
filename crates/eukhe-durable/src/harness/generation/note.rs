@@ -73,10 +73,6 @@ pub enum NoteCause {
     /// harness cut it (M3). The retry has twice that deadline
     /// ([`idle_after_stall`](super::deferred::idle_after_stall)).
     Stalled { idle_ms: u64 },
-    /// The answer announced a next step and called no tool, asking the
-    /// user nothing, with no work running (`UnexpectedStop`): it stays in the
-    /// transcript. `row`: the stop notes in a row.
-    Promised { row: u32 },
 }
 
 /// One call of a repeated round: its tool and its arguments (their
@@ -98,7 +94,6 @@ pub(crate) enum Recovery {
     Leak,
     Redirect,
     Empty,
-    Promise,
 }
 
 impl NoteCause {
@@ -110,7 +105,6 @@ impl NoteCause {
             Self::Leaked { row, .. } => Some((Recovery::Leak, *row)),
             Self::Redirect { row, .. } => Some((Recovery::Redirect, *row)),
             Self::NoAnswer { row } => Some((Recovery::Empty, *row)),
-            Self::Promised { row } => Some((Recovery::Promise, *row)),
             Self::Repeated { .. } | Self::Stalled { .. } => None,
         }
     }
@@ -145,8 +139,7 @@ impl RetryNote {
             | NoteCause::Cut { .. }
             | NoteCause::Leaked { .. }
             | NoteCause::Redirect { .. }
-            | NoteCause::Stalled { .. }
-            | NoteCause::Promised { .. } => None,
+            | NoteCause::Stalled { .. } => None,
         }
     }
 
@@ -166,15 +159,12 @@ impl RetryNote {
         let listed;
         let cause = match &self.cause {
             NoteCause::Cut { tokens, row } => {
-                let note = Note::Cut {
+                let note = Note {
                     tokens: *tokens,
                     row: *row,
                     cap: LENGTH_NOTES,
                 };
                 return note_text(self.attempt, note);
-            }
-            NoteCause::Promised { row } => {
-                return note_text(self.attempt, Note::Promised { row: *row });
             }
             NoteCause::Repeated { period, line } => {
                 quoted = format!("{line:?}");
