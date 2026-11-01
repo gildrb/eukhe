@@ -30,6 +30,9 @@ dir = "target/nextest"
 core-kernel = { max-threads = 1 }
 # eukhe-core's MCP OAuth callback port range (CALLBACK_PORT_LOCK).
 core-oauth-ports = { max-threads = 1 }
+# eukhe-ai's OAuth login flows: fixed loopback callback ports and the
+# process-wide fetch mock; in parallel processes they collide.
+ai-oauth = { max-threads = 1 }
 # Process-table scans that must see only their own kernel (TEST_LOCK).
 kernel-teardown = { max-threads = 1 }
 # Daemon startup windows (SERIAL), one group per binary as before.
@@ -60,6 +63,10 @@ test-group = "core-kernel"
 [[profile.default.overrides]]
 filter = 'binary_id(eukhe-core) & test(/^mcp::(oauth|oauth_callback|login)::/)'
 test-group = "core-oauth-ports"
+
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-ai) & test(/^auth::oauth::/)'
+test-group = "ai-oauth"
 
 [[profile.default.overrides]]
 filter = 'binary_id(eukhe-core::kernel_teardown)'
