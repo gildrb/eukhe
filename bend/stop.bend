@@ -23,7 +23,8 @@
 # - PendingWork: the session owns running work (jobs, children, workflow
 #   runs): the stop is a pause, their ends wake the session;
 # - UnexpectedStop: the end of the text announces a next step (I'll, let
-#   me, next I, now running, ...) and asks the user nothing.
+#   me, next I, now running, ...) and the text asks the user nothing (a
+#   question anywhere in it, also before a closing promise, stands).
 #
 # The text tests are mechanical (no judge model) and use explicit phrase
 # tables (bend/phrase.bend), no regex. Pure: no IO, no @unsafe.
@@ -64,7 +65,7 @@ type Pick is Data:
 # The text tests
 # --------------
 
-# the chars of the end of a reply that the text tests read: an
+# the chars of the end of a reply that the promise test reads: an
 # announcement of a next step ends the reply
 def tail_len() -> Nat:
   400n
@@ -85,7 +86,8 @@ def drop(k: Nat, s: String) -> String:
 def tail(+n: Nat, +s: String) -> String:
   drop(Nat.sub(String.length(s), n), s)
 
-# the end of the reply, folded (A-Z as a-z): what the tables are searched in
+# the end of the reply, folded (A-Z as a-z): what the promise table is
+# searched in
 def heard(+said: String) -> String:
   Tp.fold_str(tail(tail_len(), said))
 
@@ -123,9 +125,11 @@ def ask_phs() -> List<&2, P.Ph>:
 def promises(+said: String) -> Bool:
   P.any(heard(said), promise_phs())
 
-# the end of the reply asks the user something
+# the reply asks the user something, anywhere in it: the whole reply,
+# folded, is searched (one linear pass per phrase), so a question that
+# opens a long reply ending in a promise still stands
 def asks(+said: String) -> Bool:
-  P.any(heard(said), ask_phs())
+  P.any(Tp.fold_str(said), ask_phs())
 
 # The walk
 # --------

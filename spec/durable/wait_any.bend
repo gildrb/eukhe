@@ -15,6 +15,16 @@
 # S4: a wait lasts what the caller asked when that is within the cap of 30
 #     minutes (1800 seconds), else the cap; the cap when the caller asked
 #     nothing.
+# S5: one job's delivery, event by event. A job runs, then is settled and
+#     held for a wait (kept), or settled and delivered (sent). Watch adds
+#     a watcher; unwatch removes one (none stays none); settles and taken
+#     keep the watchers. A wait watches the job when it has a watcher
+#     (w > 0), counted after the event. A settle of a running job, and an
+#     unwatch of a kept one, place the result where S3 routes it: sent to
+#     the notice, or kept. A take of a kept result sends it; every other
+#     event keeps the phase (a sent result stays sent: it is never
+#     delivered again). An event delivers the result exactly when it moves
+#     the phase from not sent to sent: one delivery, else none.
 
 import Base
 import ../../bend/wait_any.bend as M
@@ -131,3 +141,121 @@ def timeout(asked: Maybe<&2, Nat>) -> Nat:
       cap()
     case Some{+t}:
       timeout.of(Nat.is_le(t, cap()), t)
+
+# S5: one job's delivery
+# ----------------------
+
+# a wait watches a job of w watchers when it has one
+def watching(+w: Nat) -> Bool:
+  Nat.is_gt(w, 0n)
+
+# a job before any event: no watcher, running
+def fresh() -> M.D:
+  M.D{0n, M.Live{}}
+
+# the watchers after event e
+def watchers(+w: Nat, e: M.Ev) -> Nat:
+  match e:
+    case M.Watch{}:
+      1n+w
+    case M.Unwatch{}:
+      Nat.sub(w, 1n)
+    case M.Settles{}:
+      w
+    case M.Taken{}:
+      w
+
+# the phase of a result placed by the route r
+def placed(r: M.Route) -> M.Phase:
+  match r:
+    case M.ToNotice{}:
+      M.Sent{}
+    case M.ToWaiter{}:
+      M.Kept{}
+
+# the phase after event e, from phase p, with w watchers after the event
+def next(+wake: Bool, +w: Nat, e: M.Ev, p: M.Phase) -> M.Phase:
+  match e:
+    case M.Watch{}:
+      p
+    case M.Unwatch{}:
+      match p:
+        case M.Live{}:
+          M.Live{}
+        case M.Kept{}:
+          placed(route(watching(w), wake))
+        case M.Sent{}:
+          M.Sent{}
+    case M.Settles{}:
+      match p:
+        case M.Live{}:
+          placed(route(watching(w), wake))
+        case M.Kept{}:
+          M.Kept{}
+        case M.Sent{}:
+          M.Sent{}
+    case M.Taken{}:
+      match p:
+        case M.Live{}:
+          M.Live{}
+        case M.Kept{}:
+          M.Sent{}
+        case M.Sent{}:
+          M.Sent{}
+
+def is_sent(p: M.Phase) -> Bool:
+  match p:
+    case M.Live{}:
+      False{}
+    case M.Kept{}:
+      False{}
+    case M.Sent{}:
+      True{}
+
+def moved.of(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# the deliveries of a move from phase a to phase b: one exactly when it
+# moves from not sent to sent
+def moved(+a: M.Phase, +b: M.Phase) -> Nat:
+  moved.of(Bool.and(Bool.not(is_sent(a)), is_sent(b)))
+
+# a running job's result placed by the route r, with w watchers
+def deliver(r: M.Route, +w: Nat) -> M.Out:
+  +p = placed(r)
+  M.Out{M.D{w, p}, moved(M.Live{}, p)}
+
+def step.at(+wake: Bool, +w: Nat, +p: M.Phase, +e: M.Ev) -> M.Out:
+  +p2 = next(wake, w, e, p)
+  M.Out{M.D{w, p2}, moved(p, p2)}
+
+# one event: the job's delivery state after it, and the deliveries it made
+def step(+wake: Bool, d: M.D, +e: M.Ev) -> M.Out:
+  match d:
+    case M.D{+w, +p}:
+      step.at(wake, watchers(w, e), p, e)
+
+# the deliveries of a step's answer
+def out_k(o: M.Out) -> Nat:
+  match o:
+    case M.Out{d, k}:
+      k
+
+# the state after a step's answer
+def out_d(o: M.Out) -> M.D:
+  match o:
+    case M.Out{d, k}:
+      d
+
+# every delivery the events es make from d
+def deliveries(es: List<&2, M.Ev>, +wake: Bool, d: M.D) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case Con{e, rest}:
+      +o = step(wake, d, e)
+      Nat.add(out_k(o), deliveries(rest, wake, out_d(o)))

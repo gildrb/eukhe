@@ -210458,13 +210458,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_CONT = term_tsk(FID_stop_asks_k3806, _t_0);
       WL_IDX = 0;
     }
-    if (!DEVICE && !seq && fid_nofk(FID_stop_heard)) {
-      u64 _t_1 = task_node(e, FID_stop_heard, WL_CONT, WL_IDX, 0);
+    if (!DEVICE && !seq && fid_nofk(FID_text_pat_fold_str)) {
+      u64 _t_1 = task_node(e, FID_text_pat_fold_str, WL_CONT, WL_IDX, 0);
       e.mem[_t_1 + 0] = _said_0;
-      return term_tsk(FID_stop_heard, _t_1);
+      return term_tsk(FID_text_pat_fold_str, _t_1);
     }
     r0 = _said_0;
-    WL_JMP(FID_stop_heard);
+    WL_JMP(FID_text_pat_fold_str);
   }}
 #endif
 

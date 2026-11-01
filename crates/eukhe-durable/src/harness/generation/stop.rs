@@ -111,9 +111,10 @@ fn ask<T>(
     )
 }
 
-/// The end of `text` the wire carries: its last [`STR_MAX`] chars. The walk
-/// reads only the end of a reply (`tail_len`, far below the bound), so it
-/// decides the same on the whole text.
+/// The end of `text` the wire carries: its last [`STR_MAX`] chars (8 Mi).
+/// The walk reads the end of a reply for an announced step (`tail_len`)
+/// and the whole carried reply for a question to the user; a reply past
+/// the bound is asked about only in its last 8 Mi chars.
 fn carried(text: &str) -> &str {
     let skip = text.chars().count().saturating_sub(STR_MAX);
     text.char_indices()
