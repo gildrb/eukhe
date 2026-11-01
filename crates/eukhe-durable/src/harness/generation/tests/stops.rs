@@ -13,7 +13,7 @@ use eukhe_chord::json::JsonValue;
 use eukhe_types::pi_ai::StopReason;
 use futures::FutureExt;
 
-use super::recoveries::{reply, seen, settle, tick, user, Seen, ASK, THINKING};
+use super::recoveries::{reply, seen, settle, settle_stops, tick, user, Seen, ASK, THINKING};
 use super::run_bounds::tool;
 use crate::harness::tests::chat_support::{chat_setup, ChatSetup};
 use crate::harness::tests::support::{add_hooks, add_tool, generation_task};
@@ -45,6 +45,13 @@ fn setup_with_pending(pending: bool) -> ChatSetup {
     setup
 }
 
+/// The Rust side of laws `stop_stand_answers_once`,
+/// `stop_stand_sends_no_request` (laws/stop.bend): a stop the walk lets
+/// stand (`stop::walk` None) with text is read as the answer
+/// (`Reply::Text`, no note, no cause). The run ends after its one request
+/// with exactly one assistant message, that answer, with no error, and
+/// sends no further request once it settled: the scripted second reply
+/// stays unused.
 #[tokio::test]
 async fn an_answer_that_hands_off_to_the_user_ends_the_run_after_one_request() {
     for answer in HAND_OFFS {
@@ -56,14 +63,15 @@ async fn an_answer_that_hands_off_to_the_user_ends_the_run_after_one_request() {
         ]);
         assert_eq!(
             (
-                settle(&setup).await,
+                settle_stops(&setup).await,
                 seen(&requests),
                 setup.faux.get_pending_response_count()
             ),
             (
                 (
                     (SubmissionStatus::Done, None, None),
-                    vec![user(ASK), format!("assistant:{answer}")]
+                    vec![user(ASK), format!("assistant:{answer}")],
+                    vec![(StopReason::Stop, None)]
                 ),
                 vec![user(ASK)],
                 1

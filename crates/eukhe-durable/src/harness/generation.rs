@@ -1360,7 +1360,10 @@ async fn classify(
         // that request with a note (H4.7).
         let (reply, cause, error) = match stuck {
             // The walk never lets a reply with no text stand (law
-            // `stop_empty_continues`).
+            // `stop_empty_continues`). A stop that stands with text is the
+            // answer: no note, no cause, no further request (laws
+            // `stop_stand_answers_once`, `stop_stand_sends_no_request`;
+            // `stop_reply` in laws/stop.bend models this match).
             None => match reply {
                 Reply::Error { .. } => {
                     (reply, Some(NoteCause::NoAnswer { row: 0 }), Some(no_answer))

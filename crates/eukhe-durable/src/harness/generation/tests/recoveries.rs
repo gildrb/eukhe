@@ -71,15 +71,20 @@ pub(super) type Settled = (SubmissionStatus, Option<String>, Option<JsonValue>);
 /// Run one input to its end: how it settled, and the messages of the
 /// transcript (its system entries aside), as `describe_message` shows them.
 pub(super) async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
-    let chat = open_chat(Arc::new(MemoryStorage::new()), setup, None)
-        .await
-        .unwrap();
-    let (settled, lines, _) = run_to_end(chat).await;
+    let (settled, lines, _) = settle_stops(setup).await;
     (settled, lines)
 }
 
 /// The stop reason and error of each assistant message of a transcript.
-type Stops = Vec<(StopReason, Option<String>)>;
+pub(super) type Stops = Vec<(StopReason, Option<String>)>;
+
+/// [`settle`], and the stop reason and error of each assistant message.
+pub(super) async fn settle_stops(setup: &ChatSetup) -> (Settled, Vec<String>, Stops) {
+    let chat = open_chat(Arc::new(MemoryStorage::new()), setup, None)
+        .await
+        .unwrap();
+    run_to_end(chat).await
+}
 
 /// [`settle`] with the agent at the thinking level `level`, and the stop
 /// reason and error of each assistant message.

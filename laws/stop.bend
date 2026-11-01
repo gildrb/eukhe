@@ -7,6 +7,7 @@ import ../bend/run/state.bend as RnState
 import ../bend/run/step.bend as RnStep
 import ../bend/run/recovery.bend as RnRecovery
 import ../bend/run/decision.bend as RnDecision
+import ../bend/run/request.bend as RnRequest
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ../spec/harness/stop.bend as StSpec
@@ -45,6 +46,12 @@ import ../spec/harness/stop.bend as StSpec
 #     that one noted retry: the note's request only); else the run fails.
 #     Each rung is a noted retry or the overflow's compaction, so every
 #     run still ends (run_ends: notes and compactions are bounded).
+# R8: the reply the run reads at a stop (generation.rs `after_reply`): a
+#     stop the walk lets stand with text answers the run once and for
+#     good; the run sends no further request and counts one answer,
+#     whatever follows. A stop the walk does not let stand never answers
+#     the run: its reply is a noted retry, a failure or the overflow's
+#     compaction.
 
 # Spec helpers
 # ------------
@@ -194,6 +201,144 @@ def sp_fit(a: FS.Ask) -> Bool:
       Bool.and(LawsBase.wire_fits(at), sp_fit_note(n))
     case FS.AskRounds{m, d}:
       Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(d))
+
+# R8: the reply a recovery's help makes the run read (generation.rs, the
+# match on `recover`'s Act): a retry with a note, a failure, and for a
+# length stop with no text (thought) the overflow's compaction or a
+# retry one level lower; any other help leaves the reply as Ended.reply
+# made it (pass)
+def help_reply(h: RnDecision.Help, thought: Bool, pass: RnState.Reply) -> RnState.Reply:
+  match h:
+    case RnDecision.Runs{}:
+      pass
+    case RnDecision.Redoes{row}:
+      RnState.Error{False{}, True{}}
+    case RnDecision.Quits{}:
+      RnState.Error{False{}, False{}}
+    case RnDecision.Compacts{}:
+      match thought:
+        case True{}:
+          RnState.Overflow{True{}}
+        case False{}:
+          pass
+    case RnDecision.Lowers{row}:
+      match thought:
+        case True{}:
+          RnState.Error{False{}, True{}}
+        case False{}:
+          pass
+
+# R8: the reply the run reads when the Director d continues it: the help
+# of `recover` for the Stuck Rust asks it about (stop.rs `walk`:
+# LengthStop Length, EmptyStop Empty, MarkupStop Leak; generation.rs: a
+# length stop with no text is Thought, with its ladder's facts w, ca,
+# pr, o, cu, lo), after the request whose note counts row notes of the
+# recovery k. PendingWork never continues (R3); Rust takes such a pick
+# for an inconsistent build and stops (`expect_core`): a failure
+def go_reply(d: S.Dir, text: Bool, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, cu: Bool, lo: Bool, pass: RnState.Reply) -> RnState.Reply:
+  match d:
+    case S.LengthStop{}:
+      match text:
+        case True{}:
+          help_reply(RnDecision.decide.recover(rc, RnDecision.Truncated{}, k, row), False{}, pass)
+        case False{}:
+          help_reply(RnDecision.decide.recover(rc, RnDecision.Thought{w, ca, pr, o, cu, lo}, k, row), True{}, pass)
+    case S.EmptyStop{}:
+      help_reply(RnDecision.decide.recover(rc, RnDecision.Emptied{}, k, row), False{}, pass)
+    case S.MarkupStop{}:
+      help_reply(RnDecision.decide.recover(rc, RnDecision.Leaked{}, k, row), False{}, pass)
+    case S.PendingWork{}:
+      RnState.Error{False{}, False{}}
+
+# R8: the reply the run reads at a candidate stop (a reply with no tool
+# call; generation.rs `after_reply`) of facts f, the walk's pick p: a
+# stop that stands reads the reply as Ended.reply made it (no note, no
+# cause), a Director that goes reads its recovery's
+def stop_reply(p: S.Pick, +f: S.Facts, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, cu: Bool, lo: Bool) -> RnState.Reply:
+  match p:
+    case S.Stands{}:
+      RnState.Ended.reply(RnState.Ended{S.Facts.text(f), False{}})
+    case S.Goes{d}:
+      go_reply(d, S.Facts.text(f), rc, k, row, w, ca, pr, o, cu, lo, RnState.Ended.reply(RnState.Ended{S.Facts.text(f), False{}}))
+
+# R8: the reply never answers the run: a retry (noted or not), a failure,
+# the overflow's compaction
+def retried(q: RnState.Reply) -> Bool:
+  match q:
+    case RnState.Plain{}:
+      False{}
+    case RnState.Calls{}:
+      False{}
+    case RnState.Deferred{}:
+      False{}
+    case RnState.Error{retryable, noted}:
+      True{}
+    case RnState.Overflow{cut}:
+      True{}
+
+# R8: the phase is the run's answer
+def answered(ph: RnState.Ph) -> Bool:
+  match ph:
+    case RnState.Prepare{}:
+      False{}
+    case RnState.Call{}:
+      False{}
+    case RnState.Compact{over}:
+      False{}
+    case RnState.Tools{}:
+      False{}
+    case RnState.Answered{}:
+      True{}
+    case RnState.Aborted{}:
+      False{}
+    case RnState.Failed{why}:
+      False{}
+
+# R8: the answers the phase pa counts: one for the answer phase
+def answer.to(pa: RnState.Ph) -> Nat:
+  match pa:
+    case RnState.Prepare{}:
+      0n
+    case RnState.Call{}:
+      0n
+    case RnState.Compact{over}:
+      0n
+    case RnState.Tools{}:
+      0n
+    case RnState.Answered{}:
+      1n
+    case RnState.Aborted{}:
+      0n
+    case RnState.Failed{why}:
+      0n
+
+# R8: an input that takes a live run from phase pb to the answer phase pa
+# counts one answer; an ended run counts none
+def answer.at(pb: RnState.Ph, pa: RnState.Ph) -> Nat:
+  match pb:
+    case RnState.Prepare{}:
+      answer.to(pa)
+    case RnState.Call{}:
+      answer.to(pa)
+    case RnState.Compact{over}:
+      answer.to(pa)
+    case RnState.Tools{}:
+      answer.to(pa)
+    case RnState.Answered{}:
+      0n
+    case RnState.Aborted{}:
+      0n
+    case RnState.Failed{why}:
+      0n
+
+# R8: the answers a run from s counts over the inputs evs
+def answers.go(evs: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +s: RnState.St) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case e <> rest:
+      +s2 = RnStep.step(cfg, s, e)
+      Nat.add(answer.at(RnState.St.ph(s), RnState.St.ph(s2)), answers.go(rest, cfg, s2))
 
 # Laws: the walk (R1-R3)
 # ----------------------
@@ -500,3 +645,113 @@ law stop_entry_example:
 # EXCLUDES: a vacuous entry law whose premise no request meets
 law stop_entry_premises_witness:
   {(sp_fit(FS.AskRounds{1n, 0n}), String.is_empty("x")) == (True{}, False{}) : Bool & Bool}
+
+# Laws: the reply at a stop (R8)
+# ------------------------------
+# The walk (bend/stop.bend) composed with the reply the run reads at the
+# stop (stop_reply, generation.rs `after_reply`) and the run's model
+# (bend/run/step.bend, bend/run/request.bend): every live run at a reply
+# (phase call, any counts left), any recovery state and ladder facts.
+
+# LAW stop_stand_answers_once (R8): at every reply of every live run, a
+# stop the walk lets stand, with text (any such facts), answers the run:
+# the run is answered with its counts as they were and stays so whatever
+# inputs follow, and it counts exactly one answer
+# EXCLUDES: a standing answer re-requested with a reminder (the duplicate
+#   final reports of the UnexpectedStop Director's note), a second answer
+#   after the first, a standing reply read as a retry or a failure
+law stop_stand_answers_once:
+  for +cfg: RnState.Cfg
+  for +f: S.Facts
+  for stands: {S.walk(f) == S.Stands{} : S.Pick}
+  for said: {S.Facts.text(f) == True{} : Bool}
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +w: Nat
+  for +ca: Nat
+  for +pr: Nat
+  for +o: Nat
+  for +cu: Bool
+  for +lo: Bool
+  for +fin: RnState.Fin
+  for +got: RnState.Got
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  for +more: List<&2, RnState.Ev>
+  {RnStep.run.go(RnState.Go{stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo), fin, got} <> more, cfg, RnState.St{RnState.Call{}, r, c, a, n, p}) == RnState.St{RnState.Answered{}, r, c, a, n, p} : RnState.St} &
+  {answers.go(RnState.Go{stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo), fin, got} <> more, cfg, RnState.St{RnState.Call{}, r, c, a, n, p}) == 1n : Nat}
+
+# LAW stop_stand_sends_no_request (R8): at every reply of every live run,
+# after a stop the walk lets stand with text the run sends no further
+# request: the requests it sent, cut and will note stay exactly as they
+# were, whatever inputs follow
+# EXCLUDES: a request after the final answer (a reminder, a retry, a
+#   noted retry), a standing answer counted as a cut request
+law stop_stand_sends_no_request:
+  for +cfg: RnState.Cfg
+  for +f: S.Facts
+  for stands: {S.walk(f) == S.Stands{} : S.Pick}
+  for said: {S.Facts.text(f) == True{} : Bool}
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +w: Nat
+  for +ca: Nat
+  for +pr: Nat
+  for +o: Nat
+  for +cu: Bool
+  for +lo: Bool
+  for +fin: RnState.Fin
+  for +got: RnState.Got
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  for +more: List<&2, RnState.Ev>
+  for +t: RnRequest.Reqs
+  {RnRequest.reqs.go(RnState.Go{stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo), fin, got} <> more, cfg, RnState.St{RnState.Call{}, r, c, a, n, p}, t) == t : RnRequest.Reqs}
+
+# LAW stop_goes_never_answers (R8): at every reply of every live run, a
+# stop the walk does not let stand never answers the run, whatever the
+# recovery state and the ladder's facts: its reply is a retry (noted or
+# not), a failure or the overflow's compaction, and the step is no answer
+# EXCLUDES: a cut, empty or markup reply taken as the answer after a
+#   Director continued it, a recovery that passes a continued reply on as
+#   the answer
+law stop_goes_never_answers:
+  for +cfg: RnState.Cfg
+  for +f: S.Facts
+  for +d: S.Dir
+  for goes: {S.walk(f) == S.Goes{d} : S.Pick}
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +w: Nat
+  for +ca: Nat
+  for +pr: Nat
+  for +o: Nat
+  for +cu: Bool
+  for +lo: Bool
+  for +fin: RnState.Fin
+  for +got: RnState.Got
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {retried(stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo)) == True{} : Bool} &
+  {answered(RnState.St.ph(RnStep.step(cfg, RnState.St{RnState.Call{}, r, c, a, n, p}, RnState.Go{stop_reply(S.walk(f), f, rc, k, row, w, ca, pr, o, cu, lo), fin, got}))) == False{} : Bool}
+
+# LAW stop_stand_example (R8): anchor: the replies the run reads at a
+# hand-off answer, at an answer while work runs (both stand: the answer),
+# at an empty reply and a cut one (a noted retry each), at the empty
+# reply that reaches its cap (a failure)
+# EXCLUDES: vacuous premises (facts that stand with text, facts that go,
+#   exist), a stop_reply that drifts from the shipped walk
+law stop_stand_example:
+  {[stop_reply(S.walk(S.Facts{False{}, True{}, False{}, False{}}), S.Facts{False{}, True{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, True{}, False{}, True{}}), S.Facts{False{}, True{}, False{}, True{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{True{}, True{}, False{}, False{}}), S.Facts{True{}, True{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Free{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}), stop_reply(S.walk(S.Facts{False{}, False{}, False{}, False{}}), S.Facts{False{}, False{}, False{}, False{}}, RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnRecovery.Empties{}, 3n, 0n, 0n, 0n, 0n, False{}, False{})] == [RnState.Plain{}, RnState.Plain{}, RnState.Error{False{}, True{}}, RnState.Error{False{}, True{}}, RnState.Error{False{}, False{}}] : List<&2, RnState.Reply>}

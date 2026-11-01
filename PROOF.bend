@@ -2583,6 +2583,7 @@ import ./proof/wait_any/wait_any_entry_reads.bend as PWaitAnyEntryReads
 import ./proof/wait_any/wait_any_entry_malformed_exact.bend as PWaitAnyEntryMalformedExact
 import ./proof/wait_any/wait_any_entry_premises_witness.bend as PWaitAnyEntryPremisesWitness
 import ./proof/stop/base.bend as LAStop
+import ./proof/stop/base/stand.bend as LAStopStand
 import ./proof/stop/stop_bound_exact.bend as PStopBoundExact
 import ./proof/stop/stop_cut_continues.bend as PStopCutContinues
 import ./proof/stop/stop_empty_continues.bend as PStopEmptyContinues
@@ -2593,6 +2594,7 @@ import ./proof/stop/stop_entry_example.bend as PStopEntryExample
 import ./proof/stop/stop_entry_left_over.bend as PStopEntryLeftOver
 import ./proof/stop/stop_entry_premises_witness.bend as PStopEntryPremisesWitness
 import ./proof/stop/stop_entry_unknown.bend as PStopEntryUnknown
+import ./proof/stop/stop_goes_never_answers.bend as PStopGoesNeverAnswers
 import ./proof/stop/stop_lower_spends_a_note.bend as PStopLowerSpendsANote
 import ./proof/stop/stop_markup_continues.bend as PStopMarkupContinues
 import ./proof/stop/stop_note_exact.bend as PStopNoteExact
@@ -2603,6 +2605,9 @@ import ./proof/stop/stop_reply_stands.bend as PStopReplyStands
 import ./proof/stop/stop_rounds_exact.bend as PStopRoundsExact
 import ./proof/stop/stop_rounds_example.bend as PStopRoundsExample
 import ./proof/stop/stop_shrink_compacts_once.bend as PStopShrinkCompactsOnce
+import ./proof/stop/stop_stand_answers_once.bend as PStopStandAnswersOnce
+import ./proof/stop/stop_stand_example.bend as PStopStandExample
+import ./proof/stop/stop_stand_sends_no_request.bend as PStopStandSendsNoRequest
 import ./proof/stop/stop_think_compacts.bend as PStopThinkCompacts
 import ./proof/stop/stop_think_example.bend as PStopThinkExample
 import ./proof/stop/stop_think_gives_up.bend as PStopThinkGivesUp
