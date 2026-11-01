@@ -1,5 +1,5 @@
 //! The extension registry of an eukhe session, installed in prompt order:
-//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`, `eukhe.digest`,
+//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
@@ -17,7 +17,7 @@ use eukhe_durable::session::SessionResult;
 
 use super::deps::HostDeps;
 use super::{
-    children, codemode, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm,
+    children, codemode, compaction, documents, goals, optchat, prompt, retry_outcome, rlm,
     settings, shell, tool_contract, tool_surface, workflow,
 };
 
@@ -48,7 +48,6 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(prompt::extension(deps))?;
     install(settings::extension(deps))?;
     install(rlm::extension(deps))?;
-    install(digest::extension(deps))?;
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
     if let Some(extension) = optchat::extension(deps) {

@@ -989,8 +989,8 @@ fn skips_malformed_lines() {
 /// the TS binary's session file — battery run 20260921T140248Z,
 /// `ts/f7_compaction/sessions/*.jsonl`):
 /// type, id, parentId, timestamp, summary, firstKeptEntryId,
-/// tokensBefore, details, fromHook, customInstructions?, usage,
-/// harnessDigest — with `details` as `{readFiles, modifiedFiles}` and
+/// tokensBefore, details, fromHook, customInstructions?, usage — with
+/// `details` as `{readFiles, modifiedFiles}` and
 /// `usage` in the TS `Usage` field order. The JSON map preserves
 /// insertion order (`serde_json` `preserve_order`), so any drift shows
 /// up here as a wrong key sequence, not just a wrong shape.
@@ -1011,8 +1011,6 @@ fn durable_compaction_row_serializes_in_the_ts_key_order() {
             total_tokens: 110,
             cost: eukhe_types::ai::UsageCost::default(),
         }),
-        harness_digest: Some("# Continual Harness State".to_string()),
-        harness_state_fingerprint: None,
     };
     let fields = serde_json::to_value(&entry).unwrap();
     let mut session = SessionFile::create("/tmp", None, 0);
@@ -1038,7 +1036,6 @@ fn durable_compaction_row_serializes_in_the_ts_key_order() {
             "details",
             "fromHook",
             "usage",
-            "harnessDigest",
         ]
     );
     // The details block is the TS `readFiles`-first literal order, and

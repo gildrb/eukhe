@@ -60,22 +60,19 @@ fn shape(tree: &Value) -> Vec<(String, String, String, Option<String>)> {
         .collect()
 }
 
-/// Two answered prompts: the harness-digest row rides the first turn only
-/// (the digest is fresh afterwards), so the ids are
-/// user/digest/assistant/user/assistant (the durable tree shows every
-/// stored entry, display rows included).
-async fn two_turns(worker: &Worker) -> [String; 5] {
+/// Two answered prompts: user/assistant/user/assistant (the durable tree
+/// shows every stored entry, display rows included).
+async fn two_turns(worker: &Worker) -> [String; 4] {
     prompt(worker, "first").await;
     prompt(worker, "second").await;
     let tree = command(worker, "get_session_tree", json!({})).await;
     let ids: Vec<String> = shape(&tree).into_iter().map(|node| node.2).collect();
-    assert_eq!(ids.len(), 5, "{tree}");
+    assert_eq!(ids.len(), 4, "{tree}");
     [
         ids[0].clone(),
         ids[1].clone(),
         ids[2].clone(),
         ids[3].clone(),
-        ids[4].clone(),
     ]
 }
 
@@ -93,23 +90,17 @@ async fn message_roles(worker: &Worker) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_tree_chains_the_transcript() {
     let (_dir, worker) = created_worker(&["one", "two"]).await;
-    let [user1, digest1, assistant1, user2, assistant2] = two_turns(&worker).await;
+    let [user1, assistant1, user2, assistant2] = two_turns(&worker).await;
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(
         shape(&tree),
         vec![
             ("message".into(), "user".into(), user1.clone(), None),
             (
-                "custom_message".into(),
-                String::new(),
-                digest1.clone(),
-                Some(user1)
-            ),
-            (
                 "message".into(),
                 "assistant".into(),
                 assistant1.clone(),
-                Some(digest1)
+                Some(user1)
             ),
             (
                 "message".into(),
@@ -140,7 +131,7 @@ async fn session_tree_chains_the_transcript() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_messages_for_forking_lists_the_prompts() {
     let (_dir, worker) = created_worker(&["one", "two"]).await;
-    let [user1, _, _, user2, _] = two_turns(&worker).await;
+    let [user1, _, user2, _] = two_turns(&worker).await;
     let data = command(&worker, "get_user_messages_for_forking", json!({})).await;
     assert_eq!(
         data,
@@ -192,15 +183,12 @@ async fn labels_set_and_clear() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn navigate_tree_moves_the_leaf_and_back() {
     let (_dir, worker) = created_worker(&["one", "two"]).await;
-    let [_, _, assistant1, user2, assistant2] = two_turns(&worker).await;
+    let [_, assistant1, user2, assistant2] = two_turns(&worker).await;
     let moved = command(&worker, "navigate_tree", json!({ "targetId": user2 })).await;
     assert_eq!(moved, json!({ "cancelled": false, "editorText": "second" }));
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(tree["leafId"], json!(assistant1));
-    assert_eq!(
-        message_roles(&worker).await,
-        ["user", "custom", "assistant"]
-    );
+    assert_eq!(message_roles(&worker).await, ["user", "assistant"]);
 
     // Already there: a no-op.
     let again = command(&worker, "navigate_tree", json!({ "targetId": assistant1 })).await;
@@ -210,10 +198,10 @@ async fn navigate_tree_moves_the_leaf_and_back() {
     assert_eq!(back, json!({ "cancelled": false }));
     let tree = command(&worker, "get_session_tree", json!({})).await;
     assert_eq!(tree["leafId"], json!(assistant2));
-    assert_eq!(shape(&tree).len(), 5, "no duplicate branch: {tree}");
+    assert_eq!(shape(&tree).len(), 4, "no duplicate branch: {tree}");
     assert_eq!(
         message_roles(&worker).await,
-        ["user", "custom", "assistant", "user", "assistant"]
+        ["user", "assistant", "user", "assistant"]
     );
 
     let missing = worker
@@ -231,7 +219,7 @@ async fn navigate_tree_moves_the_leaf_and_back() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn navigate_tree_stops_the_jobs_started_after_its_target() {
     let (_dir, worker) = created_worker(&["one", "two", "three", "four"]).await;
-    let [_, _, _, user2, _] = two_turns(&worker).await;
+    let [_, _, user2, _] = two_turns(&worker).await;
     command(&worker, "execute_bash", json!({ "command": "sleep 30" })).await;
     let hosted = worker.session.get().expect("hosted session");
     let jobs = hosted.deps().jobs.jobs();
@@ -305,7 +293,7 @@ async fn navigate_tree_stops_the_jobs_started_after_its_target() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn navigate_tree_writes_the_branch_summary() {
     let (_dir, worker) = created_worker(&["one", "two", "branch notes"]).await;
-    let [_, _, assistant1, ..] = two_turns(&worker).await;
+    let [_, assistant1, ..] = two_turns(&worker).await;
     let moved = command(
         &worker,
         "navigate_tree",
@@ -330,7 +318,7 @@ async fn navigate_tree_writes_the_branch_summary() {
     assert_eq!(node["label"], "explored");
     assert_eq!(
         message_roles(&worker).await,
-        ["user", "custom", "assistant", "branchSummary"]
+        ["user", "assistant", "branchSummary"]
     );
 }
 
@@ -342,7 +330,7 @@ async fn navigate_tree_writes_the_branch_summary() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_continues_on_a_fork() {
     let (_dir, worker) = created_worker(&["one", "two", "three"]).await;
-    let [_, _, assistant1, _, _] = two_turns(&worker).await;
+    let [_, assistant1, _, _] = two_turns(&worker).await;
     let state_before = command(&worker, "get_state", json!({})).await;
 
     let at = command(

@@ -65,18 +65,16 @@ async fn a_query_answers_the_cell_as_a_value_and_leaves_no_entry() {
             result_text(&tool_results[0]),
         ),
         (
-            // The session's own system and custom rows of the turn, then the
-            // cell's call and result: the query added no entry.
+            // The session's own rows of the turn, then the cell's call and
+            // result: the query added no entry.
             vec![
                 "pi.user",
                 "pi.system",
-                "eukhe.custom",
                 "pi.assistant",
                 "pi.tool-result",
                 "pi.assistant"
             ],
-            "12 short answer False faux/faux-1\n['user', 'system', 'custom', 'assistant']\n"
-                .to_owned()
+            "12 short answer False faux/faux-1\n['user', 'system', 'assistant']\n".to_owned()
         )
     );
     assert!(

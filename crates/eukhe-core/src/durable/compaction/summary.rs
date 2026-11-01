@@ -3,8 +3,7 @@
 //! `CompactionRequest`): the old summarizer prompts and serializer
 //! (`compaction_utils`), the auxiliary-model routing (`auxiliaryModel`,
 //! TS #2411), the previous summary's update mode, the recent-state anchor
-//! (TS #2385), the harness-digest block that leads the summary, and the
-//! `[compaction-summary]` wrapper.
+//! (TS #2385), and the `[compaction-summary]` wrapper.
 //! The summary text deltas stream to the session's
 //! [`SummaryDeltaSink`](super::HostDeps) while the summarizer answers.
 //!
@@ -17,7 +16,7 @@ use std::sync::Arc;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_chord::context::Context;
-use eukhe_durable::entries::{CompactionSummary, HarnessDigest, COMPACTION_ENTRY};
+use eukhe_durable::entries::{CompactionSummary, COMPACTION_ENTRY};
 use eukhe_durable::harness::types::{
     BeforeCompactHook, CompactionDecision, CompactionRequest, HookApi,
 };
@@ -246,19 +245,10 @@ async fn decide(
             sink(&file_block);
         }
     }
-    // The harness digest: a fresh render leads the summary (the old
-    // engine's `harness_digest` block, TS #2394) and rides the entry data
-    // with its state fingerprint, so a later staleness check compares
-    // state instead of query-dependent renderings.
-    let digest = super::digest_render_of(deps, &conversation, cx).await?;
     let summary = CompactionSummary {
         summary: summary_text,
         read_files,
         modified_files,
-        digest: digest.map(|render| HarnessDigest {
-            digest: render.digest,
-            state_fingerprint: render.state_fingerprint,
-        }),
     };
     Ok(Some(CompactionDecision::Rendered {
         text: head::rendered_summary(&summary),

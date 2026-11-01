@@ -38,14 +38,7 @@ async fn export_jsonl_chains_the_history_linearly() {
             )
         })
         .collect();
-    assert_eq!(
-        shape,
-        [
-            ("message", "user"),
-            ("custom_message", "harness_digest"),
-            ("message", "assistant")
-        ]
-    );
+    assert_eq!(shape, [("message", "user"), ("message", "assistant")]);
     assert_eq!(
         lines[1]
             .as_object()

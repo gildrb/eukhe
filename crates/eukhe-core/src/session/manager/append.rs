@@ -65,9 +65,9 @@ impl SessionManager {
     }
 
     /// `appendCompaction`: record the compaction. The full typed payload is
-    /// kept (TS keeps `details`, `fromHook`, `customInstructions`, `usage`,
-    /// and `harnessDigest` on the row; later compactions and branch
-    /// summarization read them back).
+    /// kept (TS keeps `details`, `fromHook`, `customInstructions`, and
+    /// `usage` on the row; later compactions and branch summarization read
+    /// them back).
     pub fn append_compaction(&mut self, payload: eukhe_types::session::CompactionEntry) -> String {
         let base = self.next_base();
         self.append_entry(FileEntry::Compaction { payload, base })

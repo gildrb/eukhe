@@ -699,12 +699,9 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
         .filter(|entry| entry.kind.starts_with("eukhe."))
         .map(|entry| (entry.kind.clone(), custom_type(entry)))
         .collect();
-    // The harness digest rows ride the cold boundaries: the first request
-    // and the request after the refinement updated the harness state.
     assert_eq!(
         rows,
         vec![
-            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
             (
                 "eukhe.custom-state".to_owned(),
                 Some("eukhe.refinement".to_owned())
@@ -717,7 +714,6 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
                 "eukhe.custom".to_owned(),
                 Some("refinement_notice".to_owned())
             ),
-            ("eukhe.custom".to_owned(), Some("harness_digest".to_owned())),
         ]
     );
     // The rows land between the requesting round and the final answer.

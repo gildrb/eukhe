@@ -283,7 +283,7 @@ enum CustomRow {
 fn classify_custom(custom_type: &str) -> CustomRow {
     match custom_type {
         "goal_context" | "autonomous_status" => CustomRow::Nudge,
-        "harness_digest"
+        crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE
         | "ipython_state"
         | "ipython_state_restored"
         | "python_skills_unavailable"

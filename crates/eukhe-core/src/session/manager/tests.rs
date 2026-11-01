@@ -45,8 +45,6 @@ fn append_compaction_serializes_the_full_ts_record() {
             total_tokens: 110,
             cost: eukhe_types::ai::UsageCost::default(),
         }),
-        harness_digest: None,
-        harness_state_fingerprint: None,
     });
     let line = serde_json::to_string(
         manager

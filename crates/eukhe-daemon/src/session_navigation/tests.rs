@@ -76,7 +76,7 @@ async fn new_session_then_switch_back() {
     let prompted = dispatch(&worker, "prompt_and_wait", json!({ "message": "hello" })).await;
     assert!(prompted.success, "{prompted:?}");
     let before = state(&worker).await;
-    assert_eq!(message_count(&worker).await, 3, "user, digest, assistant");
+    assert_eq!(message_count(&worker).await, 2, "user, assistant");
 
     let fresh = dispatch(&worker, "new_session", json!({})).await;
     assert_eq!(fresh.data, Some(json!({ "cancelled": false })), "{fresh:?}");
@@ -93,7 +93,7 @@ async fn new_session_then_switch_back() {
     .await;
     assert!(switched.success, "{switched:?}");
     assert_eq!(state(&worker).await["sessionId"], before["sessionId"]);
-    assert_eq!(message_count(&worker).await, 3, "user, digest, assistant");
+    assert_eq!(message_count(&worker).await, 2, "user, assistant");
 
     // Switching to the live session itself reopens it.
     let same = dispatch(
@@ -103,7 +103,7 @@ async fn new_session_then_switch_back() {
     )
     .await;
     assert!(same.success, "{same:?}");
-    assert_eq!(message_count(&worker).await, 3, "user, digest, assistant");
+    assert_eq!(message_count(&worker).await, 2, "user, assistant");
 }
 
 /// A missing switch target fails before anything is retired.

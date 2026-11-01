@@ -307,8 +307,8 @@ fn message_text(message: &Value) -> String {
     }
 }
 
-/// A user message the harness adds on its own (`[harness-digest]`,
-/// `[python-state]`, ...): never a prompt.
+/// A user message the harness adds on its own (`[python-state]`, ...):
+/// never a prompt.
 fn is_harness_notice(message: &Value) -> bool {
     let text = message_text(message);
     text.starts_with('[')

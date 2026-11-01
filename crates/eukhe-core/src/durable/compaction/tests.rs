@@ -351,7 +351,6 @@ async fn update_mode_carries_the_previous_typed_summary_and_its_file_lists() {
         summary: "prior work".to_owned(),
         read_files: vec!["/a.rs".to_owned()],
         modified_files: vec!["/b.rs".to_owned()],
-        digest: None,
     };
     let root = session.root().clone();
     let answer = root
@@ -416,19 +415,13 @@ async fn update_mode_carries_the_previous_typed_summary_and_its_file_lists() {
         .items
         .remove(0);
     let compaction = COMPACTION_ENTRY.narrow(newest).unwrap().unwrap();
-    // The digest is the session's fresh render; the rest is under test.
-    let summary = compaction.data().summary.clone().expect("a typed summary");
     assert_eq!(
-        CompactionSummary {
-            digest: None,
-            ..summary
-        },
-        CompactionSummary {
+        compaction.data().summary.clone(),
+        Some(CompactionSummary {
             summary: "updated summary".to_owned(),
             read_files: vec!["/a.rs".to_owned()],
             modified_files: vec!["/b.rs".to_owned()],
-            digest: None,
-        }
+        })
     );
     session.close(cx()).await.unwrap();
 }

@@ -9,8 +9,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use eukhe_durable::entries::{
-    CompactionData, CompactionSummary, HarnessDigest, ToolResultData, ASSISTANT_ENTRY,
-    COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY,
+    CompactionData, CompactionSummary, ToolResultData, ASSISTANT_ENTRY, COMPACTION_ENTRY,
+    TOOL_RESULT_ENTRY, USER_ENTRY,
 };
 use eukhe_durable::harness::types::{CompactionReason, ModelRef};
 use eukhe_durable::types::{EntryDraft, TypedEntryDraft};
@@ -25,12 +25,10 @@ use serde::Serialize;
 use super::ImportError;
 use crate::durable::compaction::utils::strip_file_list_blocks;
 use crate::durable::entries::{
-    bash_entry_draft, custom_entry_draft, BashEntryData, BranchSummaryData, CustomEntryData,
-    CustomStateData, BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
-    CUSTOM_STATE_ENTRY,
+    bash_entry_draft, custom_entry_draft, BashEntryData, BranchSummaryData, CustomStateData,
+    BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_STATE_ENTRY,
 };
 use crate::durable::messages::convert_to_llm;
-use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
 use crate::session::tree::SessionTree;
 use crate::session::{migrate_to_current_version, parse_session_entries, timestamp_to_millis};
 
@@ -142,51 +140,8 @@ fn branch_path(entries: &[FileEntry], leaf_id: Option<&str>) -> Vec<usize> {
     path
 }
 
-/// Which harness digests reach the model (`build_session_context`, TS
-/// #2394/#2400): only the newest digest custom message, unless the latest
-/// compaction's snapshot is newer; a digest after the latest compaction
-/// takes the place of the summary's snapshot.
-struct DigestPolicy {
-    /// Branch position of the latest compaction.
-    compaction: Option<usize>,
-    /// Branch position of the one digest custom message that is kept.
-    kept_digest: Option<usize>,
-    /// The latest compaction's summary drops its digest block.
-    summary_yields_snapshot: bool,
-}
-
-impl DigestPolicy {
-    fn new(branch: &[FileEntry]) -> Self {
-        let compaction = branch
-            .iter()
-            .rposition(|entry| matches!(entry, FileEntry::Compaction { .. }));
-        let newest_digest = branch.iter().rposition(|entry| {
-            matches!(entry, FileEntry::CustomMessage { payload, .. }
-                if payload.custom_type == HARNESS_DIGEST_CUSTOM_TYPE)
-        });
-        let snapshot_outranks_digest = compaction.is_some_and(|compaction| {
-            matches!(&branch[compaction], FileEntry::Compaction { payload, .. }
-                if payload.harness_digest.is_some())
-                && newest_digest.is_none_or(|digest| digest < compaction)
-        });
-        Self {
-            compaction,
-            kept_digest: if snapshot_outranks_digest {
-                None
-            } else {
-                newest_digest
-            },
-            summary_yields_snapshot: matches!(
-                (newest_digest, compaction),
-                (Some(digest), Some(compaction)) if digest > compaction
-            ),
-        }
-    }
-}
-
 struct Planner<'a> {
     branch: &'a [FileEntry],
-    digests: DigestPolicy,
     model: Option<ModelRef>,
     thinking_level: Option<&'a str>,
     entries: Vec<PlannedEntry>,
@@ -201,7 +156,6 @@ impl<'a> Planner<'a> {
     fn new(branch: &'a [FileEntry]) -> Self {
         Self {
             branch,
-            digests: DigestPolicy::new(branch),
             model: None,
             thinking_level: None,
             entries: Vec::new(),
@@ -274,32 +228,13 @@ impl<'a> Planner<'a> {
             }
             FileEntry::CustomMessage { payload, .. } => {
                 let content: UserContent = convert(&payload.content, id)?;
-                // Older harness digests stay out of context, as in the old
-                // engine; their content then rides in data, like a
-                // display-only row's.
-                let draft = if payload.custom_type == HARNESS_DIGEST_CUSTOM_TYPE
-                    && self.digests.kept_digest != Some(position)
-                {
-                    CUSTOM_ENTRY.draft(&typed(
-                        None,
-                        CustomEntryData {
-                            custom_type: payload.custom_type.clone(),
-                            content: Some(content),
-                            display: payload.display,
-                            details: payload.details.clone(),
-                            input: false,
-                            origin: None,
-                        },
-                    ))?
-                } else {
-                    custom_entry_draft(
-                        payload.custom_type.as_str(),
-                        content,
-                        payload.display,
-                        payload.details.clone(),
-                        timestamp,
-                    )?
-                };
+                let draft = custom_entry_draft(
+                    payload.custom_type.as_str(),
+                    content,
+                    payload.display,
+                    payload.details.clone(),
+                    timestamp,
+                )?;
                 self.push(position, draft, PlannedHead::None);
             }
             // Service tiers have no durable agent field; child usage is
@@ -363,26 +298,8 @@ impl<'a> Planner<'a> {
                     .position(|&planned| planned >= first_kept)
             })
             .map_or(PlannedHead::SelfEntry, PlannedHead::Planned);
-        let harness_digest =
-            if self.digests.compaction == Some(position) && self.digests.summary_yields_snapshot {
-                None
-            } else {
-                payload.harness_digest.clone()
-            };
-        let harness_state_fingerprint = if harness_digest.is_some() {
-            payload.harness_state_fingerprint.clone()
-        } else {
-            None
-        };
         // The typed summary: the legacy text without its file-list blocks,
         // the lists from the row's details.
-        let digest = harness_digest
-            .clone()
-            .zip(harness_state_fingerprint.clone())
-            .map(|(digest, state_fingerprint)| HarnessDigest {
-                digest,
-                state_fingerprint,
-            });
         let files = |key: &str| -> Vec<String> {
             payload
                 .details
@@ -402,15 +319,12 @@ impl<'a> Planner<'a> {
             summary: strip_file_list_blocks(&payload.summary),
             read_files: files("readFiles"),
             modified_files: files("modifiedFiles"),
-            digest,
         };
         let summary = AgentMessage::CompactionSummary(CompactionSummaryMessage {
             summary: payload.summary.clone(),
             tokens_before: payload.tokens_before,
             retained_message_count: None,
             custom_instructions: payload.custom_instructions.clone(),
-            harness_digest,
-            harness_state_fingerprint,
             timestamp,
         });
         let reason = if payload.custom_instructions.is_some() {
