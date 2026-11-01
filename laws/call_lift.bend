@@ -129,6 +129,33 @@ law call_lift_replay_byte_stable:
 law call_lift_table_example:
   {[Cl.lift(Cl.table(), Cl.Call{"zoom", "1", ["i", "id", "n"]}), Cl.lift(Cl.table(), Cl.Call{"zoom", "2", ["i", "id"]}), Cl.lift(Cl.table(), Cl.Call{"edit", "hl.1", ["i", "input"]}), Cl.lift(Cl.table(), Cl.Call{"mcp", "1", ["q"]}), Cl.lift(Cl.table(), Cl.Call{"zoom", "0", []})] == [Cl.Lifted{"2", [Cl.Kept{0n, "i"}, Cl.Kept{1n, "id"}, Cl.Kept{2n, "n"}], []}, Cl.Current{}, Cl.Current{}, Cl.Unknown{}, Cl.Stranded{}] : List<&2, Cl.Lift>}
 
+# The shipped table, frozen: every family a eukhe tool stamps, its current
+# rev and its steps, as bend/call_lift.bend ships them. A new family, a rev
+# bump or a new step changes this constant, and so needs a law change.
+def cl_shipped_table() -> List<&2, Cl.Fam>:
+  [Cl.Fam{"bash", "1", []}, Cl.Fam{"read", "1", []}, Cl.Fam{"write", "1", []}, Cl.Fam{"edit", "hl.1", []}, Cl.Fam{"grep", "1", []}, Cl.Fam{"glob", "1", []}, Cl.Fam{"ipython", "1", []}, Cl.Fam{"dyn", "1", []}, Cl.Fam{"zoom", "2", [Cl.Step{"1", "2", []}]}, Cl.Fam{"date", "1", []}, Cl.Fam{"remote", "1", []}]
+
+# LAW call_lift_table_exact (R2, R4): the shipped table is exactly the frozen
+# one above: its families in order, each current rev, each step and its ops
+# EXCLUDES: a foreign family (an MCP tool) added to the table, so its calls
+#   are rewritten; a step or an op added, dropped or changed; a current rev
+#   moved; a family dropped, renamed or reordered
+law call_lift_table_exact:
+  {Cl.table() == cl_shipped_table() : List<&2, Cl.Fam>}
+
+# LAW call_lift_table_steps_arrive (R2): in the shipped table, every rev a
+# step leaves is known: its chain arrives at the family's current rev, so
+# no stored call at a rev the table has a step for is stranded
+# EXCLUDES: a dangling step (edit@1 -> edit@hl.0, no step out of hl.0)
+#   that strands every stored call at its source rev; a step chain that
+#   loops without reaching the current rev
+law call_lift_table_steps_arrive:
+  for +f: String
+  for +r: String
+  for st: Cl.Step
+  for step: {Sp.next(Sp.steps_of(Cl.table(), f), r) == Some{st} : Maybe<&2, Cl.Step>}
+  {Sp.known(Cl.table(), f, r) == True{} : Bool}
+
 # LAW call_lift_ops_example (R1, R5): anchor: two steps: a rename and a
 # fill, then a rename onto a taken name (clashed); a fill of a present
 # argument and a rename without its argument do nothing; a cycle strands

@@ -2498,6 +2498,8 @@ import ./proof/call_lift/call_lift_unknown_family_untouched.bend as PCallLiftCal
 import ./proof/call_lift/call_lift_preserves_unmapped.bend as PCallLiftCallLiftPreservesUnmapped
 import ./proof/call_lift/call_lift_replay_byte_stable.bend as PCallLiftCallLiftReplayByteStable
 import ./proof/call_lift/call_lift_table_example.bend as PCallLiftCallLiftTableExample
+import ./proof/call_lift/call_lift_table_exact.bend as PCallLiftCallLiftTableExact
+import ./proof/call_lift/call_lift_table_steps_arrive.bend as PCallLiftCallLiftTableStepsArrive
 import ./proof/call_lift/call_lift_ops_example.bend as PCallLiftCallLiftOpsExample
 import ./proof/rlm_query/base/nat.bend as LRlmQueryNat
 import ./proof/rlm_query/base/plan.bend as LRlmQueryPlan
