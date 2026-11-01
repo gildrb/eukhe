@@ -1141,6 +1141,17 @@ pub const GATEWAY_SIGNAL_MODEL: Decl = Decl {
     init: Init::Text(""),
 };
 
+/// `gateway.rootHeartbeat`: the heartbeat schedule of the gateway's root
+/// session (a `/heartbeat` schedule); empty is off.
+pub const GATEWAY_ROOT_HEARTBEAT: Decl = Decl {
+    id: "gateway.rootHeartbeat",
+    ty: CvarType::Text,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Text(""),
+};
+
 /// Where the session's kernel runs (S3); parsed by
 /// `kernel::transport::KernelTransportSettings`. Routes code execution,
 /// so an untrusted project may not set it and an agent never saves it.
@@ -1424,6 +1435,7 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_CLI_PATH,
     GATEWAY_SIGNAL_CWD,
     GATEWAY_SIGNAL_MODEL,
+    GATEWAY_ROOT_HEARTBEAT,
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
     SSH_HOSTS,

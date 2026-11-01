@@ -426,6 +426,12 @@ pub struct SshSettings {
 #[serde(rename_all = "camelCase")]
 pub struct GatewaySettings {
     pub signal: Option<SignalGatewaySettings>,
+    /// The heartbeat schedule of the gateway's root session (the
+    /// `/heartbeat` schedule forms: `every 30 minutes`, a cron
+    /// expression). Set, `eukhe gateway` routes the phone to the
+    /// persistent session named `root` and creates or replaces its
+    /// heartbeat at start. Absent means off.
+    pub root_heartbeat: Option<String>,
 }
 
 /// `gateway.signal`: the Signal gateway (a `signal-cli` child).

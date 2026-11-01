@@ -23,7 +23,9 @@ use tokio::sync::{mpsc, watch};
 use crate::answer::{answer, Answer};
 use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{reconnect_delay, Binding, Link, Opened, Reconnect};
-use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
+use crate::sessions::{
+    home_route, root_session, Route, SavedSession, SessionRef, LISTED_SESSIONS, ROOT_SESSION_NAME,
+};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
 use crate::GatewayConfig;
@@ -41,6 +43,9 @@ const SENT_PROMPTS_KEPT: usize = 16;
 
 /// How long the shutdown cleanup (typing stop, detach) may take.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
+
+/// The instruction of the root session's heartbeat (`gateway.rootHeartbeat`).
+const ROOT_HEARTBEAT_PROMPT: &str = "Heartbeat: check on your children and the work you wait on, and act on what is due. Stay quiet when nothing needs the user.";
 
 /// The typing indicator the gateway shows.
 struct TypingShown {
@@ -102,12 +107,14 @@ pub(crate) struct Gateway<L> {
 
 impl<L: DaemonLauncher> Gateway<L> {
     /// Install the signal handlers, connect to the daemon, and start
-    /// `signal-cli`.
+    /// `signal-cli`. With `gateway.rootHeartbeat` set, open the root
+    /// session (made when missing) and create or replace its heartbeat.
     ///
     /// # Errors
     ///
-    /// A handler cannot install, the first daemon connection fails, or
-    /// `signal-cli` cannot start.
+    /// A handler cannot install, the first daemon connection fails,
+    /// `signal-cli` cannot start, or the root session or its heartbeat
+    /// cannot be set up (a schedule the daemon refuses).
     #[tracing::instrument(skip_all)]
     pub(crate) async fn start(
         config: GatewayConfig,
@@ -133,8 +140,8 @@ impl<L: DaemonLauncher> Gateway<L> {
         let (signal, inbound) = SignalCli::spawn(&config.signal)
             .await
             .context("start signal-cli")?;
-        tracing::info!("the gateway runs");
-        Ok(Self {
+        let route = home_route(config.root_heartbeat.as_deref());
+        let mut gateway = Self {
             config,
             settings,
             signal,
@@ -142,7 +149,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             link,
             shutdown,
             daemon: DaemonState::Up,
-            route: Route::Follow,
+            route,
             binding: None,
             floor: None,
             running: false,
@@ -150,7 +157,29 @@ impl<L: DaemonLauncher> Gateway<L> {
             stop_pending: None,
             sent_prompts: VecDeque::new(),
             listings: HashMap::new(),
-        })
+        };
+        if let Some(schedule) = gateway.config.root_heartbeat.clone() {
+            let binding = gateway.routed_binding().await?;
+            gateway
+                .link
+                .client
+                .request_ok(root_heartbeat(&binding.active_session_id, &schedule))
+                .await
+                .with_context(|| {
+                    format!("set the root session's heartbeat (gateway.rootHeartbeat {schedule:?})")
+                })?;
+            tracing::info!(%schedule, session = %binding.session.path, "the root session's heartbeat runs");
+        }
+        tracing::info!("the gateway runs");
+        Ok(gateway)
+    }
+
+    /// The reply line that names where `/latest` sends messages.
+    fn latest_hint(&self) -> &'static str {
+        match home_route(self.config.root_heartbeat.as_deref()) {
+            Route::Root => "Send /latest to use the root session.",
+            Route::Follow | Route::Pinned(_) => "Send /latest to use the newest session.",
+        }
     }
 
     /// Serve until shutdown: inbound messages strictly in arrival order,
@@ -394,19 +423,25 @@ impl<L: DaemonLauncher> Gateway<L> {
                 self.route = Route::Pinned(SessionRef::from(&saved));
                 let title = saved.title.as_deref().unwrap_or("(no title)");
                 Ok(format!(
-                    "Using session {number}: {title}\nSend /latest to use the newest session."
+                    "Using session {number}: {title}\n{}",
+                    self.latest_hint()
                 ))
             }
             PhoneCommand::Latest => {
-                self.route = Route::Follow;
-                Ok("Messages go to the newest session.".to_string())
+                self.route = home_route(self.config.root_heartbeat.as_deref());
+                Ok(match self.route {
+                    Route::Root => "Messages go to the root session.",
+                    Route::Follow | Route::Pinned(_) => "Messages go to the newest session.",
+                }
+                .to_string())
             }
             PhoneCommand::New => {
                 let binding = self.open(None, None).await?;
                 self.route = Route::Pinned(binding.session);
                 Ok(format!(
-                    "New session in {}.\nSend /latest to use the newest session.",
-                    self.config.new_session_cwd.display()
+                    "New session in {}.\n{}",
+                    self.config.new_session_cwd.display(),
+                    self.latest_hint()
                 ))
             }
             PhoneCommand::Stop => {
@@ -468,6 +503,7 @@ impl<L: DaemonLauncher> Gateway<L> {
         let mode = match &self.route {
             Route::Follow => "follow (newest session)",
             Route::Pinned(_) => "pinned",
+            Route::Root => "root (the root session)",
         };
         let Some(binding) = &self.binding else {
             return Ok(format!(
@@ -914,8 +950,9 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The binding the route selects now, opened when it changed: the
-    /// pinned session, or the newest root session (the bound one when
-    /// none is saved yet; a new one when nothing exists).
+    /// pinned session, the newest root session (the bound one when none
+    /// is saved yet; a new one when nothing exists), or the session named
+    /// [`ROOT_SESSION_NAME`] (made and named when missing).
     #[tracing::instrument(skip_all)]
     async fn routed_binding(&mut self) -> anyhow::Result<Binding> {
         if self.link.is_dead() {
@@ -937,6 +974,29 @@ impl<L: DaemonLauncher> Gateway<L> {
                     Some(saved) => (Some(SessionRef::from(&saved)), Some(saved.cwd)),
                     None => (None, None),
                 }
+            }
+            Route::Root => {
+                let sessions = self
+                    .link
+                    .root_sessions(&self.config.session_dir, &self.config.new_session_cwd)
+                    .await?;
+                let Some(saved) = root_session(&sessions) else {
+                    let binding = self.open(None, None).await?;
+                    self.link
+                        .client
+                        .request_ok(DaemonCommand::Rename {
+                            id: None,
+                            active_session_id: binding.active_session_id.clone(),
+                            name: ROOT_SESSION_NAME.to_string(),
+                            renamed_by: None,
+                            rest: Map::default(),
+                        })
+                        .await
+                        .context("name the root session")?;
+                    tracing::info!(session = %binding.session.path, "made the root session");
+                    return Ok(binding);
+                };
+                (Some(SessionRef::from(saved)), Some(saved.cwd.clone()))
             }
         };
         match (target, &self.binding) {
@@ -1231,6 +1291,22 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 }
 
+/// The `heartbeat_set` that creates or replaces the root session's
+/// heartbeat: `schedule` (`gateway.rootHeartbeat`) with the root
+/// instruction, the daemon's default delivery (a fire waits while the
+/// session is busy).
+fn root_heartbeat(active_session_id: &str, schedule: &str) -> DaemonCommand {
+    DaemonCommand::HeartbeatSet {
+        id: None,
+        active_session_id: active_session_id.to_string(),
+        schedule: schedule.to_string(),
+        prompt: ROOT_HEARTBEAT_PROMPT.to_string(),
+        delivery_mode: None,
+        promote_owned_session: None,
+        rest: Map::default(),
+    }
+}
+
 /// The text of a user message: its text blocks, blank-line separated.
 fn user_text(content: &UserContent) -> String {
     match content {
@@ -1264,6 +1340,23 @@ fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `gateway.rootHeartbeat` arms the root session's heartbeat with one
+    /// `heartbeat_set`: the setting's schedule, the root instruction, the
+    /// daemon's default delivery.
+    #[test]
+    fn the_root_heartbeat_is_one_heartbeat_set() {
+        assert_eq!(
+            serde_json::to_value(root_heartbeat("live-root", "every 30 minutes"))
+                .expect("a command serializes"),
+            json!({
+                "type": "heartbeat_set",
+                "activeSessionId": "live-root",
+                "schedule": "every 30 minutes",
+                "prompt": ROOT_HEARTBEAT_PROMPT,
+            })
+        );
+    }
 
     /// A turn end and `/status` name what the session waits on, in the
     /// agreed wording; a session with nothing running waits on nothing.

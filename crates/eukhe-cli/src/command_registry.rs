@@ -372,7 +372,9 @@ The compactor then summarizes them like any other messages.",
     .description(
         "Runs signal-cli and relays Signal messages into the newest session (the one the CLI \
 uses), then sends the replies back. Set gateway.signal.account in the global settings first. \
-Runs until Ctrl+C.",
+With gateway.rootHeartbeat set (a heartbeat schedule, such as `every 30 minutes`), messages go \
+to the persistent session named root instead (made when missing), and each start creates or \
+replaces its heartbeat. Runs until Ctrl+C.",
     )
     .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
     CommandSpec::new(

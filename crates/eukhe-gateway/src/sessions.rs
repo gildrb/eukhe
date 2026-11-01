@@ -9,6 +9,10 @@ pub(crate) const LISTED_SESSIONS: usize = 9;
 /// The longest session title `/sessions` shows, in characters.
 const TITLE_CHARS: usize = 40;
 
+/// The name of the root session (`Route::Root`): the gateway finds it by
+/// this name after every restart, and names the session it creates so.
+pub(crate) const ROOT_SESSION_NAME: &str = "root";
+
 /// Which session the phone's messages go to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Route {
@@ -17,6 +21,28 @@ pub(crate) enum Route {
     Follow,
     /// One session, chosen with `/use N` or made with `/new`.
     Pinned(SessionRef),
+    /// The persistent root session named [`ROOT_SESSION_NAME`] (with
+    /// `gateway.rootHeartbeat` set): made when missing, kept alive by its
+    /// heartbeat.
+    Root,
+}
+
+/// The route the phone's messages take at start and after `/latest`: the
+/// root session when `gateway.rootHeartbeat` is set, else the newest
+/// session.
+pub(crate) fn home_route(root_heartbeat: Option<&str>) -> Route {
+    match root_heartbeat {
+        Some(_) => Route::Root,
+        None => Route::Follow,
+    }
+}
+
+/// The root session among the saved root sessions (newest first): the
+/// newest one named [`ROOT_SESSION_NAME`].
+pub(crate) fn root_session(sessions: &[SavedSession]) -> Option<&SavedSession> {
+    sessions
+        .iter()
+        .find(|saved| saved.name.as_deref() == Some(ROOT_SESSION_NAME))
 }
 
 /// One session's identity and storage.
@@ -124,4 +150,38 @@ fn unix_ms(iso: &str) -> Option<u64> {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = (era * 146_097 + day_of_era).checked_sub(719_468)?;
     Some((((days * 24 + hour) * 60 + minute) * 60 + second) * 1000 + millis)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `gateway.rootHeartbeat` routes the phone to the root session; unset,
+    /// to the newest session, as before the setting.
+    #[test]
+    fn the_root_heartbeat_routes_to_the_root_session() {
+        assert_eq!(home_route(Some("every 30 minutes")), Route::Root);
+        assert_eq!(home_route(None), Route::Follow);
+    }
+
+    /// The root session is the newest one named `root`; a session whose
+    /// first message is `root` is not it.
+    #[test]
+    fn the_root_session_is_found_by_its_name() {
+        let saved = |id: &str, name: Option<&str>, title: &str| SavedSession {
+            id: id.to_string(),
+            path: format!("/s/{id}"),
+            cwd: "/home/u".to_string(),
+            name: name.map(str::to_string),
+            title: Some(title.to_string()),
+            modified: "2026-11-01T08:00:00Z".to_string(),
+        };
+        let sessions = [
+            saved("first", None, ROOT_SESSION_NAME),
+            saved("newer", Some(ROOT_SESSION_NAME), ROOT_SESSION_NAME),
+            saved("older", Some(ROOT_SESSION_NAME), ROOT_SESSION_NAME),
+        ];
+        assert_eq!(root_session(&sessions), Some(&sessions[1]));
+        assert_eq!(root_session(&sessions[..1]), None);
+    }
 }

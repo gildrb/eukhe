@@ -150,6 +150,7 @@ fn gateway_config(
             account,
             allow: signal.allow.unwrap_or_default(),
         },
+        root_heartbeat: settings.get_gateway_root_heartbeat(),
     })
 }
 

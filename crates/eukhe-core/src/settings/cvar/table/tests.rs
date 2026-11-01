@@ -176,6 +176,7 @@ fn populated() -> Settings {
                 cwd: Some("d".into()),
                 model: Some("e".into()),
             }),
+            root_heartbeat: Some("every 30 minutes".into()),
         }),
         kernel_transport: Some(Value::from(1)),
         shell: Some(ShellSettings {

@@ -351,6 +351,14 @@ impl SettingsManager {
         }
     }
 
+    /// `gateway.rootHeartbeat`: the heartbeat schedule of the gateway's
+    /// root session (Global, like every `gateway` setting); `None` (absent
+    /// or empty) is off.
+    #[must_use]
+    pub fn get_gateway_root_heartbeat(&self) -> Option<String> {
+        self.raw_text(&table::GATEWAY_ROOT_HEARTBEAT)
+    }
+
     /// `subagentMaxConcurrency`: how many subagents may run at once (`0`
     /// is unlimited).
     #[must_use]

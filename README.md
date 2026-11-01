@@ -40,6 +40,11 @@ eukhe dashboard  # open the session in a browser; on the phone: porthmeus eukhe 
 - `/agents`: list and open the session's agents.
 - `/autoresearch <goal>`: an experiment loop on an `autoresearch/*` branch; it keeps (commits) only measured improvements. `/autoresearch off|status|clear`.
 
+## Gateway
+
+- `eukhe gateway` relays Signal messages (`gateway.signal.account`, `gateway.signal.allow`, `gateway.signal.cwd`, `gateway.signal.model` in `~/.eukhe/settings.json`) into the newest session; `/sessions`, `/use N`, `/new`, `/latest` pick another.
+- `gateway.rootHeartbeat` (global; default unset: off): a heartbeat schedule (`every 30 minutes`, a cron expression). Set, the phone talks to one persistent session named `root` (made when missing, found again after restarts), and each gateway start creates or replaces its heartbeat; a beat waits while the session is busy. `/latest` returns to `root`.
+
 ## Limitations
 
 - Runs model-generated Python and shell with your user permissions; no sandbox. Trusted repositories only.

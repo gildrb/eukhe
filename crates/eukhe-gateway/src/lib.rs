@@ -30,6 +30,12 @@ pub struct GatewayConfig {
     /// first session when none exists).
     pub new_session_cwd: PathBuf,
     pub signal: SignalConfig,
+    /// `gateway.rootHeartbeat`: the heartbeat schedule of the root session
+    /// (the `/heartbeat` schedule forms, such as `every 30 minutes`).
+    /// Set, the phone's messages go to the persistent session named
+    /// `root` (made when missing) and the gateway's start creates or
+    /// replaces its heartbeat. `None` routes to the newest session.
+    pub root_heartbeat: Option<String>,
 }
 
 /// A model of the catalog, as `set_model` names it.

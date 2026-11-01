@@ -67,6 +67,8 @@ pub struct SavedSession {
     pub id: String,
     pub path: String,
     pub cwd: String,
+    /// The session's own name; `None` when absent or blank.
+    pub name: Option<String>,
     /// The session name, else its first message; `None` when both are
     /// absent or blank.
     pub title: Option<String>,
@@ -121,11 +123,12 @@ fn root_sessions(data: &Value) -> anyhow::Result<Vec<SavedSession>> {
         .filter(|row| row.rlm_depth == 0 && row.parent_session_path.is_none())
         .map(|row| {
             let first = strip_signal_reply_rules(&row.first_message);
+            let name = row.name.filter(|name| !name.trim().is_empty());
             SavedSession {
-                title: row
-                    .name
-                    .filter(|name| !name.trim().is_empty())
+                title: name
+                    .clone()
                     .or_else(|| Some(first.to_string()).filter(|first| !first.trim().is_empty())),
+                name,
                 id: row.id,
                 path: row.path,
                 cwd: row.cwd,
@@ -247,7 +250,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_root_rows_list_with_a_title() {
+    fn only_root_rows_list_with_a_name_and_a_title() {
         let row = |id: &str, depth: u32, parent: Option<&str>, name: Option<&str>, first: &str| {
             json!({
                 "path": format!("/s/{id}.jsonl"), "id": id, "cwd": "/home/u",
@@ -265,22 +268,23 @@ mod tests {
             row("f", 0, None, None, SIGNAL_REPLY_RULES),
             row("g", 0, None, None, "[rules] kept"),
         ] });
-        let session = |id: &str, title: Option<&str>| SavedSession {
+        let session = |id: &str, name: Option<&str>, title: Option<&str>| SavedSession {
             id: id.to_string(),
             path: format!("/s/{id}.jsonl"),
             cwd: "/home/u".to_string(),
+            name: name.map(str::to_string),
             title: title.map(str::to_string),
             modified: "2026-10-15T08:00:00Z".to_string(),
         };
         assert_eq!(
             root_sessions(&data).unwrap(),
             vec![
-                session("a", Some("named")),
-                session("c", Some("first words")),
-                session("d", None),
-                session("e", Some("ask")),
-                session("f", None),
-                session("g", Some("[rules] kept")),
+                session("a", Some("named"), Some("named")),
+                session("c", None, Some("first words")),
+                session("d", None, None),
+                session("e", None, Some("ask")),
+                session("f", None, None),
+                session("g", None, Some("[rules] kept")),
             ]
         );
     }
