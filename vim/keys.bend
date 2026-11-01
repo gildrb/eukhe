@@ -92,20 +92,50 @@ def Key.z(+s: T.St, +which: Nat) -> T.St:
   +top = Bool.pick(Nat, Nat.is_eq(which, 0n), Nat.sub(l, Nat.div(Nat.sub(h, 1n), 2n)), Bool.pick(Nat, Nat.is_eq(which, 1n), Nat.sub(l, Nat.min(so, l)), Nat.sub(Nat.add(l, Nat.min(so, Nat.sub(last, l))), Nat.sub(h, 1n))))
   C.Win.scroll(s, top, l)
 
+# line k the cursor can be on with the window's first line at top (inside
+# 'scrolloff'), its last column at col or past it
+def Key.side.fits(+ls: List<&2, String>, +k: Nat, +col: Nat, +top: Nat, +h: Nat, +last: Nat) -> Bool:
+  Bool.and(Nat.is_le(k, last), Bool.and(Nat.is_eq(V.View.fit(top, k, h, last), top), Nat.is_ge(M.Move.last_col(ls, k), col)))
+
+# the last column of the longest of the r lines from k that fit
+def Key.side.widest(r: Nat, +ls: List<&2, String>, +k: Nat, +top: Nat, +h: Nat, +last: Nat, +acc: Nat) -> Nat:
+  match r:
+    case 0n:
+      acc
+    case 1n+p:
+      Key.side.widest(p, ls, 1n+k, top, h, last, Bool.pick(Nat, Key.side.fits(ls, k, 0n, top, h, last), Nat.max(acc, M.Move.last_col(ls, k)), acc))
+
+# the line nearest l, d lines away or more, that fits and reaches column
+# col (below first on a tie); l when none does within r more steps
+def Key.side.line(r: Nat, +ls: List<&2, String>, +l: Nat, +d: Nat, +col: Nat, +top: Nat, +h: Nat, +last: Nat) -> Nat:
+  match r:
+    case 0n:
+      l
+    case 1n+p:
+      +down = Nat.add(l, d)
+      +up = Nat.sub(l, d)
+      Bool.pick(Nat, Key.side.fits(ls, down, col, top, h, last), down, Bool.pick(Nat, Bool.and(Nat.is_le(d, l), Key.side.fits(ls, up, col, top, h, last)), up, Key.side.line(p, ls, l, 1n+d, col, top, h, last)))
+
 # zl zh: the view n columns right or left ('nowrap'); the cursor is dragged
-# to stay 'sidescrolloff' columns inside; a view never starts past the
-# cursor line's last character
+# to stay 'sidescrolloff' columns inside, onto the nearest line on screen
+# that reaches that far when its own line is short (a finger pans the page,
+# as in a terminal); a view never starts past the longest line on screen
 def Key.side(+s: T.St, +right: Bool, +n: Nat) -> T.St:
   +ls = C.St.lines(s)
   +w = S.St.win(s)
   +l = C.St.line(s)
   +c = C.St.col(s)
-  +lastc = M.Move.last_col(ls, l)
+  +top = S.Win.top(w)
+  +h = C.St.h(s)
+  +last = M.Move.last_line(ls)
   +width = C.St.w(s)
   +so = V.View.so_in(width)
-  +left = Bool.pick(Nat, right, Nat.min(Nat.add(S.Win.left(w), n), lastc), Nat.sub(S.Win.left(w), n))
-  +c2 = Bool.pick(Nat, right, Nat.min(Nat.max(c, Nat.add(left, so)), lastc), Nat.min(c, Nat.sub(Nat.add(left, width), Nat.add(so, 1n))))
-  C.Win.settle(S.St.set_win(s, T.Win{S.Win.tgt(w), T.Pos{l, c2}, T.Col{c2}, S.Win.top(w), left}))
+  +widest = Key.side.widest(h, ls, top, top, h, last, 0n)
+  +left = Bool.pick(Nat, right, Nat.max(S.Win.left(w), Nat.min(Nat.add(S.Win.left(w), n), Nat.sub(widest, Nat.min(so, widest)))), Nat.sub(S.Win.left(w), n))
+  +need = Nat.add(left, so)
+  +l2 = Bool.pick(Nat, right, Key.side.line(h, ls, l, 0n, need, top, h, last), l)
+  +c2 = Bool.pick(Nat, right, Nat.min(Nat.max(c, need), M.Move.last_col(ls, l2)), Nat.min(c, Nat.sub(Nat.add(left, width), Nat.add(so, 1n))))
+  C.Win.settle(S.St.set_win(s, T.Win{S.Win.tgt(w), T.Pos{l2, c2}, T.Col{c2}, top, left}))
 
 def Key.back.to(+s: T.St, +fwd: Bool, ws: List<&2, T.Win>) -> T.St:
   match ws:

@@ -202,9 +202,6 @@ function firstScreen(files: readonly EditorFile[]): Screen {
   };
 }
 
-/** Loads the module named in its own `data-src` once the page has loaded. */
-const loader = `const src=document.currentScript.dataset.src;addEventListener("load",()=>{const s=document.createElement("script");s.type="module";s.src=src;document.body.append(s)})`;
-
 /** The editor's file of a page: index.md for the home page, about.md for /about. */
 function markdownFile(doc: Doc): string {
   return doc.path === "/" ? "index.md" : `${doc.path.slice(1)}.md`;
@@ -302,8 +299,9 @@ function Page({
             {...stylex.props(styles.cursor)}
           />
         </div>
-        {/* The editor's code loads after the page: the first screen needs none of it. */}
-        <script data-src={script} dangerouslySetInnerHTML={{ __html: loader }} />
+        {/* The editor's code: a module, so it never holds up the first screen, and it runs before
+            the page's load (fonts, images) ends, so the first touch already scrolls. */}
+        <script type="module" src={script} />
       </body>
     </html>
   );

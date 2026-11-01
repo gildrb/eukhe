@@ -430,6 +430,8 @@ function touchScroll() {
   let startX = 0;
   let startY = 0;
   let axis: "none" | "x" | "y" | "browser" = "none";
+  // A drag that began before the editor listened has no start: it is left to finish untouched.
+  let dragging = false;
   let rows = 0;
   let cols = 0;
   let speed = 0;
@@ -441,9 +443,12 @@ function touchScroll() {
       const t = event.touches[0];
       if (t === undefined) return;
       cancelAnimationFrame(fling);
+      // The editor starts at the touch, not at the first move: a drag scrolls from its start.
+      ready(() => undefined);
       x = startX = t.clientX;
       y = startY = t.clientY;
       axis = "none";
+      dragging = true;
       rows = 0;
       cols = 0;
       speed = 0;
@@ -455,7 +460,7 @@ function touchScroll() {
     "touchmove",
     (event) => {
       const t = event.touches[0];
-      if (t === undefined || axis === "browser") return;
+      if (t === undefined || !dragging || axis === "browser") return;
       if (axis === "none") {
         const dx = t.clientX - startX;
         const dy = t.clientY - startY;
@@ -476,6 +481,7 @@ function touchScroll() {
         scrollRows(total - rows);
         rows = total;
       } else if (axis === "x") {
+        speed = (x - t.clientX) / dt;
         const total = Math.trunc((startX - t.clientX) / cw);
         scrollCols(total - cols);
         cols = total;
@@ -487,6 +493,8 @@ function touchScroll() {
     { passive: false },
   );
   term.addEventListener("touchend", (event) => {
+    if (!dragging) return;
+    dragging = false;
     if (axis === "none") {
       event.preventDefault();
       const row = Math.max(0, Math.floor((y - pad) / lh));
@@ -494,17 +502,19 @@ function touchScroll() {
       ready(() => tap(row, col));
       return;
     }
-    if (axis !== "y" || Math.abs(speed) < 0.3) return;
-    // A flick: the text keeps going, slowing down by 5% a frame.
+    if (Math.abs(speed) < 0.3) return;
+    // A flick: the text keeps going along the drag's axis, slowing down by 5% a frame.
+    const cell = axis === "y" ? lh : cw;
+    const move = axis === "y" ? scrollRows : scrollCols;
     let carry = 0;
     let then = performance.now();
     const frame = (now: number) => {
-      carry += (speed * (now - then)) / lh;
+      carry += (speed * (now - then)) / cell;
       then = now;
       speed *= 0.95;
       const whole = Math.trunc(carry);
       carry -= whole;
-      scrollRows(whole);
+      move(whole);
       if (Math.abs(speed) > 0.02) fling = requestAnimationFrame(frame);
     };
     fling = requestAnimationFrame(frame);
