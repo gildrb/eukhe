@@ -298,11 +298,6 @@ fn acp_overflow_recovery_compacts_and_retries_the_turn() {
     assert!(metas[0]["tokensBefore"].as_u64().unwrap() > 0);
 }
 
-/// The namespaced eukhe payload of one session/update frame.
-fn update_meta(frame: &Value) -> &Value {
-    &frame["params"]["update"]["_meta"]["com.eukhe"]
-}
-
 /// The kernel cell of the spawn turn (the worker's
 /// `rlm_quiescence_barrier_e2e` lane): spawn one RLM child through the
 /// product `rlm.spawn` surface and record its child id.

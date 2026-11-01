@@ -13,7 +13,7 @@ Each session builds a tree of agents, starting at depth 0. An agent below the de
   - `name`: short, descriptive, unique among the child's siblings.
   - `model`, `thinking`: inherited from the parent when not given.
   - `workspace`: `"shared"` (default) works in the parent's directory; `"isolated"` gives the child a copy-on-write copy of the parent's workspace whose changes come back when it ends (conflicts are reported).
-  - The result never arrives as a return value; it arrives as an agent message.
+  - The result never arrives as a return value; it arrives as an agent message. To block until it does, pass the handle to `await jobs.wait(handle)` (or call `await jobs.wait()` for the first of all running work); never poll.
   - Refused when the caller is at the depth limit or the family's running-subagent cap (`subagentMaxConcurrency`) is full.
 - `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`.
 - `rlm.create_session(prompt: str, name: str | None = None, model: str | None = None, thinking: str | None = None, cwd: str | None = None) -> RLMCreateSessionHandle`: creates another depth-0 session (a sibling root, not a child). Only at depth 0 with a daemon; returns after the session exists and its first prompt is sent.
@@ -50,7 +50,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Track and collect
 
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct children; rows carry live activity (current activity, tool use count, duration, answer preview, latest progress note). Use after a kernel restart or compaction to get handles back.
-- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error) without steering them. `timeout_ms=0`: non-blocking snapshot; a positive timeout, clamped to the blocking budget, blocks this call until the children settle or the deadline passes.
+- `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error) without steering them. `timeout_ms=0`: non-blocking snapshot; a positive timeout (at most 30 minutes) blocks this call until the children settle or the deadline passes.
 - `rlm.progress_note(message: str) -> dict`: a child reports brief in-flight progress to its parent (at most 512 characters, about one note per 10 seconds); the parent sees it without a reply.
 - `rlm.rename(new_name: str, *, session_id=None) -> str`: renames this session (omit `session_id`) or a direct child (spawn handle, `list_subagents()` row, or session id; never the child's name). Names stay unique among siblings.
 - `rlm.delete_subagent(target: str | RLMSubagent | RLMSpawnHandle) -> RLMSubagent`: deletes one direct child. Only when it is idle and its context is no longer needed.

@@ -588,6 +588,15 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         ],
     },
     OptionGroup {
+        heading: "Print options",
+        options: &[
+            (
+                "--wait-limit-ms <n>",
+                "Wait at most this long in ms for background jobs and subagents after a turn (default: 3600000)",
+            ),
+        ],
+    },
+    OptionGroup {
         heading: "Autonomous options",
         options: &[
             (

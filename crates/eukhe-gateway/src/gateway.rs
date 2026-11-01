@@ -11,6 +11,7 @@ use eukhe_tui::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
+    WaitingOn,
 };
 use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
@@ -436,7 +437,8 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The `/status` reply: the bound session's name, folder, and run
-    /// state, and the routing mode.
+    /// state (what it waits on when its turn ended while work runs), and
+    /// the routing mode.
     ///
     /// # Errors
     ///
@@ -481,7 +483,11 @@ impl<L: DaemonLauncher> Gateway<L> {
             .get("isStreaming")
             .and_then(Value::as_bool)
             .context("the session state has no isStreaming")?;
-        let busy = if busy { "yes" } else { "no" };
+        let busy = match (busy, waiting_on(&state)?) {
+            (true, _) => "yes".to_string(),
+            (false, Some(waiting)) => waiting.to_string(),
+            (false, None) => "no".to_string(),
+        };
         let thinking = state
             .get("thinkingLevel")
             .and_then(Value::as_str)
@@ -1073,6 +1079,23 @@ impl<L: DaemonLauncher> Gateway<L> {
         if let Some(answer) = answer(event) {
             self.relay_answer(answer).await;
         }
+        // A turn that ended while work it started still runs is waiting,
+        // not done: the peer holding the floor hears what it waits on.
+        if let (SessionEvent::AgentEnd { .. }, Some(peer), Some(binding)) =
+            (event, self.floor.clone(), self.binding.as_ref())
+        {
+            let waiting = self
+                .connection_state(&binding.active_session_id)
+                .await
+                .and_then(|state| waiting_on(&state));
+            match waiting {
+                Ok(Some(waiting)) => self.reply(&peer, waiting.to_string()).await,
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "the turn end's state read failed");
+                }
+            }
+        }
     }
 
     /// Relay one answer to the peer holding the floor.
@@ -1168,5 +1191,48 @@ fn user_text(content: &UserContent) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n\n"),
+    }
+}
+
+/// What the session state (`get_state`) says the session waits on: its
+/// `waitingOn`, absent when nothing runs.
+///
+/// # Errors
+///
+/// The state carries a malformed `waitingOn`.
+fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
+    state
+        .get("waitingOn")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .context("the session state has a malformed waitingOn")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A turn end and `/status` name what the session waits on, in the
+    /// agreed wording; a session with nothing running waits on nothing.
+    #[test]
+    fn the_session_state_names_what_the_session_waits_on() {
+        let state = json!({
+            "isStreaming": false,
+            "waitingOn": {
+                "jobs": [{ "id": "j1", "label": "sleep 45" }],
+                "kernelJobs": 0,
+                "subagents": 2,
+                "workflowRuns": 0,
+            },
+        });
+        let shown = waiting_on(&state)
+            .expect("a well-formed state")
+            .map(|waiting| waiting.to_string());
+        assert_eq!(shown.as_deref(), Some("waiting on job j1 · 2 subagents"));
+        assert_eq!(
+            waiting_on(&json!({ "isStreaming": false })).expect("a well-formed state"),
+            None
+        );
     }
 }

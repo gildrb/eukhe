@@ -11,6 +11,10 @@
 //! Per-model additions follow them as one more cached segment, resolved from
 //! the TOML rule map in [`super::model_prompts`].
 //!
+//! `critical.md` is no prefix layer: its `<critical>` block closes the
+//! prompt (recency), after the dynamic tail and every extension's section
+//! (`durable::prompt::closing_extension`).
+//!
 //! Layer files must never contain session-specific values: the cached
 //! prefix ends where the dynamic tail (`system_prompt.rs`) begins, and the
 //! cache-safety guard test pins that boundary.
@@ -32,6 +36,8 @@ pub const CORE_LAYER: &str = include_str!("layers/core.md");
 pub const USAGE_LAYER: &str = include_str!("layers/usage.md");
 /// The opinionated guidelines layer (file `layers/opinionated.md`).
 pub const OPINIONATED_LAYER: &str = include_str!("layers/opinionated.md");
+/// The closing `<critical>` block (file `layers/critical.md`).
+pub const CRITICAL_LAYER: &str = include_str!("layers/critical.md");
 
 const HARNESS_MEMORY_OPEN: &str = "<!-- eukhe:harness-memory -->";
 const HARNESS_MEMORY_CLOSE: &str = "<!-- /eukhe:harness-memory -->";
@@ -79,6 +85,7 @@ pub fn layer_source(name: &str) -> Option<&'static str> {
         "core" => Some("prompts/layers/core.md"),
         "usage" => Some("prompts/layers/usage.md"),
         "opinionated" => Some("prompts/layers/opinionated.md"),
+        "critical" => Some("prompts/layers/critical.md"),
         "model-prompts" => Some("prompts/layers/model_prompts.toml"),
         _ => None,
     }

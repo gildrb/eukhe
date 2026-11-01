@@ -148,7 +148,10 @@ fn cached_prefix_is_stable_across_sessions() {
     assert!(second_tail.contains("You are a child agent spawned by orchestrator."));
     assert!(second_tail.contains("# Project Context"));
     assert!(second_tail.contains("# Additional Guidance"));
-    assert!(second_tail.ends_with("And one more thing."));
+    // The appended prompt is the last session value; the constant closing
+    // `<critical>` block follows it.
+    let closing = eukhe_core::prompts::closing_block(None).expect("the layered prompt closes");
+    assert!(second_tail.ends_with(&format!("And one more thing.\n\n{closing}")));
 
     // Static segments all sit inside the cached prefix, dynamic ones after.
     for segment in &first.segments {
@@ -172,13 +175,15 @@ fn cached_prefix_is_stable_across_sessions() {
 /// Host-request types that are host-internal plumbing, not model-facing
 /// programmatic tools (the prompt must not document them). The `@remote`
 /// decorator sends `remote.register`; the model reaches the functions it
-/// announces through `dyn`.
+/// announces through `dyn`. `jobs.wait_event` is the kernel telling a
+/// `jobs.wait` in flight that one of its `bash()` handles settled.
 const INTERNAL_HOST_REQUESTS: &[&str] = &[
     "model.info",
     "mcp.config",
     "mcp.refresh",
     "mcp.begin_login",
     "remote.register",
+    "jobs.wait_event",
 ];
 
 /// Map one registered host-request type to the prompt token that documents

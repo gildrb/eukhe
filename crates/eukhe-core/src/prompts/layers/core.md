@@ -20,10 +20,10 @@ The harness often sends messages to the agent. These are user messages starting 
     - `.exit_code: int`
     - `.output: str`
     - `.duration: float`
-- `jobs`: an `ipython` cell that outlives the runtime's blocking budget keeps running as a job; its call returns the output so far, and the job's end arrives as a `[job-settled job:ID status:S]` message carrying its output; every wait below is clamped to the budget
-  - `jobs.list() -> list[Job]`: async, this session's running and recently settled jobs
-  - `jobs.wait(job, *, timeout_ms: int | None = None) -> Job`: async, waits for the job to settle; returns it still `running` when it did not
-  - `jobs.cancel(job) -> Job`: async, interrupts the job's cell, killing its kernel when the interrupt is ignored (effects then unknown)
+- `jobs`: background work: `ipython` cells and `bash` tool scripts past the runtime's blocking budget (they run on as jobs; the call returns the output so far), `bash()` handles, and children. A job `jobs.wait` did not return arrives as a `[job-settled job:ID status:S]` (or `[bash-done ...]`) message with its output; a child always reports
+  - `jobs.list() -> list[Job]`: async, running and recently settled jobs
+  - `jobs.wait(targets=None, *, timeout_s=None) -> Job | None`: async, blocks until the first target settles and returns it (`.id`, `.kind`, `.state`, `.output`). Targets: job ids, `Job`s, `BashHandle`s, or spawn handles alone; default all running work. A message for this session ends it early (a `message` job; the message follows). `None` after `timeout_s` (default and max 1800); `RuntimeError` when nothing runs. A cell that is only `await jobs.wait(...)` with literal ids runs even while a detached cell holds the kernel
+  - `jobs.cancel(target) -> Job`: async, stops the job; a cell is interrupted, its kernel killed if the interrupt is ignored (effects then unknown)
 - The file tools are also synchronous Python functions on the same engine and edit store, so lines either prints are anchors for both; they take the tool's arguments (positionally in the order shown), report argument repairs in `.warnings`, and raise `FsError` on a rejection:
 - `read(path) -> Doc`: `.text`, `.lines`, `.tag`, `.header`
 - `grep(pattern, path=".", *, case=True, gitignore=True, skip=0) -> Hits`: a list of `Hit(path, tag, line, text)`

@@ -478,8 +478,8 @@ pub struct Settings {
     /// The longest a tool call may block its turn, in ms (default
     /// 30 000). A call that runs longer settles `detached` with a job
     /// reference and keeps running; its completion wakes the session
-    /// (ADR 0010). Waits a cell makes on the host (`rlm.collect`,
-    /// `jobs.wait`) are clamped to it.
+    /// (ADR 0010). A cell inside a blocking wait on the agent's work
+    /// (`jobs.wait`, `rlm.collect`, capped at 30 minutes) does not detach.
     pub tool_blocking_budget_ms: Option<u64>,
     /// Tool rounds one turn may make before it ends as failed (default
     /// 250; `0` or unset takes the default).

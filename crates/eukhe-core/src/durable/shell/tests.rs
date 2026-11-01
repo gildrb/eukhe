@@ -17,6 +17,7 @@ use eukhe_bend::rules::approvals;
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::types::SubmissionStatus;
+use eukhe_types::job::JobSettled;
 use eukhe_types::pi_ai::{JsonObject, StopReason};
 use serde_json::{json, Value};
 

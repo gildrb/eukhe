@@ -53,12 +53,14 @@ pub(super) fn arm_cancel_locked(session_id: &str, guard: &mut DaemonAcpState) ->
     let (done_tx, done_rx) = tokio::sync::watch::channel(false);
     hosted.cancel_task = Some(done_rx);
     hosted.cancelling = true;
-    CancelOrder::Armed(CancelStop {
+    let stop = CancelStop {
         acp_session_id: hosted.acp_session_id.clone(),
         daemon_session_id: hosted.daemon_active_session_id.clone(),
         admission_id,
         done: done_tx,
-    })
+    };
+    guard.turn_lost.notify_waiters();
+    CancelOrder::Armed(stop)
 }
 
 pub(super) async fn wait_for_session_close(state: &Arc<Mutex<DaemonAcpState>>) {
@@ -317,13 +319,15 @@ pub(super) async fn handle_session_close(
             turn.cancelled = true;
         }
         let admission_id = hosted.turn.as_ref().map(|turn| turn.admission_id.clone());
-        (
+        let closing = (
             hosted.acp_session_id.clone(),
             hosted.daemon_active_session_id.clone(),
             Arc::clone(&hosted.config),
             Arc::clone(&hosted.producer),
             admission_id,
-        )
+        );
+        guard.turn_lost.notify_waiters();
+        closing
     };
     let close_result = match acquire_stop_input_pause(link, state, &acp_session_id).await {
         Ok(lease) => {
@@ -396,7 +400,11 @@ pub(super) async fn teardown(
     state: &Arc<Mutex<DaemonAcpState>>,
     binding: &DaemonBinding,
 ) {
-    let hosted = state.lock().await.session.take();
+    let hosted = {
+        let mut guard = state.lock().await;
+        guard.turn_lost.notify_waiters();
+        guard.session.take()
+    };
     if let Some(hosted) = hosted.as_ref() {
         if let Some(turn) = hosted.turn.as_ref() {
             cancel_owned_admission(link, &binding.active_session_id, &turn.admission_id).await;

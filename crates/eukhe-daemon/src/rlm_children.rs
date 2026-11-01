@@ -185,6 +185,38 @@ pub type DurableChildrenSource = std::sync::Arc<
     dyn Fn() -> futures::future::BoxFuture<'static, Result<Vec<RlmChildIdentity>>> + Send + Sync,
 >;
 
+/// The durable children of `conversation` (its `eukhe.rlm.children`
+/// document, the one `rlm.list_subagents` reads) as family identities: a
+/// child is addressable once it has a session (its live id, else its
+/// durable session id); a queued child without one is not. A worker and a
+/// headless parent both answer their [`DurableChildrenSource`] with it.
+///
+/// # Errors
+///
+/// The children document cannot be read.
+pub async fn durable_child_identities(
+    harness: &eukhe_durable::harness::Harness,
+    conversation: eukhe_durable::types::ConversationId,
+    cx: &eukhe_chord::context::Context,
+) -> Result<Vec<RlmChildIdentity>> {
+    let records = eukhe_core::durable::children::list_children(harness, conversation, cx).await?;
+    Ok(records
+        .into_iter()
+        .filter_map(|record| {
+            let entry = record.entry;
+            let active_session_id = entry
+                .active_session_id
+                .or_else(|| entry.session_id.clone())?;
+            Some(RlmChildIdentity {
+                rlm_child_id: entry.rlm_child_id,
+                active_session_id,
+                session_id: entry.session_id,
+                session_name: entry.session_name,
+            })
+        })
+        .collect())
+}
+
 struct SupervisorChildSessionsInner {
     link: Arc<SupervisorLink>,
     agent_dir: PathBuf,

@@ -65,19 +65,25 @@ pub(crate) const CAPS: Caps = Caps {
     repeat: REPEAT_CALLS,
 };
 
-/// What a stuck reply holds, as a recovery reads it (H4.8).
+/// What a stuck reply holds, as a recovery reads it (H4.8; the stop
+/// Directors of [`super::stop`] pick the ones with no tool call).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stuck {
-    /// A length stop with no text and no tool call: the model still
-    /// reasoned when it hit the output limit.
+    /// A length stop with no tool call (`LengthStop`): the model hit the
+    /// output limit, while it still reasoned or in the middle of its text.
     Length,
     /// Tool-call markup in the text and no tool call, and the harness
-    /// could not rebuild every leaked call.
+    /// could not rebuild every leaked call (`MarkupStop`).
     Leak,
     /// Tool calls (made as tool calls, or rebuilt from leaked markup) that
     /// would make `rounds` rounds in a row with the same calls (they count
     /// themselves, so at least 1).
     Calls { rounds: NonZeroU32 },
+    /// No text and no tool call (`EmptyStop`): a thinking-only reply.
+    Empty,
+    /// An answer that announces a next step it did not take, asking the
+    /// user nothing, with no work running (`UnexpectedStop`).
+    Promise,
 }
 
 /// What a recovery does with a stuck reply.
@@ -92,16 +98,21 @@ pub(crate) enum Act {
     Stand,
     /// The recovery reached its cap: the run fails on the model.
     Quit,
+    /// The reply stays in the transcript and the run asks again with the
+    /// `row`th note of the recovery in a row (a noted retry).
+    Remind { row: u32 },
 }
 
 /// What a recovery does with a stuck reply (H4.8), given the recovery and
 /// the row of notes in a row that the request's note counts (`note`,
 /// [`NoteCause::recovery`]): a length stop is redone under its cap, then
-/// quits; leaked calls are redone under their cap, then stand as text;
-/// calls run below the repeat cap, else are redone under the redirect
-/// cap, then quit. A recovery does not read the retry policy: its note is
-/// a new request, not a transient error. The decision is `decide.recover`
-/// of `bend/run/decision.bend` (law `rec_recover_is_the_rust_rule`).
+/// quits; leaked calls are redone under their cap, then quit; calls run
+/// below the repeat cap, else are redone under the redirect cap, then quit;
+/// an empty reply is redone under its cap, then quits; an announced step
+/// is reminded under its cap, then stands. A recovery does not read the
+/// retry policy: its note is a new request, not a transient error. The
+/// decision is `decide.recover` of `bend/run/decision.bend` (laws
+/// `rec_recover_is_the_rust_rule`, `stop_*` of `laws/stop.bend`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
     entry::ask(
         Ask::Recover,
@@ -114,24 +125,30 @@ pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) 
                 Stuck::Length => w.tag(0),
                 Stuck::Leak => w.tag(1),
                 Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
+                Stuck::Empty => w.tag(3),
+                Stuck::Promise => w.tag(4),
             };
             match note {
                 None => w.tag(0).nat(0),
                 Some((Recovery::Length, row)) => w.tag(1).nat(u64::from(row)),
                 Some((Recovery::Leak, row)) => w.tag(2).nat(u64::from(row)),
                 Some((Recovery::Redirect, row)) => w.tag(3).nat(u64::from(row)),
+                Some((Recovery::Empty, row)) => w.tag(4).nat(u64::from(row)),
+                Some((Recovery::Promise, row)) => w.tag(5).nat(u64::from(row)),
             };
         },
-        |r| match r.tag_of(4, "a recovery's act")? {
-            0 => Ok(Act::Run),
-            1 => {
-                let row = r.nat()?;
-                let row = u32::try_from(row).map_err(|_| entry::mismatch("a u32 row"))?;
-                Ok(Act::Redo { row })
+        |r| {
+            let row = |r: &mut eukhe_bend::wire::Reader<'_>| {
+                u32::try_from(r.nat()?).map_err(|_| entry::mismatch("a u32 row"))
+            };
+            match r.tag_of(5, "a recovery's act")? {
+                0 => Ok(Act::Run),
+                1 => Ok(Act::Redo { row: row(r)? }),
+                2 => Ok(Act::Stand),
+                3 => Ok(Act::Quit),
+                4 => Ok(Act::Remind { row: row(r)? }),
+                5..=u32::MAX => Err(entry::mismatch("a recovery's act")),
             }
-            2 => Ok(Act::Stand),
-            3 => Ok(Act::Quit),
-            4..=u32::MAX => Err(entry::mismatch("a recovery's act")),
         },
     )
 }

@@ -39,13 +39,13 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_shell::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, Stream};
-use eukhe_types::job::{CellStatus, JobId, JobSettled};
+use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
 
 use super::bounded_output::BoundedOutput;
 use super::deps::ShellApprovalSink;
-use super::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
+use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
 use super::HostDeps;
 use crate::kernel::manager::local_env;
@@ -407,14 +407,10 @@ async fn execute(
                 let (text, bounded) = transcript.projection();
                 let output = with_diagnostics(text, bounded.as_slice());
                 tracing::debug!(job = %settled_id, status = status.label(), "detached script settled");
+                // The result goes to a watching wait or the notice before
+                // the job reads ended.
+                job.settle(JobResult { status, output }, sink.as_ref());
                 job.record(event);
-                if let Some(sink) = sink {
-                    sink(JobSettled::Shell {
-                        job: settled_id,
-                        status,
-                        output,
-                    });
-                }
             });
             return Ok(detached_result(&id, budget, partial, bounded));
         }
@@ -514,9 +510,10 @@ fn detached_result(
         code: Some("detached".to_owned()),
         message: format!(
             "The script outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
-             the script keeps running, and a step that needs approval still asks the user. Its end \
-             reaches this session as a [job-settled job:{job}] message with its output, waking the \
-             session if idle."
+             the script keeps running, and a step that needs approval still asks the user. Keep \
+             working; when the next step needs its result, wait for it in this turn with \
+             `await jobs.wait(\"{job}\")` (up to 30 min) — never sleep-poll and never end the turn on \
+             it. Otherwise its end arrives as a [job-settled job:{job}] message."
         ),
         omitted: None,
         artifact: None,

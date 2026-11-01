@@ -75,7 +75,7 @@ async fn a_hung_child_is_stopped_and_reported_stalled() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         [format!(
-            "[child-failed: stalled child:{}]\n\n{error}",
+            "[child-failed: stalled child:{}]\n\nResume your work using the result below.\n\n{error}",
             row.session_name
         )]
     );
@@ -115,7 +115,7 @@ async fn failing_polls_report_the_child_unreachable() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         [format!(
-            "[child-failed: unreachable child:{}]\n\n{error}",
+            "[child-failed: unreachable child:{}]\n\nResume your work using the result below.\n\n{error}",
             row.session_name
         )]
     );
@@ -171,7 +171,7 @@ async fn a_progressing_child_outlives_the_stall_budget() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: done",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: done",
             row.session_name
         )]
     );
@@ -261,7 +261,7 @@ async fn a_reopened_parent_polls_its_child_at_once() {
     assert_eq!(
         user_texts(&second.root, "[child-").await,
         [format!(
-            "[child-failed: interrupted child:{}]\n\n{error}",
+            "[child-failed: interrupted child:{}]\n\nResume your work using the result below.\n\n{error}",
             row.session_name
         )]
     );

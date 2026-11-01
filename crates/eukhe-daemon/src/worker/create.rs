@@ -576,8 +576,13 @@ impl Worker {
             http: Arc::new(eukhe_core::mcp::ReqwestOAuthHttp::new()),
         });
         // The kernel host seams: scheduled-jobs cron wiring, bash notices,
-        // agent messaging (after `children`: it joins that registry).
-        self.wire_session_host(&mut config);
+        // agent messaging (after `children`: it joins that registry). The
+        // notices' in-flight count is part of the idle barrier.
+        let notices = self.wire_session_host(&mut config);
+        *self
+            .job_notices
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(notices);
         Ok(config)
     }
 

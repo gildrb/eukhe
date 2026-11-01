@@ -10,6 +10,7 @@
 //! from the stack as of its fork entry. The goal extension's `on_yield`
 //! hook runs the steps (`goals/hooks.rs`).
 
+mod pending;
 mod stack;
 
 #[cfg(test)]
@@ -23,6 +24,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader, RewindableFork, SubmissionId};
 use serde::{Deserialize, Serialize};
 
+pub(crate) use pending::pending_work_hook;
 pub use stack::{End, Layer, LayerKind, Loop, Verdict};
 
 use super::goals::{conversation_of, open_doc, read_doc, write_doc};

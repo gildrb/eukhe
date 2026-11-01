@@ -64,20 +64,41 @@ async fn run(
     crate::headless_terminal::HeadlessTerminalResult,
 ) {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let session = faux_session(dir.path(), script).await;
-    let conversation = session.main();
+    let opened = HeadlessSession {
+        session: Arc::new(faux_session(dir.path(), script).await),
+        lease: None,
+        session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
+        cwd: dir.path().to_path_buf(),
+        parent_session: None,
+        wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+    };
+    let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
-    let failure = drive_prompts(
-        &session,
+    let watch = RunWatch::start(&opened, &conversation, cx)
+        .await
+        .expect("the run watch starts");
+    let ended = drive_prompts(
+        &opened,
         &conversation,
+        &watch,
         &run_options(dir.path(), prompts),
         cx,
     )
     .await
     .expect("the prompt loop runs");
+    let failure = match ended {
+        PromptsEnd::Completed => None,
+        PromptsEnd::CommandFailed(error) => Some(error),
+        PromptsEnd::GaveUp(work) => panic!("nothing runs in the background: {work:?}"),
+    };
     let result = select_terminal_result(&conversation, cx)
         .await
         .expect("terminal selection");
+    watch.finish().await;
+    drop(conversation);
+    let Ok(session) = Arc::try_unwrap(opened.session) else {
+        panic!("the test holds the only session handle");
+    };
     session.close(cx).await.expect("close");
     (failure, result)
 }

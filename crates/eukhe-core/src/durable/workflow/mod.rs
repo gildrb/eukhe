@@ -209,7 +209,7 @@ fn source(record: &RunRecord, request: &str, body: &str) -> String {
 /// What the tool answers once the run of `run_id` started.
 fn started(run_id: &str, record: &RunRecord) -> SessionResult<ToolExecutionResult> {
     let text = format!(
-        "workflow run {run_id} ({name}): started in the background. Watch it with /workflows. Its result arrives as a [job-settled job:workflow-{run_id} ...] message that starts a new turn: do not poll and do not wait; continue with other work or end your turn.",
+        "workflow run {run_id} ({name}): started in the background. Watch it with /workflows. Its result arrives as a [job-settled job:workflow-{run_id} ...] message that starts a new turn. Do not poll for it: do the other work first; when only this result remains, tell the user the run started and end your turn, then resume the task when the result arrives.",
         name = record.meta.name
     );
     let details = serde_json::json!({ "status": "detached", "run": run_id });

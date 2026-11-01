@@ -1,6 +1,7 @@
 # eukhe: the proof of LAW rec_notes_capped
 
 import Base
+import ../../bend/stop.bend as Stop
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 
@@ -32,6 +33,20 @@ def cap_ran(+rc: RnRecovery.RCfg, fresh: Bool, u: Bool, kept: Bool, +m: Nat, +h:
     case False{} False{}:
       ok
 
+def cap_empty(+rc: RnRecovery.RCfg, u: Bool, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, e: {RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()) == u : Bool}, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.empty(u, RnRecovery.Rk.empties(k, row), same, last, RnRecovery.Rec{k, row, same, last}))) == True{} : Bool}:
+  match u:
+    case True{}:
+      e
+    case False{}:
+      ok
+
+def cap_promise(+rc: RnRecovery.RCfg, u: Bool, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, e: {RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()) == u : Bool}, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.promise(u, RnRecovery.Rk.promises(k, row), same, last, RnRecovery.Rec{k, row, same, last}))) == True{} : Bool}:
+  match u:
+    case True{}:
+      e
+    case False{}:
+      ok
+
 def cap_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.Rk.capped(rc, k, row) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.rec.go(rc, o, k, row, same, last))) == True{} : Bool}:
   match o:
     case RnRecovery.Long{}:
@@ -52,6 +67,10 @@ def cap_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: Na
       {==}
     case RnRecovery.Other{}:
       ok
+    case RnRecovery.Empty{}:
+      cap_empty(rc, RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), k, row, same, last, {==}, ok)
+    case RnRecovery.Promise{}:
+      cap_promise(rc, RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), k, row, same, last, {==}, ok)
 
 def cap_step(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec, ok: {RnRecovery.Rec.capped(rc, r) == True{} : Bool}) -> {RnRecovery.Rec.capped(rc, RnRecovery.Dec.r(RnRecovery.Rec.step(rc, o, r))) == True{} : Bool}:
   match r:

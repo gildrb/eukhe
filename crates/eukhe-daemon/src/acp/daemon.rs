@@ -310,6 +310,10 @@ pub(crate) struct DaemonAcpState {
     pub(crate) closed_input_pause_id: Option<String>,
     pub(crate) closed_input_pause_key: Option<String>,
     pub(crate) mcp_server_names: Vec<String>,
+    /// Fires when a cancel or a close takes the running prompt's turn: a
+    /// prompt holding for the session's background work answers at once
+    /// instead of after that work ends.
+    pub(crate) turn_lost: Arc<tokio::sync::Notify>,
 }
 
 /// Serve the daemon-attached ACP mode until stdin closes. The caller
@@ -1269,6 +1273,15 @@ async fn prompt_turn(
     }
     // TS settle catch: one error boundary, no terminal-quiescence update.
     if !response.success {
+        // A run that failed at the length cap (its replies kept hitting the
+        // output limit) ended on the output limit: an honest `max_tokens`.
+        let truncated = state
+            .lock()
+            .await
+            .session
+            .as_ref()
+            .and_then(|hosted| hosted.assistant_stop_reason)
+            == Some(eukhe_types::ai::StopReason::Length);
         let failure = response
             .error
             .unwrap_or_else(|| "unknown error".to_string());
@@ -1278,6 +1291,14 @@ async fn prompt_turn(
         eprintln!("eukhe-daemon: acp turn failed: {failure}");
         publish_error_boundary(&producer, turn_id).await;
         producer.finish_prompt(turn_id).await;
+        if truncated {
+            let stop_reason = types::AcpStopReason::MaxTokens;
+            return jsonrpc::response(
+                &id,
+                &serde_json::to_value(types::AcpStopReasonResponse { stop_reason })
+                    .expect("serializes"),
+            );
+        }
         return super::internal_error(&id, &format!("eukhe turn failed: {failure}"));
     }
     // The autonomous accounting for the completion envelope: the daemon's
@@ -1285,9 +1306,10 @@ async fn prompt_turn(
     // after the turn settled (the response is the run's end). A failed
     // fetch degrades to no autonomous meta (the envelope still settles
     // without a run).
-    let autonomous_status = fetch_autonomous_status(link, &hosted_daemon_session_id, false)
-        .await
-        .ok();
+    let autonomous_status =
+        fetch_autonomous_status(link, &hosted_daemon_session_id, CompletionWait::Run)
+            .await
+            .ok();
     // TS `abort.signal.aborted` after `waitForHeadlessCompletion`: queued
     // continuations (goal, post-compaction autonomous) run inside that wait.
     if turn_cancelled(&*state.lock().await, admission_id) {
@@ -1299,6 +1321,42 @@ async fn prompt_turn(
     // publishes a wrong count.
     let children = match fetch_rlm_children(link, &hosted_daemon_session_id).await {
         Ok(children) => children,
+        Err(error) => {
+            publish_error_boundary(&producer, turn_id).await;
+            producer.finish_prompt(turn_id).await;
+            return super::internal_error(&id, &error.to_string());
+        }
+    };
+    // What the turn's end left running (the session summary's
+    // `waitingOn`): the completion names it, and the settle below holds
+    // until it settled. A failed read errors the prompt like the roster
+    // read: the completion never reads quiescent on an unknown.
+    let waiting_on = async {
+        let response = link
+            .request(DaemonCommand::GetState {
+                id: None,
+                active_session_id: hosted_daemon_session_id.clone(),
+                rest: Map::default(),
+            })
+            .await?;
+        if !response.success {
+            anyhow::bail!(response
+                .error
+                .unwrap_or_else(|| "unknown error".to_string()));
+        }
+        let waiting_on = response
+            .data
+            .as_ref()
+            .and_then(|state| state.get("waitingOn"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        anyhow::Ok(serde_json::from_value::<
+            Option<eukhe_types::daemon::WaitingOn>,
+        >(waiting_on)?)
+    }
+    .await;
+    let waiting_on = match waiting_on {
+        Ok(waiting_on) => waiting_on,
         Err(error) => {
             publish_error_boundary(&producer, turn_id).await;
             producer.finish_prompt(turn_id).await;
@@ -1330,12 +1388,16 @@ async fn prompt_turn(
         )
         .await;
     // The completion envelope: the turn's own observation, with the
-    // live outstanding-subagent count the settle loop then waits down to
-    // zero.
+    // live outstanding-subagent count and the work still running, which
+    // the settle loop then waits down to nothing.
     let quiescence = types::AcpSessionUpdate::SessionInfoUpdate {
         meta: meta::eukhe_meta(&EukheSessionMeta {
             autonomous: autonomous_meta,
-            quiescence: Some(quiescence_meta(autonomous_status.as_ref(), &children)),
+            quiescence: Some(quiescence_meta(
+                autonomous_status.as_ref(),
+                &children,
+                waiting_on,
+            )),
             ..Default::default()
         }),
     };
@@ -1345,10 +1407,34 @@ async fn prompt_turn(
     // The settlement loop (TS `finalizePendingTerminal`): the barrier is
     // the event, no timer, and the roster re-read is the response-cut
     // signal (a child can publish a terminal status before its result
-    // reaches the parent). A failed barrier or read errors the prompt; a
-    // degraded status would spin the loop.
+    // reaches the parent). The barrier holds past the parent's idle while
+    // a child, a workflow run or a job runs, and through the turn each
+    // one's end wakes. A cancel or a close ends the hold at once. A failed
+    // barrier or read errors the prompt; a degraded status would spin the
+    // loop.
+    let turn_lost = Arc::clone(&state.lock().await.turn_lost);
     let settled_status = loop {
-        let status = match fetch_autonomous_status(link, &hosted_daemon_session_id, true).await {
+        let barrier =
+            fetch_autonomous_status(link, &hosted_daemon_session_id, CompletionWait::Quiescence);
+        let lost = async {
+            loop {
+                let notified = turn_lost.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if turn_cancelled(&*state.lock().await, admission_id) {
+                    break;
+                }
+                notified.await;
+            }
+        };
+        let status = tokio::select! {
+            status = barrier => status,
+            () = lost => {
+                producer.finish_prompt(turn_id).await;
+                return cancelled_response(&id);
+            }
+        };
+        let status = match status {
             Ok(status) => status,
             Err(error) => {
                 producer.finish_prompt(turn_id).await;
@@ -1376,7 +1462,7 @@ async fn prompt_turn(
             producer.finish_prompt(turn_id).await;
             return cancelled_response(&id);
         }
-        let terminal_quiescence = quiescence_meta(Some(&status), &children);
+        let terminal_quiescence = quiescence_meta(Some(&status), &children, None);
         if terminal_quiescence.outstanding_subagents != 0 {
             continue;
         }
@@ -1448,14 +1534,22 @@ async fn publish_error_boundary(producer: &Arc<UpdateProducer>, turn_id: u64) {
         .await;
 }
 
+/// What the headless-completion wait holds for.
+#[derive(Clone, Copy)]
+enum CompletionWait {
+    /// The run's own settle.
+    Run,
+    /// The quiescence barrier: past the run's idle, every child run,
+    /// workflow run and running job until each settled and the turn its
+    /// end woke settled too (the work that would wake the session again).
+    Quiescence,
+}
+
 /// Fetch the session's autonomous-run status (`wait_for_headless_completion`
-/// on the daemon wire; TS `waitForHeadlessCompletion`), once the daemon's
-/// headless run settled. With `wait_for_rlm_quiescence`, the answer comes
-/// from the quiescence barrier instead: it holds past the parent's idle
-/// until every tracked child run settled, so it is the RLM-quiescence
-/// event the settlement loop waits on. A failure is the caller's policy
-/// (TS throws for both callers): the completion observation degrades, the
-/// settlement loop errors the prompt.
+/// on the daemon wire; TS `waitForHeadlessCompletion`), once `wait` settled.
+/// The quiescence barrier is the event the settlement loop waits on. A
+/// failure is the caller's policy (TS throws for both callers): the
+/// completion observation degrades, the settlement loop errors the prompt.
 ///
 /// # Errors
 ///
@@ -1465,14 +1559,21 @@ async fn publish_error_boundary(producer: &Arc<UpdateProducer>, turn_id: u64) {
 async fn fetch_autonomous_status(
     link: &Arc<DaemonLink>,
     active_session_id: &str,
-    wait_for_rlm_quiescence: bool,
+    wait: CompletionWait,
 ) -> anyhow::Result<eukhe_core::autonomous::AgentAutonomousStatus> {
+    let (wait_for_rlm_quiescence, rest) = match wait {
+        CompletionWait::Run => (None, Map::default()),
+        CompletionWait::Quiescence => (
+            Some(true),
+            Map::from_iter([("waitForBackgroundJobs".to_owned(), json!(true))]),
+        ),
+    };
     let response = link
         .request_until_close(DaemonCommand::WaitForHeadlessCompletion {
             id: None,
             active_session_id: active_session_id.to_string(),
-            wait_for_rlm_quiescence: wait_for_rlm_quiescence.then_some(true),
-            rest: Map::default(),
+            wait_for_rlm_quiescence,
+            rest,
         })
         .await?;
     if !response.success {
@@ -1532,10 +1633,12 @@ fn outstanding_subagents(children: &[Value]) -> u64 {
 }
 
 /// TS `quiescenceMeta`: the outstanding-subagent count plus the run's
-/// remaining continuation slots, observed together at one completion point.
+/// remaining continuation slots, observed together at one completion
+/// point, with the work still running there (`None` when nothing runs).
 fn quiescence_meta(
     status: Option<&eukhe_core::autonomous::AgentAutonomousStatus>,
     children: &[Value],
+    waiting_on: Option<eukhe_types::daemon::WaitingOn>,
 ) -> meta::EukheQuiescenceMeta {
     meta::EukheQuiescenceMeta {
         outstanding_subagents: outstanding_subagents(children),
@@ -1548,6 +1651,7 @@ fn quiescence_meta(
                     .saturating_sub(status.continuations_used)
             },
         ),
+        waiting_on,
     }
 }
 

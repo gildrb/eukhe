@@ -85,10 +85,10 @@ except Exception as _eukhe_rlm_error:
         async def list(self):
             rlm._raise_missing()
 
-        async def wait(self, job, *, timeout_ms=None):
+        async def wait(self, targets=None, *, timeout_s=None):
             rlm._raise_missing()
 
-        async def cancel(self, job):
+        async def cancel(self, target):
             rlm._raise_missing()
 
     jobs = _EukheMissingJobs()

@@ -11,6 +11,7 @@ import ../bend/run/state.bend as RnState
 import ../bend/run/step.bend as RnStep
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
+import ./stop.bend as LawsStop
 
 # (H4) Every run ends
 # -------------------
@@ -601,8 +602,8 @@ law rec_leak_rebuilt_is_calls:
   for r: RnRecovery.Rec
   {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, r) == RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, r) : RnRecovery.Dec}
 
-# LAW rec_leak_stands: after `leak` leak notes in a row, the reply answers as text
-law rec_leak_stands:
+# LAW rec_leak_gives_up: after `leak` leak notes in a row, leaked calls fail the run: markup is never an answer
+law rec_leak_gives_up:
   for +rc: RnRecovery.RCfg
   for +h: Nat
   for kept: Bool
@@ -611,7 +612,7 @@ law rec_leak_stands:
   for +same: Nat
   for +last: Nat
   for over: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == False{} : Bool}
-  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Stand{} : RnRecovery.Act}
+  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
 
 # LAW rec_calls_run: tool calls that make fewer than `repeat` rounds in a row run: the
 # recoveries never stop a call that is not a repeat. The rounds in a row
@@ -741,6 +742,10 @@ def rust.long_row(k: RnRecovery.Rk, row: Nat) -> Nat:
       0n
     case RnRecovery.Loops{}:
       0n
+    case RnRecovery.Empties{}:
+      0n
+    case RnRecovery.Promises{}:
+      0n
 
 def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
   match k:
@@ -751,6 +756,10 @@ def rust.leak_row(k: RnRecovery.Rk, row: Nat) -> Nat:
     case RnRecovery.Leaks{}:
       row
     case RnRecovery.Loops{}:
+      0n
+    case RnRecovery.Empties{}:
+      0n
+    case RnRecovery.Promises{}:
       0n
 
 def rust.loop_row(k: RnRecovery.Rk, row: Nat) -> Nat:
@@ -763,6 +772,10 @@ def rust.loop_row(k: RnRecovery.Rk, row: Nat) -> Nat:
       0n
     case RnRecovery.Loops{}:
       row
+    case RnRecovery.Empties{}:
+      0n
+    case RnRecovery.Promises{}:
+      0n
 
 # under the cap a retry with the next note of the recovery; at it, cap
 def rust.redo(under: Bool, row: Nat, cap: RnDecision.Help) -> RnDecision.Help:
@@ -788,9 +801,13 @@ def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +r
         case RnDecision.Truncated{}:
           rust.redo(Nat.is_lt(rust.long_row(k, row), long), rust.long_row(k, row), RnDecision.Quits{})
         case RnDecision.Leaked{}:
-          rust.redo(Nat.is_lt(rust.leak_row(k, row), leak), rust.leak_row(k, row), RnDecision.Stands{})
+          rust.redo(Nat.is_lt(rust.leak_row(k, row), leak), rust.leak_row(k, row), RnDecision.Quits{})
         case RnDecision.Repeats{before}:
           rust.calls(Nat.is_lt(1n+before, repeat), rust.redo(Nat.is_lt(rust.loop_row(k, row), redirect), rust.loop_row(k, row), RnDecision.Quits{}))
+        case RnDecision.Emptied{}:
+          LawsStop.rust_empty(k, row)
+        case RnDecision.Promised{}:
+          LawsStop.rust_promise(k, row)
 
 # LAW rec_recover_is_the_rust_rule: what a recovery does with any stuck reply, after any note, under
 # any caps, is what `recover` did: the code that runs is the recoveries
@@ -837,6 +854,10 @@ def run.stuck_fits(s: RnDecision.Stuck) -> Bool:
       True{}
     case RnDecision.Repeats{before}:
       LawsBase.wire_fits(before)
+    case RnDecision.Emptied{}:
+      True{}
+    case RnDecision.Promised{}:
+      True{}
 
 def run.ask_fits(a: FRn.Ask) -> Bool:
   match a:
@@ -877,6 +898,8 @@ def run.help_fits(h: RnDecision.Help) -> Bool:
       True{}
     case RnDecision.Quits{}:
       True{}
+    case RnDecision.Reminds{row}:
+      LawsBase.wire_fits(row)
 
 # LAW run_ffi_ask_round_trip: every request whose Nats fit the wire reads back as itself, and its
 # reading consumes exactly its encoding

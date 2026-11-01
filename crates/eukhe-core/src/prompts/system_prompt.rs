@@ -208,10 +208,11 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
 
     // The dynamic tail, in fixed order: packages -> project context ->
     // skills inventory -> MCP servers -> environment -> session role ->
-    // additional guidance -> appended prompt. A chat-memory session moves
-    // the project context (the user's instructions files) to the very end:
-    // its memory layer points the model at "the user's instructions at the
-    // end of this prompt".
+    // additional guidance -> appended prompt -> the closing `<critical>`
+    // block. A chat-memory session moves the project context (the user's
+    // instructions files) to just before that block: its memory layer
+    // points the model at "the user's instructions at the end of this
+    // prompt".
     let tools: Vec<&str> = options
         .selected_tools
         .clone()
@@ -308,6 +309,13 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         ));
     }
     segments.extend(context_last);
+    if let Some(critical) = closing_block(options.custom_prompt.as_ref()) {
+        segments.push(PromptSegment::dynamic_segment(
+            CLOSING_SEGMENT,
+            layers::layer_source(CLOSING_SEGMENT).unwrap_or_default(),
+            critical.to_string(),
+        ));
+    }
 
     let assembled = segments
         .iter()
@@ -319,6 +327,19 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         assembled,
         cached_prefix_len,
     }
+}
+
+/// The name of the segment the closing `<critical>` block forms.
+pub const CLOSING_SEGMENT: &str = "critical";
+
+/// The `<critical>` block that closes the prompt (`layers/critical.md`),
+/// absent when the user's prompt replaces the layered defaults. It is the
+/// last segment here, and the session puts it after every other section.
+#[must_use]
+pub fn closing_block(custom_prompt: Option<&SourcedPrompt>) -> Option<&'static str> {
+    custom_prompt
+        .is_none_or(|custom| custom.text.is_empty())
+        .then(|| layers::CRITICAL_LAYER.trim())
 }
 
 fn packages_section() -> String {
@@ -392,7 +413,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
     )];
     if options.daemonless {
         lines.push(
-            "Subagents and completion notifications are unavailable in this session (no daemon): rlm.spawn will error, and nothing wakes you after your turn ends, so await background commands before ending it. Plan to do all work yourself."
+            "Subagents are unavailable in this session (no child runtime): rlm.spawn will error. Plan to do all work yourself."
                 .to_string(),
         );
     }
@@ -412,7 +433,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_ipython: bool) -
         ));
         if has_ipython {
             lines.push(
-                "When a task calls for an answer, reply explicitly with `await agent_message.send(message, receiver_role=\"parent\")`. Not every message or task needs a reply; continue cleanup after sending and go idle normally.".to_string(),
+                "When a task calls for an answer, send it with `await agent_message.send(message, receiver_role=\"parent\")`: that message is your hand-back; not every message or task needs a reply. Keep going until the task is closed, every acceptance criterion met; if truly blocked, the reply names what you tried and the exact blocker. A plan, a promise of further work, or a question tools can answer never ends your turn.".to_string(),
             );
             lines.push(
                 "For long-running work, report brief progress with `await rlm.progress_note('...')` (at most 512 characters, throttled to about one note per 10 seconds); the parent sees notes without needing a reply.".to_string(),
@@ -560,8 +581,9 @@ mod tests {
 
     /// A chat-memory session's prompt (`OptChat` §3.3, §5): the memory layer
     /// first, then the harness layers rendered for chat memory, then the
-    /// dynamic tail, and the user's instructions files last; no date, so
-    /// every call of the session sends the same bytes.
+    /// dynamic tail, and the user's instructions files last before the
+    /// closing `<critical>` block; no date, so every call of the session
+    /// sends the same bytes.
     #[test]
     fn chat_memory_prompt_leads_with_memory_and_ends_with_the_user_instructions() {
         let mut options = base_options();
@@ -590,11 +612,15 @@ mod tests {
                 "session-role",
                 "appended-prompt",
                 "project-context",
+                "critical",
             ]
         );
         let prompt = &breakdown.assembled;
         assert!(prompt.starts_with(&crate::memory::memory_system_layer()));
-        assert!(prompt.ends_with("## AGENTS.md\n\nRule one."));
+        assert!(prompt.ends_with(&format!(
+            "## AGENTS.md\n\nRule one.\n\n{}",
+            layers::CRITICAL_LAYER.trim()
+        )));
         assert_eq!(
             &prompt[..breakdown.cached_prefix_len],
             format!(
@@ -647,9 +673,10 @@ mod tests {
         assert!(prompt.contains("## AGENTS.md\n\nRule one."));
         assert!(prompt.contains("Working directory: /w"));
         assert!(prompt.contains("Current date: "));
-        // The layered defaults are gone.
+        // The layered defaults are gone, the closing block with them.
         assert!(!prompt.contains("# eukhe harness"));
         assert!(!prompt.contains("Tier-2 guidance."));
+        assert!(!prompt.contains("<critical>"));
     }
 
     /// The user prompt segments name their origin: the file path, or the
@@ -737,8 +764,8 @@ mod tests {
     }
 
     #[test]
-    fn daemonless_sessions_are_told_subagents_and_wake_ups_are_unavailable() {
-        let notice = "Subagents and completion notifications are unavailable in this session";
+    fn daemonless_sessions_are_told_subagents_are_unavailable() {
+        let notice = "Subagents are unavailable in this session";
         let breakdown = system_prompt_breakdown(&base_options());
         assert!(!breakdown.assembled.contains(notice));
         let mut options = base_options();
@@ -746,5 +773,26 @@ mod tests {
         let breakdown = system_prompt_breakdown(&options);
         let tail = &breakdown.assembled[breakdown.cached_prefix_len..];
         assert!(tail.contains(notice));
+    }
+
+    /// The persistence rules close a layered prompt (recency): after the
+    /// user's appended prompt, as the last segment.
+    #[test]
+    fn the_critical_block_closes_the_layered_prompt() {
+        let mut options = base_options();
+        options.append_system_prompt = vec![SourcedPrompt {
+            origin: PromptOrigin::Flag("--append-system-prompt"),
+            text: "Appended.".to_string(),
+        }];
+        let breakdown = system_prompt_breakdown(&options);
+        let critical = layers::CRITICAL_LAYER.trim();
+        assert!(critical.starts_with("<critical>") && critical.ends_with("</critical>"));
+        assert_eq!(
+            breakdown.segments.last().map(|segment| segment.name),
+            Some(CLOSING_SEGMENT)
+        );
+        assert!(breakdown
+            .assembled
+            .ends_with(&format!("Appended.\n\n{critical}")));
     }
 }

@@ -2,7 +2,8 @@
 //! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`, `eukhe.digest`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
-//! `eukhe.dyn`, `codemode`. Every tool
+//! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
+//! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
 //! (`tool_contract::build`), and the roster is fixed once every extension
 //! is installed : a tool that comes later goes behind
@@ -60,6 +61,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(shell::extension(deps))?;
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
+    install(prompt::closing_extension(deps))?;
     registry.fix_roster();
     Ok(registry)
 }

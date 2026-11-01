@@ -60,6 +60,9 @@ pub struct InitialGoal {
     pub token_budget: Option<u32>,
 }
 
+/// The default `--wait-limit-ms`: one hour.
+const DEFAULT_WAIT_LIMIT_MS: u64 = 3_600_000;
+
 /// The typed per-session runtime configuration, mirroring
 /// `AgentSessionRuntimeConfig`. This is the API boundary the eukhe-core/eukhe-ai
 /// crates consume at merge time.
@@ -88,6 +91,9 @@ pub struct RuntimeConfig {
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
+    /// How long print/json mode waits for the session to go quiescent
+    /// (background jobs and subagents settled) after a turn ends.
+    pub wait_limit: std::time::Duration,
 }
 
 /// Session selection options that stay client-side.
@@ -291,6 +297,9 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
+        wait_limit: std::time::Duration::from_millis(
+            parsed.wait_limit_ms.unwrap_or(DEFAULT_WAIT_LIMIT_MS),
+        ),
     })
 }
 

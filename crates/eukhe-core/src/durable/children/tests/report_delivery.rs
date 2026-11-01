@@ -149,7 +149,7 @@ async fn a_call_that_spawns_then_waits_sees_the_child_settle() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
@@ -213,7 +213,7 @@ async fn a_withdrawn_report_is_delivered_again_once() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
@@ -295,7 +295,7 @@ async fn a_report_withdrawn_as_its_task_aborts_is_delivered_once() {
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );
@@ -388,7 +388,7 @@ async fn a_report_the_close_withdraws_is_delivered_by_the_reopened_session() {
     assert_eq!(
         user_texts(&reopened.root, "[child-exited").await,
         [format!(
-            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
     );

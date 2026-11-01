@@ -845,7 +845,14 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
     /// The spawn cap's inputs: `subagentMaxConcurrency` from the parent's
     /// settings scope (read on the blocking pool like the child model), and
     /// — unless the cap is unlimited — the durable session ids of the
-    /// family's running subagents from the supervisor roster.
+    /// family's running subagents from the supervisor roster. A worker
+    /// parent reads the roster with its worker token (`list_agent_peers`);
+    /// a parent without one (a headless `-p`/`json`/`rpc` session, which
+    /// no supervisor hosts) reads the same roster entries through
+    /// `roster_subscribe`, the plain-client snapshot (the subscription
+    /// ends with this request's connection). Its own row is absent there,
+    /// so its family is every row whose parent chain reaches its active
+    /// session id.
     fn spawn_capacity(&self) -> durable::RlmHostFuture<'_, durable::RlmSpawnCapacity> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
@@ -872,29 +879,54 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 .worker_token
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-                .context("the subagent concurrency cap needs the worker's supervisor token")?;
-            let roster = this
-                .command(
-                    &DaemonCommand::ListAgentPeers {
-                        id: None,
-                        worker_token,
-                        scope: Some(eukhe_types::daemon::AgentPeerScope::Roster),
-                        rest: Map::default(),
-                    },
-                    STATE_TIMEOUT_MS,
-                )
-                .await
-                .context("read the family roster for the subagent concurrency cap")?;
-            let rows = roster
-                .get("peers")
-                .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or_default();
+                .clone();
+            let rows = if let Some(worker_token) = worker_token {
+                let mut roster = this
+                    .command(
+                        &DaemonCommand::ListAgentPeers {
+                            id: None,
+                            worker_token,
+                            scope: Some(eukhe_types::daemon::AgentPeerScope::Roster),
+                            rest: Map::default(),
+                        },
+                        STATE_TIMEOUT_MS,
+                    )
+                    .await
+                    .context("read the family roster for the subagent concurrency cap")?;
+                match roster.get_mut("peers").map(Value::take) {
+                    Some(Value::Array(rows)) => rows,
+                    Some(_) | None => Vec::new(),
+                }
+            } else {
+                let snapshot = this
+                    .command(
+                        &DaemonCommand::RosterSubscribe {
+                            id: None,
+                            rest: Map::default(),
+                        },
+                        STATE_TIMEOUT_MS,
+                    )
+                    .await
+                    .context("read the supervisor roster for the subagent concurrency cap")?;
+                let entries: Vec<eukhe_types::daemon::agent_roster::AgentRosterEntry> =
+                    serde_json::from_value(snapshot.get("roster").cloned().unwrap_or_default())
+                        .context("decode the supervisor roster snapshot")?;
+                // A roster entry's summary carries the family edges;
+                // its classification (a queued child counts as
+                // running) is the entry's own `status`.
+                entries
+                    .into_iter()
+                    .map(|entry| {
+                        let mut row = entry.summary;
+                        row["status"] = json!(entry.status);
+                        row
+                    })
+                    .collect()
+            };
             Ok(durable::RlmSpawnCapacity {
                 max_concurrency,
                 active_session_ids: crate::agent_messaging::running_family_subagents(
-                    rows,
+                    &rows,
                     &this.parent_active_session_id,
                 ),
             })

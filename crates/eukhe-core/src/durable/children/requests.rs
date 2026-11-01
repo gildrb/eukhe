@@ -878,9 +878,10 @@ fn collect_targets(data: &Value) -> anyhow::Result<Vec<String>> {
 }
 
 /// `rlm.collect`: typed fan-in. Running children are awaited inside one
-/// shared wait, `timeout_ms` clamped to the runtime's blocking budget (a
-/// longer wait would hold the cell past it); a timeout returns current
-/// snapshots, never an error.
+/// shared wait, `timeout_ms` clamped to the cap of every wait on the
+/// agent's work (30 minutes, the compiled core's `wait_any` timeout; the
+/// kernel keeps a cell inside it from detaching at its blocking budget);
+/// a timeout returns current snapshots, never an error.
 async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let targets = collect_targets(&call.data)?;
     let requested = match call.data.get("timeout_ms") {
@@ -891,13 +892,9 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
                 .ok_or_else(|| anyhow!("rlm.collect timeout_ms must be a non-negative integer"))?,
         ),
     };
-    let timeout = requested.min(
-        children
-            .services
-            .settings
-            .manager()
-            .get_tool_blocking_budget(),
-    );
+    let timeout = requested.min(Duration::from_secs(
+        eukhe_bend::rules::wait_any::timeout_secs(None),
+    ));
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = conversation_of(&call);
     let state = read_children(&harness, conversation_id, &cx())

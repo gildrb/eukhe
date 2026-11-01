@@ -51,6 +51,8 @@ import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
+import ./ffi_headless_exit.bend as ffi_headless_exit
+import ./ffi_headless_settle.bend as ffi_headless_settle
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
@@ -92,6 +94,7 @@ import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_args.bend as ffi_slash_args
 import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
+import ./ffi_stop.bend as ffi_stop
 import ./ffi_stream_failure.bend as ffi_stream_failure
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
@@ -106,6 +109,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
@@ -313,6 +317,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_call_lift.ffi(input)
     case 436:
       ffi_rebase.ffi(input)
+    case 437:
+      ffi_wait_any.ffi(input)
+    case 438:
+      ffi_headless_settle.ffi(input)
+    case 439:
+      ffi_headless_exit.ffi(input)
+    case 440:
+      ffi_stop.ffi(input)
     case _:
       W.err("unknown entry")
 

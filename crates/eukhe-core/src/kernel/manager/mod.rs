@@ -450,6 +450,9 @@ pub(crate) struct Inner {
     /// Bytes of stdout/stderr the kernel ever sent, any cell's or none's:
     /// the stream part of [`ReplKernelManager::job_output_progress`].
     stream_bytes: AtomicU64,
+    /// How many blocking waits (`jobs.wait`, `rlm.collect`) the executing
+    /// cell has in flight: [`ReplKernelManager::blocking_waits`].
+    blocking_waits: tokio::sync::watch::Sender<usize>,
 }
 
 struct StderrLog {
@@ -590,6 +593,7 @@ impl ReplKernelManager {
             stderr_log: Mutex::new(None),
             cell_jobs: Mutex::new(Vec::new()),
             stream_bytes: AtomicU64::new(0),
+            blocking_waits: tokio::sync::watch::channel(0).0,
         });
         Self { inner }
     }
@@ -622,6 +626,14 @@ impl ReplKernelManager {
     pub fn background_job_count(&self) -> usize {
         lock(&self.inner.guarded).background_bash_handles.len()
             + usize::from(self.detached_job().is_some())
+    }
+
+    /// How many blocking waits (`jobs.wait`, `rlm.collect`) the executing
+    /// cell has in flight: a call whose cell is in one does not detach at
+    /// its blocking budget, the agent is waiting on purpose.
+    #[must_use]
+    pub fn blocking_waits(&self) -> tokio::sync::watch::Receiver<usize> {
+        self.inner.blocking_waits.subscribe()
     }
 
     /// Resolves once no background job runs (at once when none does): the

@@ -319,6 +319,10 @@ fn a_cell_past_the_blocking_budget_ends_the_turn_and_its_end_wakes_the_session()
         "the job-settled report never landed: {woken}"
     );
     assert!(
+        woken.contains("Resume your work using the result below."),
+        "the report does not tell the woken turn to resume the task: {woken}"
+    );
+    assert!(
         woken.contains("CELL_DONE"),
         "the report lacks the cell's output: {woken}"
     );

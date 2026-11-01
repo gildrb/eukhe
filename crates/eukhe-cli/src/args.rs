@@ -178,6 +178,9 @@ pub struct Args {
     pub autonomous_max_turns: Option<u32>,
     pub autonomous_max_tokens: Option<u64>,
     pub autonomous_timeout_ms: Option<u64>,
+    /// `--wait-limit-ms`: how long print/json mode waits on background
+    /// jobs and subagents after a turn ends.
+    pub wait_limit_ms: Option<u64>,
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,
     /// The `--list-models` flag's tri-state (None = absent,
@@ -435,6 +438,10 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.autonomous_timeout_ms =
                     parse_positive_u64(&value, arg, &mut result.diagnostics);
+            }
+            "--wait-limit-ms" => {
+                let value = require_value!(arg);
+                result.wait_limit_ms = parse_positive_u64(&value, arg, &mut result.diagnostics);
             }
             "--goal" => {
                 let value = require_value!(arg);

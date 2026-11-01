@@ -78,6 +78,21 @@ impl InputRequest {
             self.origin.clone(),
         )?))
     }
+
+    /// The input as one submission draft.
+    ///
+    /// # Errors
+    ///
+    /// The row's content or details are malformed.
+    pub(crate) fn draft(&self) -> anyhow::Result<InputSubmissionDraft> {
+        Ok(InputSubmissionDraft {
+            request_id: self.request_id.clone(),
+            content: self.content(),
+            when_busy: Some(self.when_busy),
+            origin: self.origin.clone(),
+            entry: self.entry()?,
+        })
+    }
 }
 
 /// Parse the wire `images` array of a prompt-family command (each entry
@@ -140,19 +155,7 @@ pub(crate) async fn submit_input(
     _admission: &RunAdmission,
     cx: &Context,
 ) -> anyhow::Result<SubmissionHandle> {
-    let handle = conversation
-        .submit(
-            InputSubmissionDraft {
-                request_id: request.request_id.clone(),
-                content: request.content(),
-                when_busy: Some(request.when_busy),
-                origin: request.origin.clone(),
-                entry: request.entry()?,
-            },
-            cx,
-        )
-        .await?;
-    Ok(handle)
+    Ok(conversation.submit(request.draft()?, cx).await?)
 }
 
 /// The failure text of a waited prompt that ended unanswered: the run's

@@ -19,6 +19,7 @@ use eukhe_bend::{expect_core, Entry};
 use serde::{Deserialize, Serialize};
 
 use super::decide::{LEAK_NOTES, LENGTH_NOTES, REDIRECT_NOTES};
+use super::stop::{note_text, Note};
 
 /// What went wrong with a noted reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,12 +28,20 @@ pub enum NoteCause {
     /// The repetition guard cut the stream: it repeated a cycle of
     /// `period` lines (1: one line) that ends with `line`.
     Repeated { period: u32, line: String },
-    /// The reply had no text and no tool call.
-    NoAnswer,
+    /// The reply had no text and no tool call (`EmptyStop`). `row`: the
+    /// empty notes in a row (0 in a record from before the row counted).
+    NoAnswer {
+        #[serde(default)]
+        row: u32,
+    },
     /// The reply hit the output limit (`tokens`, 0 when the provider
     /// reported none) while it still reasoned: no text and no tool call.
     /// `row`: the length notes in a row, this one included.
     Length { tokens: u64, row: u32 },
+    /// The reply hit the output limit (`tokens`, as in `Length`) in the
+    /// middle of its text, with no tool call (`LengthStop`): its cut text is
+    /// not the answer. `row`: the length notes in a row.
+    Cut { tokens: u64, row: u32 },
     /// The reply wrote tool calls as `markup` text that the harness could
     /// not rebuild, for `reason`. `row`: the leak notes in a row.
     Leaked {
@@ -52,6 +61,10 @@ pub enum NoteCause {
     /// harness cut it (M3). The retry has twice that deadline
     /// ([`idle_after_stall`](super::deferred::idle_after_stall)).
     Stalled { idle_ms: u64 },
+    /// The answer announced a next step and called no tool, asking the
+    /// user nothing, with no work running (`UnexpectedStop`): it stays in the
+    /// transcript. `row`: the stop notes in a row.
+    Promised { row: u32 },
 }
 
 /// One call of a repeated round: its tool and its arguments (their
@@ -72,6 +85,8 @@ pub(crate) enum Recovery {
     Length,
     Leak,
     Redirect,
+    Empty,
+    Promise,
 }
 
 impl NoteCause {
@@ -79,10 +94,12 @@ impl NoteCause {
     /// (this note included); None for a note of no recovery.
     pub(crate) fn recovery(&self) -> Option<(Recovery, u32)> {
         match self {
-            Self::Length { row, .. } => Some((Recovery::Length, *row)),
+            Self::Length { row, .. } | Self::Cut { row, .. } => Some((Recovery::Length, *row)),
             Self::Leaked { row, .. } => Some((Recovery::Leak, *row)),
             Self::Redirect { row, .. } => Some((Recovery::Redirect, *row)),
-            Self::Repeated { .. } | Self::NoAnswer | Self::Stalled { .. } => None,
+            Self::NoAnswer { row } => Some((Recovery::Empty, *row)),
+            Self::Promised { row } => Some((Recovery::Promise, *row)),
+            Self::Repeated { .. } | Self::Stalled { .. } => None,
         }
     }
 }
@@ -103,8 +120,9 @@ pub struct RetryNote {
 impl RetryNote {
     /// The text of the note: the last user message of the request, before
     /// the soft prompt of a forced call. The compiled core writes it
-    /// (`eukhe_bend::rules::retry_note`, law `retry_note_exact`); the host
-    /// quotes a repeated line (`{:?}`), gives each recovery's cap, and
+    /// (`eukhe_bend::rules::retry_note`, law `retry_note_exact`; the stop
+    /// Directors' reminders `bend/stop.bend`, law `stop_note_exact`); the
+    /// host quotes a repeated line (`{:?}`), gives each recovery's cap, and
     /// saturates a count past the wire's bound.
     ///
     /// # Panics
@@ -115,6 +133,17 @@ impl RetryNote {
         let quoted;
         let listed;
         let cause = match &self.cause {
+            NoteCause::Cut { tokens, row } => {
+                let note = Note::Cut {
+                    tokens: *tokens,
+                    row: *row,
+                    cap: LENGTH_NOTES,
+                };
+                return note_text(self.attempt, note);
+            }
+            NoteCause::Promised { row } => {
+                return note_text(self.attempt, Note::Promised { row: *row });
+            }
             NoteCause::Repeated { period, line } => {
                 quoted = format!("{line:?}");
                 Cause::Repeated {
@@ -122,7 +151,7 @@ impl RetryNote {
                     line: &quoted,
                 }
             }
-            NoteCause::NoAnswer => Cause::NoAnswer,
+            NoteCause::NoAnswer { .. } => Cause::NoAnswer,
             NoteCause::Length { tokens, row } => Cause::Length {
                 tokens: (*tokens).min(NAT_MAX),
                 row: *row,

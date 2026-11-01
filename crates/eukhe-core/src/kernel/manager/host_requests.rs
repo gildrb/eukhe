@@ -30,6 +30,40 @@ fn cap_cell_source(code: &str) -> String {
     }
 }
 
+/// The host requests that block their cell until the agent's work settles:
+/// a call whose executing cell is in one does not detach at its budget.
+const BLOCKING_WAITS: [&str; 2] = ["jobs.wait", "rlm.collect"];
+
+/// One blocking wait of the executing cell, counted while its handler
+/// runs (also when its task is aborted).
+struct BlockingWait(Arc<Inner>);
+
+impl BlockingWait {
+    fn of(inner: &Arc<Inner>, data: &Value) -> Option<Self> {
+        let blocking = data
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| BLOCKING_WAITS.contains(&kind));
+        // A detached cell's call already settled: nothing holds it.
+        let executing = lock(&inner.guarded)
+            .active_execution
+            .as_ref()
+            .is_some_and(|e| !e.opts.job.as_ref().is_some_and(CellJob::is_detached));
+        (blocking && executing).then(|| {
+            inner.blocking_waits.send_modify(|held| *held += 1);
+            Self(Arc::clone(inner))
+        })
+    }
+}
+
+impl Drop for BlockingWait {
+    fn drop(&mut self) {
+        self.0
+            .blocking_waits
+            .send_modify(|held| *held = held.saturating_sub(1));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Host requests
 // ---------------------------------------------------------------------------
@@ -39,7 +73,9 @@ impl Inner {
     /// and send its one reply over the protocol.
     pub(crate) fn start_host_request(self: &Arc<Self>, request_id: String, data: Value) {
         let inner = Arc::clone(self);
+        let held = BlockingWait::of(self, &data);
         let task = tokio::spawn(async move {
+            let _held = held;
             let result = inner
                 .handle_host_request(&data)
                 .await

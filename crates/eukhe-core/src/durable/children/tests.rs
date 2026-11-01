@@ -812,7 +812,7 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         "{failed}"
     );
     let report = format!(
-        "[child-exited: no-reply child:{}]\n\nLast assistant text: the flake is a race",
+        "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: the flake is a race",
         row.session_name
     );
     first.harness.close(cx()).await.unwrap();
@@ -1286,7 +1286,7 @@ async fn a_child_run_ended_by_a_provider_error_reports_a_typed_failure() {
     assert_eq!(
         user_texts(&opened.root, "[child-").await,
         vec![format!(
-            "[child-failed: provider-rate_limit child:{}]\n\n{error}",
+            "[child-failed: provider-rate_limit child:{}]\n\nResume your work using the result below.\n\n{error}",
             row.session_name
         )]
     );

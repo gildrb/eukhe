@@ -1,10 +1,13 @@
 //! `eukhe.prompt`: eukhe's system prompt as durable sections. Each segment
-//! of [`system_prompt_breakdown`] is one untagged section, in the same
-//! order, so the provider sees exactly eukhe's system prompt: durable
-//! joins section texts with `"\n\n"` and drops empty ones, as the breakdown
-//! joins its (never empty) segments. One more section follows them:
-//! `running-jobs`, the running jobs of the session state tree, present only
-//! while a job runs ([`super::jobs::running_jobs_section`]).
+//! of [`system_prompt_breakdown`] but the closing `<critical>` block is one
+//! untagged section, in the same order, so the provider sees exactly
+//! eukhe's system prompt: durable joins section texts with `"\n\n"` and
+//! drops empty ones, as the breakdown joins its (never empty) segments. One
+//! more section follows them: `running-jobs`, the running jobs of the
+//! session state tree, present only while a job runs
+//! ([`super::jobs::running_jobs_section`]). The closing block is the one
+//! section of [`closing_extension`], installed after every other extension,
+//! so it ends the prompt whatever sections come between (recency).
 //!
 //! Inputs fixed for the session (resources, guidelines, role, memory, log
 //! path, daemon availability) are captured at construction; the model
@@ -32,16 +35,19 @@ use crate::prompts::model_prompts::{
     load_model_prompts, model_prompt_error_text, MODEL_PROMPT_ERROR_CUSTOM_TYPE,
 };
 use crate::prompts::system_prompt::{
-    system_prompt_breakdown, today, BuildSystemPromptOptions, SourcedPrompt, SystemPromptBreakdown,
+    closing_block, system_prompt_breakdown, today, BuildSystemPromptOptions, SourcedPrompt,
+    SystemPromptBreakdown, CLOSING_SEGMENT,
 };
 use crate::skills::Skill;
 
 /// The extension name.
 pub const PROMPT_EXTENSION: &str = "eukhe.prompt";
+/// The closing extension's name.
+pub const CLOSING_EXTENSION: &str = "eukhe.closing";
 
-/// Section keys (the breakdown's segment names) in prompt order. The project
-/// context closes the prompt of a chat-memory session and follows the
-/// packages otherwise.
+/// Section keys (the breakdown's segment names) in prompt order, without
+/// the closing block ([`closing_extension`]). The project context closes
+/// the prompt of a chat-memory session and follows the packages otherwise.
 #[must_use]
 pub fn section_keys(memory: Option<MemoryRole>) -> Vec<&'static str> {
     let mut keys = vec![
@@ -80,8 +86,7 @@ struct SessionPrompt {
     allow_recursion: Option<bool>,
     rlm_depth: u32,
     parent_agent: Option<String>,
-    /// No daemon child host: `rlm.spawn` errors and nothing wakes the
-    /// session after its turn.
+    /// No child host: `rlm.spawn` errors.
     daemonless: bool,
     generic_mcp_servers: Vec<String>,
     memory: Option<MemoryRole>,
@@ -247,6 +252,26 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     define_extension(Extension {
         name: PROMPT_EXTENSION.to_owned(),
         sections,
+        ..Extension::default()
+    })
+}
+
+/// `eukhe.closing`: the closing `<critical>` block ([`closing_block`]) as
+/// the one section of an extension the registry installs last, so it ends
+/// the system prompt the provider receives. A user prompt that replaces the
+/// layered defaults replaces it too: the section is then empty.
+#[must_use]
+pub fn closing_extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let critical = closing_block(deps.resources.system_prompt.as_ref());
+    define_extension(Extension {
+        name: CLOSING_EXTENSION.to_owned(),
+        sections: vec![section(
+            CLOSING_SEGMENT,
+            move |_input: &PromptInput, _cx| {
+                futures::future::ready(Ok(critical.map(str::to_owned))).boxed()
+            },
+            Some(false),
+        )],
         ..Extension::default()
     })
 }

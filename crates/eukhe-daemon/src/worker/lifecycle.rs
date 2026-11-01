@@ -1,10 +1,13 @@
 //! Session lifecycle on the worker: the graceful shutdown, the scheduled
 //! jobs binding, and the wait-for-idle arms.
 
+use eukhe_bend::rules::headless::{settle, Settle, SettleFacts};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
-use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_background_jobs_settled};
+use eukhe_core::durable::pending::pending_work;
+use eukhe_core::durable::rlm::kernel_background_jobs_settled;
 use eukhe_core::durable::workflow::unsettled_run_tasks;
+use futures::FutureExt;
 use serde_json::Value;
 
 use super::{response_failure, response_success, DaemonResponse, Worker};
@@ -82,9 +85,11 @@ impl Worker {
     /// left unsettled. A background workflow run (`eukhe.workflow.run`)
     /// counts the same: the barrier waits for its task and the turn its
     /// report starts. With `waitForBackgroundJobs` too (a parent's child
-    /// settle watch) it also holds while the kernel's background jobs run:
-    /// their settlement wakes the session into another run, so the session
-    /// is not quiescent before they end.
+    /// settle watch, an ACP prompt's settle) it also holds while the work
+    /// a turn's end leaves running runs ([`pending_work`]: the session's
+    /// jobs and the kernel's background jobs) and while a settled job's
+    /// notice is being admitted: each wakes the session into another run,
+    /// so the session is not quiescent before they end.
     async fn wait_until_idle(&self, payload: &Value) -> Result<(), String> {
         let cx = &BACKGROUND_CONTEXT;
         let flag = |name: &str| payload.get(name).and_then(Value::as_bool).unwrap_or(false);
@@ -92,6 +97,14 @@ impl Worker {
         let background_jobs = flag("waitForBackgroundJobs");
         let hosted = self.session.get().ok_or("Session is still initializing")?;
         let main = hosted.main().map_err(|error| error.to_string())?;
+        // The hosted session's notice seam: wired with its config, so a
+        // hosted session always has one.
+        let notices = self
+            .job_notices
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .ok_or("Session is still initializing")?;
         loop {
             main.wait_for_idle(cx)
                 .await
@@ -107,21 +120,71 @@ impl Worker {
                     .await
                     .map_err(|error| error.to_string())?,
             );
-            if unsettled.is_empty() {
-                if !background_jobs || kernel_background_jobs(hosted.deps(), main.id()) == 0 {
-                    break;
+            if !unsettled.is_empty() {
+                for task in unsettled {
+                    hosted
+                        .harness()
+                        .wait_for_task(task, cx)
+                        .await
+                        .map_err(|error| error.to_string())?;
                 }
+                continue;
+            }
+            if !background_jobs {
+                break;
+            }
+            // The read order that never misses a wake: the running work,
+            // then the notices in flight, then the conversation's
+            // idleness. A job reads ended only after its notice entered
+            // the in-flight count, and an admitted notice holds the
+            // conversation busy. The compiled core's quiescence rule (the
+            // one every frontend holds by) decides; this barrier states no
+            // wait limit. A result held for a watching wait needs no hold
+            // of its own: the wait runs inside a turn, and a wait that ends
+            // without taking it hands it to a notice.
+            let pending = pending_work(hosted.deps(), hosted.harness(), main.id(), cx)
+                .await
+                .map_err(|error| error.to_string())?;
+            let changed = notices.changed();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let wakes = notices.in_flight();
+            let busy = main
+                .wait_for_idle(cx)
+                .now_or_never()
+                .transpose()
+                .map_err(|error| error.to_string())?
+                .is_none();
+            let count = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
+            let facts = SettleFacts {
+                busy,
+                jobs: count(pending.jobs.len()),
+                kernel_jobs: count(pending.kernel_jobs),
+                children: count(pending.children),
+                workflow_runs: count(pending.workflow_runs),
+                wakes: count(wakes),
+                unknown: false,
+                limit_hit: false,
+            };
+            match settle(&facts).map_err(|error| error.to_string())? {
+                // With no limit stated the rule never gives up; a give-up
+                // would end the hold like a finish.
+                Settle::Done | Settle::GiveUp => break,
+                Settle::Wait => {}
+            }
+            // Wait for the first pending work to move, then check again;
+            // a busy conversation, a child or a workflow run is waited on
+            // at the loop's top.
+            if let Some(first) = pending.jobs.first() {
+                if let Some(job) = hosted.deps().jobs.get(first.id.as_str()) {
+                    job.ended().await;
+                }
+            } else if pending.kernel_jobs > 0 {
                 // The last job's completion notice is admitted before the
                 // settle fires, so the next idle wait holds for its turn.
                 kernel_background_jobs_settled(hosted.deps(), main.id()).await;
-                continue;
-            }
-            for task in unsettled {
-                hosted
-                    .harness()
-                    .wait_for_task(task, cx)
-                    .await
-                    .map_err(|error| error.to_string())?;
+            } else if wakes > 0 {
+                changed.await;
             }
         }
         hosted.events_delivered().await;

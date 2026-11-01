@@ -222,6 +222,14 @@ pub enum Entry {
     CallLift = 435,
     /// `bend/ffi_rebase.bend`: a call.
     Rebase = 436,
+    /// `bend/ffi_wait_any.bend`: a call.
+    WaitAny = 437,
+    /// `bend/ffi_headless_settle.bend`: a call.
+    HeadlessSettle = 438,
+    /// `bend/ffi_headless_exit.bend`: a call.
+    HeadlessExit = 439,
+    /// `bend/ffi_stop.bend`: a call.
+    Stop = 440,
 }
 
 impl Entry {
@@ -335,6 +343,10 @@ impl Entry {
         Entry::ArgRepair,
         Entry::CallLift,
         Entry::Rebase,
+        Entry::WaitAny,
+        Entry::HeadlessSettle,
+        Entry::HeadlessExit,
+        Entry::Stop,
     ];
 
     /// The id `bend/core.bend` dispatches on.

@@ -2,7 +2,7 @@
 //! model get unstuck. A length stop while the model still reasons is
 //! retried with a length note; the same calls with the same results are
 //! redirected with a note before they run a fifth time; tool calls leaked
-//! as text are rebuilt, or noted and then stand as text. A reply with tool
+//! as text are rebuilt, or noted and then fail the run. A reply with tool
 //! calls runs them whatever its stop reason, but no call of a reply cut at
 //! the output limit runs. A noted retry is a new request: it goes out at
 //! once and does not spend `retry.maxRetries`.
@@ -26,17 +26,21 @@ use crate::harness::types::{InputSubmissionDraft, PartialRetryPolicy};
 use crate::storage::MemoryStorage;
 use crate::types::SubmissionStatus;
 
-const ASK: &str = "go";
+pub(super) const ASK: &str = "go";
 
 /// Thinking of 47 characters: the faux provider counts 12 output tokens.
-const THINKING: &str = "The user wants a plan. First I check the files.";
+pub(super) const THINKING: &str = "The user wants a plan. First I check the files.";
 
 /// The last message of each request the model got.
-type Seen = Arc<Mutex<Vec<String>>>;
+pub(super) type Seen = Arc<Mutex<Vec<String>>>;
 
 /// A step that records the last message of its request, then replies
 /// with `content` and `stop_reason`.
-fn reply(seen: &Seen, content: Vec<FauxContentBlock>, stop_reason: StopReason) -> FauxResponseStep {
+pub(super) fn reply(
+    seen: &Seen,
+    content: Vec<FauxContentBlock>,
+    stop_reason: StopReason,
+) -> FauxResponseStep {
     let seen = Arc::clone(seen);
     FauxResponseStep::factory(move |request, _, _, _| {
         seen.lock().unwrap_or_else(PoisonError::into_inner).push(
@@ -55,16 +59,16 @@ fn reply(seen: &Seen, content: Vec<FauxContentBlock>, stop_reason: StopReason) -
     })
 }
 
-fn tick(id: &str) -> FauxContentBlock {
+pub(super) fn tick(id: &str) -> FauxContentBlock {
     faux_tool_call("tick", serde_json::Map::new(), Some(id.to_owned()))
 }
 
 /// How a run settled: its status, reason and detail.
-type Settled = (SubmissionStatus, Option<String>, Option<JsonValue>);
+pub(super) type Settled = (SubmissionStatus, Option<String>, Option<JsonValue>);
 
 /// Run one input to its end: how it settled, and the messages of the
 /// transcript (its system entries aside), as `describe_message` shows them.
-async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
+pub(super) async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
     let OpenChat { harness, root } = open_chat(Arc::new(MemoryStorage::new()), setup, None)
         .await
         .unwrap();
@@ -111,11 +115,11 @@ async fn settle(setup: &ChatSetup) -> (Settled, Vec<String>) {
     )
 }
 
-fn seen(seen: &Seen) -> Vec<String> {
+pub(super) fn seen(seen: &Seen) -> Vec<String> {
     seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
-fn user(text: &str) -> String {
+pub(super) fn user(text: &str) -> String {
     format!("user:{text}")
 }
 
@@ -300,8 +304,10 @@ fn leak_note(attempt: u64, row: u32) -> String {
     ))
 }
 
+/// Markup is never an answer (law `rec_leak_gives_up`): before, the third
+/// broken leak stood as the run's final answer.
 #[tokio::test]
-async fn a_broken_leaked_tool_call_is_noted_and_then_stands_as_text_after_two_notes() {
+async fn a_broken_leaked_tool_call_is_noted_and_then_fails_the_run_after_two_notes() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_tool(&setup.registry, tool("tick", |n| format!("tick {n}")), None).unwrap();
     let requests = Seen::default();
@@ -311,11 +317,17 @@ async fn a_broken_leaked_tool_call_is_noted_and_then_stands_as_text_after_two_no
             .map(|_| reply(&requests, vec![faux_text(leaked)], StopReason::Stop))
             .collect(),
     );
+    let error = "The model kept writing tool calls as markup in its text after 2 leak notes in \
+                 a row, and the harness could not read them";
     assert_eq!(
         (settle(&setup).await, seen(&requests)),
         (
             (
-                (SubmissionStatus::Done, None, None),
+                (
+                    SubmissionStatus::Unanswered,
+                    Some("model_error".to_owned()),
+                    Some(JsonValue::from(error))
+                ),
                 vec![
                     user(ASK),
                     format!("assistant:{leaked}"),

@@ -467,7 +467,7 @@ fn spawn_message_wait_and_kill_a_subagent() {
     assert_eq!(
         reports,
         vec![
-            "[child-exited: no-reply child:kid]\n\nLast assistant text: kid report one".to_owned()
+            "[child-exited: no-reply child:kid]\n\nResume your work using the result below.\n\nLast assistant text: kid report one".to_owned()
         ],
     );
     let kid = wait_until(Duration::from_secs(30), "the kid worker", || {
@@ -694,10 +694,10 @@ fn restart_lane(restart: Restart, state: ChildAtRestart) {
     let reports = await_report(&mut client, &parent_active);
     let expected = match (restart, state) {
         (Restart::Graceful, ChildAtRestart::Running) => {
-            "[child-failed: interrupted child:kid]\n\nRLM child run was interrupted: the child stopped mid-run while its parent session was down"
+            "[child-failed: interrupted child:kid]\n\nResume your work using the result below.\n\nRLM child run was interrupted: the child stopped mid-run while its parent session was down"
         }
         (Restart::Kill9, ChildAtRestart::Running) | (_, ChildAtRestart::ReportQueued) => {
-            "[child-exited: no-reply child:kid]\n\nLast assistant text: kid done"
+            "[child-exited: no-reply child:kid]\n\nResume your work using the result below.\n\nLast assistant text: kid done"
         }
     };
     assert_eq!(reports, vec![expected.to_owned()], "{}", lane.daemon_log());

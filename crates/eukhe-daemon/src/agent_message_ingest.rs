@@ -24,7 +24,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_durable::harness::{AbortSubmissionResult, InboxItem, InboxState, INBOX_DOC};
+use eukhe_durable::harness::{
+    AbortSubmissionResult, Conversation, Harness, InboxItem, InboxState, INBOX_DOC,
+};
 use eukhe_durable::types::SubmissionId;
 use eukhe_types::pi_ai::UserContent;
 use serde_json::{json, Value};
@@ -87,21 +89,20 @@ pub(crate) struct Withdrawn {
     pub(crate) text: String,
 }
 
-/// Withdraw the main conversation's queued submissions whose request id
-/// `select` accepts, in inbox order. A submission a boundary placed in the
+/// Withdraw `main`'s queued submissions whose request id `select`
+/// accepts, in inbox order. A submission a boundary placed in the
 /// meantime stays (it is no longer queued).
 ///
 /// # Errors
 ///
-/// The main conversation, the `pi.inbox` document, or a submission record
-/// cannot be read, or an abort fails.
+/// The `pi.inbox` document or a submission record cannot be read, or an
+/// abort fails.
 pub(crate) async fn withdraw_queued(
-    hosted: &HostedSession,
+    harness: &Harness,
+    main: &Conversation,
     mut select: impl FnMut(&str) -> bool,
 ) -> anyhow::Result<Vec<Withdrawn>> {
     let cx = &BACKGROUND_CONTEXT;
-    let main = hosted.main()?;
-    let harness = hosted.harness();
     let Some(value) = harness.snapshot(&INBOX_DOC, main.id(), cx).await? else {
         return Ok(Vec::new());
     };
@@ -235,7 +236,7 @@ impl Worker {
 /// never client-queued prompts) and answer the removed prompts per lane,
 /// exactly the TS `{ steering, followUp }` shape.
 async fn clear_queued_agent_messages(hosted: &HostedSession) -> anyhow::Result<Value> {
-    let withdrawn = withdraw_queued(hosted, |request_id| {
+    let withdrawn = withdraw_queued(hosted.harness(), &hosted.main()?, |request_id| {
         request_id.starts_with(AGENT_MESSAGE_REQUEST_PREFIX)
     })
     .await?;

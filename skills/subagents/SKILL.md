@@ -32,7 +32,7 @@ A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.q
 
 ## Collect
 
-- Results arrive as agent messages, never as return values. Do other work or end the turn; do not poll.
+- Results arrive as agent messages, never as return values. Do other work meanwhile; when only their results remain, `await jobs.wait()` in this turn. Never poll; never end the turn while children run.
 - `rlm.collect()` snapshots children without steering them. Read the files they wrote.
 - After a kernel restart or compaction, `rlm.list_subagents()` returns the handles.
 - Delete a child only when it is idle and its context is no longer needed.

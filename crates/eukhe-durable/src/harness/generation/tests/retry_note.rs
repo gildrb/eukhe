@@ -222,7 +222,7 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
             .collect(),
     );
     assert_eq!(
-        note(2, NoteCause::NoAnswer),
+        note(2, NoteCause::NoAnswer { row: 1 }),
         "user:Harness note, attempt 2: your previous reply gave no text and no tool call. Give \
          the answer again, as text or as a tool call."
     );
@@ -245,7 +245,10 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
             ),
             vec![
                 vec![format!("user:{ASK}")],
-                vec![format!("user:{ASK}"), note(2, NoteCause::NoAnswer)],
+                vec![
+                    format!("user:{ASK}"),
+                    note(2, NoteCause::NoAnswer { row: 1 })
+                ],
             ]
         )
     );

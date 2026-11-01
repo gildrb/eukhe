@@ -1144,9 +1144,75 @@ async fn a_cell_past_the_blocking_budget_detaches_and_its_end_settles_the_job() 
             output: "started\nfinished\n42".to_owned(),
         }
     );
-    let waited = job_request(&session, "jobs.wait", json!({ "job": job })).await;
-    assert_eq!(waited["state"], "ok");
-    assert_eq!(waited["output"], "started\nfinished\n42");
+    // A wait that names the job takes it even though its notice was sent.
+    let waited = job_request(&session, "jobs.wait", json!({ "targets": [job] })).await;
+    assert_eq!(waited["end"], "job", "{waited}");
+    assert_eq!(waited["job"]["state"], "ok");
+    assert_eq!(waited["job"]["output"], "started\nfinished\n42");
+    session.close(cx()).await.expect("close");
+}
+
+/// A `jobs.wait` that watches a detached cell when it ends takes its
+/// result: the session's job-settled notice is not sent as well. Before,
+/// the wait was clamped to the blocking budget and every result also
+/// reached the session as a notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_waited_job_is_delivered_by_the_wait_alone() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("gate");
+    fixture.faux.set_responses(vec![
+        ipython("c1", &gated_cell(&gate, "print('finished')")),
+        text("the cell runs on as a job"),
+    ]);
+    let (session, mut settled) = open_with_budget(&fixture).await;
+    let id = submit(&session, "go").await;
+    settle_within(&session, id, Duration::from_millis(WAIT_MS)).await;
+    let handler = session
+        .deps()
+        .host_requests
+        .get("jobs.wait")
+        .expect("the jobs.wait handler");
+    let mut waiting = tokio::spawn(handler(HostCall {
+        data: json!({}),
+        cell_source_code: None,
+        call: None,
+    }));
+    // The wait outlives the blocking budget: it is no longer clamped to it.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(TEST_BUDGET_MS + 500), &mut waiting)
+            .await
+            .is_err(),
+        "the wait ended before the job did"
+    );
+    std::fs::write(&gate, "").expect("open the gate");
+    let waited = tokio::time::timeout(Duration::from_millis(WAIT_MS), waiting)
+        .await
+        .expect("the wait ends when the job does")
+        .expect("the wait task")
+        .expect("the wait");
+    assert_eq!(waited["end"], "job", "{waited}");
+    assert_eq!(waited["job"]["output"], "started\nfinished\n");
+    assert!(
+        settled.try_recv().is_err(),
+        "the result the wait took was also sent as a notice"
+    );
+    assert!(!session.deps().jobs.pending_work());
+    let nothing = session
+        .deps()
+        .host_requests
+        .get("jobs.wait")
+        .expect("the jobs.wait handler")(HostCall {
+        data: json!({}),
+        cell_source_code: None,
+        call: None,
+    })
+    .await
+    .expect_err("nothing runs");
+    assert_eq!(
+        nothing.to_string(),
+        "Nothing to wait for: no job, bash() handle, subagent or message of this session is pending"
+    );
     session.close(cx()).await.expect("close");
 }
 

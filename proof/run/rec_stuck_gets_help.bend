@@ -1,6 +1,7 @@
 # eukhe: the proof of LAW rec_stuck_gets_help
 
 import Base
+import ../../bend/stop.bend as Stop
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 
@@ -15,6 +16,20 @@ def help_long(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {
       {==}
 
 def help_leak(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.leak(u, n, same, last, r))) == True{} : Bool}:
+  match u:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def help_empty(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.empty(u, n, same, last, r))) == True{} : Bool}:
+  match u:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def help_promise(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.rec.promise(u, n, same, last, r))) == True{} : Bool}:
   match u:
     case True{}:
       {==}
@@ -50,6 +65,10 @@ def help_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: N
       {==}
     case RnRecovery.Other{}:
       {==}
+    case RnRecovery.Empty{}:
+      help_empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), RnRecovery.Rk.empties(k, row), same, last, RnRecovery.Rec{k, row, same, last})
+    case RnRecovery.Promise{}:
+      help_promise(RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), RnRecovery.Rk.promises(k, row), same, last, RnRecovery.Rec{k, row, same, last})
 
 def stuck_gets_help(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec) -> {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}:
   match r:

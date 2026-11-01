@@ -30,9 +30,9 @@ pub(super) struct WorkflowServices {
     pub(super) host_requests: HostRequestRegistry,
 }
 
-/// The longest one `rlm.collect` wait asks for; the runtime clamps it to
-/// its blocking budget.
-const COLLECT_WAIT_MS: u64 = 60_000;
+/// The longest one `rlm.collect` wait asks for (the runtime caps it at 30
+/// minutes); the run checks its abort between two.
+const COLLECT_WAIT_MS: u64 = 30_000;
 /// The pause before a spawn refused by the family's concurrency cap is
 /// tried again, and how many times it is.
 const SPAWN_RETRY_PAUSE: Duration = Duration::from_secs(2);
@@ -748,8 +748,8 @@ async fn settle_child(
             Ok(state) => state,
             Err(error) => return Ok(ChildEnd::Failed(format!("{error:#}"))),
         };
-        // A runtime with no blocking budget answers at once: pace the
-        // polls.
+        // A collect that answers at once (its row settled, the answer not
+        // yet kept): pace the polls.
         if started.elapsed() < Duration::from_millis(500)
             && state.get("settled") != Some(&Value::Bool(true))
         {

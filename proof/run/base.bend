@@ -493,6 +493,10 @@ def rk.rt_stuck(x: RnDecision.Stuck, +rest: String, +h: {Run.run.stuck_fits(x) =
     case RnDecision.Repeats{+before}:
       %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(before, rest)), Wr.Got{before, rest}, Wire.wire_nat_round_trip(before, rest, h)) : {FRn.get_stuck.c2.f0(_) == Wr.Got{RnDecision.Repeats{before}, rest} : Wr.Dec<RnDecision.Stuck>}
       {==}
+    case RnDecision.Emptied{}:
+      {==}
+    case RnDecision.Promised{}:
+      {==}
 
 def rk.rt_rk(x: RnRecovery.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnRecovery.Rk>}:
   match x:
@@ -503,6 +507,10 @@ def rk.rt_rk(x: RnRecovery.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)
     case RnRecovery.Leaks{}:
       {==}
     case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
       {==}
 
 def rk.rt_ask(x: FRn.Ask, +rest: String, +h: {Run.run.ask_fits(x) == True{} : Bool}) -> {FRn.get_ask(FRn.put_ask(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FRn.Ask>}:

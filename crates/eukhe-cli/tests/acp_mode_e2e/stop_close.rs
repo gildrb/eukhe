@@ -264,14 +264,16 @@ fn acp_daemon_attached_close_holds_the_input_pause_until_the_next_session_new() 
 
 #[test]
 fn acp_truncated_final_response_maps_to_max_tokens_stop_reason() {
-    // A turn whose final assistant message stopped at the provider's
-    // output-token cap resolves with max_tokens, not end_turn; and the
-    // stop reason is per-turn — the following /compact prompt runs no
+    // A turn whose replies keep stopping at the provider's output-token
+    // cap resolves with max_tokens, not end_turn: the LengthStop Director
+    // retries a cut reply 3 times, and the 4th fails the run at its cap.
+    // The stop reason is per-turn — the following /compact prompt runs no
     // model call (the faux session is short, so it skips), so it must not
     // inherit the truncated turn's length.
+    let cut = json!({ "text": "half an answer", "stopReason": "length" });
     let script = json!({
         "engine": "faux",
-        "responses": [{ "text": "half an answer", "stopReason": "length" }],
+        "responses": [cut.clone(), cut.clone(), cut.clone(), cut],
     });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
@@ -301,5 +303,42 @@ fn acp_truncated_final_response_maps_to_max_tokens_stop_reason() {
     assert_eq!(
         slash_response["result"],
         json!({ "stopReason": "end_turn" })
+    );
+}
+
+#[test]
+fn acp_one_truncated_reply_then_an_answer_ends_the_turn() {
+    // A reply cut at the output limit is not the answer: the run goes on,
+    // and the turn ends with the model's next, whole answer.
+    let script = json!({
+        "engine": "faux",
+        "responses": [
+            { "text": "half an answer", "stopReason": "length" },
+            { "text": "the whole answer" },
+        ],
+    });
+    let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
+    let init = client.request("initialize", &initialize_params());
+    let _ = client.wait_response(init, TIMEOUT);
+    let new = client.request("session/new", &json!({ "mcpServers": [] }));
+    let (new_response, _) = client.wait_response(new, TIMEOUT);
+    let session_id = new_response["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let prompt = client.request(
+        "session/prompt",
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "write a long essay" }] }),
+    );
+    let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
+    assert_eq!(
+        prompt_response["result"],
+        json!({ "stopReason": "end_turn" })
+    );
+    assert!(
+        updates
+            .iter()
+            .any(|update| update.to_string().contains("the whole answer")),
+        "the final answer streams: {updates:?}"
     );
 }

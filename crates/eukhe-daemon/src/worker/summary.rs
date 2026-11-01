@@ -12,9 +12,13 @@ use super::{
     Value, Worker,
 };
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::pending::{pending_work, PendingWorkError};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
-use eukhe_types::daemon::{CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent};
+use eukhe_types::daemon::{
+    CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent, WaitingJob, WaitingOn,
+};
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -362,6 +366,47 @@ fn quota_park(session: &SessionSlot) -> Option<QuotaPark> {
     })
 }
 
+/// What the session waits on now, as the summary carries it: the running
+/// work of the one rule of what a turn's end leaves running
+/// ([`pending_work`]); `None` when none runs or no session is hosted (a
+/// result held for a watching wait is that wait's, not a wait of the
+/// session's).
+///
+/// # Errors
+///
+/// The main conversation, its children document or its workflow-run
+/// document cannot be read.
+pub(crate) async fn read_waiting_on(
+    session: &SessionSlot,
+) -> std::result::Result<Option<WaitingOn>, PendingWorkError> {
+    let Some(hosted) = session.get() else {
+        return Ok(None);
+    };
+    let main = hosted.main()?;
+    let pending = pending_work(
+        hosted.deps(),
+        hosted.harness(),
+        main.id(),
+        &BACKGROUND_CONTEXT,
+    )
+    .await?;
+    let count = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
+    let waiting = WaitingOn {
+        jobs: pending
+            .jobs
+            .into_iter()
+            .map(|job| WaitingJob {
+                id: job.id,
+                label: job.label,
+            })
+            .collect(),
+        kernel_jobs: count(pending.kernel_jobs),
+        subagents: count(pending.children),
+        workflow_runs: count(pending.workflow_runs),
+    };
+    Ok((waiting != WaitingOn::default()).then_some(waiting))
+}
+
 /// The worker's roster-delta push: the fresh session summary rides the
 /// supervisor link with the worker's monotonic counter (the supervisor's
 /// stale-delta gate drops delayed older snapshots). The push queue's one
@@ -374,13 +419,17 @@ pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
     if context.worker_token.is_empty() || context.roster_link.socket_path().as_os_str().is_empty() {
         return;
     }
+    // The waiting-on read goes first: it reads the Harness, which never
+    // runs under the core lock.
+    let waiting_on = read_waiting_on(&context.session).await;
     // A pull may race this push, but both read the counter with their core
     // snapshot held: an equal-counter pull was captured after this push.
     let command = {
-        let core = context
+        let mut core = context
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core.note_waiting_on(waiting_on);
         let mut summary = session_summary(
             &core,
             &thinking_level(&core, &context.session),
@@ -607,6 +656,7 @@ pub(crate) fn session_summary(
         is_bash_running: Some(bash_running),
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,
+        waiting_on: core.waiting_on.clone(),
         admission: core.model_admission,
         attached_clients: u32::try_from(core.attached_client_ids.len()).unwrap_or(u32::MAX),
         message_count: messages,

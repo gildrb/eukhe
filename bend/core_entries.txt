@@ -109,3 +109,7 @@
 434 arg_repair
 435 call_lift
 436 rebase
+437 wait_any
+440 stop
+438 headless_settle
+439 headless_exit

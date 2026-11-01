@@ -240,8 +240,11 @@ async fn fails_an_overflow_run_with_its_text_when_its_compaction_is_aborted_dire
     }
 }
 
+/// A length stop is no overflow: it starts no compaction. Its cut text is
+/// not the answer either (the `LengthStop` Director): the run asks again,
+/// and the next reply answers.
 #[tokio::test]
-async fn treats_a_length_stop_as_an_ordinary_answer_not_an_overflow() {
+async fn treats_a_length_stop_as_a_cut_reply_not_an_overflow() {
     let chat = open(OpenOptions::default()).await;
     history(&chat).await;
     chat.set_policy(CompactionPolicy {
@@ -252,6 +255,7 @@ async fn treats_a_length_stop_as_an_ordinary_answer_not_an_overflow() {
         error_message: Some(OVERFLOW.to_owned()),
         ..with_stop("cut short", StopReason::Length)
     });
+    chat.faux.agent(with_stop("done", StopReason::Stop));
     let input = submit(&chat, "go").await;
     assert_eq!(
         input.wait(context()).await.unwrap().state.status(),

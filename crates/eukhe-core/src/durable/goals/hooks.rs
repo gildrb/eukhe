@@ -127,6 +127,7 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                 .boxed()
             })),
             after_tools: None,
+            pending_work: None,
         },
     )
 }

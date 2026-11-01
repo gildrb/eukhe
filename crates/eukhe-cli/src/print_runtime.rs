@@ -7,8 +7,10 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::headless::{ExitCause, ExitFacts, Primary, RunEnd};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
+use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{classify_session_command, execute_session_command, EukheSession};
 use eukhe_core::session::discovery::SessionSelectorError;
 use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
@@ -23,6 +25,7 @@ use crate::headless_session::{
     open_headless_session, sessions_dir, HeadlessSession, HeadlessTarget, Selection,
 };
 use crate::headless_terminal::{select_terminal_result, RunFailure};
+use crate::headless_wait::{still_running, wait_quiescent, RunWatch, Settled};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
 
 /// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
@@ -380,13 +383,26 @@ fn user_content(prompt: &str, images: Vec<ImageContent>) -> UserContent {
     UserContent::Blocks(blocks)
 }
 
+/// How the prompt loop ended.
+enum PromptsEnd {
+    /// Every prompt ran and the session went quiescent after each.
+    Completed,
+    /// A session command failed (its raw error); later prompts did not run.
+    CommandFailed(String),
+    /// The wait limit elapsed while this still ran; later prompts did not
+    /// run.
+    GaveUp(PendingWork),
+}
+
 /// Run the prompts, stream json events when requested, and decide the exit
 /// code: session commands run through the durable executor (a failure
-/// prints its raw error and exits 1 without later prompts, TS print-mode's
-/// catch); every other prompt is submitted and waited for, then the
-/// conversation runs idle (goal and autonomous continuations, compaction).
-/// Text mode prints the terminal result; both modes apply the autonomous
-/// exit contract.
+/// prints its raw error, TS print-mode's catch); every other prompt is
+/// submitted and waited for, then the session runs until it is quiescent
+/// (goal and autonomous continuations, compaction, and every turn a
+/// settled job or subagent wakes) or the wait limit elapses. Text mode
+/// prints the terminal result; both modes print failures to stderr. The
+/// compiled Bend core decides the exit code (`headless_exit`): 0 only for
+/// a run that answered.
 async fn run_prompts(
     opened: &HeadlessSession,
     options: &RunOptions,
@@ -402,65 +418,122 @@ async fn run_prompts(
     } else {
         None
     };
-    let failure = drive_prompts(session, &conversation, options, cx).await;
+    let watch = RunWatch::start(opened, &conversation, cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    let ended = drive_prompts(opened, &conversation, &watch, options, cx).await;
     // The run's disclosure rows (a reported overflow outcome) commit from
     // the compaction observer after the run settles: both modes report them.
     session.deps().observers_settled().await;
     if let Some(events) = events {
         events.finish().await;
     }
-    let failure = failure?;
-    // The rejected prompt wait (TS print-mode's catch): the raw command
-    // error on stderr, exit 1, no terminal selection.
-    if let Some(error) = failure {
-        eprintln!("{error}");
-        return Ok(1);
+    let mut facts = ExitFacts {
+        command_failed: false,
+        gave_up: false,
+        run: RunEnd::NoRun,
+        primary: Primary::Nothing,
+        compaction_failed: false,
+        autonomous_failed: false,
+    };
+    match ended? {
+        PromptsEnd::Completed => {}
+        // The rejected prompt wait (TS print-mode's catch): the raw command
+        // error on stderr, no terminal selection.
+        PromptsEnd::CommandFailed(error) => {
+            eprintln!("{error}");
+            facts.command_failed = true;
+        }
+        PromptsEnd::GaveUp(work) => {
+            eprintln!(
+                "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
+                options.config.wait_limit.as_millis(),
+                still_running(&work)
+            );
+            facts.gave_up = true;
+        }
     }
-    let mut exit_code = 0;
-    // The TS print-mode exit contract: json mode never derives the exit
-    // code from the terminal selection (the event stream carries
-    // everything); text mode prints the primary (an error primary to
-    // stderr with exit 1, a settled answer to stdout) and the trailing
-    // compaction outcomes to stderr.
-    if !json_mode {
+    let mut run_detail = None;
+    let mut primary_message = None;
+    if !facts.command_failed {
+        (facts.run, run_detail) = watch
+            .last_run(opened, cx)
+            .await
+            .map_err(|error| error.to_string())?;
+        // Text mode prints the primary (a settled answer to stdout) and the
+        // trailing compaction outcomes to stderr; a failed primary's text
+        // goes to stderr in both modes.
         let result = select_terminal_result(&conversation, cx).await?;
-        if let Some(primary) = result.primary {
+        if let Some(primary) = &result.primary {
+            facts.primary = primary.kind();
             match primary.failure() {
                 Some(RunFailure::Message(stderr)) => {
-                    exit_code = 1;
                     eprintln!("{stderr}");
+                    primary_message = Some(stderr);
                 }
-                Some(RunFailure::Silent) => exit_code = 1,
+                Some(RunFailure::Silent) => {}
+                None if json_mode => {}
                 None => println!("{}", primary.stdout_text()),
             }
         }
         for outcome in result.compaction_outcomes {
-            eprintln!("{}", outcome.content);
+            if !json_mode {
+                eprintln!("{}", outcome.content);
+            }
             if outcome.outcome == "failed" {
-                exit_code = 1;
+                facts.compaction_failed = true;
             }
         }
+        // The TS print-mode autonomous contract applies to both output
+        // modes.
+        let autonomous = autonomous_state(harness, conversation.id(), cx)
+            .await
+            .map_err(|error| format!("{error:#}"))?;
+        if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
+            eprintln!("{stderr}");
+            facts.autonomous_failed = true;
+        }
     }
-    // The TS print-mode autonomous contract applies to both output modes.
-    let autonomous = autonomous_state(harness, conversation.id(), cx)
-        .await
-        .map_err(|error| format!("{error:#}"))?;
-    if let Some(stderr) = autonomous_exit_stderr(&autonomous.to_runtime()) {
-        eprintln!("{stderr}");
-        exit_code = 1;
+    watch.finish().await;
+    let exit = eukhe_bend::rules::headless::exit(&facts).map_err(|error| error.to_string())?;
+    match exit.cause {
+        // The run's failure text, unless the failed primary already
+        // printed it.
+        ExitCause::RunFailed(_) if run_detail.is_some() && run_detail == primary_message => {}
+        ExitCause::RunFailed(_) => eprintln!(
+            "eukhe: the run ended without an answer: {}",
+            run_detail.as_deref().unwrap_or("no reason recorded")
+        ),
+        ExitCause::Unfinished => eprintln!("eukhe: the run ended without a final answer"),
+        ExitCause::CompactionFailed if json_mode => eprintln!("eukhe: compaction failed"),
+        ExitCause::Answered
+        | ExitCause::CommandFailed
+        | ExitCause::GaveUp
+        | ExitCause::ProviderError
+        | ExitCause::Aborted
+        | ExitCause::SlashFailed
+        | ExitCause::CompactionFailed
+        | ExitCause::AutonomousFailed => {}
     }
-    Ok(exit_code)
+    Ok(i32::from(exit.code))
 }
 
-/// The prompt loop. `Ok(Some(error))` is a failed session command.
+/// The prompt loop: each prompt, then the wait for quiescence.
 async fn drive_prompts(
-    session: &EukheSession,
+    opened: &HeadlessSession,
     conversation: &Conversation,
+    watch: &RunWatch,
     options: &RunOptions,
     cx: &Context,
-) -> Result<Option<String>, String> {
+) -> Result<PromptsEnd, String> {
+    let session = &opened.session;
     let harness = session.harness();
     let config = &options.config;
+    let quiescent = || async {
+        wait_quiescent(opened, watch, config.wait_limit, cx)
+            .await
+            .map_err(|error| error.to_string())
+    };
     // The CLI autonomous flags enable the run on the main conversation (no
     // status row, as TS `createAgentSession({ autonomous })`); a run without
     // flags keeps the session's state (`/autonomous` rewrites it live).
@@ -487,7 +560,9 @@ async fn drive_prompts(
         )
         .await
         .map_err(|error| format!("{error:#}"))?;
-        idle(conversation, cx).await?;
+        if let Settled::GaveUp(work) = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp(work));
+        }
     }
     let resources = &session.deps().resources;
     for (prompt, images) in prompts(options) {
@@ -500,7 +575,7 @@ async fn drive_prompts(
         if let Some(command) = classify_session_command(&prompt) {
             let outcome = execute_session_command(session, conversation, &command, cx).await;
             if let Some(error) = outcome.error {
-                return Ok(Some(error));
+                return Ok(PromptsEnd::CommandFailed(error));
             }
         } else {
             let submission = conversation
@@ -521,18 +596,14 @@ async fn drive_prompts(
                 .await
                 .map_err(|error| format!("{error:#}"))?;
         }
-        // Continuations (goal, autonomous), queued input, and compaction
-        // run before the next prompt.
-        idle(conversation, cx).await?;
+        // Continuations (goal, autonomous), queued input, compaction, and
+        // the turns settled jobs and subagents wake run before the next
+        // prompt.
+        if let Settled::GaveUp(work) = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp(work));
+        }
     }
-    Ok(None)
-}
-
-async fn idle(conversation: &Conversation, cx: &Context) -> Result<(), String> {
-    conversation
-        .wait_for_idle(cx)
-        .await
-        .map_err(|error| format!("{error:#}"))
+    Ok(PromptsEnd::Completed)
 }
 
 /// The json stream's leading identity line (the TS session header shape and

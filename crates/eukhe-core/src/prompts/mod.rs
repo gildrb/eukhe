@@ -8,6 +8,8 @@
 //! - the **dynamic tail** carries everything session-specific (packages,
 //!   project context, skills inventory, MCP servers, environment, role) and
 //!   is appended after the static prefix, in that order.
+//! - the **closing `<critical>` block** (`layers/critical.md`) ends the
+//!   prompt: the persistence rules, last for recency.
 //!
 //! `system_prompt_breakdown` exposes the per-layer segments so the CLI can
 //! dump exactly what the model sees; the cache-safety and tool-surface guard
@@ -20,6 +22,7 @@ pub mod model_prompts;
 pub mod system_prompt;
 
 pub use system_prompt::{
-    build_system_prompt, system_prompt_breakdown, BuildSystemPromptOptions, PromptOrigin,
-    PromptSegment, SegmentKind, SourcedPrompt, SystemPromptBreakdown, REFINE_SKILL_NAME,
+    build_system_prompt, closing_block, system_prompt_breakdown, BuildSystemPromptOptions,
+    PromptOrigin, PromptSegment, SegmentKind, SourcedPrompt, SystemPromptBreakdown,
+    CLOSING_SEGMENT, REFINE_SKILL_NAME,
 };

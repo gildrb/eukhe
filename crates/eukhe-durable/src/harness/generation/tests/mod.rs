@@ -9,5 +9,6 @@ mod recoveries;
 mod recovery;
 mod retry_note;
 mod run_bounds;
+mod stops;
 mod stream_stall;
 mod threshold;

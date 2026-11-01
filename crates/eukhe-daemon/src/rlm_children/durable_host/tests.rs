@@ -16,7 +16,7 @@ use eukhe_core::child_workspace::{Handback, WorkspaceMode};
 use eukhe_core::durable::children::{
     RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
     RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
+    RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
@@ -30,14 +30,16 @@ use crate::protocol::{response_failure, response_success};
 
 const CHILD_SESSION: &str = "0192a000-0000-7000-8000-00000000c001";
 
-/// What the fake supervisor saw, the resident sessions it lists, whether
-/// no worker hosts the child (its non-waking probes answer the
+/// What the fake supervisor saw, the resident sessions it lists, the
+/// roster entries its `roster_subscribe` snapshot answers, whether no
+/// worker hosts the child (its non-waking probes answer the
 /// unknown-session error), and the run outcome the child answers (an
 /// answered run when unset).
 #[derive(Default)]
 struct Supervisor {
     commands: Vec<Value>,
     resident: Vec<Value>,
+    roster: Vec<Value>,
     child_unhosted: bool,
     outcome: Option<RlmChildRunState>,
     overloaded_child: Option<WorkerLiveness>,
@@ -62,6 +64,10 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                 command_type,
                 Some(json!({ "sessions": sessions })),
             )
+        }
+        "roster_subscribe" => {
+            let roster = lock(shared).roster.clone();
+            response_success(Some(id), command_type, Some(json!({ "roster": roster })))
         }
         "create" => response_success(
             Some(id),
@@ -280,6 +286,63 @@ async fn spawn_carries_the_parents_cvar_family() {
         creates[0]["config"]["cvarFamily"],
         serde_json::to_value(family).unwrap()
     );
+}
+
+/// A parent without a worker token (a headless `-p` session no supervisor
+/// hosts) still gets the spawn cap's family view: the running subagents
+/// of the plain-client roster snapshot whose parent chain reaches its
+/// active session id (a grandchild included), never an idle child or
+/// another family's subagent.
+#[tokio::test]
+async fn a_token_less_parent_counts_its_familys_running_subagents() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let entry = |agent: &str, status: &str, summary: Value| json!({ "agentId": agent, "status": status, "summary": summary });
+    lock(&shared).roster = vec![
+        entry(
+            "kid",
+            "running",
+            json!({ "activeSessionId": "kid-live", "sessionId": "sess-kid",
+                    "runtimeKind": "subagent", "rlmDepth": 1,
+                    "parentActiveSessionId": "parent-live" }),
+        ),
+        entry(
+            "idle-kid",
+            "idle",
+            json!({ "activeSessionId": "idle-live", "sessionId": "sess-idle",
+                    "runtimeKind": "subagent", "rlmDepth": 1,
+                    "parentActiveSessionId": "parent-live" }),
+        ),
+        entry(
+            "grandkid",
+            "running",
+            json!({ "activeSessionId": "grandkid-live", "sessionId": "sess-grandkid",
+                    "runtimeKind": "subagent", "rlmDepth": 2,
+                    "parentActiveSessionId": "kid-live", "parentSessionId": "sess-kid" }),
+        ),
+        entry(
+            "other-root",
+            "running",
+            json!({ "activeSessionId": "other-live", "sessionId": "sess-other" }),
+        ),
+        entry(
+            "stranger",
+            "running",
+            json!({ "activeSessionId": "stranger-live", "sessionId": "sess-stranger",
+                    "runtimeKind": "subagent", "rlmDepth": 1,
+                    "parentActiveSessionId": "other-live", "parentSessionId": "sess-other" }),
+        ),
+    ];
+    let sessions = host(&shared, dir.path()).await;
+    let capacity = sessions.spawn_capacity().await.unwrap();
+    assert_eq!(
+        capacity,
+        RlmSpawnCapacity {
+            max_concurrency: 32,
+            active_session_ids: vec!["sess-kid".to_owned(), "sess-grandkid".to_owned()],
+        }
+    );
+    assert!(commands_of(&shared, "list_agent_peers").is_empty());
 }
 
 #[tokio::test]

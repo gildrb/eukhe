@@ -193,6 +193,9 @@ pub struct Worker {
     /// read it (the sender identity block and the family edges),
     /// published at every create and rename.
     pub(crate) own_summary: Arc<Mutex<Option<Value>>>,
+    /// The job-settled seam of the session this worker opened last: the
+    /// idle barrier reads its in-flight notices.
+    pub(crate) job_notices: Mutex<Option<crate::job_notices::JobNotices>>,
     /// The user's `@name` replies this session owes (see `agent_reply`).
     agent_replies: Arc<agent_reply::AgentReplies>,
     /// Set once the hosted session's durable Harness failed (see
@@ -381,6 +384,7 @@ impl Worker {
             scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
             own_summary: Arc::new(Mutex::new(None)),
+            job_notices: Mutex::new(None),
             agent_replies: Arc::new(agent_reply::AgentReplies::new(
                 std::env::var_os(WORKER_SUPERVISOR_SOCKET_ENV)
                     .map(std::path::PathBuf::from)

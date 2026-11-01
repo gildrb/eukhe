@@ -23,7 +23,7 @@ pub(crate) mod tests;
 use std::sync::Arc;
 
 use eukhe_durable::harness::define::define_extension;
-use eukhe_durable::harness::types::Extension;
+use eukhe_durable::harness::types::{Extension, HookRegistration};
 
 pub use autonomous::{
     autonomous_state, configure_autonomous, set_autonomous, AutonomousChange, AutonomousDocState,
@@ -42,7 +42,7 @@ pub use state::{
 pub use watch::{watch_goal_updates, GoalUpdates};
 
 use self::host::{register_host_requests, GoalsHost};
-use super::directors::DirectorLimits;
+use super::directors::{pending_work_hook, DirectorLimits};
 use super::HostDeps;
 use crate::autonomous::{GateCommandRunner, ShellGateRunner};
 use crate::durable::{HarnessCell, HostRequestRegistry};
@@ -51,12 +51,12 @@ use crate::durable::{HarnessCell, HostRequestRegistry};
 pub const GOALS_EXTENSION: &str = "eukhe.goals";
 
 /// The goal extension of one session: the `pi.generation` hooks (with the
-/// Director stack's step, its limits from the `directors` settings), the
-/// `goal.get` / `goal.create` / `goal.complete` / `directors.push` host
-/// requests registered in `deps.host_requests`, and the run-end failure
-/// observer. Autonomous gates run in the session cwd. The
-/// `autoresearch.*` host requests register here too: their loop is the
-/// autonomous run.
+/// Director stack's step, its limits from the `directors` settings, and the
+/// `PendingWork` fact of the run loop's stop Directors), the `goal.get` /
+/// `goal.create` / `goal.complete` / `directors.push` host requests
+/// registered in `deps.host_requests`, and the run-end failure observer.
+/// Autonomous gates run in the session cwd. The `autoresearch.*` host
+/// requests register here too: their loop is the autonomous run.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     observer::install(deps);
@@ -67,16 +67,19 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         Arc::new(ShellGateRunner::new(deps.cwd.clone())),
         Arc::new(move || DirectorLimits::of(settings.manager().settings())),
         &deps.host_requests,
+        vec![pending_work_hook(deps)],
     )
 }
 
 /// [`extension`] over explicit services (the gate runner and the limits
-/// are the seams the tests script).
+/// are the seams the tests script); `beside` registers after the goal's
+/// hooks.
 pub(crate) fn goals_extension(
     harness: HarnessCell,
     gates: Arc<dyn GateCommandRunner>,
     limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
     host_requests: &HostRequestRegistry,
+    beside: Vec<HookRegistration>,
 ) -> Arc<Extension> {
     let host = GoalsHost {
         harness,
@@ -85,9 +88,11 @@ pub(crate) fn goals_extension(
         work: Arc::default(),
     };
     register_host_requests(&host, host_requests);
+    let mut hooks = vec![hooks::generation_hooks(&host)];
+    hooks.extend(beside);
     define_extension(Extension {
         name: GOALS_EXTENSION.to_owned(),
-        hooks: vec![hooks::generation_hooks(&host)],
+        hooks,
         ..Extension::default()
     })
 }

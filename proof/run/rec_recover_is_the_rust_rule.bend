@@ -1,9 +1,11 @@
 # eukhe: the proof of LAW rec_recover_is_the_rust_rule
 
 import Base
+import ../../bend/stop.bend as Stop
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
+import ../../laws/stop.bend as LawsStop
 
 def rk.below(+a: Nat, +b: Nat) -> {Nat.is_lt(a, b) == RnRecovery.below(a, b) : Bool}:
   match a b:
@@ -23,7 +25,21 @@ def rk.long(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {R
     case False{}:
       {==}
 
-def rk.leak(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.leak(b, n, same, last, r)) == Run.rust.redo(b, n, RnDecision.Stands{}) : RnDecision.Help}:
+def rk.leak(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.leak(b, n, same, last, r)) == Run.rust.redo(b, n, RnDecision.Quits{}) : RnDecision.Help}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.empty(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.empty(b, n, same, last, r)) == LawsStop.rust_empty.at(b, n) : RnDecision.Help}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.promise(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: RnRecovery.Rec) -> {RnDecision.Help.of(RnRecovery.rec.promise(b, n, same, last, r)) == LawsStop.rust_promise.at(b, n) : RnDecision.Help}:
   match b:
     case True{}:
       {==}
@@ -58,6 +74,10 @@ def rk.long_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.longs(k, row) ==
       {==}
     case RnRecovery.Loops{}:
       {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
+      {==}
 
 def rk.leak_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.leaks(k, row) == Run.rust.leak_row(k, row) : Nat}:
   match k:
@@ -69,6 +89,10 @@ def rk.leak_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.leaks(k, row) ==
       {==}
     case RnRecovery.Loops{}:
       {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
+      {==}
 
 def rk.loop_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.loops(k, row) == Run.rust.loop_row(k, row) : Nat}:
   match k:
@@ -79,6 +103,40 @@ def rk.loop_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.loops(k, row) ==
     case RnRecovery.Leaks{}:
       {==}
     case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
+      {==}
+
+def rk.empty_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.empties(k, row) == LawsStop.rust_empty_row(k, row) : Nat}:
+  match k:
+    case RnRecovery.Free{}:
+      {==}
+    case RnRecovery.Longs{}:
+      {==}
+    case RnRecovery.Leaks{}:
+      {==}
+    case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
+      {==}
+
+def rk.promise_row(+k: RnRecovery.Rk, +row: Nat) -> {RnRecovery.Rk.promises(k, row) == LawsStop.rust_promise_row(k, row) : Nat}:
+  match k:
+    case RnRecovery.Free{}:
+      {==}
+    case RnRecovery.Longs{}:
+      {==}
+    case RnRecovery.Leaks{}:
+      {==}
+    case RnRecovery.Loops{}:
+      {==}
+    case RnRecovery.Empties{}:
+      {==}
+    case RnRecovery.Promises{}:
       {==}
 
 def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, +k: RnRecovery.Rk, +row: Nat) -> {RnDecision.decide.recover(rc, s, k, row) == Run.rust.recover(rc, s, k, row) : RnDecision.Help}:
@@ -94,8 +152,8 @@ def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, 
         case RnDecision.Leaked{}:
           +x = RnRecovery.Rk.leaks(k, row)
           +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
-          %rk.leak_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.leak(RnRecovery.below(x, leak), x, 0n, 0n, r)) == Run.rust.redo(Nat.is_lt(_, leak), _, RnDecision.Stands{}) : RnDecision.Help}
-          %rk.below(x, leak) : {RnDecision.Help.of(RnRecovery.rec.leak(_, x, 0n, 0n, r)) == Run.rust.redo(Nat.is_lt(x, leak), x, RnDecision.Stands{}) : RnDecision.Help}
+          %rk.leak_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.leak(RnRecovery.below(x, leak), x, 0n, 0n, r)) == Run.rust.redo(Nat.is_lt(_, leak), _, RnDecision.Quits{}) : RnDecision.Help}
+          %rk.below(x, leak) : {RnDecision.Help.of(RnRecovery.rec.leak(_, x, 0n, 0n, r)) == Run.rust.redo(Nat.is_lt(x, leak), x, RnDecision.Quits{}) : RnDecision.Help}
           rk.leak(Nat.is_lt(x, leak), x, 0n, 0n, r)
         case RnDecision.Repeats{+before}:
           +y = RnRecovery.Rk.loops(k, row)
@@ -105,6 +163,18 @@ def rk.rec_recover_is_the_rust_rule(+rc: RnRecovery.RCfg, +s: RnDecision.Stuck, 
           %rk.below(1n+before, repeat) : {RnDecision.Help.of(RnRecovery.rec.ran(_, RnRecovery.below(y, redirect), True{}, 1n+before, 0n, y, before, 0n, r)) == Run.rust.calls(Nat.is_lt(1n+before, repeat), Run.rust.redo(Nat.is_lt(y, redirect), y, RnDecision.Quits{})) : RnDecision.Help}
           %rk.below(y, redirect) : {RnDecision.Help.of(RnRecovery.rec.ran(Nat.is_lt(1n+before, repeat), _, True{}, 1n+before, 0n, y, before, 0n, r)) == Run.rust.calls(Nat.is_lt(1n+before, repeat), Run.rust.redo(Nat.is_lt(y, redirect), y, RnDecision.Quits{})) : RnDecision.Help}
           rk.ran(Nat.is_lt(1n+before, repeat), Nat.is_lt(y, redirect), 1n+before, 0n, y, before, 0n, r)
+        case RnDecision.Emptied{}:
+          +x = RnRecovery.Rk.empties(k, row)
+          +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
+          %rk.empty_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.empty(RnRecovery.below(x, Stop.empty_cap()), x, 0n, 0n, r)) == LawsStop.rust_empty.at(Nat.is_lt(_, Stop.empty_cap()), _) : RnDecision.Help}
+          %rk.below(x, Stop.empty_cap()) : {RnDecision.Help.of(RnRecovery.rec.empty(_, x, 0n, 0n, r)) == LawsStop.rust_empty.at(Nat.is_lt(x, Stop.empty_cap()), x) : RnDecision.Help}
+          rk.empty(Nat.is_lt(x, Stop.empty_cap()), x, 0n, 0n, r)
+        case RnDecision.Promised{}:
+          +x = RnRecovery.Rk.promises(k, row)
+          +r = {RnRecovery.Rec{k, row, 0n, 0n} : RnRecovery.Rec}
+          %rk.promise_row(k, row) : {RnDecision.Help.of(RnRecovery.rec.promise(RnRecovery.below(x, Stop.promise_cap()), x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(_, Stop.promise_cap()), _) : RnDecision.Help}
+          %rk.below(x, Stop.promise_cap()) : {RnDecision.Help.of(RnRecovery.rec.promise(_, x, 0n, 0n, r)) == LawsStop.rust_promise.at(Nat.is_lt(x, Stop.promise_cap()), x) : RnDecision.Help}
+          rk.promise(Nat.is_lt(x, Stop.promise_cap()), x, 0n, 0n, r)
 
 def Run.rec_recover_is_the_rust_rule(rc, s, k, row):
   rk.rec_recover_is_the_rust_rule(rc, s, k, row)

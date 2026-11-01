@@ -54,7 +54,7 @@ impl Worker {
             "wait_for_headless_completion" => {
                 self.handle_wait_for_headless_completion(payload).await
             }
-            "get_state" => self.handle_get_state(),
+            "get_state" => self.handle_get_state().await,
             "get_messages" => self.handle_get_messages(),
             "get_session_header" => self.handle_get_session_header(),
             "get_session_stats" => self.handle_get_session_stats(),
@@ -365,14 +365,18 @@ impl Worker {
         resubmit_suspended(hosted, &self.core, &self.events).await
     }
 
-    fn handle_get_state(&self) -> DaemonResponse {
+    /// `get_state`: the session summary, its `waitingOn` read fresh (a
+    /// failed read keeps the last one the summary showed).
+    async fn handle_get_state(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_state") {
             return response;
         }
-        let core = self
+        let waiting_on = super::summary::read_waiting_on(&self.session).await;
+        let mut core = self
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core.note_waiting_on(waiting_on);
         let summary = self.summary_locked(&core);
         response_success(
             None,

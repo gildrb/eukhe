@@ -29,4 +29,4 @@ Call from the Python REPL. API: [references/api.md](references/api.md).
 - NEVER edit `autoresearch.sh` mid-segment. To change it, the metric or the direction: `init(..., new_segment=True)`, then a new baseline.
 - Stay in scope. A keep that changes paths outside `scope` needs `justification=`.
 - A run that looks wrong (reward-hacked, broken workload): `flag_runs=[{"run": n, "reason": "..."}]` on the next log.
-- Stop when `state()["mode"]` is `off` (the iteration cap, `/autoresearch off`, or a branch change) and report the best result.
+- A logged run is no stopping point: go on to the next experiment. Stop only when `state()["mode"]` is `off` (the iteration cap, `/autoresearch off`, or a branch change), then report the best result.

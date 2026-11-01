@@ -685,7 +685,7 @@ mod tests {
         assert_eq!(
             message.content,
             UserContent::Text(
-                "[bash-done pid:4321 exit:0]\n\nCommand: \"sleep 12; echo RW_WAKE_DONE\""
+                "[bash-done pid:4321 exit:0]\n\nResume your work using the result below.\n\nCommand: \"sleep 12; echo RW_WAKE_DONE\""
                     .to_string()
             )
         );
@@ -697,7 +697,7 @@ mod tests {
         let message = create_job_settled_message(&bash(11, "echo \"done\" && exit 2", 2), 2_000);
         assert_eq!(message.timestamp, 2_000);
         assert!(matches!(message.content, UserContent::Text(text)
-            if text.starts_with("[bash-done pid:11 exit:2]\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
+            if text.starts_with("[bash-done pid:11 exit:2]\n\nResume your work using the result below.\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
         let details = message.details.unwrap();
         assert_eq!(details["exitCode"], 2);
     }
@@ -717,7 +717,7 @@ mod tests {
             (message.content, message.details),
             (
                 UserContent::Text(
-                    "[bash-done pid:77 exit:-15 stopped-by:agent]\n\nCommand: \"python -m http.server 8774\""
+                    "[bash-done pid:77 exit:-15 stopped-by:agent]\n\nResume your work using the result below.\n\nCommand: \"python -m http.server 8774\""
                         .to_string()
                 ),
                 Some(serde_json::json!({
@@ -741,7 +741,7 @@ mod tests {
         assert_eq!(message.custom_type, JOB_SETTLED_CUSTOM_TYPE);
         assert_eq!(
             message.content,
-            UserContent::Text("[job-settled job:cell-1 status:ok]\n\nslept\n42".to_owned())
+            UserContent::Text("[job-settled job:cell-1 status:ok]\n\nResume your work using the result below.\n\nslept\n42".to_owned())
         );
         assert_eq!(
             message.details,

@@ -2,10 +2,13 @@
 //! of list, create, attach, and roster rows, and the
 //! `AgentConnectionState` block inside attach snapshots.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::input_origin::InputOrigin;
+use crate::job::JobId;
 
 /// Lightweight daemon session shape used by list, create, rename, attach, and
 /// state responses (port of `SessionSummary` in daemon-session-list.ts).
@@ -72,6 +75,12 @@ pub struct SessionSummary {
     /// ended.
     #[serde(default)]
     pub has_running_subagents: bool,
+    /// The work whose end wakes this session (its running jobs, its
+    /// kernel's background `bash()` commands, its unsettled children and
+    /// workflow runs); absent when nothing runs. A session whose turn
+    /// ended while it is set is waiting, not done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_on: Option<WaitingOn>,
     /// `queued` while a model request waits for its provider's admission
     /// slot (`providerMaxInFlight`), `generating` while one holds a slot;
     /// absent otherwise.
@@ -156,6 +165,75 @@ pub struct QuotaPark {
     /// The provider whose usage limit parked the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+}
+
+/// The work a session waits on: each one settles into a wake of the
+/// session (its job-settled notice or its report). Built only when
+/// something runs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingOn {
+    /// Running session jobs (detached `ipython` cells and `bash` tool
+    /// scripts), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<WaitingJob>,
+    /// Running background `bash()` commands of the session's kernel.
+    #[serde(default)]
+    pub kernel_jobs: u32,
+    /// Children whose report is still owed.
+    #[serde(default)]
+    pub subagents: u32,
+    /// Workflow runs whose report is still owed.
+    #[serde(default)]
+    pub workflow_runs: u32,
+}
+
+/// One running session job a session waits on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingJob {
+    pub id: JobId,
+    /// What runs (the cell's code or the script, as the job names it).
+    pub label: String,
+}
+
+impl WaitingOn {
+    /// The one wording of what a session waits on, for every client:
+    /// `waiting on job <id> · N subagents`, its parts joined by
+    /// `separator` (an ASCII-only surface passes its own). Each part names
+    /// one kind of work; a kind with nothing running is left out.
+    #[must_use]
+    pub fn label(&self, separator: &str) -> String {
+        let plural = |count: u32, one: &str, many: &str| {
+            format!("{count} {}", if count == 1 { one } else { many })
+        };
+        let ids = self
+            .jobs
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let parts = [
+            match self.jobs.len() {
+                0 => None,
+                1 => Some(format!("job {ids}")),
+                _ => Some(format!("jobs {ids}")),
+            },
+            (self.kernel_jobs > 0)
+                .then(|| plural(self.kernel_jobs, "bash command", "bash commands")),
+            (self.subagents > 0).then(|| plural(self.subagents, "subagent", "subagents")),
+            (self.workflow_runs > 0)
+                .then(|| plural(self.workflow_runs, "workflow run", "workflow runs")),
+        ];
+        let parts: Vec<String> = parts.into_iter().flatten().collect();
+        format!("waiting on {}", parts.join(separator))
+    }
+}
+
+/// [`WaitingOn::label`] with the agreed ` · ` separator.
+impl fmt::Display for WaitingOn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.label(" · "))
+    }
 }
 
 /// The tool call a session runs right now.
@@ -336,5 +414,64 @@ mod tests {
         for key in ["currentTool", "retry", "contextUsage"] {
             assert_eq!(out[key], live[key], "{key}");
         }
+    }
+
+    /// The display of what a session waits on: each running kind of work
+    /// once, singular or plural, the kinds with nothing running left out.
+    #[test]
+    fn waiting_on_names_each_running_kind_of_work() {
+        let job = |id: &str| WaitingJob {
+            id: JobId::new(id).expect("a job id"),
+            label: "sleep 45".to_string(),
+        };
+        let cases = [
+            (
+                WaitingOn {
+                    jobs: vec![job("j1")],
+                    ..WaitingOn::default()
+                },
+                "waiting on job j1",
+            ),
+            (
+                WaitingOn {
+                    jobs: vec![job("j1")],
+                    subagents: 2,
+                    ..WaitingOn::default()
+                },
+                "waiting on job j1 · 2 subagents",
+            ),
+            (
+                WaitingOn {
+                    jobs: vec![job("j1"), job("j2")],
+                    subagents: 1,
+                    ..WaitingOn::default()
+                },
+                "waiting on jobs j1, j2 · 1 subagent",
+            ),
+            (
+                WaitingOn {
+                    kernel_jobs: 1,
+                    workflow_runs: 2,
+                    ..WaitingOn::default()
+                },
+                "waiting on 1 bash command · 2 workflow runs",
+            ),
+        ];
+        for (waiting, expected) in cases {
+            assert_eq!(waiting.to_string(), expected, "{waiting:?}");
+        }
+    }
+
+    /// `waitingOn` reads from and writes back its camelCase wire form.
+    #[test]
+    fn waiting_on_round_trips_on_the_wire() {
+        let wire = serde_json::json!({
+            "jobs": [{ "id": "j1", "label": "sleep 45" }],
+            "kernelJobs": 0,
+            "subagents": 2,
+            "workflowRuns": 0,
+        });
+        let waiting: WaitingOn = serde_json::from_value(wire.clone()).expect("parses");
+        assert_eq!(serde_json::to_value(&waiting).expect("serializes"), wire);
     }
 }

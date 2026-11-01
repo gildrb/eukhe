@@ -1,6 +1,7 @@
 # eukhe: the proof of LAW rec_never_runs_a_repeat
 
 import Base
+import ../../bend/stop.bend as Stop
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../laws/run.bend as Run
 import ../base/logic/logic.bend as LLogicLogic
@@ -104,6 +105,20 @@ def same_leak(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last:
     case False{}:
       ok
 
+def same_empty(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.empty(u, RnRecovery.Rk.empties(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
+  match u:
+    case True{}:
+      ok
+    case False{}:
+      ok
+
+def same_promise(u: Bool, -M: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat, ok: {RnRecovery.below(same, M) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.rec.promise(u, RnRecovery.Rk.promises(k, row), same, last, RnRecovery.Rec{k, row, same, last}))), M) == True{} : Bool}:
+  match u:
+    case True{}:
+      ok
+    case False{}:
+      ok
+
 # a round that ran: m < repeat, so whichever row it makes is below the cap
 def same_kept(kept: Bool, +m: Nat, +b: Nat, pos: {RnRecovery.below(0n, m) == True{} : Bool}, e: {RnRecovery.below(m, b) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.ran.same(kept, m), Nat.max(b, 1n)) == True{} : Bool}:
   match kept:
@@ -141,6 +156,10 @@ def same_out(+rc: RnRecovery.RCfg, o: RnRecovery.Out, +k: RnRecovery.Rk, +row: N
       zero_below_max(RnRecovery.RCfg.repeat(rc))
     case RnRecovery.Other{}:
       ok
+    case RnRecovery.Empty{}:
+      same_empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), Stop.empty_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
+    case RnRecovery.Promise{}:
+      same_promise(RnRecovery.below(RnRecovery.Rk.promises(k, row), Stop.promise_cap()), Nat.max(RnRecovery.RCfg.repeat(rc), 1n), k, row, same, last, ok)
 
 def same_step(+rc: RnRecovery.RCfg, o: RnRecovery.Out, r: RnRecovery.Rec, ok: {RnRecovery.below(RnRecovery.Rec.same(r), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, o, r))), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}:
   match r:

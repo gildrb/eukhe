@@ -131,3 +131,7 @@ import ./laws/call_lift.bend as CallLift
 import ./laws/rlm_query.bend as RlmQuery
 import ./laws/rebase.bend as Rebase
 import ./laws/arg_repair.bend as ArgRepair
+import ./laws/wait_any.bend as WaitAny
+import ./laws/stop.bend as LawsStop
+import ./laws/headless_settle.bend as HeadlessSettle
+import ./laws/headless_exit.bend as HeadlessExit

@@ -726,7 +726,8 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
 }
 
 /// The system prompt the provider receives is `build_system_prompt`'s
-/// output for the same inputs, followed by the `codemode` section.
+/// output for the same inputs, with the `codemode` section between its
+/// body and its closing `<critical>` block, which ends the prompt.
 #[tokio::test]
 async fn prompt_sections_join_to_the_old_system_prompt() {
     let fixture = fixture();
@@ -813,16 +814,22 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     assert!(expected.contains("Project instructions."));
     assert!(expected.contains("Appended."));
     assert!(expected.contains("Model guidance."));
-    assert!(expected.contains("Subagents and completion notifications are unavailable"));
-    // The `codemode` section, which the old builder lacks, follows it: the
-    // tools scripts can call.
+    assert!(expected.contains("Subagents are unavailable in this session"));
+    let critical = crate::prompts::closing_block(None).expect("the layered prompt closes");
+    let body = expected
+        .strip_suffix(critical)
+        .and_then(|body| body.strip_suffix("\n\n"))
+        .unwrap_or_else(|| panic!("the old prompt ends with the critical block:\n{expected}"));
+    // The `codemode` section, which the old builder lacks, follows the body
+    // (the tools scripts can call), and the critical block closes the
+    // prompt after every section.
     let codemode = actual
-        .strip_prefix(expected.as_str())
-        .unwrap_or_else(|| panic!("the old prompt starts the system prompt:\n{actual}"));
+        .strip_prefix(body)
+        .and_then(|rest| rest.strip_suffix(critical))
+        .unwrap_or_else(|| panic!("the old prompt wraps the system prompt:\n{actual}"))
+        .trim();
     assert!(
-        codemode
-            .trim_start()
-            .starts_with("<codemode>\nTools scripts can call (`await tools.<name>(args)`):")
+        codemode.starts_with("<codemode>\nTools scripts can call (`await tools.<name>(args)`):")
             && codemode.ends_with("</codemode>"),
         "{codemode}"
     );
@@ -830,7 +837,9 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
 }
 
 /// Every segment the old builder can produce has a section, in the same
-/// order, for each memory side and for a replaced prompt.
+/// order, for each memory side and for a replaced prompt; the closing
+/// `<critical>` block, its own extension's section, is the last segment of
+/// a layered prompt and absent from a replaced one.
 #[test]
 fn section_keys_follow_the_breakdown_order() {
     let skills = Vec::new();
@@ -840,6 +849,7 @@ fn section_keys_follow_the_breakdown_order() {
             text: "Custom.".to_owned(),
         };
         for custom_prompt in [None, Some(custom)] {
+            let replaced = custom_prompt.is_some();
             let breakdown = system_prompt_breakdown(&BuildSystemPromptOptions {
                 custom_prompt,
                 model_prompt_extras: Some("Model guidance."),
@@ -862,7 +872,18 @@ fn section_keys_follow_the_breakdown_order() {
                 memory,
             });
             let keys = crate::durable::section_keys(memory);
-            let mut positions = breakdown.segments.iter().map(|segment| {
+            let (closing, body) = breakdown.segments.split_last().expect("segments");
+            assert_eq!(
+                closing.name == crate::prompts::CLOSING_SEGMENT,
+                !replaced,
+                "the closing block ends a layered prompt only: {memory:?}"
+            );
+            let ordered = if replaced {
+                &breakdown.segments[..]
+            } else {
+                body
+            };
+            let mut positions = ordered.iter().map(|segment| {
                 keys.iter()
                     .position(|key| *key == segment.name)
                     .unwrap_or_else(|| panic!("no section for segment {}", segment.name))

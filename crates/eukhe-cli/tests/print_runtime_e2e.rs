@@ -567,8 +567,8 @@ fn print_mode_overflow_skip_surfaces_the_warning_row() {
 /// `compaction_end` pair with `reason: "overflow"` and `willRetry: true`,
 /// the retried turn without a new user message, and the reported failure
 /// surface — the outcome row's message pair, then the `compaction_end`
-/// failure. json mode keeps the TS exit contract (0 unless the autonomous
-/// gates or a thrown error decide otherwise).
+/// failure. json mode exits non-zero on the failed run like text mode
+/// (`headless_exit`: a provider error is never a final answer).
 #[test]
 fn print_mode_overflow_json_streams_the_compaction_events() {
     let home = isolated_home();
@@ -588,7 +588,7 @@ fn print_mode_overflow_json_streams_the_compaction_events() {
         &["--mode", "json", "-p", &seed, &probe],
         &script,
     );
-    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(code, 1, "stderr: {stderr}");
     let events: Vec<serde_json::Value> = stdout
         .lines()
         .map(serde_json::from_str)

@@ -13,6 +13,10 @@
 //!   compaction's comes after "Compaction:", and the opening says so. The
 //!   spec marks only compactions, so a model had to tell a turn by the
 //!   missing mark; one took a bare user message for a compaction input.
+//! - A running subagent's report is waited for, never a reason to end the
+//!   turn: when only its report is left, the agent waits for it in the
+//!   turn with `jobs.wait`. The spec's "go on, or end your turn" left the
+//!   task unfinished until the report woke the agent.
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -71,9 +75,9 @@ say in your reply what you learned that will matter later.
 
 Messages the user sends while you work reach you between tool calls. Subagents
 and computer tasks run in the background; each one's report reaches you as a
-message starting "[Name]", between your tool calls or as a new turn. Never wait
-for one (no sleep, no polling): go on, or end your turn and tell the user what
-is running."#;
+message starting "[Name]", between your tool calls or as a new turn. Never poll
+for one (no sleep): go on with other work, and when only its report is left,
+wait for it in this turn with `await jobs.wait()`."#;
 
 /// The compactions (§5 "# Compactions").
 const COMPACTIONS: &str = r#"# Compactions
@@ -191,8 +195,8 @@ pub(crate) fn cut_follow_up(line: &str) -> String {
 mod tests {
     /// The system prompt is the spec's §5 prompt verbatim (kept as written
     /// in `prompts/gist_prompt.txt`) with exactly the deviations the module
-    /// documents: the agent's name, its replies' kind, and no computers
-    /// paragraph.
+    /// documents: the agent's name, its replies' kind, no computers
+    /// paragraph, the turn mark, and waiting for a report in the turn.
     #[test]
     fn the_system_prompt_is_the_specs_with_only_the_documented_deviations() {
         let spec = include_str!("prompts/gist_prompt.txt").trim_end();
@@ -205,6 +209,10 @@ mod tests {
             .replace(
                 "followed by\nthe user's new message, or by a task starting \"Compaction:\".",
                 "followed by\na task starting \"Turn:\" and the user's new message, or by a task starting\n\"Compaction:\".",
+            )
+            .replace(
+                "Never wait\nfor one (no sleep, no polling): go on, or end your turn and tell the user what\nis running.",
+                "Never poll\nfor one (no sleep): go on with other work, and when only its report is left,\nwait for it in this turn with `await jobs.wait()`.",
             )
             .replace("Unii", super::AGENT_NAME);
         assert_eq!(super::memory_system_layer(), expected);

@@ -15,6 +15,7 @@ mod leak;
 mod note;
 mod repeat;
 mod round;
+mod stop;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -47,7 +48,7 @@ use serde::{Deserialize, Serialize};
 use self::decide::{
     after_compaction, after_reply, before_request, recover, retry_note, threshold_for, Act,
     Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
-    Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
+    Threshold, CAPS, LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
@@ -55,6 +56,7 @@ use self::leak::{scan, Leak};
 use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
+use self::stop::{said, Facts};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{estimate_context, select_cut};
@@ -602,11 +604,16 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
-    // The note of a retry after a noted reply (H4.7), then a forced call's
-    // soft prompt, end the request; the native flag follows the
+    // The note of a retry after a noted reply (H4.7), the rounds left once
+    // few remain (the round cap, `stop::rounds_note`), then a forced
+    // call's soft prompt, end the request; the native flag follows the
     // escalation. None of them is committed to the transcript.
     let force = force_tool.map(|option| Forcing::of(option, &model, options.reasoning));
-    let ends = note.iter().map(RetryNote::text);
+    let rounds = stop::rounds_note(
+        runtime.settings().max_tool_rounds.get(),
+        task.input.rounds.count,
+    );
+    let ends = note.iter().map(RetryNote::text).chain(rounds);
     for text in ends.chain(force.iter().map(|force| soft_prompt(&force.forced.tool))) {
         messages.push(Message::User(UserMessage {
             content: UserContent::Text(text),
@@ -1241,23 +1248,31 @@ async fn classify(
                 message.stop_reason = StopReason::ToolUse;
             }
         }
+        let text = message.content.iter().any(|content| match content {
+            AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
+            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
+        });
         let reply = Ended {
-            text: message.content.iter().any(|content| match content {
-                AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
-                AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
-            }),
+            text,
             calls: !calls.is_empty(),
         }
         .reply();
         // A stuck reply gets its recovery (H4.8): the note of the request
-        // counts the notes of each recovery in a row.
+        // counts the notes of each recovery in a row. A reply with no tool
+        // call is a candidate stop: the stop Directors pick the recovery
+        // that continues the run, or let the stop stand (`stop::walk`).
         let stuck = match reply {
             Reply::Calls => Some(Stuck::Calls {
                 rounds: rounds_in_a_row(context, &calls),
             }),
-            Reply::Error { .. } if message.stop_reason == StopReason::Length => Some(Stuck::Length),
-            Reply::Text => broken.is_some().then_some(Stuck::Leak),
-            Reply::Error { .. } | Reply::Deferred(_) | Reply::Overflow { .. } => None,
+            Reply::Text | Reply::Error { .. } => stop::walk(&Facts {
+                cut: message.stop_reason == StopReason::Length,
+                text,
+                broken: broken.is_some(),
+                pending: stop::pending(runtime, cx).await?,
+                said: &said(&message),
+            }),
+            Reply::Deferred(_) | Reply::Overflow { .. } => None,
         };
         let thinking: usize = message
             .content
@@ -1280,8 +1295,12 @@ async fn classify(
         // and a retry leaves it out of the next request's context and ends
         // that request with a note (H4.7).
         let (reply, cause, error) = match stuck {
+            // The walk never lets a reply with no text stand (law
+            // `stop_empty_continues`).
             None => match reply {
-                Reply::Error { .. } => (reply, Some(NoteCause::NoAnswer), Some(no_answer)),
+                Reply::Error { .. } => {
+                    (reply, Some(NoteCause::NoAnswer { row: 0 }), Some(no_answer))
+                }
                 Reply::Text | Reply::Calls | Reply::Deferred(_) | Reply::Overflow { .. } => {
                     (reply, None, None)
                 }
@@ -1340,18 +1359,35 @@ async fn classify(
                         (quit, None, Some(error))
                     }
                     (Stuck::Length, Act::Redo { row }) => {
-                        let cause = NoteCause::Length {
-                            tokens: message.usage.output,
-                            row,
-                        };
-                        (redo, Some(cause), Some(no_answer))
+                        let tokens = message.usage.output;
+                        if text {
+                            let error = "The model hit the output limit before it finished its \
+                                         answer; the harness did not take the cut text as the \
+                                         answer"
+                                .to_owned();
+                            (redo, Some(NoteCause::Cut { tokens, row }), Some(error))
+                        } else {
+                            (
+                                redo,
+                                Some(NoteCause::Length { tokens, row }),
+                                Some(no_answer),
+                            )
+                        }
                     }
                     (Stuck::Length, Act::Quit) => {
-                        let error = format!(
-                            "{no_answer}. The model hit the output limit while it was still \
-                             reasoning after {LENGTH_NOTES} length notes in a row: use a \
-                             different model or raise the model's max output tokens"
-                        );
+                        let error = if text {
+                            format!(
+                                "The model hit the output limit before it finished its answer, \
+                                 after {LENGTH_NOTES} length notes in a row: use a different \
+                                 model or raise the model's max output tokens"
+                            )
+                        } else {
+                            format!(
+                                "{no_answer}. The model hit the output limit while it was still \
+                                 reasoning after {LENGTH_NOTES} length notes in a row: use a \
+                                 different model or raise the model's max output tokens"
+                            )
+                        };
                         (quit, None, Some(error))
                     }
                     (Stuck::Leak, Act::Redo { row }) => match broken {
@@ -1370,16 +1406,50 @@ async fn classify(
                         }
                         None => (reply, None, None),
                     },
-                    // At its cap, a leak answers as text.
-                    (Stuck::Leak, Act::Stand | Act::Quit) => (Reply::Text, None, None),
-                    (Stuck::Length | Stuck::Leak, Act::Run)
-                    | (Stuck::Length | Stuck::Calls { .. }, Act::Stand) => (reply, None, None),
+                    // At its cap a leak fails the run: markup is never an
+                    // answer (law `rec_leak_gives_up`).
+                    (Stuck::Leak, Act::Quit) => {
+                        let error = format!(
+                            "The model kept writing tool calls as markup in its text after \
+                             {LEAK_NOTES} leak notes in a row, and the harness could not read \
+                             them"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    (Stuck::Empty, Act::Redo { row }) => {
+                        (redo, Some(NoteCause::NoAnswer { row }), Some(no_answer))
+                    }
+                    (Stuck::Empty, Act::Quit) => {
+                        let error = format!(
+                            "{no_answer}, again after every empty note the harness sends in a row"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    // The answer stays: the run asks again with a note.
+                    (Stuck::Promise, Act::Remind { row }) => {
+                        (redo, Some(NoteCause::Promised { row }), None)
+                    }
+                    (Stuck::Promise, Act::Stand) => (Reply::Text, None, None),
+                    (
+                        Stuck::Length | Stuck::Leak | Stuck::Empty,
+                        Act::Run | Act::Stand | Act::Remind { .. },
+                    )
+                    | (Stuck::Calls { .. }, Act::Stand | Act::Remind { .. })
+                    | (Stuck::Promise, Act::Run | Act::Redo { .. } | Act::Quit) => {
+                        (reply, None, None)
+                    }
                 }
             }
         };
+        // A run that fails at the length cap ended on the output limit: its
+        // last message keeps the stop reason length (ACP reports
+        // `max_tokens`); every other failed reply is an error.
+        let at_limit = stuck == Some(Stuck::Length) && cause.is_none();
         if let Some(error) = error {
             message.error_message = Some(error);
-            message.stop_reason = StopReason::Error;
+            if !at_limit {
+                message.stop_reason = StopReason::Error;
+            }
         }
         (reply, cause)
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {

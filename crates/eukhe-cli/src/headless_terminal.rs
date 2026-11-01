@@ -5,6 +5,7 @@
 //! substantive entry (an assistant answer or a slash-command result) as the
 //! primary.
 
+use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
 use eukhe_core::durable::messages::{
     COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, REFINEMENT_NOTICE_CUSTOM_TYPE,
@@ -72,6 +73,29 @@ impl HeadlessPrimary {
             Self::SlashCommandResult {
                 success, severity, ..
             } => (!success || severity.as_deref() == Some("error")).then_some(RunFailure::Silent),
+        }
+    }
+
+    /// The primary as the exit rule's fact (`headless_exit`).
+    pub(crate) fn kind(&self) -> Primary {
+        match self {
+            Self::Assistant(message) => match message.stop_reason {
+                StopReason::Stop | StopReason::Length => Primary::Answer,
+                StopReason::ToolUse | StopReason::Pending | StopReason::Deferred => {
+                    Primary::Unfinished
+                }
+                StopReason::Error => Primary::ProviderError,
+                StopReason::Aborted => Primary::Aborted,
+            },
+            Self::SlashCommandResult {
+                success, severity, ..
+            } => {
+                if *success && severity.as_deref() != Some("error") {
+                    Primary::SlashOk
+                } else {
+                    Primary::SlashFailed
+                }
+            }
         }
     }
 }

@@ -4,7 +4,7 @@
 {"prompt": "Rename the function parse_cfg to parse_config in src/config.rs.", "expect_skill": null, "expect": "Does the edit in this loop; spawns nothing."}
 {"prompt": "What does the README say about installation?", "expect_skill": null, "expect": "Reads the README directly; spawns nothing."}
 {"prompt": "Implement the parser, then the evaluator that uses it, then the CLI on top.", "expect_skill": null, "expect": "Works the dependent steps in order in this loop; no subagent, the parts share state."}
-{"prompt": "rlm.spawn failed with 'subagent concurrency limit 4 is already full'.", "expect_skill": "subagents", "expect": "Waits for a running child to settle (rlm.collect) or does the work here; does not retry the same spawn unchanged."}
-{"prompt": "Three children are running; collect their results once they finish.", "expect_skill": "subagents", "expect": "Ends the turn or does other work; reads replies as they arrive and the files the children wrote; no polling loop."}
+{"prompt": "rlm.spawn failed with 'subagent concurrency limit 4 is already full'.", "expect_skill": "subagents", "expect": "Waits in this turn for a running child to settle (await jobs.wait()) or does the work here; does not retry the same spawn unchanged."}
+{"prompt": "Three children are running; collect their results once they finish.", "expect_skill": "subagents", "expect": "Does any other work first, then waits in the same turn with await jobs.wait() until the three reports arrive, and reads the replies and the files the children wrote; no sleep or polling loop, and no end of turn while children run."}
 {"prompt": "Ask the explorer agent where the retry policy lives.", "expect_skill": "agent-message", "expect": "Messages the existing agent instead of spawning a new one."}
 {"prompt": "Run this review/fix loop as a saved machine I can rerun every week.", "expect_skill": "factory", "expect": "Uses a factory, not ad-hoc spawns."}

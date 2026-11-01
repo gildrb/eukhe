@@ -133,14 +133,6 @@ impl KernelPool {
         lock(&self.kernels).get(&conversation_id).cloned()
     }
 
-    /// The job boards of every kernel of the session.
-    pub(crate) fn boards(&self) -> Vec<Arc<CellJobs>> {
-        lock(&self.kernels)
-            .values()
-            .map(|kernel| Arc::clone(&kernel.jobs))
-            .collect()
-    }
-
     /// The kernel of `conversation_id`, created (not booted) on first use in
     /// `cwd`.
     ///

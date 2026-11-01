@@ -13,8 +13,12 @@
 //! The runtime's blocking budget bounds the call (ADR 0010): a cell still
 //! running when it expires keeps running as a job, the call settles
 //! `detached` with the output so far, and the cell's end settles the job
-//! ([`super::jobs`]). A later call waits for the job within its own budget,
-//! then settles `busy` without running its code.
+//! ([`super::jobs`]). A cell inside a blocking wait (`jobs.wait`,
+//! `rlm.collect`) does not detach: the budget restarts when its last wait
+//! ends. A later call waits for a detached job within its own budget,
+//! then settles `busy` without running its code, unless its whole code is
+//! one `await jobs.wait(...)`, which runs without the kernel
+//! ([`super::wait::served`]).
 //!
 //! A cell runs code that may run any program, so the approval gate covers
 //! it as one `bash` step of the effect `exec` (bend/runners.bend): it runs
@@ -45,15 +49,15 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_shell::Refusal;
-use eukhe_types::job::{CellStatus, JobId, JobSettled};
+use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
 use futures::FutureExt;
 use serde_json::json;
 
-use super::jobs::CellJobEntry;
 use super::kernels::ConversationKernel;
+use super::wait;
 use super::RlmRuntime;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
@@ -73,7 +77,7 @@ use crate::kernel::ReplKernelManager;
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. A cell runs code: it runs at once when `exec` is in the user's shell.autoEffects (the default), else only after the user approves it; a denied or unanswered cell does not run. Prefer the bash tool for reading files and running read-only commands: those run without approval. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message.";
+const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. A cell runs code: it runs at once when `exec` is in the user's shell.autoEffects (the default), else only after the user approves it; a denied or unanswered cell does not run. Prefer the bash tool for reading files and running read-only commands: those run without approval. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message; when the next step needs it, wait for it in the turn with `await jobs.wait(\"<job>\")` (or `await jobs.wait()` for whatever settles first).";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -231,11 +235,16 @@ async fn execute(
         .kernel(conversation_id, cwd)
         .map_err(|error| session_error(&error))?;
 
-    // A detached cell still holds the kernel: wait for it within the budget,
-    // then report it instead of queueing this cell behind it.
+    // A detached cell still holds the kernel. A cell that only waits on
+    // the agent's work runs without the kernel; any other waits for the
+    // detached cell within the budget, then reports it instead of queueing
+    // behind it.
     if let Some(running) = kernel.jobs.running() {
+        if let Some(ask) = wait::served(&code) {
+            return serve_wait(runtime, &running, ask, conversation_id, cx).await;
+        }
         let waited = tokio::select! {
-            waited = jobs::wait_until(deadline, running.job.ended()) => waited,
+            waited = jobs::wait_until(deadline, running.ended()) => waited,
             () = call_aborted(cx) => {
                 return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
             }
@@ -327,14 +336,34 @@ async fn execute(
         };
         tokio::spawn(async move { manager.execute(&code, opts).await })
     };
-    let waited = tokio::select! {
-        waited = jobs::wait_until(deadline, &mut execution) => waited,
-        // The abort stops the cell (interrupt, then the kill after the
-        // grace); the call settles when the cell does.
-        () = call_aborted(cx) => {
-            job_signal.abort();
-            Wait::Settled((&mut execution).await)
+    let mut holds = manager.blocking_waits();
+    let waited = loop {
+        let waited = tokio::select! {
+            waited = jobs::wait_until(deadline, &mut execution) => waited,
+            // The abort stops the cell (interrupt, then the kill after the
+            // grace); the call settles when the cell does.
+            () = call_aborted(cx) => {
+                job_signal.abort();
+                Wait::Settled((&mut execution).await)
+            }
+        };
+        if matches!(waited, Wait::Detached) && *holds.borrow_and_update() > 0 {
+            // The cell is in a blocking wait: the agent waits on purpose.
+            // The budget starts again once its last wait ends.
+            tokio::select! {
+                joined = &mut execution => break Wait::Settled(joined),
+                // The guard the wait answers is dropped at once: it is not Send.
+                () = holds.wait_for(|held| *held == 0).map(drop) => {
+                    deadline = tokio::time::Instant::now() + budget;
+                }
+                () = call_aborted(cx) => {
+                    job_signal.abort();
+                    break Wait::Settled((&mut execution).await);
+                }
+            }
+            continue;
         }
+        break waited;
     };
     let executed = match waited {
         Wait::Settled(joined) => joined,
@@ -371,14 +400,7 @@ async fn execute(
                     settle_detached(joined, &mut cell_output, &kernel)
                 };
                 tracing::debug!(job = %job_id, status = status.label(), "detached cell settled");
-                settle.settle(status, output.clone());
-                if let Some(sink) = sink {
-                    sink(JobSettled::Cell {
-                        job: job_id,
-                        status,
-                        output,
-                    });
-                }
+                settle.settle(status, output, sink.as_ref());
             });
             return Ok(detached);
         }
@@ -542,9 +564,11 @@ fn detached_result(
         code: Some("detached".to_owned()),
         message: format!(
             "The cell outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
-             the cell keeps running. Its end reaches this session as a [job-settled job:{job}] message \
-             with its output, waking the session if idle. Until then the kernel is busy: an ipython call \
-             waits for the job up to the budget, then reports it still running."
+             the cell keeps running. Keep working; when the next step needs its result, wait for it \
+             in this turn with `await jobs.wait(\"{job}\")` (up to 30 min), which runs while the kernel \
+             is busy; never sleep-poll and never end the turn on it. Otherwise its end arrives as a \
+             [job-settled job:{job}] message. Until then any other ipython call waits for the job up \
+             to the budget, then reports it still running."
         ),
         omitted: None,
         artifact: None,
@@ -566,13 +590,14 @@ fn detached_result(
 
 /// A call that found the kernel still held by a detached cell past the
 /// budget: its code did not run.
-fn busy_result(running: &CellJobEntry) -> ToolExecutionResult {
-    let job = running.job.id();
-    let elapsed_ms = running.job.elapsed().as_millis();
+fn busy_result(running: &Job) -> ToolExecutionResult {
+    let job = running.id();
+    let elapsed_ms = running.elapsed().as_millis();
     ToolExecutionResult {
         output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
             "Not run: the kernel is still running job {job} (started {elapsed_ms} ms ago). \
-             Its end reaches this session as a [job-settled job:{job}] message with its output."
+             Wait for it with `await jobs.wait(\"{job}\")`, which runs while the kernel is busy, \
+             or stop it with `await jobs.cancel(\"{job}\")`."
         )))]),
         is_error: Some(true),
         details: Some(JsonValue::from(json!({
@@ -581,6 +606,36 @@ fn busy_result(running: &CellJobEntry) -> ToolExecutionResult {
             "kernelRestarted": false,
         }))),
         ..ToolExecutionResult::default()
+    }
+}
+
+/// A cell whose whole code is one `jobs.wait`, run without the kernel the
+/// detached cell `holder` holds ([`wait::served`]).
+async fn serve_wait(
+    runtime: &RlmRuntime,
+    holder: &Job,
+    ask: wait::Ask,
+    conversation: eukhe_durable::types::ConversationId,
+    cx: &Context,
+) -> SessionResult<ToolExecutionResult> {
+    match wait::wait(runtime, conversation, ask, None, call_aborted(cx)).await {
+        Ok(wait::Ended::Cancelled) => {
+            Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")))
+        }
+        Ok(ended) => Ok(ToolExecutionResult {
+            output: Some(vec![UserContentBlock::Text(TextContent::new(
+                wait::served_text(&ended, holder),
+            ))]),
+            is_error: Some(false),
+            details: Some(JsonValue::from(json!({
+                "version": IPYTHON_VERSION,
+                "status": "ok",
+                "served": { "holder": holder.id().as_str() },
+                "kernelRestarted": false,
+            }))),
+            ..ToolExecutionResult::default()
+        }),
+        Err(error) => Ok(error_result(format!("RuntimeError: {error}"))),
     }
 }
 

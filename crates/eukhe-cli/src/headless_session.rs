@@ -16,6 +16,7 @@ use eukhe_core::durable::{
     EukheSession, ForkPoint, ModelRequest, PromptConfig, ResolvedListing, SessionConfig,
     SessionLocation, SessionRole, SessionStorage,
 };
+use eukhe_daemon::job_notices::HeadlessWakes;
 use eukhe_daemon::lease::SessionLease;
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 
@@ -31,6 +32,9 @@ pub(crate) struct HeadlessSession {
     pub cwd: PathBuf,
     /// The fork source, when the session was forked from another one.
     pub parent_session: Option<PathBuf>,
+    /// The session's job-settled wake (its in-flight notices count toward
+    /// quiescence).
+    pub wakes: HeadlessWakes,
 }
 
 /// Which session to open.
@@ -107,47 +111,48 @@ pub(crate) async fn open_headless_session(
     match selection {
         Selection::Memory => {
             let session_id = new_session_id();
-            let config = session_config(
+            let (session, wakes) = open(
                 options,
                 &options.config.cwd,
                 &session_id,
                 SessionStorage::Memory,
+                cx,
             )
             .await?;
-            let session = open(config, cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: None,
                 session_id,
                 cwd: options.config.cwd.clone(),
                 parent_session: None,
+                wakes,
             })
         }
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: None,
+                wakes,
             })
         }
         Selection::Fork { source } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             Ok(HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
+                wakes,
             })
         }
         Selection::Open {
@@ -182,8 +187,7 @@ pub(crate) async fn open_headless_session(
                         })?;
                 }
             }
-            let config = session_config(options, &cwd, &session_id, jsonl(&dir)).await?;
-            let session = open(config, cx).await?;
+            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             if cwd_override.is_some() {
                 set_main_cwd(&session, &cwd, cx).await?;
             }
@@ -194,6 +198,7 @@ pub(crate) async fn open_headless_session(
                 session_id,
                 cwd,
                 parent_session: None,
+                wakes,
             })
         }
     }
@@ -368,11 +373,42 @@ fn jsonl(dir: &Path) -> SessionStorage {
     }
 }
 
-async fn open(config: SessionConfig, cx: &Context) -> Result<Arc<EukheSession>, String> {
-    open_session(config, cx)
+/// Open a session with the CLI inputs ([`session_config`]), its
+/// job-settled wake, and its subagent runtime, like a daemon worker's: a
+/// settled background job or kernel command, or a child's report, wakes
+/// the session into its next turn. Children run as daemon child sessions
+/// ([`crate::headless_children`]; the supervisor starts on the first
+/// spawn).
+async fn open(
+    options: &RunOptions,
+    cwd: &Path,
+    session_id: &str,
+    storage: SessionStorage,
+    cx: &Context,
+) -> Result<(Arc<EukheSession>, HeadlessWakes), String> {
+    let session_file = match &storage {
+        SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
+        SessionStorage::Memory => None,
+    };
+    let mut config = session_config(options, cwd, session_id, storage).await?;
+    let children = crate::headless_children::HeadlessChildren::new(
+        options,
+        session_id,
+        cwd,
+        session_file.as_deref(),
+        config.role.rlm_depth,
+        config.role.rlm_max_depth,
+    );
+    config.children = Some(children.host());
+    let wakes = HeadlessWakes::default();
+    wakes.wire(&mut config);
+    let session = open_session(config, cx)
         .await
         .map(Arc::new)
-        .map_err(|error| format!("{error:#}"))
+        .map_err(|error| format!("{error:#}"))?;
+    wakes.bind(&session);
+    children.bind(&session);
+    Ok((session, wakes))
 }
 
 /// The open inputs from the CLI flags: model and thinking (a new root's

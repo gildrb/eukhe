@@ -31,6 +31,7 @@ pub mod observe;
 mod open;
 pub mod optchat;
 pub(crate) mod path_policy;
+pub mod pending;
 mod prompt;
 mod registry;
 mod retry_outcome;

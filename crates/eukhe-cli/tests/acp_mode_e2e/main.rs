@@ -381,7 +381,13 @@ fn daemon_request(socket: &std::path::Path, id: &str, command: &Value) -> Value 
         .unwrap_or_else(|| panic!("the daemon closed without answering {id}"))
 }
 
+/// The namespaced eukhe payload of one session/update frame.
+fn update_meta(frame: &Value) -> &Value {
+    &frame["params"]["update"]["_meta"]["com.eukhe"]
+}
+
 mod compaction_rlm;
 mod daemon_attached;
+mod job_hold;
 mod protocol;
 mod stop_close;

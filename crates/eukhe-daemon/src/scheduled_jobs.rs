@@ -166,9 +166,16 @@ impl QueueHooks {
             return;
         };
         let prefix = fire_request_prefix(job);
-        if let Err(error) =
-            withdraw_queued(&hosted, |request_id| request_id.starts_with(&prefix)).await
-        {
+        let withdrawn = match hosted.main() {
+            Ok(main) => {
+                withdraw_queued(hosted.harness(), &main, |request_id| {
+                    request_id.starts_with(&prefix)
+                })
+                .await
+            }
+            Err(error) => Err(error.into()),
+        };
+        if let Err(error) = withdrawn {
             eprintln!("eukhe-daemon worker: withdrawing a queued heartbeat failed: {error:#}");
         }
     }
