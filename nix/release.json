@@ -1,18 +1,18 @@
 {
-  "version": "0.10.60",
-  "tag": "eukhe-v0.10.60",
+  "version": "0.10.61",
+  "tag": "eukhe-v0.10.61",
   "assets": {
     "aarch64-darwin": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.60/eukhe-0.10.60-darwin-arm64.tar.gz",
-      "hash": "sha256-r2ZRejJEJ6BeY8h9qCqy5xL1shZAaTFgXGbSgsWJmzM="
+      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.61/eukhe-0.10.61-darwin-arm64.tar.gz",
+      "hash": "sha256-aMQYNKsyGVmAAHRatbUb4qZJAS968aEXpyKX6HWzSqw="
     },
     "aarch64-linux": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.60/eukhe-0.10.60-linux-arm64.tar.gz",
-      "hash": "sha256-Ivddg7XAfHrHMqTBAygrCDQI0kfg7mXPvxLDfns92dY="
+      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.61/eukhe-0.10.61-linux-arm64.tar.gz",
+      "hash": "sha256-BBt3D7Y1tCtsO0Wul5tI5maN87La90uLTgV1EksnVpU="
     },
     "x86_64-linux": {
-      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.60/eukhe-0.10.60-linux-x64.tar.gz",
-      "hash": "sha256-V6s/A327KXURT3yDW9IffShzc2qcdaBJFFMZ9/f3PAg="
+      "url": "https://github.com/gildrb/eukhe/releases/download/eukhe-v0.10.61/eukhe-0.10.61-linux-x64.tar.gz",
+      "hash": "sha256-xu9U/4ZqlmGHAwiRSIdE5mLK0/AN8xcYE4ZLLleG+Bg="
     }
   }
 }
