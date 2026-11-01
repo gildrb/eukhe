@@ -81,7 +81,10 @@ case "${mode}" in
     # GitHub repo explicitly.
     repo="$(git remote get-url github | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
     gh workflow run eukhe-release.yml --repo "${repo}" --ref main -f sha="${sha}"
-    echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started" | tee -a "${summary}"
+    {
+      echo "${stamp} ${sha:0:12} passed in ${minutes} min: release started"
+      { grep -E "^  flaky: " "${last}" || true; } | sort -u
+    } | tee -a "${summary}"
     ;;
   *)
     echo "usage: scripts/ci_nightly.sh run|status" >&2

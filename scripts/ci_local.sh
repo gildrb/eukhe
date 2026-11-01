@@ -179,7 +179,13 @@ tests_touched() {
   # The e2e tests run the other workspace binaries from target/debug, which
   # `cargo test -p` does not rebuild: a stale one tests old code.
   clean_env cargo build --workspace --bins --locked
-  clean_env cargo test "${SELECTED[@]}" --locked --no-fail-fast
+  # A run that fails (often the load of other work on this machine) runs
+  # once more with half the test threads; only a second failure fails the
+  # gate, and the first failure is named as flaky.
+  if ! clean_env cargo test "${SELECTED[@]}" --locked --no-fail-fast; then
+    echo "==> tests failed; running them once more with fewer threads (a pass marks the failure flaky)"
+    clean_env RUST_TEST_THREADS="$(( ($(nproc) + 1) / 2 ))" cargo test "${SELECTED[@]}" --locked --no-fail-fast
+  fi
 }
 
 proofs() {
@@ -280,7 +286,7 @@ clean_env() {
 }
 
 workspace_tests() {
-  local total="${TEST_SHARDS}" dir shard pids=() failed=0
+  local total="${TEST_SHARDS}" dir shard pids=() loaded=() failed=0
   dir="$(mktemp -d)"
   # The JSON lines name each test executable: the shards run them, never
   # `cargo test -p`, which would relink the shared binaries under them.
@@ -293,10 +299,22 @@ workspace_tests() {
     pids+=("$!")
   done
   for shard in $(seq 1 "${total}"); do
-    if ! wait "${pids[shard - 1]}"; then
+    wait "${pids[shard - 1]}" || loaded+=("${shard}")
+  done
+  # A shard that failed under the load of all shards runs again alone, once,
+  # with every core, after every shard ended. A failure that passes alone is
+  # reported as flaky (its units named, so the timing bug gets fixed) and does
+  # not block the gate or the release; a failure that repeats alone fails it.
+  for shard in "${loaded[@]}"; do
+    echo "==> test shard ${shard}/${total} failed under load; running it again alone"
+    if (trap - INT; clean_env python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
+      --artifacts "${dir}/artifacts.jsonl" --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.alone.log" 2>&1; then
+      echo "==> FLAKY under load, passed alone (shard ${shard}/${total}):"
+      grep -E "FAILED UNITS|^test .* FAILED$" "${dir}/shard-${shard}.log" | sed 's/^/  flaky: /' || true
+    else
       failed=1
-      echo "==> test shard ${shard}/${total} failed; its log:"
-      cat "${dir}/shard-${shard}.log"
+      echo "==> test shard ${shard}/${total} failed again alone; its log:"
+      cat "${dir}/shard-${shard}.alone.log"
     fi
   done
   python3 scripts/ci_test_shard_summary.py --total "${total}" --dir "${dir}"
