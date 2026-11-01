@@ -280,11 +280,29 @@ fn decode_redacted_content(signature: Option<&str>) -> Option<String> {
     atob(signature).ok().map(|bytes| STANDARD.encode(bytes))
 }
 
-/// TS `convertToolResultContent`.
-fn convert_tool_result_content(content: &[UserContentBlock]) -> Result<Vec<JsonValue>, Thrown> {
+/// The line an image of an error tool result becomes: Anthropic models
+/// take only text in an error tool result.
+const ERROR_RESULT_IMAGE: &str = "[image omitted: error result]";
+
+/// Whether a tool result failed: its images then go as text lines.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultStatus {
+    Success,
+    Error,
+}
+
+/// TS `convertToolResultContent`. eukhe addition: an error result's images
+/// are sent as [`ERROR_RESULT_IMAGE`] lines.
+fn convert_tool_result_content(
+    content: &[UserContentBlock],
+    status: ResultStatus,
+) -> Result<Vec<JsonValue>, Thrown> {
     let mut result = Vec::new();
     for block in content {
         match block {
+            UserContentBlock::Image(_) if status == ResultStatus::Error => {
+                result.push(json!({ "text": ERROR_RESULT_IMAGE }));
+            }
             UserContentBlock::Image(image) => {
                 result.push(json!({ "image": create_image_block(&image.mime_type, &image.data)? }));
             }
@@ -436,7 +454,14 @@ pub(crate) fn convert_messages(
                     tool_results.push(json!({
                         "toolResult": {
                             "toolUseId": next.tool_call_id,
-                            "content": convert_tool_result_content(&next.content)?,
+                            "content": convert_tool_result_content(
+                                &next.content,
+                                if next.is_error {
+                                    ResultStatus::Error
+                                } else {
+                                    ResultStatus::Success
+                                },
+                            )?,
                             "status": if next.is_error { "error" } else { "success" },
                         }
                     }));
@@ -635,6 +660,35 @@ pub(crate) fn build_additional_model_request_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: an error tool result's image went to Bedrock as an image
+    /// block, which Anthropic models refuse in an error result. It now goes
+    /// as a text line; a successful result keeps its image.
+    #[test]
+    fn an_error_tool_result_sends_text_only() {
+        let content = vec![
+            UserContentBlock::Text(eukhe_types::pi_ai::TextContent::new("failed")),
+            UserContentBlock::Image(eukhe_types::pi_ai::ImageContent {
+                data: "AA==".to_string(),
+                mime_type: "image/png".to_string(),
+            }),
+        ];
+        assert_eq!(
+            (
+                convert_tool_result_content(&content, ResultStatus::Error).unwrap(),
+                convert_tool_result_content(&content, ResultStatus::Success)
+                    .unwrap()
+                    .len(),
+            ),
+            (
+                vec![
+                    json!({ "text": "failed" }),
+                    json!({ "text": ERROR_RESULT_IMAGE })
+                ],
+                2,
+            )
+        );
+    }
 
     #[test]
     fn normalizes_tool_call_ids_like_the_ts_regex() {

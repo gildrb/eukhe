@@ -6,8 +6,8 @@ use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, ThinkingLevel, Tool, ToolResultMessage, UserContent,
-    UserContentBlock,
+    ModelThinkingLevel, ProviderEnv, TextContent, ThinkingLevel, Tool, ToolResultMessage,
+    UserContent, UserContentBlock,
 };
 use serde_json::json;
 
@@ -176,12 +176,37 @@ fn convert_content_blocks(content: &[UserContentBlock]) -> JsonValue {
     JsonValue::Array(blocks)
 }
 
-/// TS `convertToolResult`.
+/// The line an image of an error tool result becomes: Anthropic takes
+/// only text in a `tool_result` marked `is_error` (a 400 otherwise, and
+/// the result stays in the transcript for every later request).
+const ERROR_RESULT_IMAGE: &str = "[image omitted: error result]";
+
+/// TS `convertToolResult`. eukhe addition: an error result's images are
+/// sent as [`ERROR_RESULT_IMAGE`] lines.
 fn convert_tool_result(message: &ToolResultMessage) -> JsonValue {
+    let has_images = message
+        .content
+        .iter()
+        .any(|block| matches!(block, UserContentBlock::Image(_)));
+    let content = if message.is_error && has_images {
+        let text_only: Vec<UserContentBlock> = message
+            .content
+            .iter()
+            .map(|block| match block {
+                UserContentBlock::Text(_) => block.clone(),
+                UserContentBlock::Image(_) => {
+                    UserContentBlock::Text(TextContent::new(ERROR_RESULT_IMAGE))
+                }
+            })
+            .collect();
+        convert_content_blocks(&text_only)
+    } else {
+        convert_content_blocks(&message.content)
+    };
     json!({
         "type": "tool_result",
         "tool_use_id": message.tool_call_id,
-        "content": convert_content_blocks(&message.content),
+        "content": content,
         "is_error": message.is_error,
     })
 }
@@ -906,6 +931,61 @@ pub(crate) fn build_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tool_result(is_error: bool) -> ToolResultMessage {
+        ToolResultMessage {
+            tool_call_id: "c1".to_string(),
+            tool_name: "shot".to_string(),
+            content: vec![
+                UserContentBlock::Text(TextContent::new("failed")),
+                UserContentBlock::Image(eukhe_types::pi_ai::ImageContent {
+                    data: "AA==".to_string(),
+                    mime_type: "image/png".to_string(),
+                }),
+            ],
+            details: None,
+            usage: None,
+            nested_calls: None,
+            is_error,
+            timestamp: 1,
+            duration_ms: None,
+        }
+    }
+
+    /// Regression: an error tool result that carried an image was sent
+    /// with the image block, which Anthropic refuses ("all content must be
+    /// type `text` if `is_error` is true"); every later request of the
+    /// session failed the same way. Its images now go as text lines; a
+    /// successful result keeps them.
+    #[test]
+    fn an_error_tool_result_sends_text_only() {
+        assert_eq!(
+            (
+                convert_tool_result(&tool_result(true)),
+                convert_tool_result(&tool_result(false)),
+            ),
+            (
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": format!("failed\n{ERROR_RESULT_IMAGE}"),
+                    "is_error": true,
+                }),
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": [
+                        { "type": "text", "text": "failed" },
+                        {
+                            "type": "image",
+                            "source": { "type": "base64", "media_type": "image/png", "data": "AA==" },
+                        },
+                    ],
+                    "is_error": false,
+                }),
+            )
+        );
+    }
 
     #[test]
     fn normalizes_tool_call_ids() {
