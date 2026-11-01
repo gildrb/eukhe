@@ -255,19 +255,11 @@ fn onboarding_gate_follows_settings_and_auth() {
 
     // A completed onboarding never reopens, regardless of model state.
     let mut settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent);
-    settings
-        .set_onboarding_shown(true)
-        .expect("set flag")
-        .applied()
-        .expect("the value applies");
+    settings.set_onboarding_shown(true).expect("set flag");
     let options = run_options(dir.path());
     assert!(onboarding_task(&options, None).is_none());
     // Back to a first run for the readiness checks below.
-    settings
-        .set_onboarding_shown(false)
-        .expect("reset flag")
-        .applied()
-        .expect("the value applies");
+    settings.set_onboarding_shown(false).expect("reset flag");
 
     // Flagless launch: a models.json provider key + saved default model
     // resolve the startup model, so the onboarding task mounts (TS

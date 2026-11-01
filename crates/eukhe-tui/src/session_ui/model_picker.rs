@@ -6,7 +6,7 @@ use super::{
     DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerOptions, ModelSelectionApplied,
     Result, SessionUi, SetModelOutcome, StatusKind, SwitchScope, UI_REQUEST_TIMEOUT_MS,
 };
-use crate::client_settings::ModelRoleSource;
+use crate::client_settings::{all_roles_note, ModelRoleSource};
 use crate::glyphs::WARN;
 use crate::model_hub::{local_choice_items, HubTarget, ModelHub, ModelHubAction, RoleRow};
 use eukhe_types::ai::{CatalogModel, ModelInput, ModelThinkingLevel};
@@ -555,8 +555,8 @@ impl SessionUi {
     /// session's settings default follow -- then the client refreshes its
     /// model label and records the `Model: <id>` status row. With
     /// [`SwitchScope::AllRoles`] the daemon also saves the model as the
-    /// all-roles model, and a row names it with the roles that keep their
-    /// own model and the ones it does not cover. The typed
+    /// all-roles model for every LLM role, and a row names it (with the
+    /// project settings that still run a role on another model). The typed
     /// provider-unauthenticated refusal is the sign-in route (`NeedsSignIn`);
     /// every other failure surfaces as the error note.
     pub(super) async fn try_set_model(
@@ -591,40 +591,16 @@ impl SessionUi {
                 self.refresh_model_label(provider, model_id, view).await;
                 self.note(&format!("Model: {model_id}"), view);
                 if scope == SwitchScope::AllRoles {
-                    // What each role runs on now, as the settings resolve
-                    // it: a role with its own other model keeps it; a role
-                    // left on its default is one the all-roles model does
-                    // not serve.
+                    // Every LLM role runs on it now (the daemon cleared
+                    // their own global settings); a setting the project
+                    // keeps is named once, with the edit that clears it.
                     let selector = format!("{provider}/{model_id}");
-                    let session = Self::session_model_selector(view);
-                    let mut own = Vec::new();
-                    let mut uncovered = Vec::new();
-                    for (role, value) in ModelRole::ALL.into_iter().filter_map(|role| {
-                        let settings = self.client_settings.as_ref()?;
-                        Some((role, settings.model_role(role, &session)?))
-                    }) {
-                        match value.source {
-                            ModelRoleSource::Global | ModelRoleSource::Project => {
-                                if let Some(kept) = value.selector.filter(|kept| *kept != selector)
-                                {
-                                    own.push(format!("{} ({kept})", role.label()));
-                                }
-                            }
-                            ModelRoleSource::Unset => uncovered.push(role.label()),
-                            ModelRoleSource::AllRoles => {}
-                        }
-                    }
-                    let mut lines = vec![format!("All roles: {selector}")];
-                    if !own.is_empty() {
-                        lines.push(format!("Own model kept: {}", own.join(", ")));
-                    }
-                    if !uncovered.is_empty() {
-                        lines.push(format!(
-                            "Not covered (default kept): {}",
-                            uncovered.join(", ")
-                        ));
-                    }
-                    self.note(&lines.join("\n"), view);
+                    let overrides = self
+                        .client_settings
+                        .as_ref()
+                        .map(|settings| settings.all_roles_overrides(&selector))
+                        .unwrap_or_default();
+                    self.note(&all_roles_note(&selector, &overrides), view);
                 }
                 self.maybe_warn_anthropic_subscription_auth_if_subscribed(Some(provider), view)
                     .await;

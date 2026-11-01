@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eukhe_core::agent_log::{AgentLog, AgentLogLevel};
-use eukhe_core::models::roles::{role_model, RoleSource};
+use eukhe_core::models::roles::{all_roles_overrides, role_model, RoleSource};
 use eukhe_core::resources::ThemePathOptions;
 use eukhe_core::settings::cvar::{table, Decl};
 use eukhe_core::settings::{SettingsManager, SettingsScope};
@@ -16,7 +16,8 @@ use eukhe_core::tiny::{Candidate, Pick};
 use eukhe_theme::ThemeSources;
 use eukhe_tiny::LOCAL_PREFIX;
 use eukhe_tui::client_settings::{
-    ClientSettings, LocalRoleChoices, LocalRoleModel, ModelRoleSource, ModelRoleValue,
+    AllRolesOverride, ClientSettings, LocalRoleChoices, LocalRoleModel, ModelRoleSource,
+    ModelRoleValue,
 };
 use eukhe_types::cvar::Command;
 use eukhe_types::model_roles::ModelRole;
@@ -337,6 +338,18 @@ impl ClientSettings for CliClientSettings {
         self.manager().clear_global(&[&table::MODEL_ROLE_ALL])
     }
 
+    fn all_roles_overrides(&self, selector: &str) -> Vec<AllRolesOverride> {
+        all_roles_overrides(&self.manager(), selector)
+            .into_iter()
+            .map(|kept| AllRolesOverride {
+                role: kept.role,
+                selector: kept.selector,
+                setting: kept.setting.to_owned(),
+                file: kept.file,
+            })
+            .collect()
+    }
+
     fn set_model_role(
         &self,
         role: ModelRole,
@@ -561,21 +574,17 @@ mod tests {
         assert!(!settings.show_images());
         assert!(!settings.fullscreen());
 
-        // The persisted file the real consumers read.
-        let content =
-            std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
-        let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(value["theme"], "dark");
-        assert_eq!(value["idleEvictionMinutes"], "off");
-        assert_eq!(value["treeFilterMode"], "all");
-        assert_eq!(value["terminal"]["showImages"], false);
-        assert_eq!(value["terminal"]["fullscreen"], false);
+        // The persisted file the real consumers read: the global config.cfg.
+        assert_eq!(
+            std::fs::read_to_string(agent_dir.join("config.cfg")).expect("config.cfg"),
+            "set theme dark\nset idleEvictionMinutes off\nset treeFilterMode all\n\
+             set terminal.showImages false\nset terminal.fullscreen false\n"
+        );
 
         // The factory's opt-in gate (`/factory on|off|status`): unset reads
         // as disabled (the default off), and the write persists the exact
-        // nested-camelCase key the kernel's gate and the daemon's lane
-        // advertisement read -- over the same document, leaving the other
-        // keys alone.
+        // nested-camelCase key of settings.json the kernel's gate and the
+        // daemon's lane advertisement read.
         assert!(!settings.factory_enabled());
         settings.set_factory_enabled(true).expect("factory enabled");
         assert!(settings.factory_enabled());
@@ -583,7 +592,6 @@ mod tests {
             std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
         let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(value["factory"]["enabled"], true);
-        assert_eq!(value["theme"], "dark", "the write leaves the other keys");
         settings
             .set_factory_enabled(false)
             .expect("factory disabled");
@@ -816,29 +824,50 @@ mod tests {
         );
     }
 
-    /// Regression (audit M2): a theme pick that the global config.cfg
-    /// shadows was saved and then reverted at the next start with no
-    /// word. The setter now says which file sets it.
+    /// Regression (audit M2, then v0.10.61): a theme pick while the global
+    /// config.cfg sets the theme was saved to settings.json, where the cfg
+    /// line shadowed it. The pick replaces the cfg line and applies; only a
+    /// project's config.cfg sets over it, and the setter says so.
     #[test]
-    fn a_setting_a_cfg_file_shadows_says_so() {
+    fn a_setting_picked_in_the_ui_sticks_and_a_project_override_says_so() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let agent_dir = dir.path().join("agent");
+        let project_cfg = dir.path().join("project").join(".eukhe").join("config.cfg");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::create_dir_all(project_cfg.parent().expect("project dir")).expect("project");
         std::fs::write(agent_dir.join("config.cfg"), "set theme light\n").expect("config.cfg");
+        std::fs::write(&project_cfg, "set theme mono\n").expect("project config.cfg");
         let settings = CliClientSettings::new(
             dir.path().to_path_buf(),
             agent_dir.clone(),
             CliThemeFlags::default(),
         );
-        let error = settings.set_theme("dark").expect_err("shadowed");
+        let in_project = CliClientSettings::new(
+            dir.path().join("project"),
+            agent_dir.clone(),
+            CliThemeFlags::default(),
+        );
+        settings.set_theme("dark").expect("applies");
+        let error = in_project
+            .set_theme("dusk")
+            .expect_err("the project sets it");
         assert_eq!(
-            error.to_string(),
-            format!(
-                "`theme` is saved, but {} also sets it, so that value applies",
-                agent_dir.join("config.cfg").display()
+            (
+                settings.theme(),
+                std::fs::read_to_string(agent_dir.join("config.cfg")).expect("config.cfg"),
+                error.to_string(),
+                in_project.theme(),
+            ),
+            (
+                Some("dusk".to_owned()),
+                "set theme dusk\n".to_owned(),
+                format!(
+                    "`theme` is saved, but {} sets it for this project, so that value applies here",
+                    project_cfg.display()
+                ),
+                Some("mono".to_owned()),
             )
         );
-        assert_eq!(settings.theme().as_deref(), Some("light"));
     }
 
     /// The registered themes are the resource system's (here an

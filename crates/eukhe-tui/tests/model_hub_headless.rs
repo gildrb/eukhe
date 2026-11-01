@@ -2,8 +2,8 @@
 //! value and source, a memory pick that saves `memory` through the
 //! settings seam (never the session), a chat pick that switches the live
 //! session through `set_model`, a cleared role that falls back, and the
-//! all-roles model: `/model --all` switches with `allRoles` and the hub
-//! shows which roles run on it.
+//! all-roles model: `/model --all` switches with `allRoles`, every LLM
+//! role runs on it, and the note names what a project still sets.
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
 #![allow(clippy::large_futures)]
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use eukhe_tui::client_settings::{ModelRoleSource, ModelRoleValue};
+use eukhe_tui::client_settings::{AllRolesOverride, ModelRoleSource, ModelRoleValue};
 use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,
     SessionSelection, UiMode,
@@ -66,8 +66,9 @@ fn respond(writer: &mut UnixStream, id: &str, command: &str, data: &Value) {
 }
 
 /// The mock daemon: one empty session; every command it gets is recorded.
-/// A `set_model` with `allRoles` saves the all-roles model like the
-/// daemon (into the settings seam's store).
+/// A `set_model` with `allRoles` saves the all-roles model and clears each
+/// LLM role's own global setting like the daemon (in the settings seam's
+/// store); a project's setting stays.
 fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>, settings: &HubSettings) {
     let (stream, _) = listener.accept().expect("accept");
     let mut writer = stream.try_clone().expect("clone mock socket");
@@ -105,6 +106,9 @@ fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>, settings: &HubSe
                 command["provider"].as_str().unwrap_or_default(),
                 command["modelId"].as_str().unwrap_or_default()
             ));
+            settings.roles.lock().expect("roles").retain(|role, _| {
+                [ModelRole::Speech.id(), ModelRole::Dictation.id()].contains(role)
+            });
         }
         let data = match kind.as_str() {
             "create" => json!({
@@ -140,11 +144,12 @@ fn serve(listener: &UnixListener, commands: &Mutex<Vec<Value>>, settings: &HubSe
     }
 }
 
-/// The settings seam over an in-memory role table and all-roles model;
-/// every write is logged.
+/// The settings seam over an in-memory role table (global and project
+/// settings) and all-roles model; every write is logged.
 #[derive(Default)]
 struct HubSettings {
     roles: Mutex<HashMap<&'static str, String>>,
+    project: Mutex<HashMap<&'static str, String>>,
     all: Mutex<Option<String>>,
     writes: Mutex<Vec<String>>,
 }
@@ -155,10 +160,20 @@ impl HubSettings {
     }
 }
 
+/// The project file the stub's project settings live in.
+const PROJECT_CFG: &str = "/p/config.cfg";
+
 impl eukhe_tui::client_settings::ClientSettings for HubSettings {
-    /// A role's own setting, else the all-roles model (every role but
-    /// speech and dictation), else its fallback.
+    /// A role's own setting (the project's, then the global one), else the
+    /// all-roles model (every role but speech and dictation), else its
+    /// fallback.
     fn model_role(&self, role: ModelRole, _session_model: &str) -> Option<ModelRoleValue> {
+        let project = self
+            .project
+            .lock()
+            .expect("project")
+            .get(role.id())
+            .cloned();
         let own = self.roles.lock().expect("roles").get(role.id()).cloned();
         let all = self
             .all
@@ -166,10 +181,11 @@ impl eukhe_tui::client_settings::ClientSettings for HubSettings {
             .expect("all")
             .clone()
             .filter(|_| !matches!(role, ModelRole::Speech | ModelRole::Dictation));
-        let (selector, source) = match (own, all) {
-            (Some(own), _) => (Some(own), ModelRoleSource::Global),
-            (None, Some(all)) => (Some(all), ModelRoleSource::AllRoles),
-            (None, None) => (None, ModelRoleSource::Unset),
+        let (selector, source) = match (project, own, all) {
+            (Some(project), _, _) => (Some(project), ModelRoleSource::Project),
+            (None, Some(own), _) => (Some(own), ModelRoleSource::Global),
+            (None, None, Some(all)) => (Some(all), ModelRoleSource::AllRoles),
+            (None, None, None) => (None, ModelRoleSource::Unset),
         };
         Some(ModelRoleValue {
             selector,
@@ -177,6 +193,21 @@ impl eukhe_tui::client_settings::ClientSettings for HubSettings {
             fallback: format!("fallback-of-{}", role.id()),
             thinking: None,
         })
+    }
+    fn all_roles_overrides(&self, selector: &str) -> Vec<AllRolesOverride> {
+        let project = self.project.lock().expect("project");
+        ModelRole::ALL
+            .into_iter()
+            .filter_map(|role| {
+                let kept = project.get(role.id()).filter(|kept| *kept != selector)?;
+                Some(AllRolesOverride {
+                    role,
+                    selector: kept.clone(),
+                    setting: format!("{}.model", role.id()),
+                    file: PROJECT_CFG.to_owned(),
+                })
+            })
+            .collect()
     }
     fn all_roles_model(&self) -> Option<ModelRoleValue> {
         let selector = self.all.lock().expect("all").clone();
@@ -535,10 +566,12 @@ fn the_hub_lists_assigns_switches_and_clears_roles() {
     assert!(memory.starts_with("set memory=prov/"));
 }
 
-/// `/model --all prov/alpha` switches the session with `allRoles` and
-/// names the roles that keep their own model and the ones it does not
-/// cover; the hub then shows the all-roles row and each role's source;
-/// clearing the all-roles row clears it through the settings seam.
+/// `/model --all prov/alpha` switches the session with `allRoles`: every
+/// LLM role runs on it (a role's own global model is cleared), and the
+/// note names only what the project still sets, with the edit that clears
+/// it (never speech or dictation); the hub then shows the all-roles row
+/// and each role's source; clearing the all-roles row clears it through
+/// the settings seam.
 #[test]
 fn the_all_roles_model_switches_and_shows_each_roles_source() {
     std::env::remove_var("TMUX");
@@ -552,6 +585,11 @@ fn the_all_roles_model_switches_and_shows_each_roles_source() {
         .roles
         .lock()
         .expect("roles")
+        .insert(ModelRole::Image.id(), "prov/img".to_owned());
+    settings
+        .project
+        .lock()
+        .expect("project")
         .insert(ModelRole::Memory.id(), "prov/own".to_owned());
     let served = Arc::clone(&settings);
     let handle = std::thread::spawn(move || serve(&listener, &recorded, &served));
@@ -581,7 +619,7 @@ fn the_all_roles_model_switches_and_shows_each_roles_source() {
             options(socket, Arc::clone(&settings)),
             UiMode::Headless(HeadlessPlan {
                 steps,
-                width: 120,
+                width: 200,
                 height: 30,
             }),
         ))
@@ -607,15 +645,12 @@ fn the_all_roles_model_switches_and_shows_each_roles_source() {
         })]
     );
     let outcome_frame = first_frame_with(&frames, "All roles: prov/alpha");
-    for line in [
-        "Own model kept: Memory compactor (prov/own)".to_owned(),
-        format!(
-            "Not covered (default kept): {}, {}",
-            ModelRole::Speech.label(),
-            ModelRole::Dictation.label()
-        ),
-    ] {
-        assert!(outcome_frame.contains(&line), "{line} in {outcome_frame}");
+    let kept = format!(
+        "Still set by the project: Memory compactor (prov/own); remove memory.model from {PROJECT_CFG} to use prov/alpha there too"
+    );
+    assert!(outcome_frame.contains(&kept), "{kept} in {outcome_frame}");
+    for gone in ["Own model kept", "Not covered", "Speech", "Dictation"] {
+        assert!(!outcome_frame.contains(gone), "{gone} in {outcome_frame}");
     }
 
     // The rows of the hub before the clear: the first roles frame (the
@@ -655,7 +690,7 @@ fn the_all_roles_model_switches_and_shows_each_roles_source() {
         rows,
         [
             row(ModelRole::Chat, "session - prov/alpha"),
-            row(ModelRole::Memory, "global - prov/own"),
+            row(ModelRole::Memory, "project - prov/own"),
             on_all(ModelRole::Auxiliary),
             on_all(ModelRole::Image),
             on_all(ModelRole::Subagent),

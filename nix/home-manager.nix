@@ -45,11 +45,14 @@ in
       '';
       description = ''
         Merged into ~/.eukhe/settings.json at activation. eukhe also writes
-        this file (the model choices: `defaultProvider`, `defaultModel`,
-        `recentModels`), so it is neither linked nor replaced: every declared
-        key wins at every activation, and every key eukhe wrote that the
-        declaration does not name stays. A file that is not a JSON object is
-        left as it is (the activation says so).
+        this file (`recentModels`, `onboardingShown`, packages, MCP servers),
+        so it is neither linked nor replaced: every declared key wins at every
+        activation, and every key eukhe wrote that the declaration does not
+        name stays. A file that is not a JSON object is left as it is (the
+        activation says so). A setting chosen in eukhe (the model, a role's
+        model, the thinking level, `/set --global`) is saved in
+        ~/.eukhe/config.cfg, which sets over this file: a declared key is the
+        default until it is chosen in eukhe.
       '';
     };
 

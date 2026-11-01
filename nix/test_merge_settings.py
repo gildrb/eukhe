@@ -45,10 +45,10 @@ class MergeSettingsTest(unittest.TestCase):
         self.target.parent.mkdir()
         self.target.write_text(json.dumps({
             "theme": "old",
-            "memory": {"model": "elpis-fast/qwen3.8-27b", "thinking": "low"},
-            "defaultProvider": "elpis-fast",
+            "memory": {"model": "elpis/qwen3.8-27b", "thinking": "low"},
+            "defaultProvider": "elpis",
             "defaultModel": "qwen3.8-27b",
-            "recentModels": ["elpis-fast/qwen3.8-27b", "anthropic/claude-opus-5-5"],
+            "recentModels": ["elpis/qwen3.8-27b", "anthropic/claude-opus-5-5"],
             "trustedProjects": ["/old"],
         }, indent=2))
         result = merge(self.target, {
@@ -61,9 +61,9 @@ class MergeSettingsTest(unittest.TestCase):
         self.assertEqual(json.loads(self.target.read_text()), {
             "theme": "death-note",
             "memory": {"model": "anthropic/claude-sonnet-5-5", "thinking": "low"},
-            "defaultProvider": "elpis-fast",
+            "defaultProvider": "elpis",
             "defaultModel": "qwen3.8-27b",
-            "recentModels": ["elpis-fast/qwen3.8-27b", "anthropic/claude-opus-5-5"],
+            "recentModels": ["elpis/qwen3.8-27b", "anthropic/claude-opus-5-5"],
             "trustedProjects": ["/home/u/Repos/dotfiles"],
             "onboardingShown": True,
         })

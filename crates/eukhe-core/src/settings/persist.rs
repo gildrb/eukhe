@@ -12,19 +12,19 @@ use std::fmt;
 use eukhe_bend::rules::config;
 use serde_json::{Map, Value};
 
-/// What the value a setter wrote does: it applies, or a higher layer
-/// sets the same setting.
+/// What the value a setter wrote does: it applies, or the project's
+/// `config.cfg` sets the same setting over it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum Persisted {
     /// The written value is the value that applies.
     Applies,
-    /// A higher layer sets these settings, so the written values do not
-    /// apply.
+    /// The project sets these settings, so the written values (saved as
+    /// the default) do not apply in it.
     Shadowed(Vec<Shadow>),
 }
 
-/// A written setting that a higher layer sets.
+/// A written setting that the project sets over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shadow {
     /// The setting (its cvar id).
@@ -53,7 +53,7 @@ impl fmt::Display for Shadow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "`{}` is saved, but {} also sets it, so that value applies",
+            "`{}` is saved, but {} sets it for this project, so that value applies here",
             self.id, self.file
         )
     }

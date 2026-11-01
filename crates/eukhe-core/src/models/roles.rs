@@ -11,7 +11,7 @@ use eukhe_bend::rules::model_roles::role_sources;
 use eukhe_bend::{expect_core, Entry};
 use eukhe_types::model_roles::ModelRole;
 
-use crate::settings::cvar::{table, Cvars};
+use crate::settings::cvar::{table, Cvars, Decl};
 
 pub use eukhe_bend::rules::model_roles::RoleSource;
 
@@ -40,28 +40,50 @@ impl RoleModel {
     }
 }
 
+/// The setting of `role`'s own model; `None` for the chat, whose own
+/// model is two settings (`defaultProvider`/`defaultModel`).
+#[must_use]
+pub fn own_decl(role: ModelRole) -> Option<&'static Decl> {
+    match role {
+        ModelRole::Chat => None,
+        ModelRole::Memory => Some(&table::MEMORY_MODEL),
+        ModelRole::Auxiliary => Some(&table::AUXILIARY_MODEL),
+        ModelRole::Image => Some(&table::IMAGE_MODEL),
+        ModelRole::Subagent => Some(&table::SUBAGENT_DEFAULT_MODEL),
+        ModelRole::Gateway => Some(&table::GATEWAY_SIGNAL_MODEL),
+        ModelRole::Query => Some(&table::RLM_QUERY_MODEL),
+        ModelRole::Titles => Some(&table::MODEL_ROLE_TINY),
+        ModelRole::Judge => Some(&table::MODEL_ROLE_JUDGE),
+        ModelRole::Translate => Some(&table::MODEL_ROLE_TRANSLATE),
+        ModelRole::Speech => Some(&table::MODEL_ROLE_SPEECH),
+        ModelRole::Dictation => Some(&table::MODEL_ROLE_DICTATION),
+    }
+}
+
 /// The role's own setting (trimmed; `None` when blank). Chat:
 /// `defaultProvider/defaultModel`, set when both are.
 fn own_selector(cvars: &Cvars, role: ModelRole) -> Option<String> {
-    let decl = match role {
-        ModelRole::Chat => {
-            let provider = cvars.optional_text(&table::DEFAULT_PROVIDER)?;
-            let model = cvars.optional_text(&table::DEFAULT_MODEL)?;
-            return Some(format!("{provider}/{model}"));
-        }
-        ModelRole::Memory => &table::MEMORY_MODEL,
-        ModelRole::Auxiliary => &table::AUXILIARY_MODEL,
-        ModelRole::Image => &table::IMAGE_MODEL,
-        ModelRole::Subagent => &table::SUBAGENT_DEFAULT_MODEL,
-        ModelRole::Gateway => &table::GATEWAY_SIGNAL_MODEL,
-        ModelRole::Query => &table::RLM_QUERY_MODEL,
-        ModelRole::Titles => &table::MODEL_ROLE_TINY,
-        ModelRole::Judge => &table::MODEL_ROLE_JUDGE,
-        ModelRole::Translate => &table::MODEL_ROLE_TRANSLATE,
-        ModelRole::Speech => &table::MODEL_ROLE_SPEECH,
-        ModelRole::Dictation => &table::MODEL_ROLE_DICTATION,
-    };
-    cvars.optional_text(decl)
+    if let Some(decl) = own_decl(role) {
+        return cvars.optional_text(decl);
+    }
+    let provider = cvars.optional_text(&table::DEFAULT_PROVIDER)?;
+    let model = cvars.optional_text(&table::DEFAULT_MODEL)?;
+    Some(format!("{provider}/{model}"))
+}
+
+/// The roles the all-roles model reaches: those the compiled core's
+/// table fills from it when no role has its own setting (every role that
+/// takes a chat model; never speech or dictation). `/model --all` clears
+/// their own settings (`laws/model_roles.bend` `all_choice_whole_table`).
+#[must_use]
+pub fn all_roles_reach() -> Vec<ModelRole> {
+    expect_core(Entry::ModelRoles, role_sources(|_| false, true))
+        .into_iter()
+        .filter_map(|(role, source)| match source {
+            RoleSource::All => Some(role),
+            RoleSource::Own | RoleSource::Default => None,
+        })
+        .collect()
 }
 
 /// Every role's model source, in `ModelRole::ALL` order (the compiled
@@ -107,4 +129,47 @@ pub fn role_model(cvars: &Cvars, role: ModelRole) -> RoleModel {
         .into_iter()
         .find(|row| row.role == role)
         .expect("the role table holds every role")
+}
+
+/// A role the all-roles model does not run after `/model --all`: a
+/// setting the global write does not clear (a project's) still names
+/// another model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllRolesOverride {
+    pub role: ModelRole,
+    /// The model the role runs on.
+    pub selector: String,
+    /// The setting that names it.
+    pub setting: &'static str,
+    /// The file that sets it.
+    pub file: String,
+}
+
+/// The roles the all-roles model reaches ([`all_roles_reach`]) that do
+/// not run on `selector` in `settings`, in role order, with the setting
+/// and the file that names their model.
+#[must_use]
+pub fn all_roles_overrides(
+    settings: &crate::settings::SettingsManager,
+    selector: &str,
+) -> Vec<AllRolesOverride> {
+    let reach = all_roles_reach();
+    role_table(settings.cvars())
+        .into_iter()
+        .filter(|row| reach.contains(&row.role))
+        .filter_map(|row| {
+            let runs = row.selector.filter(|runs| runs != selector)?;
+            let decl = match row.source {
+                RoleSource::Own => own_decl(row.role).unwrap_or(&table::DEFAULT_MODEL),
+                RoleSource::All => &table::MODEL_ROLE_ALL,
+                RoleSource::Default => return None,
+            };
+            Some(AllRolesOverride {
+                role: row.role,
+                selector: runs,
+                setting: decl.id,
+                file: settings.config_file(decl)?,
+            })
+        })
+        .collect()
 }

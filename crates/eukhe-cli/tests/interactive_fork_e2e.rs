@@ -313,9 +313,7 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     // welcome.
     eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir)
         .set_onboarding_shown(true)
-        .expect("onboarding flag")
-        .applied()
-        .expect("the value applies");
+        .expect("onboarding flag");
     let socket = dir.path().join("daemon.sock");
     let supervisor = spawn_supervisor(&socket, &agent_dir, &session_dir);
 

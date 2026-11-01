@@ -10,10 +10,6 @@
 //!   ([`SettingsManager::read_profile`](super::SettingsManager::read_profile)).
 
 use std::fmt::Write as _;
-use std::fs;
-use std::path::Path;
-
-use super::CONFIG_DIR_NAME;
 
 use eukhe_types::cvar::{parse_script, render_list, Aliases, Binds, Command};
 use serde_json::Value;
@@ -170,7 +166,8 @@ pub(super) fn config_layer(
         document,
         global_cfg: cvars.config().0.len(),
     };
-    if !project_cfg_is_global_cfg(storage) {
+    // A project scope that is the global one applied above, once.
+    if !storage.project_is_global() {
         if let Some(text) = read(SettingsScope::Project, &mut errors) {
             let mut scratch = cvars.clone();
             let mut project_aliases = aliases.clone();
@@ -225,36 +222,6 @@ pub(super) fn config_layer(
         errors,
         withheld,
         bounds,
-    }
-}
-
-/// Whether the project `config.cfg` of `storage` is the global one: the
-/// session's directory holds the agent dir (`eukhe` run from the home
-/// directory), and both names resolve to one file. The global file's
-/// sets already applied; they must not apply twice, as project sets.
-fn project_cfg_is_global_cfg(storage: &dyn SettingsStorage) -> bool {
-    let Some(project) = storage
-        .project_dir()
-        .map(|dir| dir.join(CONFIG_DIR_NAME).join(CONFIG_CFG))
-    else {
-        return false;
-    };
-    let Some(global) = storage
-        .global_location()
-        .and_then(|location| location.parent().map(|dir| dir.join(CONFIG_CFG)))
-    else {
-        return false;
-    };
-    same_cfg_file(&project, &global)
-}
-
-/// Whether two paths name one file: their canonical paths when both
-/// resolve, their raw paths otherwise (an absent file has no canonical
-/// form; then the names decide).
-fn same_cfg_file(left: &Path, right: &Path) -> bool {
-    match (fs::canonicalize(left), fs::canonicalize(right)) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => left == right,
     }
 }
 

@@ -132,7 +132,7 @@ mod tests {
                     "anthropic/claude-fable-5"
                 ),
                 key("openai", "openai-completions", "gpt-5.5"),
-                key("elpis-fast", "openai-completions", "qwen3.8-27b"),
+                key("elpis", "openai-completions", "qwen3.8-27b"),
             ]
             .map(service_tiers),
             [

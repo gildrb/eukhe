@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use eukhe_tui::client_settings::ClientSettings;
+use eukhe_tui::client_settings::{all_roles_note, ClientSettings};
 use eukhe_tui::daemon_build::{relation, Build, Relation};
 use eukhe_tui::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{UserContent, UserContentBlock};
@@ -48,9 +48,9 @@ struct TypingShown {
     since: Instant,
 }
 
-/// What `/model N` switches: the session's model alone, or also the
-/// all-roles model (`/model all N`: the daemon saves it as
-/// `modelRoles.all`, the model of every role without its own).
+/// What `/model N` switches: the session and the gateway's model
+/// (`gateway.signal.model`), or every LLM role (`/model all N`: the daemon
+/// saves `modelRoles.all` and clears each role's own global model).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModelSwitch {
     Session,
@@ -663,15 +663,12 @@ impl<L: DaemonLauncher> Gateway<L> {
             .get("id")
             .and_then(Value::as_str)
             .context("the model has no id")?;
-        let (rest, reply) = match switch {
-            ModelSwitch::Session => (
-                Map::default(),
-                format!("Model set to {provider}/{model_id}."),
-            ),
-            ModelSwitch::AllRoles => (
-                Map::from_iter([("allRoles".to_string(), Value::Bool(true))]),
-                format!("Model set to {provider}/{model_id}, for every role without its own."),
-            ),
+        let selector = format!("{provider}/{model_id}");
+        let rest = match switch {
+            // The phone's model is the gateway role's: the next message
+            // (and the next session) runs on it too.
+            ModelSwitch::Session => Map::from_iter([("save".to_string(), Value::from("gateway"))]),
+            ModelSwitch::AllRoles => Map::from_iter([("allRoles".to_string(), Value::Bool(true))]),
         };
         self.link
             .client
@@ -682,8 +679,13 @@ impl<L: DaemonLauncher> Gateway<L> {
                 model_id: model_id.to_string(),
                 rest,
             })
-            .await
-            .map(|_| reply)
+            .await?;
+        Ok(match switch {
+            ModelSwitch::Session => format!("Model set to {selector}."),
+            ModelSwitch::AllRoles => {
+                all_roles_note(&selector, &self.settings.all_roles_overrides(&selector))
+            }
+        })
     }
 
     /// The session's discovered models (`get_available_models`).
@@ -860,17 +862,19 @@ impl<L: DaemonLauncher> Gateway<L> {
         Ok(())
     }
 
-    /// Switch the session to the Signal model (`gateway.signal.model`)
-    /// when it runs another model. Without the setting the session keeps
-    /// its model.
+    /// Switch the session to the Signal model ([`crate::signal_model`],
+    /// read now) when it runs another model; the switch saves nothing (the
+    /// setting already names the model). Without the setting the session
+    /// keeps its model.
     ///
     /// # Errors
     ///
-    /// The daemon cannot report the session state, or refuses the switch
-    /// (an unknown model, a provider without credentials).
+    /// The setting is not `provider/model-id`, the daemon cannot report
+    /// the session state, or it refuses the switch (an unknown model, a
+    /// provider without credentials).
     #[tracing::instrument(skip(self))]
     async fn select_model(&self, active_session_id: &str) -> anyhow::Result<()> {
-        let Some(model) = &self.config.model else {
+        let Some(model) = crate::signal_model(self.settings.as_ref())? else {
             return Ok(());
         };
         let state = self
@@ -901,7 +905,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 active_session_id: active_session_id.to_string(),
                 provider: model.provider.clone(),
                 model_id: model.model_id.clone(),
-                rest: Map::default(),
+                rest: Map::from_iter([("save".to_string(), Value::from("none"))]),
             })
             .await
             .with_context(|| format!("switch the session to {model} (gateway.signal.model)"))?;

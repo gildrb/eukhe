@@ -551,6 +551,8 @@ pub enum CvarError {
     NotBool { id: String },
     /// `action <id>` outside a key bind: only a client runs actions.
     Action { id: String },
+    /// Cvar `id` is kept as a document: only `settings.json` holds it.
+    Document { id: String },
 }
 
 impl fmt::Display for CvarError {
@@ -570,6 +572,10 @@ impl fmt::Display for CvarError {
             ),
             CvarError::NotBool { id } => write!(f, "`{id}` is not a bool: it cannot toggle"),
             CvarError::Action { id } => write!(f, "`action {id}` runs only from a key bind"),
+            CvarError::Document { id } => write!(
+                f,
+                "`{id}` is kept in settings.json only: a cfg file or `/set` cannot set it"
+            ),
         }
     }
 }
@@ -875,14 +881,15 @@ impl Cvars {
     ///
     /// # Errors
     ///
-    /// An undeclared cvar, a Global cvar in an agent layer, or a value of
-    /// the wrong type.
+    /// A setting kept as a document (`settings.json` only), an undeclared
+    /// cvar, a Global cvar in an agent layer, or a value of the wrong type.
     ///
     /// # Panics
     ///
     /// When the core calls a set valid or of the wrong type that it was
     /// sent as undeclared or unparsed (an inconsistent build).
     pub fn check(&self, kind: LayerKind, id: &str, text: &str) -> Result<Set, CvarError> {
+        document_key(id)?;
         let found = self.registry.index.get(id).copied();
         let parsed = found.and_then(|at| self.registry.decls[at].ty.parse(text));
         let set = match (found, &parsed) {
@@ -973,6 +980,7 @@ impl Cvars {
     /// (`bend/cvar.bend` `tog`): it flips the value the agent has, its
     /// inherited values included.
     fn toggled(&self, kind: LayerKind, id: &str) -> Result<Set, CvarError> {
+        document_key(id)?;
         let number = self
             .registry
             .index
@@ -1002,6 +1010,16 @@ impl Cvars {
             }
         }
     }
+}
+
+/// A command never sets a setting eukhe edits as a document
+/// ([`table::DOCUMENTS`]): `settings.json` is its one store, which every
+/// reader reads.
+fn document_key(id: &str) -> Result<(), CvarError> {
+    if table::DOCUMENTS.iter().any(|decl| decl.id == id) {
+        return Err(CvarError::Document { id: id.to_string() });
+    }
+    Ok(())
 }
 
 static EMPTY_AGENT: LazyLock<AgentLayer> = LazyLock::new(AgentLayer::default);

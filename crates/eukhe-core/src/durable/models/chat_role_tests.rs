@@ -178,6 +178,9 @@ async fn saved_choices_survive_an_update_and_a_settings_json_rewrite() {
         )
     );
 
+    // The chat default lives in config.cfg now: a settings.json rewrite
+    // (the old Home Manager activation) leaves it, and the other roles
+    // run on `modelRoles.all`.
     home.set_global("modelRoles.all", "battery/mock-reason");
     std::fs::write(home.agent.join("settings.json"), "{}").unwrap();
     let all = Some("battery/mock-reason");
@@ -185,7 +188,7 @@ async fn saved_choices_survive_an_update_and_a_settings_json_rewrite() {
         home.resolved_roles().await,
         (
             Some(chat),
-            roles(RoleSource::All, all, RoleSource::All, all)
+            roles(RoleSource::Own, all, RoleSource::All, all)
         )
     );
 }

@@ -343,15 +343,21 @@ impl SettingsManager {
         self.cvars().bool(&table::FACTORY_ENABLED)
     }
 
-    /// `factory.enabled` setter: persists the opt-in gate to the global
-    /// scope (the same shared settings key the daemon's lane advertisement
-    /// and the kernel's factory gate read).
+    /// `factory.enabled` setter: persists the opt-in gate in the global
+    /// `settings.json` (a document key, `table::DOCUMENTS`: the kernel's
+    /// factory gate and the refinement apply read that file), where no cfg
+    /// file sets over it.
     ///
     /// # Errors
     ///
     /// Returns an error when the global settings scope cannot be saved.
     pub fn set_factory_enabled(&mut self, enabled: bool) -> Result<Persisted> {
-        self.set_global_cvar(&table::FACTORY_ENABLED, &Value::Bool(enabled))
+        self.set_document(
+            super::SettingsScope::Global,
+            &table::FACTORY_ENABLED,
+            &Value::Bool(enabled),
+        )?;
+        Ok(Persisted::Applies)
     }
 
     /// `enabledModels` (TS `getEnabledModels`/`setEnabledModels`): the

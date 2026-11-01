@@ -39,6 +39,8 @@ pub enum CvarFailureKind {
     Parse,
     /// An `action`, which only a key bind runs.
     Action,
+    /// A setting kept in `settings.json` only (packages, MCP servers, …).
+    Document,
 }
 
 /// The `data` of a rejected `cvar` command. A failure line with `data`

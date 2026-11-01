@@ -767,3 +767,42 @@ def document.go(xs: List<&2, Decl>, +ds: List<&2, Decl>, +merged: List<&2, Bind>
 # there is one; a later declaration of the same id adds nothing
 def document(+ds: List<&2, Decl>, +merged: List<&2, Bind>, +global: List<&2, Bind>) -> List<&2, Bind>:
   document.go(ds, ds, merged, global, Nil{})
+
+# The stores of the config layer
+# ------------------------------
+# The Rust code builds the config layer of the family from three stores,
+# lowest first: the sets of settings.json (`document`), then the global
+# config.cfg, then the project's config.cfg, read by `layered` with an
+# empty family. Every write of a setting goes to the global config.cfg:
+# the writer replaces the first line that sets the cvar and drops every
+# other set of it, so the global store holds the new set once. `save`
+# puts it last; the place is the same value-wise, since only the sets of
+# one cvar compete in a layer. These defs are the model of that write for
+# the laws (laws/cvar.bend, cvar_save_*); the Rust writer does not call
+# them through an entry.
+
+# keep s unless it sets the dropped cvar (hit)
+def drop.at(hit: Bool, s: Bind, rest: List<&2, Bind>) -> List<&2, Bind>:
+  match hit:
+    case True{}:
+      rest
+    case False{}:
+      s <> rest
+
+# the sets of ss not of x, in order
+def drop(ss: List<&2, Bind>, +x: Nat) -> List<&2, Bind>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case +s <> rest:
+      drop.at(Nat.is_eq(Bind.id(s), x), s, drop(rest, x))
+
+# the global config.cfg g after a write of s: every set of its cvar
+# dropped, s once, after the other sets
+def save(g: List<&2, Bind>, +s: Bind) -> List<&2, Bind>:
+  List.append(&2, Bind, drop(g, Bind.id(s)), [s])
+
+# the config layer: settings.json (doc), then the global config.cfg (g),
+# then the project's config.cfg (p); a later store wins
+def stores(doc: List<&2, Bind>, g: List<&2, Bind>, p: List<&2, Bind>) -> List<&2, Bind>:
+  List.append(&2, Bind, doc, List.append(&2, Bind, g, p))

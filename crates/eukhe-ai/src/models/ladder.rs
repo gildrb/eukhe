@@ -408,13 +408,13 @@ mod tests {
     fn a_model_offers_the_ladder_of_its_highest_source() {
         use ModelThinkingLevel::{High, Low, Medium, Minimal, Off, Xhigh};
         let models = [
-            model("elpis-fast", "qwen3.8-27b", true, None),
-            model("elpis-fast", "qwen3-32b", true, None),
+            model("elpis", "qwen3.8-27b", true, None),
+            model("elpis", "qwen3-32b", true, None),
             model("prime-inference", "qwen3.8-27b", true, None),
-            model("elpis-fast", "llama-4", true, None),
-            model("elpis-fast", "qwen3.8-27b", false, None),
+            model("elpis", "llama-4", true, None),
+            model("elpis", "qwen3.8-27b", false, None),
             model(
-                "elpis-fast",
+                "elpis",
                 "qwen3.8-27b",
                 true,
                 Some(json!({ "high": null, "max": "max" })),
@@ -450,7 +450,7 @@ mod tests {
             ))
             .unwrap()
         };
-        let elpis = registry("elpis-fast", "qwen3.8-27b", true, None);
+        let elpis = registry("elpis", "qwen3.8-27b", true, None);
         let addressed = registry(
             "openai",
             "gpt-5.3-chat-latest",

@@ -945,7 +945,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let models = battery_models(
             dir.path(),
-            r#"{ "providers": { "elpis-fast": {
+            r#"{ "providers": { "elpis": {
                 "baseUrl": "http://127.0.0.1:9/v1",
                 "api": "openai-completions",
                 "apiKey": "TEST_KEY",
@@ -953,7 +953,7 @@ mod tests {
                               "contextWindow": 262144 } ]
             } } }"#,
         );
-        let model = models.get_model("elpis-fast", "qwen3.8-27b").unwrap();
+        let model = models.get_model("elpis", "qwen3.8-27b").unwrap();
         let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
         let base = eukhe_ai::api::simple_options::build_base_options(&model, &context, None, None);
         assert_eq!((model.max_tokens, base.max_tokens), (262_144, None));

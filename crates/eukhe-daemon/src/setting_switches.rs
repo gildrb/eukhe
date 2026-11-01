@@ -25,7 +25,7 @@ use eukhe_types::daemon::{CvarFailureData, CvarFailureKind, CycleDirection, Sess
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
-use crate::model_switch::{apply_model, THINKING_LEVELS};
+use crate::model_switch::{apply_model, ModelSave, THINKING_LEVELS};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::suspended::WithdrawnInput;
 use crate::worker::{model_metadata, Worker};
@@ -171,10 +171,11 @@ impl Worker {
         }
         // A scoped entry may pin the level for the switched-to model (TS
         // `_getThinkingLevelForModelSwitch(next.thinkingLevel)`).
-        let thinking_level = match apply_model(&hosted, next_model, *scoped_thinking).await {
-            Ok(level) => level,
-            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
-        };
+        let thinking_level =
+            match apply_model(&hosted, next_model, *scoped_thinking, ModelSave::Chat).await {
+                Ok(level) => level,
+                Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+            };
         // The clamp runs BEFORE the roster flush so the published snapshot
         // carries the clamped tier with the switched-to model.
         self.clamp_service_tier_for_model();
@@ -649,6 +650,7 @@ fn cvar_failure(command: &str, error: &CvarLineError) -> DaemonResponse {
                 CvarError::Global { id } => (CvarFailureKind::Global, Some(id)),
                 CvarError::NotBool { id } => (CvarFailureKind::NotBool, Some(id)),
                 CvarError::Action { id } => (CvarFailureKind::Action, Some(id)),
+                CvarError::Document { id } => (CvarFailureKind::Document, Some(id)),
             };
             Some(CvarFailureData {
                 kind,

@@ -1292,6 +1292,24 @@ pub const STT_ENABLED: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// The settings eukhe edits as documents: each scope's `settings.json` is
+/// their one store (the package and resource commands, the MCP registry,
+/// the model switch's recent list, the onboarding flag write it, and their
+/// readers read it). No cfg file and no `/set` sets them. Every other
+/// setting a user sets is saved in the global `config.cfg`
+/// (`SettingsManager::save_global`).
+pub const DOCUMENTS: &[&Decl] = &[
+    &ONBOARDING_SHOWN,
+    &ONBOARDING_COMPLETED,
+    &RECENT_MODELS,
+    &MCP_SERVERS,
+    &PACKAGES,
+    &SKILLS,
+    &PROMPTS,
+    &THEMES,
+    &FACTORY_ENABLED,
+];
+
 pub const DECLS: &[Decl] = &[
     ONBOARDING_SHOWN,
     ONBOARDING_COMPLETED,

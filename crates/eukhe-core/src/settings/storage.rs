@@ -69,6 +69,14 @@ pub trait SettingsStorage: Send + Sync {
     /// Where the global scope lives, for user-facing hints.
     fn global_location(&self) -> Option<&Path>;
 
+    /// Whether the project scope is the global scope: the session's
+    /// directory holds the agent dir (`eukhe` run from the home
+    /// directory), so the project's `settings.json` and cfg files are the
+    /// global ones. The settings then load no project scope (the global
+    /// files apply once, as global), and a project write goes to the
+    /// global scope.
+    fn project_is_global(&self) -> bool;
+
     /// The cfg file `name` of a scope (`config.cfg`, `subagent.cfg`,
     /// `agents/<agent>.cfg`, `binds.cfg`): `<agentDir>/<name>` for the
     /// global scope, `<cwd>/.eukhe/<name>` for the project. `Ok(None)` when
@@ -105,6 +113,8 @@ pub struct FileSettingsStorage {
     global_path: PathBuf,
     project_dir: PathBuf,
     project_path: PathBuf,
+    /// `<cwd>/.eukhe` is the agent dir ([`SettingsStorage::project_is_global`]).
+    project_is_global: bool,
 }
 
 /// `name` is a relative path of plain components (`config.cfg`,
@@ -126,9 +136,11 @@ impl FileSettingsStorage {
     pub fn new(cwd: impl Into<PathBuf>, agent_dir: impl Into<PathBuf>) -> Self {
         let agent_dir: PathBuf = agent_dir.into();
         let project_dir: PathBuf = cwd.into();
+        let project_config_dir = project_dir.join(CONFIG_DIR_NAME);
         FileSettingsStorage {
             global_path: agent_dir.join("settings.json"),
-            project_path: project_dir.join(CONFIG_DIR_NAME).join("settings.json"),
+            project_path: project_config_dir.join("settings.json"),
+            project_is_global: same_dir(&project_config_dir, &agent_dir),
             project_dir,
         }
     }
@@ -168,6 +180,16 @@ impl FileSettingsStorage {
             "Failed to acquire settings lock: {}",
             last_error.map_or_else(|| "busy".into(), |e| e.to_string())
         ))
+    }
+}
+
+/// Whether two paths name one directory: their canonical paths when both
+/// resolve, their raw paths otherwise (an absent directory has no
+/// canonical form; then the names decide).
+fn same_dir(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
     }
 }
 
@@ -371,6 +393,10 @@ impl SettingsStorage for FileSettingsStorage {
     fn global_location(&self) -> Option<&Path> {
         Some(&self.global_path)
     }
+
+    fn project_is_global(&self) -> bool {
+        self.project_is_global
+    }
 }
 
 /// The content of cfg file `path`; `None` when it is absent.
@@ -511,6 +537,10 @@ impl SettingsStorage for InMemorySettingsStorage {
 
     fn global_location(&self) -> Option<&Path> {
         None
+    }
+
+    fn project_is_global(&self) -> bool {
+        false
     }
 
     fn read_cfg(&self, scope: SettingsScope, name: &str) -> Result<Option<String>> {

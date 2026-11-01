@@ -122,8 +122,10 @@ async fn set_rlm_max_depth_persists_the_chat_bound() {
         response.data,
         Some(json!({ "maxDepth": 4, "source": "chat", "globalSaved": true }))
     );
-    let settings = std::fs::read_to_string(dir.path().join("agent/settings.json")).unwrap();
-    assert!(settings.contains("\"rlmMaxDepth\": 4") || settings.contains("\"rlmMaxDepth\":4"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("agent/config.cfg")).unwrap(),
+        "set rlmMaxDepth 4\n"
+    );
 }
 
 /// Wire shape: a missing `childId`/`maxDepth` fails the command (the TS

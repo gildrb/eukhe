@@ -13,6 +13,9 @@ pub(crate) mod storage;
 pub(crate) mod trust;
 pub(crate) mod types;
 
+#[cfg(test)]
+mod one_store_tests;
+
 pub use getters::{
     resolve_session_dir, SessionDir, SessionDirSource, SignalGateway, LEGACY_SESSION_DIR_ENV,
     SESSION_DIR_ENV,

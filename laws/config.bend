@@ -23,7 +23,8 @@ import ../spec/settings/config_rules.bend as CR
 
 # (H1) A read/modify/write of a config document
 # ---------------------------------------------
-# settings.json (`eukhe mcp add`, the resource arrays, every setter),
+# settings.json (`eukhe mcp add`, the resource arrays, the recent models,
+# the onboarding flag; every other setter saves in config.cfg),
 # mcp-connections.json (`remove`, verify) and auth.json (`set`,
 # `remove`): the writer reads the document under its lock.
 

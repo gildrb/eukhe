@@ -168,3 +168,60 @@ def resolve(x: In) -> List<&2, Row>:
   match x:
     case In{o, all}:
       rows(roles(), o, all)
+
+# The all-roles switch
+# --------------------
+# `/model --all n` makes every role that takes a chat model resolve to
+# n: it saves the all-roles setting n, the chat's own setting n (the
+# session switch saves `defaultModel`), and clears the own setting of
+# every other role that takes a chat model; speech and dictation keep
+# theirs (they never take the all-roles model). These defs are the model
+# of that switch for the laws (laws/model_roles.bend, all_choice_*); the
+# Rust code does not call them through an entry: it clears the roles
+# whose row `resolve` answers as All{_} for In{every own setting unset,
+# Sel{n}}, the chat aside.
+
+# a role other than the chat after the switch: unset when it takes a
+# chat model, else its own setting
+def all_own.keep(takes: Bool, mine: Choice) -> Choice:
+  match takes:
+    case True{}:
+      Unset{}
+    case False{}:
+      mine
+
+# the own setting mine of role r after the switch to n
+def all_own(r: Role, mine: Choice, +n: Nat) -> Choice:
+  match r:
+    case Chat{}:
+      Sel{n}
+    case Memory{}:
+      all_own.keep(takes_chat(Memory{}), mine)
+    case Auxiliary{}:
+      all_own.keep(takes_chat(Auxiliary{}), mine)
+    case Image{}:
+      all_own.keep(takes_chat(Image{}), mine)
+    case Subagent{}:
+      all_own.keep(takes_chat(Subagent{}), mine)
+    case Gateway{}:
+      all_own.keep(takes_chat(Gateway{}), mine)
+    case Query{}:
+      all_own.keep(takes_chat(Query{}), mine)
+    case Titles{}:
+      all_own.keep(takes_chat(Titles{}), mine)
+    case Judge{}:
+      all_own.keep(takes_chat(Judge{}), mine)
+    case Translate{}:
+      all_own.keep(takes_chat(Translate{}), mine)
+    case Speech{}:
+      all_own.keep(takes_chat(Speech{}), mine)
+    case Dictation{}:
+      all_own.keep(takes_chat(Dictation{}), mine)
+
+# the settings x after `/model --all n`
+def all_in(x: In, +n: Nat) -> In:
+  match x:
+    case In{o, all}:
+      match o:
+        case Owns{chat, memory, auxiliary, image, subagent, gateway, query, titles, judge, translate, speech, dictation}:
+          In{Owns{all_own(Chat{}, chat, n), all_own(Memory{}, memory, n), all_own(Auxiliary{}, auxiliary, n), all_own(Image{}, image, n), all_own(Subagent{}, subagent, n), all_own(Gateway{}, gateway, n), all_own(Query{}, query, n), all_own(Titles{}, titles, n), all_own(Judge{}, judge, n), all_own(Translate{}, translate, n), all_own(Speech{}, speech, n), all_own(Dictation{}, dictation, n)}, Sel{n}}

@@ -327,9 +327,7 @@ fn toggle_package_resource(
     }
     let mut updated_packages = packages;
     updated_packages[index] = entry;
-    settings
-        .set_scope_packages(settings_scope(project), updated_packages)?
-        .applied()?;
+    settings.set_scope_packages(settings_scope(project), updated_packages)?;
     Ok(written)
 }
 
@@ -359,13 +357,11 @@ fn write_resource_array(
     resource_type: ResourceType,
     values: Vec<String>,
 ) -> Result<()> {
-    settings
-        .set_scope_resource_array(
-            settings_scope(project),
-            resource_array_key(resource_type),
-            values,
-        )?
-        .applied()
+    settings.set_scope_resource_array(
+        settings_scope(project),
+        resource_array_key(resource_type),
+        values,
+    )
 }
 
 /// The settings scope of a resource (`project`: the project scope).
@@ -646,8 +642,6 @@ mod tests {
                 crate::settings::SettingsScope::Global,
                 vec![serde_json::json!("npm:foo/bar")],
             )
-            .unwrap()
-            .applied()
             .unwrap();
         let item = ResourceItem {
             path: PathBuf::from("/installed/pkg/skills/pack-skill/SKILL.md"),

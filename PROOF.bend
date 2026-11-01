@@ -1645,6 +1645,14 @@ import ./proof/model_roles/mrw_row_example.bend as PMrwRowExample
 import ./proof/model_roles/mrw_rows_example.bend as PMrwRowsExample
 import ./proof/model_roles/mrw_ffi_example.bend as PMrwFfiExample
 import ./proof/model_roles/mrw_malformed_example.bend as PMrwMalformedExample
+import ./proof/model_roles/own_is_field.bend as POwnIsField
+import ./proof/model_roles/all_choice_whole_table.bend as PAllChoiceWholeTable
+import ./proof/model_roles/all_choice_example.bend as PAllChoiceExample
+import ./proof/model_roles/base/exact.bend as LAModelRolesExact
+import ./proof/model_roles/mrw_choice_exact.bend as PMrwChoiceExact
+import ./proof/model_roles/mrw_owns_exact.bend as PMrwOwnsExact
+import ./proof/model_roles/mrw_in_exact.bend as PMrwInExact
+import ./proof/model_roles/mrw_leading_zero_example.bend as PMrwLeadingZeroExample
 import ./proof/workflow/base.bend as LAWorkflow
 import ./proof/workflow/wf_running_within_concurrency.bend as PWfRunningWithinConcurrency
 import ./proof/workflow/wf_spawned_within_budget.bend as PWfSpawnedWithinBudget
@@ -1955,6 +1963,12 @@ import ./proof/cvar/cvar_tog_exact.bend as PCvarTogExact
 import ./proof/cvar/cvar_written_exact.bend as PCvarWrittenExact
 import ./proof/cvar/cvar_document_exact.bend as PCvarDocumentExact
 import ./proof/cvar/cvar_terms_exact.bend as PCvarTermsExact
+import ./proof/cvar/base/save.bend as LACvarSave
+import ./proof/cvar/cvar_save_reads_back.bend as PCvarSaveReadsBack
+import ./proof/cvar/cvar_save_keeps_others.bend as PCvarSaveKeepsOthers
+import ./proof/cvar/cvar_save_project_wins.bend as PCvarSaveProjectWins
+import ./proof/cvar/cvar_save_once.bend as PCvarSaveOnce
+import ./proof/cvar/cvar_save_example.bend as PCvarSaveExample
 import ./proof/cvar_layers/base.bend as LACvarLayers
 import ./proof/cvar_layers/cvar_layers_ffi_answers.bend as PCvarLayersFfiAnswers
 import ./proof/cvar_layers/cvar_layers_ffi_malformed_exact.bend as PCvarLayersFfiMalformedExact

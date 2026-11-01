@@ -49,6 +49,18 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    // `/model` and the Signal model read the settings the gateway's
+    // sessions run with; a gateway model that names no provider stops the
+    // start (each message reads it again).
+    let settings = crate::client_settings::CliClientSettings::new(
+        config.new_session_cwd.clone(),
+        crate::config::get_agent_dir(),
+        crate::client_settings::CliThemeFlags::default(),
+    );
+    if let Err(error) = eukhe_gateway::signal_model(settings.as_ref()) {
+        eprintln!("Error: {error:#}");
+        return 1;
+    }
     if caller == Caller::Terminal && eukhe_gateway::service_installed() {
         return match eukhe_gateway::restart_service() {
             Ok(()) => {
@@ -89,13 +101,6 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
         socket_path: config.socket_path.clone(),
         spawn_cwd: config.new_session_cwd.clone(),
     };
-    // `/model` reads the all-roles model from the settings the gateway's
-    // sessions run with.
-    let settings = crate::client_settings::CliClientSettings::new(
-        config.new_session_cwd.clone(),
-        crate::config::get_agent_dir(),
-        crate::client_settings::CliThemeFlags::default(),
-    );
     match runtime.block_on(eukhe_gateway::run(config, launcher, settings)) {
         Ok(()) => 0,
         Err(error) => {
@@ -136,41 +141,10 @@ fn gateway_config(
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
     let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
-    // The gateway role's model (`gateway.signal.model`, else
-    // `modelRoles.all`): `provider/model-id`, a provider name has no `/`,
-    // a model id may.
-    let role = eukhe_core::models::roles::role_model(
-        settings.cvars(),
-        eukhe_types::model_roles::ModelRole::Gateway,
-    );
-    let model = match role.selector.as_deref() {
-        None => None,
-        Some(model) => match model.split_once('/') {
-            Some((provider, model_id)) if !provider.is_empty() && !model_id.is_empty() => {
-                Some(eukhe_gateway::SignalModel {
-                    provider: provider.to_string(),
-                    model_id: model_id.to_string(),
-                })
-            }
-            Some(_) | None => {
-                let setting = match role.source {
-                    eukhe_core::models::roles::RoleSource::All => "modelRoles.all".to_owned(),
-                    eukhe_core::models::roles::RoleSource::Own
-                    | eukhe_core::models::roles::RoleSource::Default => {
-                        format!("gateway.signal.model in {}", global_path.display())
-                    }
-                };
-                anyhow::bail!(
-                    "{setting} is {model:?}; set it to provider/model-id (see eukhe model list) or remove it"
-                )
-            }
-        },
-    };
     Ok(eukhe_gateway::GatewayConfig {
         socket_path: crate::config::resolve_daemon_socket_path(daemon_socket),
         session_dir,
         new_session_cwd,
-        model,
         signal: eukhe_gateway::SignalConfig {
             cli_path,
             account,

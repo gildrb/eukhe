@@ -314,8 +314,8 @@ fn write_agent_cfg_round_trips_through_read_profile() {
 
 /// Regression: a setter used to write the whole global document even when
 /// `settings.json` had failed to parse, replacing the user's file with the
-/// defaults plus one field. The broken file now stays byte-identical and
-/// the setter fails.
+/// defaults plus one field. The broken file now stays byte-identical: a
+/// document setter fails, and a setting saves in config.cfg alone.
 #[test]
 fn a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -325,7 +325,11 @@ fn a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse() {
     let broken = "{ \"theme\": \"dark\", oops }\n";
     std::fs::write(&path, broken).expect("write");
     let mut manager = SettingsManager::create(dir.path().join("cwd"), &agent_dir);
-    assert!(manager.set_theme("light".to_string()).is_err());
+    assert!(manager.set_onboarding_shown(true).is_err());
+    assert_eq!(
+        manager.set_theme("light".to_string()).expect("saved"),
+        crate::settings::Persisted::Applies
+    );
     assert_eq!(std::fs::read_to_string(&path).expect("read"), broken);
 }
 

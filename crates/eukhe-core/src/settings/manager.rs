@@ -103,8 +103,13 @@ impl SettingsManager {
         family: Vec<AgentLayer>,
     ) -> Self {
         let global = load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
-        let project_document =
-            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors).settings;
+        // A project scope that is the global one is the global scope: its
+        // files loaded above, once.
+        let project_document = if storage.project_is_global() {
+            Settings::default()
+        } else {
+            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors).settings
+        };
         // An unreadable global config.cfg trusts nothing; config_layer
         // records its error.
         let trusted = global_list(storage.as_ref(), &global.settings, &table::TRUSTED_PROJECTS)
@@ -489,6 +494,11 @@ impl SettingsManager {
     /// The file cannot be locked, read, parsed or written, or `edit`
     /// refuses (a parent on its path is not an object).
     fn write_scope(&mut self, scope: SettingsScope, edit: &mut DocumentEdit<'_>) -> Result<()> {
+        // A project scope that is the global one writes the global file.
+        let scope = match scope {
+            SettingsScope::Project if self.storage.project_is_global() => SettingsScope::Global,
+            SettingsScope::Global | SettingsScope::Project => scope,
+        };
         let label = match scope {
             SettingsScope::Global => "Global",
             SettingsScope::Project => "Project",
@@ -559,19 +569,22 @@ impl SettingsManager {
         }
     }
 
-    /// Write `value` at the key path of cvar `decl` in `scope`'s
-    /// `settings.json` and say whether it applies.
+    /// Write `value` at the key path of `decl` in `scope`'s
+    /// `settings.json`: the store of the settings eukhe edits as documents
+    /// ([`table::DOCUMENTS`]: packages, resource paths, MCP servers, the
+    /// recent models, the onboarding flag), which no cfg file sets, so the
+    /// written value is the one that applies.
     ///
     /// # Errors
     ///
     /// `value` is not a value the setting holds (nothing is written), or
     /// the write fails ([`Self::write_scope`]).
-    pub(crate) fn set_scope_cvar(
+    pub(crate) fn set_document(
         &mut self,
         scope: SettingsScope,
         decl: &Decl,
         value: &Value,
-    ) -> Result<Persisted> {
+    ) -> Result<()> {
         let path: Vec<&str> = decl.id.split('.').collect();
         let (probe, _) = edit_read(DocRead::Missing, &path, &KeyEdit::Set(value.clone()))
             .map_err(|error| anyhow!("{error}"))?;
@@ -580,14 +593,40 @@ impl SettingsManager {
         }
         self.write_scope(scope, &mut |read| {
             edit_document(read, vec![(path.clone(), KeyEdit::Set(value.clone()))])
-        })?;
-        Ok(self.persisted(&[(decl, value)]))
+        })
     }
 
-    /// [`Self::set_scope_cvar`] in the global scope (every interactive
-    /// setter).
+    /// Save `written` (each a setting and its value): each set replaces
+    /// the line of its setting in the global `config.cfg`
+    /// ([`Self::run_global`]), the one store every setting a user sets
+    /// lives in, so a read gives it back (`laws/cvar.bend`
+    /// `cvar_save_reads_back`). A setting's key in the global
+    /// `settings.json` is read (older files), never written: the cfg file
+    /// sets over it. Says whether each value applies: only the project's
+    /// `config.cfg` sets over it (`cvar_save_project_wins`).
+    ///
+    /// # Errors
+    ///
+    /// A value the setting does not hold (nothing is written), or the cfg
+    /// file cannot be locked, read or written.
+    pub(crate) fn save_global(&mut self, written: &[(&Decl, &Value)]) -> Result<Persisted> {
+        let commands: Vec<Command> = written
+            .iter()
+            .map(|(decl, value)| Command::Set {
+                id: decl.id.to_owned(),
+                value: value_text(value),
+            })
+            .collect();
+        self.run_global(&commands).map_err(|error| match error {
+            CvarWriteError::Cvar(error) => anyhow!("{error}"),
+            CvarWriteError::Io(error) => anyhow!("Global config.cfg not saved: {error}"),
+        })?;
+        Ok(self.persisted(written))
+    }
+
+    /// [`Self::save_global`] of one setting (every interactive setter).
     pub(crate) fn set_global_cvar(&mut self, decl: &Decl, value: &Value) -> Result<Persisted> {
-        self.set_scope_cvar(SettingsScope::Global, decl, value)
+        self.save_global(&[(decl, value)])
     }
 
     /// Whether each written `(decl, value)` is the value that applies: the
@@ -598,11 +637,15 @@ impl SettingsManager {
         let sets = &self.cvars.config().0;
         let shadows: Vec<Shadow> = written
             .iter()
-            .filter_map(|(decl, value)| {
-                let at = sets.iter().rposition(|set| set.id == decl.id)?;
-                (sets[at].value != **value).then(|| Shadow {
+            .filter(|(decl, value)| {
+                sets.iter()
+                    .rfind(|set| set.id == decl.id)
+                    .is_some_and(|set| set.value != **value)
+            })
+            .filter_map(|(decl, _)| {
+                Some(Shadow {
                     id: decl.id.to_string(),
-                    file: self.layer_file(at),
+                    file: self.config_file(decl)?,
                 })
             })
             .collect();
@@ -613,52 +656,68 @@ impl SettingsManager {
         }
     }
 
-    /// The file that set config set `at`.
-    fn layer_file(&self, at: usize) -> String {
-        let project = self
-            .storage
-            .project_dir()
-            .map(|dir| dir.join(CONFIG_DIR_NAME));
-        let global = self
-            .storage
-            .global_location()
-            .and_then(std::path::Path::parent);
-        let (dir, name, fallback) = if at < self.bounds.document {
-            (project, SETTINGS_JSON, "the project settings.json")
-        } else if at < self.bounds.global_cfg {
-            (
-                global.map(std::path::Path::to_path_buf),
-                CONFIG_CFG,
-                "the global config.cfg",
-            )
+    /// The file that sets cvar `decl` last in the config layer (a path,
+    /// or a name when the storage has no files); `None` when no file sets
+    /// it.
+    #[must_use]
+    pub fn config_file(&self, decl: &Decl) -> Option<String> {
+        let scope = self.config_scope(decl)?;
+        let at = self
+            .cvars
+            .config()
+            .0
+            .iter()
+            .rposition(|set| set.id == decl.id)?;
+        let name = if at < self.bounds.document {
+            SETTINGS_JSON
         } else {
-            (project, CONFIG_CFG, "the project config.cfg")
+            CONFIG_CFG
         };
-        dir.map_or_else(
-            || fallback.to_string(),
+        let (dir, label) = match scope {
+            SettingsScope::Global => (
+                self.storage
+                    .global_location()
+                    .and_then(std::path::Path::parent)
+                    .map(std::path::Path::to_path_buf),
+                "global",
+            ),
+            SettingsScope::Project => (
+                self.storage
+                    .project_dir()
+                    .map(|dir| dir.join(CONFIG_DIR_NAME)),
+                "project",
+            ),
+        };
+        Some(dir.map_or_else(
+            || format!("the {label} {name}"),
             |dir| dir.join(name).display().to_string(),
-        )
+        ))
     }
 
     // -- persisted setters --------------------------------------------------
 
     /// `defaultModel` + `defaultProvider` setter (the model switch's
-    /// combined write); the model goes to the front of `recentModels`
-    /// (as the file holds it now, capped at 20).
+    /// combined write, [`Self::save_global`]); the model goes to the
+    /// front of `recentModels` in the global `settings.json` (as the file
+    /// holds it now, capped at 20).
     ///
     /// # Errors
     ///
-    /// The global settings file cannot be read, parsed or written.
+    /// A settings file cannot be locked, read, parsed or written.
     pub fn set_default_model_and_provider(
         &mut self,
         provider: &str,
         model: &str,
     ) -> Result<Persisted> {
+        let persisted = self.save_global(&[
+            (&table::DEFAULT_PROVIDER, &Value::from(provider)),
+            (&table::DEFAULT_MODEL, &Value::from(model)),
+        ])?;
         let key = format!("{provider}/{model}");
         self.write_scope(SettingsScope::Global, &mut |read| {
             let mut recent = vec![key.clone()];
             if let DocRead::Parsed(document) = &read {
-                if let Some(Value::Array(items)) = document.get("recentModels") {
+                if let Some(Value::Array(items)) = document.get(table::RECENT_MODELS.id) {
                     recent.extend(
                         items
                             .iter()
@@ -671,17 +730,26 @@ impl SettingsManager {
             recent.truncate(RECENT_MODELS_LIMIT);
             edit_document(
                 read,
-                vec![
-                    (vec!["defaultProvider"], KeyEdit::Set(provider.into())),
-                    (vec!["defaultModel"], KeyEdit::Set(model.into())),
-                    (vec!["recentModels"], KeyEdit::Set(recent.into())),
-                ],
+                vec![(vec![table::RECENT_MODELS.id], KeyEdit::Set(recent.into()))],
             )
         })?;
-        Ok(self.persisted(&[
-            (&table::DEFAULT_PROVIDER, &Value::from(provider)),
-            (&table::DEFAULT_MODEL, &Value::from(model)),
-        ]))
+        Ok(persisted)
+    }
+
+    /// `/model --all <selector>`: `selector` becomes the all-roles model
+    /// (`modelRoles.all`) and every role in `cleared` loses its own
+    /// setting in the global scope (both global files), so each of them
+    /// runs on it (`laws/model_roles.bend` `all_choice_whole_table`). A
+    /// project's own setting of a role still wins there.
+    ///
+    /// # Errors
+    ///
+    /// A settings file cannot be locked, read, parsed or written, or
+    /// `selector` is not a value of the setting.
+    pub fn save_all_roles_model(&mut self, selector: &str, cleared: &[&Decl]) -> Result<()> {
+        self.clear_global(cleared)?;
+        self.save_global(&[(&table::MODEL_ROLE_ALL, &Value::from(selector))])
+            .map(|_| ())
     }
 
     /// `steeringMode` setter.
@@ -763,13 +831,27 @@ impl SettingsManager {
         self.set_global_cvar(&table::RLM_MAX_DEPTH, &Value::from(depth))
     }
 
-    /// `onboardingShown` setter.
+    /// `gateway.signal.model` setter: the phone gateway's model (its
+    /// `/model N`).
+    ///
+    /// # Errors
+    ///
+    /// The global config.cfg cannot be read or written.
+    pub fn set_gateway_model(&mut self, selector: &str) -> Result<Persisted> {
+        self.set_global_cvar(&table::GATEWAY_SIGNAL_MODEL, &Value::from(selector))
+    }
+
+    /// `onboardingShown` setter (a document key: [`Self::set_document`]).
     ///
     /// # Errors
     ///
     /// The global settings file cannot be read, parsed or written.
-    pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<Persisted> {
-        self.set_global_cvar(&table::ONBOARDING_SHOWN, &Value::Bool(shown))
+    pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<()> {
+        self.set_document(
+            SettingsScope::Global,
+            &table::ONBOARDING_SHOWN,
+            &Value::Bool(shown),
+        )
     }
 
     /// Replace the `packages` array of `scope`'s settings file.
@@ -777,12 +859,8 @@ impl SettingsManager {
     /// # Errors
     ///
     /// The settings file cannot be read, parsed or written.
-    pub fn set_scope_packages(
-        &mut self,
-        scope: SettingsScope,
-        packages: Vec<Value>,
-    ) -> Result<Persisted> {
-        self.set_scope_cvar(scope, &table::PACKAGES, &Value::Array(packages))
+    pub fn set_scope_packages(&mut self, scope: SettingsScope, packages: Vec<Value>) -> Result<()> {
+        self.set_document(scope, &table::PACKAGES, &Value::Array(packages))
     }
 
     /// Replace one resource-path array (`skills`/`prompts`/`themes`) of
@@ -797,14 +875,14 @@ impl SettingsManager {
         scope: SettingsScope,
         field: &str,
         values: Vec<String>,
-    ) -> Result<Persisted> {
+    ) -> Result<()> {
         let decl = match field {
             "skills" => &table::SKILLS,
             "prompts" => &table::PROMPTS,
             "themes" => &table::THEMES,
             other => return Err(anyhow!("`{other}` is not a resource array")),
         };
-        self.set_scope_cvar(scope, decl, &Value::from(values))
+        self.set_document(scope, decl, &Value::from(values))
     }
 
     /// Set global `mcpServers.<name>` to `entry`: only that key changes.
@@ -1012,8 +1090,8 @@ mod tests {
         assert!(!manager.get_factory_enabled());
     }
 
-    /// `terminal.fullscreen` survives eukhe rewriting the global document
-    /// for another setting, and its own setter persists it.
+    /// `terminal.fullscreen` survives eukhe saving another setting, and its
+    /// own setter saves it (in the global config.cfg, over settings.json).
     #[test]
     fn fullscreen_survives_an_unrelated_save_and_persists() {
         let dir = tempfile::tempdir().unwrap();
@@ -1022,10 +1100,8 @@ mod tests {
         std::fs::create_dir_all(&cwd).unwrap();
         std::fs::create_dir_all(&agent_dir).unwrap();
         let path = agent_dir.join("settings.json");
-        std::fs::write(&path, r#"{ "terminal": { "fullscreen": true } }"#).unwrap();
-        let read = || -> serde_json::Value {
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
-        };
+        let document = r#"{ "terminal": { "fullscreen": true } }"#;
+        std::fs::write(&path, document).unwrap();
 
         let mut manager = SettingsManager::create(&cwd, &agent_dir);
         assert!(manager.get_fullscreen());
@@ -1034,7 +1110,7 @@ mod tests {
             .expect("set theme")
             .applied()
             .expect("the value applies");
-        assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(true));
+        assert!(SettingsManager::create(&cwd, &agent_dir).get_fullscreen());
 
         manager
             .set_fullscreen(false)
@@ -1042,13 +1118,23 @@ mod tests {
             .applied()
             .expect("the value applies");
         assert!(!SettingsManager::create(&cwd, &agent_dir).get_fullscreen());
-        assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(false));
+        assert_eq!(
+            (
+                std::fs::read_to_string(&path).unwrap(),
+                std::fs::read_to_string(agent_dir.join("config.cfg")).unwrap()
+            ),
+            (
+                document.to_owned(),
+                "set theme dark\nset terminal.fullscreen false\n".to_owned()
+            )
+        );
     }
 
     /// Regression (audit H2): a setter wrote the typed copy loaded at
     /// startup, so a field that failed to load (`compaction`, one bad
     /// leaf) and a key another writer added since were deleted from
-    /// disk. A setter now changes only its key of the document on disk.
+    /// disk. A setter now saves only its own line of config.cfg: the
+    /// document stays as the other writer left it.
     #[test]
     fn a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit() {
         let dir = tempfile::tempdir().unwrap();
@@ -1064,24 +1150,18 @@ mod tests {
         .unwrap();
         let mut manager = SettingsManager::create(&cwd, &agent_dir);
         // Another writer adds a key after the load.
-        std::fs::write(
-            &path,
-            r#"{"compaction":{"enabled":false,"reserveTokens":"16k"},"theme":"x","defaultModel":"m"}"#,
-        )
-        .unwrap();
+        let edited = r#"{"compaction":{"enabled":false,"reserveTokens":"16k"},"theme":"x","defaultModel":"m"}"#;
+        std::fs::write(&path, edited).unwrap();
         assert_eq!(
             manager.set_theme("y".to_string()).unwrap(),
             Persisted::Applies
         );
-        let written: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
-            written,
-            serde_json::json!({
-                "compaction": { "enabled": false, "reserveTokens": "16k" },
-                "theme": "y",
-                "defaultModel": "m"
-            })
+            (
+                std::fs::read_to_string(&path).unwrap(),
+                SettingsManager::create(&cwd, &agent_dir).get_theme()
+            ),
+            (edited.to_owned(), Some("y".to_owned()))
         );
     }
 

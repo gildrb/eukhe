@@ -178,6 +178,67 @@ law unset_table:
 law own_table:
   {Mr.resolve(Mr.In{Mr.Owns{Mr.Sel{1n}, Mr.Sel{2n}, Mr.Sel{3n}, Mr.Sel{4n}, Mr.Sel{5n}, Mr.Sel{6n}, Mr.Sel{7n}, Mr.Sel{8n}, Mr.Sel{9n}, Mr.Sel{10n}, Mr.Sel{11n}, Mr.Sel{12n}}, Mr.Sel{0n}}) == [Mr.Row{Mr.Chat{}, Mr.Own{1n}}, Mr.Row{Mr.Memory{}, Mr.Own{2n}}, Mr.Row{Mr.Auxiliary{}, Mr.Own{3n}}, Mr.Row{Mr.Image{}, Mr.Own{4n}}, Mr.Row{Mr.Subagent{}, Mr.Own{5n}}, Mr.Row{Mr.Gateway{}, Mr.Own{6n}}, Mr.Row{Mr.Query{}, Mr.Own{7n}}, Mr.Row{Mr.Titles{}, Mr.Own{8n}}, Mr.Row{Mr.Judge{}, Mr.Own{9n}}, Mr.Row{Mr.Translate{}, Mr.Own{10n}}, Mr.Row{Mr.Speech{}, Mr.Own{11n}}, Mr.Row{Mr.Dictation{}, Mr.Own{12n}}] : List<&2, Mr.Row>}
 
+# The own setting of a role, pinned
+# ---------------------------------
+
+# the own setting of role r: the field of o named after r
+def mr_own(o: Mr.Owns, r: Mr.Role) -> Mr.Choice:
+  match o:
+    case Mr.Owns{chat, memory, auxiliary, image, subagent, gateway, query, titles, judge, translate, speech, dictation}:
+      match r:
+        case Mr.Chat{}:
+          chat
+        case Mr.Memory{}:
+          memory
+        case Mr.Auxiliary{}:
+          auxiliary
+        case Mr.Image{}:
+          image
+        case Mr.Subagent{}:
+          subagent
+        case Mr.Gateway{}:
+          gateway
+        case Mr.Query{}:
+          query
+        case Mr.Titles{}:
+          titles
+        case Mr.Judge{}:
+          judge
+        case Mr.Translate{}:
+          translate
+        case Mr.Speech{}:
+          speech
+        case Mr.Dictation{}:
+          dictation
+
+# LAW own_is_field (R2): the own setting of a role is the field of its own role, for every role and every settings: no role reads another role's setting
+# EXCLUDES: a role that falls back to another role's own setting (dictation
+#   unset reading speech's), a field swap, a set field read as unset
+law own_is_field:
+  for o: Mr.Owns
+  for r: Mr.Role
+  {Mr.own(o, r) == mr_own(o, r) : Mr.Choice}
+
+# The all-roles switch (`/model --all n`, Mr.all_in)
+# --------------------------------------------------
+
+# LAW all_choice_whole_table (R3, R1): after `/model --all n`, whatever was set, every role that takes a chat model resolves to n: the chat as its own setting, every other as the all-roles setting; speech and dictation resolve as before the switch
+# EXCLUDES: an own setting of a chat role left over that shadows the
+#   all-roles model (the old "every role without its own" switch), the
+#   chat left on another model, the all-roles model sent to speech or
+#   dictation or their own setting lost
+law all_choice_whole_table:
+  for o: Mr.Owns
+  for a: Mr.Choice
+  for +n: Nat
+  {Mr.resolve(Mr.all_in(Mr.In{o, a}, n)) == [Mr.Row{Mr.Chat{}, Mr.Own{n}}, Mr.Row{Mr.Memory{}, Mr.All{n}}, Mr.Row{Mr.Auxiliary{}, Mr.All{n}}, Mr.Row{Mr.Image{}, Mr.All{n}}, Mr.Row{Mr.Subagent{}, Mr.All{n}}, Mr.Row{Mr.Gateway{}, Mr.All{n}}, Mr.Row{Mr.Query{}, Mr.All{n}}, Mr.Row{Mr.Titles{}, Mr.All{n}}, Mr.Row{Mr.Judge{}, Mr.All{n}}, Mr.Row{Mr.Translate{}, Mr.All{n}}, Mr.Row{Mr.Speech{}, Mr.source(Mr.Speech{}, mr_own(o, Mr.Speech{}), a)}, Mr.Row{Mr.Dictation{}, Mr.source(Mr.Dictation{}, mr_own(o, Mr.Dictation{}), a)}] : List<&2, Mr.Row>}
+
+# LAW all_choice_example (R3, R1): anchor (the user's config): the chat on 3, memory, auxiliary and the gateway on 1, titles on 2, the all-roles setting 3; `/model --all 4` puts every chat role on 4
+# EXCLUDES: a role with its own setting kept off the chosen model, a
+#   vacuous all_choice_whole_table
+law all_choice_example:
+  {Mr.resolve(Mr.all_in(Mr.In{Mr.Owns{Mr.Sel{3n}, Mr.Sel{1n}, Mr.Sel{1n}, Mr.Unset{}, Mr.Unset{}, Mr.Sel{1n}, Mr.Unset{}, Mr.Sel{2n}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}, Mr.Unset{}}, Mr.Sel{3n}}, 4n)) == [Mr.Row{Mr.Chat{}, Mr.Own{4n}}, Mr.Row{Mr.Memory{}, Mr.All{4n}}, Mr.Row{Mr.Auxiliary{}, Mr.All{4n}}, Mr.Row{Mr.Image{}, Mr.All{4n}}, Mr.Row{Mr.Subagent{}, Mr.All{4n}}, Mr.Row{Mr.Gateway{}, Mr.All{4n}}, Mr.Row{Mr.Query{}, Mr.All{4n}}, Mr.Row{Mr.Titles{}, Mr.All{4n}}, Mr.Row{Mr.Judge{}, Mr.All{4n}}, Mr.Row{Mr.Translate{}, Mr.All{4n}}, Mr.Row{Mr.Speech{}, Mr.Default{}}, Mr.Row{Mr.Dictation{}, Mr.Default{}}] : List<&2, Mr.Row>}
+
 # The wire codec of bend/ffi_model_roles.bend (grammar: that file's
 # header, crates/eukhe-bend/WIRE.md). R5: the request and every reply
 # read back; R6: a well-formed request answers the table (Mr.resolve),
@@ -351,3 +412,38 @@ law mrw_ffi_example:
 # EXCLUDES: a vacuous mrw_malformed
 law mrw_malformed_example:
   {FMr.get_in("2,") == Wr.Bad{} : Wr.Dec<Mr.In>} & {FMr.ffi("2,") == Wr.err("model_roles: malformed request") : String}
+
+# LAW mrw_choice_exact (R7): a decoded setting is exactly an encoding: any other input is Bad{}
+# EXCLUDES: a selector read with leading zeros or more than 14 digits, an
+#   unknown tag read as a setting, a second spelling of a setting
+law mrw_choice_exact:
+  for +s: String
+  for +c: Mr.Choice
+  for +rest: String
+  for h: {FMr.get_choice(s) == Wr.Got{c, rest} : Wr.Dec<Mr.Choice>}
+  {s == FMr.put_choice(c, rest) : String}
+
+# LAW mrw_owns_exact (R7): decoded own settings are exactly an encoding: any other input is Bad{}
+# EXCLUDES: a non-canonical own setting accepted, settings read in
+#   another order than written
+law mrw_owns_exact:
+  for +s: String
+  for +o: Mr.Owns
+  for +rest: String
+  for h: {FMr.get_owns(s) == Wr.Got{o, rest} : Wr.Dec<Mr.Owns>}
+  {s == FMr.put_owns(o, rest) : String}
+
+# LAW mrw_in_exact (R7): a decoded request is exactly an encoding: any other input is Bad{}, so the entry answers a table only for a canonical request
+# EXCLUDES: a zero-padded or overlong selector answered with a table, a
+#   request read from a string no encoder writes
+law mrw_in_exact:
+  for +s: String
+  for +x: Mr.In
+  for +rest: String
+  for h: {FMr.get_in(s) == Wr.Got{x, rest} : Wr.Dec<Mr.In>}
+  {s == FMr.put_in(x, rest) : String}
+
+# LAW mrw_leading_zero_example (R7): anchor: a zero-padded selector is malformed, alone and in a request
+# EXCLUDES: a decoder that reads 07 as 7, a vacuous mrw_choice_exact
+law mrw_leading_zero_example:
+  {FMr.get_choice("1,07,") == Wr.Bad{} : Wr.Dec<Mr.Choice>} & {FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,0,1,07,") == Wr.err("model_roles: malformed request") : String}

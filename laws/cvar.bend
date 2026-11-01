@@ -694,6 +694,87 @@ law cvar_document_exact:
   for +global: List<&2, Cv.Bind>
   {Cv.document(ds, merged, global) == spec_document(ds, ds, merged, global, Nil{}) : List<&2, Cv.Bind>}
 
+# The stores of the config layer
+# ------------------------------
+# Cv.stores: settings.json, then the global config.cfg, then the
+# project's config.cfg, read with an empty family; Cv.save: a write of a
+# setting into the global config.cfg (every earlier set of the cvar
+# dropped). Every input is free.
+
+# LAW cvar_save_reads_back: a write followed by a read returns the written value, whatever settings.json and the global config.cfg held; only the project's config.cfg can override it
+# EXCLUDES: a write into a store a higher store shadows (the old
+#   settings.json write), a stale earlier set of the cvar surviving the
+#   write
+law cvar_save_reads_back:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  for ok: {Cv.valid(ds, Cv.Config{}, Cv.Bind{x, v}) == True{} : Bool}
+  for quiet: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == None{} : Maybe<&2, Cv.Val>}
+  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, x) == Some{v} : Maybe<&2, Cv.Val>}
+
+# LAW cvar_save_keeps_others: a write of one setting leaves the value of every other setting as it was
+# EXCLUDES: a write that drops, adds or reorders the sets of another cvar
+#   (a whole-file rewrite that loses lines, a drop by the wrong id)
+law cvar_save_keeps_others:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  for +y: Nat
+  for +ne: {Nat.is_eq(x, y) == False{} : Bool}
+  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, y) == Cv.layered(ds, Cv.stores(doc, g, p), Nil{}, y) : Maybe<&2, Cv.Val>}
+
+# LAW cvar_save_project_wins: when the project's config.cfg sets the cvar, a write reads back the project's value: the one override a write reports
+# EXCLUDES: a global write that shadows the project's config.cfg, an
+#   override reported from settings.json or the old global value
+law cvar_save_project_wins:
+  for +ds: List<&2, Cv.Decl>
+  for +doc: List<&2, Cv.Bind>
+  for +g: List<&2, Cv.Bind>
+  for +p: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  for +w: Cv.Val
+  for ok: {Cv.valid(ds, Cv.Config{}, Cv.Bind{x, v}) == True{} : Bool}
+  for set: {Cv.layer(p, ds, Cv.Config{}, x, None{}) == Some{w} : Maybe<&2, Cv.Val>}
+  {Cv.layered(ds, Cv.stores(doc, Cv.save(g, Cv.Bind{x, v}), p), Nil{}, x) == Some{w} : Maybe<&2, Cv.Val>}
+
+def spec_sets_of.pick(hit: Bool, s: Cv.Bind, rest: List<&2, Cv.Bind>) -> List<&2, Cv.Bind>:
+  match hit:
+    case True{}:
+      s <> rest
+    case False{}:
+      rest
+
+# the sets of x in ss, in order
+def spec_sets_of(ss: List<&2, Cv.Bind>, +x: Nat) -> List<&2, Cv.Bind>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case Cv.Bind{+i, +v} <> rest:
+      spec_sets_of.pick(Nat.is_eq(i, x), Cv.Bind{i, v}, spec_sets_of(rest, x))
+
+# LAW cvar_save_once: after a write, the global config.cfg sets the cvar exactly once, to the written value
+# EXCLUDES: a write appended after the old sets of the cvar (a stale set
+#   left in the file), a write lost or written twice
+law cvar_save_once:
+  for +g: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  {spec_sets_of(Cv.save(g, Cv.Bind{x, v}), x) == [Cv.Bind{x, v}] : List<&2, Cv.Bind>}
+
+# LAW cvar_save_example: anchor (the user's report): settings.json sets the thinking level low (1), the global config.cfg max (2); a write of 3 into the global config.cfg reads 3, while the old write into settings.json reads the config.cfg's 2: the choice did not stick
+# EXCLUDES: a write path that a lower store's set shadows, a vacuous
+#   cvar_save_reads_back
+law cvar_save_example:
+  {Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{1n}}], Cv.save([Cv.Bind{0n, Cv.VNat{2n}}], Cv.Bind{0n, Cv.VNat{3n}}), Nil{}), Nil{}, 0n) == Some{Cv.VNat{3n}} : Maybe<&2, Cv.Val>} & {Cv.layered([Cv.Decl{0n, Cv.TNat{}, Cv.Local{}, True{}, True{}, Cv.VNat{0n}}], Cv.stores([Cv.Bind{0n, Cv.VNat{3n}}], [Cv.Bind{0n, Cv.VNat{2n}}], Nil{}), Nil{}, 0n) == Some{Cv.VNat{2n}} : Maybe<&2, Cv.Val>}
+
 # The model's own terms, pinned
 # -----------------------------
 # The laws of S4 above read the model's predicates (unique, all_typed,

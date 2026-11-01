@@ -100,7 +100,8 @@ pub(crate) fn load_document(document: &Map<String, Value>) -> Loaded {
             | CvarError::Expand(_)
             | CvarError::Global { .. }
             | CvarError::NotBool { .. }
-            | CvarError::Action { .. } => Outcome::BadType,
+            | CvarError::Action { .. }
+            | CvarError::Document { .. } => Outcome::BadType,
         })
         .chain(good.iter().map(|_| Outcome::Good))
         .zip(0u64..)
@@ -287,7 +288,8 @@ fn names(error: &CvarError, id: &str) -> bool {
         | CvarError::Expand(_)
         | CvarError::Global { .. }
         | CvarError::NotBool { .. }
-        | CvarError::Action { .. } => false,
+        | CvarError::Action { .. }
+        | CvarError::Document { .. } => false,
     }
 }
 
