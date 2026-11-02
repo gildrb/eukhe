@@ -1574,6 +1574,7 @@ import ./proof/doc_lines/lines_entry_answers.bend as PLinesEntryAnswers
 import ./proof/doc_lines/lines_entry_exact.bend as PLinesEntryExact
 import ./proof/doc_lines/lines_entry_example.bend as PLinesEntryExample
 import ./proof/doc_lines/lines_req_fits_example.bend as PLinesReqFitsExample
+import ./proof/doc_lines/doc_lines_ffi_exact.bend as PDocLinesFfiExact
 import ./proof/doc_rows/base.bend as LADocRows
 import ./proof/doc_rows/rows_lines_are_read_rows.bend as PRowsLinesAreReadRows
 import ./proof/doc_rows/rows_raw_lines_are_pieces.bend as PRowsRawLinesArePieces

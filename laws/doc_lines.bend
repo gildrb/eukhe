@@ -523,3 +523,260 @@ law lines_entry_example:
 # wire (lines_entry_answers is not vacuous)
 law lines_req_fits_example:
   {[lines.ReqFits(lines.Load{Dl.Proj{False{}, [Dl.Line{3n, Some{Dl.CrLf{}}}, Dl.Line{0n, None{}}]}}), lines.ReqFits(lines.Write{Dl.Proj{True{}, Nil{}}, Dl.Proj{False{}, [Dl.Line{1n, None{}}]}}), lines.ReqFits(lines.Plan{[Dl.Run{None{}, 2n}], Dl.Lf{}})] == [True{}, True{}, True{}] : List<&2, Bool>}
+
+# The entry from the requirement
+# ------------------------------
+# The spec of the whole entry, written from the requirement (F4: a plan's
+# separators follow the carry rule; a loaded file's carry is its first
+# ending, else LF; a whole-file write keeps the BOM and the first ending
+# of the file on disk and warns when both texts have an ending and the
+# content's first one is another) and the wire's primitives only: no
+# function of bend/doc_lines.bend or bend/ffi_doc_lines.bend (their types
+# only), for every projection, not only the projection of a file.
+
+# the separator after a line whose origin has the ending o, c the one
+# before it: its own ending, else c
+def lines.sp_sep(o: Maybe<&2, Dl.End>, c: Dl.End) -> Dl.End:
+  match o:
+    case None{}:
+      c
+    case Some{e}:
+      e
+
+# the separators of the runs rs, the carry c before them: one Seps per
+# run that holds lines (an empty run neither appears nor moves the carry)
+def lines.sp_plan(rs: List<&2, Dl.Run>, c: Dl.End) -> List<&2, Dl.Seps>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      match r:
+        case Dl.Run{o, n}:
+          match n:
+            case 0n:
+              lines.sp_plan(rest, c)
+            case 1n+m:
+              +s = lines.sp_sep(o, c)
+              Dl.Seps{s, 1n+m} <> lines.sp_plan(rest, s)
+
+# the first own ending among the lines of a projection (None: none has one)
+def lines.sp_first(ls: List<&2, Dl.Line>) -> Maybe<&2, Dl.End>:
+  match ls:
+    case Nil{}:
+      None{}
+    case l <> rest:
+      match l:
+        case Dl.Line{n, en}:
+          match en:
+            case None{}:
+              lines.sp_first(rest)
+            case Some{e}:
+              Some{e}
+
+# the carry of a projection: its first ending, else LF
+def lines.sp_carry(p: Dl.Proj) -> Dl.End:
+  match p:
+    case Dl.Proj{b, ls}:
+      lines.OrLf(lines.sp_first(ls))
+
+# what a whole-file write of q over p keeps: p's BOM, p's first ending
+# (else LF), and a warning when both have an ending and they differ
+def lines.sp_kept(p: Dl.Proj, q: Dl.Proj) -> Dl.Kept:
+  match p q:
+    case Dl.Proj{b, +ls} Dl.Proj{c, ms}:
+      Dl.Kept{b, lines.OrLf(lines.sp_first(ls)), lines.Warn(lines.sp_first(ls), lines.sp_first(ms))}
+
+def lines.sp_end.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Dl.End>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Dl.Lf{}, s}
+        case 1n:
+          Wr.Got{Dl.CrLf{}, s}
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an ending: the tag 0 (LF) or 1 (CRLF)
+def lines.sp_end(s: String) -> Wr.Dec<Dl.End>:
+  lines.sp_end.tag(Wr.get_nat(s))
+
+def lines.sp_mend.some(r: Wr.Dec<Dl.End>) -> Wr.Dec<Maybe<&2, Dl.End>>:
+  match r:
+    case Wr.Got{e, s}:
+      Wr.Got{Some{e}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def lines.sp_mend.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Dl.End>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          lines.sp_mend.some(lines.sp_end(s))
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a Maybe<End>: the tag 0 (none), or 1 then an ending
+def lines.sp_mend(s: String) -> Wr.Dec<Maybe<&2, Dl.End>>:
+  lines.sp_mend.tag(Wr.get_nat(s))
+
+def lines.sp_run.n(o: Maybe<&2, Dl.End>, r: Wr.Dec<Nat>) -> Wr.Dec<Dl.Run>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Dl.Run{o, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def lines.sp_run.end(r: Wr.Dec<Maybe<&2, Dl.End>>) -> Wr.Dec<Dl.Run>:
+  match r:
+    case Wr.Got{o, s}:
+      lines.sp_run.n(o, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a run: its origin's ending (a Maybe<End>), then its count of lines
+def lines.sp_run(s: String) -> Wr.Dec<Dl.Run>:
+  lines.sp_run.end(lines.sp_mend(s))
+
+def lines.sp_line.end(n: Nat, r: Wr.Dec<Maybe<&2, Dl.End>>) -> Wr.Dec<Dl.Line>:
+  match r:
+    case Wr.Got{o, s}:
+      Wr.Got{Dl.Line{n, o}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def lines.sp_line.len(r: Wr.Dec<Nat>) -> Wr.Dec<Dl.Line>:
+  match r:
+    case Wr.Got{n, s}:
+      lines.sp_line.end(n, lines.sp_mend(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a line of a projection: its length, then its own ending (a Maybe<End>)
+def lines.sp_line(s: String) -> Wr.Dec<Dl.Line>:
+  lines.sp_line.len(Wr.get_nat(s))
+
+def lines.sp_proj.lines(b: Bool, r: Wr.Dec<List<&2, Dl.Line>>) -> Wr.Dec<Dl.Proj>:
+  match r:
+    case Wr.Got{ls, s}:
+      Wr.Got{Dl.Proj{b, ls}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def lines.sp_proj.bom(r: Wr.Dec<Bool>) -> Wr.Dec<Dl.Proj>:
+  match r:
+    case Wr.Got{b, s}:
+      lines.sp_proj.lines(b, Wr.get_list(~Dl.Line, ~lines.sp_line, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a projection: the BOM flag, then its lines
+def lines.sp_proj(s: String) -> Wr.Dec<Dl.Proj>:
+  lines.sp_proj.bom(Wr.get_bool(s))
+
+def lines.sp_plan_done(rs: List<&2, Dl.Run>, c: Dl.End, whole: Bool) -> String:
+  match whole:
+    case True{}:
+      Wr.put_list(~Dl.Seps, ~lines.spell_seps, lines.sp_plan(rs, c), "")
+    case False{}:
+      Wr.err("doc_lines: input left over")
+
+def lines.sp_plan_carry(rs: List<&2, Dl.Run>, r: Wr.Dec<Dl.End>) -> String:
+  match r:
+    case Wr.Got{c, s}:
+      lines.sp_plan_done(rs, c, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("doc_lines: malformed carry")
+
+def lines.sp_load_done(p: Dl.Proj, whole: Bool) -> String:
+  match whole:
+    case True{}:
+      LawsBase.proj_spell_end(lines.sp_carry(p), "")
+    case False{}:
+      Wr.err("doc_lines: input left over")
+
+def lines.sp_load(r: Wr.Dec<Dl.Proj>) -> String:
+  match r:
+    case Wr.Got{p, s}:
+      lines.sp_load_done(p, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("doc_lines: malformed projection")
+
+def lines.sp_write_done(p: Dl.Proj, q: Dl.Proj, whole: Bool) -> String:
+  match whole:
+    case True{}:
+      lines.spell_kept(lines.sp_kept(p, q))
+    case False{}:
+      Wr.err("doc_lines: input left over")
+
+def lines.sp_write_next(p: Dl.Proj, r: Wr.Dec<Dl.Proj>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      lines.sp_write_done(p, q, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("doc_lines: malformed projection")
+
+def lines.sp_write(r: Wr.Dec<Dl.Proj>) -> String:
+  match r:
+    case Wr.Got{p, s}:
+      lines.sp_write_next(p, lines.sp_proj(s))
+    case Wr.Bad{}:
+      Wr.err("doc_lines: malformed projection")
+
+def lines.sp_kind.pick(l: Bool, w: Bool, t: String) -> String:
+  match l:
+    case True{}:
+      lines.sp_load(lines.sp_proj(t))
+    case False{}:
+      match w:
+        case True{}:
+          lines.sp_write(lines.sp_proj(t))
+        case False{}:
+          Wr.err("doc_lines: malformed runs")
+
+# an input that is no plan: `L` (code 76) then a projection, or `W` (code
+# 87) then two
+def lines.sp_kind(s: String) -> String:
+  match s:
+    case SNil{}:
+      Wr.err("doc_lines: malformed runs")
+    case SCon{c, t}:
+      match c:
+        case Chr{+x}:
+          lines.sp_kind.pick(U32.is_eq(x, 76), U32.is_eq(x, 87), t)
+
+def lines.sp_runs(r: Wr.Dec<List<&2, Dl.Run>>, s: String) -> String:
+  match r:
+    case Wr.Got{rs, t}:
+      lines.sp_plan_carry(rs, lines.sp_end(t))
+    case Wr.Bad{}:
+      lines.sp_kind(s)
+
+# the entry's answer to the input s: a plan (its runs, then the carry),
+# else a load or a write
+def lines.sp_entry(+s: String) -> String:
+  lines.sp_runs(Wr.get_list(~Dl.Run, ~lines.sp_run, s), s)
+
+# LAW doc_lines_ffi_exact (compiled core): on every input the line-ending
+# entry answers the spec: for a plan (runs, then the carry) the carry
+# rule's separators, one per run that holds lines; for `L` and a
+# projection its first own ending, else LF; for `W` and two projections
+# the first one's BOM and first ending (else LF), and a warning exactly
+# when both have an ending and they differ; for any projection, not only
+# a file's; and exactly the error form of each malformed part (runs,
+# carry, projection) or of input left over
+# EXCLUDES: a separator other than the carry rule's, a run split, merged
+#   or dropped otherwise, a carry or a kept ending from another line than
+#   the first with one, a warning by another rule, a field misread, a
+#   default for malformed input, input left over ignored, another error
+#   text
+law doc_lines_ffi_exact:
+  for +s: String
+  {Fdl.ffi(s) == lines.sp_entry(s) : String}
