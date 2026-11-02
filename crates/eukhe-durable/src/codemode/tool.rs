@@ -1,6 +1,7 @@
 //! The code mode tool and extension (pi-durable `codemode.ts`
 //! `createCodemodeTool`, `createCodemodeExtension`).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use eukhe_ai::typebox::Type;
@@ -155,7 +156,8 @@ pub fn create_codemode_tool(options: &Arc<CodemodeToolOptions>) -> Arc<ToolRegis
 
 /// The `codemode` extension: the code mode tool, the internal tools behind
 /// `models.*` when included, and the `codemode` prompt section listing the
-/// tools scripts can call.
+/// tools scripts can call that the model does not have as its own tools
+/// (those it already knows from their schemas).
 #[must_use]
 pub fn create_codemode_extension(options: CodemodeToolOptions) -> Arc<Extension> {
     let options = Arc::new(options);
@@ -168,11 +170,20 @@ pub fn create_codemode_extension(options: CodemodeToolOptions) -> Arc<Extension>
     let render = section(
         "codemode",
         move |input, _cx| {
+            let own: HashSet<&str> = input
+                .agent
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect();
             let callable: Vec<Arc<ToolRegistration>> = input
                 .agent
                 .callable
                 .iter()
-                .filter(|tool| !tool.name.starts_with(CODEMODE_INTERNAL_PREFIX))
+                .filter(|tool| {
+                    !tool.name.starts_with(CODEMODE_INTERNAL_PREFIX)
+                        && !own.contains(tool.name.as_str())
+                })
                 .cloned()
                 .collect();
             let text = codemode_section(&callable, &shared.namespaces, shared.inline_budget);

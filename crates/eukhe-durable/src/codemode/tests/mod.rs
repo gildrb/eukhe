@@ -18,7 +18,7 @@ use crate::harness::tests::chat_support::{all_entries, chat_setup, ChatSetup, Op
 use crate::harness::tests::support::context;
 use crate::harness::tool::tests::nested_support::{call_with, lock, text_result};
 use crate::harness::tool::tests::support::{done, results, submit_and_wait, tool_with};
-use crate::harness::types::{ToolExecutionResult, ToolRegistration};
+use crate::harness::types::{ToolCaller, ToolExecutionResult, ToolRegistration};
 use crate::types::SubmissionStatus;
 
 /// Runs of each test tool, by name.
@@ -37,8 +37,9 @@ impl Runs {
 }
 
 /// A faux chat with code mode and the test tools: `echo` (`echo <text>`),
-/// `status` (a schema tool whose error result carries a value), and `fail`
-/// (a schema-less tool that fails).
+/// `status` (a schema tool whose error result carries a value), `fail`
+/// (a schema-less tool that fails), and `gh_search_issues` (callable only
+/// by scripts, not by the model).
 pub(super) struct Setup {
     pub(super) chat: ChatSetup,
     pub(super) runs: Runs,
@@ -134,7 +135,7 @@ pub(super) fn setup_with(options: CodemodeToolOptions) -> Setup {
         &runs,
         "gh_search_issues",
         |_| text_result("issue 1"),
-        |_| {},
+        |tool| tool.callers = Some(vec![ToolCaller::Tools]),
     );
     Setup { chat, runs }
 }
