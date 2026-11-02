@@ -331,7 +331,8 @@ def longmem():
     turns.append("Create REVIEW.md. First line: `Reviewer: <the on-call reviewer I named at the start>`. Then one "
                  "line per file in answers/, sorted by file name: `<file name>: <the file's first line>`.")
     facts = {**facts, "port": corrected_port}
-    write(FX / "longmem", {"README.md": "# ops notes\n\nScratch repo for log triage answers.\n", "answers/.keep": ""})
+    # No answers/.keep: REVIEW.md lists every file in answers/, so the fixture puts none there.
+    write(FX / "longmem", {"README.md": "# ops notes\n\nScratch repo for log triage answers.\n"})
     EXP.mkdir(parents=True, exist_ok=True)
     (EXP / "longmem.json").write_text(json.dumps({"facts": facts, "answers": answers, "teapot": teapot,
                                                   "turns": turns}, indent=1))

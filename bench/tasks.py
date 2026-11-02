@@ -178,7 +178,8 @@ def grade_longmem(run, repo):
     checks["deploy_corrected_port"] = isinstance(deploy, dict) and deploy.get("port") == exp["facts"]["port"]
     review = _lines(repo / "REVIEW.md")
     checks["review_reviewer"] = bool(review) and review[0] == f"Reviewer: {exp['facts']['reviewer']}"
-    files = sorted(p.name for p in (repo / "answers").iterdir() if p.name != ".keep")
+    answers = repo / "answers"
+    files = sorted(p.name for p in answers.iterdir()) if answers.is_dir() else []
     want_lines = [f"{f}: {(_lines(repo / 'answers' / f) or [''])[0]}" for f in files]
     checks["review_lines"] = [re.sub(r"^[-*] ", "", ln) for ln in review[1:]] == want_lines
     return {"checks": checks, "info": {"deploy": deploy, "rule_kept": rule_kept}}
