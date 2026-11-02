@@ -151,34 +151,101 @@ def found(s: String, ph: Ph) -> Bool:
     case Ph{st, its, end}:
       occ(s, st, its, end, True{})
 
-# whether one of the phrases phs is found in s
-def any(+s: String, phs: List<&2, Ph>) -> Bool:
+# whether a phrase with the start edge e may start at a place: the text
+# start (first), or a place after a char that is a word char or not (w)
+def may(e: Edge, first: Bool, w: Bool) -> Bool:
+  match e:
+    case EFree{}:
+      True{}
+    case EWord{}:
+      match first:
+        case True{}:
+          True{}
+        case False{}:
+          Bool.not(w)
+    case EText{}:
+      first
+
+# pm when b holds, else no match
+def pm.if(b: Bool, s: String, its: List<&2, It>, end: Edge) -> Bool:
+  match b:
+    case True{}:
+      pm(s, its, end)
+    case False{}:
+      False{}
+
+# whether some prefix of the text x then t matches the items its and the
+# end edge holds for the rest: the first item tested on x before the rest
+# of the text is read
+def pm.at(+x: Char, t: String, its: List<&2, It>, +end: Edge) -> Bool:
+  match its:
+    case Nil{}:
+      end_ok(end, SCon{x, t})
+    case i <> k:
+      match i:
+        case One{c}:
+          pm.if(is1(c, x), t, k, end)
+        case Opt{c}:
+          pm(SCon{x, t}, Opt{c} <> k, end)
+        case Star{c}:
+          pm(SCon{x, t}, Star{c} <> k, end)
+
+# pm.at when b holds, else no match
+def pm.at.if(b: Bool, +x: Char, t: String, its: List<&2, It>, end: Edge) -> Bool:
+  match b:
+    case True{}:
+      pm.at(x, t, its, end)
+    case False{}:
+      False{}
+
+# hit, or whether one of the phrases phs starts at the place where the
+# text is x then t (first: the text start; w: the char before is a word
+# char); a loop that stops at the first phrase found
+def here(phs: List<&2, Ph>, hit: Bool, +x: Char, +t: String, +first: Bool, +w: Bool) -> Bool:
   match phs:
     case Nil{}:
-      False{}
+      hit
     case p <> more:
-      pm.or(found(s, p), u => any(s, more))
+      match p:
+        case Ph{st, its, end}:
+          match hit:
+            case True{}:
+              True{}
+            case False{}:
+              here(more, pm.at.if(may(st, first, w), x, t, its, end), x, t, first, w)
 
-# Tables
-# ------
+# hit, or whether one of the phrases phs starts at the end of the text
+def here.end(phs: List<&2, Ph>, hit: Bool, +first: Bool, +w: Bool) -> Bool:
+  match phs:
+    case Nil{}:
+      hit
+    case p <> more:
+      match p:
+        case Ph{st, its, end}:
+          match hit:
+            case True{}:
+              True{}
+            case False{}:
+              here.end(more, pm.if(may(st, first, w), SNil{}, its, end), first, w)
 
-# the chars of s, one item each, before rest
-def lit(s: String, rest: List<&2, It>) -> List<&2, It>:
+# hit, or whether one of the phrases phs starts at a place of the text s
+# (first: s is the whole text; w: the char before s is a word char): one
+# pass over the text, every phrase tried at each place
+def any.go(s: String, +phs: List<&2, Ph>, +first: Bool, +w: Bool, hit: Bool) -> Bool:
   match s:
     case SNil{}:
-      rest
-    case SCon{c, t}:
-      +x = Char.to_u32(c)
-      One{CIn{x, x}} <> lit(t, rest)
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          here.end(phs, False{}, first, w)
+    case SCon{+x, +t}:
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          any.go(t, phs, False{}, is_word(x), here(phs, False{}, x, t, first, w))
 
-# found anywhere
-def anywhere(its: List<&2, It>) -> Ph:
-  Ph{EFree{}, its, EFree{}}
-
-# found as a whole word on both sides (regex `\b...\b`)
-def word(its: List<&2, It>) -> Ph:
-  Ph{EWord{}, its, EWord{}}
-
-# found where a word starts (regex `\b...`)
-def word_start(its: List<&2, It>) -> Ph:
-  Ph{EWord{}, its, EFree{}}
+# whether one of the phrases phs is found in s
+def any(s: String, +phs: List<&2, Ph>) -> Bool:
+  any.go(s, phs, True{}, False{}, False{})

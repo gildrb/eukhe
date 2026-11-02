@@ -6,8 +6,10 @@
 # a fixed order (a run longest first, an optional piece taken before
 # skipped, options in their order, a repetition with more rounds first)
 # and the first way that lets the rest fit wins, as a backtracking regex
-# engine would. The tables of shapes are data of the modules that use them
-# (bend/incident_shapes.bend); the entry names a shape by a global id
+# engine would (the searches run the matcher below; `at` computes every
+# reading). The tables of shapes are data of the modules that use them
+# (bend/incident_shapes.bend), written out whole so the compiled core
+# holds them as constants; the entry names a shape by a global id
 # (bend/ffi_shape.bend). A word char is an ASCII letter, an ASCII digit or
 # `_`; a digit is an ASCII digit. Pure: no IO, no @unsafe.
 
@@ -111,14 +113,23 @@ type Found is Data:
 def in_range(+x: U32, lo: U32, hi: U32) -> Bool:
   Bool.and(U32.is_le(lo, x), U32.is_le(x, hi))
 
-def in_rgs(rs: List<&2, Rg>, +x: U32) -> Bool:
+# whether x is in one of the ranges rs, or hit already holds (a tail
+# loop: it stops at the first range that holds x)
+def in_rgs.go(rs: List<&2, Rg>, hit: Bool, +x: U32) -> Bool:
   match rs:
     case Nil{}:
-      False{}
+      hit
     case r <> t:
       match r:
         case Rg{lo, hi}:
-          Bool.or(in_range(x, lo, hi), in_rgs(t, x))
+          match hit:
+            case True{}:
+              True{}
+            case False{}:
+              in_rgs.go(t, in_range(x, lo, hi), x)
+
+def in_rgs(rs: List<&2, Rg>, +x: U32) -> Bool:
+  in_rgs.go(rs, False{}, x)
 
 def in_set(st: Chars, +c: Char) -> Bool:
   match st:
@@ -193,20 +204,20 @@ def pred(n: Nat) -> Nat:
     case 1n+m:
       m
 
-
-def when(b: Bool, k: Unit -> List<&2, St>) -> List<&2, St>:
+def keep(b: Bool, s: St) -> Maybe<&2, St>:
   match b:
     case True{}:
-      k(Unit{})
+      Some{s}
     case False{}:
-      Nil{}
+      None{}
 
-def keep(b: Bool, s: St) -> List<&2, St>:
-  match b:
-    case True{}:
+# the place, as a list of none or one place
+def m2l(m: Maybe<&2, St>) -> List<&2, St>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{s}:
       [s]
-    case False{}:
-      Nil{}
 
 def lit.same(fold: Bool, +x: Char, +y: Char) -> Bool:
   match fold:
@@ -216,60 +227,68 @@ def lit.same(fold: Bool, +x: Char, +y: Char) -> Bool:
       Char.is_eq(x, y)
 
 # the place after the text u read exactly (Lit; Fold with fold: ASCII
-# letters in either case)
-def lit.go(u: String, +fold: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, Got>>) -> List<&2, St>:
+# letters in either case), when ok: the chars read so far fit
+def lit.go(u: String, +fold: Bool, ok: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, Got>>) -> Maybe<&2, St>:
   match u:
     case SNil{}:
-      [St{pos, left, word, rest, caps}]
+      keep(ok, St{pos, left, word, rest, caps})
     case SCon{+y, v}:
-      match rest:
-        case SNil{}:
-          Nil{}
-        case SCon{+x, t}:
-          when(lit.same(fold, x, y), k => lit.go(v, fold, t, 1n+pos, pred(left), is_word(x), caps))
+      match ok:
+        case True{}:
+          match rest:
+            case SNil{}:
+              None{}
+            case SCon{+x, t}:
+              lit.go(v, fold, lit.same(fold, x, y), t, 1n+pos, pred(left), is_word(x), caps)
+        case False{}:
+          None{}
 
-def lit(u: String, fold: Bool, s: St) -> List<&2, St>:
+def lit(u: String, fold: Bool, s: St) -> Maybe<&2, St>:
   match s:
     case St{pos, left, word, rest, caps}:
-      lit.go(u, fold, rest, pos, left, word, caps)
+      lit.go(u, fold, True{}, rest, pos, left, word, caps)
 
 # the place after the first n chars of from (all of them when it has
-# fewer), when the text goes on with them
-def same.go(n: Nat, from: String, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, Got>>) -> List<&2, St>:
+# fewer), when the text goes on with them (ok: the chars read so far fit)
+def same.go(n: Nat, from: String, ok: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, Got>>) -> Maybe<&2, St>:
   match n:
     case 0n:
-      [St{pos, left, word, rest, caps}]
+      keep(ok, St{pos, left, word, rest, caps})
     case 1n+m:
       match from:
         case SNil{}:
-          [St{pos, left, word, rest, caps}]
+          keep(ok, St{pos, left, word, rest, caps})
         case SCon{+y, f}:
-          match rest:
-            case SNil{}:
-              Nil{}
-            case SCon{+x, t}:
-              when(Char.is_eq(x, y), k => same.go(m, f, t, 1n+pos, pred(left), is_word(x), caps))
+          match ok:
+            case True{}:
+              match rest:
+                case SNil{}:
+                  None{}
+                case SCon{+x, t}:
+                  same.go(m, f, Char.is_eq(x, y), t, 1n+pos, pred(left), is_word(x), caps)
+            case False{}:
+              None{}
 
-def same.got(g: Maybe<&2, Maybe<&2, Got>>, s: St) -> List<&2, St>:
+def same.got(g: Maybe<&2, Maybe<&2, Got>>, s: St) -> Maybe<&2, St>:
   match g:
     case None{}:
-      Nil{}
+      None{}
     case Some{c}:
       match c:
         case None{}:
-          Nil{}
+          None{}
         case Some{x}:
           match x:
             case Got{at, to, from}:
               match s:
                 case St{pos, left, word, rest, caps}:
-                  same.go(Nat.sub(to, at), from, rest, pos, left, word, caps)
+                  same.go(Nat.sub(to, at), from, True{}, rest, pos, left, word, caps)
 
 # the place after the text capture k took (k from 1)
-def same(k: Nat, s: St) -> List<&2, St>:
+def same(k: Nat, s: St) -> Maybe<&2, St>:
   match k:
     case 0n:
-      Nil{}
+      None{}
     case 1n+j:
       match s:
         case St{pos, left, word, rest, +caps}:
@@ -326,28 +345,36 @@ def run(c: Cls, need: Nat, room: Maybe<&2, Nat>, s: St) -> List<&2, St>:
     case St{pos, left, word, rest, caps}:
       run.go(rest, c, need, room, pos, left, word, caps, Nil{})
 
-def bound(s: St) -> List<&2, St>:
+def bound(s: St) -> Maybe<&2, St>:
   match s:
     case St{pos, left, +word, +rest, caps}:
       keep(Bool.xor(word, next_word(rest)), St{pos, left, word, rest, caps})
 
-def begin(s: St) -> List<&2, St>:
+def begin(s: St) -> Maybe<&2, St>:
   match s:
     case St{+pos, left, word, rest, caps}:
       keep(Nat.is_eq(pos, 0n), St{pos, left, word, rest, caps})
 
-def end(s: St) -> List<&2, St>:
+def end(s: St) -> Maybe<&2, St>:
   match s:
     case St{pos, left, word, +rest, caps}:
       keep(String.is_empty(rest), St{pos, left, word, rest, caps})
+
+# the place itself when min is 0 (a run or a repetition that may stop)
+def zero(min: Nat, s: St) -> Maybe<&2, St>:
+  match min:
+    case 0n:
+      Some{s}
+    case 1n+m:
+      None{}
 
 # the readings of one piece that reads no inner pieces
 def leaf(p: Piece, s: St) -> List<&2, St>:
   match p:
     case Lit{u}:
-      lit(u, False{}, s)
+      m2l(lit(u, False{}, s))
     case Fold{u}:
-      lit(u, True{}, s)
+      m2l(lit(u, True{}, s))
     case Run{c, need, room}:
       run(c, need, room, s)
     case Cap{ps}:
@@ -361,13 +388,13 @@ def leaf(p: Piece, s: St) -> List<&2, St>:
     case Ahead{ps, neg}:
       Nil{}
     case Same{k}:
-      same(k, s)
+      m2l(same(k, s))
     case Bound{}:
-      bound(s)
+      m2l(bound(s))
     case Begin{}:
-      begin(s)
+      m2l(begin(s))
     case End{}:
-      end(s)
+      m2l(end(s))
 
 # Captures
 # --------
@@ -433,34 +460,8 @@ def grew(+l: Nat, xs: List<&2, St>) -> List<&2, St>:
         case St{pos, +left, word, rest, caps}:
           grew.if(Nat.is_lt(left, l), St{pos, left, word, rest, caps}, grew(l, t))
 
-# Readings
-# --------
-
-# the readings of the rest of the list after those of a place: all of
-# them, or the first one (then the others are never computed)
-def join(m: Mode, xs: List<&2, St>, more: Unit -> List<&2, St>) -> List<&2, St>:
-  match m:
-    case All{}:
-      List.append(&2, St, xs, more(Unit{}))
-    case First{e}:
-      match xs:
-        case Nil{}:
-          more(Unit{})
-        case x <> t:
-          x <> t
-
-# a place every piece has read: a reading, unless the first reading must
-# end the text and this one does not
-def done(m: Mode, s: St) -> List<&2, St>:
-  match m:
-    case All{}:
-      [s]
-    case First{e}:
-      match e:
-        case True{}:
-          end(s)
-        case False{}:
-          [s]
+# Every reading
+# -------------
 
 def place(s: St) -> Nat:
   match s:
@@ -477,32 +478,22 @@ def after(s: St) -> String:
     case St{pos, left, word, rest, caps}:
       rest
 
+
 def ahead.if(neg: Bool, xs: List<&2, St>, s: St) -> List<&2, St>:
-  keep(Bool.xor(neg, Bool.not(List.is_empty(&2, St, xs))), s)
+  m2l(keep(Bool.xor(neg, Bool.not(List.is_empty(&2, St, xs))), s))
 
-def many.zero(min: Nat, s: St) -> List<&2, St>:
-  match min:
-    case 0n:
-      [s]
-    case 1n+m:
-      Nil{}
-
-# the readings of the pieces ps from each place of L in turn (captures of
-# ps numbered from base + 1), in priority order; the mode m asks for all
-# or the first. The fuel f bounds the rounds of a repetition: f past the
-# length of the text at every place of L reads every reading.
-def go(f: Nat, ps: List<&2, Piece>, L: List<&2, St>, +base: Nat, +m: Mode) -> List<&2, St>:
+# every reading of the pieces ps from each place of L in turn (captures
+# of ps numbered from base + 1), in priority order, all of them computed;
+# the fuel f bounds the rounds of a repetition (a further round is read
+# with one less)
+def go(f: Nat, ps: List<&2, Piece>, L: List<&2, St>, +base: Nat) -> List<&2, St>:
   match f:
     case 0n:
       Nil{}
     case 1n++g:
       match ps:
         case Nil{}:
-          match L:
-            case Nil{}:
-              Nil{}
-            case s <> rest:
-              join(m, done(m, s), k => go(1n+g, Nil{}, rest, base, m))
+          L
         case p <> +t:
           match p:
             case Lit{+u}:
@@ -510,88 +501,341 @@ def go(f: Nat, ps: List<&2, Piece>, L: List<&2, St>, +base: Nat, +m: Mode) -> Li
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Lit{u}, s), base, m), k => go(1n+g, Lit{u} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Lit{u}, s), base), go(1n+g, Lit{u} <> t, rest, base))
             case Fold{+u}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Fold{u}, s), base, m), k => go(1n+g, Fold{u} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Fold{u}, s), base), go(1n+g, Fold{u} <> t, rest, base))
             case Run{+c, +need, +room}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Run{c, need, room}, s), base, m), k => go(1n+g, Run{c, need, room} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Run{c, need, room}, s), base), go(1n+g, Run{c, need, room} <> t, rest, base))
             case Cap{+i}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, close(go(1n+g, i, [s], 1n+base, All{}), base, place(s), after(s)), 1n+Nat.add(base, ncaps(i)), m), k => go(1n+g, Cap{i} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, close(go(1n+g, i, [s], 1n+base), base, place(s), after(s)), 1n+Nat.add(base, ncaps(i))), go(1n+g, Cap{i} <> t, rest, base))
             case Opt{+i}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, List.append(&2, St, go(1n+g, i, [s], base, All{}), [s]), Nat.add(base, ncaps(i)), m), k => go(1n+g, Opt{i} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, List.append(&2, St, go(1n+g, i, [s], base), [s]), Nat.add(base, ncaps(i))), go(1n+g, Opt{i} <> t, rest, base))
             case Alt{+a, +b}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, List.append(&2, St, go(1n+g, a, [s], base, All{}), go(1n+g, b, [s], Nat.add(base, ncaps(a)), All{})), Nat.add(Nat.add(base, ncaps(a)), ncaps(b)), m), k => go(1n+g, Alt{a, b} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, List.append(&2, St, go(1n+g, a, [s], base), go(1n+g, b, [s], Nat.add(base, ncaps(a)))), Nat.add(Nat.add(base, ncaps(a)), ncaps(b))), go(1n+g, Alt{a, b} <> t, rest, base))
             case Many{+i, +min}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, List.append(&2, St, go(g, [Many{i, pred(min)}], grew(remain(s), go(1n+g, i, [s], base, All{})), base, All{}), many.zero(min, s)), Nat.add(base, ncaps(i)), m), k => go(1n+g, Many{i, min} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, List.append(&2, St, go(g, [Many{i, pred(min)}], grew(remain(s), go(1n+g, i, [s], base)), base), m2l(zero(min, s))), Nat.add(base, ncaps(i))), go(1n+g, Many{i, min} <> t, rest, base))
             case Ahead{+i, +neg}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, ahead.if(neg, go(1n+g, i, [s], base, First{False{}}), s), Nat.add(base, ncaps(i)), m), k => go(1n+g, Ahead{i, neg} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, ahead.if(neg, go(1n+g, i, [s], base), s), Nat.add(base, ncaps(i))), go(1n+g, Ahead{i, neg} <> t, rest, base))
             case Same{+k}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Same{k}, s), base, m), k2 => go(1n+g, Same{k} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Same{k}, s), base), go(1n+g, Same{k} <> t, rest, base))
             case Bound{}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Bound{}, s), base, m), k => go(1n+g, Bound{} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Bound{}, s), base), go(1n+g, Bound{} <> t, rest, base))
             case Begin{}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(Begin{}, s), base, m), k => go(1n+g, Begin{} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(Begin{}, s), base), go(1n+g, Begin{} <> t, rest, base))
             case End{}:
               match L:
                 case Nil{}:
                   Nil{}
                 case +s <> rest:
-                  join(m, go(1n+g, t, leaf(End{}, s), base, m), k => go(1n+g, End{} <> t, rest, base, m))
+                  List.append(&2, St, go(1n+g, t, leaf(End{}, s), base), go(1n+g, End{} <> t, rest, base))
 
-# Answers
-# -------
+# The matcher
+# -----------
+# The first reading is found by backtracking: the pieces are read from a
+# place one way at a time, the pieces still to read after them kept as a
+# stack of frames, and the next way is tried only when this one has no
+# reading whose end condition holds.
 
-def head(xs: List<&2, St>) -> Maybe<&2, St>:
+# The matcher
+# -----------
+# The searches find a place's first reading by backtracking: the pieces
+# are read one way at a time, what is still to read after them kept as a
+# stack of frames, and the next way is tried only when this one has no
+# reading whose end condition holds. Its readings are those of every
+# fuel past the count of chars after the place (law shape_fuel_enough).
+
+# a place to read from, or an answer already found
+type W is Data:
+  # read from the place s
+  Want{s: St}
+  # the answer r was found before: nothing more is read
+  Have{r: St}
+  # no place: no reading
+  Nothing{}
+
+def want(m: Maybe<&2, St>) -> W:
+  match m:
+    case None{}:
+      Nothing{}
+    case Some{s}:
+      Want{s}
+
+# the answer x when there is one, else the place m
+def prefer(x: Maybe<&2, St>, m: Maybe<&2, St>) -> W:
+  match x:
+    case None{}:
+      want(m)
+    case Some{r}:
+      Have{r}
+
+# where the captures of a list of pieces are numbered from: n, after the
+# captures of the lists skipped since (counted only when a capture needs
+# its number)
+type Base is Data:
+  BAt{n: Nat}
+  BAfter{b: Base, ps: List<&2, Piece>}
+
+def val(b: Base) -> Nat:
+  match b:
+    case BAt{n}:
+      n
+    case BAfter{c, ps}:
+      Nat.add(val(c), ncaps(ps))
+
+# what is still to read after the pieces in hand, innermost first
+type Fr is Data:
+  # nothing: the reading is done
+  FEnd{}
+  # the pieces ps, captures from b, then k
+  FSeq{ps: List<&2, Piece>, b: Base, k: Fr}
+  # set capture n to the chars from char at (the text from there: from),
+  # then k
+  FCap{n: Nat, at: Nat, from: String, k: Fr}
+  # a round of the repetition that heads ps (Many{i, min} <> t, captures
+  # from b) ended: when it read a char past the place with l chars after
+  # it, the repetition goes on with one round less asked, then t, then k
+  FRound{ps: List<&2, Piece>, b: Base, l: Nat, k: Fr}
+
+# the pieces ps (captures from b) before the frames K: none for no pieces
+def push(ps: List<&2, Piece>, b: Base, K: Fr) -> Fr:
+  match ps:
+    case Nil{}:
+      K
+    case p <> t:
+      FSeq{p <> t, b, K}
+
+# Many: the pieces after a round of the repetition that heads ps (ps
+# itself when it asks for no more rounds)
+def many.next(+ps: List<&2, Piece>) -> List<&2, Piece>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> t:
+      match p:
+        case Many{i, min}:
+          match min:
+            case 0n:
+              ps
+            case 1n+k:
+              Many{i, k} <> t
+        case _:
+          ps
+
+# the readings xs taken through the frames K, every one computed with
+# fuel f (the matcher's fallback)
+def frames(+f: Nat, K: Fr, xs: List<&2, St>) -> List<&2, St>:
+  match K:
+    case FEnd{}:
+      xs
+    case FSeq{t, b, k}:
+      frames(f, k, go(f, t, xs, val(b)))
+    case FCap{n, at, from, k}:
+      frames(f, k, close(xs, n, at, from))
+    case FRound{ps, b, l, k}:
+      frames(f, k, go(f, many.next(ps), grew(l, xs), val(b)))
+
+def first_end.if(ends: Bool, empty: Bool, x: St, m: Maybe<&2, St>) -> Maybe<&2, St>:
+  match ends empty:
+    case False{} _:
+      Some{x}
+    case True{} True{}:
+      Some{x}
+    case True{} False{}:
+      m
+
+# the first reading of xs whose end condition holds (ends: the text must
+# end there)
+def first_end(+ends: Bool, xs: List<&2, St>) -> Maybe<&2, St>:
   match xs:
     case Nil{}:
       None{}
     case x <> t:
-      Some{x}
+      match x:
+        case St{pos, left, word, +rest, caps}:
+          first_end.if(ends, String.is_empty(rest), St{pos, left, word, rest, caps}, first_end(ends, t))
+
+# a place every piece and frame has read: a reading, unless it must end
+# the text and does not
+def done(ends: Bool, s: St) -> Maybe<&2, St>:
+  match ends:
+    case False{}:
+      Some{s}
+    case True{}:
+      end(s)
+
+# the matcher's answer with no budget left: every reading computed, fuel
+# one past the place's count of chars after it
+def out(w: W, ps: List<&2, Piece>, b: Base, K: Fr, ends: Bool) -> Maybe<&2, St>:
+  match w:
+    case Want{+s}:
+      +f = {1n+remain(s) : Nat}
+      first_end(ends, frames(f, K, go(f, ps, [s], val(b))))
+    case Have{r}:
+      Some{r}
+    case Nothing{}:
+      None{}
+
+# Run: the place after one more char of the class c, when max allows one
+def run.step(c: Cls, max: Maybe<&2, Nat>, s: St) -> Maybe<&2, St>:
+  match s:
+    case St{pos, left, word, rest, caps}:
+      match rest:
+        case SNil{}:
+          None{}
+        case SCon{+x, t}:
+          keep(Bool.and(run.room(max), is_in(c, x)), St{1n+pos, pred(left), is_word(x), t, caps})
+
+# Run: the pieces after one more char of the run Run{c, min, max} before
+# t (ps: those pieces, themselves when the run has no bounds)
+def run.next(min: Nat, max: Maybe<&2, Nat>, c: Cls, t: List<&2, Piece>, ps: List<&2, Piece>) -> List<&2, Piece>:
+  match min:
+    case 0n:
+      match max:
+        case None{}:
+          ps
+        case Some{n}:
+          Run{c, 0n, Some{pred(n)}} <> t
+    case 1n+k:
+      Run{c, k, run.less(max)} <> t
+
+# Many: the place, when a round read a char past a place with l chars
+# after it
+def moved(+l: Nat, s: St) -> Maybe<&2, St>:
+  match s:
+    case St{pos, +left, word, rest, caps}:
+      keep(Nat.is_lt(left, l), St{pos, left, word, rest, caps})
+
+# Cap: the place with capture k set to the chars from char at (the text
+# from there: from) to it
+def set(s: St, +k: Nat, at: Nat, from: String) -> St:
+  match s:
+    case St{+pos, left, word, rest, caps}:
+      St{pos, left, word, rest, List.set(&2, Maybe<&2, Got>, caps, k, Some{Got{at, pos, from}})}
+
+# Ahead: the place itself when the inner pieces have a reading (m), or
+# when neg and they have none
+def ahead.at(neg: Bool, m: Maybe<&2, St>, s: St) -> Maybe<&2, St>:
+  match m:
+    case None{}:
+      keep(neg, s)
+    case Some{x}:
+      keep(Bool.not(neg), s)
+
+# The first reading of the pieces ps from the place of w, then of the
+# frames K, whose end condition holds (ends); w's answer when it has one.
+# Budget T: each step costs one; with none left the rest is read by go.
+def seek(T: Nat, w: W, +ps: List<&2, Piece>, +b: Base, +K: Fr, +ends: Bool) -> Maybe<&2, St>:
+  match T:
+    case 0n:
+      out(w, ps, b, K, ends)
+    case 1n++U:
+      match w:
+        case Have{r}:
+          Some{r}
+        case Nothing{}:
+          None{}
+        case Want{+s}:
+          match ps:
+            case Nil{}:
+              match K:
+                case FEnd{}:
+                  done(ends, s)
+                case FSeq{t, c, k}:
+                  seek(U, Want{s}, t, c, k, ends)
+                case FCap{n, at, from, k}:
+                  seek(U, Want{set(s, n, at, from)}, Nil{}, b, k, ends)
+                case FRound{q, c, l, k}:
+                  seek(U, want(moved(l, s)), many.next(q), c, k, ends)
+            case q <> +t:
+              match q:
+                case Lit{u}:
+                  seek(U, want(lit(u, False{}, s)), t, b, K, ends)
+                case Fold{u}:
+                  seek(U, want(lit(u, True{}, s)), t, b, K, ends)
+                case Run{+c, +min, +max}:
+                  seek(U, prefer(seek(U, want(run.step(c, max, s)), run.next(min, max, c, t, ps), b, K, ends), zero(min, s)), t, b, K, ends)
+                case Cap{+i}:
+                  +n = val(b)
+                  seek(U, Want{s}, i, BAt{1n+n}, FCap{n, place(s), after(s), push(t, BAfter{BAt{1n+n}, i}, K)}, ends)
+                case Opt{+i}:
+                  +c = {BAfter{b, i} : Base}
+                  seek(U, prefer(seek(U, Want{s}, i, b, push(t, c, K), ends), Some{s}), t, c, K, ends)
+                case Alt{+a, +c}:
+                  +d = {BAfter{b, a} : Base}
+                  +K2 = {push(t, BAfter{d, c}, K) : Fr}
+                  seek(U, prefer(seek(U, Want{s}, a, b, K2, ends), Some{s}), c, d, K2, ends)
+                case Many{+i, min}:
+                  seek(U, prefer(seek(U, Want{s}, i, b, FRound{ps, b, remain(s), K}, ends), zero(min, s)), t, BAfter{b, i}, K, ends)
+                case Ahead{+i, neg}:
+                  seek(U, want(ahead.at(neg, seek(U, Want{s}, i, b, FEnd{}, False{}), s)), t, BAfter{b, i}, K, ends)
+                case Same{k}:
+                  seek(U, want(same(k, s)), t, b, K, ends)
+                case Bound{}:
+                  seek(U, want(bound(s)), t, b, K, ends)
+                case Begin{}:
+                  seek(U, want(begin(s)), t, b, K, ends)
+                case End{}:
+                  seek(U, want(end(s)), t, b, K, ends)
+
+# the budget of a search from the place s: steps before the matcher falls
+# back to computing every reading, 64 per char after s (a real search
+# takes a few; a small budget keeps the kernel's check of the examples
+# short)
+def budget(s: St) -> Nat:
+  Nat.mul(64n, 1n+remain(s))
+
+# Answers
+# -------
 
 # the first reading of the pieces ps from the place s whose end condition
-# holds (ends: it must end the text); f: fuel past the text's length
+# holds (ends: it must end the text), every reading computed with fuel f
 def at(f: Nat, ps: List<&2, Piece>, ends: Bool, s: St) -> Maybe<&2, St>:
-  head(go(f, ps, [s], 0n, First{ends}))
+  first_end(ends, go(f, ps, [s], 0n))
+
+# the same found by the matcher, fuel past the place's count of chars
+# after it
+def first_at(+ps: List<&2, Piece>, +ends: Bool, +s: St) -> Maybe<&2, St>:
+  seek(budget(s), Want{s}, ps, BAt{0n}, FEnd{}, ends)
 
 def none_caps(n: Nat) -> List<&2, Maybe<&2, Got>>:
   List.replicate(Maybe<&2, Got>, n, None{})
@@ -634,7 +878,8 @@ def find.next(st: Start, more: Unit -> Maybe<&2, Hit>) -> Maybe<&2, Hit>:
 
 # the first reading at the first place from the place (pos chars before
 # it, left after it, word: the char before it is a word char, the text
-# from it on) on where one holds, and that place (AtStart: only the first)
+# from it on) on where one holds, and that place (AtStart: only the
+# first); every reading computed with fuel f
 def find.go(text: String, +f: Nat, +st: Start, +ps: List<&2, Piece>, +ends: Bool, +pos: Nat, +left: Nat, word: Bool, +caps: List<&2, Maybe<&2, Got>>) -> Maybe<&2, Hit>:
   match text:
     case SNil{}:
@@ -656,6 +901,14 @@ def find(f: Nat, sh: Shape, a: At) -> Maybe<&2, Hit>:
         case At{text, pos, left, word}:
           find.go(text, f, st, ps, ends, pos, left, word, none_caps(ncaps(ps)))
 
+# find.go, each place's answer found by the matcher
+def first.find(text: String, +st: Start, +ps: List<&2, Piece>, +ends: Bool, +pos: Nat, +left: Nat, word: Bool, +caps: List<&2, Maybe<&2, Got>>) -> Maybe<&2, Hit>:
+  match text:
+    case SNil{}:
+      find.try(first_at(ps, ends, St{pos, left, word, SNil{}, caps}), pos, k => None{})
+    case SCon{+x, +t}:
+      find.try(first_at(ps, ends, St{pos, left, word, SCon{x, t}, caps}), pos, k => find.next(st, j => first.find(t, st, ps, ends, 1n+pos, pred(left), is_word(x), caps)))
+
 def first.hit(r: Maybe<&2, Hit>, +i: Nat, more: Unit -> Maybe<&2, Found>) -> Maybe<&2, Found>:
   match r:
     case None{}:
@@ -665,26 +918,23 @@ def first.hit(r: Maybe<&2, Hit>, +i: Nat, more: Unit -> Maybe<&2, Found>) -> May
         case Hit{s, p}:
           Some{Found{i, fit(p, s)}}
 
-def first.go(shs: List<&2, Shape>, +f: Nat, +a: At, +i: Nat) -> Maybe<&2, Found>:
+def first.shape(sh: Shape, text: String, n: Nat) -> Maybe<&2, Hit>:
+  match sh:
+    case Shape{st, +ps, ends}:
+      first.find(text, st, ps, ends, 0n, n, False{}, none_caps(ncaps(ps)))
+
+# the first shape of shs with a fit from the text's start (text: the
+# text, n: its length), its index from i
+def first.go(shs: List<&2, Shape>, +text: String, +n: Nat, +i: Nat) -> Maybe<&2, Found>:
   match shs:
     case Nil{}:
       None{}
     case sh <> t:
-      first.hit(find(f, sh, a), i, k => first.go(t, f, a, 1n+i))
-
-# the start of a text: no char before it
-def start(+text: String) -> At:
-  At{text, 0n, String.length(text), False{}}
-
-def At.count(a: At) -> Nat:
-  match a:
-    case At{text, pos, left, word}:
-      left
+      first.hit(first.shape(sh, text, n), i, k => first.go(t, text, n, 1n+i))
 
 # the first shape of the list that fits the text, its index and its fit
-def first(shs: List<&2, Shape>, text: String) -> Maybe<&2, Found>:
-  +a = start(text)
-  first.go(shs, 1n+At.count(a), a, 0n)
+def first(shs: List<&2, Shape>, +text: String) -> Maybe<&2, Found>:
+  first.go(shs, text, String.length(text), 0n)
 
 # whether a shape may start at a place with pos chars before it (AtStart:
 # only the text start)
@@ -696,10 +946,10 @@ def may(st: Start, +pos: Nat) -> Bool:
       True{}
 
 # the answer at a place when it is tried, else none
-def all.try(go: Bool, +f: Nat, +ps: List<&2, Piece>, +ends: Bool, s: St) -> Maybe<&2, St>:
+def all.try(go: Bool, +ps: List<&2, Piece>, +ends: Bool, s: St) -> Maybe<&2, St>:
   match go:
     case True{}:
-      at(f, ps, ends, s)
+      first_at(ps, ends, s)
     case False{}:
       None{}
 
@@ -731,12 +981,12 @@ def all.here(m: Maybe<&2, St>, +p: Nat, skip: Nat, more: Nat -> List<&2, Fit>) -
 # char before it is a word char, the text from it on) on, place by place:
 # a place is tried when no earlier fit covers it (skip: how many places
 # from here a fit still covers) and the shape may start there
-def all.go(text: String, +f: Nat, +st: Start, +ps: List<&2, Piece>, +ends: Bool, +pos: Nat, +left: Nat, word: Bool, +caps: List<&2, Maybe<&2, Got>>, +skip: Nat) -> List<&2, Fit>:
+def all.go(text: String, +st: Start, +ps: List<&2, Piece>, +ends: Bool, +pos: Nat, +left: Nat, word: Bool, +caps: List<&2, Maybe<&2, Got>>, +skip: Nat) -> List<&2, Fit>:
   match text:
     case SNil{}:
-      all.end(all.try(Bool.and(Nat.is_eq(skip, 0n), may(st, pos)), f, ps, ends, St{pos, left, word, SNil{}, caps}), pos)
+      all.end(all.try(Bool.and(Nat.is_eq(skip, 0n), may(st, pos)), ps, ends, St{pos, left, word, SNil{}, caps}), pos)
     case SCon{+x, +t}:
-      all.here(all.try(Bool.and(Nat.is_eq(skip, 0n), may(st, pos)), f, ps, ends, St{pos, left, word, SCon{x, t}, caps}), pos, skip, k => all.go(t, f, st, ps, ends, 1n+pos, pred(left), is_word(x), caps, k))
+      all.here(all.try(Bool.and(Nat.is_eq(skip, 0n), may(st, pos)), ps, ends, St{pos, left, word, SCon{x, t}, caps}), pos, skip, k => all.go(t, st, ps, ends, 1n+pos, pred(left), is_word(x), caps, k))
 
 # every fit of the shape sh in the text, left to right, none overlapping:
 # each search starts where the previous fit ended (one char later after
@@ -744,5 +994,4 @@ def all.go(text: String, +f: Nat, +st: Start, +ps: List<&2, Piece>, +ends: Bool,
 def all(sh: Shape, +text: String) -> List<&2, Fit>:
   match sh:
     case Shape{st, +ps, ends}:
-      +n = String.length(text)
-      all.go(text, 1n+n, st, ps, ends, 0n, n, False{}, none_caps(ncaps(ps)), 0n)
+      all.go(text, st, ps, ends, 0n, String.length(text), False{}, none_caps(ncaps(ps)), 0n)

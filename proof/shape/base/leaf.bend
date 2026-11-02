@@ -10,15 +10,25 @@ import ../base.bend as LA
 # Chars
 # -----
 
-def shl.rgs(rs: List<&2, S.Rg>, +x: U32) -> {S.in_rgs(rs, x) == Shape.sp_codes(rs, x) : Bool}:
+def shl.rgs_go(rs: List<&2, S.Rg>, h: Bool, +x: U32) -> {S.in_rgs.go(rs, h, x) == Bool.or(h, Shape.sp_codes(rs, x)) : Bool}:
   match rs:
     case Nil{}:
-      {==}
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
     case r <> +t:
       match r:
-        case S.Rg{lo, hi}:
-          %Equal.sym(Bool, S.in_rgs(t, x), Shape.sp_codes(t, x), shl.rgs(t, x)) : {Bool.or(S.in_range(x, lo, hi), _) == Shape.sp_codes(S.Rg{lo, hi} <> t, x) : Bool}
-          {==}
+        case S.Rg{+lo, +hi}:
+          match h:
+            case True{}:
+              {==}
+            case False{}:
+              shl.rgs_go(t, S.in_range(x, lo, hi), x)
+
+def shl.rgs(rs: List<&2, S.Rg>, +x: U32) -> {S.in_rgs(rs, x) == Shape.sp_codes(rs, x) : Bool}:
+  shl.rgs_go(rs, False{}, x)
 
 def shl.set(st: S.Chars, +x: U32) -> {S.in_set(st, Chr{x}) == Shape.sp_names(st, x) : Bool}:
   match st:
@@ -91,40 +101,36 @@ def shl.pred(n: Nat) -> {S.pred(n) == Shape.sp_dec(n) : Nat}:
     case 1n+m:
       {==}
 
-# a lazy guard is the spec's guard
-def shl.when(b: Bool, -X: List<&2, S.St>, -Y: List<&2, S.St>, h: {X == Y : List<&2, S.St>}) -> {S.when(b, k => X) == Shape.sp_if(b, Y) : List<&2, S.St>}:
-  match b:
-    case True{}:
-      h
-    case False{}:
-      {==}
-
-def shl.keep(b: Bool, s: S.St) -> {S.keep(b, s) == Shape.sp_if(b, [s]) : List<&2, S.St>}:
+def shl.keep(b: Bool, s: S.St) -> {S.m2l(S.keep(b, s)) == Shape.sp_if(b, [s]) : List<&2, S.St>}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def shl.lit_go(u: String, +fold: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, S.Got>>) -> {S.lit.go(u, fold, rest, pos, left, word, caps) == Shape.sp_eat(u, fold, S.St{pos, left, word, rest, caps}) : List<&2, S.St>}:
+def shl.lit_go(u: String, +fold: Bool, ok: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, S.Got>>) -> {S.m2l(S.lit.go(u, fold, ok, rest, pos, left, word, caps)) == Shape.sp_if(ok, Shape.sp_eat(u, fold, S.St{pos, left, word, rest, caps})) : List<&2, S.St>}:
   match u:
     case SNil{}:
-      {==}
+      shl.keep(ok, S.St{pos, left, word, rest, caps})
     case SCon{+y, +v}:
-      match rest:
-        case SNil{}:
+      match ok:
+        case True{}:
+          match rest:
+            case SNil{}:
+              {==}
+            case SCon{+x, +t}:
+              %Equal.sym(Bool, S.lit.same(fold, x, y), Shape.sp_ch_eq(fold, x, y), shl.same(fold, x, y)) : {S.m2l(S.lit.go(v, fold, _, t, 1n+pos, S.pred(left), S.is_word(x), caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+              %Equal.sym(Bool, S.is_word(x), Shape.sp_word(x), shl.word(x)) : {S.m2l(S.lit.go(v, fold, Shape.sp_ch_eq(fold, x, y), t, 1n+pos, S.pred(left), _, caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+              %Equal.sym(Nat, S.pred(left), Shape.sp_dec(left), shl.pred(left)) : {S.m2l(S.lit.go(v, fold, Shape.sp_ch_eq(fold, x, y), t, 1n+pos, _, Shape.sp_word(x), caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+              shl.lit_go(v, fold, Shape.sp_ch_eq(fold, x, y), t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps)
+        case False{}:
           {==}
-        case SCon{+x, +t}:
-          %Equal.sym(Bool, S.lit.same(fold, x, y), Shape.sp_ch_eq(fold, x, y), shl.same(fold, x, y)) : {S.when(_, k => S.lit.go(v, fold, t, 1n+pos, S.pred(left), S.is_word(x), caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-          %Equal.sym(Bool, S.is_word(x), Shape.sp_word(x), shl.word(x)) : {S.when(Shape.sp_ch_eq(fold, x, y), k => S.lit.go(v, fold, t, 1n+pos, S.pred(left), _, caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-          %Equal.sym(Nat, S.pred(left), Shape.sp_dec(left), shl.pred(left)) : {S.when(Shape.sp_ch_eq(fold, x, y), k => S.lit.go(v, fold, t, 1n+pos, _, Shape.sp_word(x), caps)) == Shape.sp_eat(SCon{y, v}, fold, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-          shl.when(Shape.sp_ch_eq(fold, x, y), S.lit.go(v, fold, t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps), Shape.sp_eat(v, fold, S.St{1n+pos, Shape.sp_dec(left), Shape.sp_word(x), t, caps}), shl.lit_go(v, fold, t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps))
 
 # R4: Lit and Fold
-def shl.lit(u: String, fold: Bool, s: S.St) -> {S.lit(u, fold, s) == Shape.sp_eat(u, fold, s) : List<&2, S.St>}:
+def shl.lit(u: String, fold: Bool, s: S.St) -> {S.m2l(S.lit(u, fold, s)) == Shape.sp_eat(u, fold, s) : List<&2, S.St>}:
   match s:
     case S.St{pos, left, word, rest, caps}:
-      shl.lit_go(u, fold, rest, pos, left, word, caps)
+      shl.lit_go(u, fold, True{}, rest, pos, left, word, caps)
 
 def shl.push(need: Nat, s: S.St, acc: List<&2, S.St>) -> {S.run.push(need, s, acc) == List.append(&2, S.St, Shape.sp_zero(need, s), acc) : List<&2, S.St>}:
   match need:
@@ -188,29 +194,33 @@ def shl.run(+c: S.Cls, +need: Nat, +room: Maybe<&2, Nat>, s: S.St) -> {S.run(c, 
       %LA.shb.app_nil(Shape.sp_run.go(rest, c, need, room, pos, left, word, caps)) : {S.run(c, need, room, S.St{pos, left, word, rest, caps}) == _ : List<&2, S.St>}
       shl.run_go(rest, c, need, room, pos, left, word, caps, Nil{})
 
-def shl.same_go(n: Nat, from: String, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, S.Got>>) -> {S.same.go(n, from, rest, pos, left, word, caps) == Shape.sp_eat(String.take(from, n), False{}, S.St{pos, left, word, rest, caps}) : List<&2, S.St>}:
+def shl.same_go(n: Nat, from: String, ok: Bool, rest: String, +pos: Nat, +left: Nat, word: Bool, caps: List<&2, Maybe<&2, S.Got>>) -> {S.m2l(S.same.go(n, from, ok, rest, pos, left, word, caps)) == Shape.sp_if(ok, Shape.sp_eat(String.take(from, n), False{}, S.St{pos, left, word, rest, caps})) : List<&2, S.St>}:
   match n:
     case 0n:
       match from:
         case SNil{}:
-          {==}
+          shl.keep(ok, S.St{pos, left, word, rest, caps})
         case SCon{y, f}:
-          {==}
+          shl.keep(ok, S.St{pos, left, word, rest, caps})
     case 1n+m:
       match from:
         case SNil{}:
-          {==}
+          shl.keep(ok, S.St{pos, left, word, rest, caps})
         case SCon{+y, +f}:
-          match rest:
-            case SNil{}:
+          match ok:
+            case True{}:
+              match rest:
+                case SNil{}:
+                  {==}
+                case SCon{+x, +t}:
+                  %Equal.sym(Bool, S.is_word(x), Shape.sp_word(x), shl.word(x)) : {S.m2l(S.same.go(m, f, Char.is_eq(x, y), t, 1n+pos, S.pred(left), _, caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+                  %Equal.sym(Bool, Char.is_eq(x, y), Shape.sp_ch_eq(False{}, x, y), shl.same(False{}, x, y)) : {S.m2l(S.same.go(m, f, _, t, 1n+pos, S.pred(left), Shape.sp_word(x), caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+                  %Equal.sym(Nat, S.pred(left), Shape.sp_dec(left), shl.pred(left)) : {S.m2l(S.same.go(m, f, Shape.sp_ch_eq(False{}, x, y), t, 1n+pos, _, Shape.sp_word(x), caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
+                  shl.same_go(m, f, Shape.sp_ch_eq(False{}, x, y), t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps)
+            case False{}:
               {==}
-            case SCon{+x, +t}:
-              %Equal.sym(Bool, S.is_word(x), Shape.sp_word(x), shl.word(x)) : {S.when(Char.is_eq(x, y), k => S.same.go(m, f, t, 1n+pos, S.pred(left), _, caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-              %Equal.sym(Bool, Char.is_eq(x, y), Shape.sp_ch_eq(False{}, x, y), shl.same(False{}, x, y)) : {S.when(_, k => S.same.go(m, f, t, 1n+pos, S.pred(left), Shape.sp_word(x), caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-              %Equal.sym(Nat, S.pred(left), Shape.sp_dec(left), shl.pred(left)) : {S.when(Shape.sp_ch_eq(False{}, x, y), k => S.same.go(m, f, t, 1n+pos, _, Shape.sp_word(x), caps)) == Shape.sp_eat(String.take(SCon{y, f}, 1n+m), False{}, S.St{pos, left, word, SCon{x, t}, caps}) : List<&2, S.St>}
-              shl.when(Shape.sp_ch_eq(False{}, x, y), S.same.go(m, f, t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps), Shape.sp_eat(String.take(f, m), False{}, S.St{1n+pos, Shape.sp_dec(left), Shape.sp_word(x), t, caps}), shl.same_go(m, f, t, 1n+pos, Shape.sp_dec(left), Shape.sp_word(x), caps))
 
-def shl.same_got(g: Maybe<&2, Maybe<&2, S.Got>>, s: S.St) -> {S.same.got(g, s) == Shape.sp_same.at(Shape.sp_took.got(g), s) : List<&2, S.St>}:
+def shl.same_got(g: Maybe<&2, Maybe<&2, S.Got>>, s: S.St) -> {S.m2l(S.same.got(g, s)) == Shape.sp_same.at(Shape.sp_took.got(g), s) : List<&2, S.St>}:
   match g:
     case None{}:
       {==}
@@ -223,10 +233,10 @@ def shl.same_got(g: Maybe<&2, Maybe<&2, S.Got>>, s: S.St) -> {S.same.got(g, s) =
             case S.Got{at, to, from}:
               match s:
                 case S.St{pos, left, word, rest, caps}:
-                  shl.same_go(Nat.sub(to, at), from, rest, pos, left, word, caps)
+                  shl.same_go(Nat.sub(to, at), from, True{}, rest, pos, left, word, caps)
 
 # R4: Same
-def shl.same_k(k: Nat, s: S.St) -> {S.same(k, s) == Shape.sp_same(k, s) : List<&2, S.St>}:
+def shl.same_k(k: Nat, s: S.St) -> {S.m2l(S.same(k, s)) == Shape.sp_same(k, s) : List<&2, S.St>}:
   match k:
     case 0n:
       match s:
@@ -245,18 +255,18 @@ def shl.next_word(s: String) -> {S.next_word(s) == Shape.sp_starts_word(s) : Boo
       shl.word(x)
 
 # R4: Bound, Begin, End
-def shl.bound(s: S.St) -> {S.bound(s) == Shape.sp_bound(s) : List<&2, S.St>}:
+def shl.bound(s: S.St) -> {S.m2l(S.bound(s)) == Shape.sp_bound(s) : List<&2, S.St>}:
   match s:
     case S.St{+pos, left, +word, +rest, +caps}:
-      %Equal.sym(Bool, S.next_word(rest), Shape.sp_starts_word(rest), shl.next_word(rest)) : {S.keep(Bool.xor(word, _), S.St{pos, left, word, rest, caps}) == Shape.sp_bound(S.St{pos, left, word, rest, caps}) : List<&2, S.St>}
+      %Equal.sym(Bool, S.next_word(rest), Shape.sp_starts_word(rest), shl.next_word(rest)) : {S.m2l(S.keep(Bool.xor(word, _), S.St{pos, left, word, rest, caps})) == Shape.sp_bound(S.St{pos, left, word, rest, caps}) : List<&2, S.St>}
       shl.keep(Bool.xor(word, Shape.sp_starts_word(rest)), S.St{pos, left, word, rest, caps})
 
-def shl.begin(s: S.St) -> {S.begin(s) == Shape.sp_begin(s) : List<&2, S.St>}:
+def shl.begin(s: S.St) -> {S.m2l(S.begin(s)) == Shape.sp_begin(s) : List<&2, S.St>}:
   match s:
     case S.St{+pos, left, word, rest, caps}:
       shl.keep(Nat.is_eq(pos, 0n), S.St{pos, left, word, rest, caps})
 
-def shl.end(s: S.St) -> {S.end(s) == Shape.sp_end(s) : List<&2, S.St>}:
+def shl.end(s: S.St) -> {S.m2l(S.end(s)) == Shape.sp_end(s) : List<&2, S.St>}:
   match s:
     case S.St{pos, left, word, +rest, caps}:
       shl.keep(String.is_empty(rest), S.St{pos, left, word, rest, caps})
@@ -332,14 +342,14 @@ def shl.grew(+l: Nat, xs: List<&2, S.St>) -> {S.grew(l, xs) == Shape.sp_moved(l,
           %Equal.sym(List<&2, S.St>, S.grew(l, t), Shape.sp_moved(l, t), shl.grew(l, t)) : {S.grew.if(Nat.is_lt(left, l), S.St{pos, left, word, rest, caps}, _) == Shape.sp_moved(l, S.St{pos, left, word, rest, caps} <> t) : List<&2, S.St>}
           shl.grew_if(Nat.is_lt(left, l), S.St{pos, left, word, rest, caps}, Shape.sp_moved(l, t))
 
-def shl.zero(min: Nat, s: S.St) -> {S.many.zero(min, s) == Shape.sp_zero(min, s) : List<&2, S.St>}:
+def shl.zero(min: Nat, s: S.St) -> {S.m2l(S.zero(min, s)) == Shape.sp_zero(min, s) : List<&2, S.St>}:
   match min:
     case 0n:
       {==}
     case 1n+m:
       {==}
 
-def shl.ahead(neg: Bool, xs: List<&2, S.St>, s: S.St) -> {S.ahead.if(neg, LA.shb.take1(xs), s) == Shape.sp_ahead(neg, xs, s) : List<&2, S.St>}:
+def shl.ahead(neg: Bool, xs: List<&2, S.St>, s: S.St) -> {S.ahead.if(neg, xs, s) == Shape.sp_ahead(neg, xs, s) : List<&2, S.St>}:
   match neg:
     case True{}:
       match xs:

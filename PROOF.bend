@@ -2379,6 +2379,7 @@ import ./proof/shape/base/parts.bend as PShapeBaseParts
 import ./proof/shape/base/whole.bend as PShapeBaseWhole
 import ./proof/shape/base/sound.bend as PShapeBaseSound
 import ./proof/shape/base/complete.bend as PShapeBaseComplete
+import ./proof/shape/base/seek.bend as PShapeBaseSeek
 import ./proof/shape/shape_split_sound.bend as PShapeShapeSplitSound
 import ./proof/shape/shape_split_complete.bend as PShapeShapeSplitComplete
 import ./proof/shape/base/search.bend as PShapeBaseSearch
