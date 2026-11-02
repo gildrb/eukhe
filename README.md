@@ -47,9 +47,9 @@ bend PROOF.bend  # check every law
 
 ## Components
 
-- [Eukhe RLM](spec/rlm/): eukhe's fork of Prime Agent's RLM; each spawn names its reason.
-- [Eukhe Memory](spec/memory/): eukhe's fork of OptChat; one thread per session.
-- [Eukhe Hierarchy](spec/agents/): eukhe's fork of Prime Agent's agent tree; agents message only their parent and children.
+- [Eukhe RLM](spec/rlm/) is a eukhe-specific fork of Prime Agent's RLM where each subagent spawn names its reason.
+- [Eukhe Memory](spec/memory/) is a eukhe-specific fork of OptChat with one thread per session.
+- [Eukhe Hierarchy](spec/agents/) is a eukhe-specific fork of Prime Agent's agent tree where agents message only their parent and children.
 
 ## Limitations
 
