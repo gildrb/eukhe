@@ -27,6 +27,19 @@ def view_size(+ph: Nat, +info: OInfo.Info, v: List<&2, ONode.Node>) -> Nat:
     case h <> t:
       Nat.add(line_size(ph, info, h), view_size(ph, info, t))
 
+# the view takes more than b bytes (view_size(ph, info, v) > b), found
+# by taking each line's size off b: no sum of sizes is formed, so no
+# value grows past the sizes and the budget (each at most the wire's
+# largest Nat; three summed would pass 2^48-1, which stops the compiled
+# core)
+def over(+ph: Nat, +info: OInfo.Info, v: List<&2, ONode.Node>, +b: Nat) -> Bool:
+  match v:
+    case Nil{}:
+      False{}
+    case h <> t:
+      +z = line_size(ph, info, h)
+      Bool.or(Nat.is_gt(z, b), over(ph, info, t, Nat.sub(b, z)))
+
 # Due
 # ---
 # A pair of sibling lines (l, i), (l, i+1) is due (T - last) / 2^l: how
@@ -153,7 +166,7 @@ def choose.if(over: Bool, +m: Age, +t: List<&2, Bool>, +info: OInfo.Info, v: Lis
 
 # the next merge of a fit: the most due pair, while over budget
 def choose(+m: Age, +t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: OInfo.Info, +v: List<&2, ONode.Node>) -> Maybe<&2, ONode.Node>:
-  choose.if(Nat.is_gt(view_size(ph, info, v), budget), m, t, info, v)
+  choose.if(over(ph, info, v, budget), m, t, info, v)
 
 def fit.cons(n: ONode.Node, r: List<&2, ONode.Node> & List<&2, ONode.Node>) -> List<&2, ONode.Node> & List<&2, ONode.Node>:
   (ms, out) = r

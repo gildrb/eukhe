@@ -30,6 +30,7 @@ import ../../../spec/memory/optchat.bend as S
 import ./step.bend as LAS
 import ./bits.bend as LAB
 import ./ffi_optchat.bend as LAF
+import ./over.bend as LOv
 
 # The open runs the laws' open
 # ----------------------------
@@ -59,6 +60,7 @@ def oo.batch(r: List<&2, ONode.Node> & List<&2, ONode.Node>, +cfg: OState.Cfg, +
   (merged, view0) = r
   +m = merged
   +v = view0
+  %Equal.sym(Bool, OFit.over(OState.Cfg.ph(cfg), info, v, OState.Cfg.floor(cfg)), Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, v), OState.Cfg.floor(cfg)), LOv.ov.over(OState.Cfg.ph(cfg), info, v, OState.Cfg.floor(cfg))) : {FOc.open.reply(cfg, (OOpen.open.at(cfg, t, info, v, _, ready), Some{m})) == Optchat.oc_open_missed((m, v), cfg, t, info, ready) : FOc.St & String}
   +s = Optchat.oc_open_at(cfg, t, info, v, Nat.is_gt(OFit.view_size(OState.Cfg.ph(cfg), info, v), OState.Cfg.floor(cfg)), ready)
   Equal.cong(String, FOc.St & String, x => (FOc.Live{cfg, s}, x), FOc.msg.answer(True{}, m, s), Optchat.oc_spell_batch(True{}, m, s), LAF.oe.answer(True{}, m, s))
 

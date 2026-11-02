@@ -9,6 +9,7 @@ import ../../../bend/optchat/push.bend as OPush
 import ../../base/logic/nat.bend as LLogicNat
 import ../../base/nat.bend as LNat
 import ../base/step.bend as LA
+import ../base/over.bend as LOv
 import ./list.bend as LLList
 import ./logic.bend as LLLogic
 import ./nat.bend as LLNat
@@ -343,7 +344,9 @@ def pa.cif_lift(over: Bool, +v: List<&2, ONode.Node>, +iz: List<&2, Bool>, -t: L
 
 def pa.choose_lift(+v: List<&2, ONode.Node>, +b: Nat, +iz: List<&2, Bool>, -t: List<&2, Bool>, +t0: List<&2, Bool>, +hu: {False{} <> OBits.Bits.inc(t0) == OBits.Bits.inc(t) : List<&2, Bool>})
   -> {OFit.choose(OFit.Last{}, t, 1n+b, 0n, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz})) == LLLogic.pa.liftm(OFit.choose(OFit.Last{}, t0, b, 0n, OInfo.All{1n}, v)) : Maybe<&2, ONode.Node>}:
+  %Equal.sym(Bool, OFit.over(0n, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz}), 1n+b), Nat.is_gt(OFit.view_size(0n, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz})), 1n+b), LOv.ov.over(0n, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz}), 1n+b)) : {OFit.choose.if(_, OFit.Last{}, t, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz})) == LLLogic.pa.liftm(OFit.choose(OFit.Last{}, t0, b, 0n, OInfo.All{1n}, v)) : Maybe<&2, ONode.Node>}
   %Equal.sym(Nat, LLLogic.pa.vs(LLLogic.pa.up(v, ONode.Node{0n, iz})), 1n+LLLogic.pa.vs(v), LLLogic.pa.size_up(v, ONode.Node{0n, iz})) : {OFit.choose.if(Nat.is_gt(_, 1n+b), OFit.Last{}, t, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz})) == LLLogic.pa.liftm(OFit.choose(OFit.Last{}, t0, b, 0n, OInfo.All{1n}, v)) : Maybe<&2, ONode.Node>}
+  %Equal.sym(Bool, OFit.over(0n, OInfo.All{1n}, v, b), Nat.is_gt(OFit.view_size(0n, OInfo.All{1n}, v), b), LOv.ov.over(0n, OInfo.All{1n}, v, b)) : {OFit.choose.if(Nat.is_gt(1n+LLLogic.pa.vs(v), 1n+b), OFit.Last{}, t, OInfo.All{1n}, LLLogic.pa.up(v, ONode.Node{0n, iz})) == LLLogic.pa.liftm(OFit.choose.if(_, OFit.Last{}, t0, OInfo.All{1n}, v)) : Maybe<&2, ONode.Node>}
   pa.cif_lift(Nat.is_gt(LLLogic.pa.vs(v), b), v, iz, t, t0, hu)
 
 def pa.fit_lift(f: Nat, c: Maybe<&2, ONode.Node>, +v: List<&2, ONode.Node>, +b: Nat, +iz: List<&2, Bool>, +t: List<&2, Bool>, +t0: List<&2, Bool>, +hu: {False{} <> OBits.Bits.inc(t0) == OBits.Bits.inc(t) : List<&2, Bool>})
@@ -528,6 +531,7 @@ def pa.hc_base(+r: List<&2, Bool>)
   -> {OFit.choose(OFit.Last{}, LLLogic.pa.tb0(LLLogic.pa.B(r)), 1n+List.length(&2, Bool, r), 0n, OInfo.All{1n}, List.append(&2, ONode.Node, LLLogic.pa.lifts(LLLogic.pa.GV(r)), [LLLogic.pa.a0(LLLogic.pa.B(r)), LLLogic.pa.b0(LLLogic.pa.B(r))])) == Some{LLLogic.pa.a0(LLLogic.pa.B(r))} : Maybe<&2, ONode.Node>}:
   +R = LLLogic.pa.B(r)
   +y = List.append(&2, ONode.Node, LLLogic.pa.lifts(LLLogic.pa.GV(r)), [LLLogic.pa.a0(R), LLLogic.pa.b0(R)])
+  %Equal.sym(Bool, OFit.over(0n, OInfo.All{1n}, y, 1n+List.length(&2, Bool, r)), Nat.is_gt(OFit.view_size(0n, OInfo.All{1n}, y), 1n+List.length(&2, Bool, r)), LOv.ov.over(0n, OInfo.All{1n}, y, 1n+List.length(&2, Bool, r))) : {OFit.choose.if(_, OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, y) == Some{LLLogic.pa.a0(R)} : Maybe<&2, ONode.Node>}
   %Equal.sym(Nat, LLLogic.pa.vs(y), 2n+List.length(&2, Bool, r), LLList.pa.size_hi(r, [LLLogic.pa.a0(R), LLLogic.pa.b0(R)])) : {OFit.choose.if(Nat.is_gt(_, 1n+List.length(&2, Bool, r)), OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, y) == Some{LLLogic.pa.a0(R)} : Maybe<&2, ONode.Node>}
   %Equal.sym(Bool, Nat.is_gt(1n+List.length(&2, Bool, r), List.length(&2, Bool, r)), True{}, LLNat.pa.gt_succ(List.length(&2, Bool, r))) : {OFit.choose.if(_, OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, y) == Some{LLLogic.pa.a0(R)} : Maybe<&2, ONode.Node>}
   pa.best_base(LLLogic.pa.lifts(LLLogic.pa.GV(r)), None{}, LLLogic.pa.tb0(R), LLLogic.pa.a0(R), LLLogic.pa.b0(R), pa.mab(R), pa.pre_lifts(LLLogic.pa.GV(r), R, pa.good_gv(r)), Unit{})
@@ -542,6 +546,7 @@ def pa.hm_base(+r: List<&2, Bool>)
 def pa.hn_base(+r: List<&2, Bool>)
   -> {OFit.choose(OFit.Last{}, LLLogic.pa.tb0(LLLogic.pa.B(r)), 1n+List.length(&2, Bool, r), 0n, OInfo.All{1n}, LLLogic.pa.GV(True{} <> r)) == None{} : Maybe<&2, ONode.Node>}:
   +R = LLLogic.pa.B(r)
+  %Equal.sym(Bool, OFit.over(0n, OInfo.All{1n}, LLLogic.pa.GV(True{} <> r), 1n+List.length(&2, Bool, r)), Nat.is_gt(OFit.view_size(0n, OInfo.All{1n}, LLLogic.pa.GV(True{} <> r)), 1n+List.length(&2, Bool, r)), LOv.ov.over(0n, OInfo.All{1n}, LLLogic.pa.GV(True{} <> r), 1n+List.length(&2, Bool, r))) : {OFit.choose.if(_, OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, LLLogic.pa.GV(True{} <> r)) == None{} : Maybe<&2, ONode.Node>}
   %Equal.sym(Nat, LLLogic.pa.vs(LLLogic.pa.GV(True{} <> r)), 1n+List.length(&2, Bool, r), LLList.pa.size_hi(r, [ONode.Node{1n, LLLogic.pa.nb(R)}])) : {OFit.choose.if(Nat.is_gt(_, 1n+List.length(&2, Bool, r)), OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, LLLogic.pa.GV(True{} <> r)) == None{} : Maybe<&2, ONode.Node>}
   %Equal.sym(Bool, Nat.is_gt(1n+List.length(&2, Bool, r), 1n+List.length(&2, Bool, r)), False{}, LLNat.pa.gt_self(1n+List.length(&2, Bool, r))) : {OFit.choose.if(_, OFit.Last{}, LLLogic.pa.tb0(R), OInfo.All{1n}, LLLogic.pa.GV(True{} <> r)) == None{} : Maybe<&2, ONode.Node>}
   {==}
