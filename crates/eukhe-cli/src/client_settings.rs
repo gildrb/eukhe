@@ -101,6 +101,7 @@ fn role_target(role: ModelRole) -> RoleTarget {
         ModelRole::Auxiliary => RoleTarget::Remote(&table::AUXILIARY_MODEL),
         ModelRole::Image => RoleTarget::Remote(&table::IMAGE_MODEL),
         ModelRole::Subagent => RoleTarget::Remote(&table::SUBAGENT_DEFAULT_MODEL),
+        ModelRole::Worker => RoleTarget::Remote(&table::WORKER_MODEL),
         ModelRole::Gateway => RoleTarget::Remote(&table::GATEWAY_SIGNAL_MODEL),
         ModelRole::Titles => RoleTarget::Local(Role::Tiny, &table::MODEL_ROLE_TINY),
         ModelRole::Judge => RoleTarget::Local(Role::Judge, &table::MODEL_ROLE_JUDGE),
@@ -262,6 +263,7 @@ impl ClientSettings for CliClientSettings {
                     ModelRole::Chat
                     | ModelRole::Auxiliary
                     | ModelRole::Image
+                    | ModelRole::Worker
                     | ModelRole::Titles
                     | ModelRole::Judge
                     | ModelRole::Translate
@@ -293,6 +295,7 @@ impl ClientSettings for CliClientSettings {
             | ModelRole::Auxiliary
             | ModelRole::Image
             | ModelRole::Subagent
+            | ModelRole::Worker
             | ModelRole::Gateway
             | ModelRole::Titles
             | ModelRole::Judge
@@ -335,6 +338,7 @@ impl ClientSettings for CliClientSettings {
                 | ModelRole::Auxiliary
                 | ModelRole::Image
                 | ModelRole::Subagent
+                | ModelRole::Worker
                 | ModelRole::Gateway
                 | ModelRole::Titles
                 | ModelRole::Judge
@@ -565,11 +569,12 @@ mod tests {
     }
 
     /// Every non-chat role's global key, in `ModelRole::ALL` order.
-    const ROLE_KEYS: [(ModelRole, &str); 10] = [
+    const ROLE_KEYS: [(ModelRole, &str); 11] = [
         (ModelRole::Memory, "memory.model"),
         (ModelRole::Auxiliary, "auxiliaryModel"),
         (ModelRole::Image, "imageModel"),
         (ModelRole::Subagent, "subagentDefaultModel"),
+        (ModelRole::Worker, "workerModel"),
         (ModelRole::Gateway, "gateway.signal.model"),
         (ModelRole::Titles, "modelRoles.tiny"),
         (ModelRole::Judge, "modelRoles.judge"),

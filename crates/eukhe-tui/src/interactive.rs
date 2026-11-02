@@ -270,6 +270,12 @@ impl InteractiveOptions {
         }
         if let Some(script) = &self.script_path {
             config["script"] = json!(script.display().to_string());
+            // Verification seam (the print runtime's contract): a scripted
+            // session's children run this script FILE. The product never
+            // sets it.
+            if let Some(child_script) = std::env::var_os("EUKHE_FAUX_CHILD_SCRIPT") {
+                config["childScript"] = json!(child_script.to_string_lossy());
+            }
         }
         if let Some(provider) = &self.model_selection.provider {
             config["provider"] = json!(provider);

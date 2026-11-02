@@ -14,6 +14,7 @@ pub mod ipython;
 pub mod ipython_details;
 mod layout;
 mod summary;
+pub mod worker;
 
 use std::time::Instant;
 
@@ -155,6 +156,7 @@ pub fn render_tool_card(
     match card.name.as_str() {
         "ipython" => ipython::render(card, frame, detail, theme, width, show_images),
         "bash" => bash::render(card, frame, detail, theme, width, show_images),
+        "worker_assign" | "worker_forward" => worker::render(card, frame, theme, width),
         _ => generic::render(card, frame, detail, theme, width, show_images),
     }
 }

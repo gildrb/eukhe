@@ -623,6 +623,7 @@ fn agent_message_row() -> ChatEntry {
         direction: crate::custom_message::AgentMessageDirection::Received,
         counterpart: "lane".to_string(),
         message: "hi".to_string(),
+        forward: None,
     }))
 }
 

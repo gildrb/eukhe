@@ -234,6 +234,7 @@ fn spawn_request(name: &str, prompt: &str) -> RlmChildSpawnRequest {
         spawned_by_request_id: None,
         parent_task_id: "1".to_string(),
         workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+        worker: false,
     }
 }
 
@@ -342,12 +343,12 @@ async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
 
     // Prompt the task, then long-poll the child until it settles with
     // its answer preview.
-    let prompt = RlmChildPromptRequest {
-        idempotency_key: "rlm:1:prompt".to_string(),
-        session_id: CHILD_SESSION_ID.to_string(),
-        rlm_child_id: CHILD_ID.to_string(),
-        prompt: "ship the lane".to_string(),
-    };
+    let prompt = RlmChildPromptRequest::task(
+        "rlm:1:prompt".to_string(),
+        CHILD_SESSION_ID.to_string(),
+        CHILD_ID.to_string(),
+        "ship the lane".to_string(),
+    );
     children.prompt(prompt.clone()).await.expect("prompt");
     children.prompt(prompt).await.expect("repeated prompt");
     let deadline = Instant::now() + Duration::from_secs(30);

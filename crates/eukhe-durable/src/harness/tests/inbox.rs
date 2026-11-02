@@ -28,8 +28,8 @@ use crate::harness::inbox::{InboxItem, InboxState, INBOX_DOC};
 use crate::harness::live::{LiveState, ToolSlotStatus, LIVE_DOC};
 use crate::harness::types::{
     ConversationCreateOptions, GenerationHooks, InputSubmissionDraft, PartialRetryPolicy,
-    QueueMode, ToolControl, ToolExecutionResult, ToolHooks, ToolRegistration, WhenBusy,
-    WriteSubmissionDraft, YieldContinuation,
+    PlaceQueued, QueueMode, ToolControl, ToolExecutionResult, ToolHooks, ToolRegistration,
+    WhenBusy, WriteSubmissionDraft, YieldContinuation,
 };
 use crate::harness::usage::{record_usage, UsageBucket, UsageState, USAGE_DOC};
 use crate::harness::{Conversation, Harness, SubmissionHandle};
@@ -641,6 +641,56 @@ mod queue {
         assert_done(&status(&input_submission).await, Some(answers[1].id));
         assert_done(&status(&steer).await, Some(answers[1].id));
         assert_done(&status(&follow_up).await, Some(answers[2].id));
+        harness.close(context()).await.unwrap();
+    }
+
+    /// A `before_prepare` hook that waited (a paused run) and asks to place
+    /// what was queued meanwhile: the steer joins the run's first request,
+    /// not the round after it.
+    #[tokio::test]
+    async fn places_steers_queued_while_a_before_prepare_hook_waited_into_the_first_request() {
+        let setup = chat_setup(RegisterFauxProviderOptions::default());
+        let (reached, gate) = (deferred(), deferred());
+        let asked = Arc::new(AtomicUsize::new(0));
+        let (hook_reached, hook_gate) = (reached.clone(), gate.clone());
+        add_hooks(
+            &setup.registry,
+            generation_task(),
+            GenerationHooks {
+                before_prepare: Some(Arc::new(move |_, _| {
+                    let first = asked.fetch_add(1, Ordering::SeqCst) == 0;
+                    let (reached, gate) = (hook_reached.clone(), hook_gate.clone());
+                    async move {
+                        if !first {
+                            return Ok(None);
+                        }
+                        reached.resolve(());
+                        gate.wait().await;
+                        Ok(Some(PlaceQueued))
+                    }
+                    .boxed()
+                })),
+                ..GenerationHooks::default()
+            },
+            None,
+        )
+        .unwrap();
+        setup.faux.set_responses(vec![answer("both").into()]);
+        let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
+        let input_submission = submit(&root, input("a")).await;
+        reached.wait().await;
+        let steer = submit(&root, input_when("s", WhenBusy::Steer)).await;
+        gate.resolve(());
+        settle(&steer).await;
+        let entries = all_entries(&root, context()).await.unwrap();
+        assert_eq!(
+            transcript(&entries),
+            ["pi.user:a", "pi.user:s", "pi.assistant:both"]
+        );
+        let answers = assistant_entries(&entries);
+        assert_done(&status(&input_submission).await, Some(answers[0].id));
+        assert_done(&status(&steer).await, Some(answers[0].id));
+        assert_eq!(setup.faux.state().call_count, 1);
         harness.close(context()).await.unwrap();
     }
 

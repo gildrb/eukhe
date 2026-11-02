@@ -224,14 +224,14 @@ where
 
 /// The running cell's output as the live observers get it, each
 /// `tool_execution_update` applied in order; storage holds none of it.
-struct LiveOutput {
+pub(crate) struct LiveOutput {
     _stream: AgentEventStream,
     text: Arc<Mutex<String>>,
     /// Every published `details` change, in order.
     details: Arc<Mutex<Vec<JsonValue>>>,
 }
 
-async fn live_output(session: &EukheSession) -> LiveOutput {
+pub(crate) async fn live_output(session: &EukheSession) -> LiveOutput {
     let stream = watch_events(session.harness(), session.root().id(), cx())
         .await
         .expect("agent events");
@@ -278,7 +278,7 @@ async fn live_output(session: &EukheSession) -> LiveOutput {
     }
 }
 
-async fn wait_for_live_output(live: &LiveOutput, output: &str) {
+pub(crate) async fn wait_for_live_output(live: &LiveOutput, output: &str) {
     wait_for("the cell's streamed output at the live observers", || {
         let streamed = live
             .text
@@ -1064,7 +1064,7 @@ async fn open_with_budget(
 }
 
 /// A cell that loops until `gate` exists, printing `started` first.
-fn gated_cell(gate: &std::path::Path, then: &str) -> String {
+pub(crate) fn gated_cell(gate: &std::path::Path, then: &str) -> String {
     format!(
         "import os, time\nprint('started', flush=True)\nwhile not os.path.exists({gate:?}):\n    time.sleep(0.02)\n{then}",
         gate = gate.display().to_string()

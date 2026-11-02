@@ -42,6 +42,14 @@ impl CreatedChild {
     }
 }
 
+/// A child's live facts from its `get_state`.
+pub(super) struct ChildFacts {
+    /// Work in flight: a run, queued input, or running descendants.
+    pub(super) busy: bool,
+    /// Its tree is paused.
+    pub(super) paused: bool,
+}
+
 impl SupervisorChildSessionsInner {
     /// Create one child session over the supervisor link (no prompt yet).
     /// `depth` is the child's recursion depth; `session_dir` holds its
@@ -275,6 +283,13 @@ impl SupervisorChildSessionsInner {
     /// running while any descendant does). `Err` means the child cannot be
     /// reached right now.
     pub(super) async fn child_busy(&self, active_session_id: &str) -> Result<bool> {
+        Ok(self.child_facts(active_session_id).await?.busy)
+    }
+
+    /// The child's live facts from its `get_state`: busy (see
+    /// [`Self::child_busy`]) and paused (its tree is paused). `Err` means
+    /// the child cannot be reached right now.
+    pub(super) async fn child_facts(&self, active_session_id: &str) -> Result<ChildFacts> {
         let command = DaemonCommand::GetState {
             id: None,
             active_session_id: active_session_id.to_string(),
@@ -282,14 +297,17 @@ impl SupervisorChildSessionsInner {
         };
         let state = self.command(&command, STATE_TIMEOUT_MS).await?;
         let flag = |name: &str| state.get(name).and_then(Value::as_bool).unwrap_or(false);
-        Ok(flag("isStreaming")
-            || flag("hasRunningSubagents")
-            || state
-                .get("sessionActions")
-                .and_then(|actions| actions.get("queuedCount"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                > 0)
+        Ok(ChildFacts {
+            busy: flag("isStreaming")
+                || flag("hasRunningSubagents")
+                || state
+                    .get("sessionActions")
+                    .and_then(|actions| actions.get("queuedCount"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    > 0,
+            paused: flag("isPaused"),
+        })
     }
 
     /// The child's run outcome (`get_run_outcome`), read from its own

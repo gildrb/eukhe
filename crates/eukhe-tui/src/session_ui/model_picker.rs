@@ -793,6 +793,7 @@ fn role_catalog(role: ModelRole, catalog: &[CatalogModel]) -> Vec<CatalogModel> 
         ModelRole::Auxiliary
         | ModelRole::Image
         | ModelRole::Subagent
+        | ModelRole::Worker
         | ModelRole::Gateway
         | ModelRole::Titles
         | ModelRole::Judge

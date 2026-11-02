@@ -167,10 +167,11 @@ async fn run_interactive_surface(
     // the loop folds each level into the open tree.
     let (memory_tree_tx, mut memory_tree_rx) =
         mpsc::unbounded_channel::<crate::session_ui::MemoryTreeUpdate>();
-    // A backgrounded `@name message` delivery reports here; the loop
-    // folds a failure into an error row (the draft returns).
+    // A backgrounded `@name message` delivery or worker request reports
+    // here; the loop folds it (a failed delivery: an error row, the draft
+    // returns; a worker's watch attach seeds its pane).
     let (agent_messages_tx, mut agent_messages_rx) =
-        mpsc::unbounded_channel::<crate::session_ui::AgentMessageOutcome>();
+        mpsc::unbounded_channel::<crate::session_ui::AgentsUpdate>();
     // A dictation take reports its steps here (recording, transcribing,
     // the transcript or the failure).
     let (dictation_tx, mut dictation_rx) =
@@ -1521,7 +1522,7 @@ async fn run_interactive_surface(
             }
             maybe_agent_message = agent_messages_rx.recv() => {
                 if let Some(outcome) = maybe_agent_message {
-                    session.apply_agent_message_outcome(outcome, &mut view);
+                    session.apply_agents_update(outcome, &mut view);
                 }
             }
             maybe_dictation = dictation_rx.recv() => {
@@ -1851,7 +1852,11 @@ async fn run_interactive_surface(
             || view.working.is_some()
             || view.retry.is_some()
             || view.compaction.is_some()
-            || view.agents_panel_shown();
+            || view.agents_panel_shown()
+            || view
+                .worker_pane
+                .as_ref()
+                .is_some_and(crate::worker_pane::WorkerPane::working);
         if animating {
             let now = Instant::now();
             let started = *anim_started.get_or_insert(now);

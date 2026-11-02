@@ -31,9 +31,12 @@ bind ctrl+o ""
 |---|---|---|
 |Shift+Tab|`app.thinking.cycleForward`|Next thinking level of the model; wraps to the first|
 |Shift+Alt+Tab|`app.thinking.cycleBackward`|Previous level; wraps to the last|
+|Alt+W|`app.worker.toggle`|Show or hide the worker pane ([interface.md](interface.md), Worker pane)|
+|Shift+Alt+W|`app.worker.full`|Worker pane full view, or back; Esc also returns|
 
 - Prompt only; an open menu or picker takes Shift+Tab first (settings menu: previous tab).
 - Model with fewer than two levels: level kept; status row shows `Current model offers no other thinking level`.
+- Esc twice within 1 s while this session's worker runs pauses it (`/pause`; `/resume` or any message wakes it); otherwise Esc twice keeps its 500 ms tree/clear meaning.
 - `/effort` lists the model's levels, current marked.
 
 |Command|Effect|
@@ -71,6 +74,7 @@ More settings:
 |`auxiliary`|`auxiliaryModel`|catalog models|session model|
 |`image`|`imageModel`|catalog models with image input|session model|
 |`subagent`|`subagentDefaultModel`|catalog models|parent's model|
+|`worker`|`workerModel`|catalog models|main's model|
 |`gateway`|`gateway.signal.model`|catalog models|gateway session's model|
 |`titles`|`modelRoles.tiny`|local models of the role; signed-in provider models|first available of its chain|
 |`judge`|`modelRoles.judge`|same as `titles`|same|
@@ -91,7 +95,9 @@ More settings:
 |`workflow.size`|`medium`|Default `/dynamic-workflow` size: `small`, `medium`, `large` ([workflows.md](workflows.md)); `/workflows size` sets it|
 |`subagentStallMs`|`600000`|No progress this long: subagent stopped, reported stalled; `0` default|
 |`subagentDefaultModel`|parent model|Model of a subagent spawned without `model`|
-|`rlmMaxDepth`|`2`|Max subagent depth (global only)|
+|`sessionShape`|`single`|`single`: the session does its work itself. `main-worker`: a root session talks and hands its work to a persistent worker child ([usage.md](usage.md), main and worker). Read when the session opens: main's tools are then read-only ones (`read`, `grep`, `glob`, `zoom`, `date`) plus `worker_assign`, `worker_forward`, `worker_status`; children and `single` sessions never get the worker tools. `single` stays the default until the main-worker eval decides|
+|`workerModel`|main's model|Model of the worker (`sessionShape` `main-worker`); the `worker` role of `/model`|
+|`rlmMaxDepth`|`3`|Max subagent depth (global only): main 0, its worker 1, the worker's subagents 2 can each spawn one level|
 |`providerMaxInFlight`|none|`{"<provider>": n}` concurrent model requests per provider; `0` no limit (global only)|
 |`providerMaxQueued`|`64`|Waiting requests per provider; the next fails (global only)|
 |`retry.provider.streamIdleTimeoutMs`|`300000`|Stream silent this long fails as stalled; retry gets a note and twice the deadline; `0` no limit|

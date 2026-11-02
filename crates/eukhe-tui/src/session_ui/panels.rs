@@ -4,7 +4,7 @@
 
 use super::{
     key_event_to_id, mpsc, paused_heartbeat_count, picker_viewport_rows, tray_goal_label,
-    AgentMessageOutcome, AgentView, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate,
+    AgentView, AgentsUpdate, BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate,
     DaemonCommand, DockFocusSource, FactoryUpdate, GoalPanel, HeartbeatsUpdate, InfoContent,
     InfoPanelAction, KeyEvent, Map, Result, SessionUi, Value,
 };
@@ -17,8 +17,9 @@ pub(crate) struct ActivityUpdates {
     pub commands: mpsc::UnboundedSender<CommandCatalogUpdate>,
     pub chat_view: mpsc::UnboundedSender<ChatViewUpdate>,
     pub memory_tree: mpsc::UnboundedSender<super::MemoryTreeUpdate>,
-    /// Settled `@name message` deliveries (see [`AgentMessageOutcome`]).
-    pub agent_messages: mpsc::UnboundedSender<AgentMessageOutcome>,
+    /// Settled `@name message` deliveries and worker requests (see
+    /// [`AgentsUpdate`]).
+    pub agent_messages: mpsc::UnboundedSender<AgentsUpdate>,
     /// The steps of a dictation take (see [`crate::dictation::run_take`]).
     pub dictation: mpsc::UnboundedSender<crate::dictation::DictationUpdate>,
 }
@@ -96,6 +97,8 @@ impl SessionUi {
     /// feeds, and the prompt's `@name` completions from the family.
     pub(super) fn update_subagent_summary(&mut self, view: &mut AgentView) {
         let identity = self.family_identity();
+        // Main's workers and the worker pane follow main's roster row.
+        self.sync_workers(view);
         self.subagent_counts = crate::subagents::count_descendants(&self.roster, &identity);
         // The title's spend is the family rollup the agents view bills
         // the session's row, refreshed on every roster push.
@@ -119,11 +122,15 @@ impl SessionUi {
         // The fixed clock anchor makes a rebuild over the same feeds equal
         // to the last one (no repaint for nothing).
         let (anchor, anchor_ms) = crate::agents_panel::clock_anchor();
+        let bash = crate::bash_view::parse_bash_activities(&self.bash_activities);
         view.agents_panel = crate::agents_panel::AgentsPanel::build(
             &self.roster,
             &identity,
-            &crate::bash_view::parse_bash_activities(&self.bash_activities),
-            &self.workflow_lane.runs,
+            &crate::agents_panel::PanelSources {
+                bash: &bash,
+                workflows: &self.workflow_lane.runs,
+                workers: &self.workers,
+            },
             anchor,
             anchor_ms,
         );

@@ -179,6 +179,58 @@ async fn a_progressing_child_outlives_the_stall_budget() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+/// A paused child (its tree paused, `pause_workers`) shows no progress,
+/// but it owes none: the time its watch sees it paused is not the stall
+/// clock's, so it is never reported stalled; once it runs again and
+/// answers, it reports normally.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paused_child_is_not_stalled() {
+    let mut setup = setup();
+    leaping(&mut setup);
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let row = spawn_child(&opened, &setup).await;
+    {
+        let mut fake = lock(&host.state);
+        fake.tokens.insert(row.session_id.clone(), 7);
+        fake.paused.insert(row.session_id.clone());
+    }
+    host.settle(&row.session_id, RlmChildRunState::Running, None);
+    // 40 polls, each 80 s of Harness time or more: far past 10 min.
+    eventually(|| async { lock(&host.state).polls >= 40 }).await;
+    let watched = row_of(&opened.harness, row.task_id).await.unwrap();
+    assert_eq!(
+        (watched.status, watched.error),
+        (ChildStatus::Running, None)
+    );
+    assert!(cancel_keys(&host).is_empty());
+
+    lock(&host.state).paused.clear();
+    setup.faux.append_responses(vec![answer("thanks")]);
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(row.task_id), cx())
+        .await
+        .unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        user_texts(&opened.root, "[child-").await,
+        [format!(
+            "[child-exited: no-reply child:{}]\n\nLast assistant text: done",
+            row.session_name
+        )]
+    );
+    assert!(cancel_keys(&host).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
 /// Regression (H5): a reopened (restarted) parent polls its child at once,
 /// whatever pause the closed session scheduled. A poll that the daemon's
 /// own shutdown failed left a 4 s pause in the checkpoint, and the

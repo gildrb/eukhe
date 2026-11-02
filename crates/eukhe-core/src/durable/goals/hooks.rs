@@ -82,6 +82,7 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
     hook(
         &*GENERATION_TASK,
         GenerationHooks {
+            before_prepare: None,
             before_request: Some(Arc::new(move |request, api, cx| {
                 let host = before.clone();
                 let request = request.clone();

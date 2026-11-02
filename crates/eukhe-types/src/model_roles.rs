@@ -14,6 +14,8 @@ pub enum ModelRole {
     Image,
     /// Subagents without an explicit model (`subagentDefaultModel`).
     Subagent,
+    /// The main session's worker (`workerModel`; unset: the chat model).
+    Worker,
     /// The phone gateway (`gateway.signal.model`).
     Gateway,
     /// Session titles (`modelRoles.tiny`).
@@ -39,12 +41,13 @@ pub enum ModelRoleGroup {
 
 impl ModelRole {
     /// Every role, in hub order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Chat,
         Self::Memory,
         Self::Auxiliary,
         Self::Image,
         Self::Subagent,
+        Self::Worker,
         Self::Gateway,
         Self::Titles,
         Self::Judge,
@@ -62,6 +65,7 @@ impl ModelRole {
             Self::Auxiliary => "auxiliary",
             Self::Image => "image",
             Self::Subagent => "subagent",
+            Self::Worker => "worker",
             Self::Gateway => "gateway",
             Self::Titles => "titles",
             Self::Judge => "judge",
@@ -80,6 +84,7 @@ impl ModelRole {
             Self::Auxiliary => "Compaction and summaries",
             Self::Image => "Image turns",
             Self::Subagent => "Subagents",
+            Self::Worker => "Worker",
             Self::Gateway => "Phone gateway",
             Self::Titles => "Titles",
             Self::Judge => "Judge",
@@ -98,6 +103,7 @@ impl ModelRole {
             | Self::Auxiliary
             | Self::Image
             | Self::Subagent
+            | Self::Worker
             | Self::Gateway => ModelRoleGroup::Chat,
             Self::Titles | Self::Judge | Self::Translate | Self::Speech | Self::Dictation => {
                 ModelRoleGroup::Local

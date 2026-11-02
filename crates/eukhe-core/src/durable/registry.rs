@@ -6,15 +6,19 @@
 //! schema is built with the intent `i` and a version
 //! (`tool_contract::build`), and the roster is fixed once every extension
 //! is installed (docs/tools.md S7): a tool that comes later goes behind
-//! `dyn`.
+//! `dyn`. Main (a root in the `main-worker` shape, [`SessionShape::Main`])
+//! offers only the compiled core's main roster
+//! (`eukhe_bend::rules::runners::main_roster`): read-only tools and the
+//! worker tools; every other session offers no worker tool.
 
 use std::sync::Arc;
 
+use eukhe_bend::rules::runners::{self, ChatMemory};
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{Extension, ToolRegistration};
 use eukhe_durable::session::SessionResult;
 
-use super::deps::HostDeps;
+use super::deps::{HostDeps, SessionShape};
 use super::{
     children, codemode, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm,
     settings, shell, tool_contract, tool_surface, workflow,
@@ -28,10 +32,35 @@ use super::{
 /// An extension fails to install (duplicate names).
 pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let registry = create_registry();
+    // Main offers only the tools of its roster; any other session offers
+    // every tool its extensions bring.
+    let offered: Option<Vec<String>> = match deps.shape {
+        SessionShape::Single => None,
+        SessionShape::Main => {
+            // `eukhe.optchat` installs exactly when the session has chat
+            // memory.
+            let chat = if deps.memory.is_some() {
+                ChatMemory::On
+            } else {
+                ChatMemory::Off
+            };
+            Some(
+                runners::main_roster(chat)
+                    .into_iter()
+                    .map(|tool| tool.name)
+                    .collect(),
+            )
+        }
+    };
     let install = |extension: Arc<Extension>| {
         let tools = extension
             .tools
             .iter()
+            .filter(|tool| {
+                offered
+                    .as_ref()
+                    .is_none_or(|names| names.contains(&tool.name))
+            })
             .map(|tool| {
                 Arc::new(ToolRegistration {
                     parameters: tool_contract::build(&tool.parameters),

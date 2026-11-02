@@ -345,11 +345,16 @@ impl HostedSession {
         let retry_policy = translator::RetryPolicySource::new(move || {
             eukhe_durable::harness::agent::resolve_settings(Some(&settings.harness())).retry
         });
+        let shape = bridge::ShapeWatch {
+            pause: Arc::clone(&self.deps().run_pause),
+            shape: self.deps().shape,
+        };
         let started = EventBridge::start(
             &self.harness,
             conversation,
             provider_events,
             retry_policy,
+            shape,
             sink,
         )
         .await?;

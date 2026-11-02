@@ -144,6 +144,7 @@ pub mod user_message_selector;
 pub mod view;
 pub(crate) mod vt;
 pub mod width;
+pub mod worker_pane;
 pub mod workflow_size_picker;
 pub mod workflow_view;
 

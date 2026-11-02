@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::agent_messaging::AgentFamilyRelationship;
+use eukhe_core::durable::children::PauseAction;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
@@ -33,6 +34,11 @@ impl Worker {
             "abort" => self.handle_abort(AbortQueue::Suspend).await,
             "abort_and_send_queued" => self.handle_abort(AbortQueue::Send).await,
             "abort_and_clear_queue" => self.handle_abort(AbortQueue::Clear).await,
+            "pause_workers" => self.handle_pause_workers(payload, PauseAction::Pause).await,
+            "resume_workers" => {
+                self.handle_pause_workers(payload, PauseAction::Resume)
+                    .await
+            }
             "start_side_question" => {
                 if let Err(response) = self.require_created("start_side_question") {
                     return response;

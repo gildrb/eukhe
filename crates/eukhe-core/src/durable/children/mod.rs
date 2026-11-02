@@ -8,11 +8,13 @@
 //! resumes every child task where it stopped, so a report owed for a child
 //! still running at the crash is delivered exactly once.
 
+mod assign;
 mod commands;
 mod depth;
 mod host;
 mod notice;
 pub mod parent_notice;
+mod pause;
 mod progress;
 mod registry;
 mod rename;
@@ -21,6 +23,13 @@ mod task;
 mod watch;
 mod wire;
 mod work;
+mod worker;
+
+pub use pause::{PauseView, RunPause, Wake};
+pub use worker::{
+    list_workers, pause_own_tree, pause_workers, watch_workers, worker_session_command,
+    WorkerUpdates, WORKER_ASSIGN, WORKER_FORWARD, WORKER_STATUS,
+};
 
 #[cfg(test)]
 mod tests;
@@ -37,11 +46,12 @@ pub use commands::{
 };
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
-    NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing, RlmChildObservation,
-    RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    ChildMessageKind, NoRlmChildren, PauseAction, RlmChildActivityKind, RlmChildCancelRequest,
+    RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
+    RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture,
+    RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
     RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub use registry::{
@@ -55,7 +65,9 @@ pub use wire::{
 };
 pub use work::WorkLedger;
 
-use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing};
+use super::deps::{
+    HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing, SessionShape,
+};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use crate::durable::settings::EukheSettings;
 use task::{child_task, ChildTask, ChildrenServices};
@@ -74,6 +86,10 @@ pub(crate) struct Children {
     models: Models,
     /// Told every accepted progress note of this session.
     progress_note: Option<ProgressNoteSink>,
+    /// Main offers the worker tools; no other session does.
+    shape: SessionShape,
+    /// The session's run pause: its spawns ask at its gate.
+    pause: Arc<RunPause>,
 }
 
 /// Inputs of [`Children::new`].
@@ -92,6 +108,8 @@ pub(crate) struct ChildrenConfig {
     pub(crate) settings: Arc<EukheSettings>,
     /// The session's closing gate: a closing parent admits no report.
     pub(crate) closing: SessionClosing,
+    pub(crate) shape: SessionShape,
+    pub(crate) pause: Arc<RunPause>,
 }
 
 impl Children {
@@ -115,15 +133,24 @@ impl Children {
             harness: config.harness,
             models: config.models,
             progress_note: config.progress_note,
+            shape: config.shape,
+            pause: config.pause,
         })
     }
 
-    /// The extension carrying the `eukhe.rlm.child` task; registers the
-    /// `rlm.*` handlers onto `host_requests`.
+    /// The extension carrying the `eukhe.rlm.child` task, the hooks that
+    /// hold a paused run, and main's worker tools; registers the `rlm.*`
+    /// handlers onto `host_requests`.
     pub(crate) fn install(self: &Arc<Self>, host_requests: &HostRequestRegistry) -> Arc<Extension> {
         requests::register(host_requests, self);
+        let tools = match self.shape {
+            SessionShape::Main => worker::worker_tools(self),
+            SessionShape::Single => Vec::new(),
+        };
         define_extension(Extension {
             tasks: vec![self.task.erase()],
+            tools,
+            hooks: pause::pause_hooks(&self.pause),
             ..Extension::named(EXTENSION_NAME)
         })
     }
@@ -144,6 +171,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         progress_note: deps.progress_note.clone(),
         settings: Arc::clone(&deps.settings),
         closing: deps.closing.clone(),
+        shape: deps.shape,
+        pause: Arc::clone(&deps.run_pause),
     })
     .install(&deps.host_requests)
 }

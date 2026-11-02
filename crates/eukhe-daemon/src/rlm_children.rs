@@ -25,8 +25,9 @@ use crate::rlm_child_model::{
 use crate::supervisor_link::SupervisorLink;
 use crate::util::now_ms;
 
-/// Depth bound without an explicit override (TS `resolveRlmMaxDepth` default).
-pub const DEFAULT_RLM_MAX_DEPTH: u32 = 2;
+/// Depth bound without an explicit override: 3, so main (0), its worker
+/// (1) and the worker's subagents (2) can each still spawn one level.
+pub const DEFAULT_RLM_MAX_DEPTH: u32 = 3;
 
 /// The depth bound a new session starts from: the global `rlmMaxDepth`
 /// setting (`/rlm-max-depth N --global`), else [`DEFAULT_RLM_MAX_DEPTH`].

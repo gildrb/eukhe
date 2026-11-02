@@ -416,16 +416,17 @@ async fn spawn_and_prompt(children: &SupervisorChildSessions, child_id: &str, se
             spawned_by_request_id: None,
             parent_task_id: "1".to_owned(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn child");
     children
-        .prompt(RlmChildPromptRequest {
-            idempotency_key: format!("rlm:{child_id}:prompt"),
-            session_id: child.session_id,
-            rlm_child_id: child_id.to_owned(),
-            prompt: format!("{child_id} task"),
-        })
+        .prompt(RlmChildPromptRequest::task(
+            format!("rlm:{child_id}:prompt"),
+            child.session_id,
+            child_id.to_owned(),
+            format!("{child_id} task"),
+        ))
         .await
         .expect("prompt child");
 }

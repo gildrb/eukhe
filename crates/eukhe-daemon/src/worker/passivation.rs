@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eukhe_core::durable::rlm::release_settled_kernel;
+use eukhe_core::durable::rlm::{kernel_background_jobs, release_settled_kernel};
 use eukhe_core::settings::{IdleEviction, SettingsManager};
 use serde_json::json;
 use tokio::sync::Notify;
@@ -102,12 +102,28 @@ impl ParkGates {
     }
 }
 
+/// Where the session's run stands for the kernel release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunPark {
+    /// No run waits at a pause: none runs, or one runs.
+    Free,
+    /// A paused run waits at its held boundary with no tool call in
+    /// flight (`RunPause` `held`): it runs nothing until it goes on.
+    Held,
+}
+
 /// The settled-child release verdict (TS #2483, worker-side): the park
-/// state plus the parent-owned identity. The registered scheduled-jobs
-/// gate lives with the fire (a store read cannot run under the core
-/// lock).
-pub(crate) fn child_release_due(gates: ParkGates) -> bool {
-    gates.child && gates.parked() && !gates.paused
+/// state plus the parent-owned identity. A paused worker counts as idle:
+/// its held run and the messages it keeps start nothing. The registered
+/// scheduled-jobs gate lives with the fire (a store read cannot run under
+/// the core lock).
+pub(crate) fn child_release_due(gates: ParkGates, run: RunPark) -> bool {
+    gates.child
+        && !gates.paused
+        && match run {
+            RunPark::Free => gates.parked(),
+            RunPark::Held => !gates.attached && !gates.compacting && !gates.shutdown && !gates.bash,
+        }
 }
 
 /// The idle-eviction window of one park (TS's `idleEvictionMinutes`
@@ -190,26 +206,41 @@ pub(crate) async fn passivation_loop(context: ParkContext) {
 /// every `bash()` handle and detached cell it runs, so the idle
 /// passivation's work set holds it: a child with background work keeps
 /// its kernel, and the run its job's settlement wakes parks again and
-/// releases then.
+/// releases then. A paused child's held run releases too: only its
+/// kernel's own jobs hold it (they keep running while paused); its paused
+/// children and kept messages do not.
 async fn release_settled_child_kernel(
     context: &ParkContext,
     gates: ParkGates,
     active_session_id: &str,
 ) {
-    if !child_release_due(gates) || has_registered_job(&context.scheduled, active_session_id) {
-        return;
-    }
-    if super::run_gate::background_work(&context.session, &context.user_bash).await
-        == crate::work_gate::Work::Ongoing
-    {
-        return;
-    }
     let Some(hosted) = context.session.get() else {
         return;
     };
-    if let Ok(main) = hosted.main() {
-        release_settled_kernel(hosted.deps(), main.id()).await;
+    let Ok(main) = hosted.main() else {
+        return;
+    };
+    let run = if hosted.deps().run_pause.view().held {
+        RunPark::Held
+    } else {
+        RunPark::Free
+    };
+    if !child_release_due(gates, run) || has_registered_job(&context.scheduled, active_session_id) {
+        return;
     }
+    let working = match run {
+        RunPark::Free => {
+            super::run_gate::background_work(&context.session, &context.user_bash).await
+                == crate::work_gate::Work::Ongoing
+        }
+        RunPark::Held => {
+            context.user_bash.is_running() || kernel_background_jobs(hosted.deps(), main.id()) > 0
+        }
+    };
+    if working {
+        return;
+    }
+    release_settled_kernel(hosted.deps(), main.id()).await;
 }
 
 /// The fire: re-check the full gate set on a fresh snapshot (the TS
@@ -290,21 +321,21 @@ mod tests {
     /// race the pause's own delivery).
     #[test]
     fn the_child_release_needs_the_park_state() {
-        assert!(child_release_due(gates(0, 1, false, false)));
+        assert!(child_release_due(gates(0, 1, false, false), RunPark::Free));
         assert!(
-            !child_release_due(gates(0, 0, false, false)),
+            !child_release_due(gates(0, 0, false, false), RunPark::Free),
             "a root never releases"
         );
         assert!(
-            !child_release_due(gates(1, 1, false, false)),
+            !child_release_due(gates(1, 1, false, false), RunPark::Free),
             "an attached client holds it"
         );
         assert!(
-            !child_release_due(gates(0, 1, true, false)),
+            !child_release_due(gates(0, 1, true, false), RunPark::Free),
             "a pause defers it"
         );
         assert!(
-            !child_release_due(gates(0, 1, false, true)),
+            !child_release_due(gates(0, 1, false, true), RunPark::Free),
             "a live bash holds it"
         );
     }
@@ -326,7 +357,42 @@ mod tests {
             false,
             false,
         );
-        assert!(!child_release_due(gates));
+        assert!(!child_release_due(gates, RunPark::Free));
+        assert!(!child_release_due(gates, RunPark::Held));
+    }
+
+    /// A paused worker counts as idle for the kernel release: its run is
+    /// live and its kept messages are queued, but the run waits at its
+    /// held boundary and starts nothing. Running, the same gates hold the
+    /// kernel; an attached client or a live bash still holds it.
+    #[test]
+    fn a_held_paused_run_counts_as_idle_for_the_release() {
+        let paused_worker = ParkGates {
+            busy: true,
+            queued: true,
+            ..gates(0, 1, false, false)
+        };
+        assert_eq!(
+            (
+                child_release_due(paused_worker, RunPark::Held),
+                child_release_due(paused_worker, RunPark::Free),
+                child_release_due(
+                    ParkGates {
+                        attached: true,
+                        ..paused_worker
+                    },
+                    RunPark::Held
+                ),
+                child_release_due(
+                    ParkGates {
+                        bash: true,
+                        ..paused_worker
+                    },
+                    RunPark::Held
+                ),
+            ),
+            (true, false, false, false)
+        );
     }
 
     /// The idle window arms only for a parked root under a live
@@ -401,7 +467,10 @@ mod tests {
         let park = || {
             let core = lock(&worker.core);
             let gates = ParkGates::of(&core, false, false);
-            assert!(child_release_due(gates), "the child parked: {gates:?}");
+            assert!(
+                child_release_due(gates, RunPark::Free),
+                "the child parked: {gates:?}"
+            );
             gates
         };
         let jobs = || {

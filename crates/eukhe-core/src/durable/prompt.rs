@@ -32,7 +32,8 @@ use crate::prompts::model_prompts::{
     load_model_prompts, model_prompt_error_text, MODEL_PROMPT_ERROR_CUSTOM_TYPE,
 };
 use crate::prompts::system_prompt::{
-    system_prompt_breakdown, today, BuildSystemPromptOptions, SourcedPrompt, SystemPromptBreakdown,
+    system_prompt_breakdown, today, BuildSystemPromptOptions, ShapeRole, SourcedPrompt,
+    SystemPromptBreakdown,
 };
 use crate::skills::Skill;
 
@@ -85,6 +86,7 @@ struct SessionPrompt {
     daemonless: bool,
     generic_mcp_servers: Vec<String>,
     memory: Option<MemoryRole>,
+    shape_role: ShapeRole,
     messages_path: Option<String>,
     session_cwd: String,
     models: Models,
@@ -172,6 +174,7 @@ impl PromptBuilder {
             daemonless: session.daemonless,
             generic_mcp_servers: session.generic_mcp_servers.clone(),
             memory: session.memory,
+            shape_role: session.shape_role,
         }
     }
 
@@ -221,6 +224,13 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
             daemonless: deps.children.is_none(),
             generic_mcp_servers: deps.generic_mcp_servers.clone(),
             memory,
+            shape_role: if deps.shape == super::deps::SessionShape::Main {
+                ShapeRole::Main
+            } else if deps.role.worker {
+                ShapeRole::Worker
+            } else {
+                ShapeRole::Alone
+            },
             messages_path,
             session_cwd: deps.cwd.display().to_string(),
             models: deps.models.clone(),

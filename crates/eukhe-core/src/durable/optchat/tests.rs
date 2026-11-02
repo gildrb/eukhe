@@ -1304,6 +1304,8 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         handback: None,
         phase: None,
         answer: None,
+        task: None,
+        worker: false,
     };
     parent
         .harness

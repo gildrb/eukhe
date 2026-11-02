@@ -110,6 +110,7 @@ impl Worker {
                         .wrapping_add(job_progress),
                 ),
                 answer,
+                paused: hosted.deps().run_pause.view().paused,
             }
         };
         match serde_json::to_value(&state) {
@@ -341,6 +342,8 @@ mod tests {
             inbox: Vec::new(),
             active: None,
             goal: serde_json::Value::Null,
+            workers: Vec::new(),
+            paused: false,
         });
     }
 

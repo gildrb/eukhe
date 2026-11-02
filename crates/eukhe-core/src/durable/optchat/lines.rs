@@ -169,13 +169,7 @@ fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Opt
         return Ok(None);
     }
     Ok(match origin {
-        InputOrigin::User => {
-            let images = match &user.content {
-                UserContent::Text(_) => Vec::new(),
-                UserContent::Blocks(blocks) => blocks_images(blocks),
-            };
-            Some((Kind::User, text, images))
-        }
+        InputOrigin::User => Some((Kind::User, text, user_images(&user.content))),
         InputOrigin::Goal { .. }
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
@@ -386,6 +380,14 @@ pub(crate) fn user_text(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
         UserContent::Blocks(blocks) => blocks_text(blocks),
+    }
+}
+
+/// The images of user content, in order (none for plain text).
+pub(crate) fn user_images(content: &UserContent) -> Vec<ImageContent> {
+    match content {
+        UserContent::Text(_) => Vec::new(),
+        UserContent::Blocks(blocks) => blocks_images(blocks),
     }
 }
 

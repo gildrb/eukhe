@@ -255,11 +255,24 @@ impl SessionUi {
             "quit" => {
                 self.exit_requested = true;
             }
-            // `/resume` (TS: open the agents view, or resume a session by
-            // id or path). Both paths detach this session first; the CLI
-            // loop then opens the agents view or the resolved selection.
-            "resume" => {
+            // `/pause`: the worker tree pauses (its running model request
+            // and tool calls finish, nothing new starts).
+            "pause" => {
                 if resolved.args.is_empty() {
+                    self.control_workers(super::workers::WorkerAction::Pause, view);
+                } else {
+                    view.editor.set_text(text);
+                    self.error_row("Usage: /pause", view);
+                }
+            }
+            // `/resume`: a paused worker resumes where it paused. Without
+            // one (TS: open the agents view, or resume a session by id or
+            // path), both paths detach this session first; the CLI loop
+            // then opens the agents view or the resolved selection.
+            "resume" => {
+                if resolved.args.is_empty() && self.worker_paused() {
+                    self.control_workers(super::workers::WorkerAction::Resume, view);
+                } else if resolved.args.is_empty() {
                     self.open_agents_view = true;
                     self.exit_requested = true;
                 } else {

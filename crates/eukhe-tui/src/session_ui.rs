@@ -25,9 +25,10 @@ mod queue;
 mod sessions_fork;
 mod settings;
 mod stream;
+mod workers;
 mod workflows;
 
-pub(crate) use agents::AgentMessageOutcome;
+pub(crate) use agents::AgentsUpdate;
 pub(crate) use apply::CompactionAbortNote;
 use auth::{McpAuthIntent, PendingModelSignIn, SetModelOutcome};
 pub(crate) use bash::BashActivityUpdate;
@@ -423,9 +424,12 @@ pub(crate) struct SessionUi {
     /// Monotonic epoch of the open `/memory` tree; a level fetched for a
     /// tree since closed (or reopened) never lands.
     memory_tree_epoch: u64,
-    /// Where a backgrounded `@name message` delivery reports its outcome
-    /// (the run loop folds a failure into an error row).
-    agent_message_notes: mpsc::UnboundedSender<AgentMessageOutcome>,
+    /// Where a backgrounded `@name message` delivery and the worker
+    /// requests (watch attach, pause, resume) report their outcome (the
+    /// run loop folds them).
+    agents_updates: mpsc::UnboundedSender<AgentsUpdate>,
+    /// Main's workers, from its roster row (`summary.workers`).
+    workers: Vec<eukhe_types::daemon::SessionWorker>,
     /// The dictation backends the composition root gave (`None`: the
     /// dictation keys say that dictation is not available).
     dictation: Option<crate::dictation::Dictation>,

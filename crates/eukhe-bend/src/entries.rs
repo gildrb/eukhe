@@ -204,6 +204,8 @@ pub enum Entry {
     ToolCall = 421,
     /// `bend/ffi_optchat.bend`: a stepper.
     Optchat = 422,
+    /// `bend/ffi_worker.bend`: a call.
+    Worker = 430,
 }
 
 impl Entry {
@@ -308,6 +310,7 @@ impl Entry {
         Entry::WaitRace,
         Entry::ToolCall,
         Entry::Optchat,
+        Entry::Worker,
     ];
 
     /// The id `bend/core.bend` dispatches on.

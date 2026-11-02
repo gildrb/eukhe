@@ -418,6 +418,10 @@ pub struct Settings {
     pub default_provider: Option<String>,
     pub default_model: Option<String>,
     pub subagent_default_model: Option<String>,
+    /// `workerModel`: the worker's model (`sessionShape` `main-worker`).
+    pub worker_model: Option<String>,
+    /// `sessionShape`: `single` or `main-worker`.
+    pub session_shape: Option<String>,
     pub recent_models: Option<Vec<String>>,
     pub auxiliary_model: Option<String>,
     pub default_thinking_level: Option<ThinkingLevelSetting>,

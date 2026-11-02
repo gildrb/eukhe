@@ -219,15 +219,16 @@ async fn spawn_prompted(
             spawned_by_request_id: None,
             parent_task_id: index.to_string(),
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
+            worker: false,
         })
         .await
         .expect("spawn child");
-    host.prompt(RlmChildPromptRequest {
-        idempotency_key: format!("rlm:{index}:prompt"),
-        session_id: child.session_id,
-        rlm_child_id: child_id(index),
-        prompt: prompt.to_string(),
-    })
+    host.prompt(RlmChildPromptRequest::task(
+        format!("rlm:{index}:prompt"),
+        child.session_id,
+        child_id(index),
+        prompt.to_string(),
+    ))
     .await
     .expect("prompt child");
 }

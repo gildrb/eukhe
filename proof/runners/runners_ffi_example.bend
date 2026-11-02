@@ -4,4 +4,4 @@ import Base
 import ../../laws/runners.bend as Runners
 
 def Runners.runners_ffi_example():
-  ({==}, {==}, {==}, {==}, {==}, {==}, {==}, {==})
+  ({==}, {==}, {==}, {==}, {==}, {==}, {==}, {==}, {==})

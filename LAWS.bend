@@ -124,3 +124,4 @@ import ./laws/cron_serve/serve.bend as CronServe
 import ./laws/cron_serve/entry.bend as CronServeEntry
 import ./laws/cron_serve/safety.bend as CronServeSafety
 import ./laws/cron_serve/model.bend as CronServeModel
+import ./laws/worker.bend as Worker

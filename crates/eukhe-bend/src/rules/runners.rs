@@ -117,15 +117,27 @@ fn cell_call(auto: AutoSet, caps: ShellEffects, asker: Asker) -> Result<Ended, E
     })
 }
 
-/// Every tool a session installs, in install order (`Ru.registry`).
+/// Every tool a session installs, in install order (`Ru.registry`): a
+/// `single` session's, every child's.
 #[must_use]
 pub fn registry(chat: ChatMemory) -> Vec<Tool> {
-    expect_core(Entry::Runners, registry_call(chat))
+    expect_core(Entry::Runners, roster_call(REGISTRY, chat))
 }
 
-fn registry_call(chat: ChatMemory) -> Result<Vec<Tool>, Error> {
+/// Main's roster in the `main-worker` shape, in install order
+/// (`Ru.main_roster`): read-only tools and the worker tools.
+#[must_use]
+pub fn main_roster(chat: ChatMemory) -> Vec<Tool> {
+    expect_core(Entry::Runners, roster_call(MAIN_ROSTER, chat))
+}
+
+/// The request tags of the two rosters.
+const REGISTRY: u32 = 2;
+const MAIN_ROSTER: u32 = 3;
+
+fn roster_call(tag: u32, chat: ChatMemory) -> Result<Vec<Tool>, Error> {
     let mut request = Writer::new();
-    request.tag(2).bool(chat == ChatMemory::On);
+    request.tag(tag).bool(chat == ChatMemory::On);
     let reply = call(Entry::Runners, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let count = reader.count()?;

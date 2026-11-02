@@ -39,7 +39,7 @@ use crate::types::{
     TaskOutcome, TaskOwnership, TypedEntryDraft,
 };
 
-fn queue_modes(runtime: &Runtime) -> QueueModes {
+pub(super) fn queue_modes(runtime: &Runtime) -> QueueModes {
     let settings = runtime.settings();
     QueueModes {
         steering_mode: settings.steering_mode,

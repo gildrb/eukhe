@@ -23,6 +23,7 @@ mod harness_end;
 mod lifecycle;
 mod memory_updates;
 mod passivation;
+mod pause_workers;
 mod run_gate;
 mod run_outcome;
 pub(crate) use run_gate::RunAdmission;
@@ -413,9 +414,19 @@ impl Worker {
         let herdr = std::sync::Arc::clone(&self.herdr);
         let park_notify = std::sync::Arc::clone(&self.park_notify);
         let agent_replies = Arc::clone(&self.agent_replies);
+        let (shape_pushes, shape_park) = (
+            self.roster_pushes.clone(),
+            std::sync::Arc::clone(&self.park_notify),
+        );
         durable_host::bridge::BridgeSink {
             core: Arc::clone(&self.core),
             events: Arc::clone(&self.events),
+            // A worker's state or this session's pause changed: the roster
+            // shows it, and a run that now holds may release its kernel.
+            on_shape: Arc::new(move || {
+                shape_pushes.push();
+                shape_park.notify_one();
+            }),
             on_run: Arc::new(move |change| {
                 use durable_host::bridge::RunChange;
                 // A retry keeps the run busy: only the pane hears it (the

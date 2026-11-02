@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use eukhe_ai::auth::AuthOperationOptions;
+use eukhe_bend::rules::worker::GateKind;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
 use eukhe_durable::harness::types::ToolExecutionApiExt;
@@ -26,7 +27,8 @@ use tokio::sync::Notify;
 
 use super::depth::read_max_depth_override;
 use super::host::{
-    RlmChildDeleteRequest, RlmChildListing, RlmCreateSessionRequest, RlmSubagentHost,
+    ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmCreateSessionRequest,
+    RlmSubagentHost,
 };
 use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
@@ -52,7 +54,9 @@ use crate::kernel::rlm_runtime::{
 const NO_SPAWN_RUNTIME: &str =
     "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime";
 
-/// Register every `rlm.*` handler of `children` onto `registry`.
+/// Register every `rlm.*` handler of `children` onto `registry`. A spawn
+/// (`rlm.run`, `rlm.run_batch`, `rlm.create_session`) first asks at the
+/// run pause's gate: a paused session starts none until it runs again.
 pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
@@ -63,11 +67,31 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
             );
         }};
     }
+    macro_rules! spawning {
+        ($request_type:literal, $function:path) => {{
+            let children = Arc::clone(children);
+            registry.register(
+                $request_type,
+                Arc::new(move |call: HostCall| {
+                    let children = Arc::clone(&children);
+                    async move {
+                        children
+                            .pause
+                            .gate(GateKind::Spawn, &cx())
+                            .await
+                            .map_err(session_error)?;
+                        $function(children, call).await
+                    }
+                    .boxed()
+                }),
+            );
+        }};
+    }
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
-    handler!("rlm.run", run);
-    handler!("rlm.run_batch", run_batch);
-    handler!("rlm.create_session", create_session);
+    spawning!("rlm.run", run);
+    spawning!("rlm.run_batch", run_batch);
+    spawning!("rlm.create_session", create_session);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
@@ -210,17 +234,17 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
 // ---------------------------------------------------------------------------
 
 /// Validated `rlm.spawn` kwargs.
-struct SpawnKwargs {
-    name: Option<String>,
-    model: Option<String>,
-    thinking: Option<String>,
+pub(super) struct SpawnKwargs {
+    pub(super) name: Option<String>,
+    pub(super) model: Option<String>,
+    pub(super) thinking: Option<String>,
     /// `None` when the caller did not choose (the shared workspace).
-    workspace: Option<WorkspaceMode>,
+    pub(super) workspace: Option<WorkspaceMode>,
     /// The roster label; `None`: derived from the prompt.
-    label: Option<String>,
+    pub(super) label: Option<String>,
     /// The workflow phase the child serves.
-    phase: Option<String>,
-    report: ReportMode,
+    pub(super) phase: Option<String>,
+    pub(super) report: ReportMode,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -289,10 +313,17 @@ pub(super) fn spawn_name_unavailable(name: &str, depth: u32) -> String {
     )
 }
 
-/// One validated spawn of an `rlm.run` / `rlm.run_batch` request.
-struct SpawnSpec {
-    prompt: String,
-    kwargs: SpawnKwargs,
+/// One validated spawn of an `rlm.run` / `rlm.run_batch` request, or of
+/// main's `worker_assign`.
+pub(super) struct SpawnSpec {
+    pub(super) prompt: String,
+    pub(super) kwargs: SpawnKwargs,
+    /// More details of the task prompt's row (`userMessages`, `note`).
+    pub(super) details: Option<Map<String, Value>>,
+    /// Main's user entries the prompt hands over (their images go along).
+    pub(super) user_entries: Vec<u64>,
+    /// The child is a worker of a main session.
+    pub(super) worker: bool,
 }
 
 /// Validate one `{prompt, kwargs}` spawn payload.
@@ -303,6 +334,9 @@ fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
     Ok(SpawnSpec {
         prompt: prompt.to_owned(),
         kwargs: spawn_kwargs(data)?,
+        details: None,
+        user_entries: Vec::new(),
+        worker: false,
     })
 }
 
@@ -314,7 +348,7 @@ pub(super) fn concurrency_limit_full(maximum: u32) -> String {
 /// `rlm.spawn`: admit one `eukhe.rlm.child` task (see [`admit_spawns`]).
 async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let spec = spawn_spec(&call.data)?;
-    let handles = admit_spawns(&children, &call, vec![spec]).await?;
+    let handles = admit_spawns(&children, &call, vec![spec], None).await?;
     let handle = handles
         .into_iter()
         .next()
@@ -335,7 +369,7 @@ async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Va
         .iter()
         .map(spawn_spec)
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let handles = admit_spawns(&children, &call, specs).await?;
+    let handles = admit_spawns(&children, &call, specs, None).await?;
     Ok(json!({ "handles": handles }))
 }
 
@@ -354,11 +388,14 @@ type Admitted = (
 /// batch is all-or-nothing: the cap counts the family's running or
 /// starting subagents (the host's view unioned with this session's
 /// not-yet-visible children) and refuses the whole batch when it would
-/// exceed `subagentMaxConcurrency`.
-async fn admit_spawns(
+/// exceed `subagentMaxConcurrency`. `forward_cursor` (main's
+/// `worker_assign`): the user messages the task carries are handed over in
+/// the same commit ([`super::worker`]).
+pub(super) async fn admit_spawns(
     children: &Arc<Children>,
     call: &HostCall,
     specs: Vec<SpawnSpec>,
+    forward_cursor: Option<u64>,
 ) -> anyhow::Result<Vec<RlmSpawnHandle>> {
     if !children.has_runtime {
         bail!("{NO_SPAWN_RUNTIME}");
@@ -410,6 +447,11 @@ async fn admit_spawns(
                     workspace: spec.kwargs.workspace,
                     owed: None,
                     report: spec.kwargs.report,
+                    child: None,
+                    kind: ChildMessageKind::Task,
+                    details: spec.details,
+                    user_entries: spec.user_entries,
+                    worker: spec.worker,
                 },
             )
         })
@@ -497,9 +539,14 @@ async fn admit_spawns(
                         handback: None,
                         phase,
                         answer: None,
+                        task: None,
+                        worker: input.worker,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     task_ids.push(task_id);
+                }
+                if let Some(cursor) = forward_cursor {
+                    super::worker::tx_hand_over(&tx, conversation_id, cursor).await?;
                 }
                 Ok(task_ids)
             },
@@ -779,12 +826,10 @@ pub(super) async fn delete_child_row(
             .map(drop)
         })
         .await?;
+        let live = row.live_task();
+        harness.abort_task(live, cx).await.map_err(session_error)?;
         harness
-            .abort_task(task_id, cx)
-            .await
-            .map_err(session_error)?;
-        harness
-            .wait_for_task(task_id, cx)
+            .wait_for_task(live, cx)
             .await
             .map_err(session_error)?;
     }
@@ -975,17 +1020,16 @@ async fn wait_for_verdicts(
                 .map_err(session_error)?;
             let mut pending = None;
             for task_id in task_ids {
-                let running = state
-                    .children
-                    .get(&task_id.to_string())
-                    .is_some_and(|row| !row.status.is_terminal());
+                let row = state.children.get(&task_id.to_string());
+                let running = row.is_some_and(|row| !row.status.is_terminal());
+                let live = row.map_or(*task_id, ChildRow::live_task);
                 let ended = harness
-                    .get_task(*task_id, &cx())
+                    .get_task(live, &cx())
                     .await
                     .map_err(session_error)?
                     .is_none_or(|record| record.state.status() == TaskStatus::Terminal);
                 if running && !ended {
-                    pending = Some(*task_id);
+                    pending = Some(live);
                     break;
                 }
             }

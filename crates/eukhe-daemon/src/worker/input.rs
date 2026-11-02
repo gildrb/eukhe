@@ -5,12 +5,14 @@
 //! the Harness inbox queues it while a run is busy.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::agent_messaging::{
     AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
     DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
 };
+use eukhe_core::durable::children::Wake;
 use eukhe_core::durable::input_entry;
 use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
@@ -321,6 +323,9 @@ impl Worker {
             Ok(handle) => handle,
             Err(error) => return response_failure(None, command, &error, None),
         };
+        // A prompt is the user's words or main's hand-over: it wakes a
+        // paused run, which places it at the boundary it parked at.
+        self.heard_waking(&hosted).await;
         if let Some(id) = &admission_id {
             // The admission stays owned until its submission settles.
             self.prompt_admissions.admitted(id, handle.id());
@@ -485,7 +490,10 @@ impl Worker {
                 .await;
         }
         match self.admit_input(&hosted, &request).await {
-            Ok(_) => response_success(None, command, Some(json!({ "queued": true }))),
+            Ok(_) => {
+                self.heard_waking(&hosted).await;
+                response_success(None, command, Some(json!({ "queued": true })))
+            }
             Err(error) => response_failure(None, command, &error, None),
         }
     }
@@ -615,6 +623,9 @@ impl Worker {
         if let Err(error) = self.admit_input(&hosted, &request).await {
             return response_failure(None, COMMAND, &error, None);
         }
+        // An agent's message waits while the run is paused: the held
+        // boundary places it when the run goes on.
+        heard(&hosted, Wake::Waits).await;
         let timestamp = crate::util::now_iso();
         let mut receipt = json!({
             "id": id,
@@ -634,5 +645,70 @@ impl Worker {
             receipt["from"] = json!(sender);
         }
         response_success(None, COMMAND, Some(receipt))
+    }
+}
+
+/// Tell the session's run pause that a message arrived (after it was
+/// queued). A failure leaves the message queued: it is placed whenever the
+/// run goes on.
+async fn heard(hosted: &HostedSession, wake: Wake) {
+    if let Err(error) = hosted
+        .deps()
+        .run_pause
+        .message(wake, &BACKGROUND_CONTEXT)
+        .await
+    {
+        eprintln!("eukhe-daemon worker: the run pause missed a message: {error:#}");
+    }
+}
+
+/// How long main may take to take a woken worker's resume.
+const RESUME_MAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
+impl Worker {
+    /// A user's message or main's forward reached the session (after it
+    /// was queued): it wakes a paused run. When it woke main's worker,
+    /// main's tree pause ends with it, as a forward from main ends it:
+    /// main's `workers` rows show the worker running again, and every
+    /// paused worker tree goes on.
+    async fn heard_waking(&self, hosted: &HostedSession) {
+        let pause = &hosted.deps().run_pause;
+        let was_paused = pause.view().paused;
+        heard(hosted, Wake::Wakes).await;
+        if !(was_paused && !pause.view().paused && hosted.deps().role.worker) {
+            return;
+        }
+        let socket = self.config.supervisor_socket_path.clone();
+        let main = {
+            let core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            core.parent_active_session_id
+                .clone()
+                .or_else(|| core.parent_session_id.clone())
+                .or_else(|| {
+                    core.parent_session_path.as_deref().map(|path| {
+                        super::durable_host::storage_for_path(std::path::Path::new(path)).0
+                    })
+                })
+        };
+        let Some(main) = main.filter(|_| !socket.as_os_str().is_empty()) else {
+            return;
+        };
+        // In the background: main's resume reaches back to this worker.
+        tokio::spawn(async move {
+            let resumed = crate::supervisor_link::SupervisorLink::new(socket)
+                .request_success(
+                    json!({ "type": "resume_workers", "activeSessionId": main }),
+                    RESUME_MAIN_TIMEOUT,
+                )
+                .await;
+            if let Err(error) = resumed {
+                eprintln!(
+                    "eukhe-daemon worker: ending main {main}'s worker pause failed: {error:#}"
+                );
+            }
+        });
     }
 }

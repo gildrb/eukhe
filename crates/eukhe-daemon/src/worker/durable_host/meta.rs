@@ -34,6 +34,20 @@ pub(crate) struct SessionMeta {
     /// roots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) rlm_depth: Option<u32>,
+    /// Main's worker (`runtimeMetadata.worker` at its spawn): a later open
+    /// that names no lineage (a stopped worker woken by a message) keeps
+    /// the worker's chat view and doctrine.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) worker: bool,
+}
+
+/// An RLM child's lineage: its parent link, its depth, and whether it is
+/// main's worker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Lineage {
+    pub(crate) parent_session_path: String,
+    pub(crate) rlm_depth: u32,
+    pub(crate) worker: bool,
 }
 
 /// The session-scope `eukhe.daemon.session` document (version 1).
@@ -117,16 +131,16 @@ pub(crate) async fn mark_anthropic_warning_shown(
         .await
 }
 
-/// Record the session's RLM lineage (parent link and depth), so a later
-/// open that names neither (a resume of a saved child) restores them.
+/// Record the session's RLM lineage (parent link, depth, worker), so a
+/// later open that names none (a resume of a saved child, a woken child)
+/// restores it.
 ///
 /// # Errors
 ///
 /// The commit fails.
 pub(crate) async fn record_lineage(
     harness: &Harness,
-    parent_session_path: String,
-    rlm_depth: u32,
+    lineage: Lineage,
     cx: &Context,
 ) -> SessionResult<()> {
     harness
@@ -136,9 +150,10 @@ pub(crate) async fn record_lineage(
                 assign_json(
                     &draft,
                     "parentSessionPath",
-                    &JsonValue::String(parent_session_path.into()),
+                    &JsonValue::String(lineage.parent_session_path.into()),
                 )?;
-                assign_json(&draft, "rlmDepth", &JsonValue::from(rlm_depth))?;
+                assign_json(&draft, "rlmDepth", &JsonValue::from(lineage.rlm_depth))?;
+                assign_json(&draft, "worker", &JsonValue::Bool(lineage.worker))?;
                 Ok(())
             },
             cx,

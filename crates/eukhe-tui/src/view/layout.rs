@@ -90,6 +90,29 @@ impl AgentView {
         rows
     }
 
+    /// The newest `rows` rows of the transcript (the entries, then the
+    /// tail), rendering only the entries those rows reach: the worker
+    /// pane shows another session's tail this way (`crate::worker_pane`).
+    pub(crate) fn render_last_rows(&mut self, width: usize, rows: usize) -> Vec<Line> {
+        if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
+            working.elapsed_secs = since.elapsed().as_secs();
+        }
+        let tail = self.render_transcript_tail(width);
+        let mut count = tail.len();
+        let mut blocks = vec![tail];
+        for index in (0..self.chat.len()).rev() {
+            if count >= rows {
+                break;
+            }
+            let entry = self.render_entry_tail(index, width, rows - count);
+            count += entry.len();
+            blocks.push(entry);
+        }
+        let mut out: Vec<Line> = blocks.into_iter().rev().flatten().collect();
+        out.drain(..out.len().saturating_sub(rows));
+        out
+    }
+
     /// The brand splash rows: none under `quietStartup` or while the chat
     /// opened straight into content.
     pub(super) fn splash_rows(&self, width: usize) -> Vec<Line> {

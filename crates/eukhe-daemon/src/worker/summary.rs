@@ -638,6 +638,10 @@ pub(crate) fn session_summary(
         runtime_kind: Some(core.runtime_kind.clone()),
         unfinished_action_count: Some(0),
         anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
+        workers: view
+            .map(|view| view.workers.clone())
+            .filter(|workers| !workers.is_empty()),
+        is_paused: view.is_some_and(|view| view.paused),
     }
 }
 
@@ -747,6 +751,8 @@ mod tests {
             inbox,
             active: None,
             goal: Value::Null,
+            workers: Vec::new(),
+            paused: false,
         });
         core.suspended = suspended;
         core.held = held;

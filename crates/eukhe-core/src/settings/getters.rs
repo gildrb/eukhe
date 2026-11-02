@@ -243,6 +243,20 @@ impl SettingsManager {
         self.cvars().optional_text(&table::SUBAGENT_DEFAULT_MODEL)
     }
 
+    /// `workerModel`: the worker's model (`sessionShape` `main-worker`);
+    /// unset: main's model.
+    #[must_use]
+    pub fn get_worker_model(&self) -> Option<String> {
+        self.cvars().optional_text(&table::WORKER_MODEL)
+    }
+
+    /// `sessionShape` is `main-worker`: a root session talks and hands its
+    /// work to a persistent worker child.
+    #[must_use]
+    pub fn is_main_worker_shape(&self) -> bool {
+        self.cvars().text(&table::SESSION_SHAPE) == "main-worker"
+    }
+
     #[must_use]
     pub fn get_auxiliary_model(&self) -> Option<String> {
         self.raw_text(&table::AUXILIARY_MODEL)

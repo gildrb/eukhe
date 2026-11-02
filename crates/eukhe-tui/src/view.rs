@@ -127,6 +127,10 @@ pub struct AgentView {
     /// the prompt dock (below the queue strip) while a side conversation
     /// is open; `None` is the main-thread state.
     pub side_pane: Option<crate::side_question::SideQuestionPane>,
+    /// The live worker pane (`crate::worker_pane`): the main session's
+    /// worker beside, under, or over the transcript; `None` while this
+    /// session has no worker.
+    pub worker_pane: Option<crate::worker_pane::WorkerPane>,
     /// The `/settings` inline menu (TS `SettingsSelectorComponent`):
     /// mounted in the editor dock like the tree and fork selectors.
     pub settings_menu: Option<crate::settings_menu::SettingsMenu>,
@@ -354,6 +358,7 @@ impl AgentView {
             bash_view: None,
             reload_box: None,
             side_pane: None,
+            worker_pane: None,
             settings_menu: None,
             info_panel: None,
             memory_tree: None,

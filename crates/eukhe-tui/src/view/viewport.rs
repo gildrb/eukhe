@@ -15,6 +15,7 @@ use super::AgentView;
 use crate::inline_term::LiveCursor;
 use crate::screen_mode::WheelDirection;
 use crate::theme::ThemeColor;
+use crate::worker_pane::{PaneMode, Placement};
 use crate::Line;
 
 /// How far one scroll request moves the window.
@@ -256,7 +257,9 @@ impl AgentView {
     /// rest. A reshaped frame asks the terminal for a full repaint.
     pub fn compose_fullscreen(&mut self, width: usize, height: usize) -> ChatFrame {
         self.refresh_loader();
-        let start = self.begin_fullscreen_frame(width);
+        // The transcript's own width: the worker pane's right split
+        // takes its columns (and a separator) off it.
+        let start = self.begin_fullscreen_frame(self.transcript_width(width));
         if start != FrameStart::Continue {
             self.viewport.settled.clear();
         }
@@ -283,7 +286,7 @@ impl AgentView {
         let mut toasts = self.toast_rows(width);
         toasts.truncate(height - dock.len());
         let window = height - dock.len() - toasts.len();
-        let mut live = self.transcript_window(width, window);
+        let mut live = self.transcript_with_worker(width, window);
         let cursor = self
             .dock_cursor
             .filter(|_| editor_focused)
@@ -299,6 +302,44 @@ impl AgentView {
             history: Vec::new(),
             live,
             cursor,
+        }
+    }
+
+    /// The columns the transcript window renders at: the whole width, or
+    /// what the worker pane's right split leaves (`crate::worker_pane`).
+    fn transcript_width(&self, width: usize) -> usize {
+        match self.worker_placement(width, 0) {
+            Placement::Right { width: pane } => width - pane - 1,
+            Placement::None | Placement::Bottom { .. } | Placement::Full => width,
+        }
+    }
+
+    /// Where the worker pane goes in a `width` x `window` transcript area.
+    fn worker_placement(&self, width: usize, window: usize) -> Placement {
+        let mode = self
+            .worker_pane
+            .as_ref()
+            .map_or(PaneMode::Hidden, |pane| pane.mode);
+        crate::worker_pane::placement(mode, width, window, /*split*/ true)
+    }
+
+    /// The transcript window with the worker pane laid in: beside it, under
+    /// it, or in its place; exactly `window` rows of `width`.
+    fn transcript_with_worker(&mut self, width: usize, window: usize) -> Vec<Line> {
+        match self.worker_placement(width, window) {
+            Placement::None => self.transcript_window(width, window),
+            Placement::Right { width: pane_width } => {
+                let main_width = width - pane_width - 1;
+                let main = self.transcript_window(main_width, window);
+                let pane = crate::worker_pane::pane_rows(self, pane_width, window);
+                crate::worker_pane::beside(main, pane, main_width, &self.theme)
+            }
+            Placement::Bottom { rows } => {
+                let mut main = self.transcript_window(width, window - rows);
+                main.extend(crate::worker_pane::pane_rows(self, width, rows));
+                main
+            }
+            Placement::Full => crate::worker_pane::pane_rows(self, width, window),
         }
     }
 

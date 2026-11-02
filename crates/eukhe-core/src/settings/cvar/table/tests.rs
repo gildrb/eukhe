@@ -22,6 +22,8 @@ fn populated() -> Settings {
         default_provider: Some("p".into()),
         default_model: Some("m".into()),
         subagent_default_model: Some("m".into()),
+        worker_model: Some("m".into()),
+        session_shape: Some("single".into()),
         recent_models: Some(vec![]),
         auxiliary_model: Some("m".into()),
         default_thinking_level: Some(ThinkingLevelSetting::High),

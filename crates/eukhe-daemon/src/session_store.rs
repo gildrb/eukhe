@@ -98,8 +98,8 @@ mod durable_info;
 pub(crate) use durable_info::storage_session_path;
 
 pub(crate) use durable_info::{
-    block_on_storage, durable_storage_of, is_durable_storage, read_durable_session_info,
-    storage_modified,
+    block_on_storage, durable_storage_of, is_durable_storage, read_durable_lineage,
+    read_durable_session_info, storage_modified,
 };
 
 pub(crate) use info::read_session_info_from;

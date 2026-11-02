@@ -54,15 +54,21 @@ use self::force::{soft_prompt, Forcing};
 use self::leak::{scan, Leak};
 use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
 use self::repeat::{canonical_arguments, rounds_in_a_row};
-use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
+use self::round::{
+    answer, finish_tool_round, queue_modes, read_calls, start_next_call, start_tool_round,
+};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{estimate_context, select_cut};
-use crate::harness::inbox::{has_queued_summary, INBOX_DOC};
+use crate::harness::inbox::{
+    apply_boundary, has_queued_reset, has_queued_summary, prepare_boundary, BoundaryAt, INBOX_DOC,
+};
 use crate::harness::live::run::{
     append_assistant, convert_partial, create_compaction, timestamp, CompactionInput,
 };
-use crate::harness::live::{end_run, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC};
+use crate::harness::live::{
+    end_run, run_task_id, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC,
+};
 use crate::harness::prompt::{plan_system_entries, render_sections, replay_sections, SystemDraft};
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
@@ -330,6 +336,71 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         return Err(phase_mismatch("prepare"));
     };
     let conversation_id = runtime.conversation_id();
+    // A hook may hold the preparation (a paused run waits here) and then ask
+    // that the inputs queued meanwhile join this request: the queued steers
+    // and writes are placed as the `postTools` boundary places them, before
+    // the context is read. A queued reset waits for the next boundary, which
+    // ends the run at it.
+    let place = Mutex::new(None);
+    let api = runtime.hook_api();
+    let hooked = runtime
+        .hooks()
+        .each_required(
+            |hooks: &GenerationHooks| hooks.before_prepare.clone(),
+            |hook| {
+                let pending = hook(&api, &cx);
+                let place = &place;
+                async move {
+                    if let Some(asked) = pending.await? {
+                        *place.lock().unwrap_or_else(PoisonError::into_inner) = Some(asked);
+                    }
+                    Ok(())
+                }
+            },
+        )
+        .await;
+    match hooked {
+        Ok(()) => {}
+        Err(error) if cx.aborted() => return Err(error),
+        Err(error) => {
+            return fail_model_error(&runtime, format!("A prepare hook failed: {error}"), &cx).await
+        }
+    }
+    if place
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
+    {
+        let modes = queue_modes(&runtime);
+        let now = timestamp(runtime.now()?)?;
+        let task_id = runtime.task_id().erase();
+        runtime
+            .commit(
+                move |tx, _current| async move {
+                    let mut boundary = prepare_boundary(&tx, conversation_id, modes).await?;
+                    let reset =
+                        has_queued_reset(boundary.items()?.value()?.as_array().unwrap_or_default());
+                    if reset {
+                        return Ok(None);
+                    }
+                    let outcome =
+                        apply_boundary(&tx, &mut boundary, BoundaryAt::PostTools, now).await?;
+                    // The placed inputs are the run's: its answer settles them.
+                    let live = tx.doc(&LIVE_DOC, conversation_id).await?;
+                    if !outcome.users.is_empty() && run_task_id(&live)? == Some(task_id) {
+                        let users = outcome
+                            .users
+                            .iter()
+                            .map(to_json)
+                            .collect::<Result<Vec<_>, _>>()?;
+                        live.child("run")?.child("inputs")?.push(users)?;
+                    }
+                    Ok(None)
+                },
+                &cx,
+            )
+            .await?;
+    }
     let agent = runtime.agent(&cx).await?;
     let settings = runtime.settings();
     let reference = agent.model.clone();

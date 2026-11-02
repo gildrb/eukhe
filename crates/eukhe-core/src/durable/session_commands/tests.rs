@@ -273,6 +273,48 @@ async fn goal_start_submits_its_continuation_and_reports_the_goal() {
     fixture.close().await;
 }
 
+/// On main (`main-worker`) `/goal` and `/autonomous` are the worker's: main
+/// sets no goal and starts no run of its own; with no worker yet the
+/// command says so.
+#[tokio::test]
+async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
+    let fixture = open_with_settings(&[], &json!({ "sessionShape": "main-worker" })).await;
+    for (text, name) in [("/goal ship it", "goal"), ("/autonomous on", "autonomous")] {
+        let error = format!(
+            "No worker yet: /{name} applies to the worker, which main creates with the first work you give it"
+        );
+        let outcome = fixture.run(text).await;
+        assert_eq!(
+            (
+                outcome.error.as_deref(),
+                &outcome.goal,
+                outcome.autonomous.is_none()
+            ),
+            (Some(error.as_str()), &None, true),
+        );
+    }
+    fixture.idle().await;
+    assert_eq!(
+        (fixture.command_rows().await, fixture.user_texts().await),
+        (
+            vec![
+                echo("/goal ship it"),
+                failure(
+                    "/goal ship it",
+                    "No worker yet: /goal applies to the worker, which main creates with the first work you give it",
+                ),
+                echo("/autonomous on"),
+                failure(
+                    "/autonomous on",
+                    "No worker yet: /autonomous applies to the worker, which main creates with the first work you give it",
+                ),
+            ],
+            Vec::<String>::new(),
+        )
+    );
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn goal_pause_resume_and_clear_report_each_state() {
     // An active goal whose run ends on a terminal provider failure fails

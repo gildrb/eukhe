@@ -139,6 +139,15 @@ pub(crate) struct ChildRow {
     /// (their spawner reads it instead of a report).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) answer: Option<String>,
+    /// The task that serves this child now, after a re-task
+    /// ([`super::assign`]): the latest `eukhe.rlm.child` task started on
+    /// the existing child; `None` while the spawn task serves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) task: Option<u64>,
+    /// A worker of a main session (`sessionShape` `main-worker`): main's
+    /// worker tools reach it, and main's summary lists it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) worker: bool,
 }
 
 /// The persisted result of handing an isolated child's workspace back.
@@ -182,6 +191,12 @@ impl ChildRow {
 
     pub(crate) fn task_id(&self) -> TaskId {
         TaskId::from_number(self.task_id)
+    }
+
+    /// The task that serves this child now: an abort, a cancel or a wait
+    /// reaches it (the row stays keyed by the spawn task).
+    pub(crate) fn live_task(&self) -> TaskId {
+        TaskId::from_number(self.task.unwrap_or(self.task_id))
     }
 
     /// A delete was requested: the task's abort owes the cancelled notice.
@@ -285,7 +300,7 @@ pub async fn unsettled_child_tasks(
         .children
         .values()
         .filter(|row| !row.settled)
-        .map(|row| TaskId::from_number(row.reporter.unwrap_or(row.task_id)))
+        .map(|row| TaskId::from_number(row.reporter.or(row.task).unwrap_or(row.task_id)))
         .collect())
 }
 
