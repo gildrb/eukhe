@@ -1635,6 +1635,10 @@ import ./proof/doc_tags/tags_entry_reads.bend as PTagsEntryReads
 import ./proof/doc_tags/tags_entry_exact.bend as PTagsEntryExact
 import ./proof/doc_tags/tags_entry_refuses.bend as PTagsEntryRefuses
 import ./proof/doc_tags/tags_entry_example.bend as PTagsEntryExample
+import ./proof/doc_tags/tag_rows_spec.bend as PTagRowsSpec
+import ./proof/doc_tags/tag_show_spec.bend as PTagShowSpec
+import ./proof/doc_tags/tag_line_spec.bend as PTagLineSpec
+import ./proof/doc_tags/tag_from_text_spec.bend as PTagFromTextSpec
 import ./proof/doc_seen/base.bend as LADocSeen
 import ./proof/doc_seen/edit_only_seen_lines.bend as PEditOnlySeenLines
 import ./proof/doc_seen/edit_seen_applies.bend as PEditSeenApplies
