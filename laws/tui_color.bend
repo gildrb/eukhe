@@ -590,3 +590,32 @@ law tui_resolves_spec:
 # EXCLUDES: a reading of tui_resolves_spec the human did not mean
 law tui_resolves_example:
   {[TC.resolves([None{}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [0n]), TC.resolves([Some{TFile.Dflt{}}], [1n])] == [False{}, True{}, False{}] : List<&2, Bool>}
+
+# whether token r of the color table xs has a color (a token past xs has
+# none)
+def tc_has(xs: List<&2, Co.Rgb>, r: Nat) -> Bool:
+  match xs r:
+    case Nil{} _:
+      False{}
+    case Con{x, t} 0n:
+      True{}
+    case Con{x, t} 1n+k:
+      tc_has(t, k)
+
+# every role of rs has a color in the table xs
+def tc_paint_all(+xs: List<&2, Co.Rgb>, rs: List<&2, Nat>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case Con{r, rest}:
+      Bool.and(tc_has(xs, r), tc_paint_all(xs, rest))
+
+# LAW tui_paints_spec (T3): the roles paint in a color table exactly when each has a color
+# there, for every table and every roles
+# EXCLUDES: a test that always holds for some tables (tui_roles_shipped
+#   made vacuous, e.g. one that holds for any table of 2 or more colors),
+#   a role looked up at another token
+law tui_paints_spec:
+  for +xs: List<&2, Co.Rgb>
+  for rs: List<&2, Nat>
+  {TC.paints(xs, rs) == tc_paint_all(xs, rs) : Bool}

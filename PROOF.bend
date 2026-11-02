@@ -1246,6 +1246,7 @@ import ./proof/fsmode/fsmode_ffi_exact.bend as PFsmodeFfiExact
 import ./proof/fsmode/fsmode_socket_dir_exact.bend as PFsmodeSocketDirExact
 import ./proof/fsmode/fsmode_safe_exact.bend as PFsmodeSafeExact
 import ./proof/fsmode/fsmode_modes_exact.bend as PFsmodeModesExact
+import ./proof/fsmode/fsmode_made_exact.bend as PFsmodeMadeExact
 import ./proof/fsmode/socket_dir_created.bend as PSocketDirCreated
 import ./proof/fsmode/socket_dir_created_used.bend as PSocketDirCreatedUsed
 import ./proof/fsmode/peer_same_uid.bend as PPeerSameUid
@@ -1386,6 +1387,8 @@ import ./proof/facts/facts_tier_price_no_row_base.bend as PFactsTierPriceNoRowBa
 import ./proof/facts/facts_tier_price_openai_oracle.bend as PFactsTierPriceOpenaiOracle
 import ./proof/facts/facts_tier_price_codex_oracle.bend as PFactsTierPriceCodexOracle
 import ./proof/facts/facts_cache_write_1h_own_rate.bend as PFactsCacheWrite1hOwnRate
+import ./proof/facts/facts_tier_cost_exact.bend as PFactsTierCostExact
+import ./proof/facts/facts_cache_write_1h_exact.bend as PFactsCacheWrite1hExact
 import ./proof/facts/facts_flag_exact.bend as PFactsFlagExact
 import ./proof/facts/facts_effort_exact.bend as PFactsEffortExact
 import ./proof/facts/facts_price_exact.bend as PFactsPriceExact
@@ -1450,10 +1453,13 @@ import ./proof/retry/failover_base_saturation_exact.bend as PFailoverBaseSaturat
 import ./proof/retry/deferred_pays_once.bend as PDeferredPaysOnce
 import ./proof/retry/deferred_bounded_in_time.bend as PDeferredBoundedInTime
 import ./proof/retry/deferred_failed_poll_repolls.bend as PDeferredFailedPollRepolls
+import ./proof/retry/deferred_step_exact.bend as PDeferredStepExact
+import ./proof/retry/deferred_run_exact.bend as PDeferredRunExact
 import ./proof/retry/stall_retry_extends.bend as PStallRetryExtends
 import ./proof/retry/stall_retry_doubles.bend as PStallRetryDoubles
 import ./proof/retry/stall_detection_bounded.bend as PStallDetectionBounded
 import ./proof/retry/stall_silent_ends_at_deadline.bend as PStallSilentEndsAtDeadline
+import ./proof/retry/stall_life_exact.bend as PStallLifeExact
 import ./proof/retry/retry_ffi_request_round_trip.bend as PRetryFfiRequestRoundTrip
 import ./proof/retry/retry_ffi_request_exact.bend as PRetryFfiRequestExact
 import ./proof/retry/retry_ffi_classify.bend as PRetryFfiClassify
@@ -2342,6 +2348,7 @@ import ./proof/tui_color/tui_color_ffi_left_over.bend as PTuiColorFfiLeftOver
 import ./proof/tui_color/tui_color_ffi_malformed_exact.bend as PTuiColorFfiMalformedExact
 import ./proof/tui_color/tui_color_ffi_example.bend as PTuiColorFfiExample
 import ./proof/tui_color/tui_resolves_spec.bend as PTuiResolvesSpec
+import ./proof/tui_color/tui_paints_spec.bend as PTuiPaintsSpec
 import ./proof/tui_color/tui_resolves_example.bend as PTuiResolvesExample
 import ./proof/tui_color/tui_color_ffi_total.bend as PTuiColorFfiTotal
 import ./proof/config/base/config.bend as LAConfigConfig

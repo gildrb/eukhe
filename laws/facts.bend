@@ -639,6 +639,45 @@ law facts_cache_write_1h_own_rate:
   for +write: Nat
   {Fx.rate_1h(None{}, input, write) == write : Nat}
 
+# the cost of base under the tier's multiplier p (in hundredths), in
+# hundredths of base: base times the multiplier; with no row, the base
+# price (times 100)
+def tier_cost_spec(+base: Nat, p: Maybe<&2, Nat>) -> Nat:
+  match p:
+    case Some{k}:
+      Nat.mul(base, k)
+    case None{}:
+      Nat.mul(base, 100n)
+
+# LAW facts_tier_cost_exact (S6.10.4): the cost under a tier is the base price times the row's multiplier (in hundredths), and the base price (times 100) with no row, for every base and multiplier
+# EXCLUDES: a cost that ignores the row's multiplier (tier_cost(base, p) =
+#   base * 100, which facts_tier_price_no_row_base lets through), a
+#   multiplier read as another, a cost rounded or capped
+law facts_tier_cost_exact:
+  for +base: Nat
+  for p: Maybe<&2, Nat>
+  {Fx.tier_cost(base, p) == tier_cost_spec(base, p) : Nat}
+
+# the rate of a 1h cache write, in hundredths: a row's multiplier k (in
+# hundredths) of the input rate, floor(input * k / 100); with no row, the
+# model's own cache write rate
+def rate_1h_spec(row: Maybe<&2, Nat>, +input: Nat, +write: Nat) -> Nat:
+  match row:
+    case Some{k}:
+      Nat.div(Nat.mul(input, k), 100n)
+    case None{}:
+      write
+
+# LAW facts_cache_write_1h_exact (S6.10.4): a 1h cache write costs a row's multiplier of the input rate, and with no row the model's own cache write rate, for every row, input rate and write rate
+# EXCLUDES: a row's multiplier ignored (the write rate, or the input rate,
+#   whatever the row), a multiplier applied to the write rate instead of
+#   the input rate, a rate not scaled back from hundredths
+law facts_cache_write_1h_exact:
+  for row: Maybe<&2, Nat>
+  for +input: Nat
+  for +write: Nat
+  {Fx.rate_1h(row, input, write) == rate_1h_spec(row, input, write) : Nat}
+
 # (S6.10) The model's terms the entry bend/ffi_model_facts.bend calls
 # ------------------------------------------------------------------
 

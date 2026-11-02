@@ -25,6 +25,57 @@ def rp.add_none(+s: Nat, +x: Nat, e: {x == 0n : Nat}) -> {Nat.add(s, x) == s : N
   %Equal.sym(Nat, x, 0n, e) : {Nat.add(s, _) == s : Nat}
   rp.add_zero(s)
 
+# (R4) The deferred job
+# ---------------------
+
+# a deferred reply with ms left
+def rp.job_later(+ms: Nat, +gap: Nat) -> {R.live.pending(Nat.is_eq(ms, 0n), ms, gap) == Retry.rs.job.later(ms, gap) : R.Step}:
+  match ms:
+    case 0n:
+      {==}
+    case 1n+k:
+      {==}
+
+# a retryable failed poll of a live job, below: under retry.maxRetries
+def rp.job_again(below: Bool, +failed: Nat, +left: Nat, +gap: Nat) -> {R.live.failed(Bool.and(below, Nat.is_gt(left, 0n)), failed, left, gap) == Retry.rs.job.again(below, failed, left, gap) : R.Step}:
+  match below:
+    case True{}:
+      match left:
+        case 0n:
+          {==}
+        case 1n+k:
+          {==}
+    case False{}:
+      {==}
+
+# the step is the spec's step (law deferred_step_exact)
+def rp.job_step(+fails: Nat, +budget: Nat, +job: R.Job, +got: R.Got) -> {R.step(fails, budget, job, got) == Retry.rs.job_step(fails, budget, job, got) : R.Step}:
+  match job:
+    case R.NoJob{}:
+      match got:
+        case R.Answer{}:
+          {==}
+        case R.Later{+gap}:
+          rp.job_later(budget, gap)
+        case R.Broke{r, +gap}:
+          match r:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+    case R.Live{+failed, +left}:
+      match got:
+        case R.Answer{}:
+          {==}
+        case R.Later{+gap}:
+          rp.job_later(left, gap)
+        case R.Broke{r, +gap}:
+          match r:
+            case True{}:
+              rp.job_again(Nat.is_lt(failed, fails), failed, left, gap)
+            case False{}:
+              {==}
+
 # (R6) The idle deadline
 # ----------------------
 

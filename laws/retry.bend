@@ -568,6 +568,175 @@ law deferred_failed_poll_repolls:
   for live: {Nat.is_gt(left, 0n) == True{} : Bool}
   {R.step(fails, budget, R.Live{failed, left}, R.Broke{True{}, gap}) == R.Step{R.Poll{}, R.Live{1n+failed, Nat.sub(left, 1n+gap)}} : R.Step}
 
+# The deferred job, as bend/retry.bend section 4 states it: an answer
+# settles the request (the job, if any, is done); a deferred reply polls
+# again gap+1 ms later while time is left before the deadline (a new job
+# runs for its budget; the failures in a row start over) and cancels the
+# job at its deadline; a failure with no job is sent again when the
+# classifier retries it, else the request quits; a failed poll of a live
+# job polls the same job again (one more failure in a row, gap+1 ms
+# later) when the classifier retries it, the failures in a row are below
+# retry.maxRetries and time is left, else the job is cancelled
+
+def rs.job.cancel() -> R.Step:
+  R.Step{R.Cancel{}, R.NoJob{}}
+
+# a deferred reply with ms left before the job's deadline
+def rs.job.later(+ms: Nat, +gap: Nat) -> R.Step:
+  match ms:
+    case 0n:
+      rs.job.cancel()
+    case 1n+k:
+      R.Step{R.Poll{}, R.Live{0n, Nat.sub(1n+k, 1n+gap)}}
+
+# a failure with no job
+def rs.job.fresh(retryable: Bool) -> R.Step:
+  match retryable:
+    case True{}:
+      R.Step{R.Send{}, R.NoJob{}}
+    case False{}:
+      R.Step{R.Quit{}, R.NoJob{}}
+
+# a retryable failed poll of a live job: below, the failures in a row are
+# below retry.maxRetries
+def rs.job.again(below: Bool, +failed: Nat, +left: Nat, +gap: Nat) -> R.Step:
+  match below:
+    case True{}:
+      match left:
+        case 0n:
+          rs.job.cancel()
+        case 1n+k:
+          R.Step{R.Poll{}, R.Live{1n+failed, Nat.sub(1n+k, 1n+gap)}}
+    case False{}:
+      rs.job.cancel()
+
+# a failed poll of a live job
+def rs.job.broke(retryable: Bool, +fails: Nat, +failed: Nat, +left: Nat, +gap: Nat) -> R.Step:
+  match retryable:
+    case True{}:
+      rs.job.again(Nat.is_lt(failed, fails), failed, left, gap)
+    case False{}:
+      rs.job.cancel()
+
+# the deferred job's step: fails, retry.maxRetries; budget, the ms a new
+# job may run; the job before the reply; the reply
+def rs.job_step(+fails: Nat, +budget: Nat, job: R.Job, got: R.Got) -> R.Step:
+  match job:
+    case R.NoJob{}:
+      match got:
+        case R.Answer{}:
+          R.Step{R.Settle{}, R.NoJob{}}
+        case R.Later{gap}:
+          rs.job.later(budget, gap)
+        case R.Broke{retryable, gap}:
+          rs.job.fresh(retryable)
+    case R.Live{failed, left}:
+      match got:
+        case R.Answer{}:
+          R.Step{R.Settle{}, R.NoJob{}}
+        case R.Later{gap}:
+          rs.job.later(left, gap)
+        case R.Broke{retryable, gap}:
+          rs.job.broke(retryable, fails, failed, left, gap)
+
+def rs.step.act(s: R.Step) -> R.Act:
+  match s:
+    case R.Step{act, job}:
+      act
+
+def rs.step.job(s: R.Step) -> R.Job:
+  match s:
+    case R.Step{act, job}:
+      job
+
+# a request sent while the job before it was live counts one send
+def rs.job.sent(j: R.Job, a: R.Act) -> Nat:
+  match j:
+    case R.NoJob{}:
+      0n
+    case R.Live{failed, left}:
+      match a:
+        case R.Send{}:
+          1n
+        case R.Poll{}:
+          0n
+        case R.Cancel{}:
+          0n
+        case R.Settle{}:
+          0n
+        case R.Quit{}:
+          0n
+
+# a poll of a live job with no ms left (at or after its deadline) counts
+# one late poll
+def rs.job.late(a: R.Act, j: R.Job) -> Nat:
+  match a:
+    case R.Send{}:
+      0n
+    case R.Poll{}:
+      match j:
+        case R.NoJob{}:
+          0n
+        case R.Live{failed, left}:
+          match left:
+            case 0n:
+              1n
+            case 1n+k:
+              0n
+    case R.Cancel{}:
+      0n
+    case R.Settle{}:
+      0n
+    case R.Quit{}:
+      0n
+
+def rs.job.count(t: R.Tally, +a: R.Act, +j: R.Job) -> R.Tally:
+  match t:
+    case R.Tally{sends, late}:
+      R.Tally{Nat.add(sends, rs.job.sent(j, a)), Nat.add(late, rs.job.late(a, j))}
+
+# the replies gots folded through the job's step from the job before them,
+# each counted with the job before it
+def rs.job_run.go(gots: List<&2, R.Got>, +fails: Nat, +budget: Nat, +job: R.Job, +t: R.Tally) -> R.Tally:
+  match gots:
+    case Nil{}:
+      t
+    case g <> rest:
+      +st = rs.job_step(fails, budget, job, g)
+      rs.job_run.go(rest, fails, budget, rs.step.job(st), rs.job.count(t, rs.step.act(st), job))
+
+# a request's replies from its first, with no job and nothing counted
+def rs.job_run(+fails: Nat, +budget: Nat, gots: List<&2, R.Got>) -> R.Tally:
+  rs.job_run.go(gots, fails, budget, R.NoJob{}, R.Tally{0n, 0n})
+
+# LAW deferred_step_exact (R4): the deferred job's step is section 4 as stated, for every
+# retry limit, budget, job and reply: the whole act and the whole job after it
+# EXCLUDES: a step that keeps only the failed-poll case and cancels (or
+#   quits) on every other reply; an answer that does not settle; a
+#   deferred reply that polls at or past the deadline, cancels with time
+#   left, keeps the failures in a row or the ms left, or charges other
+#   than gap+1 ms; a failure with no job that is not sent again when
+#   retryable or not quit when not; a failed poll that keeps a job past
+#   retry.maxRetries, a non-retryable failure or the deadline
+law deferred_step_exact:
+  for +fails: Nat
+  for +budget: Nat
+  for +job: R.Job
+  for +got: R.Got
+  {R.step(fails, budget, job, got) == rs.job_step(fails, budget, job, got) : R.Step}
+
+# LAW deferred_run_exact (R4): a request's replies, from its first, run as the fold of the
+# job's step of section 4: the whole tally of sends while a job is live
+# and of polls at or after its deadline
+# EXCLUDES: a run that drops or reorders replies, starts from a live job,
+#   counts from a nonzero tally, counts with the job after a step instead
+#   of the one before it, or answers a constant tally
+law deferred_run_exact:
+  for +fails: Nat
+  for +budget: Nat
+  for gots: List<&2, R.Got>
+  {R.run(fails, budget, gots) == rs.job_run(fails, budget, gots) : R.Tally}
+
 # (R5) The stall
 # --------------
 # crates/eukhe-durable/src/harness/generation/deferred.rs
@@ -605,6 +774,43 @@ law stall_detection_bounded:
 law stall_silent_ends_at_deadline:
   for d: Nat
   {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}
+
+# the time of the last event before the first gap above d (the deadline),
+# from the stream's start, each event its gap after the one before; last:
+# when the event before them came
+def rs.life.at(late: Bool, +last: Nat, then: Nat) -> Nat:
+  match late:
+    case True{}:
+      last
+    case False{}:
+      then
+
+def rs.life.go(gs: List<&2, Nat>, +d: Nat, +last: Nat) -> Nat:
+  match gs:
+    case Nil{}:
+      last
+    case +g <> rest:
+      rs.life.at(Nat.is_gt(g, d), last, rs.life.go(rest, d, Nat.add(last, g)))
+
+# the stream's last life before its deadline passed: 0 (the arming) when
+# no event came or the first one came past the deadline
+def rs.life(gs: List<&2, Nat>, +d: Nat) -> Nat:
+  match gs:
+    case Nil{}:
+      0n
+    case +g <> rest:
+      rs.life.go(g <> rest, d, 0n)
+
+# LAW stall_life_exact (R6): the life stall_detection_bounded measures from is the time of
+# the last event before the first gap past the deadline (0 when there is
+# none), for every gaps and deadline
+# EXCLUDES: a life read as the stream's end (stall_detection_bounded
+#   then holds for any end), a life past the stall, a life of 0 or of the
+#   last event whatever the gaps
+law stall_life_exact:
+  for +gs: List<&2, Nat>
+  for +d: Nat
+  {R.idle.life(gs, d) == rs.life(gs, d) : Nat}
 
 # (R7) The entry of the compiled core
 # -----------------------------------

@@ -530,3 +530,20 @@ law fsmode_modes_exact:
   for g: Nat
   for o: Nat
   {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
+
+# what the check finds at a dir the daemon just created with mode m: a
+# real dir, this uid's, loose when m has a group or other bit (the
+# meaning of a loose mode in fsmode_modes_exact)
+def made_spec(m: Fs.Mode) -> Fs.Seen:
+  match m:
+    case Fs.Mode{u, g, o}:
+      Fs.Seen{Fs.Dir{}, True{}, Bool.or(set_spec(g), set_spec(o))}
+
+# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group or other bit, for every mode
+# EXCLUDES: a created dir found safe whatever its mode
+#   (socket_dir_created_used made vacuous: made(m) = Seen{Dir, True,
+#   False}), found as another node or another owner's, or loose by another
+#   digit
+law fsmode_made_exact:
+  for m: Fs.Mode
+  {Fs.made(m) == made_spec(m) : Fs.Seen}
