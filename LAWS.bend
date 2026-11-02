@@ -70,6 +70,7 @@ import ./laws/approvals/desk.bend as ApprovalsDesk
 import ./laws/wire.bend as Wire
 import ./laws/wire_entry.bend as WireEntry
 import ./laws/facts.bend as Facts
+import ./laws/facts/entry.bend as FactsEntry
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
 import ./laws/retry_idle.bend as RetryIdle

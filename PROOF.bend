@@ -1264,6 +1264,7 @@ import ./proof/facts/core_facts_left_over.bend as PCoreFactsLeftOver
 import ./proof/facts/core_facts_req_example.bend as PCoreFactsReqExample
 import ./proof/facts/core_facts_reply_example.bend as PCoreFactsReplyExample
 import ./proof/facts/core_facts_malformed_example.bend as PCoreFactsMalformedExample
+import ./proof/facts/facts_ffi_exact.bend as PFactsFfiExact
 import ./proof/facts/facts_adaptive_compat_first.bend as PFactsAdaptiveCompatFirst
 import ./proof/facts/facts_adaptive_rulebook_second.bend as PFactsAdaptiveRulebookSecond
 import ./proof/facts/facts_google_budget_at_most_high.bend as PFactsGoogleBudgetAtMostHigh
