@@ -1180,6 +1180,12 @@ import ./proof/child_env/env_ffi_is_child.bend as PEnvFfiIsChild
 import ./proof/child_env/env_ffi_malformed.bend as PEnvFfiMalformed
 import ./proof/child_env/env_ffi_left_over.bend as PEnvFfiLeftOver
 import ./proof/child_env/env_req_fits_example.bend as PEnvReqFitsExample
+import ./proof/child_env/base/spec.bend as LAChildEnvSpec
+import ./proof/child_env/env_child_exact.bend as PEnvChildExact
+import ./proof/child_env/env_terms_exact.bend as PEnvTermsExact
+import ./proof/child_env/env_ffi_exact.bend as PEnvFfiExact
+import ./proof/child_env/env_ffi_spelled.bend as PEnvFfiSpelled
+import ./proof/child_env/env_ffi_spec_example.bend as PEnvFfiSpecExample
 import ./proof/runners/base.bend as LARunners
 import ./proof/runners/gate_covers_every_runner.bend as PGateCoversEveryRunner
 import ./proof/runners/ipython_gated_each_call.bend as PIpythonGatedEachCall
