@@ -1561,6 +1561,10 @@ import ./proof/doc_rows/rows_gap_marks_every_jump.bend as PRowsGapMarksEveryJump
 import ./proof/doc_rows/rows_gap_example.bend as PRowsGapExample
 import ./proof/doc_rows/rows_entry_answers.bend as PRowsEntryAnswers
 import ./proof/doc_rows/rows_entry_exact.bend as PRowsEntryExact
+import ./proof/doc_rows/rows_entry_left_over.bend as PRowsEntryLeftOver
+import ./proof/doc_rows/rows_entry_errors.bend as PRowsEntryErrors
+import ./proof/doc_rows/rows_entry_left_over_exact.bend as PRowsEntryLeftOverExact
+import ./proof/doc_rows/rows_entry_errors_example.bend as PRowsEntryErrorsExample
 import ./proof/doc_rows/rows_entry_example.bend as PRowsEntryExample
 import ./proof/doc_rows/rows_req_fits_example.bend as PRowsReqFitsExample
 import ./proof/doc_tags/tag_names_shown_text.bend as PTagNamesShownText

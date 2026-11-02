@@ -377,7 +377,8 @@ def rows.spell_req(r: rows.Req) -> String:
     case rows.ViewReq{sel, u8, over, p}:
       Wr.put_nat(1n, rows.spell_sel(sel, Wr.put_bool(u8, Wr.put_bool(over, LawsBase.proj_spell(p, "")))))
 
-# the spelling of the model's answer
+# the spelling of the model's answer (Dr.gate is rows.Gate for every input,
+# rows_gate_refuses; Dr.view is rows.View for every input, rows_view_shows)
 def rows.answer(r: rows.Req) -> String:
   match r:
     case rows.GateReq{raw, u8, u16, nul}:
@@ -443,3 +444,64 @@ law rows_entry_example:
 # (rows_entry_answers is not vacuous)
 law rows_req_fits_example:
   {[rows.ReqFits(rows.GateReq{False{}, True{}, False{}, False{}}), rows.ReqFits(rows.ViewReq{Dr.Lines{[Dr.Range{4n, Some{5n}}], False{}}, True{}, False{}, Dl.Proj{False{}, [Dl.Line{1n, None{}}]}})] == [True{}, True{}] : List<&2, Bool>}
+
+# The error forms
+# ---------------
+
+# the spelling of a request, then the rest of the input
+def rows.spell_req_on(r: rows.Req, rest: String) -> String:
+  match r:
+    case rows.GateReq{raw, u8, u16, nul}:
+      Wr.put_nat(0n, Wr.put_bool(raw, Wr.put_bool(u8, Wr.put_bool(u16, Wr.put_bool(nul, rest)))))
+    case rows.ViewReq{sel, u8, over, p}:
+      Wr.put_nat(1n, rows.spell_sel(sel, Wr.put_bool(u8, Wr.put_bool(over, LawsBase.proj_spell(p, rest)))))
+
+# a request with more input after it: the request, then a char and the
+# rest
+type rows.LeftOver is Data:
+  rows.LeftOver{req: rows.Req, head: Char, tail: String}
+
+def rows.left_req(w: rows.LeftOver) -> rows.Req:
+  match w:
+    case rows.LeftOver{q, h, t}:
+      q
+
+def rows.spell_left_over(w: rows.LeftOver) -> String:
+  match w:
+    case rows.LeftOver{q, h, t}:
+      rows.spell_req_on(q, SCon{h, t})
+
+# LAW rows_entry_left_over: a request whose numbers fit, followed by more
+# input, answers the left-over error form
+# EXCLUDES: the input after the request ignored or read as part of it
+law rows_entry_left_over:
+  for +r: rows.Req
+  for +h: Char
+  for +t: String
+  for fit: {rows.ReqFits(r) == True{} : Bool}
+  {Fdr.ffi(rows.spell_req_on(r, SCon{h, t})) == Wr.err("doc_rows: input left over") : String}
+
+# LAW rows_entry_left_over_exact: the entry answers the left-over error
+# form only to a spelled request whose numbers fit, followed by more input
+# EXCLUDES: the left-over text for a malformed request
+law rows_entry_left_over_exact:
+  for +s: String
+  for e: {Fdr.ffi(s) == Wr.err("doc_rows: input left over") : String}
+  exs w: rows.LeftOver
+  {s == rows.spell_left_over(w) : String} & {rows.ReqFits(rows.left_req(w)) == True{} : Bool}
+
+# LAW rows_entry_errors: every error the entry answers is the malformed or
+# the left-over error form; with rows_entry_exact, rows_entry_left_over
+# and rows_entry_left_over_exact, every input that spells no request
+# answers exactly "doc_rows: malformed request"
+# EXCLUDES: another error text, a text that varies with the input
+law rows_entry_errors:
+  for +s: String
+  for e: {LawsBase.wire_opens_err(Fdr.ffi(s)) == True{} : Bool}
+  {Bool.or(LawsBase.text_same(Fdr.ffi(s), Wr.err("doc_rows: malformed request")), LawsBase.text_same(Fdr.ffi(s), Wr.err("doc_rows: input left over"))) == True{} : Bool}
+
+# LAW rows_entry_errors_example (anchor): a gate and a view with input
+# left over; a gate one flag short and a selector tag of 3 are malformed
+# EXCLUDES: the two error texts swapped
+law rows_entry_errors_example:
+  {[Fdr.ffi("0,FFTFx"), Fdr.ffi("1,0,TFF0,x"), Fdr.ffi("0,FFT"), Fdr.ffi("1,3,TFF0,")] == [Wr.err("doc_rows: input left over"), Wr.err("doc_rows: input left over"), Wr.err("doc_rows: malformed request"), Wr.err("doc_rows: malformed request")] : List<&2, String>}

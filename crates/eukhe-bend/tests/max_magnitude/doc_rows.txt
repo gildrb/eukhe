@@ -1,0 +1,15 @@
+# the gate; reads of a file of lines {MAX} bytes long with every range
+# start and end at its largest: two ranges, a window with an end (its
+# trailing context and remain notice), a raw window, a window past the
+# end, three raw ranges, the whole file
+call 0,FFTF
+call 1,2,2,{MAX},1,{MAX},{MAX},0,FTFF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,2,1,1,{MAX},{MAX},0,FTFF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,1,{MAX},1,{MAX},FTFF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,1,1,1,{MAX},TTTF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,1,2,1,{MAX},FTTF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,1,{MAX},0,FTFF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,2,3,1,1,{MAX},{MAX},0,0,1,{MAX},TFTF3,{MAX},1,0,{MAX},1,0,0,0,
+call 1,0,TFF3,{MAX},1,0,{MAX},1,0,0,0,
+refuse 1,2,1,{LONG},1,{MAX},FTFF3,{MAX},1,0,{MAX},1,0,0,0,
+refuse 1,0,TFF1,{LONG},0,
