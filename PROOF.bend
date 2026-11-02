@@ -893,6 +893,7 @@ import ./proof/kernel_local/kernel_ffi_example.bend as PKernelFfiExample
 import ./proof/kernel_local/kernel_start_exact.bend as PKernelStartExact
 import ./proof/kernel_local/kernel_answer_exact.bend as PKernelAnswerExact
 import ./proof/kernel_local/kernel_ffi_malformed_exact.bend as PKernelFfiMalformedExact
+import ./proof/kernel_local/kernel_ffi_exact.bend as PKernelFfiExact
 import ./proof/kernel_local/kernel_terms_exact.bend as PKernelTermsExact
 import ./proof/kernel_local/kernel_sweep_terms_exact.bend as PKernelSweepTermsExact
 import ./proof/log/base.bend as LALog
