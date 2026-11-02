@@ -20,7 +20,7 @@ use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved;
 use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
-use crate::memory::view::{NodeTexts, Part};
+use crate::memory::view::{render_parts, NodeTexts, Part};
 use crate::memory::{cut, labeled, AppendKey, Kind, FAILURES, NODE, RETRY};
 
 /// How many recent messages a re-sent append checks for its own copy.
@@ -35,7 +35,12 @@ pub(super) struct Actor {
     commands: mpsc::Sender<Command>,
     /// Turns waiting for the view to settle (§6), by deadline (H2.3), then
     /// arrival.
-    view_waiters: BTreeMap<(Instant, u64), oneshot::Sender<Outcome>>,
+    view_waiters: BTreeMap<(Instant, u64), Waiter>,
+    /// The due mark: the largest end a turn's wait asked for. The
+    /// compactor starts only lines and merges that start before it
+    /// (`laws/optchat.bend` H4): nothing is summarized before a request
+    /// may show it.
+    due: u64,
     /// The arrival number of the next waiter.
     next_waiter: u64,
     /// The newest keyed message of each append scope (keyed appends).
@@ -71,6 +76,12 @@ struct Failure {
     pend: Pend,
     error: String,
     generation: u64,
+}
+
+/// A turn waiting for the lines that start before message `end`.
+struct Waiter {
+    end: u64,
+    reply: oneshot::Sender<Outcome>,
 }
 
 /// Why a call of a node ended without its line.
@@ -141,6 +152,7 @@ impl Actor {
             runtime,
             commands,
             view_waiters: BTreeMap::new(),
+            due: 0,
             next_waiter: 0,
             scopes,
             failures: HashMap::new(),
@@ -223,8 +235,11 @@ impl Actor {
 
     fn handle(&mut self, request: Request, reply: oneshot::Sender<Outcome>) {
         let outcome = match request {
-            Request::SettledRender { within_ms } => {
-                self.add_view_waiter(reply, Duration::from_millis(within_ms));
+            Request::SettledRender {
+                within_ms,
+                verbatim,
+            } => {
+                self.add_view_waiter(reply, Duration::from_millis(within_ms), verbatim);
                 return;
             }
             Request::Append {
@@ -483,7 +498,7 @@ impl Actor {
                 Demand::Background
             };
             let mut built = false;
-            for part in self.chat.candidates(demand) {
+            for part in self.chat.candidates(demand, self.due) {
                 match self.prepare(part) {
                     Ok(Prepared::Free(text)) => match self.save_node(part, &text) {
                         Ok(()) => built = true,
@@ -690,15 +705,24 @@ impl Actor {
         }
     }
 
-    /// A turn waits for the view: rendered at once when every line is a
-    /// summary, else by [`Actor::wake_view_waiters`] in the step that builds
-    /// the last one (§6), or as it is once `within` passes (H2.3). Like a
-    /// new message, the wait tries every failed node again now.
-    fn add_view_waiter(&mut self, reply: oneshot::Sender<Outcome>, within: Duration) {
-        if self.chat.settled() {
+    /// A turn waits for the lines that start before `end = T - verbatim`:
+    /// they become due (the compactor may build them now), and they are
+    /// rendered at once when each is a summary, else by
+    /// [`Actor::wake_view_waiters`] in the step that builds the last one
+    /// (§6), or as they are once `within` passes (H2.3). Like a new
+    /// message, the wait tries every failed node again now.
+    fn add_view_waiter(
+        &mut self,
+        reply: oneshot::Sender<Outcome>,
+        within: Duration,
+        verbatim: u64,
+    ) {
+        let end = self.chat.total().saturating_sub(verbatim);
+        self.due = self.due.max(end);
+        if self.chat.settled(end) {
             // The requester may have stopped waiting.
             let _ = reply.send(Outcome::Ok(Reply::Rendered {
-                view: self.rendered(),
+                view: self.history(end),
             }));
             return;
         }
@@ -708,7 +732,7 @@ impl Actor {
             .checked_add(within)
             .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)));
         self.view_waiters
-            .insert((deadline, self.next_waiter), reply);
+            .insert((deadline, self.next_waiter), Waiter { end, reply });
         self.next_waiter += 1;
         self.hold_for_turn();
         self.retry_failed();
@@ -739,27 +763,37 @@ impl Actor {
     /// Whether a turn waits for the view; a turn that stopped waiting is
     /// dropped.
     fn turn_waits(&mut self) -> bool {
-        self.view_waiters.retain(|_, reply| !reply.is_closed());
+        self.view_waiters
+            .retain(|_, waiter| !waiter.reply.is_closed());
         !self.view_waiters.is_empty()
     }
 
-    /// Answer the waiting turns when every view line is a summary: the
-    /// check and the render are one step, so the view they get is the one
-    /// that was checked (an append can only come after). Returns whether
-    /// it answered any.
+    /// Answer the waiting turns whose lines are all summaries: the check
+    /// and the render are one step, so the view they get is the one that
+    /// was checked (an append can only come after). Returns whether it
+    /// answered any.
     fn wake_view_waiters(&mut self) -> bool {
-        if !self.turn_waits() || !self.chat.settled() {
+        if !self.turn_waits() {
             return false;
         }
-        let view = self.rendered();
-        for reply in std::mem::take(&mut self.view_waiters).into_values() {
-            // A waiter that went away just now loses only its own view.
-            let _ = reply.send(Outcome::Ok(Reply::Rendered { view: view.clone() }));
+        let settled: Vec<(Instant, u64)> = self
+            .view_waiters
+            .iter()
+            .filter(|(_, waiter)| self.chat.settled(waiter.end))
+            .map(|(key, _)| *key)
+            .collect();
+        for key in &settled {
+            if let Some(waiter) = self.view_waiters.remove(key) {
+                // A waiter that went away just now loses only its own view.
+                let _ = waiter.reply.send(Outcome::Ok(Reply::Rendered {
+                    view: self.history(waiter.end),
+                }));
+            }
         }
-        true
+        !settled.is_empty()
     }
 
-    /// Answer the turns whose deadline passed with the view as it is
+    /// Answer the turns whose deadline passed with their lines as they are
     /// (H2.3); the merges they held back may start then.
     fn expire_waiters(&mut self) {
         let later = self.view_waiters.split_off(&(Instant::now(), u64::MAX));
@@ -767,9 +801,8 @@ impl Actor {
         if expired.is_empty() {
             return;
         }
-        let view = self.deadline_view();
-        for reply in expired.into_values() {
-            let _ = reply.send(view.clone());
+        for waiter in expired.into_values() {
+            let _ = waiter.reply.send(self.deadline_view(waiter.end));
         }
         self.pump();
     }
@@ -781,13 +814,21 @@ impl Actor {
         }
     }
 
-    /// The view as it is, each line not built yet shown as its input cut
-    /// to [`NODE`] bytes: what a turn takes when its deadline passes
-    /// (H2.3). Only a failed read of the log is an error.
-    fn deadline_view(&self) -> Outcome {
+    /// The lines a request showing the history before message `end` keeps
+    /// (`laws/thread.bend`), framed as the view is, over `end` messages; no
+    /// lines, no frame.
+    fn history(&self, end: u64) -> RenderedView {
+        kept_view(self.chat.view().kept(end), end, self.chat.nodes())
+    }
+
+    /// The lines before `end` as they are, each line not built yet shown
+    /// as its input cut to [`NODE`] bytes: what a turn takes when its
+    /// deadline passes (H2.3). Only a failed read of the log is an error.
+    fn deadline_view(&self, end: u64) -> Outcome {
         let nodes = self.chat.nodes();
+        let kept = self.chat.view().kept(end);
         let mut inputs = HashMap::new();
-        for &part in self.chat.view().parts() {
+        for &part in kept {
             if nodes.node_text(part).is_some() {
                 continue;
             }
@@ -800,10 +841,7 @@ impl Actor {
             }
         }
         Outcome::Ok(Reply::Rendered {
-            view: RenderedView {
-                messages: self.chat.total(),
-                text: self.chat.view().render(&WithInputs { nodes, inputs }),
-            },
+            view: kept_view(kept, end, &WithInputs { nodes, inputs }),
         })
     }
 
@@ -848,6 +886,21 @@ impl Drop for Actor {
         for (_, task) in self.builds.values() {
             task.abort();
         }
+    }
+}
+
+/// `kept` lines over `end` messages, rendered: empty (no lines, no frame,
+/// no messages) when there are none.
+fn kept_view(kept: &[Part], end: u64, tree: &impl NodeTexts) -> RenderedView {
+    if kept.is_empty() {
+        return RenderedView {
+            messages: 0,
+            text: String::new(),
+        };
+    }
+    RenderedView {
+        messages: end,
+        text: render_parts(kept, tree),
     }
 }
 

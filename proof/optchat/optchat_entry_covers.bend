@@ -36,9 +36,9 @@ def ec.next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q, inv: LAS.cover.Inv(s)) ->
       LAS.cover.step(cfg, s, OState.Free{Optchat.oc_node(l, k)}, inv)
     case FOc.QWait{}:
       ec.wait(s, inv)
-    case FOc.QCands{}:
+    case FOc.QCands{d}:
       inv
-    case FOc.QNeed{}:
+    case FOc.QNeed{d}:
       inv
     case FOc.QCtx{l, k}:
       inv

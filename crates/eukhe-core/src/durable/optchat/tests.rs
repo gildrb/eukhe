@@ -456,7 +456,11 @@ async fn view_text(memory: &Memory) -> String {
 /// a root call's first message describes it: its pieces, the last marked
 /// at the view's end.
 async fn history_text(memory: &Memory, verbatim: u64) -> String {
-    let pieces = memory.render().await.unwrap().history(verbatim).pieces();
+    let pieces = memory
+        .settled_history(crate::memory::SETTLE_TIMEOUT, verbatim)
+        .await
+        .unwrap()
+        .pieces();
     let last = pieces.len() - 1;
     pieces
         .iter()
@@ -821,8 +825,10 @@ async fn a_subagent_pins_one_view_for_its_conversation_and_logs_nothing() {
     let session = setup
         .open(Arc::new(MemoryStorage::new()), Logging::Off)
         .await;
-    let view = view_text(&setup.memory).await;
     session.run(&setup.chat, "task").await;
+    // The pin built the view's lines (nothing is summarized before a call
+    // shows it): the view as the subagent saw it.
+    let view = view_text(&setup.memory).await;
     setup.memory.append(Kind::User, "later").await.unwrap();
     session.run(&setup.chat, "next").await;
     assert_eq!(

@@ -178,15 +178,58 @@ law need_progress:
   for idle: {C.idle(OState.St.info(OStep.run(cfg, evs)), OState.St.view(OStep.run(cfg, evs)), OState.St.busy(OStep.run(cfg, evs))) == True{} : Bool}
   {OBits.Nat.is_pos(List.length(&2, ONode.Node, OQueue.cands.need(cfg, OStep.run(cfg, evs)))) == True{} : Bool}
 
+# (H4) The due mark
+# -----------------
+# bend/optchat/queue.bend "The due mark": a line is built once a request
+# may show it, never before. Each query of the nodes to start carries the
+# chat's due mark; the queue reads the chat cut to it (OQueue.St.due): the
+# view's leading lines and the ready merges that start before the mark.
+
+# LAW due_starts_before: every node the queue starts under the due mark,
+# with or without a waiting turn, starts before the mark
+# EXCLUDES: a line built while every request still shows it verbatim (no
+# call while everything fits), a merge past the mark started, a mark read
+# as T
+law due_starts_before:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  for +due: Nat
+  {S.starts_before(due, OQueue.cands.due(cfg, s, due)) == True{} : Bool} & {S.starts_before(due, OQueue.cands.need.due(cfg, s, due)) == True{} : Bool}
+
+# LAW need_progress_due: need_progress under the due mark: after any
+# events, while fewer than jobs calls run and a view line before the mark
+# is neither built nor busy, a waiting turn's queue starts a node
+# EXCLUDES: a turn waiting forever on a line before the mark
+law need_progress_due:
+  for +cfg: OState.Cfg
+  for +evs: List<&2, OState.Ev>
+  for +due: Nat
+  for room: {Nat.is_lt(List.length(&2, ONode.Node, OState.St.busy(OStep.run(cfg, evs))), OState.Cfg.jobs(cfg)) == True{} : Bool}
+  for idle: {C.idle(OState.St.info(OStep.run(cfg, evs)), OQueue.lines.before(due, OState.St.view(OStep.run(cfg, evs))), OState.St.busy(OStep.run(cfg, evs))) == True{} : Bool}
+  {OBits.Nat.is_pos(List.length(&2, ONode.Node, OQueue.cands.need.due(cfg, OStep.run(cfg, evs), due))) == True{} : Bool}
+
+# LAW due_keeps_all: a mark past every view line and every ready merge
+# (a subagent's request, due = T) leaves the whole queue: both queries
+# answer as without a mark
+# EXCLUDES: a mark that cuts a line it should keep
+law due_keeps_all:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  for +due: Nat
+  for lines: {S.starts_before(due, OState.St.view(s)) == True{} : Bool}
+  for merges: {S.starts_before(due, OState.St.ready(s)) == True{} : Bool}
+  {OQueue.cands.due(cfg, s, due) == OQueue.cands(cfg, s) : List<&2, ONode.Node>} & {OQueue.cands.need.due(cfg, s, due) == OQueue.cands.need(cfg, s) : List<&2, ONode.Node>}
+
 # (S) The planner runs as a stepper of the compiled core
 # ------------------------------------------------------
 # spec/README.md M1. The chat (crates/eukhe-core/src/memory/chat.rs) opens
 # the stepper bend/ffi_optchat.bend from its loaded log, sends each event
 # as it happens (a message, a node built, a call started or freed, a turn
-# that starts to wait) and each query it needs (the nodes to start, with
-# or without a waiting turn, a compaction's view, how many calls run), and
-# does what each reply says. It keeps the texts; it decides nothing. Every
-# law holds for every order of events: the events are free.
+# that starts to wait) and each query it needs (the nodes to start under
+# its due mark, with or without a waiting turn, a compaction's view, how
+# many calls run), and does what each reply says. It keeps the texts; it
+# decides nothing. Every law holds for every order of events: the events
+# are free.
 
 # Spellers: the bytes the chat sends and reads, from the wire's primitives
 
@@ -213,8 +256,9 @@ def oc_spell_lk(l: Nat, k: Nat, rest: String) -> String:
 
 # an event or a query as the chat writes it: 0 a message; 1 a node built
 # (l, k, size); 2 its call started (l, k); 3 its call freed (l, k); 4 a
-# turn starts to wait; 5 the nodes to start; 6 the nodes to start while a
-# turn waits; 7 a compaction's view of a node (l, k); 8 how many calls run
+# turn starts to wait; 5 the nodes to start under the due mark (due); 6
+# the nodes to start while a turn waits, under the due mark (due); 7 a
+# compaction's view of a node (l, k); 8 how many calls run
 def oc_spell(q: FOc.Q) -> String:
   match q:
     case FOc.QMsg{}:
@@ -227,10 +271,10 @@ def oc_spell(q: FOc.Q) -> String:
       Wr.put_nat(3n, oc_spell_lk(l, k, ""))
     case FOc.QWait{}:
       Wr.put_nat(4n, "")
-    case FOc.QCands{}:
-      Wr.put_nat(5n, "")
-    case FOc.QNeed{}:
-      Wr.put_nat(6n, "")
+    case FOc.QCands{d}:
+      Wr.put_nat(5n, Wr.put_nat(d, ""))
+    case FOc.QNeed{d}:
+      Wr.put_nat(6n, Wr.put_nat(d, ""))
     case FOc.QCtx{l, k}:
       Wr.put_nat(7n, oc_spell_lk(l, k, ""))
     case FOc.QBusy{}:
@@ -249,10 +293,10 @@ def oc_fits(q: FOc.Q) -> Bool:
       Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(k))
     case FOc.QWait{}:
       True{}
-    case FOc.QCands{}:
-      True{}
-    case FOc.QNeed{}:
-      True{}
+    case FOc.QCands{d}:
+      LawsBase.wire_fits(d)
+    case FOc.QNeed{d}:
+      LawsBase.wire_fits(d)
     case FOc.QCtx{l, k}:
       Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(k))
     case FOc.QBusy{}:
@@ -359,9 +403,9 @@ def oc_next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> OState.St:
       Pair.fst(OState.St, List<&2, ONode.Node>, OStep.step(cfg, s, OState.Free{oc_node(l, k)}))
     case FOc.QWait{}:
       OQueue.St.wait(s)
-    case FOc.QCands{}:
+    case FOc.QCands{d}:
       s
-    case FOc.QNeed{}:
+    case FOc.QNeed{d}:
       s
     case FOc.QCtx{l, k}:
       s
@@ -371,7 +415,8 @@ def oc_next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> OState.St:
 # the reply to q, as the model answers it: a message answers the batch it
 # ran (OStep.St.batch decides whether one runs, OStep.step makes it); a
 # build, a start, a free answer done (0); a wait answers the calls it
-# stops; the queries answer cands, cands.need, ctx and the busy count.
+# stops; the queries answer cands and cands.need under their due mark
+# (OQueue.cands.due, OQueue.cands.need.due), ctx and the busy count.
 # laws/optchat/queries.bend pins cands (optchat_cands_spec), cands.need
 # (optchat_need_spec), ctx (optchat_ctx_spec), St.wait
 # (optchat_wait_spec), a start and a free (optchat_start_spec,
@@ -391,10 +436,10 @@ def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
       Wr.put_nat(0n, "")
     case FOc.QWait{}:
       oc_spell_nodes(oc_held(OState.St.info(s), OState.St.view(s), OState.St.busy(s)), "")
-    case FOc.QCands{}:
-      oc_spell_nodes(OQueue.cands(cfg, s), "")
-    case FOc.QNeed{}:
-      oc_spell_nodes(OQueue.cands.need(cfg, s), "")
+    case FOc.QCands{d}:
+      oc_spell_nodes(OQueue.cands.due(cfg, s, d), "")
+    case FOc.QNeed{d}:
+      oc_spell_nodes(OQueue.cands.need.due(cfg, s, d), "")
     case FOc.QCtx{l, k}:
       oc_spell_nodes(OCtx.ctx(s, oc_node(l, k)), "")
     case FOc.QBusy{}:
@@ -463,8 +508,9 @@ def oc_open_model(o: FOc.Open) -> FOc.St & String:
 # says whether one ran, its merges, the view after it and whether it
 # still shrinks); a build, a start and a free are OStep.step's events; a
 # wait stops exactly the busy nodes that are not view lines still unbuilt
-# (OQueue.St.wait); the queries answer OQueue.cands, OQueue.cands.need,
-# OCtx.ctx and the busy count, and move nothing
+# (OQueue.St.wait); the queries answer OQueue.cands.due and
+# OQueue.cands.need.due under their due mark, OCtx.ctx and the busy
+# count, and move nothing
 # EXCLUDES: a reply or a move other than the model's (a batch lost or
 # invented, a node started twice, a merge offered while a turn waits, a
 # needed call stopped, a compaction shown an unbuilt line), a query that
@@ -695,6 +741,20 @@ def oc_read.ctx(r: Wr.Dec<FOc.Line>) -> Wr.Dec<FOc.Q>:
     case Wr.Bad{}:
       Wr.Bad{}
 
+def oc_read.cands(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Q>:
+  match r:
+    case Wr.Got{d, s}:
+      Wr.Got{FOc.QCands{d}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def oc_read.need(r: Wr.Dec<Nat>) -> Wr.Dec<FOc.Q>:
+  match r:
+    case Wr.Got{d, s}:
+      Wr.Got{FOc.QNeed{d}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
 def oc_read.tag(n: Nat, s: String) -> Wr.Dec<FOc.Q>:
   match n:
     case 0n:
@@ -708,9 +768,9 @@ def oc_read.tag(n: Nat, s: String) -> Wr.Dec<FOc.Q>:
     case 4n:
       Wr.Got{FOc.QWait{}, s}
     case 5n:
-      Wr.Got{FOc.QCands{}, s}
+      oc_read.cands(Wr.get_nat(s))
     case 6n:
-      Wr.Got{FOc.QNeed{}, s}
+      oc_read.need(Wr.get_nat(s))
     case 7n:
       oc_read.ctx(oc_read.line(s))
     case 8n:
@@ -913,12 +973,15 @@ def oc_small() -> String:
 
 # LAW optchat_entry_example: anchor: the bytes the chat sends and the
 # replies: opens of the small chat and of garbage, a step of the refused
-# stepper; on the small chat: the nodes to start (the merge 0+2), the
-# nodes a waiting turn may start (none), the merge's call started, the
-# busy count, a wait that stops it, the busy count, the merge built,
-# message 2 (no batch: 3 bytes), message 3 (a batch merges 0+2 and stays
-# over its floor: 2+1 is not built), a compaction's view of 3+1 (stops at
-# the unbuilt 2+1), a bad tag, input left over
-# EXCLUDES: an entry that answers other bytes than the grammar's
+# stepper; on the small chat: the nodes to start under due mark 0 (none:
+# the mark gates them) and under due mark T = 2 (the merge 0+2), the
+# nodes a waiting turn may start under T (none), the merge's call
+# started, the busy count, a wait that stops it, the busy count, the
+# merge built, message 2 (no batch: 3 bytes), message 3 (a batch merges
+# 0+2 and stays over its floor: 2+1 is not built), a compaction's view of
+# 3+1 (stops at the unbuilt 2+1), a bad tag, a query without its due
+# mark, input left over
+# EXCLUDES: an entry that answers other bytes than the grammar's, a
+# query that ignores its due mark
 law optchat_entry_example:
-  {[oc_reply_of(FOc.open(oc_small())), oc_reply_of(FOc.open("x")), oc_reply_of(FOc.step(oc_state(FOc.open("x")), "0,"))] == ["0,", SCon{'E', SCon{' ', "optchat: malformed open"}}, SCon{'E', SCon{' ', "optchat: the open was refused"}}] : List<&2, String>} & {oc_answers(["5,", "6,", "2,1,0,", "8,", "4,", "8,", "1,1,0,1,", "0,", "0,", "7,0,3,", "9,", "0,x"], oc_state(FOc.open(oc_small()))) == ["1,1,0,", "0,", "0,", "1,", "1,1,0,", "0,", "0,", "0,", "1,1,1,0,3,1,0,0,2,0,3,T", "1,1,0,", SCon{'E', SCon{' ', "optchat: malformed event"}}, SCon{'E', SCon{' ', "optchat: malformed event"}}] : List<&2, String>}
+  {[oc_reply_of(FOc.open(oc_small())), oc_reply_of(FOc.open("x")), oc_reply_of(FOc.step(oc_state(FOc.open("x")), "0,"))] == ["0,", SCon{'E', SCon{' ', "optchat: malformed open"}}, SCon{'E', SCon{' ', "optchat: the open was refused"}}] : List<&2, String>} & {oc_answers(["5,0,", "5,2,", "6,2,", "2,1,0,", "8,", "4,", "8,", "1,1,0,1,", "0,", "0,", "7,0,3,", "9,", "5,", "0,x"], oc_state(FOc.open(oc_small()))) == ["0,", "1,1,0,", "0,", "0,", "1,", "1,1,0,", "0,", "0,", "0,", "1,1,1,0,3,1,0,0,2,0,3,T", "1,1,0,", SCon{'E', SCon{' ', "optchat: malformed event"}}, SCon{'E', SCon{' ', "optchat: malformed event"}}, SCon{'E', SCon{' ', "optchat: malformed event"}}] : List<&2, String>}

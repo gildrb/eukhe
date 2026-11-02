@@ -1,7 +1,8 @@
 # ffi_thread: the entry of the compiled Bend core for the history a
 # session's request keeps (bend/thread.bend; Rust: eukhe-bend
-# rules/thread.rs, asked by eukhe-core memory/service.rs
-# RenderedView::history). Grammar: crates/eukhe-bend/WIRE.md.
+# rules/thread.rs, asked by eukhe-core memory/view.rs View::kept, with
+# which the chat's owner cuts a turn's history and checks it is settled).
+# Grammar: crates/eukhe-bend/WIRE.md.
 #
 #   request  one list of Nats: through (the messages the chat holds),
 #            verbatim (the ones the transcript still holds), then the

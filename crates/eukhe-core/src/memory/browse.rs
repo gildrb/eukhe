@@ -264,7 +264,7 @@ mod tests {
             .unwrap();
         memory.append(Kind::User, "hello <you>").await.unwrap();
         memory.append(Kind::Eukhe, "hi").await.unwrap();
-        let rendered = memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
+        let rendered = memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
         let live = read_view(dir.path()).await.unwrap();
         assert_eq!(
             live,

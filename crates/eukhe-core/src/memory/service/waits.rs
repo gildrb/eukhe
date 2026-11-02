@@ -35,9 +35,13 @@ fn every_request() -> Vec<Request> {
                 500
             ],
         },
-        Request::SettledRender { within_ms: 0 },
+        Request::SettledRender {
+            within_ms: 0,
+            verbatim: 0,
+        },
         Request::SettledRender {
             within_ms: u64::MAX,
+            verbatim: u64::MAX,
         },
         Request::Render,
         Request::Zoom { id: 1, count: 1 },
@@ -60,7 +64,7 @@ fn every_request_to_a_remote_owner_has_a_reply_deadline() {
     for request in every_request() {
         let deadline = request.reply_deadline();
         let least = match &request {
-            Request::SettledRender { within_ms } => {
+            Request::SettledRender { within_ms, .. } => {
                 Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
             Request::Import { items } => {

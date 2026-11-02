@@ -15,7 +15,7 @@ import ./base.bend as LawsBase
 # history that scrolled out of the verbatim transcript, then the
 # session's own transcript verbatim. The count of view lines kept runs as
 # the compiled core by bend/ffi_thread.bend (eukhe-bend rules/thread.rs;
-# asked by RenderedView::history). spec/memory/thread.bend restates the
+# asked by memory/view.rs View::kept). spec/memory/thread.bend restates the
 # rule (S1-S5). Every input is free: any session, event stream, view,
 # window, counts and starts.
 #

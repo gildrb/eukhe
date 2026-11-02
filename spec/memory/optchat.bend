@@ -1,7 +1,7 @@
 # memory (spec): what the laws of area optchat (laws/optchat.bend) speak
 # of, over the model in bend/optchat/ (Taelin's OptChat gist): Tiles,
-# Merged, Summarized, Before, Prefix. A spec: the shipped code never
-# calls it. The proofs in proof/optchat/ use it too.
+# Merged, Summarized, Before, Prefix, starts_before. A spec: the shipped
+# code never calls it. The proofs in proof/optchat/ use it too.
 
 import Base
 import ../../bend/optchat/bits.bend as OBits
@@ -87,6 +87,14 @@ def Prefix(p: List<&2, ONode.Node>, v: List<&2, ONode.Node>) -> Type:
       Empty
     case +x <> pr +y <> vr:
       ({x == y : ONode.Node} & Prefix(pr, vr))
+
+# every node of ns starts before message due (the due mark)
+def starts_before(+due: Nat, ns: List<&2, ONode.Node>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case h <> t:
+      Bool.and(Nat.is_lt(ONode.Node.start(h), due), starts_before(due, t))
 
 # bs has no high zero bit (as Bits.inc and Bits.up make bits): its last
 # bit, if any, is True

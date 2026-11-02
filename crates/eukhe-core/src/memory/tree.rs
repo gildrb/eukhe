@@ -139,7 +139,7 @@ mod tests {
             .await
             .unwrap();
         // Short messages are their own lines: settled once built.
-        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
+        memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
 
         let node = |id: u64, text: &str, kind: &str, date: &str| MemoryTreeNode {
             id,
@@ -238,7 +238,7 @@ mod tests {
             )
             .await
             .unwrap();
-        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
+        memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
         assert_eq!(
             memory
                 .tree(Some(MemoryZoom { id: 0, count: 8 }))

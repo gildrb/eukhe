@@ -85,6 +85,7 @@ async fn a_waiting_compaction_goes_once_the_writers_response_starts() {
         .import(vec![item("x".repeat(NODE)), item("y".repeat(NODE))])
         .await
         .unwrap();
+    let _turn = wait_for_the_view(&memory);
     let (mut started, first) = within(asked.recv()).await.unwrap();
     let alone = asked.try_recv().is_err();
     started.signal();
@@ -93,6 +94,13 @@ async fn a_waiting_compaction_goes_once_the_writers_response_starts() {
     first.send("line x".to_string()).unwrap();
     second.send("line y".to_string()).unwrap();
     assert_eq!((alone, first_open), (true, true));
+}
+
+/// A turn that waits for the whole view: its lines become due, so the
+/// compactor builds them (nothing is built before a request asks).
+fn wait_for_the_view(memory: &Memory) -> tokio::task::JoinHandle<anyhow::Result<RenderedView>> {
+    let memory = memory.clone();
+    tokio::spawn(async move { memory.settled_history(SETTLE_TIMEOUT, 0).await })
 }
 
 /// One chat seen by three handles in this process: the owner, then two
@@ -155,12 +163,9 @@ async fn a_settled_view_never_shows_a_placeholder_while_another_client_appends()
     chat.second.append(Kind::User, &long(0)).await.unwrap();
     let mut lines = String::new();
     for id in 0..4 {
-        let call = within(chat.calls.recv())
-            .await
-            .expect("the compactor summarizes the newest message");
         let mut view = Box::pin({
             let reader = chat.first.clone();
-            async move { reader.settled_render(SETTLE_TIMEOUT).await }
+            async move { reader.settled_history(SETTLE_TIMEOUT, 0).await }
         });
         assert!(
             futures::poll!(view.as_mut()).is_pending(),
@@ -168,6 +173,9 @@ async fn a_settled_view_never_shows_a_placeholder_while_another_client_appends()
         );
         // Once this answers, the wait is registered at the owner.
         chat.first.status().await.unwrap();
+        let call = within(chat.calls.recv())
+            .await
+            .expect("the compactor summarizes the newest message the turn waits for");
         call.send(format!("line {id}")).unwrap();
         chat.second.append(Kind::User, &long(id + 1)).await.unwrap();
         writeln!(lines, "{id}+1|line {id}").unwrap();
@@ -274,7 +282,7 @@ async fn short_messages_are_their_own_lines() {
     assert_eq!(memory.append(Kind::User, "hello").await.unwrap(), 0);
     assert_eq!(memory.append(Kind::Eukhe, "hi\nthere").await.unwrap(), 1);
     assert_eq!(
-        memory.settled_render(SETTLE_TIMEOUT).await.unwrap(),
+        memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap(),
         RenderedView {
             messages: 2,
             text: "<chat>\n0+1|user: hello\n1+1|eukhe: hi there\n</chat>".to_string(),
@@ -329,11 +337,17 @@ async fn compactions_send_their_own_prompt_and_see_built_lines_only() {
         text,
         date: "2026-10-12".to_string(),
     };
-    // One step logs both, so neither node waits for the other.
+    // One step logs both, so neither node waits for the other; a turn
+    // makes them due, and their merge follows once both are built.
     memory
         .import(vec![item(long("x")), item(long("y\n"))])
         .await
         .unwrap();
+    let rendered = memory
+        .settled_history(SETTLE_TIMEOUT, 0)
+        .await
+        .unwrap()
+        .text;
     let mut requests: Vec<RequestShape> = summarizer
         .requested(3)
         .await
@@ -348,7 +362,6 @@ async fn compactions_send_their_own_prompt_and_see_built_lines_only() {
             texts,
         )
     };
-    let rendered = memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text;
     // Both messages compressed at once: the second did not wait for the
     // first, and saw no line of it.
     let (line_0, line_1) = (
@@ -432,7 +445,7 @@ async fn deleting_the_saved_view_reproduces_the_identical_view() {
         for i in 0..5 {
             memory.append(Kind::User, &format!("m{i}")).await.unwrap();
         }
-        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
+        memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
     }
     // A chat from before the merges were logged: its view merged the
     // first four messages (every node is built: short lines are free).
@@ -440,7 +453,11 @@ async fn deleting_the_saved_view_reproduces_the_identical_view() {
     let imported = {
         let memory = Memory::open(dir.path(), no_model()).await.unwrap();
         assert_eq!(memory.append(Kind::User, "m5").await.unwrap(), 5);
-        memory.render().await.unwrap().text
+        memory
+            .settled_history(SETTLE_TIMEOUT, 0)
+            .await
+            .unwrap()
+            .text
     };
     let cached = std::fs::read_to_string(dir.path().join(VIEW_FILE)).unwrap();
     std::fs::remove_file(dir.path().join(VIEW_FILE)).unwrap();
@@ -461,7 +478,8 @@ async fn deleting_the_saved_view_reproduces_the_identical_view() {
 }
 
 /// A subscriber sees each step's built nodes, from the owner and across
-/// the socket alike.
+/// the socket alike: here the one step of a turn's wait, which builds both
+/// lines (free) and then the merge they make ready.
 #[tokio::test]
 async fn subscribers_see_the_lines_each_step_builds() {
     let dir = tempfile::tempdir().unwrap();
@@ -471,32 +489,27 @@ async fn subscribers_see_the_lines_each_step_builds() {
     let mut remote = client.subscribe().await.unwrap();
     owner.append(Kind::User, "hello").await.unwrap();
     client.append(Kind::Eukhe, "hi").await.unwrap();
+    client.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
     let line = |id, count, text: &str| MemoryLine {
         id,
         count,
         text: text.to_string(),
     };
-    let expected = vec![
-        MemoryUpdate::Summarized {
-            lines: vec![line(0, 1, "user: hello")],
-            view_bytes: 11,
-        },
-        MemoryUpdate::Summarized {
-            lines: vec![
-                line(1, 1, "eukhe: hi"),
-                line(0, 2, "user: hello\neukhe: hi"),
-            ],
-            view_bytes: 20,
-        },
-    ];
-    let mut seen = Vec::new();
-    for _ in 0..2 {
-        seen.push(within(local.next()).await.unwrap());
-    }
-    for _ in 0..2 {
-        seen.push(within(remote.next()).await.unwrap());
-    }
-    assert_eq!(seen, [expected.clone(), expected].concat());
+    let expected = MemoryUpdate::Summarized {
+        lines: vec![
+            line(0, 1, "user: hello"),
+            line(1, 1, "eukhe: hi"),
+            line(0, 2, "user: hello\neukhe: hi"),
+        ],
+        view_bytes: 20,
+    };
+    assert_eq!(
+        [
+            within(local.next()).await.unwrap(),
+            within(remote.next()).await.unwrap()
+        ],
+        [expected.clone(), expected]
+    );
 }
 
 /// A second handle is the owner's client; when the owner goes, it takes
@@ -512,7 +525,7 @@ async fn a_second_handle_is_a_client_and_takes_over() {
         0
     );
     assert_eq!(
-        owner.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+        owner.settled_history(SETTLE_TIMEOUT, 0).await.unwrap().text,
         "<chat>\n0+1|user: from the client\n</chat>"
     );
     drop(owner);
@@ -522,7 +535,11 @@ async fn a_second_handle_is_a_client_and_takes_over() {
     );
     assert!(client.owns().await);
     assert_eq!(
-        client.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+        client
+            .settled_history(SETTLE_TIMEOUT, 0)
+            .await
+            .unwrap()
+            .text,
         "<chat>\n0+1|user: from the client\n1+1|user: after the owner\n</chat>"
     );
 }
@@ -665,6 +682,7 @@ async fn a_message_zoomed_whole_comes_with_its_images() {
             )
             .await
             .unwrap();
+        memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
     }
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
     assert_eq!(
@@ -731,7 +749,10 @@ async fn a_failed_node_is_tried_again_only_for_a_waiting_turn() {
     ]);
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
     memory.append(Kind::Echo, &"y".repeat(NODE)).await.unwrap();
+    // A turn makes the line due and stops waiting once its call went out.
+    let turn = wait_for_the_view(&memory);
     summarizer.requested(1).await;
+    turn.abort();
     // Once the owner answers, it has handled the failure: a retry it
     // scheduled counts from now.
     let failed = memory.status().await.unwrap();
@@ -755,17 +776,22 @@ async fn a_failed_node_is_tried_again_only_for_a_waiting_turn() {
             }
         )
     );
+    let asked = tokio::time::Instant::now();
     assert_eq!(
-        memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+        memory
+            .settled_history(SETTLE_TIMEOUT, 0)
+            .await
+            .unwrap()
+            .text,
         "<chat>\n0+1|echo: recovered\n</chat>"
     );
+    // The turn's wait tried it at once, then once more after RETRY. (The
+    // first turn's own retry may have come and gone in the idle time: it
+    // made no call.)
     let times = summarizer.times();
     assert_eq!(
-        times
-            .windows(2)
-            .map(|pair| pair[1] - pair[0])
-            .collect::<Vec<_>>(),
-        [RETRY * 3, RETRY]
+        (times.len(), times[1] == asked, times[2] - times[1]),
+        (3, true, RETRY)
     );
     assert_eq!(memory.status().await.unwrap().last_error, None);
 }
@@ -779,7 +805,9 @@ async fn a_stopped_owner_drops_its_running_compactor_calls() {
     let owner = Memory::open(dir.path(), Arc::new(Gated { calls }))
         .await
         .unwrap();
+    let client = Memory::open(dir.path(), no_model()).await.unwrap();
     owner.append(Kind::User, &long(0)).await.unwrap();
+    let _turn = wait_for_the_view(&client);
     let mut call = within(asked.recv())
         .await
         .expect("the compactor asks the model");
@@ -804,7 +832,11 @@ async fn a_node_that_keeps_failing_is_built_from_its_input() {
     let view = format!("<chat>\n0+1|{}\n</chat>", cut(&message));
     assert_eq!(
         (
-            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            memory
+                .settled_history(SETTLE_TIMEOUT, 0)
+                .await
+                .unwrap()
+                .text,
             memory.render().await.unwrap().text,
             summarizer.requests().len(),
             memory.status().await.unwrap().last_error,
@@ -846,7 +878,11 @@ async fn the_failure_cap_reads_nothing() {
     memory.append(Kind::Echo, &message[6..]).await.unwrap();
     assert_eq!(
         (
-            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            memory
+                .settled_history(SETTLE_TIMEOUT, 0)
+                .await
+                .unwrap()
+                .text,
             summarizer.calls.load(std::sync::atomic::Ordering::SeqCst),
         ),
         (format!("<chat>\n0+1|{}\n</chat>", cut(&message)), FAILURES)
@@ -865,7 +901,10 @@ async fn a_turn_gets_the_view_by_its_deadline_when_the_model_never_answers() {
     memory.append(Kind::Echo, &message[6..]).await.unwrap();
     let deadline = Duration::from_millis(200);
     let asked = std::time::Instant::now();
-    let view = within(memory.settled_render(deadline)).await.unwrap().text;
+    let view = within(memory.settled_history(deadline, 0))
+        .await
+        .unwrap()
+        .text;
     assert_eq!(
         (
             view,
@@ -891,7 +930,11 @@ async fn an_empty_reply_still_gives_a_line_that_fits() {
     memory.append(Kind::Echo, &message[6..]).await.unwrap();
     assert_eq!(
         (
-            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            memory
+                .settled_history(SETTLE_TIMEOUT, 0)
+                .await
+                .unwrap()
+                .text,
             summarizer.requests().len()
         ),
         (format!("<chat>\n0+1|{}\n</chat>", cut(&message)), 1)
@@ -960,6 +1003,11 @@ async fn a_waiting_turn_stops_a_merge_that_holds_the_slot() {
     .unwrap();
     memory.append(Kind::User, &long(0)).await.unwrap();
     memory.append(Kind::User, &long(1)).await.unwrap();
+    // A first turn makes both lines due; once they are built, their merge
+    // starts.
+    within(memory.settled_history(Duration::from_secs(3600), 0))
+        .await
+        .unwrap();
     let mut kinds = Vec::new();
     for _ in 0..3 {
         kinds.push(within(asked.recv()).await.unwrap());
@@ -967,7 +1015,7 @@ async fn a_waiting_turn_stops_a_merge_that_holds_the_slot() {
     // The merge of the two lines runs and holds the slot; the third
     // message's summary queues behind it.
     memory.append(Kind::User, &long(2)).await.unwrap();
-    let view = within(memory.settled_render(Duration::from_secs(3600)))
+    let view = within(memory.settled_history(Duration::from_secs(3600), 0))
         .await
         .unwrap()
         .text;
@@ -991,6 +1039,7 @@ async fn a_huge_settle_timeout_does_not_overflow_the_reply_deadline() {
     let deadline = Some(
         Request::SettledRender {
             within_ms: u64::MAX,
+            verbatim: 0,
         }
         .reply_deadline(),
     );
@@ -1051,7 +1100,7 @@ async fn turns_wait_while_calls_finish_in_any_order() {
             for _ in 0..8 {
                 views.push(
                     memory
-                        .settled_render(Duration::from_secs(3600))
+                        .settled_history(Duration::from_secs(3600), 0)
                         .await
                         .unwrap(),
                 );
@@ -1072,8 +1121,13 @@ async fn turns_wait_while_calls_finish_in_any_order() {
     for turn in turns {
         views.extend(within(turn).await.unwrap());
     }
-    // The view is past its ceiling, so every message runs a batch; once a
-    // merge is built the next one merges it.
+    // A last turn waits for the whole view: every line is built, so the
+    // view is past its ceiling (a line not due yet counts only its
+    // placeholder) and every message runs a batch; once a merge is built
+    // the next one merges it.
+    within(owner.settled_history(Duration::from_secs(3600), 0))
+        .await
+        .unwrap();
     loop {
         let update = within(updates.next()).await.unwrap();
         let merge_built = match update {
@@ -1085,7 +1139,7 @@ async fn turns_wait_while_calls_finish_in_any_order() {
         }
     }
     owner.append(Kind::User, &long(9999)).await.unwrap();
-    let last = within(owner.settled_render(Duration::from_secs(3600)))
+    let last = within(owner.settled_history(Duration::from_secs(3600), 0))
         .await
         .unwrap();
     let status = owner.status().await.unwrap();

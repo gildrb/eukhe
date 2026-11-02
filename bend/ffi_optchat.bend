@@ -3,9 +3,9 @@
 # bend/optchat/ (the sizes Cfg and the state St), kept in the Bend heap.
 # The chat opens it from the loaded log, sends each event as it comes (a
 # message, a node built, a call started or freed, a turn that starts to
-# wait) and each query it needs (the nodes to start, a compaction's view,
-# how many calls run), and does what each reply says. The codec is the
-# wire format of bend/wire.bend (crates/eukhe-bend/WIRE.md):
+# wait) and each query it needs (the nodes to start under the due mark, a
+# compaction's view, how many calls run), and does what each reply says.
+# The codec is the wire format of bend/wire.bend (crates/eukhe-bend/WIRE.md):
 #
 #   open    Cfg (ph ceil floor cceil cfloor jobs), T, the built nodes
 #           (List of l, k, size), the view (List of l, k), shrink: Bool,
@@ -16,8 +16,8 @@
 #           2 l, k: its call started                     0,
 #           3 l, k: its call is freed                    0,
 #           4 a turn starts to wait                      the held nodes
-#           5 the nodes to start                         nodes
-#           6 the nodes to start while a turn waits      nodes
+#           5 due: the nodes to start                    nodes
+#           6 due: the nodes to start while a turn waits nodes
 #           7 l, k: a compaction's view of the node      nodes
 #           8 how many calls run                         Nat
 #   Batch   0 none | 1 merged nodes, the view after, shrink: Bool
@@ -49,8 +49,8 @@ type Q is Data:
   QStart{l: Nat, k: Nat}
   QFree{l: Nat, k: Nat}
   QWait{}
-  QCands{}
-  QNeed{}
+  QCands{due: Nat}
+  QNeed{due: Nat}
   QCtx{l: Nat, k: Nat}
   QBusy{}
 
@@ -136,6 +136,21 @@ def get_ev.free(r: W.Dec<Line>) -> W.Dec<Q>:
     case W.Bad{}:
       W.Bad{}
 
+# the query of tag 5 (cands) or 6 (a waiting turn's) with its due mark
+def get_ev.due.of(cands: Bool, d: Nat, s: String) -> W.Dec<Q>:
+  match cands:
+    case True{}:
+      W.Got{QCands{d}, s}
+    case False{}:
+      W.Got{QNeed{d}, s}
+
+def get_ev.due(cands: Bool, r: W.Dec<Nat>) -> W.Dec<Q>:
+  match r:
+    case W.Got{d, s}:
+      get_ev.due.of(cands, d, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_ev.ctx(r: W.Dec<Line>) -> W.Dec<Q>:
   match r:
     case W.Got{n, s}:
@@ -158,9 +173,9 @@ def get_ev.tag(n: Nat, s: String) -> W.Dec<Q>:
     case 4n:
       W.Got{QWait{}, s}
     case 5n:
-      W.Got{QCands{}, s}
+      get_ev.due(True{}, W.get_nat(s))
     case 6n:
-      W.Got{QNeed{}, s}
+      get_ev.due(False{}, W.get_nat(s))
     case 7n:
       get_ev.ctx(get_line(s))
     case 8n:
@@ -385,10 +400,10 @@ def serve(+cfg: OState.Cfg, +s: OState.St, q: Q) -> St & String:
       done(cfg, OStep.step(cfg, s, OState.Free{node(l, k)}))
     case QWait{}:
       (Live{cfg, OQueue.St.wait(s)}, put_nodes(OQueue.St.held(s), ""))
-    case QCands{}:
-      (Live{cfg, s}, put_nodes(OQueue.cands(cfg, s), ""))
-    case QNeed{}:
-      (Live{cfg, s}, put_nodes(OQueue.cands.need(cfg, s), ""))
+    case QCands{d}:
+      (Live{cfg, s}, put_nodes(OQueue.cands.due(cfg, s, d), ""))
+    case QNeed{d}:
+      (Live{cfg, s}, put_nodes(OQueue.cands.need.due(cfg, s, d), ""))
     case QCtx{l, k}:
       (Live{cfg, s}, put_nodes(OCtx.ctx(s, node(l, k)), ""))
     case QBusy{}:

@@ -91,6 +91,16 @@ law need_first:
   for +s: OState.St
   {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need(cfg, s)) == True{} : Bool}
 
+# LAW need_first_due: under the due mark too (OQueue.cands.need.due):
+# every node a waiting turn's queue starts is a line of the whole view
+# that is not built
+# EXCLUDES: a merge or a non-view node started while a turn waits
+law need_first_due:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  for +due: Nat
+  {C.needed(OState.St.info(s), OState.St.view(s), OQueue.cands.need.due(cfg, s, due)) == True{} : Bool}
+
 # LAW need_first_running: when a turn starts to wait, every call it does not need stops
 # (O.St.wait): then every running call and every call the queue starts
 # is for a line of the view that is not built

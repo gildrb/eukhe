@@ -227,7 +227,11 @@ enum Pinned {
     },
 }
 
-/// Render the settled view (§6) and pin it as the call of `conversation`.
+/// Render the settled view of what the call shows (§6) and pin it as the
+/// call of `conversation`: a subagent's is the whole view; a root's only
+/// the history that scrolled out of its transcript. The chat summarizes
+/// those lines now if it has not yet (the due mark): nothing is summarized
+/// before a call shows it.
 async fn pin(
     chat: &OptChat,
     harness: &Harness,
@@ -236,22 +240,19 @@ async fn pin(
     cx: &Context,
 ) -> SessionResult<CallState> {
     let within = chat.settings.manager().get_memory_settle_timeout();
-    let mut rendered = chat
-        .memory
-        .settled_render(within)
-        .await
-        .map_err(|error| memory_error(&error))?;
-    let (run_key, head) = match pinned {
-        Pinned::Subagent => (None, None),
+    let (run_key, head, verbatim) = match pinned {
+        Pinned::Subagent => (None, None, 0),
         Pinned::Root {
             run_key,
             head,
             verbatim,
-        } => {
-            rendered = rendered.history(verbatim);
-            (Some(run_key), head)
-        }
+        } => (Some(run_key), head, verbatim),
     };
+    let rendered = chat
+        .memory
+        .settled_history(within, verbatim)
+        .await
+        .map_err(|error| memory_error(&error))?;
     let pieces = if rendered.text.is_empty() {
         Vec::new()
     } else {

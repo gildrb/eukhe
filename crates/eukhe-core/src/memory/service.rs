@@ -9,10 +9,12 @@
 //! ownership over.
 //!
 //! A turn's view comes from one owner step: the owner answers
-//! [`Memory::settled_render`] in the same step that sees every view line
-//! built, so no append can slip a placeholder in between (§6). Many
-//! windows are one chat, and its root turns run one at a time: the owner
-//! hands out the root-turn lease ([`turn`]).
+//! [`Memory::settled_history`] in the same step that sees every line it
+//! keeps built, so no append can slip a placeholder in between (§6). The
+//! compactor builds a line only once such a request asks for it (the due
+//! mark, `laws/optchat.bend` H4). Many windows are one chat, and its root
+//! turns run one at a time: the owner hands out the root-turn lease
+//! ([`turn`]).
 //!
 //! The owner handles one connection's requests in the order they arrive.
 //! A client that stops waiting for a reply says so, and the owner drops
@@ -65,45 +67,6 @@ impl RenderedView {
     #[must_use]
     pub fn pieces(&self) -> Vec<String> {
         pieces(&self.text)
-    }
-
-    /// The view of the history that scrolled out of a transcript still
-    /// holding the chat's last `verbatim` messages: its leading lines that
-    /// start before `messages - verbatim` (a line reaching past it stays
-    /// whole; the compiled core decides, `laws/thread.bend`), framed as the
-    /// view is. A view with no such line is empty: no lines, no frame.
-    #[must_use]
-    pub fn history(&self, verbatim: u64) -> Self {
-        let lines: Vec<&str> = self
-            .text
-            .lines()
-            .filter(|line| *line != "<chat>" && *line != "</chat>")
-            .collect();
-        let starts: Vec<u64> = lines
-            .iter()
-            .map(|line| {
-                line.split_once('+')
-                    .and_then(|(id, _)| id.parse::<u64>().ok())
-                    .unwrap_or(u64::MAX)
-            })
-            .collect();
-        let kept = eukhe_bend::rules::thread::history_lines(self.messages, verbatim, &starts);
-        if kept == 0 {
-            return Self {
-                messages: 0,
-                text: String::new(),
-            };
-        }
-        let mut text = String::from("<chat>\n");
-        for line in &lines[..kept.min(lines.len())] {
-            text.push_str(line);
-            text.push('\n');
-        }
-        text.push_str("</chat>");
-        Self {
-            messages: self.messages.saturating_sub(verbatim),
-            text,
-        }
     }
 }
 
@@ -175,12 +138,17 @@ enum Request {
     Import {
         items: Vec<ImportItem>,
     },
-    /// Wait until every line of the view is a summary, then render it in
-    /// the same owner step; after `within_ms`, render it as it is, each
-    /// line not built yet as its input cut to [`super::NODE`] bytes (H2.3).
+    /// The view of the history that scrolled out of a transcript still
+    /// holding the chat's last `verbatim` messages (all of it for 0): wait
+    /// until every line it keeps is a summary, then render those lines in
+    /// the same owner step; after `within_ms`, render them as they are,
+    /// each line not built yet as its input cut to [`super::NODE`] bytes
+    /// (H2.3). The request raises the due mark to the lines it keeps.
     SettledRender {
         #[serde(default = "default_settle_ms")]
         within_ms: u64,
+        #[serde(default)]
+        verbatim: u64,
     },
     /// The view as it is now, placeholders included.
     Render,
@@ -404,28 +372,47 @@ impl Memory {
         }
     }
 
-    /// The view once every line of it is a summary (§6), rendered in the
-    /// same owner step that sees it so, so no append slips a placeholder in
-    /// between. Once `within` passes, the view as it is: each line not
-    /// built yet shows its input cut to [`super::NODE`] bytes, never a
-    /// placeholder (H2.3). Dropping the future cancels the wait, across
-    /// processes too.
+    /// The view of the history that scrolled out of a transcript still
+    /// holding the chat's last `verbatim` messages (`verbatim` 0: the whole
+    /// view): its leading lines that start before `end = T - verbatim`
+    /// (a line reaching past it stays whole; the compiled core decides,
+    /// `laws/thread.bend`), framed as the view is, `messages` = `end`. A
+    /// view with no such line is empty: no lines, no frame.
+    ///
+    /// The compactor builds a line only once a request like this one asks
+    /// for it (the due mark, `laws/optchat.bend` H4): nothing runs while
+    /// everything still fits in the transcript. The answer comes once each
+    /// kept line is a summary (§6), rendered in the same owner step that
+    /// sees it so, so no append slips a placeholder in between. Once
+    /// `within` passes, the lines as they are: each one not built yet shows
+    /// its input cut to [`super::NODE`] bytes, never a placeholder (H2.3).
+    /// Dropping the future cancels the wait, across processes too.
     ///
     /// # Errors
     ///
     /// Returns an error when the owner cannot be reached or cannot read
     /// the log.
-    #[tracing::instrument(name = "chat_memory.settled_render", skip_all)]
-    pub async fn settled_render(&self, within: Duration) -> anyhow::Result<RenderedView> {
+    #[tracing::instrument(name = "chat_memory.settled_history", skip_all)]
+    pub async fn settled_history(
+        &self,
+        within: Duration,
+        verbatim: u64,
+    ) -> anyhow::Result<RenderedView> {
         let within_ms = u64::try_from(within.as_millis()).unwrap_or(u64::MAX);
-        match self.request(Request::SettledRender { within_ms }).await? {
+        match self
+            .request(Request::SettledRender {
+                within_ms,
+                verbatim,
+            })
+            .await?
+        {
             Reply::Rendered { view } => Ok(view),
             other => Err(unexpected(&other)),
         }
     }
 
     /// The view as it is now: a line not summarized yet shows the
-    /// placeholder. A turn reads [`Memory::settled_render`] instead.
+    /// placeholder. A turn reads [`Memory::settled_history`] instead.
     ///
     /// # Errors
     ///
@@ -705,7 +692,7 @@ impl Request {
     /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import.
     fn reply_deadline(&self) -> Duration {
         match self {
-            Request::SettledRender { within_ms } => {
+            Request::SettledRender { within_ms, .. } => {
                 Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
             Request::Import { items } => {

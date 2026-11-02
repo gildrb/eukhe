@@ -56,7 +56,11 @@ import ./proof/optchat/first_is_not_last.bend as PFirstIsNotLast
 import ./proof/optchat/first_leaves_push.bend as PFirstLeavesPush
 import ./proof/optchat/context_ends_at_node.bend as PContextEndsAtNode
 import ./proof/optchat/context_is_prefix.bend as PContextIsPrefix
+import ./proof/optchat/base/scan.bend as LAOptchatScan
 import ./proof/optchat/need_progress.bend as PNeedProgress
+import ./proof/optchat/due_starts_before.bend as PDueStartsBefore
+import ./proof/optchat/need_progress_due.bend as PNeedProgressDue
+import ./proof/optchat/due_keeps_all.bend as PDueKeepsAll
 import ./proof/optchat/base/bits.bend as LAOptchatBits
 import ./proof/optchat/base/ffi_optchat.bend as LAOptchatFfi
 import ./proof/optchat/base/open.bend as LAOptchatOpen
@@ -96,6 +100,7 @@ import ./proof/compactor/line_empty_is_a_try.bend as PLineEmptyIsATry
 import ./proof/compactor/line_error_fails.bend as PLineErrorFails
 import ./proof/compactor/fail_cap_builds.bend as PFailCapBuilds
 import ./proof/compactor/need_first.bend as PNeedFirst
+import ./proof/compactor/need_first_due.bend as PNeedFirstDue
 import ./proof/compactor/need_first_running.bend as PNeedFirstRunning
 import ./proof/compactor/wait_keeps_needed.bend as PWaitKeepsNeeded
 import ./proof/compactor/settle_falls.bend as PSettleFalls

@@ -1,5 +1,5 @@
 # thread: each session is its own thread (Rust: eukhe-core
-# memory/service.rs RenderedView::history, durable/optchat/request.rs pin).
+# memory/view.rs View::kept, durable/optchat/request.rs pin).
 # A session logs only its own messages into its own chat
 # (<agent-dir>/chat/sessions/<session>/), so its view (summary lines over
 # that log, oldest first) holds only its own messages. A root turn's

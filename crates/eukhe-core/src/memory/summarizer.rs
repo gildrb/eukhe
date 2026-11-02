@@ -714,6 +714,11 @@ mod tests {
             .await
             .unwrap();
         memory.append(Kind::Echo, &"y".repeat(NODE)).await.unwrap();
+        // A turn (a subagent's: the whole view) makes the line due.
+        let turn = tokio::spawn({
+            let memory = memory.clone();
+            async move { memory.settled_history(SETTLE_TIMEOUT, 0).await }
+        });
         let mut preempted = setup.accept().await;
         within(read_body(&mut preempted)).await;
         preempted.write_all(STALLED.as_bytes()).await.unwrap();
@@ -734,10 +739,7 @@ mod tests {
                 stopped,
                 waited,
                 while_session_runs,
-                within(memory.settled_render(SETTLE_TIMEOUT))
-                    .await
-                    .unwrap()
-                    .text,
+                within(turn).await.unwrap().unwrap().text,
                 memory.status().await.unwrap()
             ),
             (
