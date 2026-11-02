@@ -1,0 +1,30 @@
+# schema: skip (integer), n (number), b (boolean), s (string), closed; no
+# aliases, no refusals. No Nat of a request is a value (tags, counts and
+# lengths only): the magnitudes are the digit strings of values, whose
+# value the core never forms (a 16 to 20 digit integer string, the i64
+# bounds and one past them, leading zeros, a sign, padding)
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,16,17300000000000000,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,17,999999999999999990,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,18,9999999999999999990,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,19,92233720368547758070,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,19,92233720368547758080,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,20,-92233720368547758080,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,20,-92233720368547758090,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,19,99999999999999999990,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,20,999999999999999999990,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,28, +0000009223372036854775807 0,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,14,{MAX}0,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,3,1,15,{LONG}0,0,
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,1,4,skip0,2,19,9223372036854775807
+# the same strings for number (with Rust's f64 reading), boolean and string
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,3,1,n0,3,1,19,92233720368547758071,19,92233720368547760000,1,b0,3,1,16,17300000000000000,0,1,s0,2,19,9223372036854775808
+call 4,4,skip1,7,integer0,1,n1,6,number0,1,b1,7,boolean0,1,s1,6,string0,T0,0,4,4,skip0,3,1,19,92233720368547758070,0,1,n0,3,1,14,{MAX}1,14,{MAX}0,1,b0,3,1,15,{LONG}0,0,1,s0,3,1,20,-92233720368547758080,0,
+# a count, a length or a tag past the wire, and counts of {MAX} with no
+# items: refused, never a stop
+refuse {LONG},4,skip1,7,integer0,T0,0,0,
+refuse 1,{LONG},skip1,7,integer0,T0,0,0,
+refuse 0,T0,0,{MAX},
+refuse {MAX},4,skip1,7,integer0,T0,0,0,
+refuse 1,4,skip1,7,integer0,T{MAX},0,0,
+refuse 1,4,skip1,7,integer0,T0,{MAX},0,
+refuse 1,4,skip1,7,integer0,T0,0,1,4,skip0,{LONG},
