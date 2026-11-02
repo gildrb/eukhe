@@ -256,8 +256,16 @@ async fn drive(truncation: Truncation) -> Drive {
     );
     let submission = root.submit(input("go"), context()).await.unwrap();
     let conversation = root.id();
+    // The call runs once its intent commit was RECORDED: the commit
+    // listener runs after the commit is readable, so a wait on the
+    // snapshot's status could return before the listener counted that
+    // commit, and a step's "progress commits nothing" would count it.
+    let running = json(r#"["s",["tools",0,"status"],"running"]"#);
     wait_for(
-        || async { live(&harness, conversation).await["tools"][0]["status"] == "running" },
+        || {
+            let recorded = lock(&commits).iter().any(|ops| ops.contains(&running));
+            async move { recorded }
+        },
         WAIT_MS,
     )
     .await;
