@@ -16,6 +16,7 @@ import ./laws/tool_call.bend as ToolCall
 import ./laws/sandbox.bend as Sandbox
 import ./laws/cvar.bend as Cvar
 import ./laws/cvar_layers.bend as CvarLayers
+import ./laws/cvar_entry.bend as CvarEntry
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer
 import ./laws/quirks.bend as Quirks
