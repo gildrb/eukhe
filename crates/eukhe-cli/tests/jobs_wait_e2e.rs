@@ -93,13 +93,15 @@ fn texts(events: &[Value], role: &str) -> Vec<String> {
         .collect()
 }
 
-fn job_settled_notices(events: &[Value]) -> usize {
+/// The texts of the `job_settled` notices the run delivered.
+fn job_settled_notices(events: &[Value]) -> Vec<String> {
     events
         .iter()
         .filter(|event| {
             event["type"] == "message_end" && event["message"]["customType"] == "job_settled"
         })
-        .count()
+        .map(|event| event["message"]["content"].to_string())
+        .collect()
 }
 
 /// The drill's task C/W shape: the build outlives the budget and detaches;
@@ -107,6 +109,13 @@ fn job_settled_notices(events: &[Value]) -> usize {
 /// output, commits, and ends. Before, `jobs.wait` knew only kernel cells
 /// (a `bash` tool job was no target), clamped every wait to the budget,
 /// and the model's only way to the result was to end its turn.
+///
+/// Whether the build settles before the wait opens is the scheduler's:
+/// the wait's cell first starts the kernel, which takes seconds on a
+/// loaded machine. A wait open when the build settles takes its result
+/// (no notice); a build that settled first left its result to its notice,
+/// so the wait ends on that queued notice, which follows it in the same
+/// run. Either way the result reaches the turn once, before the commit.
 #[test]
 fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     let home = home_with_short_budget();
@@ -120,7 +129,24 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let results = texts(&events, "toolResult");
     assert_eq!(results.len(), 3, "{results:?}");
-    assert_eq!(results[1], "shell ok BUILD-OK\n", "{results:?}");
+    let notices = job_settled_notices(&events);
+    match results[1].as_str() {
+        "shell ok BUILD-OK\n" => assert_eq!(
+            notices,
+            Vec::<String>::new(),
+            "the result the wait returned is not delivered again"
+        ),
+        "message ok A message arrived for this session; it follows this result.\n" => assert!(
+            notices.len() == 1 && notices[0].contains("BUILD-OK"),
+            "the build's notice follows the wait: {notices:?}"
+        ),
+        other => panic!("the wait ends on the build: {other:?} ({results:?})"),
+    }
+    let run_ends = events
+        .iter()
+        .filter(|event| event["type"] == "agent_end")
+        .count();
+    assert_eq!(run_ends, 1, "one run");
     let log = Command::new("git")
         .args(["log", "--format=%s"])
         .current_dir(home.path())
@@ -134,11 +160,6 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     assert_eq!(
         texts(&events, "assistant").last().map(String::as_str),
         Some("Built and committed.")
-    );
-    assert_eq!(
-        job_settled_notices(&events),
-        0,
-        "the result the wait returned is not delivered again"
     );
     assert_eq!(
         std::fs::read_to_string(home.path().join("out.txt")).unwrap(),
@@ -167,7 +188,7 @@ fn a_wait_runs_while_a_detached_cell_holds_the_kernel() {
             && results[1].ends_with("CELL-DONE\n"),
         "{results:?}"
     );
-    assert_eq!(job_settled_notices(&events), 0);
+    assert_eq!(job_settled_notices(&events), Vec::<String>::new());
 }
 
 /// With nothing running and nothing ready, the wait is refused at once
