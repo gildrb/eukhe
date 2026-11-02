@@ -10,6 +10,7 @@ import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
+import ./core_effort_ffi_exact.bend as PFE
 
 # ---- effort ----
 
@@ -832,3 +833,153 @@ def pc.e_req(+q: FEf.Req, +rest: String, h: {Effort.core_effort_fits(q) == True{
       +e2 = pc.seqFEf(~FEf.P2<FEf.Facts, Ef.Lv>, ~Ef.Dir, ~FEf.get_dir, FEf.P2{f, l}, r2, d, rest, d1, e1, pc.e_dir(d, rest))
       %e2 : {Wr.Got{FEf.Cycle{f, l, d}, rest} == FEf.get_cycle.of(_) : Wr.Dec<FEf.Req>}
       {==}
+
+# The session, pinned
+# -------------------
+# The model's offer is `es.offer` with the default ladders of §1 (a
+# missing entry keeps exactly the levels below xhigh), so its clamp and
+# cycle are the laws' (core_effort_ffi_exact's ee.clamp, ee.cycle), and
+# each session function is its spec, case by case.
+
+def ps.or(st: Maybe<&2, Ef.Lv>, d: Ef.Lv) -> {Maybe.default(&2, Ef.Lv, st, d) == Effort.es.or(st, d) : Ef.Lv}:
+  match st:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def ps.keep_e(e: Ef.Ent, +l: Ef.Lv) -> {Ef.keep.e(l, e) == Effort.es.keep.e(e, Effort.es.thinks(), l) : Bool}:
+  match e:
+    case Ef.Missing{}:
+      match l:
+        case Ef.Off{}:
+          {==}
+        case Ef.Minimal{}:
+          {==}
+        case Ef.Low{}:
+          {==}
+        case Ef.Medium{}:
+          {==}
+        case Ef.High{}:
+          {==}
+        case Ef.Xhigh{}:
+          {==}
+        case Ef.Max{}:
+          {==}
+    case Ef.Null{}:
+      {==}
+    case Ef.Wire{}:
+      {==}
+
+def ps.keep(l: Ef.Lv, map: Ef.LvMap) -> {Ef.keep(map, l) == Effort.es.keep(True{}, map, Effort.es.thinks(), [Ef.Off{}], l) : Bool}:
+  match l:
+    case Ef.Off{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(o, Ef.Off{})
+    case Ef.Minimal{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(mi, Ef.Minimal{})
+    case Ef.Low{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(lo, Ef.Low{})
+    case Ef.Medium{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(me, Ef.Medium{})
+    case Ef.High{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(hi, Ef.High{})
+    case Ef.Xhigh{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(xh, Ef.Xhigh{})
+    case Ef.Max{}:
+      match map:
+        case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+          ps.keep_e(mx, Ef.Max{})
+
+def ps.offer(+map: Ef.LvMap, xs: List<&2, Ef.Lv>) -> {Ef.offer(map, xs) == Effort.es.offer(xs, True{}, map, Effort.es.thinks(), [Ef.Off{}]) : List<&2, Ef.Lv>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %ps.offer(map, rest) : {Ef.offer(map, x <> rest) == Effort.es.if(List<&2, Ef.Lv>, Effort.es.keep(True{}, map, Effort.es.thinks(), [Ef.Off{}], x), x <> _, _) : List<&2, Ef.Lv>}
+      %ps.keep(x, map) : {Ef.offer(map, x <> rest) == Effort.es.if(List<&2, Ef.Lv>, _, x <> Ef.offer(map, rest), Ef.offer(map, rest)) : List<&2, Ef.Lv>}
+      PFE.ee.cons_if(Ef.keep(map, x), x, Ef.offer(map, rest))
+
+# the levels a model offers are es.lad's
+def ps.offered(m: Ef.Mdl) -> {Ef.offered(m) == Effort.es.lad(m) : List<&2, Ef.Lv>}:
+  match m:
+    case Ef.Mdl{r, +map}:
+      match r:
+        case True{}:
+          ps.offer(map, Ef.ladder())
+        case False{}:
+          {==}
+
+def ps.clamp(+m: Ef.Mdl, +l: Ef.Lv) -> {Ef.clamp(m, l) == Effort.es.clamp(Effort.es.lad(m), l) : Ef.Lv}:
+  %ps.offered(m) : {Ef.clamp(m, l) == Effort.es.clamp(_, l) : Ef.Lv}
+  PFE.ee.clamp(Ef.offered(m), l)
+
+def ps.cycle(+m: Ef.Mdl, +l: Ef.Lv, +d: Ef.Dir) -> {Ef.cycle(m, l, d) == Effort.es.cycle(Effort.es.lad(m), l, d) : Maybe<&2, Ef.Lv>}:
+  %ps.offered(m) : {Ef.cycle(m, l, d) == Effort.es.cycle(_, l, d) : Maybe<&2, Ef.Lv>}
+  PFE.ee.cycle(Ef.offered(m), l, d)
+
+def ps.fit(mo: Maybe<&2, Ef.Mdl>, +l: Ef.Lv) -> {Ef.fit(mo, l) == Effort.es.fit(mo, l) : Ef.Lv}:
+  match mo:
+    case None{}:
+      {==}
+    case Some{+m}:
+      ps.clamp(m, l)
+
+def ps.stepto(+m: Ef.Mdl, r: Maybe<&2, Ef.Lv>, l: Ef.Lv) -> {Ef.step.set(m, r, l) == Effort.es.stepped.to(Effort.es.lad(m), r, l) : Ef.Lv}:
+  match r:
+    case None{}:
+      {==}
+    case Some{+k}:
+      ps.clamp(m, k)
+
+def ps.act(a: Ef.Act, s: Ef.Sess) -> {Ef.act(a, s) == Effort.es.act(a, s) : Ef.Sess}:
+  match a:
+    case Ef.Switch{+m}:
+      match s:
+        case Ef.Sess{mo, st}:
+          match st:
+            case None{}:
+              {==}
+            case Some{+l}:
+              %ps.clamp(m, l) : {Ef.Sess{Some{m}, Some{Ef.clamp(m, l)}} == Ef.Sess{Some{m}, Some{_}} : Ef.Sess}
+              {==}
+    case Ef.SetLevel{+k}:
+      match s:
+        case Ef.Sess{+mo, st}:
+          match st:
+            case None{}:
+              %ps.fit(mo, k) : {Ef.Sess{mo, Some{Ef.fit(mo, k)}} == Ef.Sess{mo, Some{_}} : Ef.Sess}
+              {==}
+            case Some{l}:
+              %ps.fit(mo, k) : {Ef.Sess{mo, Some{Ef.fit(mo, k)}} == Ef.Sess{mo, Some{_}} : Ef.Sess}
+              {==}
+    case Ef.Step{+d}:
+      match s:
+        case Ef.Sess{mo, st}:
+          match mo:
+            case None{}:
+              match st:
+                case None{}:
+                  {==}
+                case Some{l}:
+                  {==}
+            case Some{+m}:
+              match st:
+                case None{}:
+                  {==}
+                case Some{+l}:
+                  +c = Ef.cycle(m, l, d)
+                  %ps.cycle(m, l, d) : {Ef.Sess{Some{m}, Some{Ef.step.set(m, c, l)}} == Ef.Sess{Some{m}, Some{Effort.es.stepped.to(Effort.es.lad(m), _, l)}} : Ef.Sess}
+                  %ps.stepto(m, c, l) : {Ef.Sess{Some{m}, Some{Ef.step.set(m, c, l)}} == Ef.Sess{Some{m}, Some{_}} : Ef.Sess}
+                  {==}

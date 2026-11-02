@@ -84,6 +84,44 @@ law skill_in_later_example:
   exs i: Sk.In(Sk.Cand{1n, Sk.Unreadable{}}, [Sk.Cand{0n, Sk.Good{}}, Sk.Cand{1n, Sk.Unreadable{}}])
   {Sk.Cand.path(Sk.Cand{1n, Sk.Unreadable{}}) == 1n : Nat}
 
+# an outcome's tag: good 0, unreadable 1, malformed 2, incomplete 3
+def outcome_tag(o: Sk.Outcome) -> Nat:
+  match o:
+    case Sk.Good{}:
+      0n
+    case Sk.Unreadable{}:
+      1n
+    case Sk.Malformed{}:
+      2n
+    case Sk.Incomplete{}:
+      3n
+
+# a and b are the same candidate: the same path and the same outcome
+def same_cand(a: Sk.Cand, b: Sk.Cand) -> Bool:
+  match a:
+    case Sk.Cand{p, o}:
+      match b:
+        case Sk.Cand{q, u}:
+          Bool.and(Nat.is_eq(p, q), Nat.is_eq(outcome_tag(o), outcome_tag(u)))
+
+# c is one of cs, at any position
+def mem_spec(+c: Sk.Cand, cs: List<&2, Sk.Cand>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(same_cand(c, x), mem_spec(c, rest))
+
+# LAW skill_in_exact (L5): the membership skill_failure_reported quantifies over holds exactly when c is one of cs (the same path and outcome), at any position
+# EXCLUDES: an `In` that holds only at the first positions (say 0 and 1)
+#   or never, so skill_failure_reported says nothing of later candidates
+#   while its witnesses still pass; an `In` that holds for a candidate
+#   not in the list
+law skill_in_exact:
+  for +c: Sk.Cand
+  for +cs: List<&2, Sk.Cand>
+  (Sk.In(c, cs) -> {mem_spec(c, cs) == True{} : Bool}) & ({mem_spec(c, cs) == True{} : Bool} -> Sk.In(c, cs))
+
 # (L5) The checks of a skill file and a template, and the entry Rust calls
 # -----------------------------------------------------------------------
 # crates/eukhe-core/src/skills: `load_skill_from_file` (the skill's name,

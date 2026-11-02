@@ -612,6 +612,11 @@ import ./proof/effort/effort_unset_default.bend as PEffortUnsetDefault
 import ./proof/effort/effort_settle_offered.bend as PEffortSettleOffered
 import ./proof/effort/effort_stored_is_sent.bend as PEffortStoredIsSent
 import ./proof/effort/effort_shown_is_sent.bend as PEffortShownIsSent
+import ./proof/effort/effort_open_exact.bend as PEffortOpenExact
+import ./proof/effort/effort_act_exact.bend as PEffortActExact
+import ./proof/effort/effort_run_exact.bend as PEffortRunExact
+import ./proof/effort/effort_sent_exact.bend as PEffortSentExact
+import ./proof/effort/effort_shown_exact.bend as PEffortShownExact
 import ./proof/effort/quirk_ladder_offered_exact.bend as PQuirkLadderOfferedExact
 import ./proof/effort/quirk_ladder_plain_exact.bend as PQuirkLadderPlainExact
 import ./proof/effort/quirk_ladder_model_offers.bend as PQuirkLadderModelOffers
@@ -939,6 +944,7 @@ import ./proof/skill_load/skill_ffi_exact.bend as PSkillFfiExact
 import ./proof/skill_load/skill_loaded_exact.bend as PSkillLoadedExact
 import ./proof/skill_load/skill_in_first_example.bend as PSkillInFirstExample
 import ./proof/skill_load/skill_in_later_example.bend as PSkillInLaterExample
+import ./proof/skill_load/skill_in_exact.bend as PSkillInExact
 import ./proof/kernel_local/kernel_session_never_downloads.bend as PKernelSessionNeverDownloads
 import ./proof/kernel_local/kernel_download_only_on_install.bend as PKernelDownloadOnlyOnInstall
 import ./proof/kernel_local/kernel_fetch_verified_before_use.bend as PKernelFetchVerifiedBeforeUse
