@@ -1,0 +1,6 @@
+# one poll of a blocking wait: no number in the request
+call TT
+call TF
+call FT
+call FF
+refuse {LONG},
