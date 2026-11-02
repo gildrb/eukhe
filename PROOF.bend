@@ -1184,6 +1184,9 @@ import ./proof/gateway_width/gateway_width_ffi_answers.bend as PGatewayWidthFfiA
 import ./proof/gateway_width/gateway_width_ffi_rejects_malformed.bend as PGatewayWidthFfiRejectsMalformed
 import ./proof/gateway_width/gateway_width_ffi_rejects_left_over.bend as PGatewayWidthFfiRejectsLeftOver
 import ./proof/gateway_width/gateway_width_ffi_exact.bend as PGatewayWidthFfiExact
+import ./proof/gateway_width/layout_exact.bend as PLayoutExact
+import ./proof/gateway_width/table_exact.bend as PTableExact
+import ./proof/gateway_width/table_chars_exact.bend as PTableCharsExact
 import ./proof/tui_color/base.bend as LATuiColor
 import ./proof/tui_color/tui_effort_ramp_length.bend as PTuiEffortRampLength
 import ./proof/tui_color/tui_effort_ramp_ordered.bend as PTuiEffortRampOrdered

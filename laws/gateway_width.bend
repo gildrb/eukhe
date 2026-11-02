@@ -260,3 +260,102 @@ def gw_spec(s: String) -> String:
 law gateway_width_ffi_exact:
   for +s: String
   {FGw.ffi(s) == gw_spec(s) : String}
+
+# The table from the glyphs
+# -------------------------
+# The spec of the formatter on a table of glyph widths, from the
+# requirement and the measured-row helpers above only: no function of
+# bend/gateway_width.bend. A cell is measured by display width (the sum
+# of its glyph widths) or, by the old formatter, by its count of glyphs.
+
+# the display width of a cell: the sum of its glyph widths
+def gw_sp_sum(c: List<&2, Nat>) -> Nat:
+  match c:
+    case Nil{}:
+      0n
+    case w <> rest:
+      Nat.add(w, gw_sp_sum(rest))
+
+# a cell's width by the measure m: its display width, or its count of
+# glyphs
+def gw_sp_glyphs(m: Gw.Measure, c: List<&2, Nat>) -> Nat:
+  match m:
+    case Gw.Display{}:
+      gw_sp_sum(c)
+    case Gw.Chars{}:
+      List.length(&2, Nat, c)
+
+# a row measured by m: the width of each of its cells
+def gw_sp_mrow(+m: Gw.Measure, row: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
+  match row:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      gw_sp_glyphs(m, c) <> gw_sp_mrow(m, rest)
+
+# a table measured by m: each of its rows measured
+def gw_sp_measure(+m: Gw.Measure, rows: List<&2, List<&2, List<&2, Nat>>>) -> List<&2, List<&2, Nat>>:
+  match rows:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      gw_sp_mrow(m, r) <> gw_sp_measure(m, rest)
+
+# a measured row rendered from column i: k columns, each the cell then
+# the column's width less the cell's in spaces, then the next column's
+# cell alone (the last column is not padded)
+def gw_sp_line(k: Nat, +rows: List<&2, List<&2, Nat>>, +row: List<&2, Nat>, +i: Nat) -> List<&2, Nat>:
+  match k:
+    case 0n:
+      [gw_sp_cell(row, i)]
+    case 1n+p:
+      Nat.add(gw_sp_cell(row, i), Nat.sub(gw_sp_colw(rows, i), gw_sp_cell(row, i))) <> gw_sp_line(p, rows, row, 1n+i)
+
+# every row of rs rendered with k padded columns of the table rows
+def gw_sp_lines(rs: List<&2, List<&2, Nat>>, +k: Nat, +rows: List<&2, List<&2, Nat>>) -> List<&2, List<&2, Nat>>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      gw_sp_line(k, rows, r, 0n) <> gw_sp_lines(rest, k, rows)
+
+# a measured table rendered: every row, every column padded but the last
+def gw_sp_table(+rows: List<&2, List<&2, Nat>>) -> List<&2, List<&2, Nat>>:
+  gw_sp_lines(rows, Nat.sub(gw_sp_cols(rows), 1n), rows)
+
+# the layout of a measured table: the width of every column, and every
+# row's pads in every column but the last
+def gw_sp_layout(+rows: List<&2, List<&2, Nat>>) -> Gw.Lay:
+  +k = gw_sp_cols(rows)
+  Gw.Lay{gw_sp_widths(k, rows, 0n), gw_sp_pads_all(rows, Nat.sub(k, 1n), rows)}
+
+# LAW layout_exact: the layout the renderer reads of any table of glyph widths is
+# the spec's layout of the table measured by display width (a cell's
+# width the sum of its glyph widths): every column's width its widest
+# cell, every row's pads the column's width less its cell's, in every
+# column but the last
+# EXCLUDES: a cell measured by glyph count or by its first glyph (a CJK
+#   cell [2, 2] measured 3 by `w + length(rest)`), a column width other
+#   than its widest cell, a dropped or invented column, row or pad
+law layout_exact:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.layout(rows) == gw_sp_layout(gw_sp_measure(Gw.Display{}, rows)) : Gw.Lay}
+
+# LAW table_exact: the formatted table of any table of glyph widths is the spec's
+# rendering of the table measured by display width: every row, each cell
+# but the last column's padded to its column's width
+# EXCLUDES: a cell measured by anything but the sum of its glyph widths
+#   (`w + length(rest)`), an empty or truncated table (`table.go = Nil`),
+#   a padded last column, a pad to another column's width
+law table_exact:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.table(Gw.Display{}, rows) == gw_sp_table(gw_sp_measure(Gw.Display{}, rows)) : List<&2, List<&2, Nat>>}
+
+# LAW table_chars_exact: the old formatter's table (a cell measured by its count of
+# glyphs) is the spec's rendering of the table measured by glyph count
+# EXCLUDES: the old formatter measuring by display width
+#   (`cell.m(Chars, c) = cell.sum(c)`), an empty or truncated table, a
+#   padded last column
+law table_chars_exact:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.table(Gw.Chars{}, rows) == gw_sp_table(gw_sp_measure(Gw.Chars{}, rows)) : List<&2, List<&2, Nat>>}
