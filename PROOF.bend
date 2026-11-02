@@ -1703,6 +1703,7 @@ import ./proof/default_model/dmw_sub_example.bend as PDmwSubExample
 import ./proof/default_model/dmw_res_example.bend as PDmwResExample
 import ./proof/default_model/dmw_ffi_example.bend as PDmwFfiExample
 import ./proof/default_model/dmw_malformed_example.bend as PDmwMalformedExample
+import ./proof/default_model/dmw_ffi_exact.bend as PDmwFfiExact
 import ./proof/model_roles/base.bend as LAModelRoles
 import ./proof/model_roles/roles_exact.bend as PRolesExact
 import ./proof/model_roles/table_roles.bend as PTableRoles

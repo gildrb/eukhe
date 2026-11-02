@@ -330,3 +330,199 @@ law dmw_ffi_example:
 # EXCLUDES: a vacuous dmw_malformed
 law dmw_malformed_example:
   {FDm.get_in("2,") == Wr.Bad{} : Wr.Dec<Dm.In>} & {FDm.ffi("2,") == Wr.err("default_model: malformed request") : String}
+
+# The entry, independently of bend/ffi_default_model.bend: a reader of the
+# request grammar built from the wire primitives, the resolver's answer
+# as the laws above state it case by case, and a speller of the reply
+# from the wire primitives.
+
+# the saved default: 0 (none) | 1, the model
+def dmr.saved.m(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Saved>:
+  match r:
+    case Wr.Got{m, s}:
+      Wr.Got{Dm.Default{m}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.saved.tag(t: Nat, s: String) -> Wr.Dec<Dm.Saved>:
+  match t:
+    case 0n:
+      Wr.Got{Dm.NoDefault{}, s}
+    case 1n:
+      dmr.saved.m(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def dmr.saved(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Saved>:
+  match r:
+    case Wr.Got{t, s}:
+      dmr.saved.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the chain's pick: 0 (none) | 1, the model
+def dmr.next.n(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Next>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Dm.Next{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.next.tag(t: Nat, s: String) -> Wr.Dec<Dm.Next>:
+  match t:
+    case 0n:
+      Wr.Got{Dm.NoNext{}, s}
+    case 1n:
+      dmr.next.n(Wr.get_nat(s))
+    case 2n+p:
+      Wr.Bad{}
+
+def dmr.next(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Next>:
+  match r:
+    case Wr.Got{t, s}:
+      dmr.next.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a request: saved, cat, key, out, next
+def dmr.in.next(sv: Dm.Saved, c: Bool, k: Bool, o: Bool, r: Wr.Dec<Dm.Next>) -> Wr.Dec<Dm.In>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Dm.In{sv, c, k, o, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.in.out(sv: Dm.Saved, c: Bool, k: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
+  match r:
+    case Wr.Got{o, s}:
+      dmr.in.next(sv, c, k, o, dmr.next(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.in.key(sv: Dm.Saved, c: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
+  match r:
+    case Wr.Got{k, s}:
+      dmr.in.out(sv, c, k, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.in.cat(sv: Dm.Saved, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
+  match r:
+    case Wr.Got{c, s}:
+      dmr.in.key(sv, c, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dmr.in(r: Wr.Dec<Dm.Saved>) -> Wr.Dec<Dm.In>:
+  match r:
+    case Wr.Got{sv, s}:
+      dmr.in.cat(sv, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s starts with, and what follows it
+def dmr.read(s: String) -> Wr.Dec<Dm.In>:
+  dmr.in(dmr.saved(Wr.get_nat(s)))
+
+# another model in place of the saved default, for the key k: the chain's
+# pick with the key's notice, else the typed error
+def dms.swap(k: Dm.Key, next: Dm.Next) -> Dm.Res:
+  match next:
+    case Dm.NoNext{}:
+      Dm.Refused{k}
+    case Dm.Next{n}:
+      Dm.Runs{Dm.Other{n}, Dm.Swapped{k}}
+
+# the resolver's answer, as the laws default_unset_*, default_usable_runs,
+# default_uncatalogued_*, default_unkeyed_refused and default_unscoped_*
+# state it: nothing saved, then the catalog, the credentials and the scope
+def dms.resolve(x: Dm.In) -> Dm.Res:
+  match x:
+    case Dm.In{saved, cat, key, out, next}:
+      match saved:
+        case Dm.NoDefault{}:
+          match next:
+            case Dm.NoNext{}:
+              Dm.Nothing{}
+            case Dm.Next{n}:
+              Dm.Runs{Dm.Other{n}, Dm.Kept{}}
+        case Dm.Default{m}:
+          match cat:
+            case False{}:
+              dms.swap(Dm.K{m, Dm.NotInCatalog{}}, next)
+            case True{}:
+              match key:
+                case False{}:
+                  Dm.Refused{Dm.K{m, Dm.NoCredentials{}}}
+                case True{}:
+                  match out:
+                    case True{}:
+                      dms.swap(Dm.K{m, Dm.NotInScope{}}, next)
+                    case False{}:
+                      Dm.Runs{Dm.Saved{}, Dm.Kept{}}
+
+# the reply as the Rust Reader reads it: a reason 0 | 1 | 2; a key the
+# model, then the reason; a pick 0 | 1, the model; a substitution 0 | 1,
+# the key; a resolution 0, pick, substitution | 1 | 2, key
+def dms.reason(r: Dm.Reason, rest: String) -> String:
+  match r:
+    case Dm.NotInCatalog{}:
+      Wr.put_nat(0n, rest)
+    case Dm.NoCredentials{}:
+      Wr.put_nat(1n, rest)
+    case Dm.NotInScope{}:
+      Wr.put_nat(2n, rest)
+
+def dms.key(k: Dm.Key, rest: String) -> String:
+  match k:
+    case Dm.K{m, r}:
+      Wr.put_nat(m, dms.reason(r, rest))
+
+def dms.res(x: Dm.Res, rest: String) -> String:
+  match x:
+    case Dm.Runs{p, s}:
+      match p:
+        case Dm.Saved{}:
+          match s:
+            case Dm.Kept{}:
+              Wr.put_nat(0n, Wr.put_nat(0n, Wr.put_nat(0n, rest)))
+            case Dm.Swapped{k}:
+              Wr.put_nat(0n, Wr.put_nat(0n, Wr.put_nat(1n, dms.key(k, rest))))
+        case Dm.Other{n}:
+          match s:
+            case Dm.Kept{}:
+              Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(n, Wr.put_nat(0n, rest))))
+            case Dm.Swapped{k}:
+              Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(n, Wr.put_nat(1n, dms.key(k, rest)))))
+    case Dm.Nothing{}:
+      Wr.put_nat(1n, rest)
+    case Dm.Refused{k}:
+      Wr.put_nat(2n, dms.key(k, rest))
+
+def dms.end(whole: Bool, x: Dm.In) -> String:
+  match whole:
+    case True{}:
+      dms.res(dms.resolve(x), "")
+    case False{}:
+      Wr.err("default_model: input left over")
+
+def dms.go(r: Wr.Dec<Dm.In>) -> String:
+  match r:
+    case Wr.Got{x, s}:
+      dms.end(Wr.end(s), x)
+    case Wr.Bad{}:
+      Wr.err("default_model: malformed request")
+
+# the reply to the input s
+def dms.spec(s: String) -> String:
+  dms.go(dmr.read(s))
+
+# LAW dmw_ffi_exact (R2, R3): on every input the entry answers the resolver's answer (as the case laws above state it) to the request the input starts with, spelled as the Rust Reader reads it, when nothing follows the request; "default_model: input left over" when something does; "default_model: malformed request" when the input starts with no request
+# EXCLUDES: an answer other than the case laws' (a usable default swapped,
+#   a refusal for a swap, a wrong reason), a reply in another spelling, a
+#   value for an input that is no request (an unknown tag, a 15-digit
+#   number, a short field) or for a request with input left over, another
+#   error text
+law dmw_ffi_exact:
+  for +s: String
+  {FDm.ffi(s) == dms.spec(s) : String}
