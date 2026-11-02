@@ -1,0 +1,19 @@
+# line ids, starts and ends at their largest: an edit landing on the
+# head, ids of {MAX} found once, an edit whose start and end are {MAX}
+# (past the base: Invalid), an insertion at the end, a second edit past
+# the first's end, many edits times many lines (the work bound, taken
+# unit by unit)
+call 3,{MAX},1,2,4,5,{MAX},1,2,4,0,1,1,{MAX},
+call 3,{MAX},{MAX},{MAX},4,{MAX},{MAX},{MAX},{MAX},4,1,2,1,{MAX},
+call 1,{MAX},1,{MAX},4,{MAX},{MAX},1,{MAX},
+call 2,1,{MAX},2,1,{MAX},4,2,2,1,{MAX},
+call 2,1,2,2,1,2,8,0,1,1,{MAX},{MAX},{MAX},1,{MAX},
+call 3,1,2,3,3,1,2,3,0,
+call 0,0,0,
+call 8,1,2,3,4,5,6,7,8,8,1,2,3,4,5,6,7,8,32,0,1,1,{MAX},1,2,1,{MAX},2,3,1,{MAX},3,4,1,{MAX},4,5,1,{MAX},5,6,1,{MAX},6,7,1,{MAX},7,8,1,{MAX},
+# a count or an id past the wire, a count of {MAX} with one id: refused,
+# never a stop
+refuse 1,{LONG},0,0,
+refuse {LONG},1,0,0,
+refuse {MAX},1,0,0,
+refuse 0,0,4,{MAX},{MAX},{MAX},{MAX},

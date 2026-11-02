@@ -157,10 +157,20 @@ def bounded.at(ok: Bool, +b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.E
     case False{}:
       R.Conflict{R.TooLarge{}}
 
+# a times n is at most m: n is taken from m once per unit of a, so no
+# product is formed and no value grows past m (the runtime holds a Nat
+# below 2^48; a product of two list lengths could pass it)
+def within(a: Nat, +n: Nat, +m: Nat) -> Bool:
+  match a:
+    case 0n:
+      True{}
+    case 1n+p:
+      Bool.and(Nat.is_le(n, m), within(p, n, Nat.sub(m, n)))
+
 # the rebase within the work bound: the edits times the lines of the base
 # and the head at most work_max(), else TooLarge
 def bounded(+b: List<&2, Nat>, +h: List<&2, Nat>, +es: List<&2, R.Edit>) -> R.Outcome:
-  bounded.at(Nat.is_le(Nat.mul(List.length(&2, R.Edit, es), Nat.add(List.length(&2, Nat, b), List.length(&2, Nat, h))), work_max()), b, h, es)
+  bounded.at(within(List.length(&2, R.Edit, es), Nat.add(List.length(&2, Nat, b), List.length(&2, Nat, h)), work_max()), b, h, es)
 
 def answer.of(m: Maybe<&2, List<&2, R.Edit>>, +b: List<&2, Nat>, +h: List<&2, Nat>) -> String:
   match m:
