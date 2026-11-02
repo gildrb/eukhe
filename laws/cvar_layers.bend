@@ -730,6 +730,30 @@ law cvar_layers_ffi_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, FCL.Ask>}
   {FCL.ffi(s) == SCon{'E', SCon{' ', "cvar_layers: malformed request"}} : String}
 
+# the entry's answer to s, from the laws' reader and spellers: the error
+# form when s is not exactly one request, else the spelled decision on the
+# request s is (spell_answer reads the model's decisions, each pinned
+# whole to a spec of laws/cvar.bend: cvar_refusal_exact, cvar_value_exact,
+# cvar_layered_exact, cvar_tog_exact, cvar_check_exact, cvar_written_exact,
+# cvar_document_exact)
+def ffi_spec.of(m: Maybe<&2, FCL.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "cvar_layers: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.of(read_ask(s))
+
+# LAW cvar_layers_ffi_exact: on every input the entry answers what the laws' reader and spellers give: the error form for an input that is not exactly one request, else the spelled decision on the request it is (with cvar_layers_ffi_answers and the exactness of the wire readers, an answer that is no error is the decision on a request Rust writes)
+# EXCLUDES: an answer for an input the laws' reader refuses, a decision on
+#   another request than the one read, a reply spelled otherwise, a second
+#   error text
+law cvar_layers_ffi_exact:
+  for +s: String
+  {FCL.ffi(s) == ffi_spec(s) : String}
+
 # LAW cvar_layers_ffi_example: anchor: the strings Rust sends: a registry that declares cvar 0 twice is refused naming 0; the value of a Bool cvar (default F) set to T by the agent; a toggle of it flips T to F; a set of 7 to that Bool cvar has the wrong type; a request with input left over is refused
 law cvar_layers_ffi_example:
   {FCL.ffi("0,2,0,1,1,TF1,F0,0,1,FF0,0,") == "1,0," : String} &

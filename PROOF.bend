@@ -2053,6 +2053,7 @@ import ./proof/cvar_layers/cvar_layers_ffi_answers.bend as PCvarLayersFfiAnswers
 import ./proof/cvar_layers/cvar_layers_ffi_malformed_exact.bend as PCvarLayersFfiMalformedExact
 import ./proof/cvar_layers/cvar_layers_ffi_example.bend as PCvarLayersFfiExample
 import ./proof/cvar_layers/cvar_layers_fits_example.bend as PCvarLayersFitsExample
+import ./proof/cvar_layers/cvar_layers_ffi_exact.bend as PCvarLayersFfiExact
 import ./proof/quirks/base.bend as LAQuirks
 import ./proof/quirks/quirks_open_answers.bend as PQuirksOpenAnswers
 import ./proof/quirks/quirks_faults_iff_rejected.bend as PQuirksFaultsIffRejected
