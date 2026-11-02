@@ -1,0 +1,29 @@
+# the scope with every number at its largest
+call 5,2,{MAX},{MAX},{MAX},{MAX},
+# pages of {MAX} matching files: a skip and a page size at their largest
+# (the page, the continuation s + k, the skip past the end), one file
+call 5,0,{MAX},{MAX},{MAX},1,
+call 5,0,{MAX},99999999999997,{MAX},1,
+call 5,0,{MAX},99999999999990,5,1,
+call 5,0,{MAX},{MAX},{MAX},0,
+call 5,0,3,{MAX},{MAX},1,
+# the match limit at its largest over several files of {MAX} matches
+# (their sum is past 2^48-1; the rounds are as many as the most matches)
+call 6,1,{MAX},{MAX},{MAX},{MAX},{MAX},
+call 6,1,{MAX},1,{MAX},2,{MAX},
+call 6,1,99,{MAX},{MAX},{MAX},{MAX},
+call 3,1,{MAX},{MAX},
+call 2,1,{MAX},
+refuse 5,0,{LONG},0,5,1,
+# a walk with every limit at its largest: asks with ranges ending and
+# open at {MAX}, a file of {MAX} matches over the size limit, a skip
+open 6,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+step 5,0,{MAX},{MAX},{MAX},{MAX},
+step 5,0,{MAX},0,{MAX},0,
+step 3,1,{MAX},1,
+step 2,2,4,
+step 3,1,{MAX},0,
+step 1,0,
+refuse-step 3,1,{LONG},0,
+step 3,1,0,0,
+refuse-open 6,{LONG},0,0,0,0,0,

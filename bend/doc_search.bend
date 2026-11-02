@@ -83,6 +83,52 @@ def grep.past(multi: Bool, ps: List<&2, Nat>, s: Nat) -> Bool:
     case False{}:
       False{}
 
+# The page of the matching files 0 to t - 1 (upto(t)) worked out from t,
+# with no list of t numbers (t can be the wire's largest Nat): the compiled
+# entry's page request. Proven equal to page, next and past over upto(t).
+
+# the files of the page: the min(k, t - s) numbers from s on
+def page.n(+t: Nat, +s: Nat, k: Nat) -> List<&2, Nat>:
+  upto.go(Nat.min(k, Nat.sub(t, s)), s)
+
+def next.n.put(left: Nat, c: Nat) -> Maybe<&2, Nat>:
+  match left:
+    case 0n:
+      None{}
+    case 1n+x:
+      Some{c}
+
+# the continuation: s + k when a file follows the page
+def next.n(+t: Nat, +s: Nat, k: Nat) -> Maybe<&2, Nat>:
+  match k:
+    case 0n:
+      None{}
+    case 1n+j:
+      +c = Nat.add(s, 1n+j)
+      next.n.put(Nat.sub(t, c), c)
+
+# the skip is past the end of t files, t not 0
+def past.n(t: Nat, s: Nat) -> Bool:
+  match t:
+    case 0n:
+      False{}
+    case 1n+u:
+      Nat.is_eq(Nat.sub(1n+u, s), 0n)
+
+def grep.next.n(multi: Bool, +t: Nat, +s: Nat, k: Nat) -> Maybe<&2, Nat>:
+  match multi:
+    case True{}:
+      next.n(t, s, k)
+    case False{}:
+      None{}
+
+def grep.past.n(multi: Bool, t: Nat, s: Nat) -> Bool:
+  match multi:
+    case True{}:
+      past.n(t, s)
+    case False{}:
+      False{}
+
 # Grep's scope
 # ------------
 
@@ -552,12 +598,96 @@ def rr.go(f: Nat, +cs: List<&2, Nat>, +r: Nat, +b: Nat) -> List<&2, Nat>:
           +gs = rr.give(cs, r, 1n+c)
           rr.add(gs, rr.go(g, cs, 1n+r, Nat.sub(1n+c, sum(gs))))
 
+# A round gives each file with more than r matches one while the budget
+# lasts, so a count or a limit at the wire's largest Nat would take that
+# many rounds. rr jumps instead: d full rounds at once (each file with more
+# than r matches keeps one a round), d up to the next file's last match
+# and at most what the budget pays for, while `rr.ok` checks they are
+# full; the rest round by round (rr.go: at most one round, then the budget
+# is spent). Every number stays within the counts and the limit.
+
+def rr.one(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# the files with more than r matches
+def rr.act(cs: List<&2, Nat>, +r: Nat) -> Nat:
+  match cs:
+    case Nil{}:
+      0n
+    case c <> t:
+      Nat.add(rr.one(Nat.is_lt(r, c)), rr.act(t, r))
+
+# the fewest matches past r of a file with more than r, at most d
+def rr.gap(cs: List<&2, Nat>, +r: Nat, +d: Nat) -> Nat:
+  match cs:
+    case Nil{}:
+      d
+    case +c <> t:
+      rr.gap(t, r, Bool.pick(Nat, Nat.is_lt(r, c), Nat.min(d, Nat.sub(c, r)), d))
+
+# every file holds at most r matches, or at least r + d
+def rr.clear(cs: List<&2, Nat>, +r: Nat, +d: Nat) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case +c <> t:
+      Bool.and(Bool.or(Nat.is_le(c, r), Nat.is_le(Nat.add(r, d), c)), rr.clear(t, r, d))
+
+# what d full rounds from round r give each file: min(c - r, d)
+def rr.block(cs: List<&2, Nat>, +r: Nat, +d: Nat) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> t:
+      Nat.min(Nat.sub(c, r), d) <> rr.block(t, r, d)
+
+# the full rounds to jump from round r with budget b, f rounds left
+def rr.jump(+f: Nat, +cs: List<&2, Nat>, +r: Nat, +b: Nat) -> Nat:
+  Nat.min(rr.gap(cs, r, f), Nat.div(b, Nat.max(rr.act(cs, r), 1n)))
+
+# the d rounds from round r are full and left to run, and the budget pays
+# for them
+def rr.ok(+f: Nat, +cs: List<&2, Nat>, +r: Nat, +b: Nat, +d: Nat) -> Bool:
+  Bool.and(Nat.is_lt(0n, d), Bool.and(Nat.is_le(d, f), Bool.and(Nat.is_le(Nat.mul(d, rr.act(cs, r)), b), rr.clear(cs, r, d))))
+
+# rounds r, r + 1, ... (f of them) with budget b: d full rounds at once
+# when ok, else round by round; each jump ends at a file's last match or
+# with less budget than a round, so fuel (one jump each) runs out never
+def rr.fast(fuel: Nat, ok: Bool, +f: Nat, +cs: List<&2, Nat>, +r: Nat, +b: Nat, +d: Nat) -> List<&2, Nat>:
+  match fuel:
+    case 0n:
+      rr.go(f, cs, r, b)
+    case 1n+k:
+      match ok:
+        case True{}:
+          +f2 = Nat.sub(f, d)
+          +r2 = Nat.add(r, d)
+          +b2 = Nat.sub(b, Nat.mul(d, rr.act(cs, r)))
+          +d2 = rr.jump(f2, cs, r2, b2)
+          rr.add(rr.block(cs, r, d), rr.fast(k, rr.ok(f2, cs, r2, b2, d2), f2, cs, r2, b2, d2))
+        case False{}:
+          rr.go(f, cs, r, b)
+
 # the matches each file of the page keeps under a limit of L: one per
 # file per round, in file order, L in all (a round past the most matches
 # of a file gives none)
-def rr(+cs: List<&2, Nat>, l: Nat) -> List<&2, Nat>:
-  rr.go(rr.top(cs), cs, 0n, l)
+def rr(+cs: List<&2, Nat>, +l: Nat) -> List<&2, Nat>:
+  +f = rr.top(cs)
+  +d = rr.jump(f, cs, 0n, l)
+  rr.fast(2n+List.length(&2, Nat, cs), rr.ok(f, cs, 0n, l, d), f, cs, 0n, l, d)
+
+# the page has more than L matches, peeled file by file (no sum)
+def rr.over(cs: List<&2, Nat>, +l: Nat) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case +c <> t:
+      Bool.or(Nat.is_lt(l, c), rr.over(t, Nat.sub(l, c)))
 
 # whether the limit cuts matches: the page has more than L
-def rr.cut(cs: List<&2, Nat>, l: Nat) -> Bool:
-  Nat.is_lt(l, sum(cs))
+def rr.cut(cs: List<&2, Nat>, +l: Nat) -> Bool:
+  rr.over(cs, l)

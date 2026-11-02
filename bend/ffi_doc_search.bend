@@ -226,8 +226,9 @@ def req(xs: List<&2, Nat>) -> Maybe<&2, Req>:
         case 3n+x:
           None{}
 
-def answer.page(+ps: List<&2, Nat>, +s: Nat, +k: Nat, +multi: Bool) -> List<&2, Nat>:
-  maybn(M.grep.next(multi, ps, s, k)) <> bitn(M.grep.past(multi, ps, s)) <> M.page(ps, s, k)
+# the page of t matching files, worked out from t (no list of t files)
+def answer.page(+t: Nat, +s: Nat, +k: Nat, +multi: Bool) -> List<&2, Nat>:
+  maybn(M.grep.next.n(multi, t, s, k)) <> bitn(M.grep.past.n(multi, t, s)) <> M.page.n(t, s, k)
 
 def answer.scope(sc: M.Scope) -> List<&2, Nat>:
   match sc:
@@ -238,7 +239,7 @@ def answer.scope(sc: M.Scope) -> List<&2, Nat>:
 def answer(q: Req) -> List<&2, Nat>:
   match q:
     case PageQ{t, s, k, m}:
-      answer.page(M.upto(t), s, k, m)
+      answer.page(t, s, k, m)
     case LimitQ{+l, +cs}:
       bitn(M.rr.cut(cs, l)) <> M.rr(cs, l)
     case ScopeQ{r, d, s, l}:

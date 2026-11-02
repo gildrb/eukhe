@@ -1607,6 +1607,7 @@ import ./proof/doc_search/limit_cuts.bend as PLimitCuts
 import ./proof/doc_search/fetch_reaches.bend as PFetchReaches
 import ./proof/doc_search/grep_keeps_spec.bend as PGrepKeepsSpec
 import ./proof/doc_search/grep_walk_spec.bend as PGrepWalkSpec
+import ./proof/doc_search/base/rr_jump.bend as LADocSearchRrJump
 import ./proof/doc_search/limit_round_robin.bend as PLimitRoundRobin
 import ./proof/doc_search/search_page_answers.bend as PSearchPageAnswers
 import ./proof/doc_search/search_limit_answers.bend as PSearchLimitAnswers
@@ -1620,6 +1621,7 @@ import ./proof/doc_search/search_open_answers.bend as PSearchOpenAnswers
 import ./proof/doc_search/search_ask_stops.bend as PSearchAskStops
 import ./proof/doc_search/search_ask_fetches.bend as PSearchAskFetches
 import ./proof/doc_search/search_met_answers.bend as PSearchMetAnswers
+import ./proof/doc_search/search_met_rules_spec.bend as PSearchMetRulesSpec
 import ./proof/doc_search/search_walk_runs.bend as PSearchWalkRuns
 import ./proof/doc_search/search_shut_refuses.bend as PSearchShutRefuses
 import ./proof/doc_search/search_step_refuses.bend as PSearchStepRefuses
