@@ -47,9 +47,9 @@ bend PROOF.bend  # check every law
 
 ## Components
 
-- [RLM](spec/rlm/): Prime Agent's REPL subagents; each spawn names its reason.
-- [Memory](spec/memory/): OptChat, one thread per session.
-- [Agent hierarchy](spec/agents/): a tree; agents message only their parent and children.
+- [Eukhe RLM](spec/rlm/): Prime Agent's REPL subagents; each spawn names its reason.
+- [Eukhe Memory](spec/memory/): OptChat, one thread per session.
+- [Eukhe Hierarchy](spec/agents/): a tree; agents message only their parent and children.
 
 ## Limitations
 
