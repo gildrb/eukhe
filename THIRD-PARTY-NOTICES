@@ -33,9 +33,11 @@ SOFTWARE.
 
 ------------------------------------------------------------------------------
 Prime Agent - https://github.com/PrimeIntellect-ai/prime-agent
-Ported parts: the code base of eukhe. Prime Agent ports the Prime Agent
-TypeScript product, originally Copyright (c) 2025 Mario Zechner, used under
-the MIT License.
+pi - https://github.com/earendil-works/pi
+Ported parts: the code base of eukhe (Prime Agent), and the pi packages chord
+(crates/eukhe-chord), ai (crates/eukhe-ai) and durable (crates/eukhe-durable).
+Prime Agent ports the Prime Agent TypeScript product, originally Copyright (c)
+2025 Mario Zechner, used under the MIT License.
 
 MIT License
 

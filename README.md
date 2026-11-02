@@ -32,15 +32,13 @@ eukhe dashboard  # open the session in a browser
 
 - Each session is its own thread with its own append-only log. Nothing is deleted.
 - A turn sends the newest messages verbatim and a view of the older ones: one-line summaries the agent can open back to the full text.
-- No session reads the memory of another. `/memory` shows it.
-- Design: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
+- No session reads the memory of another.
 
 ## Agents
 
-- The agent starts subagents from its Python REPL and works with them as a tree.
+- The agent starts subagents from its Python REPL. They form a tree.
 - An agent sends messages only to its parent and its own children.
 - `@name message`: send a message to an agent. `/agents`: list them.
-- `gateway.rootHeartbeat`: one persistent `root` session for the phone, woken on a schedule.
 
 ## Laws
 
@@ -50,15 +48,28 @@ eukhe dashboard  # open the session in a browser
 bend PROOF.bend  # check every law
 ```
 
+## Components
+
+- eukhe-bend: the compiled Bend core; every rule with a Bend model runs here.
+- eukhe-chord: contexts, cancellation, JSON. Port of [chord](https://github.com/earendil-works/pi/tree/main/packages/chord).
+- eukhe-ai: providers, model catalog, streaming. Port of [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
+- eukhe-durable: the durable harness; a turn survives a crash. Port of [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable).
+- eukhe-docs: read, hashline edits, grep, glob. Port of [omp](https://github.com/can1357/oh-my-pi) edit.
+- eukhe-shell: in-process bash with its own coreutils; `grep` on ripgrep's engine.
+- Chat memory: Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
+- eukhe-tiny: local models (text, Whisper speech to text, Kokoro text to speech) on ONNX Runtime.
+- eukhe-gateway: Signal on your phone. eukhe-dashboard: the browser app.
+
 ## Limitations
 
 - Runs model-written Python and shell with your permissions. No sandbox. Trusted repositories only.
 - No Windows.
 
-## Attribution
+## Credits
 
-- Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), which ports Mario Zechner's TypeScript agent.
-- Chat memory design: Victor Taelin's OptChat and [OptMem](https://github.com/VictorTaelin/OptMem).
+- Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi).
+- Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
+- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools and the harness design.
 - Not affiliated with Prime Intellect, Victor Taelin or Earendil.
 - Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
