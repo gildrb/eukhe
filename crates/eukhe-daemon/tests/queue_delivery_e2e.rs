@@ -136,7 +136,7 @@ impl HoldGate {
 /// request and the delivery order is observable in the user messages.
 struct DelayedMock {
     requests: Arc<Mutex<usize>>,
-    /// One excerpt per request, in order (the last user message text).
+    /// One excerpt per request, in order (its new user rows: see `serve`).
     bodies: Arc<Mutex<Vec<String>>>,
     /// The gated busy turn (see [`HoldGate`]).
     hold: Arc<HoldGate>,
@@ -180,7 +180,7 @@ impl DelayedMock {
         *self.requests.lock().expect("mock lock")
     }
 
-    /// The last user message of every request, in request order.
+    /// The new user rows of every request, in request order.
     fn request_log(&self) -> Vec<String> {
         self.bodies.lock().expect("mock lock").clone()
     }
@@ -244,27 +244,35 @@ fn serve(
         reader.read_exact(&mut body_bytes)?;
     }
     let body: Value = serde_json::from_slice(&body_bytes).unwrap_or(Value::Null);
-    // The gated busy turn: its answer parks until the test releases the
-    // hold (the full parked lane was observed while the turn was busy).
-    // The gate matches the prompt TEXT, so extract it from the last
-    // user message whether the provider payload carries it as a plain
-    // string or as text parts.
-    let marker_text = body["messages"]
+    // The request's new user rows: the user messages after its last
+    // assistant reply (the session's transcript goes verbatim, so the
+    // queued items a run delivers are one user row each). Each row's
+    // text, whether the provider payload carries it as a plain string or
+    // as text parts.
+    let messages = body["messages"]
         .as_array()
-        .and_then(|messages| {
-            messages
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let new_rows = messages
+        .iter()
+        .rposition(|message| message["role"] == "assistant")
+        .map_or(messages, |last_reply| &messages[last_reply + 1..]);
+    let new_texts: Vec<String> = new_rows
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .filter_map(|message| match &message["content"] {
+            Value::String(text) => Some(text.clone()),
+            Value::Array(parts) => parts
                 .iter()
                 .rev()
-                .find(|message| message["role"] == "user")
-                .and_then(|message| match &message["content"] {
-                    Value::String(text) => Some(text.clone()),
-                    Value::Array(parts) => parts.iter().rev().find_map(|part| {
-                        part.get("text").and_then(Value::as_str).map(str::to_string)
-                    }),
-                    _ => None,
-                })
+                .find_map(|part| part.get("text").and_then(Value::as_str).map(str::to_string)),
+            _ => None,
         })
-        .unwrap_or_default();
+        .collect();
+    // The gated busy turn: its answer parks until the test releases the
+    // hold (the full parked lane was observed while the turn was busy).
+    // The gate matches the prompt TEXT of the last user row.
+    let marker_text = new_texts.last().cloned().unwrap_or_default();
     let gate_observed = hold.observe(&marker_text);
     let index = {
         let mut requests = requests.lock().expect("mock lock");
@@ -274,7 +282,7 @@ fn serve(
     bodies
         .lock()
         .expect("mock lock")
-        .push(format!("#{index}: {marker_text}"));
+        .push(format!("#{index}: {}", new_texts.join(" | ")));
     if !gate_observed {
         std::thread::sleep(Duration::from_millis(ANSWER_DELAY_MS));
     }
@@ -585,14 +593,14 @@ fn queue_pickup_projection_reaches_clients_before_the_delivered_turn_starts() {
     // the whole parked queue. Adapted to pi-durable: at a run's end the
     // final boundary places the queued steers AND follow-ups into the next
     // run together (spec §6; the old turn runner drained the steering lane
-    // as its own turn first), and a chat-memory root takes every queued
-    // follow-up at once (`OptChat` §7), so steers and follow-up share the
-    // one fresh call.
+    // as its own turn first), and the root sends its own transcript
+    // verbatim, so that one request carries each queued item as its own
+    // user row, in lane order.
     wait_for_run_ends(&mut client, 2, "turn one and the delivered queue's run");
     client.drain_events(Duration::from_secs(2));
     assert_eq!(
         mock.request_log(),
-        ["#1: turn one", "#2: steer A\n\nsteer B\n\nfollow C"],
+        ["#1: turn one", "#2: steer A | steer B | follow C"],
         "turn one, then the whole queue's one run"
     );
 
@@ -721,20 +729,20 @@ fn multi_item_queue_delivers_every_item_in_lane_order() {
     // answer; release it so the boundary drains deterministically.
     mock.release_busy_turn();
 
-    // Two calls run (chat memory, OptChat spec §7: a fresh call takes the
-    // queued texts all at once, joined with a blank line): the starter,
-    // then ONE fresh call for the whole parked queue. Adapted to
-    // pi-durable: at a run's end the final boundary places the queued
-    // steers and follow-ups into the next run together (spec §6), where
-    // the old turn runner ran the steering lane's call ahead of a second
-    // call for the follow-up lane; the steering rows still lead.
+    // Two calls run: the starter, then ONE call for the whole parked
+    // queue. Adapted to pi-durable: at a run's end the final boundary
+    // places the queued steers and follow-ups into the next run together
+    // (spec §6), where the old turn runner ran the steering lane's call
+    // ahead of a second call for the follow-up lane. The root sends its
+    // own transcript verbatim: each queued item is its own user row, the
+    // steering rows lead.
     wait_for_run_ends(&mut client, 2, "the starter and the queue's call");
     client.drain_events(Duration::from_secs(2));
     assert_eq!(
         mock.request_log(),
         [
             "#1: turn zero",
-            "#2: steer one\n\nsteer two\n\nsteer three\n\nfollow one\n\nfollow two\n\nfollow three",
+            "#2: steer one | steer two | steer three | follow one | follow two | follow three",
         ],
         "the starter, then the whole queue's one call"
     );
