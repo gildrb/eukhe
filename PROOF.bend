@@ -285,6 +285,11 @@ import ./proof/tree/tree_ffi_example.bend as PTreeFfiExample
 import ./proof/tree/tree_ffi_step_exact.bend as PTreeFfiStepExact
 import ./proof/tree/tree_ffi_open_exact.bend as PTreeFfiOpenExact
 import ./proof/tree/tree_ffi_exact_example.bend as PTreeFfiExactExample
+import ./proof/tree/tree_replay_spec.bend as PTreeReplaySpec
+import ./proof/tree/tree_diff_spec.bend as PTreeDiffSpec
+import ./proof/tree/tree_spec_example.bend as PTreeSpecExample
+import ./proof/tree/tree_ffi_step_spec.bend as PTreeFfiStepSpec
+import ./proof/tree/tree_ffi_open_spec.bend as PTreeFfiOpenSpec
 import ./proof/job/base.bend as LAJob
 import ./proof/job/job_output_bounded.bend as PJobOutputBounded
 import ./proof/job/job_no_silent_loss.bend as PJobNoSilentLoss
