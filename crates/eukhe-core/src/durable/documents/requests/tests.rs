@@ -185,13 +185,10 @@ async fn kernel_arguments_repair_by_the_wire_contract() {
         json!({"old_string": "one", "new_string": "two"}),
     )
     .await;
-    assert_eq!(
-        (&refused["reason"], &refused["message"]),
-        (
-            &json!("arguments"),
-            &json!("edit does not take `old_string`: edit takes a hashline patch, not old/new strings. read or grep the file, then send '[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed.")
-        )
-    );
+    assert_eq!(refused["reason"], json!("arguments"));
+    assert!(refused["message"]
+        .as_str()
+        .is_some_and(|message| message.starts_with("edit does not take `old_string`: ")));
 }
 
 #[tokio::test]

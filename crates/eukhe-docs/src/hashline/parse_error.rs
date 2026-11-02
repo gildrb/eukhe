@@ -90,7 +90,8 @@ pub(crate) enum Fault {
     },
     /// An `apply_patch` file sentinel; `preview` is the clipped row.
     #[error(
-        "apply_patch sentinel {} is not valid in hashline. File sections start with `[path#HASH]` \
+        "apply_patch sentinel {} is not valid in hashline. A file section starts with the file's \
+         header line copied verbatim from the latest `read`/`grep` output (e.g. `[src/a.rs#3F9A]`) \
          (no `Update File:` / `Add File:` keyword). Use `PUT N.=M:`, `CUT N.=M`, or `PUT \
          <N:`/`PUT >N:` ops.",
         json_quote(preview)

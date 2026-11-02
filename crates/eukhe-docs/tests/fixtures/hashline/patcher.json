@@ -37,7 +37,7 @@
    "name": "rejects a hashless head/tail insert — the tag is required on every section",
    "files": {"a.txt": "a\nb\n"},
    "args": {"input": "[a.txt]\nPUT <1:\n+head"},
-   "expect": {"error": "snapshot tag", "writes": 0}
+   "expect": {"error": "has no tag", "writes": 0}
   },
   {
    "name": "rejects a tagged edit whose target file does not exist (create with write instead)",
@@ -93,7 +93,7 @@
    "files": {"a.txt": "a\n", "b.txt": "b\n"},
    "snapshots": [{"path": "a.txt"}, {"path": "b.txt"}],
    "args": {"input": "[a.txt#{{tag:a.txt}}]\nPUT 1.=1:\n+A\n[b.txt#FFFF]\nPUT 1.=1:\n+B"},
-   "expect": {"error": "is not among the versions of this file that this worker holds", "files": {"a.txt": "a\n", "b.txt": "b\n"}, "writes": 0}
+   "expect": {"error": "is not a tag this session holds for this file", "files": {"a.txt": "a\n", "b.txt": "b\n"}, "writes": 0}
   },
   {
    "name": "rejects duplicate canonical targets before writing stale section results",

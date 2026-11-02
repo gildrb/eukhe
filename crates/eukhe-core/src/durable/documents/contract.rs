@@ -33,7 +33,7 @@ const GLOB_DESCRIPTION: &str = "Glob files/dirs: `;`-separated patterns or paths
 
 const WRITE_DESCRIPTION: &str = "Create or overwrite a whole file atomically; parent directories are created; BOM, line endings and mode are kept. An existing file is replaced only if you read or wrote it and it has not changed since. Prefer `edit` for existing files.";
 
-const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings. read or grep the file, then send '[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed.";
+const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings: read or grep the file, then send the `[path#TAG]` header it printed, copied verbatim, with line ops, e.g. `[src/a.rs#3F9A]\\nPUT 12.=14:\\n+new line`.";
 
 /// A documents function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

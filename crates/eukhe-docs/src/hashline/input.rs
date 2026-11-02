@@ -9,7 +9,7 @@ use super::{
     clipboard::has_clipboard_edit,
     messages::{
         json_quote, ABORT_MARKER, BEGIN_PATCH_MARKER, CLIPBOARD_INTERLEAVED_SECTIONS,
-        END_PATCH_MARKER, HL_FILE_HASH_EXAMPLES, HL_FILE_HASH_LENGTH,
+        END_PATCH_MARKER, HL_FILE_HASH_LENGTH, HL_HEADER_RULE,
     },
     parser::parse_patch,
     tokenizer::{classify_line, header_path_has_orphan_bracket, Token},
@@ -137,8 +137,7 @@ fn parse_header_line(line: &str, cwd: &Path) -> Result<Option<PatchSection>, Edi
         return Ok(Some(recovered));
     }
     Err(EditError::parse(format!(
-        "Input header must be [PATH] or [PATH#TAG] with a {HL_FILE_HASH_LENGTH}-hex content-hash \
-         tag; got {}.",
+        "Input header must be {HL_HEADER_RULE}, its tag {HL_FILE_HASH_LENGTH} hex digits; got {}.",
         json_quote(trimmed)
     )))
 }
@@ -232,17 +231,16 @@ fn split_raw_sections(input: &str, cwd: &Path) -> Result<Vec<PatchSection>, Edit
     let first = lines.first().copied().unwrap_or("");
     if parse_header_line(first, cwd)?.is_none() {
         if UNIFIED_HUNK_RE.is_match(first.trim_end()) {
-            return Err(EditError::parse(
-                "unified-diff hunk header (`@@ -N,M +N,M @@`) is not valid in hashline. File sections \
-                 start with `[path#HASH]`; use `replace`, `delete`, or `insert` ops.",
-            ));
+            return Err(EditError::parse(format!(
+                "unified-diff hunk header (`@@ -N,M +N,M @@`) is not valid in hashline. A file \
+                 section starts with {HL_HEADER_RULE}; then `PUT`/`CUT` ops."
+            )));
         }
         let preview: String = first.chars().take(120).collect();
         return Err(EditError::parse(format!(
-            "input must begin with \"[PATH#HASH]\" on the first non-blank line for anchored edits; \
-             got: {}. Example: \"[src/foo.ts#{}]\" then edit ops.",
-            json_quote(&preview),
-            HL_FILE_HASH_EXAMPLES[0]
+            "input must begin with {HL_HEADER_RULE} on the first non-blank line, then edit ops; \
+             got: {}.",
+            json_quote(&preview)
         )));
     }
     let mut sections = Vec::new();
