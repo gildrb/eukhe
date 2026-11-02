@@ -5,7 +5,8 @@
 //! tool's schema past it fails this test, so the growth is a decision (lower
 //! the prompt elsewhere, or raise the budget in the same change), never a
 //! drift. The 56 KB system prompt plus 23.5 KB of tools of 2026-11-01 was
-//! such a drift.
+//! such a drift. The user's own skills (`~/.agents/skills` of the HOME the
+//! tests run in) are left out of the count.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -25,10 +26,10 @@ use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
 
 /// The most bytes eukhe's own system prompt and tool schemas may take in
 /// one request of a default root session (chat memory on, as the daemon
-/// and headless runs open it): the 51,405 bytes measured on 719c43d61,
-/// after the prompt trims (system prompt 28,286, tool schemas 23,119),
-/// plus 5%.
-const PROMPT_BUDGET_BYTES: usize = 54_000;
+/// and headless runs open it): the 20,258 bytes measured after the prompt
+/// and tool trims of 2026-11-02 (system prompt 7,996, tool schemas 12,262;
+/// omp sends 18,781 and 18,328), plus 5%.
+const PROMPT_BUDGET_BYTES: usize = 21_300;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -116,11 +117,39 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
             (tool.name.clone(), bytes.len())
         })
         .collect();
+    let system = without_user_skills(&system);
     let total = system.len() + schemas.iter().map(|(_, bytes)| bytes).sum::<usize>();
+    eprintln!(
+        "system prompt {}, tool schemas {schemas:?}, total {total}",
+        system.len()
+    );
     assert!(
         total <= PROMPT_BUDGET_BYTES,
         "a default root request sends {total} bytes of eukhe's own prompt, past the budget of \
          {PROMPT_BUDGET_BYTES}: system prompt {}, tool schemas {schemas:?}",
         system.len()
     );
+}
+
+/// The system prompt without the skills inventory groups under the HOME
+/// the tests run in (`~/.agents/skills/<name>/SKILL.md:`): those skills are
+/// the user's, not eukhe's, and differ from machine to machine.
+fn without_user_skills(system: &str) -> String {
+    let Some(home) = std::env::var_os("HOME") else {
+        return system.to_owned();
+    };
+    let home = home.to_string_lossy();
+    let mut skipping = false;
+    let kept: Vec<&str> = system
+        .split('\n')
+        .filter(|line| {
+            if line.starts_with('/') && line.ends_with("SKILL.md:") {
+                skipping = line.starts_with(home.as_ref());
+            } else if *line == "</skills>" {
+                skipping = false;
+            }
+            !skipping
+        })
+        .collect();
+    kept.join("\n").replace("\n\n<skills>\n</skills>", "")
 }
