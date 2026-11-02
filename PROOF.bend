@@ -435,6 +435,7 @@ import ./proof/infer/plan_never_loosens_a_needed_tool.bend as PPlanNeverLoosensA
 import ./proof/infer/plan_refusal_names_a_needed_loose_tool.bend as PPlanRefusalNamesANeededLooseTool
 import ./proof/infer/plan_example_over.bend as PPlanExampleOver
 import ./proof/infer/plan_example_fits.bend as PPlanExampleFits
+import ./proof/infer/core_infer_ffi_exact.bend as PCoreInferFfiExact
 import ./proof/infer/guard_cuts_repeats.bend as PGuardCutsRepeats
 import ./proof/infer/guard_cuts_loops.bend as PGuardCutsLoops
 import ./proof/infer/guard_keeps_others.bend as PGuardKeepsOthers
