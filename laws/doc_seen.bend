@@ -285,3 +285,149 @@ law seen_entry_rejects_example:
 # EXCLUDES: a vacuous seen_entry_refines
 law seen_wire_fits_example:
   {seen.WireFits([Ds.Iv{1n, 3n}], [Ds.At{2n, Some{80n}}, Ds.At{9n, None{}}]) == True{} : Bool}
+
+# The entry from the requirement
+# ------------------------------
+# The spec of the whole entry, written from the requirement (F11, the
+# rules above) and the wire's primitives only: no function of
+# bend/doc_seen.bend or bend/ffi_doc_seen.bend (their types only; `cap`
+# and `cols` through seen.Shown and seen.Whole, which reveal_bounds pins to
+# 40 and 512).
+
+# the anchors of ats whose line is not seen, in order
+def seen.sp_unseen(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>) -> List<&2, Ds.At>:
+  match ats:
+    case Nil{}:
+      Nil{}
+    case a <> rest:
+      match a:
+        case Ds.At{+n, +w}:
+          seen.Unseen.keep(Ds.At{n, w}, seen.sp_unseen(seen, rest), seen.In(n, seen))
+
+# the line numbers of the anchors us, in order
+def seen.sp_lines(us: List<&2, Ds.At>) -> List<&2, Nat>:
+  match us:
+    case Nil{}:
+      Nil{}
+    case a <> rest:
+      match a:
+        case Ds.At{n, w}:
+          n <> seen.sp_lines(rest)
+
+# a Maybe<Nat> on the wire: 0, or 1 then the Nat
+def seen.sp_put_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+def seen.sp_put_show(x: Ds.Show, rest: String) -> String:
+  match x:
+    case Ds.Show{n, c}:
+      Wr.put_nat(n, seen.sp_put_mnat(c, rest))
+
+# the verdict on the unseen anchors us: their lines, the lines a
+# rejection shows, whether it showed them whole
+def seen.sp_verdict(+us: List<&2, Ds.At>) -> String:
+  Wr.put_list(~Nat, ~Wr.put_nat, seen.sp_lines(us), Wr.put_list(~Ds.Show, ~seen.sp_put_show, seen.Shown(List.take(&2, Ds.At, us, 40n)), Wr.put_bool(seen.Whole(us), "")))
+
+def seen.sp_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Some{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_mnat.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          seen.sp_mnat.some(Wr.get_nat(s))
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a Maybe<Nat>: the tag 0 (none) or 1 then the Nat
+def seen.sp_mnat(s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  seen.sp_mnat.tag(Wr.get_nat(s))
+
+def seen.sp_iv.hi(lo: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
+  match r:
+    case Wr.Got{hi, s}:
+      Wr.Got{Ds.Iv{lo, hi}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_iv.lo(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.Iv>:
+  match r:
+    case Wr.Got{lo, s}:
+      seen.sp_iv.hi(lo, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a run of seen lines: lo, then hi
+def seen.sp_iv(s: String) -> Wr.Dec<Ds.Iv>:
+  seen.sp_iv.lo(Wr.get_nat(s))
+
+def seen.sp_at.w(n: Nat, r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ds.At>:
+  match r:
+    case Wr.Got{w, s}:
+      Wr.Got{Ds.At{n, w}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def seen.sp_at.n(r: Wr.Dec<Nat>) -> Wr.Dec<Ds.At>:
+  match r:
+    case Wr.Got{n, s}:
+      seen.sp_at.w(n, seen.sp_mnat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an anchor: its line, then its width (a Maybe<Nat>)
+def seen.sp_at(s: String) -> Wr.Dec<Ds.At>:
+  seen.sp_at.n(Wr.get_nat(s))
+
+def seen.sp_done(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, whole: Bool) -> String:
+  match whole:
+    case True{}:
+      seen.sp_verdict(seen.sp_unseen(seen, ats))
+    case False{}:
+      Wr.err("doc_seen: input left over")
+
+def seen.sp_ats(+seen: List<&2, Ds.Iv>, r: Wr.Dec<List<&2, Ds.At>>) -> String:
+  match r:
+    case Wr.Got{ats, s}:
+      seen.sp_done(seen, ats, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("doc_seen: malformed anchors")
+
+def seen.sp_seen(r: Wr.Dec<List<&2, Ds.Iv>>) -> String:
+  match r:
+    case Wr.Got{seen, s}:
+      seen.sp_ats(seen, Wr.get_list(~Ds.At, ~seen.sp_at, s))
+    case Wr.Bad{}:
+      Wr.err("doc_seen: malformed seen runs")
+
+# the entry's answer to the input s: the seen runs, then the anchors
+def seen.sp_entry(s: String) -> String:
+  seen.sp_seen(Wr.get_list(~Ds.Iv, ~seen.sp_iv, s))
+
+# LAW doc_seen_ffi_exact (compiled core): on every input the guard's entry answers the
+# spec's verdict on the seen runs and the anchors the input is exactly
+# (the unseen anchors' lines in order; the first 40 of them that are
+# lines of the snapshot, each cut to 512 characters when longer; whether
+# they are at most 40 and each a line of at most 512 characters), and
+# exactly the error form for malformed seen runs, malformed anchors, or
+# input left over
+# EXCLUDES: a seen anchor named or an unseen one dropped, a line shown cut
+#   or whole by another rule, a whole reveal with a line missing or cut, a
+#   run or an anchor misread, a reply spelled otherwise, a default for
+#   malformed input, input left over ignored, another error text
+law doc_seen_ffi_exact:
+  for +s: String
+  {Fds.ffi(s) == seen.sp_entry(s) : String}

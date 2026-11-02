@@ -1,0 +1,9 @@
+# the seen runs, then the anchors (line, then 0 or 1 and a width): every
+# line and width at its largest; seen at a run's ends, an empty run (hi <
+# lo), unseen anchors at the largest line shown cut, an empty request
+call 2,{MAX},{MAX},0,{MAX},3,{MAX},1,{MAX},{MAX},0,0,1,0,
+call 1,1,{MAX},4,{MAX},1,{MAX},{MAX},0,99999999999998,1,513,0,1,512,
+call 1,0,0,2,{MAX},1,{MAX},{MAX},0,
+call 2,{MAX},0,{MAX},{MAX},1,{MAX},1,512,
+call 0,0,
+refuse 1,{LONG},0,0,

@@ -1615,6 +1615,7 @@ import ./proof/doc_seen/reveal_bounds.bend as PRevealBounds
 import ./proof/doc_seen/seen_entry_refines.bend as PSeenEntryRefines
 import ./proof/doc_seen/seen_entry_rejects_example.bend as PSeenEntryRejectsExample
 import ./proof/doc_seen/seen_wire_fits_example.bend as PSeenWireFitsExample
+import ./proof/doc_seen/doc_seen_ffi_exact.bend as PDocSeenFfiExact
 import ./proof/doc_search/base.bend as LADocSearch
 import ./proof/doc_search/grep_accounts_every_file.bend as PGrepAccountsEveryFile
 import ./proof/doc_search/grep_notes_every_gap.bend as PGrepNotesEveryGap
