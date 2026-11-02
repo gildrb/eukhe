@@ -294,6 +294,34 @@ law fallback_pass_exact:
   for +sh: List<&2, Af.Key>
   {Af.put(r, sh, Nil{}) == afs_events(r, sh) : List<&2, Af.Ev>} & {Af.after(r, sh) == afs_after(r, sh) : List<&2, Af.Key>}
 
+# the route of the pass x: its gate settled with its lookups
+def afs_route(x: Af.Pass) -> Af.Route:
+  match x:
+    case Af.Pass{p, sel, ok, look, need}:
+      afs_settle(afs_gate(p, sel, ok), look, need)
+
+# the events of a session that runs the passes ps in order, the keys sh
+# shown before them: the first pass's events, then the events of the
+# passes after it with the keys shown after it
+def afs_go(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>) -> List<&2, Af.Ev>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case +x <> rest:
+      List.append(&2, Af.Ev, afs_events(afs_route(x), sh), afs_go(rest, afs_after(afs_route(x), sh)))
+
+# LAW fallback_go_exact: the events of every session are the spec's: each pass, in order, shows the spec's events for its route and the keys shown before it, and the keys it shows carry to the passes after it; a session starts with no key shown
+# EXCLUDES: a session that never remembers (or forgets) the keys it has
+#   shown, so a notice repeats for a key already shown; one that
+#   remembers a key it did not show, so a notice is lost; passes run out
+#   of order, a pass dropped or repeated, a session that starts with keys
+#   shown
+law fallback_go_exact:
+  for ps: List<&2, Af.Pass>
+  for +sh: List<&2, Af.Key>
+  for qs: List<&2, Af.Pass>
+  {Af.go(ps, sh) == afs_go(ps, sh) : List<&2, Af.Ev>} & {Af.run(qs) == afs_go(qs, Nil{}) : List<&2, Af.Ev>}
+
 # ---- aux_fallback_wire ----
 
 # The wire codec of bend/ffi_aux_fallback.bend (grammar: that file's

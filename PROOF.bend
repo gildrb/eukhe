@@ -911,6 +911,7 @@ import ./proof/aux_fallback/afw_malformed_example.bend as PAfwMalformedExample
 import ./proof/aux_fallback/base/spec.bend as LAAuxFallbackSpec
 import ./proof/aux_fallback/fallback_decide_exact.bend as PFallbackDecideExact
 import ./proof/aux_fallback/fallback_pass_exact.bend as PFallbackPassExact
+import ./proof/aux_fallback/fallback_go_exact.bend as PFallbackGoExact
 import ./proof/aux_fallback/fallback_terms_exact.bend as PFallbackTermsExact
 import ./proof/aux_fallback/afw_ffi_exact.bend as PAfwFfiExact
 import ./proof/aux_fallback/afw_ffi_spelled.bend as PAfwFfiSpelled

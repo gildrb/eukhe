@@ -9,6 +9,7 @@ import ../../../bend/ffi_aux_fallback.bend as FAf
 import ../../../bend/wire.bend as Wr
 import ../../../laws/aux_fallback.bend as AuxFallback
 import ../fallback_window_fits.bend as PFits
+import ../fallback_pass_events.bend as PEvents
 
 # The model
 # ---------
@@ -99,6 +100,27 @@ def pxe.after(r: Af.Route, +sh: List<&2, Af.Key>) -> {Af.after(r, sh) == AuxFall
     case Af.Fallback{+k}:
       %pxe.shown(sh, k) : {Af.shown(Af.listed(sh, k), k, sh) == AuxFallback.afs_join(_, k, sh) : List<&2, Af.Key>}
       pxe.join(Af.listed(sh, k), k, sh)
+
+# a pass's route is the spec's: its gate, then its settle
+def pxe.decide(x: Af.Pass) -> {Af.decide(x) == AuxFallback.afs_route(x) : Af.Route}:
+  match x:
+    case Af.Pass{+p, +sel, +ok, +look, +need}:
+      %pxe.gate(p, sel, ok) : {Af.settle(Af.gate(p, sel, ok), look, need) == AuxFallback.afs_settle(_, look, need) : Af.Route}
+      pxe.settle(Af.gate(p, sel, ok), look, need)
+
+# a session's events are the spec's fold: per pass, the route is the
+# spec's (pxe.decide), its events then the rest (PEvents.paf.put), each
+# step the spec's (pxe.put, pxe.after), the rest by induction
+def pxe.session(ps: List<&2, Af.Pass>, +sh: List<&2, Af.Key>) -> {Af.go(ps, sh) == AuxFallback.afs_go(ps, sh) : List<&2, Af.Ev>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %pxe.decide(x) : {Af.put(Af.decide(x), sh, Af.go(rest, Af.after(Af.decide(x), sh))) == List.append(&2, Af.Ev, AuxFallback.afs_events(_, sh), AuxFallback.afs_go(rest, AuxFallback.afs_after(_, sh))) : List<&2, Af.Ev>}
+      %pxe.session(rest, AuxFallback.afs_after(Af.decide(x), sh)) : {Af.put(Af.decide(x), sh, Af.go(rest, Af.after(Af.decide(x), sh))) == List.append(&2, Af.Ev, AuxFallback.afs_events(Af.decide(x), sh), _) : List<&2, Af.Ev>}
+      %pxe.after(Af.decide(x), sh) : {Af.put(Af.decide(x), sh, Af.go(rest, Af.after(Af.decide(x), sh))) == List.append(&2, Af.Ev, AuxFallback.afs_events(Af.decide(x), sh), Af.go(rest, _)) : List<&2, Af.Ev>}
+      %pxe.put(Af.decide(x), sh) : {Af.put(Af.decide(x), sh, Af.go(rest, Af.after(Af.decide(x), sh))) == List.append(&2, Af.Ev, _, Af.go(rest, Af.after(Af.decide(x), sh))) : List<&2, Af.Ev>}
+      PEvents.paf.put(Af.decide(x), sh, Af.go(rest, Af.after(Af.decide(x), sh)))
 
 # Encoders
 # --------
