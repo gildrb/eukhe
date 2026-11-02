@@ -1123,6 +1123,8 @@ import ./proof/replace/replace_rank_cut.bend as PReplaceRankCut
 import ./proof/replace/replace_ffi_relation.bend as PReplaceFfiRelation
 import ./proof/replace/replace_ffi_verdict.bend as PReplaceFfiVerdict
 import ./proof/replace/replace_ffi_example.bend as PReplaceFfiExample
+import ./proof/replace/replace_ffi_exact.bend as PReplaceFfiExact
+import ./proof/replace/replace_ffi_exact_example.bend as PReplaceFfiExactExample
 import ./proof/notice/base.bend as LANotice
 import ./proof/notice/notice_shown_once.bend as PNoticeShownOnce
 import ./proof/notice/notice_per_restore.bend as PNoticePerRestore

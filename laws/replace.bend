@@ -233,3 +233,147 @@ law replace_ffi_verdict:
 # EXCLUDES: a request or reply format other than WIRE.md's
 law replace_ffi_example:
   {[FRp.ffi("1,7,0.10.4013,0.9.9-main.46F0,"), FRp.ffi("1,7,0.10.407,0.10.40T0,"), FRp.ffi("0,13,0.9.9-main.467,0.10.40F"), FRp.ffi("0,7,0.10.40")] == ["0,", "1,0,", "2,", Wr.err("replace: malformed request")] : List<&2, String>}
+
+# The whole entry, every input
+# ----------------------------
+# The request and the reply as the wire grammar of WIRE.md (and the
+# header of bend/ffi_replace.bend), read and spelled with the wire
+# primitives alone (never the entry's own codec), and the answer from the
+# spec above (rank_spec, rank_below, rel_spec.pick, verdict_spec; never
+# the model's code):
+#   request  0, then the client's and the daemon's versions (strings) and
+#            whether the build ids are equal (a Bool): the relation | 1,
+#            the same, then the caller (0 interactive | 1 background):
+#            the verdict
+#   reply    the relation: 0 same | 1 older | 2 newer | 3 other; the
+#            verdict: 0 replace | 1, then the relation it keeps
+# A request that cannot be read answers "replace: malformed request"; a
+# request with input after it answers "replace: input left over".
+
+def rp_read.caller(c: String, d: String, same: Bool, r: Wr.Dec<Nat>) -> Wr.Dec<FRp.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{FRp.ReqVerdict{c, d, same, Rp.Interactive{}}, s}
+        case 1n:
+          Wr.Got{FRp.ReqVerdict{c, d, same, Rp.Background{}}, s}
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def rp_read.same(verdict: Bool, c: String, d: String, r: Wr.Dec<Bool>) -> Wr.Dec<FRp.Req>:
+  match verdict:
+    case False{}:
+      match r:
+        case Wr.Got{same, s}:
+          Wr.Got{FRp.ReqRelation{c, d, same}, s}
+        case Wr.Bad{}:
+          Wr.Bad{}
+    case True{}:
+      match r:
+        case Wr.Got{same, s}:
+          rp_read.caller(c, d, same, Wr.get_nat(s))
+        case Wr.Bad{}:
+          Wr.Bad{}
+
+def rp_read.daemon(verdict: Bool, c: String, r: Wr.Dec<String>) -> Wr.Dec<FRp.Req>:
+  match r:
+    case Wr.Got{d, s}:
+      rp_read.same(verdict, c, d, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def rp_read.client(verdict: Bool, r: Wr.Dec<String>) -> Wr.Dec<FRp.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      rp_read.daemon(verdict, c, Wr.get_str(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def rp_read.tag(r: Wr.Dec<Nat>) -> Wr.Dec<FRp.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          rp_read.client(False{}, Wr.get_str(s))
+        case 1n:
+          rp_read.client(True{}, Wr.get_str(s))
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request at the head of s, and the input after it
+def rp_read(s: String) -> Wr.Dec<FRp.Req>:
+  rp_read.tag(Wr.get_nat(s))
+
+# how a daemon of version d relates to a client of version c, with equal
+# build ids exactly when same: the same build; else by the ranks
+def rp_rel(+c: String, +d: String, same: Bool) -> Rp.Rel:
+  +rc = rank_spec(c)
+  +rd = rank_spec(d)
+  rel_spec.pick(same, rank_below(rd, rc), rank_below(rc, rd))
+
+def rp_spell_rel(r: Rp.Rel, rest: String) -> String:
+  match r:
+    case Rp.Same{}:
+      Wr.put_nat(0n, rest)
+    case Rp.Older{}:
+      Wr.put_nat(1n, rest)
+    case Rp.Newer{}:
+      Wr.put_nat(2n, rest)
+    case Rp.Other{}:
+      Wr.put_nat(3n, rest)
+
+def rp_spell_verdict(v: Rp.Verdict, rest: String) -> String:
+  match v:
+    case Rp.Replace{}:
+      Wr.put_nat(0n, rest)
+    case Rp.Keep{r}:
+      Wr.put_nat(1n, rp_spell_rel(r, rest))
+
+def rp_reply(q: FRp.Req) -> String:
+  match q:
+    case FRp.ReqRelation{c, d, same}:
+      rp_spell_rel(rp_rel(c, d, same), "")
+    case FRp.ReqVerdict{c, d, same, k}:
+      rp_spell_verdict(verdict_spec(rp_rel(c, d, same), k), "")
+
+def rp_entry.of(d: Wr.Dec<FRp.Req>) -> String:
+  match d:
+    case Wr.Got{q, r}:
+      match r:
+        case SNil{}:
+          rp_reply(q)
+        case SCon{c, t}:
+          Wr.err("replace: input left over")
+    case Wr.Bad{}:
+      Wr.err("replace: malformed request")
+
+# the entry's answer to s
+def rp_entry(s: String) -> String:
+  rp_entry.of(rp_read(s))
+
+# LAW replace_ffi_exact: for every input, the entry answers exactly: on a request (as the wire
+# primitives read it) with nothing after it, the relation of the daemon's
+# version to the client's (the same build when the ids are equal, else by
+# rank_spec's ranks: older, newer or another build of an equal rank), or
+# the verdict of the caller's start on it (only an interactive start on an
+# older daemon replaces it); on a request with input after it, the error
+# form "replace: input left over"; on any other input, the error form
+# "replace: malformed request"
+# EXCLUDES: client and daemon swapped, a misread version, id flag or
+#   caller, a tag read as another, an answer on garbage or on a request
+#   with input after it, another error text, a codec of the entry wrong
+#   both ways (the spec never calls it)
+law replace_ffi_exact:
+  for +s: String
+  {FRp.ffi(s) == rp_entry(s) : String}
+
+# LAW replace_ffi_exact_example: anchor: the spec on the strings of replace_ffi_example, a
+# background start that keeps an older daemon, and input left over
+# EXCLUDES: a field order other than Rust's, a vacuous replace_ffi_exact
+law replace_ffi_exact_example:
+  {[rp_entry("1,7,0.10.4013,0.9.9-main.46F0,"), rp_entry("1,7,0.10.407,0.10.40T0,"), rp_entry("0,13,0.9.9-main.467,0.10.40F"), rp_entry("1,7,0.10.4013,0.9.9-main.46F1,"), rp_entry("0,7,0.10.40"), rp_entry("0,1,11,1F,")] == ["0,", "1,0,", "2,", "1,1,", Wr.err("replace: malformed request"), Wr.err("replace: input left over")] : List<&2, String>}
