@@ -371,7 +371,15 @@ def oc_next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> OState.St:
 # the reply to q, as the model answers it: a message answers the batch it
 # ran (OStep.St.batch decides whether one runs, OStep.step makes it); a
 # build, a start, a free answer done (0); a wait answers the calls it
-# stops; the queries answer cands, cands.need, ctx and the busy count
+# stops; the queries answer cands, cands.need, ctx and the busy count.
+# laws/optchat/queries.bend pins cands (optchat_cands_spec), cands.need
+# (optchat_need_spec), ctx (optchat_ctx_spec), St.wait
+# (optchat_wait_spec), a start and a free (optchat_start_spec,
+# optchat_free_spec) and the built sizes (optchat_info_set_get,
+# optchat_info_empty) to spec/memory/optchat.bend for every state; a
+# message's batch and a build's compaction sawtooth stay the model's
+# (OFit.fit), pinned by the laws above (view_covers, fit_reaches_budget,
+# fit_merges_built, merge_is_one_pair, push_agrees_always)
 def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
   match q:
     case FOc.QMsg{}:

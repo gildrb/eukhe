@@ -72,6 +72,16 @@ import ./proof/optchat/optchat_entry_open_reads.bend as POptchatEntryOpenReads
 import ./proof/optchat/optchat_entry_open_malformed_exact.bend as POptchatEntryOpenMalformedExact
 import ./proof/optchat/optchat_entry_shut.bend as POptchatEntryShut
 import ./proof/optchat/optchat_entry_example.bend as POptchatEntryExample
+import ./proof/optchat/base/over.bend as LAOptchatOver
+import ./proof/optchat/base/queries.bend as LAOptchatQueries
+import ./proof/optchat/optchat_cands_spec.bend as POptchatCandsSpec
+import ./proof/optchat/optchat_need_spec.bend as POptchatNeedSpec
+import ./proof/optchat/optchat_ctx_spec.bend as POptchatCtxSpec
+import ./proof/optchat/optchat_wait_spec.bend as POptchatWaitSpec
+import ./proof/optchat/optchat_start_spec.bend as POptchatStartSpec
+import ./proof/optchat/optchat_free_spec.bend as POptchatFreeSpec
+import ./proof/optchat/optchat_info_set_get.bend as POptchatInfoSetGet
+import ./proof/optchat/optchat_info_empty.bend as POptchatInfoEmpty
 import ./proof/compactor/base.bend as LACompactor
 import ./proof/compactor/line_calls_at_most_tries.bend as PLineCallsAtMostTries
 import ./proof/compactor/line_fits.bend as PLineFits

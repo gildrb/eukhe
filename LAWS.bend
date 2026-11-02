@@ -5,6 +5,7 @@
 import Base
 import ./laws/base.bend as LawsBase
 import ./laws/optchat.bend as Optchat
+import ./laws/optchat/queries.bend as OptchatQueries
 import ./laws/compactor.bend as Compactor
 import ./laws/wait.bend as WaitLaws
 import ./laws/child.bend as Child
