@@ -563,10 +563,9 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     assert_eq!(results[2].tool_call_id, "c3");
     assert_eq!(result_text(&results[2]), "42\n");
 
-    // The model learns the kernel restarted and what came back.
-    let notice = all
-        .iter()
-        .position(|entry| {
+    // `x` revived in full: nothing was lost, so the model is told nothing.
+    assert!(
+        !all.iter().any(|entry| {
             entry.kind == "eukhe.custom"
                 && entry
                     .data
@@ -574,29 +573,9 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
                     .and_then(|data| data.get("customType"))
                     .and_then(JsonValue::as_str)
                     == Some("ipython_state_restored")
-        })
-        .expect("an ipython_state_restored row");
-    let Some(Message::User(message)) = all[notice].model.as_ref().and_then(|model| model.first())
-    else {
-        panic!("the notice reaches the model: {:?}", all[notice]);
-    };
-    let UserContent::Blocks(blocks) = &message.content else {
-        panic!("block content: {message:?}");
-    };
-    let UserContentBlock::Text(notice_text) = &blocks[0] else {
-        panic!("a text block: {blocks:?}");
-    };
-    assert!(
-        notice_text.text.starts_with("[python-state-restored]"),
-        "{}",
-        notice_text.text
+        }),
+        "a full revival stores no ipython_state_restored row"
     );
-    assert!(notice_text.text.contains('x'), "{}", notice_text.text);
-    // The reopen prewarms the kernel (its snapshot exists) or c3 boots it.
-    // Which side of the interrupted call the notice lands on depends on
-    // whether the harness teardown or the explicit kill reaped the dying
-    // kernel first: the prewarmed notice may precede the recovered answer.
-    // Both rows exist and reach the model either way (asserted above).
     session.close(cx()).await.expect("close");
 }
 

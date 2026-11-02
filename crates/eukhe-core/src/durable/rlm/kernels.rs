@@ -63,15 +63,16 @@ impl ConversationKernel {
     }
 }
 
-/// The `ipython_state_restored` row for a boot that revived a snapshot
-/// (`state_restore_notice::notice_message`).
-fn restored_notice(result: &RestoreResult) -> CustomNotice {
-    CustomNotice::new(
+/// The `ipython_state_restored` row for a boot that lost state; `None`
+/// for a full revival (`state_restore_notice::notice_content`).
+fn restored_notice(result: &RestoreResult) -> Option<CustomNotice> {
+    let text = state_restore_notice::notice_content(result)?;
+    Some(CustomNotice::new(
         state_restore_notice::IPYTHON_STATE_RESTORED_CUSTOM_TYPE,
-        state_restore_notice::notice_content(result),
+        text,
         true,
         Some(json!({ "restored": !result.restored.is_empty() })),
-    )
+    ))
 }
 
 /// The `python_skills_unavailable` row for a boot whose skill imports
@@ -162,7 +163,7 @@ impl KernelPool {
         let on_restore: RestoreCallback = {
             let notices = Arc::clone(&notices);
             Arc::new(move |result: &RestoreResult| {
-                lock(&notices).push(restored_notice(result));
+                lock(&notices).extend(restored_notice(result));
             })
         };
         let on_unavailable_skills: UnavailableSkillsCallback = {

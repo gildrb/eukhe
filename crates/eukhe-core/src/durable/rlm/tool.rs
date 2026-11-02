@@ -5,7 +5,8 @@
 //! The call is not replay-safe: a cell interrupted by a crash is answered
 //! by the Harness with an `interrupted` result carrying the output
 //! committed so far; the next boot of the conversation's kernel revives its
-//! last namespace snapshot and tells the model (`ipython_state_restored`).
+//! last namespace snapshot and tells the model only what it lost
+//! (`ipython_state_restored`).
 //! An abort the cell ignores past the grace kills the kernel: the call
 //! settles `killed` with the output so far and a `kernel_killed`
 //! diagnostic naming what was lost, and the next call revives the same way.

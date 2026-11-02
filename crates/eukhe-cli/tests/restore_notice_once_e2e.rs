@@ -1,12 +1,13 @@
-//! A kernel restore notice shows once. A session's kernel holds a name;
-//! then the session's worker is replaced `RESTARTS` times (the worker is
-//! killed and the session opened again). Each new worker's kernel revives
-//! the name and stores one `ipython_state_restored` notice, and the
-//! attached TUI attaches to the new worker and rebuilds its transcript
-//! from every stored message. The storage holds one notice for each
-//! restore, and the TUI transcript (the inline scrollback, each rebuild
-//! included) shows one restore row for each restore: an attach does not
-//! show the notices of earlier restores again.
+//! A kernel restore notice shows once. A session's kernel holds a name
+//! and one that cannot revive; then the session's worker is replaced
+//! `RESTARTS` times (the worker is killed and the session opened again).
+//! Each new worker's kernel revives the first name, loses the other, and
+//! stores one `ipython_state_restored` notice (a full revival stores
+//! none), and the attached TUI attaches to the new worker and rebuilds its
+//! transcript from every stored message. The storage holds one notice for
+//! each restore, and the TUI transcript (the inline scrollback, each
+//! rebuild included) shows one restore row for each restore: an attach
+//! does not show the notices of earlier restores again.
 //!
 //! The test has its own binary: it sets the process environment that
 //! the in-process TUI reads.
@@ -240,14 +241,15 @@ async fn each_restore_notice_shows_once_across_reconnects() {
     scrub_provider_keys(&mut command);
     let daemon = Daemon::spawn_listening(&mut command, &socket, Duration::from_secs(15));
 
-    // A worker's first turn sets x; its later turns answer with text.
+    // A worker's first turn sets x and y (y pickles but its unpickle
+    // raises, so each restore loses it); its later turns answer with text.
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({
             "responses": [
                 { "content": [
-                    { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 41" } },
+                    { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 41\nclass Boom:\n    def __reduce__(self):\n        return (eval, ('1/0',))\ny = Boom()" } },
                 ] },
                 { "text": "x is set" },
             ],
