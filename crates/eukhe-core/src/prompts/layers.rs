@@ -111,9 +111,6 @@ mod tests {
     #[test]
     fn static_prefix_is_layer_composition() {
         let prefix = static_prefix(HarnessMemory::Harness);
-        assert!(prefix.starts_with("# eukhe harness"));
-        assert!(prefix.contains("The following are mandatory rules"));
-        assert!(prefix.contains("guidelines to agents have been shown"));
         // Exact composition: the three constant layers.
         assert_eq!(
             prefix,
@@ -136,40 +133,13 @@ mod tests {
         assert_eq!(render_layer(layer, HarnessMemory::Chat), "a\nb\nc1\nz\n");
     }
 
-    /// The chat-memory session's layers carry no continual-harness memory
-    /// surface and no push toward proactive delegation (the chat is the
-    /// only memory); both keep the one-loop subagent policy.
+    /// No marker line reaches a rendered layer, whatever the memory.
     #[test]
-    fn chat_memory_layers_drop_harness_memory_and_delegation() {
-        let chat = static_prefix(HarnessMemory::Chat);
-        let harness = static_prefix(HarnessMemory::Harness);
-        for rendered in [&chat, &harness] {
+    fn rendered_layers_carry_no_marker_lines() {
+        for memory in [HarnessMemory::Chat, HarnessMemory::Harness] {
+            let rendered = static_prefix(memory);
             assert!(!rendered.contains("<!-- eukhe:"), "a marker line leaked");
             assert!(!rendered.contains("<!-- /eukhe:"), "a marker line leaked");
-        }
-        for harness_only in [
-            "rlm.harness.create_memory",
-            "rlm.harness.update_memory",
-            "rlm.harness.delete_memory",
-            "_prompt_note",
-            "rlm.get_harness_state",
-            "persistent memories",
-            "Memories must be kept lean",
-            "into memories",
-            "starts them together as parallel subagents",
-        ] {
-            assert!(harness.contains(harness_only), "{harness_only:?}");
-            assert!(!chat.contains(harness_only), "{harness_only:?}");
-        }
-        // Both keep the subagent policy, skills, and subagent specs (their
-        // API is the refine skill's reference).
-        for shared in [
-            "Read the `subagents` skill before the first spawn.",
-            "the `refine` skill's `references/api.md`",
-            "refine.run(",
-        ] {
-            assert!(chat.contains(shared), "{shared:?}");
-            assert!(harness.contains(shared), "{shared:?}");
         }
     }
 }

@@ -79,9 +79,8 @@ user's observations override the view. Zoom a line when you need its detail;
 zoom is your only mechanism to navigate the tree. Summaries keep little of tool
 output, so say in your reply what you learned that will matter later.
 
-Messages the user sends while you work reach you between tool calls. Subagents
-and computer tasks run in the background; each one's report reaches you as a
-message starting "[Name]", between your tool calls or as a new turn."#;
+Messages the user sends while you work, and each subagent's report (a message
+starting "[Name]"), reach you between your tool calls or as a new turn."#;
 
 /// The compactions (§5 "# Compactions").
 const COMPACTIONS: &str = r#"You write Eukhe's memory: one step of the tree, compressing one message into a

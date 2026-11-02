@@ -13,6 +13,16 @@ The calls are synchronous: call them without `await`. `global_=True` targets the
 - `rlm.harness.overview(*, max_entries_per_kind: int = 20, global_: bool = False) -> str`: overview of the stored entries
 - `rlm.harness.search(query: str, kind: str | None = None, limit: int = 10, *, global_: bool = False) -> list[HarnessEntry]`: ranked term search over the entries
 
+Memories and prompt notes (harness-memory sessions only; a chat-memory session's only memory is the chat):
+
+- `rlm.harness.create_memory(title: str, content: str, *, id: str | None = None, path: str = "general", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
+- `rlm.harness.update_memory(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
+- `rlm.harness.delete_memory(id: str, *, global_: bool = False) -> bool`
+- `rlm.harness.create_prompt_note(title: str, content: str, *, id: str | None = None, path: str = "policy", metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
+- `rlm.harness.update_prompt_note(id: str, title: str, content: str, *, path: str | None = None, metadata: dict | None = None, global_: bool = False) -> HarnessEntry`
+- `rlm.harness.delete_prompt_note(id: str, *, global_: bool = False) -> bool`
+- `rlm.get_harness_state(state_dir: str | Path | None = None, *, global_: bool = False) -> HarnessState`: every entry of the selected scope (`.scope`, `.file_path`, `.entries[kind][id]`, `.refinements`); `state_dir` reads another agent's state
+
 `HarnessEntry`:
 
 - `id: str`

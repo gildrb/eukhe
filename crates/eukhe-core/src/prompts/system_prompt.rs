@@ -346,10 +346,8 @@ fn packages_section() -> String {
         "Pre-installed Python packages: {}.",
         default_rlm_extra_import_labels().join(", ")
     )];
-    lines.push(
-        "Install additional packages with `uv pip install <pkg>` (this is a uv-managed venv with no pip module)."
-            .to_string(),
-    );
+    lines
+        .push("Install more with `uv pip install <pkg>` (the venv has no pip module).".to_string());
     lines.join("\n")
 }
 
@@ -379,13 +377,8 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
     }
     lines.push(format!("Working directory: {cwd}"));
     match options.vision_capable {
-        Some(true) => lines.push(
-            "Image input: this model can see images; `attach_image` loads them into context."
-                .to_string(),
-        ),
-        Some(false) => lines.push(
-            "Image input: this model cannot see images; `attach_image` errors for it.".to_string(),
-        ),
+        Some(true) => lines.push("Images: `attach_image` loads them into context.".to_string()),
+        Some(false) => lines.push("This model cannot see images.".to_string()),
         None => {}
     }
     lines.join("\n")
