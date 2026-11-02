@@ -117,6 +117,86 @@ law grep_line_is_read_line:
   for +bs: List<&2, Dl.B>
   {Dl.grep_rows(b <> bs) == Dl.read_rows(b <> bs) : List<&2, List<&2, Dl.B>>}
 
+# put b at the start of the first row
+def lines.Push(b: Dl.B, rs: List<&2, List<&2, Dl.B>>) -> List<&2, List<&2, Dl.B>>:
+  match rs:
+    case Nil{}:
+      [[b]]
+    case r <> m:
+      (b <> r) <> m
+
+# the rows of the text `\r` <> c <> more, from rs, the rows of c <> more:
+# before a `\n` the `\r` is part of that ending, else content of the first
+# row
+def lines.AfterR(c: Dl.B, rs: List<&2, List<&2, Dl.B>>) -> List<&2, List<&2, Dl.B>>:
+  match c:
+    case Dl.N{}:
+      rs
+    case Dl.A{}:
+      lines.Push(Dl.R{}, rs)
+    case Dl.R{}:
+      lines.Push(Dl.R{}, rs)
+
+# the rows of the text y <> t: the text split on `\n`; the one `\r` right
+# before a `\n` is part of that ending, not of the row; any other `\r` is
+# content; no row after a final `\n`
+def lines.Rows(t: List<&2, Dl.B>, y: Dl.B) -> List<&2, List<&2, Dl.B>>:
+  match t:
+    case Nil{}:
+      match y:
+        case Dl.A{}:
+          [[Dl.A{}]]
+        case Dl.R{}:
+          [[Dl.R{}]]
+        case Dl.N{}:
+          [[]]
+    case +c <> more:
+      match y:
+        case Dl.A{}:
+          lines.Push(Dl.A{}, lines.Rows(more, c))
+        case Dl.N{}:
+          Nil{} <> lines.Rows(more, c)
+        case Dl.R{}:
+          lines.AfterR(c, lines.Rows(more, c))
+
+# read's rows of a text: an empty text is one empty row
+def lines.ReadRows(bs: List<&2, Dl.B>) -> List<&2, List<&2, Dl.B>>:
+  match bs:
+    case Nil{}:
+      [[]]
+    case b <> rest:
+      lines.Rows(rest, b)
+
+# grep's rows of a text: an empty text has no row
+def lines.GrepRows(bs: List<&2, Dl.B>) -> List<&2, List<&2, Dl.B>>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case b <> rest:
+      lines.Rows(rest, b)
+
+# LAW read_rows_exact: read's rows of any text are the text split on `\n`,
+# each row without the one `\r` right before its `\n`, a lone `\r` kept
+# as content, no row after a final `\n`, an empty text one empty row
+# EXCLUDES: read and grep changed alike (grep_line_is_read_line still
+#   holds, the row lengths of rows_lines_are_read_rows still match): a
+#   lone `\r` turned into other content, row bytes swapped or reordered,
+#   both `\r` of a `\r\r\n` dropped, a lone `\r` taken as an ending
+law read_rows_exact:
+  for +bs: List<&2, Dl.B>
+  {Dl.read_rows(bs) == lines.ReadRows(bs) : List<&2, List<&2, Dl.B>>}
+
+# LAW grep_rows_exact: grep's rows of any text are the text split on `\n`,
+# each row without the one `\r` right before its `\n`, a lone `\r` kept
+# as content, no row after a final `\n`, an empty text no row
+# EXCLUDES: grep and read changed alike (grep_line_is_read_line still
+#   holds): a lone `\r` turned into other content, row bytes swapped or
+#   reordered, both `\r` of a `\r\r\n` dropped, the `\r` of a last
+#   unterminated row dropped, a row shown for an empty text
+law grep_rows_exact:
+  for +bs: List<&2, Dl.B>
+  {Dl.grep_rows(bs) == lines.GrepRows(bs) : List<&2, List<&2, Dl.B>>}
+
 # the texts of the pieces of an edited file
 def lines.Texts(ps: List<&2, Dl.Piece>) -> List<&2, List<&2, Dl.B>>:
   match ps:
