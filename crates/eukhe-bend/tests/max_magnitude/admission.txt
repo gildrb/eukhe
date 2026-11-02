@@ -1,0 +1,20 @@
+# a stepper: a cap of {MAX} + 1 slots and {MAX} queued, then every op with
+# every ticket number and limit at its largest
+open 1,{MAX},{MAX},
+step 0,1,
+step 0,0,
+step 0,1,
+step 1,{MAX},
+step 2,{MAX},
+step 3,{MAX},
+step 4,1,{MAX},{MAX},
+step 4,0,{MAX},
+step 1,1,
+step 2,1,
+step 3,2,
+# a {LONG} ticket number or limit is refused, the controller kept
+refuse-step 1,{LONG},
+refuse-step 4,1,{LONG},0,
+step 2,0,
+# a {LONG} limit is refused at open
+refuse-open 1,{LONG},0,

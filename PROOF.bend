@@ -201,6 +201,16 @@ import ./proof/admission/adw_live_example.bend as PAdwLiveExample
 import ./proof/admission/adw_op_example.bend as PAdwOpExample
 import ./proof/admission/adw_open_example.bend as PAdwOpenExample
 import ./proof/admission/adw_malformed_example.bend as PAdwMalformedExample
+import ./proof/admission/base/entry.bend as LAAdmissionEntry
+import ./proof/admission/admission_step_exact/count.bend as LAAdmissionAdmissionStepExactCount
+import ./proof/admission/admission_step_exact/grant.bend as LAAdmissionAdmissionStepExactGrant
+import ./proof/admission/admission_step_exact.bend as PAdmissionStepExact
+import ./proof/admission/admission_spec_example.bend as PAdmissionSpecExample
+import ./proof/admission/adw_open_exact.bend as PAdwOpenExact
+import ./proof/admission/adw_step_exact.bend as PAdwStepExact
+import ./proof/admission/adw_open_spelled.bend as PAdwOpenSpelled
+import ./proof/admission/adw_step_spelled.bend as PAdwStepSpelled
+import ./proof/admission/adw_spec_example.bend as PAdwSpecExample
 import ./proof/tree/base/bool.bend as LATreeBool
 import ./proof/tree/base/director.bend as LATreeDirector
 import ./proof/tree/base/list.bend as LATreeList
