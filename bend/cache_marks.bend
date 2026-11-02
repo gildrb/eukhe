@@ -3,10 +3,11 @@
 # OpenAI-compatible and Bedrock Converse request builders). A request
 # carries at most four cache marks. The marked user text blocks and the
 # end-of-request mark are placed first; the provider's optional marks
-# (system prompt, tools, the OAuth identity block) then take the slots
-# left, in the provider's priority order, each only when the request
-# wants it. More than three marked blocks is a caller bug: the request
-# fails with a fixed text before it is sent. Pure: no IO, no @unsafe.
+# (the system prompt's shared prefix, tools, the prompt's per-session
+# tail) then take the slots left, in the provider's priority order, each
+# only when the request wants it. More than three marked blocks is a
+# caller bug: the request fails with a fixed text before it is sent. Pure:
+# no IO, no @unsafe.
 
 import Base
 

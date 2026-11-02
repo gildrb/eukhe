@@ -3,7 +3,10 @@
 
 use std::collections::HashSet;
 
-use eukhe_ai::utils::transcript::{declarations_equal, get_current_tools, to_tool_declaration};
+use eukhe_ai::utils::text::MessageContent;
+use eukhe_ai::utils::transcript::{
+    declarations_equal, get_current_tools, get_initial_system_message, to_tool_declaration,
+};
 use eukhe_chord::context::Context;
 use eukhe_types::pi_ai::{IndexMap, Message, SystemContent, SystemMessage, Tool, ToolReference};
 
@@ -80,6 +83,35 @@ pub async fn render_sections(
         desired.insert(section.key.clone(), value);
     }
     Ok(desired)
+}
+
+/// eukhe addition: the request's
+/// [`StreamOptions::system_cache_breakpoint`](eukhe_ai::types::StreamOptions):
+/// the key of the last section of the leading system message's shared
+/// prefix, the leading run of its sections that `sections` declares
+/// [`PromptSection::shared`]. `None` when the message has content of its
+/// own or its first section is not shared.
+#[must_use]
+pub(crate) fn system_cache_breakpoint(
+    sections: &[std::sync::Arc<PromptSection>],
+    messages: &[Message],
+) -> Option<String> {
+    let system = get_initial_system_message(messages)?;
+    if !system.content.content_text("").is_empty() {
+        return None;
+    }
+    let shared: HashSet<&str> = sections
+        .iter()
+        .filter(|section| section.shared)
+        .map(|section| section.key.as_str())
+        .collect();
+    system
+        .sections
+        .as_ref()?
+        .keys()
+        .take_while(|key| shared.contains(key.as_str()))
+        .last()
+        .cloned()
 }
 
 /// A planned `pi.system` entry.

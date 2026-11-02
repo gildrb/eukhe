@@ -163,3 +163,54 @@ async fn omits_anthropic_style_cache_markers_when_cache_retention_is_none() {
     assert!(params["tools"][0].get("cache_control").is_none());
     assert!(last_message(&params)["content"].is_string());
 }
+
+/// eukhe addition: with a cache breakpoint the leading prompt goes as two
+/// text parts, the shared prefix and the session's tail, each marked; the
+/// prefix mark outranks the tool's, the tool's the tail's.
+#[tokio::test]
+async fn a_cache_breakpoint_marks_the_shared_prefix_part() {
+    let system = json!({
+        "role": "system",
+        "content": "",
+        "sections": { "core": "Core.", "cwd": "Working directory: /a" },
+        "timestamp": 0,
+    });
+    let breakpoint = |messages: JsonValue| {
+        let mut all = vec![system.clone()];
+        all.extend(messages.as_array().expect("messages").iter().cloned());
+        let options = OpenAICompletionsOptions {
+            stream: StreamOptions {
+                system_cache_breakpoint: Some("core".to_owned()),
+                ..StreamOptions::default()
+            },
+            ..OpenAICompletionsOptions::default()
+        };
+        (context(json!({ "messages": all })), options)
+    };
+    let (ctx, options) =
+        breakpoint(json!([{ "role": "user", "content": "Hello", "timestamp": 1 }]));
+    let params = capture_payload(&custom_qwen(), &ctx, options).await;
+    assert_eq!(
+        instruction_message(&params).expect("instruction message")["content"],
+        json!([
+            { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+            { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
+        ])
+    );
+    // Two marked blocks and the end mark leave one slot: the prefix's.
+    let marked =
+        |text: &str| json!({ "type": "text", "text": text, "cacheBreakpoint": "ephemeral" });
+    let (ctx, options) = breakpoint(json!([{
+        "role": "user",
+        "content": [marked("a"), marked("b"), { "type": "text", "text": "tail" }],
+        "timestamp": 1,
+    }]));
+    let params = capture_payload(&custom_qwen(), &ctx, options).await;
+    assert_eq!(
+        instruction_message(&params).expect("instruction message")["content"],
+        json!([
+            { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+            { "type": "text", "text": "Working directory: /a" },
+        ])
+    );
+}

@@ -28,7 +28,7 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use crate::utils::text::{get_system_message_text, render_system_message_update};
+use crate::utils::text::{render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{get_current_tools, get_initial_system_message};
 
 const FINE_GRAINED_TOOL_STREAMING_BETA: &str = "fine-grained-tool-streaming-2025-05-14";
@@ -656,8 +656,11 @@ fn get_beta_features(
 /// TS `buildParams`.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
-/// optional system, last-tool, and OAuth identity marks take the slots left,
-/// in that order (`eukhe_bend::rules::cache_marks::grant`).
+/// optional marks take the slots left, in this order
+/// (`eukhe_bend::rules::cache_marks::grant`): the system prompt's shared
+/// prefix (the whole prompt without a
+/// [`StreamOptions::system_cache_breakpoint`](crate::types::StreamOptions)),
+/// the last tool, and the end of the session's tail of the prompt.
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `buildParams` body.
 pub(crate) fn build_params(
     model: &Model,
@@ -675,9 +678,13 @@ pub(crate) fn build_params(
     let mid_convo_effort =
         model_compat.and_then(|compat| compat.supports_mid_convo_effort) == Some(true);
     let initial_system = get_initial_system_message(messages);
-    let initial_system_text = initial_system
-        .map(get_system_message_text)
-        .unwrap_or_default();
+    // eukhe addition: the shared prefix of the prompt and the session's tail
+    // go as blocks of their own, so the prefix's mark is the same in every
+    // session.
+    let (system_prefix, system_tail) = split_system_prompt(
+        initial_system,
+        options.stream.system_cache_breakpoint.as_deref(),
+    );
     let normalize =
         |id: &str, _: &Model, _: &eukhe_types::pi_ai::AssistantMessage| normalize_tool_call_id(id);
     let transformed = transform_messages(messages, model, Some(&normalize));
@@ -743,12 +750,12 @@ pub(crate) fn build_params(
     let tool_cache_control = cache_control
         .as_ref()
         .filter(|_| compat.supports_cache_control_on_tools);
-    let [system_mark, tools_mark, identity_mark] = eukhe_bend::rules::cache_marks::grant(
+    let [prefix_mark, tools_mark, tail_mark] = eukhe_bend::rules::cache_marks::grant(
         placed_marks(&wire_messages, "cache_control"),
         [
-            cache_control.is_some() && !initial_system_text.is_empty(),
+            cache_control.is_some() && !system_prefix.is_empty(),
             tool_cache_control.is_some() && !request_tools.is_empty(),
-            cache_control.is_some() && is_oauth_token,
+            cache_control.is_some() && !system_tail.is_empty(),
         ],
     );
 
@@ -771,35 +778,28 @@ pub(crate) fn build_params(
         }
         block
     };
+    let mut system = Vec::new();
     if is_oauth_token {
         // Claude Code's billing attribution opens `system`, uncached; the
-        // client patches its `cch` into the serialized body.
+        // client patches its `cch` into the serialized body. The identity
+        // block after it is too short to be worth a mark.
         let first_user_text = params
             .get("messages")
             .and_then(JsonValue::as_array)
             .map_or("", |messages| billing::first_user_text(messages));
-        let mut system = vec![
-            json!({
-                "type": "text",
-                "text": billing::billing_header(first_user_text, CLAUDE_CODE_VERSION),
-            }),
-            system_block(CLAUDE_CODE_SYSTEM_PROMPT, identity_mark),
-        ];
-        if !initial_system_text.is_empty() {
-            system.push(system_block(
-                &sanitize_surrogates(&initial_system_text),
-                system_mark,
-            ));
+        system.push(json!({
+            "type": "text",
+            "text": billing::billing_header(first_user_text, CLAUDE_CODE_VERSION),
+        }));
+        system.push(json!({ "type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT }));
+    }
+    for (text, marked) in [(&system_prefix, prefix_mark), (&system_tail, tail_mark)] {
+        if !text.is_empty() {
+            system.push(system_block(&sanitize_surrogates(text), marked));
         }
+    }
+    if !system.is_empty() {
         params.insert("system".into(), JsonValue::Array(system));
-    } else if !initial_system_text.is_empty() {
-        params.insert(
-            "system".into(),
-            json!([system_block(
-                &sanitize_surrogates(&initial_system_text),
-                system_mark
-            )]),
-        );
     }
 
     if let Some(temperature) = options.stream.temperature {

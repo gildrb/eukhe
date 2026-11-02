@@ -20,7 +20,7 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::hash::short_hash;
 use crate::utils::js::{js_trim, json_stringify, utf16_len, utf16_prefix};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use crate::utils::text::{get_system_message_text, render_system_message_update};
+use crate::utils::text::{render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools, TranscriptTools};
 
 /// TS `ConvertCompletionsMessagesOptions`.
@@ -32,6 +32,11 @@ pub struct ConvertCompletionsMessagesOptions<'a> {
     /// request. When set, user text blocks carrying a `cache_breakpoint` get
     /// it as an explicit prompt-cache breakpoint.
     pub cache_control: Option<&'a JsonValue>,
+    /// eukhe addition: [`crate::types::StreamOptions::system_cache_breakpoint`].
+    /// With `cache_control` set, a split leading prompt goes as two text
+    /// parts, its shared prefix and the session's tail, each marked
+    /// separately.
+    pub system_cache_breakpoint: Option<&'a str>,
 }
 
 /// The reasoning fields an assistant replay can carry, in TS declaration order.
@@ -283,16 +288,27 @@ pub(crate) fn convert_messages(
                         "tools": convert_tools(added_tools, compat, &strict_plan)?,
                     }));
                 }
-                let text = if i == 0 {
-                    get_system_message_text(system)
+                // eukhe addition: with cache marks, a split leading prompt
+                // sends its shared prefix as a text part of its own.
+                let (text, tail) = if i == 0 {
+                    split_system_prompt(
+                        Some(system),
+                        options.cache_control.and(options.system_cache_breakpoint),
+                    )
                 } else {
-                    render_system_message_update(system)
+                    (render_system_message_update(system), String::new())
                 };
-                if !text.is_empty() {
-                    params.push(json!({
-                        "role": instruction_role,
-                        "content": sanitize_surrogates(&text),
-                    }));
+                let instruction = match (text.is_empty(), tail.is_empty()) {
+                    (true, true) => None,
+                    (false, true) => Some(json!(sanitize_surrogates(&text))),
+                    (true, false) => Some(json!(sanitize_surrogates(&tail))),
+                    (false, false) => Some(json!([
+                        { "type": "text", "text": sanitize_surrogates(&text) },
+                        { "type": "text", "text": sanitize_surrogates(&tail) },
+                    ])),
+                };
+                if let Some(content) = instruction {
+                    params.push(json!({ "role": instruction_role, "content": content }));
                 }
             }
             Message::User(user) => match &user.content {

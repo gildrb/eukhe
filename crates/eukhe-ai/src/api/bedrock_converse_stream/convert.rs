@@ -146,20 +146,35 @@ fn breakpoint_cache_point() -> JsonValue {
 }
 
 /// TS `buildSystemPrompt`. eukhe addition: with marked blocks the system
-/// cache point is optional and takes a mark slot only while one is left
-/// after the `placed` message marks (`eukhe_bend::rules::cache_marks`).
+/// cache points are optional and take mark slots only while some are left
+/// after the `placed` message marks (`eukhe_bend::rules::cache_marks`);
+/// the prompt's shared `prefix` and the session's `tail` (`""` when the
+/// prompt is not split) are blocks of their own, each with its cache point.
 pub(crate) fn build_system_prompt(
-    system_prompt: Option<&str>,
+    prefix: &str,
+    tail: &str,
     model: &Model,
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
     placed: usize,
 ) -> Option<Vec<JsonValue>> {
-    let system_prompt = system_prompt.filter(|prompt| !prompt.is_empty())?;
-    let mut blocks = vec![json!({ "text": sanitize_surrogates(system_prompt) })];
+    if prefix.is_empty() && tail.is_empty() {
+        return None;
+    }
     let want = cache_retention != CacheRetention::None && supports_prompt_caching(model, env);
-    if let [true] = eukhe_bend::rules::cache_marks::grant(placed, [want]) {
-        blocks.push(cache_point(cache_retention));
+    let marks = eukhe_bend::rules::cache_marks::grant(
+        placed,
+        [want && !prefix.is_empty(), want && !tail.is_empty()],
+    );
+    let mut blocks = Vec::new();
+    for (text, marked) in [prefix, tail].into_iter().zip(marks) {
+        if text.is_empty() {
+            continue;
+        }
+        blocks.push(json!({ "text": sanitize_surrogates(text) }));
+        if marked {
+            blocks.push(cache_point(cache_retention));
+        }
     }
     Some(blocks)
 }

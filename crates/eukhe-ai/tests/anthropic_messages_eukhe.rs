@@ -82,6 +82,91 @@ async fn full_mark_budget_drops_the_optional_marks() {
     assert!(body["tools"][0].get("cache_control").is_none());
 }
 
+/// A transcript whose leading system message has a shared `core` section
+/// and a per-session `cwd` section, then `messages`.
+fn sectioned(messages: Value) -> eukhe_types::pi_ai::TranscriptContext {
+    let mut all = vec![json!({
+        "role": "system",
+        "content": "",
+        "sections": { "core": "Core.", "cwd": "Working directory: /a" },
+        "toolsAdded": tools(),
+        "timestamp": 0,
+    })];
+    let Value::Array(messages) = messages else {
+        panic!("messages are an array");
+    };
+    all.extend(messages);
+    anthropic_support::context(&json!({ "messages": all }))
+}
+
+#[tokio::test]
+async fn a_cache_breakpoint_sends_the_shared_prefix_as_its_own_marked_block() {
+    for (key, system) in [
+        (
+            "sk-test",
+            json!([
+                { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+                { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
+            ]),
+        ),
+        (
+            // OAuth: billing and identity lead, neither marked.
+            "sk-ant-oat-x",
+            json!([
+                { "type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=cli; cch=00000;" },
+                { "type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude." },
+                { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+                { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
+            ]),
+        ),
+    ] {
+        let (fetch, captured) = ok_fetch();
+        let mut options = options(fetch);
+        options.stream.request.api_key = Some(key.into());
+        options.stream.system_cache_breakpoint = Some("core".into());
+        let context = sectioned(json!([{ "role": "user", "content": "hi", "timestamp": 1 }]));
+        let (_, result) = collect(stream_anthropic(&model(&json!({})), &context, options)).await;
+        assert_eq!(result.stop_reason, StopReason::Stop);
+        let mut body = requests(&captured).pop().expect("request").body;
+        // The attestation hashes the whole body; it is not under test here.
+        if let Some(text) = body["system"][0]["text"].as_str() {
+            if let Some((head, _)) = text.split_once("cch=") {
+                body["system"][0]["text"] = json!(format!("{head}cch=00000;"));
+            }
+        }
+        assert_eq!(body["system"], system, "{key}");
+        // The end mark, the prefix, the tool, the tail: all four slots.
+        assert_eq!(
+            body["tools"][0]["cache_control"],
+            json!({ "type": "ephemeral" })
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_shared_prefix_mark_outranks_the_tool_and_tail_marks() {
+    let (fetch, captured) = ok_fetch();
+    let mut options = options(fetch);
+    options.stream.system_cache_breakpoint = Some("core".into());
+    // Two marked blocks and the end mark leave one slot: the prefix's.
+    let context = sectioned(json!([{
+        "role": "user",
+        "content": [marked("a"), marked("b"), { "type": "text", "text": "tail" }],
+        "timestamp": 1,
+    }]));
+    let (_, result) = collect(stream_anthropic(&model(&json!({})), &context, options)).await;
+    assert_eq!(result.stop_reason, StopReason::Stop);
+    let body = requests(&captured).pop().expect("request").body;
+    assert_eq!(
+        body["system"],
+        json!([
+            { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+            { "type": "text", "text": "Working directory: /a" },
+        ])
+    );
+    assert!(body["tools"][0].get("cache_control").is_none());
+}
+
 #[tokio::test]
 async fn too_many_marked_blocks_fail_before_sending() {
     let (fetch, captured) = ok_fetch();

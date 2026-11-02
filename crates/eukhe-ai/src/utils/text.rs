@@ -66,12 +66,69 @@ pub fn content_text<C: MessageContent + ?Sized>(content: &C, separator: &str) ->
 /// Render a system message as a complete prompt: its content followed by its sections.
 #[must_use]
 pub fn get_system_message_text(message: &SystemMessage) -> String {
-    let mut parts = vec![message.content.content_text(DEFAULT_CONTENT_SEPARATOR)];
-    if let Some(sections) = &message.sections {
-        parts.extend(sections.values().flatten().cloned());
+    let content = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
+    join_prompt_parts(std::iter::once(content.as_str()).chain(section_texts(message, ..)))
+}
+
+/// eukhe addition: [`get_system_message_text`] cut after the section named
+/// `breakpoint`: the prefix (the content and the sections up to and
+/// including it) and the tail (the sections after it; `""` when none). The
+/// two joined with `"\n\n"`, an empty one left out, are the whole prompt.
+/// `None` when no section is named `breakpoint`.
+#[must_use]
+pub fn split_system_message_text(
+    message: &SystemMessage,
+    breakpoint: &str,
+) -> Option<(String, String)> {
+    let end = message.sections.as_ref()?.get_index_of(breakpoint)? + 1;
+    let content = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
+    Some((
+        join_prompt_parts(std::iter::once(content.as_str()).chain(section_texts(message, ..end))),
+        join_prompt_parts(section_texts(message, end..)),
+    ))
+}
+
+/// eukhe addition: the leading system prompt as its shared prefix and the
+/// session's tail: [`split_system_message_text`] at `breakpoint`, else the
+/// whole prompt and `""`. No message: two empty texts.
+#[must_use]
+pub fn split_system_prompt(
+    message: Option<&SystemMessage>,
+    breakpoint: Option<&str>,
+) -> (String, String) {
+    let Some(message) = message else {
+        return (String::new(), String::new());
+    };
+    breakpoint
+        .and_then(|breakpoint| split_system_message_text(message, breakpoint))
+        .unwrap_or_else(|| (get_system_message_text(message), String::new()))
+}
+
+/// The texts of the sections of `message` in `range` (by position); removed
+/// sections have none.
+fn section_texts(
+    message: &SystemMessage,
+    range: impl std::ops::RangeBounds<usize>,
+) -> impl Iterator<Item = &str> {
+    message
+        .sections
+        .as_ref()
+        .and_then(|sections| sections.get_range(range))
+        .into_iter()
+        .flat_map(|sections| sections.values())
+        .filter_map(Option::as_deref)
+}
+
+/// The non-empty parts joined with `"\n\n"`.
+fn join_prompt_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    let mut text = String::new();
+    for part in parts.into_iter().filter(|part| !part.is_empty()) {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(part);
     }
-    parts.retain(|part| !part.is_empty());
-    parts.join("\n\n")
+    text
 }
 
 /// Render a later system message for APIs that accept system messages
@@ -147,5 +204,52 @@ mod tests {
             UserContentBlock::Text(TextContent::new("second")),
         ];
         assert_eq!(content_text(&tool_result_content, ""), "firstsecond");
+    }
+
+    fn sectioned(content: &str, sections: &[(&str, Option<&str>)]) -> SystemMessage {
+        SystemMessage {
+            content: SystemContent::Text(content.to_owned()),
+            sections: Some(
+                sections
+                    .iter()
+                    .map(|(key, value)| ((*key).to_owned(), value.map(str::to_owned)))
+                    .collect(),
+            ),
+            tools_added: None,
+            tools_removed: None,
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn splits_the_prompt_after_the_breakpoint_section() {
+        let message = sectioned(
+            "",
+            &[
+                ("core", Some("Core.")),
+                ("empty", Some("")),
+                ("model", Some("Model.")),
+                ("cwd", Some("Cwd.")),
+                ("gone", None),
+                ("date", Some("Date.")),
+            ],
+        );
+        let whole = get_system_message_text(&message);
+        assert_eq!(whole, "Core.\n\nModel.\n\nCwd.\n\nDate.");
+        let split = split_system_message_text(&message, "model");
+        assert_eq!(
+            split,
+            Some(("Core.\n\nModel.".to_owned(), "Cwd.\n\nDate.".to_owned()))
+        );
+        let (prefix, tail) = split.expect("split");
+        assert_eq!(format!("{prefix}\n\n{tail}"), whole);
+        // The content leads the prefix; a breakpoint on the last section
+        // leaves no tail; an unknown one does not split.
+        let message = sectioned("Base.", &[("core", Some("Core."))]);
+        assert_eq!(
+            split_system_message_text(&message, "core"),
+            Some(("Base.\n\nCore.".to_owned(), String::new()))
+        );
+        assert_eq!(split_system_message_text(&message, "other"), None);
     }
 }

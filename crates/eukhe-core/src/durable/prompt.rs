@@ -9,7 +9,10 @@
 //! the project's instructions and the environment ([`CLOSING_KEYS`]), and
 //! last `running-jobs`, present only while a job runs
 //! ([`super::jobs::running_jobs_section`]). Nothing varies per session, so
-//! a second session in a project reuses the provider's cached prompt.
+//! a second session in a project reuses the provider's cached prompt. The
+//! leading static sections ([`SHARED_SECTIONS`]) are the same in every
+//! project too: requests send them as a cache-marked block of their own,
+//! which a session in another project, or a child, reads from the cache.
 //!
 //! Inputs fixed for the session (resources, guidelines, role, memory,
 //! daemon availability) are captured at construction; the model selector,
@@ -23,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::Models;
-use eukhe_durable::harness::define::{define_extension, section};
+use eukhe_durable::harness::define::{define_extension, section, shared_section};
 use eukhe_durable::harness::types::{
     Extension, PromptInput, SubmissionDraft, WriteSubmissionDraft,
 };
@@ -48,7 +51,8 @@ pub const PROMPT_EXTENSION: &str = "eukhe.prompt";
 pub const CLOSING_EXTENSION: &str = "eukhe.closing";
 
 /// Section keys of `eukhe.prompt` (the breakdown's segment names) in prompt
-/// order: the install-stable part before the closing block.
+/// order: the install-stable part before the closing block. The first
+/// [`SHARED_SECTIONS`] are shared.
 pub const SECTION_KEYS: [&str; 12] = [
     "memory",
     "custom",
@@ -63,6 +67,14 @@ pub const SECTION_KEYS: [&str; 12] = [
     "additional-guidance",
     "appended-prompt",
 ];
+
+/// How many of [`SECTION_KEYS`] lead the prompt as its shared prefix
+/// ([`PromptSection::shared`](eukhe_durable::harness::types::PromptSection)):
+/// the breakdown's static segments, the same in every session of an
+/// install for one memory side and model. Requests mark the prefix's end,
+/// so a session in another project, or a child, reads it from the
+/// provider's cache.
+pub const SHARED_SECTIONS: usize = 6;
 
 /// Section keys of `eukhe.closing` from the breakdown, in prompt order: the
 /// closing block, then what is stable for a project.
@@ -218,26 +230,28 @@ pub fn extensions(deps: &Arc<HostDeps>) -> [Arc<Extension>; 2] {
         cache: Mutex::new(None),
     });
     report_model_prompt_errors(deps);
-    let sections = |keys: &[&'static str]| -> Vec<_> {
+    let sections = |keys: &[&'static str], shared: usize| -> Vec<_> {
         keys.iter()
-            .map(|&key| {
+            .enumerate()
+            .map(|(at, &key)| {
                 let builder = Arc::clone(&builder);
-                section(
-                    key,
-                    move |input: &PromptInput, _cx| {
-                        futures::future::ready(Ok(builder.segment(input, key))).boxed()
-                    },
-                    Some(false),
-                )
+                let render = move |input: &PromptInput, _cx: &eukhe_chord::context::Context| {
+                    futures::future::ready(Ok(builder.segment(input, key))).boxed()
+                };
+                if at < shared {
+                    shared_section(key, render)
+                } else {
+                    section(key, render, Some(false))
+                }
             })
             .collect()
     };
     let prompt = define_extension(Extension {
         name: PROMPT_EXTENSION.to_owned(),
-        sections: sections(&SECTION_KEYS),
+        sections: sections(&SECTION_KEYS, SHARED_SECTIONS),
         ..Extension::default()
     });
-    let mut closing = sections(&CLOSING_KEYS);
+    let mut closing = sections(&CLOSING_KEYS, 0);
     // Last: it comes and goes with the jobs, after the stable sections.
     closing.push(super::jobs::running_jobs_section(deps));
     let closing = define_extension(Extension {

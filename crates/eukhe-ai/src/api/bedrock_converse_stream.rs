@@ -63,7 +63,7 @@ use crate::utils::now_ms;
 use crate::utils::stream_failure::{
     record_stream_failure, stream_failure_from_stop_reason, ProviderError, ProviderHttpError,
 };
-use crate::utils::text::get_system_message_text;
+use crate::utils::text::split_system_prompt;
 use crate::utils::transcript::{
     collapse_system_messages, get_current_tools, get_initial_system_message,
 };
@@ -412,12 +412,17 @@ fn build_command_input(
         .max_tokens
         .or_else(|| convert::is_anthropic_claude_model(model).then_some(model.max_tokens));
     let messages = context.messages();
-    let initial_system_prompt = get_initial_system_message(messages).map(get_system_message_text);
+    // eukhe addition: the prompt's shared prefix and the session's tail.
+    let (system_prefix, system_tail) = split_system_prompt(
+        get_initial_system_message(messages),
+        options.stream.system_cache_breakpoint.as_deref(),
+    );
     let converted = convert::convert_messages(messages, model, cache_retention, env)?;
-    // eukhe addition: the message marks are fixed; the system cache point
-    // takes a slot only when one is left.
+    // eukhe addition: the message marks are fixed; the system cache points
+    // take a slot only when one is left.
     let system = convert::build_system_prompt(
-        initial_system_prompt.as_deref(),
+        &system_prefix,
+        &system_tail,
         model,
         cache_retention,
         env,

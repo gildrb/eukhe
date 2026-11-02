@@ -6,15 +6,16 @@
 //!
 //! The budget rule runs as the compiled core
 //! (`eukhe_bend::rules::cache_marks`, `laws/cache_marks.bend`). A request
-//! with no marked block keeps its upstream marks byte for byte. A request
 //! with marked blocks keeps the end-of-request mark (on the last block of
 //! the last conversation message) and one mark per marked block; a marked
 //! block that also ends the request counts once. The provider's optional
-//! marks (system prompt, tools, the OAuth identity block) then take the
-//! slots left, in the provider's priority order. Too many marked blocks is
-//! a caller bug: the request fails before it is sent, never with a
-//! silently dropped mark. This module gathers the counts the core decides
-//! on.
+//! marks then take the slots left, in the provider's priority order: the
+//! system prompt's shared prefix (the whole prompt when it is not split,
+//! `StreamOptions::system_cache_breakpoint`), the last tool, then the end
+//! of the prompt's per-session tail. The OAuth identity block, too short to
+//! cache, takes none. Too many marked blocks is a caller bug: the request
+//! fails before it is sent, never with a silently dropped mark. This module
+//! gathers the counts the core decides on.
 //!
 //! Only the text blocks of user messages carry marks; tool-result content
 //! never does.

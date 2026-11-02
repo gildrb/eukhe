@@ -68,7 +68,9 @@ use crate::harness::live::run::{
     append_assistant, convert_partial, create_compaction, timestamp, CompactionInput,
 };
 use crate::harness::live::{end_run, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC};
-use crate::harness::prompt::{plan_system_entries, render_sections, replay_sections, SystemDraft};
+use crate::harness::prompt::{
+    plan_system_entries, render_sections, replay_sections, system_cache_breakpoint, SystemDraft,
+};
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
 use crate::harness::types::{
@@ -615,6 +617,10 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
+    // eukhe addition: the leading prompt's shared prefix ends a cache mark
+    // of its own, the same in every session.
+    options.stream.system_cache_breakpoint =
+        system_cache_breakpoint(&runtime.agent(&cx).await?.sections, &messages);
     // The note of a retry after a noted reply (H4.7), the rounds left once
     // few remain (the round cap, `stop::rounds_note`), then a forced
     // call's soft prompt, end the request; the native flag follows the

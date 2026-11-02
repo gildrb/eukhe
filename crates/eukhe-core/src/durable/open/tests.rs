@@ -924,9 +924,105 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     session.close(cx()).await.expect("close");
 }
 
+/// The Anthropic Messages body an OAuth client sends for a request the
+/// faux provider captured: the payload hook keeps it and fails the request
+/// before anything goes out.
+async fn anthropic_body(
+    context: &eukhe_types::pi_ai::TranscriptContext,
+    options: &eukhe_ai::types::SimpleStreamOptions,
+) -> serde_json::Value {
+    let model = eukhe_ai::providers::all::get_builtin_model("anthropic", "claude-opus-5-5")
+        .expect("catalog model");
+    let payload: Arc<Mutex<Option<serde_json::Value>>> = Arc::default();
+    let sink = Arc::clone(&payload);
+    let mut options = options.clone();
+    options.stream.request.api_key = Some("sk-ant-oat-test".to_owned());
+    options.stream.request.on_payload = Some(Arc::new(move |body, _model| {
+        *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(body);
+        Box::pin(async {
+            Err(
+                eukhe_ai::utils::diagnostics::ErrorObject::named("PayloadCaptured", "captured")
+                    .thrown(),
+            )
+        })
+    }));
+    let _ = eukhe_ai::api::anthropic_messages::stream_simple(&model, context, &options)
+        .result()
+        .await;
+    let body = payload
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    body.expect("the payload was captured")
+}
+
+/// Sessions in two projects (other working directory, other AGENTS.md)
+/// send the shared prefix of the system prompt as the same cache-marked
+/// block at the same position, so the second session reads it from the
+/// provider's cache; each project's values follow in a block of their own.
+#[tokio::test]
+async fn sessions_in_two_projects_send_one_marked_prompt_prefix() {
+    let fixture = fixture();
+    let mut systems = Vec::new();
+    for (project, id) in [
+        ("alpha", "0192a000-0000-7000-8000-0000000000a1"),
+        ("beta", "0192a000-0000-7000-8000-0000000000b1"),
+    ] {
+        let cwd = fixture.cwd.join(project);
+        std::fs::create_dir_all(&cwd).expect("cwd");
+        std::fs::write(cwd.join("AGENTS.md"), format!("Rules of {project}.\n")).expect("agents");
+        let captured = Arc::new(Mutex::new(None));
+        let capture = Arc::clone(&captured);
+        fixture.faux.set_responses(vec![FauxResponseStep::factory(
+            move |context, options, _, _| {
+                *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some((context.clone(), options.cloned().unwrap_or_default()));
+                Ok(faux_assistant_message(
+                    "ok",
+                    FauxAssistantMessageOptions::default(),
+                ))
+            },
+        )]);
+        let mut config = SessionConfig::new(&fixture.agent_dir, &cwd, id, SessionStorage::Memory);
+        config.models = Some(fixture.models.clone());
+        config.model = Some(fixture.model().into());
+        let session = open_session(config, cx()).await.expect("open");
+        ask(&session, "hi").await;
+        let (context, options) = captured
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .expect("the request was captured");
+        let body = anthropic_body(&context, &options).await;
+        session.close(cx()).await.expect("close");
+        let system = body["system"].as_array().expect("system blocks").clone();
+        systems.push((project, cwd, system));
+    }
+    let [(_, _, alpha), (_, _, beta)] = &systems[..] else {
+        panic!("two sessions");
+    };
+    // Billing, identity, the shared prefix, the project's tail: the prefix
+    // is byte for byte the same block, marked at the same position.
+    assert_eq!(alpha[2], beta[2]);
+    for (project, cwd, system) in &systems {
+        let marked: Vec<usize> = system
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.get("cache_control").is_some())
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!(marked, vec![2, 3], "{project}: {system:?}");
+        let text = |at: usize| system[at]["text"].as_str().expect("text").to_owned();
+        let cwd = cwd.display().to_string();
+        assert!(!text(2).contains("Rules of") && !text(2).contains(&cwd));
+        assert!(text(3).contains(&format!("Rules of {project}.")) && text(3).contains(&cwd));
+    }
+}
+
 /// Every segment the old builder can produce has a section, in the same
 /// order, for each memory side and for a replaced prompt; the closing
-/// `<critical>` block is in a layered prompt only.
+/// `<critical>` block is in a layered prompt only. The shared sections are
+/// exactly the static segments, the breakdown's cached prefix.
 #[test]
 fn section_keys_follow_the_breakdown_order() {
     let skills = Vec::new();
@@ -978,6 +1074,15 @@ fn section_keys_follow_the_breakdown_order() {
             for position in positions {
                 assert!(position > previous, "segment order differs: {memory:?}");
                 previous = position;
+            }
+            for segment in &breakdown.segments {
+                let at = keys.iter().position(|key| *key == segment.name);
+                assert_eq!(
+                    at.is_some_and(|at| at < crate::durable::SHARED_SECTIONS),
+                    segment.kind == crate::prompts::SegmentKind::Static,
+                    "segment {} is shared exactly when static: {memory:?}",
+                    segment.name
+                );
             }
             assert!(breakdown
                 .segments

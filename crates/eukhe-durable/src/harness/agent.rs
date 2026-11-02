@@ -444,6 +444,7 @@ pub fn resolve_agent(
             key: INSTRUCTIONS_KEY.to_owned(),
             render: Arc::new(move |_, _| futures::future::ready(Ok(Some(text.clone()))).boxed()),
             tag: None,
+            shared: false,
         }));
     }
 
