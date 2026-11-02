@@ -243,7 +243,7 @@ pub enum WriteError {
     IsDirectory { display: String },
     #[error("Cannot write {display}: it changed on disk since it was read. Nothing was written; re-read it and retry.")]
     Changed { display: String },
-    #[error("Cannot write {display}: it changed since you last read it, or you never read it. Nothing was written; read it, then write again.")]
+    #[error("Cannot write {display}: this session has not read its current contents (a shell view such as cat does not count). Nothing was written; call read(\"{display}\"), then send this write again.")]
     Unseen { display: String },
     #[error("Did not write {display}: {reason}")]
     Refused {

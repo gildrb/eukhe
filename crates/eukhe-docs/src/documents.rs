@@ -375,12 +375,8 @@ mod tests {
         let created = docs
             .write(&cwd, "b.txt", "new\n", &Open)
             .map(|outcome| outcome.disposition);
-        let refusal = "Cannot write a.txt: it changed since you last read it, or you never read \
-                       it. Nothing was written; read it, then write again.";
         assert_eq!(
             (
-                never_read.as_str(),
-                changed_after_read.as_str(),
                 kept.as_str(),
                 after_read.unwrap(),
                 again.unwrap(),
@@ -388,8 +384,6 @@ mod tests {
                 std::fs::read_to_string(&path).unwrap()
             ),
             (
-                refusal,
-                refusal,
                 "theirs again\n",
                 WriteDisposition::Overwrote,
                 WriteDisposition::Overwrote,
@@ -397,6 +391,10 @@ mod tests {
                 "mine 2\n".to_owned()
             )
         );
+        // Each refusal names the one-step fix: read this path, then retry.
+        for refusal in [never_read, changed_after_read] {
+            assert!(refusal.contains(r#"read("a.txt")"#), "{refusal}");
+        }
     }
 
     /// Sessions editing one file at once never lose an update: a write
