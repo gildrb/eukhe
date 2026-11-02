@@ -24,9 +24,14 @@ The page is a read-only Neovim with Gil's config, on every screen with the scrip
 | Vertical drag   | text follows the finger, a row per line height (`<C-e>`, `<C-y>` with a count) |
 | Flick           | keeps scrolling, 5% slower each frame                                          |
 | Horizontal drag | view moves a column per cell (`zl`, `zh` with a count)                         |
-| Tap             | cursor to the cell; a link opens; `[copy]` copies the install command          |
+| Tap             | cursor to the cell; `[copy]` copies the install command                        |
+| Tap a link      | its label or URL: eukhe's file or folder opens in the editor (gf), a URL opens |
+| Tap Oil entry   | opens it (Enter); `../` goes up                                                |
+| Tap statusline  | the folder above the window (`-`)                                              |
+| Pinch           | font 7-28px; the screen gains or loses rows and columns                        |
+| Browser back    | edge swipe, or a rightward drag at the first column: back a tap (`<C-o>`)      |
 
-No keyboard comes up: pickers and commands stay desktop-only.
+Each place a tap opens is a browser history entry (same URL); back and forward step through them with `<C-o>` and `<C-i>`. Mouse clicks open links (label or URL); Oil and statusline taps are touch-only, as in nvim. No keyboard comes up: pickers and commands stay desktop-only.
 
 ## Reference
 
