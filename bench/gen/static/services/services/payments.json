@@ -1,0 +1,10 @@
+{
+  "name": "payments",
+  "port": 7004,
+  "replicas": 3,
+  "owner": "lena@example.org",
+  "healthcheck": {
+    "path": "/healthz",
+    "interval_s": 10
+  }
+}

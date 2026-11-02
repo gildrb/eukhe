@@ -1,0 +1,10 @@
+{
+  "name": "catalog",
+  "port": 7002,
+  "replicas": 2,
+  "owner": "omar@example.org",
+  "healthcheck": {
+    "path": "/health",
+    "interval_s": 30
+  }
+}

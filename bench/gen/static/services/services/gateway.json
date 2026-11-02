@@ -1,0 +1,10 @@
+{
+  "name": "gateway",
+  "port": 7009,
+  "replicas": 2,
+  "owner": "ida@example.org",
+  "healthcheck": {
+    "path": "/ready",
+    "interval_s": 5
+  }
+}

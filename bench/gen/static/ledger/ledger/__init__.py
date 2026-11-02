@@ -1,0 +1,1 @@
+"""Tiny expense ledger."""

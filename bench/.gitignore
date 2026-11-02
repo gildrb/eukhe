@@ -1,0 +1,11 @@
+# Run data belongs in --dir ($EUKHE_BENCH_DIR, default /var/tmp/eukhe-bench-data), outside the repo.
+/fixtures/
+/expected/
+/ref/
+/hidden/
+/results/
+/work/
+/logs/
+/venv/
+/kernel-venv/
+/kernel-home/
