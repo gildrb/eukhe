@@ -371,16 +371,23 @@ def upto(k: Nat, +a: Nat) -> List<&2, Nat>:
     case 1n+j:
       a <> upto(j, 1n+a)
 
-# every index below len was tried
-def all_seen.go(xs: List<&2, Nat>, +ts: List<&2, Tried>) -> Bool:
-  match xs:
-    case Nil{}:
+# every index of a, a+1, ..., a+k-1 was tried; hit: whether a was. The
+# walk stops at the first index not tried, so it looks at no more indices
+# than there are attempts, plus one, however long the chain is (a chain
+# index list of len cells would stop the process for a len near the
+# wire's largest Nat)
+def seen_run(k: Nat, hit: Bool, +a: Nat, +ts: List<&2, Tried>) -> Bool:
+  match k hit:
+    case 0n h:
       True{}
-    case x <> rest:
-      Bool.and(seen(x, ts), all_seen.go(rest, ts))
+    case 1n+j False{}:
+      False{}
+    case 1n+j True{}:
+      seen_run(j, seen(1n+a, ts), 1n+a, ts)
 
+# every index below len was tried
 def all_seen(+len: Nat, +ts: List<&2, Tried>) -> Bool:
-  all_seen.go(upto(len, 0n), ts)
+  seen_run(len, seen(0n, ts), 0n, ts)
 
 # chain order after the provider that just failed:
 # last+1, ..., len-1, 0, ..., last-1; it never holds last, so no pick
@@ -405,6 +412,32 @@ def pick.fresh(xs: List<&2, Nat>, +ts: List<&2, Tried>) -> Maybe<&2, Switch>:
     case +x <> rest:
       pick.sel(Bool.not(seen(x, ts)), Switch{x, 0n}, pick.fresh(rest, ts))
 
+# the first index of a, a+1, ..., a+k-1 not tried yet, at once; hit:
+# whether a was tried. Like seen_run, it stops at the first index not
+# tried: pick.fresh(upto(k, a), ts) without the list
+def fresh_run(k: Nat, hit: Bool, +a: Nat, +ts: List<&2, Tried>) -> Maybe<&2, Switch>:
+  match k hit:
+    case 0n h:
+      None{}
+    case 1n+j False{}:
+      Some{Switch{a, 0n}}
+    case 1n+j True{}:
+      fresh_run(j, seen(1n+a, ts), 1n+a, ts)
+
+# the pick of the order's first part (above last), else the first index
+# below last (and below len) not tried
+def fresh.then(m: Maybe<&2, Switch>, +last: Nat, +len: Nat, +ts: List<&2, Tried>) -> Maybe<&2, Switch>:
+  match m:
+    case Some{s}:
+      Some{s}
+    case None{}:
+      fresh_run(Nat.min(last, len), seen(0n, ts), 0n, ts)
+
+# the first provider of the order after last not tried yet, at once:
+# pick.fresh(order(last, len), ts), walking no further than its pick
+def fresh(+last: Nat, +len: Nat, +ts: List<&2, Tried>) -> Maybe<&2, Switch>:
+  fresh.then(fresh_run(Nat.sub(len, 1n+last), seen(1n+last, ts), 1n+last, ts), last, len, ts)
+
 # the first provider of xs whose return wait d (the backoff, and never
 # less than its server's wait) is positive and at most max
 def pick.back(xs: List<&2, Nat>, +ts: List<&2, Tried>, +backoff: Nat, +max: Nat) -> Maybe<&2, Switch>:
@@ -420,12 +453,14 @@ def pick.back(xs: List<&2, Nat>, +ts: List<&2, Tried>, +backoff: Nat, +max: Nat)
 def backoff(+p: Policy, +len: Nat, +ts: List<&2, Tried>) -> Nat:
   double(Nat.sub(length(ts), len), Policy.base(p), Policy.max(p))
 
+# once every provider was tried (so the chain is no longer than the
+# attempts), a return; else the first provider not tried
 def next.mode(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, Tried>, +p: Policy) -> Maybe<&2, Switch>:
   match all:
     case True{}:
       pick.back(order(last, len), ts, backoff(p, len, ts), Policy.max(p))
     case False{}:
-      pick.fresh(order(last, len), ts)
+      fresh(last, len, ts)
 
 def next.budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, Tried>, +p: Policy) -> Maybe<&2, Switch>:
   match ok:

@@ -1327,6 +1327,8 @@ import ./proof/retry_ffi/retry_ffi_entry_trailing_exact.bend as PRetryFfiEntryTr
 import ./proof/retry_ffi/retry_ffi_entry_example.bend as PRetryFfiEntryExample
 import ./proof/retry_ffi/retry_length_exact.bend as PRetryLengthExact
 import ./proof/retry_ffi/retry_terms_exact.bend as PRetryTermsExact
+import ./proof/retry_ffi/retry_wait_exact.bend as PRetryWaitExact
+import ./proof/retry_ffi/retry_ffi_entry_reads_exact.bend as PRetryFfiEntryReadsExact
 import ./proof/dash/base.bend as LADash
 import ./proof/dash/dash_token_spec.bend as PDashTokenSpec
 import ./proof/dash/dash_stored_spec.bend as PDashStoredSpec

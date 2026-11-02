@@ -103,7 +103,10 @@ def spell_switch(m: Maybe<&2, R.Switch>) -> String:
         case R.Switch{to, delay}:
           Wr.put_nat(1n, Wr.put_nat(to, Wr.put_nat(delay, "")))
 
-# the reply to q: the model's decision, spelled
+# the reply to q: the model's decision, spelled (each decision is pinned
+# to its spec for every input: the classifier by retry_classifier_exact,
+# the wait by retry_wait_exact, the walk by failover_exact, the stall by
+# stall_retry_doubles; spec_answer below spells the specs themselves)
 def spell_answer(q: Fr.Req) -> String:
   match q:
     case Fr.QClassify{f}:
@@ -114,6 +117,60 @@ def spell_answer(q: Fr.Req) -> String:
       spell_switch(R.next(len, tried, p))
     case Fr.QStall{idle}:
       Wr.put_nat(R.stall.next(idle), "")
+
+# The specs' reply
+# ----------------
+
+# the jitter of a draw under a step: none under a step of 0, else the
+# draw modulo the step (R2: full jitter in [0, step))
+def wait_spec.jitter.pick(none: Bool, +step: Nat, +draw: Nat) -> Nat:
+  match none:
+    case True{}:
+      0n
+    case False{}:
+      Nat.mod(draw, step)
+
+def wait_spec.jitter(+step: Nat, +draw: Nat) -> Nat:
+  wait_spec.jitter.pick(Nat.is_eq(step, 0n), step, draw)
+
+# a server wait above a positive cap refuses the retry and names both;
+# else the retry waits the longer of the jitter and the server's wait
+def wait_spec.server(refuse: Bool, +jitter: Nat, +s: Nat, +cap: Nat) -> R.Delay:
+  match refuse:
+    case True{}:
+      R.Refused{s, cap}
+    case False{}:
+      R.After{Nat.max(jitter, s)}
+
+# the wait of a retry that drew `jitter`, after the server's wait, if any,
+# under the cap (0: no cap)
+def wait_spec.of(+jitter: Nat, server: Maybe<&2, Nat>, +cap: Nat) -> R.Delay:
+  match server:
+    case None{}:
+      R.After{jitter}
+    case Some{+s}:
+      wait_spec.server(Bool.and(Bool.not(Nat.is_eq(cap, 0n)), Nat.is_gt(s, cap)), jitter, s, cap)
+
+# the wait of retry `attempt` (1 for the first retry), as R2 states it
+# (`retry_wait`, `RetryWait::of`): the jitter of the draw under the step
+# (the base doubled per retry before this one, at most the cap), never
+# before the server's wait, refused past a positive cap
+def wait_spec(+base: Nat, +attempt: Nat, +cap: Nat, +draw: Nat, server: Maybe<&2, Nat>) -> R.Delay:
+  wait_spec.of(wait_spec.jitter(Nat.min(Retry.rs.twice(Nat.sub(attempt, 1n), base), cap), draw), server, cap)
+
+# the reply to q from the specs alone, spelled: the classifier of R1
+# (rs.retryable), the wait of R2 (wait_spec), the walk of R3 (rs.next),
+# the stall of R5 (twice the deadline)
+def spec_answer(q: Fr.Req) -> String:
+  match q:
+    case Fr.QClassify{f}:
+      Wr.put_bool(Retry.rs.retryable(f), "")
+    case Fr.QWait{base, attempt, cap, draw, server}:
+      spell_delay(wait_spec(base, attempt, cap, draw, server))
+    case Fr.QFailover{len, tried, p}:
+      spell_switch(Retry.rs.next(len, tried, p))
+    case Fr.QStall{+idle}:
+      Wr.put_nat(Nat.add(idle, idle), "")
 
 # The laws' reader
 # ----------------
@@ -393,6 +450,30 @@ law retry_ffi_entry_trailing_exact:
 # EXCLUDES: another spelling of the requests or replies Rust reads
 law retry_ffi_entry_example:
   {[Fr.ffi("0,FF1,429,0,F"), Fr.ffi("1,10,4,60,95,0,"), Fr.ffi("2,3,3,0,0,1,0,2,0,8,10,200,"), Fr.ffi("3,30,"), Fr.ffi("4,"), Fr.ffi("3,30,x")] == ["T", "0,35,", "1,0,10,", "60,", "E retry: malformed request", "E retry: input left after the request"] : List<&2, String>}
+
+# LAW retry_ffi_entry_reads_exact: every input the laws' reader reads whole as a request gets the reply the specs alone give that request (the classifier of R1, the wait of R2, the walk of R3, twice the stall's deadline), spelled from the wire's primitives; with retry_ffi_entry_malformed_exact and retry_ffi_entry_trailing_exact, the specs fix the entry's reply to every input string
+# EXCLUDES: an input read whole answered with a decision the specs do not
+#   give (a model that drifts from its spec, an entry that answers
+#   another request or an error), whatever its spelling
+law retry_ffi_entry_reads_exact:
+  for +s: String
+  for q: Fr.Req
+  for rest: String
+  for got: {read_req(s) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
+  for whole: {Wr.end(rest) == True{} : Bool}
+  {Fr.ffi(s) == spec_answer(q) : String}
+
+# LAW retry_wait_exact: the model's wait of a retry is the wait R2 states, for every base, attempt, cap, draw and server's wait
+# EXCLUDES: a step that does not double or ignores the cap, a jitter at or
+#   past the step, a retry before the server's wait, a refusal under no
+#   cap or within it, a wait past a positive cap
+law retry_wait_exact:
+  for base: Nat
+  for attempt: Nat
+  for cap: Nat
+  for draw: Nat
+  for server: Maybe<&2, Nat>
+  {R.retry_wait(base, attempt, cap, draw, server) == wait_spec(base, attempt, cap, draw, server) : R.Delay}
 
 # LAW retry_length_exact: the model's `length` of the providers tried, which the laws' request
 # fit (`rs.req_fits`) reads, is the number of providers tried

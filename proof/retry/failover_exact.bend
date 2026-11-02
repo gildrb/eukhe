@@ -4,6 +4,7 @@ import Base
 import ../../bend/retry.bend as R
 import ../../laws/retry.bend as Retry
 import ../base/nat.bend as LNat
+import ../base/retry.bend as LRetry
 import ./base.bend as LA
 
 # (R3) The failover walk, exactly
@@ -32,14 +33,20 @@ def rx.tried(+x: Nat, ts: List<&2, R.Tried>) -> {R.seen(x, ts) == Retry.rs.tried
           %rx.tried(x, rest) : {Bool.or(Nat.is_eq(at, x), R.seen(x, rest)) == Bool.or(Nat.is_eq(at, x), _) : Bool}
           {==}
 
-def rx.all(xs: List<&2, Nat>, +ts: List<&2, R.Tried>) -> {R.all_seen.go(xs, ts) == Retry.rs.all_tried(xs, ts) : Bool}:
-  match xs:
-    case Nil{}:
+# the walk over a, ..., a+k-1 (hit: whether a was tried) is the spec's
+# all-tried test of those indices
+def rx.all(k: Nat, hit: Bool, +a: Nat, +ts: List<&2, R.Tried>, e: {R.seen(a, ts) == hit : Bool}) -> {R.seen_run(k, hit, a, ts) == Retry.rs.all_tried(Retry.rs.ints(k, a), ts) : Bool}:
+  match k hit:
+    case 0n h:
       {==}
-    case +x <> +rest:
-      %rx.tried(x, ts) : {Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) == Bool.and(_, Retry.rs.all_tried(rest, ts)) : Bool}
-      %rx.all(rest, ts) : {Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) == Bool.and(R.seen(x, ts), _) : Bool}
+    case 1n+j False{}:
+      %rx.tried(a, ts) : {False{} == Bool.and(_, Retry.rs.all_tried(Retry.rs.ints(j, 1n+a), ts)) : Bool}
+      %Equal.sym(Bool, R.seen(a, ts), False{}, e) : {False{} == Bool.and(_, Retry.rs.all_tried(Retry.rs.ints(j, 1n+a), ts)) : Bool}
       {==}
+    case 1n+j True{}:
+      %rx.tried(a, ts) : {R.seen_run(j, R.seen(1n+a, ts), 1n+a, ts) == Bool.and(_, Retry.rs.all_tried(Retry.rs.ints(j, 1n+a), ts)) : Bool}
+      %Equal.sym(Bool, R.seen(a, ts), True{}, e) : {R.seen_run(j, R.seen(1n+a, ts), 1n+a, ts) == Bool.and(_, Retry.rs.all_tried(Retry.rs.ints(j, 1n+a), ts)) : Bool}
+      rx.all(j, R.seen(1n+a, ts), 1n+a, ts, {==})
 
 def rx.pick(hit: Bool, w: Maybe<&2, Nat>, +acc: Nat) -> {R.server.pick(hit, w, acc) == Retry.rs.wait.pick(hit, w, acc) : Nat}:
   match hit:
@@ -123,15 +130,15 @@ def rx.returns(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.P
       %LA.rx.double(Nat.sub(R.length(ts), len), B, M) : {R.next.mode(True{}, last, len, ts, p) == Retry.rs.back(R.order(last, len), ts, _, M) : Maybe<&2, R.Switch>}
       rx.back(R.order(last, len), ts, R.backoff(p, len, ts), M)
     case False{}:
-      %rx.after(last, len) : {R.next.mode(False{}, last, len, ts, p) == Retry.rs.fresh(_, ts) : Maybe<&2, R.Switch>}
+      %LRetry.rp.fresh_order(last, len, ts) : {_ == Retry.rs.fresh(Retry.rs.after(last, len), ts) : Maybe<&2, R.Switch>}
+      %rx.after(last, len) : {R.pick.fresh(R.order(last, len), ts) == Retry.rs.fresh(_, ts) : Maybe<&2, R.Switch>}
       rx.fresh(R.order(last, len), ts)
 
 def rx.budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> {R.next.budget(ok, last, len, ts, p) == Retry.rs.budget(ok, last, len, ts, p) : Maybe<&2, R.Switch>}:
   match ok:
     case True{}:
-      %rx.ints(len, 0n) : {R.next.budget(True{}, last, len, ts, p) == Retry.rs.returns(Retry.rs.all_tried(_, ts), last, len, ts, p) : Maybe<&2, R.Switch>}
-      %rx.all(R.upto(len, 0n), ts) : {R.next.budget(True{}, last, len, ts, p) == Retry.rs.returns(_, last, len, ts, p) : Maybe<&2, R.Switch>}
-      rx.returns(R.all_seen.go(R.upto(len, 0n), ts), last, len, ts, p)
+      %rx.all(len, R.seen(0n, ts), 0n, ts, {==}) : {R.next.budget(True{}, last, len, ts, p) == Retry.rs.returns(_, last, len, ts, p) : Maybe<&2, R.Switch>}
+      rx.returns(R.all_seen(len, ts), last, len, ts, p)
     case False{}:
       {==}
 
