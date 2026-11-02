@@ -2101,6 +2101,7 @@ import ./proof/color/color_ffi_answers.bend as PColorFfiAnswers
 import ./proof/color/color_ffi_malformed_exact.bend as PColorFfiMalformedExact
 import ./proof/color/color_ffi_left_over.bend as PColorFfiLeftOver
 import ./proof/color/color_ffi_example.bend as PColorFfiExample
+import ./proof/color/color_ffi_spec.bend as PColorFfiSpec
 import ./proof/tui_color/tui_effort_ramp_exact.bend as PTuiEffortRampExact
 import ./proof/tui_color/tui_usage_band_exact.bend as PTuiUsageBandExact
 import ./proof/tui_color/tui_roles_cover.bend as PTuiRolesCover
