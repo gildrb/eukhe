@@ -3064,8 +3064,11 @@ import ./proof/privacy/privacy_ipv4_three_parts.bend as PPrivacyIpv4ThreeParts
 import ./proof/privacy/privacy_ipv4_version_context.bend as PPrivacyIpv4VersionContext
 import ./proof/privacy/privacy_ipv6_decides.bend as PPrivacyIpv6Decides
 import ./proof/privacy/privacy_ipv6_exact.bend as PPrivacyIpv6Exact
+import ./proof/privacy/privacy_ipv6_loopback_any_form.bend as PPrivacyIpv6LoopbackAnyForm
+import ./proof/privacy/privacy_ipv6_mapped_reserved.bend as PPrivacyIpv6MappedReserved
 import ./proof/privacy/privacy_ipv6_needs_digit.bend as PPrivacyIpv6NeedsDigit
 import ./proof/privacy/privacy_ipv6_needs_three.bend as PPrivacyIpv6NeedsThree
+import ./proof/privacy/privacy_ipv6_reserved_example.bend as PPrivacyIpv6ReservedExample
 import ./proof/privacy/privacy_round_trip.bend as PPrivacyRoundTrip
 import ./proof/privacy/privacy_round_trip_exact.bend as PPrivacyRoundTripExact
 import ./proof/privacy/privacy_round_trip_example.bend as PPrivacyRoundTripExample

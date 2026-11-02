@@ -23,8 +23,9 @@ import ../../spec/harness/privacy_context.bend as Sv
 #
 # R1: an IPv6 is taken exactly when it is a shaped address (S1) with a
 #     digit-bearing group and eight groups, or three to seven around a
-#     `::`, that no word char, `:` or `.` touches on either side (S3); its
-#     answer is its length. Nothing else is taken as an IPv6.
+#     `::`, that no word char, `:` or `.` touches on either side, and
+#     whose value is no loopback, unspecified or reserved IPv4 (S3, R3);
+#     its answer is its length. Nothing else is taken as an IPv6.
 # R2: an IPv4 is taken exactly when it is four octets (S2), its first not
 #     0, 127 or 255, with no word char or `.` before it, no product name
 #     and `/`, no version context (S7, spec/harness/privacy_context.bend),
@@ -33,7 +34,10 @@ import ../../spec/harness/privacy_context.bend as Sv
 # R3: code is no address: a `::` path or pseudo-element (no digit, fewer
 #     than three groups, a word char before it), a version (three parts, a
 #     fifth part, a version word or operator before it), a loopback,
-#     unspecified or mask address.
+#     unspecified or mask address: an IPv6 in any written form whose value
+#     is the loopback `::1`, the unspecified `::`, or an IPv4 compatible
+#     (`::/96`) or mapped (`::ffff:0:0/96`) whose first octet is 0, 127 or
+#     255 (S3).
 # R11: an address is taken exactly when it is the IPv6 or the IPv4 at the
 #     position (R1, R2); a version's context is exactly the spec's (S7):
 #     a plain assignment (`host = `) is none.
@@ -99,6 +103,44 @@ law privacy_ipv6_needs_three:
   for +st: {S.stops6(t) == True{} : Bool}
   for +few: {S.counted(Ip.Gap{l, r, q}) == False{} : Bool}
   {Ip.ip(before, S.text6(Ip.Gap{l, r, q}, t)) == None{} : Maybe<&2, Nat>}
+
+# LAW privacy_ipv6_loopback_any_form (R3): every written form of the
+# loopback `::1` and the unspecified `::` (eight groups, a `::` anywhere,
+# leading zeros, an IPv4 `0.0.0.1` last) is no address of any kind,
+# whatever comes before it: every address whose value is 31 zero hex
+# digits then any last one (so `::2` to `::f`, the IPv4-compatible
+# 0.0.0.2 to 0.0.0.15, too)
+# EXCLUDES: `0:0:0:0:0:0:0:1`, `0:0:0:0:0:0:0:0`, `0:0:0::1`,
+#   `0000:0000:0000:0000:0000:0000:0000:0001`, `0:0::0:0:1`,
+#   `0:0:0:0:0:0:0.0.0.1` taken (H7: no loopback or unspecified address
+#   is an IP address); a grammar that checks only the shape of an IPv6
+law privacy_ipv6_loopback_any_form:
+  for +a: Ip.Addr
+  for +d: Char
+  for +before: String
+  for +t: String
+  for +sh: {S.shaped(a) == True{} : Bool}
+  for +st: {S.stops6(t) == True{} : Bool}
+  for +lo: {S.value6(a) == String.append("0000000000000000000000000000000", SCon{d, SNil{}}) : String}
+  {Ip.ip(before, S.text6(a, t)) == None{} : Maybe<&2, Nat>}
+
+# LAW privacy_ipv6_mapped_reserved (R3): every IPv6 whose value is an
+# IPv4 compatible (`::/96`, mapped false) or mapped (`::ffff:0:0/96`,
+# mapped true) whose first octet is 0, 127 or 255 (hex 00, 7f, ff: the
+# reserved IPv4s of privacy_ipv4_reserved), its IPv4 written in dots or in
+# hex, is no address of any kind, whatever comes before it
+# EXCLUDES: `::ffff:127.0.0.1`, `0:0:0:0:0:ffff:7f00:1`, `::ffff:0.1.2.3`,
+#   `0:0::255.1.2.3` taken, a loopback IPv4 left in clear only when it is
+#   written alone
+law privacy_ipv6_mapped_reserved:
+  for +a: Ip.Addr
+  for +mapped: Bool
+  for +rest: String
+  for +before: String
+  for +t: String
+  for +sh: {S.shaped(a) == True{} : Bool}
+  for +st: {S.stops6(t) == True{} : Bool}
+  ({S.value6(a) == String.append(S.prefix96(mapped), String.append("00", rest)) : String} -> {Ip.ip(before, S.text6(a, t)) == None{} : Maybe<&2, Nat>}) & (({S.value6(a) == String.append(S.prefix96(mapped), String.append("7f", rest)) : String} -> {Ip.ip(before, S.text6(a, t)) == None{} : Maybe<&2, Nat>}) & ({S.value6(a) == String.append(S.prefix96(mapped), String.append("ff", rest)) : String} -> {Ip.ip(before, S.text6(a, t)) == None{} : Maybe<&2, Nat>}))
 
 # LAW privacy_ip_boundary (R1, R2, R3): after a word char nothing is an
 # address, whatever follows
@@ -227,3 +269,14 @@ law privacy_ip_personal_example:
 #   (the scrubber leaked `host = 203.0.113.9`)
 law privacy_ip_assignment_example:
   {[Ip.ip("host = ", "203.0.113.9"), Ip.ip("server_ip = ", "10.1.2.3"), Ip.ip("\"ip\" = ", "198.51.100.4"), Ip.ip("version = \"1.2.3\"\nx = ", "192.0.2.1")] == [Some{11n}, Some{8n}, Some{12n}, Some{9n}] : List<&2, Maybe<&2, Nat>>} & {[Sv.vctx("host = "), Sv.vctx("server_ip = "), Sv.vctx("\"ip\" = "), Sv.vctx("version = \""), Sv.vctx("numpy=="), Sv.vctx("ver ")] == [False{}, False{}, False{}, True{}, True{}, True{}] : List<&2, Bool>}
+
+# LAW privacy_ipv6_reserved_example (R1, R3): anchor: the addresses the
+# shape alone took (the full-form loopback and unspecified, `0:0:0::1`,
+# the IPv4-mapped loopback), and other forms of them (leading zeros, a
+# `::` inside, an IPv4 `0.0.0.1`, the mapped loopback in hex, mapped 0.x,
+# compatible 255.x) are no address; a public IPv4 mapped (in hex), a
+# mapped 126.x and a `::fffe:` prefix are taken whole
+# EXCLUDES: a law that holds only for shapes no text has; a refusal so
+#   wide it drops a public mapped address
+law privacy_ipv6_reserved_example:
+  {[Ip.ip("connect ", "0:0:0:0:0:0:0:1 now"), Ip.ip("bind ", "0:0:0:0:0:0:0:0 now"), Ip.ip("connect ", "0:0:0::1 now"), Ip.ip("connect ", "::ffff:127.0.0.1 now"), Ip.ip("x ", "0000:0000:0000:0000:0000:0000:0000:0001"), Ip.ip("x ", "0:0::0:0:1"), Ip.ip("x ", "0:0:0:0:0:0:0.0.0.1"), Ip.ip("x ", "0:0:0:0:0:FFFF:7F00:1"), Ip.ip("x ", "::ffff:0.1.2.3"), Ip.ip("x ", "0:0::255.1.2.3"), Ip.ip("x ", "::ffff:c000:280"), Ip.ip("x ", "::ffff:126.0.0.1"), Ip.ip("x ", "::fffe:127.0.0.1")] == [None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, None{}, Some{15n}, Some{16n}, Some{16n}] : List<&2, Maybe<&2, Nat>>}

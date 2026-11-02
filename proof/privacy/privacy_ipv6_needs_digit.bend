@@ -15,8 +15,8 @@ import ../../laws/privacy/ip.bend as PrivacyIp
 
 # no digit: the spec takes no address
 def pnd.take(+a: Ip.Addr, +before: String, +t: String, +nd: {S.digit(a) == False{} : Bool}) -> {S.take6(a, before, t) == None{} : Maybe<&2, Nat>}:
-  %Equal.sym(Bool, S.digit(a), False{}, nd) : {S.ans(Bool.and(Bool.and(Bool.and(S.counted(a), _), S.free(S.last(before))), S.free(S.first(t))), String.length(S.text6(a, ""))) == None{} : Maybe<&2, Nat>}
-  %Equal.sym(Bool, Bool.and(S.counted(a), False{}), False{}, LIp.pip.and_false(S.counted(a))) : {S.ans(Bool.and(Bool.and(_, S.free(S.last(before))), S.free(S.first(t))), String.length(S.text6(a, ""))) == None{} : Maybe<&2, Nat>}
+  %Equal.sym(Bool, S.digit(a), False{}, nd) : {S.ans(Bool.and(Bool.and(Bool.and(Bool.and(S.counted(a), _), Bool.not(S.special6(S.value6(a)))), S.free(S.last(before))), S.free(S.first(t))), String.length(S.text6(a, ""))) == None{} : Maybe<&2, Nat>}
+  %Equal.sym(Bool, Bool.and(S.counted(a), False{}), False{}, LIp.pip.and_false(S.counted(a))) : {S.ans(Bool.and(Bool.and(Bool.and(_, Bool.not(S.special6(S.value6(a)))), S.free(S.last(before))), S.free(S.first(t))), String.length(S.text6(a, ""))) == None{} : Maybe<&2, Nat>}
   {==}
 
 # no digit: no IPv4 alone

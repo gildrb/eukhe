@@ -15,7 +15,11 @@
 #    last two groups may be written as an IPv4. One group holds a decimal
 #    digit (an IPv4 does). No word char, `:` or `.` touches it on either
 #    side. So `a::before`, `std::sync::Arc`, `dead::beef`, `xs[1::2]`, the
-#    loopback `::1` and the link-local `fe80::1` are no address.
+#    loopback `::1` and the link-local `fe80::1` are no address. Its value
+#    (128 bits, however written) is no IPv4 compatible (`::/96`, which
+#    holds the loopback `::1` and the unspecified `::`) or mapped
+#    (`::ffff:0:0/96`) whose first octet is 0, 127 or 255: so
+#    `0:0:0:0:0:0:0:1`, `0:0:0::1` and `::ffff:127.0.0.1` are none.
 # 2. IPv4: four dotted decimal octets, 0 to 255, no leading zero. No word
 #    char or `.` before it, and no product name and `/` (`Chrome/120.0.0.0`);
 #    no word char after it, nor a `.` or `-` and a letter or digit (a fifth
@@ -588,12 +592,73 @@ def after6(rest: List<&2, Sym>) -> Bool:
     case y <> t:
       Sym.free(y)
 
+# the value of an address: 32 lowercase hex digits
+# -------------------------------------------------
+
+# a group as its four hex digits, lowercase
+def pad(+g: String) -> String:
+  String.append(String.repeat("0", Nat.sub(4n, String.length(g))), String.to_lower(g))
+
+# groups as their hex digits, one after another
+def hexs(gs: List<&2, String>) -> String:
+  match gs:
+    case Nil{}:
+      SNil{}
+    case g <> rest:
+      String.append(pad(g), hexs(rest))
+
+# a decimal number written after acc
+def dval(s: String, acc: U32) -> U32:
+  match s:
+    case SNil{}:
+      acc
+    case SCon{Chr{x}, t}:
+      dval(t, U32.add(U32.mul(acc, 10), U32.sub(x, 48)))
+
+# the lowercase hex digit of a value 0 to 15
+def nib(+v: U32) -> Char:
+  Chr{U32.add(v, U32.add(48, U32.mul(Bool.to_u32(U32.is_ge(v, 10)), 39)))}
+
+# a byte (0 to 255) as its two hex digits, then rest
+def byte(+v: U32, rest: String) -> String:
+  SCon{nib(U32.shrn(v, 4n)), SCon{nib(U32.and(v, 15)), rest}}
+
+# an IPv4 as its eight hex digits
+def hexq(q: Quad) -> String:
+  match q:
+    case Quad{a, b, c, d}:
+      byte(dval(a, 0), byte(dval(b, 0), byte(dval(c, 0), byte(dval(d, 0), SNil{}))))
+
+def mhexq(q: Maybe<&2, Quad>) -> String:
+  match q:
+    case None{}:
+      SNil{}
+    case Some{x}:
+      hexq(x)
+
+# the value of an address: its groups, the `::` filled with zero groups,
+# then its IPv4
+def value6(a: Addr) -> String:
+  match a:
+    case Full{gs, q}:
+      String.append(hexs(gs), mhexq(q))
+    case Gap{+l, +r, +q}:
+      +n = Nat.add(Nat.add(List.length(&2, String, l), List.length(&2, String, r)), Quad.n(q))
+      String.append(hexs(List.append(&2, String, l, List.append(&2, String, List.replicate(String, Nat.sub(8n, n), "0"), r))), mhexq(q))
+
+# a value that reaches no one: an IPv4 compatible (the first 96 bits
+# zero: `::1` and `::` too) or mapped (`::ffff:0:0/96`) whose first octet
+# is 0, 127 or 255
+def special6(+v: String) -> Bool:
+  +o = String.drop(v, 24n)
+  Bool.and(Bool.or(String.starts_with(v, "000000000000000000000000"), String.starts_with(v, "00000000000000000000ffff")), Bool.or(String.starts_with(o, "00"), Bool.or(String.starts_with(o, "7f"), String.starts_with(o, "ff"))))
+
 def v6.got(n: Nat, r: Read) -> Maybe<&2, Nat>:
   match r:
     case Bad{}:
       None{}
     case Got{+a, +rest}:
-      ans(Bool.and(Bool.and(counted(a), digit(a)), after6(rest)), Nat.sub(n, List.length(&2, Sym, rest)))
+      ans(Bool.and(Bool.and(Bool.and(counted(a), digit(a)), Bool.not(special6(value6(a)))), after6(rest)), Nat.sub(n, List.length(&2, Sym, rest)))
 
 def v6.go(ok: Bool, s: String) -> Maybe<&2, Nat>:
   match ok:

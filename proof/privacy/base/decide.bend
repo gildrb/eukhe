@@ -10,6 +10,7 @@ import ./chars.bend as LIp
 import ./read.bend as LRd
 import ./items.bend as LIt
 import ./quad.bend as LQd
+import ./value.bend as LVl
 
 # Texts
 # -----
@@ -146,18 +147,20 @@ def pdc.edge6(+b: String) -> {Ip.edge6(Ip.last(b)) == S.free(S.last(b)) : Bool}:
 def pdc.got.b(b: Bool, +a: Ip.Addr, +before: String, +t: String, +eb: {S.free(S.last(before)) == b : Bool}, +er: {Ip.read(Ip.Sym.list(S.text6(a, t)), Ip.Begin{}, Ip.Acc{False{}, Nil{}, Nil{}}) == Ip.Got{a, Ip.Sym.list(t)} : Ip.Read}) -> {Ip.v6.go(b, S.text6(a, t)) == S.take6(a, before, t) : Maybe<&2, Nat>}:
   match b:
     case False{}:
-      %Equal.sym(Bool, S.free(S.last(before)), False{}, eb) : {None{} == S.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), _), S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, Bool.and(Bool.and(S.counted(a), S.digit(a)), False{}), False{}, LIp.pip.and_false(Bool.and(S.counted(a), S.digit(a)))) : {None{} == S.ans(Bool.and(_, S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, S.free(S.last(before)), False{}, eb) : {None{} == S.ans(Bool.and(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), _), S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), False{}), False{}, LIp.pip.and_false(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))))) : {None{} == S.ans(Bool.and(_, S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
       {==}
     case True{}:
       %Equal.sym(Ip.Read, Ip.read(Ip.Sym.list(S.text6(a, t)), Ip.Begin{}, Ip.Acc{False{}, Nil{}, Nil{}}), Ip.Got{a, Ip.Sym.list(t)}, er) : {Ip.v6.got(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), _) == S.take6(a, before, t) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, Ip.counted(a), S.counted(a), pdc.counted(a)) : {Ip.ans(Bool.and(Bool.and(_, Ip.digit(a)), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, Ip.digit(a), S.digit(a), pdc.digit(a)) : {Ip.ans(Bool.and(Bool.and(S.counted(a), _), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, Ip.after6(Ip.Sym.list(t)), S.free(S.first(t)), pdc.after6(t)) : {Ip.ans(Bool.and(Bool.and(S.counted(a), S.digit(a)), _), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
-      %Equal.sym(Nat, Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t))), String.length(S.text6(a, "")), pdc.len6(a, t)) : {Ip.ans(Bool.and(Bool.and(S.counted(a), S.digit(a)), S.free(S.first(t))), _) == S.take6(a, before, t) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, S.free(S.last(before)), True{}, eb) : {Ip.ans(Bool.and(Bool.and(S.counted(a), S.digit(a)), S.free(S.first(t))), String.length(S.text6(a, ""))) == S.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), _), S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
-      %Equal.sym(Bool, Bool.and(Bool.and(S.counted(a), S.digit(a)), True{}), Bool.and(S.counted(a), S.digit(a)), LIp.pip.and_true(Bool.and(S.counted(a), S.digit(a)))) : {Ip.ans(Bool.and(Bool.and(S.counted(a), S.digit(a)), S.free(S.first(t))), String.length(S.text6(a, ""))) == S.ans(Bool.and(_, S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
-      pdc.ans(Bool.and(Bool.and(S.counted(a), S.digit(a)), S.free(S.first(t))), String.length(S.text6(a, "")))
+      %Equal.sym(Bool, Ip.counted(a), S.counted(a), pdc.counted(a)) : {Ip.ans(Bool.and(Bool.and(Bool.and(_, Ip.digit(a)), Bool.not(Ip.special6(Ip.value6(a)))), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Ip.digit(a), S.digit(a), pdc.digit(a)) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), _), Bool.not(Ip.special6(Ip.value6(a)))), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(String, Ip.value6(a), S.value6(a), LVl.pvl.value6(a)) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(Ip.special6(_))), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Ip.special6(S.value6(a)), S.special6(S.value6(a)), LVl.pvl.special6(S.value6(a))) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(_)), Ip.after6(Ip.Sym.list(t))), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Ip.after6(Ip.Sym.list(t)), S.free(S.first(t)), pdc.after6(t)) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), _), Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t)))) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(Nat, Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(S.text6(a, t))), List.length(&2, Ip.Sym, Ip.Sym.list(t))), String.length(S.text6(a, "")), pdc.len6(a, t)) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), S.free(S.first(t))), _) == S.take6(a, before, t) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, S.free(S.last(before)), True{}, eb) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), S.free(S.first(t))), String.length(S.text6(a, ""))) == S.ans(Bool.and(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), _), S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), True{}), Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), LIp.pip.and_true(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))))) : {Ip.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), S.free(S.first(t))), String.length(S.text6(a, ""))) == S.ans(Bool.and(_, S.free(S.first(t))), String.length(S.text6(a, ""))) : Maybe<&2, Nat>}
+      pdc.ans(Bool.and(Bool.and(Bool.and(S.counted(a), S.digit(a)), Bool.not(S.special6(S.value6(a)))), S.free(S.first(t))), String.length(S.text6(a, "")))
 
 # from what the reader reads, the decision is the spec's
 def pdc.from_got(+a: Ip.Addr, +before: String, +t: String, +er: {Ip.read(Ip.Sym.list(S.text6(a, t)), Ip.Begin{}, Ip.Acc{False{}, Nil{}, Nil{}}) == Ip.Got{a, Ip.Sym.list(t)} : Ip.Read}) -> {Ip.v6(before, S.text6(a, t)) == S.take6(a, before, t) : Maybe<&2, Nat>}:

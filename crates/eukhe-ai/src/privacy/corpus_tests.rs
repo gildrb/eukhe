@@ -141,6 +141,10 @@ pub(super) const UNTOUCHED: &[&str] = &[
     "listen 0.0.0.0:8080; proxy_pass http://127.0.0.1:3000;",
     "netmask 255.255.255.0",
     "bind [::1]:9000",
+    "connect 0:0:0:0:0:0:0:1 now",
+    "bind 0:0:0:0:0:0:0:0 now",
+    "connect 0:0:0::1 now",
+    "connect ::ffff:127.0.0.1 now",
     "ab:cd:ef:01:23:45",
     // Hashline reads
     "[foo.css#1A2B]\n12:a::before {",

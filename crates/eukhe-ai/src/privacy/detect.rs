@@ -18,8 +18,9 @@
 //! about every position that could start one, and [`detect`] reads the
 //! answer. `::` paths and CSS pseudo-elements are no IPv6 (an IPv6 needs
 //! a digit-bearing group, three explicit groups when compressed, and
-//! boundaries on both sides); a version, a loopback, 0.x and 255.x are no
-//! IPv4.
+//! boundaries on both sides), nor is the loopback `::1`, the unspecified
+//! `::` or an IPv4-mapped or -compatible loopback, 0.x or 255.x in any
+//! written form; a version, a loopback, 0.x and 255.x are no IPv4.
 
 use eukhe_bend::rules::privacy::{
     ip_ends, Candidate, Class, BEFORE_BYTES, OTHER_MARK, REST_CHARS, WORD_MARK,

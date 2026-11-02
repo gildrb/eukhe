@@ -16,7 +16,10 @@
 #     (a 3-digit one starts below 2, or with 2 and then below 5, or with
 #     25 and then at most 5).
 # S3: an IPv6 is taken where no word char, `:` or `.` comes before it and
-#     after it; an IPv4 where no word char or `.` comes before it, no
+#     after it, and its value (its 128 bits, however it is written) is no
+#     loopback `::1`, no unspecified `::`, and no IPv4 compatible
+#     (`::/96`) or mapped (`::ffff:0:0/96`) whose first octet is 0, 127
+#     or 255; an IPv4 where no word char or `.` comes before it, no
 #     ASCII letter and `/` (a product version), and no version context;
 #     after it no word char, nor `.` or `-` then an ASCII letter or digit;
 #     and its first octet is not 0, 127 or 255. A word char is an ASCII
@@ -401,9 +404,79 @@ def first(t: String) -> Maybe<&2, Char>:
     case SCon{c, u}:
       Some{c}
 
+# S3: the value of an IPv6, its 128 bits as 32 lowercase hex digits
+# -----------------------------------------------------------------
+
+# a group as its four hex digits, lowercase
+def pad(+g: String) -> String:
+  String.append(String.repeat("0", Nat.sub(4n, String.length(g))), String.to_lower(g))
+
+# groups as their hex digits, one after another
+def hexs(gs: List<&2, String>) -> String:
+  match gs:
+    case Nil{}:
+      SNil{}
+    case g <> rest:
+      String.append(pad(g), hexs(rest))
+
+# a decimal number written after acc
+def dval(s: String, acc: U32) -> U32:
+  match s:
+    case SNil{}:
+      acc
+    case SCon{Chr{x}, t}:
+      dval(t, U32.add(U32.mul(acc, 10), U32.sub(x, 48)))
+
+# the lowercase hex digit of a value 0 to 15
+def nib(+v: U32) -> Char:
+  Chr{U32.add(v, U32.add(48, U32.mul(Bool.to_u32(U32.is_ge(v, 10)), 39)))}
+
+# a byte (0 to 255) as its two hex digits, then rest
+def byte(+v: U32, rest: String) -> String:
+  SCon{nib(U32.shrn(v, 4n)), SCon{nib(U32.and(v, 15)), rest}}
+
+# an IPv4 as its eight hex digits
+def hexq(q: Ip.Quad) -> String:
+  match q:
+    case Ip.Quad{a, b, c, d}:
+      byte(dval(a, 0), byte(dval(b, 0), byte(dval(c, 0), byte(dval(d, 0), SNil{}))))
+
+def mhexq(q: Maybe<&2, Ip.Quad>) -> String:
+  match q:
+    case None{}:
+      SNil{}
+    case Some{x}:
+      hexq(x)
+
+# the value of an address: its groups, the `::` filled with zero groups,
+# then its IPv4, as hex digits
+def value6(a: Ip.Addr) -> String:
+  match a:
+    case Ip.Full{gs, q}:
+      String.append(hexs(gs), mhexq(q))
+    case Ip.Gap{+l, +r, +q}:
+      +n = Nat.add(Nat.add(List.length(&2, String, l), List.length(&2, String, r)), List.length(&2, String, List.append(&2, String, quad_items(q), quad_items(q))))
+      String.append(hexs(List.append(&2, String, l, List.append(&2, String, List.replicate(String, Nat.sub(8n, n), "0"), r))), mhexq(q))
+
+# the first 96 bits of an IPv4 compatible (`::/96`) or mapped
+# (`::ffff:0:0/96`)
+def prefix96(mapped: Bool) -> String:
+  match mapped:
+    case True{}:
+      "00000000000000000000ffff"
+    case False{}:
+      "000000000000000000000000"
+
+# a value that reaches no one (S3): an IPv4 compatible (the loopback `::1`
+# and the unspecified `::` are its 0.0.0.1 and 0.0.0.0) or mapped whose
+# first octet is 0, 127 or 255
+def special6(+v: String) -> Bool:
+  +o = String.drop(v, 24n)
+  Bool.and(Bool.or(String.starts_with(v, prefix96(False{})), String.starts_with(v, prefix96(True{}))), Bool.or(String.starts_with(o, "00"), Bool.or(String.starts_with(o, "7f"), String.starts_with(o, "ff"))))
+
 # the IPv6 a writes after before, then t, is taken: its length in chars
 def take6(+a: Ip.Addr, +before: String, +t: String) -> Maybe<&2, Nat>:
-  ans(Bool.and(Bool.and(Bool.and(counted(a), digit(a)), free(last(before))), free(first(t))), String.length(text6(a, "")))
+  ans(Bool.and(Bool.and(Bool.and(Bool.and(counted(a), digit(a)), Bool.not(special6(value6(a)))), free(last(before))), free(first(t))), String.length(text6(a, "")))
 
 # a decimal digit
 def k_dec(k: CKind) -> Bool:

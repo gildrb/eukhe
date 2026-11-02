@@ -54,8 +54,8 @@ def pv6x.got(+before: String, +s: String, +n: Nat, r: Ip.Read, rp: LRi.pri.RP(s,
       (+e2, sh0) = more
       +sh = {sh0 : {S.shaped(a) == True{} : Bool}}
       +k = Nat.sub(List.length(&2, Ip.Sym, Ip.Sym.list(s)), List.length(&2, Ip.Sym, rest))
-      +hok = pv6x.ans_true(Bool.and(Bool.and(Ip.counted(a), Ip.digit(a)), Ip.after6(rest)), k, n, hb)
-      +st = pv6x.after(t, rest, e2, LIp.pip.and_r(Bool.and(Ip.counted(a), Ip.digit(a)), Ip.after6(rest), hok))
+      +hok = pv6x.ans_true(Bool.and(Bool.and(Bool.and(Ip.counted(a), Ip.digit(a)), Bool.not(Ip.special6(Ip.value6(a)))), Ip.after6(rest)), k, n, hb)
+      +st = pv6x.after(t, rest, e2, LIp.pip.and_r(Bool.and(Bool.and(Ip.counted(a), Ip.digit(a)), Bool.not(Ip.special6(Ip.value6(a)))), Ip.after6(rest), hok))
       +x6 = S.text6(a, t)
       +V = Equal.trans(Maybe<&2, Nat>, Ip.v6(before, x6), Ip.v6(before, s), Some{n}, Equal.cong(String, Maybe<&2, Nat>, z => Ip.v6(before, z), x6, s, Equal.sym(String, s, x6, e1)), h)
       +TK = Equal.trans(Maybe<&2, Nat>, S.take6(a, before, t), Ip.v6(before, x6), Some{n}, Equal.sym(Maybe<&2, Nat>, Ip.v6(before, x6), S.take6(a, before, t), LDc.pdc.decides(a, before, t, sh, st)), V)

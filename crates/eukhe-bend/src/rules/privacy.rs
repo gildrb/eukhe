@@ -7,8 +7,9 @@
 //!
 //! - The call ([`ip_ends`]): which candidate positions of one text start
 //!   an IP address (an IPv6 with a digit-bearing group and three explicit
-//!   groups when compressed; an IPv4 that is no version, loopback, 0.x or
-//!   255.x), all of them in one call.
+//!   groups when compressed, whose value is no loopback, unspecified, or
+//!   IPv4-mapped or -compatible loopback, 0.x or 255.x; an IPv4 that is
+//!   no version, loopback, 0.x or 255.x), all of them in one call.
 //! - The stepper ([`Tokens`]): the token map of the daemon. A personal
 //!   value's token is its index in its class, kept for the map's life; a
 //!   credential's is one way (its hash, which the host writes). One step
