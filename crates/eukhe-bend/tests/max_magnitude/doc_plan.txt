@@ -1,0 +1,6 @@
+# both versions at their largest, and one below the other either way; a publish question
+call 0,{MAX},{MAX},T
+call 0,{MAX},99999999999998,F
+call 0,99999999999998,{MAX},F
+call 1,F2,T
+refuse 0,{LONG},1,F
