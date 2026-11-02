@@ -483,6 +483,8 @@ import ./proof/tools/roster_fixed.bend as PRosterFixed
 import ./proof/tools/roster_sent_fixed.bend as PRosterSentFixed
 import ./proof/tools/dyn_reaches_joined.bend as PDynReachesJoined
 import ./proof/tools/dyn_drops_quit.bend as PDynDropsQuit
+import ./proof/tools/roster_step_spec.bend as PRosterStepSpec
+import ./proof/tools/roster_run_spec.bend as PRosterRunSpec
 import ./proof/tools/schema_has_intent.bend as PSchemaHasIntent
 import ./proof/tools/schema_versioned.bend as PSchemaVersioned
 import ./proof/tools/schema_keeps_params.bend as PSchemaKeepsParams
@@ -500,6 +502,7 @@ import ./proof/tools/gate_prefix.bend as PGatePrefix
 import ./proof/tools/gate_needs_yes.bend as PGateNeedsYes
 import ./proof/tools/gate_deny_stops.bend as PGateDenyStops
 import ./proof/tools/gate_finish_runs_all.bend as PGateFinishRunsAll
+import ./proof/tools/gate_exec_spec.bend as PGateExecSpec
 import ./proof/tools/gate_inside_write_runs.bend as PGateInsideWriteRuns
 import ./proof/tools/step_holds_every_part.bend as PStepHoldsEveryPart
 import ./proof/tools/secret_needs_a_secret_path.bend as PSecretNeedsASecretPath
@@ -743,6 +746,7 @@ import ./proof/auth_flight/flight_terms_exact.bend as PFlightTermsExact
 import ./proof/auth_flight/flight_land_ends.bend as PFlightLandEnds
 import ./proof/auth_flight/flight_step_exact.bend as PFlightStepExact
 import ./proof/auth_flight/flight_new_example.bend as PFlightNewExample
+import ./proof/auth_flight/flight_run_is_steps.bend as PFlightRunIsSteps
 import ./proof/auth_flight/flight_store_terms_exact.bend as PFlightStoreTermsExact
 import ./proof/auth_flight/base/entry.bend as LAAuthFlightEntry
 import ./proof/auth_flight/flight_ffi_answers.bend as PFlightFfiAnswers

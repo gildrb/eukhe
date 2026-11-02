@@ -297,6 +297,32 @@ law flight_step_exact:
 law flight_new_example:
   {F.St.new() == F.St{F.W{F.Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}} : F.St}
 
+# the model's state after the events evs from s: each event moves it as
+# am_step states, one at a time, in order
+def am_go(evs: List<&2, F.Ev>, s: F.St) -> F.St:
+  match evs:
+    case Nil{}:
+      s
+    case e <> rest:
+      am_go(rest, am_step(s, e))
+
+# the model's state after the events evs from a new world: no caller, no
+# flight in flight, none landed, no fetch made, the store holding
+# credential 0, expired
+def am_run(evs: List<&2, F.Ev>) -> F.St:
+  am_go(evs, F.St{F.W{F.Sto{0n, False{}}, False{}, Nil{}, 0n}, Nil{}})
+
+# LAW flight_run_is_steps (A1): the model's runs, which the A1 laws
+# state, are the steps as stated on their own (am_step), one event at a
+# time, in order: from any state, and from a new world
+# EXCLUDES: a run that ignores its events (`run(evs) = St.new()`, which
+#   the A1 laws over runs let pass: no fetch, and their premises never
+#   met), skips, repeats or reorders them, or starts from another world
+law flight_run_is_steps:
+  for +evs: List<&2, F.Ev>
+  for +s: F.St
+  {F.go(evs, s) == am_go(evs, s) : F.St} & {F.run(evs) == am_run(evs) : F.St}
+
 # LAW flight_store_terms_exact: the store's accessors the A1 laws read (flight_after_end_served's
 # premise) are its fields: the stored credential and whether it is fresh
 # EXCLUDES: flight_after_end_served made vacuous by a `Sto.fresh` that is

@@ -39,6 +39,73 @@ law dyn_drops_quit:
   for +t: Nat
   {Tl.dyn_call(Tl.step(s, Tl.Quit{t}), t) == False{} : Bool}
 
+# (S7, 1) The roster, against a spec
+# ----------------------------------
+# A session's roster never changes. A tool that joins goes in front of
+# the dynamic tools; a tool that quits leaves them (every copy of it; the
+# others stay, in order); a request sends the roster, recorded in front of
+# the rosters sent so far. Every input is free: any session, any events.
+
+# ys, with y in front unless y is the tool that quits (hit)
+def tr_keep(hit: Bool, y: Nat, ys: List<&2, Nat>) -> List<&2, Nat>:
+  match hit:
+    case True{}:
+      ys
+    case False{}:
+      y <> ys
+
+# the dynamic tools ds without tool t
+def tr_drop(ds: List<&2, Nat>, +t: Nat) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case +y <> rest:
+      tr_keep(Nat.is_eq(y, t), y, tr_drop(rest, t))
+
+# the session after event e
+def tr_step(s: Tl.Sess, e: Tl.Ev) -> Tl.Sess:
+  match s:
+    case Tl.Sess{+r, d, x}:
+      match e:
+        case Tl.Join{t}:
+          Tl.Sess{r, t <> d, x}
+        case Tl.Quit{t}:
+          Tl.Sess{r, tr_drop(d, t), x}
+        case Tl.Turn{}:
+          Tl.Sess{r, d, r <> x}
+
+# the session after the events es from s: one step at a time, in order
+def tr_run(es: List<&2, Tl.Ev>, s: Tl.Sess) -> Tl.Sess:
+  match es:
+    case Nil{}:
+      s
+    case e <> rest:
+      tr_run(rest, tr_step(s, e))
+
+# LAW roster_step_spec (A1): every event moves a session exactly as the
+# spec states: a join puts the tool in front of the dynamic tools, a quit
+# removes every copy of it and keeps the others in order, a request
+# records the roster in front of the rosters sent; the roster never
+# changes
+# EXCLUDES: a join that adds nothing, another tool or a copy too many; a
+#   quit that keeps a copy, drops another tool too (or every tool) or
+#   reorders the rest; a request that records another roster or none; a
+#   step that changes the roster
+law roster_step_spec:
+  for +s: Tl.Sess
+  for +e: Tl.Ev
+  {Tl.step(s, e) == tr_step(s, e) : Tl.Sess}
+
+# LAW roster_run_spec (A1): a session after events is the spec's step
+# taken once per event, in order, from where the session started
+# EXCLUDES: a run that ignores its events (`run(es, s) = s`, which
+#   roster_fixed and roster_sent_fixed let pass), skips, repeats or
+#   reorders them, or steps another way than the step
+law roster_run_spec:
+  for +es: List<&2, Tl.Ev>
+  for +s: Tl.Sess
+  {Tl.run(es, s) == tr_run(es, s) : Tl.Sess}
+
 # LAW schema_has_intent: every schema the harness sends has the intent parameter
 law schema_has_intent:
   for s: Tl.Schema
@@ -297,6 +364,100 @@ law gate_finish_runs_all:
   for +ans: List<&2, Bool>
   for fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}
   {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}
+
+# (G2, 4) The gate, against a spec
+# --------------------------------
+# A script runs step by step. A step runs unasked when each of its
+# effects is one an auto set may hold (codes 0 to 6: every effect) and is
+# in the auto set; any other step asks the user and takes the next
+# answer: a yes runs it, a no denies it, and with no answer left it is
+# denied. A step that runs unasked takes no answer. A denial stops the
+# script: the denied step and every later step do not run, and the script
+# ends denied at that step's id; a script whose every step ran finished.
+# Every input is free: any steps, any auto set, any answers.
+
+# c is in xs
+def tg_in(xs: List<&2, Nat>, +c: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, c), tg_in(rest, c))
+
+# each effect of effs is one an auto set may hold (0 to 6) and is in auto
+def tg_unasked(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match effs:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(Nat.is_lt(c, 7n), tg_in(auto, c)), tg_unasked(rest, auto))
+
+# step s runs unasked
+def tg_free(s: Tl.Step, +auto: List<&2, Nat>) -> Bool:
+  match s:
+    case Tl.Step{i, f}:
+      tg_unasked(f, auto)
+
+# step s ran, then the rest ran as r
+def tg_ran(s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
+  match r:
+    case Tl.Ran{ss, e}:
+      Tl.Ran{s <> ss, e}
+
+# step s is denied: nothing more runs, the script ends denied at its id
+def tg_denied(s: Tl.Step) -> Tl.Ran:
+  match s:
+    case Tl.Step{i, f}:
+      Tl.Ran{Nil{}, Tl.Denied{i}}
+
+# the user answers a to step s; after a yes the rest runs as r
+def tg_answer(a: Bool, s: Tl.Step, r: Tl.Ran) -> Tl.Ran:
+  match a:
+    case True{}:
+      tg_ran(s, r)
+    case False{}:
+      tg_denied(s)
+
+# a step that runs unasked (u) goes as run, an asked one as ask
+def tg_pick(u: Bool, run: Tl.Ran, ask: Tl.Ran) -> Tl.Ran:
+  match u:
+    case True{}:
+      run
+    case False{}:
+      ask
+
+# how the script ss runs with the auto set auto and the user's answers
+# ans (to the asked steps, in order)
+def tg_exec(ss: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>) -> Tl.Ran:
+  match ss:
+    case Nil{}:
+      Tl.Ran{Nil{}, Tl.Finished{}}
+    case +s <> +rest:
+      match ans:
+        case Nil{}:
+          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, Nil{})), tg_denied(s))
+        case +a <> +more:
+          tg_pick(tg_free(s, auto), tg_ran(s, tg_exec(rest, auto, a <> more)), tg_answer(a, s, tg_exec(rest, auto, more)))
+
+# LAW gate_exec_spec (G2): every script runs, with every auto set and
+# every answers of the user, exactly as the spec states: a step whose
+# effects are all ones an auto set may hold and in the auto set runs
+# without an answer; any other step takes the next answer and runs on a
+# yes, and a no or no answer left denies it, stopping the script there,
+# ended denied at its id; a script whose every step ran finished
+# EXCLUDES: a yes taken as a denial (which gate_prefix, gate_needs_yes,
+#   gate_deny_stops and gate_finish_runs_all let pass); a no or a missing
+#   answer taken as a yes; an answer taken by a step that runs unasked, or
+#   answers used out of order; a denial that runs a step, keeps the steps
+#   before it out of the result or ends at another id; a script that
+#   stops early or ends finished after a denial; a step run unasked with
+#   an effect the auto set lacks or no auto set may hold, or asked when
+#   all its effects are in it
+law gate_exec_spec:
+  for +ss: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for +ans: List<&2, Bool>
+  {Tl.exec(ss, auto, ans) == tg_exec(ss, auto, ans) : Tl.Ran}
 
 # ---- path_policy ----
 
