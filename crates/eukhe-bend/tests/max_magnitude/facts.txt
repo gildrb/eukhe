@@ -1,0 +1,18 @@
+# every number at its largest: a level, a room, an adjust (the caller's cap and
+# the budget at their largest, a long prompt), a Google budget (ordered,
+# unordered, free), an aux cap, an output cap (a caller's, a needed, an omitted)
+call 0,5,1,{MAX},1,{MAX},1,{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},
+call 1,{MAX},{MAX},{MAX},
+call 1,{MAX},{MAX},0,
+call 2,1,{MAX},{MAX},5,1,{MAX},1,{MAX},1,{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},F
+call 2,1,99999999999998,{MAX},3,1,{MAX},1,{MAX},1,{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},1,{MAX},{MAX},{MAX},F
+call 2,0,{MAX},4,0,0,0,0,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},0,0,{MAX},T
+call 3,1,{MAX},{MAX},{MAX},{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},3,
+call 3,1,{MAX},0,0,0,0,0,0,0,3,
+call 3,0,1,{MAX},1,{MAX},1,{MAX},1,{MAX},0,
+call 4,1,{MAX},1,{MAX},1,{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+call 4,0,0,0,0,{MAX},{MAX},{MAX},{MAX},1,{MAX},
+call 5,1,{MAX},{MAX},F{MAX},{MAX},{MAX},{MAX},F
+call 5,0,{MAX},T1,{MAX},{MAX},{MAX},F
+call 5,0,{MAX},F{MAX},0,0,{MAX},F
+refuse 1,{LONG},0,0,

@@ -1,0 +1,6 @@
+# every number at its largest: a cap far past the tools, a cap of one that a
+# needed tool is past, no cap
+call 1,{MAX},3,{MAX},{MAX},99999999999998,{MAX},99999999999997,0,3,{MAX},99999999999998,99999999999997,
+call 1,1,3,{MAX},{MAX},99999999999998,{MAX},99999999999997,0,1,99999999999997,
+call 0,2,{MAX},{MAX},0,0,1,{MAX},
+refuse 1,{LONG},0,0,

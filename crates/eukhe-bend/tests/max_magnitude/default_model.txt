@@ -1,0 +1,7 @@
+# every number at its largest: a saved default that runs, one the catalog
+# lacks (swapped), one out of the scope with no pick (refused)
+call 1,{MAX},TTF1,{MAX},
+call 1,{MAX},FTT1,{MAX},
+call 1,{MAX},TTT0,
+call 0,TTT1,{MAX},
+refuse 1,{LONG},TTT0,
