@@ -1,0 +1,7 @@
+# caps and auto sets of the largest codes; every asker; the registry
+call 0,2,{MAX},2,2,{MAX},5,
+call 1,1,{MAX},1,{MAX},2,T
+call 1,1,{MAX},0,1,
+call 1,1,{MAX},0,0,
+call 2,T
+refuse 0,1,{LONG},0,

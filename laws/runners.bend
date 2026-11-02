@@ -339,3 +339,144 @@ law runners_ffi_example:
   {FRu.ffi("1,1,2,1,0,2,F") == "T1,0," : String} &
   {FRu.ffi("2,F") == "11,7,ipython1,2,2,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
   {FRu.ffi("1,1,2,1,0,3,") == malformed() : String}
+
+# ---- runners: the decision, pinned to the requirement ----
+
+# LAWS (G4, the decision): the decision the entry answers, stated with
+# spec functions written from the requirement (bend/runners.bend header,
+# crates/eukhe-core/src/durable/registry.rs), never the model's own, so
+# R1's "the model's decision" is itself pinned.
+#
+# R3: a call runs unasked exactly when each of its caps is a grantable
+#     effect (0 read to 5 protected; never 6 secret) in the auto set.
+# R4: a gated call within the auto set runs unasked. Outside it, with no
+#     client it does not ask and ends unanswered; a client that gives no
+#     answer was asked and the call ends unanswered; a yes runs it,
+#     approved, a no refuses it, denied (both asked).
+# R5: a session installs, in order: `ipython` (caps exec, gated at each
+#     call), `zoom` and `date` only with chat memory, then `workflow`,
+#     `read`, `edit`, `grep`, `glob`, `bash` (caps 0 to 6, gated at each
+#     step), `dyn`, `codemode`, `pi.codemode.models.classify`,
+#     `pi.codemode.models.generateImages` (each of these runs no code of
+#     its own: no caps, ungated).
+
+# Spec functions
+# --------------
+
+# R3: x is an item of xs
+def ru_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), ru_has(rest, x))
+
+# R3: an auto set may hold effect c (0 to 5)
+def ru_grantable(c: Nat) -> Bool:
+  Nat.is_lt(c, 6n)
+
+# R3: every cap is grantable and in the auto set
+def ru_within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match caps:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(ru_grantable(c), ru_has(auto, c)), ru_within(rest, auto))
+
+# R4: how a gated call goes; free: it runs unasked (R3)
+def ru_cell(free: Bool, a: Ru.Asker) -> Ru.Out:
+  match free:
+    case True{}:
+      Ru.Out{False{}, Ru.Ran{Ru.Auto{}}}
+    case False{}:
+      match a:
+        case Ru.NoClient{}:
+          Ru.Out{False{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Silent{}:
+          Ru.Out{True{}, Ru.Refused{Ru.Unanswered{}}}
+        case Ru.Says{y}:
+          match y:
+            case True{}:
+              Ru.Out{True{}, Ru.Ran{Ru.Approved{}}}
+            case False{}:
+              Ru.Out{True{}, Ru.Refused{Ru.Denied{}}}
+
+# R5: a tool that runs no code of its own
+def ru_plain(n: String) -> Ru.Tool:
+  Ru.Tool{n, Nil{}, Ru.Ungated{}}
+
+# R5: the tools after the chat memory's
+def ru_rest() -> List<&2, Ru.Tool>:
+  [ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.Tool{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+
+# R5: every tool a session with chat memory (chat) or without installs
+def ru_registry(chat: Bool) -> List<&2, Ru.Tool>:
+  match chat:
+    case True{}:
+      Ru.Tool{"ipython", [2n], Ru.EachCall{}} <> ru_plain("zoom") <> ru_plain("date") <> ru_rest()
+    case False{}:
+      Ru.Tool{"ipython", [2n], Ru.EachCall{}} <> ru_rest()
+
+# the reply R3-R5 give a request
+def ru_reply(q: FRu.Req) -> String:
+  match q:
+    case FRu.QWithin{c, +a}:
+      Wr.put_bool(ru_within(c, a), "")
+    case FRu.QCell{c, +a, k}:
+      spell_out(ru_cell(ru_within(c, a), k))
+    case FRu.QRegistry{h}:
+      Wr.put_list(~Ru.Tool, ~spell_tool, ru_registry(h), "")
+
+def ru_spec.end(whole: Bool, q: FRu.Req) -> String:
+  match whole:
+    case True{}:
+      ru_reply(q)
+    case False{}:
+      malformed()
+
+def ru_spec.run(r: Wr.Dec<FRu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      ru_spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply R1-R5 give the input s: the reply to the request s is exactly,
+# else the error form
+def ru_spec(s: String) -> String:
+  ru_spec.run(read_req(s))
+
+# Laws
+# ----
+
+# LAW runners_within_spec: a call runs unasked exactly when each cap is a grantable effect (0 to 5) in the auto set
+# EXCLUDES: a cap outside the auto set run unasked, the secret effect run
+#   unasked, a cap in the auto set asked
+law runners_within_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Ru.within(caps, auto) == ru_within(caps, auto) : Bool}
+
+# LAW runners_cell_spec: a gated call within the auto set runs unasked; outside it, no client ends unanswered unasked, a silent client unanswered asked, a yes runs approved, a no is denied
+# EXCLUDES: a call asked without a client, a silent client read as a
+#   denial or a yes, an asked flag lost, a denial that runs
+law runners_cell_spec:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  {Ru.cell(caps, auto, a) == ru_cell(ru_within(caps, auto), a) : Ru.Out}
+
+# LAW runners_registry_spec: a session installs exactly the R5 tools, in order, chat memory's only with chat memory
+# EXCLUDES: a tool lost, added or moved; a caps list or gate changed; the
+#   chat memory's tools installed without it
+law runners_registry_spec:
+  for chat: Bool
+  {Ru.registry(chat) == ru_registry(chat) : List<&2, Ru.Tool>}
+
+# LAW runners_ffi_spec: on every input the entry answers the reply R3-R5 give the request the input is exactly, and the error form on any other input
+# EXCLUDES: a decision the model computes wrong (a call run unasked
+#   outside the auto set, a denial run, a tool lost from the registry), a
+#   default for malformed input, input left over ignored
+law runners_ffi_spec:
+  for +s: String
+  {FRu.ffi(s) == ru_spec(s) : String}

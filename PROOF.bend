@@ -1745,6 +1745,10 @@ import ./proof/runners/runners_ffi_exact.bend as PRunnersFfiExact
 import ./proof/runners/runners_ffi_answers.bend as PRunnersFfiAnswers
 import ./proof/runners/runners_ffi_left_over.bend as PRunnersFfiLeftOver
 import ./proof/runners/runners_ffi_example.bend as PRunnersFfiExample
+import ./proof/runners/runners_within_spec.bend as PRunnersWithinSpec
+import ./proof/runners/runners_cell_spec.bend as PRunnersCellSpec
+import ./proof/runners/runners_registry_spec.bend as PRunnersRegistrySpec
+import ./proof/runners/runners_ffi_spec.bend as PRunnersFfiSpec
 import ./proof/approvals/base/entry.bend as LAApprovalsEntry
 import ./proof/approvals/approvals_ffi_exact.bend as PApprovalsFfiExact
 import ./proof/approvals/approvals_ffi_answers.bend as PApprovalsFfiAnswers
