@@ -519,6 +519,7 @@ import ./proof/screen/screen_ffi_example.bend as PScreenFfiExample
 import ./proof/screen/screen_ffi_refuses_example.bend as PScreenFfiRefusesExample
 import ./proof/screen/screen_ffi_paint.bend as PScreenFfiPaint
 import ./proof/screen/screen_ffi_paint_example.bend as PScreenFfiPaintExample
+import ./proof/screen/screen_ffi_exact.bend as PScreenFfiExact
 import ./proof/tiny/base.bend as LATiny
 import ./proof/tiny/tiny_pick_in_chain.bend as PTinyPickInChain
 import ./proof/tiny/tiny_pick_first.bend as PTinyPickFirst

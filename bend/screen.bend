@@ -67,13 +67,17 @@ def bid.at(+bs: List<&2, Blk>, +x: Nat) -> Bool:
     case b <> rest:
       Nat.is_eq(Blk.id(b), x)
 
-# block b grows by n when it is active
+# block b grows by n when it is active, up to 2^32 - 1 characters (no
+# block holds 4 GiB of text; a length already past it stays). So a
+# frame's growths never add up past the compiled core's 2^48 - 1: each sum
+# is of a length read from the wire or at most 2^32 - 1, and one growth
+# read from the wire.
 def grow1(b: Blk, +n: Nat) -> Blk:
   match b:
-    case Blk{i, s, l}:
+    case Blk{i, s, +l}:
       match s:
         case Active{}:
-          Blk{i, Active{}, Nat.add(l, n)}
+          Blk{i, Active{}, Nat.max(l, Nat.min(Nat.add(l, n), 4294967295n))}
         case Final{}:
           Blk{i, Final{}, l}
         case Comm{}:
