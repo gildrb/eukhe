@@ -639,42 +639,6 @@ mod tests {
         assert_eq!(resolved.compaction.token_count, ThresholdTokens::Estimate);
     }
 
-    /// The default keep window is 40,000 tokens, and with every catalog
-    /// model it stays under the context size where automatic compaction
-    /// starts, so a compaction there always has history to cut.
-    #[test]
-    #[allow(clippy::cast_precision_loss)] // Reason: token counts are JS numbers.
-    fn the_default_keep_window_stays_under_every_catalog_compaction_start() {
-        use eukhe_ai::models::CreateModelsOptions;
-        use eukhe_ai::providers::all::builtin_models;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        let settings = EukheSettings::new(dir.path().join("cwd"), dir.path().join("agent"));
-        let policy = resolve_settings(Some(&settings.current())).compaction;
-        assert!((policy.keep_recent_tokens - 40_000.0).abs() < 0.5);
-        let models = builtin_models(CreateModelsOptions::default()).get_models(None);
-        assert!(!models.is_empty());
-        for model in models {
-            let window = model.context_window;
-            if window == 0 {
-                continue;
-            }
-            let start =
-                window as f64 - policy.reserve_tokens - policy.background.tokens(window as f64);
-            let keep = policy.keep_window(window);
-            assert!(
-                keep <= start.max(0.0) / 2.0 && keep <= policy.keep_recent_tokens,
-                "{}/{}: window {window}, keep {keep}, start {start}",
-                model.provider,
-                model.id
-            );
-            // From a ~107k window on, the configured 40,000 applies whole.
-            if start >= 2.0 * policy.keep_recent_tokens {
-                assert!((keep - policy.keep_recent_tokens).abs() < 0.5);
-            }
-        }
-    }
-
     #[test]
     fn settings_changes_are_reflected_on_the_next_read() {
         let dir = tempfile::tempdir().expect("tempdir");

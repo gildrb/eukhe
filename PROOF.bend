@@ -1784,9 +1784,13 @@ import ./proof/infer_guard/infer_guard_ffi_ended.bend as PInferGuardFfiEnded
 import ./proof/infer_guard/infer_guard_ffi_shut.bend as PInferGuardFfiShut
 import ./proof/infer_guard/infer_guard_ffi_example.bend as PInferGuardFfiExample
 import ./proof/infer_threshold/base.bend as LAInferThreshold
+import ./proof/infer_threshold/base/walk.bend as LAInferThresholdWalk
 import ./proof/infer_threshold/infer_threshold_over_exact.bend as PInferThresholdOverExact
 import ./proof/infer_threshold/infer_threshold_blocks_steps.bend as PInferThresholdBlocksSteps
 import ./proof/infer_threshold/infer_threshold_early_steps.bend as PInferThresholdEarlySteps
+import ./proof/infer_threshold/infer_threshold_plan_exact.bend as PInferThresholdPlanExact
+import ./proof/infer_threshold/infer_threshold_cut_within_target.bend as PInferThresholdCutWithinTarget
+import ./proof/infer_threshold/infer_threshold_target_under.bend as PInferThresholdTargetUnder
 import ./proof/infer_threshold/infer_threshold_ffi_answers.bend as PInferThresholdFfiAnswers
 import ./proof/infer_threshold/infer_threshold_ffi_malformed_exact.bend as PInferThresholdFfiMalformedExact
 import ./proof/infer_threshold/infer_threshold_ffi_example.bend as PInferThresholdFfiExample

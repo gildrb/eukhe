@@ -88,10 +88,8 @@ pub(crate) async fn run_manual_compaction(
         .model
         .and_then(|model| deps.models.get_model(&model.provider, &model.model_id))
         .map_or(0, |model| model.context_window);
-    let keep_recent = resolve_settings(Some(&deps.settings.harness()))
-        .compaction
-        .keep_window(window);
-    if select_cut(&view, keep_recent).is_none() {
+    let policy = resolve_settings(Some(&deps.settings.harness())).compaction;
+    if select_cut(&view, &policy, window).is_none() {
         return Err(ManualCompactionError::Skipped(TOO_SHORT_TO_COMPACT));
     }
     let task = conversation

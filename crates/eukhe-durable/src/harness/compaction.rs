@@ -30,6 +30,7 @@ use self::prompt::{
     summary_failure, summary_prompt, summary_text, SUMMARIZATION_SYSTEM_PROMPT, SUMMARY_PREFIX,
     SUMMARY_SUFFIX,
 };
+pub(crate) use self::range::{estimate_calibrated, plan, Calibration};
 pub use self::range::{estimate_context, select_cut, summarized_messages};
 use crate::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
 use crate::harness::inbox::QueueModes;
@@ -146,7 +147,7 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
     let view = runtime
         .context(conversation_id, &cx, ContextOptions::default())
         .await?;
-    let Some(cut) = select_cut(&view, policy.keep_window(model.context_window)) else {
+    let Some(cut) = select_cut(&view, &policy, model.context_window) else {
         return complete(&runtime, &cx).await;
     };
     let first_kept = view.entries[cut].id;

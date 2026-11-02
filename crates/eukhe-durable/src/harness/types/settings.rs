@@ -189,7 +189,9 @@ pub struct CompactionPolicy {
     /// `contextWindow - reserveTokens`.
     #[serde(serialize_with = "eukhe_types::pi_ai::js_number::serialize")]
     pub reserve_tokens: f64,
-    /// Approximate size of the recent context a summary keeps verbatim.
+    /// The most tokens of recent context a summary keeps verbatim. With a
+    /// known window a compaction also keeps the context within half the
+    /// size at which automatic compaction starts (`compaction::select_cut`).
     #[serde(serialize_with = "eukhe_types::pi_ai::js_number::serialize")]
     pub keep_recent_tokens: f64,
     /// How far below the blocking threshold background compaction starts.
@@ -211,35 +213,6 @@ pub enum ThresholdTokens {
     /// request per preparation. When the provider has no counter or the
     /// count fails, the harness logs it and uses the local estimate.
     Provider,
-}
-
-impl CompactionPolicy {
-    /// The keep window a cut uses with a model of `context_window` tokens:
-    /// `keep_recent_tokens`, at most half of the size at which automatic
-    /// compaction starts (the background threshold when its margin is
-    /// positive, else the blocking one; never below `0`). A larger window
-    /// would keep the whole context once compaction starts, so no
-    /// compaction could cut and the context would grow until it
-    /// overflows. An unknown window (`0`) leaves it unchanged.
-    #[must_use]
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "TS compares token counts as doubles"
-    )]
-    pub fn keep_window(&self, context_window: u64) -> f64 {
-        if context_window == 0 {
-            return self.keep_recent_tokens;
-        }
-        let window = context_window as f64;
-        let blocking = window - self.reserve_tokens;
-        let margin = self.background.tokens(window);
-        let start = if margin > 0.0 {
-            blocking - margin
-        } else {
-            blocking
-        };
-        self.keep_recent_tokens.min(start.max(0.0) / 2.0)
-    }
 }
 
 impl BackgroundMargin {

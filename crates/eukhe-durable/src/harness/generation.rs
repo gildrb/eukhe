@@ -37,6 +37,7 @@ use eukhe_ai::utils::retry::{
 use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_bend::rules::infer_force::{self, Offer, Reply as ForceReply, Step as ForceStep};
+use eukhe_bend::rules::infer_threshold::Over;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -46,9 +47,9 @@ use eukhe_types::pi_ai::{
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, recover, retry_note, threshold_for, Act,
-    Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
-    Threshold, CAPS, LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
+    after_compaction, after_reply, before_request, recover, retry_note, Act, Compacted, Compaction,
+    Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck, Threshold, CAPS,
+    LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
@@ -59,7 +60,9 @@ use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_
 use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
-use crate::harness::compaction::{estimate_context, select_cut};
+use crate::harness::compaction::{
+    estimate_calibrated, estimate_context, plan, select_cut, Calibration,
+};
 use crate::harness::inbox::{has_queued_summary, INBOX_DOC};
 use crate::harness::live::run::{
     append_assistant, convert_partial, create_compaction, timestamp, CompactionInput,
@@ -414,8 +417,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let threshold = if at.compacted {
         None
     } else {
-        threshold_compaction(&view, resolved.context_window, policy, || {
-            counted.unwrap_or_else(|| estimate_context(&view, &planned_messages(&entries)))
+        let calibration = Calibration::of(&view);
+        threshold_compaction(&view, resolved.context_window, policy, calibration, || {
+            counted.unwrap_or_else(|| {
+                estimate_calibrated(&view, &planned_messages(&entries), calibration)
+            })
         })
     };
     let prepared = before_request(at, threshold);
@@ -894,22 +900,27 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 }
 
 /// Which threshold compaction preparation starts before its request (spec
-/// §8.3): [`threshold_for`] the request's input `tokens`, and only when
-/// range selection finds a cut. `tokens` runs only when the policy and the
-/// window let the check run (else no context is over a threshold, law
-/// `infer_threshold_over_exact`). The caller starts a background one only
-/// while no compaction is listed.
+/// §8.3): the plan's ([`plan`]) for the request's input `tokens`: the
+/// threshold the context is over, only with a cut, and the background one
+/// only when its cut brings the context down to the target. `tokens` runs
+/// only when the policy and the window let the check run (else no context
+/// is over a threshold, law `infer_threshold_over_exact`). The caller
+/// starts a background one only while no compaction is listed.
 fn threshold_compaction(
     view: &ContextView,
     context_window: u64,
     policy: &CompactionPolicy,
+    calibration: Calibration,
     tokens: impl FnOnce() -> u64,
 ) -> Option<Threshold> {
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    threshold_for(tokens(), context_window, policy)
-        .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
+    match plan(view, policy, context_window, tokens(), calibration).over {
+        Over::Under => None,
+        Over::Background => Some(Threshold::Background),
+        Over::Blocking => Some(Threshold::Blocking),
+    }
 }
 
 /// The model messages of the system entries preparation plans to append.
@@ -1313,7 +1324,8 @@ async fn classify(
                                 },
                             )
                             .await?,
-                        settings.compaction.keep_window(window),
+                        &settings.compaction,
+                        window,
                     )
                     .is_some();
                 let level = runtime.agent(cx).await?.thinking_level;
@@ -1579,12 +1591,11 @@ async fn classify(
                         },
                     )
                     .await?,
-                settings.compaction.keep_window(
-                    runtime
-                        .models()
-                        .get_model(&request.model.provider, &request.model.model_id)
-                        .map_or(0, |model| model.context_window),
-                ),
+                &settings.compaction,
+                runtime
+                    .models()
+                    .get_model(&request.model.provider, &request.model.model_id)
+                    .map_or(0, |model| model.context_window),
             )
             .is_some();
         (Reply::Overflow { cut }, None)

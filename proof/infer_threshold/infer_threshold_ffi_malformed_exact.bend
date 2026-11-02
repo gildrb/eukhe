@@ -11,8 +11,8 @@ import ../../laws/infer_threshold.bend as InferThreshold
 
 def gtm.ask(q: FT.Req) -> InferThreshold.Ask:
   match q:
-    case FT.Req{on, t, w, r, m}:
-      InferThreshold.Ask{on, t, w, r, m}
+    case FT.Req{on, t, w, r, m, keep, full, xs, cuts}:
+      InferThreshold.Ask{on, t, w, r, m, keep, full, xs, cuts}
 
 def gtm.dec(d: Wr.Dec<FT.Req>) -> Wr.Dec<InferThreshold.Ask>:
   match d:
@@ -54,10 +54,38 @@ def gtm.z(d: Wr.Dec<Nat>) -> {InferThreshold.read_z(d) == FT.get_z(d) : Wr.Dec<M
     case Wr.Bad{}:
       {==}
 
+def gtm.cuts(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: Wr.Dec<List<&2, Nat>>) -> {InferThreshold.read_ask.cuts(on, t, w, r, m, keep, full, xs, d) == gtm.dec(FT.get_req.cuts(on, t, w, r, m, keep, full, xs, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{cuts, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def gtm.sizes(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: Wr.Dec<List<&2, Nat>>) -> {InferThreshold.read_ask.sizes(on, t, w, r, m, keep, full, d) == gtm.dec(FT.get_req.sizes(on, t, w, r, m, keep, full, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{xs, s}:
+      gtm.cuts(on, t, w, r, m, keep, full, xs, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.full(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.full(on, t, w, r, m, keep, d) == gtm.dec(FT.get_req.full(on, t, w, r, m, keep, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{full, s}:
+      gtm.sizes(on, t, w, r, m, keep, full, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      {==}
+
+def gtm.keep(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, d: Wr.Dec<Nat>) -> {InferThreshold.read_ask.keep(on, t, w, r, m, d) == gtm.dec(FT.get_req.keep(on, t, w, r, m, d)) : Wr.Dec<InferThreshold.Ask>}:
+  match d:
+    case Wr.Got{keep, s}:
+      gtm.full(on, t, w, r, m, keep, Wr.get_nat(s))
+    case Wr.Bad{}:
+      {==}
+
 def gtm.margin(on: Bool, t: Nat, w: Nat, r: M.Z, d: Wr.Dec<M.Z>) -> {InferThreshold.read_ask.margin(on, t, w, r, d) == gtm.dec(FT.get_req.margin(on, t, w, r, d)) : Wr.Dec<InferThreshold.Ask>}:
   match d:
     case Wr.Got{m, s}:
-      {==}
+      gtm.keep(on, t, w, r, m, Wr.get_nat(s))
     case Wr.Bad{}:
       {==}
 

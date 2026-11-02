@@ -252,7 +252,7 @@ pub(super) const OVERFLOW: &str = "prompt is too long: 250000 tokens > 200000 ma
 pub(super) const MANUAL: CompactionPolicy = CompactionPolicy {
     enabled: false,
     reserve_tokens: 1000.0,
-    keep_recent_tokens: 150.0,
+    keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(0.0),
     token_count: ThresholdTokens::Estimate,
 };
@@ -262,7 +262,7 @@ pub(super) const MANUAL: CompactionPolicy = CompactionPolicy {
 pub(super) const BACKGROUND: CompactionPolicy = CompactionPolicy {
     enabled: true,
     reserve_tokens: 500.0,
-    keep_recent_tokens: 150.0,
+    keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(1000.0),
     token_count: ThresholdTokens::Estimate,
 };
@@ -272,7 +272,7 @@ pub(super) const BACKGROUND: CompactionPolicy = CompactionPolicy {
 pub(super) const BLOCKING: CompactionPolicy = CompactionPolicy {
     enabled: true,
     reserve_tokens: 300.0,
-    keep_recent_tokens: 150.0,
+    keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(0.0),
     token_count: ThresholdTokens::Estimate,
 };

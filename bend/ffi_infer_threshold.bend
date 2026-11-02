@@ -3,19 +3,22 @@ import ./wire.bend as W
 import ./infer_threshold.bend as M
 
 # ffi_infer_threshold: which compaction threshold a request's context is
-# over (bend/infer_threshold.bend `over`; bend/infer.bend section 5) as an
-# entry of the compiled Bend core. Rust (crates/eukhe-durable
-# generation.rs `threshold_compaction`) counts the tokens and rounds the
-# policy's reserve and margin up to whole tokens; the model decides.
+# over and where a compaction cuts (bend/infer_threshold.bend `plan`;
+# bend/infer.bend section 5) as an entry of the compiled Bend core. Rust
+# (crates/eukhe-durable compaction/range.rs `plan`) counts the tokens,
+# sizes the entries and rounds the policy's reserve and margin up to whole
+# tokens; the model decides.
 # Request (a record): compaction on (Bool), the context's tokens, the
-# model's window (0: unknown), the reserve, the margin; a reserve or a
-# margin is 0 then n (n tokens) | 1 then n (-(1+n) tokens).
-# Reply: 0 none | 1 the background threshold | 2 the blocking threshold.
-# Any other input: the error form.
+# model's window (0: unknown), the reserve, the margin, keepRecentTokens,
+# full, the entries' sizes newest first (a list), the cuts (a list); a
+# reserve or a margin is 0 then n (n tokens) | 1 then n (-(1+n) tokens).
+# Reply: the threshold 0 none | 1 the background threshold | 2 the
+# blocking threshold, then the cut 0 none | 1 then how many entries it
+# keeps. Any other input: the error form.
 
 # A request of the entry
 type Req is Data:
-  Req{on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z}
+  Req{on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, cuts: List<&2, Nat>}
 
 # Decoding
 # --------
@@ -50,10 +53,38 @@ def get_z(d: W.Dec<Nat>) -> W.Dec<M.Z>:
     case W.Bad{}:
       W.Bad{}
 
+def get_req.cuts(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{cuts, s}:
+      W.Got{Req{on, t, w, r, m, keep, full, xs, cuts}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.sizes(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{xs, s}:
+      get_req.cuts(on, t, w, r, m, keep, full, xs, W.get_list(~Nat, ~W.get_nat, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.full(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{full, s}:
+      get_req.sizes(on, t, w, r, m, keep, full, W.get_list(~Nat, ~W.get_nat, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.keep(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{keep, s}:
+      get_req.full(on, t, w, r, m, keep, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.margin(on: Bool, t: Nat, w: Nat, r: M.Z, d: W.Dec<M.Z>) -> W.Dec<Req>:
   match d:
     case W.Got{m, s}:
-      W.Got{Req{on, t, w, r, m}, s}
+      get_req.keep(on, t, w, r, m, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -92,20 +123,32 @@ def get_req(s: String) -> W.Dec<Req>:
 # Encoding
 # --------
 
-def put_over(o: M.Over) -> String:
+def put_over(o: M.Over, rest: String) -> String:
   match o:
     case M.Under{}:
-      W.put_nat(0n, "")
+      W.put_nat(0n, rest)
     case M.Early{}:
-      W.put_nat(1n, "")
+      W.put_nat(1n, rest)
     case M.Blocks{}:
-      W.put_nat(2n, "")
+      W.put_nat(2n, rest)
+
+def put_cut(c: Maybe<&2, Nat>) -> String:
+  match c:
+    case None{}:
+      W.put_nat(0n, "")
+    case Some{k}:
+      W.put_nat(1n, W.put_nat(k, ""))
+
+def put_plan(p: M.Plan) -> String:
+  match p:
+    case M.Plan{o, c}:
+      put_over(o, put_cut(c))
 
 # the answer to a request
 def answer(q: Req) -> String:
   match q:
-    case Req{on, t, w, r, m}:
-      put_over(M.over(on, t, w, r, m))
+    case Req{on, t, w, r, m, keep, full, xs, cuts}:
+      put_plan(M.plan(on, t, w, r, m, keep, full, xs, cuts))
 
 def fail() -> String:
   W.err("infer_threshold: malformed request")

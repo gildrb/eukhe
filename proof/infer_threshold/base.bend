@@ -40,6 +40,19 @@ def gt.lim(-w: Nat, r: M.Z) -> {M.limit_at(w, r) == InferThreshold.lim_spec(w, r
     case M.Down{a}:
       {==}
 
+# the start and the target are the spec's
+def gt.start(+w: Nat, +r: M.Z, m: M.Z) -> {M.start(w, r, m) == InferThreshold.start_spec(w, r, m) : Nat}:
+  match m:
+    case M.Up{c}:
+      %gt.lim(w, r) : {Nat.sub(M.limit_at(w, r), c) == Nat.sub(_, c) : Nat}
+      {==}
+    case M.Down{c}:
+      gt.lim(w, r)
+
+def gt.target(+w: Nat, +r: M.Z, +m: M.Z) -> {M.target(w, r, m) == InferThreshold.target_spec(w, r, m) : Nat}:
+  %gt.start(w, r, m) : {Nat.div(M.start(w, r, m), 2n) == Nat.div(_, 2n) : Nat}
+  {==}
+
 # a context is over the limit: t + r > w
 def gt.above(+w: Nat, r: M.Z, +t: Nat) -> {Nat.is_le(M.limit_at(w, r), t) == InferThreshold.above(t, r, w) : Bool}:
   match r:

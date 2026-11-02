@@ -14,13 +14,11 @@
 
 use std::num::NonZeroU32;
 
-use eukhe_bend::rules::infer_threshold::{self, whole, Over};
 use eukhe_bend::wire::Writer;
 use serde::{Deserialize, Serialize};
 
 use super::entry::{self, Ask};
 use super::note::{NoteCause, Recovery, RetryNote};
-use crate::harness::types::CompactionPolicy;
 
 /// Noted retries of one generation before a noted reply fails the run
 /// (H4.7, H4.8): their own budget, apart from `retry.maxRetries`. It
@@ -380,39 +378,6 @@ pub(crate) enum Threshold {
     Blocking,
     /// Above the background threshold: it runs beside the request.
     Background,
-}
-
-/// Which threshold compaction a context of `tokens` is over (spec §8.3):
-/// [`Threshold::Blocking`] when `tokens > contextWindow - reserveTokens`,
-/// [`Threshold::Background`] when `tokens > blocking - margin` with a
-/// positive margin ([`BackgroundMargin`](crate::harness::types::BackgroundMargin)).
-/// None when the policy is disabled or the window is unknown (`0`). Whether
-/// a cut exists is the caller's. The compiled core decides
-/// (`eukhe_bend::rules::infer_threshold`, law `infer_threshold_over_exact`)
-/// on the reserve and the margin in tokens rounded up ([`whole`]): a whole
-/// token count is compared strictly, so that is exact for a whole reserve
-/// (every setting eukhe writes) and any margin; a fractional reserve with a
-/// fractional margin may start background compaction one token early.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "a percentage margin is a share of the window in f64 tokens"
-)]
-pub(crate) fn threshold_for(
-    tokens: u64,
-    context_window: u64,
-    policy: &CompactionPolicy,
-) -> Option<Threshold> {
-    let compaction = infer_threshold::Compaction {
-        enabled: policy.enabled,
-        window: context_window,
-        reserve: whole(policy.reserve_tokens),
-        margin: whole(policy.background.tokens(context_window as f64)),
-    };
-    match compaction.over(tokens) {
-        Over::Under => None,
-        Over::Background => Some(Threshold::Background),
-        Over::Blocking => Some(Threshold::Blocking),
-    }
 }
 
 /// What preparation does with its request.

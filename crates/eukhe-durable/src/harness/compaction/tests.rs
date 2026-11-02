@@ -1,17 +1,22 @@
 //! Range selection and serialization (`test/harness-compaction.test.ts`,
-//! "range selection" and "serialization").
+//! "range selection" and "serialization"), and the calibrated sizes the
+//! cut and the threshold read.
 
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
 };
+use eukhe_ai::utils::estimate::estimate_message_tokens;
+use eukhe_bend::rules::infer_threshold::Over;
 use eukhe_types::pi_ai::{
     AssistantMessage, IndexMap, JsonObject as PiJsonObject, Message, StopReason, SystemContent,
-    SystemMessage, TextContent, ToolResultMessage, UserContent, UserContentBlock, UserMessage,
+    SystemMessage, TextContent, ToolResultMessage, Usage, UserContent, UserContentBlock,
+    UserMessage,
 };
 
-use super::{select_cut, serialize_conversation};
+use super::{estimate_context, plan, select_cut, serialize_conversation, Calibration};
+use crate::harness::agent::DEFAULT_COMPACTION_POLICY;
 use crate::harness::context::order_tool_results;
-use crate::harness::types::ContextView;
+use crate::harness::types::{BackgroundMargin, CompactionPolicy, ContextView};
 use crate::types::{ConversationId, EntryId, EntryRecord};
 
 /// Text of about `tokens` estimated tokens, starting with `label`.
@@ -127,8 +132,21 @@ fn view(entries: Vec<EntryRecord>, head: Option<EntryRecord>) -> ContextView {
     }
 }
 
+/// The cut with `keepRecentTokens` of `keep` and the window unknown: keep
+/// alone bounds what it keeps.
+fn cut(view: &ContextView, keep: f64) -> Option<usize> {
+    select_cut(
+        view,
+        &CompactionPolicy {
+            keep_recent_tokens: keep,
+            ..DEFAULT_COMPACTION_POLICY
+        },
+        0,
+    )
+}
+
 #[test]
-fn keeps_about_keep_recent_tokens_and_cuts_at_the_first_candidate_at_or_after_the_budget() {
+fn keeps_at_most_keep_recent_tokens_from_the_newest_entry() {
     let mut ids = Ids(0);
     let entries = vec![
         ids.entry("pi.user", vec![user(text("1", 10))], None),
@@ -142,7 +160,8 @@ fn keeps_about_keep_recent_tokens_and_cuts_at_the_first_candidate_at_or_after_th
         ids.entry("pi.user", vec![user(text("5", 10))], None),
         ids.entry("pi.assistant", vec![answer(&text("6", 10))], None),
     ];
-    assert_eq!(select_cut(&view(entries, None), 2000.0), Some(3));
+    // The tool result would pass 2000: the cut keeps the 3 entries after it.
+    assert_eq!(cut(&view(entries, None), 2000.0), Some(3));
 }
 
 #[test]
@@ -154,7 +173,7 @@ fn cuts_at_a_user_entry() {
         ids.entry("pi.user", vec![user(text("u2", 100))], None),
         ids.entry("pi.assistant", vec![answer(&text("a2", 100))], None),
     ];
-    assert_eq!(select_cut(&view(entries, None), 150.0), Some(2));
+    assert_eq!(cut(&view(entries, None), 250.0), Some(2));
 }
 
 #[test]
@@ -174,8 +193,8 @@ fn cuts_at_an_assistant_in_the_middle_of_one_long_run_and_never_at_a_tool_result
             None,
         ));
     }
-    let cut = select_cut(&view(entries.clone(), None), 150.0).expect("a cut");
-    // The budget is reached at the fourth result; the cut is the last call,
+    let cut = cut(&view(entries.clone(), None), 150.0).expect("a cut");
+    // The fourth result would pass the budget; the cut is the last call,
     // whose result it keeps.
     assert_eq!(entries[cut].kind, "pi.assistant");
     assert_eq!(cut, 9);
@@ -193,7 +212,7 @@ fn keeps_a_huge_last_tool_result_together_with_its_assistant() {
             None,
         ),
     ];
-    assert_eq!(select_cut(&view(entries, None), 100.0), Some(1));
+    assert_eq!(cut(&view(entries, None), 100.0), Some(1));
 }
 
 #[test]
@@ -215,9 +234,10 @@ fn never_cuts_at_a_system_entry_or_an_excluded_error_or_aborted_answer() {
         ),
         ids.entry("pi.assistant", vec![answer(&text("a2", 100))], None),
     ];
-    // The walk reaches 150 at the system entry; the excluded answers after it
-    // contribute nothing.
-    assert_eq!(select_cut(&view(entries, None), 150.0), Some(5));
+    // The system entry counts nothing (a compaction writes the system
+    // prompt again) and is no cut, nor are the excluded answers: a1 would
+    // pass 150, so the cut keeps a2 alone.
+    assert_eq!(cut(&view(entries, None), 150.0), Some(5));
 }
 
 #[test]
@@ -230,7 +250,7 @@ fn follows_edited_contributions_an_omitted_entry_adds_nothing_and_is_no_candidat
         ids.entry("pi.assistant", vec![answer(&text("a2", 100))], None),
     ];
     let plain = view(entries, None);
-    assert_eq!(select_cut(&plain, 150.0), Some(2));
+    assert_eq!(cut(&plain, 250.0), Some(2));
     let contributions: Vec<Vec<Message>> = plain
         .contributions
         .iter()
@@ -249,7 +269,7 @@ fn follows_edited_contributions_an_omitted_entry_adds_nothing_and_is_no_candidat
         contributions,
         ..plain
     };
-    assert_eq!(select_cut(&omitted, 150.0), Some(1));
+    assert_eq!(cut(&omitted, 250.0), Some(1));
 }
 
 #[test]
@@ -266,9 +286,9 @@ fn does_not_cut_at_a_user_entry_that_a_result_of_the_preceding_call_still_follow
         ),
         ids.entry("pi.assistant", vec![answer(&text("a2", 100))], None),
     ];
-    // The budget is reached at the steer; its result follows it, so the cut
-    // moves to the next assistant.
-    assert_eq!(select_cut(&view(entries, None), 250.0), Some(4));
+    // The steer would pass the budget and is no cut anyway (its result
+    // follows it): the cut keeps the last answer.
+    assert_eq!(cut(&view(entries, None), 250.0), Some(4));
 }
 
 #[test]
@@ -278,12 +298,12 @@ fn finds_nothing_when_the_budget_is_never_reached_or_only_the_marker_precedes_th
         ids.entry("pi.user", vec![user("hi")], None),
         ids.entry("pi.assistant", vec![answer("hello")], None),
     ];
-    assert_eq!(select_cut(&view(small, None), 150.0), None);
+    assert_eq!(cut(&view(small, None), 150.0), None);
     let marker = ids.entry("pi.compaction", vec![user("summary")], Some(0));
-    // The budget is reached at the only entry after the marker, so the marker
-    // alone would be summarized.
+    // The only entry after the marker passes the budget, so the newest cut
+    // keeps it and the marker alone would be summarized.
     let only = vec![ids.entry("pi.user", vec![user(text("u", 200))], None)];
-    assert_eq!(select_cut(&view(only, Some(marker)), 150.0), None);
+    assert_eq!(cut(&view(only, Some(marker)), 150.0), None);
 }
 
 #[test]
@@ -297,7 +317,7 @@ fn summarizes_an_earlier_summary_marker_first() {
         ids.entry("pi.assistant", vec![answer(&text("a2", 100))], None),
     ];
     let selected = view(kept, Some(marker));
-    assert_eq!(select_cut(&selected, 150.0), Some(3));
+    assert_eq!(cut(&selected, 250.0), Some(3));
     let prefix: Vec<Message> = selected.contributions[..3]
         .iter()
         .flatten()
@@ -326,6 +346,96 @@ fn writes_a_transcript_truncates_tool_results_and_omits_system_messages_and_thin
             "[User]: hello\n\n[Assistant]: sure\n\n[Assistant tool calls]: read(path=\"a.ts\")\n\n[Tool result]: {}\n\n[... 500 more characters truncated]",
             "y".repeat(2000)
         )
+    );
+}
+
+/// An answer whose request and answer the provider counted at `total`
+/// tokens.
+fn counted_answer(content: &str, total: u64) -> Message {
+    Message::Assistant(AssistantMessage {
+        usage: Usage {
+            total_tokens: total,
+            ..Usage::default()
+        },
+        ..faux_assistant_message(
+            vec![faux_text(content)],
+            FauxAssistantMessageOptions::default(),
+        )
+    })
+}
+
+/// eukhe's policy (`compaction.*` defaults, a tenth of the window as the
+/// margin) on an 80k window: blocking above 63616, background above
+/// 55616, target 27808.
+const WINDOW: u64 = 80_000;
+const EUKHE: CompactionPolicy = CompactionPolicy {
+    keep_recent_tokens: 40_000.0,
+    background: BackgroundMargin::WindowPercent(10.0),
+    ..DEFAULT_COMPACTION_POLICY
+};
+
+/// Bench longmem: pasted logs the provider counts at twice the local
+/// estimate. The estimate of the next request scales its new paste to the
+/// provider's counts, and a compaction keeps only the newest paste: kept
+/// with the system prompt and the summary, two pastes would leave the next
+/// turn over the start again. (The old cut kept every paste here, by
+/// estimate within the keep window, and compacted before every turn.)
+#[test]
+fn a_compaction_counts_pastes_as_the_provider_does_and_keeps_the_context_within_the_target() {
+    let mut ids = Ids(0);
+    let paste = |label: &str| user(text(label, 8000));
+    let entries = vec![
+        ids.entry("pi.system", vec![system_sections(text("sys", 5000))], None),
+        ids.entry("pi.user", vec![paste("A")], None),
+        ids.entry("pi.assistant", vec![counted_answer("a1", 30_000)], None),
+        ids.entry("pi.user", vec![paste("B")], None),
+        ids.entry("pi.assistant", vec![counted_answer("a2", 48_300)], None),
+        ids.entry("pi.user", vec![paste("C")], None),
+        ids.entry("pi.assistant", vec![counted_answer("a3", 66_600)], None),
+        ids.entry("pi.user", vec![paste("D")], None),
+    ];
+    let view = view(entries, None);
+    let estimate = |message: &Message| estimate_message_tokens(message);
+    let between = estimate(&paste("B"))
+        + estimate(&counted_answer("a2", 0))
+        + estimate(&paste("C"))
+        + estimate(&counted_answer("a3", 0));
+    let tokens = estimate_context(&view, &[]);
+    assert_eq!(
+        tokens,
+        66_600 + (estimate(&paste("D")) * 36_600).div_ceil(between)
+    );
+    assert_eq!(
+        plan(&view, &EUKHE, WINDOW, tokens, Calibration::of(&view)),
+        super::range::Plan {
+            over: Over::Blocking,
+            cut: Some(7),
+        }
+    );
+    assert_eq!(select_cut(&view, &EUKHE, WINDOW), Some(7));
+}
+
+/// A context over the background threshold compacts early only when its
+/// compaction reaches the target; else it waits for the blocking one.
+#[test]
+fn an_early_compaction_runs_only_when_it_reaches_the_target() {
+    let mut ids = Ids(0);
+    let entries = vec![
+        ids.entry("pi.system", vec![system_sections(text("sys", 5000))], None),
+        ids.entry("pi.user", vec![user(text("A", 8000))], None),
+        ids.entry("pi.assistant", vec![answer("a1")], None),
+        ids.entry("pi.user", vec![user(text("B", 8000))], None),
+    ];
+    let view = view(entries, None);
+    let at = |tokens| plan(&view, &EUKHE, WINDOW, tokens, Calibration::of(&view));
+    let kept_b = |over| super::range::Plan { over, cut: Some(3) };
+    assert_eq!(
+        [50_000, 60_000, 64_000].map(at),
+        [
+            kept_b(Over::Under),
+            kept_b(Over::Under),
+            kept_b(Over::Blocking)
+        ]
     );
 }
 

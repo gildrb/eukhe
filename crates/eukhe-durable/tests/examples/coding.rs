@@ -149,22 +149,23 @@ async fn compaction() {
             details("What should we eat?"),
         ],
     ));
+    // A compaction keeps the most of the newest entries that stay within
+    // keepRecentTokens (400) and leave the context within half the size
+    // where compaction starts: here the newest turn alone.
     expected.push_str(&block(
-        "after \"Which day trips?\" (answered): 4 messages in context, 7 entries stored",
+        "after \"Which day trips?\" (answered): 3 messages in context, 7 entries stored",
         Some("threshold"),
         &[
             summary.to_owned(),
-            details("What should we eat?"),
             user("Which day trips?"),
             details("Which day trips?"),
         ],
     ));
     expected.push_str(&block(
-        "after \"Any museums?\" (answered): 7 messages in context, 10 entries stored",
+        "after \"Any museums?\" (answered): 6 messages in context, 10 entries stored",
         Some("threshold"),
         &[
             summary.to_owned(),
-            details("What should we eat?"),
             user("Which day trips?"),
             details("Which day trips?"),
             user("Any museums?"),
@@ -173,13 +174,11 @@ async fn compaction() {
         ],
     ));
     expected.push_str(&block(
-        "after \"Nightlife?\" (answered): 5 messages in context, 14 entries stored",
+        "after \"Nightlife?\" (answered): 3 messages in context, 13 entries stored",
         Some("threshold"),
         &[
             summary.to_owned(),
-            details("Any museums?"),
             user("Nightlife?"),
-            system.to_owned(),
             details("Nightlife?"),
         ],
     ));
@@ -189,18 +188,17 @@ async fn compaction() {
         "after compact(): 4 messages in context, 17 entries stored",
         Some("manual"),
         &[
+            system.to_owned(),
             summary.to_owned(),
-            details("Nightlife?"),
             user("How do we get around?"),
             details("How do we get around?"),
         ],
     ));
     expected.push_str(&block(
-        "after \"What should we pack?\" (answered): 7 messages in context, 20 entries stored",
+        "after \"What should we pack?\" (answered): 6 messages in context, 20 entries stored",
         Some("manual"),
         &[
             summary.to_owned(),
-            details("Nightlife?"),
             user("How do we get around?"),
             details("How do we get around?"),
             user("What should we pack?"),
@@ -208,14 +206,17 @@ async fn compaction() {
             details("What should we pack?"),
         ],
     ));
+    // The compactions leave the context under the blocking threshold, so the
+    // request the provider rejects as too long compacts (the overflow
+    // summary) and is answered on its retry.
     expected.push_str(&block(
-        "after \"Summarize the plan for my partner\" (model_error): 4 messages in context, 24 entries stored",
-        Some("threshold"),
+        "after \"Summarize the plan for my partner\" (answered): 4 messages in context, 25 entries stored",
+        Some("overflow"),
         &[
-            summary.to_owned(),
-            details("What should we pack?"),
-            user("Summarize the plan for my partner"),
             system.to_owned(),
+            summary.to_owned(),
+            user("Summarize the plan for my partner"),
+            details("Summarize the plan for my partner"),
         ],
     ));
     assert_eq!(printed!(ex25_compaction), expected);

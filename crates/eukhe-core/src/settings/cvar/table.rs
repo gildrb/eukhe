@@ -328,10 +328,10 @@ pub const COMPACTION_RESERVE_TOKENS: Decl = Decl {
 };
 
 /// Twice the Harness's `DEFAULT_COMPACTION_POLICY.keep_recent_tokens`
-/// (20,000): the keep window counts system entries, and eukhe's system
-/// prompt alone is near 20,000 tokens, so the kept tail would hold almost
-/// no conversation. The Harness caps it per model at half the size where
-/// compaction starts (`CompactionPolicy::keep_window`).
+/// (20,000), in tokens as the provider counts them. A compaction keeps at
+/// most this much of the newest conversation, and with a known window at
+/// most what leaves the context within half the size where compaction
+/// starts (`compaction::select_cut`, law `infer_threshold_cut_within_target`).
 pub const COMPACTION_KEEP_RECENT_TOKENS: Decl = Decl {
     id: "compaction.keepRecentTokens",
     ty: CvarType::Nat,
