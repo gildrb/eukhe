@@ -2685,6 +2685,7 @@ import ./proof/wait_any/wait_any_entry_answers.bend as PWaitAnyEntryAnswers
 import ./proof/wait_any/wait_any_entry_reads.bend as PWaitAnyEntryReads
 import ./proof/wait_any/wait_any_entry_malformed_exact.bend as PWaitAnyEntryMalformedExact
 import ./proof/wait_any/wait_any_entry_premises_witness.bend as PWaitAnyEntryPremisesWitness
+import ./proof/wait_any/wait_any_entry_read_answers.bend as PWaitAnyEntryReadAnswers
 import ./proof/stop/base.bend as LAStop
 import ./proof/stop/base/stand.bend as LAStopStand
 import ./proof/stop/stop_bound_exact.bend as PStopBoundExact

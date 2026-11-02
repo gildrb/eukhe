@@ -214,6 +214,19 @@ law wait_any_entry_malformed_exact:
   for no: {SpW.read_req(s) == None{} : Maybe<&2, FWa.Req>}
   {FWa.ffi(s) == Wr.err("wait_any: malformed request") : String}
 
+# LAW wait_any_entry_read_answers (R5, W1-W3): every input the laws'
+# reader reads as a whole request is answered with the spelled spec
+# answer to that request; with wait_any_entry_malformed_exact, every input
+# is answered as the laws' reader reads it
+# EXCLUDES: input the reader reads whole answered otherwise than its
+#   request (a default, another request's answer), an answer that depends
+#   on bytes the reader does not read
+law wait_any_entry_read_answers:
+  for +s: String
+  for +q: FWa.Req
+  for got: {SpW.read_req(s) == Some{q} : Maybe<&2, FWa.Req>}
+  {FWa.ffi(s) == SpW.w_reply(q) : String}
+
 # LAW wait_any_entry_premises_witness (R5): a request that fits exists,
 # and so does input that is no request
 # EXCLUDES: a vacuous entry law whose premise no input meets

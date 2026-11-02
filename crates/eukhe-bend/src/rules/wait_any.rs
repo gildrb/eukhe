@@ -154,11 +154,19 @@ pub fn step(wake: Wake, delivery: Delivery, event: Event) -> Stepped {
 }
 
 fn step_call(wake: Wake, delivery: Delivery, event: Event) -> Result<Stepped, Error> {
+    // A Watch answers the count plus one, which Rust must read back as a
+    // wire Nat: the count it sends saturates one below `NAT_MAX` for a
+    // Watch, so the count saturates at `NAT_MAX` (no session runs that many
+    // waits on one job) and the reply is never past the wire.
+    let most = match event {
+        Event::Watch => NAT_MAX - 1,
+        Event::Unwatch | Event::Settles | Event::Taken => NAT_MAX,
+    };
     let mut request = Writer::new();
     request
         .tag(1)
         .bool(wake == Wake::Notice)
-        .nat(delivery.watchers.min(NAT_MAX))
+        .nat(delivery.watchers.min(most))
         .nat(match delivery.phase {
             Phase::Live => 0,
             Phase::Kept => 1,
@@ -331,6 +339,23 @@ mod tests {
                 timeout_secs(Some(3600))
             ],
             [1800, 45, 1800]
+        );
+    }
+
+    /// A Watch at the largest count the wire carries saturates there: the
+    /// core's reply stays a wire Nat that Rust reads back.
+    #[test]
+    fn a_watch_at_the_largest_count_saturates() {
+        let most = Delivery {
+            watchers: NAT_MAX,
+            phase: Phase::Live,
+        };
+        assert_eq!(
+            step(Wake::Notice, most, Event::Watch),
+            Stepped {
+                delivery: most,
+                delivered: false
+            }
         );
     }
 }
