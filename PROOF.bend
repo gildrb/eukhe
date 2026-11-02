@@ -1093,6 +1093,8 @@ import ./proof/cron_store/cron_finish_exact.bend as PCronFinishExact
 import ./proof/cron_store/cron_cancel_exact.bend as PCronCancelExact
 import ./proof/cron_store/cron_resume_exact.bend as PCronResumeExact
 import ./proof/cron_terms/cron_terms_exact.bend as PCronTermsExact
+import ./proof/cron_terms/cron_type_terms_exact.bend as PCronTypeTermsExact
+import ./proof/cron_step/cron_run_exact.bend as PCronRunExact
 import ./proof/cron_step/cron_step_exact.bend as PCronStepExact
 import ./proof/cron_step/cron_step_example.bend as PCronStepExample
 import ./proof/cron_job/base.bend as LACronJob
@@ -1156,6 +1158,7 @@ import ./proof/orphan/orphan_ffi_malformed.bend as POrphanFfiMalformed
 import ./proof/orphan/orphan_ffi_left_over.bend as POrphanFfiLeftOver
 import ./proof/orphan/orphan_ffi_exact.bend as POrphanFfiExact
 import ./proof/orphan/orphan_ffi_exact_example.bend as POrphanFfiExactExample
+import ./proof/orphan/orphan_sound_iff.bend as POrphanSoundIff
 import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
 import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
 import ./proof/launcher/base.bend as LALauncher

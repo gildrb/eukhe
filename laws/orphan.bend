@@ -370,3 +370,40 @@ law orphan_run_spec:
   for +window: Nat
   for +evs: List<&2, Or.Ev>
   {Or.run(window, evs) == ow_run(window, evs) : Or.St}
+# The exit's soundness, as a Bool
+# -------------------------------
+# orphan_never_aborts_resumable states the model predicate Or.Sound: a
+# Sound rewritten to `Unit` makes it vacuous. It is pinned here, both
+# ways, to a Bool in the laws.
+
+def ongoing_spec(work: Or.Work) -> Bool:
+  match work:
+    case Or.Idle{}:
+      False{}
+    case Or.Ongoing{}:
+      True{}
+
+# a is b
+def same_bool_spec(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+# a live worker is sound; an exit is sound when it aborted nothing and
+# recorded the session busy exactly when it held work
+def sound_spec(s: Or.St) -> Bool:
+  match s:
+    case Or.Live{w}:
+      True{}
+    case Or.Exited{d}:
+      match d:
+        case Or.Out{e, work, busy, aborted}:
+          Bool.and(Bool.not(aborted), same_bool_spec(busy, ongoing_spec(work)))
+
+# LAW orphan_sound_iff: the model's soundness predicate holds exactly when its Bool in the laws is true: a live worker always; an exit exactly when it aborted nothing and recorded the session busy exactly when it held work
+# EXCLUDES: an Or.Sound rewritten to `Unit` (or one that ignores the abort or the busy flag), which makes orphan_never_aborts_resumable vacuous
+law orphan_sound_iff:
+  for +s: Or.St
+  (Or.Sound(s) -> {sound_spec(s) == True{} : Bool}) & ({sound_spec(s) == True{} : Bool} -> Or.Sound(s))

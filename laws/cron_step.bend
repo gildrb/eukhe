@@ -191,6 +191,20 @@ def step_spec(s: Cr.S, +e: Cr.Ev) -> Cr.S:
         case Cr.Edit{+p, i, k}:
           live_spec(Cr.has(p, dead), Cr.S{bad, recs_spec(e, c, dead, rs), rd, dead, c, n, aside}, Cr.S{bad, rs, rd, dead, c, n, aside})
 
+# the empty jobs file: readable, no record, no claim record, no dead
+# process, clock 0, next id 0, no file moved aside
+def empty_spec() -> Cr.S:
+  Cr.S{None{}, Nil{}, Nil{}, Nil{}, 0n, 0n, Nil{}}
+
+# the state after the events evs from s: each event, in order, takes the
+# spec's step
+def run_from_spec(evs: List<&2, Cr.Ev>, s: Cr.S) -> Cr.S:
+  match evs:
+    case Nil{}:
+      s
+    case e <> rest:
+      run_from_spec(rest, step_spec(s, e))
+
 # Laws
 # ----
 
@@ -206,3 +220,10 @@ law cron_step_exact:
 law cron_step_example:
   {Cr.run([Cr.Create{0n, Cr.Every{0n}}, Cr.Tick{1n}, Cr.Take{0n}, Cr.Finish{0n, 0n, Cr.Loss{}}, Cr.Die{1n}, Cr.Create{1n, Cr.Once{0n}}, Cr.RawJob{7n}]) == Cr.S{None{}, [Cr.Known{Cr.Job{0n, Cr.Every{0n}, Cr.Active{}, Some{3n}, 1n, None{}, [], [1n], [Cr.MLoss{}]}}, Cr.Raw{7n}], [], [1n], 1n, 1n, []} : Cr.S} &
   {Cr.run([Cr.Create{0n, Cr.Once{2n}}, Cr.Corrupt{9n}, Cr.Create{0n, Cr.Once{2n}}]) == Cr.S{None{}, [Cr.Known{Cr.Job{1n, Cr.Once{2n}, Cr.Active{}, Some{3n}, 0n, None{}, [], [], []}}], [], [], 0n, 2n, [9n]} : Cr.S}
+
+# LAW cron_run_exact: the model's history is the spec's step folded over the events, every event taken, in order: from any state for the fold Cr.go, from the empty jobs file for Cr.run (the history the D2 laws of laws/cron.bend read)
+# EXCLUDES: a fold that skips an event kind (a recovery, a death, a claim pass), drops, repeats or reorders events, stops early, or starts from another file (a nonempty, corrupt or advanced-clock state); cron_step_example's two anchors alone admit all of them
+law cron_run_exact:
+  for +evs: List<&2, Cr.Ev>
+  for +s: Cr.S
+  {Cr.go(evs, s) == run_from_spec(evs, s) : Cr.S} & {Cr.run(evs) == run_from_spec(evs, empty_spec()) : Cr.S}

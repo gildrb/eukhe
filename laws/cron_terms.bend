@@ -227,3 +227,273 @@ law cron_terms_exact:
   for +nx: Maybe<&2, Nat>
   for +u: Nat
   {Cr.has(p, xs) == has_spec(p, xs) : Bool} & {Cr.Job.id(j) == job_id_spec(j) : Nat} & {Cr.Job.claim(j) == job_claim_spec(j) : Maybe<&2, Cr.Claim>} & {Cr.Job.status(j) == job_status_spec(j) : Cr.Status} & {Cr.S.recs(s) == recs_spec(s) : List<&2, Cr.Rec>} & {Cr.S.dead(s) == dead_spec(s) : List<&2, Nat>} & {Cr.Ev.by(e) == by_spec(e) : Maybe<&2, Nat>} & {Cr.Ev.is_corrupt(e) == corrupt_spec(e) : Bool} & {Cr.Ev.is_user(e) == user_spec(e) : Bool} & {Cr.claim_of(i, rs) == claim_spec(i, rs) : Maybe<&2, Cr.Claim>} & {Cr.delay(k) == delay_spec(k) : Nat} & {Cr.later(nx, u) == later_spec(nx, u) : Nat}
+
+# The laws' predicates, as Bools
+# ------------------------------
+# The D2 laws cron_fires_once, cron_once_finished_after_end,
+# cron_never_drops and cron_backoff_bounded state a model predicate
+# (Cr.FiresAll, Cr.EndsAll, Cr.Keeps, Cr.StopsAll, Cr.StaysPaused): a
+# predicate rewritten to `Unit` makes its law vacuous. Each is pinned here,
+# both ways, to a Bool in the laws.
+
+# a implies b
+def imp_spec(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      True{}
+
+def is_nil_spec(xs: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      False{}
+
+# the claim on record is o's
+def owns_spec(cl: Maybe<&2, Cr.Claim>, +o: Nat) -> Bool:
+  match cl:
+    case None{}:
+      False{}
+    case Some{x}:
+      match x:
+        case Cr.Claim{occ, w}:
+          Nat.is_eq(w, o)
+
+# at most one process runs the job, and that run holds the claim on record
+def held_spec(rs: List<&2, Nat>, cl: Maybe<&2, Cr.Claim>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case o <> t:
+      match t:
+        case Nil{}:
+          owns_spec(cl, o)
+        case x <> u:
+          False{}
+
+# every occurrence in t is below x, each below the one before
+def desc_from_spec(t: List<&2, Nat>, x: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +y <> u:
+      Bool.and(Nat.is_lt(y, x), desc_from_spec(u, y))
+
+# the occurrences that started fall strictly, the newest first
+def desc_spec(ss: List<&2, Nat>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case x <> t:
+      desc_from_spec(t, x)
+
+# a one-shot started at most once (an interval job any number of times)
+def once_once_spec(s: Cr.Sched, ss: List<&2, Nat>) -> Bool:
+  match s:
+    case Cr.Once{d}:
+      match ss:
+        case Nil{}:
+          True{}
+        case x <> t:
+          is_nil_spec(t)
+    case Cr.Every{k}:
+      True{}
+
+def fires_spec(j: Cr.Job) -> Bool:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, +ss, h}:
+      Bool.and(held_spec(rs, cl), Bool.and(desc_spec(ss), once_once_spec(s, ss)))
+
+# every job record fires as cron_fires_once says
+def fires_all_spec(rs: List<&2, Cr.Rec>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> t:
+      match r:
+        case Cr.Known{j}:
+          Bool.and(fires_spec(j), fires_all_spec(t))
+        case Cr.Raw{x}:
+          fires_all_spec(t)
+
+# a finished one-shot has no run
+def ends_spec(j: Cr.Job) -> Bool:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, h}:
+      match s:
+        case Cr.Once{d}:
+          match st:
+            case Cr.Active{}:
+              True{}
+            case Cr.Paused{}:
+              True{}
+            case Cr.Finished{}:
+              is_nil_spec(rs)
+            case Cr.Cancelled{}:
+              True{}
+        case Cr.Every{n}:
+          True{}
+
+def ends_all_spec(rs: List<&2, Cr.Rec>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> t:
+      match r:
+        case Cr.Known{j}:
+          Bool.and(ends_spec(j), ends_all_spec(t))
+        case Cr.Raw{x}:
+          ends_all_spec(t)
+
+# failed runs after which a job stops
+def cap_spec() -> Nat:
+  8n
+
+# the failed runs the job counted in a row, the newest first: up to its
+# last good run or resume
+def trail_spec(h: List<&2, Cr.Mark>) -> Nat:
+  match h:
+    case Nil{}:
+      0n
+    case m <> t:
+      match m:
+        case Cr.MWin{}:
+          0n
+        case Cr.MLoss{}:
+          1n+trail_spec(t)
+        case Cr.MReset{}:
+          0n
+
+# an active job has fewer failures in a row than the cap
+def act_spec(st: Cr.Status, n: Nat) -> Bool:
+  match st:
+    case Cr.Active{}:
+      Nat.is_lt(n, cap_spec())
+    case Cr.Paused{}:
+      True{}
+    case Cr.Finished{}:
+      True{}
+    case Cr.Cancelled{}:
+      True{}
+
+# at most the cap of failures in a row, fewer while active
+def stops_spec(j: Cr.Job) -> Bool:
+  match j:
+    case Cr.Job{i, s, st, nx, k, cl, rs, ss, +h}:
+      Bool.and(Nat.is_le(trail_spec(h), cap_spec()), act_spec(st, trail_spec(h)))
+
+def stops_all_spec(rs: List<&2, Cr.Rec>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> t:
+      match r:
+        case Cr.Known{j}:
+          Bool.and(stops_spec(j), stops_all_spec(t))
+        case Cr.Raw{x}:
+          stops_all_spec(t)
+
+# a job record this build cannot read with bytes t is in rs
+def has_raw_spec(+t: Nat, rs: List<&2, Cr.Rec>) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case r <> rest:
+      match r:
+        case Cr.Raw{x}:
+          Bool.or(Nat.is_eq(x, t), has_raw_spec(t, rest))
+        case Cr.Known{j}:
+          has_raw_spec(t, rest)
+
+# a job with id i is in rs
+def has_job_spec(+i: Nat, rs: List<&2, Cr.Rec>) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case r <> rest:
+      match r:
+        case Cr.Raw{x}:
+          has_job_spec(i, rest)
+        case Cr.Known{j}:
+          Bool.or(Nat.is_eq(job_id_spec(j), i), has_job_spec(i, rest))
+
+# the file is the corrupt file t
+def is_bad_spec(m: Maybe<&2, Nat>, +t: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{x}:
+      Nat.is_eq(x, t)
+
+# the step from s to s2 keeps the raw job record t, the job i, the raw
+# claim record t, the corrupt file t (in place or moved aside) and the
+# file moved aside t
+def keeps_spec(+t: Nat, +i: Nat, s: Cr.S, s2: Cr.S) -> Bool:
+  match s:
+    case Cr.S{b, +rs, rd, dead, c, n, a}:
+      match s2:
+        case Cr.S{b2, +rs2, rd2, dead2, c2, n2, +a2}:
+          Bool.and(imp_spec(has_raw_spec(t, rs), has_raw_spec(t, rs2)), Bool.and(imp_spec(has_job_spec(i, rs), has_job_spec(i, rs2)), Bool.and(imp_spec(has_spec(t, rd), has_spec(t, rd2)), Bool.and(imp_spec(is_bad_spec(b, t), Bool.or(is_bad_spec(b2, t), has_spec(t, a2))), imp_spec(has_spec(t, a), has_spec(t, a2))))))
+
+def status_spec.pick(b: Bool, st: Cr.Status, rest: Maybe<&2, Cr.Status>) -> Maybe<&2, Cr.Status>:
+  match b:
+    case True{}:
+      Some{st}
+    case False{}:
+      rest
+
+# the status of the first readable job with id i
+def status_spec(+i: Nat, rs: List<&2, Cr.Rec>) -> Maybe<&2, Cr.Status>:
+  match rs:
+    case Nil{}:
+      None{}
+    case r <> t:
+      match r:
+        case Cr.Raw{x}:
+          status_spec(i, t)
+        case Cr.Known{j}:
+          match j:
+            case Cr.Job{+id, s, st, nx, k, cl, ru, ss, h}:
+              status_spec.pick(Nat.is_eq(id, i), st, status_spec(i, t))
+
+def paused_spec(m: Maybe<&2, Cr.Status>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{st}:
+      match st:
+        case Cr.Active{}:
+          False{}
+        case Cr.Paused{}:
+          True{}
+        case Cr.Finished{}:
+          False{}
+        case Cr.Cancelled{}:
+          False{}
+
+def gone_spec(m: Maybe<&2, Cr.Status>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{st}:
+      False{}
+
+# a paused job i stays paused from s to s2, or is gone
+def stays_paused_spec(+i: Nat, s: Cr.S, s2: Cr.S) -> Bool:
+  match s:
+    case Cr.S{b, rs, rd, dead, c, n, a}:
+      match s2:
+        case Cr.S{b2, +rs2, rd2, dead2, c2, n2, a2}:
+          imp_spec(paused_spec(status_spec(i, rs)), Bool.or(paused_spec(status_spec(i, rs2)), gone_spec(status_spec(i, rs2))))
+
+# LAW cron_type_terms_exact: the model's predicates the D2 laws state hold exactly when their Bools in the laws are true: every job record fires once (one run at most, holding the claim; starts falling strictly; a one-shot started at most once); every finished one-shot has no run; every job counts at most the cap (8) of failures in a row, fewer while active; a step keeps every record and file of the five kinds; a paused job stays paused or is gone
+# EXCLUDES: a Cr.FiresAll, Cr.EndsAll, Cr.StopsAll, Cr.Keeps or Cr.StaysPaused rewritten to `Unit` (or to any weaker or stronger type), which makes cron_fires_once, cron_once_finished_after_end, cron_backoff_bounded or cron_never_drops vacuous
+law cron_type_terms_exact:
+  for +rs: List<&2, Cr.Rec>
+  for +t: Nat
+  for +i: Nat
+  for +s: Cr.S
+  for +s2: Cr.S
+  ((Cr.FiresAll(rs) -> {fires_all_spec(rs) == True{} : Bool}) & ({fires_all_spec(rs) == True{} : Bool} -> Cr.FiresAll(rs))) & ((Cr.EndsAll(rs) -> {ends_all_spec(rs) == True{} : Bool}) & ({ends_all_spec(rs) == True{} : Bool} -> Cr.EndsAll(rs))) & ((Cr.StopsAll(rs) -> {stops_all_spec(rs) == True{} : Bool}) & ({stops_all_spec(rs) == True{} : Bool} -> Cr.StopsAll(rs))) & ((Cr.Keeps(t, i, s, s2) -> {keeps_spec(t, i, s, s2) == True{} : Bool}) & ({keeps_spec(t, i, s, s2) == True{} : Bool} -> Cr.Keeps(t, i, s, s2))) & ((Cr.StaysPaused(i, s, s2) -> {stays_paused_spec(i, s, s2) == True{} : Bool}) & ({stays_paused_spec(i, s, s2) == True{} : Bool} -> Cr.StaysPaused(i, s, s2)))
