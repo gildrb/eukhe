@@ -1,0 +1,9 @@
+# the configuration at its largest: eight failures in the window double
+# the largest base pause seven times (capped at the largest max at every
+# doubling), ages and the gap at their largest leave the window
+call {MAX},{MAX},{MAX},{MAX},2,0,0,0,
+call {MAX},{MAX},{MAX},{MAX},8,0,0,0,0,0,0,0,0,0,
+call {MAX},{MAX},{MAX},{MAX},3,{MAX},{MAX},{MAX},{MAX},
+call {MAX},{MAX},{MAX},{MAX},2,99999999999998,0,1,
+call 0,{MAX},{MAX},{MAX},1,0,{MAX},
+refuse {MAX},{MAX},{LONG},{MAX},0,0,

@@ -1,0 +1,17 @@
+# base values that put every derived value at (or next to) the largest
+# the wire carries: a teardown of half of it (the child kill adds two),
+# the largest relaunch, refresh and give-up count, a quiesce answer
+# filling the rest; the give-up count at its largest with a zero loop
+# step; the shipped base values
+call 49999999999999,0,0,0,0,0,0,0,0,{MAX},0,{MAX},0,0,0,8,11111111111111,0,50000000000000,
+call 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,{MAX},0,0,0,
+call 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,9999999999999,1,0,
+call 5,5,5,2,1,2,2,1,2,300,1500,60,30,5,205,5,30,120,5,
+# every base value at its largest, and products and sums one past the
+# wire: the error form "a value past the wire", never a stop
+refuse {MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+refuse 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,{MAX},{MAX},{MAX},0,
+refuse 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,{MAX},1,1,1,
+refuse 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,9999999999999,1,0,
+refuse 0,0,33333333333333,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+refuse {LONG},0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

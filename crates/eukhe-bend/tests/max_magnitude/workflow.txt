@@ -1,0 +1,15 @@
+# an admission with the largest key, rows of the largest key and a pool
+# Rust writes (spawned and left are u32: taken + 1 stays far below the
+# wire); the largest Nats in the pool where the reply keeps them; limits
+# at their largest
+call 0,0,{MAX},2,{MAX},1,{MAX},2,{U32MAX},{U32MAX},
+call 0,0,{MAX},2,{MAX},3,{MAX},4,{U32MAX},{U32MAX},
+call 0,0,{MAX},2,{MAX},3,{MAX},4,{U32MAX},0,
+call 0,0,{MAX},2,{MAX},2,{MAX},5,{MAX},{MAX},
+call 0,0,{MAX},0,{MAX},0,
+call 0,1,5,{MAX},0,{MAX},{MAX},
+call 1,{MAX},{MAX},{MAX},
+call 1,{MAX},{MAX},0,
+call 1,{U32MAX},{U32MAX},{U32MAX},
+refuse 0,0,{LONG},0,0,0,
+refuse 1,{MAX},{MAX},{LONG},
