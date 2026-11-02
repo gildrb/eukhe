@@ -545,6 +545,9 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
             )
         })
         .collect();
+    // The shared intent parameter is tool_contract's; this test pins only
+    // zoom's and date's own arguments.
+    let intent = declared[0].2["properties"]["i"].clone();
     assert_eq!(
         declared,
         vec![
@@ -555,10 +558,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                     "type": "object",
                     "required": ["id"],
                     "properties": {
-                        "i": {
-                            "type": "string",
-                            "description": "Short present-participle intent for this call."
-                        },
+                        "i": intent,
                         "id": {
                             "anyOf": [
                                 { "type": "integer", "minimum": 0 },
@@ -578,10 +578,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                     "type": "object",
                     "required": ["id"],
                     "properties": {
-                        "i": {
-                            "type": "string",
-                            "description": "Short present-participle intent for this call."
-                        },
+                        "i": intent,
                         "id": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false,

@@ -131,26 +131,24 @@ fn parameters() -> TSchema {
     let fields: Vec<(&str, TSchema)> = vec![
         (
             "script",
-            Type::string_with(described(
-                "The workflow script: `export const meta = {...}` first, then an async function body.",
-            )),
+            Type::string_with(described("Workflow script; meta first.")),
         ),
         (
             "args",
             Type::optional(Type::string_with(described(
-                "The user's request; the script reads it as `args`.",
+                "The user's request, read as `args`.",
             ))),
         ),
         (
             "size",
             Type::optional(Type::string_with(described(
-                "small, medium, or large; default: the workflow.size setting.",
+                "`small`|`medium`|`large`; default: `workflow.size` setting.",
             ))),
         ),
         (
             "resume",
             Type::optional(Type::string_with(described(
-                "The run id of an earlier run whose finished agents this run reuses.",
+                "Earlier run id; unchanged agents reuse their answers.",
             ))),
         ),
     ];

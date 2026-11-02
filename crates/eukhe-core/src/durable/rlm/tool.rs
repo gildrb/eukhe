@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-use eukhe_ai::typebox::{Options, TSchema, Type};
+use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_bend::rules::runners::{self, Asker, Ended};
 use eukhe_bend::rules::shell::{self as gate, Said};
 use eukhe_chord::context::Context;
@@ -78,13 +78,10 @@ use crate::kernel::ReplKernelManager;
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. A cell runs code: it runs at once when `exec` is in the user's shell.autoEffects (the default), else only after the user approves it; a denied or unanswered cell does not run. Prefer the bash tool for reading files and running read-only commands: those run without approval. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message; when the next step needs it, wait for it in the turn with `await jobs.wait(\"<job>\")` (or `await jobs.wait()` for whatever settles first).";
+const IPYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL; top-level `await` works. State persists across calls and is revived best-effort on resume (unserializable objects are dropped and reported). Shell: `bash('cmd')`/`await bash('cmd')`. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer the `bash` tool for file reads and read-only commands. Run project imports, tests and CLIs in the project's own environment. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
-/// The `code` parameter description.
-const CODE_DESCRIPTION: &str = "Python code to execute in the persistent Python REPL. Use the target project's own environment for project imports, tests, scripts, CLIs, and dependency checks instead of direct kernel imports.";
 
 /// The durable identity of the tool's contract.
 const IPYTHON_VERSION: &str = "ipython@1";
@@ -92,13 +89,7 @@ const IPYTHON_VERSION: &str = "ipython@1";
 /// The `ipython` tool schema: the shared `i`, then `code`.
 #[must_use]
 pub fn ipython_parameters() -> TSchema {
-    crate::durable::tool_contract::parameters(
-        1,
-        [(
-            "code",
-            Type::string_with(Options::new().set("description", CODE_DESCRIPTION)),
-        )],
-    )
+    crate::durable::tool_contract::parameters(1, [("code", Type::string())])
 }
 
 /// The `ipython` registration: sequential (the kernel is single-threaded),

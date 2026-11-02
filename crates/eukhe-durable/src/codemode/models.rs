@@ -87,17 +87,17 @@ pub(crate) const MAX_CONCURRENT_MODEL_CALLS: usize = 4;
 
 /// The `models` section of the code mode tool description.
 pub(crate) const MODELS_DESCRIPTION: &str = concat!(
-    "`models` (all functions return promises):\n",
-    "- `models.getModelsOfType(type, provider?)`, `models.getAvailableOfType(type, provider?)` (configured auth only), `models.getModelOfType(type, provider, id)`: the catalog; `type` is \"chat\", \"image\", or \"classifier\".\n",
-    "- `models.classify(model, { state: { ... }, images?: [{ type: \"image\", data, mimeType }], questions: { <id>: { type: \"choice\", instructions, criteria: { <label>: <meaning> } } | { type: \"score\", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: \"bool\", instructions, criteria: { true: <meaning>, false: <meaning> } } } })` resolves to `{ answers: { <id>: ... }, stopReason, errorMessage?, usage? }`.\n",
-    "- `models.generateImages(model, { input: [{ type: \"text\", text: <prompt> }, ...optional { type: \"image\", data, mimeType }] })` resolves to `{ output: [image blocks], stopReason, errorMessage?, usage? }`; show each image with `image(block)`.\n",
-    "At most 4 classify/generateImages calls run at once; more wait.",
+    "`models` (async):\n",
+    "- `models.getModelsOfType(type, provider?)`, `models.getAvailableOfType(type, provider?)` (authed only), `models.getModelOfType(type, provider, id)`; `type`: \"chat\"|\"image\"|\"classifier\".\n",
+    "- `models.classify(model, { state, images?: [image blocks], questions: { <id>: { type, instructions, criteria } } })` → `{ answers: { <id>: ... }, stopReason, errorMessage?, usage? }`; `type` \"choice\" (criteria `{ <label>: <meaning> }`), \"score\" (`[<lowest>, ..., <highest>]`) or \"bool\" (`{ true: <meaning>, false: <meaning> }`).\n",
+    "- `models.generateImages(model, { input: [{ type: \"text\", text }, ...image blocks] })` → `{ output: [image blocks], stopReason, errorMessage?, usage? }`; show with `image(block)`.\n",
+    "At most 4 classify/generateImages calls run at once.",
 );
 
 /// The line [`MODELS_DESCRIPTION`] gains with a
 /// [`ClassifierDefault::Resolver`].
 pub(crate) const CLASSIFIER_DEFAULT_DESCRIPTION: &str =
-    "`models.classify(null, context)` uses the session's default classifier.";
+    "`models.classify(null, ...)` uses the session's default classifier.";
 
 fn record(value: Option<&PiJsonValue>) -> Option<&serde_json::Map<String, PiJsonValue>> {
     value.and_then(PiJsonValue::as_object)

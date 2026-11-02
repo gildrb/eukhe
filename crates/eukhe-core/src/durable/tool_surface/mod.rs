@@ -53,13 +53,11 @@ const MCP_PREFIX: &str = "mcp/";
 /// How long one server may take to list or run a tool.
 const MCP_TIMEOUT_MS: u64 = 30_000;
 
-const DYN_DESCRIPTION: &str = "Reach the tools that are not in your tool list: \
-the tools of the MCP servers the user configured (`mcp/<server>/<tool>`), tools \
-that joined the session after it started, and `report_issue`. Call with no \
-`name` to list them with their descriptions; call with `name` and `arguments` \
-(an object) to run one. When a tool fails or does not do what its description \
-says, call `report_issue` with arguments `tool` (its name) and `description` \
-(what went wrong): the user sees the report.";
+const DYN_DESCRIPTION: &str = "Call tools not in your tool list: MCP tools \
+(`mcp/<server>/<tool>`), tools that joined after the session started, and \
+`report_issue`. No `name`: list them with descriptions; `name` + `arguments`: \
+run one. When a tool fails or misbehaves, call `report_issue` with `tool` and \
+`description`; the user sees it.";
 
 const REPORT_ISSUE_DESCRIPTION: &str = "Report a problem with a tool: it failed, \
 or it did not do what its description says. Arguments: `tool` (the tool's name), \
@@ -383,20 +381,12 @@ pub(crate) fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         tool_contract::parameters(
             1,
             [
-                (
-                    "name",
-                    Type::optional(Type::string_with(
-                        Options::new()
-                            .set("description", "The dynamic tool to run; omit to list them."),
-                    )),
-                ),
+                ("name", Type::optional(Type::string())),
                 (
                     "arguments",
                     Type::optional(Type::object_with(
                         std::iter::empty::<(&str, TSchema)>(),
-                        Options::new()
-                            .set("additionalProperties", true)
-                            .set("description", "The tool's arguments."),
+                        Options::new().set("additionalProperties", true),
                     )),
                 ),
             ],

@@ -59,20 +59,15 @@ const NAME: &str = "bash";
 /// The tool's durable identity, in each result's details.
 const VERSION: &str = "bash@1";
 
-const DESCRIPTION: &str = "Run a bash script in the working directory. Steps are simple commands \
-joined by `;`, newlines, `&&`, `||`, `|`, with redirections; the commands of a pipeline run \
-together. A step that reads, writes files in the workspace, runs another program, or uses the \
-network runs at once, unless the user narrowed the kinds of step that do: then it runs only after \
-the user approves it, and a denial stops the script there. Every step kind (a write outside the \
-workspace and a secret access included) gates the same way: the user's `shell.autoEffects` \
-decides. \
-`git` commands that can run a repository's programs (status, diff of the work tree, commit, ...) \
-count as running a program. Common commands (cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
-touch, cp, mv, grep) run in process; a script with control flow, functions, subshells or command \
-substitution runs whole in bash as one step that runs a program. The environment holds no API keys \
-or tokens. The result \
-lists every step that ran with its exit status; the output is bounded. A script that outlives the \
-blocking budget goes on as a job, and its end reaches the session as a [job-settled] message.";
+const DESCRIPTION: &str = "Run a bash script in the cwd. Steps: simple commands joined by `;`, \
+newlines, `&&`, `||`, `|`, with redirections. Each step's effects (read, write, exec, net, \
+outside, protected, secret) gate on the user's `shell.autoEffects`: allowed ones run at once, \
+others wait for approval; a denial stops the script. `git` commands that can run repo programs \
+(status, diff, commit, ...) count as exec. cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
+touch, cp, mv, grep run in process; control flow, functions, subshells or `$(...)` run the whole \
+script in bash as one exec step. No API keys or tokens in the environment. The result lists each \
+step's exit status; output is bounded. A script outliving the blocking budget continues as a \
+job; its end arrives as a `[job-settled]` message.";
 
 /// Asks through the session's sink; each question's id is the tool
 /// call's id (or a host request's) and the step.
@@ -258,15 +253,8 @@ impl Drop for AbortUnlessDetached {
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let deps = Arc::clone(deps);
-    let schema = super::tool_contract::parameters(
-        1,
-        [(
-            "script",
-            eukhe_ai::typebox::Type::string_with(
-                eukhe_ai::typebox::Options::new().set("description", "The bash script to run"),
-            ),
-        )],
-    );
+    let schema =
+        super::tool_contract::parameters(1, [("script", eukhe_ai::typebox::Type::string())]);
     let mut registration = ToolRegistration::new(
         NAME,
         DESCRIPTION,

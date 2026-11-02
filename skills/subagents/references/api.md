@@ -64,4 +64,4 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 
 - Repeated child prompts: wrap `rlm.spawn` in a small Python function that fills an f-string template, so each spawn passes the same contract.
 - Fan-in through files: tell each child to write its result to a named file and reply with the path; read the files once the replies arrive.
-- Many agents with a fixed shape (fan-out, pipeline, review loop): the `workflow` tool, or the `factory` skill for stored state machines.
+- Many agents with a fixed shape (fan-out, pipeline, review loop): the `workflow` tool ([workflow.md](workflow.md)), or the `factory` skill for stored state machines.

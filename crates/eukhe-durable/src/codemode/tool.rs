@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use eukhe_ai::typebox::{Options, Type};
+use eukhe_ai::typebox::Type;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_types::pi_ai::{
@@ -119,10 +119,7 @@ impl CodemodeToolOptions {
 /// `tools.<name>(args)`.
 #[must_use]
 pub fn create_codemode_tool(options: &Arc<CodemodeToolOptions>) -> Arc<ToolRegistration> {
-    let parameters = Type::object([(
-        "code",
-        Type::string_with(Options::new().set("description", "Raw JavaScript source.")),
-    )]);
+    let parameters = Type::object([("code", Type::string())]);
     let shared = Arc::clone(options);
     let mut tool = ToolRegistration::new(
         CODEMODE_TOOL_NAME,

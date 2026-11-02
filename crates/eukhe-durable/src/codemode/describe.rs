@@ -20,16 +20,16 @@ pub const DEFAULT_CODEMODE_INLINE_BUDGET: usize = 3000;
 /// Characters per token when estimating the cost of a tool section.
 const CHARS_PER_TOKEN: usize = 4;
 
-const DESCRIPTION_INTRO: &str = "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.
-- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.
-- The script survives a restart: it resumes where it was, without running finished calls again.
+const DESCRIPTION_INTRO: &str = "Run JavaScript that calls other tools. `code` is raw JavaScript (not JSON, no fence), an async function body in a QuickJS sandbox: top-level `await`/`return` work; no Node, file system, network or timers.
+- `await tools.<name>({ ...args })` resolves to a string, or to the object its declaration returns (also on failure: check its fields); otherwise a failure rejects with an Error. Calls still running at script end are cancelled.
+- A restart resumes the script without rerunning finished calls.
 - Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`";
 
 const GLOBALS: [&str; 4] = [
     "Globals:",
-    "- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.",
-    "- `store(key, value)` and `load(key)` keep JSON values across codemode calls.",
-    "- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find tools the `codemode` section does not list.",
+    "- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, `return` add output; `exit()` ends the script. `image()` also saves the image to a temp file and names its path.",
+    "- `store(key, value)`/`load(key)`: JSON values kept across calls.",
+    "- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: tools the `codemode` section omits.",
 ];
 
 /// Whether scripts get the `models.*` globals.
@@ -73,9 +73,7 @@ pub fn codemode_description(models: CodemodeModels, classifier: &ClassifierDefau
     if let Some(section) = &models_section {
         sections.push(section);
     }
-    sections.push(
-        "The `codemode` section of the system prompt lists the tools scripts can call, by namespace, as far as space allows.",
-    );
+    sections.push("The system prompt's `codemode` section lists callable tools as space allows.");
     sections.join("\n\n")
 }
 

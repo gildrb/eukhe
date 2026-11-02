@@ -14,7 +14,7 @@ use eukhe_ai::typebox::{Options, TSchema, Type};
 use eukhe_bend::rules::tool_surface::{self, Schema, INTENT as INTENT_ID};
 use eukhe_types::pi_ai::{JsonObject, JsonValue, ToolSchema};
 
-const INTENT_DESCRIPTION: &str = "Short present-participle intent for this call.";
+const INTENT_DESCRIPTION: &str = "2-6 word present-participle intent.";
 
 /// The intent parameter's name.
 const INTENT: &str = "i";
