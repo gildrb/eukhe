@@ -160,3 +160,174 @@ def ps.class(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2,
   +ecov = Equal.trans(Bool, Pp.any_covers(ru, at, Pp.below(ro, at)), PathPolicy.pp_covers_any(ru, at, Pp.below(ro, at)), PathPolicy.pp_covers_any(ru, at, PathPolicy.pp_below(ro, at)), ps.covers_any(ru, at, Pp.below(ro, at)), Equal.cong(List<&2, Nat>, Bool, low => PathPolicy.pp_covers_any(ru, at, low), Pp.below(ro, at), PathPolicy.pp_below(ro, at), ps.below(ro, at)))
   +eanc = Equal.trans(Bool, Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(ru), se), at), PathPolicy.pp_above_any(List.append(&2, List<&2, Nat>, Pp.entries(ru), se), at), PathPolicy.pp_above_any(List.append(&2, List<&2, Nat>, PathPolicy.pp_entries(ru), se), at), ps.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(ru), se), at), Equal.cong(List<&2, List<&2, Nat>>, Bool, xs => PathPolicy.pp_above_any(List.append(&2, List<&2, Nat>, xs, se), at), Pp.entries(ru), PathPolicy.pp_entries(ru), ps.entries(ru)))
   ps.class_eq(Pp.any_under(se, at), PathPolicy.pp_under_any(se, at), Pp.any_covers(ru, at, Pp.below(ro, at)), PathPolicy.pp_covers_any(ru, at, PathPolicy.pp_below(ro, at)), Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(ru), se), at), PathPolicy.pp_above_any(List.append(&2, List<&2, Nat>, PathPolicy.pp_entries(ru), se), at), Pp.any_under(ro, at), PathPolicy.pp_under_any(ro, at), l, ps.any_under(se, at), ecov, eanc, ps.any_under(ro, at))
+
+# 1. The real path
+# ----------------
+
+def ps.link_pick(hit: Bool, l: Pp.Link, -r1: Maybe<&2, Pp.Link>, -r2: Maybe<&2, Pp.Link>, e: {r1 == r2 : Maybe<&2, Pp.Link>}) -> {Pp.link.pick(hit, l, r1) == PathPolicy.pp_link_pick(hit, l, r2) : Maybe<&2, Pp.Link>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+# the link at a path is the spec's
+def ps.link_at(ls: List<&2, Pp.Link>, +at: List<&2, Nat>) -> {Pp.link.find(ls, at) == PathPolicy.pp_link_at(ls, at) : Maybe<&2, Pp.Link>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case l <> rest:
+      match l:
+        case Pp.Link{+la, +abs, +to}:
+          %Equal.sym(Bool, Tl.ids.eq(la, at), PathPolicy.pp_same(la, at), ps.same(la, at)) : {Pp.link.pick(_, Pp.Link{la, abs, to}, Pp.link.find(rest, at)) == PathPolicy.pp_link_pick(PathPolicy.pp_same(la, at), Pp.Link{la, abs, to}, PathPolicy.pp_link_at(rest, at)) : Maybe<&2, Pp.Link>}
+          ps.link_pick(PathPolicy.pp_same(la, at), Pp.Link{la, abs, to}, Pp.link.find(rest, at), PathPolicy.pp_link_at(rest, at), ps.link_at(rest, at))
+
+def ps.up(at: List<&2, Nat>) -> {Pp.up(at) == PathPolicy.pp_parent(at) : List<&2, Nat>}:
+  match at:
+    case Nil{}:
+      {==}
+    case x <> r:
+      {==}
+
+# a resolution is the spec's walk (look is the link the next name meets)
+def ps.go(fuel: Nat, segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, +looped: Bool, +look: Maybe<&2, Pp.Link>, +lk: {look == Pp.look.at(ls, segs, at) : Maybe<&2, Pp.Link>}) -> {Pp.go(fuel, segs, ls, at, looped, look) == PathPolicy.pp_resolve(fuel, segs, ls, at, looped) : Pp.Res}:
+  match fuel:
+    case 0n:
+      match segs:
+        case Nil{}:
+          {==}
+        case s <> +rest:
+          match s:
+            case Tl.Name{+n}:
+              %Equal.sym(Maybe<&2, Pp.Link>, look, Pp.link.find(ls, n <> at), lk) : {Pp.go(0n, Tl.Name{n} <> rest, ls, at, looped, _) == PathPolicy.pp_resolve(0n, Tl.Name{n} <> rest, ls, at, looped) : Pp.Res}
+              %ps.link_at(ls, n <> at) : {Pp.go(0n, Tl.Name{n} <> rest, ls, at, looped, Pp.link.find(ls, n <> at)) == PathPolicy.pp_resolve(0n, rest, ls, n <> at, Bool.or(looped, Maybe.is_some(&2, Pp.Link, _))) : Pp.Res}
+              ps.go(0n, rest, ls, n <> at, Bool.or(looped, Maybe.is_some(&2, Pp.Link, Pp.link.find(ls, n <> at))), Pp.look.at(ls, rest, n <> at), {==})
+            case Tl.Up{}:
+              %ps.up(at) : {Pp.go(0n, Tl.Up{} <> rest, ls, at, looped, look) == PathPolicy.pp_resolve(0n, rest, ls, _, looped) : Pp.Res}
+              ps.go(0n, rest, ls, Pp.up(at), looped, Pp.look.at(ls, rest, Pp.up(at)), {==})
+            case Tl.Here{}:
+              ps.go(0n, rest, ls, at, looped, Pp.look.at(ls, rest, at), {==})
+    case 1n+f:
+      match segs:
+        case Nil{}:
+          {==}
+        case s <> +rest:
+          match s:
+            case Tl.Name{+n}:
+              match look:
+                case None{}:
+                  %Equal.trans(Maybe<&2, Pp.Link>, None{}, Pp.link.find(ls, n <> at), PathPolicy.pp_link_at(ls, n <> at), lk, ps.link_at(ls, n <> at)) : {Pp.go(1n+f, rest, ls, n <> at, looped, Pp.look.at(ls, rest, n <> at)) == PathPolicy.pp_hop(_, PathPolicy.pp_resolve(f, PathPolicy.pp_hop_segs(_, rest), ls, PathPolicy.pp_hop_from(_, at), looped), PathPolicy.pp_resolve(1n+f, rest, ls, n <> at, looped)) : Pp.Res}
+                  ps.go(1n+f, rest, ls, n <> at, looped, Pp.look.at(ls, rest, n <> at), {==})
+                case Some{l}:
+                  match l:
+                    case Pp.Link{+la, abs, +to}:
+                      match abs:
+                        case True{}:
+                          %Equal.trans(Maybe<&2, Pp.Link>, Some{Pp.Link{la, True{}, to}}, Pp.link.find(ls, n <> at), PathPolicy.pp_link_at(ls, n <> at), lk, ps.link_at(ls, n <> at)) : {Pp.go(f, List.append(&2, Tl.Seg, to, rest), ls, Nil{}, looped, Pp.look.at(ls, List.append(&2, Tl.Seg, to, rest), Nil{})) == PathPolicy.pp_hop(_, PathPolicy.pp_resolve(f, PathPolicy.pp_hop_segs(_, rest), ls, PathPolicy.pp_hop_from(_, at), looped), PathPolicy.pp_resolve(1n+f, rest, ls, n <> at, looped)) : Pp.Res}
+                          ps.go(f, List.append(&2, Tl.Seg, to, rest), ls, Nil{}, looped, Pp.look.at(ls, List.append(&2, Tl.Seg, to, rest), Nil{}), {==})
+                        case False{}:
+                          %Equal.trans(Maybe<&2, Pp.Link>, Some{Pp.Link{la, False{}, to}}, Pp.link.find(ls, n <> at), PathPolicy.pp_link_at(ls, n <> at), lk, ps.link_at(ls, n <> at)) : {Pp.go(f, List.append(&2, Tl.Seg, to, rest), ls, at, looped, Pp.look.at(ls, List.append(&2, Tl.Seg, to, rest), at)) == PathPolicy.pp_hop(_, PathPolicy.pp_resolve(f, PathPolicy.pp_hop_segs(_, rest), ls, PathPolicy.pp_hop_from(_, at), looped), PathPolicy.pp_resolve(1n+f, rest, ls, n <> at, looped)) : Pp.Res}
+                          ps.go(f, List.append(&2, Tl.Seg, to, rest), ls, at, looped, Pp.look.at(ls, List.append(&2, Tl.Seg, to, rest), at), {==})
+            case Tl.Up{}:
+              %ps.up(at) : {Pp.go(1n+f, Tl.Up{} <> rest, ls, at, looped, look) == PathPolicy.pp_resolve(1n+f, rest, ls, _, looped) : Pp.Res}
+              ps.go(1n+f, rest, ls, Pp.up(at), looped, Pp.look.at(ls, rest, Pp.up(at)), {==})
+            case Tl.Here{}:
+              ps.go(1n+f, rest, ls, at, looped, Pp.look.at(ls, rest, at), {==})
+
+# 3. The gate
+# -----------
+
+# (the access first: a match follows binder order)
+def ps.effs.of(a: Pp.Acc, c: Pp.Cls) -> {Pp.effs(c, a) == PathPolicy.pp_effs(c, a) : List<&2, Nat>}:
+  match a:
+    case Pp.Rd{}:
+      match c:
+        case Pp.Inside{}:
+          {==}
+        case Pp.Outside{}:
+          {==}
+        case Pp.Protected{}:
+          {==}
+        case Pp.Secret{}:
+          {==}
+    case Pp.Ls{}:
+      match c:
+        case Pp.Inside{}:
+          {==}
+        case Pp.Outside{}:
+          {==}
+        case Pp.Protected{}:
+          {==}
+        case Pp.Secret{}:
+          {==}
+    case Pp.Sr{h}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          match c:
+            case Pp.Inside{}:
+              {==}
+            case Pp.Outside{}:
+              {==}
+            case Pp.Protected{}:
+              {==}
+            case Pp.Secret{}:
+              {==}
+    case Pp.Wr{}:
+      match c:
+        case Pp.Inside{}:
+          {==}
+        case Pp.Outside{}:
+          {==}
+        case Pp.Protected{}:
+          {==}
+        case Pp.Secret{}:
+          {==}
+
+def ps.effs(c: Pp.Cls, a: Pp.Acc) -> {Pp.effs(c, a) == PathPolicy.pp_effs(c, a) : List<&2, Nat>}:
+  ps.effs.of(a, c)
+
+# x and (z and y) is (x and y) and z
+def ps.and_swap(x: Bool, y: Bool, z: Bool) -> {Bool.and(x, Bool.and(z, y)) == Bool.and(Bool.and(x, y), z) : Bool}:
+  match x:
+    case True{}:
+      match y:
+        case True{}:
+          match z:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+        case False{}:
+          match z:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+    case False{}:
+      {==}
+
+def ps.allows(+auto: List<&2, Nat>, es: List<&2, Nat>) -> {Pp.allows(auto, es) == PathPolicy.pp_auto_holds(auto, es) : Bool}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      Equal.trans(Bool, Bool.and(Pp.grantable(e), Bool.and(Pp.allows(auto, rest), Tl.elem(auto, e))), Bool.and(Nat.is_lt(e, 7n), Bool.and(PathPolicy.pp_auto_holds(auto, rest), PathPolicy.pp_has(auto, e))), Bool.and(Bool.and(Nat.is_lt(e, 7n), PathPolicy.pp_has(auto, e)), PathPolicy.pp_auto_holds(auto, rest)),
+        ps.and_eq(Pp.grantable(e), Nat.is_lt(e, 7n), Bool.and(Pp.allows(auto, rest), Tl.elem(auto, e)), Bool.and(PathPolicy.pp_auto_holds(auto, rest), PathPolicy.pp_has(auto, e)), {==},
+          ps.and_eq(Pp.allows(auto, rest), PathPolicy.pp_auto_holds(auto, rest), Tl.elem(auto, e), PathPolicy.pp_has(auto, e), ps.allows(auto, rest), ps.has(auto, e))),
+        ps.and_swap(Nat.is_lt(e, 7n), PathPolicy.pp_has(auto, e), PathPolicy.pp_auto_holds(auto, rest)))
+
+def ps.yes(ans: Pp.Ans) -> {Pp.Ans.yes(ans) == PathPolicy.pp_said_yes(ans) : Bool}:
+  match ans:
+    case Pp.Yes{}:
+      {==}
+    case Pp.No{}:
+      {==}
+    case Pp.Gone{}:
+      {==}
+
+def ps.runs(+c: Pp.Cls, +a: Pp.Acc, +auto: List<&2, Nat>, +ans: Pp.Ans) -> {Pp.runs(c, a, auto, ans) == PathPolicy.pp_runs(c, a, auto, ans) : Bool}:
+  ps.or_eq(Pp.allows(auto, Pp.effs(c, a)), PathPolicy.pp_auto_holds(auto, PathPolicy.pp_effs(c, a)), Pp.Ans.yes(ans), PathPolicy.pp_said_yes(ans),
+    Equal.trans(Bool, Pp.allows(auto, Pp.effs(c, a)), Pp.allows(auto, PathPolicy.pp_effs(c, a)), PathPolicy.pp_auto_holds(auto, PathPolicy.pp_effs(c, a)), Equal.cong(List<&2, Nat>, Bool, es => Pp.allows(auto, es), Pp.effs(c, a), PathPolicy.pp_effs(c, a), ps.effs(c, a)), ps.allows(auto, PathPolicy.pp_effs(c, a))),
+    ps.yes(ans))

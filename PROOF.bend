@@ -1258,6 +1258,9 @@ import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicy
 import ./proof/path_policy/path_policy_ffi_rejects_left_over.bend as PPathPolicyFfiRejectsLeftOver
 import ./proof/path_policy/path_class_spec.bend as PPathClassSpec
 import ./proof/path_policy/path_holds_spec.bend as PPathHoldsSpec
+import ./proof/path_policy/path_real_spec.bend as PPathRealSpec
+import ./proof/path_policy/gate_effs_spec.bend as PGateEffsSpec
+import ./proof/path_policy/gate_runs_spec.bend as PGateRunsSpec
 import ./proof/path_policy/path_policy_ffi_decides.bend as PPathPolicyFfiDecides
 import ./proof/path_policy/path_policy_ffi_spelled_left_over.bend as PPathPolicyFfiSpelledLeftOver
 import ./proof/path_policy/path_policy_ffi_exact.bend as PPathPolicyFfiExact

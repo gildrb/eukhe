@@ -319,6 +319,225 @@ law path_holds_spec:
   for +at: List<&2, Nat>
   {Pp.holds_at(pol, at) == pp_holds(pol, at) : Bool}
 
+# ---- the real path, whole (spec) ----
+#
+# The resolution of a path, restated from (G1) and
+# crates/eukhe-types/src/path_policy.rs `resolve` with helpers of this
+# file only (a path is its names, deepest first). The segments are walked
+# from `/`. A name steps into it; when a link sits there (the first link
+# of the list located there) and fewer than 40 links (MAX_LINKS) have been
+# followed, the link is followed instead: its target, then the segments
+# left, are walked from `/` (an absolute target) or from the link's
+# directory. Past 40 links, a link met is kept as a name and the path
+# loops. `..` steps to the parent, and `..` of `/` is `/`; `.` stays.
+
+def pp_link_pick(hit: Bool, l: Pp.Link, rest: Maybe<&2, Pp.Link>) -> Maybe<&2, Pp.Link>:
+  match hit:
+    case True{}:
+      Some{l}
+    case False{}:
+      rest
+
+# the link located at the path at, if any: the first of ls there
+def pp_link_at(ls: List<&2, Pp.Link>, +at: List<&2, Nat>) -> Maybe<&2, Pp.Link>:
+  match ls:
+    case Nil{}:
+      None{}
+    case l <> rest:
+      match l:
+        case Pp.Link{+la, abs, to}:
+          pp_link_pick(pp_same(la, at), Pp.Link{la, abs, to}, pp_link_at(rest, at))
+
+# the parent of the path at; `/` is its own parent
+def pp_parent(at: List<&2, Nat>) -> List<&2, Nat>:
+  match at:
+    case Nil{}:
+      Nil{}
+    case x <> r:
+      r
+
+# the walk after a name: the one that follows the link m there, or, with
+# no link there, the one that steps into the name
+def pp_hop(m: Maybe<&2, Pp.Link>, followed: Pp.Res, stepped: Pp.Res) -> Pp.Res:
+  match m:
+    case None{}:
+      stepped
+    case Some{l}:
+      followed
+
+# what a followed link leaves to walk: its target, then the segments rest
+def pp_hop_segs(m: Maybe<&2, Pp.Link>, rest: List<&2, Tl.Seg>) -> List<&2, Tl.Seg>:
+  match m:
+    case None{}:
+      rest
+    case Some{l}:
+      match l:
+        case Pp.Link{la, abs, to}:
+          List.append(&2, Tl.Seg, to, rest)
+
+# where a followed link's target is walked from: `/` when absolute, else
+# the link's directory dir
+def pp_hop_from(m: Maybe<&2, Pp.Link>, dir: List<&2, Nat>) -> List<&2, Nat>:
+  match m:
+    case None{}:
+      dir
+    case Some{l}:
+      match l:
+        case Pp.Link{la, abs, to}:
+          match abs:
+            case True{}:
+              Nil{}
+            case False{}:
+              dir
+
+# walk segs from the path at with fuel links left to follow; looped: a
+# link was met with none left
+def pp_resolve(+fuel: Nat, segs: List<&2, Tl.Seg>, +ls: List<&2, Pp.Link>, +at: List<&2, Nat>, +looped: Bool) -> Pp.Res:
+  match fuel:
+    case 0n:
+      match segs:
+        case Nil{}:
+          Pp.Res{at, looped}
+        case s <> rest:
+          match s:
+            case Tl.Name{+n}:
+              pp_resolve(0n, rest, ls, n <> at, Bool.or(looped, Maybe.is_some(&2, Pp.Link, pp_link_at(ls, n <> at))))
+            case Tl.Up{}:
+              pp_resolve(0n, rest, ls, pp_parent(at), looped)
+            case Tl.Here{}:
+              pp_resolve(0n, rest, ls, at, looped)
+    case 1n+f:
+      match segs:
+        case Nil{}:
+          Pp.Res{at, looped}
+        case s <> +rest:
+          match s:
+            case Tl.Name{+n}:
+              +m = pp_link_at(ls, n <> at)
+              pp_hop(m, pp_resolve(f, pp_hop_segs(m, rest), ls, pp_hop_from(m, at), looped), pp_resolve(1n+f, rest, ls, n <> at, looped))
+            case Tl.Up{}:
+              pp_resolve(1n+f, rest, ls, pp_parent(at), looped)
+            case Tl.Here{}:
+              pp_resolve(1n+f, rest, ls, at, looped)
+
+# the real path of segs: walked from `/`, 40 links to follow, no loop yet
+def pp_real(+ls: List<&2, Pp.Link>, segs: List<&2, Tl.Seg>) -> Pp.Res:
+  pp_resolve(40n, segs, ls, Nil{}, False{})
+
+# LAW path_real_spec (G1): the real path of every path under every set of
+# links (and whether its links looped) is the spec's resolution
+# EXCLUDES: a resolver that sends every path to `/` (or to the path as
+#   written) and never loops (path_real_has_no_link, path_secret_wins,
+#   path_inside_is_safe and path_ancestor_guarded read it only through
+#   their hypotheses, so it passed them all); a relative link followed
+#   from `/` or an absolute one from its directory; a link's target walked
+#   without the segments after it; `..` of `/` that fails or drops a name
+#   twice; more or fewer than 40 links followed; a link met past the limit
+#   followed, dropped, or not marked as looped; the last link located at a
+#   path picked instead of the first
+law path_real_spec:
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  {Pp.real(ls, segs) == pp_real(ls, segs) : Pp.Res}
+
+# ---- the gate, whole (spec) ----
+#
+# An access's effects, restated from (G1) with the codes of
+# bend/path_policy.bend's header (read 0, write 1, outside 4, protected 5,
+# secret 6): a read, a list or a search reads (0), a write writes (1). A
+# read or a list of a Secret path, and a search of a Secret path or of a
+# directory that holds a secret, also has the secret effect (6). A write
+# also has the effect of its class: 4 Outside, 5 Protected, 6 Secret,
+# none Inside. The access runs when the user said yes, or when each of
+# its effects is a code (below 7) the auto set holds.
+
+# what a read adds for a class: the secret effect for a Secret path only
+def pp_read_mark(c: Pp.Cls) -> List<&2, Nat>:
+  match c:
+    case Pp.Inside{}:
+      Nil{}
+    case Pp.Outside{}:
+      Nil{}
+    case Pp.Protected{}:
+      Nil{}
+    case Pp.Secret{}:
+      [6n]
+
+# what a write adds for a class
+def pp_write_mark(c: Pp.Cls) -> List<&2, Nat>:
+  match c:
+    case Pp.Inside{}:
+      Nil{}
+    case Pp.Outside{}:
+      [4n]
+    case Pp.Protected{}:
+      [5n]
+    case Pp.Secret{}:
+      [6n]
+
+# the effects of access a to a path of class c
+def pp_effs(c: Pp.Cls, a: Pp.Acc) -> List<&2, Nat>:
+  match a:
+    case Pp.Rd{}:
+      0n <> pp_read_mark(c)
+    case Pp.Ls{}:
+      0n <> pp_read_mark(c)
+    case Pp.Sr{h}:
+      match h:
+        case True{}:
+          [0n, 6n]
+        case False{}:
+          0n <> pp_read_mark(c)
+    case Pp.Wr{}:
+      1n <> pp_write_mark(c)
+
+# each effect of es is a code below 7 that the auto set holds
+def pp_auto_holds(+auto: List<&2, Nat>, es: List<&2, Nat>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case +e <> rest:
+      Bool.and(Bool.and(Nat.is_lt(e, 7n), pp_has(auto, e)), pp_auto_holds(auto, rest))
+
+# the user said yes (no and no answer are not)
+def pp_said_yes(ans: Pp.Ans) -> Bool:
+  match ans:
+    case Pp.Yes{}:
+      True{}
+    case Pp.No{}:
+      False{}
+    case Pp.Gone{}:
+      False{}
+
+# the access runs: the auto set holds its effects, or the user said yes
+def pp_runs(c: Pp.Cls, a: Pp.Acc, +auto: List<&2, Nat>, ans: Pp.Ans) -> Bool:
+  Bool.or(pp_auto_holds(auto, pp_effs(c, a)), pp_said_yes(ans))
+
+# LAW gate_effs_spec (G1): the effects of every access to a path of every
+# class are the spec's
+# EXCLUDES: a write of any class that has only the write effect (so a
+#   Protected, Secret or Outside write runs unasked when the auto set is
+#   {1}: gate_yes_runs and gate_inside_write_runs pinned only a yes and an
+#   Inside write); a read, list or search of a Secret path, or a search of
+#   a directory that holds a secret, without the secret effect; a read
+#   with the outside or protected effect; the codes swapped
+law gate_effs_spec:
+  for c: Pp.Cls
+  for a: Pp.Acc
+  {Pp.effs(c, a) == pp_effs(c, a) : List<&2, Nat>}
+
+# LAW gate_runs_spec (G1): every access, under every auto set and every
+# answer of the user, runs exactly as the spec says
+# EXCLUDES: a gate that runs every access (or every write) unasked, that
+#   runs on a no or on no answer, that checks only the access's first
+#   effect, or that grants a code the auto set does not hold
+law gate_runs_spec:
+  for c: Pp.Cls
+  for a: Pp.Acc
+  for +auto: List<&2, Nat>
+  for ans: Pp.Ans
+  {Pp.runs(c, a, auto, ans) == pp_runs(c, a, auto, ans) : Bool}
+
 # ---- the entry, whole (spec) ----
 #
 # The request as Rust writes it, spelled with the spellers of
