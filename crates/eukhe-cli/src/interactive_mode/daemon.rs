@@ -268,6 +268,9 @@ pub(crate) async fn ensure_daemon(
             }
         }
     }
+    // The supervisor's own bind check, run here: its stderr goes nowhere,
+    // so a refused socket dir would surface only as a startup timeout.
+    eukhe_daemon::platform::check_daemon_socket_dir(socket_path)?;
     let supervisor = spawn_supervisor(socket_path, spawn_cwd, exe, life)?;
     let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
     loop {
@@ -507,4 +510,46 @@ fn spawn_supervisor(
     command
         .spawn()
         .with_context(|| format!("spawn the Eukhe daemon on {}", socket_path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use super::*;
+
+    /// A socket dir the supervisor would refuse fails the launch with the
+    /// supervisor's own refusal, before any spawn (the executable here does
+    /// not exist), never as a startup timeout.
+    #[tokio::test]
+    async fn a_refused_socket_dir_fails_with_its_reason_not_a_timeout() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let open = home.path().join("open");
+        std::fs::create_dir(&open).expect("dir");
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).expect("chmod");
+        let socket = open.join("daemon.sock");
+        let Err(error) = ensure_daemon(
+            &home.path().join("no-such-eukhe"),
+            Build::THIS,
+            &socket,
+            home.path(),
+            Caller::Interactive,
+            SupervisorLife::Detached,
+        )
+        .await
+        else {
+            panic!("the launch went ahead");
+        };
+        let uid = eukhe_types::platform::access::current_uid();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the socket dir {} has mode 0777, so other users can replace its sockets. \
+                 eukhe binds its sockets only in a real directory that uid {uid} owns and that \
+                 no other user can write. Remove that path (or, if it is your own directory, run \
+                 `chmod go-w` on it), or pass --daemon-socket with a path in a private directory.",
+                open.display()
+            )
+        );
+    }
 }
