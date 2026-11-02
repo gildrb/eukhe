@@ -2706,6 +2706,10 @@ import ./proof/stop/stop_think_notes.bend as PStopThinkNotes
 import ./proof/stop/stop_verdict_exact.bend as PStopVerdictExact
 import ./proof/stop/stop_walk_example.bend as PStopWalkExample
 import ./proof/stop/stop_walk_refines.bend as PStopWalkRefines
+import ./proof/stop/base/entry.bend as LAStopEntry
+import ./proof/stop/stop_entry_exact.bend as PStopEntryExact
+import ./proof/stop/stop_entry_reads.bend as PStopEntryReads
+import ./proof/stop/stop_entry_malformed_example.bend as PStopEntryMalformedExample
 import ./proof/headless_settle/base.bend as LAHeadlessSettle
 import ./proof/headless_settle/headless_settle_busy_never_done.bend as PHeadlessSettleBusyNeverDone
 import ./proof/headless_settle/headless_settle_children_never_done.bend as PHeadlessSettleChildrenNeverDone
