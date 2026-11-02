@@ -1,0 +1,25 @@
+# the call: every step found, each flight at its largest
+call 0,
+call 1,
+call 2,
+call 3,{MAX},
+call 4,{MAX},
+call 5,{MAX},
+call 6,{MAX},
+call 7,{MAX},
+refuse 3,{LONG},
+# the book: boards, joiners, a land and waits on the largest flight
+open 
+step 0,1,x
+step 0,1,x
+step 3,1,x
+step 1,1,x{MAX},
+step 2,{MAX},
+step 2,{MAX},
+step 1,1,y{MAX},
+step 3,1,x
+# a malformed event keeps the book; a refused open refuses every event
+refuse-step 2,{LONG},
+step 3,1,x
+refuse-open x
+refuse-step 0,1,x

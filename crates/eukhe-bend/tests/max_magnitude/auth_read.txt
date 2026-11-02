@@ -1,0 +1,12 @@
+# every ask, the clock and the expiry at their largest (and one ms apart)
+call 0,{MAX},3,{MAX},
+call 0,99999999999998,3,{MAX},
+call 1,{MAX},3,{MAX},
+call 1,99999999999998,3,{MAX},
+call 2,{MAX},3,{MAX},
+call 2,99999999999998,3,{MAX},
+call 0,{MAX},0,
+call 1,{MAX},1,
+call 2,{MAX},2,
+refuse 0,{LONG},3,1,
+refuse 1,1,3,{LONG},
