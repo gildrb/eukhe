@@ -811,14 +811,17 @@ fn print_mode_json_streams_the_threshold_compaction_pair() {
     write_compaction_settings(
         home.path(),
         &serde_json::json!({
-            "compaction": { "enabled": true, "reserveTokens": 1, "keepRecentTokens": 10 }
+            "compaction": { "enabled": true, "reserveTokens": 8192, "keepRecentTokens": 10 }
         }),
     );
-    // A small context window so the crossing turn exceeds the threshold:
-    // the ~8.1k seed turn stays below the combined input+output ceiling
-    // (24k window - 4_096 output budget - 4_096 headroom floor = 15_808),
-    // and the ~12k-token crossing turn pushes the context past it (the
-    // faux provider estimates usage from the serialized context).
+    // A small context window so the crossing turn crosses the blocking
+    // threshold and stays inside the window: the blocking threshold is
+    // 24k window - 8_192 reserve = 15_808 tokens; the ~5.5k-token seed
+    // request stays below it, and the ~13.7k-token crossing turn pushes
+    // the context (~23.3k) past it (the faux provider estimates usage
+    // from the serialized context). The background threshold alone
+    // compacts no more: its cut cannot bring this context down to the
+    // target, since the crossing turn alone is past it.
     let script = serde_json::json!({
         "contextWindow": 24000,
         "responses": [
