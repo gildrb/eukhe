@@ -2561,6 +2561,7 @@ import ./proof/task_life/task_life_submission_forward.bend as PTaskLifeSubmissio
 import ./proof/task_life/task_life_example.bend as PTaskLifeExample
 import ./proof/task_life/task_life_entry_answers.bend as PTaskLifeEntryAnswers
 import ./proof/task_life/task_life_entry_reads.bend as PTaskLifeEntryReads
+import ./proof/task_life/task_life_entry_read_answers.bend as PTaskLifeEntryReadAnswers
 import ./proof/task_life/task_life_entry_malformed_exact.bend as PTaskLifeEntryMalformedExact
 import ./proof/task_life/task_life_entry_example.bend as PTaskLifeEntryExample
 import ./proof/autoresearch/autoresearch_entry_answers.bend as PArEntryAnswers

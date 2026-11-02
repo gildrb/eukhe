@@ -192,6 +192,21 @@ law task_life_entry_reads:
   for fit: {SpW.fit_req(q) == True{} : Bool}
   {SpW.read(SpW.w_req(q, "")) == Some{q} : Maybe<&2, FTl.Req>}
 
+# LAW task_life_entry_read_answers (R6): every input the laws' reader
+# reads as exactly one request is answered with the rules' decision on
+# that request, spelled as Rust reads it; with
+# task_life_entry_malformed_exact this fixes the entry's answer to every
+# input
+# EXCLUDES: an input the entry reads otherwise than the wire's grammar (a
+#   field skipped or read into another, a tag of another request), a
+#   reply other than the rules' decision, an answer that depends on more
+#   than the request read
+law task_life_entry_read_answers:
+  for +s: String
+  for +q: FTl.Req
+  for got: {SpW.read(s) == Some{q} : Maybe<&2, FTl.Req>}
+  {FTl.ffi(s) == SpW.w_reply(q) : String}
+
 # LAW task_life_entry_malformed_exact (R6): every input that is not exactly
 # one request (an unknown tag, a malformed field, input left over) gets
 # exactly the error form 'E ', then "task_life: malformed request"

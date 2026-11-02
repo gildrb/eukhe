@@ -1,0 +1,23 @@
+# step: every checkpoint and payload handle at its largest, each transition
+call 0,0,{MAX},0,
+call 0,1,{MAX},1,0,{MAX},T
+call 0,1,{MAX},1,1,{MAX},1,F
+call 0,1,{MAX},1,2,4,{MAX},T
+call 0,1,{MAX},2,
+call 0,1,{MAX},3,4,{MAX},F
+call 0,2,{MAX},0,3,1,{MAX},T
+call 0,3,4,{MAX},4,F
+call 0,4,1,{MAX},2,
+# resume of each state with its handle at its largest
+call 1,1,{MAX},
+call 1,2,{MAX},0,
+call 1,3,0,{MAX},
+call 1,4,2,{MAX},
+# join, merge, cascade
+call 2,0,3,TTF3,FTF
+call 2,1,2,FF2,TF
+call 3,2,1,
+call 4,1,{MAX},2,3,TF0,FF1,TT2,
+call 4,3,1,{MAX},1,2,TF0,FF1,
+refuse 0,0,{LONG},0,
+refuse 2,0,{LONG},T

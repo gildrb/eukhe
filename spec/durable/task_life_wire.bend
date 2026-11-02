@@ -134,7 +134,13 @@ def w_joined(r: Bool & List<&2, Bool>) -> String:
   (ok, ms) = r
   Wr.put_bool(ok, w_bools(ms, ""))
 
-# the reply to a request: the rules' decision, spelled as Rust reads it
+# the reply to a request: the rules' decision, spelled as Rust reads it.
+# The rules are the model's (bend/task_life.bend), each pinned for every
+# input to the spec of spec/durable/task_life.bend by a law of
+# laws/task_life.bend: step by task_life_step_refines_spec, resume by
+# task_life_resume_exact, join by task_life_join_fail_fast and
+# task_life_join_all_settled, merge by task_life_mark_merge, cascade by
+# task_life_abort_reaches_owned
 def w_reply(q: FTl.Req) -> String:
   match q:
     case FTl.QStep{x, e}:
