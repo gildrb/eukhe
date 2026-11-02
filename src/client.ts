@@ -161,8 +161,12 @@ let mouse: { row: number; col: number } | null = null;
 /** The frame on screen: what a click lands on. */
 let shown: Frame | null = null;
 
-/** The URL of the link under screen cell (row, col), if one is there. */
-function linkAt(row: number, col: number): string | null {
+/**
+ * The link under screen cell (row, col), if one is there: its URL, and a screen column on the URL
+ * (gf reads it there). A Markdown link is a target whole, `[label](url)`, the label as easy to hit
+ * as the URL.
+ */
+function linkAt(row: number, col: number): { url: string; col: number } | null {
   if (shown === null || shown.float.$ === "Some" || shown.tgt.$ !== "File") return null;
   const g = shown.gutter;
   if (row >= size().rows - 2 || col < g) return null;
@@ -170,10 +174,19 @@ function linkAt(row: number, col: number): string | null {
   const l = shown.top + row;
   const line = file?.lines[l];
   if (file === undefined || line === undefined) return null;
+  const cps = cells(line);
   const c = shown.left + col - g;
-  const run = (file.runs[l] ?? []).find((r) => r.hl === "link" && r.from <= c && c < r.to);
+  const run = (file.runs[l] ?? []).find((r) => {
+    if (r.hl !== "link") return false;
+    const labelled = cps[r.from - 1] === "(" && cps[r.from - 2] === "]";
+    const from = labelled ? cps.lastIndexOf("[", r.from - 3) : r.from;
+    return from >= 0 && from <= c && c <= (labelled ? r.to : r.to - 1);
+  });
   if (run === undefined) return null;
-  return run.href ?? cells(line).slice(run.from, run.to).join("");
+  return {
+    url: run.href ?? cps.slice(run.from, run.to).join(""),
+    col: c >= run.from ? col : run.from - shown.left + g,
+  };
 }
 
 function setVar(name: string, value: number) {
@@ -251,25 +264,54 @@ function step(event: Ev) {
   paint(Vim["Vim.frame"](state));
 }
 
+/** Where the window is: a file or an Oil folder. A tap that changes it is a step in history. */
+function place(frame: Frame | null): string {
+  if (frame === null) return "";
+  return frame.tgt.$ === "File" ? `file ${frame.tgt.i}` : `dir ${frame.tgt.path}`;
+}
+
+/**
+ * The editor's own history, in the browser's: each place a tap opens is an entry (same URL), so
+ * the browser's back (a swipe from the edge, a key) goes back in the editor (Ctrl-o), forward goes
+ * forward (Ctrl-i). `depth` is the entry on screen.
+ */
+let depth = 0;
+
 /**
  * A click or a tap on a cell: [copy] copies, and the cursor goes there. A link to one of eukhe's
- * files (`spec/rlm/`, `LICENSE`) opens it in the editor (gf); any other opens as on a page.
+ * files (`spec/rlm/`, `LICENSE`) opens it in the editor (gf); any other opens as on a page. A finger
+ * has no keyboard, so a tap also moves where a key would: on an Oil entry it opens it (Enter), on
+ * the statusline it opens the folder above (-).
  */
-function tap(row: number, col: number) {
+function tap(row: number, col: number, finger: boolean) {
   if (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to) {
     void navigator.clipboard.writeText(copyAt.text);
     return;
   }
-  const url = linkAt(row, col);
-  step({ $: "EvClick", row, col });
-  if (url === null) return;
-  if (!/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(url)) {
-    step({ $: "EvKey", name: "g" });
-    step({ $: "EvKey", name: "f" });
-    return;
+  const from = place(shown);
+  const link = linkAt(row, col);
+  const { rows } = size();
+  const free = finger && shown !== null && shown.float.$ === "None";
+  if (free && row === rows - 2) step({ $: "EvKey", name: "-" });
+  else {
+    step({ $: "EvClick", row, col: link?.col ?? col });
+    if (link !== null && /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(link.url)) {
+      // In this tab, as a page link: the browser's back (a swipe, a key) returns here.
+      location.assign(link.url);
+      return;
+    }
+    if (link !== null) {
+      step({ $: "EvKey", name: "g" });
+      step({ $: "EvKey", name: "f" });
+    } else if (free && shown?.tgt.$ === "Dir" && state !== null && row < rows - 2) {
+      const entry = list(Vim["Vim.lines"](state))[shown.top + row];
+      if (entry !== undefined && entry !== "") step({ $: "EvKey", name: "<CR>" });
+    }
   }
-  // In this tab, as a page link: the browser's back (a swipe, a key) returns here.
-  location.assign(url);
+  if (place(shown) !== from) {
+    depth += 1;
+    history.pushState({ eukhe: depth }, "");
+  }
 }
 
 /** The cell under a pointer event. */
@@ -317,6 +359,23 @@ function ready(fn: () => void) {
 
 function listen() {
   measure();
+  history.replaceState({ eukhe: depth }, "");
+  window.addEventListener("popstate", (event) => {
+    const entry: unknown = event.state;
+    const to = typeof entry === "object" && entry !== null && "eukhe" in entry ? entry.eukhe : null;
+    if (typeof to !== "number") return;
+    const moves = to - depth;
+    depth = to;
+    if (moves !== 0)
+      ready(() =>
+        steps(
+          Array.from({ length: Math.abs(moves) }, (): Ev => ({
+            $: "EvKey",
+            name: moves < 0 ? "<C-o>" : "<C-i>",
+          })),
+        ),
+      );
+  });
   filesText = fetch("/files.json").then((response) => {
     if (!response.ok) throw new Error(`/files.json: ${response.status}`);
     return response.text();
@@ -333,7 +392,7 @@ function listen() {
       const typing = shown !== null && shown.cur.row >= size().rows - 2;
       const at = mouse;
       if (name === "<CR>" && at !== null && !typing && linkAt(at.row, at.col) !== null)
-        tap(at.row, at.col);
+        tap(at.row, at.col, false);
       else step({ $: "EvKey", name });
     });
   });
@@ -341,7 +400,7 @@ function listen() {
     if (event.button !== 0) return;
     event.preventDefault();
     const { row, col } = cellAt(event);
-    ready(() => tap(row, col));
+    ready(() => tap(row, col, false));
   });
   term.addEventListener("mouseleave", () => {
     mouse = null;
@@ -421,11 +480,40 @@ function scrollCols(n: number) {
   if (n !== 0) ready(() => steps(counted(Math.abs(n), ["z", n > 0 ? "l" : "h"])));
 }
 
+/** The font size a pinch may reach, in px: the cell is 0.6 of it, the line its leading. */
+const fontMin = 7;
+const fontMax = 28;
+
+/**
+ * The font at `px`, as a terminal app over SSH zooms: the cells shrink or grow with it and the
+ * screen holds more or fewer of them (`EvSize`). Half-pixel steps; whole-pixel lines.
+ */
+function zoom(px: number, leading: number) {
+  const font = Math.min(fontMax, Math.max(fontMin, Math.round(px * 2) / 2));
+  if (`${font}px` === term.style.getPropertyValue("--fs")) return;
+  term.style.setProperty("--fs", `${font}px`);
+  term.style.setProperty("--cw", `${font * 0.6}px`);
+  term.style.setProperty("--lh", `${Math.round(font * leading)}px`);
+  measure();
+  const next = size();
+  ready(() => step({ $: "EvSize", rows: next.rows, cols: next.cols }));
+}
+
+/** The distance between the first two fingers; null with fewer. */
+function spread(touches: TouchList): number | null {
+  const a = touches[0];
+  const b = touches[1];
+  return a === undefined || b === undefined
+    ? null
+    : Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 /**
  * A finger, as in a terminal over SSH on a phone: a drag scrolls the text with it (a line a row,
  * Ctrl-e and Ctrl-y; a column a cell, zl and zh), a flick keeps it going and slows down, a tap
- * puts the cursor there or opens the link under it. No keyboard comes up. A drag from the screen's
- * left edge, or to the right with the view at its first column, is the browser's: back a page.
+ * puts the cursor there or opens what is under it, two fingers pinch the font smaller or larger.
+ * No keyboard comes up. A drag from the screen's left edge, or to the right with the view at its
+ * first column, is the browser's: back a step.
  */
 function touchScroll() {
   let x = 0;
@@ -440,6 +528,8 @@ function touchScroll() {
   let speed = 0;
   let last = 0;
   let fling = 0;
+  // Two fingers: their distance and the font at the pinch's start, and the font's line ratio.
+  let pinch: { distance: number; font: number; leading: number } | null = null;
   term.addEventListener(
     "touchstart",
     (event) => {
@@ -448,6 +538,14 @@ function touchScroll() {
       cancelAnimationFrame(fling);
       // The editor starts at the touch, not at the first move: a drag scrolls from its start.
       ready(() => undefined);
+      const distance = spread(event.touches);
+      if (distance !== null) {
+        // A second finger: a pinch, never a drag or a tap.
+        dragging = false;
+        const font = Number.parseFloat(getComputedStyle(term).getPropertyValue("--fs"));
+        if (distance > 0 && font > 0) pinch = { distance, font, leading: lh / font };
+        return;
+      }
       x = startX = t.clientX;
       y = startY = t.clientY;
       axis = "none";
@@ -462,6 +560,12 @@ function touchScroll() {
   term.addEventListener(
     "touchmove",
     (event) => {
+      if (pinch !== null) {
+        event.preventDefault();
+        const distance = spread(event.touches);
+        if (distance !== null) zoom((pinch.font * distance) / pinch.distance, pinch.leading);
+        return;
+      }
       const t = event.touches[0];
       if (t === undefined || !dragging || axis === "browser") return;
       if (axis === "none") {
@@ -495,14 +599,19 @@ function touchScroll() {
     },
     { passive: false },
   );
+  const lift = (event: TouchEvent) => {
+    if (pinch !== null && event.touches.length < 2) pinch = null;
+  };
+  term.addEventListener("touchcancel", lift);
   term.addEventListener("touchend", (event) => {
+    lift(event);
     if (!dragging) return;
     dragging = false;
     if (axis === "none") {
       event.preventDefault();
       const row = Math.max(0, Math.floor((y - pad) / lh));
       const col = Math.max(0, Math.floor((x - pad) / cw));
-      ready(() => tap(row, col));
+      ready(() => tap(row, col, true));
       return;
     }
     if (Math.abs(speed) < 0.3) return;
