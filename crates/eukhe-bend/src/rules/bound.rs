@@ -8,9 +8,29 @@
 //! the cap's byte limit) and moves the bytes the reply names.
 //!
 //! The opt-out (no cap) keeps every byte: nothing here runs for it.
+//!
+//! The stream counts the whole output in the core (its bytes and its
+//! newlines, which the reply names as dropped), a sum over every text and
+//! skip: past the runtime's bound on a Nat (2^48 - 1) the core would stop
+//! the process. [`Stream`] keeps the same counts and refuses a text or a
+//! skip that would take either past [`NAT_MAX`] with
+//! [`StreamError::TooLarge`], before the core is asked. Every other number
+//! the core adds is a text Rust holds in memory (a body's lines, the
+//! stored bytes), below [`NAT_MAX`] (100 TB). This is a trusted boundary:
+//! the laws reason about unbounded numbers and cannot see the runtime's.
 
 use crate::wire::{Reader, WireError, Writer, NAT_MAX};
 use crate::{call, expect_core, Entry, Error, Stepper};
+
+/// Why a stream refuses a text or a skip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum StreamError {
+    /// The whole output would pass [`NAT_MAX`] bytes or newlines: the core
+    /// counts it whole and would stop the process past 2^48 - 1, so it is
+    /// not asked.
+    #[error("the output passes {NAT_MAX} bytes or newlines, more than the bounder counts")]
+    TooLarge,
+}
 
 /// A cap: at most `bytes` bytes in at most `lines` lines, from the start of
 /// the output or (`tail`) from its end.
@@ -116,6 +136,10 @@ pub struct Stream {
     core: Stepper,
     cap: Cap,
     skips: bool,
+    /// The whole output's bytes, as the core counts them.
+    bytes: u64,
+    /// The whole output's newlines, as the core counts them.
+    newlines: u64,
 }
 
 impl Stream {
@@ -131,7 +155,13 @@ impl Stream {
         write_cap(&mut request, cap);
         let (core, reply) = Stepper::open(Entry::Bound, &request.finish()?)?;
         let skips = flag(&nats(&reply)?, "whether it takes skips")?;
-        Ok(Stream { core, cap, skips })
+        Ok(Stream {
+            core,
+            cap,
+            skips,
+            bytes: 0,
+            newlines: 0,
+        })
     }
 
     /// Whether it takes the output a shell left out (a tail does).
@@ -140,20 +170,40 @@ impl Stream {
         self.skips
     }
 
-    /// A text of `bytes` bytes and `newlines` newlines comes, after which
-    /// the output ends inside a line or not (`open`) (`out`).
-    #[must_use]
-    pub fn out(&mut self, bytes: usize, newlines: usize, open: bool) -> Act {
-        expect_core(Entry::Bound, self.out_call(bytes, newlines, open))
+    /// The whole output's counts with `bytes` more bytes of `newlines`
+    /// more newlines, when neither passes [`NAT_MAX`].
+    fn grown(&self, bytes: u64, newlines: u64) -> Result<(u64, u64), StreamError> {
+        let bytes = self.bytes.checked_add(bytes).filter(|n| *n <= NAT_MAX);
+        let newlines = self
+            .newlines
+            .checked_add(newlines)
+            .filter(|n| *n <= NAT_MAX);
+        bytes.zip(newlines).ok_or(StreamError::TooLarge)
     }
 
-    fn out_call(&mut self, bytes: usize, newlines: usize, open: bool) -> Result<Act, Error> {
+    /// A text of `bytes` bytes and `newlines` newlines comes, after which
+    /// the output ends inside a line or not (`open`) (`out`).
+    ///
+    /// # Errors
+    ///
+    /// [`StreamError::TooLarge`] when the whole output would pass
+    /// [`NAT_MAX`] bytes or newlines; the stream is as before.
+    pub fn out(&mut self, bytes: usize, newlines: usize, open: bool) -> Result<Act, StreamError> {
+        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+        let newlines = u64::try_from(newlines).unwrap_or(u64::MAX);
+        let counts = self.grown(bytes, newlines)?;
+        let act = expect_core(Entry::Bound, self.out_call(bytes, newlines, open));
+        (self.bytes, self.newlines) = counts;
+        Ok(act)
+    }
+
+    fn out_call(&mut self, bytes: u64, newlines: u64, open: bool) -> Result<Act, Error> {
         let mut request = Writer::new();
         request
             .count(4)
             .nat(0)
-            .nat(saturate(bytes))
-            .nat(saturate(newlines))
+            .nat(bytes)
+            .nat(newlines)
             .nat(bit(open));
         match nats(&self.core.step(&request.finish()?)?)?[..] {
             [0] => Ok(Act::Drop),
@@ -166,9 +216,22 @@ impl Stream {
     /// A shell left out `bytes` bytes of `newlines` newlines, after which
     /// the output ends inside a line or not (`open`); `true`: clear the
     /// stored text (`skip`).
-    #[must_use]
-    pub fn skip(&mut self, bytes: u64, newlines: u64, open: bool) -> bool {
-        expect_core(Entry::Bound, self.skip_call(bytes, newlines, open))
+    ///
+    /// # Errors
+    ///
+    /// [`StreamError::TooLarge`] when a tail would count the whole output
+    /// past [`NAT_MAX`] bytes or newlines; the stream is as before.
+    pub fn skip(&mut self, bytes: u64, newlines: u64, open: bool) -> Result<bool, StreamError> {
+        // The core counts a skip of a byte or more under a tail; a head, or
+        // a skip of no byte, changes nothing.
+        let counts = if self.skips && bytes > 0 {
+            self.grown(bytes, newlines)?
+        } else {
+            (self.bytes, self.newlines)
+        };
+        let clear = expect_core(Entry::Bound, self.skip_call(bytes, newlines, open));
+        (self.bytes, self.newlines) = counts;
+        Ok(clear)
     }
 
     fn skip_call(&mut self, bytes: u64, newlines: u64, open: bool) -> Result<bool, Error> {
@@ -364,7 +427,7 @@ mod tests {
                 Some(At::Start),
                 None,
                 true,
-                [Act::Store, Act::Trim],
+                [Ok(Act::Store), Ok(Act::Trim)],
                 Look {
                     from: 28,
                     to: 33,
@@ -374,5 +437,35 @@ mod tests {
                 },
             )
         );
+    }
+
+    /// The core counts the whole output: a stream at [`NAT_MAX`] bytes or
+    /// newlines refuses more before the core is asked (past 2^48 - 1 the
+    /// core would stop the process), and goes on as before.
+    #[test]
+    fn a_stream_refuses_output_past_what_the_core_counts() {
+        let max = usize::try_from(NAT_MAX).expect("a 64-bit usize");
+        let tail = Cap {
+            bytes: 5,
+            lines: 10,
+            tail: true,
+        };
+        let mut stream = Stream::open(tail);
+        assert_eq!(stream.out(max - 1, 0, true), Ok(Act::Trim));
+        assert_eq!(stream.out(2, 0, true), Err(StreamError::TooLarge));
+        assert_eq!(stream.skip(2, 0, true), Err(StreamError::TooLarge));
+        assert_eq!(stream.out(1, 1, false), Ok(Act::Trim));
+        assert_eq!(stream.out(0, 0, false), Ok(Act::Trim));
+        assert_eq!(stream.out(1, 0, false), Err(StreamError::TooLarge));
+        let mut lines = Stream::open(tail);
+        assert_eq!(lines.out(1, max, false), Ok(Act::Store));
+        assert_eq!(lines.out(1, 1, false), Err(StreamError::TooLarge));
+        let mut head = Stream::open(Cap {
+            tail: false,
+            ..tail
+        });
+        assert_eq!(head.out(max, 0, true), Ok(Act::Store));
+        assert_eq!(head.skip(NAT_MAX, 0, true), Ok(false));
+        assert_eq!(head.out(1, 0, true), Err(StreamError::TooLarge));
     }
 }

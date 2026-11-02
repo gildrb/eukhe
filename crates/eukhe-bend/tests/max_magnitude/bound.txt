@@ -1,0 +1,46 @@
+# Every request is one list of Nats (its count, then its items). A body's
+# lines are the lines of a text Rust holds in memory, so their bytes add
+# up to at most {MAX}; the stream's whole output counts stay within {MAX}
+# (Rust refuses a text or a skip past it: bound::StreamError::TooLarge).
+# slice [0, cap bytes, lines, tail, open, head, tail, margin, line ...]
+call 9,0,{MAX},{MAX},1,1,{MAX},{MAX},{MAX},{MAX},
+call 9,0,{MAX},{MAX},0,1,{MAX},{MAX},{MAX},{MAX},
+call 10,0,{MAX},{MAX},1,0,{MAX},{MAX},{MAX},99999999999998,1,
+call 10,0,5,1,1,0,5,1,1,99999999999998,1,
+call 10,0,5,1,0,0,5,1,1,99999999999998,1,
+call 9,0,0,0,1,1,0,0,{MAX},{MAX},
+# notice [1, tail, dropped, still]
+call 4,1,1,{MAX},1,
+call 4,1,0,{MAX},1,
+call 4,1,0,{MAX},0,
+refuse 4,1,1,{LONG},1,
+refuse 9,0,{LONG},{MAX},1,1,{MAX},{MAX},{MAX},{MAX},
+# a tail of the largest cap: a text of {MAX} bytes and newlines, a skip of
+# no byte, then the stored text read
+open 3,{MAX},{MAX},1,
+step 4,0,{MAX},{MAX},0,
+step 4,1,0,0,1,
+step 4,0,0,0,1,
+step 6,2,1,{MAX},{MAX},{MAX},{MAX},
+# a small tail: {MAX} bytes trim, the stored text is read and cut
+open 3,5,10,1,
+step 4,0,{MAX},0,1,
+step 6,2,1,5,5,6,{MAX},
+step 4,0,0,0,1,
+# a tail skips {MAX} bytes and newlines
+open 3,5,10,1,
+step 4,1,{MAX},{MAX},1,
+step 4,0,0,0,0,
+# a head of the largest cap stores {MAX} bytes; a full head drops
+open 3,{MAX},{MAX},0,
+step 4,0,{MAX},{MAX},0,
+step 4,0,0,0,0,
+step 4,1,{MAX},{MAX},1,
+step 6,2,0,{MAX},{MAX},{MAX},{MAX},
+open 3,5,1,0,
+step 4,0,{MAX},{MAX},1,
+step 4,0,0,0,1,
+refuse-step 4,0,{LONG},0,1,
+step 6,2,1,5,5,6,{MAX},
+refuse-open 3,{LONG},1,1,
+refuse-step 4,0,1,0,1,
