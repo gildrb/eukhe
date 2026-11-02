@@ -1,0 +1,11 @@
+# every purpose, selector, reason, window and request size at its largest
+call 0,{MAX},2,{MAX},T
+call 0,{MAX},2,{MAX},F
+call 0,{MAX},0,T
+call 1,1,{MAX},{MAX},1,{MAX},{MAX},
+call 1,1,{MAX},{MAX},1,99999999999998,{MAX},
+call 1,1,{MAX},{MAX},0,{MAX},{MAX},
+call 1,0,2,{MAX},{MAX},{MAX},1,{MAX},{MAX},
+call 2,2,{MAX},{MAX},{MAX},2,{MAX},{MAX},{MAX},{MAX},{MAX},99999999999998,
+call 2,2,{MAX},{MAX},{MAX},0,
+refuse 0,{LONG},0,T

@@ -862,6 +862,13 @@ import ./proof/aux_fallback/afw_pass_req_example.bend as PAfwPassReqExample
 import ./proof/aux_fallback/afw_pass_example.bend as PAfwPassExample
 import ./proof/aux_fallback/afw_ffi_example.bend as PAfwFfiExample
 import ./proof/aux_fallback/afw_malformed_example.bend as PAfwMalformedExample
+import ./proof/aux_fallback/base/spec.bend as LAAuxFallbackSpec
+import ./proof/aux_fallback/fallback_decide_exact.bend as PFallbackDecideExact
+import ./proof/aux_fallback/fallback_pass_exact.bend as PFallbackPassExact
+import ./proof/aux_fallback/fallback_terms_exact.bend as PFallbackTermsExact
+import ./proof/aux_fallback/afw_ffi_exact.bend as PAfwFfiExact
+import ./proof/aux_fallback/afw_ffi_spelled.bend as PAfwFfiSpelled
+import ./proof/aux_fallback/afw_ffi_spec_example.bend as PAfwFfiSpecExample
 import ./proof/skill_load/skill_failure_reported.bend as PSkillFailureReported
 import ./proof/skill_load/skill_loaded_not_failed.bend as PSkillLoadedNotFailed
 import ./proof/skill_load/base.bend as LASkillLoad

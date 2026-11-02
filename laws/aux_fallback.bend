@@ -128,6 +128,172 @@ law fallback_pass_events:
   for t: List<&2, Af.Ev>
   {Af.put(r, sh, t) == List.append(&2, Af.Ev, Af.put(r, sh, Nil{}), t) : List<&2, Af.Ev>}
 
+# The decision and a pass's events, whole
+# ---------------------------------------
+# Written from the requirement (the header of bend/aux_fallback.bend:
+# Rust `decide_auxiliary_route` and `AuxiliaryNotices::take`), never
+# calling the model: the laws above pin properties of the model; these
+# pin its every answer, so the entry's replies follow from them alone.
+
+# what the decision knows before the lookups: an unset selector or the
+# session model's keeps the session model; a selector allowedModels does
+# not admit falls back with the reason 0; any other is looked up
+def afs_gate(p: Nat, sel: Af.Sel, ok: Bool) -> Af.Gate:
+  match sel:
+    case Af.Unset{}:
+      Af.Known{Af.Session{}}
+    case Af.Same{}:
+      Af.Known{Af.Session{}}
+    case Af.Other{s}:
+      match ok:
+        case True{}:
+          Af.Lookup{p, s}
+        case False{}:
+          Af.Known{Af.Fallback{Af.K{p, s, 0n}}}
+
+# a found model of window w runs a request of size need: an unknown
+# window (0), or one at least the request
+def afs_fits(+w: Nat, +need: Nat) -> Bool:
+  Bool.or(Nat.is_eq(w, 0n), Nat.is_le(need, w))
+
+def afs_hit(ok: Bool, p: Nat, s: Nat) -> Af.Route:
+  match ok:
+    case True{}:
+      Af.Routed{}
+    case False{}:
+      Af.Fallback{Af.K{p, s, 5n}}
+
+# the route of the lookups of selector s for purpose p: nothing usable
+# falls back with its reason; a found model runs the pass when it fits,
+# else falls back with the reason 5
+def afs_found(p: Nat, s: Nat, look: Af.Look, +need: Nat) -> Af.Route:
+  match look:
+    case Af.Miss{r}:
+      Af.Fallback{Af.K{p, s, r}}
+    case Af.Hit{w}:
+      afs_hit(afs_fits(w, need), p, s)
+
+# the route: a known one, or the one the lookups give
+def afs_settle(g: Af.Gate, look: Af.Look, +need: Nat) -> Af.Route:
+  match g:
+    case Af.Known{r}:
+      r
+    case Af.Lookup{p, s}:
+      afs_found(p, s, look, need)
+
+# two keys name the same purpose, selector and reason
+def afs_same(a: Af.Key, b: Af.Key) -> Bool:
+  match a b:
+    case Af.K{ap, as1, ar} Af.K{bp, bs1, br}:
+      Bool.and(Nat.is_eq(ap, bp), Bool.and(Nat.is_eq(as1, bs1), Nat.is_eq(ar, br)))
+
+# the session has shown k: a key of sh is k
+def afs_shown(sh: List<&2, Af.Key>, +k: Af.Key) -> Bool:
+  match sh:
+    case Nil{}:
+      False{}
+    case x <> t:
+      Bool.or(afs_same(x, k), afs_shown(t, k))
+
+def afs_noted(seen: Bool, +k: Af.Key) -> List<&2, Af.Ev>:
+  match seen:
+    case True{}:
+      [Af.Sub{k}]
+    case False{}:
+      [Af.Sub{k}, Af.Note{k}]
+
+# the events of one pass routed r, the keys sh shown before it: a stay on
+# the session model, a run on the selector's model, or the substitution,
+# then its notice when the session has not shown its key
+def afs_events(r: Af.Route, +sh: List<&2, Af.Key>) -> List<&2, Af.Ev>:
+  match r:
+    case Af.Session{}:
+      [Af.Stay{}]
+    case Af.Routed{}:
+      [Af.Went{}]
+    case Af.Fallback{+k}:
+      afs_noted(afs_shown(sh, k), k)
+
+def afs_join(seen: Bool, k: Af.Key, sh: List<&2, Af.Key>) -> List<&2, Af.Key>:
+  match seen:
+    case True{}:
+      sh
+    case False{}:
+      k <> sh
+
+# the keys shown after a pass routed r: a fallback's key joins, first,
+# when the session had not shown it
+def afs_after(r: Af.Route, +sh: List<&2, Af.Key>) -> List<&2, Af.Key>:
+  match r:
+    case Af.Session{}:
+      sh
+    case Af.Routed{}:
+      sh
+    case Af.Fallback{+k}:
+      afs_join(afs_shown(sh, k), k, sh)
+
+# the keys of the substitution events of es, in order
+def afs_subs(es: List<&2, Af.Ev>) -> List<&2, Af.Key>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Af.Stay{}:
+          afs_subs(rest)
+        case Af.Went{}:
+          afs_subs(rest)
+        case Af.Sub{k}:
+          k <> afs_subs(rest)
+        case Af.Note{k}:
+          afs_subs(rest)
+
+# the keys of the notice events of es, in order
+def afs_notes(es: List<&2, Af.Ev>) -> List<&2, Af.Key>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      match e:
+        case Af.Stay{}:
+          afs_notes(rest)
+        case Af.Went{}:
+          afs_notes(rest)
+        case Af.Sub{k}:
+          afs_notes(rest)
+        case Af.Note{k}:
+          k <> afs_notes(rest)
+
+# LAW fallback_terms_exact: the model's terms the laws above read mean what the spec says: listed is membership by purpose, selector and reason; subs and notes are the keys of the substitution and of the notice events, in order
+# EXCLUDES: a membership, substitution or notice reading that makes
+#   fallback_is_reported or fallback_quiet_when_routed hold vacuously
+law fallback_terms_exact:
+  for ks: List<&2, Af.Key>
+  for +k: Af.Key
+  for es: List<&2, Af.Ev>
+  for fs: List<&2, Af.Ev>
+  {Af.listed(ks, k) == afs_shown(ks, k) : Bool} & {Af.subs(es) == afs_subs(es) : List<&2, Af.Key>} & {Af.notes(fs) == afs_notes(fs) : List<&2, Af.Key>}
+
+# LAW fallback_decide_exact: the gate and the route of every pass are the spec's: an unset or same selector keeps the session model, a selector allowedModels does not admit falls back with reason 0, any other is looked up; a lookup that finds nothing usable falls back with its reason, a found model runs the pass when its window is unknown (0) or at least the request, else falls back with reason 5
+# EXCLUDES: a route or a reason the requirement does not give, for any
+#   selector, lookup, window or request size
+law fallback_decide_exact:
+  for p: Nat
+  for sel: Af.Sel
+  for ok: Bool
+  for g: Af.Gate
+  for look: Af.Look
+  for +need: Nat
+  {Af.gate(p, sel, ok) == afs_gate(p, sel, ok) : Af.Gate} & {Af.settle(g, look, need) == afs_settle(g, look, need) : Af.Route}
+
+# LAW fallback_pass_exact: the events and the shown keys of every pass are the spec's: a stay, a run on the selector's model, or the substitution then its notice when its key was not shown; the key joins the shown keys, first, when it was not shown
+# EXCLUDES: an event lost, added or reordered, a notice shown twice for a
+#   key or never, a shown key lost or added
+law fallback_pass_exact:
+  for +r: Af.Route
+  for +sh: List<&2, Af.Key>
+  {Af.put(r, sh, Nil{}) == afs_events(r, sh) : List<&2, Af.Ev>} & {Af.after(r, sh) == afs_after(r, sh) : List<&2, Af.Key>}
+
 # ---- aux_fallback_wire ----
 
 # The wire codec of bend/ffi_aux_fallback.bend (grammar: that file's
@@ -407,3 +573,356 @@ law afw_ffi_example:
 # EXCLUDES: a vacuous afw_malformed
 law afw_malformed_example:
   {FAf.get_req("3,") == Wr.Bad{} : Wr.Dec<FAf.Req>} & {FAf.ffi("3,") == Wr.err("aux_fallback: malformed request") : String}
+
+# ---- aux_fallback_entry ----
+
+# The entry, whole: the requests and replies of the grammar (the header of
+# bend/ffi_aux_fallback.bend), spelled and read with the wire primitives
+# of bend/wire.bend and these spec helpers alone, never with the entry's
+# own encoders or decoders, and answered by the spec of the decision and
+# of a pass above. With afw_ffi_exact every input's answer follows from
+# the spec: an answer that is no error is the reply to the request the
+# input spells, every error is one of the two error texts.
+
+def afs_spell_key(k: Af.Key, rest: String) -> String:
+  match k:
+    case Af.K{p, s, r}:
+      Wr.put_nat(p, Wr.put_nat(s, Wr.put_nat(r, rest)))
+
+def afs_spell_route(r: Af.Route, rest: String) -> String:
+  match r:
+    case Af.Session{}:
+      Wr.put_nat(0n, rest)
+    case Af.Routed{}:
+      Wr.put_nat(1n, rest)
+    case Af.Fallback{k}:
+      Wr.put_nat(2n, afs_spell_key(k, rest))
+
+def afs_spell_gate(g: Af.Gate, rest: String) -> String:
+  match g:
+    case Af.Known{r}:
+      Wr.put_nat(0n, afs_spell_route(r, rest))
+    case Af.Lookup{p, s}:
+      Wr.put_nat(1n, Wr.put_nat(p, Wr.put_nat(s, rest)))
+
+def afs_spell_ev(e: Af.Ev, rest: String) -> String:
+  match e:
+    case Af.Stay{}:
+      Wr.put_nat(0n, rest)
+    case Af.Went{}:
+      Wr.put_nat(1n, rest)
+    case Af.Sub{k}:
+      Wr.put_nat(2n, afs_spell_key(k, rest))
+    case Af.Note{k}:
+      Wr.put_nat(3n, afs_spell_key(k, rest))
+
+def afs_spell_sel(x: Af.Sel, rest: String) -> String:
+  match x:
+    case Af.Unset{}:
+      Wr.put_nat(0n, rest)
+    case Af.Same{}:
+      Wr.put_nat(1n, rest)
+    case Af.Other{s}:
+      Wr.put_nat(2n, Wr.put_nat(s, rest))
+
+def afs_spell_look(x: Af.Look, rest: String) -> String:
+  match x:
+    case Af.Miss{r}:
+      Wr.put_nat(0n, Wr.put_nat(r, rest))
+    case Af.Hit{w}:
+      Wr.put_nat(1n, Wr.put_nat(w, rest))
+
+# the request Rust writes for x, then rest
+def afs_spell_req(x: FAf.Req, rest: String) -> String:
+  match x:
+    case FAf.GateReq{p, sel, ok}:
+      Wr.put_nat(0n, Wr.put_nat(p, afs_spell_sel(sel, Wr.put_bool(ok, rest))))
+    case FAf.SettleReq{g, look, need}:
+      Wr.put_nat(1n, afs_spell_gate(g, afs_spell_look(look, Wr.put_nat(need, rest))))
+    case FAf.PassReq{r, sh}:
+      Wr.put_nat(2n, afs_spell_route(r, Wr.put_list(~Af.Key, ~afs_spell_key, sh, rest)))
+
+# the reply to x: the spec's gate, route, or a pass's events then the
+# keys shown after it
+def afs_reply(x: FAf.Req) -> String:
+  match x:
+    case FAf.GateReq{p, sel, ok}:
+      afs_spell_gate(afs_gate(p, sel, ok), "")
+    case FAf.SettleReq{g, look, need}:
+      afs_spell_route(afs_settle(g, look, need), "")
+    case FAf.PassReq{+r, +sh}:
+      Wr.put_list(~Af.Ev, ~afs_spell_ev, afs_events(r, sh), Wr.put_list(~Af.Key, ~afs_spell_key, afs_after(r, sh), ""))
+
+# Reading: the request at the start of a text, field by field
+
+def afs_read_key.r(p: Nat, s: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Af.Key>:
+  match d:
+    case Wr.Got{r, rest}:
+      Wr.Got{Af.K{p, s, r}, rest}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_key.s(p: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Af.Key>:
+  match d:
+    case Wr.Got{s, rest}:
+      afs_read_key.r(p, s, Wr.get_nat(rest))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_key.p(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Key>:
+  match d:
+    case Wr.Got{p, rest}:
+      afs_read_key.s(p, Wr.get_nat(rest))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_key(s: String) -> Wr.Dec<Af.Key>:
+  afs_read_key.p(Wr.get_nat(s))
+
+def afs_read_route.key(d: Wr.Dec<Af.Key>) -> Wr.Dec<Af.Route>:
+  match d:
+    case Wr.Got{k, rest}:
+      Wr.Got{Af.Fallback{k}, rest}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# tags: 0 session, 1 routed, 2 a fallback's key
+def afs_read_route.tag(n: Nat, s: String) -> Wr.Dec<Af.Route>:
+  match n:
+    case 0n:
+      Wr.Got{Af.Session{}, s}
+    case 1n:
+      Wr.Got{Af.Routed{}, s}
+    case 2n:
+      afs_read_route.key(afs_read_key(s))
+    case 3n+x:
+      Wr.Bad{}
+
+def afs_read_route.go(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Route>:
+  match d:
+    case Wr.Got{n, s}:
+      afs_read_route.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_route(s: String) -> Wr.Dec<Af.Route>:
+  afs_read_route.go(Wr.get_nat(s))
+
+def afs_read_gate.known(d: Wr.Dec<Af.Route>) -> Wr.Dec<Af.Gate>:
+  match d:
+    case Wr.Got{r, s}:
+      Wr.Got{Af.Known{r}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gate.s(p: Nat, d: Wr.Dec<Nat>) -> Wr.Dec<Af.Gate>:
+  match d:
+    case Wr.Got{s, rest}:
+      Wr.Got{Af.Lookup{p, s}, rest}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gate.p(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Gate>:
+  match d:
+    case Wr.Got{p, rest}:
+      afs_read_gate.s(p, Wr.get_nat(rest))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# tags: 0 a decided route, 1 a lookup (purpose, selector)
+def afs_read_gate.tag(n: Nat, s: String) -> Wr.Dec<Af.Gate>:
+  match n:
+    case 0n:
+      afs_read_gate.known(afs_read_route(s))
+    case 1n:
+      afs_read_gate.p(Wr.get_nat(s))
+    case 2n+x:
+      Wr.Bad{}
+
+def afs_read_gate.go(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Gate>:
+  match d:
+    case Wr.Got{n, s}:
+      afs_read_gate.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gate(s: String) -> Wr.Dec<Af.Gate>:
+  afs_read_gate.go(Wr.get_nat(s))
+
+def afs_read_sel.other(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Sel>:
+  match d:
+    case Wr.Got{s, rest}:
+      Wr.Got{Af.Other{s}, rest}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# tags: 0 unset, 1 the session model, 2 a selector
+def afs_read_sel.tag(n: Nat, s: String) -> Wr.Dec<Af.Sel>:
+  match n:
+    case 0n:
+      Wr.Got{Af.Unset{}, s}
+    case 1n:
+      Wr.Got{Af.Same{}, s}
+    case 2n:
+      afs_read_sel.other(Wr.get_nat(s))
+    case 3n+x:
+      Wr.Bad{}
+
+def afs_read_sel.go(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Sel>:
+  match d:
+    case Wr.Got{n, s}:
+      afs_read_sel.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_miss(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Look>:
+  match d:
+    case Wr.Got{r, s}:
+      Wr.Got{Af.Miss{r}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_hit(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Look>:
+  match d:
+    case Wr.Got{w, s}:
+      Wr.Got{Af.Hit{w}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# tags: 0 nothing usable (the reason), 1 found (the window)
+def afs_read_look.tag(n: Nat, s: String) -> Wr.Dec<Af.Look>:
+  match n:
+    case 0n:
+      afs_read_miss(Wr.get_nat(s))
+    case 1n:
+      afs_read_hit(Wr.get_nat(s))
+    case 2n+x:
+      Wr.Bad{}
+
+def afs_read_look.go(d: Wr.Dec<Nat>) -> Wr.Dec<Af.Look>:
+  match d:
+    case Wr.Got{n, s}:
+      afs_read_look.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gq.ok(p: Nat, sel: Af.Sel, d: Wr.Dec<Bool>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{ok, s}:
+      Wr.Got{FAf.GateReq{p, sel, ok}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gq.sel(p: Nat, d: Wr.Dec<Af.Sel>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{sel, s}:
+      afs_read_gq.ok(p, sel, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_gq(d: Wr.Dec<Nat>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{p, s}:
+      afs_read_gq.sel(p, afs_read_sel.go(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_sq.need(g: Af.Gate, look: Af.Look, d: Wr.Dec<Nat>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{need, s}:
+      Wr.Got{FAf.SettleReq{g, look, need}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_sq.look(g: Af.Gate, d: Wr.Dec<Af.Look>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{look, s}:
+      afs_read_sq.need(g, look, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_sq(d: Wr.Dec<Af.Gate>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{g, s}:
+      afs_read_sq.look(g, afs_read_look.go(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_pq.shown(r: Af.Route, d: Wr.Dec<List<&2, Af.Key>>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{sh, s}:
+      Wr.Got{FAf.PassReq{r, sh}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def afs_read_pq(d: Wr.Dec<Af.Route>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{r, s}:
+      afs_read_pq.shown(r, Wr.get_list(~Af.Key, ~afs_read_key, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# tags: 0 a gate, 1 a settle, 2 a pass
+def afs_read_req.tag(n: Nat, s: String) -> Wr.Dec<FAf.Req>:
+  match n:
+    case 0n:
+      afs_read_gq(Wr.get_nat(s))
+    case 1n:
+      afs_read_sq(afs_read_gate(s))
+    case 2n:
+      afs_read_pq(afs_read_route(s))
+    case 3n+x:
+      Wr.Bad{}
+
+def afs_read_req.go(d: Wr.Dec<Nat>) -> Wr.Dec<FAf.Req>:
+  match d:
+    case Wr.Got{n, s}:
+      afs_read_req.tag(n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request at the start of s
+def afs_read_req(s: String) -> Wr.Dec<FAf.Req>:
+  afs_read_req.go(Wr.get_nat(s))
+
+def afs_entry.end(done: Bool, x: FAf.Req) -> String:
+  match done:
+    case True{}:
+      afs_reply(x)
+    case False{}:
+      Wr.err("aux_fallback: input left over")
+
+def afs_entry.go(d: Wr.Dec<FAf.Req>) -> String:
+  match d:
+    case Wr.Got{x, s}:
+      afs_entry.end(Wr.end(s), x)
+    case Wr.Bad{}:
+      Wr.err("aux_fallback: malformed request")
+
+# the entry's answer to s: the reply to the request s is, when nothing is
+# left after it; else one of the two error texts
+def afs_entry(s: String) -> String:
+  afs_entry.go(afs_read_req(s))
+
+# LAW afw_ffi_exact: on every input the entry answers the spec: the reply (spelled by the spec) to the request the input spells, read by the spec's reader with the wire primitives, when nothing is left after it; `E aux_fallback: input left over` when input is left; `E aux_fallback: malformed request` for any other input
+# EXCLUDES: an answer for an input that spells no request, a request read
+#   otherwise than the grammar spells it, a reply other than the spec's
+#   decision or a pass's spec events and keys, an error text that varies
+law afw_ffi_exact:
+  for +s: String
+  {FAf.ffi(s) == afs_entry(s) : String}
+
+# LAW afw_ffi_spelled: every request Rust writes whose numbers fit the wire, spelled by the spec, gets the spec's reply
+# EXCLUDES: a request Rust writes refused, or answered for another request
+law afw_ffi_spelled:
+  for +x: FAf.Req
+  for h: {afw_req_fits(x) == True{} : Bool}
+  {FAf.ffi(afs_spell_req(x, "")) == afs_reply(x) : String}
+
+# LAW afw_ffi_spec_example: anchor: the spec answers the grammar's bytes: a gate of a set
+# selector allowedModels admits looks it up; a found model too small for
+# the request falls back with reason 5; a fallback shown before has no
+# notice; a 15-digit purpose and input left over are refused
+# EXCLUDES: a vacuous afw_ffi_exact (a spec that refuses everything)
+law afw_ffi_spec_example:
+  {[afs_entry("0,3,2,8,T"), afs_entry("1,1,3,8,1,10,11,"), afs_entry("2,2,1,2,3,1,1,2,3,"), afs_entry("0,123456789012345,0,T"), afs_entry("0,3,0,Tx")] == ["1,3,8,", "2,3,8,5,", "1,2,1,2,3,1,1,2,3,", Wr.err("aux_fallback: malformed request"), Wr.err("aux_fallback: input left over")] : List<&2, String>}
