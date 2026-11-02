@@ -13,8 +13,8 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use super::{
-    get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
-    CLAUDE_CODE_SYSTEM_PROMPT,
+    billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
+    CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
 use crate::api::cache_breakpoints::{has_cache_breakpoint, placed_marks};
 use crate::api::constrained_sampling::{
@@ -772,7 +772,19 @@ pub(crate) fn build_params(
         block
     };
     if is_oauth_token {
-        let mut system = vec![system_block(CLAUDE_CODE_SYSTEM_PROMPT, identity_mark)];
+        // Claude Code's billing attribution opens `system`, uncached; the
+        // client patches its `cch` into the serialized body.
+        let first_user_text = params
+            .get("messages")
+            .and_then(JsonValue::as_array)
+            .map_or("", |messages| billing::first_user_text(messages));
+        let mut system = vec![
+            json!({
+                "type": "text",
+                "text": billing::billing_header(first_user_text, CLAUDE_CODE_VERSION),
+            }),
+            system_block(CLAUDE_CODE_SYSTEM_PROMPT, identity_mark),
+        ];
         if !initial_system_text.is_empty() {
             system.push(system_block(
                 &sanitize_surrogates(&initial_system_text),

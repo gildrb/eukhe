@@ -14,6 +14,7 @@
 //!   `provider_stream_failure` diagnostic
 //!   ([`crate::utils::stream_failure::record_stream_failure`]).
 
+mod billing;
 mod client;
 mod events;
 mod federation;
@@ -45,8 +46,9 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_current_tools, resolve_transcript};
 
-/// Stealth mode: the Claude Code version mimicked with OAuth tokens.
-const CLAUDE_CODE_VERSION: &str = "2.1.280";
+/// Stealth mode: the Claude Code version mimicked with OAuth tokens (the
+/// version omp mimics on the same subscription).
+pub(crate) const CLAUDE_CODE_VERSION: &str = "2.1.280";
 
 /// The Claude Code identity system block required with OAuth tokens.
 const CLAUDE_CODE_SYSTEM_PROMPT: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -359,9 +361,15 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
         let mut identity = browser_headers();
         identity.insert(
             "user-agent".into(),
-            Some(format!("claude-cli/{CLAUDE_CODE_VERSION}")),
+            Some(format!("claude-cli/{CLAUDE_CODE_VERSION} (external, cli)")),
         );
         identity.insert("x-app".into(), Some("cli".into()));
+        if let Some(session_id) = inputs.session_id.filter(|id| !id.is_empty()) {
+            identity.insert(
+                "x-claude-code-session-id".into(),
+                Some(session_id.to_owned()),
+            );
+        }
         let client = SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Static {

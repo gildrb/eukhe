@@ -41,7 +41,16 @@ fn beta() -> PrimeTeamOption {
 /// A screen tall enough for every panel the tests mount.
 const TALL: usize = 500;
 
+/// The rendered rows as text, OSC 8 link wrappers stripped (the URL rows
+/// always carry them; [`raw_frame_text`] keeps them).
 fn frame_text(panel: &mut AuthPanel) -> Vec<String> {
+    raw_frame_text(panel)
+        .iter()
+        .map(|row| crate::hyperlinks::strip_osc8_content(row))
+        .collect()
+}
+
+fn raw_frame_text(panel: &mut AuthPanel) -> Vec<String> {
     panel
         .render(&theme(), 90, TALL, &kb())
         .iter()
@@ -516,7 +525,7 @@ fn provider_text_is_scrubbed_never_a_terminal_sequence() {
             .to_string(),
         Some("Open\r\nhttps://evil".to_string()),
     );
-    let rows = frame_text(&mut panel);
+    let rows = raw_frame_text(&mut panel);
     let joined = rows.join("\n");
     assert!(
         !joined.contains("\u{1b}]8;;https://evil.example"),
@@ -526,7 +535,13 @@ fn provider_text_is_scrubbed_never_a_terminal_sequence() {
         !joined.contains("\u{1b}[2J"),
         "the clear never renders: {joined:?}"
     );
-    assert!(!joined.contains("\u{1b}]8;;"));
+    // The only escapes are the panel's own link to the scrubbed URL
+    // (every control character a space).
+    let scrubbed = "https://a.example/ ]8;;https://evil.example link \\ ]8;; \\";
+    let unlinked = joined
+        .replace(&crate::hyperlinks::osc8_open(scrubbed), "")
+        .replace(crate::hyperlinks::OSC8_CLOSE, "");
+    assert!(!unlinked.contains('\u{1b}'), "{joined:?}");
 
     let (mut panel, mut _answer) = mount_teams(
         vec![PrimeTeamOption {
@@ -818,27 +833,40 @@ fn a_url_wider_than_the_frame_renders_whole_as_one_logical_line() {
         )
         .expect("paint");
     assert_eq!(painted, crate::inline_term::Painted::Drawn);
-    let shown = crate::ansi::strip_ansi(&String::from_utf8(out).expect("utf8"));
+    let written = String::from_utf8(out).expect("utf8");
+    let shown = crate::ansi::strip_ansi(&written);
     assert!(
         shown.contains(LONG_URL),
         "the written rows carry the whole URL: {shown:?}"
     );
+    // The capability gate is off here (as over SSH): the rows still link
+    // the full URL, so a click opens it whole.
+    let open = crate::hyperlinks::osc8_open(LONG_URL);
+    assert!(
+        written.matches(open.as_str()).count() > 1,
+        "every written piece links the full URL: {written:?}"
+    );
 }
 
-/// With hyperlinks on, every piece of the wrapped URL links the full URL.
+/// Every piece of the wrapped URL links the full URL, with the hyperlink
+/// capability gate on or off (over SSH the gate reads off, and the
+/// terminal's own URL detection cut a clicked sign-in link at the row
+/// end, before `redirect_uri`).
 #[test]
 fn every_wrapped_piece_links_the_full_url() {
-    crate::hyperlinks::set_hyperlinks_override(Some(true));
-    let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
-    panel.show_auth_url(LONG_URL.to_string(), None);
-    let lines = panel.render(&theme(), 100, 30, &kb());
-    crate::hyperlinks::set_hyperlinks_override(None);
-    let ranges = crate::hyperlinks::frame_link_ranges(&lines);
-    assert!(ranges.len() > 1, "the URL wraps: {ranges:?}");
-    assert!(
-        ranges.iter().all(|range| range.url == LONG_URL),
-        "{ranges:?}"
-    );
+    for gate in [Some(true), Some(false)] {
+        crate::hyperlinks::set_hyperlinks_override(gate);
+        let mut panel = AuthPanel::new("Login to Anthropic (Claude Pro/Max)");
+        panel.show_auth_url(LONG_URL.to_string(), None);
+        let lines = panel.render(&theme(), 100, 30, &kb());
+        crate::hyperlinks::set_hyperlinks_override(None);
+        let ranges = crate::hyperlinks::frame_link_ranges(&lines);
+        assert!(ranges.len() > 1, "the URL wraps ({gate:?}): {ranges:?}");
+        assert!(
+            ranges.iter().all(|range| range.url == LONG_URL),
+            "{gate:?}: {ranges:?}"
+        );
+    }
 }
 
 /// The copy binding copies the full URL, never the shown width.

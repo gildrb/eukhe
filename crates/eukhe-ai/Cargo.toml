@@ -34,6 +34,8 @@ bytes = "1"
 url = "2"
 # PKCE S256 challenge (TS `crypto.subtle.digest("SHA-256")`).
 sha2 = "0.10"
+# XXH64 `cch` attestation of Claude Code's OAuth billing header.
+twox-hash = { version = "2", default-features = false, features = ["xxhash64"] }
 # base64url for PKCE and JWT payload decoding (TS `btoa`/`atob`).
 base64 = "0.22"
 # OAuth state/verifier randomness (TS `crypto.getRandomValues` / `randomBytes`).
