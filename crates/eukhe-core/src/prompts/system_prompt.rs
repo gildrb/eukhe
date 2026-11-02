@@ -378,7 +378,8 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
     lines.push(format!("Working directory: {cwd}"));
     match options.vision_capable {
         Some(true) => lines.push(
-            "Images: `read` shows a PNG or JPEG; `await attach_image.run(path)` in `ipython` resizes a larger one."
+            "Images: `read` shows a PNG or JPEG; `await attach_image.run(path)` in `ipython` resizes a larger one. \
+             An image stays in context for the rest of the session: measure layout in code, and look at one screenshot per check, clipped to the part it checks."
                 .to_string(),
         ),
         Some(false) => lines.push("This model cannot see images.".to_string()),
