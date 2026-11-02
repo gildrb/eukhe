@@ -112,6 +112,158 @@ law tools_ffi_rejects_left_over:
   for more: {String.is_empty(r) == False{} : Bool}
   {LawsBase.wire_opens_err(FTl.ffi(s)) == True{} : Bool}
 
+# (S7, 3) The path entry, against a spec
+# --------------------------------------
+# An internal URL's path is a list of segments under the root of its
+# scheme: a name goes one level down, `.` (or an empty segment) stays,
+# `..` goes one level up; a path that goes above its root is rejected,
+# never clamped. Read from its end, each `..` cancels the nearest name
+# before it that no other `..` cancels; the names left are the names the
+# path reaches; a `..` that no name before it is left to cancel goes above
+# the root. Every input is free: any segments, any text.
+
+# a name met with u uncancelled `..` after it: it cancels one of them
+def tp_ups.name(u: Nat) -> Nat:
+  match u:
+    case 0n:
+      0n
+    case 1n+v:
+      v
+
+# the `..` of segs that no name of segs cancels
+def tp_ups(segs: List<&2, Tl.Seg>) -> Nat:
+  match segs:
+    case Nil{}:
+      0n
+    case g <> rest:
+      match g:
+        case Tl.Name{n}:
+          tp_ups.name(tp_ups(rest))
+        case Tl.Up{}:
+          1n+tp_ups(rest)
+        case Tl.Here{}:
+          tp_ups(rest)
+
+# the name n before the names ns that stay, with u uncancelled `..` after
+# it: it stays (the shallowest, last) when no `..` is left to cancel it
+def tp_names.name(n: Nat, u: Nat, ns: List<&2, Nat>) -> List<&2, Nat>:
+  match u:
+    case 0n:
+      List.append(&2, Nat, ns, [n])
+    case 1n+v:
+      ns
+
+# the names of segs that no `..` cancels, deepest (last) first
+def tp_names(segs: List<&2, Tl.Seg>) -> List<&2, Nat>:
+  match segs:
+    case Nil{}:
+      Nil{}
+    case g <> +rest:
+      match g:
+        case Tl.Name{n}:
+          tp_names.name(n, tp_ups(rest), tp_names(rest))
+        case Tl.Up{}:
+          tp_names(rest)
+        case Tl.Here{}:
+          tp_names(rest)
+
+def tp_resolve.at(u: Nat, ns: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
+  match u:
+    case 0n:
+      Some{ns}
+    case 1n+v:
+      None{}
+
+# the names the path reaches, deepest first; None when a `..` goes above
+# the root
+def tp_resolve(+segs: List<&2, Tl.Seg>) -> Maybe<&2, List<&2, Nat>>:
+  tp_resolve.at(tp_ups(segs), tp_names(segs))
+
+# the segment a request code names (the grammar of bend/ffi_tools.bend):
+# 0 `..`, 1 `.`, 2 + n the name n
+def tp_seg(c: Nat) -> Tl.Seg:
+  match c:
+    case 0n:
+      Tl.Up{}
+    case 1n:
+      Tl.Here{}
+    case 2n+n:
+      Tl.Name{n}
+
+def tp_segs(cs: List<&2, Nat>) -> List<&2, Tl.Seg>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      tp_seg(c) <> tp_segs(rest)
+
+# the reply: 0 (above the root), or 1 then the names
+def tp_reply(m: Maybe<&2, List<&2, Nat>>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{ns}:
+      Wr.put_nat(1n, Wr.put_list(~Nat, ~Wr.put_nat, ns, ""))
+
+# the error form of an input that is no request
+def tp_malformed() -> String:
+  SCon{'E', SCon{' ', "tools: malformed request"}}
+
+# the error form of a request followed by more input
+def tp_left_over() -> String:
+  SCon{'E', SCon{' ', "tools: input left over"}}
+
+def tp_entry.end(whole: Bool, cs: List<&2, Nat>) -> String:
+  match whole:
+    case True{}:
+      tp_reply(tp_resolve(tp_segs(cs)))
+    case False{}:
+      tp_left_over()
+
+def tp_entry.read(r: Wr.Dec<List<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{cs, s}:
+      tp_entry.end(Wr.end(s), cs)
+    case Wr.Bad{}:
+      tp_malformed()
+
+# the reply of the path entry to the input s: the request is a list of
+# codes read with the wire primitives
+def tp_entry(s: String) -> String:
+  tp_entry.read(Wr.get_list(~Nat, ~Wr.get_nat, s))
+
+# LAW path_resolve_spec (A1, S7 3): every path resolves as the spec reads
+# it: each `..` cancels the nearest name before it left to cancel; the
+# names no `..` cancels are the names reached, deepest first; a `..` with
+# no name left to cancel goes above the root, and the path is rejected
+# EXCLUDES: a path clamped at its root, a `..` that cancels another name
+#   or none, names reordered, dropped, repeated or invented, `.` taken as
+#   a name or as `..`
+law path_resolve_spec:
+  for +segs: List<&2, Tl.Seg>
+  {Tl.resolve(segs) == tp_resolve(segs) : Maybe<&2, List<&2, Nat>>}
+
+# LAW tools_ffi_exact (compiled core): on every input the path entry
+# answers exactly the spec's reply: a whole request (a list of codes read
+# with the wire's reader, nothing left) gets 0 when its path goes above
+# its root, else 1 then the names it reaches; a request followed by more
+# input gets exactly the error form "tools: input left over"; any other
+# input exactly the error form "tools: malformed request"
+# EXCLUDES: a code read as another segment, a reply in another spelling,
+#   input left over ignored, a default for malformed input, another error
+#   text
+law tools_ffi_exact:
+  for +s: String
+  {FTl.ffi(s) == tp_entry(s) : String}
+
+# LAW tools_ffi_example (compiled core): anchor: the bytes of requests and
+# their replies: names 0 and 1, `..`, name 2 reach 2 under 0; `..` at the
+# root is rejected; the empty path reaches the root; input left over; a
+# list shorter than its count
+# EXCLUDES: another spelling of a request or a reply
+law tools_ffi_example:
+  {[FTl.ffi("4,2,3,0,4,"), FTl.ffi("2,0,2,"), FTl.ffi("0,"), FTl.ffi("1,1,x"), FTl.ffi("1,")] == ["1,2,2,0,", "0,", "1,0,", tp_left_over(), tp_malformed()] : List<&2, String>}
+
 # LAW gate_prefix: the steps that ran are the script's first steps, in order
 law gate_prefix:
   for +ss: List<&2, Tl.Step>

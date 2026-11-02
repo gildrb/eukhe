@@ -445,6 +445,9 @@ import ./proof/tools/tools_ffi_request_round_trip.bend as PToolsFfiRequestRoundT
 import ./proof/tools/tools_ffi_answers.bend as PToolsFfiAnswers
 import ./proof/tools/tools_ffi_rejects_malformed.bend as PToolsFfiRejectsMalformed
 import ./proof/tools/tools_ffi_rejects_left_over.bend as PToolsFfiRejectsLeftOver
+import ./proof/tools/path_resolve_spec.bend as PPathResolveSpec
+import ./proof/tools/tools_ffi_exact.bend as PToolsFfiExact
+import ./proof/tools/tools_ffi_example.bend as PToolsFfiExample
 import ./proof/tools/gate_prefix.bend as PGatePrefix
 import ./proof/tools/gate_needs_yes.bend as PGateNeedsYes
 import ./proof/tools/gate_deny_stops.bend as PGateDenyStops
