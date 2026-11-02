@@ -2547,6 +2547,9 @@ import ./proof/call_lift/call_lift_entry_answers.bend as PCallLiftCallLiftEntryA
 import ./proof/call_lift/call_lift_entry_reads.bend as PCallLiftCallLiftEntryReads
 import ./proof/call_lift/call_lift_entry_malformed_exact.bend as PCallLiftCallLiftEntryMalformedExact
 import ./proof/call_lift/call_lift_entry_example.bend as PCallLiftCallLiftEntryExample
+import ./proof/call_lift/call_lift_entry_exact.bend as PCallLiftCallLiftEntryExact
+import ./proof/call_lift/call_lift_entry_refuses.bend as PCallLiftCallLiftEntryRefuses
+import ./proof/call_lift/call_lift_entry_short_example.bend as PCallLiftCallLiftEntryShortExample
 import ./proof/call_lift/base/string.bend as LCallLiftString
 import ./proof/call_lift/call_lift_refines_spec.bend as PCallLiftCallLiftRefinesSpec
 import ./proof/call_lift/call_lift_reaches_current.bend as PCallLiftCallLiftReachesCurrent

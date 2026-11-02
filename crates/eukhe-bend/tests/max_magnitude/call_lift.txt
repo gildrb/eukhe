@@ -1,0 +1,13 @@
+# the calls of a transcript, lifted: no Nat of a request is a value (counts
+# and lengths only), so no count reaches {MAX}; a zoom@1 call with many
+# arguments (its stored indices), a current, an unknown and a stranded call
+call 2,4,zoom1,13,1,i2,id1,n4,bash1,11,1,i
+call 1,4,zoom1,124,1,a1,b1,c1,d1,e1,f1,g1,h1,i1,j1,k1,l1,m1,n1,o1,p1,q1,r1,s1,t1,u1,v1,w1,x
+call 4,4,zoom1,22,1,i2,id4,edit4,hl.11,5,input3,mcp1,11,1,q4,zoom1,00,
+call 0,
+# a count, a length or a name past the wire, and a count of {MAX} calls
+# with one call: refused, never a stop
+refuse 1,{LONG},zoom1,10,
+refuse {LONG},4,zoom1,10,
+refuse {MAX},4,zoom1,10,
+refuse 1,4,zoom1,1{MAX},

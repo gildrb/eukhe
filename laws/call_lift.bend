@@ -4,6 +4,7 @@ import Base
 import ../bend/call_lift.bend as Cl
 import ../bend/ffi_call_lift.bend as FCl
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 import ../spec/harness/lift.bend as Sp
 import ../spec/harness/lift_wire.bend as SpW
 
@@ -196,6 +197,26 @@ law call_lift_entry_malformed_exact:
   for no: {SpW.read(s) == None{} : Maybe<&2, List<&2, Cl.Call>>}
   {FCl.ffi(s) == Wr.err("call_lift: malformed request") : String}
 
+# LAW call_lift_entry_exact (R7): every input the entry does not answer
+# with the error form is a spelled request (W1, spelled with the wire's
+# writers only) that fits the wire
+# EXCLUDES: an answer for input that is no request (a list of calls or of
+#   names shorter than its count, a malformed field, input left over),
+#   whatever reader the laws' call_lift_entry_malformed_exact is built on
+law call_lift_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FCl.ffi(s)) == False{} : Bool}
+  exs cs: List<&2, Cl.Call>
+  {s == SpW.w_req(cs, "") : String} & {SpW.fit_req(cs) == True{} : Bool}
+
+# LAW call_lift_entry_refuses (R7): every error the entry answers is
+# exactly `E call_lift: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law call_lift_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FCl.ffi(s)) == True{} : Bool}
+  {FCl.ffi(s) == Wr.err("call_lift: malformed request") : String}
+
 # LAW call_lift_entry_example (R7): anchor: the strings Rust sends and the
 # replies it reads: a zoom@1 call lifted next to a current bash call, no
 # calls, a stranded rev, an unknown family; input left over and a bare
@@ -203,3 +224,9 @@ law call_lift_entry_malformed_exact:
 # EXCLUDES: another spelling of a request or a reply
 law call_lift_entry_example:
   {[FCl.ffi("2,4,zoom1,13,1,i2,id1,n4,bash1,11,1,i"), FCl.ffi("0,"), FCl.ffi("1,4,zoom1,00,"), FCl.ffi("1,3,mcp1,10,"), FCl.ffi("1,4,zoom1,20,x"), FCl.ffi("9")] == ["2,3,1,23,0,0,1,i0,1,2,id0,2,1,n0,1,", "0,", "1,2,", "1,0,", Wr.err("call_lift: malformed request"), Wr.err("call_lift: malformed request")] : List<&2, String>}
+
+# LAW call_lift_entry_short_example (R7): anchor: requests cut short: a
+# count of 2 calls with one call, a count of 3 with two
+# EXCLUDES: a list of calls cut short answered as a shorter list
+law call_lift_entry_short_example:
+  {[FCl.ffi("2,4,zoom1,10,"), FCl.ffi("3,4,zoom1,13,1,i2,id1,n4,bash1,11,1,i")] == [Wr.err("call_lift: malformed request"), Wr.err("call_lift: malformed request")] : List<&2, String>}
