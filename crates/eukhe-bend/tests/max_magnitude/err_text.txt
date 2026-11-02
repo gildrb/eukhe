@@ -1,0 +1,14 @@
+# every rule; texts with a four-byte char; a status code inside a number
+# and alone (no number on the wire grows past a count or a length)
+call 0,1,14,Quota exceeded
+call 1,3,4,52934,abc􏿿15,socket hang up!
+call 2,1,7,Billing
+call 3,1,10,rate-limit
+call 4,1,19,USAGE_LIMIT_REACHED
+call 5,1,9,timed out
+call 5,0,
+# a rule and a count at their largest are refused, never a stop
+refuse {MAX},0,
+refuse 0,{MAX},
+refuse {LONG},0,
+refuse 0,1,{LONG},x

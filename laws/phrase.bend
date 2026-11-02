@@ -120,7 +120,9 @@ def sp_start_ok(e: P.Edge, a: String) -> Bool:
     case P.EText{}:
       String.is_empty(a)
 
-# R5: whether one of the phrases is found in s
+# R5: whether one of the phrases is found in s. P.found is the code's,
+# pinned for every text and phrase by phrase_search_sound and
+# phrase_search_complete: true exactly when R5's split exists.
 def sp_any(+s: String, phs: List<&2, P.Ph>) -> Bool:
   match phs:
     case Nil{}:

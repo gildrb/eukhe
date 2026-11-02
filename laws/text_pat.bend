@@ -136,7 +136,10 @@ def sp_lower(s: String) -> String:
       String.append(sp_lower_pick(x, sp_in(x, 65, 90), U32.is_eq(x, 8490), U32.is_eq(x, 304)), sp_lower(t))
 
 # R5: one alternative found in s: at its start (the prefix test), or in
-# some part (the search)
+# some part (the search). Tp.pm and Tp.occ are the code's, pinned for
+# every text and list of items by text_pat_prefix_sound and
+# text_pat_prefix_complete, text_pat_search_sound and
+# text_pat_search_complete: true exactly when R3's split exists.
 def sp_found(anchored: Bool, +s: String, its: List<&2, Tp.It>) -> Bool:
   match anchored:
     case True{}:
