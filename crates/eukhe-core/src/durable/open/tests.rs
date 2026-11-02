@@ -817,8 +817,9 @@ async fn a_fork_made_main_in_its_creating_commit_is_main_after_reopen() {
 }
 
 /// The system prompt the provider receives is `build_system_prompt`'s
-/// output for the same inputs, with the `codemode` section between its
-/// body and its closing `<critical>` block, which ends the prompt.
+/// output for the same inputs, with the `codemode` section just before its
+/// closing `<critical>` block, which the project's instructions and the
+/// environment follow.
 #[tokio::test]
 async fn prompt_sections_join_to_the_old_system_prompt() {
     let fixture = fixture();
@@ -883,10 +884,6 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         prompt_guidelines: Some(deps.prompt.guidelines.clone()),
         append_system_prompt: deps.resources.append_system_prompt.clone(),
         cwd: fixture.cwd.display().to_string(),
-        messages_path: deps
-            .storage_dir
-            .as_ref()
-            .map(|dir| dir.display().to_string()),
         context_files: deps
             .resources
             .agents_files
@@ -907,21 +904,21 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     assert!(expected.contains("Model guidance."));
     assert!(expected.contains("Subagents are unavailable in this session"));
     let critical = crate::prompts::closing_block(None).expect("the layered prompt closes");
-    let body = expected
-        .strip_suffix(critical)
-        .and_then(|body| body.strip_suffix("\n\n"))
-        .unwrap_or_else(|| panic!("the old prompt ends with the critical block:\n{expected}"));
-    // The `codemode` section, which the old builder lacks, follows the body
-    // (the tools scripts can call), and the critical block closes the
-    // prompt after every section.
+    let (head, tail) = expected
+        .split_once(&format!("\n\n{critical}\n\n"))
+        .unwrap_or_else(|| panic!("the old prompt holds the critical block:\n{expected}"));
+    // The `codemode` section, which the old builder lacks, sits between the
+    // install-stable sections and the critical block when scripts can call
+    // tools the model lacks; it is absent otherwise.
     let codemode = actual
-        .strip_prefix(body)
-        .and_then(|rest| rest.strip_suffix(critical))
+        .strip_prefix(head)
+        .and_then(|rest| rest.strip_suffix(tail))
+        .and_then(|rest| rest.strip_suffix(&format!("{critical}\n\n")))
         .unwrap_or_else(|| panic!("the old prompt wraps the system prompt:\n{actual}"))
         .trim();
     assert!(
-        codemode.starts_with("<codemode>\nTools scripts can call (`await tools.<name>(args)`):")
-            && codemode.ends_with("</codemode>"),
+        codemode.is_empty()
+            || (codemode.starts_with("<codemode>\n") && codemode.ends_with("</codemode>")),
         "{codemode}"
     );
     session.close(cx()).await.expect("close");
@@ -929,8 +926,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
 
 /// Every segment the old builder can produce has a section, in the same
 /// order, for each memory side and for a replaced prompt; the closing
-/// `<critical>` block, its own extension's section, is the last segment of
-/// a layered prompt and absent from a replaced one.
+/// `<critical>` block is in a layered prompt only.
 #[test]
 fn section_keys_follow_the_breakdown_order() {
     let skills = Vec::new();
@@ -952,7 +948,6 @@ fn section_keys_follow_the_breakdown_order() {
                     text: "Appended.".to_owned(),
                 }],
                 cwd: "/work".to_owned(),
-                messages_path: Some("/log".to_owned()),
                 context_files: vec![("/work/AGENTS.md".to_owned(), "Context.".to_owned())],
                 skills: skills.clone(),
                 allow_recursion: None,
@@ -962,19 +957,19 @@ fn section_keys_follow_the_breakdown_order() {
                 generic_mcp_servers: vec!["docs".to_owned()],
                 memory,
             });
-            let keys = crate::durable::section_keys(memory);
-            let (closing, body) = breakdown.segments.split_last().expect("segments");
+            let keys: Vec<&str> = crate::durable::SECTION_KEYS
+                .into_iter()
+                .chain(crate::durable::CLOSING_KEYS)
+                .collect();
             assert_eq!(
-                closing.name == crate::prompts::CLOSING_SEGMENT,
+                breakdown
+                    .segments
+                    .iter()
+                    .any(|segment| segment.name == crate::prompts::CLOSING_SEGMENT),
                 !replaced,
-                "the closing block ends a layered prompt only: {memory:?}"
+                "the closing block is in a layered prompt only: {memory:?}"
             );
-            let ordered = if replaced {
-                &breakdown.segments[..]
-            } else {
-                body
-            };
-            let mut positions = ordered.iter().map(|segment| {
+            let mut positions = breakdown.segments.iter().map(|segment| {
                 keys.iter()
                     .position(|key| *key == segment.name)
                     .unwrap_or_else(|| panic!("no section for segment {}", segment.name))
@@ -1086,9 +1081,10 @@ async fn jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orpha
         .unwrap_or_else(PoisonError::into_inner)
         .take()
         .expect("the request was captured");
+    // Last: it comes and goes, after every stable section.
     assert!(
-        system.contains(
-            "\n\n<running-jobs>\n2 background jobs run: bash-kept, bash-orphan.\n</running-jobs>\n\n"
+        system.ends_with(
+            "\n\n<running-jobs>\n2 background jobs run: bash-kept, bash-orphan.\n</running-jobs>"
         ),
         "{system}"
     );

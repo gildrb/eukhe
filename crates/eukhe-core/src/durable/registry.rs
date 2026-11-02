@@ -45,7 +45,8 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
             ..(*extension).clone()
         }))
     };
-    install(prompt::extension(deps))?;
+    let [prompt_extension, closing_extension] = prompt::extensions(deps);
+    install(prompt_extension)?;
     install(settings::extension(deps))?;
     install(rlm::extension(deps))?;
     install(compaction::extension(deps))?;
@@ -60,7 +61,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(shell::extension(deps))?;
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
-    install(prompt::closing_extension(deps))?;
+    install(closing_extension)?;
     registry.fix_roster();
     Ok(registry)
 }

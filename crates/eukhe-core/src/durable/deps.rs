@@ -108,9 +108,6 @@ pub struct PromptConfig {
     pub additional_prompt_paths: Vec<String>,
     /// Force-exclude patterns for built-in skills.
     pub extra_builtin_skill_overrides: Vec<String>,
-    /// Conversation-log path shown in the prompt when the session has no chat
-    /// memory; defaults to the durable storage directory.
-    pub conversation_log_path: Option<PathBuf>,
 }
 
 /// A requested model as the CLI takes it: `--provider` (optional) and

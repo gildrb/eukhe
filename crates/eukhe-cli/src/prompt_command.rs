@@ -97,9 +97,6 @@ fn assemble_breakdown(
 ) -> anyhow::Result<(eukhe_core::prompts::SystemPromptBreakdown, Vec<String>)> {
     let agent_dir = get_agent_dir();
     let model_prompts = eukhe_core::prompts::model_prompts::load_model_prompts(model, &agent_dir);
-    // Every chat-memory session names its own chat log; the preview has no
-    // session yet, so it names the session's place.
-    let chat_log = preview_chat_log(&agent_dir);
     let settings = SettingsManager::create(cwd, &agent_dir);
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
@@ -115,7 +112,6 @@ fn assemble_breakdown(
     let breakdown = eukhe_core::prompts::system_prompt::system_prompt_breakdown(
         &eukhe_core::prompts::BuildSystemPromptOptions {
             cwd: cwd.display().to_string(),
-            messages_path: Some(chat_log),
             model_prompt_extras: model_prompts.extras.as_deref(),
             custom_prompt: resources.system_prompt.clone(),
             append_system_prompt: resources.append_system_prompt.clone(),
@@ -142,15 +138,6 @@ fn assemble_breakdown(
     Ok((breakdown, errors))
 }
 
-/// The chat log a session's prompt names, with `<session>` for its id.
-fn preview_chat_log(agent_dir: &std::path::Path) -> String {
-    eukhe_core::memory::chat_dir(agent_dir)
-        .join("sessions")
-        .join("<session>")
-        .display()
-        .to_string()
-}
-
 fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
     println!("# eukhe system prompt breakdown");
     println!();
@@ -160,7 +147,7 @@ fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
             print_segment(segment);
         }
     }
-    println!("dynamic tail (session-specific, appended after the cached prefix):");
+    println!("dynamic tail (install-, then project-specific, after the cached prefix):");
     for segment in &breakdown.segments {
         if segment.kind == eukhe_core::prompts::SegmentKind::Dynamic {
             print_segment(segment);
@@ -256,7 +243,7 @@ mod tests {
             .contains("Recursive agent depth: 0 (root)"));
         assert!(breakdown
             .assembled
-            .contains(&format!("Chat log: {}", preview_chat_log(&get_agent_dir()))));
+            .ends_with(&format!("Working directory: {}", dir.path().display())));
         // Every static segment sits inside the cached prefix.
         for segment in &breakdown.segments {
             let inside = breakdown

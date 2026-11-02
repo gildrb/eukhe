@@ -1,10 +1,11 @@
 //! The persistence rules reach the model: the real binary in print mode, an
 //! isolated HOME, and the scripted faux provider (`EUKHE_FAUX_SCRIPT`),
 //! whose `systemPrompt` entry answers with the request's system prompt. The
-//! prompt the model sees ends with the `<critical>` block (recency: after
-//! every section, the tool list of `codemode` included), and no line orders
-//! the model to end its turn while its work still runs — the drill's
-//! premature stops ("I'll commit once it passes", then an idle agent).
+//! `<critical>` block closes every section of the prompt the model sees (the
+//! tool list of `codemode` included); only the environment follows it in a
+//! project without instructions files. No line orders the model to end its
+//! turn while its work still runs — the drill's premature stops ("I'll
+//! commit once it passes", then an idle agent).
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
@@ -39,15 +40,18 @@ fn the_prompt_the_model_sees_closes_with_the_persistence_rules() {
     let prompt = prompt.trim_end();
 
     let critical = eukhe_core::prompts::closing_block(None).expect("the layered prompt closes");
+    let at = prompt
+        .find(critical)
+        .expect("the prompt holds the critical block");
+    let after = &prompt[at + critical.len()..];
     assert!(
-        prompt.ends_with(critical),
-        "the prompt does not end with the critical block:\n{}",
-        &prompt[prompt.len().saturating_sub(1_500)..]
+        after.contains("Working directory:") && !after.contains("\n\n#") && !after.contains('<'),
+        "only the environment follows the critical block:\n{after}"
     );
     assert!(
         prompt
             .find("<codemode>")
-            .is_some_and(|at| at < prompt.len() - critical.len()),
+            .is_none_or(|codemode| codemode < at),
         "the critical block does not follow the codemode section"
     );
     for order in STOP_ORDERS {

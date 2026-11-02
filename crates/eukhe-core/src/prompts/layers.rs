@@ -12,8 +12,8 @@
 //! the TOML rule map in [`super::model_prompts`].
 //!
 //! `critical.md` is no prefix layer: its `<critical>` block closes the
-//! prompt (recency), after the dynamic tail and every extension's section
-//! (`durable::prompt::closing_extension`).
+//! install-stable tail, after every extension's section; only the project's
+//! instructions and the environment follow (`durable::prompt::extensions`).
 //!
 //! Layer files must never contain session-specific values: the cached
 //! prefix ends where the dynamic tail (`system_prompt.rs`) begins, and the

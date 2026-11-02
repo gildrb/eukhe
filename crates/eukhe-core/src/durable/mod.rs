@@ -80,7 +80,7 @@ pub use models::{
     SavedSetting, SessionModels, Substitution, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
 };
 pub use open::{open_session, session_artifact_dir_for_log, EukheSession, OpenError};
-pub use prompt::{section_keys, PROMPT_EXTENSION};
+pub use prompt::{CLOSING_KEYS, PROMPT_EXTENSION, SECTION_KEYS};
 pub use registry::create_eukhe_registry;
 pub use session_commands::{
     classify_session_command, commit_session_command_echo, commit_session_command_failure,

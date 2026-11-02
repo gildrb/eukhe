@@ -65,7 +65,6 @@ fn sorted_bundled_skills() -> Vec<eukhe_core::skills::Skill> {
 /// per-session content.
 const DYNAMIC_ONLY_MARKERS: &[&str] = &[
     "Working directory:",
-    "Conversation log:",
     "Recursive agent depth:",
     "Current date:",
     "<skills>\n",
@@ -98,7 +97,6 @@ fn static_layers_contain_no_dynamic_content() {
 fn cached_prefix_is_stable_across_sessions() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/first/cwd".to_string(),
-        messages_path: Some("/first/session.jsonl".to_string()),
         model_prompt_extras: Some("model guidance."),
         skills: sorted_bundled_skills(),
         selected_tools: Some(vec!["ipython"]),
@@ -107,7 +105,6 @@ fn cached_prefix_is_stable_across_sessions() {
     let first = system_prompt_breakdown(&options);
 
     options.cwd = "/completely/different".into();
-    options.messages_path = None;
     options.rlm_depth = Some(3);
     options.rlm_parent_agent = Some("orchestrator");
     options.generic_mcp_servers = vec!["slack".into(), "github".into()];
@@ -148,10 +145,13 @@ fn cached_prefix_is_stable_across_sessions() {
     assert!(second_tail.contains("You are a child agent spawned by orchestrator."));
     assert!(second_tail.contains("# Project Context"));
     assert!(second_tail.contains("# Additional Guidance"));
-    // The appended prompt is the last session value; the constant closing
-    // `<critical>` block follows it.
+    // The constant closing `<critical>` block follows the appended prompt;
+    // the project's instructions and the environment follow it.
     let closing = eukhe_core::prompts::closing_block(None).expect("the layered prompt closes");
-    assert!(second_tail.ends_with(&format!("And one more thing.\n\n{closing}")));
+    assert!(second_tail.contains(&format!(
+        "And one more thing.\n\n{closing}\n\n# Project Context"
+    )));
+    assert!(second_tail.ends_with("Working directory: /completely/different"));
 
     // Static segments all sit inside the cached prefix, dynamic ones after.
     for segment in &first.segments {
@@ -740,7 +740,6 @@ fn bundled_skills_stay_within_the_prompt_budget() {
 fn generic_mcp_skill_renders_in_the_prompt_inventory() {
     let mut options = BuildSystemPromptOptions {
         cwd: "/w".to_string(),
-        messages_path: Some("/log.jsonl".to_string()),
         skills: sorted_bundled_skills(),
         selected_tools: Some(vec!["ipython"]),
         ..Default::default()
