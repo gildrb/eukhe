@@ -1,0 +1,20 @@
+# the call: a token, the stored token, the keep with the largest mode
+call 0,0,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF
+call 0,1,
+call 1,2,67,  00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF\n
+call 2,0,2,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF{MAX},
+call 2,0,2,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF{U32MAX},
+call 2,1,0,{MAX},
+call 2,0,3,{MAX},
+refuse 2,0,0,{LONG},
+# a socket: paired, a frame runs, a frame on a missing file closes it
+open 
+step 0,2,0,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFF2,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFFT
+step 1,2,64,00112233445566778899aabbccddeeff00112233445566778899AABBCCDDEEFFT
+step 1,0,F
+step 1,0,T
+# a malformed event keeps the socket; a refused open refuses every event
+refuse-step 1,2,{LONG},x
+step 1,0,T
+refuse-open x
+refuse-step 1,0,T
