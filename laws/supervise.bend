@@ -93,6 +93,71 @@ law restart_decide_verdict:
   for +g: Nat
   {Su.Decision.verdict(Su.decide(c, s, g)) == restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))), c, 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))) : Su.Verdict}
 
+# the budget after a failure g ms after the last one, from s: the failure
+# at age 0, then the ages still inside the window (each g ms older), and
+# the failures it keeps
+def restart_step(+c: Su.Cfg, s: Su.St, +g: Nat) -> Su.St:
+  match c:
+    case Su.Cfg{k, +w, b, m}:
+      match s:
+        case Su.St{a, n}:
+          +kept = restart_window(w, g, a)
+          Su.St{0n <> kept, 1n+List.length(&2, Nat, kept)}
+
+# the budget after the failures with the gaps gs (oldest first), from s:
+# one step per failure, in order
+def restart_go(+c: Su.Cfg, gs: List<&2, Nat>, s: Su.St) -> Su.St:
+  match gs:
+    case Nil{}:
+      s
+    case +g <> rest:
+      restart_go(c, rest, restart_step(c, s, g))
+
+# the failures a budget counts in the window at its last failure
+def restart_count(s: Su.St) -> Nat:
+  match s:
+    case Su.St{a, n}:
+      n
+
+# the failures in the window at the last failure of gs, from no failure
+def restart_failures(+c: Su.Cfg, gs: List<&2, Nat>) -> Nat:
+  restart_count(restart_go(c, gs, Su.St{Nil{}, 0n}))
+
+# the time the gaps gs span: their sum
+def restart_sum(gs: List<&2, Nat>) -> Nat:
+  match gs:
+    case Nil{}:
+      0n
+    case g <> rest:
+      Nat.add(g, restart_sum(rest))
+
+# LAW restart_go_exact: the budget after any failures, from any budget, is the decided
+# step (restart_decide_window) folded over their gaps in order
+# EXCLUDES: a run that skips, repeats or reorders a failure, keeps a failure
+#   that left the window, or forgets one still inside it
+law restart_go_exact:
+  for +c: Su.Cfg
+  for +gs: List<&2, Nat>
+  for +s: Su.St
+  {Su.go(c, gs, s) == restart_go(c, gs, s) : Su.St}
+
+# LAW restart_failures_exact: the failures counted at the last of any failures are exactly
+# those still inside the window, from no failure
+# EXCLUDES: failures(c, gs) = length(gs) (an old failure never forgotten:
+#   restart_gives_up still holds), a count off by one, a count from
+#   another start
+law restart_failures_exact:
+  for +c: Su.Cfg
+  for +gs: List<&2, Nat>
+  {Su.failures(c, gs) == restart_failures(c, gs) : Nat}
+
+# LAW restart_span_exact: the time a run of failures spans is the sum of its gaps
+# EXCLUDES: a span that drops, doubles or caps a gap, a span past every
+#   window (restart_gives_up's premise `fast` then never holds)
+law restart_span_exact:
+  for +gs: List<&2, Nat>
+  {Su.span(gs) == restart_sum(gs) : Nat}
+
 # The restart-budget entry of the compiled core (bend/ffi_supervise.bend)
 
 # LAW restart_wire_req: the entry reads back every request Rust writes: a configuration,
@@ -284,3 +349,42 @@ law restart_ffi_exact_example:
 law timeouts_ordered:
   for +t: Su.Tm
   {Su.Tm.ordered(t) == True{} : Bool}
+
+# the order the timeouts keep, from the base values: each derived value
+# covers the ones it waits for (the header of bend/supervise.bend Tm.ordered)
+def tm_ordered_spec(t: Su.Tm) -> Bool:
+  match t:
+    case Su.Tm{snap, host, kstep, kterm, kverify, harness, wterm, wverify, +margin, +refresh, boot, +relaunch, +startup, +check, slack, +k, +bmax, +loop, +qanswer}:
+      +td = Nat.add(Nat.add(Nat.add(Nat.add(snap, host), Nat.mul(3n, kstep)), kterm), kverify)
+      +sg = Nat.add(td, harness)
+      +dr = Nat.add(Nat.add(sg, wterm), wverify)
+      +seen = Nat.add(Nat.add(relaunch, startup), check)
+      +step = Nat.add(bmax, loop)
+      # the stop grace covers the kernel teardown
+      Bool.and(Nat.is_le(td, sg),
+        # the launcher's wait covers the supervisor's drain
+        Bool.and(Nat.is_le(dr, Nat.add(dr, margin)),
+          # a parent's kill covers the kill route's grace and the child's drain
+          Bool.and(Nat.is_le(Nat.add(sg, dr), Nat.add(Nat.add(sg, dr), margin)),
+            # a lost worker sees the relaunched supervisor before it exits
+            Bool.and(Nat.is_le(seen, Nat.add(seen, slack)),
+              # busy evidence outlives one refresh
+              Bool.and(Nat.is_le(refresh, Nat.add(refresh, boot)),
+                # a quiesced gate stays closed past the answer phase
+                Bool.and(Nat.is_le(qanswer, Nat.add(qanswer, sg)),
+                  # the restart window holds the give-up count of loop steps
+                  Nat.is_le(Nat.mul(k, step), Nat.mul(1n+k, step))))))))
+
+# LAW timeouts_ordered_exact: the order timeouts_ordered proves is exactly the header's
+# comparisons over the base values: the stop grace covers the teardown, the
+# launcher's wait the drain, a child kill the kill route's grace and the
+# child's drain, the lost window the relaunch, start and check, the max age
+# a refresh, the quiesce hold the answer phase, the restart window k loop
+# steps; for every base values
+# EXCLUDES: Tm.ordered checking fewer, other or weaker comparisons than the
+#   header's (timeouts_ordered would then prove an order nobody stated);
+#   being True for every t, ordered = True is the same function, and this
+#   law makes timeouts_ordered read as these comparisons
+law timeouts_ordered_exact:
+  for +t: Su.Tm
+  {Su.Tm.ordered(t) == tm_ordered_spec(t) : Bool}

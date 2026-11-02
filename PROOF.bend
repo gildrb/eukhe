@@ -1083,6 +1083,10 @@ import ./proof/supervise/restart_ffi_left_over.bend as PRestartFfiLeftOver
 import ./proof/supervise/restart_ffi_exact.bend as PRestartFfiExact
 import ./proof/supervise/restart_ffi_exact_example.bend as PRestartFfiExactExample
 import ./proof/supervise/timeouts_ordered.bend as PTimeoutsOrdered
+import ./proof/supervise/restart_go_exact.bend as PRestartGoExact
+import ./proof/supervise/restart_failures_exact.bend as PRestartFailuresExact
+import ./proof/supervise/restart_span_exact.bend as PRestartSpanExact
+import ./proof/supervise/timeouts_ordered_exact.bend as PTimeoutsOrderedExact
 import ./proof/revive/revive_after_refresh.bend as PReviveAfterRefresh
 import ./proof/timeouts/base.bend as LATimeouts
 import ./proof/timeouts/timeouts_ffi_answers.bend as PTimeoutsFfiAnswers
