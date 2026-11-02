@@ -2052,6 +2052,12 @@ import ./proof/command/command_menu_space_lead_word.bend as PCommandMenuSpaceLea
 import ./proof/command/command_row_ignored_off_path.bend as PCommandRowIgnoredOffPath
 import ./proof/command/command_premises_witness.bend as PCommandPremisesWitness
 import ./proof/command/command_ffi_premises_witness.bend as PCommandFfiPremisesWitness
+import ./proof/command/base/whole.bend as LACommandWhole
+import ./proof/command/command_words_exact.bend as PCommandWordsExact
+import ./proof/command/command_resolve_spec.bend as PCommandResolveSpec
+import ./proof/command/command_menu_spec.bend as PCommandMenuSpec
+import ./proof/command/command_key_spec.bend as PCommandKeySpec
+import ./proof/command/command_whole_example.bend as PCommandWholeExample
 import ./proof/retry_note/base.bend as LARetryNote
 import ./proof/retry_note/retry_note_exact.bend as PRetryNoteExact
 import ./proof/retry_note/retry_note_example.bend as PRetryNoteExample

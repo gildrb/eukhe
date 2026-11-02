@@ -338,7 +338,10 @@ def cmd_spell_outw(o: FCmd.OutW, rest: String) -> String:
     case FCmd.OutW{l, a, b}:
       Wr.put_str(l, Wr.put_bool(a, Wr.put_bool(b, rest)))
 
-# the spelling of the model's answer to question q about table t
+# the spelling of the model's answer to question q about table t (the
+# model's resolve, menu and key are the spec's for every input:
+# command_resolve_spec, command_menu_spec, command_key_spec of
+# laws/command/whole.bend)
 def cmd_spell_answer(+t: List<&2, Cmd.Ent>, q: FCmd.Query) -> String:
   match q:
     case FCmd.QResolve{l}:

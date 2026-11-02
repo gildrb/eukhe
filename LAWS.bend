@@ -96,6 +96,7 @@ import ./laws/workflow.bend as Workflow
 import ./laws/command/paths.bend as Command
 import ./laws/command/entry.bend as CommandEntry
 import ./laws/command/named.bend as CommandNamed
+import ./laws/command/whole.bend as CommandWhole
 import ./laws/shell.bend as Shell
 import ./laws/tool_surface.bend as ToolSurface
 import ./laws/infer_force.bend as InferForce
