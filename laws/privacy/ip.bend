@@ -6,6 +6,7 @@ import Base
 import ../../bend/privacy/ip.bend as Ip
 import ../../bend/privacy/context.bend as Cx
 import ../../spec/harness/privacy.bend as S
+import ../../spec/harness/privacy_context.bend as Sv
 
 # (H7) The outbound scrubber rewrites no code
 # -------------------------------------------
@@ -26,12 +27,16 @@ import ../../spec/harness/privacy.bend as S
 #     answer is its length. Nothing else is taken as an IPv6.
 # R2: an IPv4 is taken exactly when it is four octets (S2), its first not
 #     0, 127 or 255, with no word char or `.` before it, no product name
-#     and `/`, no version context, and no word char after it, nor `.` or
-#     `-` and a letter or digit (S3). Nothing else is taken as an IPv4.
+#     and `/`, no version context (S7, spec/harness/privacy_context.bend),
+#     and no word char after it, nor `.` or `-` and a letter or digit
+#     (S3). Nothing else is taken as an IPv4.
 # R3: code is no address: a `::` path or pseudo-element (no digit, fewer
 #     than three groups, a word char before it), a version (three parts, a
 #     fifth part, a version word or operator before it), a loopback,
 #     unspecified or mask address.
+# R11: an address is taken exactly when it is the IPv6 or the IPv4 at the
+#     position (R1, R2); a version's context is exactly the spec's (S7):
+#     a plain assignment (`host = `) is none.
 
 # Laws: IPv6 (R1)
 # ---------------
@@ -160,6 +165,18 @@ law privacy_ipv4_version_context:
   for +s: String
   {Ip.v4(String.append(p, "version "), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "Version: \""), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "=="), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, ">="), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "<="), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "~="), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "!="), s) == None{} : Maybe<&2, Nat>} & ({Ip.v4(String.append(p, "^"), s) == None{} : Maybe<&2, Nat>} & {Ip.v4(String.append(p, "~"), s) == None{} : Maybe<&2, Nat>})))))))
 
+# LAW privacy_ipv4_version_context_spec (R2, R11): for every text before a
+# position, the grammar's version context is the spec's (S7): the line,
+# blanks dropped, ends with a requirement operator, or, punctuation
+# dropped, its last word is a version word; nothing else is one
+# EXCLUDES: `host = `, `server_ip = `, `"ip" = ` (a plain assignment)
+#   read as version context, so the IPv4 after it leaves in clear; an
+#   operator or a version word missed; a context read past the line's
+#   newline
+law privacy_ipv4_version_context_spec:
+  for +before: String
+  {Cx.vctx(before) == Sv.vctx(before) : Bool}
+
 # LAW privacy_ipv4_three_parts (R3): three dotted octets followed by no
 # word char, `:` or `.` (or nothing) are no address of any kind
 # EXCLUDES: `1.2.3`, `go 1.21.0`, `v0.10.62` taken
@@ -172,6 +189,15 @@ law privacy_ipv4_three_parts:
   for +ok: {Bool.and(S.octet(x), Bool.and(S.octet(y), S.octet(z))) == True{} : Bool}
   for +nd: {S.free(S.first(t)) == True{} : Bool}
   {Ip.ip(before, String.append(x, SCon{'.', String.append(y, SCon{'.', String.append(z, t)})})) == None{} : Maybe<&2, Nat>}
+
+# LAW privacy_ip_v6_or_v4 (R11): the answer at a position is its IPv6
+# (R1), else its IPv4 (R2)
+# EXCLUDES: an IPv6 or an IPv4 the grammar takes dropped from the answer,
+#   an answer that is neither
+law privacy_ip_v6_or_v4:
+  for +before: String
+  for +rest: String
+  {Ip.ip(before, rest) == Maybe.or(&2, Nat, Ip.v6(before, rest), Ip.v4(before, rest)) : Maybe<&2, Nat>}
 
 # Anchors (R1-R3)
 # ---------------
@@ -191,3 +217,13 @@ law privacy_ip_code_example:
 # EXCLUDES: a grammar so strict it takes no address
 law privacy_ip_personal_example:
   {[Ip.ip("ssh deploy@", "203.0.113.7"), Ip.ip("server ", "10.0.0.7 refused"), Ip.ip("upstream [", "2001:db8::8a2e:370:7334]:443"), Ip.ip("mapped ", "::ffff:192.0.2.128 here"), Ip.ip("ping ", "192.168.1.20. ")] == [Some{11n}, Some{8n}, Some{23n}, Some{18n}, Some{12n}] : List<&2, Maybe<&2, Nat>>}
+
+# LAW privacy_ip_assignment_example (R2, R11): anchor: an IPv4 after a
+# plain assignment (`host = `, `server_ip = `, `"ip" = `, `x = ` on a
+# second line after a version) is taken whole, and the spec reads no
+# version context there; after `version = "`, `numpy==` and `ver ` it
+# reads one
+# EXCLUDES: an `=` with blanks before it read as a requirement operator
+#   (the scrubber leaked `host = 203.0.113.9`)
+law privacy_ip_assignment_example:
+  {[Ip.ip("host = ", "203.0.113.9"), Ip.ip("server_ip = ", "10.1.2.3"), Ip.ip("\"ip\" = ", "198.51.100.4"), Ip.ip("version = \"1.2.3\"\nx = ", "192.0.2.1")] == [Some{11n}, Some{8n}, Some{12n}, Some{9n}] : List<&2, Maybe<&2, Nat>>} & {[Sv.vctx("host = "), Sv.vctx("server_ip = "), Sv.vctx("\"ip\" = "), Sv.vctx("version = \""), Sv.vctx("numpy=="), Sv.vctx("ver ")] == [False{}, False{}, False{}, True{}, True{}, True{}] : List<&2, Bool>}

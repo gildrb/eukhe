@@ -478,7 +478,8 @@ def before4(+b: String) -> Bool:
   before4.of(last(b), before_last(b))
 
 # the IPv4 q writes after before, then t, is taken (ctx: the line before
-# reads as a version's context): its length in chars
+# reads as a version's context, S7: spec/harness/privacy_context.bend's
+# vctx): its length in chars
 def take4(+q: Ip.Quad, +before: String, +t: String, ctx: Bool) -> Maybe<&2, Nat>:
   ans(Bool.and(Bool.and(Bool.and(first_ok(q), after4(t)), before4(before)), Bool.not(ctx)), String.length(quad_text(q, "")))
 

@@ -5,6 +5,7 @@
 import Base
 import ../../bend/privacy/token.bend as Tk
 import ../../spec/harness/privacy.bend as S
+import ../../spec/harness/privacy_map.bend as Sm
 
 # (H7) The outbound scrubber gives every byte back
 # ------------------------------------------------
@@ -29,6 +30,11 @@ import ../../spec/harness/privacy.bend as S
 # R6: every attempt of a failover sends the raw text: a remote attempt
 #     the one scrub of it (never a scrub of a scrub), a local one the text
 #     itself.
+# R12: the map is the spec's state machine (spec/harness/privacy_map.bend,
+#     M1-M4): from every map the stepper can hold (it opens empty, and no
+#     class holds a value twice), the tokens of a text's values and the
+#     map after them are the spec's, and from every map the values of a
+#     text's tokens are the spec's.
 #
 # What is pinned of the shipped failover: the dispatch rule (Tk.send), a
 # model; eukhe-core's provider runtime (durable/models/provider.rs
@@ -113,6 +119,42 @@ law privacy_tokens_kept:
   for +v: String
   for +h: {Tk.restore_tok(m, c, i) == Some{v} : Maybe<&2, String>}
   {Tk.restore_tok(Tk.Out.m(Tk.scrub(m, xs)), c, i) == Some{v} : Maybe<&2, String>}
+
+# Laws: the map as a state machine (R12)
+# --------------------------------------
+
+# LAW privacy_map_scrub_spec (R12, M1, M2): from every map whose classes
+# hold no value twice, the tokens of a text's values, and the map after
+# them, are the spec's: a held value keeps its place, a new one takes the
+# next place of its class, a credential goes one way
+# EXCLUDES: an index shared by classes or skipping places, a held value
+#   given a new index, a value of another class taken for it, a
+#   credential added to the map, a map that forgets or reorders
+law privacy_map_scrub_spec:
+  for +b: Tk.Book
+  for +vs: List<&2, Tk.Val>
+  for +ok: {Sm.book_distinct(b) == True{} : Bool}
+  {Tk.scrub_vals(vs, b) == Sm.scrub_vals(vs, b) : Tk.Toks}
+
+# LAW privacy_map_restore_spec (R12, M3): from every map, the values of a
+# text's tokens are the spec's: the value at the token's place among its
+# class's values, else none
+# EXCLUDES: a token restored to a value of another class or place, a
+#   credential restored, a place the map does not hold restored
+law privacy_map_restore_spec:
+  for +b: Tk.Book
+  for +rs: List<&2, Tk.Ref>
+  {Tk.restore_toks(rs, b) == Sm.restore_toks(rs, b) : List<&2, Maybe<&2, String>>}
+
+# LAW privacy_map_distinct_kept (R12, M4): the map opens with no value
+# held twice, and every scrub from such a map leaves one: every map the
+# stepper can hold meets the premise of privacy_map_scrub_spec
+# EXCLUDES: a vacuous scrub law (a premise the stepper's maps can fail)
+law privacy_map_distinct_kept:
+  for +b: Tk.Book
+  for +vs: List<&2, Tk.Val>
+  for +ok: {Sm.book_distinct(b) == True{} : Bool}
+  {Sm.book_distinct(Tk.Book.empty()) == True{} : Bool} & {Sm.book_distinct(Sm.toks_book(Sm.scrub_vals(vs, b))) == True{} : Bool}
 
 # Laws: failover (R6)
 # -------------------
