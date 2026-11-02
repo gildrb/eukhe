@@ -589,6 +589,7 @@ import ./proof/effort/core_effort_left_over.bend as PCoreEffortLeftOver
 import ./proof/effort/core_effort_req_example.bend as PCoreEffortReqExample
 import ./proof/effort/core_effort_reply_example.bend as PCoreEffortReplyExample
 import ./proof/effort/core_effort_malformed_example.bend as PCoreEffortMalformedExample
+import ./proof/effort/core_effort_ffi_exact.bend as PCoreEffortFfiExact
 import ./proof/run/base.bend as LARun
 import ./proof/run/run_ends.bend as PRunEnds
 import ./proof/run/run_end_stays.bend as PRunEndStays
