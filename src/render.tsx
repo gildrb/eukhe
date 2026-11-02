@@ -140,13 +140,10 @@ const globalCss = [
   `[data-status-r]{position:absolute;right:var(--cw)}`,
   `[data-float][hidden]{display:none}`,
   `.title,.cnr,.ti,.prompt,.match,.sel{color:${colors.primary}}`,
-  `.muted,.nr,.bd,.dim,.count,.ink-tertiary{color:${colors.tertiary}}`,
+  `.muted,.nr,.bd,.dim,.count{color:${colors.tertiary}}`,
   `.heading,.match{color:${colors.primary};font-weight:${type.bold}}`,
   `.link,.copy{text-decoration:underline;text-decoration-color:${colors.tertiary};text-underline-offset:3px}`,
   `.copy{cursor:pointer}`,
-  `.ink-primary{color:${colors.primary}}`,
-  `.ink-article{color:${colors.article}}`,
-  `.ink-bg{color:${colors.bg}}`,
   `.cl{background:color-mix(in oklch,${colors.primary} 6%,transparent)}`,
   `.hit{background:color-mix(in oklch,${colors.tertiary} 40%,transparent)}`,
   `.sel{background:color-mix(in oklch,${colors.primary} 14%,${colors.bg})}`,
@@ -223,7 +220,7 @@ function Page({
   screen: Screen | null;
 }) {
   const url = `${origin}${doc.path}`;
-  const markdownUrl = doc.path === "/" ? "/index.md" : `${doc.path}.md`;
+  const markdownUrl = doc.path === "/" ? "/index.md" : `${doc.path.replace(/\/$/, "")}.md`;
   return (
     <html
       lang="en"
@@ -340,12 +337,45 @@ ${source}`;
 export type SourceFile = { path: string; text: string; plain: boolean };
 
 /**
- * Every file the site serves, by path under `dist/`, from the StyleX CSS, the client script and the
- * editor's other files of this build (the page comes first). `files.json` holds each file's lines
- * (for the Bend core) and highlights (for the screen).
+ * A folder of eukhe's files as a page, for a browser without the editor: what the folder holds,
+ * folders first, each a link. `folder` ends in "/".
+ */
+function folderDoc(folder: string, paths: readonly string[]): Doc {
+  const children = new Set(
+    paths
+      .filter((file) => file.startsWith(folder))
+      .map((file) => file.slice(folder.length).replace(/\/.*$/s, "/")),
+  );
+  const sorted = [...children].toSorted((a, b) =>
+    a.endsWith("/") === b.endsWith("/") ? (a < b ? -1 : 1) : a.endsWith("/") ? -1 : 1,
+  );
+  return {
+    path: `/${folder}`,
+    title: `${folder} | eukhe`,
+    description: `eukhe's ${folder}: ${sorted.join(", ")}.`,
+    markdown: [
+      "EUKHE",
+      folder.toUpperCase(),
+      "2026",
+      "",
+      "~*~ εὐχή: a wish, a prayer ~*~",
+      "",
+      `# ${folder}`,
+      "",
+      ...sorted.map((child) => `- [${child}](/${folder}${child})`),
+      "",
+    ].join("\n"),
+  };
+}
+
+/**
+ * Every file the site serves, by path under `dist/`, from the StyleX CSS, the client script and
+ * eukhe's files of this build. `files.json` holds each editor file's lines (for the Bend core) and
+ * highlights (for the screen); eukhe's files are also served as they are, at their paths, and each
+ * of their folders as a page.
  */
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
-  // The editor's files: the home page, the other pages, then the license and the source.
+  // The editor's files: the home page, the other pages, then eukhe's files.
   const editor = [
     { path: "index.md", text: source, plain: false, back: false },
     ...docs.map((doc) => ({
@@ -370,7 +400,26 @@ export function render(css: string, script: string, files: SourceFile[]): Record
     ]),
   );
   const urls = [home, ...docs].map((doc) => `  <url><loc>${origin}${doc.path}</loc></url>`);
-  return {
+  const paths = files.map((file) => file.path);
+  const folders = new Set(
+    paths.flatMap((file) =>
+      file
+        .split("/")
+        .slice(0, -1)
+        .map((_, i, parts) => `${parts.slice(0, i + 1).join("/")}/`),
+    ),
+  );
+  const eukhe = Object.fromEntries([
+    ...files.map((file): [string, string] => [file.path, file.text]),
+    ...[...folders].flatMap((folder): [string, string][] => {
+      const doc = folderDoc(folder, paths);
+      return [
+        [`${folder}index.html`, html(doc, null)],
+        [`${folder.slice(0, -1)}.md`, doc.markdown],
+      ];
+    }),
+  ]);
+  const site: Record<string, string> = {
     "index.html": html(home, first("index.md")),
     "index.md": source,
     ...pages,
@@ -382,6 +431,9 @@ export function render(css: string, script: string, files: SourceFile[]): Record
     "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>\n`,
     "llms.txt": llms,
   };
+  const taken = Object.keys(eukhe).filter((file) => file in site);
+  if (taken.length > 0) throw new Error(`eukhe's files clash with the site's: ${taken.join(", ")}`);
+  return { ...site, ...eukhe };
 }
 
 const blink = stylex.keyframes({

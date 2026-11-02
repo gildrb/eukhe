@@ -34,11 +34,22 @@ export default {
       if (twin.ok) return markdown(Promise.resolve(twin));
       const page = await env.ASSETS.fetch(request);
       if (page.status === 404) return markdown(env.ASSETS.fetch(new URL("/404.md", url)), 404);
-      return page;
+      return text(page);
     }
-    return env.ASSETS.fetch(request);
+    return text(await env.ASSETS.fetch(request));
   },
 } satisfies ExportedHandler<Env>;
+
+/**
+ * eukhe's files (`LICENSE`, `spec/**.bend`) have no type the asset server knows, so it sends none:
+ * they are text, shown in the browser rather than downloaded.
+ */
+function text(response: Response): Response {
+  if (!response.ok || response.headers.has("Content-Type")) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "text/plain; charset=utf-8");
+  return new Response(response.body, { status: response.status, headers });
+}
 
 async function markdown(response: Promise<Response>, status?: number): Promise<Response> {
   const file = await response;

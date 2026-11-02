@@ -42,10 +42,7 @@ function isEditorFile(value: unknown): value is EditorFile {
   if (!("lines" in value) || !isStrings(value.lines)) return false;
   if (!("runs" in value) || !Array.isArray(value.runs)) return false;
   if (!value.runs.every((row: unknown) => Array.isArray(row) && row.every(isRun))) return false;
-  if (!("copy" in value) || !(value.copy === null || typeof value.copy === "number")) return false;
-  if (!("inks" in value)) return false;
-  const inks: unknown = value.inks;
-  return inks === null || (Array.isArray(inks) && inks.every(isStrings));
+  return "copy" in value && (value.copy === null || typeof value.copy === "number");
 }
 
 async function loadFiles(text: Promise<string>): Promise<EditorFile[]> {
@@ -254,7 +251,10 @@ function step(event: Ev) {
   paint(Vim["Vim.frame"](state));
 }
 
-/** A click or a tap on a cell: [copy] copies, a link opens as on a page, and the cursor goes there. */
+/**
+ * A click or a tap on a cell: [copy] copies, and the cursor goes there. A link to one of eukhe's
+ * files (`spec/rlm/`, `LICENSE`) opens it in the editor (gf); any other opens as on a page.
+ */
 function tap(row: number, col: number) {
   if (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to) {
     void navigator.clipboard.writeText(copyAt.text);
@@ -263,6 +263,11 @@ function tap(row: number, col: number) {
   const url = linkAt(row, col);
   step({ $: "EvClick", row, col });
   if (url === null) return;
+  if (!/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(url)) {
+    step({ $: "EvKey", name: "g" });
+    step({ $: "EvKey", name: "f" });
+    return;
+  }
   // In this tab, as a page link: the browser's back (a swipe, a key) returns here.
   location.assign(url);
 }

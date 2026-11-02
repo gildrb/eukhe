@@ -1,39 +1,29 @@
 /**
- * The files the editor holds beside the pages, gathered at build time: the license and this site's
- * Bend source. `render.tsx` puts the page (`index.md`) first: the editor opens it.
+ * The files the editor holds beside the pages, gathered at build time: eukhe's files the README
+ * links to (`src/content/eukhe/`, `scripts/eukhe.ts`), at their paths in eukhe's repository, so
+ * the README's relative links open them. The README itself is the page (`index.md`).
  */
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import type { SourceFile } from "../src/render.tsx";
 
-async function bendFiles(root: string, dir: string): Promise<string[]> {
-  const entries = await readdir(path.join(root, dir), { withFileTypes: true }).catch(() => []);
-  const nested = await Promise.all(
-    entries.map(async (entry) => {
-      const relative = dir === "" ? entry.name : `${dir}/${entry.name}`;
-      if (entry.isDirectory()) return bendFiles(root, relative);
-      return entry.name.endsWith(".bend") ? [relative] : [];
-    }),
-  );
-  return nested.flat();
-}
-
-/** Every file but the page, in path order. */
+/** Every file of eukhe's copy but its README, in path order. */
 export async function gather(root: string): Promise<SourceFile[]> {
-  const source = await Promise.all([
-    ...["LAWS.bend", "PROOF.bend"].map(async (name) => ({
+  const dir = path.join(root, "src/content/eukhe");
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const names = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) =>
+      path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"),
+    )
+    .filter((name) => name !== "README.md")
+    .toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return Promise.all(
+    names.map(async (name) => ({
       path: name,
-      text: await readFile(path.join(root, name), "utf8").catch(() => ""),
+      text: await readFile(path.join(dir, name), "utf8"),
+      plain: true,
     })),
-    ...[
-      ...(await bendFiles(root, "vim")),
-      ...(await bendFiles(root, "laws")),
-      ...(await bendFiles(root, "proof")),
-    ].map(async (name) => ({ path: name, text: await readFile(path.join(root, name), "utf8") })),
-  ]);
-  return [
-    { path: "LICENSE", text: await readFile(path.join(root, "LICENSE"), "utf8"), plain: true },
-    ...source.filter((file) => file.text !== "").map((file) => ({ ...file, plain: true })),
-  ].toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  );
 }

@@ -1,6 +1,6 @@
 import { epigraphs } from "./epigraphs.ts";
 import head from "./content/head.md?raw";
-import readme from "./content/README.md?raw";
+import readme from "./content/eukhe/README.md?raw";
 
 /**
  * The install command: the one block with a `[copy]` button. Other commands (`cd /path/to/project`)
@@ -25,12 +25,15 @@ function withEpigraphs(markdown: string): string {
     .join("\n");
 }
 
+/** Where eukhe's source lives: the page's last line, after the README. */
+const repository = "https://github.com/gildrb/eukhe";
+
 /**
  * The whole page as Markdown: what the page shows, and what `Accept: text/markdown` gets. The
- * site's header, then eukhe's README (`scripts/readme.ts` keeps the copy equal to it) with the
- * site's epigraphs.
+ * site's header, then eukhe's README (`scripts/eukhe.ts` keeps the copy equal to it) with the
+ * site's epigraphs, then the source.
  */
-export const source = `${head.trimEnd()}\n\n${withEpigraphs(readme).trimEnd()}\n`;
+export const source = `${head.trimEnd()}\n\n${withEpigraphs(readme).trimEnd()}\n\nSource: [${repository}](${repository})\n`;
 
 export const notFound = `EUKHE
 404: NO PAGE HERE

@@ -127,18 +127,12 @@ function rowHtml(row: Row): string {
   return html;
 }
 
-/** A file's inks column: two cells right of its longest line (at least the 68-column measure). */
-export function inkColumn(file: EditorFile): number | null {
-  if (file.inks === null) return null;
-  return Math.max(68, ...file.lines.map((line) => cells(line).length)) + 2;
-}
-
 /** `[copy]` on screen: its row and cells, and what it copies. */
 export type CopyAt = { row: number; from: number; to: number; text: string };
 
 /**
  * The h text rows: the window's lines from `left`, with highlights, search hits and virtual text
- * (the page's inks, `[copy]` after the install fence). `dir` holds an Oil listing's lines.
+ * (`[copy]` after the install fence). `dir` holds an Oil listing's lines.
  */
 export function textRows(
   frame: Frame,
@@ -149,7 +143,6 @@ export function textRows(
   const hits = list(frame.hits);
   const g = frame.gutter;
   const left = frame.left;
-  const ink = file === undefined ? null : inkColumn(file);
   let copyAt: CopyAt | null = null;
   const htmls: string[] = [];
   for (let r = 0; r < h; r += 1) {
@@ -159,24 +152,15 @@ export function textRows(
       const line = file.lines[l];
       if (line !== undefined) {
         const cps = cells(line);
-        const inks = file.inks?.[l] ?? [];
-        const inkEnd = ink === null ? 0 : ink + inks.reduce((n, token) => n + token.length + 1, 0);
         const command = file.lines[l + 1];
         const copy = file.copy === l && command !== undefined;
-        row = blankRow(Math.max(0, Math.max(cps.length, inkEnd, copy ? cps.length + 8 : 0) - left));
+        row = blankRow(Math.max(0, cps.length + (copy ? 8 : 0) - left));
         for (let c = 0; c < row.chars.length; c += 1) {
           const ch = cps[left + c];
           if (ch === undefined) break;
           row.chars[c] = ch;
         }
         for (const run of file.runs[l] ?? []) addClass(row, run.from - left, run.to - left, run.hl);
-        if (ink !== null) {
-          let at = ink - left;
-          for (const token of inks) {
-            put(row, at, token, `ink-${token}`);
-            at += token.length + 1;
-          }
-        }
         if (copy) {
           const at = cps.length + 2 - left;
           if (at >= 0) {

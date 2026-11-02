@@ -1,13 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 import { install } from "./source.ts";
-import { colors, type Token, type } from "./tokens.stylex.ts";
+import { colors, type } from "./tokens.stylex.ts";
 
 /**
  * Markdown shown as Markdown: every character of the source stays on the page. Headings, links,
  * code and tables only gain weight, color and a working <a>. Each source line is one
- * `[data-l]` span (the vim cursor in `client.ts` counts on them). Left of a line, its number;
- * right of it, its inks: the color tokens it is drawn in, each name in its own color.
+ * `[data-l]` span (the vim cursor in `client.ts` counts on them). Left of a line, its number.
  */
 type Line =
   | { $: "Header"; text: string; first: boolean; back: boolean }
@@ -60,13 +59,12 @@ const commentPattern = /(^|\s)#\s.*$/;
 /** A table's rule row. */
 const rulePattern = /^[|\s-]+$/;
 
-/** The page is eukhe's README: its relative links (`LICENSE`, `#attribution`) are the repository's. */
-const repository = "https://github.com/gildrb/eukhe";
-
-/** Where a link's URL goes from this site. */
+/**
+ * Where a link's URL goes from this site. The page is eukhe's README: its relative links
+ * (`LICENSE`, `spec/rlm/`) are eukhe's files, which the site serves at the same paths.
+ */
 function linkHref(url: string): string {
-  if (/^([a-z]+:|\/)/.test(url)) return url;
-  return url.startsWith("#") ? `${repository}${url}` : `${repository}/blob/main/${url}`;
+  return /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(url) ? url : `/${url}`;
 }
 
 /** Inline code and links: `[label](url)` keeps its brackets, and the URL is the link. */
@@ -114,34 +112,6 @@ function tableRow(text: string): ComponentChildren {
   return text
     .split(/(\|)/)
     .map((cell) => (cell === "|" ? <span {...stylex.props(styles.muted)}>|</span> : cell));
-}
-
-/** The tokens a line is drawn in, in the order they first appear; the same rules as above. */
-function inks(item: Line): Token[] {
-  switch (item.$) {
-    case "Header":
-      return ["primary"];
-    case "Heading":
-      return ["tertiary", "primary"];
-    case "Quote":
-      return ["tertiary", "article"];
-    case "Fence":
-      return ["tertiary"];
-    case "Code":
-      return commentPattern.test(item.text) ? ["article", "tertiary"] : ["article"];
-    case "Table":
-      return rulePattern.test(item.text) ? ["tertiary"] : ["tertiary", "article"];
-    case "Raw":
-      return item.text === "" ? [] : ["article"];
-    case "Motto":
-    case "Text":
-      if (item.text === "") return [];
-      return inlinePattern.test(item.text) ? ["article", "tertiary"] : ["article"];
-    default: {
-      const _: never = item;
-      return _;
-    }
-  }
 }
 
 function content(item: Line): ComponentChildren {
@@ -312,14 +282,13 @@ export type Hl = "title" | "muted" | "heading" | "link";
 export type Run = { from: number; to: number; hl: Hl; href?: string };
 
 /**
- * A file as the editor holds it: its lines, each line's highlights, the page's inks, and the line
- * of the install command's opening fence (`[copy]` follows it), if the file holds one.
+ * A file as the editor holds it: its lines, each line's highlights, and the line of the install
+ * command's opening fence (`[copy]` follows it), if the file holds one.
  */
 export type EditorFile = {
   path: string;
   lines: string[];
   runs: Run[][];
-  inks: Token[][] | null;
   copy: number | null;
 };
 
@@ -345,11 +314,8 @@ function inlineRuns(text: string, offset: number): Run[] {
         span(text, at + whole.length - 1, at + whole.length, "muted"),
       );
     } else if (label !== undefined && url !== undefined) {
-      const href = linkHref(url);
-      runs.push({
-        ...span(text, at + label.length + 3, at + whole.length - 1, "link"),
-        ...(href === url ? {} : { href }),
-      });
+      // The URL as written: the editor opens a relative one itself (`client.ts`, gf).
+      runs.push(span(text, at + label.length + 3, at + whole.length - 1, "link"));
     }
   }
   return runs.map((run) => ({ ...run, from: run.from + offset, to: run.to + offset }));
@@ -410,7 +376,7 @@ function copyFence(entries: readonly Entry[]): number | null {
   return null;
 }
 
-/** A file for the editor: Markdown gets the page's highlights; `inks` only for the page. */
+/** A file for the editor: Markdown gets the page's highlights. */
 export function editorFile(
   path: string,
   source: string,
@@ -423,7 +389,6 @@ export function editorFile(
     path,
     lines: text.split("\n"),
     runs: entries.map((entry) => lineRuns(entry.line)),
-    inks: path === "index.md" ? entries.map((entry) => inks(entry.line)) : null,
     copy: plain ? null : copyFence(entries),
   };
 }

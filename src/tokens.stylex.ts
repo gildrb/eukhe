@@ -4,7 +4,7 @@ const light = "@media (prefers-color-scheme: light)";
 
 /**
  * Every color on the page, in OKLCH, per theme. The one source: `colors` below sets them as CSS
- * variables, and the editor names each line's inks (`markdown.tsx`).
+ * variables.
  *
  * gildrb.com's forge palette, same names and values (`gildrb.com/src/tokens.stylex.ts`): an
  * umber page, ivory text, bronze below it; each ladder's hue climbs from ember (55) to gilt (85)
@@ -18,8 +18,6 @@ export const palette = {
   article: { dark: "oklch(88% 0.024 80)", light: "oklch(30% 0.022 52)" },
   tertiary: { dark: "oklch(67% 0.042 64)", light: "oklch(50% 0.036 58)" },
 };
-
-export type Token = keyof typeof palette;
 
 export const colors = stylex.defineVars({
   bg: { default: palette.bg.dark, [light]: palette.bg.light },

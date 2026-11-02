@@ -50,7 +50,9 @@ const site: Plugin = {
         .then(async (module) => {
           const css = stylexPlugin.__stylexCollectCss?.() ?? "";
           const files = renderModule(module).render(css, "/src/client.ts", await gather(root));
-          const name = pathname === "/" ? "index.html" : pathname.slice(1);
+          const name = pathname.endsWith("/")
+            ? `${pathname.slice(1)}index.html`
+            : pathname.slice(1);
           const body = files[name];
           if (body === undefined) return next();
           const html = name.endsWith(".html");
