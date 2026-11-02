@@ -2051,6 +2051,9 @@ import ./proof/quirks/quirks_any_at_exact.bend as PQuirksAnyAtExact
 import ./proof/quirks/quirks_host_wins_example.bend as PQuirksHostWinsExample
 import ./proof/quirks/quirks_verdicts_exact.bend as PQuirksVerdictsExact
 import ./proof/quirks/quirks_fine_all_exact.bend as PQuirksFineAllExact
+import ./proof/quirks/quirks_lookup_exact.bend as PQuirksLookupExact
+import ./proof/quirks/quirks_open_total.bend as PQuirksOpenTotal
+import ./proof/quirks/quirks_step_total.bend as PQuirksStepTotal
 import ./proof/theme/theme_hit_spec.bend as PThemeHitSpec
 import ./proof/theme/theme_prefix_example.bend as PThemePrefixExample
 import ./proof/theme/theme_concrete_spec.bend as PThemeConcreteSpec

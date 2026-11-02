@@ -1,0 +1,12 @@
+# a rulebook of the largest targets, directives and values; lookups of the
+# largest query and directive
+open 2,{MAX},0,8,0,{MAX},{MAX},{MAX},2,{MAX},0,{MAX},
+step 4,{MAX},{MAX},{MAX},{MAX},
+step 4,{MAX},{MAX},{MAX},0,
+step 4,1,1,1,{MAX},
+refuse-step 4,{LONG},1,1,1,
+# a rulebook that does not compile: the largest clash index is spelled
+open 1,{MAX},12,1,{MAX},{MAX},1,1,{MAX},{MAX},2,1,0,0,0,
+refuse-step 4,1,1,1,1,
+refuse-open 1,{LONG},0,
+refuse-step 4,1,1,1,1,

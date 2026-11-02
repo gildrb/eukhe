@@ -247,6 +247,57 @@ def qs_any_at(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +k: Nat) -> Bool:
     case +r <> rest:
       Bool.or(Bool.and(Bool.and(qs_applies(q, r), Nat.is_eq(qs_dir(r), d)), Nat.is_le(k, qs_rule_rank(r))), qs_any_at(rest, q, d, k))
 
+# The lookup, as a spec
+# ---------------------
+
+def qs_first.is(same: Bool, v: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match same:
+    case True{}:
+      Some{v}
+    case False{}:
+      later
+
+# hit: rule r applies to the query with the directive looked up
+def qs_first.at(hit: Bool, +r: If.Rule, later: Maybe<&2, Nat>, +k: Nat) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      qs_first.is(Nat.is_eq(qs_rule_rank(r), k), qs_val(r), later)
+    case False{}:
+      later
+
+# the value of the first rule of rs that applies to q with directive d at
+# precedence exactly k
+def qs_first(rs: List<&2, If.Rule>, +q: If.Query, +d: Nat, +k: Nat) -> Maybe<&2, Nat>:
+  match rs:
+    case Nil{}:
+      None{}
+    case +r <> rest:
+      qs_first.at(Bool.and(qs_applies(q, r), Nat.is_eq(qs_dir(r), d)), r, qs_first(rest, q, d, k), k)
+
+# the first of two optional values
+def qs_or(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match a:
+    case None{}:
+      b
+    case Some{v}:
+      Some{v}
+
+def qs_answer(m: Maybe<&2, Nat>) -> If.Ans:
+  match m:
+    case None{}:
+      If.Unknown{}
+    case Some{v}:
+      If.Known{v}
+
+# the answer of a lookup (R3): the value of a rule of the highest
+# precedence that applies (host 2 over model 1 over family 0), the first
+# such rule; Unknown when none applies. In a rulebook that compiles every
+# rule of one precedence that applies has one value (no clash), so
+# "first" decides only for a rulebook that does not compile, which no
+# open keeps.
+def qs_lookup(+rs: List<&2, If.Rule>, +q: If.Query, +d: Nat) -> If.Ans:
+  qs_answer(qs_or(qs_first(rs, q, d, 2n), qs_or(qs_first(rs, q, d, 1n), qs_first(rs, q, d, 0n))))
+
 # The model's verdicts, as a spec
 # -------------------------------
 
@@ -553,3 +604,70 @@ law quirks_verdicts_exact:
 law quirks_fine_all_exact:
   for vs: List<&2, If.Verdict>
   {If.fine_all(vs) == qs_fine_all(vs) : Bool}
+
+# LAW quirks_lookup_exact: the model's lookup is the spec's for every rulebook, query and
+# directive: the value of the first rule of the highest precedence that
+# applies, Unknown when none does
+# EXCLUDES: a lookup wrong on a rulebook the model's laws (quirk_highest_wins
+#   and its premises) leave free, an entry law that holds through a model
+#   function no law fixes for every input
+law quirks_lookup_exact:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  {If.lookup(rs, q, d) == qs_lookup(rs, q, d) : If.Ans}
+
+# The whole stepper, as a spec
+# ----------------------------
+
+# what an open answers: the error form and no rulebook unless the input
+# reads (read_open) as an open; else whether every verdict is fine, the
+# verdicts, and the rulebook kept exactly when every verdict is fine
+def qs_open.of(m: Maybe<&2, QsOpen>) -> FQ.St & String:
+  match m:
+    case None{}:
+      (FQ.Shut{}, SCon{'E', SCon{' ', "quirks: malformed rulebook"}})
+    case Some{o}:
+      match o:
+        case QsOpen{+known, +rs}:
+          (qs_kept(qs_all_fine(rs, known), rs), Wr.put_bool(qs_all_fine(rs, known), spell_verdicts(known, rs)))
+
+def qs_open_entry(s: String) -> FQ.St & String:
+  qs_open.of(read_open(s))
+
+# what a lookup in the kept rulebook rs answers: the error form unless the
+# input reads (read_lookup) as a lookup, else the spec's answer; the
+# rulebook is kept either way
+def qs_step.of(+rs: List<&2, If.Rule>, m: Maybe<&2, QsLookup>) -> FQ.St & String:
+  match m:
+    case None{}:
+      (FQ.Book{rs}, SCon{'E', SCon{' ', "quirks: malformed lookup"}})
+    case Some{l}:
+      match l:
+        case QsLookup{q, d}:
+          (FQ.Book{rs}, spell_ans(qs_lookup(rs, q, d)))
+
+def qs_step_entry(+rs: List<&2, If.Rule>, s: String) -> FQ.St & String:
+  qs_step.of(rs, read_lookup(s))
+
+# LAW quirks_open_total: every open input is answered as the spec stepper answers it: the
+# error form and no rulebook unless it reads as an open, else the
+# verdicts, and the rulebook kept exactly when every verdict is fine
+# EXCLUDES: an input quirks_open_answers and quirks_open_malformed leave
+#   free (an open spelled in a way the speller never writes but the reader
+#   reads, numbers past the wire) answered otherwise
+law quirks_open_total:
+  for +s: String
+  {FQ.open(s) == qs_open_entry(s) : FQ.St & String}
+
+# LAW quirks_step_total: every lookup input in a kept rulebook is answered as the spec
+# stepper answers it: the error form unless it reads as four Nats, else
+# the spec's lookup; the rulebook is kept (with quirks_shut_refuses, every
+# state the entry holds and every input)
+# EXCLUDES: a lookup quirks_lookup_answers and quirks_lookup_malformed leave
+#   free answered otherwise, a lookup answered through a model function no
+#   law fixes for every rulebook
+law quirks_step_total:
+  for +rs: List<&2, If.Rule>
+  for +s: String
+  {FQ.step(FQ.Book{rs}, s) == qs_step_entry(rs, s) : FQ.St & String}
