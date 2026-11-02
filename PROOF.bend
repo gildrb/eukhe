@@ -1610,6 +1610,9 @@ import ./proof/doc_commit/commit_entry_refuses.bend as PCommitEntryRefuses
 import ./proof/doc_commit/commit_entry_example.bend as PCommitEntryExample
 import ./proof/doc_commit/write_unseen_spec.bend as PWriteUnseenSpec
 import ./proof/doc_commit/write_saw_spec.bend as PWriteSawSpec
+import ./proof/doc_commit/move_tests_exact.bend as PMoveTestsExact
+import ./proof/doc_commit/move_exact.bend as PMoveExact
+import ./proof/doc_commit/edit_reply_exact.bend as PEditReplyExact
 import ./proof/doc_lines/base.bend as LADocLines
 import ./proof/doc_lines/load_persist_roundtrip.bend as PLoadPersistRoundtrip
 import ./proof/doc_lines/edit_keeps_untouched_bytes.bend as PEditKeepsUntouchedBytes

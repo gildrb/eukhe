@@ -834,6 +834,9 @@
     "laws/doc_commit.bend::write_saw_spec": "0a7b1fe124616753d2d6119c39864f89eb24d3a7993ccef4d5a3b436a5925b6a",
     "laws/doc_commit.bend::write_unseen_spec": "df337704bac7f7c8da79edd0ab81a00ad23b9a7c7b68a40d8a6ee9fc9010ed78",
     "laws/doc_commit.bend::write_writes_seen": "e0516d13c1cdee87f272ccafd448806a04c841be15eab2093f0e4ad59924d4c0",
+    "laws/doc_commit/exact.bend::edit_reply_exact": "e21484ac141530b6135e10ff8f171246ae675b0b82e50178816d2e060110f2b6",
+    "laws/doc_commit/exact.bend::move_exact": "c3ed03bd661af371170572506be0fceb7f93793cdd11436bbbac4b7ef5d0cbe0",
+    "laws/doc_commit/exact.bend::move_tests_exact": "66ad21d5451d2dd1efe06c7e9402a9804e4e5618ffbf4f83d011eafea9b1a1ad",
     "laws/doc_glob.bend::glob_events_answer": "e0f8c19d987d1a4f030978cf4e5284c197505e5f1254444ce6796f21896dd069",
     "laws/doc_glob.bend::glob_fits_example": "0d0e5e2a2b02161acff49a1be46cd56951889bd44237c4e504870109dac35849",
     "laws/doc_glob.bend::glob_open_refuses": "38d59a3ea3497b69a656a480165e0fee8ba06e282f61b7b281819703cc492921",
@@ -2791,7 +2794,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "155e907e3e1ce373e8efa60bacd84cd329021d3dcad0782a59098f992adabade",
+    "LAWS.bend": "001e61ef83c8d00e53f9e3e22329a10d36cc95ef613301a469ec99996797d1ee",
     "laws/admission.bend": "ada4e9ddc081cd48475b4a6a08b7ac17ef3e929c8306c0a54d06f8e0b7785c3c",
     "laws/approvals/desk.bend": "038c21ac209aaaf412f1cabb60ab38520c03876dc10e9b6a08ca448303938ceb",
     "laws/approvals/entry.bend": "f11860d871473f27c940018c7482c58f4ab000901f74c5419b842967b085a429",
@@ -2839,6 +2842,7 @@
     "laws/default_model.bend": "977bada4fd7467f98abcc08bdc730ed0ca5374256ec6fddd73f27513ee1a980c",
     "laws/director.bend": "668ec514cd15bea783b727fa027f1d6439ec364d8cb564b967dc241cbd967d33",
     "laws/doc_commit.bend": "901a4f5fd5eed52f2a736c1ea163e05af3eed76b2e89f4196b1d68e77ab65422",
+    "laws/doc_commit/exact.bend": "e8a0a1749c628c3d5939bf564f9a431d073fa68f3f2fa3db141cc7b0086e39ed",
     "laws/doc_glob.bend": "9e515194985ba1e73f21b1399710e5d5891adff7ab067cebf4aa75d062ea0796",
     "laws/doc_lines.bend": "f0ab183b541271e874bf6821ba1ab72f78dc56dc04d644903d5e9c5d7c4aabd6",
     "laws/doc_plan.bend": "03a3f58f0fbf86afa56d7c7830c42cc45c0716898a09a9c3155b0d318701630e",
