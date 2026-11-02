@@ -1,0 +1,14 @@
+# hosts with every number at its largest (u32 parts, past u32, u16 words, past u16)
+call 43,4294967295.4294967295.4294967295.4294967295
+call 26,99999999999999999999.1.1.1
+call 26,1.99999999999999999999.1.1
+call 35,+0000000000000000004294967295.1.1.1
+call 15,255.255.255.255
+call 41,[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]
+call 21,[0000ffff:+fff::ffff]
+call 18,[::ffff:ffff:ffff]
+call 17,[1:2:3:4:5:6:7::]
+call 16,[::ffff:99999:1]
+call 34,999999999999999999999999.localhost
+refuse {LONG},x
+refuse 7,8.8.8.8x

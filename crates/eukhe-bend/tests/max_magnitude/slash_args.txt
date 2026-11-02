@@ -1,0 +1,11 @@
+# u64 budgets and limits at their largest, and past them (an error answer is a value)
+call 0,39,--budget=18446744073709551615 objective
+call 0,45,--token-budget 18446744073709551615 objective
+call 0,42,--budget 99999999999999999999999 objective
+call 1,285,on --max-continuations 18446744073709551615 --max-turns 18,446,744,073,709,551,615 --max-tokens 18446744073709551615 --autonomous-timeout-ms=18446744073709551615 --gate cargo --gate-retries 18446744073709551615 --gate-timeout-ms 18446744073709551615 --subagent-keep-alive-ms 2147483647
+call 1,38,on --max-turns 99999999999999999999999
+call 1,38,on --subagent-keep-alive-ms 2147483648
+call 2,32,a 'b c' "d" 18446744073709551615
+call 3,13,  objective  
+refuse 0,{LONG},x
+refuse {LONG},0,
