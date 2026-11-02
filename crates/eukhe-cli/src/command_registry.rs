@@ -333,8 +333,9 @@ refused, never overwritten.",
         "Read, browse, or import into the chat memory",
     )
     .description(
-        "The chat memory is the endless log of every message, the binary tree of one-line \
-summaries over it, and the view each turn starts from. It lives under the agent dir.",
+        "Each root session keeps its own chat thread under the agent dir. `eukhe chat` reads \
+only the shared chat of earlier versions and of `chat import`: its log, the binary tree of \
+one-line summaries over it, and its view.",
     ),
     CommandSpec::new(&["chat", "view"], "chat view", "Print the view the agent sees"),
     CommandSpec::new(

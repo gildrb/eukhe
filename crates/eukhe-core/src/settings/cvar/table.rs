@@ -1186,11 +1186,10 @@ pub(crate) const SHELL_EFFECTS: &[&str] = &[
     "secret",
 ];
 
-/// The effects a shell command may have without asking; by default every
-/// grantable effect (law `default_auto_is_grantable`):
-/// only a read or write of a secret asks, and no value can make it run
-/// unasked. An execution gate: an untrusted project may not set it and an
-/// agent never saves it.
+/// The effects a shell command may have without asking; by default all
+/// seven effects (law `default_auto_is_grantable`): every effect is
+/// grantable, and a read or write of a secret never asks. An execution
+/// gate: an untrusted project may not set it and an agent never saves it.
 pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     id: "shell.autoEffects",
     ty: CvarType::ChoiceList(SHELL_EFFECTS),

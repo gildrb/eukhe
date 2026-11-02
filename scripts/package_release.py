@@ -235,7 +235,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
             {
                 "name": "eukhe",
                 "version": version,
-                "description": "eukhe: a coding agent with one endless chat as its memory",
+                "description": "eukhe: coding agent with a memory of all things",
                 "bin": {"eukhe": binary_name},
             },
             indent=2,

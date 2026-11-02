@@ -856,8 +856,8 @@ law stop_entry_premises_witness:
 # stop the walk lets stand, with text (any such facts), answers the run:
 # the run is answered with its counts as they were and stays so whatever
 # inputs follow, and it counts exactly one answer
-# EXCLUDES: a standing answer re-requested with a reminder (the duplicate
-#   final reports of the UnexpectedStop Director's note), a second answer
+# EXCLUDES: a standing answer re-requested with a reminder (duplicate
+#   final reports), a second answer
 #   after the first, a standing reply read as a retry or a failure
 law stop_stand_answers_once:
   for +cfg: RnState.Cfg

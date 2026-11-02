@@ -67,7 +67,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "A coding agent with one endless chat as its memory (from source)";
+    description = "Coding agent with a memory of all things (from source)";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";
