@@ -2131,6 +2131,7 @@ import ./proof/tui_color/tui_color_ffi_malformed_exact.bend as PTuiColorFfiMalfo
 import ./proof/tui_color/tui_color_ffi_example.bend as PTuiColorFfiExample
 import ./proof/tui_color/tui_resolves_spec.bend as PTuiResolvesSpec
 import ./proof/tui_color/tui_resolves_example.bend as PTuiResolvesExample
+import ./proof/tui_color/tui_color_ffi_total.bend as PTuiColorFfiTotal
 import ./proof/config/base/config.bend as LAConfigConfig
 import ./proof/config/base/ffi_read.bend as LAConfigFfiRead
 import ./proof/config/base/ffi_reply.bend as LAConfigFfiReply
