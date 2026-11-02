@@ -15,6 +15,7 @@ import ../../bend/autoresearch/step.bend as ArP
 import ../../bend/autoresearch/stats.bend as ArT
 import ../base.bend as LawsBase
 import ./model.bend as ArM
+import ../../spec/autoresearch/metric_line.bend as SL
 
 # Requests
 # --------
@@ -306,6 +307,20 @@ law autoresearch_entry_open_malformed_exact:
 law autoresearch_entry_shut:
   for +i: String
   {FAr.step(FAr.Refused{}, i) == (FAr.Refused{}, Wr.err("autoresearch: the open was refused")) : FAr.St & String}
+
+# LAW metric_show_spec: every decimal a refusal names (a metric not
+# better than the best kept, and that best) prints as the value's
+# spelling in the METRIC grammar (spec/autoresearch/metric_line.bend
+# value_text): 0 for zero; else its sign, the digits before the point (0
+# when there are none) and, at a scale above 0, the point and the last
+# scale digits, zeros first: 3, -12.5, 0.005 (the step laws pass the
+# shipped printer to spec/autoresearch/step.bend; metric_print_round_trip
+# reads its text back)
+# EXCLUDES: another spelling of the right value (01.5, 1.50, .5, +1.5), the
+# point at the wrong place, a zero lost after the point, a sign lost
+law metric_show_spec:
+  for +d: ArD.Dec
+  {ArD.show(d) == SL.value_text(d) : String}
 
 def ar_state(r: FAr.St & String) -> FAr.St:
   (st, reply) = r

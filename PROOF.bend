@@ -2570,6 +2570,7 @@ import ./proof/autoresearch/autoresearch_entry_example.bend as PArEntryExample
 import ./proof/autoresearch/autoresearch_entry_open.bend as PArEntryOpen
 import ./proof/autoresearch/autoresearch_entry_open_malformed_exact.bend as PArEntryOpenMalformedExact
 import ./proof/autoresearch/autoresearch_entry_shut.bend as PArEntryShut
+import ./proof/autoresearch/metric_show_spec.bend as PArMetricShowSpec
 import ./proof/autoresearch/autoresearch_example.bend as PArExample
 import ./proof/autoresearch/autoresearch_step_is_model.bend as PArStepIsModel
 import ./proof/autoresearch/best_is_best.bend as PArBestIsBest

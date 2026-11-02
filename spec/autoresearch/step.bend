@@ -7,8 +7,9 @@
 # reached its cap. The METRIC parser (~parse), the order of metrics
 # (~cmp) and the printer of a metric (~show) are parameters: the laws
 # pass the shipped ones, which metric_line_reads / metric_line_sound,
-# metric_order_exact and metric_print_round_trip pin on their own. A
-# spec: the shipped code never calls it.
+# metric_order_exact, metric_print_round_trip and metric_show_spec (the
+# printer is spec/autoresearch/metric_line.bend's value_text for every
+# decimal) pin on their own. A spec: the shipped code never calls it.
 
 import Base
 import ../../bend/autoresearch/dec.bend as D
