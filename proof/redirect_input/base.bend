@@ -7,6 +7,9 @@ import ../../bend/redirect_input.bend as Ri
 import ../../laws/redirect_input.bend as RedirectInput
 import ../../bend/gateway_answer.bend as Ga
 
+def rib.space(+c: Char) -> {Ga.space(c) == RedirectInput.ri_space(c) : Bool}:
+  {==}
+
 def rib.zero_width(+c: Char) -> {Ri.zero_width(c) == RedirectInput.ri_zero_width(c) : Bool}:
   {==}
 
@@ -25,9 +28,10 @@ def rib.compact(+s: String) -> {Ri.compact(s) == RedirectInput.ri_compact(s) : S
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(Bool, Ri.zero_width(c), RedirectInput.ri_zero_width(c), rib.zero_width(c)) : {Ri.compact.at(Bool.or(Ga.space(c), _), c, Ri.compact(t)) == RedirectInput.ri_compact.at(Bool.or(Ga.space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) : String}
-      %Equal.sym(String, Ri.compact(t), RedirectInput.ri_compact(t), rib.compact(t)) : {Ri.compact.at(Bool.or(Ga.space(c), RedirectInput.ri_zero_width(c)), c, _) == RedirectInput.ri_compact.at(Bool.or(Ga.space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) : String}
-      rib.compact.at(Bool.or(Ga.space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t))
+      %Equal.sym(Bool, Ri.zero_width(c), RedirectInput.ri_zero_width(c), rib.zero_width(c)) : {Ri.compact.at(Bool.or(Ga.space(c), _), c, Ri.compact(t)) == RedirectInput.ri_compact.at(Bool.or(RedirectInput.ri_space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) : String}
+      %Equal.sym(String, Ri.compact(t), RedirectInput.ri_compact(t), rib.compact(t)) : {Ri.compact.at(Bool.or(Ga.space(c), RedirectInput.ri_zero_width(c)), c, _) == RedirectInput.ri_compact.at(Bool.or(RedirectInput.ri_space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) : String}
+      %Equal.sym(Bool, Ga.space(c), RedirectInput.ri_space(c), rib.space(c)) : {Ri.compact.at(Bool.or(_, RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) == RedirectInput.ri_compact.at(Bool.or(RedirectInput.ri_space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t)) : String}
+      rib.compact.at(Bool.or(RedirectInput.ri_space(c), RedirectInput.ri_zero_width(c)), c, RedirectInput.ri_compact(t))
 
 def rib.unwrap.at(+b: Bool, +c: Char, +t: String, +r: String) -> {Ri.unwrap.at(b, c, t, r) == RedirectInput.ri_unwrap.at(b, c, t, r) : String}:
   match b:
@@ -587,8 +591,9 @@ def rib.trim_start(+s: String) -> {Ri.trim_start(s) == RedirectInput.ri_trim_sta
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(String, Ri.trim_start(t), RedirectInput.ri_trim_start(t), rib.trim_start(t)) : {Ri.trim_start.at(Ga.space(c), c, t, _) == RedirectInput.ri_trim_start.at(Ga.space(c), c, t, RedirectInput.ri_trim_start(t)) : String}
-      rib.trim_start.at(Ga.space(c), c, t, RedirectInput.ri_trim_start(t))
+      %Equal.sym(String, Ri.trim_start(t), RedirectInput.ri_trim_start(t), rib.trim_start(t)) : {Ri.trim_start.at(Ga.space(c), c, t, _) == RedirectInput.ri_trim_start.at(RedirectInput.ri_space(c), c, t, RedirectInput.ri_trim_start(t)) : String}
+      %Equal.sym(Bool, Ga.space(c), RedirectInput.ri_space(c), rib.space(c)) : {Ri.trim_start.at(_, c, t, RedirectInput.ri_trim_start(t)) == RedirectInput.ri_trim_start.at(RedirectInput.ri_space(c), c, t, RedirectInput.ri_trim_start(t)) : String}
+      rib.trim_start.at(RedirectInput.ri_space(c), c, t, RedirectInput.ri_trim_start(t))
 
 def rib.dots.at(+b: Bool, +c: Char, +t: String, +r: String) -> {Ri.dots.at(b, c, t, r) == RedirectInput.ri_dots.at(b, c, t, r) : String}:
   match b:
