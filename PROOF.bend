@@ -335,6 +335,12 @@ import ./proof/sandbox/cow_conflict_is_real.bend as PCowConflictIsReal
 import ./proof/sandbox/cow_plan.bend as PCowPlan
 import ./proof/sandbox/cow_plan_is_merge.bend as PCowPlanIsMerge
 import ./proof/sandbox/cow_entry.bend as PCowEntry
+import ./proof/sandbox/base/cow.bend as LASandboxCow
+import ./proof/sandbox/cow_same_exact.bend as PCowSameExact
+import ./proof/sandbox/cow_ffi_exact.bend as PCowFfiExact
+import ./proof/sandbox/cow_ffi_answers.bend as PCowFfiAnswers
+import ./proof/sandbox/cow_ffi_example.bend as PCowFfiExample
+import ./proof/sandbox/cow_req_fits_example.bend as PCowReqFitsExample
 import ./proof/cvar/base.bend as LACvar
 import ./proof/cvar/cvar_registry_unique.bend as PCvarRegistryUnique
 import ./proof/cvar/cvar_registry_typed.bend as PCvarRegistryTyped

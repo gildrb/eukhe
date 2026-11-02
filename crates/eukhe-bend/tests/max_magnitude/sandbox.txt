@@ -1,0 +1,7 @@
+# the hand-back's plan of one path: every content id at its largest
+call 1,{MAX},1,{MAX},1,{MAX},
+call 1,{MAX},1,99999999999998,1,99999999999997,
+call 1,{MAX},1,99999999999998,1,{MAX},
+call 1,{MAX},0,1,99999999999998,
+call 1,{MAX},1,{MAX},0,
+refuse 1,{LONG},0,0,

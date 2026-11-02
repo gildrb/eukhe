@@ -157,6 +157,167 @@ law cow_entry:
   for hc: {LawsBase.wire_mfits(c) == True{} : Bool}
   {FSb.ffi(FSb.put_req(p, b, c)) == FSb.put_plan(Sb.plan(p, b, c), "") : String}
 
+# ---- the hand-back entry: spelled requests (bend/ffi_sandbox.bend, id 17) ----
+#
+# LAWS: the plan the Rust hand-back asks for each path
+# (crates/eukhe-core/src/child_workspace/merge.rs `plan`), on requests
+# spelled from the primitives of bend/wire.bend (not the entry's own
+# codecs), read by the laws' own reader, answered from the laws' own rule.
+#
+# C1: two contents are the same exactly when both are absent, or both are
+#     present with the same id (the equality every cow law above reads).
+# C2: on every input that is exactly one request (the parent's, the
+#     base's and the child's content, each 0 (no file) or 1 then its id,
+#     nothing after) the entry answers the copy-on-write plan (CowPlan's
+#     rule over C1's equality): its tag (Keep 0, then T|F taken; Clash 1;
+#     Take 2; Drop 3); on any other input exactly the error form naming the
+#     first part that does not read: "sandbox: bad parent content",
+#     "sandbox: bad base content", "sandbox: bad child content", or
+#     "sandbox: input left over" (a whole request with more after it).
+
+# the same content: both absent, or both present with the same id
+def cow_same_spec(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case None{} Some{y}:
+      False{}
+    case Some{x} None{}:
+      False{}
+    case Some{x} Some{y}:
+      Nat.is_eq(x, y)
+
+# LAW cow_same_exact (C1): the model's content equality (which cow_plan, cow_plan_is_merge and the hand-back laws read) is the same content: both absent, or both present with the same id
+# EXCLUDES: an equality that calls every pair the same (every change read
+#   as none, so cow_plan holds of a plan that never takes the child's
+#   change) or calls equal contents different
+law cow_same_exact:
+  for a: Maybe<&2, Nat>
+  for b: Maybe<&2, Nat>
+  {Sb.m.eq(a, b) == cow_same_spec(a, b) : Bool}
+
+# the plan of a path: CowPlan's rule over the same content of C1
+def cow_plan_spec(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> Sb.Plan:
+  CowPlan.go(cow_same_spec(c, b), cow_same_spec(p, b), cow_same_spec(p, c), c)
+
+# a content as Rust writes it: 0 no file, 1 then its id
+def cow_spell_doc(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+# the request Rust writes: the parent's, the base's, the child's content
+def cow_spell_req(p: Maybe<&2, Nat>, b: Maybe<&2, Nat>, c: Maybe<&2, Nat>, rest: String) -> String:
+  cow_spell_doc(p, cow_spell_doc(b, cow_spell_doc(c, rest)))
+
+# the reply Rust reads: the plan's tag, then Keep's taken
+def cow_spell_plan(x: Sb.Plan) -> String:
+  match x:
+    case Sb.Keep{t}:
+      Wr.put_nat(0n, Wr.put_bool(t, ""))
+    case Sb.Clash{}:
+      Wr.put_nat(1n, "")
+    case Sb.Take{}:
+      Wr.put_nat(2n, "")
+    case Sb.Drop{}:
+      Wr.put_nat(3n, "")
+
+# every id of the request fits the wire
+def cow_req_fits(p: Maybe<&2, Nat>, b: Maybe<&2, Nat>, c: Maybe<&2, Nat>) -> Bool:
+  Bool.and(LawsBase.wire_mfits(p), Bool.and(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c)))
+
+# the error form with text t
+def cow_err(t: String) -> String:
+  SCon{'E', SCon{' ', t}}
+
+# The laws' reader: a content, from the decode of its tag
+
+def cow_read_doc.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Some{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def cow_read_doc.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      cow_read_doc.some(Wr.get_nat(s))
+    case 2n+q:
+      Wr.Bad{}
+
+def cow_read_doc(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      cow_read_doc.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def cow_spec.end(whole: Bool, +p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:
+  match whole:
+    case True{}:
+      cow_spell_plan(cow_plan_spec(p, b, c))
+    case False{}:
+      cow_err("sandbox: input left over")
+
+def cow_spec.c(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{+c, s}:
+      cow_spec.end(Wr.end(s), p, b, c)
+    case Wr.Bad{}:
+      cow_err("sandbox: bad child content")
+
+def cow_spec.b(+p: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{+b, s}:
+      cow_spec.c(p, b, cow_read_doc(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      cow_err("sandbox: bad base content")
+
+def cow_spec.p(r: Wr.Dec<Maybe<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{+p, s}:
+      cow_spec.b(p, cow_read_doc(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      cow_err("sandbox: bad parent content")
+
+# the reply to s (C2): the plan of the request s is exactly, else the
+# error form naming the first part that does not read
+def cow_spec(s: String) -> String:
+  cow_spec.p(cow_read_doc(Wr.get_nat(s)))
+
+# LAW cow_ffi_exact (C2): on every input the hand-back entry answers the copy-on-write plan (over C1's same content) of the request the input is exactly, spelled; on any other input exactly the error form naming the first part that does not read, or the input left over
+# EXCLUDES: a plan other than the rule's (a lost change, a conflict taken,
+#   a removal written as a file), a codec that drops, swaps or misreads a
+#   content, a default for malformed input, input left over ignored,
+#   another error text
+law cow_ffi_exact:
+  for +s: String
+  {FSb.ffi(s) == cow_spec(s) : String}
+
+# LAW cow_ffi_answers (C2): every request Rust writes (every id within the wire) gets the plan of its path
+# EXCLUDES: a request Rust writes refused or misread
+law cow_ffi_answers:
+  for +p: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for +c: Maybe<&2, Nat>
+  for fits: {cow_req_fits(p, b, c) == True{} : Bool}
+  {FSb.ffi(cow_spell_req(p, b, c, "")) == cow_spell_plan(cow_plan_spec(p, b, c)) : String}
+
+# LAW cow_ffi_example (C2): anchor: the strings Rust sends and the plans: only the child changed the file; only the child removed it; both changed it alike; both changed it differently; no side changed it; and one malformed input per error text
+# EXCLUDES: another spelling of a request or a plan
+law cow_ffi_example:
+  {[FSb.ffi("1,5,1,5,1,6,"), FSb.ffi("1,5,1,5,0,"), FSb.ffi("1,6,1,4,1,6,"), FSb.ffi("1,5,1,4,1,6,"), FSb.ffi("0,0,0,")] == ["2,", "3,", "0,T", "1,", "0,F"] : List<&2, String>} &
+  {[FSb.ffi(""), FSb.ffi("2,"), FSb.ffi("0,1,x"), FSb.ffi("0,0,3,"), FSb.ffi("0,0,0,x")] == [cow_err("sandbox: bad parent content"), cow_err("sandbox: bad parent content"), cow_err("sandbox: bad base content"), cow_err("sandbox: bad child content"), cow_err("sandbox: input left over")] : List<&2, String>}
+
+# LAW cow_req_fits_example: witness: requests with and without files fit the wire (cow_ffi_answers is not vacuous)
+law cow_req_fits_example:
+  {[cow_req_fits(Some{5n}, None{}, Some{6n}), cow_req_fits(None{}, None{}, None{})] == [True{}, True{}] : List<&2, Bool>}
+
 # ---- frames entry ----
 
 # LAWS (S3, compiled core): the gate of one host-request frame of a
@@ -286,7 +447,8 @@ def fr_spell_verdict(v: Sb.Verdict) -> String:
     case Sb.NotServed{}:
       Wr.put_nat(4n, "")
 
-# the model's decision on q, spelled
+# the model's decision on q, spelled (`admit` is fixed for every input by
+# frames_admit_seen, frames_admit_oversize and frames_admit_within)
 def fr_spell_answer(q: FFr.Req) -> String:
   match q:
     case FFr.Req{m, f, l, k}:

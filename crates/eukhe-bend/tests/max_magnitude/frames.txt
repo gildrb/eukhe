@@ -1,0 +1,6 @@
+# the gate of one host-request frame: the limit and the length at their largest
+call {MAX},T{MAX},1,T
+call 99999999999998,T{MAX},1,T
+call {MAX},F{MAX},1,F
+call {MAX},T{MAX},0,
+refuse {LONG},T0,0,
