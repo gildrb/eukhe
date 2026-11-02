@@ -187,3 +187,12 @@ def la.busy(ws: List<&2, La.Wk>) -> {La.busy_count(ws) == Launcher.busy_spec(ws)
           {==}
         case False{}:
           la.busy(t)
+
+# the workers a run starts on are the laws' open workers
+def la.open(bs: List<&2, Bool>) -> {La.open(bs) == Launcher.open_spec(bs) : List<&2, La.Wk>}:
+  match bs:
+    case Nil{}:
+      {==}
+    case b <> t:
+      %la.open(t) : {La.Wk{b, False{}} <> La.open(t) == La.Wk{b, False{}} <> _ : List<&2, La.Wk>}
+      {==}

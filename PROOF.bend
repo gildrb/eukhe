@@ -1123,6 +1123,8 @@ import ./proof/launcher/launcher_closed_gate_waits_example.bend as PLauncherClos
 import ./proof/launcher/launcher_ffi_malformed_exact.bend as PLauncherFfiMalformedExact
 import ./proof/launcher/launcher_adoption_exact.bend as PLauncherAdoptionExact
 import ./proof/launcher/launcher_ffi_reads.bend as PLauncherFfiReads
+import ./proof/launcher/launcher_go_exact.bend as PLauncherGoExact
+import ./proof/launcher/launcher_run_exact.bend as PLauncherRunExact
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates
