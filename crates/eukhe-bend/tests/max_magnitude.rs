@@ -161,12 +161,11 @@ fn every_entry_answers_its_largest_inputs() {
         .keys()
         .filter(|a| a.as_str() != "echo" && !covered.contains(a))
         .collect();
-    assert!(
-        missing.is_empty(),
-        "entries with no max_magnitude file: {missing:?}"
-    );
     let exe = std::env::current_exe().unwrap();
-    let mut failed = Vec::new();
+    let mut failed: Vec<String> = missing
+        .iter()
+        .map(|a| format!("{a}: no max_magnitude file"))
+        .collect();
     for file in &files {
         let out = Command::new(&exe)
             .args(["--exact", "one_area", "--nocapture", "--test-threads=1"])
