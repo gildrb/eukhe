@@ -377,7 +377,10 @@ fn environment_section(options: &BuildSystemPromptOptions) -> String {
     }
     lines.push(format!("Working directory: {cwd}"));
     match options.vision_capable {
-        Some(true) => lines.push("Images: `attach_image` loads them into context.".to_string()),
+        Some(true) => lines.push(
+            "Images: `read` shows a PNG or JPEG; `await attach_image.run(path)` in `ipython` resizes a larger one."
+                .to_string(),
+        ),
         Some(false) => lines.push("This model cannot see images.".to_string()),
         None => {}
     }
