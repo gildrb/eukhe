@@ -14,7 +14,7 @@ use eukhe_types::daemon::AdmissionPriority;
 
 /// A live ticket's status: it waits, holds a slot its waiter has not
 /// collected, holds a collected permit, or held a background permit an
-/// interactive request took the slot from.
+/// interactive request took the slot from (on a capped provider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Status {
     Queued,

@@ -285,22 +285,35 @@ def ad.cap_lea(mb: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, 
     case Some{Ad.Tk{c, Ad.Ended{}}}:
       ad.cap_id(l, Ad.held(ts))
 
+# an interactive admit on a capped provider: the preemption frees every
+# background slot
+def ad.cap_pre(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(l, Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}]))), Ad.le(Nat.add(Ad.held(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))}])), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)), Ad.held(ts))) == True{} : Bool}:
+  +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
+  +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
+  +hb = Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)
+  +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
+  +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
+  +t1 = Ad.preempt(ts)
+  +t2 = List.append(&2, Ad.Tk, t1, [x])
+  +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), hi)
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionHit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
+  %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionHit.ad.pre_hb(ts))) : {Bool.or(Ad.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
+  ad.cap_ia(l, q, wi, hi, hb)
+
+# an interactive admit: an unlimited provider holds any number of slots
+def ad.cap_ia_on(l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Bool.or(Ad.within(l, Ad.held(Ad.admit.ia(l, q, ts))), Ad.le(Nat.add(Ad.held(Ad.admit.ia(l, q, ts)), Ad.freed.ia(l, Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts))), Ad.held(ts))) == True{} : Bool}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{+p}:
+      ad.cap_pre(Ad.Cap{p}, q, ts)
+
 def capacity(s: Ad.St, o: Ad.Op) -> {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)), Ad.held(Ad.St.ts(Ad.step(s, o)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.step(s, o))), Ad.freed(s, o)), Ad.held(Ad.St.ts(s)))) == True{} : Bool}:
   match s:
     case Ad.St{+l, +q, +ts}:
       match o:
         case Ad.Admit{Ad.Ia{}}:
-          +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
-          +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
-          +hb = Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts)
-          +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
-          +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
-          +t1 = Ad.preempt(ts)
-          +t2 = List.append(&2, Ad.Tk, t1, [x])
-          +b = Ad.bit(Ad.hit(Ad.Holding{}, Ad.Ia{}, x), hi)
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Ia{}, t2), b, LAAdmissionHit.ad.app_pre(Ad.Holding{}, ts, x)) : {Bool.or(Ad.within(l, Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2))), Ad.le(Nat.add(Nat.add(_, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2)), hb), Nat.add(hi, hb))) == True{} : Bool}
-          %Equal.sym(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), 0n, Equal.trans(Nat, Ad.cnt(Ad.Holding{}, Ad.Bg{}, t2), Ad.cnt(Ad.Holding{}, Ad.Bg{}, t1), 0n, LAAdmissionCnt.ad.app_off(Ad.Holding{}, Ad.Bg{}, t1, x, LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st))), LAAdmissionHit.ad.pre_hb(ts))) : {Bool.or(Ad.within(l, Nat.add(b, _)), Ad.le(Nat.add(Nat.add(b, _), hb), Nat.add(hi, hb))) == True{} : Bool}
-          ad.cap_ia(l, q, wi, hi, hb)
+          ad.cap_ia_on(l, q, ts)
         case Ad.Admit{Ad.Bg{}}:
           +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
           +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)

@@ -36,6 +36,13 @@ def ad.end_pre(t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt(t), k)
         case 1n+p:
           ad.end_pre(r, p)
 
+def ad.end_pre_on(l: Ad.Lim, t: List<&2, Ad.Tk>, k: Nat) -> {Ad.ended(Ad.get(Ad.preempt.on(l, t), k)) == Ad.ended(Ad.get(t, k)) : Bool}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      ad.end_pre(t, k)
+
 def ad.end_app(t: List<&2, Ad.Tk>, -x: Ad.Tk, k: Nat, e: {Ad.ended(Ad.get(t, k)) == True{} : Bool}) -> {Ad.ended(Ad.get(List.append(&2, Ad.Tk, t, [x]), k)) == True{} : Bool}:
   match t:
     case Nil{}:
@@ -125,7 +132,7 @@ def ended_stays_ended(s: Ad.St, o: Ad.Op, +k: Nat, e: {Ad.ended(Ad.status(s, k))
       match o:
         case Ad.Admit{Ad.Ia{}}:
           +st = Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))
-          ad.end_app(Ad.preempt(ts), Ad.Tk{Ad.Ia{}, st}, k, Equal.trans(Bool, Ad.ended(Ad.get(Ad.preempt(ts), k)), Ad.ended(Ad.get(ts, k)), True{}, ad.end_pre(ts, k), e))
+          ad.end_app(Ad.preempt.on(l, ts), Ad.Tk{Ad.Ia{}, st}, k, Equal.trans(Bool, Ad.ended(Ad.get(Ad.preempt.on(l, ts), k)), Ad.ended(Ad.get(ts, k)), True{}, ad.end_pre_on(l, ts, k), e))
         case Ad.Admit{Ad.Bg{}}:
           +st = Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts)), Ad.room(l, Ad.held(ts))))))
           ad.end_app(ts, Ad.Tk{Ad.Bg{}, st}, k, e)

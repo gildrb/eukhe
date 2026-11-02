@@ -68,6 +68,22 @@ def ad.f_pre_bg(t: List<&2, Ad.Tk>, +s: Bool) -> {Ad.fifo(Ad.Bg{}, Ad.preempt(t)
       %Equal.sym(Bool, Bool.and(s, False{}), False{}, LABool.ad.and_f(s)) : {Bool.and(Bool.not(_), rest) == True{} : Bool}
       ad.f_pre_bg(r, Bool.or(s, Ad.hit(Ad.Waiting{}, Ad.Bg{}, Ad.Tk.preempt(h))))
 
+def ad.f_pre_ia_on(l: Ad.Lim, t: List<&2, Ad.Tk>, +s: Bool) -> {Ad.fifo(Ad.Ia{}, Ad.preempt.on(l, t), s) == Ad.fifo(Ad.Ia{}, t, s) : Bool}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      ad.f_pre_ia(t, s)
+
+# the background order after an interactive admit's preemption: none held
+# on a capped provider, the order before on an unlimited one
+def ad.f_pre_bg_on(l: Ad.Lim, t: List<&2, Ad.Tk>, e: {Ad.fifo(Ad.Bg{}, t, False{}) == True{} : Bool}) -> {Ad.fifo(Ad.Bg{}, Ad.preempt.on(l, t), False{}) == True{} : Bool}:
+  match l:
+    case Ad.Unl{}:
+      e
+    case Ad.Cap{p}:
+      ad.f_pre_bg(t, False{})
+
 def ad.fapp0(s: Bool, x: Bool, ok: {Bool.or(Bool.not(x), Bool.and(Bool.not(s), True{})) == True{} : Bool}) -> {Bool.and(Bool.not(Bool.and(s, x)), True{}) == True{} : Bool}:
   match s x:
     case True{} True{}:
@@ -312,14 +328,15 @@ def ad.f_step(s: Ad.St, o: Ad.Op, +e: {Ad.fifo.both(Ad.St.ts(s)) == True{} : Boo
   match s o:
     case Ad.St{+l, +q, +ts} Ad.Admit{Ad.Ia{}}:
       +ei = LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
+      +eb = LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
       +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
       +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
       +st = Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))
       +x = {Ad.Tk{Ad.Ia{}, st} : Ad.Tk}
-      +t1 = Ad.preempt(ts)
+      +t1 = Ad.preempt.on(l, ts)
       +t2 = List.append(&2, Ad.Tk, t1, [x])
-      +oki = ad.fifo_wi(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, Bool.not(Ad.hit(Ad.Holding{}, Ad.Ia{}, x)), Equal.sym(Nat, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, LAAdmissionHit.ad.pre_ia(Ad.Waiting{}, ts)), ad.fifo_ia_ok(wi, Ad.room(l, hi), Ad.le(q, wi)))
-      LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_app(t1, Ad.Ia{}, False{}, x, Equal.trans(Bool, Ad.fifo(Ad.Ia{}, t1, False{}), Ad.fifo(Ad.Ia{}, ts, False{}), True{}, ad.f_pre_ia(ts, False{}), ei), oki), ad.f_app(t1, Ad.Bg{}, False{}, x, ad.f_pre_bg(ts, False{}), ad.or_nt(Ad.hit(Ad.Holding{}, Ad.Bg{}, x), Bool.and(True{}, Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t1))), LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))))
+      +oki = ad.fifo_wi(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, Bool.not(Ad.hit(Ad.Holding{}, Ad.Ia{}, x)), Equal.sym(Nat, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, t1), wi, LAAdmissionHit.ad.pre_ia_on(Ad.Waiting{}, l, ts)), ad.fifo_ia_ok(wi, Ad.room(l, hi), Ad.le(q, wi)))
+      LABool.ad.and_t(Ad.fifo(Ad.Ia{}, t2, False{}), Ad.fifo(Ad.Bg{}, t2, False{}), ad.f_app(t1, Ad.Ia{}, False{}, x, Equal.trans(Bool, Ad.fifo(Ad.Ia{}, t1, False{}), Ad.fifo(Ad.Ia{}, ts, False{}), True{}, ad.f_pre_ia_on(l, ts, False{}), ei), oki), ad.f_app(t1, Ad.Bg{}, False{}, x, ad.f_pre_bg_on(l, ts, eb), ad.or_nt(Ad.hit(Ad.Holding{}, Ad.Bg{}, x), Bool.and(True{}, Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, t1))), LABool.ad.and_f(Ad.Mode.of(Ad.Holding{}, st)))))
     case Ad.St{+l, +q, +ts} Ad.Admit{Ad.Bg{}}:
       +ei = LALogic.ad.and_l(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)
       +eb = LALogic.ad.and_r(Ad.fifo(Ad.Ia{}, ts, False{}), Ad.fifo(Ad.Bg{}, ts, False{}), e)

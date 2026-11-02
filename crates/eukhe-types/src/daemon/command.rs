@@ -63,7 +63,8 @@ pub enum AgentPeerScope {
 /// ([`DaemonCommand::ProviderAdmissionAcquire`]). Interactive requests are
 /// served in arrival order; a background request is admitted only while
 /// no interactive request of its provider holds or waits for a slot, and
-/// the next interactive request that comes preempts it.
+/// on a provider with an in-flight limit the next interactive request
+/// that comes preempts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AdmissionPriority {

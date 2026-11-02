@@ -14,9 +14,10 @@
 //! closes. A finished, failed, or aborted request closes it by dropping
 //! its permit; a dead worker's sockets close with its process, so the
 //! supervisor reclaims its slots (and its place in the queue) without any
-//! liveness bookkeeping. A background slot an interactive request preempts
-//! is free at once; its connection gets a `provider_admission_preempted`
-//! frame, and the worker stops the request.
+//! liveness bookkeeping. On a provider with an in-flight limit, a
+//! background slot an interactive request preempts is free at once; its
+//! connection gets a `provider_admission_preempted` frame, and the worker
+//! stops the request. An unlimited provider preempts nothing.
 //!
 //! The limits are the global settings' (`<agent-dir>/settings.json`),
 //! re-read when that file changes (one `stat` per request): a new limit

@@ -208,6 +208,13 @@ def pac.pre(ts: List<&2, Ad.Tk>) -> {Ad.preempt(ts) == Admission.ads_preempt(ts)
       %pac.pre1(h) : {Ad.Tk.preempt(h) <> Ad.preempt(r) == _ <> Ad.preempt(r) : List<&2, Ad.Tk>}
       {==}
 
+def pac.pre_on(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> {Ad.preempt.on(l, ts) == Admission.ads_yield(l, ts) : List<&2, Ad.Tk>}:
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{p}:
+      pac.pre(ts)
+
 def pac.ia_st(a: Bool, b: Bool) -> {Ad.admit.ia.st(a, b) == Admission.ads_ia_status(a, b) : Ad.Sts}:
   match a b:
     case True{} _:

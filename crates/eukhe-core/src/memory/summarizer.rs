@@ -14,13 +14,14 @@
 //! same admission authority as the sessions' requests
 //! ([`crate::admission`]), so `providerMaxInFlight` bounds the compactor
 //! and the sessions together. A background request waits while a session
-//! request of its provider runs or waits, and a session request that comes
-//! while it runs preempts it: the call stops its request at once and asks
-//! again, so it resumes once the provider is free. A preemption is a
-//! pause inside one model call, never a failure or an end of the call:
-//! the compactor's [`super::CALL_DEADLINE`] bounds each model call, its
-//! waits for a slot and its preemptions included, so a call preempted
-//! without end fails at the deadline (LAWS.bend H1.5, H2).
+//! request of its provider runs or waits. On a provider with an in-flight
+//! limit, a session request that comes while it runs preempts it: the
+//! call stops its request at once and asks again, so it resumes once the
+//! provider is free; on an unlimited provider it runs to its end. A
+//! preemption is a pause inside one model call, never a failure or an
+//! end of the call: the compactor's [`super::CALL_DEADLINE`] bounds each
+//! model call, its waits for a slot and its preemptions included, so a
+//! call preempted without end fails at the deadline (LAWS.bend H1.5, H2).
 
 use std::path::{Path, PathBuf};
 

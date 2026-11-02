@@ -6,14 +6,16 @@
 //!
 //! Requests come in two classes ([`AdmissionPriority`]). A session's
 //! requests are interactive; the chat-memory compactor's are background.
-//! Both count against the same limit, but a background request is
+//! Both count against the same limit, and a background request is
 //! admitted only while no interactive request of its provider holds or
-//! waits for a slot, and an interactive request that comes while
-//! background requests hold slots preempts them all: their slots free at
-//! once and their holders stop their requests, so a user's turn never
-//! waits behind the compactor, even on a server that runs one request at
-//! a time. An unlimited provider admits every request at once, and still
-//! holds its background requests back while interactive ones run.
+//! waits for a slot. On a provider with an in-flight limit, an
+//! interactive request that comes while background requests hold slots
+//! preempts them all: their slots free at once and their holders stop
+//! their requests, so a user's turn never waits behind the compactor,
+//! even on a server that runs one request at a time. An unlimited
+//! provider admits every request at once, so it preempts nothing: running
+//! background requests finish (a preemption there would only send them
+//! again), and new ones still wait while interactive ones run.
 //!
 //! The controller and its registry are process-local. Every eukhe session
 //! runs in its own worker process, so the daemon supervisor owns the one
@@ -333,8 +335,9 @@ impl AdmissionController {
     }
 
     /// Take a permit of class `priority` if a slot is free for it, else
-    /// join the class's wait queue. An interactive request first preempts
-    /// every background permit of the provider.
+    /// join the class's wait queue. On a provider with an in-flight
+    /// limit, an interactive request first preempts every background
+    /// permit of the provider.
     ///
     /// # Errors
     ///
@@ -403,8 +406,8 @@ pub struct ProviderPermit {
 
 impl ProviderPermit {
     /// Cancelled once an interactive request preempts this permit (only a
-    /// background permit is ever preempted): its slot is free already, and
-    /// its request must stop.
+    /// background permit on a provider with an in-flight limit is ever
+    /// preempted): its slot is free already, and its request must stop.
     #[must_use]
     pub fn preemption(&self) -> CancellationToken {
         self.preempted.clone()
@@ -596,8 +599,9 @@ impl ModelPermit {
     }
 
     /// Resolves once an interactive request took the slot back (only a
-    /// background permit is ever preempted): the slot is no longer held,
-    /// and the request must stop at once.
+    /// background permit on a provider with an in-flight limit is ever
+    /// preempted): the slot is no longer held, and the request must stop
+    /// at once.
     pub fn preempted(&self) -> WaitForCancellationFuture<'_> {
         self.preempted.cancelled()
     }
@@ -621,13 +625,14 @@ pub struct AdmissionRequest {
 /// [`QueuedNotice`] when it has to wait, and fail with
 /// [`AdmissionError::QueueFull`] once `providerMaxQueued` interactive
 /// requests wait. A background request waits while an interactive request
-/// of its provider holds or waits for a slot, and its [`ModelPermit`] is
-/// preempted (see [`ModelPermit::preempted`]) when one comes. The
-/// returned permit frees the slot when dropped, and a dropped `acquire`
-/// future gives up its place in the queue. The daemon supervisor owns the
-/// registry of a daemon, and its workers implement it over their
-/// supervisor link; [`LocalAdmission`] is the in-process authority of a
-/// run without a daemon.
+/// of its provider holds or waits for a slot, and on a provider with an
+/// in-flight limit its [`ModelPermit`] is preempted (see
+/// [`ModelPermit::preempted`]) when one comes. The returned permit frees
+/// the slot when dropped, and a dropped `acquire` future gives up its
+/// place in the queue. The daemon supervisor owns the registry of a
+/// daemon, and its workers implement it over their supervisor link;
+/// [`LocalAdmission`] is the in-process authority of a run without a
+/// daemon.
 pub trait ProviderAdmission: Send + Sync {
     /// Wait for a slot of `request.provider_id`.
     fn acquire(

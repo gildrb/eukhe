@@ -13,10 +13,25 @@ import ./base.bend as LawsBase
 # op is free: admits of either class, polls, drops of permits and of
 # waiters, new limits, in any order, on any state.
 
-# LAW admission_preempts: an interactive admit leaves no background slot held (H3.1)
+# LAW admission_preempts: on a capped provider an interactive admit leaves no background slot held (H3.1)
+# EXCLUDES: an interactive request that waits behind background work on a
+#   provider that serves only so many requests at once
 law admission_preempts:
-  for +s: Ad.St
-  {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(s, Ad.Admit{Ad.Ia{}}))) == 0n : Nat}
+  for p: Nat
+  for q: Nat
+  for +ts: List<&2, Ad.Tk>
+  {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(Ad.St{Ad.Cap{p}, q, ts}, Ad.Admit{Ad.Ia{}}))) == 0n : Nat}
+
+# LAW admission_unlimited_keeps_background: on an unlimited provider an interactive admit changes no ticket admitted before it: a background request keeps its slot, granted or collected (H3.1)
+# EXCLUDES: a background request preempted (stopped and sent again) where
+#   no interactive request could wait for its slot, a ticket an admit
+#   changes, drops or reorders
+law admission_unlimited_keeps_background:
+  for q: Nat
+  for +ts: List<&2, Ad.Tk>
+  for +k: Nat
+  for live: {Maybe.is_some(&2, Ad.Tk, Ad.get(ts, k)) == True{} : Bool}
+  {Ad.get(Ad.St.ts(Ad.step(Ad.St{Ad.Unl{}, q, ts}, Ad.Admit{Ad.Ia{}})), k) == Ad.get(ts, k) : Maybe<&2, Ad.Tk>}
 
 # LAW admission_capacity: an op grants only into free slots: after it the slots held are
 # within the limit, or no more than before less the slots the op freed
@@ -36,7 +51,10 @@ law admission_no_lost_wakeup:
   {Ad.grantable(Ad.run(os, Ad.St.new(l, q))) == False{} : Bool}
 
 # LAW admission_background_yields: after any history a background slot is held only while no
-# interactive request holds a slot or waits (H3.1)
+# interactive request waits: a user's request never waits behind background work (H3.1)
+# EXCLUDES: an interactive request queued while a background request holds
+#   a slot (a capped provider preempts them; an unlimited one has a slot
+#   for every interactive request)
 law admission_background_yields:
   for +l: Ad.Lim
   for +q: Nat
@@ -356,6 +374,16 @@ def ads_preempt(ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
     case h <> r:
       ads_preempt1(h) <> ads_preempt(r)
 
+# what an interactive request does to the tickets before it: on a capped
+# provider it frees every background slot; on an unlimited one, which has
+# a slot for every request, it leaves them
+def ads_yield(l: Ad.Lim, ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
+  match l:
+    case Ad.Unl{}:
+      ts
+    case Ad.Cap{p}:
+      ads_preempt(ts)
+
 # a new interactive request: a slot when one is free for it (the
 # interactive slots below the limit) and no interactive request waits;
 # else rejected (ended) once q interactive requests wait; else it waits
@@ -372,7 +400,7 @@ def ads_ia_status(free: Bool, full: Bool) -> Ad.Sts:
 
 def ads_admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> List<&2, Ad.Tk>:
   +wi = ads_queued(Ad.Ia{}, ts)
-  List.append(&2, Ad.Tk, ads_preempt(ts), [Ad.Tk{Ad.Ia{}, ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), ads_room(l, ads_held(Ad.Ia{}, ts))), Nat.is_le(q, wi))}])
+  List.append(&2, Ad.Tk, ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), ads_room(l, ads_held(Ad.Ia{}, ts))), Nat.is_le(q, wi))}])
 
 def ads_bg_status(free: Bool) -> Ad.Sts:
   match free:
@@ -449,7 +477,7 @@ def ads_step(s: Ad.St, o: Ad.Op) -> Ad.St:
         case Ad.Limit{+l2, q2}:
           Ad.St{l2, q2, ads_grant(l2, ts)}
 
-# LAW admission_step_exact: every op on every state of the model is the spec's: an interactive admit preempts every background slot and holds a slot when one is free for it and no interactive request waits, is rejected once q of them wait, else waits; a background admit holds a slot only when no interactive request holds or waits, none waits and a slot is free, else waits; a collect takes a granted permit; a release ends a collected or preempted permit, and a collected one's slot is granted; a leave ends a waiter and its grant is granted; new limits take effect; each grant gives the free slots to the interactive waiters oldest first, then, while no interactive request holds or waits, to the background waiters oldest first
+# LAW admission_step_exact: every op on every state of the model is the spec's: an interactive admit on a capped provider preempts every background slot (on an unlimited one it changes no ticket) and holds a slot when one is free for it and no interactive request waits, is rejected once q of them wait, else waits; a background admit holds a slot only when no interactive request holds or waits, none waits and a slot is free, else waits; a collect takes a granted permit; a release ends a collected or preempted permit, and a collected one's slot is granted; a leave ends a waiter and its grant is granted; new limits take effect; each grant gives the free slots to the interactive waiters oldest first, then, while no interactive request holds or waits, to the background waiters oldest first
 # EXCLUDES: a wrong grant, preemption, rejection or status, a slot left
 #   free while a waiter may take it, a ticket other than the op's changed
 law admission_step_exact:
@@ -457,12 +485,14 @@ law admission_step_exact:
   for +o: Ad.Op
   {Ad.step(s, o) == ads_step(s, o) : Ad.St}
 
-# LAW admission_spec_example (anchor): at one slot, an interactive request holds it, a second waits, a background one waits; the release grants the interactive waiter; at unlimited slots with no interactive request, two background waiters are granted at once; a full queue rejects
+# LAW admission_spec_example (anchor): at one slot, an interactive request holds it, a second waits, a background one waits; the release grants the interactive waiter; at unlimited slots with no interactive request, two background waiters are granted at once; a full queue rejects; an interactive request preempts the background slots of a capped provider and leaves those of an unlimited one
 # EXCLUDES: a vacuous admission_step_exact (a spec whose grant never runs)
 law admission_spec_example:
   {ads_step(Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]}, Ad.Release{0n}) == Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Ia{}, Ad.Ended{}}, Ad.Tk{Ad.Ia{}, Ad.Granted{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]} : Ad.St} &
   {ads_step(Ad.St{Ad.Cap{0n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Queued{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}]}, Ad.Limit{Ad.Unl{}, 5n}) == Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Granted{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]} : Ad.St} &
-  {ads_step(Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}, Ad.Tk{Ad.Ia{}, Ad.Ended{}}]} : Ad.St}
+  {ads_step(Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Cap{0n}, 1n, [Ad.Tk{Ad.Ia{}, Ad.Held{}}, Ad.Tk{Ad.Ia{}, Ad.Queued{}}, Ad.Tk{Ad.Ia{}, Ad.Ended{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Cap{1n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Cap{1n}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Preempted{}}, Ad.Tk{Ad.Bg{}, Ad.Queued{}}, Ad.Tk{Ad.Ia{}, Ad.Held{}}]} : Ad.St} &
+  {ads_step(Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}]}, Ad.Admit{Ad.Ia{}}) == Ad.St{Ad.Unl{}, 5n, [Ad.Tk{Ad.Bg{}, Ad.Held{}}, Ad.Tk{Ad.Bg{}, Ad.Granted{}}, Ad.Tk{Ad.Ia{}, Ad.Held{}}]} : Ad.St}
 
 # ---- admission_wire ----
 

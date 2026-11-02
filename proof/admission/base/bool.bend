@@ -45,9 +45,9 @@ def ad.grant_none(+l: Ad.Lim, +t: List<&2, Ad.Tk>, ed: {Ad.pick(l, t) == None{} 
   ad.and_t(Bool.not(Maybe.is_some(&2, Ad.Cls, p)), Ad.calm(t), ad.not_none(p, ed), cm)
 
 # an interactive waiter: no background slot is held
-def ad.calm_hb0(+hi: Nat, -w: Nat, hb: Nat, c: {Ad.calm.n(hi, 1n+w, hb) == True{} : Bool}) -> {hb == 0n : Nat}:
+def ad.calm_hb0(-w: Nat, hb: Nat, c: {Ad.calm.n(1n+w, hb) == True{} : Bool}) -> {hb == 0n : Nat}:
   match hb:
     case 0n:
       {==}
     case 1n+x:
-      LALogic.ad.absurd({1n+x == 0n : Nat}, Equal.trans(Bool, False{}, Bool.and(Ad.isz(hi), False{}), True{}, Equal.sym(Bool, Bool.and(Ad.isz(hi), False{}), False{}, ad.and_f(Ad.isz(hi))), c))
+      LALogic.ad.absurd({1n+x == 0n : Nat}, c)

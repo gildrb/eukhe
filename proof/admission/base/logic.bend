@@ -60,11 +60,11 @@ def ad.mis(m: Maybe<&2, Ad.Cls>, c: Ad.Cls) -> Bool:
       Ad.Cls.eq(d, c)
 
 # The invariant: no lost wake-up, and background slots only while no
-# interactive request holds or waits
+# interactive request waits
 # ------------------------------------------------------------------
 
 def ad.ok.n(+l: Ad.Lim, +hi: Nat, +wi: Nat, +hb: Nat, +wb: Nat) -> Bool:
-  Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), wi, hi, wb))), Ad.calm.n(hi, wi, hb))
+  Bool.and(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), wi, hi, wb))), Ad.calm.n(wi, hb))
 
 def ad.ok(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> Bool:
   ad.ok.n(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts), Ad.cnt(Ad.Holding{}, Ad.Bg{}, ts), Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts))

@@ -57,8 +57,8 @@ def aw.no_idle(-X: Type, +l: Ad.Lim, +hi: Nat, +wi: Nat, +hb: Nat, +wb: Nat, zh:
     case 0n:
       LALogic.ad.absurd_t(X, nz)
     case 1n+w:
-      +cn = Ad.calm.n(hi, 1n+w, hb)
-      +zb = LABool.ad.calm_hb0(hi, w, hb, LALogic.ad.and_r(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), 1n+w, hi, wb))), cn, h))
+      +cn = Ad.calm.n(1n+w, hb)
+      +zb = LABool.ad.calm_hb0(w, hb, LALogic.ad.and_r(Bool.not(Maybe.is_some(&2, Ad.Cls, Ad.pick.go(Ad.room(l, Nat.add(hi, hb)), 1n+w, hi, wb))), cn, h))
       +rf = LALogic.ad.ok_room(Ad.room(l, Nat.add(hi, hb)), w, hi, wb, cn, h)
       LALogic.ad.absurd_t(X, Equal.trans(Bool, True{}, Ad.room(l, 0n), False{}, Equal.sym(Bool, Ad.room(l, 0n), True{}, aw.room_t(l)), aw.room00(l, hi, hb, zh, zb, rf)))
 

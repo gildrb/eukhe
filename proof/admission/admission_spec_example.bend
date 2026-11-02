@@ -5,4 +5,4 @@ import ../../bend/admission.bend as Ad
 import ../../laws/admission.bend as Admission
 
 def Admission.admission_spec_example():
-  ({==}, {==}, {==})
+  ({==}, {==}, {==}, {==}, {==})

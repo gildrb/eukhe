@@ -195,6 +195,7 @@ import ./proof/admission/base/logic.bend as LAAdmissionLogic
 import ./proof/admission/base/nat.bend as LAAdmissionNat
 import ./proof/admission/base/wire.bend as LAAdmissionWire
 import ./proof/admission/admission_preempts.bend as PAdmissionPreempts
+import ./proof/admission/admission_unlimited_keeps_background.bend as PAdmissionUnlimitedKeepsBackground
 import ./proof/admission/admission_capacity.bend as PAdmissionCapacity
 import ./proof/admission/admission_no_lost_wakeup.bend as PAdmissionNoLostWakeup
 import ./proof/admission/admission_background_yields.bend as PAdmissionBackgroundYields

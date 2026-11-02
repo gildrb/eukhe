@@ -14,13 +14,13 @@ def pas.admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Ad.admit.ia(l, q
   +wi = Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)
   +hi = Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)
   +m = Ad.admit.ia(l, q, ts)
-  %Equal.sym(Nat, Admission.ads_queued(Ad.Ia{}, ts), wi, PC.pac.queued(Ad.Ia{}, ts)) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Nat.is_eq(_, 0n), Admission.ads_room(l, Admission.ads_held(Ad.Ia{}, ts))), Nat.is_le(q, _))}]) : List<&2, Ad.Tk>}
-  %Equal.sym(Nat, Admission.ads_held(Ad.Ia{}, ts), hi, PC.pac.held(Ad.Ia{}, ts)) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), Admission.ads_room(l, _)), Nat.is_le(q, wi))}]) : List<&2, Ad.Tk>}
-  %PC.pac.isz(wi) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(_, Admission.ads_room(l, hi)), Nat.is_le(q, wi))}]) : List<&2, Ad.Tk>}
-  %PC.pac.le(q, wi) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Ad.isz(wi), Admission.ads_room(l, hi)), _)}]) : List<&2, Ad.Tk>}
-  %PC.pac.room(l, hi) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Ad.isz(wi), _), Ad.le(q, wi))}]) : List<&2, Ad.Tk>}
-  %PC.pac.ia_st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi)) : {m == List.append(&2, Ad.Tk, Admission.ads_preempt(ts), [Ad.Tk{Ad.Ia{}, _}]) : List<&2, Ad.Tk>}
-  %PC.pac.pre(ts) : {m == List.append(&2, Ad.Tk, _, [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}]) : List<&2, Ad.Tk>}
+  %Equal.sym(Nat, Admission.ads_queued(Ad.Ia{}, ts), wi, PC.pac.queued(Ad.Ia{}, ts)) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Nat.is_eq(_, 0n), Admission.ads_room(l, Admission.ads_held(Ad.Ia{}, ts))), Nat.is_le(q, _))}]) : List<&2, Ad.Tk>}
+  %Equal.sym(Nat, Admission.ads_held(Ad.Ia{}, ts), hi, PC.pac.held(Ad.Ia{}, ts)) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Nat.is_eq(wi, 0n), Admission.ads_room(l, _)), Nat.is_le(q, wi))}]) : List<&2, Ad.Tk>}
+  %PC.pac.isz(wi) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(_, Admission.ads_room(l, hi)), Nat.is_le(q, wi))}]) : List<&2, Ad.Tk>}
+  %PC.pac.le(q, wi) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Ad.isz(wi), Admission.ads_room(l, hi)), _)}]) : List<&2, Ad.Tk>}
+  %PC.pac.room(l, hi) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, Admission.ads_ia_status(Bool.and(Ad.isz(wi), _), Ad.le(q, wi))}]) : List<&2, Ad.Tk>}
+  %PC.pac.ia_st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi)) : {m == List.append(&2, Ad.Tk, Admission.ads_yield(l, ts), [Ad.Tk{Ad.Ia{}, _}]) : List<&2, Ad.Tk>}
+  %PC.pac.pre_on(l, ts) : {m == List.append(&2, Ad.Tk, _, [Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(wi), Ad.room(l, hi)), Ad.le(q, wi))}]) : List<&2, Ad.Tk>}
   {==}
 
 def pas.admit_bg(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> {Ad.admit.bg(l, ts) == Admission.ads_admit_bg(l, ts) : List<&2, Ad.Tk>}:
