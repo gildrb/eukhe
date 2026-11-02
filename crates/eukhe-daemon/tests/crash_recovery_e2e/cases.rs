@@ -295,15 +295,11 @@ fn run_case(phase: Phase, target: Target) {
                     .map(|entry| entry.served)
                     .collect::<Vec<_>>()
             };
-            // The supervisor owns the chat and runs its compactor: a dead
-            // session worker leaves the held call alone; a dead supervisor
-            // takes it along, and the next owner asks again, once.
-            let expected = match target {
-                Target::Worker => (vec![Served::Complete], vec![]),
-                Target::Supervisor | Target::Both => {
-                    (vec![Served::Dropped], vec![Served::Complete])
-                }
-            };
+            // The session's worker owns its own chat and runs its
+            // compactor on the supervisor's admission: a dead worker or a
+            // dead supervisor takes the held call along, and the next
+            // owner asks again, once.
+            let expected = (vec![Served::Dropped], vec![Served::Complete]);
             assert_eq!((nodes(crashed), nodes(after)), expected, "{context}");
         }
     }

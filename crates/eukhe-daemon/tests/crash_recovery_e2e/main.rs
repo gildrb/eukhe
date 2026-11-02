@@ -238,14 +238,36 @@ impl World {
         report
     }
 
-    /// Every chat-memory message line, in file order.
-    fn chat_messages(&self) -> Vec<Value> {
-        jsonl_lines(&self.agent_dir.join("chat").join("main"))
+    /// The chat of the world's one session (`chat/sessions/<session>`: each
+    /// root session logs to its own chat); `None` while it has none (a
+    /// depth-1 session keeps no chat).
+    fn session_chat(&self) -> Option<PathBuf> {
+        let sessions = self.agent_dir.join("chat").join("sessions");
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(sessions)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(dirs.len() <= 1, "one session chat: {dirs:?}");
+        dirs.pop()
     }
 
-    /// Every chat-memory tree line, in file order.
+    /// Every chat-memory message line of the session's chat, in file order.
+    fn chat_messages(&self) -> Vec<Value> {
+        self.session_chat()
+            .map(|chat| jsonl_lines(&chat.join("main")))
+            .unwrap_or_default()
+    }
+
+    /// Every chat-memory tree line of the session's chat, in file order.
     fn chat_tree(&self) -> Vec<Value> {
-        jsonl_lines(&self.agent_dir.join("chat").join("tree"))
+        self.session_chat()
+            .map(|chat| jsonl_lines(&chat.join("tree")))
+            .unwrap_or_default()
     }
 }
 
