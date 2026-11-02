@@ -1,10 +1,12 @@
 //! Line shapes (`bend/shape.bend`, entry `bend/ffi_shape.bend`;
 //! `laws/shape/`): the explicit rules eukhe states instead of decision
 //! regexes. A shape is data of a table module (`bend/incident_shapes.bend`:
-//! ids 0-99) and is named here by its global id; the core answers the
-//! first shape of a list that fits a text, or every fit of one shape, with
-//! char spans and the text each capture took. [`INCIDENT_RULES`] hands the
-//! incident shapes to eukhe-types' classifier.
+//! ids 0-99; the tui's `image_marker_shapes.bend` 100-109,
+//! `arg_token_shapes.bend` 110-119, `autolink_shapes.bend` 120-129,
+//! `preview_shapes.bend` 130-199) and is named here by its global id; the
+//! core answers the first shape of a list that fits a text, or every fit of
+//! one shape, with char spans and the text each capture took.
+//! [`INCIDENT_RULES`] hands the incident shapes to eukhe-types' classifier.
 
 use crate::wire::{Reader, Writer, STR_MAX};
 use crate::{call, expect_core, Entry, Error, WireError};

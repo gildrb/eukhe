@@ -1,10 +1,15 @@
 # ffi_shape: the entry of the compiled Bend core for line shapes
-# (bend/shape.bend; the tables: bend/incident_shapes.bend; Rust: eukhe-bend
+# (bend/shape.bend; the tables: bend/incident_shapes.bend and the tui's
+# bend/image_marker_shapes.bend, arg_token_shapes.bend,
+# autolink_shapes.bend, preview_shapes.bend; Rust: eukhe-bend
 # rules/shape.rs). Grammar: crates/eukhe-bend/WIRE.md.
 #
-#   shape id  a global Nat: 0-99 the incident shapes (index in
-#             bend/incident_shapes.bend `table`); every other id is unknown
-#             (later tables take their own hundreds)
+#   shape id  a global Nat, each table a range from its base: 0-99 the
+#             incident shapes, 100-109 the image marker, 110-119 the
+#             argument tokens, 120-129 the autolinks, 130-199 the code
+#             preview; id base + i is the shape at index i of that table
+#             (incident `table`, the tui tables' `shape(i)`, which builds
+#             only the shape asked); every other id is unknown
 #   request   0, ids (List<Nat>), text (String)
 #               reply Maybe: index in ids (Nat), start (Nat), end (Nat),
 #               captures (List<Maybe<String>>): the first shape of ids
@@ -24,6 +29,10 @@ import Base
 import ./wire.bend as W
 import ./shape.bend as S
 import ./incident_shapes.bend as IS
+import ./image_marker_shapes.bend as IM
+import ./arg_token_shapes.bend as AT
+import ./autolink_shapes.bend as AL
+import ./preview_shapes.bend as PS
 
 # A request of the entry
 type Req is Data:
@@ -78,16 +87,27 @@ def get_req(s: String) -> W.Dec<Req>:
 # Shape ids
 # ---------
 
-def shape_of.in(inc: Bool, id: Nat) -> Maybe<&2, S.Shape>:
-  match inc:
-    case True{}:
+# the shape of id in the first range whose end id is below (inc, img,
+# arg, link, prev: id is below 100, 110, 120, 130, 200), at its index
+# from the range's base
+def shape_of.in(inc: Bool, img: Bool, arg: Bool, link: Bool, prev: Bool, +id: Nat) -> Maybe<&2, S.Shape>:
+  match inc img arg link prev:
+    case True{} _ _ _ _:
       List.get(&2, S.Shape, IS.table(), id)
-    case False{}:
+    case False{} True{} _ _ _:
+      IM.shape(Nat.sub(id, 100n))
+    case False{} False{} True{} _ _:
+      AT.shape(Nat.sub(id, 110n))
+    case False{} False{} False{} True{} _:
+      AL.shape(Nat.sub(id, 120n))
+    case False{} False{} False{} False{} True{}:
+      PS.shape(Nat.sub(id, 130n))
+    case False{} False{} False{} False{} False{}:
       None{}
 
 # the shape of a global id (none: unknown)
 def shape_of(+id: Nat) -> Maybe<&2, S.Shape>:
-  shape_of.in(Nat.is_lt(id, 100n), id)
+  shape_of.in(Nat.is_lt(id, 100n), Nat.is_lt(id, 110n), Nat.is_lt(id, 120n), Nat.is_lt(id, 130n), Nat.is_lt(id, 200n), id)
 
 def shapes_of.cons(m: Maybe<&2, S.Shape>, r: Maybe<&2, List<&2, S.Shape>>) -> Maybe<&2, List<&2, S.Shape>>:
   match m:

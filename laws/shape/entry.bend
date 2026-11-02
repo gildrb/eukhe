@@ -6,17 +6,27 @@ import ../../bend/ffi_shape.bend as FS
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
 import ../incident_shapes.bend as IncidentShapes
+import ../image_marker_shapes.bend as ImageMarkerShapes
+import ../arg_token_shapes.bend as ArgTokenShapes
+import ../autolink_shapes.bend as AutolinkShapes
+import ../preview_shapes.bend as PreviewShapes
 
 # (S3) The entry of the compiled core for shapes
 # ---------------------------------------------
 # bend/ffi_shape.bend (entry 385; eukhe-bend rules/shape.rs). Every request,
 # every string after it and every input is free. The model's answers are
-# pinned by laws/shape/search.bend (shape_first_of, shape_all), the table
-# by laws/incident_shapes.bend (incident_shapes_table).
+# pinned by laws/shape/search.bend (shape_first_of, shape_all), the tables
+# by laws/incident_shapes.bend (incident_shapes_table) and the tui's
+# laws/image_marker_shapes.bend, arg_token_shapes.bend,
+# autolink_shapes.bend and preview_shapes.bend (their `_table` laws).
 #
-# R1: a shape id is a Nat: 0-99 name the incident shapes, id i the shape
-#     at index i of the incident table (laws/incident_shapes.bend R32);
-#     every other id is unknown.
+# R1: a shape id is a Nat, each table a range of ids from its base: 0-99
+#     the incident shapes (laws/incident_shapes.bend R32), 100-109 the
+#     image marker (laws/image_marker_shapes.bend R2), 110-119 the argument
+#     tokens (laws/arg_token_shapes.bend R3), 120-129 the autolinks
+#     (laws/autolink_shapes.bend R4), 130-199 the code preview
+#     (laws/preview_shapes.bend R48); id base + i is the shape at index i
+#     of that table; every other id is unknown.
 # R2: a request is tag 0, then the ids (a list of Nats: its count, then
 #     each Nat), then the text (a string); or tag 1, then one id, then the
 #     text. Tags, counts and Nats are spelled as wire Nats (laws/wire.bend).
@@ -36,16 +46,26 @@ import ../incident_shapes.bend as IncidentShapes
 def sp_err() -> String:
   Wr.err("shape: malformed request")
 
-def sp_shape_of.in(inc: Bool, id: Nat) -> Maybe<&2, S.Shape>:
-  match inc:
-    case True{}:
+# R1: the shape of id in the first range whose end id it is below (100,
+# 110, 120, 130, 200), at its index from the range's base
+def sp_shape_of.in(inc: Bool, img: Bool, arg: Bool, link: Bool, prev: Bool, +id: Nat) -> Maybe<&2, S.Shape>:
+  match inc img arg link prev:
+    case True{} _ _ _ _:
       List.get(&2, S.Shape, IncidentShapes.sp_table(), id)
-    case False{}:
+    case False{} True{} _ _ _:
+      List.get(&2, S.Shape, [ImageMarkerShapes.sp_marker()], Nat.sub(id, 100n))
+    case False{} False{} True{} _ _:
+      List.get(&2, S.Shape, ArgTokenShapes.sp_table(), Nat.sub(id, 110n))
+    case False{} False{} False{} True{} _:
+      List.get(&2, S.Shape, AutolinkShapes.sp_table(), Nat.sub(id, 120n))
+    case False{} False{} False{} False{} True{}:
+      List.get(&2, S.Shape, PreviewShapes.sp_table(), Nat.sub(id, 130n))
+    case False{} False{} False{} False{} False{}:
       None{}
 
 # R1: the shape of an id
 def sp_shape_of(+id: Nat) -> Maybe<&2, S.Shape>:
-  sp_shape_of.in(Nat.is_lt(id, 100n), id)
+  sp_shape_of.in(Nat.is_lt(id, 100n), Nat.is_lt(id, 110n), Nat.is_lt(id, 120n), Nat.is_lt(id, 130n), Nat.is_lt(id, 200n), id)
 
 def sp_shapes.cons(m: Maybe<&2, S.Shape>, r: Maybe<&2, List<&2, S.Shape>>) -> Maybe<&2, List<&2, S.Shape>>:
   match m:

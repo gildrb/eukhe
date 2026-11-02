@@ -10,11 +10,23 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use fancy_regex::Regex;
-use std::sync::LazyLock;
+use crate::text_shapes::TextShape;
 
-static IMAGE_MARKER_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\[image #(\d+)\]").expect("valid marker regex"));
+/// The marker shape. Its discriminant is its global shape id (100 plus its
+/// index in `bend/image_marker_shapes.bend` `table`; `laws/image_marker_shapes.bend`);
+/// above it, the regex it replaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+enum ImageMarkerShape {
+    /// `\[image #(\d+)\]`
+    Marker = 100,
+}
+
+impl TextShape for ImageMarkerShape {
+    fn id(self) -> u32 {
+        self as u32
+    }
+}
 
 /// The marker text inserted into the editor for pasted image `id`.
 pub fn format_image_marker(id: u64) -> String {
@@ -23,13 +35,12 @@ pub fn format_image_marker(id: u64) -> String {
 
 /// Marker ids that appear in `text`, in order of appearance.
 pub fn image_marker_ids(text: &str) -> Vec<u64> {
-    IMAGE_MARKER_REGEX
+    ImageMarkerShape::Marker
         .captures_iter(text)
+        .into_iter()
         .filter_map(|captures| {
-            let captures = captures.ok()?;
             captures
                 .get(1)?
-                .as_str()
                 .parse::<u64>()
                 .ok()
                 .filter(|id| *id < (1u64 << 53))

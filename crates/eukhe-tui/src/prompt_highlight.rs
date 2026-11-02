@@ -16,10 +16,10 @@
 //!   argument tokens of the typed text ([`slash_command_source_spans`]).
 
 use crate::style::{Modifier, Style};
+use crate::text_shapes::TextShape;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 use eukhe_types::slash_commands::{parse_slash_command, SlashCommandRegistry};
-use std::sync::OnceLock;
 
 /// One highlighted argument token (TS `ArgTokenSpan`): a half-open char
 /// range over its source text plus the token's theme color.
@@ -33,26 +33,24 @@ pub struct ArgTokenSpan {
     pub color: ThemeColor,
 }
 
-/// TS `ARG_TOKEN_PATTERN`, or `ARG_TOKEN_PATTERN_WITH_SEPARATOR` when the
-/// command line takes arguments (a bare `--` end-of-options separator also
-/// highlights).
-fn arg_token_pattern(include_bare_separator: bool) -> &'static fancy_regex::Regex {
-    static PLAIN: OnceLock<fancy_regex::Regex> = OnceLock::new();
-    static WITH_SEPARATOR: OnceLock<fancy_regex::Regex> = OnceLock::new();
-    if include_bare_separator {
-        WITH_SEPARATOR.get_or_init(|| {
-            fancy_regex::Regex::new(
-                r#"@"[^"\n]*"|@(?:\\[^\s\x1b]|[^\s\x1b|])+|--[A-Za-z0-9][A-Za-z0-9-]*|--(?=\s|$)"#,
-            )
-            .expect("arg-token pattern compiles")
-        })
-    } else {
-        PLAIN.get_or_init(|| {
-            fancy_regex::Regex::new(
-                r#"@"[^"\n]*"|@(?:\\[^\s\x1b]|[^\s\x1b|])+|--[A-Za-z0-9][A-Za-z0-9-]*"#,
-            )
-            .expect("arg-token pattern compiles")
-        })
+/// The argument-token shapes. The discriminant is the global shape id (110
+/// plus the index in `bend/arg_token_shapes.bend` `table`;
+/// `laws/arg_token_shapes.bend`); above each, the regex it replaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+enum ArgTokenShape {
+    /// TS `ARG_TOKEN_PATTERN`:
+    /// `@"[^"\n]*"|@(?:\\[^\s\x1b]|[^\s\x1b|])+|--[A-Za-z0-9][A-Za-z0-9-]*`
+    Plain = 110,
+    /// TS `ARG_TOKEN_PATTERN_WITH_SEPARATOR`, for a command line that takes
+    /// arguments (a bare `--` end-of-options separator also highlights):
+    /// `@"[^"\n]*"|@(?:\\[^\s\x1b]|[^\s\x1b|])+|--[A-Za-z0-9][A-Za-z0-9-]*|--(?=\s|$)`
+    WithSeparator = 111,
+}
+
+impl TextShape for ArgTokenShape {
+    fn id(self) -> u32 {
+        self as u32
     }
 }
 
@@ -74,10 +72,6 @@ fn has_token_boundary(text: &str, byte_start: usize) -> bool {
             .is_some_and(char::is_whitespace)
 }
 
-fn char_at_index(text: &str, byte_index: usize) -> usize {
-    text[..byte_index].chars().count()
-}
-
 fn byte_at_char(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
@@ -96,17 +90,20 @@ pub fn find_arg_tokens(
     from_index: usize,
     include_bare_separator: bool,
 ) -> Vec<ArgTokenSpan> {
-    let regex = arg_token_pattern(include_bare_separator);
+    let shape = if include_bare_separator {
+        ArgTokenShape::WithSeparator
+    } else {
+        ArgTokenShape::Plain
+    };
     let mut spans = Vec::new();
-    for result in regex.find_iter(text) {
-        let Ok(m) = result else { continue };
-        if char_at_index(text, m.start()) < from_index || !has_token_boundary(text, m.start()) {
+    for (start, end) in shape.char_spans(text) {
+        if start < from_index || !has_token_boundary(text, byte_at_char(text, start)) {
             continue;
         }
         spans.push(ArgTokenSpan {
-            start: char_at_index(text, m.start()),
-            end: char_at_index(text, m.end()),
-            color: token_color(&text[m.start()..m.end()]),
+            start,
+            end,
+            color: token_color(char_slice(text, start, end)),
         });
     }
     spans

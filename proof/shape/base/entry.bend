@@ -1,5 +1,5 @@
-# eukhe: lemmas of the shape entry proofs: the ids name the spec table's
-# shapes (she.shapes, by incident_shapes_table), the encoders are the
+# eukhe: lemmas of the shape entry proofs: the ids name the spec tables'
+# shapes (she.shapes, by the tables' `_table` laws), the encoders are the
 # spellers (she.answer), a spelled request that fits reads back
 # (she.req_rt), and each decoder stage answers Got only for the spelling of
 # what it read, every count, length and Nat within the wire (she.rp_all;
@@ -14,8 +14,16 @@ import ../../../bend/wire.bend as Wr
 import ../../../laws/base.bend as LawsBase
 import ../../../laws/wire.bend as Wire
 import ../../../laws/incident_shapes.bend as IncidentShapes
+import ../../../laws/image_marker_shapes.bend as ImageMarkerShapes
+import ../../../laws/arg_token_shapes.bend as ArgTokenShapes
+import ../../../laws/autolink_shapes.bend as AutolinkShapes
+import ../../../laws/preview_shapes.bend as PreviewShapes
 import ../../../laws/shape/entry.bend as ShapeEntry
 import ../../incident_shapes/incident_shapes_table.bend as PIncidentShapesTable
+import ../../image_marker_shapes/image_marker_shapes_table.bend as PImageMarkerShapesTable
+import ../../arg_token_shapes/arg_token_shapes_table.bend as PArgTokenShapesTable
+import ../../autolink_shapes/autolink_shapes_table.bend as PAutolinkShapesTable
+import ../../preview_shapes/preview_shapes_table.bend as PPreviewShapesTable
 import ../../base/wire.bend as LBaseWire
 import ../../wire/wire_nats_spells.bend as PWireNatsSpells
 import ../../wire/wire_list_exact.bend as PWireListExact
@@ -42,16 +50,24 @@ def she.and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == 
 # Shape ids
 # ---------
 
-def she.shape_of.in(inc: Bool, +id: Nat) -> {FS.shape_of.in(inc, id) == ShapeEntry.sp_shape_of.in(inc, id) : Maybe<&2, S.Shape>}:
-  match inc:
-    case True{}:
+def she.shape_of.in(inc: Bool, img: Bool, arg: Bool, link: Bool, prev: Bool, +id: Nat) -> {FS.shape_of.in(inc, img, arg, link, prev, id) == ShapeEntry.sp_shape_of.in(inc, img, arg, link, prev, id) : Maybe<&2, S.Shape>}:
+  match inc img arg link prev:
+    case True{} _ _ _ _:
       Equal.cong(List<&2, S.Shape>, Maybe<&2, S.Shape>, xs => List.get(&2, S.Shape, xs, id), IS.table(), IncidentShapes.sp_table(), IncidentShapes.incident_shapes_table())
-    case False{}:
+    case False{} True{} _ _ _:
+      ImageMarkerShapes.image_marker_shapes_table(Nat.sub(id, 100n))
+    case False{} False{} True{} _ _:
+      ArgTokenShapes.arg_token_shapes_table(Nat.sub(id, 110n))
+    case False{} False{} False{} True{} _:
+      AutolinkShapes.autolink_shapes_table(Nat.sub(id, 120n))
+    case False{} False{} False{} False{} True{}:
+      PreviewShapes.preview_shapes_table(Nat.sub(id, 130n))
+    case False{} False{} False{} False{} False{}:
       {==}
 
 # the entry's shape of an id is the spec's
 def she.shape_of(+id: Nat) -> {FS.shape_of(id) == ShapeEntry.sp_shape_of(id) : Maybe<&2, S.Shape>}:
-  she.shape_of.in(Nat.is_lt(id, 100n), id)
+  she.shape_of.in(Nat.is_lt(id, 100n), Nat.is_lt(id, 110n), Nat.is_lt(id, 120n), Nat.is_lt(id, 130n), Nat.is_lt(id, 200n), id)
 
 def she.cons(m: Maybe<&2, S.Shape>, r: Maybe<&2, List<&2, S.Shape>>) -> {FS.shapes_of.cons(m, r) == ShapeEntry.sp_shapes.cons(m, r) : Maybe<&2, List<&2, S.Shape>>}:
   match m:
