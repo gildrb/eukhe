@@ -437,6 +437,27 @@ law fsmode_ffi_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, Fs.Ask>}
   {FFs.ffi(s) == SCon{'E', SCon{' ', "fsmode: malformed request"}} : String}
 
+# the reply to the input s: when s is exactly one request (read_ask), the
+# spelled answer to it (spell_answer); else the error form 'E ', then
+# "fsmode: malformed request"
+def ffi_spec.read(m: Maybe<&2, Fs.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "fsmode: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.read(read_ask(s))
+
+# LAW fsmode_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the socket dir's verdict, the peer's, the mode of what eukhe creates or the cwd's verdict, spelled from the specs alone; to any other input, exactly the error form
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   request read by a reader the laws do not fix, a value answered to
+#   malformed input, an error form with another text)
+law fsmode_ffi_exact:
+  for +s: String
+  {FFs.ffi(s) == ffi_spec(s) : String}
+
 # The model's own terms, pinned
 # -----------------------------
 # The laws above (socket_dir_owned, private_on_create, ...) read the model's
