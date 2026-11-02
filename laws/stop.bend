@@ -52,6 +52,13 @@ import ../spec/harness/stop.bend as StSpec
 #     whatever follows. A stop the walk does not let stand never answers
 #     the run: its reply is a noted retry, a failure or the overflow's
 #     compaction.
+# R9: the recoveries' own helpers that the laws above read are the
+#     spec's: only Exec runs calls; every act but Pass helps; the reply
+#     each act makes (Pass the reply as it was, Exec the calls, Redo and
+#     Lower a noted error, Quit a failure, Shrink a cut overflow); a run
+#     starts with no note and no round; each row is within its cap (the
+#     length notes one past theirs, Free none); the rounds in a row are one
+#     more after a round of the same calls, else 1.
 
 # Spec helpers
 # ------------
@@ -135,6 +142,85 @@ def quits(a: RnRecovery.Act) -> Bool:
       False{}
     case RnRecovery.Lower{}:
       False{}
+
+# R9: only Exec runs tool calls
+def spec_runs(a: RnRecovery.Act) -> Bool:
+  match a:
+    case RnRecovery.Pass{}:
+      False{}
+    case RnRecovery.Exec{}:
+      True{}
+    case RnRecovery.Redo{}:
+      False{}
+    case RnRecovery.Quit{}:
+      False{}
+    case RnRecovery.Shrink{}:
+      False{}
+    case RnRecovery.Lower{}:
+      False{}
+
+# R9: every act but Pass does something about the reply
+def spec_helps(a: RnRecovery.Act) -> Bool:
+  match a:
+    case RnRecovery.Pass{}:
+      False{}
+    case RnRecovery.Exec{}:
+      True{}
+    case RnRecovery.Redo{}:
+      True{}
+    case RnRecovery.Quit{}:
+      True{}
+    case RnRecovery.Shrink{}:
+      True{}
+    case RnRecovery.Lower{}:
+      True{}
+
+# R9: the reply the run's steps read after the act; pass: the reply as
+# it was
+def spec_act_reply(a: RnRecovery.Act, pass: RnState.Reply) -> RnState.Reply:
+  match a:
+    case RnRecovery.Pass{}:
+      pass
+    case RnRecovery.Exec{}:
+      RnState.Calls{}
+    case RnRecovery.Redo{}:
+      RnState.Error{False{}, True{}}
+    case RnRecovery.Quit{}:
+      RnState.Error{False{}, False{}}
+    case RnRecovery.Shrink{}:
+      RnState.Overflow{True{}}
+    case RnRecovery.Lower{}:
+      RnState.Error{False{}, True{}}
+
+# R9: the row of the next note is within its recovery's cap: none for
+# Free (no note), one past `long` for length notes (the lower rung)
+def spec_capped(+rc: RnRecovery.RCfg, k: RnRecovery.Rk, +row: Nat) -> Bool:
+  match rc:
+    case RnRecovery.RCfg{long, leak, redirect, repeat}:
+      match k:
+        case RnRecovery.Free{}:
+          True{}
+        case RnRecovery.Longs{}:
+          Nat.is_lt(row, 2n+long)
+        case RnRecovery.Leaks{}:
+          Nat.is_lt(row, 1n+leak)
+        case RnRecovery.Loops{}:
+          Nat.is_lt(row, 1n+redirect)
+        case RnRecovery.Empties{}:
+          Nat.is_lt(row, 1n+StSpec.empty_cap())
+
+def spec_again.at(more: Bool, same: Nat) -> Nat:
+  match more:
+    case True{}:
+      1n+same
+    case False{}:
+      1n
+
+# R9: the rounds in a row with hash h after a round: one more than
+# `same` when there was a round (same > 0) and its hash `last` is h,
+# else a new row of 1
+def spec_again(+same: Nat, +last: Nat, +h: Nat) -> Nat:
+  spec_again.at(Bool.and(Nat.is_lt(0n, same), Nat.is_eq(last, h)), same)
 
 # R6: the spelling of a request and of its answer
 def sp_w_facts(f: S.Facts, rest: String) -> String:
@@ -470,6 +556,60 @@ law stop_empty_recover_is_rust:
 # EXCLUDES: a cap that drifts from 3, an empty row that never grows
 law stop_empty_example:
   {[RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Free{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 0n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 2n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 3n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Empties{}, 100n), RnDecision.decide.recover(RnRecovery.RCfg{3n, 2n, 2n, 5n}, RnDecision.Emptied{}, RnRecovery.Longs{}, 3n)] == [RnDecision.Redoes{1n}, RnDecision.Redoes{1n}, RnDecision.Redoes{3n}, RnDecision.Quits{}, RnDecision.Quits{}, RnDecision.Redoes{1n}] : List<&2, RnDecision.Help>}
+
+# Laws: the recoveries' helpers (R9)
+# ----------------------------------
+
+# LAW stop_act_runs_exact (R9): an act runs tool calls exactly when it is
+# Exec
+# EXCLUDES: an Act.runs that is never True, so rec_repeat_never_runs holds
+#   vacuously; a pass, a retry, a failure or a compaction read as calls
+law stop_act_runs_exact:
+  for a: RnRecovery.Act
+  {RnRecovery.Act.runs(a) == spec_runs(a) : Bool}
+
+# LAW stop_act_helps_exact (R9): an act does something about the reply
+# exactly when it is not Pass
+# EXCLUDES: an Act.helps that is always True, so rec_stuck_gets_help holds
+#   vacuously; a Pass counted as help
+law stop_act_helps_exact:
+  for a: RnRecovery.Act
+  {RnRecovery.Act.helps(a) == spec_helps(a) : Bool}
+
+# LAW stop_act_reply_exact (R9): the reply each act makes, for every reply
+# as it was, is the spec's: Pass keeps it, Exec runs the calls
+# EXCLUDES: a passed reply turned into an error or an overflow, calls
+#   that do not run (only Redo, Quit, Shrink and Lower were pinned)
+law stop_act_reply_exact:
+  for a: RnRecovery.Act
+  for pass: RnState.Reply
+  {RnRecovery.Act.reply(a, pass) == spec_act_reply(a, pass) : RnState.Reply}
+
+# LAW stop_rec_init_exact (R9): a run starts with no note, no row and no
+# round
+# EXCLUDES: a run that starts one note into a row, or with a round counted
+law stop_rec_init_exact:
+  {RnRecovery.Rec.init() == RnRecovery.Rec{RnRecovery.Free{}, 0n, 0n, 0n} : RnRecovery.Rec}
+
+# LAW stop_capped_exact (R9): the cap test of every row of every recovery,
+# under any caps, is the spec's
+# EXCLUDES: a cap test (the one rec_notes_capped reads) off by one, read
+#   from another cap, or one that bounds the row of no note
+law stop_capped_exact:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  {RnRecovery.Rk.capped(rc, k, row) == spec_capped(rc, k, row) : Bool}
+
+# LAW stop_again_exact (R9): the rounds in a row of calls of hash h after
+# any round are the spec's
+# EXCLUDES: a row that goes on across calls of another hash, or one that
+#   never grows (the count the repeat laws' premises read)
+law stop_again_exact:
+  for +same: Nat
+  for +last: Nat
+  for +h: Nat
+  {RnRecovery.again(same, last, h) == spec_again(same, last, h) : Nat}
 
 # Laws: the ladder of a length stop with no text (R7)
 # ---------------------------------------------------

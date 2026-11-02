@@ -2604,6 +2604,12 @@ import ./proof/stop/stop_empty_redoes.bend as PStopEmptyRedoes
 import ./proof/stop/stop_empty_row_exact.bend as PStopEmptyRowExact
 import ./proof/stop/stop_empty_recover_is_rust.bend as PStopEmptyRecoverIsRust
 import ./proof/stop/stop_empty_example.bend as PStopEmptyExample
+import ./proof/stop/stop_act_runs_exact.bend as PStopActRunsExact
+import ./proof/stop/stop_act_helps_exact.bend as PStopActHelpsExact
+import ./proof/stop/stop_act_reply_exact.bend as PStopActReplyExact
+import ./proof/stop/stop_rec_init_exact.bend as PStopRecInitExact
+import ./proof/stop/stop_capped_exact.bend as PStopCappedExact
+import ./proof/stop/stop_again_exact.bend as PStopAgainExact
 import ./proof/stop/stop_long_row_exact.bend as PStopLongRowExact
 import ./proof/stop/stop_think_recover_is_rust.bend as PStopThinkRecoverIsRust
 import ./proof/stop/stop_entry_decides.bend as PStopEntryDecides
