@@ -950,6 +950,7 @@ import ./proof/staging/staging_entry_answers.bend as PStagingEntryAnswers
 import ./proof/staging/staging_entry_exact.bend as PStagingEntryExact
 import ./proof/staging/staging_entry_example.bend as PStagingEntryExample
 import ./proof/staging/staging_entry_malformed_example.bend as PStagingEntryMalformedExample
+import ./proof/staging/staging_entry_spec.bend as PStagingEntrySpec
 import ./proof/staging/sweep_never_live_real.bend as PSweepNeverLiveReal
 import ./proof/staging/sweep_never_young_real.bend as PSweepNeverYoungReal
 import ./proof/staging/sweep_stays_out_real.bend as PSweepStaysOutReal
