@@ -362,3 +362,20 @@ law cron_file_entry_fits_example:
   exs a: CF.Pass
   {pass_fits(a) == True{} : Bool}
 
+# the reply to input s: the spec's pass on the request s is (read with the
+# wire primitives), or the error form when s is not exactly one request
+def entry_spec.go(m: Maybe<&2, CF.Pass>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "cron_file: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def entry_spec(s: String) -> String:
+  entry_spec.go(read_pass(s))
+
+# LAW cron_file_entry_exact: every input gets exactly the spec's reply: the spec's pass (laws/cron_file/pass.bend, on the store's clock) on the request it is when it is exactly one request read with the wire primitives, else the error form 'E ', then "cron_file: malformed request"
+# EXCLUDES: any answer, on any input, other than the spec's pass on the request read or the exact error text
+law cron_file_entry_exact:
+  for +s: String
+  {FF.ffi(s) == entry_spec(s) : String}

@@ -1,0 +1,7 @@
+# the passes over a file: several records, each key, time, interval, next
+# run and count at its largest (no sum over the records)
+call 0,2,{MAX},0,1,{MAX},1,{MAX},{MAX},99999999999998,0,1,{MAX},1,{MAX},{MAX},2,1,{MAX},0,{MAX},{MAX},
+call 1,2,{MAX},0,1,{MAX},1,{MAX},{MAX},99999999999998,0,0,1,{MAX},{MAX},2,0,1,{MAX},1,T1,
+call 2,2,{MAX},0,1,{MAX},1,{MAX},0,99999999999998,0,1,{MAX},1,{MAX},5,2,0,1,{MAX},T0,1,99999999999998,FTT{MAX},
+call 2,1,{MAX},0,1,{MAX},1,{MAX},{MAX},1,0,1,{MAX},TFF{MAX},
+refuse 0,1,{LONG},0,1,{MAX},1,{MAX},{MAX},0,{MAX},{MAX},

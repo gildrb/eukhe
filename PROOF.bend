@@ -2503,6 +2503,7 @@ import ./proof/cron_file/cron_file_entry_answers.bend as PCronFileEntryAnswers
 import ./proof/cron_file/cron_file_entry_malformed_exact.bend as PCronFileEntryMalformedExact
 import ./proof/cron_file/cron_file_entry_example.bend as PCronFileEntryExample
 import ./proof/cron_file/cron_file_entry_fits_example.bend as PCronFileEntryFitsExample
+import ./proof/cron_file/cron_file_entry_exact.bend as PCronFileEntryExact
 import ./proof/cron_file/cron_file_take_refines.bend as PCronFileTakeRefines
 import ./proof/cron_file/cron_file_recover_refines.bend as PCronFileRecoverRefines
 import ./proof/cron_file/cron_file_finish_refines.bend as PCronFileFinishRefines
