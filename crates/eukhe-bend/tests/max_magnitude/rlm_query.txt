@@ -1,0 +1,22 @@
+# plan: every number at {MAX}. Under a set budget Rust asks only for sizes
+# that add up within the core's bound (rules::rlm_query PlanError::TooLarge
+# refuses the rest), so two sizes of {MAX} with {MAX} spent, named in the
+# refusal; with no budget, any number of {MAX} sizes (no sum is formed)
+call 0,{MAX},{MAX},{MAX},{MAX},{MAX},2,{MAX},{MAX},
+call 0,0,{MAX},{MAX},{MAX},0,2,{MAX},{MAX},
+call 0,0,{MAX},{MAX},{MAX},0,1,{MAX},
+call 0,{MAX},{MAX},{MAX},0,{MAX},4,{MAX},{MAX},{MAX},{MAX},
+call 0,0,{MAX},{MAX},0,{MAX},4,{MAX},{MAX},{MAX},{MAX},
+call 0,0,{MAX},0,0,0,3,{MAX},{MAX},{MAX},
+call 0,99999999999998,{MAX},{MAX},0,0,3,{MAX},{MAX},{MAX},
+call 0,0,{MAX},1,{MAX},{MAX},0,
+# cut: the largest limit, a text that fits it and one cut at 0
+call 1,{MAX},5,héllo
+call 1,{MAX},0,
+call 1,0,3,abc
+# a number, a count or a length past the wire: refused, never a stop
+refuse 0,{LONG},0,0,0,0,0,
+refuse 0,0,0,0,0,0,1,{LONG},
+refuse 1,{LONG},0,
+refuse 1,0,{LONG},a
+refuse 0,0,{MAX},0,0,0,{MAX},1,
