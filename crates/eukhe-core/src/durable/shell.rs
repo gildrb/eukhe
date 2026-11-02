@@ -65,9 +65,10 @@ outside, protected, secret) gate on the user's `shell.autoEffects`: allowed ones
 others wait for approval; a denial stops the script. `git` commands that can run repo programs \
 (status, diff, commit, ...) count as exec. cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
 touch, cp, mv, grep run in process; control flow, functions, subshells or `$(...)` run the whole \
-script in bash as one exec step. No API keys or tokens in the environment. The result lists each \
-step's exit status; output is bounded. A script outliving the blocking budget continues as a \
-job; its end arrives as a `[job-settled]` message.";
+script in bash as one exec step. A file you will edit: `read` it, since `edit` needs the \
+`[path#TAG]` header `cat` does not print. No API keys or tokens in the environment. The result \
+lists each step's exit status; output is bounded. A script outliving the blocking budget \
+continues as a job; its end arrives as a `[job-settled]` message.";
 
 /// Asks through the session's sink; each question's id is the tool
 /// call's id (or a host request's) and the step.
