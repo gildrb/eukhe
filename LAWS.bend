@@ -53,6 +53,7 @@ import ./laws/cron.bend as Cron
 import ./laws/cron_store.bend as CronStore
 import ./laws/cron_terms.bend as CronTerms
 import ./laws/cron_step.bend as CronStep
+import ./laws/cron_job.bend as CronJob
 import ./laws/supervise.bend as Supervise
 import ./laws/timeouts.bend as Timeouts
 import ./laws/revive.bend as Revive

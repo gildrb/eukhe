@@ -1077,6 +1077,16 @@ import ./proof/cron_store/cron_resume_exact.bend as PCronResumeExact
 import ./proof/cron_terms/cron_terms_exact.bend as PCronTermsExact
 import ./proof/cron_step/cron_step_exact.bend as PCronStepExact
 import ./proof/cron_step/cron_step_example.bend as PCronStepExample
+import ./proof/cron_job/base.bend as LACronJob
+import ./proof/cron_job/cron_take_job_exact.bend as PCronTakeJobExact
+import ./proof/cron_job/cron_recover_job_exact.bend as PCronRecoverJobExact
+import ./proof/cron_job/cron_finish_job_exact.bend as PCronFinishJobExact
+import ./proof/cron_job/cron_cancel_job_exact.bend as PCronCancelJobExact
+import ./proof/cron_job/cron_resume_job_exact.bend as PCronResumeJobExact
+import ./proof/cron_job/cron_pause_job_exact.bend as PCronPauseJobExact
+import ./proof/cron_job/cron_stop_job_exact.bend as PCronStopJobExact
+import ./proof/cron_job/cron_delete_job_exact.bend as PCronDeleteJobExact
+import ./proof/cron_job/cron_edit_job_exact.bend as PCronEditJobExact
 import ./proof/supervise/base.bend as LASupervise
 import ./proof/supervise/restart_gives_up.bend as PRestartGivesUp
 import ./proof/supervise/restart_decide_window.bend as PRestartDecideWindow
