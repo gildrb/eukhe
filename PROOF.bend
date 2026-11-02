@@ -1151,6 +1151,12 @@ import ./proof/replace/replace_ffi_verdict.bend as PReplaceFfiVerdict
 import ./proof/replace/replace_ffi_example.bend as PReplaceFfiExample
 import ./proof/replace/replace_ffi_exact.bend as PReplaceFfiExact
 import ./proof/replace/replace_ffi_exact_example.bend as PReplaceFfiExactExample
+import ./proof/replace/replace_after_exact.bend as PReplaceAfterExact
+import ./proof/replace/replace_daemons_exact.bend as PReplaceDaemonsExact
+import ./proof/replace/replace_replaced_exact.bend as PReplaceReplacedExact
+import ./proof/replace/replace_not_below_exact.bend as PReplaceNotBelowExact
+import ./proof/replace/replace_never_back_exact.bend as PReplaceNeverBackExact
+import ./proof/replace/replace_covers_exact.bend as PReplaceCoversExact
 import ./proof/notice/base.bend as LANotice
 import ./proof/notice/notice_shown_once.bend as PNoticeShownOnce
 import ./proof/notice/notice_per_restore.bend as PNoticePerRestore

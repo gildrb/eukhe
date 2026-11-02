@@ -158,3 +158,53 @@ def rk.relation_exact(+c: Rp.Build, +d: Rp.Build) -> {Rp.relation(c, d) == Repla
       %rk.lt_spec(rd, rc) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), _, Replace.rank_below(rc, rd)) : Rp.Rel}
       %rk.lt_spec(rc, rd) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), Rp.lt(rd, rc), _) : Rp.Rel}
       rk.rel_pick(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd))
+
+# Client starts, exactly
+# ----------------------
+
+def st.after_put(r: Rp.Rel, k: Rp.Caller, -c: Rp.Build, -b: Rp.Build) -> {Rp.after.put(Rp.verdict.put(r, k), c, b) == Replace.rp_after.pick(Replace.verdict_spec(r, k), c, b) : Rp.Build}:
+  match r k:
+    case Rp.Same{} Rp.Interactive{}:
+      {==}
+    case Rp.Same{} Rp.Background{}:
+      {==}
+    case Rp.Older{} Rp.Interactive{}:
+      {==}
+    case Rp.Older{} Rp.Background{}:
+      {==}
+    case Rp.Newer{} Rp.Interactive{}:
+      {==}
+    case Rp.Newer{} Rp.Background{}:
+      {==}
+    case Rp.Other{} Rp.Interactive{}:
+      {==}
+    case Rp.Other{} Rp.Background{}:
+      {==}
+
+# the daemon after a start is rp_after's
+def st.after_exact(s: Rp.Start, d: Maybe<&2, Rp.Build>) -> {Rp.after(s, d) == Replace.rp_after(s, d) : Rp.Build}:
+  match s:
+    case Rp.Start{+c, +k}:
+      match d:
+        case None{}:
+          {==}
+        case Some{+b}:
+          %rk.relation_exact(c, b) : {Rp.after.put(Rp.verdict.put(Rp.relation(c, b), k), c, b) == Replace.rp_after.pick(Replace.verdict_spec(_, k), c, b) : Rp.Build}
+          st.after_put(Rp.relation(c, b), k, c, b)
+
+def st.not_below_go(seen: List<&2, Rp.Build>, +r: List<&2, Nat>, +i: String) -> {Rp.not_below(seen, Rp.Build{r, i}) == Replace.rp_not_below(seen, Rp.Build{r, i}) : Bool}:
+  match seen:
+    case Nil{}:
+      {==}
+    case e <> t:
+      match e:
+        case Rp.Build{+re, ie}:
+          %rk.lt_spec(r, re) : {Bool.and(Bool.not(Rp.lt(r, re)), Rp.not_below(t, Rp.Build{r, i})) == Bool.and(Bool.not(_), Replace.rp_not_below(t, Rp.Build{r, i})) : Bool}
+          %st.not_below_go(t, r, i) : {Bool.and(Bool.not(Rp.lt(r, re)), Rp.not_below(t, Rp.Build{r, i})) == Bool.and(Bool.not(Rp.lt(r, re)), _) : Bool}
+          {==}
+
+# not_below is rp_not_below
+def st.not_below_exact(b: Rp.Build, +seen: List<&2, Rp.Build>) -> {Rp.not_below(seen, b) == Replace.rp_not_below(seen, b) : Bool}:
+  match b:
+    case Rp.Build{+r, +i}:
+      st.not_below_go(seen, r, i)
