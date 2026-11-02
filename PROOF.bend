@@ -1808,6 +1808,8 @@ import ./proof/workflow/wfw_decision_example.bend as PWfwDecisionExample
 import ./proof/workflow/wfw_limits_example.bend as PWfwLimitsExample
 import ./proof/workflow/wfw_ffi_example.bend as PWfwFfiExample
 import ./proof/workflow/wfw_malformed_example.bend as PWfwMalformedExample
+import ./proof/workflow/wfw_ffi_exact.bend as PWfwFfiExact
+import ./proof/workflow/wfw_ffi_exact_example.bend as PWfwFfiExactExample
 import ./proof/command/base.bend as LACommand
 import ./proof/command/command_path_runs_itself.bend as PCommandPathRunsItself
 import ./proof/command/command_unknown_runs_nothing.bend as PCommandUnknownRunsNothing
