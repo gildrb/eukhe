@@ -1,0 +1,7 @@
+# err, then one Bool per block (T an image): counts as large as a request
+# can hold, the flag both ways; a count past the blocks; a 15-digit count
+call T3,TFT
+call F3,TTT
+call T0,
+refuse T{MAX},TT
+refuse T{LONG},T

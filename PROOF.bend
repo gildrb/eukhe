@@ -2750,6 +2750,9 @@ import ./proof/tool_result/tool_result_entry_reads.bend as PToolResultEntryReads
 import ./proof/tool_result/tool_result_entry_exact.bend as PToolResultEntryExact
 import ./proof/tool_result/tool_result_entry_refuses.bend as PToolResultEntryRefuses
 import ./proof/tool_result/tool_result_entry_example.bend as PToolResultEntryExample
+import ./proof/tool_result/tool_result_plan_spec.bend as PToolResultPlanSpec
+import ./proof/tool_result/tool_result_entry_spec.bend as PToolResultEntrySpec
+import ./proof/tool_result/tool_result_entry_images_example.bend as PToolResultEntryImagesExample
 import ./proof/job_notice/base.bend as LAJobNotice
 import ./proof/job_notice/job_notice_agent_never_wakes.bend as PJobNoticeAgentNeverWakes
 import ./proof/job_notice/job_notice_taken_never_wakes.bend as PJobNoticeTakenNeverWakes
