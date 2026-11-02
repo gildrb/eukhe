@@ -3,19 +3,23 @@
 //! let it. A writer then takes an OS lock on
 //! `<lock dir>/<xxh64 of the real path>.lock` (shared by every session
 //! and process of one eukhe home), and replaces the file through a
-//! same-directory temporary file: write, fsync, rename, fsync the
-//! directory. A replaced file keeps its mode; a created file gets the
-//! default mode (no execute bit).
+//! same-directory temporary file: write, fsync, re-read the target, rename,
+//! fsync the directory. Another program may change the target with no path
+//! lock: the re-read just before the rename sees it, and the change is
+//! rebased onto those bytes or refused, never written over them. A
+//! replaced file keeps its mode; a created file gets the default mode (no
+//! execute bit).
 //!
 //! A temporary file is named `.eukhe-tmp-<xxh64 of the target name>-<pid>-<n>`
 //! (a fixed length, so a long target name still fits) and its writer holds
 //! an OS lock on it while it lives. Each write of a target first removes the
 //! target's temporary files whose lock it can take: a crash left them.
 //!
-//! Every choice (the check of an edit, what a publish did, the write tool's
-//! base, the temporary files' prefix and which a sweep removes) runs as the
-//! compiled Bend core ([`crate::commit`]); this module locks, reads,
-//! compares, publishes and removes.
+//! Every choice (the check of an edit, what a publish did, the step after
+//! a publish's re-read, the write tool's base, the temporary files' prefix
+//! and which a sweep removes) runs as the compiled Bend core
+//! ([`crate::commit`], [`eukhe_bend::rules::doc_publish`]); this module
+//! locks, reads, compares, publishes and removes.
 
 use std::fs::{File, OpenOptions, Permissions};
 use std::io::Write as _;
@@ -24,12 +28,13 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use eukhe_bend::rules::doc_publish::{self, Seen, Step};
 use eukhe_types::path_policy::{real_path, resolve};
 use twox_hash::XxHash64;
 
 use crate::error::EditError;
 use crate::gate::{Access, AccessGate, AccessRefusal};
-use crate::hashline::{EditWriter, Published, WriteOp, WriteRequest as EditWriteRequest};
+use crate::hashline::{Basis, EditWriter, Published, WriteOp, WriteRequest as EditWriteRequest};
 use crate::store::EditStore;
 use crate::text::{self, encoding_name, LineEnding, Projection, BOM};
 
@@ -135,9 +140,13 @@ impl Faults for NoFaults {
 
 /// How a publish may treat a file at the target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Publish {
-    /// Replace it.
-    Replace,
+pub(crate) enum Publish<'a> {
+    /// Replace it, only while it holds `base`: the bytes the new ones were
+    /// made from. Over other bytes (another program wrote them, with no
+    /// path lock) the change is rebased onto them and checked again, or
+    /// refused ([`PublishError::Changed`]): the compiled core's step
+    /// (`bend/doc_publish.bend`).
+    Replace { base: &'a [u8] },
     /// Never replace it: a target that exists fails with
     /// [`std::io::ErrorKind::AlreadyExists`] and is not changed.
     Create,
@@ -146,46 +155,171 @@ pub(crate) enum Publish {
 /// A publish whose bytes are at the target.
 #[derive(Debug)]
 pub(crate) struct Placed {
+    /// The text at the target when the change was rebased onto bytes
+    /// another program wrote meanwhile; `None`: the given bytes.
+    pub(crate) rebased: Option<String>,
     /// Why the directory sync failed: the new name may not survive a crash.
     pub(crate) unsynced: Option<std::io::Error>,
 }
 
+/// Why a publish left the target as it was.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PublishError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// Another program changed the target, and the change could not be
+    /// carried onto its bytes (they are gone, the rebase was refused, or
+    /// the rebases ran out).
+    #[error("the file changed on disk while it was being written")]
+    Changed,
+}
+
+/// What became of a temporary file once its publish looked at the target.
+enum Staged<T> {
+    /// It is at the target.
+    Placed,
+    /// It was removed; the target is as it was.
+    Dropped(T),
+}
+
+/// Why a replace dropped its temporary file.
+enum Retry {
+    /// The target holds these bytes, not the base: rebase onto them.
+    Rebase(Vec<u8>),
+    /// Leave the target as it is.
+    Refuse,
+}
+
 /// Put `bytes` at `target` atomically; `permissions` applies to the new
 /// file from its creation (the replaced file's mode; `None`: the default
-/// mode). An error means the target did not change.
+/// mode). A replace re-reads the target after the new bytes are synced,
+/// just before the rename, and renames only over its base; over other
+/// bytes it rebases the change onto them and tries again, as the core's
+/// step chooses: a publish never replaces bytes it did not read. An error
+/// means the target did not change.
 pub(crate) fn publish(
     target: &Path,
     bytes: &[u8],
     permissions: Option<Permissions>,
-    mode: Publish,
+    mode: Publish<'_>,
     faults: &dyn Faults,
-) -> std::io::Result<Placed> {
+) -> Result<Placed, PublishError> {
     let directory = target.parent().unwrap_or(Path::new("."));
     let digest = name_digest(target);
     let prefix = crate::commit::prefix(&digest);
     sweep_temps(directory, &digest, &prefix);
-    let temp = directory.join(format!(
-        "{prefix}{}-{}",
-        std::process::id(),
-        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let placed = write_synced(&temp, bytes, permissions).and_then(|_held| {
-        faults.inject(target, Stage::BeforeRename)?;
-        match mode {
-            Publish::Replace => std::fs::rename(&temp, target),
-            Publish::Create => place_new(&temp, target),
+    let temps = Temps {
+        directory,
+        prefix: &prefix,
+        target,
+        permissions,
+        faults,
+    };
+    let rebased = match mode {
+        Publish::Create => {
+            match temps.stage(bytes, |temp| {
+                place_new(temp, target).map(|()| Staged::<std::convert::Infallible>::Placed)
+            })? {
+                Staged::Placed => None,
+                Staged::Dropped(never) => match never {},
+            }
         }
-    });
-    if let Err(error) = placed {
-        // The temporary file may not exist; the write error is the one to report.
-        let _cleanup = std::fs::remove_file(&temp);
-        return Err(error);
-    }
+        Publish::Replace { base } => {
+            // The bytes the staged text was rebased onto, and that text.
+            let mut restaged: Option<(Vec<u8>, String)> = None;
+            let mut rebases = 0;
+            loop {
+                let (base, staged) = match &restaged {
+                    Some((head, text)) => (head.as_slice(), text.as_bytes()),
+                    None => (base, bytes),
+                };
+                let staged_at = temps.stage(staged, |temp| {
+                    let (seen, head) = match std::fs::read(target) {
+                        Ok(head) if head == base => (Seen::Same, None),
+                        Ok(head) => (Seen::Moved, Some(head)),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            (Seen::Gone, None)
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    match (doc_publish::step(rebases, seen), head) {
+                        (Step::Place, _) => std::fs::rename(temp, target).map(|()| Staged::Placed),
+                        (Step::Rebase, Some(head)) => Ok(Staged::Dropped(Retry::Rebase(head))),
+                        (Step::Rebase, None) => {
+                            crate::commit::inconsistent("a rebase onto other bytes")
+                        }
+                        (Step::Refuse, _) => Ok(Staged::Dropped(Retry::Refuse)),
+                    }
+                })?;
+                let head = match staged_at {
+                    Staged::Placed => break restaged.map(|(_, text)| text),
+                    Staged::Dropped(Retry::Rebase(head)) => head,
+                    Staged::Dropped(Retry::Refuse) => return Err(PublishError::Changed),
+                };
+                // Only text rebases: bytes that are not UTF-8 refuse the file.
+                let text = match (
+                    std::str::from_utf8(base),
+                    std::str::from_utf8(&head),
+                    std::str::from_utf8(staged),
+                ) {
+                    (Ok(base), Ok(theirs), Ok(ours)) => {
+                        crate::rebase::rebase_content(base, theirs, ours)
+                            .map_err(|_conflict| PublishError::Changed)?
+                    }
+                    (Err(_), _, _) | (_, Err(_), _) | (_, _, Err(_)) => {
+                        return Err(PublishError::Changed)
+                    }
+                };
+                restaged = Some((head, text));
+                rebases += 1;
+            }
+        }
+    };
     let unsynced = faults
         .inject(target, Stage::AfterRename)
         .and_then(|()| File::open(directory)?.sync_all())
         .err();
-    Ok(Placed { unsynced })
+    Ok(Placed { rebased, unsynced })
+}
+
+/// The temporary files of one publish of `target`.
+struct Temps<'a> {
+    directory: &'a Path,
+    prefix: &'a str,
+    target: &'a Path,
+    permissions: Option<Permissions>,
+    faults: &'a dyn Faults,
+}
+
+impl Temps<'_> {
+    /// Write and sync `bytes` to a new temporary file, then let `then`
+    /// place it while its lock is held; a temporary file not placed is
+    /// removed.
+    fn stage<T>(
+        &self,
+        bytes: &[u8],
+        then: impl FnOnce(&Path) -> std::io::Result<Staged<T>>,
+    ) -> std::io::Result<Staged<T>> {
+        let temp = self.directory.join(format!(
+            "{}{}-{}",
+            self.prefix,
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let staged = write_synced(&temp, bytes, self.permissions.clone()).and_then(|_held| {
+            self.faults.inject(self.target, Stage::BeforeRename)?;
+            then(&temp)
+        });
+        match &staged {
+            Ok(Staged::Placed) => {}
+            // The temporary file may not exist; the write error is the one
+            // to report.
+            Ok(Staged::Dropped(_)) | Err(_) => {
+                let _cleanup = std::fs::remove_file(&temp);
+            }
+        }
+        staged
+    }
 }
 
 /// Give `temp` the name `target` only when `target` does not exist: a hard
@@ -403,12 +537,13 @@ pub(crate) fn write_file(
         crate::commit::Gate::Stale => return Err(changed()),
     }
     let mut warnings = Vec::new();
-    let (persisted, permissions, disposition, mode) = if let Some((bytes, permissions)) = existing {
-        let previous = String::from_utf8_lossy(&bytes);
-        if std::str::from_utf8(&bytes).is_err() {
+    let (persisted, permissions, disposition, mode) = if let Some((bytes, permissions)) = &existing
+    {
+        let previous = String::from_utf8_lossy(bytes);
+        if std::str::from_utf8(bytes).is_err() {
             warnings.push(format!(
                 "{display} was {}; it is now UTF-8.",
-                encoding_name(&bytes)
+                encoding_name(bytes)
             ));
         }
         let asked = Projection::of(content);
@@ -437,9 +572,9 @@ pub(crate) fn write_file(
         }
         (
             persisted,
-            Some(permissions),
+            Some(permissions.clone()),
             WriteDisposition::Overwrote,
-            Publish::Replace,
+            Publish::Replace { base: bytes },
         )
     } else {
         if let Some(parent) = canonical.parent() {
@@ -459,10 +594,13 @@ pub(crate) fn write_file(
         mode,
         &NoFaults,
     )
-    .map_err(|error| match error.kind() {
-        // Another program created the file after the check.
-        std::io::ErrorKind::AlreadyExists => unseen(),
-        _ => io(error),
+    .map_err(|error| match error {
+        PublishError::Io(error) => match error.kind() {
+            // Another program created the file after the check.
+            std::io::ErrorKind::AlreadyExists => unseen(),
+            _ => io(error),
+        },
+        PublishError::Changed => changed(),
     })?;
     let landed = crate::commit::outcome(crate::commit::Pub::Updated(crate::commit::Placed::Yes {
         synced: placed.unsynced.is_none(),
@@ -474,12 +612,31 @@ pub(crate) fn write_file(
             "{display} was written, but its directory sync failed: {error}"
         ));
     }
-    store.saw_bytes(&canonical, persisted.as_bytes());
+    let (sent, persisted) = if let Some(text) = placed.rebased {
+        warnings.push(rebased_warning(display));
+        (Some(persisted), text)
+    } else {
+        store.saw_bytes(&canonical, persisted.as_bytes());
+        (None, persisted)
+    };
     let projection = Projection::of(&persisted);
     let text = projection.lf_text();
     let tag = (persisted.len() as u64 <= crate::store::MAX_SNAPSHOT_FILE_BYTES).then(|| {
-        let line_count = crate::read::line_count(&projection);
-        let seen: Vec<u32> = (1..=u32::try_from(line_count).unwrap_or(u32::MAX)).collect();
+        // Every line the write sent is seen; a line another program wrote
+        // meanwhile (a rebased write) is not, and the write tool may not
+        // replace those bytes.
+        let seen: Vec<u32> = match &sent {
+            None => {
+                let line_count = crate::read::line_count(&projection);
+                (1..=u32::try_from(line_count).unwrap_or(u32::MAX)).collect()
+            }
+            Some(sent) => crate::hashline::carry_seen(
+                &Projection::of(sent).lf_text(),
+                &text,
+                |_| true,
+                crate::hashline::Added::Unseen,
+            ),
+        };
         store.reset_noop(&canonical);
         store.record(&canonical, &text, Some(&seen))
     });
@@ -506,7 +663,9 @@ pub(crate) fn write_file(
 /// path it changes, takes the path locks of every file it touches, checks
 /// each file's current bytes against the bytes the edit was applied to
 /// (and that each move destination is free), and only then replaces the
-/// files atomically (mode kept), in order.
+/// files atomically (mode kept), in order. Each replace re-reads its file
+/// just before the rename ([`publish`]): bytes another program wrote since
+/// the check are rebased onto, or the file is not written.
 pub(crate) struct LockedWriter<'a> {
     pub(crate) lock_dir: &'a Path,
     pub(crate) gate: &'a dyn AccessGate,
@@ -588,17 +747,30 @@ impl LockedWriter<'_> {
         let mut failure = None;
         let mut remove_warning = None;
         let (facts, written, placed) = match request.op {
-            WriteOp::Update { content, .. } => {
+            WriteOp::Update {
+                before_raw,
+                content,
+            } => {
                 let placed = match publish(
                     source,
                     content.as_bytes(),
                     Some(permissions),
-                    Publish::Replace,
+                    Publish::Replace {
+                        base: before_raw.as_bytes(),
+                    },
                     self.faults,
                 ) {
                     Ok(placed) => Some(placed),
-                    Err(error) => {
+                    Err(PublishError::Io(error)) => {
                         failure = Some(io_error(display, source, error));
+                        None
+                    }
+                    Err(PublishError::Changed) => {
+                        failure = Some(EditError::apply(format!(
+                            "Edit not applied to {display}: another program changed it while \
+                             the edit was being written, and the edit could not be rebased \
+                             onto its new bytes. {display} keeps them; re-read it and retry."
+                        )));
                         None
                     }
                 };
@@ -640,12 +812,19 @@ impl LockedWriter<'_> {
                         self.faults,
                     ) {
                         Ok(placed) => Some(placed),
-                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        Err(PublishError::Io(error))
+                            if error.kind() == std::io::ErrorKind::AlreadyExists =>
+                        {
                             failure = Some(destination_taken(display, destination_display));
                             None
                         }
-                        Err(error) => {
+                        Err(PublishError::Io(error)) => {
                             failure = Some(io_error(destination_display, &target, error));
+                            None
+                        }
+                        // A create never rebases: it never replaces a file.
+                        Err(PublishError::Changed) => {
+                            failure = Some(destination_taken(display, destination_display));
                             None
                         }
                     },
@@ -677,18 +856,29 @@ impl LockedWriter<'_> {
                 )
             }
         };
-        let sync_warning = placed
-            .and_then(|placed| placed.unsynced)
+        let (rebased, unsynced) = match placed {
+            Some(Placed { rebased, unsynced }) => (rebased, unsynced),
+            None => (None, None),
+        };
+        let sync_warning = unsynced
             .map(|error| format!("{display} was written, but its directory sync failed: {error}"));
         match (outcome(facts), failure) {
-            (Outcome::Lands(warn), _) => Published::Landed {
-                written: written.to_owned(),
-                warning: match warn {
+            (Outcome::Lands(warn), _) => {
+                let (written, basis, mut warnings) = match rebased {
+                    Some(text) => (text, Basis::Rebased, vec![rebased_warning(display)]),
+                    None => (written.to_owned(), Basis::Staged, Vec::new()),
+                };
+                warnings.extend(match warn {
                     Warn::None => None,
                     Warn::Sync => sync_warning,
                     Warn::Remove => remove_warning,
-                },
-            },
+                });
+                Published::Landed {
+                    written,
+                    basis,
+                    warnings,
+                }
+            }
             (Outcome::Fails, Some(error)) => Published::Failed(error),
             (Outcome::Fails, None) => crate::commit::inconsistent("a landed publish"),
         }
@@ -716,6 +906,16 @@ fn changed_on_disk(display: &str) -> EditError {
         "Edit rejected for {display}: the file changed on disk while the edit was being \
          applied. Nothing was written. Re-read the file and retry."
     ))
+}
+
+/// The warning of a change rebased, while it was written, onto the bytes
+/// another program wrote to `display`.
+fn rebased_warning(display: &str) -> String {
+    format!(
+        "{display} was changed by another program while this change was being written; the \
+         change was rebased onto its new bytes, which it keeps. Re-read {display} before you \
+         edit the lines that program wrote."
+    )
 }
 
 impl EditWriter for LockedWriter<'_> {

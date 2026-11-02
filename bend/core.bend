@@ -33,6 +33,7 @@ import ./ffi_doc_commit.bend as ffi_doc_commit
 import ./ffi_doc_glob.bend as ffi_doc_glob
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_plan.bend as ffi_doc_plan
+import ./ffi_doc_publish.bend as ffi_doc_publish
 import ./ffi_doc_rows.bend as ffi_doc_rows
 import ./ffi_doc_search.bend as ffi_doc_search
 import ./ffi_doc_seen.bend as ffi_doc_seen
@@ -337,6 +338,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_kin.ffi(input)
     case 443:
       ffi_thread.ffi(input)
+    case 444:
+      ffi_doc_publish.ffi(input)
     case 450:
       ffi_job_notice.ffi(input)
     case 451:

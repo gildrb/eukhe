@@ -2756,3 +2756,15 @@ import ./proof/privacy/privacy_scrub_hides.bend as PPrivacyScrubHides
 import ./proof/privacy/privacy_secret_never_restored.bend as PPrivacySecretNeverRestored
 import ./proof/privacy/privacy_token_stable.bend as PPrivacyTokenStable
 import ./proof/privacy/privacy_tokens_kept.bend as PPrivacyTokensKept
+import ./proof/doc_publish/base.bend as LADocPublish
+import ./proof/doc_publish/doc_publish_never_overwrites_unread.bend as PDocPublishNeverOverwritesUnread
+import ./proof/doc_publish/doc_publish_places_over_base.bend as PDocPublishPlacesOverBase
+import ./proof/doc_publish/doc_publish_rebases_onto_other_bytes.bend as PDocPublishRebasesOntoOtherBytes
+import ./proof/doc_publish/doc_publish_rebases_bounded.bend as PDocPublishRebasesBounded
+import ./proof/doc_publish/doc_publish_refuses_gone.bend as PDocPublishRefusesGone
+import ./proof/doc_publish/doc_publish_refines_spec.bend as PDocPublishRefinesSpec
+import ./proof/doc_publish/doc_publish_entry_is_spec.bend as PDocPublishEntryIsSpec
+import ./proof/doc_publish/doc_publish_entry_reads.bend as PDocPublishEntryReads
+import ./proof/doc_publish/doc_publish_entry_exact.bend as PDocPublishEntryExact
+import ./proof/doc_publish/doc_publish_entry_refuses.bend as PDocPublishEntryRefuses
+import ./proof/doc_publish/doc_publish_entry_example.bend as PDocPublishEntryExample

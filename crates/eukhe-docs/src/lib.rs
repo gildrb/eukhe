@@ -51,7 +51,7 @@ pub use gate::{Access, AccessGate, AccessRefusal};
 pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest};
 pub use grep::{ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest};
 pub use hashline::{
-    apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
+    apply_hashline, section_paths, Basis, EditWriter, FileChange, FileOutcome, HashlineOptions,
     HashlineOutcome, HashlineParseError, Published, WriteOp, WriteRequest, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};

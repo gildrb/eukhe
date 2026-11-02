@@ -16,6 +16,7 @@ pub mod cron;
 pub mod cvar;
 pub mod cvar_layers;
 pub mod doc_plan;
+pub mod doc_publish;
 pub mod err_text;
 pub mod error_body;
 pub mod family;

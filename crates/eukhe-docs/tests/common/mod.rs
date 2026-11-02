@@ -23,7 +23,7 @@ use std::{
 };
 
 use eukhe_docs::{
-    apply_hashline, text::lf_text, EditError, EditStore, EditWriter, HashlineOptions,
+    apply_hashline, text::lf_text, Basis, EditError, EditStore, EditWriter, HashlineOptions,
     HashlineOutcome, Published, WriteOp, WriteRequest,
 };
 use serde_json::Value;
@@ -106,7 +106,8 @@ impl EditWriter for DiskWriter {
             match self.write(request) {
                 Ok(written) => published.push(Published::Landed {
                     written,
-                    warning: None,
+                    basis: Basis::Staged,
+                    warnings: Vec::new(),
                 }),
                 Err(error) => {
                     published.push(Published::Failed(error));

@@ -236,6 +236,8 @@ pub enum Entry {
     Kin = 442,
     /// `bend/ffi_thread.bend`: a call.
     Thread = 443,
+    /// `bend/ffi_doc_publish.bend`: a call.
+    DocPublish = 444,
     /// `bend/ffi_job_notice.bend`: a call.
     JobNotice = 450,
     /// `bend/ffi_privacy.bend`: a call and a stepper.
@@ -362,6 +364,7 @@ impl Entry {
         Entry::ModelRoles,
         Entry::Kin,
         Entry::Thread,
+        Entry::DocPublish,
         Entry::JobNotice,
         Entry::Privacy,
         Entry::ToolResult,
