@@ -710,3 +710,84 @@ law compactor_ffi_example:
   {FC.ffi("2,1,2,2,") == "1,2," : String} &
   {FC.ffi("3,") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String} &
   {FC.ffi("0,5,x") == SCon{'E', SCon{' ', "compactor: malformed request"}} : String}
+
+# Every input, from the spec alone
+# ---------------------------------
+# The laws above pin the answer to each request Rust spells; this one pins
+# the answer to every input, read with the reader above (the wire
+# primitives) and decided by the independent specs open_spec, step_spec
+# and after_spec, never by bend/compactor.bend. Rust keeps the texts: a
+# length read stands for a text of that many one-byte characters (the
+# decision reads only lengths, the reply only tags and numbers).
+
+# a text of n bytes, one-byte characters
+def ones(n: Nat) -> List<&2, C.W>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      C.W1{} <> ones(k)
+
+# the shortest reply so far as read: 0 none | 1 a text of that length
+def ask_best(b: Maybe<&2, Nat>) -> Maybe<&2, List<&2, C.W>>:
+  match b:
+    case None{}:
+      None{}
+    case Some{k}:
+      Some{ones(k)}
+
+def ask_bl(b: Maybe<&2, Nat>) -> Nat:
+  match b:
+    case None{}:
+      0n
+    case Some{k}:
+      k
+
+# the reply as read: 0 a provider error | 1 a text of that length
+def ask_reply(x: Maybe<&2, Nat>) -> C.Reply:
+  match x:
+    case None{}:
+      C.Erred{}
+    case Some{k}:
+      C.Says{ones(k)}
+
+# how a call ended as read: 0 saved, 1 failed, 2 the disk, 3 stopped (the
+# reader reads no other tag)
+def ask_outcome(o: Nat) -> C.Outcome:
+  match o:
+    case 0n:
+      C.Built{}
+    case 1n:
+      C.Failed{}
+    case 2n:
+      C.Disk{}
+    case 3n+q:
+      C.Stopped{}
+
+# the answer to a request read: a line opens (open_spec), a reply to a
+# line (step_spec, the line's input left out: Rust keeps it), a call of a
+# pending line ended (after_spec)
+def spec_answer(a: Ask) -> String:
+  match a:
+    case AOpen{t}:
+      spell_next(open_spec(t, 0n, Nil{}))
+    case AStep{l, m, n, +b, x}:
+      spell_next(step_spec(C.Lst{l, m, n, ask_best(b), ask_bl(b), Nil{}}, ask_reply(x)))
+    case AAfter{p, o}:
+      spell_pend(after_spec(p, ask_outcome(o)), "")
+
+# the answer to an input: no whole request, the error form
+def spec_entry(m: Maybe<&2, Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "compactor: malformed request"}}
+    case Some{a}:
+      spec_answer(a)
+
+# LAW compactor_ffi_spec: every input is answered from the spec alone: exactly one request (read_ask) gets the decision open_spec, step_spec or after_spec takes on the numbers it carries, every other input exactly the error form 'E ', then "compactor: malformed request"
+# EXCLUDES: an input other than one whole request answered with a value (a
+#   second spelling, input left over), a decision on a read request that
+#   is not the spec's, a reply that depends on anything but the input
+law compactor_ffi_spec:
+  for +s: String
+  {FC.ffi(s) == spec_entry(read_ask(s)) : String}

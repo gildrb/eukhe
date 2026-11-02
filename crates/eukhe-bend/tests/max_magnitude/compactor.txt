@@ -1,0 +1,18 @@
+# a line of {MAX} tries opens; replies with tries left, calls made, node,
+# best and reply lengths at their largest (Rust's lines keep tries left
+# plus calls made at most the tries, so the calls made after a reply stay
+# within {MAX}): a fit, the last call of {MAX}, a shorter follow-up, no
+# try left, an empty reply, an error; a pending line with {MAX} failures
+# left fails and hits the disk. Refused: a 15-digit tries left, failures
+# left
+call 0,{MAX},
+call 1,{MAX},0,{MAX},1,{MAX},1,{MAX},
+call 1,1,99999999999998,{MAX},1,{MAX},1,{MAX},
+call 1,{MAX},0,1,1,{MAX},1,99999999999998,
+call 1,0,{MAX},{MAX},1,{MAX},0,
+call 1,{MAX},0,{MAX},0,1,0,
+call 1,{MAX},0,{MAX},0,0,
+call 2,1,{MAX},1,
+call 2,1,{MAX},2,
+refuse 1,{LONG},0,1,0,0,
+refuse 2,1,{LONG},1,

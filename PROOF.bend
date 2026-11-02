@@ -102,6 +102,7 @@ import ./proof/compactor/compactor_ffi_step.bend as PCompactorFfiStep
 import ./proof/compactor/compactor_ffi_after.bend as PCompactorFfiAfter
 import ./proof/compactor/compactor_ffi_malformed_exact.bend as PCompactorFfiMalformedExact
 import ./proof/compactor/compactor_ffi_example.bend as PCompactorFfiExample
+import ./proof/compactor/compactor_ffi_spec.bend as PCompactorFfiSpec
 import ./proof/wait/base.bend as LAWait
 import ./proof/wait/wait_ends_once.bend as PWaitEndsOnce
 import ./proof/wait/wait_end_is_final.bend as PWaitEndIsFinal
