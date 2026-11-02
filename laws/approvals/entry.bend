@@ -307,7 +307,9 @@ def dspec.run(+d: Am.D, r: Wr.Dec<Am.Ev>) -> FAm.St & String:
       (FAm.Live{d}, malformed_event())
 
 # the step of a live desk d on s: the model desk's step on the event s is
-# exactly, spelled; else the error form, the desk kept
+# exactly, spelled; else the error form, the desk kept. The model's step
+# `Am.dstep` is the spec's table `sp_dstep` (laws/approvals/desk.bend) for
+# every desk and event: approvals_desk_step_spec
 def dspec(+d: Am.D, s: String) -> FAm.St & String:
   dspec.run(d, read_ev(s))
 
@@ -351,6 +353,8 @@ def dk_replies(es: List<&2, Am.Ev>, +d: Am.D) -> List<&2, String>:
 # The call
 # --------
 
+# the call's reply: `Am.default_auto` spelled, whose bytes
+# approvals_ffi_example pins ("7,0,1,2,3,4,5,6,": every effect)
 def spec.end(whole: Bool) -> String:
   match whole:
     case True{}:
