@@ -1932,6 +1932,10 @@ import ./proof/selection/selection_ffi_error_keeps_the_state.bend as PSelectionF
 import ./proof/selection/selection_ffi_reads_only_events.bend as PSelectionFfiReadsOnlyEvents
 import ./proof/selection/selection_ffi_unknown_event.bend as PSelectionFfiUnknownEvent
 import ./proof/selection/selection_ffi_unknown_wrap.bend as PSelectionFfiUnknownWrap
+import ./proof/selection/base/errors.bend as LASelectionErrors
+import ./proof/selection/sel_release_pieces.bend as PSelReleasePieces
+import ./proof/selection/selection_ffi_left_over_exact.bend as PSelectionFfiLeftOverExact
+import ./proof/selection/selection_ffi_errors.bend as PSelectionFfiErrors
 import ./proof/codemode_id/base.bend as LACodemodeId
 import ./proof/codemode_id/codemode_id_exact.bend as PCodemodeIdExact
 import ./proof/codemode_id/codemode_id_is_identifier.bend as PCodemodeIdIsIdentifier
