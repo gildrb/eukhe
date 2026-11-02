@@ -1,42 +1,43 @@
 //! marked's GFM inline autolink rules (marked 18.0.7, the TS markdown
-//! tokenizer), ported verbatim so bare URLs and angle-form links tokenize
-//! exactly like the TS renderer: after every other inline construct fails,
-//! marked tries `autolink` (`<scheme:...>` / `<email>`) and then `url`
-//! (bare `http(s)://`, `ftp://`, `www.`, and email shapes, the latter only
-//! outside a link label - marked's `state.inLink` guard). A match becomes a
-//! link token whose text is the visible label and whose href feeds the OSC
-//! 8 wrap (`markdown.ts` `case "link"`).
+//! tokenizer), so bare URLs and angle-form links tokenize exactly like the
+//! TS renderer: after every other inline construct fails, marked tries
+//! `autolink` (`<scheme:...>` / `<email>`) and then `url` (bare
+//! `http(s)://`, `ftp://`, `www.`, and email shapes, the latter only outside
+//! a link label - marked's `state.inLink` guard). A match becomes a link
+//! token whose text is the visible label and whose href feeds the OSC 8 wrap
+//! (`markdown.ts` `case "link"`). The rules' regexes are shapes in the
+//! compiled core ([`AutolinkShape`]).
 
-use std::sync::LazyLock;
+use crate::text_shapes::TextShape;
 
-use fancy_regex::Regex;
+/// marked's autolink rules as shapes. The discriminant is the global shape
+/// id (120 plus the index in `bend/autolink_shapes.bend` `table`;
+/// `laws/autolink_shapes.bend`); above each, marked's regex it replaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+enum AutolinkShape {
+    /// `rules.inline.autolink`: angle-form link. Capture 1 is the link
+    /// target, capture 2 the `@` marking the email alternative:
+    /// ``^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s\x00-\x1f<>]*|[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_]))>``
+    Angle = 120,
+    /// `rules.inline.url` (gfm): bare url/www/email. Capture 1 is the
+    /// scheme (`www.` included), capture 2 the `@` marking the email
+    /// alternative:
+    /// `^((?:[hH][tT][tT][pP][sS]?|[fF][tT][pP])://|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])`
+    Bare = 121,
+    /// `rules.inline._backpedal`: trailing-punctuation trim. Balanced paren
+    /// groups survive; a punctuation run may only be consumed when it does
+    /// not end the string (the `(?!$)` guard), so the tokenizer's fixpoint
+    /// loop peels a trailing run one character per pass:
+    /// `(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+`
+    Backpedal = 122,
+}
 
-/// `rules.inline.autolink`: angle-form link. Group 1 is the link target,
-/// group 2 the `@` marking the email alternative.
-static ANGLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s\x00-\x1f<>]*|[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_]))>",
-    )
-    .expect("static autolink regex")
-});
-
-/// `rules.inline.url` (gfm): bare url/www/email. Group 1 is the scheme
-/// (`www.` included), group 2 the `@` marking the email alternative.
-static BARE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"^((?:[hH][tT][tT][pP][sS]?|[fF][tT][pP])://|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])",
-    )
-    .expect("static url regex")
-});
-
-/// `rules.inline._backpedal`: trailing-punctuation trim. Balanced paren
-/// groups survive; a punctuation run may only be consumed when it does not
-/// end the string (the `(?!$)` guard), so the tokenizer's fixpoint loop
-/// peels a trailing run one character per pass.
-static BACKPEDAL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+"#)
-        .expect("static backpedal regex")
-});
+impl TextShape for AutolinkShape {
+    fn id(self) -> u32 {
+        self as u32
+    }
+}
 
 /// One autolink match: the visible label, the href marked puts on the
 /// token (before `markdown.ts` normalizes it with `new URL()`), and the
@@ -50,11 +51,19 @@ pub(crate) struct AutolinkToken {
     pub href: String,
 }
 
+/// The text up to its first Unicode white space char. No autolink fit holds
+/// one, and the one look past a fit, the email's `(?![-_])`, answers the
+/// same at the text end as at white space (`laws/autolink_shapes.bend` R1,
+/// R2), so the core reads no more of the rest of the line than a fit can use.
+fn before_space(src: &str) -> &str {
+    src.find(char::is_whitespace).map_or(src, |end| &src[..end])
+}
+
 /// The `autolink` rule: `<scheme:...>` or `<email>`. Never backpedaled.
 pub(crate) fn angle_token(src: &str) -> Option<AutolinkToken> {
-    let caps = ANGLE.captures(src).ok().flatten()?;
-    let raw = caps.get(0)?.as_str().to_string();
-    let text = caps.get(1)?.as_str().to_string();
+    let caps = AutolinkShape::Angle.captures(before_space(src))?;
+    let raw = caps.get(0)?.to_string();
+    let text = caps.get(1)?.to_string();
     let href = if caps.get(2).is_some() {
         format!("mailto:{text}")
     } else {
@@ -68,9 +77,9 @@ pub(crate) fn angle_token(src: &str) -> Option<AutolinkToken> {
 /// branch runs the `_backpedal` fixpoint loop; the email branch needs none
 /// (its domain grammar cannot end on punctuation).
 pub(crate) fn bare_token(src: &str) -> Option<AutolinkToken> {
-    let caps = BARE.captures(src).ok().flatten()?;
+    let caps = AutolinkShape::Bare.captures(before_space(src))?;
     if caps.get(2).is_some() {
-        let raw = caps.get(0)?.as_str().to_string();
+        let raw = caps.get(0)?.to_string();
         let href = format!("mailto:{raw}");
         return Some(AutolinkToken {
             text: raw.clone(),
@@ -78,8 +87,8 @@ pub(crate) fn bare_token(src: &str) -> Option<AutolinkToken> {
             raw,
         });
     }
-    let scheme = caps.get(1)?.as_str().to_string();
-    let matched = caps.get(0)?.as_str();
+    let scheme = caps.get(1)?;
+    let matched = caps.get(0)?;
     // marked's fixpoint (`do .. while r !== t[0]`) re-executed on the
     // shrunk match; the loop here walks the same steps as (start, end)
     // ranges over the one matched slice instead of re-copying the string
@@ -87,7 +96,7 @@ pub(crate) fn bare_token(src: &str) -> Option<AutolinkToken> {
     // allocation per peeled character.
     let mut start = 0;
     let mut end = matched.len();
-    while let Ok(Some(m)) = BACKPEDAL.find(&matched[start..end]) {
+    while let Some(m) = AutolinkShape::Backpedal.find(&matched[start..end]) {
         if m.start() == 0 && m.end() == end - start {
             break;
         }

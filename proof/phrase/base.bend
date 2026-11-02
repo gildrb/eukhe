@@ -534,11 +534,194 @@ def phb.os_fin(-s: String, +st: P.Edge, -its: List<&2, P.It>, -en: P.Edge, b: Bo
 # -----------------
 
 # the code's lazy search of a list is the spec's
-def phb.any(+s: String, phs: List<&2, P.Ph>) -> {P.any(s, phs) == Phrase.sp_any(s, phs) : Bool}:
+# The one-pass search
+# -------------------
+
+# whether one of the phrases is found from the place s on, each one's
+# start flag the one-pass search's (first: s is the text; w: the char
+# before s is a word char)
+def phb.occs(+s: String, phs: List<&2, P.Ph>, +first: Bool, +w: Bool) -> Bool:
+  match phs:
+    case Nil{}:
+      False{}
+    case p <> more:
+      match p:
+        case P.Ph{+st, its, end}:
+          Bool.or(P.occ(s, st, its, end, P.may(st, first, w)), phb.occs(s, more, first, w))
+
+# whether one of the phrases starts at the place where the text is x then t
+def phb.heres(phs: List<&2, P.Ph>, +x: Char, +t: String, +first: Bool, +w: Bool) -> Bool:
+  match phs:
+    case Nil{}:
+      False{}
+    case p <> more:
+      match p:
+        case P.Ph{+st, its, end}:
+          Bool.or(Bool.and(P.may(st, first, w), P.pm(SCon{x, t}, its, end)), phb.heres(more, x, t, first, w))
+
+def phb.pmif(b: Bool, +t: String, +k: List<&2, P.It>, +end: P.Edge) -> {P.pm.if(b, t, k, end) == P.pm.and(b, u => P.pm(t, k, end)) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def phb.pm_at(+x: Char, +t: String, its: List<&2, P.It>, +end: P.Edge) -> {P.pm.at(x, t, its, end) == P.pm(SCon{x, t}, its, end) : Bool}:
+  match its:
+    case Nil{}:
+      {==}
+    case i <> +k:
+      match i:
+        case P.One{+c}:
+          phb.pmif(P.is1(c, x), t, k, end)
+        case P.Opt{c}:
+          {==}
+        case P.Star{c}:
+          {==}
+
+def phb.at_if(m: Bool, +x: Char, +t: String, +its: List<&2, P.It>, +end: P.Edge) -> {P.pm.at.if(m, x, t, its, end) == Bool.and(m, P.pm(SCon{x, t}, its, end)) : Bool}:
+  match m:
+    case True{}:
+      phb.pm_at(x, t, its, end)
+    case False{}:
+      {==}
+
+def phb.end_if(m: Bool, +its: List<&2, P.It>, +end: P.Edge) -> {P.pm.if(m, SNil{}, its, end) == P.pm.and(m, u => P.pm(SNil{}, its, end)) : Bool}:
+  match m:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def phb.at_here(phs: List<&2, P.Ph>, h: Bool, +x: Char, +t: String, +first: Bool, +w: Bool) -> {P.here(phs, h, x, t, first, w) == Bool.or(h, phb.heres(phs, x, t, first, w)) : Bool}:
+  match phs:
+    case Nil{}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case p <> +more:
+      match p:
+        case P.Ph{+st, +its, +end}:
+          match h:
+            case True{}:
+              {==}
+            case False{}:
+              +m = {P.may(st, first, w) : Bool}
+              %Equal.sym(Bool, P.here(more, P.pm.at.if(m, x, t, its, end), x, t, first, w), Bool.or(P.pm.at.if(m, x, t, its, end), phb.heres(more, x, t, first, w)), phb.at_here(more, P.pm.at.if(m, x, t, its, end), x, t, first, w)) : {_ == Bool.or(False{}, phb.heres(P.Ph{st, its, end} <> more, x, t, first, w)) : Bool}
+              %Equal.sym(Bool, P.pm.at.if(m, x, t, its, end), Bool.and(m, P.pm(SCon{x, t}, its, end)), phb.at_if(m, x, t, its, end)) : {Bool.or(_, phb.heres(more, x, t, first, w)) == Bool.or(False{}, phb.heres(P.Ph{st, its, end} <> more, x, t, first, w)) : Bool}
+              {==}
+
+def phb.at_end(phs: List<&2, P.Ph>, h: Bool, +first: Bool, +w: Bool) -> {P.here.end(phs, h, first, w) == Bool.or(h, phb.occs(SNil{}, phs, first, w)) : Bool}:
+  match phs:
+    case Nil{}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case p <> +more:
+      match p:
+        case P.Ph{+st, +its, +end}:
+          match h:
+            case True{}:
+              {==}
+            case False{}:
+              +m = {P.may(st, first, w) : Bool}
+              %Equal.sym(Bool, P.here.end(more, P.pm.if(m, SNil{}, its, end), first, w), Bool.or(P.pm.if(m, SNil{}, its, end), phb.occs(SNil{}, more, first, w)), phb.at_end(more, P.pm.if(m, SNil{}, its, end), first, w)) : {_ == Bool.or(False{}, phb.occs(SNil{}, P.Ph{st, its, end} <> more, first, w)) : Bool}
+              %Equal.sym(Bool, P.pm.if(m, SNil{}, its, end), P.pm.and(m, u => P.pm(SNil{}, its, end)), phb.end_if(m, its, end)) : {Bool.or(_, phb.occs(SNil{}, more, first, w)) == Bool.or(False{}, phb.occs(SNil{}, P.Ph{st, its, end} <> more, first, w)) : Bool}
+              {==}
+
+# the start flag after the char x is the search's step
+def phb.step_may(st: P.Edge, +x: Char) -> {P.step(st, x) == P.may(st, False{}, P.is_word(x)) : Bool}:
+  match st:
+    case P.EFree{}:
+      {==}
+    case P.EWord{}:
+      {==}
+    case P.EText{}:
+      {==}
+
+def phb.or4(a: Bool, b: Bool, c: Bool, d: Bool) -> {Bool.or(Bool.or(a, b), Bool.or(c, d)) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}:
+  match a b c d:
+    case True{} _ _ _:
+      {==}
+    case False{} True{} True{} _:
+      {==}
+    case False{} True{} False{} _:
+      {==}
+    case False{} False{} True{} _:
+      {==}
+    case False{} False{} False{} True{}:
+      {==}
+    case False{} False{} False{} False{}:
+      {==}
+
+def phb.and_lazy(a: Bool, b: Bool) -> {P.pm.and(a, u => b) == Bool.and(a, b) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# a place of the text x then t: the phrases that start there, or later
+def phb.split(phs: List<&2, P.Ph>, +x: Char, +t: String, +first: Bool, +w: Bool) -> {phb.occs(SCon{x, t}, phs, first, w) == Bool.or(phb.heres(phs, x, t, first, w), phb.occs(t, phs, False{}, P.is_word(x))) : Bool}:
   match phs:
     case Nil{}:
       {==}
-    case +p <> +more:
-      +f = P.found(s, p)
-      +e1 = Equal.cong(Bool, Bool, z => P.pm.or(f, u => z), P.any(s, more), Phrase.sp_any(s, more), phb.any(s, more))
-      Equal.trans(Bool, P.pm.or(f, u => P.any(s, more)), P.pm.or(f, u => Phrase.sp_any(s, more)), Bool.or(f, Phrase.sp_any(s, more)), e1, phb.or_lazy(f, Phrase.sp_any(s, more)))
+    case p <> +more:
+      match p:
+        case P.Ph{+st, +its, +end}:
+          +m = {P.may(st, first, w) : Bool}
+          +a = {Bool.and(m, P.pm(SCon{x, t}, its, end)) : Bool}
+          +b = {P.occ(t, st, its, end, P.may(st, False{}, P.is_word(x))) : Bool}
+          +c = {phb.heres(more, x, t, first, w) : Bool}
+          +d = {phb.occs(t, more, False{}, P.is_word(x)) : Bool}
+          %Equal.sym(Bool, phb.occs(SCon{x, t}, more, first, w), Bool.or(c, d), phb.split(more, x, t, first, w)) : {Bool.or(P.occ(SCon{x, t}, st, its, end, m), _) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}
+          %Equal.sym(Bool, P.step(st, x), P.may(st, False{}, P.is_word(x)), phb.step_may(st, x)) : {Bool.or(P.pm.or(P.pm.and(m, u => P.pm(SCon{x, t}, its, end)), v => P.occ(t, st, its, end, _)), Bool.or(c, d)) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}
+          %Equal.sym(Bool, P.pm.and(m, u => P.pm(SCon{x, t}, its, end)), a, phb.and_lazy(m, P.pm(SCon{x, t}, its, end))) : {Bool.or(P.pm.or(_, v => b), Bool.or(c, d)) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}
+          %Equal.sym(Bool, P.pm.or(a, v => b), Bool.or(a, b), phb.or_lazy(a, b)) : {Bool.or(_, Bool.or(c, d)) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}
+          phb.or4(a, b, c, d)
+
+def phb.any_go(s: String, +phs: List<&2, P.Ph>, +first: Bool, +w: Bool, hit: Bool) -> {P.any.go(s, phs, first, w, hit) == Bool.or(hit, phb.occs(s, phs, first, w)) : Bool}:
+  match s:
+    case SNil{}:
+      match hit:
+        case True{}:
+          {==}
+        case False{}:
+          phb.at_end(phs, False{}, first, w)
+    case SCon{+x, +t}:
+      match hit:
+        case True{}:
+          {==}
+        case False{}:
+          +H = {P.here(phs, False{}, x, t, first, w) : Bool}
+          %Equal.sym(Bool, P.any.go(t, phs, False{}, P.is_word(x), H), Bool.or(H, phb.occs(t, phs, False{}, P.is_word(x))), phb.any_go(t, phs, False{}, P.is_word(x), H)) : {_ == Bool.or(False{}, phb.occs(SCon{x, t}, phs, first, w)) : Bool}
+          %Equal.sym(Bool, H, Bool.or(False{}, phb.heres(phs, x, t, first, w)), phb.at_here(phs, False{}, x, t, first, w)) : {Bool.or(_, phb.occs(t, phs, False{}, P.is_word(x))) == Bool.or(False{}, phb.occs(SCon{x, t}, phs, first, w)) : Bool}
+          %Equal.sym(Bool, phb.occs(SCon{x, t}, phs, first, w), Bool.or(phb.heres(phs, x, t, first, w), phb.occs(t, phs, False{}, P.is_word(x))), phb.split(phs, x, t, first, w)) : {Bool.or(phb.heres(phs, x, t, first, w), phb.occs(t, phs, False{}, P.is_word(x))) == Bool.or(False{}, _) : Bool}
+          {==}
+
+def phb.start_may(st: P.Edge, +w: Bool) -> {P.may(st, True{}, w) == True{} : Bool}:
+  match st:
+    case P.EFree{}:
+      {==}
+    case P.EWord{}:
+      {==}
+    case P.EText{}:
+      {==}
+
+def phb.occs_any(+s: String, phs: List<&2, P.Ph>) -> {phb.occs(s, phs, True{}, False{}) == Phrase.sp_any(s, phs) : Bool}:
+  match phs:
+    case Nil{}:
+      {==}
+    case p <> +more:
+      match p:
+        case P.Ph{+st, +its, +end}:
+          %Equal.sym(Bool, P.may(st, True{}, False{}), True{}, phb.start_may(st, False{})) : {Bool.or(P.occ(s, st, its, end, _), phb.occs(s, more, True{}, False{})) == Phrase.sp_any(s, P.Ph{st, its, end} <> more) : Bool}
+          Equal.cong(Bool, Bool, z => Bool.or(P.found(s, P.Ph{st, its, end}), z), phb.occs(s, more, True{}, False{}), Phrase.sp_any(s, more), phb.occs_any(s, more))
+
+# the code's one-pass search of a list is the spec's
+def phb.any(+s: String, +phs: List<&2, P.Ph>) -> {P.any(s, phs) == Phrase.sp_any(s, phs) : Bool}:
+  Equal.trans(Bool, P.any.go(s, phs, True{}, False{}, False{}), phb.occs(s, phs, True{}, False{}), Phrase.sp_any(s, phs), phb.any_go(s, phs, True{}, False{}, False{}), phb.occs_any(s, phs))

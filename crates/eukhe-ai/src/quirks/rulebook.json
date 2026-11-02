@@ -1,23 +1,23 @@
 {
   "families": [
-    { "id": "claude-adaptive", "on": "names", "match": "opus-4-7|opus-4-8|opus-5|sonnet-5|haiku-5|fable-5" },
-    { "id": "claude-adaptive-4-6", "on": "names", "match": "opus-4-6|sonnet-4-6" },
-    { "id": "claude-cached", "on": "names", "match": "claude.*-4-|-4-.*claude|claude-3-7-sonnet|claude-3-5-haiku", "except": "opus-4-6|opus-4-7|opus-4-8|opus-5|sonnet-4-6|sonnet-5|haiku-5|fable-5" },
-    { "id": "claude-uncached", "on": "names", "match": "claude", "except": "opus-4-6|opus-4-7|opus-4-8|opus-5|sonnet-4-6|sonnet-5|haiku-5|fable-5|claude.*-4-|-4-.*claude|claude-3-7-sonnet|claude-3-5-haiku" },
-    { "id": "gemini-2.5-flash", "on": "id", "match": "2\\.5-flash", "except": "2\\.5-flash-lite" },
-    { "id": "gemini-2.5-flash-lite", "on": "id", "match": "2\\.5-flash-lite" },
-    { "id": "gemini-2.5-pro", "on": "id", "match": "2\\.5-pro" },
-    { "id": "gemini-3-plus", "on": "id", "match": "^gemini(?:-live)?-0*(?:[3-9]|[1-9][0-9]+)" },
-    { "id": "gemini-latest", "on": "id", "match": "^gemini-flash(?:-lite)?-latest$" },
-    { "id": "gemma-4", "on": "id", "match": "gemma-?4" },
-    { "id": "gpt-explicit-cache", "on": "id", "match": "^gpt-6(?:$|[-.])|^gpt-5\\.0*(?:[6-9]|[1-9][0-9]+)(?:$|-)", "except": "^(?:gpt-5\\.6|gpt-6-astra)$|^gpt-5\\.6-" },
-    { "id": "gpt-priority", "on": "id", "match": "^(?:gpt-5\\.4|gpt-5\\.5)$" },
-    { "id": "gpt-priority-explicit-cache", "on": "id", "match": "^(?:gpt-5\\.6|gpt-6-astra)$|^gpt-5\\.6-" },
-    { "id": "grok-4.3", "on": "id", "match": "^grok-4\\.3$" },
-    { "id": "grok-4.5", "on": "id", "match": "^grok-4\\.5$" },
-    { "id": "grok-4.6", "on": "id", "match": "^grok-4\\.[67]$" },
-    { "id": "qwen", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$", "revision": { "prefix": "qwen", "range": "<3.8" } },
-    { "id": "qwen-3.8", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$", "revision": { "prefix": "qwen", "range": ">=3.8" } }
+    { "id": "claude-adaptive", "on": "names", "match": [{ "contains": ["opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5"] }] },
+    { "id": "claude-adaptive-4-6", "on": "names", "match": [{ "contains": ["opus-4-6", "sonnet-4-6"] }] },
+    { "id": "claude-cached", "on": "names", "match": [{ "then": ["claude", "-4-"] }, { "then": ["-4-", "claude"] }, { "contains": ["claude-3-7-sonnet", "claude-3-5-haiku"] }], "except": [{ "contains": ["opus-4-6", "opus-4-7", "opus-4-8", "opus-5", "sonnet-4-6", "sonnet-5", "haiku-5", "fable-5"] }] },
+    { "id": "claude-uncached", "on": "names", "match": [{ "contains": ["claude"] }], "except": [{ "contains": ["opus-4-6", "opus-4-7", "opus-4-8", "opus-5", "sonnet-4-6", "sonnet-5", "haiku-5", "fable-5"] }, { "then": ["claude", "-4-"] }, { "then": ["-4-", "claude"] }, { "contains": ["claude-3-7-sonnet", "claude-3-5-haiku"] }] },
+    { "id": "gemini-2.5-flash", "on": "id", "match": [{ "contains": ["2.5-flash"] }], "except": [{ "contains": ["2.5-flash-lite"] }] },
+    { "id": "gemini-2.5-flash-lite", "on": "id", "match": [{ "contains": ["2.5-flash-lite"] }] },
+    { "id": "gemini-2.5-pro", "on": "id", "match": [{ "contains": ["2.5-pro"] }] },
+    { "id": "gemini-3-plus", "on": "id", "match": [{ "number": { "after": ["gemini-", "gemini-live-"], "at_least": 3 } }] },
+    { "id": "gemini-latest", "on": "id", "match": [{ "is": ["gemini-flash-latest", "gemini-flash-lite-latest"] }] },
+    { "id": "gemma-4", "on": "id", "match": [{ "contains": ["gemma4", "gemma-4"] }] },
+    { "id": "gpt-explicit-cache", "on": "id", "match": [{ "is": ["gpt-6"] }, { "starts": ["gpt-6-", "gpt-6."] }, { "number": { "after": ["gpt-5."], "at_least": 6, "whole": true } }], "except": [{ "is": ["gpt-5.6", "gpt-6-astra"] }, { "starts": ["gpt-5.6-"] }] },
+    { "id": "gpt-priority", "on": "id", "match": [{ "is": ["gpt-5.4", "gpt-5.5"] }] },
+    { "id": "gpt-priority-explicit-cache", "on": "id", "match": [{ "is": ["gpt-5.6", "gpt-6-astra"] }, { "starts": ["gpt-5.6-"] }] },
+    { "id": "grok-4.3", "on": "id", "match": [{ "is": ["grok-4.3"] }] },
+    { "id": "grok-4.5", "on": "id", "match": [{ "is": ["grok-4.5"] }] },
+    { "id": "grok-4.6", "on": "id", "match": [{ "is": ["grok-4.6", "grok-4.7"] }] },
+    { "id": "qwen", "on": "id", "match": [{ "segment_starts": ["qwen", "qwq"] }], "revision": { "prefix": "qwen", "range": "<3.8" } },
+    { "id": "qwen-3.8", "on": "id", "match": [{ "segment_starts": ["qwen", "qwq"] }], "revision": { "prefix": "qwen", "range": ">=3.8" } }
   ],
   "hosts": [
     { "id": "anthropic", "providers": ["anthropic"], "urls": ["api.anthropic.com"] },
@@ -108,7 +108,7 @@
     { "provider": "openai-codex", "api": "openai-codex-responses", "model": "gpt-5.5", "tiers": ["priority"], "multiplier": 2.5 }
   ],
   "cache_write_1h_prices": [
-    { "match": "claude", "input_multiplier": 2.0 }
+    { "match": [{ "contains": ["claude"] }], "input_multiplier": 2.0 }
   ],
   "provider_defaults": {
     "amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",

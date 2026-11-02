@@ -16,7 +16,8 @@
 //! does not depend on the order of the rules.
 //!
 //! A model's query names one target per layer ([`Rulebook::query`]):
-//! - family: the one family whose pattern matches the model, and whose
+//! - family: the one family one of whose name rules holds for the model
+//!   and none of whose `except` rules does ([`name_rules`]), and whose
 //!   revision range (when it has one) holds for the revision that the
 //!   model id names ([`revision`]; an id that names no revision has the
 //!   revision 0). A model that two families match is the error
@@ -49,10 +50,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use eukhe_bend::rules::model_name::{self, NameRule};
 use eukhe_bend::rules::quirks as compiled;
 use eukhe_bend::wire::WireError;
 use eukhe_bend::{expect_core, Entry};
-use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
@@ -62,6 +63,7 @@ use crate::types::{
     ThinkingLevelMap,
 };
 
+mod name_rules;
 mod prices;
 mod provider_defaults;
 mod revision;
@@ -501,8 +503,8 @@ pub enum QuirksError {
     },
     #[error("the rulebook is not valid: {0}")]
     Format(String),
-    #[error("family `{family}` has a bad pattern: {reason}")]
-    BadPattern { family: String, reason: String },
+    #[error("family `{family}` has a bad rule: {reason}")]
+    BadRule { family: String, reason: String },
     #[error("family `{family}` has a bad revision range: {reason}")]
     BadRevision { family: String, reason: String },
     #[error("two {layer} definitions have the id `{id}`")]
@@ -775,14 +777,14 @@ pub struct ThinkingDefaults {
     pub budgets: LevelBudgets,
 }
 
-/// What a family pattern is matched against.
+/// What a family's rules are matched against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum MatchOn {
     /// The lowercased model id.
     Id,
     /// The lowercased model id and name, each also with separator runs
-    /// (`[\s_.:]+`) replaced by `-` ([`match_candidates`]).
+    /// replaced by `-` ([`match_candidates`]).
     Names,
 }
 
@@ -800,14 +802,15 @@ struct RevisionEntry {
 struct FamilyEntry {
     id: String,
     on: MatchOn,
+    /// The rules of which one must hold ([`name_rules`]).
     #[serde(rename = "match")]
-    pattern: String,
+    rules: Vec<name_rules::NameRuleEntry>,
     #[serde(default)]
     revision: Option<RevisionEntry>,
-    /// A regex that excludes a model the `match` pattern matches (on the
-    /// same candidates), so two families stay disjoint without a lookahead.
+    /// The rules that exclude a model `match` takes (on the same
+    /// candidates), so two families stay disjoint.
     #[serde(default)]
-    except: Option<String>,
+    except: Vec<name_rules::NameRuleEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -854,9 +857,10 @@ struct RulebookEntry {
 struct Family {
     id: String,
     on: MatchOn,
-    pattern: Regex,
-    /// The pattern that excludes a model `pattern` matches.
-    except: Option<Regex>,
+    /// One of them must hold.
+    rules: Vec<NameRule>,
+    /// None of them may hold.
+    except: Vec<NameRule>,
     /// The revision prefix (lowercase) and the range the revision is in.
     revision: Option<(String, revision::Range)>,
 }
@@ -883,24 +887,36 @@ pub struct Rulebook {
     provider_defaults: provider_defaults::ProviderDefaults,
 }
 
-/// `/[\s_.:]+/g`.
-static SEPARATORS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\s_.:]+").unwrap_or_else(|_| unreachable!("static regex")));
-
 /// TS `getModelMatchCandidates`: the lowercased id (and name), each also
-/// with separator runs replaced by `-`.
+/// with every run of separators (a Unicode `White_Space` char, `_`, `.`,
+/// `:`) replaced by one `-` (the compiled core's [`model_name::dash`]).
 pub(crate) fn match_candidates(model_id: &str, model_name: &str) -> Vec<String> {
-    let values: &[&str] = if model_name.is_empty() {
-        &[model_id]
-    } else {
-        &[model_id, model_name]
-    };
-    values
+    match_candidates_of(&[(model_id, model_name)]).swap_remove(0)
+}
+
+/// [`match_candidates`] of each `(id, name)` key, in order, with one core
+/// call for all of them.
+fn match_candidates_of(keys: &[(&str, &str)]) -> Vec<Vec<String>> {
+    let lower: Vec<Vec<String>> = keys
         .iter()
-        .flat_map(|value| {
-            let lower = value.to_lowercase();
-            let dashed = SEPARATORS.replace_all(&lower, "-").into_owned();
-            [lower, dashed]
+        .map(|(id, name)| {
+            if name.is_empty() {
+                vec![id.to_lowercase()]
+            } else {
+                vec![id.to_lowercase(), name.to_lowercase()]
+            }
+        })
+        .collect();
+    let flat: Vec<&str> = lower.iter().flatten().map(String::as_str).collect();
+    let mut dashed = model_name::dash(&flat).into_iter();
+    lower
+        .into_iter()
+        .map(|names| {
+            names
+                .into_iter()
+                .zip(dashed.by_ref())
+                .flat_map(|(lower, dashed)| [lower, dashed])
+                .collect()
         })
         .collect()
 }
@@ -952,14 +968,14 @@ impl Rulebook {
     }
 
     /// Parse and compile a rulebook: `families` (`id`, `on`: `id` or
-    /// `names`, `match`: a regex), `hosts` (`id`, `apis`, `providers`,
+    /// `names`, `match` and `except`: name rules), `hosts` (`id`, `apis`, `providers`,
     /// `urls`, `scope`: `all` (default) or `capabilities`), and `rules`
     /// (`layer`, `target`, `set`: directive → value). Unknown fields are
     /// errors.
     ///
     /// # Errors
     ///
-    /// When the text is not a rulebook, a pattern is not a regex, a
+    /// When the text is not a rulebook, a name rule is not one, a
     /// revision range does not parse, two definitions share an id, two
     /// hosts share an API or a provider, a family or host rule or a
     /// service tier entry targets an undefined id, a host of scope
@@ -992,18 +1008,20 @@ impl Rulebook {
                 },
                 None => None,
             };
-            let except = family.except.as_deref().map(Regex::new).transpose();
-            match (Regex::new(&family.pattern), except) {
-                (Ok(pattern), Ok(except)) => families.push(Family {
+            match (
+                name_rules::rules(family.rules),
+                name_rules::rules(family.except),
+            ) {
+                (Ok(rules), Ok(except)) => families.push(Family {
                     id: family.id,
                     on: family.on,
-                    pattern,
+                    rules,
                     except,
                     revision,
                 }),
-                (Err(error), _) | (Ok(_), Err(error)) => errors.push(QuirksError::BadPattern {
+                (Err(reason), _) | (Ok(_), Err(reason)) => errors.push(QuirksError::BadRule {
                     family: family.id,
-                    reason: error.to_string(),
+                    reason,
                 }),
             }
         }
@@ -1140,31 +1158,60 @@ impl Rulebook {
     ///
     /// [`FamilyOverlap`] when two families match the model.
     pub fn family(&self, id: &str, name: &str) -> Result<Option<&str>, FamilyOverlap> {
-        let lower_id = id.to_lowercase();
-        let mut candidates: Option<Vec<String>> = None;
-        let mut matching = self.families.iter().filter(|family| {
-            let mut matches = |pattern: &Regex| match family.on {
-                MatchOn::Id => pattern.is_match(&lower_id),
-                MatchOn::Names => candidates
-                    .get_or_insert_with(|| match_candidates(id, name))
+        self.families(&[(id, name)]).swap_remove(0)
+    }
+
+    /// [`Rulebook::family`] of each `(id, name)` key, in order, with one
+    /// core call for all of them.
+    fn families(&self, keys: &[(&str, &str)]) -> Vec<Result<Option<&str>, FamilyOverlap>> {
+        let lower_ids: Vec<[String; 1]> = keys.iter().map(|(id, _)| [id.to_lowercase()]).collect();
+        let candidates = match_candidates_of(keys);
+        let sets: Vec<&[NameRule]> = self
+            .families
+            .iter()
+            .flat_map(|family| [family.rules.as_slice(), family.except.as_slice()])
+            .collect();
+        // Per key, per group (the id, then the candidates), per family: its
+        // rules, then its exceptions.
+        let groups: Vec<&[String]> = lower_ids
+            .iter()
+            .zip(&candidates)
+            .flat_map(|(id, names)| [id.as_slice(), names.as_slice()])
+            .collect();
+        let verdicts = model_name::holds(&sets, &groups);
+        let width = sets.len();
+        keys.iter()
+            .enumerate()
+            .map(|(key, (id, _))| {
+                let on_id = &verdicts[2 * key * width..(2 * key + 1) * width];
+                let on_names = &verdicts[(2 * key + 1) * width..(2 * key + 2) * width];
+                let mut matching = self
+                    .families
                     .iter()
-                    .any(|candidate| pattern.is_match(candidate)),
-            };
-            matches(&family.pattern)
-                && !family.except.as_ref().is_some_and(&mut matches)
-                && family.revision.as_ref().is_none_or(|(prefix, range)| {
-                    range.holds(revision::of(id, prefix).unwrap_or_default())
-                })
-        });
-        let family = matching.next();
-        if let (Some(first), Some(second)) = (family, matching.next()) {
-            return Err(FamilyOverlap {
-                model: id.to_owned(),
-                first: first.id.clone(),
-                second: second.id.clone(),
-            });
-        }
-        Ok(family.map(|family| family.id.as_str()))
+                    .enumerate()
+                    .filter(|(index, family)| {
+                        let verdicts = match family.on {
+                            MatchOn::Id => on_id,
+                            MatchOn::Names => on_names,
+                        };
+                        verdicts[2 * index]
+                            && !verdicts[2 * index + 1]
+                            && family.revision.as_ref().is_none_or(|(prefix, range)| {
+                                range.holds(revision::of(id, prefix).unwrap_or_default())
+                            })
+                    })
+                    .map(|(_, family)| family);
+                let family = matching.next();
+                if let (Some(first), Some(second)) = (family, matching.next()) {
+                    return Err(FamilyOverlap {
+                        model: (*id).to_owned(),
+                        first: first.id.clone(),
+                        second: second.id.clone(),
+                    });
+                }
+                Ok(family.map(|family| family.id.as_str()))
+            })
+            .collect()
     }
 
     /// The host `model` names for `lookup` (see the module docs): a host
@@ -1205,9 +1252,15 @@ impl Rulebook {
         &self,
         models: impl IntoIterator<Item = &'m Model>,
     ) -> Result<(), Vec<QuirksError>> {
-        let errors: Vec<QuirksError> = models
+        let models: Vec<&Model> = models.into_iter().collect();
+        let keys: Vec<(&str, &str)> = models
+            .iter()
+            .map(|model| (model.id.as_str(), model.name.as_str()))
+            .collect();
+        let errors: Vec<QuirksError> = self
+            .families(&keys)
             .into_iter()
-            .filter_map(|model| self.query(model, Lookup::Wire).err().map(QuirksError::from))
+            .filter_map(|family| family.err().map(QuirksError::from))
             .collect();
         if errors.is_empty() {
             Ok(())

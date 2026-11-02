@@ -14,6 +14,7 @@ pub(crate) mod time;
 
 use self::report::{build_incident_report, IncidentReportOptions};
 use crate::config::get_agent_dir;
+use eukhe_bend::rules::shape::INCIDENT_RULES;
 use eukhe_types::incident::{
     parse_incident_daemon_log_line, parse_incident_log_line, IncidentLogEntry,
 };
@@ -208,7 +209,7 @@ fn scan_incident_log_files(files: &[(PathBuf, IncidentLogFileKind)]) -> Incident
             scanned_count += 1;
             let entry = match kind {
                 IncidentLogFileKind::Jsonl => parse_incident_log_line(line),
-                IncidentLogFileKind::Daemon => parse_incident_daemon_log_line(line),
+                IncidentLogFileKind::Daemon => parse_incident_daemon_log_line(INCIDENT_RULES, line),
             };
             match entry {
                 Some(entry) => entries.push(entry),

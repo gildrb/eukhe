@@ -3,7 +3,6 @@
 //! with the rulebook answers over the compiled catalog and crafted ids.
 
 use eukhe_types::pi_ai::{Model, ThinkingBudgets};
-use regex::Regex;
 
 use super::{google_thinking_budget, uses_google_thinking_level, ResolvedGoogleThinkingLevel};
 
@@ -14,16 +13,27 @@ const LEVELS: [ResolvedGoogleThinkingLevel; 4] = [
     ResolvedGoogleThinkingLevel::High,
 ];
 
-/// The old format rule: Gemini 3 Pro/Flash ids, the two `-latest` aliases
-/// and Gemma 4 take `thinkingLevel`.
+/// The old format rule: Gemini 3 Pro/Flash ids (`gemini-3`, an optional
+/// `.<digits>`, then `-pro` or `-flash`), the two `-latest` aliases and
+/// Gemma 4 (`gemma4`, `gemma-4`) take `thinkingLevel`.
 fn old_uses_level(model: &Model) -> bool {
     let id = model.id.to_lowercase();
-    Regex::new(r"gemini-3(?:\.\d+)?-(?:pro|flash)")
-        .unwrap()
-        .is_match(&id)
+    let gemini_3 = id.match_indices("gemini-3").any(|(at, head)| {
+        let rest = &id[at + head.len()..];
+        let after_minor = rest.strip_prefix('.').and_then(|minor| {
+            let digits = minor.len() - minor.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+            (digits > 0).then(|| &minor[digits..])
+        });
+        [Some(rest), after_minor]
+            .into_iter()
+            .flatten()
+            .any(|tail| tail.starts_with("-pro") || tail.starts_with("-flash"))
+    });
+    gemini_3
         || id == "gemini-flash-latest"
         || id == "gemini-flash-lite-latest"
-        || Regex::new(r"gemma-?4").unwrap().is_match(&id)
+        || id.contains("gemma4")
+        || id.contains("gemma-4")
 }
 
 /// The old `[minimal, low, medium, high]` table entry of `level`.

@@ -55,8 +55,8 @@ fn families_that_overlap_on_a_catalog_model_are_rejected() {
     let book = Rulebook::from_json(
         r#"{
           "families": [
-            { "id": "opus", "on": "names", "match": "opus-4-6" },
-            { "id": "claude", "on": "id", "match": "^claude-opus-4-6$" }
+            { "id": "opus", "on": "names", "match": [{ "contains": ["opus-4-6"] }] },
+            { "id": "claude", "on": "id", "match": [{ "is": ["claude-opus-4-6"] }] }
           ],
           "hosts": [],
           "rules": []
@@ -253,9 +253,9 @@ fn a_query_names_the_host_by_api_then_provider_then_longest_url() {
     let book = Rulebook::from_json(
         r#"{
           "families": [
-            { "id": "b-family", "on": "id", "match": "^gemini-2" },
-            { "id": "a-family", "on": "id", "match": "^gemini-3" },
-            { "id": "c-family", "on": "names", "match": "opus-4-6" }
+            { "id": "b-family", "on": "id", "match": [{ "starts": ["gemini-2"] }] },
+            { "id": "a-family", "on": "id", "match": [{ "starts": ["gemini-3"] }] },
+            { "id": "c-family", "on": "names", "match": [{ "contains": ["opus-4-6"] }] }
           ],
           "hosts": [
             { "id": "by-api", "apis": ["only-api"] },
@@ -615,7 +615,7 @@ fn a_bad_revision_range_an_undefined_tier_family_and_a_bad_ladder_do_not_compile
     let errors = Rulebook::from_json(
         r#"{
           "families": [
-            { "id": "a", "on": "id", "match": "^a", "revision": { "prefix": "a", "range": "3.8" } }
+            { "id": "a", "on": "id", "match": [{ "starts": ["a"] }], "revision": { "prefix": "a", "range": "3.8" } }
           ],
           "hosts": [],
           "rules": [

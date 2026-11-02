@@ -18,13 +18,13 @@ pub(crate) mod test_support;
 mod tests;
 
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use eukhe_bend::rules::ai_text;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     JsonObject, JsonValue, Model, ModelThinkingLevel, StopReason, ThinkingLevel, Tool,
 };
-use regex::Regex;
 use serde_json::json;
 
 use super::constrained_sampling::{
@@ -144,10 +144,6 @@ pub fn resolve_google_thinking_level(
         }
     }
 }
-
-static GEMINI_MAJOR_VERSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^gemini(?:-live)?-(\d+)").unwrap_or_else(|error| panic!("{error}"))
-});
 
 /// Whether this model uses Gemini's discrete `thinkingLevel` control instead
 /// of the token-based `thinkingBudget` control: the quirks rulebook's
@@ -272,15 +268,11 @@ pub fn requires_tool_call_id(model_id: &str) -> bool {
         || get_gemini_major_version(model_id).is_some_and(|major| major >= 3)
 }
 
-/// `Number.parseInt` of the leading `gemini[-live]-<digits>` version; digit
-/// runs beyond `u64` saturate (they compare as large numbers in JS too).
+/// `Number.parseInt` of the leading `gemini[-live]-<digits>` version (the
+/// compiled core's [`ai_text::gemini_major`]); digit runs beyond `u64`
+/// saturate (they compare as large numbers in JS too).
 fn get_gemini_major_version(model_id: &str) -> Option<u64> {
-    let lowered = model_id.to_lowercase();
-    let digits = GEMINI_MAJOR_VERSION
-        .captures(&lowered)?
-        .get(1)?
-        .as_str()
-        .to_owned();
+    let digits = ai_text::gemini_major(&model_id.to_lowercase())?;
     Some(digits.parse::<u64>().unwrap_or(u64::MAX))
 }
 

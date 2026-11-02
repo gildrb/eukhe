@@ -3,9 +3,11 @@
 import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
+import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_aws_text.bend as ffi_aws_text
 import ./ffi_bound.bend as ffi_bound
 import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_catalog_union.bend as ffi_catalog_union
@@ -57,6 +59,7 @@ import ./ffi_launcher.bend as ffi_launcher
 import ./ffi_log.bend as ffi_log
 import ./ffi_mcp_url.bend as ffi_mcp_url
 import ./ffi_model_facts.bend as ffi_model_facts
+import ./ffi_model_name.bend as ffi_model_name
 import ./ffi_notice.bend as ffi_notice
 import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
@@ -79,6 +82,7 @@ import ./ffi_scan.bend as ffi_scan
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_shape.bend as ffi_shape
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_args.bend as ffi_slash_args
@@ -281,6 +285,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_glob.ffi(input)
     case 381:
       ffi_err_text.ffi(input)
+    case 382:
+      ffi_model_name.ffi(input)
+    case 383:
+      ffi_aws_text.ffi(input)
+    case 384:
+      ffi_ai_text.ffi(input)
+    case 385:
+      ffi_shape.ffi(input)
     case 410:
       ffi_cron_serve.ffi(input)
     case 430:

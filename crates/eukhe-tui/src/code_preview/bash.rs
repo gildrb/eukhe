@@ -1,214 +1,16 @@
 //! Bash/Python command preview extraction for tool-call rendering.
 //!
-//! Port of `packages/coding-agent/src/core/tools/code-preview.ts`. Regexes keep
-//! JavaScript semantics (whitespace/word classes, UTF-16 string indexing).
+//! Port of `packages/coding-agent/src/core/tools/code-preview.ts`. Its
+//! regexes are shapes in the compiled core ([`PreviewShape`]), with
+//! JavaScript's whitespace and word classes; strings index UTF-16 as JS does.
 
 use super::python::preview_python_code;
 #[cfg(test)]
 use super::python::{preview_ipython_code, python_statement_lines};
+use super::shapes::PreviewShape;
+use crate::text_shapes::{first_of, TextShape};
 
 const DESCRIPTOR_MAX_WIDTH: usize = 64;
-
-/// JavaScript backslash-s character class.
-pub(crate) const S: &str = r"[\t\n\x0B\f\r \u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}]";
-/// JavaScript backslash-w character class.
-pub(crate) const W: &str = r"[A-Za-z0-9_]";
-
-/// One preview regex, on either engine. Nearly every pattern is plain
-/// (character classes, groups, alternation) and runs as a linear-time
-/// `regex` program; the handful that need lookarounds or backreferences
-/// (the redaction and quoted-string patterns) fall back to `fancy_regex`.
-/// Preview regexes run per rendered row on the transcript path, so the
-/// engine choice is a rendering cost, not a style preference.
-#[derive(Clone)]
-pub(crate) enum Rx {
-    Fast(regex::Regex),
-    Fancy(fancy_regex::Regex),
-}
-
-/// One capture set from either engine, exposing the group spans the
-/// preview code reads (`get(i)`, with `as_str`/`end` on the result).
-pub(crate) struct Cap<'t> {
-    fast: Option<regex::Captures<'t>>,
-    fancy: Option<fancy_regex::Captures<'t>>,
-}
-
-/// One captured group: the matched text plus its span, from either engine.
-#[derive(Clone, Copy)]
-pub(crate) struct Group<'t> {
-    text: &'t str,
-    end: usize,
-}
-
-impl<'t> Group<'t> {
-    pub(crate) fn as_str(&self) -> &'t str {
-        self.text
-    }
-
-    pub(crate) fn end(&self) -> usize {
-        self.end
-    }
-}
-
-impl<'t> Cap<'t> {
-    pub(crate) fn get(&self, index: usize) -> Option<Group<'t>> {
-        if let Some(captures) = &self.fast {
-            let m = captures.get(index)?;
-            return Some(Group {
-                text: m.as_str(),
-                end: m.end(),
-            });
-        }
-        let captures = self.fancy.as_ref()?;
-        let m = captures.get(index)?;
-        Some(Group {
-            text: m.as_str(),
-            end: m.end(),
-        })
-    }
-}
-
-/// The interned-regex pool: preview patterns are format-built at call sites
-/// but drawn from a small constant set, so one global cache keeps the
-/// compiled program alive across calls (compiling a regex per call costs
-/// milliseconds -- a transcript-scale render pays it per row).
-fn regex_pool() -> &'static std::sync::Mutex<std::collections::HashMap<String, Rx>> {
-    static POOL: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Rx>>> =
-        std::sync::OnceLock::new();
-    POOL.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-impl Rx {
-    /// Look up (or compile) a preview regex; errors abort (patterns are
-    /// compile-time constants).
-    pub(crate) fn new(pattern: &str) -> Self {
-        let mut pool = regex_pool()
-            .lock()
-            .expect("code-preview regex pool poisoned");
-        // The hit path stays allocation-free: the key borrows, only a miss
-        // interns the pattern string.
-        if let Some(rx) = pool.get(pattern) {
-            return rx.clone();
-        }
-        // Plain patterns compile on the fast engine; fancy-only syntax
-        // (lookarounds, backreferences) falls back to the backtracking
-        // engine.
-        let rx = match regex::Regex::new(pattern) {
-            Ok(inner) => Rx::Fast(inner),
-            Err(_) => Rx::Fancy(
-                fancy_regex::Regex::new(pattern).expect("code-preview regex must compile"),
-            ),
-        };
-        pool.insert(pattern.to_string(), rx.clone());
-        rx
-    }
-
-    pub(crate) fn is_match(&self, text: &str) -> bool {
-        match self {
-            Rx::Fast(inner) => inner.is_match(text),
-            Rx::Fancy(inner) => inner.is_match(text).unwrap_or(false),
-        }
-    }
-
-    pub(crate) fn captures<'t>(&self, text: &'t str) -> Option<Cap<'t>> {
-        match self {
-            Rx::Fast(inner) => inner.captures(text).map(|fast| Cap {
-                fast: Some(fast),
-                fancy: None,
-            }),
-            Rx::Fancy(inner) => inner.captures(text).ok().flatten().map(|fancy| Cap {
-                fast: None,
-                fancy: Some(fancy),
-            }),
-        }
-    }
-
-    pub(crate) fn captures_iter<'t>(&self, text: &'t str) -> Vec<Cap<'t>> {
-        match self {
-            Rx::Fast(inner) => inner
-                .captures_iter(text)
-                .map(|fast| Cap {
-                    fast: Some(fast),
-                    fancy: None,
-                })
-                .collect(),
-            Rx::Fancy(inner) => inner
-                .captures_iter(text)
-                .flatten()
-                .map(|fancy| Cap {
-                    fast: None,
-                    fancy: Some(fancy),
-                })
-                .collect(),
-        }
-    }
-
-    pub(crate) fn find<'t>(&self, text: &'t str) -> Option<Group<'t>> {
-        match self {
-            Rx::Fast(inner) => inner.find(text).map(|m| Group {
-                text: m.as_str(),
-                end: m.end(),
-            }),
-            Rx::Fancy(inner) => inner.find(text).ok().flatten().map(|m| Group {
-                text: m.as_str(),
-                end: m.end(),
-            }),
-        }
-    }
-
-    pub(crate) fn replace(&self, text: &str, rep: &str) -> String {
-        match self {
-            Rx::Fast(inner) => inner.replace(text, rep).into_owned(),
-            Rx::Fancy(inner) => inner.replace(text, rep).into_owned(),
-        }
-    }
-
-    pub(crate) fn replace_all(&self, text: &str, rep: &str) -> String {
-        match self {
-            Rx::Fast(inner) => inner.replace_all(text, rep).into_owned(),
-            Rx::Fancy(inner) => inner.replace_all(text, rep).into_owned(),
-        }
-    }
-
-    /// Split on every separator match. The `regex` crate has no stable
-    /// split, so the fast engine slices around its separator matches; the
-    /// fancy engine uses its own split.
-    pub(crate) fn split<'t>(&self, text: &'t str) -> Vec<&'t str> {
-        match self {
-            Rx::Fast(inner) => {
-                let mut parts = Vec::new();
-                let mut last = 0usize;
-                for m in inner.find_iter(text) {
-                    parts.push(&text[last..m.start()]);
-                    last = m.end();
-                }
-                parts.push(&text[last..]);
-                parts
-            }
-            Rx::Fancy(inner) => inner.split(text).filter_map(Result::ok).collect(),
-        }
-    }
-}
-
-/// One interned preview regex at a call site: the pattern expression runs
-/// exactly once per site (every preview pattern is a constant built from
-/// the shared `S`/`W` classes), and later calls clone the pooled program.
-/// This is the code-preview equivalent of a JS regex literal, which the TS
-/// side gets for free.
-macro_rules! re_once {
-    ($pattern:expr $(,)?) => {{
-        static INTERNED: std::sync::OnceLock<$crate::code_preview::bash::Rx> =
-            std::sync::OnceLock::new();
-        INTERNED
-            .get_or_init(|| $crate::code_preview::bash::re(&$pattern))
-            .clone()
-    }};
-}
-pub(crate) use re_once;
-
-pub(crate) fn re(pattern: &str) -> Rx {
-    Rx::new(pattern)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodePreviewLanguage {
@@ -282,7 +84,7 @@ fn utf16_slice_prefix(s: &str, n: usize) -> String {
 }
 
 pub(crate) fn collapse_whitespace(text: &str) -> String {
-    re_once!(format!(r"{S}+")).replace_all(text, " ")
+    PreviewShape::WhitespaceRun.replace_all(text, " ")
 }
 
 fn truncate_descriptor(text: &str) -> String {
@@ -296,20 +98,13 @@ fn truncate_descriptor(text: &str) -> String {
 
 /// Mask secrets, blobs, and oversized strings before display.
 pub(crate) fn redact_noise(text: &str) -> String {
-    let step1 = re_once!(r"[A-Za-z0-9+/]{80,}={0,2}").replace_all(text, "<blob>");
-    let step2 = re_once!(format!(
-        r#"\b((?={W}*(?:token|key|secret|password))[A-Za-z_]{W}*){S}*={S}*(["'])[^"']*\2"#
-    ))
-    .replace_all(&step1, "$1=<redacted>");
-    let step3 = re_once!(format!(
-        r#"(?i)\b((?={W}*(?:token|key|secret|password))[A-Za-z_]{W}*){S}*={S}*(?!<redacted>)(?!["'])\S+"#
-    ))
-    .replace_all(&step2, "$1=<redacted>");
-    let step4 = re_once!(r#"(?i)\b(authorization:\s*(?:bearer\s+)?)[^\s"']+"#)
-        .replace_all(&step3, "$1<redacted>");
-    let step5 = re_once!(r#"(["'])sk-[^"']+\1"#).replace_all(&step4, "$1<redacted>$1");
+    let step1 = PreviewShape::Blob.replace_all(text, "<blob>");
+    let step2 = PreviewShape::SecretQuoted.replace_all(&step1, "$1=<redacted>");
+    let step3 = PreviewShape::SecretBare.replace_all(&step2, "$1=<redacted>");
+    let step4 = PreviewShape::Authorization.replace_all(&step3, "$1<redacted>");
+    let step5 = PreviewShape::SkKey.replace_all(&step4, "$1<redacted>$1");
     let clipped = format!("$1{}$1", crate::glyphs::ELLIPSIS);
-    re_once!(r#"(["']).{160,}\1"#).replace_all(&step5, &clipped)
+    PreviewShape::LongString.replace_all(&step5, &clipped)
 }
 
 pub(crate) fn descriptor(text: &str) -> String {
@@ -318,57 +113,55 @@ pub(crate) fn descriptor(text: &str) -> String {
 
 /// Strip a leading ! magic and a leading cd-prefix chain segment.
 pub(crate) fn strip_bash_prefix(line: &str) -> String {
-    let no_magic = re_once!(format!(r"^{S}*!")).replace(line, "");
+    let no_magic = PreviewShape::Magic.replace(line, "");
     let trimmed = js_trim(&no_magic);
-    let no_cd = re_once!(format!(r"^{S}*cd{S}+([^&;|]+)(?:&&|;){S}*")).replace(trimmed, "");
+    let no_cd = PreviewShape::CdPrefix.replace(trimmed, "");
     js_trim(&no_cd).to_string()
-}
-
-pub(crate) fn is_comment_line(line: &str) -> bool {
-    re_once!(format!(r"^{S}*#")).is_match(line)
 }
 
 pub(crate) fn is_skippable_bash_line(line: &str) -> bool {
     let trimmed = js_trim(line);
     trimmed.is_empty()
-        || is_comment_line(trimmed)
-        || re_once!(format!(
-            r"^{S}*set{S}+[-+][A-Za-z]*(?:{S}+[-+]?{W}+)*(?:{S}+pipefail)?{S}*$"
-        ))
-        .is_match(trimmed)
-        || re_once!(format!(r"^(?:export{S}+{W}+=|source{S}+\S+|\.{S}+\S+)")).is_match(trimmed)
+        || first_of(
+            &[
+                PreviewShape::Comment,
+                PreviewShape::SetLine,
+                PreviewShape::EnvLine,
+            ],
+            trimmed,
+        )
+        .is_some()
 }
 
 /// Split a command line into shell-quoted words.
 fn shell_words(line: &str) -> Vec<String> {
-    let re_words = re_once!(r#""([^"]*)"|'([^']*)'|(\S+)"#);
-    re_words
+    PreviewShape::ShellWord
         .captures_iter(line)
         .into_iter()
         .filter_map(|c| {
             c.get(1)
                 .or_else(|| c.get(2))
                 .or_else(|| c.get(3))
-                .map(|g| g.as_str().to_string())
+                .map(str::to_string)
         })
         .collect()
 }
 
 /// Drop a leading ./ from a path.
 pub(crate) fn path_tail(path: &str) -> String {
-    re_once!(r"^\./").replace(path, "")
+    PreviewShape::DotSlash.replace(path, "")
 }
 
-/// Shorten well-known runner invocations for display.
-fn simplify_runner_command(line: &str) -> Option<String> {
-    let words = shell_words(line);
+/// Shorten well-known runner invocations (given as their shell words) for
+/// display.
+fn simplify_runner_command(words: &[String]) -> Option<String> {
     let joined = words.join(" ");
-    let vitest_index = words
-        .iter()
-        .position(|w| re_once!(r"(?:^|/)vitest/dist/cli\.js$").is_match(w));
     if words.first().map(String::as_str) == Some("npx")
         && words.get(1).map(String::as_str) == Some("tsx")
     {
+        let vitest_index = words
+            .iter()
+            .position(|w| PreviewShape::VitestCli.is_match(w));
         if let Some(vi) = vitest_index.filter(|&i| i >= 2) {
             return Some(
                 format!("vitest {}", words[vi + 1..].join(" "))
@@ -395,11 +188,11 @@ fn simplify_runner_command(line: &str) -> Option<String> {
         let cwd_index = words.iter().position(|w| w == "-C" || w == "--dir");
         let cwd = cwd_index.and_then(|i| words.get(i + 1)).cloned();
         if let Some(ci) = cwd_index {
-            let rest: Vec<String> = words
-                .into_iter()
+            let rest: Vec<&str> = words
+                .iter()
                 .enumerate()
                 .filter(|(i, _)| *i != ci && *i != ci + 1)
-                .map(|(_, w)| w)
+                .map(|(_, w)| w.as_str())
                 .collect();
             return cwd.map(|cwd| format!("{} ({})", rest.join(" "), path_tail(&cwd)));
         }
@@ -430,14 +223,14 @@ fn simplify_runner_command(line: &str) -> Option<String> {
         );
     }
     if joined.contains("node_modules/.bin/") {
-        return Some(re_once!(r"\S*node_modules/\.bin/").replace_all(&joined, ""));
+        return Some(PreviewShape::BinPrefix.replace_all(&joined, ""));
     }
     None
 }
 
-/// Shorten file-mutation commands (cat >, tee, `apply_patch`) for display.
-fn simplify_mutation_command(line: &str) -> Option<String> {
-    let words = shell_words(line);
+/// Shorten file-mutation commands (cat >, tee, `apply_patch`; `words` are
+/// the line's shell words) for display.
+fn simplify_mutation_command(line: &str, words: &[String]) -> Option<String> {
     if words.is_empty() {
         return None;
     }
@@ -470,14 +263,19 @@ fn simplify_mutation_command(line: &str) -> Option<String> {
 }
 
 pub(crate) fn simplify_bash_command_line(line: &str) -> String {
-    simplify_runner_command(line)
-        .or_else(|| simplify_mutation_command(line))
+    simplify_words(line, &shell_words(line))
+}
+
+/// [`simplify_bash_command_line`] of a line whose shell words are `words`.
+fn simplify_words(line: &str, words: &[String]) -> String {
+    simplify_runner_command(words)
+        .or_else(|| simplify_mutation_command(line, words))
         .unwrap_or_else(|| line.to_string())
 }
 
 /// Split a && b; c into its command segments.
 pub(crate) fn split_command_chain(line: &str) -> Vec<String> {
-    re_once!(r"\s*(?:&&|;)\s*")
+    PreviewShape::ChainSeparator
         .split(line)
         .into_iter()
         .map(|p| js_trim(p).to_string())
@@ -511,16 +309,13 @@ pub(crate) fn preview_heredoc(lines: &[String]) -> Option<CodePreview> {
         if is_skippable_bash_line(&line) {
             continue;
         }
-        let captures = re_once!(r#"<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?"#).captures(&line);
-        let delimiter = captures
-            .as_ref()
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str().to_string());
+        let captures = PreviewShape::Heredoc.captures(&line);
+        let delimiter = captures.as_ref().and_then(|c| c.get(1)).map(str::to_string);
         let Some(delimiter) = delimiter else { continue };
         let Some(body) = heredoc_body(lines, i, &delimiter) else {
             continue;
         };
-        if re_once!(format!(r"\b(?:uv{S}+run{S}+)?python3?\b")).is_match(&line) {
+        if PreviewShape::PythonRun.is_match(&line) {
             let preview = preview_python_code(&body);
             if !preview.text.is_empty() {
                 return Some(preview);
@@ -529,20 +324,19 @@ pub(crate) fn preview_heredoc(lines: &[String]) -> Option<CodePreview> {
         }
         // Match bash/sh as an interpreter word (incl. /bin/sh), not a path
         // suffix like script.sh.
-        if re_once!(r"(?<![\w.])(?:bash|sh)\b").is_match(&line) {
+        if PreviewShape::ShellRun.is_match(&line) {
             let preview = preview_bash_command(&body);
             if !preview.text.is_empty() {
                 return Some(preview);
             }
             return Some(CodePreview::bash(descriptor(&body)));
         }
-        if re_once!(r"\bnode\b").is_match(&line) {
+        if PreviewShape::NodeRun.is_match(&line) {
             return Some(CodePreview::bash(format!("node: {}", descriptor(&body))));
         }
-        let cat_write = re_once!(r"\b(?:cat|tee)\b.*(?:>|\s)(\S+)\s*<<-?")
+        let cat_write = PreviewShape::CatWrite
             .captures(&line)
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str().to_string());
+            .and_then(|c| c.get(1).map(str::to_string));
         if let Some(target) = cat_write {
             let action = if line.contains("tee -a") {
                 "append"
@@ -554,7 +348,7 @@ pub(crate) fn preview_heredoc(lines: &[String]) -> Option<CodePreview> {
                 path_tail(&target)
             )));
         }
-        if re_once!(r"\bapply_patch\b").is_match(&line) {
+        if PreviewShape::ApplyPatch.is_match(&line) {
             return Some(CodePreview::bash("apply patch".to_string()));
         }
         fallback = Some(CodePreview::bash(descriptor(&body)));
@@ -562,9 +356,14 @@ pub(crate) fn preview_heredoc(lines: &[String]) -> Option<CodePreview> {
     fallback
 }
 
-pub(crate) fn bash_line_score(line: &str, index: usize) -> usize {
-    let simplified = simplify_bash_command_line(line);
-    let words = shell_words(line);
+/// The signal score of a command line, given its simplified form and its
+/// shell words.
+pub(crate) fn bash_line_score(
+    line: &str,
+    simplified: &str,
+    words: &[String],
+    index: usize,
+) -> usize {
     let mut score = 30usize;
     if simplified != line {
         score += 40;
@@ -577,9 +376,7 @@ pub(crate) fn bash_line_score(line: &str, index: usize) -> usize {
     }) {
         score += 20;
     }
-    if re_once!(format!(r"\b(?:rm|mv|cp|git{S}+(?:add|commit)|npm{S}+install|sed{S}+-i|perl{S}+-pi|tee|cat{S}*>|apply_patch)\b"))
-        .is_match(line)
-    {
+    if PreviewShape::Mutation.is_match(line) {
         score += 40;
     }
     score + index
@@ -604,8 +401,9 @@ pub fn preview_bash_command(command: &str) -> CodePreview {
             if command_line.is_empty() || is_skippable_bash_line(&command_line) {
                 continue;
             }
-            let text = simplify_bash_command_line(&command_line);
-            let score = bash_line_score(&command_line, index);
+            let words = shell_words(&command_line);
+            let text = simplify_words(&command_line, &words);
+            let score = bash_line_score(&command_line, &text, &words, index);
             if best.as_ref().is_none_or(|(_, s)| score > *s) {
                 best = Some((text, score));
             }

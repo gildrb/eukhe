@@ -539,7 +539,6 @@ dependencies = [
  "hmac",
  "http",
  "rand 0.9.5",
- "regex",
  "regress",
  "reqwest",
  "ring",
@@ -566,6 +565,7 @@ version = "0.10.0"
 dependencies = [
  "cc",
  "eukhe-types",
+ "serde_json",
 ]
 
 [[package]]
@@ -905,7 +905,6 @@ dependencies = [
  "libc",
  "libproc",
  "nix",
- "regex",
  "serde",
  "serde_json",
  "signal-hook",

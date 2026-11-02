@@ -1,7 +1,22 @@
-//! Classification tests for [`super`] (the TS `incident.test.ts`
-//! unit-level checks).
+//! The incident classifier of eukhe-types run with the compiled core's
+//! shapes ([`super::INCIDENT_RULES`]): its classification tests (the TS
+//! `incident.test.ts` unit-level checks) and the per-daemon log line
+//! parse, moved here because eukhe-types cannot call the core.
 
-use super::*;
+use super::INCIDENT_RULES;
+use eukhe_types::incident::{
+    collect_incident_events, collect_worker_pid_map, compute_incident_anomalies,
+    parse_incident_daemon_log_line, parse_incident_log_line, worker_id_from_socket_path,
+    IncidentEvent, IncidentLogEntry, IncidentSeverity, WorkerPidMap,
+};
+
+fn events_of(entries: &[IncidentLogEntry], pids: &WorkerPidMap) -> Vec<IncidentEvent> {
+    collect_incident_events(INCIDENT_RULES, entries, pids)
+}
+
+fn pids_of(entries: &[IncidentLogEntry]) -> WorkerPidMap {
+    collect_worker_pid_map(INCIDENT_RULES, entries)
+}
 
 fn log_line(fields: &[(&str, serde_json::Value)]) -> IncidentLogEntry {
     let mut record = serde_json::Map::new();
@@ -16,7 +31,7 @@ fn log_line(fields: &[(&str, serde_json::Value)]) -> IncidentLogEntry {
     for (key, value) in fields {
         record.insert((*key).to_string(), value.clone());
     }
-    super::super::parse::parse_incident_log_line(&serde_json::Value::Object(record).to_string())
+    parse_incident_log_line(&serde_json::Value::Object(record).to_string())
         .expect("the fixture line parses")
 }
 
@@ -71,7 +86,7 @@ fn attributes_provider_failures_to_the_pid_owner() {
         ),
         provider_failure_line("2026-09-10T20:02:53.374Z", 53615),
     ];
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
+    let events = events_of(&entries, &pids_of(&entries));
     assert!(events
         .iter()
         .any(|event| event.summary.contains("for worker 5b1d3aeb91ee")));
@@ -88,7 +103,7 @@ fn attributes_provider_failures_to_the_worker_owning_the_pid_at_that_time() {
         worker_start_line("2026-09-10T21:00:00.000Z", worker_b, 53615),
         provider_failure_line("2026-09-10T21:01:00.000Z", 53615),
     ];
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
+    let events = events_of(&entries, &pids_of(&entries));
     let summaries: Vec<&str> = events
         .iter()
         .filter(|event| event.event_class == "provider")
@@ -113,7 +128,7 @@ fn a_later_sighting_never_owns_an_earlier_failure() {
         // 10:00.
         worker_start_line("2026-09-10T10:10:00.000Z", worker_b, 53615),
     ];
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
+    let events = events_of(&entries, &pids_of(&entries));
     let summaries: Vec<&str> = events
         .iter()
         .filter(|event| event.event_class == "provider")
@@ -128,14 +143,17 @@ fn a_later_sighting_never_owns_an_earlier_failure() {
 #[test]
 fn worker_ids_parse_from_unix_socket_paths() {
     assert_eq!(
-        worker_id_from_socket_path(Some("/tmp/eukhe-501/worker-98ed5cb228d2-5b1d3aeb91ee.sock")),
-        Some("5b1d3aeb91ee")
+        worker_id_from_socket_path(
+            INCIDENT_RULES,
+            Some("/tmp/eukhe-501/worker-98ed5cb228d2-5b1d3aeb91ee.sock")
+        ),
+        Some("5b1d3aeb91ee".to_string())
     );
     assert_eq!(
-        worker_id_from_socket_path(Some("/tmp/eukhe-501/daemon.sock")),
+        worker_id_from_socket_path(INCIDENT_RULES, Some("/tmp/eukhe-501/daemon.sock")),
         None
     );
-    assert_eq!(worker_id_from_socket_path(None), None);
+    assert_eq!(worker_id_from_socket_path(INCIDENT_RULES, None), None);
 }
 
 #[test]
@@ -145,7 +163,7 @@ fn a_same_component_restart_within_two_seconds_is_a_real_event() {
         worker_start_line("2026-09-10T20:00:00.000Z", socket_path, 100),
         worker_start_line("2026-09-10T20:00:01.000Z", socket_path, 200),
     ];
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
+    let events = events_of(&entries, &pids_of(&entries));
     assert_eq!(events.len(), 2);
     // The cross-component duplicate drops instead: the same crash is
     // logged by the worker and forwarded over stderr.
@@ -166,7 +184,7 @@ fn a_same_component_restart_within_two_seconds_is_a_real_event() {
             &[],
         ),
     ];
-    let events = collect_incident_events(&crashed, &collect_worker_pid_map(&crashed));
+    let events = events_of(&crashed, &pids_of(&crashed));
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_class, "worker-crash");
     assert_eq!(events[0].severity, IncidentSeverity::Critical);
@@ -192,11 +210,11 @@ fn unknown_worker_diagnostics_key_on_the_worker_not_the_socket() {
             ])
         })
         .collect();
-    let events = collect_incident_events(&entries, &collect_worker_pid_map(&entries));
+    let events = events_of(&entries, &pids_of(&entries));
     assert!(events
         .iter()
         .all(|event| event.subject == "worker aaaaaaaaaaaa"));
-    let anomalies = super::super::anomaly::compute_incident_anomalies(&events);
+    let anomalies = compute_incident_anomalies(&events);
     assert!(anomalies.iter().any(|anomaly| anomaly
         .summary
         .starts_with("worker aaaaaaaaaaaa: 3 warnings/errors over 2m")));
@@ -241,14 +259,14 @@ fn command_failures_classify_by_their_error_body() {
             ),
         ];
     for (msg, event_class, severity, summary) in cases {
-        let events = collect_incident_events(&[entry(msg)], &WorkerPidMap::default());
+        let events = events_of(&[entry(msg)], &WorkerPidMap::default());
         assert_eq!(events.len(), 1, "{msg}");
         assert_eq!(events[0].event_class, event_class, "{msg}");
         assert_eq!(events[0].severity, severity, "{msg}");
         assert_eq!(events[0].summary, summary, "{msg}");
     }
     // Quoted session names ride along as tokens.
-    let events = collect_incident_events(
+    let events = events_of(
         &[entry(
             r#"Supervisor command set_session_name failed: Error: Agent name "Faerie" is unavailable"#,
         )],
@@ -274,7 +292,7 @@ fn recovery_breakdown_ranks_and_caps_the_operations() {
         ),
         &[],
     );
-    let events = collect_incident_events(&[entry], &WorkerPidMap::default());
+    let events = events_of(&[entry], &WorkerPidMap::default());
     assert_eq!(
             events[0].summary,
             "worker 5b1d3aeb91ee recovered; 533 uncertain operations not replayed (tool_execution_start x408, auto_retry_end x62, agent_end x47, message_start x16)"
@@ -285,7 +303,7 @@ fn recovery_breakdown_ranks_and_caps_the_operations() {
         "Recovered worker 5b1d3aeb91ee without replaying uncertain operations: b, b, a, c, d, e",
         &[],
     );
-    let events = collect_incident_events(&[five_kinds], &WorkerPidMap::default());
+    let events = events_of(&[five_kinds], &WorkerPidMap::default());
     assert_eq!(
             events[0].summary,
             "worker 5b1d3aeb91ee recovered; 6 uncertain operations not replayed (b x2, a x1, c x1, d x1, +1 more)"
@@ -299,7 +317,7 @@ fn passivation_tokens_skip_the_empty_name() {
         r#"Session worker 5b1d3aeb91ee stderr: Passivated idle child sessionId=feedface1234 name="" idleMinutes=5"#,
         &[],
     );
-    let events = collect_incident_events(&[entry], &WorkerPidMap::default());
+    let events = events_of(&[entry], &WorkerPidMap::default());
     assert_eq!(
         events[0].tokens,
         vec!["5b1d3aeb91ee".to_string(), "feedface1234".to_string()]
@@ -313,7 +331,7 @@ fn passivation_tokens_skip_the_empty_name() {
         r#"Session worker 5b1d3aeb91ee stderr: Passivated idle child sessionId=feedface1234 name="Faerie" idleMinutes=5"#,
         &[],
     );
-    let events = collect_incident_events(&[named], &WorkerPidMap::default());
+    let events = events_of(&[named], &WorkerPidMap::default());
     assert_eq!(
         events[0].tokens,
         vec![
@@ -338,6 +356,41 @@ fn stack_frame_lines_belong_to_the_previous_event() {
                 &[],
             ),
         ];
-    let events = collect_incident_events(&entries, &WorkerPidMap::default());
+    let events = events_of(&entries, &WorkerPidMap::default());
     assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn daemon_log_line_parses_supervisor_and_worker_lines() {
+    let supervisor = parse_incident_daemon_log_line(
+        INCIDENT_RULES,
+        "[2026-09-10T20:02:39.765Z] supervisor: Supervisor command attach failed: Error: Timed out waiting for daemon worker response to attach",
+    )
+    .expect("supervisor line");
+    assert_eq!(supervisor.component, "coding-agent.daemon-supervisor");
+    assert_eq!(
+        supervisor.msg,
+        "Supervisor command attach failed: Error: Timed out waiting for daemon worker response to attach"
+    );
+    assert_eq!(supervisor.time_ms, 1_789_070_559_765);
+    assert_eq!(supervisor.level, "warn");
+    assert_eq!(supervisor.pid, None);
+
+    let worker = parse_incident_daemon_log_line(
+        INCIDENT_RULES,
+        "[2026-09-10T20:23:24.945Z] uncaught exception: Error: write EPIPE",
+    )
+    .expect("worker line");
+    assert_eq!(worker.component, "coding-agent.daemon");
+    assert_eq!(worker.msg, "uncaught exception: Error: write EPIPE");
+}
+
+#[test]
+fn daemon_log_line_skips_malformed_lines() {
+    let parse = |line| parse_incident_daemon_log_line(INCIDENT_RULES, line);
+    assert!(parse("not a log line").is_none());
+    assert!(parse("[not-a-timestamp] supervisor: msg").is_none());
+    assert!(parse("[]").is_none());
+    assert!(parse("[2026-09-10T20:00:00Z]   ").is_none());
+    assert!(parse("[2026-09-10T20:00:00Z] supervisor:").is_none());
 }

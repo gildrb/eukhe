@@ -130,9 +130,19 @@ pub fn uuidv7(timestamp_ms: Option<f64>) -> Result<String, UuidError> {
 
 #[cfg(test)]
 mod tests {
-    use regex::Regex;
-
     use super::*;
+
+    /// A lowercase `UUIDv7`: 8-4-4-4-12 hex digits, version 7, variant 8-b.
+    fn is_uuid_v7(id: &str) -> bool {
+        let chars: Vec<char> = id.chars().collect();
+        chars.len() == 36
+            && chars.iter().enumerate().all(|(at, c)| match at {
+                8 | 13 | 18 | 23 => *c == '-',
+                14 => *c == '7',
+                19 => matches!(c, '8' | '9' | 'a' | 'b'),
+                _ => matches!(c, '0'..='9' | 'a'..='f'),
+            })
+    }
 
     const TIMESTAMP: f64 = 1_250_999_896_491.0; // 0x0123456789ab
 
@@ -146,9 +156,6 @@ mod tests {
 
     #[test]
     fn generates_ordered_uuidv7s_while_preserving_follower_timestamps() {
-        let pattern =
-            Regex::new("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-                .unwrap();
         let mut generator = UuidV7Generator::default();
         let first = generator.generate(None, TIMESTAMP, &mut os_random).unwrap();
         let second = generator.generate(None, TIMESTAMP, &mut os_random).unwrap();
@@ -170,7 +177,7 @@ mod tests {
         ];
 
         for id in ordinary.iter().chain(&followers) {
-            assert!(pattern.is_match(id), "{id}");
+            assert!(is_uuid_v7(id), "{id}");
         }
         let mut sorted = ordinary.clone();
         sorted.sort();

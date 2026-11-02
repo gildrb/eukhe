@@ -13,6 +13,7 @@
 //! `[agent.jsonl.old, agent.jsonl]` source with the same bounded tail, so
 //! incidents spanning a log rotation surface too.
 
+use eukhe_bend::rules::shape::INCIDENT_RULES;
 use eukhe_types::incident::{
     collect_incident_events, collect_worker_pid_map, compute_incident_anomalies,
     latest_incident_stall_timeout_by_subject, parse_incident_log_line, IncidentEvent,
@@ -203,8 +204,8 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
         .filter(|entry| entry.time_ms >= since_ms && entry.time_ms <= now_ms)
         .cloned()
         .collect();
-    let worker_pids = collect_worker_pid_map(&windowed);
-    let mut events = collect_incident_events(&windowed, &worker_pids);
+    let worker_pids = collect_worker_pid_map(INCIDENT_RULES, &windowed);
+    let mut events = collect_incident_events(INCIDENT_RULES, &windowed, &worker_pids);
     events.sort_by_key(|event: &IncidentEvent| event.time_ms);
     let mut notices: Vec<IncidentNotice> = Vec::new();
     for event in &events {

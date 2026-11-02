@@ -125,3 +125,14 @@ import ./laws/cron_serve/entry.bend as CronServeEntry
 import ./laws/cron_serve/safety.bend as CronServeSafety
 import ./laws/cron_serve/model.bend as CronServeModel
 import ./laws/worker.bend as Worker
+import ./laws/model_name.bend as ModelName
+import ./laws/aws_text.bend as AwsText
+import ./laws/ai_text.bend as AiText
+import ./laws/shape/match.bend as Shape
+import ./laws/shape/search.bend as ShapeSearch
+import ./laws/incident_shapes.bend as IncidentShapes
+import ./laws/image_marker_shapes.bend as ImageMarkerShapes
+import ./laws/arg_token_shapes.bend as ArgTokenShapes
+import ./laws/autolink_shapes.bend as AutolinkShapes
+import ./laws/preview_shapes.bend as PreviewShapes
+import ./laws/shape/entry.bend as ShapeEntry

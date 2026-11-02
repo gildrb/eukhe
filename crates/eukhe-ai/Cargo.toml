@@ -44,12 +44,10 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 # Kernel release for the pi user agent (Node `os.release()`), via safe `uname`.
 rustix = { version = "1", features = ["system"] }
-# Provider error classification patterns (retry.ts, overflow.ts): the TS regexes.
-regex = "1"
 # `Math.random()` jitter of the provider retry backoff (provider-retry.ts).
 rand = "0.9"
 # ECMAScript `RegExp` with the `u` flag for TypeBox `pattern`/`patternProperties`/`format`
-# checks in utils/validation (Rust `regex` lacks lookaround and ECMAScript syntax).
+# checks in utils/validation: user-written schema patterns (lookaround, ECMAScript syntax).
 regress = "0.12"
 # `String.prototype.normalize("NFC")` for TypeBox's `idn-email`/`idn-hostname` formats.
 unicode-normalization = "0.1"

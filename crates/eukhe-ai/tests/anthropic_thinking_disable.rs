@@ -37,10 +37,11 @@ fn make_e2e_context() -> Context {
     .expect("context")
 }
 
+/// The words `pong` (any case) in `text`, a word being a run of ASCII
+/// letters, digits and `_`.
 fn count_pongs(text: &str) -> usize {
-    regex::Regex::new(r"(?i)\bpong\b")
-        .expect("regex")
-        .find_iter(text)
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| word.eq_ignore_ascii_case("pong"))
         .count()
 }
 

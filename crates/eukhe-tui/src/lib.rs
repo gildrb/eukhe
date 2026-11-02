@@ -131,6 +131,7 @@ pub mod swarm_block;
 mod terminal_image;
 #[cfg(test)]
 mod testing;
+mod text_shapes;
 pub mod theme;
 pub mod theme_catalog;
 pub(crate) mod theme_rules;

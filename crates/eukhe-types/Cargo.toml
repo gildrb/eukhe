@@ -25,9 +25,6 @@ tracing.workspace = true
 # Already in the graph through crossterm. MIT OR Apache-2.0.
 signal-hook = { version = "0.3", default-features = false }
 socket2 = "0.6"
-# The incident classifier's log-message patterns are the TS regexes
-# (src/cli/incident.ts); the `regex` crate keeps their semantics 1:1.
-regex = "1"
 # pi_ai: ordered string maps (headers, env, thinking-level maps, prompt
 # sections) keep JS object insertion order; the same crate backs
 # serde_json's `preserve_order` Map.

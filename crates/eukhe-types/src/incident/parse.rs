@@ -2,14 +2,8 @@
 //! `parseIncidentLogLine` / `parseIncidentDaemonLogLine` and the
 //! `timestampToMs` helper).
 
+use super::rules::{IncidentRules, IncidentShape};
 use super::IncidentLogEntry;
-use regex::Regex;
-use std::sync::LazyLock;
-
-/// `[<ISO>] supervisor: <msg>` or `[<ISO>] <msg>` (TS
-/// `parseIncidentDaemonLogLine`).
-static DAEMON_LINE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\[([^\]]+)\]\s*(.*)$").expect("valid daemon line pattern"));
 
 /// `~/.eukhe/logs/agent.jsonl` is written with `Z`-suffixed ISO
 /// timestamps (the daemon's `now_iso`); the daemon-log fallback's
@@ -206,11 +200,16 @@ fn pid_number(value: &serde_json::Value) -> Option<i64> {
 }
 
 /// Parse one per-daemon log line: `[<ISO>] supervisor: <msg>` or
-/// `[<ISO>] <msg>` (TS `parseIncidentDaemonLogLine`).
-pub fn parse_incident_daemon_log_line(line: &str) -> Option<IncidentLogEntry> {
-    let captures = DAEMON_LINE.captures(line.trim())?;
-    let ts = captures.get(1)?.as_str();
-    let rest = captures.get(2)?.as_str();
+/// `[<ISO>] <msg>` (TS `parseIncidentDaemonLogLine`; the shape
+/// [`IncidentShape::DaemonLine`]).
+#[must_use]
+pub fn parse_incident_daemon_log_line(
+    rules: IncidentRules,
+    line: &str,
+) -> Option<IncidentLogEntry> {
+    let fit = (rules.first)(line.trim(), &[IncidentShape::DaemonLine])?;
+    let ts = fit.get(1)?;
+    let rest = fit.get(2)?;
     if ts.is_empty() || rest.trim().is_empty() {
         return None;
     }
@@ -334,37 +333,5 @@ mod tests {
         assert!(parse_incident_log_line(r#"{"ts":"garbage","msg":true}"#).is_none());
         assert!(parse_incident_log_line(r#"{"ts":"2026-09-10T20:00:00Z"}"#).is_none());
         assert!(parse_incident_log_line(r#"["an","array"]"#).is_none());
-    }
-
-    #[test]
-    fn daemon_log_line_parses_supervisor_and_worker_lines() {
-        let supervisor = parse_incident_daemon_log_line(
-            "[2026-09-10T20:02:39.765Z] supervisor: Supervisor command attach failed: Error: Timed out waiting for daemon worker response to attach",
-        )
-        .expect("supervisor line");
-        assert_eq!(supervisor.component, "coding-agent.daemon-supervisor");
-        assert_eq!(
-            supervisor.msg,
-            "Supervisor command attach failed: Error: Timed out waiting for daemon worker response to attach"
-        );
-        assert_eq!(supervisor.time_ms, 1_789_070_559_765);
-        assert_eq!(supervisor.level, "warn");
-        assert_eq!(supervisor.pid, None);
-
-        let worker = parse_incident_daemon_log_line(
-            "[2026-09-10T20:23:24.945Z] uncaught exception: Error: write EPIPE",
-        )
-        .expect("worker line");
-        assert_eq!(worker.component, "coding-agent.daemon");
-        assert_eq!(worker.msg, "uncaught exception: Error: write EPIPE");
-    }
-
-    #[test]
-    fn daemon_log_line_skips_malformed_lines() {
-        assert!(parse_incident_daemon_log_line("not a log line").is_none());
-        assert!(parse_incident_daemon_log_line("[not-a-timestamp] supervisor: msg").is_none());
-        assert!(parse_incident_daemon_log_line("[]").is_none());
-        assert!(parse_incident_daemon_log_line("[2026-09-10T20:00:00Z]   ").is_none());
-        assert!(parse_incident_daemon_log_line("[2026-09-10T20:00:00Z] supervisor:").is_none());
     }
 }
