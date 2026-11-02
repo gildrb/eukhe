@@ -627,6 +627,13 @@ import ./proof/run/run_ffi_end_round_trip.bend as PRunFfiEndRoundTrip
 import ./proof/run/run_ffi_help_round_trip.bend as PRunFfiHelpRoundTrip
 import ./proof/run/run_ffi_reply_round_trip.bend as PRunFfiReplyRoundTrip
 import ./proof/run/run_ffi_answer_fits_witness.bend as PRunFfiAnswerFitsWitness
+import ./proof/run/base/entry.bend as LARunEntry
+import ./proof/run/run_ended_is_the_rust_rule.bend as PRunEndedIsTheRustRule
+import ./proof/run/run_poll_is_the_rust_rule.bend as PRunPollIsTheRustRule
+import ./proof/run/run_entry_exact.bend as PRunEntryExact
+import ./proof/run/run_entry_reads.bend as PRunEntryReads
+import ./proof/run/run_entry_answers.bend as PRunEntryAnswers
+import ./proof/run/run_entry_example.bend as PRunEntryExample
 import ./proof/semver/base.bend as LASemver
 import ./proof/semver/semver_roundtrip.bend as PSemverRoundtrip
 import ./proof/semver/semver_le_refl.bend as PSemverLeRefl
