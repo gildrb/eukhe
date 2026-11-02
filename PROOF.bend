@@ -1104,6 +1104,9 @@ import ./proof/revive/revive_ffi_malformed_exact.bend as PReviveFfiMalformedExac
 import ./proof/revive/revive_ffi_example.bend as PReviveFfiExample
 import ./proof/revive/revive_veto_ages_as_model.bend as PReviveVetoAgesAsModel
 import ./proof/revive/revive_ffi_ages_as_model.bend as PReviveFfiAgesAsModel
+import ./proof/revive/revive_age_exact.bend as PReviveAgeExact
+import ./proof/revive/revive_since_exact.bend as PReviveSinceExact
+import ./proof/revive/revive_tick_exact.bend as PReviveTickExact
 import ./proof/orphan/base.bend as LAOrphan
 import ./proof/orphan/orphan_never_aborts_resumable.bend as POrphanNeverAbortsResumable
 import ./proof/orphan/orphan_idle_exit_due.bend as POrphanIdleExitDue
