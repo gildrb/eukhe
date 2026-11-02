@@ -402,3 +402,313 @@ law dir_ffi_left_over:
 # LAW dir_req_fits_example: witness: a request fits (the premise of the laws above can hold)
 law dir_req_fits_example:
   {dir_req_fits(FDr.Req{4n, Dr.Loop{3n, [Dr.Layer{0n, 5n}], Some{Dr.Hand{}}}, [Dr.Stack{Dr.Layer{1n, 1n}}, Dr.Lead{}]}) == True{} : Bool}
+
+# The entry, independently of bend/ffi_director.bend and of the model's
+# functions: a reader of the request grammar (the header of
+# bend/ffi_director.bend, crates/eukhe-bend/WIRE.md) built from the wire
+# primitives, the loop step as the laws above state it, and a speller of
+# the loop after it from the wire primitives.
+
+# a layer: its kind, then its budget
+def dirr.layer.b(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Layer>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{Dr.Layer{k, b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.layer.k(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Layer>:
+  match r:
+    case Wr.Got{k, s}:
+      dirr.layer.b(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.layer(s: String) -> Wr.Dec<Dr.Layer>:
+  dirr.layer.k(Wr.get_nat(s))
+
+# a verdict: 0 Defer | 1 Again | 2 Yield | 3 Stack, then a layer | 4 Leave
+# | 5 Abort | 6 Lead
+def dirr.verdict.stack(r: Wr.Dec<Dr.Layer>) -> Wr.Dec<Dr.Verdict>:
+  match r:
+    case Wr.Got{l, s}:
+      Wr.Got{Dr.Stack{l}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.verdict.tag(t: Nat, s: String) -> Wr.Dec<Dr.Verdict>:
+  match t:
+    case 0n:
+      Wr.Got{Dr.Defer{}, s}
+    case 1n:
+      Wr.Got{Dr.Again{}, s}
+    case 2n:
+      Wr.Got{Dr.Yield{}, s}
+    case 3n:
+      dirr.verdict.stack(dirr.layer(s))
+    case 4n:
+      Wr.Got{Dr.Leave{}, s}
+    case 5n:
+      Wr.Got{Dr.Abort{}, s}
+    case 6n:
+      Wr.Got{Dr.Lead{}, s}
+    case 7n+x:
+      Wr.Bad{}
+
+def dirr.verdict.go(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Verdict>:
+  match r:
+    case Wr.Got{t, s}:
+      dirr.verdict.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.verdict(s: String) -> Wr.Dec<Dr.Verdict>:
+  dirr.verdict.go(Wr.get_nat(s))
+
+# how a loop ended: 0 (running) | 1, then 0 Cont | 1 Hand | 2 Failed
+def dirr.end.out(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Dr.Out>>:
+  match t:
+    case 0n:
+      Wr.Got{Some{Dr.Cont{}}, s}
+    case 1n:
+      Wr.Got{Some{Dr.Hand{}}, s}
+    case 2n:
+      Wr.Got{Some{Dr.Failed{}}, s}
+    case 3n+x:
+      Wr.Bad{}
+
+def dirr.end.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Dr.Out>>:
+  match r:
+    case Wr.Got{t, s}:
+      dirr.end.out(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.end.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Dr.Out>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      dirr.end.some(Wr.get_nat(s))
+    case 2n+x:
+      Wr.Bad{}
+
+def dirr.end(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Dr.Out>>:
+  match r:
+    case Wr.Got{t, s}:
+      dirr.end.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a loop: the global budget left, the stack (a list of layers, top
+# first), how it ended
+def dirr.loop.end(n: Nat, st: List<&2, Dr.Layer>, r: Wr.Dec<Maybe<&2, Dr.Out>>) -> Wr.Dec<Dr.Loop>:
+  match r:
+    case Wr.Got{e, s}:
+      Wr.Got{Dr.Loop{n, st, e}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.loop.stack(n: Nat, r: Wr.Dec<List<&2, Dr.Layer>>) -> Wr.Dec<Dr.Loop>:
+  match r:
+    case Wr.Got{st, s}:
+      dirr.loop.end(n, st, dirr.end(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.loop(r: Wr.Dec<Nat>) -> Wr.Dec<Dr.Loop>:
+  match r:
+    case Wr.Got{n, s}:
+      dirr.loop.stack(n, Wr.get_list(~Dr.Layer, ~dirr.layer, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a request: the cap, the loop, the verdicts (a list, top first)
+def dirr.req.vs(c: Nat, l: Dr.Loop, r: Wr.Dec<List<&2, Dr.Verdict>>) -> Wr.Dec<FDr.Req>:
+  match r:
+    case Wr.Got{vs, s}:
+      Wr.Got{FDr.Req{c, l, vs}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.req.loop(c: Nat, r: Wr.Dec<Dr.Loop>) -> Wr.Dec<FDr.Req>:
+  match r:
+    case Wr.Got{l, s}:
+      dirr.req.vs(c, l, Wr.get_list(~Dr.Verdict, ~dirr.verdict, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def dirr.req(r: Wr.Dec<Nat>) -> Wr.Dec<FDr.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      dirr.req.loop(c, dirr.loop(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request s starts with, and what follows it
+def dirr.read(s: String) -> Wr.Dec<FDr.Req>:
+  dirr.req(Wr.get_nat(s))
+
+# an Again of l above the layers rest (dir_go_again, dir_go_again_spent)
+def dirs.again(l: Dr.Layer, +rest: List<&2, Dr.Layer>) -> Dr.Dec:
+  match l:
+    case Dr.Layer{k, b}:
+      match b:
+        case 0n:
+          Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest}
+        case 1n+c:
+          Dr.Dec{Dr.Cont{}, Dr.Layer{k, c} <> rest}
+
+# a Stack of n by l above the layers rest, room telling whether the whole
+# stack holds fewer than cap layers (dir_go_push, dir_go_push_full,
+# dir_go_push_spent)
+def dirs.push(l: Dr.Layer, +n: Dr.Layer, +rest: List<&2, Dr.Layer>, room: Bool) -> Dr.Dec:
+  match l:
+    case Dr.Layer{k, b}:
+      match b:
+        case 0n:
+          Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest}
+        case 1n+c:
+          match room:
+            case True{}:
+              Dr.Dec{Dr.Cont{}, n <> Dr.Layer{k, c} <> rest}
+            case False{}:
+              Dr.Dec{Dr.Failed{}, Dr.Layer{k, c} <> rest}
+
+# a Lead of l over the decision d of the layers below: on top when the
+# loop ends (stay), gone when it goes on (dir_go_lead_stays,
+# dir_go_lead_leaves)
+def dirs.lead(stay: Bool, +l: Dr.Layer, d: Dr.Dec) -> Dr.Dec:
+  match stay:
+    case True{}:
+      dir_on_top(l, d)
+    case False{}:
+      d
+
+# one decision, verdict by verdict, as the laws dir_go_* state it
+def dirs.go(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, +stay: Bool) -> Dr.Dec:
+  match s:
+    case Nil{}:
+      Dr.Dec{Dr.Hand{}, Nil{}}
+    case +l <> +rest:
+      match vs:
+        case Nil{}:
+          dir_on_top(l, dirs.go(rest, Nil{}, room, stay))
+        case v <> vr:
+          match v:
+            case Dr.Defer{}:
+              dir_on_top(l, dirs.go(rest, vr, room, stay))
+            case Dr.Again{}:
+              dirs.again(l, rest)
+            case Dr.Yield{}:
+              Dr.Dec{Dr.Hand{}, l <> rest}
+            case Dr.Stack{n}:
+              dirs.push(l, n, rest, room)
+            case Dr.Leave{}:
+              dirs.go(rest, vr, room, stay)
+            case Dr.Abort{}:
+              Dr.Dec{Dr.Failed{}, l <> rest}
+            case Dr.Lead{}:
+              dirs.lead(stay, l, dirs.go(rest, vr, room, stay))
+
+# a decision with room for cap layers (dir_room): a push needs the whole
+# stack to hold fewer than cap layers
+def dirs.decide(+s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, +stay: Bool) -> Dr.Dec:
+  dirs.go(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), stay)
+
+def dirs.stack(d: Dr.Dec) -> List<&2, Dr.Layer>:
+  match d:
+    case Dr.Dec{o, t}:
+      t
+
+# a continue with n steps left: with a step left the loop goes on with the
+# decision's stack t (dir_tick_goes_on); with none it yields, a layer that
+# leads staying (dir_tick_out_of_steps)
+def dirs.on(n: Nat, t: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat) -> Dr.Loop:
+  match n:
+    case 0n:
+      Dr.Loop{0n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Hand{}}}
+    case 1n+m:
+      Dr.Loop{m, t, None{}}
+
+# the loop after the decision d of the stack s on vs (made as the loop
+# goes on, dir_decide_goes_on), with n steps left: dirs.on, then
+# dir_tick_hands_back, dir_tick_fails
+def dirs.settle(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat) -> Dr.Loop:
+  match d:
+    case Dr.Dec{o, t}:
+      match o:
+        case Dr.Cont{}:
+          dirs.on(n, t, s, vs, cap)
+        case Dr.Hand{}:
+          Dr.Loop{n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Hand{}}}
+        case Dr.Failed{}:
+          Dr.Loop{n, dirs.stack(dirs.decide(s, vs, cap, True{})), Some{Dr.Failed{}}}
+
+# one loop step: an ended loop stays as it ended (dir_end_is_final); a
+# running one settles the decision of its stack
+def dirs.tick(+cap: Nat, l: Dr.Loop, vs: List<&2, Dr.Verdict>) -> Dr.Loop:
+  match l:
+    case Dr.Loop{n, +s, e}:
+      match e:
+        case Some{x}:
+          Dr.Loop{n, s, Some{x}}
+        case None{}:
+          +w = vs
+          dirs.settle(dirs.decide(s, w, cap, False{}), n, s, w, cap)
+
+# the loop after the step, as the Rust Reader reads it: the budget left,
+# the stack (each layer its kind, then its budget), the end (0 | 1, then
+# 0 Cont | 1 Hand | 2 Failed)
+def dirs.layer(l: Dr.Layer, rest: String) -> String:
+  match l:
+    case Dr.Layer{k, b}:
+      Wr.put_nat(k, Wr.put_nat(b, rest))
+
+def dirs.end(e: Maybe<&2, Dr.Out>, rest: String) -> String:
+  match e:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{o}:
+      match o:
+        case Dr.Cont{}:
+          Wr.put_nat(1n, Wr.put_nat(0n, rest))
+        case Dr.Hand{}:
+          Wr.put_nat(1n, Wr.put_nat(1n, rest))
+        case Dr.Failed{}:
+          Wr.put_nat(1n, Wr.put_nat(2n, rest))
+
+def dirs.loop(l: Dr.Loop, rest: String) -> String:
+  match l:
+    case Dr.Loop{n, st, e}:
+      Wr.put_nat(n, Wr.put_list(~Dr.Layer, ~dirs.layer, st, dirs.end(e, rest)))
+
+def dirs.whole(done: Bool, q: FDr.Req) -> String:
+  match done:
+    case True{}:
+      match q:
+        case FDr.Req{c, l, vs}:
+          dirs.loop(dirs.tick(c, l, vs), "")
+    case False{}:
+      Wr.err("director: input left over")
+
+def dirs.run(r: Wr.Dec<FDr.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      dirs.whole(Wr.end(s), q)
+    case Wr.Bad{}:
+      Wr.err("director: malformed request")
+
+# the reply to the input s
+def dirs.spec(s: String) -> String:
+  dirs.run(dirr.read(s))
+
+# LAW dir_ffi_exact: on every input the entry answers the loop after one step (as the laws above state the step: an ended loop stays; a running one settles its stack's decision, verdict by verdict) of the request the input starts with, spelled as the Rust Reader reads it, when nothing follows the request; "director: input left over" when something does; "director: malformed request" when the input starts with no request
+# EXCLUDES: a step other than the laws' (a verdict misread, an ended loop
+#   stepped, a cap or a budget off by one), a reply in another spelling, a
+#   loop answered for an input that is no request (an unknown tag, a list
+#   cut short, a 15-digit number) or for a request with input left over,
+#   another error text
+law dir_ffi_exact:
+  for +s: String
+  {FDr.ffi(s) == dirs.spec(s) : String}
