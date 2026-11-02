@@ -694,6 +694,14 @@ import ./proof/semver/semver_ffi_why_example.bend as PSemverFfiWhyExample
 import ./proof/semver/semver_ffi_series_example.bend as PSemverFfiSeriesExample
 import ./proof/semver/semver_ffi_long_example.bend as PSemverFfiLongExample
 import ./proof/semver/semver_ffi_malformed_example.bend as PSemverFfiMalformedExample
+import ./proof/semver/semver_ffi_error_example.bend as PSemverFfiErrorExample
+import ./proof/semver/semver_ffi_left_over.bend as PSemverFfiLeftOver
+import ./proof/semver/semver_ffi_malformed_unless_request.bend as PSemverFfiMalformedUnlessRequest
+import ./proof/semver/semver_lt_exact.bend as PSemverLtExact
+import ./proof/semver/semver_digit_exact.bend as PSemverDigitExact
+import ./proof/semver/semver_tag_strip_spelled.bend as PSemverTagStripSpelled
+import ./proof/semver/semver_tag_strip_exact.bend as PSemverTagStripExact
+import ./proof/semver/semver_tag_ver_exact.bend as PSemverTagVerExact
 import ./proof/semver/replace_rank_in_range.bend as PReplaceRankInRange
 import ./proof/auth_flight/base.bend as LAAuthFlight
 import ./proof/auth_flight/flight_one_fetch.bend as PFlightOneFetch

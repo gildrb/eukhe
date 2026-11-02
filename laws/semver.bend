@@ -425,6 +425,15 @@ law replace_rank_in_range:
 # Every other input answers the error form. Every input is free: any
 # texts, any tags, in any order.
 
+# The reply specs below read model functions that laws pin, for every
+# input, to spec text: Sv.Rel.release (semver_release_exact), Sv.Rel.next
+# (semver_next_exact), Sv.Ver.parse (semver_parse_exact, semver_roundtrip,
+# semver_show_decimal), Sv.Tag.ver and Sv.Tag.strip (semver_tag_ver_exact,
+# semver_tag_roundtrip, semver_tag_strip_exact, semver_tag_strip_spelled),
+# Sv.Ver.le and Sv.Ver.lt (semver_le_exact, semver_lt_exact),
+# Sv.Ver.in_series (semver_in_series_exact), and the digit test of
+# Sv.Sym.of (semver_digit_exact).
+
 # Spec spellers
 # -------------
 
@@ -699,3 +708,109 @@ law semver_ffi_long_example:
 # EXCLUDES: a default answer to a request Rust never sends
 law semver_ffi_malformed_example:
   {LawsBase.wire_opens_err(FSv.ffi("2,")) == True{} : Bool} & {LawsBase.wire_opens_err(FSv.ffi("0,6,0.10.00,x")) == True{} : Bool}
+
+# LAW semver_ffi_error_example: anchor: the exact refusals: an unknown tag and a
+# 15-digit count are malformed, input after a request is left over, a tag with
+# 7 digits in a row is too long
+# EXCLUDES: one error text for another (a left-over input called malformed),
+#   an error text that varies with the input
+law semver_ffi_error_example:
+  {[FSv.ffi("2,"), FSv.ffi("0,999999999999999,"), FSv.ffi("0,6,0.10.00,x"), FSv.ffi("0,6,0.10.01,19,eukhe-v0.10.1234567")] == [Wr.err("semver: malformed request"), Wr.err("semver: malformed request"), Wr.err("semver: input left after the request"), long_err()] : List<&2, String>}
+
+# ---- the entry, whole (R2) ----
+#
+# With the laws above, every input of the entry has one answer: an input
+# that is a spelled request that fits (then nothing) answers the reply
+# laws (semver_ffi_release, semver_ffi_release_long, semver_ffi_series,
+# semver_ffi_series_long); one followed by more input answers the
+# left-over error; any other input answers the malformed error. The
+# model's helpers the reply specs read (the order, the tag reader, the
+# digit test of the 7-digit refusal) are pinned to spec text below.
+
+# a request spelled before rest (spell_req(q) is spell_req_then(q, ""))
+def spell_req_then(q: FSv.Req, rest: String) -> String:
+  match q:
+    case FSv.QRelease{c, ts}:
+      Wr.put_nat(0n, Wr.put_str(c, spell_tags(ts, rest)))
+    case FSv.QSeries{w, r}:
+      Wr.put_nat(1n, Wr.put_str(w, Wr.put_str(r, rest)))
+
+# LAW semver_ffi_left_over: a request Rust spells that fits, followed by more
+# input, answers exactly the left-over error
+# EXCLUDES: trailing input ignored (a release answered for a request and a
+#   half), or read as part of the request, or refused with another text
+law semver_ffi_left_over:
+  for +q: FSv.Req
+  for +rest: String
+  for fit: {req_fits(q) == True{} : Bool}
+  for more: {String.is_empty(rest) == False{} : Bool}
+  {FSv.ffi(spell_req_then(q, rest)) == Wr.err("semver: input left after the request") : String}
+
+# LAW semver_ffi_malformed_unless_request: every answer but the malformed
+# error (a reply, the left-over error, the 7-digit refusal) comes from an
+# input that begins with a spelled request that fits
+# EXCLUDES: the left-over or 7-digit error, another error text, or a reply,
+#   for input that holds no request
+law semver_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FSv.ffi(s), Wr.err("semver: malformed request")) == False{} : Bool}
+  exs q: FSv.Req
+  exs rest: String
+  {(s, req_fits(q)) == (spell_req_then(q, rest), True{}) : String & Bool}
+
+# LAW semver_lt_exact: v is newer than u exactly when v's major is higher, or
+# equal with a higher minor, or both equal with a higher patch
+# EXCLUDES: a newness test other than the strict order (a release equal to a
+#   tag, or behind one, called newer), which the reply specs read through
+#   Sv.Ver.lt
+law semver_lt_exact:
+  for +a1: Nat
+  for +b1: Nat
+  for +c1: Nat
+  for +a2: Nat
+  for +b2: Nat
+  for +c2: Nat
+  {Sv.Ver.lt(Sv.Ver{a1, b1, c1}, Sv.Ver{a2, b2, c2}) == Bool.or(Nat.is_lt(a1, a2), Bool.and(Nat.is_eq(a1, a2), Bool.or(Nat.is_lt(b1, b2), Bool.and(Nat.is_eq(b1, b2), Nat.is_lt(c1, c2))))) : Bool}
+
+# c is one of the ten decimal digit chars
+def digit_char_spec(+c: Char) -> Bool:
+  Bool.or(Char.is_eq(c, '0'), Bool.or(Char.is_eq(c, '1'), Bool.or(Char.is_eq(c, '2'), Bool.or(Char.is_eq(c, '3'), Bool.or(Char.is_eq(c, '4'), Bool.or(Char.is_eq(c, '5'), Bool.or(Char.is_eq(c, '6'), Bool.or(Char.is_eq(c, '7'), Bool.or(Char.is_eq(c, '8'), Char.is_eq(c, '9'))))))))))
+
+# LAW semver_digit_exact: the model reads a char as a digit exactly when it is
+# one of '0' to '9'
+# EXCLUDES: a digit test that misses a digit or takes another char (a
+#   7-digit refusal of `1.2.3a5678`, or a 7-digit run let through), which the
+#   spec of the refusal reads through Sv.Sym.of
+law semver_digit_exact:
+  for +c: Char
+  {digit_spec.of(Sv.Sym.of(c)) == digit_char_spec(c) : Bool}
+
+# LAW semver_tag_strip_spelled: the model strips `eukhe-v` from every text
+# that starts with it, and keeps what follows
+# EXCLUDES: a tag the model does not read (its version ignored, its 7-digit
+#   run let through), the text after the prefix cut or changed
+law semver_tag_strip_spelled:
+  for +r: String
+  {Sv.Tag.strip(String.append("eukhe-v", r)) == Some{r} : Maybe<&2, String>}
+
+# LAW semver_tag_strip_exact: the model strips only `eukhe-v`: a text it
+# strips is `eukhe-v` then the text it answers
+# EXCLUDES: another prefix read as a tag (`v1.2.3`, `build-12345678` read,
+#   refused for 7 digits or counted as a version)
+law semver_tag_strip_exact:
+  for +t: String
+  for +r: String
+  for h: {Sv.Tag.strip(t) == Some{r} : Maybe<&2, String>}
+  {t == String.append("eukhe-v", r) : String}
+
+# LAW semver_tag_ver_exact: a text names a version only when it is that
+# version's tag, `eukhe-v` then the version in decimal (with
+# semver_tag_roundtrip: the tag reader and the tag writer are the spec's)
+# EXCLUDES: a tag reader that reads `v1.2.3`, `eukhe-v0.10.03` or
+#   `eukhe-v0.10.3-main.4` as a version (a release held back or moved by a
+#   text that is no tag)
+law semver_tag_ver_exact:
+  for +t: String
+  for +v: Sv.Ver
+  for h: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
+  {t == String.append("eukhe-v", show_spec(v)) : String}
