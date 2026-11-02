@@ -1066,6 +1066,8 @@ import ./proof/supervise/restart_wire_reply_give_up.bend as PRestartWireReplyGiv
 import ./proof/supervise/restart_ffi_decides.bend as PRestartFfiDecides
 import ./proof/supervise/restart_ffi_malformed.bend as PRestartFfiMalformed
 import ./proof/supervise/restart_ffi_left_over.bend as PRestartFfiLeftOver
+import ./proof/supervise/restart_ffi_exact.bend as PRestartFfiExact
+import ./proof/supervise/restart_ffi_exact_example.bend as PRestartFfiExactExample
 import ./proof/supervise/timeouts_ordered.bend as PTimeoutsOrdered
 import ./proof/revive/revive_after_refresh.bend as PReviveAfterRefresh
 import ./proof/timeouts/base.bend as LATimeouts

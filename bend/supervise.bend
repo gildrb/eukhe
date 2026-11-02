@@ -105,10 +105,30 @@ def go(+c: Cfg, gs: List<&2, Nat>, s: St) -> St:
 def failures(+c: Cfg, gs: List<&2, Nat>) -> Nat:
   St.n(go(c, gs, St.empty()))
 
+# x, or the longest pause m when x passes it
+def backoff.cap(le: Bool, x: Nat, m: Nat) -> Nat:
+  match le:
+    case True{}:
+      x
+    case False{}:
+      m
+
+# a pause x (at most m) doubled e times, capped at m after each doubling:
+# no value passes m + m, so none passes the runtime's Nat range when m
+# fits the wire
+def backoff.go(e: Nat, +m: Nat, +x: Nat) -> Nat:
+  match e:
+    case 0n:
+      x
+    case 1n+p:
+      +d = Nat.add(x, x)
+      backoff.go(p, m, backoff.cap(Nat.is_le(d, m), d, m))
+
+# base * 2^min(n - 1, 7), at most max (computed capped at every doubling)
 def backoff(+c: Cfg, n: Nat) -> Nat:
   match c:
     case Cfg{k, w, +b, +m}:
-      Nat.min(Nat.mul(Nat.pow(2n, Nat.min(Nat.sub(n, 1n), 7n)), b), m)
+      backoff.go(Nat.min(Nat.sub(n, 1n), 7n), m, backoff.cap(Nat.is_le(b, m), b, m))
 
 def verdict.put(over: Bool, +c: Cfg, +n: Nat) -> Verdict:
   match over:

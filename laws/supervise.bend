@@ -164,6 +164,121 @@ law restart_ffi_left_over:
   for ne: {String.is_empty(r) == False{} : Bool}
   {FS.ffi(s) == Wr.err("supervise: input left over") : String}
 
+# The whole restart-budget entry, every input
+# -------------------------------------------
+# The request and the reply as the wire grammar of WIRE.md, read and
+# spelled with the wire primitives alone (never the entry's own codec),
+# and the decision as the spec above states it (restart_window,
+# restart_verdict_put; never the model's code):
+#   request  k, w, base, max; the ages (a count, then each age); the gap
+#   reply    the new ages (a count, then each); the verdict: 0, then the
+#            failure count and the pause (a relaunch) | 1, then the
+#            failure count (a give-up)
+# A request that cannot be read answers "supervise: malformed request"; a
+# request with input after it answers "supervise: input left over".
+
+def sv_read.gap(c: Su.Cfg, a: List<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{g, s}:
+      Wr.Got{FS.Req{c, a, g}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sv_read.ages(c: Su.Cfg, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      sv_read.gap(c, a, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sv_read.m(k: Nat, w: Nat, b: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{m, s}:
+      sv_read.ages(Su.Cfg{k, w, b, m}, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sv_read.b(k: Nat, w: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{b, s}:
+      sv_read.m(k, w, b, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sv_read.w(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{w, s}:
+      sv_read.b(k, w, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def sv_read.k(r: Wr.Dec<Nat>) -> Wr.Dec<FS.Req>:
+  match r:
+    case Wr.Got{k, s}:
+      sv_read.w(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request at the head of s, and the input after it
+def sv_read(s: String) -> Wr.Dec<FS.Req>:
+  sv_read.k(Wr.get_nat(s))
+
+# a verdict on the wire: 0, the failure count, the pause | 1, the count
+def sv_verdict(v: Su.Verdict, rest: String) -> String:
+  match v:
+    case Su.Relaunch{f, b}:
+      Wr.put_nat(0n, Wr.put_nat(f, Wr.put_nat(b, rest)))
+    case Su.GiveUp{f}:
+      Wr.put_nat(1n, Wr.put_nat(f, rest))
+
+# the reply to a request: the failure at age 0, then the ages still inside
+# the window (each g ms older); the verdict on the failures it keeps
+def sv_reply(q: FS.Req) -> String:
+  match q:
+    case FS.Req{c, ages, +g}:
+      match c:
+        case Su.Cfg{+k, +w, +b, +m}:
+          +kept = restart_window(w, g, ages)
+          +n = {1n+List.length(&2, Nat, kept) : Nat}
+          Wr.put_list(~Nat, ~Wr.put_nat, 0n <> kept, sv_verdict(restart_verdict_put(Nat.is_lt(k, n), Su.Cfg{k, w, b, m}, n), ""))
+
+def sv_entry.of(d: Wr.Dec<FS.Req>) -> String:
+  match d:
+    case Wr.Got{q, r}:
+      match r:
+        case SNil{}:
+          sv_reply(q)
+        case SCon{c, t}:
+          Wr.err("supervise: input left over")
+    case Wr.Bad{}:
+      Wr.err("supervise: malformed request")
+
+# the entry's answer to s
+def sv_entry(s: String) -> String:
+  sv_entry.of(sv_read(s))
+
+# LAW restart_ffi_exact: for every input, the entry answers exactly: on a request (as the wire
+# primitives read it) with nothing after it, the new ages (this failure at
+# 0, then the ages still inside the window, each g ms older) and the
+# verdict (give up past k failures in the window, else relaunch after the
+# doubling pause capped at max); on a request with input after it, the
+# error form "supervise: input left over"; on any other input, the error
+# form "supervise: malformed request"
+# EXCLUDES: a misread or reordered field, a verdict tag read as another, a
+#   decision on garbage or on a request with input after it, another error
+#   text, a codec of the entry wrong both ways (the spec never calls it)
+law restart_ffi_exact:
+  for +s: String
+  {FS.ffi(s) == sv_entry(s) : String}
+
+# LAW restart_ffi_exact_example: anchor: the strings Rust writes and the replies it reads: an
+# age that leaves the window, a third failure that doubles the pause twice,
+# the same failure given up with k = 2, a pause capped at max; a cut request
+# and input left over are refused
+# EXCLUDES: a field order other than Rust's, a vacuous restart_ffi_exact
+law restart_ffi_exact_example:
+  {[sv_entry("3,10,2,9,1,4,6,"), sv_entry("3,10,2,9,2,1,2,1,"), sv_entry("2,10,2,9,2,1,2,1,"), sv_entry("5,10,4,9,2,1,2,1,"), sv_entry("3,10,2,9,1,"), sv_entry("3,10,2,9,0,6,x")] == ["1,0,0,1,2,", "3,0,2,3,0,3,8,", "3,0,2,3,1,3,", "3,0,2,3,0,3,9,", Wr.err("supervise: malformed request"), Wr.err("supervise: input left over")] : List<&2, String>}
+
 # LAW timeouts_ordered: every timeout comes after the timeouts it waits for (Su.Tm.ordered
 # lists them), whatever the base values
 law timeouts_ordered:
