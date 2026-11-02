@@ -1882,6 +1882,7 @@ import ./proof/infer_force/infer_force_steps.bend as PInferForceSteps
 import ./proof/infer_force/infer_force_ffi_flag.bend as PInferForceFfiFlag
 import ./proof/infer_force/infer_force_ffi_after.bend as PInferForceFfiAfter
 import ./proof/infer_force/infer_force_ffi_malformed_exact.bend as PInferForceFfiMalformedExact
+import ./proof/infer_force/infer_force_ffi_spec.bend as PInferForceFfiSpec
 import ./proof/infer_force/infer_force_ffi_example.bend as PInferForceFfiExample
 import ./proof/infer_guard/base.bend as LAInferGuard
 import ./proof/infer_guard/infer_guard_start_exact.bend as PInferGuardStartExact

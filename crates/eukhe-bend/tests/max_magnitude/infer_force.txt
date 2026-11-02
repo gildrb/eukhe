@@ -1,0 +1,14 @@
+# the native flag: the attempt at its largest (a retry), every provider
+call 0,{MAX},TT
+call 0,{MAX},TF
+call 0,{MAX},FT
+# after a reply: the attempt and the retries at their largest, either way
+call 1,{MAX},{MAX},F
+call 1,{MAX},{MAX},T
+call 1,99999999999998,{MAX},F
+call 1,0,{MAX},F
+call 1,{MAX},0,F
+# Rust's own largest (u32)
+call 1,{U32MAX},{U32MAX},F
+refuse 0,{LONG},TT
+refuse 1,{MAX},{LONG},F
