@@ -1734,6 +1734,12 @@ import ./proof/shell/shell_ffi_exact.bend as PShellFfiExact
 import ./proof/shell/shell_ffi_answers.bend as PShellFfiAnswers
 import ./proof/shell/shell_ffi_left_over.bend as PShellFfiLeftOver
 import ./proof/shell/shell_ffi_example.bend as PShellFfiExample
+import ./proof/shell/shell_flat_spelled.bend as PShellFlatSpelled
+import ./proof/shell/shell_unflat_reads.bend as PShellUnflatReads
+import ./proof/shell/shell_unflat_exact.bend as PShellUnflatExact
+import ./proof/shell/shell_effects_spec.bend as PShellEffectsSpec
+import ./proof/shell/shell_within_spec.bend as PShellWithinSpec
+import ./proof/shell/shell_ffi_spec.bend as PShellFfiSpec
 import ./proof/runners/base/entry.bend as LARunnersEntry
 import ./proof/runners/runners_ffi_exact.bend as PRunnersFfiExact
 import ./proof/runners/runners_ffi_answers.bend as PRunnersFfiAnswers

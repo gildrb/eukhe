@@ -275,3 +275,181 @@ law shell_ffi_example:
   {FSh.ffi("2,4,T") == "0," : String} &
   {FSh.ffi("0,0,2,3,0,") == malformed() : String} &
   {FSh.ffi("3,") == malformed() : String}
+
+# ---- shell: the decision and the flat parts, pinned to the requirement ----
+
+# LAWS (G2, the decision): the decision the entry answers and the flat
+# list its parts travel in, stated with spec functions written from the
+# requirement (bend/tools.bend part 4, crates/eukhe-bend/WIRE.md), never
+# the model's own, so R1's "the model's decision" is itself pinned.
+#
+# R3: a step's effects are, part by part in order, the secret effect (6)
+#     when the part names a path that is or holds a secret, then the
+#     part's own codes other than 6 (only a named secret path gives 6).
+# R4: effects run unasked exactly when each is an effect code (0 read, 1
+#     write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret: an auto set
+#     may hold any of them) and is in the auto set.
+# R5: the answer yes to a gated step lets it run (0); no stops the script
+#     at it (1, its id).
+# R6: the parts of a step travel as one flat list of Nats: each inner
+#     list's items as 1 + item, then the end mark 0; a flat list is read
+#     back exactly when it is such a spelling, as the lists it spells.
+
+# Spec functions
+# --------------
+
+# R6: the items of xs (each 1 + item), its end mark 0, then rest
+def sh_flat_one(xs: List<&2, Nat>, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match xs:
+    case Nil{}:
+      0n <> rest
+    case x <> t:
+      {1n+x : Nat} <> sh_flat_one(t, rest)
+
+# R6: every list of xss, in order, flat
+def sh_flat(xss: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
+  match xss:
+    case Nil{}:
+      Nil{}
+    case xs <> t:
+      sh_flat_one(xs, sh_flat(t))
+
+# R4: x is an item of xs
+def sh_has(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), sh_has(rest, x))
+
+# R4: c is an effect code (0 to 6)
+def sh_code(c: Nat) -> Bool:
+  Nat.is_lt(c, 7n)
+
+# R4: every effect of es is an effect code in the auto set
+def sh_within(es: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(sh_code(c), sh_has(auto, c)), sh_within(rest, auto))
+
+def sh_plain.keep(six: Bool, c: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
+  match six:
+    case True{}:
+      r
+    case False{}:
+      c <> r
+
+# R3: the codes of cs other than 6, then rest
+def sh_plain(cs: List<&2, Nat>, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      rest
+    case +c <> t:
+      sh_plain.keep(Nat.is_eq(c, 6n), c, sh_plain(t, rest))
+
+# R3: the secret effect when the part names a secret path, then rest
+def sh_secret(s: Bool, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match s:
+    case True{}:
+      6n <> rest
+    case False{}:
+      rest
+
+# R3: the effects of a step made of the parts ps
+def sh_effs(ps: List<&2, Tl.Part>) -> List<&2, Nat>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> t:
+      match p:
+        case Tl.Part{o, s}:
+          sh_secret(s, sh_plain(o, sh_effs(t)))
+
+# R5: what the answer y to the gated step i does, spelled
+def sh_end(i: Nat, y: Bool) -> String:
+  match y:
+    case True{}:
+      Wr.put_nat(0n, "")
+    case False{}:
+      Wr.put_nat(1n, Wr.put_nat(i, ""))
+
+# the reply R3-R5 give a request
+def sh_reply(q: FSh.Req) -> String:
+  match q:
+    case FSh.QStep{+a, ps}:
+      +es = sh_effs(ps)
+      spell_ns(es, Wr.put_bool(sh_within(es, a), ""))
+    case FSh.QAllows{+a, es}:
+      Wr.put_bool(sh_within(es, a), "")
+    case FSh.QAnswer{i, y}:
+      sh_end(i, y)
+
+def sh_spec.end(whole: Bool, q: FSh.Req) -> String:
+  match whole:
+    case True{}:
+      sh_reply(q)
+    case False{}:
+      malformed()
+
+def sh_spec.run(r: Wr.Dec<FSh.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      sh_spec.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      malformed()
+
+# the reply R1-R6 give the input s: the reply to the request s is exactly
+# (read by read_req, whose flat list reader Fl.unflat shell_unflat_reads
+# and shell_unflat_exact pin to sh_flat), else the error form
+def sh_spec(s: String) -> String:
+  sh_spec.run(read_req(s))
+
+# Laws
+# ----
+
+# LAW shell_flat_spelled: the flat list of a step's parts is the R6 spelling: each inner list's items as 1 + item, then 0
+# EXCLUDES: an item written without its offset, a lost end mark, lists
+#   reordered (spell_req would then spell what Rust does not write)
+law shell_flat_spelled:
+  for +xss: List<&2, List<&2, Nat>>
+  {Fl.flat(xss) == sh_flat(xss) : List<&2, Nat>}
+
+# LAW shell_unflat_reads: the flat list reader reads every R6 spelling back as the lists it spells
+# EXCLUDES: a spelled list refused, misread, cut or merged with the next
+law shell_unflat_reads:
+  for +xss: List<&2, List<&2, Nat>>
+  {Fl.unflat(sh_flat(xss)) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
+
+# LAW shell_unflat_exact: the flat list reader reads a list only when it is the R6 spelling of what it reads
+# EXCLUDES: items after the last end mark read as a list, a 0 item read as
+#   an item, any list read as something it does not spell
+law shell_unflat_exact:
+  for +ns: List<&2, Nat>
+  for +xss: List<&2, List<&2, Nat>>
+  for h: {Fl.unflat(ns) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
+  {ns == sh_flat(xss) : List<&2, Nat>}
+
+# LAW shell_effects_spec: a step's effects are, part by part, 6 when the part names a secret path, then its own codes other than 6
+# EXCLUDES: a part's effect lost, reordered or duplicated; the secret
+#   effect from a part's own codes or missing for a named secret path
+law shell_effects_spec:
+  for +ps: List<&2, Tl.Part>
+  {Tl.join(Tl.parts.effs(ps)) == sh_effs(ps) : List<&2, Nat>}
+
+# LAW shell_within_spec: effects run unasked exactly when each is an effect code (0 to 6) in the auto set
+# EXCLUDES: one effect outside the auto set run unasked, an unknown code
+#   run unasked, an effect in the auto set asked
+law shell_within_spec:
+  for +es: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  {Tl.within(es, auto) == sh_within(es, auto) : Bool}
+
+# LAW shell_ffi_spec: on every input the entry answers the reply R3-R6 give the request the input is exactly, and the error form on any other input
+# EXCLUDES: a decision the model computes wrong (an effect lost or added,
+#   a step run unasked outside the auto set, a denial that does not stop
+#   at the step), a default for malformed input, input left over ignored
+law shell_ffi_spec:
+  for +s: String
+  {FSh.ffi(s) == sh_spec(s) : String}

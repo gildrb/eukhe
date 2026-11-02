@@ -1,0 +1,6 @@
+# a step under an auto set of the largest codes, its parts' own codes at the largest a flat item carries
+call 0,3,{MAX},{MAX},6,6,2,99999999999998,0,1,99999999999998,0,
+call 1,2,{MAX},2,2,{MAX},2,
+call 2,{MAX},F
+call 2,{MAX},T
+refuse 2,{LONG},F
