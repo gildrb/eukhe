@@ -2083,6 +2083,7 @@ import ./proof/theme_model/theme_valid_spec.bend as PThemeValidSpec
 import ./proof/theme_model/theme_complete_spec.bend as PThemeCompleteSpec
 import ./proof/theme_model/theme_rename_spec.bend as PThemeRenameSpec
 import ./proof/theme_model/theme_valid_example.bend as PThemeValidExample
+import ./proof/theme_entry/theme_ffi_total.bend as PThemeFfiTotal
 import ./proof/color/color_lin_rises.bend as PColorLinRises
 import ./proof/color/color_lin_example.bend as PColorLinExample
 import ./proof/color/color_light_example.bend as PColorLightExample

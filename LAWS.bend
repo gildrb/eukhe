@@ -33,6 +33,7 @@ import ./laws/theme.bend as Theme
 import ./laws/color.bend as Color
 import ./laws/color/entry.bend as ColorEntry
 import ./laws/theme_model.bend as ThemeModel
+import ./laws/theme_entry.bend as ThemeEntry
 import ./laws/tokens.bend as Tokens
 import ./laws/progress.bend as Progress
 import ./laws/progress_terms.bend as ProgressTerms
