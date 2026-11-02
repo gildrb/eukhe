@@ -90,6 +90,93 @@ law list_import_keeps_others:
   for ne: {Nat.is_eq(s, n) == False{} : Bool}
   {Sg.mem(n, Sg.listing(Sg.imported(s, es))) == Sg.mem(n, Sg.listing(es)) : Bool}
 
+# Spec helpers: the model's sweep (the header of bend/staging.bend)
+# -----------------------------------------------------------------
+
+# the sorts the sweep removes: a staging directory or a tombstone (a
+# leftover), and a lock file whose staging directory is gone; never a
+# storage, another directory or anything else
+def sp_swept_sort(k: Sg.Sort) -> Bool:
+  match k:
+    case Sg.Leftover{}:
+      True{}
+    case Sg.Lock{dir}:
+      match dir:
+        case True{}:
+          False{}
+        case False{}:
+          True{}
+    case Sg.Store{}:
+      False{}
+    case Sg.Plain{}:
+      False{}
+    case Sg.Other{}:
+      False{}
+
+def sp_sweeps.go(o: Bool, h: Bool, s: Bool, k: Sg.Sort) -> Bool:
+  match o:
+    case False{}:
+      False{}
+    case True{}:
+      match h:
+        case True{}:
+          False{}
+        case False{}:
+          match s:
+            case False{}:
+              False{}
+            case True{}:
+              sp_swept_sort(k)
+
+# the sweep removes a node when the walk reaches it, no live process holds
+# it, it is stale and its sort is swept
+def sp_sweeps(n: Sg.Node) -> Bool:
+  match n:
+    case Sg.Node{i, k, h, s, o}:
+      sp_sweeps.go(o, h, s, k)
+
+def sp_sweep.go(b: Bool, +n: Sg.Node, rest: List<&2, Sg.Node>) -> List<&2, Sg.Node>:
+  match b:
+    case True{}:
+      n <> rest
+    case False{}:
+      rest
+
+# the nodes the sweep removes, in the order it meets them
+def sp_sweep(ns: List<&2, Sg.Node>) -> List<&2, Sg.Node>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case +n <> rest:
+      sp_sweep.go(sp_sweeps(n), n, sp_sweep(rest))
+
+# LAW sweep_sort_spec (D2): the sorts the sweep removes are exactly the header's: a staging
+# directory or a tombstone, and a lock file whose staging directory is gone
+# EXCLUDES: a storage, a plain directory, a lock file beside its directory
+#   or anything else swept (a sort test dropped from removes, the audit's
+#   removes = o and not h and s); a leftover or an orphan lock file kept
+law sweep_sort_spec:
+  for +k: Sg.Sort
+  {Sg.Sort.swept(k) == sp_swept_sort(k) : Bool}
+
+# LAW sweep_removes_spec (D2): the sweep removes a node exactly when the walk reaches it, no
+# live process holds it, it is stale and its sort is swept
+# EXCLUDES: removes that ignores the sort (the audit's o and not h and s:
+#   stale storages and plain directories would go), or the walk, the lock
+#   or the age; a free stale reached leftover kept
+law sweep_removes_spec:
+  for +n: Sg.Node
+  {Sg.removes(n) == sp_sweeps(n) : Bool}
+
+# LAW sweep_spec (D2): the sweep of any nodes is exactly the nodes the header's rule removes,
+# in order
+# EXCLUDES: a sweep that removes a storage, a plain directory, any other
+#   entry or a lock file beside its directory (a removes that ignores the
+#   sort), drops, duplicates or reorders removed nodes
+law sweep_spec:
+  for +ns: List<&2, Sg.Node>
+  {Sg.sweep(ns) == sp_sweep(ns) : List<&2, Sg.Node>}
+
 # ---- staging: the real rule ----
 
 # LAWS: the real rule of bend/staging.bend (its section "The real rule")

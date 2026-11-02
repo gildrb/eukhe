@@ -988,6 +988,9 @@ import ./proof/staging/sweep_never_live.bend as PSweepNeverLive
 import ./proof/staging/sweep_never_young.bend as PSweepNeverYoung
 import ./proof/staging/sweep_stays_out.bend as PSweepStaysOut
 import ./proof/staging/sweep_reaches_every_depth.bend as PSweepReachesEveryDepth
+import ./proof/staging/sweep_sort_spec.bend as PSweepSortSpec
+import ./proof/staging/sweep_removes_spec.bend as PSweepRemovesSpec
+import ./proof/staging/sweep_spec.bend as PSweepSpec
 import ./proof/staging/list_one_location.bend as PListOneLocation
 import ./proof/staging/list_import_lists_storage.bend as PListImportListsStorage
 import ./proof/staging/list_import_keeps_others.bend as PListImportKeepsOthers

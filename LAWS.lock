@@ -2200,6 +2200,9 @@
     "laws/staging.bend::sweep_never_young": "7169e9554c6a91de4fa1f336134856ac26eb62c7ab5d075b822fd694b5364e4c",
     "laws/staging.bend::sweep_never_young_real": "206b2b14286da4d187ff9f6cf6aa7566db17238e70b2ce904fa7f0b5f0b1507c",
     "laws/staging.bend::sweep_reaches_every_depth": "cab773984b23392fb27a4663c4b545b03a146c82b1842e54a77bd1a6e2f1b001",
+    "laws/staging.bend::sweep_removes_spec": "9c32afd08eb8fa87c2cee38596468ee1fd956c280f874023b5815f31613b4a3a",
+    "laws/staging.bend::sweep_sort_spec": "631faacc0324b58e1b0b01feb82e8102fcb404b6c5a019dfb5dc3f521e98957c",
+    "laws/staging.bend::sweep_spec": "f6ab40434a9ec1d9b910cfb67aefa8c44bc055ce2a46022a0a7e7b504ce6ed03",
     "laws/staging.bend::sweep_stays_out": "e261a17cc15f7a8fca6b0dd91548221900182274cf4d3341204ed37dfaf7b477",
     "laws/staging.bend::sweep_stays_out_real": "1f59a75279d66a94d01d81af98147e47bc8206a5d480aed40acf2f3f4c4eb14e",
     "laws/staging.bend::sweep_takes_stale_free_real": "2c8df5173eaa035e3606291ab2a2d21348a604a388d15607e9af53bcbeb898c1",
@@ -2897,7 +2900,7 @@
     "laws/slash_args/entry.bend": "b9dbcffc659ef9fbb205c2327a76c944b5489640c536930ac86e7c72042e4034",
     "laws/slash_args/model.bend": "a023a403b3beca728bf5b4c6b2e62f7aec173e2025f882e432bcfd46405cfa58",
     "laws/slash_suggest.bend": "780650f939b6304cf93ec85517c67a697922dfa8667d581956f551a6b57054b7",
-    "laws/staging.bend": "b9ba408a908c182e5f3ac023c2b22ed8feaf087a177cfe8df2d6b5661d3ac1f1",
+    "laws/staging.bend": "a5c49c24c9c311ad67686b3abfcc77ebe8f43d607219e348194a715be78c92e7",
     "laws/staging/entry.bend": "5be0286baebc491889262543d1d15c48e1a42e0fba56c0460793850cf5cc2873",
     "laws/stop.bend": "c2b268ed00966f7798cb99cb20f987102666ed16b1b56f21234f151213a62b00",
     "laws/stop/entry.bend": "4971f1d5074c37cccf1265ac6b08d336e2e5e802d3732d837224fbf8aceb28eb",
@@ -2929,7 +2932,7 @@
     "laws/workflow.bend": "dd962851db23b1cb961d647b5bc2bbe502bc3bc159943a9926e15944fd650a45"
   },
   "spec_files": {
-    "spec/README.md": "0e35c1ac82374d507e87fb98d6514510b985ca772cffe99d1af6c11622ba80ed",
+    "spec/README.md": "81c93bc8118c25f4488754a49740c2944f3daf9b1d5d7381fda81ea455aeac0b",
     "spec/agents/kin.bend": "3637a9eedbb127a412b8646da7e0ab8d881681ec5710670aecf852afd98f0429",
     "spec/autoresearch/decimal.bend": "74a60228e250a0b414769e76d0814ea460e131a1e41165e023e3138e3ae0f99e",
     "spec/autoresearch/metric_line.bend": "8ffb9ca922253c2413273e839a5c9ed7780258d32b51a13ee1db04f8bd3b158b",

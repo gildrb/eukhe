@@ -71,6 +71,61 @@ def pg.kept(+pre: List<&2, Sg.Node>, +n: Sg.Node, +post: List<&2, Sg.Node>, no: 
   %no : {List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep.put(n, Sg.sweep(post), _)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
   {==}
 
+# The model's sweep is its spec (laws/staging.bend): sort, node and list
+
+def pg.swept_spec(k: Sg.Sort) -> {Sg.Sort.swept(k) == Staging.sp_swept_sort(k) : Bool}:
+  match k:
+    case Sg.Leftover{}:
+      {==}
+    case Sg.Lock{d}:
+      match d:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case Sg.Store{}:
+      {==}
+    case Sg.Plain{}:
+      {==}
+    case Sg.Other{}:
+      {==}
+
+def pg.removes_go(o: Bool, h: Bool, s: Bool, k: Sg.Sort, +i: Nat) -> {Sg.removes(Sg.Node{i, k, h, s, o}) == Staging.sp_sweeps.go(o, h, s, k) : Bool}:
+  match o:
+    case False{}:
+      {==}
+    case True{}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          match s:
+            case False{}:
+              {==}
+            case True{}:
+              pg.swept_spec(k)
+
+def pg.removes_spec(n: Sg.Node) -> {Sg.removes(n) == Staging.sp_sweeps(n) : Bool}:
+  match n:
+    case Sg.Node{i, k, h, s, o}:
+      pg.removes_go(o, h, s, k, i)
+
+def pg.put_go(+n: Sg.Node, xs: List<&2, Sg.Node>, b: Bool) -> {Sg.sweep.put(n, xs, b) == Staging.sp_sweep.go(b, n, xs) : List<&2, Sg.Node>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pg.sweep_spec(ns: List<&2, Sg.Node>) -> {Sg.sweep(ns) == Staging.sp_sweep(ns) : List<&2, Sg.Node>}:
+  match ns:
+    case Nil{}:
+      {==}
+    case +n <> +rest:
+      %pg.removes_spec(n) : {Sg.sweep.put(n, Sg.sweep(rest), Sg.removes(n)) == Staging.sp_sweep.go(_, n, Staging.sp_sweep(rest)) : List<&2, Sg.Node>}
+      %pg.sweep_spec(rest) : {Sg.sweep.put(n, Sg.sweep(rest), Sg.removes(n)) == Staging.sp_sweep.go(Sg.removes(n), n, _) : List<&2, Sg.Node>}
+      pg.put_go(n, Sg.sweep(rest), Sg.removes(n))
+
 # An import
 # ---------
 
