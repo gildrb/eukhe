@@ -268,6 +268,7 @@ fn derive(head: Option<&EntryRecord>, entries: &[EntryRecord]) -> Derived {
             .cloned()
             .chain(order_tool_results(&open))
             .collect(),
+        head,
     );
     Derived {
         view: ContextView {
@@ -328,6 +329,7 @@ fn extend_range(
             .cloned()
             .chain(order_tool_results(&open))
             .collect(),
+        bounds.head.as_ref(),
     );
     let mut view_entries = previous.view.entries.clone();
     view_entries.extend(added.iter().cloned());
@@ -349,25 +351,31 @@ fn extend_range(
     }
 }
 
-/// Move a system message that only user messages precede to the front. A
-/// run's input is committed before generation renders the system prompt, so
-/// a transcript, or the range after a compaction or reset, starts with user
-/// messages followed by the baseline system message. Providers treat only a
-/// leading system message as the initial prompt and tool set; without it, a
-/// later tool change rewrites the request's tool list and invalidates the
-/// whole prompt cache.
-fn lead_with_system(mut messages: Vec<Message>) -> Vec<Message> {
-    let Some(index) = messages
-        .iter()
-        .position(|message| !matches!(message, Message::User(_)))
-    else {
+/// Move the system prompt to the front. A run's input is committed before
+/// generation renders the system prompt, so a transcript starts with user
+/// messages followed by the baseline system message; under a head marker (a
+/// compaction or reset) the summary and the kept turns, answers and tool
+/// results too, come before the baseline that replaced every earlier system
+/// message. Providers treat only a leading system message as the initial
+/// prompt and tool set: without it, the prompt rides mid-conversation
+/// behind the summary, so every compaction writes it to the prompt cache
+/// again, and a later tool change rewrites the request's tool list and
+/// invalidates the whole prompt cache. So the system message that only user
+/// messages precede leads, and under `head` the first system message does:
+/// the prompt and tools are the same request prefix before and after a
+/// compaction.
+fn lead_with_system(mut messages: Vec<Message>, head: Option<&EntryRecord>) -> Vec<Message> {
+    let Some(index) = messages.iter().position(|message| match message {
+        Message::System(_) => true,
+        Message::User(_) => false,
+        Message::Assistant(_) | Message::ToolResult(_) => head.is_none(),
+    }) else {
         return messages;
     };
-    if index == 0 || !matches!(messages[index], Message::System(_)) {
-        return messages;
+    if index > 0 && matches!(messages[index], Message::System(_)) {
+        let system = messages.remove(index);
+        messages.insert(0, system);
     }
-    let system = messages.remove(index);
-    messages.insert(0, system);
     messages
 }
 

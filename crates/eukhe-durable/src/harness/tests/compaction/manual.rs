@@ -119,13 +119,13 @@ async fn places_the_summary_at_once_when_idle_and_keeps_raw_history() {
     assert!(input_tokens(&chat).await > usage_before);
     turn(&chat, "next", "done").await;
     let agent = chat.faux.last_agent_messages();
-    // The next request: the summary, the kept turn, the new input, then one
-    // complete system baseline.
+    // The next request: one complete system baseline leading, then the
+    // summary, the kept turn and the new input.
     assert_eq!(
         agent.iter().map(role).collect::<Vec<_>>(),
-        ["user", "user", "assistant", "user", "system"]
+        ["system", "user", "user", "assistant", "user"]
     );
-    let Message::System(system) = &agent[4] else {
+    let Message::System(system) = &agent[0] else {
         panic!("a system message");
     };
     assert_eq!(section(system, "preamble"), Some("You are helpful."));

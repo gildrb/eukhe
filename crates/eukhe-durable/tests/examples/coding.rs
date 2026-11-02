@@ -165,11 +165,11 @@ async fn compaction() {
         "after \"Any museums?\" (answered): 6 messages in context, 10 entries stored",
         Some("threshold"),
         &[
+            system.to_owned(),
             summary.to_owned(),
             user("Which day trips?"),
             details("Which day trips?"),
             user("Any museums?"),
-            system.to_owned(),
             details("Any museums?"),
         ],
     ));
@@ -198,11 +198,11 @@ async fn compaction() {
         "after \"What should we pack?\" (answered): 6 messages in context, 20 entries stored",
         Some("manual"),
         &[
+            system.to_owned(),
             summary.to_owned(),
             user("How do we get around?"),
             details("How do we get around?"),
             user("What should we pack?"),
-            system.to_owned(),
             details("What should we pack?"),
         ],
     ));

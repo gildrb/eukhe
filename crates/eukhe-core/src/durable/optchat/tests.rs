@@ -737,12 +737,13 @@ async fn a_root_request_grows_only_at_its_end_until_a_compaction() {
     let grows = |at: usize| all[at + 1].starts_with(&all[at]);
     // The compaction cut the first run and the start of the second: the
     // view takes those lines at once and leads the summary, marked at its
-    // end, in this call and the next run's.
+    // end, in this call and the next run's. The system prompt still leads
+    // the request, ahead of them.
     let compacted = vec![
+        "system".to_string(),
         "user:<chat>\n0+1|user: hello\n1+1|eukhe: done\n2+1|user: again\n</chat>[cache]|The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>".to_string(),
         "assistant:call hold".to_string(),
         "toolResult:held".to_string(),
-        "system".to_string(),
     ];
     let mut next = compacted.clone();
     next.extend(["assistant:released".to_string(), "user:more".to_string()]);
