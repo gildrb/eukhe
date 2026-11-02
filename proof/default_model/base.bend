@@ -80,3 +80,61 @@ def DefaultModel.dmw_key_round_trip(k, rest, h):
 # a key reads back (turned around for rewriting)
 def pdw.key(+k: Dm.Key, +rest: String, h: {DefaultModel.dmw_key_fits(k) == True{} : Bool}) -> {Wr.Got{k, rest} == FDm.get_key(FDm.put_key(k, rest)) : Wr.Dec<Dm.Key>}:
   Equal.sym(Wr.Dec<Dm.Key>, FDm.get_key(FDm.put_key(k, rest)), Wr.Got{k, rest}, DefaultModel.dmw_key_round_trip(k, rest, h))
+
+# ---- default_model_open ----
+
+# the code's key equality is the spec's
+def pdm.key_eq_spec(a: Dm.Key, b: Dm.Key) -> {Dm.Key.eq(a, b) == DefaultModel.dms.key_eq(a, b) : Bool}:
+  match a b:
+    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NotInCatalog{}}:
+      {==}
+    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NoCredentials{}}:
+      {==}
+    case Dm.K{am, Dm.NotInCatalog{}} Dm.K{bm, Dm.NotInScope{}}:
+      {==}
+    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NotInCatalog{}}:
+      {==}
+    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NoCredentials{}}:
+      {==}
+    case Dm.K{am, Dm.NoCredentials{}} Dm.K{bm, Dm.NotInScope{}}:
+      {==}
+    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NotInCatalog{}}:
+      {==}
+    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NoCredentials{}}:
+      {==}
+    case Dm.K{am, Dm.NotInScope{}} Dm.K{bm, Dm.NotInScope{}}:
+      {==}
+
+# the code's membership is the spec's
+def pdm.listed_spec(ks: List<&2, Dm.Key>, +k: Dm.Key) -> {Dm.listed(ks, k) == DefaultModel.dms.listed(ks, k) : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      %pdm.key_eq_spec(x, k) : {Bool.or(Dm.Key.eq(x, k), Dm.listed(rest, k)) == Bool.or(_, DefaultModel.dms.listed(rest, k)) : Bool}
+      %pdm.listed_spec(rest, k) : {Bool.or(Dm.Key.eq(x, k), Dm.listed(rest, k)) == Bool.or(Dm.Key.eq(x, k), _) : Bool}
+      {==}
+
+# the code's "runs on the saved default" is the spec's
+def pdm.on_saved_spec(r: Dm.Run) -> {Dm.on_saved(r) == DefaultModel.dms.on_saved(r) : Bool}:
+  match r:
+    case Dm.On{p}:
+      match p:
+        case Dm.Saved{}:
+          {==}
+        case Dm.Other{n}:
+          {==}
+    case Dm.Idle{}:
+      {==}
+
+# the code's first failed check is the spec's
+def pdm.why_spec(cat: Bool, key: Bool) -> {Dm.why(cat, key) == DefaultModel.dms.why(cat, key) : Dm.Reason}:
+  match cat:
+    case False{}:
+      {==}
+    case True{}:
+      match key:
+        case False{}:
+          {==}
+        case True{}:
+          {==}

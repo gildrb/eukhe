@@ -136,6 +136,167 @@ law default_unresolvable_names_choice:
   for n: Nat
   {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, False{}, key, out, Dm.Next{n}}))) == [Dm.K{m, Dm.NotInCatalog{}}] : List<&2, Dm.Key>}
 
+# The laws below pin the session that opens on the resolver's answer
+# (Dm.open, the Rust `resolve_open_model` and `OpenModel::notice`) and the
+# predicates the laws above read (Dm.reported, Dm.on_saved, Dm.listed,
+# Dm.none, the session's fields), each whole, against a spec of its own.
+
+# the session that opens on the answer r: a model that runs opens the
+# session on it, with the notice of its substitution when it is one; no
+# model opens it idle and quiet; the typed error opens it idle, with the
+# error's one notice
+def dms.open(r: Dm.Res) -> Dm.Session:
+  match r:
+    case Dm.Runs{p, s}:
+      match s:
+        case Dm.Kept{}:
+          Dm.Session{Dm.On{p}, Nil{}}
+        case Dm.Swapped{k}:
+          Dm.Session{Dm.On{p}, [k]}
+    case Dm.Nothing{}:
+      Dm.Session{Dm.Idle{}, Nil{}}
+    case Dm.Refused{k}:
+      Dm.Session{Dm.Idle{}, [k]}
+
+# LAW default_open_exact (H4): every answer opens the session the header states: a model that runs opens it on that model, with exactly one notice, the substitution's key, when it took the saved default's place, and none when it is kept; no model opens it idle with no notice; the typed error opens it idle with exactly its one key
+# EXCLUDES: a substitution opened on the saved default or with no notice
+#   (open(Runs{p, Swapped{K{m, NotInScope}}}) = Session{On{Saved}, []}),
+#   a notice given twice (open(Refused{k}) = Session{Idle, [k, k]}), a
+#   kept model with a notice, a refusal or no model opened on a model, a
+#   notice naming another key, the pick replaced on the way to the session
+law default_open_exact:
+  for r: Dm.Res
+  {Dm.open(r) == dms.open(r) : Dm.Session}
+
+# LAW default_session_fields (H4): a session's model and notices read back as the session holds them
+# EXCLUDES: a reader that answers no notice or another model (which would
+#   make default_quiet_when_* or default_unkeyed_never_moves read a
+#   session other than the one that opens)
+law default_session_fields:
+  for run: Dm.Run
+  for notes: List<&2, Dm.Key>
+  {Dm.Session.run(Dm.Session{run, notes}) == run : Dm.Run} & {Dm.Session.notes(Dm.Session{run, notes}) == notes : List<&2, Dm.Key>}
+
+# a session runs on the saved default: on a model that is the saved one
+def dms.on_saved(r: Dm.Run) -> Bool:
+  match r:
+    case Dm.On{p}:
+      match p:
+        case Dm.Saved{}:
+          True{}
+        case Dm.Other{n}:
+          False{}
+    case Dm.Idle{}:
+      False{}
+
+# LAW default_on_saved_exact (H4): a session runs on the saved default exactly when it is on a model and that model is the saved one
+# EXCLUDES: an on_saved that never holds (default_quiet_when_honoured made
+#   vacuous), one that holds for another model or an idle session
+law default_on_saved_exact:
+  for r: Dm.Run
+  {Dm.on_saved(r) == dms.on_saved(r) : Bool}
+
+# a list of notices is empty
+def dms.none(ks: List<&2, Dm.Key>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      False{}
+
+# LAW default_none_exact (H4): a list of notices is empty exactly when it has no notice
+# EXCLUDES: a none that always holds (default_quiet_when_honoured made
+#   vacuous), one that fails on the empty list
+law default_none_exact:
+  for ks: List<&2, Dm.Key>
+  {Dm.none(ks) == dms.none(ks) : Bool}
+
+def dms.reason_eq(a: Dm.Reason, b: Dm.Reason) -> Bool:
+  match a:
+    case Dm.NotInCatalog{}:
+      match b:
+        case Dm.NotInCatalog{}:
+          True{}
+        case Dm.NoCredentials{}:
+          False{}
+        case Dm.NotInScope{}:
+          False{}
+    case Dm.NoCredentials{}:
+      match b:
+        case Dm.NotInCatalog{}:
+          False{}
+        case Dm.NoCredentials{}:
+          True{}
+        case Dm.NotInScope{}:
+          False{}
+    case Dm.NotInScope{}:
+      match b:
+        case Dm.NotInCatalog{}:
+          False{}
+        case Dm.NoCredentials{}:
+          False{}
+        case Dm.NotInScope{}:
+          True{}
+
+# two keys are equal: the same model and the same reason
+def dms.key_eq(a: Dm.Key, b: Dm.Key) -> Bool:
+  match a b:
+    case Dm.K{am, ar} Dm.K{bm, br}:
+      Bool.and(Nat.is_eq(am, bm), dms.reason_eq(ar, br))
+
+# the key k is one of the notices ks
+def dms.listed(ks: List<&2, Dm.Key>, +k: Dm.Key) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(dms.key_eq(x, k), dms.listed(rest, k))
+
+# LAW default_listed_exact (H4): a key is listed exactly when one of the notices has its model and its reason
+# EXCLUDES: a listed that always holds (default_honoured_or_reported made
+#   vacuous), one that matches the model alone or the reason alone, one
+#   that reads only the first notice
+law default_listed_exact:
+  for ks: List<&2, Dm.Key>
+  for +k: Dm.Key
+  {Dm.listed(ks, k) == dms.listed(ks, k) : Bool}
+
+# the first check a saved default fails: the catalog, then the
+# credentials, else the scope
+def dms.why(cat: Bool, key: Bool) -> Dm.Reason:
+  match cat:
+    case False{}:
+      Dm.NotInCatalog{}
+    case True{}:
+      match key:
+        case False{}:
+          Dm.NoCredentials{}
+        case True{}:
+          Dm.NotInScope{}
+
+# the session s of x runs on the saved default, or one of its notices
+# names the saved default with the first check it fails; with nothing
+# saved there is nothing to report
+def dms.reported(x: Dm.In, s: Dm.Session) -> Bool:
+  match x:
+    case Dm.In{saved, cat, key, out, next}:
+      match saved:
+        case Dm.NoDefault{}:
+          True{}
+        case Dm.Default{m}:
+          match s:
+            case Dm.Session{run, notes}:
+              Bool.or(dms.on_saved(run), dms.listed(notes, Dm.K{m, dms.why(cat, key)}))
+
+# LAW default_reported_exact (H4): a session is reported exactly when nothing is saved, or it runs on the saved default, or a notice names the saved default with the first check it fails (the catalog, then the credentials, then the scope)
+# EXCLUDES: a reported that always holds (default_honoured_or_reported
+#   made vacuous), one that accepts a notice with another reason or for
+#   another model, one that skips the notices
+law default_reported_exact:
+  for x: Dm.In
+  for s: Dm.Session
+  {Dm.reported(x, s) == dms.reported(x, s) : Bool}
+
 # The wire codec of bend/ffi_default_model.bend (grammar: that file's
 # header, crates/eukhe-bend/WIRE.md). R1: the request and every reply
 # read back; R2: a well-formed request answers the resolver's answer

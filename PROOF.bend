@@ -1750,6 +1750,12 @@ import ./proof/default_model/default_unscoped_swaps.bend as PDefaultUnscopedSwap
 import ./proof/default_model/default_unscoped_refused.bend as PDefaultUnscopedRefused
 import ./proof/default_model/default_catalog_change_keeps_choice.bend as PDefaultCatalogChangeKeepsChoice
 import ./proof/default_model/default_unresolvable_names_choice.bend as PDefaultUnresolvableNamesChoice
+import ./proof/default_model/default_open_exact.bend as PDefaultOpenExact
+import ./proof/default_model/default_session_fields.bend as PDefaultSessionFields
+import ./proof/default_model/default_on_saved_exact.bend as PDefaultOnSavedExact
+import ./proof/default_model/default_none_exact.bend as PDefaultNoneExact
+import ./proof/default_model/default_listed_exact.bend as PDefaultListedExact
+import ./proof/default_model/default_reported_exact.bend as PDefaultReportedExact
 import ./proof/default_model/dmw_reason_round_trip.bend as PDmwReasonRoundTrip
 import ./proof/default_model/dmw_pick_round_trip.bend as PDmwPickRoundTrip
 import ./proof/default_model/dmw_sub_round_trip.bend as PDmwSubRoundTrip
