@@ -530,6 +530,7 @@ import ./proof/tiny/tiny_ffi_request_round_trip.bend as PTinyFfiRequestRoundTrip
 import ./proof/tiny/tiny_ffi_answers.bend as PTinyFfiAnswers
 import ./proof/tiny/tiny_ffi_rejects_malformed.bend as PTinyFfiRejectsMalformed
 import ./proof/tiny/tiny_ffi_rejects_left_over.bend as PTinyFfiRejectsLeftOver
+import ./proof/tiny/tiny_ffi_exact.bend as PTinyFfiExact
 import ./proof/tiny/tiny_terms_exact.bend as PTinyTermsExact
 import ./proof/tiny/tiny_worker_terms_exact.bend as PTinyWorkerTermsExact
 import ./proof/tiny/tiny_elect_spec.bend as PTinyElectSpec

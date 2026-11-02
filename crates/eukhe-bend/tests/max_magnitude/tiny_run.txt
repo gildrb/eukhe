@@ -1,0 +1,16 @@
+# the election stepper: its only numbers are tags and text lengths. A
+# need's whole replacement (ping, shutdown, launch, check, served, then a
+# late outcome), a seat, an over-long tag length refused in a live run and
+# at the open, and a step of the refused stepper
+open 0,5,abcde
+step 0,2,5,abcdx
+step 1,0,
+step 2,0,
+step 0,2,5,abcde
+step 4,
+refuse-step 0,2,{LONG},x
+open 1,
+step 4,
+step 0,0,
+refuse-open 0,{LONG},a
+refuse-step 0,
