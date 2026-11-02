@@ -1903,6 +1903,11 @@ import ./proof/wire/wire_u32_overlong.bend as PWireU32Overlong
 import ./proof/wire/wire_list_reads_items.bend as PWireListReadsItems
 import ./proof/wire/wire_list_spells_items.bend as PWireListSpellsItems
 import ./proof/wire/wire_list_short_example.bend as PWireListShortExample
+import ./proof/wire_entry/base.bend as LAWireEntry
+import ./proof/wire_entry/wire_entry_echoes.bend as PWireEntryEchoes
+import ./proof/wire_entry/wire_entry_exact.bend as PWireEntryExact
+import ./proof/wire_entry/wire_entry_refuses.bend as PWireEntryRefuses
+import ./proof/wire_entry/wire_entry_example.bend as PWireEntryExample
 import ./proof/command/command_ffi_example.bend as PCommandFfiExample
 import ./proof/command/command_spacing_example.bend as PCommandSpacingExample
 import ./proof/command/base/entry.bend as LACommandEntry
