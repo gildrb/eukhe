@@ -7,6 +7,9 @@ import ../../bend/package_source.bend as Ps
 import ../../laws/package_source/model.bend as PackageSource
 import ../../bend/gateway_answer.bend as Ga
 
+def psb.space(+c: Char) -> {Ga.space(c) == PackageSource.ps_space(c) : Bool}:
+  {==}
+
 def psb.is_some(+m: Maybe<&2, String>) -> {Ps.is_some(m) == PackageSource.ps_is_some(m) : Bool}:
   match m:
     case None{}:
@@ -34,8 +37,9 @@ def psb.lspace(+s: String) -> {Ps.lspace(s) == PackageSource.ps_lspace(s) : Stri
     case SNil{}:
       {==}
     case SCon{+c, +t}:
-      %Equal.sym(String, Ps.lspace(t), PackageSource.ps_lspace(t), psb.lspace(t)) : {Ps.lspace.at(Ga.space(c), c, t, _) == PackageSource.ps_lspace.at(Ga.space(c), c, t, PackageSource.ps_lspace(t)) : String}
-      psb.lspace.at(Ga.space(c), c, t, PackageSource.ps_lspace(t))
+      %Equal.sym(String, Ps.lspace(t), PackageSource.ps_lspace(t), psb.lspace(t)) : {Ps.lspace.at(Ga.space(c), c, t, _) == PackageSource.ps_lspace.at(PackageSource.ps_space(c), c, t, PackageSource.ps_lspace(t)) : String}
+      %Equal.sym(Bool, Ga.space(c), PackageSource.ps_space(c), psb.space(c)) : {Ps.lspace.at(_, c, t, PackageSource.ps_lspace(t)) == PackageSource.ps_lspace.at(PackageSource.ps_space(c), c, t, PackageSource.ps_lspace(t)) : String}
+      psb.lspace.at(PackageSource.ps_space(c), c, t, PackageSource.ps_lspace(t))
 
 def psb.trim(+s: String) -> {Ps.trim(s) == PackageSource.ps_trim(s) : String}:
   %Equal.sym(String, Ps.lspace(s), PackageSource.ps_lspace(s), psb.lspace(s)) : {String.reverse(Ps.lspace(String.reverse(_))) == String.reverse(PackageSource.ps_lspace(String.reverse(PackageSource.ps_lspace(s)))) : String}

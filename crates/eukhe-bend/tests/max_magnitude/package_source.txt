@@ -1,0 +1,29 @@
+# every request kind, every part and defect tag; {MAX}/{LONG} lengths refused
+call 0,20,npm:@scope/pkg@1.2.3
+call 0,39,git:git@github.com:user/repo.git.git@v1
+call 0,43,https://github.com/user/repo@feature/branch
+call 0,20,git:github:u/r.git#x
+call 0,37,ssh://-oProxyCommand=x@h.io/user/repo
+call 0,24,../packages/agent-timers
+call 1,32, git:ssh://git@h.io:22//a/b.git 
+call 1,1,x
+call 2,8,HTTP://x
+call 3,16,@scope/pkg@1.2.3
+call 4,0,
+call 4,1,
+call 4,2,
+call 4,3,
+call 4,4,
+call 4,5,
+call 5,0,
+call 5,1,
+call 5,2,
+call 5,3,
+call 5,4,
+call 5,5,
+call 5,6,
+call 5,7,
+call 6,11,npm:../../x5,2,
+refuse 0,{LONG},x
+refuse 3,{MAX},x
+refuse 6,1,x5,{LONG},

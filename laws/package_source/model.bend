@@ -2,7 +2,6 @@
 
 import Base
 import ../../bend/package_source.bend as Ps
-import ../../bend/gateway_answer.bend as Ga
 
 # (D1) The package sources of `eukhe package`
 # ---------------------------------------------
@@ -13,7 +12,7 @@ import ../../bend/gateway_answer.bend as Ga
 # Every input is free: any text, part, defect.
 #
 # R1: trim (Rust `str::trim`): the leading and trailing chars that are
-#     whitespace (Rust `char::is_whitespace`: Ga.space) removed.
+#     whitespace (Rust `char::is_whitespace`: ps_space) removed.
 # R2: an argument's defect (Rust `check_argument`), the first that holds:
 #     empty; the first char `-` (leading dash); a char in U+0000-U+001F or
 #     U+007F-U+009F (control character); a `\` (backslash); else none. A
@@ -116,13 +115,30 @@ def ps_lspace.at(b: Bool, c: Char, t: String, r: String) -> String:
     case False{}:
       SCon{c, t}
 
+# x is one of xs
+def ps_in(+x: U32, xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(U32.is_eq(x, y), ps_in(x, rest))
+
+# Rust's whitespace (`char::is_whitespace`, Unicode White_Space), by code
+# point
+def ps_ws() -> List<&2, U32>:
+  [9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288]
+
+# c is whitespace
+def ps_space(c: Char) -> Bool:
+  ps_in(Char.to_u32(c), ps_ws())
+
 # s without its leading whitespace
 def ps_lspace(s: String) -> String:
   match s:
     case SNil{}:
       SNil{}
     case SCon{+c, +t}:
-      ps_lspace.at(Ga.space(c), c, t, ps_lspace(t))
+      ps_lspace.at(ps_space(c), c, t, ps_lspace(t))
 
 # s without whitespace at both ends (Rust `str::trim`)
 def ps_trim(s: String) -> String:
