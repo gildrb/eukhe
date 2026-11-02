@@ -1945,6 +1945,7 @@ import ./proof/infer_threshold/infer_threshold_cut_within_target.bend as PInferT
 import ./proof/infer_threshold/infer_threshold_target_under.bend as PInferThresholdTargetUnder
 import ./proof/infer_threshold/infer_threshold_ffi_answers.bend as PInferThresholdFfiAnswers
 import ./proof/infer_threshold/infer_threshold_ffi_malformed_exact.bend as PInferThresholdFfiMalformedExact
+import ./proof/infer_threshold/infer_threshold_ffi_spec.bend as PInferThresholdFfiSpec
 import ./proof/infer_threshold/infer_threshold_ffi_example.bend as PInferThresholdFfiExample
 import ./proof/bound/base.bend as LABound
 import ./proof/bound/bound_entry_example.bend as PBoundEntryExample
