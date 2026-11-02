@@ -111,7 +111,7 @@ proof/vim/screen/*.bend, from `Final.of` and screen/base.bend, parts.bend, frame
   (`proof/vim/host/act.bend`): `Host.good(fs, act(Vim.step(run, e)))`, i.e.
   honest and url_ok together, by `Step.good` → `In.good` (every key path
   of Key.in; `Normal.good`/`Hi.good`/`G.good` enumerate key numbers).
-  yy: `E.Vim.install()` computes to `Spec.install()`, no eq_true needed.
+  yy: copies `E.Vim.install()` itself, which computes to `Spec.install()`.
   gx: `Gx.good` (only on file windows: Link.gx tests `C.St.on_file`).
 - `proof/vim/host/base.bend`: string lemmas (`Str.app_nil/assoc/rev_go/
   rev_app/rev_rev`), runs `Sub(u, s)` (s = a ++ u ++ b; `refl/trans/rev/

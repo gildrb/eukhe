@@ -4,7 +4,7 @@
  * lines run past the right edge and are clipped by CSS, so the first screen painted at build is
  * the one the browser would paint, on any screen.
  */
-import type { EditorFile, Run } from "./markdown.tsx";
+import type { EditorFile } from "./markdown.tsx";
 import type { BendList, Frame, Mark } from "./vim.mjs";
 
 export function list<T>(items: BendList<T>): T[] {
@@ -28,12 +28,11 @@ export function cells(text: string): string[] {
   return found;
 }
 
-/** One row being built: a character, a class list and a color ("": the class's) per cell. */
-type Row = { chars: string[]; classes: string[]; colors: string[] };
+/** One row being built: a character and a class list per cell. */
+type Row = { chars: string[]; classes: string[] };
 
 function blankRow(width: number): Row {
-  const blank = () => Array<string>(width).fill("");
-  return { chars: Array<string>(width).fill(" "), classes: blank(), colors: blank() };
+  return { chars: Array<string>(width).fill(" "), classes: Array<string>(width).fill("") };
 }
 
 function put(row: Row, col: number, text: string, cls: string) {
@@ -60,16 +59,6 @@ function addClass(row: Row, from: number, to: number, cls: string) {
     const current = row.classes[col];
     row.classes[col] = current === undefined || current === "" ? cls : `${current} ${cls}`;
   }
-}
-
-/** A run's highlight: a group's class, or a color of its own (a swatch in the COLORS table). */
-function paintRun(row: Row, from: number, to: number, run: Run) {
-  if (typeof run.hl === "string") {
-    addClass(row, from, to, run.hl);
-    return;
-  }
-  for (let col = Math.max(0, from); col < Math.min(to, row.colors.length); col += 1)
-    row.colors[col] = run.hl.color;
 }
 
 function markClass(mark: Mark): string {
@@ -103,44 +92,34 @@ export function escape(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-/** A span's attributes: its class list and its own color, if any. */
-function attrs(cls: string, color: string): string {
-  return `${cls === "" ? "" : ` class="${cls}"`}${color === "" ? "" : ` style="color:${color}"`}`;
+/** A span's attributes: its class list, if any. */
+function attrs(cls: string): string {
+  return cls === "" ? "" : ` class="${cls}"`;
 }
 
-/** A row's cells as runs of one class and color each; trailing plain blanks dropped. */
+/** A row's cells as runs of one class each; trailing plain blanks dropped. */
 function rowHtml(row: Row): string {
   let end = row.chars.length;
-  while (
-    end > 0 &&
-    row.chars[end - 1] === " " &&
-    row.classes[end - 1] === "" &&
-    row.colors[end - 1] === ""
-  )
-    end -= 1;
+  while (end > 0 && row.chars[end - 1] === " " && row.classes[end - 1] === "") end -= 1;
   let html = "";
   let run = "";
   let cls = "";
-  let color = "";
   const flush = () => {
     if (run === "") return;
-    html +=
-      cls === "" && color === "" ? escape(run) : `<span${attrs(cls, color)}>${escape(run)}</span>`;
+    html += cls === "" ? escape(run) : `<span${attrs(cls)}>${escape(run)}</span>`;
     run = "";
   };
   for (let col = 0; col < end; col += 1) {
     const ch = row.chars[col] ?? " ";
     const c = row.classes[col] ?? "";
-    const k = row.colors[col] ?? "";
     if (ch === goose) {
       flush();
-      html += `<span${attrs(`w2 ${c}`, k)}>${ch}</span>`;
+      html += `<span${attrs(`w2 ${c}`)}>${ch}</span>`;
       continue;
     }
-    if (c !== cls || k !== color) {
+    if (c !== cls) {
       flush();
       cls = c;
-      color = k;
     }
     run += ch;
   }
@@ -190,7 +169,7 @@ export function textRows(
           if (ch === undefined) break;
           row.chars[c] = ch;
         }
-        for (const run of file.runs[l] ?? []) paintRun(row, run.from - left, run.to - left, run);
+        for (const run of file.runs[l] ?? []) addClass(row, run.from - left, run.to - left, run.hl);
         if (ink !== null) {
           let at = ink - left;
           for (const token of inks) {
@@ -202,7 +181,9 @@ export function textRows(
           const at = cps.length + 2 - left;
           if (at >= 0) {
             put(row, at, "[copy]", "copy");
-            copyAt = { row: r, from: g + at, to: g + at + 6, text: command };
+            // The command alone, its trailing `# comment` dropped.
+            const text = command.replace(/(^|\s)#\s.*$/, "").trimEnd();
+            copyAt = { row: r, from: g + at, to: g + at + 6, text };
           }
         }
       }
@@ -220,7 +201,6 @@ export function textRows(
       row.chars.forEach((ch, c) => {
         wider.chars[c] = ch;
         wider.classes[c] = row.classes[c] ?? "";
-        wider.colors[c] = row.colors[c] ?? "";
       });
       row = wider;
     }

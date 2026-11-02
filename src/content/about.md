@@ -6,13 +6,18 @@ ABOUT
 
 # ABOUT EUKHE
 
-eukhe is a coding agent for the terminal. Its memory is one endless
-chat log, shared by all sessions: there is no empty new session, and
-no compaction drops the start of the log. Each turn starts from a
-compact view of the whole log, built from one-line summaries in a
-binary tree over it.
+eukhe is a coding agent for the terminal, with a memory of all
+things. It works in a Python REPL, spawns subagents, and keeps each
+session as its own thread: the newest turns verbatim, the older
+history as one-line summaries in a binary tree over the log, and the
+full log on disk, append-only and committed with git.
 
 The name is Greek: εὐχή, a wish, a prayer.
+
+> διὸ δὴ καὶ ὄκνος τις αὐτῶν ἅπτεσθαι, μὴ εὐχὴ δοκῇ εἶναι ὁ λόγος,
+> ὦ φίλε ἑταῖρε.
+> So there is some hesitation to touch these things, lest the
+> argument seem a mere wish, my dear friend. (Plato, Republic 5.450d)
 
 ## WHO MAKES IT
 
@@ -32,9 +37,10 @@ built from it and published there.
 
 ## THIS SITE
 
-eukhe.com is the project's home: the install command, the docs, and
-this page. On a computer the page is a read-only Neovim whose core is
-written in Bend, with proven laws; on a phone it is the same terminal,
-scrolled by touch.
+eukhe.com is the project's home: the install command and eukhe's
+README, as it is on GitHub, with Greek epigraphs of the site's own.
+On a computer the page is a read-only Neovim whose core is written in
+Bend, with proven laws; on a phone it is the same terminal, scrolled
+by touch.
 
 More: [contact](/contact), [privacy](/privacy), [llms.txt](/llms.txt).

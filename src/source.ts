@@ -1,46 +1,36 @@
-import content from "./content/index.md?raw";
-import { palette, type Token } from "./tokens.stylex.ts";
-
-/** The swatch printed before each color value; the page paints it in that value. */
-export const swatch = "█";
+import { epigraphs } from "./epigraphs.ts";
+import head from "./content/head.md?raw";
+import readme from "./content/README.md?raw";
 
 /**
  * The install command: the one block with a `[copy]` button. Other commands (`cd /path/to/project`)
- * hold paths of no use on the reader's machine. The page source must contain it as is.
+ * hold paths of no use on the reader's machine. The README must hold it as a line of its own (a
+ * trailing `# comment` aside).
  */
 export const install = "curl -fsSL https://eukhe.com/install | sh";
-if (!content.includes(`\n${install}\n`)) throw new Error("index.md lacks the install command");
+if (!readme.split("\n").some((line) => line.split(/\s+#\s/)[0]?.trimEnd() === install))
+  throw new Error("README.md lacks the install command");
 
-const tokens = Object.keys(palette).filter((key): key is Token => key in palette);
-
-/** The COLORS section: every token of `palette` with its value in each theme. */
-function colorsSection(): string {
-  const rows = [
-    ["TOKEN", "DARK", "LIGHT"],
-    ...tokens.map((token) => [
-      token,
-      `${swatch} ${palette[token].dark}`,
-      `${swatch} ${palette[token].light}`,
-    ]),
-  ];
-  const widths = [0, 1, 2].map((column) =>
-    Math.max(...rows.map((row) => row[column]?.length ?? 0)),
-  );
-  const line = (cells: readonly string[]) =>
-    `| ${cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join(" | ")} |`;
-  const [header, ...body] = rows;
-  if (header === undefined) throw new Error("COLORS has no header row");
-  return [
-    "## COLORS",
-    "",
-    line(header),
-    line(widths.map((width) => "-".repeat(width))),
-    ...body.map(line),
-  ].join("\n");
+/** The README, each epigraph's quote under its heading; the README's own lines stay as they are. */
+function withEpigraphs(markdown: string): string {
+  const lines = markdown.split("\n");
+  for (const heading of epigraphs.keys())
+    if (lines.filter((line) => line === heading).length !== 1)
+      throw new Error(`README.md has no single "${heading}" line for its epigraph`);
+  return lines
+    .flatMap((line) => {
+      const quote = epigraphs.get(line);
+      return quote === undefined ? [line] : [line, "", ...quote.map((text) => `> ${text}`)];
+    })
+    .join("\n");
 }
 
-/** The whole page as Markdown: what the page shows, and what `Accept: text/markdown` gets. */
-export const source = `${content.trimEnd()}\n\n${colorsSection()}\n`;
+/**
+ * The whole page as Markdown: what the page shows, and what `Accept: text/markdown` gets. The
+ * site's header, then eukhe's README (`scripts/readme.ts` keeps the copy equal to it) with the
+ * site's epigraphs.
+ */
+export const source = `${head.trimEnd()}\n\n${withEpigraphs(readme).trimEnd()}\n`;
 
 export const notFound = `EUKHE
 404: NO PAGE HERE

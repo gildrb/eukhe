@@ -13,7 +13,7 @@ const list = (v) => {
 };
 
 const cons = (xs) => xs.reduceRight((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
-const page = fs.readFileSync(new URL("../src/content/index.md", import.meta.url), "utf8");
+const page = fs.readFileSync(new URL("../src/content/README.md", import.meta.url), "utf8");
 const files = cons([
   { $: "Buf", path: "index.md", lines: cons(page.replace(/\n$/, "").split("\n")) },
   { $: "Buf", path: "docs/install.md", lines: cons(["# Install", "", "curl it"]) },

@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
-import { install, swatch } from "./source.ts";
+import { install } from "./source.ts";
 import { colors, type Token, type } from "./tokens.stylex.ts";
 
 /**
@@ -60,6 +60,15 @@ const commentPattern = /(^|\s)#\s.*$/;
 /** A table's rule row. */
 const rulePattern = /^[|\s-]+$/;
 
+/** The page is eukhe's README: its relative links (`LICENSE`, `#attribution`) are the repository's. */
+const repository = "https://github.com/gildrb/eukhe";
+
+/** Where a link's URL goes from this site. */
+function linkHref(url: string): string {
+  if (/^([a-z]+:|\/)/.test(url)) return url;
+  return url.startsWith("#") ? `${repository}${url}` : `${repository}/blob/main/${url}`;
+}
+
 /** Inline code and links: `[label](url)` keeps its brackets, and the URL is the link. */
 function inline(text: string): ComponentChildren[] {
   const parts: ComponentChildren[] = [];
@@ -71,11 +80,12 @@ function inline(text: string): ComponentChildren[] {
       parts.push(<span {...stylex.props(styles.muted)}>`</span>, code);
       parts.push(<span {...stylex.props(styles.muted)}>`</span>);
     } else if (label !== undefined && url !== undefined) {
-      const external = /^https?:/.test(url);
+      const href = linkHref(url);
+      const external = /^https?:/.test(href);
       parts.push(
         `[${label}](`,
         <a
-          href={url}
+          href={href}
           {...(external ? { target: "_blank", rel: "noopener" } : {})}
           {...stylex.props(styles.link)}
         >
@@ -98,22 +108,12 @@ function shellLine(text: string): ComponentChildren {
   return [text.slice(0, start), <span {...stylex.props(styles.muted)}>{text.slice(start)}</span>];
 }
 
-/** A table row: pipes and rules muted; a swatch takes the color named right after it. */
+/** A table row: pipes and rules muted. */
 function tableRow(text: string): ComponentChildren {
   if (rulePattern.test(text)) return <span {...stylex.props(styles.muted)}>{text}</span>;
-  return text.split(/(\|)/).map((cell) => {
-    if (cell === "|") return <span {...stylex.props(styles.muted)}>|</span>;
-    const painted = new RegExp(`^(\\s*)${swatch}( (oklch\\([^)]+\\)).*)$`).exec(cell);
-    if (painted?.[1] === undefined || painted[2] === undefined || painted[3] === undefined)
-      return cell;
-    return [
-      painted[1],
-      <span key="swatch" style={{ color: painted[3] }}>
-        {swatch}
-      </span>,
-      painted[2],
-    ];
-  });
+  return text
+    .split(/(\|)/)
+    .map((cell) => (cell === "|" ? <span {...stylex.props(styles.muted)}>|</span> : cell));
 }
 
 /** The tokens a line is drawn in, in the order they first appear; the same rules as above. */
@@ -196,13 +196,13 @@ function content(item: Line): ComponentChildren {
  * What the page shows as one block: a source line as it is (header, heading, code, table), or
  * prose lines joined into one that wraps at the screen's width: a paragraph, a list item with its
  * indented continuation lines, a quote's sentence (a quote line ending in ".", ";" or "·" ends it).
- * The source is hard-wrapped at 68 columns for the editor; a phone is narrower.
+ * The editor shows each source line whole; a phone wraps the blocks at its width.
  */
 type Block =
   | { $: "One"; entry: Entry }
   | { $: "Blank" }
   | { $: "Para"; text: string }
-  | { $: "Item"; text: string }
+  | { $: "Item"; indent: string; text: string }
   | { $: "Quote"; text: string };
 
 const sentenceEnd = /[.;·]$/;
@@ -214,8 +214,10 @@ function toBlocks(entries: readonly Entry[]): Block[] {
     const line = entry.line;
     const prev = last();
     if (line.$ === "Text") {
+      const item = /^( *)- (.*)$/.exec(line.text);
       if (line.text === "") out.push({ $: "Blank" });
-      else if (line.text.startsWith("- ")) out.push({ $: "Item", text: line.text.slice(2) });
+      else if (item?.[1] !== undefined && item[2] !== undefined)
+        out.push({ $: "Item", indent: item[1], text: item[2] });
       else if (prev?.$ === "Item" && line.text.startsWith("  "))
         prev.text = `${prev.text} ${line.text.trim()}`;
       else if (prev?.$ === "Para") prev.text = `${prev.text} ${line.text}`;
@@ -229,25 +231,26 @@ function toBlocks(entries: readonly Entry[]): Block[] {
   return out;
 }
 
-/** The commands of each fenced block, keyed by its opening fence's line number. */
-function fences(entries: readonly Entry[]): Map<number, string> {
-  const blocks = new Map<number, string>();
+/** The commands of each fenced block, trailing `# comments` dropped, keyed by its opening fence. */
+function fences(entries: readonly Entry[]): Map<number, string[]> {
+  const blocks = new Map<number, string[]>();
   let open: { n: number; code: string[] } | null = null;
   for (const entry of entries) {
     if (entry.line.$ === "Fence") {
       if (open === null) open = { n: entry.n, code: [] };
       else {
-        blocks.set(open.n, open.code.join("\n"));
+        blocks.set(open.n, open.code);
         open = null;
       }
-    } else if (open !== null && entry.line.$ === "Code") open.code.push(entry.line.text);
+    } else if (open !== null && entry.line.$ === "Code")
+      open.code.push(entry.line.text.replace(commentPattern, "").trimEnd());
   }
   return blocks;
 }
 
 /**
  * The page: one block per row group, each wrapping at the screen's width; list items and quotes
- * hang their marker. Only the install command's fence gets a copy button (`source.ts`).
+ * hang their marker. Only the fence the install command opens gets a copy button (`source.ts`).
  */
 function body(entries: readonly Entry[]): ComponentChildren[] {
   const fenced = fences(entries);
@@ -259,8 +262,10 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         return <span {...stylex.props(styles.row)}>{inline(block.text)}</span>;
       case "Item":
         return (
-          <span {...stylex.props(styles.row, styles.hang)}>
-            <span {...stylex.props(styles.muted)}>{"- "}</span>
+          <span
+            {...stylex.props(styles.row, block.indent === "" ? styles.hang : styles.hangNested)}
+          >
+            <span {...stylex.props(styles.muted)}>{`${block.indent}- `}</span>
             {inline(block.text)}
           </span>
         );
@@ -278,7 +283,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         return (
           <span {...stylex.props(styles.row, header && styles.header, code && styles.hang)}>
             {content(entry.line)}
-            {fenced.get(entry.n) === install ? (
+            {fenced.get(entry.n)?.[0] === install ? (
               <button
                 type="button"
                 data-copy={install}
@@ -300,7 +305,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
 }
 
 /** A highlight group of the editor's screen (client.ts paints each as a class). */
-export type Hl = "title" | "muted" | "heading" | "link" | { color: string };
+export type Hl = "title" | "muted" | "heading" | "link";
 
 /** Characters from..to (code points, end exclusive) of a line drawn in a group. */
 /** `href`: where a link run goes when it is not its own text (the header's link home). */
@@ -332,15 +337,19 @@ function span(text: string, start: number, end: number, hl: Hl): Run {
 function inlineRuns(text: string, offset: number): Run[] {
   const runs: Run[] = [];
   for (const match of text.matchAll(new RegExp(inlinePattern, "g"))) {
-    const [whole, code, label] = match;
+    const [whole, code, label, url] = match;
     const at = match.index;
     if (code !== undefined) {
       runs.push(
         span(text, at, at + 1, "muted"),
         span(text, at + whole.length - 1, at + whole.length, "muted"),
       );
-    } else if (label !== undefined) {
-      runs.push(span(text, at + label.length + 3, at + whole.length - 1, "link"));
+    } else if (label !== undefined && url !== undefined) {
+      const href = linkHref(url);
+      runs.push({
+        ...span(text, at + label.length + 3, at + whole.length - 1, "link"),
+        ...(href === url ? {} : { href }),
+      });
     }
   }
   return runs.map((run) => ({ ...run, from: run.from + offset, to: run.to + offset }));
@@ -384,13 +393,6 @@ function lineRuns(item: Line): Run[] {
       const runs: Run[] = [];
       for (const pipe of item.text.matchAll(/\|/g))
         runs.push(span(item.text, pipe.index, pipe.index + 1, "muted"));
-      for (const painted of item.text.matchAll(
-        new RegExp(`${swatch}(?= (oklch\\([^)]+\\)))`, "g"),
-      )) {
-        const color = painted[1];
-        if (color !== undefined)
-          runs.push(span(item.text, painted.index, painted.index + swatch.length, { color }));
-      }
       return runs;
     }
     case "Raw":
@@ -402,9 +404,9 @@ function lineRuns(item: Line): Run[] {
   }
 }
 
-/** The 0-based line of the install command's opening fence. */
+/** The 0-based line of the opening fence of the block the install command starts. */
 function copyFence(entries: readonly Entry[]): number | null {
-  for (const [n, code] of fences(entries)) if (code === install) return n - 1;
+  for (const [n, code] of fences(entries)) if (code[0] === install) return n - 1;
   return null;
 }
 
@@ -486,6 +488,8 @@ const styles = stylex.create({
   row: { display: "block", minHeight: type.leading },
   /** A list item, a quote or a code line: wrapped lines start under the text, not the marker. */
   hang: { paddingLeft: "2ch", textIndent: "-2ch" },
+  /** A nested list item: its marker under the parent's text. */
+  hangNested: { paddingLeft: "4ch", textIndent: "-4ch" },
   /** `[copy]` two characters after a fence; not part of the text, so never selected. */
   copy: {
     marginLeft: "2ch",

@@ -48,7 +48,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Scenarios: name -> (steps, kind[, rows, cols]). A step is (keys, seconds to settle after them).
 # Keys are Vim notation: characters, <CR>, <Esc>, <Space>, <C-d>, ...
-SETUP_DOCS = (":e docs/install.md<CR>", 0.4)
+SETUP_DOCS = (":e laws/vim/motion.bend<CR>", 0.4)
 SCENARIOS = {
     "start": ([], "full"),
     "j20": ([("j" * 20, 0.5)], "full"),

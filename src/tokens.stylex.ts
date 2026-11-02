@@ -4,8 +4,7 @@ const light = "@media (prefers-color-scheme: light)";
 
 /**
  * Every color on the page, in OKLCH, per theme. The one source: `colors` below sets them as CSS
- * variables, and the page prints this table under COLORS (`source.ts`), so the values a reader
- * sees are the values in use.
+ * variables, and the editor names each line's inks (`markdown.tsx`).
  *
  * gildrb.com's forge palette, same names and values (`gildrb.com/src/tokens.stylex.ts`): an
  * umber page, ivory text, bronze below it; each ladder's hue climbs from ember (55) to gilt (85)

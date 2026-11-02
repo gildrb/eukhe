@@ -151,10 +151,11 @@ def Key.back.to(+s: T.St, +fwd: Bool, ws: List<&2, T.Win>) -> T.St:
 def Key.back(+s: T.St, +fwd: Bool) -> T.St:
   Key.back.to(s, fwd, Bool.pick(List<&2, T.Win>, fwd, S.St.fwd(s), S.St.back(s)))
 
-# yy: only the install command copies
+# yy: only the install command copies, on a line that starts with it (the
+# README's install line goes on with a `# comment`)
 def Key.yank(+s: T.St) -> T.Step:
-  +line = C.St.text(s)
-  T.Step{s, Bool.pick(T.Act, String.eq(line, E.Vim.install()), T.CopyText{line}, T.Nothing{})}
+  +install = E.Vim.install()
+  T.Step{s, Bool.pick(T.Act, X.Text.prefix(install, C.St.text(s)), T.CopyText{install}, T.Nothing{})}
 
 def Key.ok(s: T.St) -> T.Step:
   T.Step{s, T.Nothing{}}

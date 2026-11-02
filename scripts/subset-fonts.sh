@@ -3,7 +3,7 @@
 # unicode-range in src/render.tsx so a page loads only the ranges it shows:
 #   core:  Latin, punctuation, symbols the page text uses
 #   greek: Greek and polytonic Greek, combining marks
-#   box:   arrows, box drawing, blocks (the pickers' borders, the COLORS swatches)
+#   box:   arrows, box drawing, blocks (the pickers' borders)
 # Bump `?v=` in src/render.tsx after a change.
 set -euo pipefail
 version=v2.2.0

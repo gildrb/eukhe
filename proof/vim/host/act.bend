@@ -3,8 +3,8 @@
 #
 # Host.good(fs, a): the act is honest (copies only the install command,
 # opens only a URL in a file) and asks for a web address. Every step's
-# act comes from Key.in: Nothing, Key.yank's CopyText (only when the line
-# is the install command) or Link.gx's OpenUrl (only on a file window,
+# act comes from Key.in: Nothing, Key.yank's CopyText (the install command,
+# on a line that starts with it) or Link.gx's OpenUrl (only on a file window,
 # when the WORD's target starts "http(s)://": a run of the cursor's line,
 # a line of a file of fs).
 
@@ -126,17 +126,16 @@ def Gx.good(+fs: List<&2, T.Buf>, x: T.St, hf: {S.St.files(x) == B.Files.some(fs
 # yy
 # --
 
-def Yank.good(+fs: List<&2, T.Buf>, +line: String, -s: T.St, b: Bool, e: {String.eq(line, E.Vim.install()) == b : Bool})
-  -> Good(fs, Laws.Spec.act(T.Step{s, Bool.pick(T.Act, b, T.CopyText{line}, T.Nothing{})})):
+def Yank.good(+fs: List<&2, T.Buf>, -s: T.St, b: Bool)
+  -> Good(fs, Laws.Spec.act(T.Step{s, Bool.pick(T.Act, b, T.CopyText{E.Vim.install()}, T.Nothing{})})):
   match b:
     case True{}:
-      %Equal.sym(Bool, String.eq(line, E.Vim.install()), True{}, e) : {Bool.and(_, True{}) == True{} : Bool}
       {==}
     case False{}:
       {==}
 
 def Yank.of(+fs: List<&2, T.Buf>, +x: T.St) -> Good(fs, Laws.Spec.act(K.Key.yank(x))):
-  Yank.good(fs, C.St.text(x), x, String.eq(C.St.text(x), E.Vim.install()), {==})
+  Yank.good(fs, x, X.Text.prefix(E.Vim.install(), C.St.text(x)))
 
 # Keys
 # ----

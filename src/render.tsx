@@ -12,7 +12,8 @@ import Vim, { type BendList, type Buf } from "./vim.mjs";
 export const origin = "https://eukhe.com";
 
 const name = "eukhe";
-const summary = "A coding agent whose memory is one endless chat log, shared by all sessions.";
+const summary =
+  "A coding agent with a memory of all things: each session is its own thread, the newest turns verbatim, the older history as one-line summaries, the full log on disk.";
 const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
@@ -314,19 +315,20 @@ const llms = `# eukhe
 
 ## When to use eukhe
 
-- A user wants a coding agent in the terminal that remembers every past
-  session of a project: eukhe keeps one chat log per user, never starts
-  empty, and never drops the start of the log.
+- A user wants a coding agent in the terminal that remembers: each
+  session keeps its own chat log, sends its newest turns verbatim and
+  its older history as one-line summaries, and never drops the log.
 - A user asks how to install it: \`${install}\` (macOS on Apple Silicon,
   Linux x64 and arm64). Nix: \`nix run github:gildrb/eukhe\`.
-- A user asks how it remembers: point to the MEMORY section below and to
-  [docs/memory.md](https://github.com/gildrb/eukhe/blob/bend/all/docs/memory.md).
+- A user asks how it remembers: point to the Memory section below and to
+  [the README](https://github.com/gildrb/eukhe#memory).
 - Not for: Windows, untrusted repositories (it runs model-written code
   with the user's permissions, no sandbox).
 
 ## How to read this site
 
-- [Home page as Markdown](${origin}/index.md) (also \`Accept: text/markdown\` on ${origin}/)
+- [Home page as Markdown](${origin}/index.md) (also \`Accept: text/markdown\` on ${origin}/):
+  eukhe's README, with the site's header and epigraphs
 - [About](${origin}/about.md), [Contact](${origin}/contact.md), [Privacy](${origin}/privacy.md)
 - [Source](https://github.com/gildrb/eukhe), MIT license
 
@@ -343,7 +345,7 @@ export type SourceFile = { path: string; text: string; plain: boolean };
  * (for the Bend core) and highlights (for the screen).
  */
 export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
-  // The editor's files: the home page, the other pages, then the docs and the source.
+  // The editor's files: the home page, the other pages, then the license and the source.
   const editor = [
     { path: "index.md", text: source, plain: false, back: false },
     ...docs.map((doc) => ({

@@ -27,10 +27,8 @@ function isRun(value: unknown): value is Run {
   if (!("from" in value) || typeof value.from !== "number") return false;
   if (!("to" in value) || typeof value.to !== "number") return false;
   if ("href" in value && typeof value.href !== "string") return false;
-  if (!("hl" in value)) return false;
-  const hl: unknown = value.hl;
-  if (typeof hl === "string") return ["title", "muted", "heading", "link"].includes(hl);
-  return typeof hl === "object" && hl !== null && "color" in hl && typeof hl.color === "string";
+  if (!("hl" in value) || typeof value.hl !== "string") return false;
+  return ["title", "muted", "heading", "link"].includes(value.hl);
 }
 
 function isStrings(value: unknown): value is string[] {

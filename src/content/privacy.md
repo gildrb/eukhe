@@ -21,10 +21,14 @@ The install command downloads the installer from GitHub, under
 
 ## THE EUKHE PROGRAM
 
-eukhe runs on your machine. Its chat log and memory stay in
+eukhe runs on your machine. Its chat logs and memory stay in
 `~/.eukhe/` on your disk. Your prompts and the files it reads for them
 go to the model provider you sign in to, under that provider's terms.
-The source on GitHub shows every connection it makes.
+An optional scrubber, `privacy.anonymizeRemote` (off by default),
+gives a remote provider tokens in place of your terms, email
+addresses, phone numbers and IP addresses. Nothing downloads on its
+own: only `eukhe kernel install` and `eukhe tiny-models download`
+fetch files. The source on GitHub shows every connection it makes.
 
 Questions? Write to [mail@gildrb.com](mailto:mail@gildrb.com).
 

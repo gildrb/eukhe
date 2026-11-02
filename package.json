@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "npm run bend && vp build",
+    "build": "npm run readme -- --check && npm run bend && vp build",
     "check": "vp check",
     "deploy": "npm run build && npx wrangler deploy",
     "prepare": "vp config",
-    "bend": "bend vim/vim.bend -o src/vim.mjs"
+    "bend": "bend vim/vim.bend -o src/vim.mjs",
+    "readme": "node scripts/readme.ts"
   },
   "dependencies": {
     "@stylexjs/stylex": "^0.19.1",

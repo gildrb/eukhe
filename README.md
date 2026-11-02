@@ -15,13 +15,16 @@ vp dev            # dev server, http://127.0.0.1:5175
 vp check          # format, lint, type check
 vp build          # prerender into dist/
 npx wrangler dev  # dist/ behind the Worker, http://127.0.0.1:8787
-npm run deploy    # build, then wrangler deploy
+npm run readme    # copy eukhe's README.md from main into src/content/README.md
+npm run deploy    # build (fails while the copy differs from eukhe's README), then wrangler deploy
 ```
 
 ## Content
 
-- `src/content/index.md`: the page. Every character shows; the first block is the header, the second the motto.
-- `src/tokens.stylex.ts` `palette`: every color, OKLCH, per theme. The page prints it as the COLORS table (`src/source.ts`).
+- The home page is eukhe's README: `src/content/README.md`, a verbatim copy of `README.md` on eukhe's `main`. `npm run readme` refreshes it; `npm run build` fails while it differs. `src/source.ts` puts `src/content/head.md` (the header, then the motto) above it.
+- `src/epigraphs.ts`: the site's Attic Greek epigraphs, at most one under a README heading, each with its translation and citation. The README's own lines stay as they are.
+- `src/content/{about,contact,privacy}.md`: the other pages. Every character shows; the first block is the header, the second the motto.
+- `src/tokens.stylex.ts` `palette`: every color, OKLCH, per theme.
 
 ## Worker
 
