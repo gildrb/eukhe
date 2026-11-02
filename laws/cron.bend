@@ -840,6 +840,24 @@ law cron_entry_fits_example:
   exs a: CS.Ask
   {ask_fits(a) == True{} : Bool}
 
+# the reply to input s: the spec's decision on the request s is (read with
+# the wire primitives), or the error form when s is not exactly one request
+def entry_spec.go(m: Maybe<&2, CS.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "cron: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def entry_spec(s: String) -> String:
+  entry_spec.go(read_ask(s))
+
+# LAW cron_entry_exact: every input gets exactly the spec's reply: the spec's decision (laws/cron_store.bend, on the store's clock) on the request it is when it is exactly one request read with the wire primitives, else the error form 'E ', then "cron: malformed request"
+# EXCLUDES: any answer, on any input, other than the spec's decision on the request read or the exact error text
+law cron_entry_exact:
+  for +s: String
+  {FC.ffi(s) == entry_spec(s) : String}
+
 # LAW cron_take_refines: on a clock of any unit u, a claim pass of p, applied to a model job (its facts as Rust reads them, due by and at the clock), is the model's claim step of p (Cr.take): the same status, next run, failures in a row and claim on record
 law cron_take_refines:
   for +v: Nat

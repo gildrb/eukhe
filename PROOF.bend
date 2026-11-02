@@ -972,6 +972,7 @@ import ./proof/cron/cron_entry_answers.bend as PCronEntryAnswers
 import ./proof/cron/cron_entry_malformed_exact.bend as PCronEntryMalformedExact
 import ./proof/cron/cron_entry_example.bend as PCronEntryExample
 import ./proof/cron/cron_entry_fits_example.bend as PCronEntryFitsExample
+import ./proof/cron/cron_entry_exact.bend as PCronEntryExact
 import ./proof/cron/cron_take_refines.bend as PCronTakeRefines
 import ./proof/cron/cron_recover_refines.bend as PCronRecoverRefines
 import ./proof/cron/cron_finish_refines.bend as PCronFinishRefines
@@ -984,6 +985,8 @@ import ./proof/cron_store/cron_finish_exact.bend as PCronFinishExact
 import ./proof/cron_store/cron_cancel_exact.bend as PCronCancelExact
 import ./proof/cron_store/cron_resume_exact.bend as PCronResumeExact
 import ./proof/cron_terms/cron_terms_exact.bend as PCronTermsExact
+import ./proof/cron_step/cron_step_exact.bend as PCronStepExact
+import ./proof/cron_step/cron_step_example.bend as PCronStepExample
 import ./proof/supervise/base.bend as LASupervise
 import ./proof/supervise/restart_gives_up.bend as PRestartGivesUp
 import ./proof/supervise/restart_decide_window.bend as PRestartDecideWindow
