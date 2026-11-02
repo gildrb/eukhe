@@ -231,3 +231,142 @@ law orphan_ffi_exact:
 # EXCLUDES: a field order other than Rust's, a vacuous orphan_ffi_exact
 law orphan_ffi_exact_example:
   {[or_entry("1,5,5,0,"), or_entry("1,5,9,1,"), or_entry("0,7,1,"), or_entry("2,5,0,"), or_entry("1,5,5,0,x")] == ["T0,", "F1,", "F1,", Wr.err("orphan: malformed request"), Wr.err("orphan: input left over")] : List<&2, String>}
+
+# The event machine, whole
+# -------------------------
+# bend/orphan.bend's `step` and `run` (the history of
+# orphan_never_aborts_resumable), spelled as the header states them with
+# the decision `or_due` of the entry's spec (never the model's code):
+# a worker holds work when a run, a compaction or a queued input is
+# there; each event moves one field (a drain stops at zero, an absence
+# adds up, the supervisor's return zeroes it); after each event the
+# worker exits when or_due says so, without work closing the session
+# (idle, nothing aborted), with work handing it over (busy, nothing
+# aborted); an exited worker stays exited.
+
+# the work of a worker: ongoing when it runs, compacts, or holds a queued
+# input; idle otherwise
+def ow_work(w: Or.W) -> Or.Work:
+  match w:
+    case Or.W{r, q, c, a}:
+      match r:
+        case True{}:
+          Or.Ongoing{}
+        case False{}:
+          match q:
+            case 0n:
+              match c:
+                case True{}:
+                  Or.Ongoing{}
+                case False{}:
+                  Or.Idle{}
+            case 1n+p:
+              Or.Ongoing{}
+
+# a drain takes one queued input, none from an empty queue
+def ow_drain(q: Nat) -> Nat:
+  match q:
+    case 0n:
+      0n
+    case 1n+p:
+      p
+
+# the worker after one event
+def ow_apply(w: Or.W, e: Or.Ev) -> Or.W:
+  match w:
+    case Or.W{r, q, c, a}:
+      match e:
+        case Or.RunStart{}:
+          Or.W{True{}, q, c, a}
+        case Or.RunEnd{}:
+          Or.W{False{}, q, c, a}
+        case Or.Queue{}:
+          Or.W{r, 1n+q, c, a}
+        case Or.Drain{}:
+          Or.W{r, ow_drain(q), c, a}
+        case Or.CompactStart{}:
+          Or.W{r, q, True{}, a}
+        case Or.CompactEnd{}:
+          Or.W{r, q, False{}, a}
+        case Or.Gone{g}:
+          Or.W{r, q, c, Nat.add(g, a)}
+        case Or.Back{}:
+          Or.W{r, q, c, 0n}
+
+# what the exit records: without work it shuts the session, records it
+# idle, aborts nothing; with work it hands the work over, records the
+# session busy, aborts nothing
+def ow_out(k: Or.Work) -> Or.Out:
+  match k:
+    case Or.Idle{}:
+      Or.Out{Or.Shut{}, Or.Idle{}, False{}, False{}}
+    case Or.Ongoing{}:
+      Or.Out{Or.Handover{}, Or.Ongoing{}, True{}, False{}}
+
+def ow_check.put(due: Bool, +w: Or.W) -> Or.St:
+  match due:
+    case True{}:
+      Or.Exited{ow_out(ow_work(w))}
+    case False{}:
+      Or.Live{w}
+
+# the exit check after an event: the worker exits when or_due says so
+# for its window, its absence and its work
+def ow_check(+window: Nat, +w: Or.W) -> Or.St:
+  match w:
+    case Or.W{r, q, c, +a}:
+      ow_check.put(or_due(Some{window}, a, ow_work(Or.W{r, q, c, a})), Or.W{r, q, c, a})
+
+# one event: a live worker moves and checks the exit; an exited one stays
+def ow_step(+window: Nat, s: Or.St, e: Or.Ev) -> Or.St:
+  match s:
+    case Or.Live{w}:
+      ow_check(window, ow_apply(w, e))
+    case Or.Exited{d}:
+      Or.Exited{d}
+
+def ow_go(+window: Nat, evs: List<&2, Or.Ev>, s: Or.St) -> Or.St:
+  match evs:
+    case Nil{}:
+      s
+    case e <> rest:
+      ow_go(window, rest, ow_step(window, s, e))
+
+# the events from a fresh worker: no run, no queued input, no
+# compaction, no absence
+def ow_run(+window: Nat, evs: List<&2, Or.Ev>) -> Or.St:
+  ow_go(window, evs, Or.Live{Or.W{False{}, 0n, False{}, 0n}})
+
+# LAW orphan_work_spec (D1): every worker holds work exactly when it runs,
+# compacts, or holds a queued input
+# EXCLUDES: a W.work that answers Idle always (the audit's rewrite: the
+#   exit then shuts and aborts nothing it should hand over, and
+#   orphan_never_aborts_resumable still holds), one blind to a run, a
+#   compaction or the queue, one that counts the absence as work
+law orphan_work_spec:
+  for +w: Or.W
+  {Or.W.work(w) == ow_work(w) : Or.Work}
+
+# LAW orphan_step_spec (D1): from every state, every event moves the
+# worker and decides its exit exactly as the header states it
+# EXCLUDES: an event applied to the wrong field or dropped, a drain below
+#   zero that wraps, an absence that resets or does not add up, an exit
+#   check skipped or run before the event, an exit on the wrong window, a
+#   wrong exit record, an exited worker that comes back or changes its
+#   record
+law orphan_step_spec:
+  for +window: Nat
+  for +s: Or.St
+  for +e: Or.Ev
+  {Or.step(window, s, e) == ow_step(window, s, e) : Or.St}
+
+# LAW orphan_run_spec (D1): for every window and every history of events,
+# the worker ends in exactly the state the spec's fold reaches from a
+# fresh worker
+# EXCLUDES: a run from a worker that is not fresh, events folded in
+#   another order or some skipped, a W.work that answers Idle always (an
+#   idle exit for a worker that runs), any wrong step
+law orphan_run_spec:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  {Or.run(window, evs) == ow_run(window, evs) : Or.St}

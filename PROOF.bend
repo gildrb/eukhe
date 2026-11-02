@@ -1107,6 +1107,9 @@ import ./proof/orphan/orphan_idle_exit_due.bend as POrphanIdleExitDue
 import ./proof/orphan/orphan_work_exit_due.bend as POrphanWorkExitDue
 import ./proof/orphan/orphan_capped_window_never_expires.bend as POrphanCappedWindowNeverExpires
 import ./proof/orphan/orphan_exit_by_work.bend as POrphanExitByWork
+import ./proof/orphan/orphan_work_spec.bend as POrphanWorkSpec
+import ./proof/orphan/orphan_step_spec.bend as POrphanStepSpec
+import ./proof/orphan/orphan_run_spec.bend as POrphanRunSpec
 import ./proof/orphan/orphan_wire_req_window.bend as POrphanWireReqWindow
 import ./proof/orphan/orphan_wire_req_no_window.bend as POrphanWireReqNoWindow
 import ./proof/orphan/orphan_wire_reply.bend as POrphanWireReply
