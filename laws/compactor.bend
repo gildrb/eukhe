@@ -407,6 +407,101 @@ law pend_after_exact:
   for o: C.Outcome
   {C.Pend.after(p, o) == after_spec(p, o) : C.Pend}
 
+# The folds the H1 and H2 laws read, whole: a line after the outcomes of
+# its calls, in order (each after_spec); the view's lines after the
+# outcomes of their calls, in the order they end (a call of line k is
+# after_spec on line k; a call of no line of the view changes none); and
+# how many of those outcomes counted (a saved line or a failed call of a
+# line pending when it ended)
+def pend_run_spec(os: List<&2, C.Outcome>, p: C.Pend) -> C.Pend:
+  match os:
+    case Nil{}:
+      p
+    case o <> rest:
+      pend_run_spec(rest, after_spec(p, o))
+
+def hit_spec(ps: List<&2, C.Pend>, k: Nat, o: C.Outcome) -> List<&2, C.Pend>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      match k:
+        case 0n:
+          after_spec(p, o) <> rest
+        case 1n+j:
+          p <> hit_spec(rest, j, o)
+
+def settle_spec(es: List<&2, C.End>, ps: List<&2, C.Pend>) -> List<&2, C.Pend>:
+  match es:
+    case Nil{}:
+      ps
+    case C.End{k, o} <> rest:
+      settle_spec(rest, hit_spec(ps, k, o))
+
+# line k of ps is pending
+def pending_at_spec(ps: List<&2, C.Pend>, k: Nat) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> rest:
+      match k:
+        case 0n:
+          pending_spec(p)
+        case 1n+j:
+          pending_at_spec(rest, j)
+
+# 1 for an outcome that counts: its line was pending, and a line was
+# saved or the call failed; else 0
+def counts_spec(due: Bool, o: C.Outcome) -> Nat:
+  match due:
+    case False{}:
+      0n
+    case True{}:
+      match o:
+        case C.Built{}:
+          1n
+        case C.Failed{}:
+          1n
+        case C.Disk{}:
+          0n
+        case C.Stopped{}:
+          0n
+
+def hits_spec(es: List<&2, C.End>, +ps: List<&2, C.Pend>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case C.End{+k, +o} <> rest:
+      Nat.add(counts_spec(pending_at_spec(ps, k), o), hits_spec(rest, hit_spec(ps, k, o)))
+
+# LAW pend_run_exact (H2): a line after the outcomes of its calls is exactly after_spec of each outcome, in order, from the line as it was
+# EXCLUDES: a Pend.run that answers Made{} for every input (fail_cap_builds
+#   reads it only past the cap), one that keeps the line as it was, skips,
+#   reorders or repeats an outcome, or counts a disk error or a stop
+law pend_run_exact:
+  for os: List<&2, C.Outcome>
+  for p: C.Pend
+  {C.Pend.run(os, p) == pend_run_spec(os, p) : C.Pend}
+
+# LAW settle_run_exact (H2): the view's lines after the outcomes of their calls are exactly: each outcome, in the order the calls end, is after_spec on the line its call is for, and a call of no line of the view changes none
+# EXCLUDES: a settle run that keeps the lines as they were (`run(es, ps) =
+#   ps`, with hits 0, passes settle_bounded and settle_reached), one that
+#   hits another line, drops or reorders an outcome, or adds or drops a line
+law settle_run_exact:
+  for es: List<&2, C.End>
+  for ps: List<&2, C.Pend>
+  {C.run(es, ps) == settle_spec(es, ps) : List<&2, C.Pend>}
+
+# LAW settle_hits_exact (H2): the outcomes that counted are exactly those of a call of a line pending when it ended that saved a line or failed
+# EXCLUDES: hits that answer 0 for every input (with `run(es, ps) = ps`,
+#   settle_bounded and settle_reached hold), hits that count a disk error,
+#   a stop, a built line or a call of no line, or read the lines before
+#   the outcomes before it
+law settle_hits_exact:
+  for es: List<&2, C.End>
+  for +ps: List<&2, C.Pend>
+  {C.hits(es, ps) == hits_spec(es, ps) : Nat}
+
 # a line's shortest reply so far: 0 none | 1 and its length
 def spell_best(b: Maybe<&2, List<&2, C.W>>, bl: Nat, rest: String) -> String:
   match b:

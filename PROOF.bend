@@ -105,6 +105,9 @@ import ./proof/compactor/settle_start.bend as PSettleStart
 import ./proof/compactor/line_open_exact.bend as PLineOpenExact
 import ./proof/compactor/line_step_exact.bend as PLineStepExact
 import ./proof/compactor/pend_after_exact.bend as PPendAfterExact
+import ./proof/compactor/pend_run_exact.bend as PPendRunExact
+import ./proof/compactor/settle_run_exact.bend as PSettleRunExact
+import ./proof/compactor/settle_hits_exact.bend as PSettleHitsExact
 import ./proof/compactor/line_fits_exact.bend as PLineFitsExact
 import ./proof/compactor/line_first_exact.bend as PLineFirstExact
 import ./proof/compactor/first_fit_exact.bend as PFirstFitExact
@@ -698,6 +701,9 @@ import ./proof/run/run_entry_exact.bend as PRunEntryExact
 import ./proof/run/run_entry_reads.bend as PRunEntryReads
 import ./proof/run/run_entry_answers.bend as PRunEntryAnswers
 import ./proof/run/run_entry_example.bend as PRunEntryExample
+import ./proof/run/run_step_exact.bend as PRunStepExact
+import ./proof/run/run_fold_exact.bend as PRunFoldExact
+import ./proof/run/run_reqs_exact.bend as PRunReqsExact
 import ./proof/semver/base.bend as LASemver
 import ./proof/semver/semver_roundtrip.bend as PSemverRoundtrip
 import ./proof/semver/semver_le_refl.bend as PSemverLeRefl
