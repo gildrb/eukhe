@@ -277,6 +277,9 @@ import ./proof/tree/tree_ffi_open_malformed.bend as PTreeFfiOpenMalformed
 import ./proof/tree/tree_ffi_open_trailing.bend as PTreeFfiOpenTrailing
 import ./proof/tree/tree_ffi_fits_exists.bend as PTreeFfiFitsExists
 import ./proof/tree/tree_ffi_example.bend as PTreeFfiExample
+import ./proof/tree/tree_ffi_step_exact.bend as PTreeFfiStepExact
+import ./proof/tree/tree_ffi_open_exact.bend as PTreeFfiOpenExact
+import ./proof/tree/tree_ffi_exact_example.bend as PTreeFfiExactExample
 import ./proof/job/base.bend as LAJob
 import ./proof/job/job_output_bounded.bend as PJobOutputBounded
 import ./proof/job/job_no_silent_loss.bend as PJobNoSilentLoss

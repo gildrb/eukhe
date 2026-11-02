@@ -358,3 +358,225 @@ law tree_ffi_fits_exists:
 # EXCLUDES: a field order or a tag that differs from the Rust side
 law tree_ffi_example:
   {[Ft.put_ask(Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""), Ft.put_ask(Tr.Note{Tr.Do{Tr.Del{2n}}}, ""), Ft.put_ask(Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""), Ft.put_ask(Tr.Plan{4n}, ""), Ft.put_ask(Tr.Snap{5n}, ""), Ft.put_ans(Tr.Kept{}, ""), Ft.put_ans(Tr.Took{}, ""), Ft.put_ans(Tr.Cut{[2n, 3n]}, ""), Ft.put_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}, ""), Ft.put_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]}, "")] == ["0,0,0,2,1,7,", "0,0,1,2,", "0,1,2,1,3,0,2,1,0,", "1,4,", "2,5,", "0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>}
+
+# The whole stepper, every input
+# ------------------------------
+# The open and each step as the wire grammar of WIRE.md (the header of
+# bend/ffi_tree.bend), read and spelled with the wire primitives alone
+# (never the entry's own codec): an ask and its answer
+#   Ask  0, Rec (note) | 1, n (plan) | 2, n (snap)
+#   Rec  0, Op (do) | 1, a count, then that many Ops (rewind)
+#   Op   0, k, p, v (put) | 1, k (del)
+#   Ans  0 (kept) | 1 (took) | 2, a count, then the cut keys | 3, a count,
+#        then each effect: 0 start | 1 stop | 2 restore, then the key |
+#        4, a count, then each node: key, parent, value
+# The state machine the steps run is the core of bend/tree.bend
+# (Tr.core.step), which the laws tree_core_* above pin, after any journal,
+# to the session tree the journal makes (Tr.replay) and its rewind plans
+# and snapshots.
+
+def tt_read_op.v(k: Nat, p: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
+  match r:
+    case Wr.Got{v, s}:
+      Wr.Got{Tr.Put{k, p, v}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_op.p(k: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
+  match r:
+    case Wr.Got{p, s}:
+      tt_read_op.v(k, p, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_op.put(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
+  match r:
+    case Wr.Got{k, s}:
+      tt_read_op.p(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_op.del(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
+  match r:
+    case Wr.Got{k, s}:
+      Wr.Got{Tr.Del{k}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_op.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Op>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          tt_read_op.put(Wr.get_nat(s))
+        case 1n:
+          tt_read_op.del(Wr.get_nat(s))
+        case 2n+x:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# an op at the head of s
+def tt_read_op(s: String) -> Wr.Dec<Tr.Op>:
+  tt_read_op.tag(Wr.get_nat(s))
+
+def tt_read_rec.do(r: Wr.Dec<Tr.Op>) -> Wr.Dec<Tr.Rec>:
+  match r:
+    case Wr.Got{o, s}:
+      Wr.Got{Tr.Do{o}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_rec.rewind(r: Wr.Dec<List<&2, Tr.Op>>) -> Wr.Dec<Tr.Rec>:
+  match r:
+    case Wr.Got{ops, s}:
+      Wr.Got{Tr.Rewind{ops}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_rec.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Rec>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          tt_read_rec.do(tt_read_op(s))
+        case 1n:
+          tt_read_rec.rewind(LawsBase.wire_read_list(~Tr.Op, ~tt_read_op, s))
+        case 2n+x:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_ask.note(r: Wr.Dec<Tr.Rec>) -> Wr.Dec<Tr.Ask>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Tr.Note{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_ask.plan(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Tr.Plan{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_ask.snap(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Tr.Snap{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def tt_read_ask.tag(r: Wr.Dec<Nat>) -> Wr.Dec<Tr.Ask>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          tt_read_ask.note(tt_read_rec.tag(Wr.get_nat(s)))
+        case 1n:
+          tt_read_ask.plan(Wr.get_nat(s))
+        case 2n:
+          tt_read_ask.snap(Wr.get_nat(s))
+        case 3n+x:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the ask at the head of s, and the input after it
+def tt_read_ask(s: String) -> Wr.Dec<Tr.Ask>:
+  tt_read_ask.tag(Wr.get_nat(s))
+
+def tt_spell_eff(e: Tr.Eff, rest: String) -> String:
+  match e:
+    case Tr.Start{k}:
+      Wr.put_nat(0n, Wr.put_nat(k, rest))
+    case Tr.Stop{k}:
+      Wr.put_nat(1n, Wr.put_nat(k, rest))
+    case Tr.Restore{k}:
+      Wr.put_nat(2n, Wr.put_nat(k, rest))
+
+def tt_spell_ent(e: Tr.Ent, rest: String) -> String:
+  match e:
+    case Tr.Ent{k, p, v}:
+      Wr.put_nat(k, Wr.put_nat(p, Wr.put_nat(v, rest)))
+
+# an answer on the wire
+def tt_spell_ans(a: Tr.Ans) -> String:
+  match a:
+    case Tr.Kept{}:
+      Wr.put_nat(0n, "")
+    case Tr.Took{}:
+      Wr.put_nat(1n, "")
+    case Tr.Cut{ks}:
+      Wr.put_nat(2n, Wr.put_list(~Nat, ~Wr.put_nat, ks, ""))
+    case Tr.Effects{es}:
+      Wr.put_nat(3n, Wr.put_list(~Tr.Eff, ~tt_spell_eff, es, ""))
+    case Tr.Nodes{es}:
+      Wr.put_nat(4n, Wr.put_list(~Tr.Ent, ~tt_spell_ent, es, ""))
+
+def tt_step.ans(r: Tr.St & Tr.Ans) -> Ft.St & String:
+  (s, a) = r
+  (Ft.Live{s}, tt_spell_ans(a))
+
+def tt_step.ask(s: Tr.St, d: Wr.Dec<Tr.Ask>) -> Ft.St & String:
+  match d:
+    case Wr.Got{q, r}:
+      match r:
+        case SNil{}:
+          tt_step.ans(Tr.core.step(s, q))
+        case SCon{c, t}:
+          (Ft.Live{s}, Wr.err("tree: input left after the ask"))
+    case Wr.Bad{}:
+      (Ft.Live{s}, Wr.err("tree: malformed ask"))
+
+# a step of a live core s on input: the core's next state and its answer
+# to the ask; the core kept and an error for anything else
+def tt_step(s: Tr.St, input: String) -> Ft.St & String:
+  tt_step.ask(s, tt_read_ask(input))
+
+# an open: the empty core that splits at the halves, or refused
+def tt_open.of(d: Wr.Dec<List<&2, Nat>>) -> Ft.St & String:
+  match d:
+    case Wr.Got{hs, r}:
+      match r:
+        case SNil{}:
+          (Ft.Live{Tr.core.start(hs)}, "")
+        case SCon{c, t}:
+          (Ft.Shut{}, Wr.err("tree: input left after the halves"))
+    case Wr.Bad{}:
+      (Ft.Shut{}, Wr.err("tree: malformed halves"))
+
+# LAW tree_ffi_step_exact: for every live core and every input, a step answers exactly: on an
+# ask (as the wire primitives read it) with nothing after it, the core's
+# next state and its answer spelled on the wire; on an ask with input after
+# it, the core kept and the error form "tree: input left after the ask";
+# on any other input, the core kept and the error form "tree: malformed
+# ask"
+# EXCLUDES: a misread op, record or ask (a field in the wrong slot, a tag
+#   read as another, a lost, added or reordered op of a rewind), an answer
+#   spelled otherwise, a core changed by garbage or by an ask with input
+#   after it, another error text, a codec of the entry wrong both ways (the
+#   spec never calls it)
+law tree_ffi_step_exact:
+  for +s: Tr.St
+  for +input: String
+  {Ft.step(Ft.Live{s}, input) == tt_step(s, input) : Ft.St & String}
+
+# LAW tree_ffi_open_exact: for every input, the open answers exactly: on a list of halves (the
+# wire's list of Nats) with nothing after it, the empty core that splits at
+# them and the empty reply; with input after it, the refused state and
+# "tree: input left after the halves"; on any other input, the refused
+# state and "tree: malformed halves"
+# EXCLUDES: halves read wrong, a core opened from garbage or from halves
+#   followed by input, another error text
+law tree_ffi_open_exact:
+  for +input: String
+  {Ft.open(input) == tt_open.of(Wr.get_list(~Nat, ~Wr.get_nat, input)) : Ft.St & String}
+
+# LAW tree_ffi_exact_example: anchor: the spec's spelling of an answer of each kind and its
+# reading of the asks Rust writes (those of tree_ffi_example)
+# EXCLUDES: a spec whose field order or tags differ from the Rust side
+law tree_ffi_exact_example:
+  {[tt_spell_ans(Tr.Kept{}), tt_spell_ans(Tr.Took{}), tt_spell_ans(Tr.Cut{[2n, 3n]}), tt_spell_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}), tt_spell_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]})] == ["0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>} &
+  {[tt_read_ask("0,0,0,2,1,7,"), tt_read_ask("0,0,1,2,"), tt_read_ask("0,1,2,1,3,0,2,1,0,"), tt_read_ask("1,4,"), tt_read_ask("2,5,x"), tt_read_ask("3,")] == [Wr.Got{Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""}, Wr.Got{Tr.Note{Tr.Do{Tr.Del{2n}}}, ""}, Wr.Got{Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""}, Wr.Got{Tr.Plan{4n}, ""}, Wr.Got{Tr.Snap{5n}, "x"}, Wr.Bad{}] : List<&2, Wr.Dec<Tr.Ask>>}
