@@ -1787,6 +1787,11 @@ import ./proof/tool_surface/tool_surface_ffi_exact.bend as PToolSurfaceFfiExact
 import ./proof/tool_surface/tool_surface_ffi_answers.bend as PToolSurfaceFfiAnswers
 import ./proof/tool_surface/tool_surface_ffi_left_over.bend as PToolSurfaceFfiLeftOver
 import ./proof/tool_surface/tool_surface_ffi_example.bend as PToolSurfaceFfiExample
+import ./proof/tool_surface/tool_surface_reach_spec.bend as PToolSurfaceReachSpec
+import ./proof/tool_surface/tool_surface_join_spec.bend as PToolSurfaceJoinSpec
+import ./proof/tool_surface/tool_surface_quit_spec.bend as PToolSurfaceQuitSpec
+import ./proof/tool_surface/tool_surface_build_spec.bend as PToolSurfaceBuildSpec
+import ./proof/tool_surface/tool_surface_ffi_spec.bend as PToolSurfaceFfiSpec
 import ./proof/sandbox/frames_verdict_serve_exact.bend as PFramesVerdictServeExact
 import ./proof/infer_force/infer_force_flag_exact.bend as PInferForceFlagExact
 import ./proof/infer_force/infer_force_after_exact.bend as PInferForceAfterExact
