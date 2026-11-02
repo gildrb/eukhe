@@ -453,3 +453,24 @@ law skill_ffi_malformed_exact:
   for +s: String
   for no: {read_ask(s) == None{} : Maybe<&2, Sk.Ask>}
   {FSk.ffi(s) == SCon{'E', SCon{' ', "skill_load: malformed request"}} : String}
+
+# the reply to the input s: when s is exactly one request (read_ask), the
+# spelled answer to it (spell_answer); else the error form 'E ', then
+# "skill_load: malformed request"
+def ffi_spec.read(m: Maybe<&2, Sk.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "skill_load: malformed request"}}
+    case Some{a}:
+      spell_answer(a)
+
+def ffi_spec(s: String) -> String:
+  ffi_spec.read(read_ask(s))
+
+# LAW skill_ffi_exact: the entry's reply to every input string is the spec's: to exactly one request, the skill file's verdict, name and messages or the template's description, spelled from the specs alone; to any other input, exactly the error form
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   request read by a reader the laws do not fix, a value answered to
+#   malformed input, an error form with another text)
+law skill_ffi_exact:
+  for +s: String
+  {FSk.ffi(s) == ffi_spec(s) : String}
