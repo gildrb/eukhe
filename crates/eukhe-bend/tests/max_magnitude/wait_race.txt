@@ -1,0 +1,17 @@
+# a wait opened with the largest deadline, polled; one with none and one
+# expired; then a deadline one digit past the wire, refused, and its
+# refused state
+open 1,{MAX},
+step FFT
+step FFF
+step FTT
+step TTT
+open 0,
+step FFT
+step TFF
+open 1,0,
+step FFF
+refuse-open 1,{LONG},
+refuse-step FFF
+open 1,{MAX},
+refuse-step FFFx
