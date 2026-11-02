@@ -20,7 +20,7 @@
 mod routes;
 
 use std::path::PathBuf;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
@@ -135,6 +135,47 @@ impl HeadlessParentLink {
             serve: tokio::spawn(serve(held, early, identity, session)),
         })
     }
+}
+
+/// Register the kernel `agent_message.*` and `agent_observe.*` host
+/// handlers of the headless session `identity` names: like a worker's
+/// (`Worker::register_agent_messaging`), over the supervisor `link`
+/// reaches, with `children` (its RLM child registry) as its family's
+/// children. The supervisor admits its sends once it is registered
+/// ([`HeadlessParentLink::register`]), and only to its own children (the
+/// kin rule).
+pub fn register_agent_messaging(
+    link: &Arc<SupervisorLink>,
+    identity: &HeadlessParentIdentity,
+    children: &Arc<crate::rlm_children::SupervisorChildSessions>,
+    handlers: &mut eukhe_core::kernel::HostRequestHandlers,
+) {
+    let mut summary = json!({
+        "activeSessionId": identity.session_id,
+        "sessionId": identity.session_id,
+        "runtimeKind": "top-level",
+        "rlmDepth": 0,
+    });
+    if let Some(file) = &identity.session_file {
+        summary["sessionFile"] = json!(file.to_string_lossy());
+    }
+    let own_summary = Arc::new(std::sync::Mutex::new(Some(summary)));
+    let sender = Arc::new(
+        crate::agent_messaging::LinkAgentMessageController::headless(
+            Arc::clone(link),
+            identity.session_id.clone(),
+            Arc::clone(&own_summary),
+            Arc::clone(children),
+        ),
+    );
+    let observer = Arc::new(crate::agent_messaging::LinkAgentObserveController::new(
+        Arc::clone(link),
+        identity.session_id.clone(),
+        own_summary,
+        Some(Arc::clone(children)),
+    ));
+    eukhe_core::agent_messaging::register_agent_message_host_handlers(sender, handlers);
+    eukhe_core::agent_messaging::register_agent_observe_host_handlers(observer, handlers);
 }
 
 /// Answer the deliveries on the registration's connection, `early` (the

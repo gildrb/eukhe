@@ -74,6 +74,22 @@ impl Supervisor {
         source: &ResidentWorker,
     ) -> anyhow::Result<KinView> {
         let session_file = source.descriptor.lock().await.session_file.clone();
+        self.kin_view_of(session_file.as_deref().map(Path::new), &source.worker_id)
+            .await
+    }
+
+    /// The kin view of the agent stored at `session_file` (`None`: a
+    /// memory session, keyed by `session_id`) — a worker's, or a
+    /// registered headless parent's.
+    ///
+    /// # Errors
+    ///
+    /// The spawn ledger cannot be read.
+    pub(crate) async fn kin_view_of(
+        self: &Arc<Self>,
+        session_file: Option<&Path>,
+        session_id: &str,
+    ) -> anyhow::Result<KinView> {
         // The spawn admission appends every edge to the daemon-default
         // ledger (`supervisor/adoption.rs`).
         let edges = self
@@ -93,7 +109,7 @@ impl Supervisor {
             })
             .collect();
         Ok(KinView {
-            sender: session_key(session_file.as_deref().map(Path::new), &source.worker_id),
+            sender: session_key(session_file, session_id),
             edges,
         })
     }

@@ -59,6 +59,15 @@ pub(crate) struct HeadlessTarget {
     outbound: ConnectionOutbound,
 }
 
+/// A registered parent sending a message to one of its children.
+pub(crate) struct HeadlessSender {
+    pub(crate) session_id: String,
+    /// The parent's storage (`None`: a memory session).
+    pub(crate) session_file: Option<std::path::PathBuf>,
+    /// Its roster row (the sender endpoint).
+    pub(crate) summary: Value,
+}
+
 impl HeadlessParents {
     fn parents(&self) -> std::sync::MutexGuard<'_, HashMap<String, Registered>> {
         self.parents.lock().unwrap_or_else(PoisonError::into_inner)
@@ -80,6 +89,20 @@ impl HeadlessParents {
                 .and_then(Value::as_str)
                 .map(std::path::PathBuf::from),
             outbound: parent.outbound.clone(),
+        })
+    }
+
+    /// The registered parent `selector` (its session id) names, as the
+    /// sender of an agent message.
+    pub(crate) fn sender(&self, selector: &str) -> Option<HeadlessSender> {
+        self.parents().get(selector).map(|parent| HeadlessSender {
+            session_id: selector.to_string(),
+            session_file: parent
+                .summary
+                .get("sessionFile")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from),
+            summary: parent.summary.clone(),
         })
     }
 

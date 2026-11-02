@@ -20,7 +20,10 @@ use super::{
 pub struct LinkAgentMessageController {
     pub(super) link: Arc<SupervisorLink>,
     pub(super) active_session_id: String,
-    pub(super) worker_token: String,
+    /// The worker's supervisor token; `None` for a headless session (no
+    /// worker): it reads the roster unauthenticated and sends only through
+    /// the supervisor route.
+    pub(super) worker_token: Option<String>,
     /// This worker's own session summary, pushed by the worker at create
     /// (and rename); the sender identity block for direct deliveries.
     pub(super) own_summary: Arc<std::sync::Mutex<Option<Value>>>,
@@ -40,9 +43,28 @@ impl LinkAgentMessageController {
         LinkAgentMessageController {
             link,
             active_session_id,
-            worker_token,
+            worker_token: Some(worker_token),
             own_summary,
             children,
+        }
+    }
+
+    /// The controller of a registered headless session `session_id` (no
+    /// worker): the roster comes from the supervisor's session walk and
+    /// every send takes the supervisor route, where the headless parent
+    /// is a known sender.
+    pub fn headless(
+        link: Arc<SupervisorLink>,
+        session_id: String,
+        own_summary: Arc<std::sync::Mutex<Option<Value>>>,
+        children: Arc<crate::rlm_children::SupervisorChildSessions>,
+    ) -> Self {
+        LinkAgentMessageController {
+            link,
+            active_session_id: session_id,
+            worker_token: None,
+            own_summary,
+            children: Some(children),
         }
     }
 }
@@ -56,18 +78,24 @@ const PEER_TICKET_TIMEOUT_MS: u64 = 5_000;
 /// idle and passivated parents and children are reached too.
 async fn roster_summaries(
     link: &Arc<crate::supervisor_link::SupervisorLink>,
-    worker_token: &str,
+    worker_token: Option<&str>,
 ) -> anyhow::Result<Vec<Value>> {
     // Surface an unavailable supervisor instead of silently claiming the
     // caller has no family.
+    let (command, rows) = match worker_token {
+        Some(token) => (
+            json!({ "type": "list_agent_peers", "workerToken": token, "scope": "roster" }),
+            "peers",
+        ),
+        // A headless session: the full session walk (live residents and
+        // the passive ledger children), the roster `agent_observe` reads.
+        None => (json!({ "type": "list", "all": true }), "sessions"),
+    };
     let data = link
-        .request_success(
-            json!({ "type": "list_agent_peers", "workerToken": worker_token, "scope": "roster" }),
-            std::time::Duration::from_secs(5),
-        )
+        .request_success(command, std::time::Duration::from_secs(5))
         .await?;
     Ok(data
-        .get("peers")
+        .get(rows)
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())
@@ -102,7 +130,7 @@ fn relationship_rank(relationship: AgentFamilyRelationship) -> u8 {
 
 impl AgentMessageController for LinkAgentMessageController {
     async fn family(&self) -> anyhow::Result<Vec<AgentFamilyMember>> {
-        let sessions = roster_summaries(&self.link, &self.worker_token).await?;
+        let sessions = roster_summaries(&self.link, self.worker_token.as_deref()).await?;
         // The calling session's durable family identity (its own ids and
         // its recorded parent edge); never derived from names.
         let identity = self.family_identity();
@@ -239,12 +267,15 @@ impl LinkAgentMessageController {
     /// failure, or failed grant burn - the message was not delivered);
     /// once the command is sent the outcome is final either way.
     async fn deliver_direct(&self, input: &AgentMessageSendInput) -> DirectDelivery {
+        let Some(worker_token) = &self.worker_token else {
+            return DirectDelivery::Unavailable;
+        };
         let ticket = match self
             .link
             .request_success(
                 json!({
                     "type": "get_worker_peer_transport",
-                    "workerToken": self.worker_token,
+                    "workerToken": worker_token,
                     "targetActiveSessionId": input.target,
                 }),
                 std::time::Duration::from_millis(PEER_TICKET_TIMEOUT_MS),

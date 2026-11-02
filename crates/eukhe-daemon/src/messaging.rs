@@ -62,22 +62,34 @@ impl Supervisor {
         };
         let fail = |error: String| response_failure(Some(command_id), "send_message", &error, None);
         // Source first, like the TS supervisor: an unknown source answers
-        // with the same unknown-session error as an unknown target.
-        let source = match from_active_session_id {
+        // with the same unknown-session error as an unknown target. A
+        // registered headless parent sends as itself (its children reach
+        // it the same way).
+        let (source, headless_source) = match from_active_session_id {
             Some(source) => match self.registry.resolve(source).await {
-                Ok(resident) => Some(resident),
-                Err(_) => return fail(format!("Unknown active session: {source}")),
+                Ok(resident) => (Some(resident), None),
+                Err(_) => match self.headless_parents.sender(source) {
+                    Some(parent) => (None, Some(parent)),
+                    None => return fail(format!("Unknown active session: {source}")),
+                },
             },
-            None => None,
+            None => (None, None),
         };
         // The kin view of an agent sender: every target it reaches is its
         // parent or one of its children (a CLI-origin send is a user's).
-        let kin = match &source {
-            Some(source) => match self.kin_view(source).await {
+        let kin = match (&source, &headless_source) {
+            (Some(source), _) => match self.kin_view(source).await {
                 Ok(view) => Some(view),
                 Err(error) => return fail(format!("{error:#}")),
             },
-            None => None,
+            (None, Some(parent)) => match self
+                .kin_view_of(parent.session_file.as_deref(), &parent.session_id)
+                .await
+            {
+                Ok(view) => Some(view),
+                Err(error) => return fail(format!("{error:#}")),
+            },
+            (None, None) => None,
         };
         // The source summary, once read (the wake reads it for its scope;
         // the sender endpoint reuses it).
@@ -134,6 +146,11 @@ impl Supervisor {
                 return fail("Agent messaging cannot target the sending session".to_string());
             }
         }
+        if let (Some(parent), Route::Headless(target)) = (&headless_source, &target) {
+            if parent.session_id == target.session_id {
+                return fail("Agent messaging cannot target the sending session".to_string());
+            }
+        }
         if let Some(kin) = &kin {
             let admitted = match &target {
                 Route::Worker(resident) => {
@@ -154,8 +171,8 @@ impl Supervisor {
                 return fail(refusal);
             }
         }
-        let sender = match &source {
-            Some(source) => {
+        let sender = match (&source, &headless_source) {
+            (Some(source), _) => {
                 // The wake already read the summary for its scope; every
                 // other path reads it here (the TS sender endpoint comes
                 // from the roster summary).
@@ -168,9 +185,11 @@ impl Supervisor {
                 };
                 sender_endpoint_from_summary(&summary, client_id)
             }
+            // A headless parent's endpoint is its registered roster row.
+            (None, Some(parent)) => sender_endpoint_from_summary(&parent.summary, client_id),
             // CLI origin: the TS worker attributes client-sent messages to
             // the client id (`createAgentSessionMessageSender`).
-            None => json!({ "clientId": client_id }),
+            (None, None) => json!({ "clientId": client_id }),
         };
         let delivery = DaemonWorkerCommand::WorkerDeliverMessage {
             id: None,

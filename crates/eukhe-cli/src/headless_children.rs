@@ -27,7 +27,8 @@ use anyhow::Context as _;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::child_workspace::Handback;
 use eukhe_core::durable::children::{self as durable, RlmSubagentHost};
-use eukhe_core::durable::EukheSession;
+use eukhe_core::durable::{EukheSession, SessionConfig};
+use eukhe_core::kernel::HostRequestHandlers;
 use eukhe_daemon::headless_parent::{HeadlessParentIdentity, HeadlessParentLink};
 use eukhe_daemon::rlm_children::{
     durable_child_identities, ParentIdentity, SupervisorChildSessions,
@@ -52,7 +53,7 @@ pub(crate) struct HeadlessChildren {
 
 /// [`SupervisorChildSessions`] behind an on-demand supervisor start.
 struct HeadlessChildHost {
-    sessions: SupervisorChildSessions,
+    sessions: Arc<SupervisorChildSessions>,
     link: Arc<SupervisorLink>,
     socket_path: PathBuf,
     spawn_cwd: PathBuf,
@@ -87,11 +88,11 @@ impl HeadlessChildren {
         let socket_path =
             crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
         let link = Arc::new(SupervisorLink::new(socket_path.clone()));
-        let sessions = SupervisorChildSessions::new(
+        let sessions = Arc::new(SupervisorChildSessions::new(
             Arc::clone(&link),
             options.config.agent_dir.clone(),
             session_id.to_owned(),
-        );
+        ));
         sessions.set_identity(ParentIdentity {
             rlm_depth,
             rlm_max_depth,
@@ -131,6 +132,22 @@ impl HeadlessChildren {
     /// (`SessionConfig::children`).
     pub(crate) fn host(&self) -> Arc<dyn RlmSubagentHost> {
         Arc::clone(&self.host) as Arc<dyn RlmSubagentHost>
+    }
+
+    /// Wire the session's `agent_message.*` and `agent_observe.*` host
+    /// handlers into `config`: the session messages and observes its
+    /// children through the supervisor that hosts them (the kin rule
+    /// admits only its own children).
+    pub(crate) fn register_agent_messaging(&self, config: &mut SessionConfig) {
+        let handlers = config
+            .extra_host_handlers
+            .get_or_insert_with(HostRequestHandlers::default);
+        eukhe_daemon::headless_parent::register_agent_messaging(
+            &self.host.link,
+            &self.host.parent,
+            &self.host.sessions,
+            handlers,
+        );
     }
 
     /// Bind the host to the opened `session`: a spawn without a model
@@ -230,7 +247,7 @@ impl HeadlessChildHost {
                 )
             })
             .await?;
-        Ok(&self.sessions)
+        Ok(self.sessions.as_ref())
     }
 }
 

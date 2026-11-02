@@ -282,6 +282,56 @@ fn print_json_child_messages_its_headless_parent() {
     );
 }
 
+/// A headless session messages and observes its own child: the
+/// `agent_message.*` and `agent_observe.*` host handlers are wired for it,
+/// and the supervisor admits it as the child's parent (law
+/// `kin_admit_iff`: a parent reaches its own children).
+#[test]
+fn print_json_parent_messages_and_observes_its_child() {
+    let home = tempfile::TempDir::new().unwrap();
+    let socket = home.path().join("daemon.sock");
+    let _daemon = SandboxedDaemon {
+        socket: socket.clone(),
+    };
+    let child_script = write_child_script(
+        home.path(),
+        &json!({ "responses": [
+            { "text": "kid report: lane done" },
+            { "text": "kid got the message" },
+        ] }),
+    );
+    let cell = format!(
+        "{SPAWN_CELL}\nimport agent_message\nfrom rlm import host_request\nreceipt = await agent_message.send(\"parent says hi\", receiver_role=\"child\", receiver_name=\"kid\")\nprint(\"RECEIPT\", receipt)\nagents = await host_request(\"agent_observe.list\")\nprint(\"OBSERVED\", agents)"
+    );
+    let mut responses = vec![
+        json!({ "content": [
+            { "type": "toolCall", "name": "ipython", "arguments": { "code": cell } },
+        ] }),
+        json!({ "text": "spawn turn done" }),
+    ];
+    responses
+        .extend(["woken once", "woken twice", "woken thrice"].map(|text| json!({ "text": text })));
+    let script = json!({ "responses": responses });
+
+    let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
+
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+    let messages = ended_messages(&stdout);
+    let result = messages
+        .iter()
+        .find(|message| message["role"] == "toolResult")
+        .unwrap_or_else(|| panic!("the cell's result: {stdout}"))
+        .to_string();
+    assert!(
+        result.contains("RECEIPT") && result.contains("parent says hi"),
+        "the parent's message to its child was delivered: {result}\nstderr: {stderr}"
+    );
+    assert!(
+        result.contains("OBSERVED") && result.contains("kid"),
+        "the parent observes its child: {result}\nstderr: {stderr}"
+    );
+}
+
 /// When a `-p` run whose child messaged it exits, nothing it started
 /// remains: the supervisor it started for its children drained, and the
 /// children and their kernels stopped with it.

@@ -106,7 +106,7 @@ fn controller(
     LinkAgentMessageController {
         link: Arc::new(SupervisorLink::new(socket)),
         active_session_id: "aaa111".to_string(),
-        worker_token: "tok-a".to_string(),
+        worker_token: Some("tok-a".to_string()),
         own_summary: Arc::new(std::sync::Mutex::new(own_summary)),
         children: None,
     }

@@ -504,6 +504,7 @@ async fn open(
         config.role.rlm_max_depth,
     );
     config.children = Some(children.host());
+    children.register_agent_messaging(&mut config);
     let wakes = HeadlessWakes::default();
     wakes.wire(&mut config);
     let session = open_session(config, cx)
