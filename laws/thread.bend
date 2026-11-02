@@ -64,6 +64,13 @@ def sp_w_reply(q: FTh.Req) -> String:
     case FTh.Req{t, v, xs}:
       Wr.put_nat(Th.history_lines(t, v, xs), "")
 
+# R5: the reply of a request by the spec: the count of leading starts
+# below through - verbatim (S5), spelled
+def sp_w_spec_reply(q: FTh.Req) -> String:
+  match q:
+    case FTh.Req{t, v, xs}:
+      Wr.put_nat(S.lead(Nat.sub(t, v), xs), "")
+
 # R7: the head a pin was rendered under
 def sp_head(p: Th.Pin) -> Nat:
   match p:
@@ -305,3 +312,14 @@ law thread_entry_refuses:
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law thread_entry_example:
   {[FTh.ffi("5,10,3,0,4,6,"), FTh.ffi("2,5,9,"), FTh.ffi("1,10,"), FTh.ffi("2,10,3,x")] == ["3,", "0,", Wr.err("thread: malformed request"), Wr.err("thread: malformed request")] : List<&2, String>}
+
+# LAW thread_entry_spec (R4, R5): the entry answers every request Rust
+# spells, every number within the wire, with the spec's count (S5): the
+# leading starts below through - verbatim, spelled
+# EXCLUDES: any reply other than the spec's for a request that fits (a
+#   start at end kept, a count past the first start at or after end, a
+#   subtraction that wraps, another spelling)
+law thread_entry_spec:
+  for +q: FTh.Req
+  for h: {sp_fit_req(q) == True{} : Bool}
+  {FTh.ffi(sp_w_req(q, "")) == sp_w_spec_reply(q) : String}

@@ -2722,6 +2722,7 @@ import ./proof/thread/thread_entry_reads.bend as PThreadEntryReads
 import ./proof/thread/thread_entry_exact.bend as PThreadEntryExact
 import ./proof/thread/thread_entry_refuses.bend as PThreadEntryRefuses
 import ./proof/thread/thread_entry_example.bend as PThreadEntryExample
+import ./proof/thread/thread_entry_spec.bend as PThreadEntrySpec
 import ./proof/thread/thread_pin_kept.bend as PThreadPinKept
 import ./proof/thread/thread_pin_moved.bend as PThreadPinMoved
 import ./proof/thread/thread_request_prefix_kept.bend as PThreadRequestPrefixKept
