@@ -93,6 +93,15 @@ def kill_home(home):
             pass
 
 
+def private_tmp(cmd, tmp):
+    """cmd with `tmp` bound over /tmp: runs in parallel (and earlier runs) never share scratch files such as
+    /tmp/shot.png, which a model then reads, attaches or is refused to overwrite as if they were its own."""
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise SystemExit("bench: bwrap is needed to give each run its own /tmp")
+    return [bwrap, "--dev-bind", "/", "/", "--bind", str(tmp), "/tmp", "--", *cmd]
+
+
 # ---------------------------------------------------------------- one-time setup
 
 @contextlib.contextmanager
@@ -287,6 +296,8 @@ class Run:
                 shutil.rmtree(d)
         self.out.mkdir(parents=True)
         self.home = self.work / "home"
+        self.tmp = self.work / "tmp"
+        self.tmp.mkdir(parents=True)
         setup = eukhe_setup if tool == "eukhe" else omp_setup
         self.env = setup(self.home, self.model, self.spec)
         self.turns = []
@@ -302,7 +313,7 @@ class Run:
 
     def turn(self, repo, n, prompt, label, kill_after=None):
         """Run one turn to its end (or kill everything of this HOME after kill_after seconds)."""
-        cmd = command(self.tool, self.model, n, repo, prompt)
+        cmd = private_tmp(command(self.tool, self.model, n, repo, prompt), self.tmp)
         so_path = self.out / f"{label}.stdout.jsonl"
         t0 = time.time()
         with open(so_path, "w") as so, open(self.out / f"{label}.stderr.log", "w") as se:

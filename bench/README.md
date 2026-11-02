@@ -31,8 +31,8 @@ paid model calls, so CI never runs it.
 
 ## Run
 
-Needs `uv` (makes the bench venv and the eukhe kernel), `git`, `chromium` for `ui_cards`/`measure`, `omp` to
-compare, and logins in `~/.eukhe/auth.json` (anthropic; zai for the glm tasks).
+Needs `uv` (makes the bench venv and the eukhe kernel), `git`, `bwrap`, `chromium` for `ui_cards`/`measure`,
+`omp` to compare, and logins in `~/.eukhe/auth.json` (anthropic; zai for the glm tasks).
 
     make bench-quick                              # build, then crm once with claude-haiku-5-5
     make bench                                    # build, then every task once with eukhe, then the table
@@ -40,9 +40,9 @@ compare, and logins in `~/.eukhe/auth.json` (anthropic; zai for the glm tasks).
     python3 bench/run.py eukhe relay 1            # one run
     python3 bench/report.py --tasks relay,fanout  # the table again
 
-`batch.py` skips runs that already have a summary (`--rerun` repeats them). Each run gets a fresh git repo and
-an isolated HOME under `<dir>/work/<label>/<task>/<run>/`; its streams, diffs and `summary.json` go to
-`<dir>/results/<label>/<task>/<run>/`. Labels are `<tool>[-<model>][-<tag>]`.
+`batch.py` skips runs that already have a summary (`--rerun` repeats them). Each run gets a fresh git repo, an
+isolated HOME and its own `/tmp` (bound with `bwrap`) under `<dir>/work/<label>/<task>/<run>/`; its streams,
+diffs and `summary.json` go to `<dir>/results/<label>/<task>/<run>/`. Labels are `<tool>[-<model>][-<tag>]`.
 
 | flag | env | default |
 |---|---|---|
