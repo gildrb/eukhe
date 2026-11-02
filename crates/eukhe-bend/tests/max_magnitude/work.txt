@@ -1,0 +1,15 @@
+# the prior check: the stalls and the work at their largest
+call 1,TT{MAX},{MAX},
+call 1,FT{MAX},{MAX},
+refuse 1,TT{LONG},0,
+# the work ledger: every key, fingerprint and id at its largest
+open 
+step 0,0,2,{MAX},3,0,{MAX},{MAX},2,1,{MAX},{MAX},99999999999998,1,0,99999999999998,{MAX},
+step 2,{MAX},
+step 0,1,{MAX},1,99999999999998,1,1,99999999999998,{MAX},
+step 0,1,99999999999998,1,{MAX},1,1,{MAX},{MAX},
+step 1,1,{MAX},1,1,99999999999998,{MAX},
+# a 15-digit fingerprint is refused, the ledger kept; then a refused open
+refuse-step 2,{LONG},
+step 2,99999999999998,
+refuse-open {LONG},
