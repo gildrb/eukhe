@@ -143,43 +143,16 @@ async fn a_line_within_the_limit_is_taken_at_once() {
     );
 }
 
-/// An over-long line gets the cut follow-up in the SAME conversation (the
-/// end mark moves to it) while the lines get shorter; after [`TRIES`]
-/// lines the shortest, cut to [`NODE`] bytes, wins.
+/// An over-long line is cut to [`NODE`] bytes at once: one call, no
+/// follow-up round trip.
 #[tokio::test]
-async fn over_long_lines_get_the_cut_and_the_shortest_cut_wins() {
+async fn an_over_long_line_is_cut_after_one_call() {
     let long = |n: usize| "x".repeat(n);
-    let summarizer = Scripted::with(vec![
-        Ok(reply(&long(530))),
-        Ok(reply(&long(520))),
-        Ok(reply(&long(519))),
-        Ok(reply(&long(518))),
-        Ok(reply(&long(517))),
-        Ok(reply(&long(100))),
-    ]);
+    let summarizer = Scripted::with(vec![Ok(reply(&long(530))), Ok(reply(&long(100)))]);
     let line = line_of(summarizer.as_ref()).await.unwrap();
-    let requests = summarizer.requests();
-    let follow_up = |n: usize| {
-        user(vec![text_block(
-            format!(
-                "Too long: your line is {n} bytes, over the 512-byte limit. Write\nthe whole line again for the same <input>, cutting just enough of the\nleast valuable items to fit before this cut:\n{}| \u{2190} LIMIT",
-                long(512)
-            ),
-            Some(CacheBreakpoint::Ephemeral),
-        )])
-    };
-    let mut second = first_request();
-    second.messages = vec![
-        user(vec![
-            text_block(CONTEXT.to_string(), None),
-            text_block(TASK.to_string(), None),
-        ]),
-        Message::Assistant(reply(&long(530))),
-        follow_up(530),
-    ];
     assert_eq!(
-        (line, requests.len(), requests[1].clone()),
-        (long(NODE), TRIES, second)
+        (line, summarizer.requests()),
+        (long(NODE), vec![first_request()])
     );
 }
 

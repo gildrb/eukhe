@@ -2,18 +2,18 @@
 //! own system prompt (its instructions and how to read the view; no tools),
 //! then its `<chat>` view and its task. The view goes in blocks of
 //! [`super::BLOCK`] lines with one cache mark on the last whole block and
-//! one on the request's end (§3.3). An over-long line gets the cut
-//! follow-up in the SAME conversation.
+//! one on the request's end (§3.3).
 //!
 //! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
-//! model replies (spec/README.md M2): the compiled Bend core decides each
-//! step (`line.open`, `line.step` of `bend/compactor.bend`, through
-//! `eukhe_bend::rules::compactor`) from the replies' lengths; this file
-//! moves the texts. At most [`TRIES`] model calls; the first line that
-//! fits wins; an empty or thinking-only reply, or a follow-up not shorter
-//! than the best line, ends the tries; then the best line, else the input,
-//! cut to [`NODE`] bytes. Only a provider error (or a model call past
-//! [`CALL_DEADLINE`]) fails the call.
+//! model replies (spec/README.md M2): the compiled Bend core decides the
+//! end (`line.open`, `line.step` of `bend/compactor.bend`, through
+//! `eukhe_bend::rules::compactor`) from the reply's length; this file
+//! moves the texts. One model call ([`TRIES`]): a reply within [`NODE`]
+//! bytes is the line; a longer one is cut to [`NODE`] bytes (the last try
+//! ends cut), with no follow-up round trip asking for a shorter one; an
+//! empty or thinking-only reply gives the input cut to [`NODE`] bytes. Only
+//! a provider error (or a model call past [`CALL_DEADLINE`]) fails the
+//! call.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -24,7 +24,7 @@ use eukhe_types::pi_ai::{
     TextContent, UserContent, UserContentBlock, UserMessage,
 };
 
-use super::prompts::{compactor_system_prompt, cut_follow_up};
+use super::prompts::compactor_system_prompt;
 use super::{cut, view, CALL_DEADLINE, NODE, TRIES};
 
 /// The future one summarizer call returns.
@@ -59,8 +59,7 @@ impl ResponseStarted {
 /// The model behind the compactor.
 ///
 /// An implementation completes one conversation on a cheap but competent
-/// model and returns the model's message verbatim: the compactor replays it
-/// in the same conversation when the line is over the size limit. It
+/// model and returns the model's message verbatim. It
 /// signals `started` as soon as the model's response starts (its first
 /// streamed event; an implementation that only sees whole replies signals
 /// when it has one). Transport failures return `Err`; a reply that stopped
@@ -87,23 +86,27 @@ pub(crate) struct NodeRequest {
     pub input: String,
 }
 
-/// Build one line (H1): ask, take the first line within [`NODE`] bytes,
-/// else send the cut follow-up while the lines get shorter, at most
-/// [`TRIES`] calls; with no line that fits, the shortest one (or, with
-/// none, the input) cut to [`NODE`] bytes. `started` fires when the first
-/// call's response starts (the follow-ups read the same prefix from the
-/// cache).
+/// Build one line (H1): one call; its reply within [`NODE`] bytes is the
+/// line, a longer one cut to [`NODE`] bytes, an empty one gives the input
+/// cut so. `started` fires when the call's response starts.
 ///
 /// # Errors
 ///
 /// Returns an error when the summarizer fails or takes longer than
-/// [`CALL_DEADLINE`], or a reply stops with an error.
+/// [`CALL_DEADLINE`], or the reply stops with an error.
 pub(crate) async fn build_line(
     summarizer: &dyn Summarizer,
     request: &NodeRequest,
     timestamp: u64,
-    mut started: ResponseStarted,
+    started: ResponseStarted,
 ) -> anyhow::Result<String> {
+    let line = match open(TRIES) {
+        Next::Ends { fin, .. } => {
+            return ended(fin, "", &request.input)
+                .ok_or_else(|| anyhow::anyhow!("the compactor's line failed with no reply"));
+        }
+        Next::Asks(line) => line,
+    };
     let mut blocks: Vec<UserContentBlock> = Vec::new();
     let pieces = view::pieces(&request.context);
     let marked = pieces.len() - 1;
@@ -117,7 +120,7 @@ pub(crate) async fn build_line(
         request.task.clone(),
         Some(CacheBreakpoint::Ephemeral),
     ));
-    let mut context = Context {
+    let context = Context {
         system_prompt: Some(compactor_system_prompt()),
         messages: vec![Message::User(UserMessage {
             content: UserContent::Blocks(blocks),
@@ -125,94 +128,50 @@ pub(crate) async fn build_line(
         })],
         tools: None,
     };
-    let mut next = open(TRIES);
-    // The shortest reply so far: each follow-up must be shorter.
-    let mut best = String::new();
-    loop {
-        let line = match next {
-            Next::Ends { fin, .. } => {
-                return ended(fin, "", &best, &request.input)
-                    .ok_or_else(|| anyhow::anyhow!("the compactor's line failed with no reply"));
-            }
-            Next::Asks(line) => line,
-        };
-        let call = summarizer.complete(context.clone(), std::mem::take(&mut started));
-        let reply = match tokio::time::timeout(CALL_DEADLINE, call).await {
-            Err(_) => Err(anyhow::anyhow!(
-                "the compactor model did not answer within {} s",
-                CALL_DEADLINE.as_secs()
-            )),
-            Ok(Err(error)) => Err(error),
-            Ok(Ok(reply))
-                if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) =>
-            {
-                Err(anyhow::anyhow!(
-                    "the compactor model stopped with {:?}: {}",
-                    reply.stop_reason,
-                    reply.error_message.as_deref().unwrap_or("no error message")
-                ))
-            }
-            Ok(Ok(reply)) => Ok(reply),
-        };
-        let reply = match reply {
-            Ok(reply) => reply,
-            Err(error) => {
-                next = line.read(NODE, Reply::Erred);
-                if let Next::Ends { fin, .. } = next {
-                    return ended(fin, "", &best, &request.input).ok_or(error);
-                }
-                continue;
-            }
-        };
-        let text = reply_text(&reply);
-        let said = text.trim();
-        next = line.read(NODE, Reply::Says(said.len()));
-        if let Next::Ends { fin, .. } = next {
-            return ended(fin, said, &best, &request.input)
-                .ok_or_else(|| anyhow::anyhow!("the compactor's line failed on a reply"));
+    let call = summarizer.complete(context, started);
+    let reply = match tokio::time::timeout(CALL_DEADLINE, call).await {
+        Err(_) => Err(anyhow::anyhow!(
+            "the compactor model did not answer within {} s",
+            CALL_DEADLINE.as_secs()
+        )),
+        Ok(Err(error)) => Err(error),
+        Ok(Ok(reply)) if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) => {
+            Err(anyhow::anyhow!(
+                "the compactor model stopped with {:?}: {}",
+                reply.stop_reason,
+                reply.error_message.as_deref().unwrap_or("no error message")
+            ))
         }
-        best = said.to_string();
-        // The request's end moves to the follow-up: one end mark only.
-        unmark_request_end(&mut context.messages);
-        context.messages.push(Message::Assistant(reply));
-        context.messages.push(Message::User(UserMessage {
-            content: UserContent::Blocks(vec![text_block(
-                cut_follow_up(&best),
-                Some(CacheBreakpoint::Ephemeral),
-            )]),
-            timestamp,
-        }));
+        Ok(Ok(reply)) => Ok(reply),
+    };
+    let (next, said, error) = match reply {
+        Ok(reply) => {
+            let said = reply_text(&reply).trim().to_string();
+            (line.read(NODE, Reply::Says(said.len())), said, None)
+        }
+        Err(error) => (line.read(NODE, Reply::Erred), String::new(), Some(error)),
+    };
+    match (next, error) {
+        (Next::Ends { fin, .. }, error) => ended(fin, &said, &request.input).ok_or_else(|| {
+            error.unwrap_or_else(|| anyhow::anyhow!("the compactor's line failed on a reply"))
+        }),
+        // One try (law `line_calls_at_most_tries`): the line ends at its
+        // first reply.
+        (Next::Asks(_), _) => Err(anyhow::anyhow!(
+            "the compactor's line asked for a second call after its one try"
+        )),
     }
 }
 
 /// The line a line's end stands for: the reply just read (`said`), whole
-/// or cut to [`NODE`] bytes, the shortest reply before it or the node's
-/// input cut so; none when the call failed.
-fn ended(fin: Fin, said: &str, best: &str, input: &str) -> Option<String> {
+/// or cut to [`NODE`] bytes, or the node's input cut so (one call leaves
+/// no earlier reply to fall back on); none when the call failed.
+fn ended(fin: Fin, said: &str, input: &str) -> Option<String> {
     match fin {
         Fin::Whole => Some(said.to_string()),
         Fin::CutReply => Some(cut(said).to_string()),
-        Fin::CutBest => Some(cut(best).to_string()),
-        Fin::CutInput => Some(cut(input).to_string()),
+        Fin::CutBest | Fin::CutInput => Some(cut(input).to_string()),
         Fin::Lost => None,
-    }
-}
-
-/// Drop the cache mark of the last block of the last user message (the
-/// previous request's end).
-fn unmark_request_end(messages: &mut [Message]) {
-    let last_user = messages.iter_mut().rev().find_map(|message| match message {
-        Message::User(user) => Some(user),
-        Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
-    });
-    if let Some(UserMessage {
-        content: UserContent::Blocks(blocks),
-        ..
-    }) = last_user
-    {
-        if let Some(UserContentBlock::Text(text)) = blocks.last_mut() {
-            text.cache_breakpoint = None;
-        }
     }
 }
 

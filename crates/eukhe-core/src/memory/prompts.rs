@@ -113,8 +113,8 @@ Use the space up to the limit, and give it by value:
 Avoid omissions. Name a minor item in a word or two rather than drop it: an
 absent item can never be found. Copy names, numbers, ids, paths and errors
 exactly. Tag each item with its kind ("user: ...; echo: ..."), and credit quoted
-text to its real author. Never make anything look further along than it was. If
-told the line is too long, shorten it. Non-ASCII characters cost 2-4 bytes."#;
+text to its real author. Never make anything look further along than it was.
+Non-ASCII characters cost 2-4 bytes."#;
 
 /// The subagent's opening (§6: a subagent is a fresh call whose first
 /// message is the view, then its task).
@@ -187,32 +187,8 @@ pub(crate) fn merge_task(
     )
 }
 
-/// The cut follow-up for an over-long line (§4, verbatim): its size and
-/// its first [`super::NODE`] bytes (never inside a UTF-8 character).
-pub(crate) fn cut_follow_up(line: &str) -> String {
-    format!(
-        "Too long: your line is {} bytes, over the 512-byte limit. Write\nthe whole line again for the same <input>, cutting just enough of the\nleast valuable items to fit before this cut:\n{}| \u{2190} LIMIT",
-        line.len(),
-        super::cut(line)
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    /// The follow-up shows the line cut where the limit falls, never
-    /// inside a UTF-8 character.
-    #[test]
-    fn the_cut_falls_at_the_limit_without_splitting_characters() {
-        let line = format!("{}é{}", "a".repeat(511), "b".repeat(9));
-        assert_eq!(
-            super::cut_follow_up(&line),
-            format!(
-                "Too long: your line is 522 bytes, over the 512-byte limit. Write\nthe whole line again for the same <input>, cutting just enough of the\nleast valuable items to fit before this cut:\n{}| \u{2190} LIMIT",
-                "a".repeat(511)
-            )
-        );
-    }
-
     /// The tasks carry the 512-dash ruler and their input whole; a merge's
     /// lines are flattened.
     #[test]

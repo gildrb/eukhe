@@ -73,9 +73,10 @@ pub const BLOCK: usize = 4;
 /// Compactor calls running at once; also how many unbuilt lines may sit
 /// before a message whose node starts.
 pub const JOBS: usize = 8;
-/// Model calls per node: the first line within [`NODE`] bytes wins, a
-/// follow-up not shorter than the best line ends the tries (H1).
-pub const TRIES: usize = 5;
+/// Model calls per node: one. A reply within [`NODE`] bytes is the line; a
+/// longer one is cut to [`NODE`] bytes (H1: the last try ends cut). A
+/// follow-up asking for a shorter line would be a second round trip.
+pub const TRIES: usize = 1;
 /// Failed compactor calls of one node before the node is built from its
 /// input, cut to [`NODE`] bytes (H1.5): no node stays unbuilt.
 pub const FAILURES: u32 = 3;
