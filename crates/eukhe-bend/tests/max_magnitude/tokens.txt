@@ -1,0 +1,5 @@
+# the one request (tag 0, no number in it); refused: a 15-digit tag, a
+# number left over
+call 0,
+refuse {LONG},
+refuse 0,{MAX},
