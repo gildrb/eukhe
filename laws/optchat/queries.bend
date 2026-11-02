@@ -8,11 +8,15 @@
 # spec/memory/optchat.bend (the work queue and a compaction's view, gist
 # §4; LAWS.bend H2): the nodes to start (QCands, QNeed), a compaction's
 # view (QCtx), the busy set after a call starts (QStart), is freed (QFree)
-# or a turn starts to wait (QWait), and the size each built node has.
+# or a turn starts to wait (QWait), the size each built node has, a fit
+# (the merges of a message's batch, of the compaction sawtooth, of an
+# open), the batch test, a message and a build: so every reply and move
+# of the entry is the spec's.
 
 import Base
 import ../../bend/optchat/node.bend as ONode
 import ../../bend/optchat/info.bend as OInfo
+import ../../bend/optchat/fit.bend as OFit
 import ../../bend/optchat/state.bend as OState
 import ../../bend/optchat/step.bend as OStep
 import ../../bend/optchat/queue.bend as OQueue
@@ -104,3 +108,56 @@ law optchat_info_set_get:
 law optchat_info_empty:
   for +m: ONode.Node
   {OInfo.Info.get(OInfo.Info.empty(), m) == None{} : Maybe<&2, Nat>}
+
+# LAW optchat_fit_spec: every fit is the spec's: while the view is over
+# its budget (a line counts its node's bytes, or the placeholder's), it
+# merges the most due pair of sibling lines whose parent is built (due =
+# (T - last) / 2^l for Last, from the first message for First, compared
+# cross-multiplied; of equally due pairs the oldest), each merge once,
+# and answers the merged parents in merge order and the view
+# EXCLUDES: a merge of a less due pair, of a pair whose parent is unbuilt
+# or of lines that are not siblings, a merge past the budget or one too
+# few, ties broken toward the newer pair, a size counted otherwise
+law optchat_fit_spec:
+  for +m: OFit.Age
+  for +t: List<&2, Bool>
+  for +budget: Nat
+  for +ph: Nat
+  for +info: OInfo.Info
+  for +v: List<&2, ONode.Node>
+  {OFit.fit(m, t, budget, ph, info, v) == S.fit(m, t, budget, ph, info, v) : List<&2, ONode.Node> & List<&2, ONode.Node>}
+
+# LAW optchat_batch_spec: in every state, a message runs a batch exactly
+# when the view still shrinks or its line takes the view past ceil
+# EXCLUDES: a batch at a message under ceil, a shrinking view left alone
+law optchat_batch_spec:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  {OStep.St.batch(cfg, s) == S.batch(cfg, s) : Bool}
+
+# LAW optchat_msg_spec: in every state, a message is the spec's: T grows
+# by one, the message's line joins both views; a batch fits the view down
+# to floor (still shrinking while over it) and restarts the compaction
+# view from it down to cfloor, else the compaction view keeps its
+# sawtooth (past cceil, down to cfloor); the batch's merges are answered
+# EXCLUDES: a message lost from a view, a batch that fits to another
+# budget, a compaction view not restarted after a batch, a shrink flag
+# kept wrong, merges answered other than made
+law optchat_msg_spec:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  {OStep.step(cfg, s, OState.Msg{}) == S.msg(cfg, s) : OState.St & List<&2, ONode.Node>}
+
+# LAW optchat_build_spec: in every state, a node built is the spec's: its
+# size is noted, the compaction view keeps its sawtooth, the node is no
+# longer ready nor busy, its parent becomes ready (in level then index
+# order, once) when its sibling is built and the parent is not; the view
+# does not move and no batch runs
+# EXCLUDES: a ready merge lost or offered before both halves are built, a
+# built node still busy (a slot lost), a view moved by a build
+law optchat_build_spec:
+  for +cfg: OState.Cfg
+  for +s: OState.St
+  for +n: ONode.Node
+  for +size: Nat
+  {OStep.step(cfg, s, OState.Build{n, size}) == (S.build(cfg, s, n, size), Nil{}) : OState.St & List<&2, ONode.Node>}

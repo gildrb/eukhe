@@ -82,6 +82,11 @@ import ./proof/optchat/optchat_start_spec.bend as POptchatStartSpec
 import ./proof/optchat/optchat_free_spec.bend as POptchatFreeSpec
 import ./proof/optchat/optchat_info_set_get.bend as POptchatInfoSetGet
 import ./proof/optchat/optchat_info_empty.bend as POptchatInfoEmpty
+import ./proof/optchat/base/batch.bend as LAOptchatBatch
+import ./proof/optchat/optchat_fit_spec.bend as POptchatFitSpec
+import ./proof/optchat/optchat_batch_spec.bend as POptchatBatchSpec
+import ./proof/optchat/optchat_msg_spec.bend as POptchatMsgSpec
+import ./proof/optchat/optchat_build_spec.bend as POptchatBuildSpec
 import ./proof/compactor/base.bend as LACompactor
 import ./proof/compactor/line_calls_at_most_tries.bend as PLineCallsAtMostTries
 import ./proof/compactor/line_fits.bend as PLineFits

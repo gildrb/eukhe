@@ -376,10 +376,9 @@ def oc_next(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> OState.St:
 # (optchat_need_spec), ctx (optchat_ctx_spec), St.wait
 # (optchat_wait_spec), a start and a free (optchat_start_spec,
 # optchat_free_spec) and the built sizes (optchat_info_set_get,
-# optchat_info_empty) to spec/memory/optchat.bend for every state; a
-# message's batch and a build's compaction sawtooth stay the model's
-# (OFit.fit), pinned by the laws above (view_covers, fit_reaches_budget,
-# fit_merges_built, merge_is_one_pair, push_agrees_always)
+# optchat_info_empty), every fit (optchat_fit_spec), the batch test
+# (optchat_batch_spec), a message (optchat_msg_spec) and a build
+# (optchat_build_spec) to spec/memory/optchat.bend for every state
 def oc_reply(+cfg: OState.Cfg, +s: OState.St, q: FOc.Q) -> String:
   match q:
     case FOc.QMsg{}:
