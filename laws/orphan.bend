@@ -113,3 +113,121 @@ law orphan_ffi_left_over:
   for h: {FO.get_req(s) == Wr.Got{q, r} : Wr.Dec<FO.Req>}
   for ne: {String.is_empty(r) == False{} : Bool}
   {FO.ffi(s) == Wr.err("orphan: input left over") : String}
+
+# The whole entry, every input
+# ----------------------------
+# The request and the reply as the wire grammar of WIRE.md, read and
+# spelled with the wire primitives alone (never the entry's own codec),
+# and the decision as the requirement states it (never the model's code):
+#   request  the window: 0 (none, past the wire's range) | 1 then the
+#            window; the absence; the work: 0 idle | 1 ongoing
+#   reply    whether the worker exits now, then how: 0 shut | 1 handover
+# A request that cannot be read answers "orphan: malformed request"; a
+# request with input after it answers "orphan: input left over".
+
+def or_read.work(m: Maybe<&2, Nat>, a: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FO.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{FO.Req{m, a, Or.Idle{}}, s}
+        case 1n:
+          Wr.Got{FO.Req{m, a, Or.Ongoing{}}, s}
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def or_read.absent(m: Maybe<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<FO.Req>:
+  match r:
+    case Wr.Got{a, s}:
+      or_read.work(m, a, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def or_read.window(r: Wr.Dec<Nat>) -> Wr.Dec<FO.Req>:
+  match r:
+    case Wr.Got{w, s}:
+      or_read.absent(Some{w}, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def or_read.tag(r: Wr.Dec<Nat>) -> Wr.Dec<FO.Req>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          or_read.absent(None{}, Wr.get_nat(s))
+        case 1n:
+          or_read.window(Wr.get_nat(s))
+        case 2n+p:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the request at the head of s, and the input after it
+def or_read(s: String) -> Wr.Dec<FO.Req>:
+  or_read.tag(Wr.get_nat(s))
+
+# the worker exits now: never with no window (past the wire's range);
+# without work once the window passed; with work once two windows passed
+def or_due(m: Maybe<&2, Nat>, +a: Nat, k: Or.Work) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+w}:
+      match k:
+        case Or.Idle{}:
+          Nat.is_le(w, a)
+        case Or.Ongoing{}:
+          Nat.is_le(Nat.add(w, w), a)
+
+# how the worker exits: without work it shuts the session (0), with work
+# it hands the work over (1)
+def or_exit_tag(k: Or.Work) -> Nat:
+  match k:
+    case Or.Idle{}:
+      0n
+    case Or.Ongoing{}:
+      1n
+
+def or_reply(q: FO.Req) -> String:
+  match q:
+    case FO.Req{m, a, +k}:
+      Wr.put_bool(or_due(m, a, k), Wr.put_nat(or_exit_tag(k), ""))
+
+def or_entry.of(d: Wr.Dec<FO.Req>) -> String:
+  match d:
+    case Wr.Got{q, r}:
+      match r:
+        case SNil{}:
+          or_reply(q)
+        case SCon{c, t}:
+          Wr.err("orphan: input left over")
+    case Wr.Bad{}:
+      Wr.err("orphan: malformed request")
+
+# the entry's answer to s
+def or_entry(s: String) -> String:
+  or_entry.of(or_read(s))
+
+# LAW orphan_ffi_exact: for every input, the entry answers exactly: on a request (as the wire
+# primitives read it) with nothing after it, whether the worker exits now
+# (never with no window; idle once the window passed; with work once two
+# windows passed) and how (idle: shut, with work: handover); on a request
+# with input after it, the error form "orphan: input left over"; on any
+# other input, the error form "orphan: malformed request"
+# EXCLUDES: a misread or reordered field, a tag read as another, an exit
+#   before or after its window, a swapped exit, a decision on garbage or on
+#   a request with input after it, another error text, a codec of the
+#   entry wrong both ways (the spec never calls it)
+law orphan_ffi_exact:
+  for +s: String
+  {FO.ffi(s) == or_entry(s) : String}
+
+# LAW orphan_ffi_exact_example: anchor: the strings Rust writes and the replies it reads: an
+# idle worker past its window, a working one inside its second window, no
+# window; an unknown window tag and input left over are refused
+# EXCLUDES: a field order other than Rust's, a vacuous orphan_ffi_exact
+law orphan_ffi_exact_example:
+  {[or_entry("1,5,5,0,"), or_entry("1,5,9,1,"), or_entry("0,7,1,"), or_entry("2,5,0,"), or_entry("1,5,5,0,x")] == ["T0,", "F1,", "F1,", Wr.err("orphan: malformed request"), Wr.err("orphan: input left over")] : List<&2, String>}
