@@ -6,6 +6,7 @@ import ../bend/ffi_model_facts.bend as FMF
 import ../bend/infer.bend as If
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
+import ./facts.bend as Facts
 
 # ---- model_facts ----
 
@@ -547,6 +548,52 @@ def mfr.whole(r: Wr.Dec<FMF.Req>) -> Maybe<&2, FMF.Req>:
 # the request s is, when s is exactly one request
 def mfr.read(s: String) -> Maybe<&2, FMF.Req>:
   mfr.whole(mfr.get_req(s))
+
+# adaptive thinking, independently: the model's compat flag, else the
+# rulebook's flag with the default false
+def mf.adaptive_spec(c: Maybe<&2, Bool>, a: If.Ans) -> Bool:
+  match c:
+    case Some{b}:
+      b
+    case None{}:
+      Facts.flag_spec(a, False{})
+
+# the reply to a request, from the spec terms of laws/facts.bend (never the
+# model's functions), spelled with the wire primitives
+def mf.reply(q: FMF.Req) -> String:
+  match q:
+    case FMF.QFlag{a, d}:
+      Wr.put_bool(Facts.flag_spec(a, d), "")
+    case FMF.QAdaptive{c, a}:
+      Wr.put_bool(mf.adaptive_spec(c, a), "")
+    case FMF.QEffort{m, l}:
+      Wr.put_nat(Facts.effort_spec(m, l), "")
+    case FMF.QPrice{rows, m, t}:
+      mf.mnat(Facts.price_spec(rows, m, t), "")
+    case FMF.QReasoning{x, e, l}:
+      mf.rfields(Facts.reasoning_spec(x, e, l))
+
+def mf.spec.go(m: Maybe<&2, FMF.Req>) -> String:
+  match m:
+    case Some{q}:
+      mf.reply(q)
+    case None{}:
+      SCon{'E', SCon{' ', "model facts: malformed request"}}
+
+# the reply to the input s: the spec's decision on the request s is
+# exactly, else the error form
+def mf.spec(s: String) -> String:
+  mf.spec.go(mfr.read(s))
+
+# LAW model_facts_ffi_exact: on every input the entry answers the spec's decision on the request the input is exactly (a flag: a known answer is true only at 1, an unknown one the default; adaptive: the compat flag, else that flag with the default false; the effort: the map's wire code at the level, else 2, 3 or 4; the price: the model's first row of the tier, else every model's first row, else none; the Bedrock reasoning fields of the shape), and exactly the error form "model facts: malformed request" on any other input
+# EXCLUDES: a decision that differs from the spec terms (laws/facts.bend
+#   flag_spec, effort_spec, price_spec, reasoning_spec) on any request, a
+#   value answered for an input that is not exactly one request (a short
+#   field, an unknown tag, a 15-digit number, input left over), another
+#   error text
+law model_facts_ffi_exact:
+  for +s: String
+  {FMF.ffi(s) == mf.spec(s) : String}
 
 # LAW model_facts_ffi_flag: a flag request answers the model's flag decision
 law model_facts_ffi_flag:

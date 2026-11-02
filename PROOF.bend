@@ -1321,6 +1321,7 @@ import ./proof/model_facts/model_facts_ffi_malformed_exact.bend as PModelFactsFf
 import ./proof/model_facts/model_facts_ffi_example.bend as PModelFactsFfiExample
 import ./proof/model_facts/model_facts_ffi_reasoning.bend as PModelFactsFfiReasoning
 import ./proof/model_facts/model_facts_ffi_reasoning_example.bend as PModelFactsFfiReasoningExample
+import ./proof/model_facts/model_facts_ffi_exact.bend as PModelFactsFfiExact
 import ./proof/retry/base.bend as LARetry
 import ./proof/retry/retry_never_parked.bend as PRetryNeverParked
 import ./proof/retry/retry_never_limit.bend as PRetryNeverLimit
