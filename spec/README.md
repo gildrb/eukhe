@@ -17,15 +17,15 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 
 |Pillar|Source|Spec|Law areas (laws)|
 |---|---|---|---|
-|durable|[pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`crates/eukhe-durable`)|`durable/log.bend`, `durable/task_life.bend`, `durable/task_life_wire.bend`, `durable/headless.bend`, `durable/headless_wire.bend`, `durable/job_notice.bend`|log (25), staging (26), listing (12), tree (30), task_life (17), job (37), job_step (15), wait (19), headless_settle (16), headless_exit (29), job_notice (9)|
-|rlm|[prime-agent](https://www.primeintellect.ai/blog/prime-agent) RLM: context as a variable in the REPL, subagents as function calls|`rlm/family.bend`, `rlm/query.bend`|family (15), rlm_query (19), child (21), child_env (19), workflow (37), progress (19), work (16)|
-|harness|[omp²](https://github.com/can1357/oh-my-pi/blob/omp2/PHILOSOPHY.md): speculation then effect, decode what they meant, version everything, documents checked out, data over code, Directors at a candidate stop|`harness/{effect,arguments,lift,lift_wire,rebase,stop,tool_result,privacy,doc_publish}.bend`|tool_call (21), arg_repair (21), call_lift (13), rebase (12), facts (48), model_facts (8), quirks (17), stop (26), tool_result (13), privacy (28), doc_publish (11)|
-|memory|[OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449)|`memory/optchat.bend`, `memory/thread.bend`|optchat (39), compactor (29), admission (36), thread (19)|
-|agents|[Fold subagents into the main loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop)|`rlm/family.bend` (spawn reasons), `agents/kin.bend` (who messages whom)|run (60), family (15), kin (13), tools (35), tool_surface (4), skill_load (11), runners (11), approvals (33), director (33)|
+|durable|[pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`crates/eukhe-durable`)|`durable/log.bend`, `durable/task_life.bend`, `durable/task_life_wire.bend`, `durable/headless.bend`, `durable/headless_wire.bend`, `durable/job_notice.bend`|log (29), staging (27), listing (12), tree (33), task_life (17), job (37), job_step (15), wait (19), headless_settle (17), headless_exit (30), job_notice (9)|
+|rlm|[prime-agent](https://www.primeintellect.ai/blog/prime-agent) RLM: context as a variable in the REPL, subagents as function calls|`rlm/family.bend`, `rlm/query.bend`|family (15), rlm_query (19), child (21), child_env (24), workflow (39), progress (19), work (16)|
+|harness|[omp²](https://github.com/can1357/oh-my-pi/blob/omp2/PHILOSOPHY.md): speculation then effect, decode what they meant, version everything, documents checked out, data over code, Directors at a candidate stop|`harness/{effect,arguments,lift,lift_wire,rebase,stop,tool_result,privacy,doc_publish}.bend`|tool_call (21), arg_repair (21), call_lift (16), rebase (12), facts (49), model_facts (9), quirks (20), stop (29), tool_result (16), privacy (40), doc_publish (11)|
+|memory|[OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449)|`memory/optchat.bend`, `memory/thread.bend`|optchat (39), compactor (30), admission (43), thread (20)|
+|agents|[Fold subagents into the main loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop)|`rlm/family.bend` (spawn reasons), `agents/kin.bend` (who messages whom)|run (66), family (15), kin (13), tools (38), tool_surface (9), skill_load (12), runners (15), approvals (33), director (34)|
 |autoresearch|[oh-my-pi autoresearch](https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/autoresearch)|`autoresearch/{decimal,metric_line,segment,stats,step}.bend`|autoresearch (55)|
-|settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (48), cvar (35)|
-|theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (51), theme_model (16), color (39)|
-
+|settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (49), cvar (43)|
+|theme|eukhe|`theme/{color,model,read,rules,wire}.bend`|theme (52), theme_model (16), color (40)|
+|
 ## Requirements
 
 |Id|Requirement|Laws|
