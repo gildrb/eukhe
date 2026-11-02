@@ -1897,6 +1897,12 @@ import ./proof/wire/wire_nats_decimal.bend as PWireNatsDecimal
 import ./proof/wire/wire_nats_reads_decimal.bend as PWireNatsReadsDecimal
 import ./proof/wire/wire_strs_decimal.bend as PWireStrsDecimal
 import ./proof/wire/wire_strs_reads_decimal.bend as PWireStrsReadsDecimal
+import ./proof/wire/wire_nat_overlong.bend as PWireNatOverlong
+import ./proof/wire/wire_nat_overlong_example.bend as PWireNatOverlongExample
+import ./proof/wire/wire_u32_overlong.bend as PWireU32Overlong
+import ./proof/wire/wire_list_reads_items.bend as PWireListReadsItems
+import ./proof/wire/wire_list_spells_items.bend as PWireListSpellsItems
+import ./proof/wire/wire_list_short_example.bend as PWireListShortExample
 import ./proof/command/command_ffi_example.bend as PCommandFfiExample
 import ./proof/command/command_spacing_example.bend as PCommandSpacingExample
 import ./proof/command/base/entry.bend as LACommandEntry

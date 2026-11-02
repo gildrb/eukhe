@@ -102,6 +102,38 @@ law wire_nat_reads_decimal:
   for h: {LawsBase.wire_fits(n) == True{} : Bool}
   {Wr.get_nat(LawsBase.wire_dec(n, rest)) == Wr.Got{n, rest} : Wr.Dec<Nat>}
 
+# LAW wire_nat_overlong (R3): a run of 15 or more digit chars is never a
+# Nat, whatever follows it
+# EXCLUDES: a decoder that reads a digit string past the wire's 14 digits
+#   and answers a value (wire_nat_too_long covers only canonical spellings
+#   of a value too long for the wire; this covers every such run, a
+#   leading zero or a missing end mark included)
+# NOT PINNED: a law sees only the decoder's answer, not how far it folds
+#   the digits before refusing; that the shipped decoder never folds past
+#   14 digits (so no input stops the process at 2^48-1) is the run-time
+#   boundary crates/eukhe-bend/tests/max_magnitude.rs tests
+law wire_nat_overlong:
+  for +ds: List<&2, Nat>
+  for rest: String
+  for h: {LawsBase.wire_overlong(ds) == True{} : Bool}
+  {Wr.get_nat(LawsBase.wire_digit_chars(ds, rest)) == Wr.Bad{} : Wr.Dec<Nat>}
+
+# LAW wire_nat_overlong_example (R3): anchor: 15 digits then ',' are refused
+# EXCLUDES: a vacuous wire_nat_overlong
+law wire_nat_overlong_example:
+  {(LawsBase.wire_overlong([1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n, 0n, 1n, 2n, 3n, 4n, 5n]), Wr.get_nat("123456789012345,")) == (True{}, Wr.Bad{}) : Bool & Wr.Dec<Nat>}
+
+# LAW wire_u32_overlong (R3): a run of 15 or more digit chars is never a
+# U32, whatever follows it
+# EXCLUDES: a U32 reader with its own digit loop that folds a long run
+#   before its range check (the U32 laws above see only canonical
+#   spellings)
+law wire_u32_overlong:
+  for +ds: List<&2, Nat>
+  for rest: String
+  for h: {LawsBase.wire_overlong(ds) == True{} : Bool}
+  {Wr.get_u32(LawsBase.wire_digit_chars(ds, rest)) == Wr.Bad{} : Wr.Dec<U32>}
+
 # U32
 # ---
 
@@ -359,3 +391,42 @@ law wire_strs_reads_decimal:
   for rest: String
   for h: {LawsBase.wire_strs_fit(xs) == True{} : Bool}
   {Wr.get_list(~String, ~Wr.get_str, LawsBase.wire_dec_strs(xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}
+
+# Lists of any item
+# -----------------
+# The list codec is a template over the item's codec; the laws above pin it
+# at Nat and String items. These pin it at every item codec, so a spec
+# reader or writer built on Wr.get_list or Wr.put_list (a list of calls, of
+# rows, of records) moves with no bug of the list codec.
+
+# LAW wire_list_reads_items (R1, R2): for every item reader, the list
+# reader reads the count, then exactly that many items one after another,
+# then answers the rest; a list with fewer items than its count, or an
+# item the item reader refuses, is Bad{}
+# EXCLUDES: a list reader that stops early at a list cut short, pads it,
+#   reads more or fewer items than the count, or behaves by the item
+#   reader (a mode for item readers that swallow their input: the Nat and
+#   String list laws then hold while a list of calls cut short is read)
+law wire_list_reads_items:
+  for ~A: Data
+  for ~get: String -> Wr.Dec<A>
+  for +s: String
+  {Wr.get_list(~A, ~get, s) == LawsBase.wire_read_list(~A, ~get, s) : Wr.Dec<List<&2, A>>}
+
+# LAW wire_list_spells_items (R1): for every item writer, a list is its
+# count in decimal (wire_dec), then each item by the item writer, in
+# order, then rest
+# EXCLUDES: a list writer that drops, repeats or reorders items, or counts
+#   or spells the count otherwise, for some item writer
+law wire_list_spells_items:
+  for ~A: Data
+  for ~put: A -> String -> String
+  for +xs: List<&2, A>
+  for rest: String
+  {Wr.put_list(~A, ~put, xs, rest) == LawsBase.wire_dec(List.length(&2, A, xs), LawsBase.wire_put_items(~A, ~put, xs, rest)) : String}
+
+# LAW wire_list_short_example (R2): anchor: a list of lists of strings
+# whose count says 2 but that holds one is Bad
+# EXCLUDES: a list cut short read as a shorter list
+law wire_list_short_example:
+  {Wr.get_list(~List<&2, String>, ~(s => Wr.get_list(~String, ~Wr.get_str, s)), "2,1,1,a") == Wr.Bad{} : Wr.Dec<List<&2, List<&2, String>>>}

@@ -132,6 +132,75 @@ def wire_opens_err(s: String) -> Bool:
     case SCon{c, t}:
       Char.is_eq(c, 'E')
 
+# every item of ds is a decimal digit (below 10)
+def wire_digits_all(ds: List<&2, Nat>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case Con{+d, t}:
+      Bool.and(Nat.is_lt(d, 10n), wire_digits_all(t))
+
+# the digit string ds runs past the wire's 14 digits: 15 digits or more
+def wire_overlong(+ds: List<&2, Nat>) -> Bool:
+  Bool.and(wire_digits_all(ds), Nat.is_lt(14n, List.length(&2, Nat, ds)))
+
+# the chars of the digits ds (wire_dec_char each), then rest
+def wire_digit_chars(ds: List<&2, Nat>, rest: String) -> String:
+  match ds:
+    case Nil{}:
+      rest
+    case Con{d, t}:
+      SCon{wire_dec_char(d), wire_digit_chars(t, rest)}
+
+# Lists of any item (the list codec is a template over the item's codec)
+
+# x in front of the items d answers
+def wire_items.cons(-A: Data, x: A, d: Wr.Dec<List<&2, A>>) -> Wr.Dec<List<&2, A>>:
+  match d:
+    case Wr.Got{xs, r}:
+      Wr.Got{x <> xs, r}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the item x, then what more answers on the input after it
+def wire_items.then(-A: Data, d: Wr.Dec<A>, more: String -> Wr.Dec<List<&2, A>>) -> Wr.Dec<List<&2, A>>:
+  match d:
+    case Wr.Got{x, r}:
+      wire_items.cons(A, x, more(r))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# n items, each read by get from where the one before it ends, then the
+# rest; Bad as soon as one item is not there (a short list)
+def wire_items(~A: Data, ~get: String -> Wr.Dec<A>, n: Nat, s: String) -> Wr.Dec<List<&2, A>>:
+  match n:
+    case 0n:
+      Wr.Got{Nil{}, s}
+    case 1n+m:
+      wire_items.then(A, get(s), r => wire_items(~A, ~get, m, r))
+
+def wire_read_list.count(~A: Data, ~get: String -> Wr.Dec<A>, d: Wr.Dec<Nat>) -> Wr.Dec<List<&2, A>>:
+  match d:
+    case Wr.Got{n, r}:
+      wire_items(~A, ~get, n, r)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# a list read with the item reader get: its count (a Nat, read by the Nat
+# reader, which wire_nat_exact, wire_nat_decimal, wire_nat_decoded_fits and
+# wire_nat_reads_decimal pin to the decimal spelling wire_dec), then
+# exactly that many items, then the rest
+def wire_read_list(~A: Data, ~get: String -> Wr.Dec<A>, s: String) -> Wr.Dec<List<&2, A>>:
+  wire_read_list.count(~A, ~get, Wr.get_nat(s))
+
+# the items of xs, each spelled by put, then rest
+def wire_put_items(~A: Data, ~put: A -> String -> String, xs: List<&2, A>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      put(x, wire_put_items(~A, ~put, t, rest))
+
 # ---- spec spellers ----
 
 # The spellings every entry law (laws/<area>.bend about bend/ffi_<area>.bend)
