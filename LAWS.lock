@@ -641,6 +641,8 @@
     "laws/cvar.bend::cvar_value_typed": "5500592a47755a7eacaee053c6c8fba91281dafc0716fc1224848aacd9ced01f",
     "laws/cvar.bend::cvar_written_exact": "bd65ee69e97ed4c7fbc353c9d671f2eb67aa53ec7a05c9ded1b0567be82fbfd4",
     "laws/cvar.bend::cvar_written_flagged": "b2206b87b9230c17b68b95f66d4b9d5d5a1024f8a885b63a4811c8c04716c53d",
+    "laws/cvar/whole.bend::cvar_registry_exact": "a8354bc3bcb2f3490fcbd9e5f38cf11d79ef64e7461a99ad7c26e07468ec1f53",
+    "laws/cvar/whole.bend::cvar_toggle_exact": "5e95acbab95587f1107406bca960bfc6bf7761af11ac9dd4238ef141436025db",
     "laws/cvar_entry.bend::cvar_ffi_exact": "7c19a1e3a0f92176119cf4dec9e2fa0e3eca893ede4bef297735064bbe99eec3",
     "laws/cvar_entry.bend::cvar_ffi_spelled": "d3d166be63ad1d5cc4a0cd810b90486ca39a9e8414399ff460dff8df0b0dacda",
     "laws/cvar_entry.bend::cvar_open_exact": "96ed9b821fbffedd84431208fb14ab067ab0eee0adb25882368899a15820aa2a",
@@ -2769,7 +2771,7 @@
     "laws/workflow.bend::wfw_tags_example": "0b47b7c0097828ffe80e6d2e22d832381bcbb3a3c20079d4f0f6a754f0eef445"
   },
   "spec": {
-    "LAWS.bend": "8b71699d44b692d6dafc9bccd6f1249c97ef71c3042ff930bf184d0432568fb5",
+    "LAWS.bend": "155e907e3e1ce373e8efa60bacd84cd329021d3dcad0782a59098f992adabade",
     "laws/admission.bend": "ada4e9ddc081cd48475b4a6a08b7ac17ef3e929c8306c0a54d06f8e0b7785c3c",
     "laws/approvals/desk.bend": "038c21ac209aaaf412f1cabb60ab38520c03876dc10e9b6a08ca448303938ceb",
     "laws/approvals/entry.bend": "f11860d871473f27c940018c7482c58f4ab000901f74c5419b842967b085a429",
@@ -2807,6 +2809,7 @@
     "laws/cron_terms.bend": "16bf07c2f60188e2f7cc6550346b751db05809aa59385f408c916f234438e1c6",
     "laws/cron_user.bend": "f5958b47df081d7bd560f7c9e5fa1010b6e85d589b71f4b78ce6c8c994c25e78",
     "laws/cvar.bend": "7e0787a3ac4d5e74397201c6a1aea828f7292542d021138942e5de757232bf0e",
+    "laws/cvar/whole.bend": "c0de7e9b3932f19eb76119a9976aa68c17cd0b75d317f1198e148c55c14f8186",
     "laws/cvar_entry.bend": "1df745a32d1be9355523b64856ea2ec6dd6cedfd5ed3c66cb7190944f2a9dd8d",
     "laws/cvar_layers.bend": "ec269088c25617ae96b5495294620d56d9107b401a0787c8c4c90aa221de2ead",
     "laws/dash.bend": "cd13ef3e9d7e80e02a233efb826ea963fa818d2586c693fa5df837d3eeac40da",
@@ -2926,7 +2929,7 @@
     "laws/workflow.bend": "dd962851db23b1cb961d647b5bc2bbe502bc3bc159943a9926e15944fd650a45"
   },
   "spec_files": {
-    "spec/README.md": "191bed463bfe2ec79d4a470e1898ffbdb485b131cc3778529c51db85d4f574c9",
+    "spec/README.md": "0e35c1ac82374d507e87fb98d6514510b985ca772cffe99d1af6c11622ba80ed",
     "spec/agents/kin.bend": "3637a9eedbb127a412b8646da7e0ab8d881681ec5710670aecf852afd98f0429",
     "spec/autoresearch/decimal.bend": "74a60228e250a0b414769e76d0814ea460e131a1e41165e023e3138e3ae0f99e",
     "spec/autoresearch/metric_line.bend": "8ffb9ca922253c2413273e839a5c9ed7780258d32b51a13ee1db04f8bd3b158b",

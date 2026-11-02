@@ -2163,6 +2163,8 @@ import ./proof/cvar/cvar_tog_exact.bend as PCvarTogExact
 import ./proof/cvar/cvar_written_exact.bend as PCvarWrittenExact
 import ./proof/cvar/cvar_document_exact.bend as PCvarDocumentExact
 import ./proof/cvar/cvar_terms_exact.bend as PCvarTermsExact
+import ./proof/cvar/cvar_registry_exact.bend as PCvarRegistryExact
+import ./proof/cvar/cvar_toggle_exact.bend as PCvarToggleExact
 import ./proof/cvar/base/save.bend as LACvarSave
 import ./proof/cvar/cvar_save_reads_back.bend as PCvarSaveReadsBack
 import ./proof/cvar/cvar_save_keeps_others.bend as PCvarSaveKeepsOthers
