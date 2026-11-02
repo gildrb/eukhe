@@ -11,8 +11,10 @@
 # `t + reserve + margin > window`, that the first request over each
 # threshold is `first_at`'s, and the cut and the hysteresis of `plan`;
 # bend/ffi_infer_threshold.bend runs `plan` as the compiled core. The
-# arithmetic never adds more than the sizes of one transcript, so it stays
-# below the runtime's 2^48 - 1.
+# arithmetic never adds two sizes (sizes are taken away one at a time) and
+# adds at most two wire numbers and 2 (a window and a negative reserve; the
+# walk's tokens within its budget and one size), so it stays below the
+# runtime's 2^48 - 1 for every number up to 10^14 - 1.
 
 import Base
 
@@ -137,25 +139,28 @@ def has(cuts: List<&2, Nat>, +k: Nat) -> Bool:
     case c <> rest:
       Bool.or(Nat.is_eq(c, k), has(rest, k))
 
-# the sum of sizes
-def total(xs: List<&2, Nat>) -> Nat:
+# t less the sizes xs, at least 0: each size taken from t in turn, so no
+# sum of sizes is formed (Rust sends every size up to 10^14 - 1, and a few
+# of them add up past the runtime's 2^48 - 1)
+def less(xs: List<&2, Nat>, t: Nat) -> Nat:
   match xs:
     case Nil{}:
-      0n
+      t
     case x <> rest:
-      Nat.add(x, total(rest))
+      less(rest, Nat.sub(t, x))
 
-# the tokens the k newest entries hold
-def kept(xs: List<&2, Nat>, k: Nat) -> Nat:
+# the k newest entries hold at most room tokens: each size taken from room
+# in turn, so no sum of sizes is formed
+def kept_within(xs: List<&2, Nat>, k: Nat, +room: Nat) -> Bool:
   match xs:
     case Nil{}:
-      0n
-    case x <> rest:
+      True{}
+    case +x <> rest:
       match k:
         case 0n:
-          0n
+          True{}
         case 1n+j:
-          Nat.add(x, kept(rest, j))
+          Bool.and(Nat.is_le(x, room), kept_within(rest, j, Nat.sub(room, x)))
 
 def newest.end(hit: Bool, k: Nat) -> Maybe<&2, Nat>:
   match hit:
@@ -250,13 +255,14 @@ def Plan.cut(p: Plan) -> Maybe<&2, Nat>:
     case Plan{o, c}:
       c
 
-# an early compaction runs when its cut reaches the target
-def early.reach(c: Maybe<&2, Nat>, xs: List<&2, Nat>, base: Nat, tgt: Nat) -> Over:
+# an early compaction runs when its cut reaches the target: base plus the
+# kept entries within tgt
+def early.reach(c: Maybe<&2, Nat>, xs: List<&2, Nat>, +base: Nat, +tgt: Nat) -> Over:
   match c:
     case None{}:
       Under{}
     case Some{k}:
-      over.early(Nat.is_le(Nat.add(base, kept(xs, k)), tgt))
+      over.early(Bool.and(Nat.is_le(base, tgt), kept_within(xs, k, Nat.sub(tgt, base))))
 
 # a threshold compacts only with a cut; the background one only when the
 # cut reaches the target
@@ -277,6 +283,6 @@ def gate(o: Over, c: Maybe<&2, Nat>, xs: List<&2, Nat>, base: Nat, tgt: Nat) -> 
 # unknown), reserve r, margin m, keepRecentTokens keep, the entries after
 # the head newest first (sizes xs, cuts, full)
 def plan(on: Bool, +t: Nat, +w: Nat, +r: Z, +m: Z, +keep: Nat, full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>) -> Plan:
-  +base = Nat.sub(t, total(xs))
+  +base = less(xs, t)
   +c = cut(xs, cuts, budget(w, r, m, keep, base), full)
   Plan{gate(over(on, t, w, r, m), c, xs, base, target(w, r, m)), c}

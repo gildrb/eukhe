@@ -131,5 +131,5 @@ def itu.gate(-o: M.Over, -c: Maybe<&2, Nat>, -xs: List<&2, Nat>, -base: Nat, -tg
 def InferThreshold.infer_threshold_target_under(t, v, r, m, keep, full, xs, cuts, live, small):
   +live2 = Equal.trans(M.Over, M.over(True{}, 0n, 1n+v, r, m), InferThreshold.over_spec(True{}, 0n, 1n+v, r, m), M.Under{}, InferThreshold.infer_threshold_over_exact(True{}, 0n, 1n+v, r, m), live)
   +small2 = Equal.trans(Bool, Nat.is_le(t, M.target(1n+v, r, m)), Nat.is_le(t, InferThreshold.target_spec(1n+v, r, m)), True{}, Equal.cong(Nat, Bool, z => Nat.is_le(t, z), M.target(1n+v, r, m), InferThreshold.target_spec(1n+v, r, m), LAThreshold.gt.target(1n+v, r, m)), small)
-  +base = Nat.sub(t, M.total(xs))
+  +base = M.less(xs, t)
   itu.gate(M.over(True{}, t, 1n+v, r, m), M.cut(xs, cuts, M.budget(1n+v, r, m, keep, base), full), xs, base, M.target(1n+v, r, m), itu.over(t, v, r, m, live2, small2))

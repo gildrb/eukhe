@@ -593,6 +593,36 @@ law infer_threshold_ffi_malformed_exact:
   for no: {read_ask(s) == None{} : Maybe<&2, Ask>}
   {FT.ffi(s) == SCon{'E', SCon{' ', "infer_threshold: malformed request"}} : String}
 
+# The entry, whole: what it answers to every input, from the spec plan
+# (plan_spec) and the spec reader (read_ask) only, never the entry's codec
+# or the model `plan`
+
+def reply_spec(a: Ask) -> String:
+  match a:
+    case Ask{on, t, w, r, m, keep, full, xs, cuts}:
+      spell_plan(plan_spec(on, t, w, r, m, keep, full, xs, cuts))
+
+def entry_spec.of(q: Maybe<&2, Ask>) -> String:
+  match q:
+    case None{}:
+      SCon{'E', SCon{' ', "infer_threshold: malformed request"}}
+    case Some{a}:
+      reply_spec(a)
+
+# the answer to the input s: the spec's plan for the one request s is,
+# else the error form
+def entry_spec(s: String) -> String:
+  entry_spec.of(read_ask(s))
+
+# LAW infer_threshold_ffi_spec: for every input, the entry answers exactly the spec's: the plan plan_spec gives (the threshold 0 none, 1 background, 2 blocking, then the cut 0 none or 1 and the entries it keeps) when the input is exactly one request, else the error form 'E ', then "infer_threshold: malformed request"
+# EXCLUDES: an answer for an input that is not exactly one request (input
+#   left over, an unknown sign tag, a short list, a malformed field), a
+#   threshold or a cut other than the spec's for any request, numbers too
+#   long for the wire included
+law infer_threshold_ffi_spec:
+  for +s: String
+  {FT.ffi(s) == entry_spec(s) : String}
+
 # LAW infer_threshold_ffi_example: anchor: the bytes Rust sends and reads, window 10 and reserve 2 (limit 8, start 6, target 3), margin 3, keep 9, two entries (newest first) and a cut that keeps the newest: 5 tokens are under; 6 over the background threshold compact early when the cut brings the context to the target (base 2 + 1), not when it cannot (base 2 + 2); 9 tokens block; with no cut nothing compacts; compaction off, none; with the window unknown keep alone bounds the cut (keep 2 keeps 2 of 3 sizes 1, 1, 1); a cut that leaves nothing to summarize is none; an unknown tag and input left over are refused
 law infer_threshold_ffi_example:
   {FT.ffi("T5,10,0,2,0,3,9,2,2,1,3,1,1,") == "0,1,1," : String} &

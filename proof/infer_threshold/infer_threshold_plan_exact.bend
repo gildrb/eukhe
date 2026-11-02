@@ -1,8 +1,10 @@
 # eukhe: the proof of LAW infer_threshold_plan_exact
-# Part by part: the base (total is sum), the budget (the target is the
-# spec's, LAThreshold.gt.target), the cut (the forward walk is the spec's
-# scan, LAWalk.iw.cut), the threshold (LAW infer_threshold_over_exact) and
-# the gate (kept is held).
+# Part by part: the base (taking the sizes away one at a time is taking
+# their sum, ipe.less), the budget (the target is the spec's,
+# LAThreshold.gt.target), the cut (the forward walk is the spec's scan,
+# LAWalk.iw.cut), the threshold (LAW infer_threshold_over_exact) and the
+# gate (taking the kept sizes from the room left is comparing their sum,
+# ipe.within).
 
 import Base
 import ../../bend/infer_threshold.bend as M
@@ -12,29 +14,64 @@ import ./base.bend as LAThreshold
 import ./base/walk.bend as LAWalk
 import ./infer_threshold_over_exact.bend as PInferThresholdOverExact
 
-def ipe.total(xs: List<&2, Nat>) -> {M.total(xs) == InferThreshold.sum(xs) : Nat}:
-  match xs:
-    case Nil{}:
+# t less a, then less b, is t less a + b
+def ipe.sub_sub(a: Nat, t: Nat, -b: Nat) -> {Nat.sub(Nat.sub(t, a), b) == Nat.sub(t, Nat.add(a, b)) : Nat}:
+  match a t:
+    case 0n 0n:
       {==}
-    case +x <> +rest:
-      %ipe.total(rest) : {Nat.add(x, M.total(rest)) == Nat.add(_, x) : Nat}
-      LNat.add_comm(x, M.total(rest))
+    case 0n 1n+t1:
+      {==}
+    case 1n+a1 0n:
+      {==}
+    case 1n+a1 1n+t1:
+      ipe.sub_sub(a1, t1, b)
 
-def ipe.kept(xs: List<&2, Nat>, k: Nat) -> {M.kept(xs, k) == InferThreshold.held(k, xs) : Nat}:
+# the base: t less every size, taken one at a time
+def ipe.less(xs: List<&2, Nat>, +t: Nat) -> {M.less(xs, t) == Nat.sub(t, InferThreshold.sum(xs)) : Nat}:
+  match xs:
+    case Nil{}:
+      match t:
+        case 0n:
+          {==}
+        case 1n+t1:
+          {==}
+    case +x <> +rest:
+      +s = InferThreshold.sum(rest)
+      Equal.trans(Nat, M.less(rest, Nat.sub(t, x)), Nat.sub(Nat.sub(t, x), s), Nat.sub(t, Nat.add(s, x)),
+        ipe.less(rest, Nat.sub(t, x)),
+        Equal.trans(Nat, Nat.sub(Nat.sub(t, x), s), Nat.sub(t, Nat.add(x, s)), Nat.sub(t, Nat.add(s, x)),
+          ipe.sub_sub(x, t, s), Equal.cong(Nat, Nat, z => Nat.sub(t, z), Nat.add(x, s), Nat.add(s, x), LNat.add_comm(x, s))))
+
+# a + K is within n exactly when a is and K is within what a leaves of n
+def ipe.le_add(a: Nat, n: Nat, -k: Nat) -> {Nat.is_le(Nat.add(a, k), n) == Bool.and(Nat.is_le(a, n), Nat.is_le(k, Nat.sub(n, a))) : Bool}:
+  match a n:
+    case 0n 0n:
+      {==}
+    case 0n 1n+n1:
+      {==}
+    case 1n+a1 0n:
+      {==}
+    case 1n+a1 1n+n1:
+      ipe.le_add(a1, n1, k)
+
+# the k newest sizes taken from room one at a time: their sum is within it
+def ipe.within(xs: List<&2, Nat>, k: Nat, +room: Nat) -> {M.kept_within(xs, k, room) == Nat.is_le(InferThreshold.held(k, xs), room) : Bool}:
   match xs:
     case Nil{}:
       match k:
         case 0n:
-          {==}
+          Equal.sym(Bool, Nat.is_le(0n, room), True{}, LNat.pq.le0(room))
         case 1n+j:
-          {==}
+          Equal.sym(Bool, Nat.is_le(0n, room), True{}, LNat.pq.le0(room))
     case +x <> +rest:
       match k:
         case 0n:
-          {==}
+          Equal.sym(Bool, Nat.is_le(0n, room), True{}, LNat.pq.le0(room))
         case 1n++j:
-          %ipe.kept(rest, j) : {Nat.add(x, M.kept(rest, j)) == Nat.add(_, x) : Nat}
-          LNat.add_comm(x, M.kept(rest, j))
+          +h = InferThreshold.held(j, rest)
+          %Equal.sym(Bool, M.kept_within(rest, j, Nat.sub(room, x)), Nat.is_le(h, Nat.sub(room, x)), ipe.within(rest, j, Nat.sub(room, x))) : {Bool.and(Nat.is_le(x, room), _) == Nat.is_le(Nat.add(h, x), room) : Bool}
+          %ipe.le_add(x, room, h) : {_ == Nat.is_le(Nat.add(h, x), room) : Bool}
+          Equal.cong(Nat, Bool, z => Nat.is_le(z, room), Nat.add(x, h), Nat.add(h, x), LNat.add_comm(x, h))
 
 # The budget
 # ----------
@@ -75,8 +112,12 @@ def ipe.reach(c: Maybe<&2, Nat>, +xs: List<&2, Nat>, +base: Nat, +tgt: Nat) -> {
     case None{}:
       {==}
     case Some{+k}:
-      %ipe.kept(xs, k) : {M.over.early(Nat.is_le(Nat.add(base, M.kept(xs, k)), tgt)) == InferThreshold.reach_spec.at(Nat.is_le(Nat.add(base, _), tgt)) : M.Over}
-      ipe.early(Nat.is_le(Nat.add(base, M.kept(xs, k)), tgt))
+      +a = Bool.and(Nat.is_le(base, tgt), M.kept_within(xs, k, Nat.sub(tgt, base)))
+      +e = Equal.trans(Bool, a, Bool.and(Nat.is_le(base, tgt), Nat.is_le(InferThreshold.held(k, xs), Nat.sub(tgt, base))), Nat.is_le(Nat.add(base, InferThreshold.held(k, xs)), tgt),
+        Equal.cong(Bool, Bool, z => Bool.and(Nat.is_le(base, tgt), z), M.kept_within(xs, k, Nat.sub(tgt, base)), Nat.is_le(InferThreshold.held(k, xs), Nat.sub(tgt, base)), ipe.within(xs, k, Nat.sub(tgt, base))),
+        Equal.sym(Bool, Nat.is_le(Nat.add(base, InferThreshold.held(k, xs)), tgt), Bool.and(Nat.is_le(base, tgt), Nat.is_le(InferThreshold.held(k, xs), Nat.sub(tgt, base))), ipe.le_add(base, tgt, InferThreshold.held(k, xs))))
+      %e : {M.over.early(a) == InferThreshold.reach_spec.at(_) : M.Over}
+      ipe.early(a)
 
 def ipe.gate(o: M.Over, c: Maybe<&2, Nat>, +xs: List<&2, Nat>, +base: Nat, +tgt: Nat) -> {M.gate(o, c, xs, base, tgt) == InferThreshold.gate_spec(o, c, xs, base, tgt) : M.Over}:
   match o:
@@ -103,9 +144,9 @@ def ipe.fin(+xs: List<&2, Nat>, +o: M.Over, -o2: M.Over, +c: Maybe<&2, Nat>, -c2
   {==}
 
 def ipe.plan(on: Bool, +t: Nat, +w: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, eo: {M.over(on, t, w, r, m) == InferThreshold.over_spec(on, t, w, r, m) : M.Over}) -> {M.plan(on, t, w, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, w, r, m, keep, full, xs, cuts) : M.Plan}:
-  +ba = Nat.sub(t, M.total(xs))
+  +ba = M.less(xs, t)
   +ba2 = Nat.sub(t, InferThreshold.sum(xs))
-  +eb = Equal.cong(Nat, Nat, s => Nat.sub(t, s), M.total(xs), InferThreshold.sum(xs), ipe.total(xs))
+  +eb = ipe.less(xs, t)
   ipe.fin(xs, M.over(on, t, w, r, m), InferThreshold.over_spec(on, t, w, r, m),
     M.cut(xs, cuts, M.budget(w, r, m, keep, ba), full), InferThreshold.cut_spec(xs, cuts, InferThreshold.budget_spec(w, r, m, keep, ba2), full),
     ba, ba2, M.target(w, r, m), InferThreshold.target_spec(w, r, m),
