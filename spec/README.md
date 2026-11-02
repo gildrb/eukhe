@@ -65,4 +65,10 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 Proven: the Bend source of every rule above. Trusted: the Bend compiler, the C
 shim (`crates/eukhe-bend/src/ffi.rs`), the Rust codecs and IO. Tested, not
 proven: the host paths (`cargo test`), and run-time `Nat` sizes (Bend aborts
-past 2^48-1; laws see unbounded numbers): `fifteen_digit_metrics_run_in_the_core`.
+past 2^48-1; laws see unbounded numbers): `fifteen_digit_metrics_run_in_the_core`
+and `crates/eukhe-bend/tests/max_magnitude.rs`, which runs every compiled-core
+entry on its largest valid inputs (`tests/max_magnitude/<area>.txt`). The
+run-time `Nat` bound is out of law scope: a program that equals the spec as a
+value but builds a `Nat` past 2^48-1 at run time breaks no law, and the
+max_magnitude test is where it is caught (add the input there). An adversary
+aims at a gap in the laws: a wrong value, answer or state they let through.

@@ -6,3 +6,5 @@ refuse 3,{LONG},0,0,
 call 6,{MAX},0,{MAX},{MAX},{MAX},{MAX},
 call 6,{MAX},{MAX},0,1,2,3,
 refuse {MAX},0,0,
+# adversary 6 (thread): through at the wire's largest, one view line
+call 3,99999999999999,0,5,

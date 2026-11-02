@@ -5,3 +5,6 @@ call F3,TTT
 call T0,
 refuse T{MAX},TT
 refuse T{LONG},T
+# adversary 6 (tool_result): four blocks, error and success
+call T4,FTFT
+call F4,TTTT
