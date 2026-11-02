@@ -489,6 +489,23 @@ law notice_once_exact:
   for +ns: List<&2, No.N>
   {No.once(ns) == nt_once(nt_shown(ns)) : Bool}
 
+# LAW notice_total_exact (R6): the model's `total` is the sum of how many times each stored
+# notice showed
+# EXCLUDES: a No.total that counts the stored notices (List.length) or
+#   any other input-ignoring count (notice_per_restore would then say
+#   nothing about how many restore rows showed)
+law notice_total_exact:
+  for +ns: List<&2, No.N>
+  {No.total(ns) == nt_sum(nt_shown(ns)) : Nat}
+
+# LAW notice_restores_exact (R6): the model's `restores` counts the restores among the events
+# EXCLUDES: a No.restores that counts every event, or the live events or
+#   attaches (notice_per_restore would then pin the shown rows to
+#   another count)
+law notice_restores_exact:
+  for +evs: List<&2, No.Ev>
+  {No.restores(evs) == nt_restores(evs) : Nat}
+
 # Laws: the entry
 # ---------------
 

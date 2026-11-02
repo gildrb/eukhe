@@ -1151,6 +1151,8 @@ import ./proof/notice/notice_real_refines.bend as PNoticeRealRefines
 import ./proof/notice/notice_real_once.bend as PNoticeRealOnce
 import ./proof/notice/notice_real_per_restore.bend as PNoticeRealPerRestore
 import ./proof/notice/notice_once_exact.bend as PNoticeOnceExact
+import ./proof/notice/notice_total_exact.bend as PNoticeTotalExact
+import ./proof/notice/notice_restores_exact.bend as PNoticeRestoresExact
 import ./proof/notice/notice_ffi_open.bend as PNoticeFfiOpen
 import ./proof/notice/notice_ffi_open_refused.bend as PNoticeFfiOpenRefused
 import ./proof/notice/notice_ffi_shut.bend as PNoticeFfiShut
