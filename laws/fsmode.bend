@@ -532,18 +532,24 @@ law fsmode_modes_exact:
   {Fs.made_mode(Fs.DirMade{}) == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.made_mode(Fs.FileMade{}) == Fs.Mode{6n, 0n, 0n} : Fs.Mode} & {Fs.dir_mode() == Fs.Mode{7n, 0n, 0n} : Fs.Mode} & {Fs.Mode.loose(Fs.Mode{u, g, o}) == Bool.or(set_spec(g), set_spec(o)) : Bool}
 
 # what the check finds at a dir the daemon just created with mode m: a
-# real dir, this uid's, loose when m has a group or other bit (the
-# meaning of a loose mode in fsmode_modes_exact)
+# real dir, this uid's, loose when m has a group- or other-write bit (the
+# rule `look` reads from Rust's permission bits: read and search bits are
+# harmless)
 def made_spec(m: Fs.Mode) -> Fs.Seen:
   match m:
     case Fs.Mode{u, g, o}:
-      Fs.Seen{Fs.Dir{}, True{}, Bool.or(set_spec(g), set_spec(o))}
+      Fs.Seen{Fs.Dir{}, True{}, Bool.or(wbit(g, 2n), wbit(o, 2n))}
 
-# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group or other bit, for every mode
+# LAW fsmode_made_exact (G1): the dir the daemon creates with mode m is found as a real dir this uid owns, loose exactly when m has a group- or other-write bit, for every mode
 # EXCLUDES: a created dir found safe whatever its mode
 #   (socket_dir_created_used made vacuous: made(m) = Seen{Dir, True,
-#   False}), found as another node or another owner's, or loose by another
-#   digit
+#   False}), found as another node or another owner's, loose by another
+#   digit, or loose by a read or search bit (0750 is safe, 0770 is not)
 law fsmode_made_exact:
   for m: Fs.Mode
   {Fs.made(m) == made_spec(m) : Fs.Seen}
+
+# LAW socket_dir_group_read_used: a created dir with a group read and search bit (0750) is used, one with a group write bit (0770) is refused
+law socket_dir_group_read_used:
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 5n, 0n})) == Fs.Use{} : Fs.Verdict} &
+  {Fs.socket_dir(Fs.made(Fs.Mode{7n, 7n, 0n})) == Fs.Refuse{} : Fs.Verdict}

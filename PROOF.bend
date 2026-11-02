@@ -1258,6 +1258,7 @@ import ./proof/fsmode/fsmode_modes_exact.bend as PFsmodeModesExact
 import ./proof/fsmode/fsmode_made_exact.bend as PFsmodeMadeExact
 import ./proof/fsmode/socket_dir_created.bend as PSocketDirCreated
 import ./proof/fsmode/socket_dir_created_used.bend as PSocketDirCreatedUsed
+import ./proof/fsmode/socket_dir_group_read_used.bend as PSocketDirGroupReadUsed
 import ./proof/fsmode/peer_same_uid.bend as PPeerSameUid
 import ./proof/fsmode/peer_own_accepted.bend as PPeerOwnAccepted
 import ./proof/fsmode/private_on_create.bend as PPrivateOnCreate
