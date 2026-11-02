@@ -16,10 +16,11 @@
 //! A file holds one step per line (`#` starts a comment line):
 //!
 //! - `call <input>`: the entry's call answers a value (not the error form);
-//! - `refuse <input>`: the entry's call answers the error form (an input
-//!   the wire refuses, such as a 15-digit number: refused, never a stop);
 //! - `open <input>`: opens a stepper, which answers a value;
-//! - `step <input>`: feeds the last opened stepper, which answers a value.
+//! - `step <input>`: feeds the last opened stepper, which answers a value;
+//! - `refuse <input>`, `refuse-open <input>`, `refuse-step <input>`: the
+//!   same, answered with the error form (an input the wire refuses, such as
+//!   a 15-digit number: refused, never a stop).
 //!
 //! In an input, `{MAX}` is `wire::NAT_MAX`, `{U32MAX}` is `u32::MAX`, `{LONG}`
 //! is 15 nines (one digit past the wire), `\n` a newline and `\\` a
@@ -101,21 +102,25 @@ fn run_area(path: &Path) {
             .split_once(' ')
             .unwrap_or_else(|| panic!("{area}:{}: no input", n + 1));
         let input = expand(raw);
-        let (reply, refused) = match kind {
-            "call" => (call(entry, &input).unwrap(), false),
-            "refuse" => (call(entry, &input).unwrap(), true),
+        let (action, refused) = match kind.strip_prefix("refuse") {
+            Some("") => ("call", true),
+            Some(rest) => (rest.strip_prefix('-').unwrap_or(rest), true),
+            None => (kind, false),
+        };
+        let reply = match action {
+            "call" => call(entry, &input).unwrap(),
             "open" => {
                 let (st, reply) = Stepper::open(entry, &input).unwrap();
                 stepper = Some(st);
-                (reply, false)
+                reply
             }
             "step" => {
                 let st = stepper
                     .as_mut()
                     .unwrap_or_else(|| panic!("{area}:{}: step before open", n + 1));
-                (st.step(&input).unwrap(), false)
+                st.step(&input).unwrap()
             }
-            other => panic!("{area}:{}: unknown step {other:?}", n + 1),
+            _ => panic!("{area}:{}: unknown step {kind:?}", n + 1),
         };
         assert_eq!(
             reply.starts_with("E "),
