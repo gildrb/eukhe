@@ -20,6 +20,14 @@
 #     nothing. A restore leaves the map as it was.
 # M4: the map opens empty, and no class ever holds a value twice (M2 adds
 #     only a value its class does not hold).
+# M5: a text (the pieces Rust reads: plain text and values) is scrubbed in
+#     one step: its values, in order, take their tokens (M2), and the text
+#     leaves with each value replaced by its token: a mapped token as its
+#     class and place, a one-way token as the token of the value it hides.
+#     A text restored is the text with each token replaced by the value
+#     M3 restores for it, when there is one. Every attempt of a failover
+#     sends from the raw text: a remote one the text scrubbed from the map
+#     the attempts before it left, a local one the text itself.
 
 import Base
 import ../../bend/privacy/token.bend as Tk
@@ -211,3 +219,110 @@ def restore_toks(rs: List<&2, Tk.Ref>, +b: Tk.Book) -> List<&2, Maybe<&2, String
       match r:
         case Tk.Ref{c, i}:
           restore1(b, c, i) <> restore_toks(rest, b)
+
+# M5: a text
+# ----------
+
+# the values of a text, in order
+def vals(xs: List<&2, Tk.Piece>) -> List<&2, Tk.Val>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      match x:
+        case Tk.Plain{s}:
+          vals(rest)
+        case Tk.Value{c, v}:
+          Tk.Val{c, v} <> vals(rest)
+
+# a value as it leaves: its class and place, or the one-way token of it
+def seg(+c: Tk.Class, +v: String, t: Tk.Tok) -> Tk.Seg:
+  match t:
+    case Tk.Mapped{i}:
+      Tk.Tok{c, i}
+    case Tk.OneWay{}:
+      Tk.Hash{c, v}
+
+# a text with its values replaced by the tokens ts, in order (one token
+# per value; a value past the last token stays as it is)
+def fill(xs: List<&2, Tk.Piece>, ts: List<&2, Tk.Tok>) -> List<&2, Tk.Seg>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      match x:
+        case Tk.Plain{s}:
+          Tk.Txt{s} <> fill(rest, ts)
+        case Tk.Value{+c, +v}:
+          match ts:
+            case Nil{}:
+              Tk.Clear{c, v} <> fill(rest, Nil{})
+            case t <> more:
+              seg(c, v, t) <> fill(rest, more)
+
+# a text as it leaves with the tokens r of its values, and the map after
+# them
+def text(+xs: List<&2, Tk.Piece>, r: Tk.Toks) -> Tk.Out:
+  match r:
+    case Tk.Toks{m, ts}:
+      Tk.Out{m, fill(xs, ts)}
+
+# a text scrubbed from map b: its values take their tokens in one step
+def scrub_text(+xs: List<&2, Tk.Piece>, b: Tk.Book) -> Tk.Out:
+  text(xs, scrub_vals(vals(xs), b))
+
+def out_book(r: Tk.Out) -> Tk.Book:
+  match r:
+    case Tk.Out{m, ys}:
+      m
+
+def out_ys(r: Tk.Out) -> List<&2, Tk.Seg>:
+  match r:
+    case Tk.Out{m, ys}:
+      ys
+
+def restore_seg.tok(+c: Tk.Class, +i: Nat, f: Maybe<&2, String>) -> Tk.Seg:
+  match f:
+    case None{}:
+      Tk.Tok{c, i}
+    case Some{v}:
+      Tk.Clear{c, v}
+
+# a piece restored: a token by its value (M3), when there is one
+def restore_seg(+b: Tk.Book, y: Tk.Seg) -> Tk.Seg:
+  match y:
+    case Tk.Txt{s}:
+      Tk.Txt{s}
+    case Tk.Clear{c, v}:
+      Tk.Clear{c, v}
+    case Tk.Tok{+c, +i}:
+      restore_seg.tok(c, i, restore1(b, c, i))
+    case Tk.Hash{c, v}:
+      Tk.Hash{c, v}
+
+# a text restored against map b, piece by piece
+def restore_text(ys: List<&2, Tk.Seg>, +b: Tk.Book) -> List<&2, Tk.Seg>:
+  match ys:
+    case Nil{}:
+      Nil{}
+    case y <> rest:
+      restore_seg(b, y) <> restore_text(rest, b)
+
+def send.cons(y: List<&2, Tk.Seg>, r: Tk.Sent) -> Tk.Sent:
+  match r:
+    case Tk.Sent{m, yss}:
+      Tk.Sent{m, y <> yss}
+
+# the texts the attempts of one request send (True: a remote model), each
+# from the raw text xs, and the map after them
+def send(ts: List<&2, Bool>, b: Tk.Book, +xs: List<&2, Tk.Piece>) -> Tk.Sent:
+  match ts:
+    case Nil{}:
+      Tk.Sent{b, Nil{}}
+    case t <> rest:
+      match t:
+        case True{}:
+          +r = scrub_text(xs, b)
+          send.cons(out_ys(r), send(rest, out_book(r), xs))
+        case False{}:
+          send.cons(S.raw(xs), send(rest, b, xs))

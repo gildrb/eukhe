@@ -31,10 +31,13 @@ import ../../spec/harness/privacy_map.bend as Sm
 #     the one scrub of it (never a scrub of a scrub), a local one the text
 #     itself.
 # R12: the map is the spec's state machine (spec/harness/privacy_map.bend,
-#     M1-M4): from every map the stepper can hold (it opens empty, and no
+#     M1-M5): from every map the stepper can hold (it opens empty, and no
 #     class holds a value twice), the tokens of a text's values and the
 #     map after them are the spec's, and from every map the values of a
-#     text's tokens are the spec's.
+#     text's tokens are the spec's. A text scrubbed, restored and sent is
+#     the spec's text over that map (M5): one index space per class, from
+#     1, in the order first scrubbed; and from every map the text scrubber
+#     gives each value the stepper's token and leaves the stepper's map.
 #
 # What is pinned of the shipped failover: the dispatch rule (Tk.send), a
 # model; eukhe-core's provider runtime (durable/models/provider.rs
@@ -156,6 +159,65 @@ law privacy_map_distinct_kept:
   for +ok: {Sm.book_distinct(b) == True{} : Bool}
   {Sm.book_distinct(Tk.Book.empty()) == True{} : Bool} & {Sm.book_distinct(Sm.toks_book(Sm.scrub_vals(vs, b))) == True{} : Bool}
 
+# Laws: a text over the map (R12, M5)
+# -----------------------------------
+
+# LAW privacy_scrub_text_spec (R12, M5): from every map whose classes hold
+# no value twice, a text scrubbed is the spec's: each value replaced by
+# the token of its place among its class's values, in the order they were
+# first scrubbed, one index space per class from 1; and the map after it
+# is the spec's
+# EXCLUDES: one index space shared by every class (an EMAIL before an IP
+#   making it IP_2), an index that skips, a text token that is not the
+#   stepper's, a map that grows differently from the stepper's
+law privacy_scrub_text_spec:
+  for +m: Tk.Book
+  for +xs: List<&2, Tk.Piece>
+  for +ok: {Sm.book_distinct(m) == True{} : Bool}
+  {Tk.scrub(m, xs) == Sm.scrub_text(xs, m) : Tk.Out}
+
+# LAW privacy_scrub_text_stepper (R12, M5): from every map, a text scrubbed
+# is the text with each value replaced by the token the stepper gives the
+# text's values in one step, and the map after it is the stepper's
+# EXCLUDES: a text scrubber and a stepper that number the same values
+#   apart (a token Rust's text path sends that the stepper never issued)
+law privacy_scrub_text_stepper:
+  for +m: Tk.Book
+  for +xs: List<&2, Tk.Piece>
+  {Tk.scrub(m, xs) == Sm.text(xs, Tk.scrub_vals(Sm.vals(xs), m)) : Tk.Out}
+
+# LAW privacy_restore_text_spec (R12, M3, M5): from every map, a text
+# restored is the spec's: each token replaced by the value at its place
+# among its class's values, when the class holds one there; every other
+# piece as it was
+# EXCLUDES: a token restored by a global index (IP_1 after an EMAIL left
+#   as a token), a token of another class restored, a piece changed
+law privacy_restore_text_spec:
+  for +m: Tk.Book
+  for +ys: List<&2, Tk.Seg>
+  {Tk.restore(m, ys) == Sm.restore_text(ys, m) : List<&2, Tk.Seg>}
+
+# LAW privacy_restore_tok_spec (R12, M3): from every map, the value of one
+# token is the spec's
+# EXCLUDES: a token value read by another index rule than the stepper's
+law privacy_restore_tok_spec:
+  for +m: Tk.Book
+  for +c: Tk.Class
+  for +i: Nat
+  {Tk.restore_tok(m, c, i) == Sm.restore1(m, c, i) : Maybe<&2, String>}
+
+# LAW privacy_send_spec (R6, R12, M5): from every map whose classes hold no
+# value twice, the texts of a failover's attempts and the map after them
+# are the spec's
+# EXCLUDES: a remote attempt numbering tokens apart from the map, a map
+#   after the failover that is not the one the attempts left
+law privacy_send_spec:
+  for +ts: List<&2, Bool>
+  for +m: Tk.Book
+  for +xs: List<&2, Tk.Piece>
+  for +ok: {Sm.book_distinct(m) == True{} : Bool}
+  {Tk.send(ts, m, xs) == Sm.send(ts, m, xs) : Tk.Sent}
+
 # Laws: failover (R6)
 # -------------------
 
@@ -192,3 +254,13 @@ law privacy_round_trip_example:
 # EXCLUDES: the local sibling reading the remote attempt's tokens
 law privacy_failover_example:
   {Tk.Sent.yss(Tk.send([True{}, False{}, True{}], Tk.Book.empty(), [Tk.Plain{"ping "}, Tk.Value{Tk.Ip{}, "10.0.0.7"}])) == [[Tk.Txt{"ping "}, Tk.Tok{Tk.Ip{}, 1n}], [Tk.Txt{"ping "}, Tk.Clear{Tk.Ip{}, "10.0.0.7"}], [Tk.Txt{"ping "}, Tk.Tok{Tk.Ip{}, 1n}]] : List<&2, List<&2, Tk.Seg>>}
+
+# an EMAIL, then an IP: each the first value of its class
+def classes_text() -> List<&2, Tk.Piece>:
+  [Tk.Value{Tk.Email{}, "ann@x.io"}, Tk.Plain{" from "}, Tk.Value{Tk.Ip{}, "203.0.113.7"}]
+
+# LAW privacy_scrub_classes_example (R12, M5): anchor: an EMAIL and then an
+# IP take EMAIL 1 and IP 1, and IP 1 restores the address
+# EXCLUDES: one index space shared by every class (IP_2)
+law privacy_scrub_classes_example:
+  {Tk.Out.ys(Tk.scrub(Tk.Book.empty(), classes_text())) == [Tk.Tok{Tk.Email{}, 1n}, Tk.Txt{" from "}, Tk.Tok{Tk.Ip{}, 1n}] : List<&2, Tk.Seg>} & {Tk.restore_tok(Tk.Out.m(Tk.scrub(Tk.Book.empty(), classes_text())), Tk.Ip{}, 1n) == Some{"203.0.113.7"} : Maybe<&2, String>}

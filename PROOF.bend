@@ -2988,6 +2988,12 @@ import ./proof/privacy/privacy_class_tags.bend as PPrivacyClassTags
 import ./proof/privacy/privacy_map_scrub_spec.bend as PPrivacyMapScrubSpec
 import ./proof/privacy/privacy_map_restore_spec.bend as PPrivacyMapRestoreSpec
 import ./proof/privacy/privacy_map_distinct_kept.bend as PPrivacyMapDistinctKept
+import ./proof/privacy/privacy_scrub_text_spec.bend as PPrivacyScrubTextSpec
+import ./proof/privacy/privacy_scrub_text_stepper.bend as PPrivacyScrubTextStepper
+import ./proof/privacy/privacy_restore_text_spec.bend as PPrivacyRestoreTextSpec
+import ./proof/privacy/privacy_restore_tok_spec.bend as PPrivacyRestoreTokSpec
+import ./proof/privacy/privacy_send_spec.bend as PPrivacySendSpec
+import ./proof/privacy/privacy_scrub_classes_example.bend as PPrivacyScrubClassesExample
 import ./proof/doc_publish/base.bend as LADocPublish
 import ./proof/doc_publish/doc_publish_never_overwrites_unread.bend as PDocPublishNeverOverwritesUnread
 import ./proof/doc_publish/doc_publish_places_over_base.bend as PDocPublishPlacesOverBase
