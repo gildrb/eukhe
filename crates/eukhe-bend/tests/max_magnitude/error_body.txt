@@ -1,0 +1,9 @@
+# the cap at its largest (nothing cut), and at 0 (everything cut)
+call 2,6,abcdef{MAX},
+call 2,6,abcdef0,
+call 0,1,2, 22,3,{a}0,
+call 0,0,2,3,{a}0,
+call 1,F1,3,4031,1,x1,1,P1,m
+call 1,T0,0,0,1,m
+refuse 2,1,a{LONG},
+refuse 0,1,{LONG},x0,0,
