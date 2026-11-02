@@ -8,8 +8,10 @@
 # newest `window` messages of its chat). Of the view lines, the request
 # keeps exactly the leading ones that start before end = T - V (T the
 # messages the chat holds, V the ones the transcript still holds; 0 when V
-# passes T); a line that straddles end stays whole. Pure: no IO, no
-# @unsafe.
+# passes T); a line that straddles end stays whole. A call sends the view
+# pinned under the transcript's head (its newest compaction or reset) and
+# renders a fresh one only under a new head, so between two compactions
+# the request only grows at its end. Pure: no IO, no @unsafe.
 
 import Base
 
@@ -27,6 +29,12 @@ type Span is Data:
 type Item is Data:
   Line{start: Nat, covers: List<&2, Msg>}
   Turn{msg: Msg}
+
+# a root's pinned view (Rust: CallState): the head of the transcript it
+# was rendered under (the newest compaction or reset entry; 0 before the
+# first, as entry ids start at 1) and its lines
+type Pin is Data:
+  Pin{head: Nat, view: List<&2, Span>}
 
 # Chats
 # -----
@@ -119,3 +127,21 @@ def request(+s: Nat, evs: List<&2, Msg>, +view: List<&2, Span>, +window: Nat) ->
   +total = List.length(&2, Msg, lg)
   +kept = List.take(&2, Span, view, history_lines(total, window, starts(view)))
   List.append(&2, Item, lines(lg, kept), turns(List.drop(&2, Msg, lg, Nat.sub(total, window))))
+
+# Pins
+# ----
+
+def pin.keep(b: Bool, p: Pin, +head: Nat, fresh: List<&2, Span>) -> Pin:
+  match b:
+    case True{}:
+      p
+    case False{}:
+      Pin{head, fresh}
+
+# the pin a call sends (Rust: request.rs transform): the pinned view while
+# the transcript keeps the head it was rendered under, else the fresh
+# render, pinned under the transcript's new head
+def pin(p: Pin, +head: Nat, fresh: List<&2, Span>) -> Pin:
+  match p:
+    case Pin{+h, v}:
+      pin.keep(Nat.is_eq(h, head), Pin{h, v}, head, fresh)

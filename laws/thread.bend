@@ -33,6 +33,14 @@ import ./base.bend as LawsBase
 # R6: the request is the spec's, whole: each kept view line carries the
 #     messages of its own span, the chat's count messages from its start
 #     (S6).
+# R7: between two calls the request only grows at its end unless a
+#     compaction ran: a call under the head its view was pinned under (no
+#     compaction or reset since) sends that view, whatever a fresh render
+#     would give; under a new head it sends the fresh render, pinned under
+#     that head. Two calls under one head, the transcript grown by the
+#     session's new messages, send the first request, then those
+#     messages' turns (Rust bridge: eukhe-core durable/optchat/tests.rs
+#     a_root_request_grows_only_at_its_end_until_a_compaction).
 
 # Spec helpers
 # ------------
@@ -55,6 +63,28 @@ def sp_w_reply(q: FTh.Req) -> String:
   match q:
     case FTh.Req{t, v, xs}:
       Wr.put_nat(Th.history_lines(t, v, xs), "")
+
+# R7: the head a pin was rendered under
+def sp_head(p: Th.Pin) -> Nat:
+  match p:
+    case Th.Pin{h, v}:
+      h
+
+# R7: the view lines of a pin
+def sp_view(p: Th.Pin) -> List<&2, Th.Span>:
+  match p:
+    case Th.Pin{h, v}:
+      v
+
+# R7: every line of view ends within the first n messages of the chat
+def sp_inside(+n: Nat, view: List<&2, Th.Span>) -> Bool:
+  match view:
+    case Nil{}:
+      True{}
+    case sp <> t:
+      match sp:
+        case Th.Span{st, c}:
+          Bool.and(Nat.is_le(Nat.add(st, c), n), sp_inside(n, t))
 
 # Laws: the chat (R1, R2)
 # -----------------------
@@ -177,6 +207,58 @@ law thread_request_spec:
 #   start
 law thread_request_covers_example:
   {Th.request(1n, [Th.Msg{1n, 10n}, Th.Msg{1n, 11n}, Th.Msg{1n, 12n}, Th.Msg{1n, 13n}, Th.Msg{1n, 14n}, Th.Msg{1n, 15n}], [Th.Span{0n, 2n}, Th.Span{2n, 2n}], 2n) == [Th.Line{0n, [Th.Msg{1n, 10n}, Th.Msg{1n, 11n}]}, Th.Line{2n, [Th.Msg{1n, 12n}, Th.Msg{1n, 13n}]}, Th.Turn{Th.Msg{1n, 14n}}, Th.Turn{Th.Msg{1n, 15n}}] : List<&2, Th.Item>}
+
+# Laws: the cache prefix (R7)
+# ---------------------------
+
+# LAW thread_pin_kept (R7): a call under the head its view was pinned
+# under sends that view, whatever a fresh render would give
+# EXCLUDES: a view rendered again for each run (the request's prefix
+#   rewritten between two calls with no compaction between them), the
+#   head dropped
+law thread_pin_kept:
+  for +h: Nat
+  for +view: List<&2, Th.Span>
+  for +fresh: List<&2, Th.Span>
+  {Th.pin(Th.Pin{h, view}, h, fresh) == Th.Pin{h, view} : Th.Pin}
+
+# LAW thread_pin_moved (R7): a call under a new head (a compaction or a
+# reset ran) sends the fresh render, pinned under that head
+# EXCLUDES: a view kept past a compaction (the history it cut in neither
+#   the view nor the transcript), the old head kept with the new view
+law thread_pin_moved:
+  for +p: Th.Pin
+  for +h: Nat
+  for +fresh: List<&2, Th.Span>
+  for moved: {Nat.is_eq(sp_head(p), h) == False{} : Bool}
+  {Th.pin(p, h, fresh) == Th.Pin{h, fresh} : Th.Pin}
+
+# LAW thread_request_prefix_kept (R7): two calls of session s under one
+# head h (no compaction or reset between them), the first pinning over
+# the pin p, the second over the first's, with any fresh renders: when the
+# first call's view covers only messages its chat holds and the window
+# grows by the session's messages of the new events, the second request is
+# the first, unchanged, then the turns of those messages
+# EXCLUDES: a view line added, dropped or changed between the two calls, a
+#   view re-rendered per run, a new turn anywhere but the end, an old turn
+#   moved into the view
+law thread_request_prefix_kept:
+  for +s: Nat
+  for +evs: List<&2, Th.Msg>
+  for +more: List<&2, Th.Msg>
+  for +p: Th.Pin
+  for +h: Nat
+  for +fresh: List<&2, Th.Span>
+  for +again: List<&2, Th.Span>
+  for +w: Nat
+  for inside: {sp_inside(List.length(&2, Th.Msg, S.chat(s, evs)), sp_view(Th.pin(p, h, fresh))) == True{} : Bool}
+  {Th.request(s, List.append(&2, Th.Msg, evs, more), sp_view(Th.pin(Th.pin(p, h, fresh), h, again)), Nat.add(w, List.length(&2, Th.Msg, S.chat(s, more)))) == List.append(&2, Th.Item, Th.request(s, evs, sp_view(Th.pin(p, h, fresh)), w), S.turns(S.chat(s, more))) : List<&2, Th.Item>}
+
+# LAW thread_pin_example (R7): anchor: a pin under head 3 kept by a call
+# under head 3, replaced by the fresh render under head 5
+# EXCLUDES: a spec that drifts from the Rust it models
+law thread_pin_example:
+  {[Th.pin(Th.Pin{3n, [Th.Span{0n, 2n}]}, 3n, [Th.Span{0n, 4n}]), Th.pin(Th.Pin{3n, [Th.Span{0n, 2n}]}, 5n, [Th.Span{0n, 4n}])] == [Th.Pin{3n, [Th.Span{0n, 2n}]}, Th.Pin{5n, [Th.Span{0n, 4n}]}] : List<&2, Th.Pin>}
 
 # Laws: the entry (R5)
 # --------------------

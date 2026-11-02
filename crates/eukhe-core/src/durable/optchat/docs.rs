@@ -10,15 +10,20 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// The view a call starts from (§3.3, §6), rendered once and pinned: every
-/// request of the call sends it byte-identical (the cache prefix), across
-/// a crash too.
+/// request sends it byte-identical (the cache prefix), across a crash too.
+/// A root keeps it across runs until its transcript gets a new head (a
+/// compaction or a reset): until then nothing more scrolled out of it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallState {
-    /// The run this view belongs to (a root's call); absent for a
-    /// subagent, whose view is pinned once per conversation.
+    /// The run that last took this view over (a root's call); absent for
+    /// a subagent, whose view is pinned once per conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_key: Option<String>,
+    /// The head marker of the root's transcript when the view was
+    /// rendered: its newest compaction or reset, absent before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<EntryId>,
     /// The view cut at its cache marks; every piece but the last carries a
     /// cache breakpoint.
     pub pieces: Vec<String>,

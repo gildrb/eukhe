@@ -7,9 +7,10 @@
 //!   holds without writing), and the cursor `eukhe.optchat.logged {through,
 //!   lines}` is committed after each batch. A crash between the append and
 //!   the cursor re-sends the batch with the same keys.
-//! - A run's own entries wait until its call has pinned its view: the view
-//!   covers everything before the run and nothing of it (§6). A call waits
-//!   for the entries before its run ([`OptChat::flush`]) before rendering.
+//! - A run's own entries wait until its call has pinned its view or taken
+//!   the pinned one over: a view rendered for the run covers everything
+//!   before the run and nothing of it (§6). A call waits for the entries
+//!   the log may hold ([`OptChat::flush`]) before rendering.
 //! - Every append happens under the chat's root-turn lease. When every root
 //!   conversation of the session is idle and logged, the chat is persisted
 //!   (git) and the lease goes back to the owner; also when the session

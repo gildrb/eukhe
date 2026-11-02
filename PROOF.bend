@@ -2704,6 +2704,10 @@ import ./proof/thread/thread_entry_reads.bend as PThreadEntryReads
 import ./proof/thread/thread_entry_exact.bend as PThreadEntryExact
 import ./proof/thread/thread_entry_refuses.bend as PThreadEntryRefuses
 import ./proof/thread/thread_entry_example.bend as PThreadEntryExample
+import ./proof/thread/thread_pin_kept.bend as PThreadPinKept
+import ./proof/thread/thread_pin_moved.bend as PThreadPinMoved
+import ./proof/thread/thread_request_prefix_kept.bend as PThreadRequestPrefixKept
+import ./proof/thread/thread_pin_example.bend as PThreadPinExample
 import ./proof/tool_result/base.bend as LAToolResult
 import ./proof/tool_result/tool_result_spec.bend as PToolResultSpec
 import ./proof/tool_result/tool_result_error_text_only.bend as PToolResultErrorTextOnly

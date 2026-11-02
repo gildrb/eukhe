@@ -1,5 +1,5 @@
 # eukhe: lemmas shared by the proofs of area thread: the logic of Bool.and
-# and of a refuted premise
+# and of a refuted premise, and Nat.is_eq's reflexivity
 
 import Base
 
@@ -50,3 +50,11 @@ def thb.and_i(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bo
       eb
     case False{}:
       thb.absurd_ft({Bool.and(False{}, b) == True{} : Bool}, ea)
+
+# every Nat is equal to itself
+def thb.eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      thb.eq_refl(p)

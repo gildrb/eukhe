@@ -1,14 +1,16 @@
 //! The request of a call (§3.3, §6). Each session is its own thread: a
 //! root conversation's request is its own transcript, verbatim (the
 //! assistant's text, tool calls, tool results, images), compacted by the
-//! session's compaction only when its context fills. On a run's first
-//! request the call takes the chat's root-turn lease, waits until
-//! everything before the run is in the session's chat log, renders the
-//! settled view, keeps only its lines of the history that scrolled out of
-//! the transcript, and pins them in `eukhe.optchat.call`; every request of
-//! the run then sends the pinned lines ahead of the transcript, so the
-//! prompt-cache prefix holds across tool rounds and across a crash. A
-//! subagent pins one view for its whole conversation and logs nothing.
+//! session's compaction only when its context fills. When the transcript
+//! has no pinned view yet, or a new head (a compaction or a reset ran),
+//! the call waits until everything the log may hold is in the session's
+//! chat log, renders the settled view, keeps only its lines of the history
+//! that scrolled out of the transcript, and pins them in
+//! `eukhe.optchat.call` under that head. Every request then sends the
+//! pinned lines ahead of the transcript, across tool rounds, runs and a
+//! crash, until the next head: between two compactions the request only
+//! grows at its end, so its prompt-cache prefix holds. A subagent pins one
+//! view for its whole conversation and logs nothing.
 
 use std::sync::Arc;
 
@@ -22,7 +24,7 @@ use eukhe_types::pi_ai::{
     CacheBreakpoint, Message, TextContent, UserContent, UserContentBlock, UserMessage,
 };
 
-use super::docs::{decode, write, CallState, CALL_DOC};
+use super::docs::{decode, write, CallState, LoggedState, CALL_DOC, LOGGED_DOC};
 use super::lines::{entry_lines, lead_of, Lead};
 use super::tools::memory_error;
 use super::OptChat;
@@ -61,7 +63,7 @@ pub(super) async fn transform(
     let Some(run) = root else {
         let call = match call_state(&harness, conversation, &cx).await? {
             Some(call) => call,
-            None => pin(&chat, &harness, conversation, None, None, &cx).await?,
+            None => pin(&chat, &harness, conversation, Pinned::Subagent, &cx).await?,
         };
         let mut state_rows: Vec<Message> = Vec::new();
         for (entry, contributed) in view.entries.iter().zip(&view.contributions) {
@@ -78,24 +80,37 @@ pub(super) async fn transform(
         }));
     };
     let key = run_key(&run);
+    let head = view.head.as_ref().map(|head| head.id);
     let call = match call_state(&harness, conversation, &cx).await? {
-        Some(call) if call.run_key.as_deref() == Some(key.as_str()) => call,
+        // The transcript has the head the view was rendered under: nothing
+        // more scrolled out of it, so the view stays byte-identical and
+        // the request only grows at its end. A new run takes it over.
+        Some(call) if call.run_key.is_some() && call.head == head => {
+            if call.run_key.as_deref() == Some(key.as_str()) {
+                call
+            } else {
+                let call = CallState {
+                    run_key: Some(key),
+                    ..call
+                };
+                commit_call(&harness, conversation, &call, &cx).await?;
+                chat.wake();
+                call
+            }
+        }
         Some(_) | None => {
-            // Everything before the run is in the log before the view
+            // Everything the log may hold is in it before the view
             // renders; the view keeps only what the transcript no longer
             // holds verbatim.
             chat.flush().await?;
-            let start = run_start(&harness, &run, &cx).await?;
-            let verbatim = verbatim_lines(&view.entries, start)?;
-            let call = pin(
-                &chat,
-                &harness,
-                conversation,
-                Some(key),
-                Some(verbatim),
-                &cx,
-            )
-            .await?;
+            let logged = logged_through(&harness, conversation, &cx).await?;
+            let verbatim = verbatim_lines(&view.entries, logged)?;
+            let pinned = Pinned::Root {
+                run_key: key,
+                head,
+                verbatim,
+            };
+            let call = pin(&chat, &harness, conversation, pinned, &cx).await?;
             chat.wake();
             call
         }
@@ -107,18 +122,30 @@ pub(super) async fn transform(
     }))
 }
 
-/// The chat log lines the transcript still holds verbatim before the run:
-/// those of its context entries before the run's start (all of them for a
-/// run without input). The view keeps only the lines before these.
-fn verbatim_lines(entries: &[EntryRecord], start: Option<EntryId>) -> SessionResult<u64> {
+/// The chat log lines the transcript still holds verbatim: those of its
+/// context entries the log holds (through the logger's cursor `logged`;
+/// before a run pins, the logger holds the run's own entries back). The
+/// view keeps only the lines before these.
+fn verbatim_lines(entries: &[EntryRecord], logged: Option<EntryId>) -> SessionResult<u64> {
     let mut lines = 0u64;
     for entry in entries {
-        if start.is_some_and(|start| entry.id >= start) {
-            break;
+        if logged.is_some_and(|through| entry.id <= through) {
+            lines += entry_lines(entry)?.len() as u64;
         }
-        lines += entry_lines(entry)?.len() as u64;
     }
     Ok(lines)
+}
+
+/// The last entry of `conversation` the chat log holds, if any.
+async fn logged_through(
+    harness: &Harness,
+    conversation: ConversationId,
+    cx: &Context,
+) -> SessionResult<Option<EntryId>> {
+    match harness.snapshot(&LOGGED_DOC, conversation, cx).await? {
+        Some(value) => Ok(decode::<LoggedState>(&value)?.through),
+        None => Ok(None),
+    }
 }
 
 /// Whether `conversation` is a root conversation of the session (no task
@@ -186,16 +213,26 @@ pub(super) async fn run_start(
     Ok(record.and_then(|record| record.state.entry()))
 }
 
+/// Whom a pinned view is for.
+enum Pinned {
+    /// A subagent: the whole view, once for its conversation.
+    Subagent,
+    /// A root run: only the lines of the history that scrolled out of its
+    /// transcript (headed by `head`), the lines before the last `verbatim`
+    /// messages of the log.
+    Root {
+        run_key: String,
+        head: Option<EntryId>,
+        verbatim: u64,
+    },
+}
+
 /// Render the settled view (§6) and pin it as the call of `conversation`.
-/// A root call (`verbatim` set) keeps only the lines of the history that
-/// scrolled out of its transcript: the lines before the last `verbatim`
-/// messages of the log.
 async fn pin(
     chat: &OptChat,
     harness: &Harness,
     conversation: ConversationId,
-    run_key: Option<String>,
-    verbatim: Option<u64>,
+    pinned: Pinned,
     cx: &Context,
 ) -> SessionResult<CallState> {
     let within = chat.settings.manager().get_memory_settle_timeout();
@@ -204,9 +241,17 @@ async fn pin(
         .settled_render(within)
         .await
         .map_err(|error| memory_error(&error))?;
-    if let Some(verbatim) = verbatim {
-        rendered = rendered.history(verbatim);
-    }
+    let (run_key, head) = match pinned {
+        Pinned::Subagent => (None, None),
+        Pinned::Root {
+            run_key,
+            head,
+            verbatim,
+        } => {
+            rendered = rendered.history(verbatim);
+            (Some(run_key), head)
+        }
+    };
     let pieces = if rendered.text.is_empty() {
         Vec::new()
     } else {
@@ -214,21 +259,33 @@ async fn pin(
     };
     let call = CallState {
         run_key,
+        head,
         pieces,
         through: rendered.messages,
         timestamp: now_millis(),
     };
+    commit_call(harness, conversation, &call, cx).await?;
+    Ok(call)
+}
+
+/// Commit `call` as the call of `conversation`.
+async fn commit_call(
+    harness: &Harness,
+    conversation: ConversationId,
+    call: &CallState,
+    cx: &Context,
+) -> SessionResult<()> {
     let pinned = call.clone();
     harness
         .commit(
             move |tx| async move {
                 let draft = tx.doc(&CALL_DOC, conversation).await?;
-                write(&draft, &pinned, &["runKey"])
+                write(&draft, &pinned, &["runKey", "head"])
             },
             cx,
         )
         .await?;
-    Ok(call)
+    Ok(())
 }
 
 /// A root call's request: the session's own transcript as the harness

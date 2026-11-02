@@ -13,8 +13,9 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{
-    AgentChange, Extension, FieldChange, HarnessOptions, InputSubmissionDraft, ModelRef,
-    ToolExecutionResult, ToolRegistration,
+    AgentChange, Extension, FieldChange, HarnessOptions, HarnessSettingsSource,
+    InputSubmissionDraft, LiveSettings, ModelRef, PartialCompactionPolicy, ToolExecutionResult,
+    ToolRegistration,
 };
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::session::SessionError;
@@ -198,6 +199,8 @@ struct Setup {
     release: Arc<Notify>,
     /// What the Harness reported.
     reports: Arc<Mutex<Vec<String>>>,
+    /// The Harness settings (its compaction policy).
+    settings: Arc<LiveSettings>,
 }
 
 impl Setup {
@@ -241,6 +244,7 @@ impl Setup {
             started,
             release,
             reports: Arc::default(),
+            settings: Arc::default(),
         }
     }
 
@@ -274,6 +278,7 @@ impl Setup {
     /// model, and (root role) the logger, then resume scheduling.
     async fn open(&self, storage: Arc<dyn Storage>, logger: Logging) -> Session {
         let mut options = HarnessOptions::new(self.models.clone(), Arc::new(self.registry.clone()));
+        options.settings = Some(Arc::clone(&self.settings) as Arc<dyn HarnessSettingsSource>);
         let reports = Arc::clone(&self.reports);
         options.on_report = Some(Arc::new(move |error| {
             lock(&reports).push(error.to_string());
@@ -668,6 +673,101 @@ async fn the_pinned_view_survives_a_reopen_mid_run() {
     session.close(&setup).await;
 }
 
+/// Between two calls a root's request only grows at its end unless a
+/// compaction ran between them (LAW `thread_request_prefix_kept`). A
+/// compaction in the middle of a run moves the view at once (the history
+/// it cut scrolls into it); the next run sends that view byte-identical,
+/// the request before it as its prefix.
+#[tokio::test]
+async fn a_root_request_grows_only_at_its_end_until_a_compaction() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    setup.settings.update(|settings| {
+        settings.compaction = Some(PartialCompactionPolicy {
+            keep_recent_tokens: Some(1.0),
+            ..PartialCompactionPolicy::default()
+        });
+    });
+    // The summarizer is answered `SUMMARY`; the agent from its script.
+    let script = Arc::new(Mutex::new(std::collections::VecDeque::from([
+        answer("done"),
+        call("hold", serde_json::json!({})),
+        answer("released"),
+        answer("ok"),
+    ])));
+    let requests = Requests::default();
+    setup.faux.set_responses(
+        (0..8)
+            .map(|_| {
+                let (script, requests) = (Arc::clone(&script), Arc::clone(&requests.0));
+                FauxResponseStep::factory(move |request, _, _, _| {
+                    let messages = request.messages();
+                    let summarizer = matches!(
+                        messages.first(),
+                        Some(Message::System(SystemMessage { content: SystemContent::Text(text), .. }))
+                            if text.starts_with("You are a context summarization assistant")
+                    );
+                    if summarizer {
+                        return Ok(answer("SUMMARY"));
+                    }
+                    lock(&requests).push(messages.to_vec());
+                    Ok(lock(&script).pop_front().expect("a scripted answer"))
+                })
+            })
+            .collect(),
+    );
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    session.run(&setup.chat, "hello").await;
+    let started = setup.started.notified();
+    session.submit("again").await;
+    started.await;
+    // Compact while the tool runs: the summary lands at the next boundary.
+    let compaction = session.root.compact(None, cx()).await.unwrap();
+    session
+        .harness
+        .wait_for_task(compaction, cx())
+        .await
+        .unwrap();
+    setup.release.notify_one();
+    session.root.wait_for_idle(cx()).await.unwrap();
+    setup.chat.flush().await.unwrap();
+    session.run(&setup.chat, "more").await;
+    let all = requests.all();
+    let grows = |at: usize| all[at + 1].starts_with(&all[at]);
+    // The compaction cut the first run and the start of the second: the
+    // view takes those lines at once and leads the summary, marked at its
+    // end, in this call and the next run's.
+    let compacted = vec![
+        "user:<chat>\n0+1|user: hello\n1+1|eukhe: done\n2+1|user: again\n</chat>[cache]|The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>".to_string(),
+        "assistant:call hold".to_string(),
+        "toolResult:held".to_string(),
+        "system".to_string(),
+    ];
+    let mut next = compacted.clone();
+    next.extend(["assistant:released".to_string(), "user:more".to_string()]);
+    assert_eq!(
+        (requests.described(), grows(0), grows(1), grows(2)),
+        (
+            vec![
+                vec!["system".to_string(), "user:hello".to_string()],
+                vec![
+                    "system".to_string(),
+                    "user:hello".to_string(),
+                    "assistant:done".to_string(),
+                    "user:again".to_string(),
+                ],
+                compacted,
+                next,
+            ],
+            true,
+            false,
+            true
+        )
+    );
+    session.close(&setup).await;
+}
+
 #[tokio::test]
 async fn a_crash_between_append_and_cursor_logs_no_line_twice() {
     let setup = Setup::new(MemoryRole::Root).await;
@@ -770,6 +870,7 @@ fn system(text: &str, timestamp: u64) -> Message {
 fn a_subagent_request_joins_the_leading_user_texts_behind_the_view() {
     let call = CallState {
         run_key: None,
+        head: None,
         pieces: vec!["<chat>\n0+1|a\n".to_string(), "1+1|b\n</chat>".to_string()],
         through: 2,
         timestamp: 7,
@@ -846,6 +947,7 @@ fn a_root_request_keeps_its_thread_verbatim_behind_the_older_history() {
     ];
     let call = |pieces: Vec<String>| CallState {
         run_key: Some("input:2".to_string()),
+        head: None,
         pieces,
         through: 9,
         timestamp: 7,
