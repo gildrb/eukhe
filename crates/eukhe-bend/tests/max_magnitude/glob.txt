@@ -1,0 +1,17 @@
+# a pattern's error, the range error naming the last char's code
+call 0,4,a{b,
+call 0,5,[􏿿-a]
+# group and rule sizes at their largest: a size past the texts or the
+# patterns takes those left
+call 1,TF1,4,*.rs2,4,a.rs3,b/c2,{MAX},{MAX},
+call 3,FT2,4,*.rs1,x1,4,a.rs2,{MAX},{MAX},
+# four-byte chars in patterns and texts
+call 1,FF1,1,?1,1,􏿿1,{MAX},
+call 3,TT1,3,[􏿿]1,1,􏿿1,{MAX},
+# ignore codes at their largest (a code past 8 decides nothing)
+call 4,3,4,venv1,x1,a3,{MAX},8,{MAX},3,5,venv/3,x/a1,b
+call 2,5,p/i/g2,3,p/*1,g
+refuse 0,{LONG},a
+refuse {MAX},
+refuse 1,TF1,1,a1,1,a1,{LONG},
+refuse 4,1,1,a1,{LONG},1,1,a

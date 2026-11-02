@@ -2332,6 +2332,8 @@ import ./proof/glob/glob_parse_plain.bend as PGlobParsePlain
 import ./proof/glob/glob_utf8_example.bend as PGlobUtf8Example
 import ./proof/glob/glob_utf8_boundary_example.bend as PGlobUtf8BoundaryExample
 import ./proof/glob/glob_bytes.bend as PGlobBytes
+import ./proof/glob/glob_utf8.bend as PGlobUtf8
+import ./proof/glob/glob_code.bend as PGlobCode
 import ./proof/glob/glob_star_example.bend as PGlobStarExample
 import ./proof/glob/glob_escape_star_example.bend as PGlobEscapeStarExample
 import ./proof/glob/glob_group_class_example.bend as PGlobGroupClassExample
