@@ -212,6 +212,18 @@ law headless_settle_example:
 # Laws: the entry (R4)
 # --------------------
 
+# the entry's answer to the input s, from the laws' reader: the spelled
+# spec decision for the request that s is exactly, else the error form
+def settle_entry.whole(m: Maybe<&2, Hs.Facts>) -> String:
+  match m:
+    case Some{f}:
+      SpW.w_settle_reply(f)
+    case None{}:
+      Wr.err("headless_settle: malformed request")
+
+def settle_entry(s: String) -> String:
+  settle_entry.whole(SpW.read_settle(s))
+
 # LAW headless_settle_entry_answers (R4): the entry answers every request
 # Rust spells, every count within the wire, with the spelling of the
 # spec's decision
@@ -249,3 +261,13 @@ law headless_settle_entry_malformed_exact:
 # EXCLUDES: another spelling of a request or a reply
 law headless_settle_entry_example:
   {[FHs.ffi("F0,0,0,0,0,FF"), FHs.ffi("T0,0,0,0,0,FF"), FHs.ffi("F0,3,0,0,0,FT"), FHs.ffi("F0,0,1,0,0,FF"), FHs.ffi("F0,0,0,0,0,F"), FHs.ffi("F0,0,0,0,0,FFx"), FHs.ffi("F01,0,0,0,0,FF")] == ["0,", "1,", "2,", "1,", Wr.err("headless_settle: malformed request"), Wr.err("headless_settle: malformed request"), Wr.err("headless_settle: malformed request")] : List<&2, String>}
+
+# LAW headless_settle_entry_exact (R4): on every input the entry
+# answers exactly the spelling of the spec's decision for the request the
+# input is (as the laws' reader reads it, whole), and the error form on
+# any other input
+# EXCLUDES: another answer for an input the reader reads whole (a
+#   lenient decoder, a field misread), another error text
+law headless_settle_entry_exact:
+  for +s: String
+  {FHs.ffi(s) == settle_entry(s) : String}

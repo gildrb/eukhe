@@ -1,0 +1,6 @@
+# the exit request has no count: its largest tags (a reason, the primary
+# entry), every flag set, and a 15-digit tag refused
+call TT2,9,6,TT
+call FF2,9,6,FF
+call FF1,1,FF
+refuse FF{LONG},1,FF

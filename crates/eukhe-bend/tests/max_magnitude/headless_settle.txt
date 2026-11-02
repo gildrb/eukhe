@@ -1,0 +1,5 @@
+# every count of pending work at its largest, and a 15-digit count refused
+call T{MAX},{MAX},{MAX},{MAX},{MAX},TT
+call F{MAX},{MAX},{MAX},{MAX},{MAX},FF
+call F0,0,0,0,{MAX},FT
+refuse F{LONG},0,0,0,0,FF

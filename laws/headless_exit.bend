@@ -321,6 +321,18 @@ law headless_exit_example:
 # Laws: the entry (R6)
 # --------------------
 
+# the entry's answer to the input s, from the laws' reader: the spelled
+# spec exit for the request that s is exactly, else the error form
+def exit_entry.whole(m: Maybe<&2, Hx.Facts>) -> String:
+  match m:
+    case Some{f}:
+      SpW.w_exit_reply(f)
+    case None{}:
+      Wr.err("headless_exit: malformed request")
+
+def exit_entry(s: String) -> String:
+  exit_entry.whole(SpW.read_exit(s))
+
 # LAW headless_exit_entry_answers (R6): the entry answers every request
 # Rust spells with the spelling of the spec's exit
 # EXCLUDES: a field misread or swapped (two flags, a run and a primary
@@ -356,3 +368,13 @@ law headless_exit_entry_malformed_exact:
 # EXCLUDES: another spelling of a request or a reply
 law headless_exit_entry_example:
   {[FHx.ffi("FF1,1,FF"), FHx.ffi("FF2,0,1,FF"), FHx.ffi("FF2,7,4,FF"), FHx.ffi("FF0,0,TF"), FHx.ffi("FF2,10,1,FF"), FHx.ffi("FF1,1,F"), FHx.ffi("FF1,1,FFx")] == ["0,0,", "1,3,0,", "1,5,", "1,8,", Wr.err("headless_exit: malformed request"), Wr.err("headless_exit: malformed request"), Wr.err("headless_exit: malformed request")] : List<&2, String>}
+
+# LAW headless_exit_entry_exact (R6): on every input the entry
+# answers exactly the spelling of the spec's exit for the request the
+# input is (as the laws' reader reads it, whole), and the error form on
+# any other input
+# EXCLUDES: another answer for an input the reader reads whole (a
+#   lenient decoder, a field misread), another error text
+law headless_exit_entry_exact:
+  for +s: String
+  {FHx.ffi(s) == exit_entry(s) : String}

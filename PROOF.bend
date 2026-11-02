@@ -2718,6 +2718,7 @@ import ./proof/headless_settle/headless_settle_entry_answers.bend as PHeadlessSe
 import ./proof/headless_settle/headless_settle_entry_example.bend as PHeadlessSettleEntryExample
 import ./proof/headless_settle/headless_settle_entry_malformed_exact.bend as PHeadlessSettleEntryMalformedExact
 import ./proof/headless_settle/headless_settle_entry_reads.bend as PHeadlessSettleEntryReads
+import ./proof/headless_settle/headless_settle_entry_exact.bend as PHeadlessSettleEntryExact
 import ./proof/headless_settle/headless_settle_example.bend as PHeadlessSettleExample
 import ./proof/headless_settle/headless_settle_give_up_needs_limit.bend as PHeadlessSettleGiveUpNeedsLimit
 import ./proof/headless_settle/headless_settle_jobs_never_done.bend as PHeadlessSettleJobsNeverDone
@@ -2739,6 +2740,7 @@ import ./proof/headless_exit/headless_exit_entry_answers.bend as PHeadlessExitEn
 import ./proof/headless_exit/headless_exit_entry_example.bend as PHeadlessExitEntryExample
 import ./proof/headless_exit/headless_exit_entry_malformed_exact.bend as PHeadlessExitEntryMalformedExact
 import ./proof/headless_exit/headless_exit_entry_reads.bend as PHeadlessExitEntryReads
+import ./proof/headless_exit/headless_exit_entry_exact.bend as PHeadlessExitEntryExact
 import ./proof/headless_exit/headless_exit_example.bend as PHeadlessExitExample
 import ./proof/headless_exit/headless_exit_faulted_fails.bend as PHeadlessExitFaultedFails
 import ./proof/headless_exit/headless_exit_forced_tool_fails.bend as PHeadlessExitForcedToolFails
