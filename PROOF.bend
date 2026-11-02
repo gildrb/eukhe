@@ -1843,6 +1843,13 @@ import ./proof/workflow/wf_refused_when_spent.bend as PWfRefusedWhenSpent
 import ./proof/workflow/wf_first_example.bend as PWfFirstExample
 import ./proof/workflow/wf_limits_uncapped.bend as PWfLimitsUncapped
 import ./proof/workflow/wf_limits_capped.bend as PWfLimitsCapped
+import ./proof/workflow/wf_step_exact.bend as PWfStepExact
+import ./proof/workflow/wf_run_exact.bend as PWfRunExact
+import ./proof/workflow/wf_pool_exact.bend as PWfPoolExact
+import ./proof/workflow/wf_spawns_exact.bend as PWfSpawnsExact
+import ./proof/workflow/wf_resume_exact.bend as PWfResumeExact
+import ./proof/workflow/wf_results_exact.bend as PWfResultsExact
+import ./proof/workflow/wf_cat_exact.bend as PWfCatExact
 import ./proof/workflow/wfw_sts_round_trip.bend as PWfwStsRoundTrip
 import ./proof/workflow/wfw_admit_round_trip.bend as PWfwAdmitRoundTrip
 import ./proof/workflow/wfw_decision_round_trip.bend as PWfwDecisionRoundTrip

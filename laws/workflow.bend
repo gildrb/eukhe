@@ -88,6 +88,102 @@ def wf_min(a: Nat, b: Nat) -> Nat:
     case 1n+x 1n+y:
       1n+wf_min(x, y)
 
+# what one semaphore event does to a pool: an ask moves a unit from left
+# to taken while one is left (else the pool stays: the call waits), a
+# settle moves a taken unit back to left (with none taken the pool stays)
+def wf_step(e: W.Ev, p: W.Pool) -> W.Pool:
+  match e:
+    case W.Ask{}:
+      match p:
+        case W.Pool{t, l}:
+          match l:
+            case 0n:
+              W.Pool{t, 0n}
+            case 1n+m:
+              W.Pool{1n+t, m}
+    case W.Settle{}:
+      match p:
+        case W.Pool{t, l}:
+          match t:
+            case 0n:
+              W.Pool{0n, l}
+            case 1n+s:
+              W.Pool{s, 1n+l}
+
+# the pool after the events es, in order, from p: the fold of wf_step
+def wf_run(es: List<&2, W.Ev>, p: W.Pool) -> W.Pool:
+  match es:
+    case Nil{}:
+      p
+    case e <> rest:
+      wf_run(rest, wf_step(e, p))
+
+# the units a pool holds in all: the taken ones and the left ones
+def wf_units(p: W.Pool) -> Nat:
+  match p:
+    case W.Pool{t, l}:
+      Nat.add(t, l)
+
+# the budget after n spawn attempts from p: each takes one unit while
+# any is left, so the smaller of n and the units left move from left to
+# taken
+def wf_spawns(+n: Nat, p: W.Pool) -> W.Pool:
+  match p:
+    case W.Pool{t, +l}:
+      W.Pool{Nat.add(wf_min(n, l), t), Nat.sub(l, n)}
+
+# the earlier run finished key k: k is one of the cached keys
+def wf_cached(+k: Nat, cache: List<&2, Nat>) -> Bool:
+  match cache:
+    case Nil{}:
+      False{}
+    case c <> rest:
+      Bool.or(Nat.is_eq(c, k), wf_cached(k, rest))
+
+def wf_cost.of(hit: Bool) -> Nat:
+  match hit:
+    case True{}:
+      0n
+    case False{}:
+      1n
+
+# the agents one call of a resumed run spawns: none for a cached key, one
+# for another
+def wf_cost(+k: Nat, cache: List<&2, Nat>) -> Nat:
+  wf_cost.of(wf_cached(k, cache))
+
+def wf_resumed.one(hit: Bool, n: Nat) -> Nat:
+  match hit:
+    case True{}:
+      n
+    case False{}:
+      1n+n
+
+# the agents a resumed run spawns for its keys: one per key the earlier
+# run did not finish
+def wf_resumed(+cache: List<&2, Nat>, keys: List<&2, Nat>) -> Nat:
+  match keys:
+    case Nil{}:
+      0n
+    case k <> rest:
+      wf_resumed.one(wf_cached(k, cache), wf_resumed(cache, rest))
+
+# what the script gets for one agent: its answer, or null for a failure
+def wf_result(o: W.Out) -> Maybe<&2, Nat>:
+  match o:
+    case W.Answer{n}:
+      Some{n}
+    case W.Failed{}:
+      None{}
+
+# every agent's result, in item order
+def wf_results(os: List<&2, W.Out>) -> List<&2, Maybe<&2, Nat>>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      wf_result(o) <> wf_results(rest)
+
 # LAW wf_running_within_concurrency: after any asks and settles, the running agents and the free slots
 # still add up to the concurrency: running never goes above it
 law wf_running_within_concurrency:
@@ -188,6 +284,77 @@ law wf_limits_capped:
   for m: Nat
   for +x: Nat
   {W.effective(W.Limits{c, m}, 1n+x) == W.Limits{wf_min(c, 1n+x), m} : W.Limits}
+
+# LAW wf_step_exact (WF): one semaphore event moves at most one unit: an
+# ask takes a unit while one is left (else the pool stays and the call
+# waits), a settle gives a taken unit back (with none taken the pool
+# stays)
+# EXCLUDES: a settle that gives nothing back (give(p) = p), an ask that
+#   takes nothing, a unit moved twice, taken and left swapped
+law wf_step_exact:
+  for e: W.Ev
+  for p: W.Pool
+  {W.step(e, p) == wf_step(e, p) : W.Pool}
+
+# LAW wf_run_exact (WF): the semaphore after any asks and settles, from
+# any pool, is the fold of wf_step over them, in order
+# EXCLUDES: a run that drops, repeats or reorders events, a run that
+#   leaves the pool as it was
+law wf_run_exact:
+  for es: List<&2, W.Ev>
+  for p: W.Pool
+  {W.run(es, p) == wf_run(es, p) : W.Pool}
+
+# LAW wf_pool_exact (WF): a run starts with every unit left and none
+# taken, and a pool's size is its taken and left units together
+# EXCLUDES: a run that starts with units taken, a size that counts one
+#   counter only, or a constant
+law wf_pool_exact:
+  for cap: Nat
+  for p: W.Pool
+  {W.pool(cap) == W.Pool{0n, cap} : W.Pool} & {W.size(p) == wf_units(p) : Nat}
+
+# LAW wf_spawns_exact (WF): n spawn attempts take one unit each while
+# any is left: the smaller of n and the units left move to taken
+# EXCLUDES: spawns(n, p) = p, a spawn that takes no budget or two
+#   units, a spawn past the budget, taken and left swapped
+law wf_spawns_exact:
+  for n: Nat
+  for p: W.Pool
+  {W.spawns(n, p) == wf_spawns(n, p) : W.Pool}
+
+# LAW wf_resume_exact (WF): a key is cached exactly when the earlier run
+# finished it; one call of a resumed run spawns none for a cached key and
+# one for another; a resumed run spawns one agent per uncached key
+# EXCLUDES: member = False (a cached key spawned again, which leaves
+#   wf_cached_key_spawns_nothing vacuous), member = True, a cost of 1 for
+#   a cached key, a resume that counts every key, none, or a key twice
+law wf_resume_exact:
+  for +k: Nat
+  for +cache: List<&2, Nat>
+  for keys: List<&2, Nat>
+  {W.member(k, cache) == wf_cached(k, cache) : Bool} & {W.cost(k, cache) == wf_cost(k, cache) : Nat} & {W.resumed(cache, keys) == wf_resumed(cache, keys) : Nat}
+
+# LAW wf_results_exact (WF): an answered agent gives its answer, a failed
+# one null, and `parallel` and `pipeline` give every item's result in
+# item order
+# EXCLUDES: result(Answer{n}) = None (every agent read as failed), an
+#   answer changed, results dropped, added or reordered
+law wf_results_exact:
+  for o: W.Out
+  for os: List<&2, W.Out>
+  {W.result(o) == wf_result(o) : Maybe<&2, Nat>} & {W.results(os) == wf_results(os) : List<&2, Maybe<&2, Nat>>}
+
+# LAW wf_cat_exact (WF): the joins wf_failure_spares_siblings reads put
+# the first items, then the second, each kept
+# EXCLUDES: cat(xs, ys) = ys with rcat(xs, ys) = ys (siblings before
+#   the failed agent never checked), items dropped or reordered
+law wf_cat_exact:
+  for xs: List<&2, W.Out>
+  for ys: List<&2, W.Out>
+  for rs: List<&2, Maybe<&2, Nat>>
+  for ss: List<&2, Maybe<&2, Nat>>
+  {W.cat(xs, ys) == List.append(&2, W.Out, xs, ys) : List<&2, W.Out>} & {W.rcat(rs, ss) == List.append(&2, Maybe<&2, Nat>, rs, ss) : List<&2, Maybe<&2, Nat>>}
 
 # The wire codec of bend/ffi_workflow.bend (grammar: that file's header,
 # crates/eukhe-bend/WIRE.md). R1: every request and reply reads back; R2:

@@ -93,6 +93,141 @@ def pw.found(rs: List<&2, W.Row>, +k: Nat, +i: Nat) -> {W.found(rs, k, i) == pw.
       %Equal.sym(Bool, W.serves(s), Workflow.wf_serves(s), pw.serves(s)) : {W.found.at(Bool.and(Nat.is_eq(key, k), _), i, W.found(rest, k, 1n+i)) == pw.off(i, Workflow.wf_first(W.Row{key, s} <> rest, k)) : Maybe<&2, Nat>}
       pw.found_at(Bool.and(Nat.is_eq(key, k), Workflow.wf_serves(s)), i, W.found(rest, k, 1n+i), Workflow.wf_first(rest, k), pw.found(rest, k, 1n+i))
 
+# one event of the model is the spec's step
+def pw.step_exact(e: W.Ev, p: W.Pool) -> {W.step(e, p) == Workflow.wf_step(e, p) : W.Pool}:
+  match e:
+    case W.Ask{}:
+      match p:
+        case W.Pool{t, l}:
+          match l:
+            case 0n:
+              {==}
+            case 1n+m:
+              {==}
+    case W.Settle{}:
+      match p:
+        case W.Pool{t, l}:
+          match t:
+            case 0n:
+              {==}
+            case 1n+s:
+              {==}
+
+# the model's run is the fold of the spec's step
+def pw.run_exact(es: List<&2, W.Ev>, +p: W.Pool) -> {W.run(es, p) == Workflow.wf_run(es, p) : W.Pool}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> rest:
+      %pw.step_exact(e, p) : {W.run(rest, W.step(e, p)) == Workflow.wf_run(rest, _) : W.Pool}
+      pw.run_exact(rest, W.step(e, p))
+
+# from a spent budget the spec's spawns leave the pool
+def pw.spawns_spent(m: Nat, -t: Nat) -> {Workflow.wf_spawns(m, W.Pool{t, 0n}) == W.Pool{t, 0n} : W.Pool}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+x:
+      {==}
+
+# the model's size is the spec's units
+def pw.size_exact(p: W.Pool) -> {W.size(p) == Workflow.wf_units(p) : Nat}:
+  match p:
+    case W.Pool{t, l}:
+      {==}
+
+# the model's spawns are the spec's
+def pw.spawns_exact(+n: Nat, p: W.Pool) -> {W.spawns(n, p) == Workflow.wf_spawns(n, p) : W.Pool}:
+  match n:
+    case 0n:
+      match p:
+        case W.Pool{t, l}:
+          match l:
+            case 0n:
+              {==}
+            case 1n+k:
+              {==}
+    case 1n+m:
+      match p:
+        case W.Pool{+t, +l}:
+          match l:
+            case 0n:
+              Equal.trans(W.Pool, W.spawns(m, W.Pool{t, 0n}), Workflow.wf_spawns(m, W.Pool{t, 0n}), W.Pool{t, 0n}, pw.spawns_exact(m, W.Pool{t, 0n}), pw.spawns_spent(m, t))
+            case 1n+k:
+              Equal.trans(W.Pool, W.spawns(m, W.Pool{1n+t, k}), Workflow.wf_spawns(m, W.Pool{1n+t, k}), W.Pool{1n+Nat.add(Workflow.wf_min(m, k), t), Nat.sub(k, m)}, pw.spawns_exact(m, W.Pool{1n+t, k}), Equal.cong(Nat, W.Pool, x => W.Pool{x, Nat.sub(k, m)}, Nat.add(Workflow.wf_min(m, k), 1n+t), 1n+Nat.add(Workflow.wf_min(m, k), t), Equal.sym(Nat, 1n+Nat.add(Workflow.wf_min(m, k), t), Nat.add(Workflow.wf_min(m, k), 1n+t), pw.add_succ(Workflow.wf_min(m, k), t))))
+
+# the model's cache lookup is the spec's
+def pw.member(+k: Nat, cache: List<&2, Nat>) -> {W.member(k, cache) == Workflow.wf_cached(k, cache) : Bool}:
+  match cache:
+    case Nil{}:
+      {==}
+    case +c <> +rest:
+      %pw.eq_comm(k, c) : {Bool.or(Nat.is_eq(k, c), W.member(k, rest)) == Bool.or(_, Workflow.wf_cached(k, rest)) : Bool}
+      %pw.member(k, rest) : {Bool.or(Nat.is_eq(k, c), W.member(k, rest)) == Bool.or(Nat.is_eq(k, c), _) : Bool}
+      {==}
+
+def pw.cost_of(h: Bool) -> {W.cost.go(h) == Workflow.wf_cost.of(h) : Nat}:
+  match h:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the model's cost of one call is the spec's
+def pw.cost(+k: Nat, +cache: List<&2, Nat>) -> {W.cost(k, cache) == Workflow.wf_cost(k, cache) : Nat}:
+  %pw.member(k, cache) : {W.cost.go(W.member(k, cache)) == Workflow.wf_cost.of(_) : Nat}
+  pw.cost_of(W.member(k, cache))
+
+def pw.resumed_one(h: Bool, -n: Nat) -> {Nat.add(W.cost.go(h), n) == Workflow.wf_resumed.one(h, n) : Nat}:
+  match h:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the model's count of a resume's spawns is the spec's
+def pw.resumed(+cache: List<&2, Nat>, keys: List<&2, Nat>) -> {W.resumed(cache, keys) == Workflow.wf_resumed(cache, keys) : Nat}:
+  match keys:
+    case Nil{}:
+      {==}
+    case +k <> +rest:
+      %pw.resumed(cache, rest) : {Nat.add(W.cost(k, cache), W.resumed(cache, rest)) == Workflow.wf_resumed.one(Workflow.wf_cached(k, cache), _) : Nat}
+      %pw.member(k, cache) : {Nat.add(W.cost(k, cache), W.resumed(cache, rest)) == Workflow.wf_resumed.one(_, W.resumed(cache, rest)) : Nat}
+      pw.resumed_one(W.member(k, cache), W.resumed(cache, rest))
+
+def pw.result(o: W.Out) -> {W.result(o) == Workflow.wf_result(o) : Maybe<&2, Nat>}:
+  match o:
+    case W.Answer{n}:
+      {==}
+    case W.Failed{}:
+      {==}
+
+# the model's results are the spec's
+def pw.results(os: List<&2, W.Out>) -> {W.results(os) == Workflow.wf_results(os) : List<&2, Maybe<&2, Nat>>}:
+  match os:
+    case Nil{}:
+      {==}
+    case +o <> +rest:
+      %pw.results(rest) : {W.result(o) <> W.results(rest) == Workflow.wf_result(o) <> _ : List<&2, Maybe<&2, Nat>>}
+      %pw.result(o) : {W.result(o) <> W.results(rest) == _ <> W.results(rest) : List<&2, Maybe<&2, Nat>>}
+      {==}
+
+def pw.cat(xs: List<&2, W.Out>, -ys: List<&2, W.Out>) -> {W.cat(xs, ys) == List.append(&2, W.Out, xs, ys) : List<&2, W.Out>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %pw.cat(rest, ys) : {x <> W.cat(rest, ys) == x <> _ : List<&2, W.Out>}
+      {==}
+
+def pw.rcat(xs: List<&2, Maybe<&2, Nat>>, -ys: List<&2, Maybe<&2, Nat>>) -> {W.rcat(xs, ys) == List.append(&2, Maybe<&2, Nat>, xs, ys) : List<&2, Maybe<&2, Nat>>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %pw.rcat(rest, ys) : {x <> W.rcat(rest, ys) == x <> _ : List<&2, Maybe<&2, Nat>>}
+      {==}
+
 # ---- workflow_wire ----
 
 # Place after PROOF.bend section wire: the proofs use its Laws.wire_*
