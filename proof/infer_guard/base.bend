@@ -125,3 +125,165 @@ def gb.fires(+s: List<&2, Nat>, +k: Nat, n: Nat) -> {gb.some(M.shortest.go(s, k,
     case 1n++q:
       %gb.fires(s, k, q) : {gb.some(M.shortest.pick(M.shortest.go(s, k, q), Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q)) == Bool.or(Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), _) : Bool}
       gb.some_pick(M.shortest.go(s, k, q), Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q)
+
+# Fewer chunks than the window: no period fires
+# ---------------------------------------------
+
+def gb.if_false(b: Bool, G: Type) -> Type:
+  match b:
+    case False{}:
+      G
+    case True{}:
+      Unit
+
+def gb.if_true(b: Bool, G: Type) -> Type:
+  match b:
+    case True{}:
+      G
+    case False{}:
+      Unit
+
+# a True that is False proves anything
+def gb.absurd_tf(-G: Type, e: {True{} == False{} : Bool}) -> G:
+  %e : gb.if_false(_, G)
+  Unit{}
+
+# a False that is True proves anything
+def gb.absurd_ft(-G: Type, e: {False{} == True{} : Bool}) -> G:
+  %e : gb.if_true(_, G)
+  Unit{}
+
+def gb.and_false(b: Bool) -> {Bool.and(b, False{}) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# m items never agree with a list that holds fewer than m
+def gb.agree_short(m: Nat, a: List<&2, Nat>, b: List<&2, Nat>, h: {M.covers(m, b) == False{} : Bool}) -> {InferGuard.agree(m, a, b) == False{} : Bool}:
+  match m:
+    case 0n:
+      gb.absurd_tf({InferGuard.agree(0n, a, b) == False{} : Bool}, h)
+    case 1n+j:
+      match a:
+        case Nil{}:
+          {==}
+        case x <> ra:
+          match b:
+            case Nil{}:
+              {==}
+            case y <> rb:
+              %Equal.sym(Bool, InferGuard.agree(j, ra, rb), False{}, gb.agree_short(j, ra, rb, h)) : {Bool.and(Nat.is_eq(x, y), _) == False{} : Bool}
+              gb.and_false(Nat.is_eq(x, y))
+
+# k - j items, j < k, are more than no item
+def gb.short_nil(j: Nat, k: Nat, h: {Nat.is_lt(j, k) == True{} : Bool}) -> {M.covers(Nat.sub(k, j), Nil{}) == False{} : Bool}:
+  match j k:
+    case 0n 0n:
+      gb.absurd_ft({M.covers(0n, Nil{}) == False{} : Bool}, h)
+    case 0n 1n+k1:
+      {==}
+    case 1n+j1 0n:
+      gb.absurd_ft({M.covers(0n, Nil{}) == False{} : Bool}, h)
+    case 1n+j1 1n+k1:
+      gb.short_nil(j1, k1, h)
+
+# s holds fewer than k chunks: what follows its first p, p < k, holds
+# fewer than k - p
+def gb.skip_short(p: Nat, k: Nat, s: List<&2, Nat>, h: {M.covers(k, s) == False{} : Bool}, hp: {Nat.is_lt(p, k) == True{} : Bool}) -> {M.covers(Nat.sub(k, p), InferGuard.skip(p, s)) == False{} : Bool}:
+  match p k s:
+    case 0n 0n _:
+      gb.absurd_ft({M.covers(0n, InferGuard.skip(0n, s)) == False{} : Bool}, hp)
+    case 0n 1n+k1 _:
+      h
+    case 1n+p1 0n _:
+      gb.absurd_ft({M.covers(0n, InferGuard.skip(1n+p1, s)) == False{} : Bool}, hp)
+    case 1n+p1 1n+k1 Nil{}:
+      gb.short_nil(p1, k1, hp)
+    case 1n+p1 1n+k1 y <> rest:
+      gb.skip_short(p1, k1, rest, h, hp)
+
+def gb.lt_pred(q: Nat, k: Nat, h: {Nat.is_lt(1n+q, k) == True{} : Bool}) -> {Nat.is_lt(q, k) == True{} : Bool}:
+  match q k:
+    case 0n 0n:
+      gb.absurd_ft({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
+    case 0n 1n+k1:
+      {==}
+    case 1n+q1 0n:
+      gb.absurd_ft({Nat.is_lt(1n+q1, 0n) == True{} : Bool}, h)
+    case 1n+q1 1n+k1:
+      gb.lt_pred(q1, k1, h)
+
+def gb.lt_up(a: Nat, b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_lt(a, 1n+b) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      gb.absurd_ft({Nat.is_lt(0n, 1n) == True{} : Bool}, h)
+    case 0n 1n+b1:
+      {==}
+    case 1n+a1 0n:
+      gb.absurd_ft({Nat.is_lt(1n+a1, 1n) == True{} : Bool}, h)
+    case 1n+a1 1n+b1:
+      gb.lt_up(a1, b1, h)
+
+# the period 1+q, 1+q < k, never fires on fewer than k chunks
+def gb.test_false(+s: List<&2, Nat>, +q: Nat, +k: Nat, +h: {M.covers(k, s) == False{} : Bool}, +hq: {Nat.is_lt(1n+q, k) == True{} : Bool}) -> {Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)) == False{} : Bool}:
+  Equal.trans(Bool, Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), InferGuard.agree(Nat.sub(k, 1n+q), s, InferGuard.skip(1n+q, s)), False{},
+    gb.test(s, q, Nat.sub(k, 1n+q)), gb.agree_short(Nat.sub(k, 1n+q), s, InferGuard.skip(1n+q, s), gb.skip_short(1n+q, k, s, h, hq)))
+
+# no period below k fires on fewer than k chunks
+def gb.none_go(+s: List<&2, Nat>, +k: Nat, n: Nat, +h: {M.covers(k, s) == False{} : Bool}, hn: {Nat.is_lt(n, k) == True{} : Bool}) -> {M.shortest.go(s, k, n) == None{} : Maybe<&2, Nat>}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++q:
+      +hq = hn
+      %Equal.sym(Maybe<&2, Nat>, M.shortest.go(s, k, q), None{}, gb.none_go(s, k, q, h, gb.lt_pred(q, k, hq))) : {M.shortest.pick(_, Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q) == None{} : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), False{}, gb.test_false(s, q, k, h, hq)) : {M.shortest.pick(None{}, _, q) == None{} : Maybe<&2, Nat>}
+      {==}
+
+# k/4 is below 1+k
+def gb.quarter_lt(+d: Nat) -> {Nat.is_lt(If.quarter(d), 1n+d) == True{} : Bool}:
+  match d:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n:
+      {==}
+    case 4n+e:
+      gb.lt_up(If.quarter(e), 3n+e, gb.lt_up(If.quarter(e), 2n+e, gb.lt_up(If.quarter(e), 1n+e, gb.quarter_lt(e))))
+
+# a window of at least 2 checks fewer periods than its chunks
+def gb.periods_lt(+j: Nat) -> {Nat.is_lt(If.periods(2n+j), 2n+j) == True{} : Bool}:
+  match j:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n+d:
+      gb.lt_up(If.quarter(d), 2n+d, gb.lt_up(If.quarter(d), 1n+d, gb.quarter_lt(d)))
+
+# chunks x <> seen fewer than the window: the periods' search finds none
+def gb.cover.none(+x: Nat, +seen: List<&2, Nat>, +k: Nat, +e: {M.covers(k, x <> seen) == False{} : Bool}) -> {M.shortest.go(x <> seen, k, If.periods(k)) == None{} : Maybe<&2, Nat>}:
+  match k:
+    case 0n:
+      gb.absurd_tf({M.shortest.go(x <> seen, 0n, If.periods(0n)) == None{} : Maybe<&2, Nat>}, e)
+    case 1n:
+      gb.absurd_tf({M.shortest.go(x <> seen, 1n, If.periods(1n)) == None{} : Maybe<&2, Nat>}, e)
+    case 2n+j:
+      gb.none_go(x <> seen, 2n+j, If.periods(2n+j), e, gb.periods_lt(j))
+
+def gb.cover.of(b: Bool, +x: Nat, +seen: List<&2, Nat>, +k: Nat, e: {M.covers(k, x <> seen) == b : Bool}) -> {M.shortest.of(b, x <> seen, k) == M.shortest.go(x <> seen, k, If.periods(k)) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Equal.sym(Maybe<&2, Nat>, M.shortest.go(x <> seen, k, If.periods(k)), None{}, gb.cover.none(x, seen, k, e))
+
+# the guard's search after a chunk is the periods' search: the gate on
+# the window's chunks changes no answer
+def gb.cover(+x: Nat, +seen: List<&2, Nat>, +k: Nat) -> {M.shortest(x <> seen, k) == M.shortest.go(x <> seen, k, If.periods(k)) : Maybe<&2, Nat>}:
+  gb.cover.of(M.covers(k, x <> seen), x, seen, k, {==})

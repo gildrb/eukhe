@@ -1894,6 +1894,8 @@ import ./proof/infer_guard/infer_guard_ffi_step.bend as PInferGuardFfiStep
 import ./proof/infer_guard/infer_guard_ffi_step_malformed_exact.bend as PInferGuardFfiStepMalformedExact
 import ./proof/infer_guard/infer_guard_ffi_ended.bend as PInferGuardFfiEnded
 import ./proof/infer_guard/infer_guard_ffi_shut.bend as PInferGuardFfiShut
+import ./proof/infer_guard/infer_guard_ffi_open_spec.bend as PInferGuardFfiOpenSpec
+import ./proof/infer_guard/infer_guard_ffi_step_spec.bend as PInferGuardFfiStepSpec
 import ./proof/infer_guard/infer_guard_ffi_example.bend as PInferGuardFfiExample
 import ./proof/infer_threshold/base.bend as LAInferThreshold
 import ./proof/infer_threshold/base/walk.bend as LAInferThresholdWalk
@@ -1905,6 +1907,7 @@ import ./proof/infer_threshold/infer_threshold_cut_within_target.bend as PInferT
 import ./proof/infer_threshold/infer_threshold_target_under.bend as PInferThresholdTargetUnder
 import ./proof/infer_threshold/infer_threshold_ffi_answers.bend as PInferThresholdFfiAnswers
 import ./proof/infer_threshold/infer_threshold_ffi_malformed_exact.bend as PInferThresholdFfiMalformedExact
+import ./proof/infer_threshold/infer_threshold_ffi_spec.bend as PInferThresholdFfiSpec
 import ./proof/infer_threshold/infer_threshold_ffi_example.bend as PInferThresholdFfiExample
 import ./proof/bound/base.bend as LABound
 import ./proof/bound/bound_entry_example.bend as PBoundEntryExample

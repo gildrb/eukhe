@@ -44,10 +44,33 @@ def shortest.go(+s: List<&2, Nat>, +k: Nat, n: Nat) -> Maybe<&2, Nat>:
     case 1n++q:
       shortest.pick(shortest.go(s, k, q), Nat.is_le(Nat.sub(k, 1n+q), If.cycle(s, q)), q)
 
+# s holds at least k chunks: walks at most k chunks of s, so it never
+# costs more than the chunks read
+def covers(k: Nat, s: List<&2, Nat>) -> Bool:
+  match k:
+    case 0n:
+      True{}
+    case 1n+j:
+      match s:
+        case Nil{}:
+          False{}
+        case x <> rest:
+          covers(j, rest)
+
+def shortest.of(full: Bool, +s: List<&2, Nat>, +k: Nat) -> Maybe<&2, Nat>:
+  match full:
+    case True{}:
+      shortest.go(s, k, If.periods(k))
+    case False{}:
+      None{}
+
 # the shortest period of a periodic window ending s (newest first), if
-# the guard cuts after s
+# the guard cuts after s. Fewer than k chunks (k at least 2) complete no
+# window, so the periods are checked only once s holds k chunks: the work
+# of a chunk never grows with k past the chunks read (a window of
+# 4294967295, Rust's largest, costs no more than the stream).
 def shortest(+s: List<&2, Nat>, +k: Nat) -> Maybe<&2, Nat>:
-  shortest.go(s, k, If.periods(k))
+  shortest.of(covers(k, s), s, k)
 
 def feed.of(m: Maybe<&2, Nat>, k: Nat, s: List<&2, Nat>, n: Nat) -> Next:
   match m:

@@ -1,0 +1,31 @@
+# a window at its largest, chunk ids at theirs: no window is complete, so
+# no period is checked (the work of a chunk stays within the chunks read)
+open {MAX},
+step {MAX},
+step {MAX},
+step 0,
+step {MAX},
+# Rust's largest window (u32)
+open {U32MAX},
+step {MAX},
+step {MAX},
+step 1,
+# a window of 4 cut by its fourth equal id, and a cut stream stays cut
+open 4,
+step {MAX},
+step {MAX},
+step {MAX},
+step {MAX},
+step 5,
+# a window of 1 cuts at the first chunk
+open 1,
+step {MAX},
+step {MAX},
+# a malformed chunk keeps the guard
+open 8,
+step {MAX},
+refuse-step {LONG},
+step {MAX},
+# a malformed window opens the refused state
+refuse-open {LONG},
+refuse-step 1,

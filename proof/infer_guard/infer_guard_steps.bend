@@ -34,7 +34,8 @@ def gst.go(xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat) -> {InferG
     case Nil{}:
       {==}
     case +x <> +rest:
-      gst.chunk(M.shortest(x <> seen, k), If.fires(x <> seen, k), rest, k, x, seen, n,
+      %Equal.sym(Maybe<&2, Nat>, M.shortest(x <> seen, k), M.shortest.go(x <> seen, k, If.periods(k)), LAGuard.gb.cover(x, seen, k)) : {InferGuard.drive(rest, M.feed.of(_, k, x <> seen, n)) == If.guard.go(x <> rest, k, seen, n, If.fires(x <> seen, k)) : If.Cut}
+      gst.chunk(M.shortest.go(x <> seen, k, If.periods(k)), If.fires(x <> seen, k), rest, k, x, seen, n,
         LAGuard.gb.fires(x <> seen, k, If.periods(k)), gst.go(rest, k, x <> seen, 1n+n))
 
 def InferGuard.infer_guard_steps(xs, k):
