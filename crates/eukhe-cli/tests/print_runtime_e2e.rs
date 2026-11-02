@@ -721,17 +721,19 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
 }
 
 // ---------------------------------------------------------------------------
-// The json event stream's TS parity surface (message_update, threshold
-// compaction; verified against the TS binary's print json stream over the
-// same scripted faux provider).
+// The json event stream's parity surface (message_update deltas: the omp
+// `printableEvent` shape; threshold compaction: verified against the TS
+// binary's print json stream over the same scripted faux provider).
 // ---------------------------------------------------------------------------
 
 /// The streaming deltas: pi-durable commits the in-flight partial at most
 /// every 100 ms (TS `streamResponse`'s throttle), so between the
 /// assistant's `message_start` (the first committed partial) and its
-/// `message_end`, each `message_update` carries the accumulated partial and
-/// the text appended since the previous frame; `partial` never rides the
-/// wire. A slow stream makes the throttle publish.
+/// `message_end`, each `message_update` carries only the change since the
+/// previous frame (omp `printableEvent`): never the accumulated partial,
+/// which would re-serialize the whole message per frame and grow the
+/// stream quadratically. The settled message rides `message_end` whole.
+/// A slow stream makes the throttle publish.
 #[test]
 fn print_mode_json_streams_the_message_update_deltas() {
     const ANSWER: &str = "a streamed answer that takes a while to arrive in many small pieces";
@@ -758,38 +760,44 @@ fn print_mode_json_streams_the_message_update_deltas() {
         .iter()
         .filter(|event| event["type"] == "message_update")
         .collect();
-    assert!(!updates.is_empty(), "the stream carries the deltas");
+    assert!(
+        updates
+            .iter()
+            .any(|update| update["assistantMessageEvent"]["type"] == "text_delta"),
+        "the stream carries the deltas: {updates:?}"
+    );
     let text = |event: &serde_json::Value| {
         event["message"]["content"][0]["text"]
             .as_str()
             .unwrap_or_default()
             .to_owned()
     };
-    // The deltas rebuild each frame's partial from the start's.
+    // The deltas extend the start's partial toward the settled answer.
     let mut rebuilt = text(&events[start_at]);
     for update in &updates {
-        assert_eq!(update["message"]["role"], "assistant");
-        assert!(update["assistantMessageEvent"].get("partial").is_none());
+        // The frame is the change alone, in the omp field order (`type`,
+        // `assistantMessageEvent`; the JSON map preserves insertion order,
+        // so this is the wire byte order).
+        let keys: Vec<&str> = update
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["type", "assistantMessageEvent"], "{update}");
         if update["assistantMessageEvent"]["type"] == "text_delta" {
             rebuilt.push_str(update["assistantMessageEvent"]["delta"].as_str().unwrap());
         }
-        assert_eq!(rebuilt, text(update));
         assert!(
             ANSWER.starts_with(&rebuilt),
             "a prefix of the answer: {rebuilt:?}"
         );
     }
+    assert!(
+        rebuilt.len() > text(&events[start_at]).len(),
+        "the deltas add text"
+    );
     assert_eq!(text(&events[end_at]), ANSWER);
-    // The event field order matches the TS stream (`MessageUpdateEvent`:
-    // type, message, assistantMessageEvent) -- the JSON map preserves
-    // insertion order, so this is the wire byte order.
-    let keys: Vec<&str> = updates[0]
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(keys, ["type", "message", "assistantMessageEvent"]);
 }
 
 /// The threshold compaction (pi-durable's pre-request check): a prompt whose

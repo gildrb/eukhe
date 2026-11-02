@@ -456,3 +456,94 @@ fn print_lease_outlives_runtime_writers_on_every_return_path() {
         );
     }
 }
+
+fn summary_message(summary: &str) -> eukhe_types::session::AgentMessage {
+    eukhe_types::session::AgentMessage::BranchSummary(eukhe_types::session::BranchSummaryMessage {
+        summary: summary.to_owned(),
+        from_id: "e1".to_owned(),
+        timestamp: 7,
+    })
+}
+
+fn line(event: &SessionEvent) -> serde_json::Value {
+    serde_json::from_str(&json_line(event).expect("serializes")).expect("one JSON line")
+}
+
+/// A json-mode `message_update` is its change alone (omp `printableEvent`):
+/// the accumulated partial never rides it, whatever its size.
+#[test]
+fn json_message_update_carries_only_the_change() {
+    let partial = summary_message(&"x".repeat(64 * 1024));
+    for (update, wire) in [
+        (StreamUpdate::Start, serde_json::json!({ "type": "start" })),
+        (
+            StreamUpdate::TextStart,
+            serde_json::json!({ "type": "text_start" }),
+        ),
+        (
+            StreamUpdate::TextDelta {
+                delta: "ab".to_owned(),
+            },
+            serde_json::json!({ "type": "text_delta", "delta": "ab" }),
+        ),
+        (
+            StreamUpdate::TextEnd,
+            serde_json::json!({ "type": "text_end" }),
+        ),
+        (
+            StreamUpdate::ThinkingStart,
+            serde_json::json!({ "type": "thinking_start" }),
+        ),
+        (
+            StreamUpdate::ThinkingDelta {
+                delta: "hm".to_owned(),
+            },
+            serde_json::json!({ "type": "thinking_delta", "delta": "hm" }),
+        ),
+        (
+            StreamUpdate::ThinkingEnd,
+            serde_json::json!({ "type": "thinking_end" }),
+        ),
+        (
+            StreamUpdate::ToolcallStart,
+            serde_json::json!({ "type": "toolcall_start" }),
+        ),
+        (
+            StreamUpdate::ToolcallDelta {
+                delta: "{\"a\"".to_owned(),
+            },
+            serde_json::json!({ "type": "toolcall_delta", "delta": "{\"a\"" }),
+        ),
+        (
+            StreamUpdate::ToolcallEnd,
+            serde_json::json!({ "type": "toolcall_end" }),
+        ),
+    ] {
+        let event = SessionEvent::MessageUpdate {
+            message: partial.clone(),
+            assistant_message_event: update,
+        };
+        assert_eq!(
+            json_line(&event).expect("serializes"),
+            serde_json::json!({ "type": "message_update", "assistantMessageEvent": wire })
+                .to_string()
+        );
+    }
+}
+
+/// A whole-message replacement's change is the message itself, so it keeps
+/// it; every other frame (the settled `message_end` included) is the
+/// session event's own form.
+#[test]
+fn json_message_replacement_and_end_carry_the_message() {
+    let message = summary_message("replaced");
+    let replaced = SessionEvent::MessageUpdate {
+        message: message.clone(),
+        assistant_message_event: StreamUpdate::Message,
+    };
+    assert_eq!(line(&replaced), serde_json::to_value(&replaced).unwrap());
+    assert_eq!(line(&replaced)["message"]["summary"], "replaced");
+    let end = SessionEvent::MessageEnd { message };
+    assert_eq!(line(&end), serde_json::to_value(&end).unwrap());
+    assert_eq!(line(&end)["message"]["summary"], "replaced");
+}

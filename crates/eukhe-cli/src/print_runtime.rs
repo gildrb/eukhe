@@ -20,6 +20,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
+use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
@@ -650,7 +651,8 @@ fn header_for(
 }
 
 /// The json mode's event stream: the main conversation's durable events in
-/// today's wire shapes (the daemon worker's translator), one line each.
+/// today's wire shapes (the daemon worker's translator), one line each,
+/// `message_update` reduced to its change ([`json_line`]).
 struct JsonEvents {
     stream: AgentEventStream,
     translator: Arc<Mutex<EventTranslator>>,
@@ -698,11 +700,51 @@ impl JsonEvents {
 }
 
 /// Print one session event as its JSON line.
-fn print_event(event: &eukhe_types::daemon::SessionEvent) {
-    match serde_json::to_string(event) {
+fn print_event(event: &SessionEvent) {
+    match json_line(event) {
         Ok(line) => println!("{line}"),
         Err(error) => eprintln!("a session event does not serialize: {error}"),
     }
+}
+
+/// One session event's json-mode line (omp `printableEvent`): a
+/// `message_update` carries only its change. The accumulated partial it
+/// holds would re-serialize the whole in-flight message per frame (a long
+/// turn's stream grows quadratically); the settled message follows whole
+/// in `message_end`. A whole-message replacement keeps its message: that
+/// message is its change.
+fn json_line(event: &SessionEvent) -> serde_json::Result<String> {
+    if let SessionEvent::MessageUpdate {
+        assistant_message_event: update,
+        ..
+    } = event
+    {
+        match update {
+            StreamUpdate::Start
+            | StreamUpdate::TextStart
+            | StreamUpdate::TextDelta { .. }
+            | StreamUpdate::TextEnd
+            | StreamUpdate::ThinkingStart
+            | StreamUpdate::ThinkingDelta { .. }
+            | StreamUpdate::ThinkingEnd
+            | StreamUpdate::ToolcallStart
+            | StreamUpdate::ToolcallDelta { .. }
+            | StreamUpdate::ToolcallEnd => {
+                return serde_json::to_string(&UpdateLine {
+                    assistant_message_event: update,
+                });
+            }
+            StreamUpdate::Message => {}
+        }
+    }
+    serde_json::to_string(event)
+}
+
+/// A json-mode `message_update`: `type`, then the change.
+#[derive(serde::Serialize)]
+#[serde(tag = "type", rename = "message_update", rename_all = "camelCase")]
+struct UpdateLine<'a> {
+    assistant_message_event: &'a StreamUpdate,
 }
 
 #[cfg(test)]
