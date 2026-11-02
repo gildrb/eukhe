@@ -447,7 +447,7 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
           {==}
         case S.Nothing{}:
           {==}
-    case 1n++U:
+    case 1n++bud:
       match w:
         case S.Have{r}:
           {==}
@@ -456,7 +456,7 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
         case S.Want{+s}:
           match F:
             case 0n:
-              LU.shu.fits0({S.seek(1n+U, S.Want{s}, ps, b, K, e) == shk.ans(0n, S.Want{s}, ps, b, K, e) : Maybe<&2, S.St>}, s, Nil{}, h)
+              LU.shu.fits0({S.seek(1n+bud, S.Want{s}, ps, b, K, e) == shk.ans(0n, S.Want{s}, ps, b, K, e) : Maybe<&2, S.St>}, s, Nil{}, h)
             case 1n++g:
               match ps:
                 case Nil{}:
@@ -464,15 +464,15 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                     case S.FEnd{}:
                       shk.done(e, s)
                     case S.FSeq{+t, +c, +k}:
-                      shk.seek(U, S.Want{s}, 1n+g, t, c, k, e, h)
+                      shk.seek(bud, S.Want{s}, 1n+g, t, c, k, e, h)
                     case S.FCap{+n, +at, +from, +k}:
-                      +M = {S.seek(U, S.Want{S.set(s, n, at, from)}, Nil{}, b, k, e) : Maybe<&2, S.St>}
-                      +ih = {shk.seek(U, S.Want{S.set(s, n, at, from)}, 1n+g, Nil{}, b, k, e, shk.fits_set(1n+g, s, n, at, from, h)) : {M == shk.ans(1n+g, S.Want{S.set(s, n, at, from)}, Nil{}, b, k, e) : Maybe<&2, S.St>}}
+                      +M = {S.seek(bud, S.Want{S.set(s, n, at, from)}, Nil{}, b, k, e) : Maybe<&2, S.St>}
+                      +ih = {shk.seek(bud, S.Want{S.set(s, n, at, from)}, 1n+g, Nil{}, b, k, e, shk.fits_set(1n+g, s, n, at, from, h)) : {M == shk.ans(1n+g, S.Want{S.set(s, n, at, from)}, Nil{}, b, k, e) : Maybe<&2, S.St>}}
                       Equal.trans(Maybe<&2, S.St>, M, Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, k, [S.set(s, n, at, from)]))), Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, k, Shape.sp_cap([s], n, at, from)))), ih, Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, k, z))), [S.set(s, n, at, from)], Shape.sp_cap([s], n, at, from), shk.set1(s, n, at, from)))
                     case S.FRound{+q, +c, +l, +k}:
-                      +M = {S.seek(U, S.want(S.moved(l, s)), S.many.next(q), c, k, e) : Maybe<&2, S.St>}
+                      +M = {S.seek(bud, S.want(S.moved(l, s)), S.many.next(q), c, k, e) : Maybe<&2, S.St>}
                       +hm = {shk.moved1(l, s) : {S.m2l(S.moved(l, s)) == Shape.sp_moved(l, [s]) : List<&2, S.St>}}
-                      shk.via(M, 1n+g, S.moved(l, s), S.many.next(q), c, k, e, Shape.sp_moved(l, [s]), shk.seek(U, S.want(S.moved(l, s)), 1n+g, S.many.next(q), c, k, e, shk.fits_m(1n+g, S.moved(l, s), Shape.sp_moved(l, [s]), hm, LU.shu.moved(1n+g, l, [s], h))), hm)
+                      shk.via(M, 1n+g, S.moved(l, s), S.many.next(q), c, k, e, Shape.sp_moved(l, [s]), shk.seek(bud, S.want(S.moved(l, s)), 1n+g, S.many.next(q), c, k, e, shk.fits_m(1n+g, S.moved(l, s), Shape.sp_moved(l, [s]), hm, LU.shu.moved(1n+g, l, [s], h))), hm)
                 case q <> +t:
                   match q:
                     case S.Lit{+u}:
@@ -480,49 +480,49 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +m = {S.lit(u, False{}, s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_eat(u, False{}, s) : List<&2, S.St>}
                       +hm = {LL.shl.lit(u, False{}, s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Lit{u} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.eat(u, False{}, s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Lit{u} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.eat(u, False{}, s, 1n+g, hs))), hm)
                     case S.Fold{+u}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +m = {S.lit(u, True{}, s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_eat(u, True{}, s) : List<&2, S.St>}
                       +hm = {LL.shl.lit(u, True{}, s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Fold{u} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.eat(u, True{}, s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Fold{u} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.eat(u, True{}, s, 1n+g, hs))), hm)
                     case S.Same{+k}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +m = {S.same(k, s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_same(k, s) : List<&2, S.St>}
                       +hm = {LL.shl.same_k(k, s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Same{k} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.same(k, s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Same{k} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.same(k, s, 1n+g, hs))), hm)
                     case S.Bound{}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +m = {S.bound(s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_bound(s) : List<&2, S.St>}
                       +hm = {LL.shl.bound(s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Bound{} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.bound(s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Bound{} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.bound(s, 1n+g, hs))), hm)
                     case S.Begin{}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +m = {S.begin(s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_begin(s) : List<&2, S.St>}
                       +hm = {LL.shl.begin(s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Begin{} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.begin(s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.Begin{} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.begin(s, 1n+g, hs))), hm)
                     case S.End{}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +m = {S.end(s) : Maybe<&2, S.St>}
                       +P = {Shape.sp_end(s) : List<&2, S.St>}
                       +hm = {LL.shl.end(s) : {S.m2l(m) == P : List<&2, S.St>}}
-                      shk.leaf(S.seek(U, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.End{} <> t, shk.seek(U, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.end(s, 1n+g, hs))), hm)
+                      shk.leaf(S.seek(bud, S.want(m), t, b, K, e), g, m, t, b, K, e, P, S.End{} <> t, shk.seek(bud, S.want(m), 1n+g, t, b, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.end(s, 1n+g, hs))), hm)
                     case S.Run{+c, +min, +max}:
                       +hs = {LU.shu.head(1n+g, s, Nil{}, h) : {Nat.is_lt(Shape.sp_left(s), 1n+g) == True{} : Bool}}
                       +B = {S.val(b) : Nat}
-                      +st = {S.run.step(c, max, s) : Maybe<&2, S.St>}
+                      +nxt = {S.run.step(c, max, s) : Maybe<&2, S.St>}
                       +nx = {S.run.next(min, max, c, t, S.Run{c, min, max} <> t) : List<&2, S.Piece>}
                       +R2 = {S.Run{c, Shape.sp_dec(min), Shape.sp_less(max)} <> t : List<&2, S.Piece>}
-                      +X = {S.seek(U, S.want(st), nx, b, K, e) : Maybe<&2, S.St>}
-                      +M = {S.seek(U, S.prefer(X, S.zero(min, s)), t, b, K, e) : Maybe<&2, S.St>}
+                      +X = {S.seek(bud, S.want(nxt), nx, b, K, e) : Maybe<&2, S.St>}
+                      +M = {S.seek(bud, S.prefer(X, S.zero(min, s)), t, b, K, e) : Maybe<&2, S.St>}
                       +MR = {shk.run_more(c, min, max, s) : List<&2, S.St>}
-                      +ihX = {shk.seek(U, S.want(st), 1n+g, nx, b, K, e, shk.fits_step(1n+g, c, max, s, hs)) : {X == shk.ans(1n+g, S.want(st), nx, b, K, e) : Maybe<&2, S.St>}}
-                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.ans(1n+g, S.want(st), nx, b, K, e), shk.G(1n+g, K, e, t, B, MR), ihX, Equal.trans(Maybe<&2, S.St>, shk.ans(1n+g, S.want(st), nx, b, K, e), shk.G(1n+g, K, e, nx, B, S.m2l(st)), shk.G(1n+g, K, e, t, B, MR), shk.ans_want(1n+g, st, nx, b, K, e), Equal.trans(Maybe<&2, S.St>, shk.G(1n+g, K, e, nx, B, S.m2l(st)), shk.G(1n+g, K, e, R2, B, S.m2l(st)), shk.G(1n+g, K, e, t, B, MR), Equal.cong(List<&2, S.Piece>, Maybe<&2, S.St>, z => shk.G(1n+g, K, e, z, B, S.m2l(st)), nx, R2, shk.run_next(c, min, max, t)), shk.run_step(g, K, e, c, min, max, t, B, s)))) : {X == shk.G(1n+g, K, e, t, B, MR) : Maybe<&2, S.St>}}
-                      +ihO = {shk.seek(U, S.prefer(X, S.zero(min, s)), 1n+g, t, b, K, e, shk.fits_prefer(1n+g, X, S.zero(min, s), shk.fits_zero(1n+g, min, s, h))) : {M == shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, b, K, e) : Maybe<&2, S.St>}}
+                      +ihX = {shk.seek(bud, S.want(nxt), 1n+g, nx, b, K, e, shk.fits_step(1n+g, c, max, s, hs)) : {X == shk.ans(1n+g, S.want(nxt), nx, b, K, e) : Maybe<&2, S.St>}}
+                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.ans(1n+g, S.want(nxt), nx, b, K, e), shk.G(1n+g, K, e, t, B, MR), ihX, Equal.trans(Maybe<&2, S.St>, shk.ans(1n+g, S.want(nxt), nx, b, K, e), shk.G(1n+g, K, e, nx, B, S.m2l(nxt)), shk.G(1n+g, K, e, t, B, MR), shk.ans_want(1n+g, nxt, nx, b, K, e), Equal.trans(Maybe<&2, S.St>, shk.G(1n+g, K, e, nx, B, S.m2l(nxt)), shk.G(1n+g, K, e, R2, B, S.m2l(nxt)), shk.G(1n+g, K, e, t, B, MR), Equal.cong(List<&2, S.Piece>, Maybe<&2, S.St>, z => shk.G(1n+g, K, e, z, B, S.m2l(nxt)), nx, R2, shk.run_next(c, min, max, t)), shk.run_step(g, K, e, c, min, max, t, B, s)))) : {X == shk.G(1n+g, K, e, t, B, MR) : Maybe<&2, S.St>}}
+                      +ihO = {shk.seek(bud, S.prefer(X, S.zero(min, s)), 1n+g, t, b, K, e, shk.fits_prefer(1n+g, X, S.zero(min, s), shk.fits_zero(1n+g, min, s, h))) : {M == shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, b, K, e) : Maybe<&2, S.St>}}
                       +hO = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, b, K, e), shk.or(X, shk.G(1n+g, K, e, t, B, Shape.sp_zero(min, s))), ihO, Equal.trans(Maybe<&2, S.St>, shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, b, K, e), shk.or(X, shk.G(1n+g, K, e, t, B, S.m2l(S.zero(min, s)))), shk.or(X, shk.G(1n+g, K, e, t, B, Shape.sp_zero(min, s))), shk.ans_prefer(1n+g, X, S.zero(min, s), t, b, K, e), Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => shk.or(X, shk.G(1n+g, K, e, t, B, z)), S.m2l(S.zero(min, s)), Shape.sp_zero(min, s), LL.shl.zero(min, s)))) : {M == shk.or(X, shk.G(1n+g, K, e, t, B, Shape.sp_zero(min, s))) : Maybe<&2, S.St>}}
                       +h2 = {shk.or2(M, 1n+g, K, e, t, B, X, MR, Shape.sp_zero(min, s), hO, hX) : {M == shk.G(1n+g, K, e, t, B, List.append(&2, S.St, MR, Shape.sp_zero(min, s))) : Maybe<&2, S.St>}}
                       +h3 = {Equal.trans(Maybe<&2, S.St>, M, shk.G(1n+g, K, e, t, B, List.append(&2, S.St, MR, Shape.sp_zero(min, s))), shk.G(1n+g, K, e, t, B, Shape.sp_run(c, min, max, s)), h2, Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => shk.G(1n+g, K, e, t, B, z), List.append(&2, S.St, MR, Shape.sp_zero(min, s)), Shape.sp_run(c, min, max, s), Equal.sym(List<&2, S.St>, Shape.sp_run(c, min, max, s), List.append(&2, S.St, MR, Shape.sp_zero(min, s)), shk.run_split(c, min, max, s)))) : {M == shk.G(1n+g, K, e, t, B, Shape.sp_run(c, min, max, s)) : Maybe<&2, S.St>}}
@@ -535,8 +535,8 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +CP = {Shape.sp_cap(R, B, S.place(s), S.after(s)) : List<&2, S.St>}
                       +CS = {Shape.sp_cap(R, B, Shape.sp_pos(s), Shape.sp_text(s)) : List<&2, S.St>}
                       +B2 = {1n+Nat.add(B, Shape.sp_ncaps(i)) : Nat}
-                      +M = {S.seek(U, S.Want{s}, i, S.BAt{1n+B}, S.FCap{B, S.place(s), S.after(s), P0}, e) : Maybe<&2, S.St>}
-                      +ih = {shk.seek(U, S.Want{s}, 1n+g, i, S.BAt{1n+B}, S.FCap{B, S.place(s), S.after(s), P0}, e, h) : {M == Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, P0, CP))) : Maybe<&2, S.St>}}
+                      +M = {S.seek(bud, S.Want{s}, i, S.BAt{1n+B}, S.FCap{B, S.place(s), S.after(s), P0}, e) : Maybe<&2, S.St>}
+                      +ih = {shk.seek(bud, S.Want{s}, 1n+g, i, S.BAt{1n+B}, S.FCap{B, S.place(s), S.after(s), P0}, e, h) : {M == Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, P0, CP))) : Maybe<&2, S.St>}}
                       +h1 = {Equal.trans(Maybe<&2, S.St>, M, Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, P0, CP))), shk.G(1n+g, K, e, t, S.val(V), CP), ih, Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => Shape.sp_head(Shape.sp_keep(e, z)), shk.kd(1n+g, P0, CP), shk.kd(1n+g, K, Shape.sp_reads(1n+g, t, CP, S.val(V))), shk.push(g, t, V, K, CP))) : {M == shk.G(1n+g, K, e, t, S.val(V), CP) : Maybe<&2, S.St>}}
                       +h2 = {shk.G_base(1n+g, K, e, t, S.val(V), B2, CP, Equal.cong(Nat, Nat, z => 1n+z, Nat.add(B, S.ncaps(i)), Nat.add(B, Shape.sp_ncaps(i)), shk.ncaps(B, i))) : {shk.G(1n+g, K, e, t, S.val(V), CP) == shk.G(1n+g, K, e, t, B2, CP) : Maybe<&2, S.St>}}
                       +h3 = {Equal.trans(List<&2, S.St>, CP, Shape.sp_cap(R, B, Shape.sp_pos(s), S.after(s)), CS, Equal.cong(Nat, List<&2, S.St>, z => Shape.sp_cap(R, B, z, S.after(s)), S.place(s), Shape.sp_pos(s), LL.shl.place(s)), Equal.cong(String, List<&2, S.St>, z => Shape.sp_cap(R, B, Shape.sp_pos(s), z), S.after(s), Shape.sp_text(s), LL.shl.after(s))) : {CP == CS : List<&2, S.St>}}
@@ -545,10 +545,10 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +B = {S.val(b) : Nat}
                       +c = {S.BAfter{b, i} : S.Base}
                       +R = {Shape.sp_reads(1n+g, i, [s], B) : List<&2, S.St>}
-                      +X = {S.seek(U, S.Want{s}, i, b, S.push(t, c, K), e) : Maybe<&2, S.St>}
-                      +M = {S.seek(U, S.prefer(X, Some{s}), t, c, K, e) : Maybe<&2, S.St>}
-                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.G(1n+g, S.push(t, c, K), e, i, B, [s]), shk.G(1n+g, K, e, t, S.val(c), R), shk.seek(U, S.Want{s}, 1n+g, i, b, S.push(t, c, K), e, h), shk.G_push(g, t, c, K, e, i, B, [s])) : {X == shk.G(1n+g, K, e, t, S.val(c), R) : Maybe<&2, S.St>}}
-                      +hO = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, Some{s}), t, c, K, e), shk.or(X, shk.G(1n+g, K, e, t, S.val(c), [s])), shk.seek(U, S.prefer(X, Some{s}), 1n+g, t, c, K, e, shk.fits_prefer(1n+g, X, Some{s}, h)), shk.ans_prefer(1n+g, X, Some{s}, t, c, K, e)) : {M == shk.or(X, shk.G(1n+g, K, e, t, S.val(c), [s])) : Maybe<&2, S.St>}}
+                      +X = {S.seek(bud, S.Want{s}, i, b, S.push(t, c, K), e) : Maybe<&2, S.St>}
+                      +M = {S.seek(bud, S.prefer(X, Some{s}), t, c, K, e) : Maybe<&2, S.St>}
+                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.G(1n+g, S.push(t, c, K), e, i, B, [s]), shk.G(1n+g, K, e, t, S.val(c), R), shk.seek(bud, S.Want{s}, 1n+g, i, b, S.push(t, c, K), e, h), shk.G_push(g, t, c, K, e, i, B, [s])) : {X == shk.G(1n+g, K, e, t, S.val(c), R) : Maybe<&2, S.St>}}
+                      +hO = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, Some{s}), t, c, K, e), shk.or(X, shk.G(1n+g, K, e, t, S.val(c), [s])), shk.seek(bud, S.prefer(X, Some{s}), 1n+g, t, c, K, e, shk.fits_prefer(1n+g, X, Some{s}, h)), shk.ans_prefer(1n+g, X, Some{s}, t, c, K, e)) : {M == shk.or(X, shk.G(1n+g, K, e, t, S.val(c), [s])) : Maybe<&2, S.St>}}
                       +h2 = {shk.or2(M, 1n+g, K, e, t, S.val(c), X, R, [s], hO, hX) : {M == shk.G(1n+g, K, e, t, S.val(c), List.append(&2, S.St, R, [s])) : Maybe<&2, S.St>}}
                       shk.fin(M, g, K, e, t, Nat.add(B, Shape.sp_ncaps(i)), List.append(&2, S.St, R, [s]), S.Opt{i} <> t, B, Equal.trans(Maybe<&2, S.St>, M, shk.G(1n+g, K, e, t, S.val(c), List.append(&2, S.St, R, [s])), shk.G(1n+g, K, e, t, Nat.add(B, Shape.sp_ncaps(i)), List.append(&2, S.St, R, [s])), h2, shk.G_base(1n+g, K, e, t, S.val(c), Nat.add(B, Shape.sp_ncaps(i)), List.append(&2, S.St, R, [s]), shk.ncaps(B, i))))
                     case S.Alt{+a, +c}:
@@ -560,10 +560,10 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +Rc = {Shape.sp_reads(1n+g, c, [s], S.val(d)) : List<&2, S.St>}
                       +Rs = {Shape.sp_reads(1n+g, c, [s], Nat.add(B, Shape.sp_ncaps(a))) : List<&2, S.St>}
                       +BV = {Nat.add(Nat.add(B, Shape.sp_ncaps(a)), Shape.sp_ncaps(c)) : Nat}
-                      +X = {S.seek(U, S.Want{s}, a, b, K2, e) : Maybe<&2, S.St>}
-                      +M = {S.seek(U, S.prefer(X, Some{s}), c, d, K2, e) : Maybe<&2, S.St>}
-                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.G(1n+g, K2, e, a, B, [s]), shk.G(1n+g, K, e, t, S.val(V), Ra), shk.seek(U, S.Want{s}, 1n+g, a, b, K2, e, h), shk.G_push(g, t, V, K, e, a, B, [s])) : {X == shk.G(1n+g, K, e, t, S.val(V), Ra) : Maybe<&2, S.St>}}
-                      +hO1 = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, Some{s}), c, d, K2, e), shk.or(X, shk.G(1n+g, K2, e, c, S.val(d), [s])), shk.seek(U, S.prefer(X, Some{s}), 1n+g, c, d, K2, e, shk.fits_prefer(1n+g, X, Some{s}, h)), shk.ans_prefer(1n+g, X, Some{s}, c, d, K2, e)) : {M == shk.or(X, shk.G(1n+g, K2, e, c, S.val(d), [s])) : Maybe<&2, S.St>}}
+                      +X = {S.seek(bud, S.Want{s}, a, b, K2, e) : Maybe<&2, S.St>}
+                      +M = {S.seek(bud, S.prefer(X, Some{s}), c, d, K2, e) : Maybe<&2, S.St>}
+                      +hX = {Equal.trans(Maybe<&2, S.St>, X, shk.G(1n+g, K2, e, a, B, [s]), shk.G(1n+g, K, e, t, S.val(V), Ra), shk.seek(bud, S.Want{s}, 1n+g, a, b, K2, e, h), shk.G_push(g, t, V, K, e, a, B, [s])) : {X == shk.G(1n+g, K, e, t, S.val(V), Ra) : Maybe<&2, S.St>}}
+                      +hO1 = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, Some{s}), c, d, K2, e), shk.or(X, shk.G(1n+g, K2, e, c, S.val(d), [s])), shk.seek(bud, S.prefer(X, Some{s}), 1n+g, c, d, K2, e, shk.fits_prefer(1n+g, X, Some{s}, h)), shk.ans_prefer(1n+g, X, Some{s}, c, d, K2, e)) : {M == shk.or(X, shk.G(1n+g, K2, e, c, S.val(d), [s])) : Maybe<&2, S.St>}}
                       +hO = {Equal.trans(Maybe<&2, S.St>, M, shk.or(X, shk.G(1n+g, K2, e, c, S.val(d), [s])), shk.or(X, shk.G(1n+g, K, e, t, S.val(V), Rc)), hO1, Equal.cong(Maybe<&2, S.St>, Maybe<&2, S.St>, z => shk.or(X, z), shk.G(1n+g, K2, e, c, S.val(d), [s]), shk.G(1n+g, K, e, t, S.val(V), Rc), shk.G_push(g, t, V, K, e, c, S.val(d), [s]))) : {M == shk.or(X, shk.G(1n+g, K, e, t, S.val(V), Rc)) : Maybe<&2, S.St>}}
                       +h2 = {shk.or2(M, 1n+g, K, e, t, S.val(V), X, Ra, Rc, hO, hX) : {M == shk.G(1n+g, K, e, t, S.val(V), List.append(&2, S.St, Ra, Rc)) : Maybe<&2, S.St>}}
                       +h3 = {shk.G_base(1n+g, K, e, t, S.val(V), BV, List.append(&2, S.St, Ra, Rc), LAll.shall.ncaps2(B, a, c)) : {shk.G(1n+g, K, e, t, S.val(V), List.append(&2, S.St, Ra, Rc)) == shk.G(1n+g, K, e, t, BV, List.append(&2, S.St, Ra, Rc)) : Maybe<&2, S.St>}}
@@ -579,8 +579,8 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +R = {Shape.sp_reads(1n+g, i, [s], B) : List<&2, S.St>}
                       +Y = {Shape.sp_moved(Shape.sp_left(s), R) : List<&2, S.St>}
                       +A = {Shape.sp_reads(g, MQ, Y, B) : List<&2, S.St>}
-                      +X = {S.seek(U, S.Want{s}, i, b, S.FRound{Q, b, S.remain(s), K}, e) : Maybe<&2, S.St>}
-                      +M = {S.seek(U, S.prefer(X, S.zero(min, s)), t, S.BAfter{b, i}, K, e) : Maybe<&2, S.St>}
+                      +X = {S.seek(bud, S.Want{s}, i, b, S.FRound{Q, b, S.remain(s), K}, e) : Maybe<&2, S.St>}
+                      +M = {S.seek(bud, S.prefer(X, S.zero(min, s)), t, S.BAfter{b, i}, K, e) : Maybe<&2, S.St>}
                       +L0 = {Shape.sp_reads(1n+g, S.many.next(Q), Shape.sp_moved(S.remain(s), R), B) : List<&2, S.St>}
                       +e1 = {Equal.cong(List<&2, S.Piece>, List<&2, S.St>, z => Shape.sp_reads(1n+g, z, Shape.sp_moved(S.remain(s), R), B), S.many.next(Q), Q2, shk.many_next(i, min, t)) : {L0 == Shape.sp_reads(1n+g, Q2, Shape.sp_moved(S.remain(s), R), B) : List<&2, S.St>}}
                       +e2 = {Equal.cong(Nat, List<&2, S.St>, z => Shape.sp_reads(1n+g, Q2, Shape.sp_moved(z, R), B), S.remain(s), Shape.sp_left(s), LL.shl.remain(s)) : {Shape.sp_reads(1n+g, Q2, Shape.sp_moved(S.remain(s), R), B) == Shape.sp_reads(1n+g, Q2, Y, B) : List<&2, S.St>}}
@@ -589,8 +589,8 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +fg = {LU.shu.moved_lt(g, Shape.sp_left(s), R, hs) : {LU.shu.fits(g, Y) == True{} : Bool}}
                       +e4 = {Equal.cong(List<&2, S.St>, List<&2, S.St>, z => Shape.sp_reads(1n+g, t, z, BI), Shape.sp_reads(1n+g, MQ, Y, B), A, LU.shu.fi(1n+g, g, MQ, Y, B, fF, fg)) : {Shape.sp_reads(1n+g, t, Shape.sp_reads(1n+g, MQ, Y, B), BI) == Shape.sp_reads(1n+g, t, A, BI) : List<&2, S.St>}}
                       +eL = {Equal.trans(List<&2, S.St>, L0, Shape.sp_reads(1n+g, Q2, Shape.sp_moved(S.remain(s), R), B), Shape.sp_reads(1n+g, t, A, BI), e1, Equal.trans(List<&2, S.St>, Shape.sp_reads(1n+g, Q2, Shape.sp_moved(S.remain(s), R), B), Shape.sp_reads(1n+g, Q2, Y, B), Shape.sp_reads(1n+g, t, A, BI), e2, Equal.trans(List<&2, S.St>, Shape.sp_reads(1n+g, Q2, Y, B), Shape.sp_reads(1n+g, t, Shape.sp_reads(1n+g, MQ, Y, B), BI), Shape.sp_reads(1n+g, t, A, BI), e3, e4))) : {L0 == Shape.sp_reads(1n+g, t, A, BI) : List<&2, S.St>}}
-                      +hX = {Equal.trans(Maybe<&2, S.St>, X, Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, K, L0))), shk.G(1n+g, K, e, t, BI, A), shk.seek(U, S.Want{s}, 1n+g, i, b, S.FRound{Q, b, S.remain(s), K}, e, h), Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, K, z))), L0, Shape.sp_reads(1n+g, t, A, BI), eL)) : {X == shk.G(1n+g, K, e, t, BI, A) : Maybe<&2, S.St>}}
-                      +hO1 = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, S.BAfter{b, i}, K, e), shk.or(X, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s)))), shk.seek(U, S.prefer(X, S.zero(min, s)), 1n+g, t, S.BAfter{b, i}, K, e, shk.fits_prefer(1n+g, X, S.zero(min, s), shk.fits_zero(1n+g, min, s, h))), shk.ans_prefer(1n+g, X, S.zero(min, s), t, S.BAfter{b, i}, K, e)) : {M == shk.or(X, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s)))) : Maybe<&2, S.St>}}
+                      +hX = {Equal.trans(Maybe<&2, S.St>, X, Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, K, L0))), shk.G(1n+g, K, e, t, BI, A), shk.seek(bud, S.Want{s}, 1n+g, i, b, S.FRound{Q, b, S.remain(s), K}, e, h), Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => Shape.sp_head(Shape.sp_keep(e, shk.kd(1n+g, K, z))), L0, Shape.sp_reads(1n+g, t, A, BI), eL)) : {X == shk.G(1n+g, K, e, t, BI, A) : Maybe<&2, S.St>}}
+                      +hO1 = {Equal.trans(Maybe<&2, S.St>, M, shk.ans(1n+g, S.prefer(X, S.zero(min, s)), t, S.BAfter{b, i}, K, e), shk.or(X, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s)))), shk.seek(bud, S.prefer(X, S.zero(min, s)), 1n+g, t, S.BAfter{b, i}, K, e, shk.fits_prefer(1n+g, X, S.zero(min, s), shk.fits_zero(1n+g, min, s, h))), shk.ans_prefer(1n+g, X, S.zero(min, s), t, S.BAfter{b, i}, K, e)) : {M == shk.or(X, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s)))) : Maybe<&2, S.St>}}
                       +hO2 = {Equal.trans(Maybe<&2, S.St>, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s))), shk.G(1n+g, K, e, t, BI, S.m2l(S.zero(min, s))), shk.G(1n+g, K, e, t, BI, Shape.sp_zero(min, s)), shk.G_base(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), BI, S.m2l(S.zero(min, s)), shk.ncaps(B, i)), Equal.cong(List<&2, S.St>, Maybe<&2, S.St>, z => shk.G(1n+g, K, e, t, BI, z), S.m2l(S.zero(min, s)), Shape.sp_zero(min, s), LL.shl.zero(min, s))) : {shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s))) == shk.G(1n+g, K, e, t, BI, Shape.sp_zero(min, s)) : Maybe<&2, S.St>}}
                       +hO = {Equal.trans(Maybe<&2, S.St>, M, shk.or(X, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s)))), shk.or(X, shk.G(1n+g, K, e, t, BI, Shape.sp_zero(min, s))), hO1, Equal.cong(Maybe<&2, S.St>, Maybe<&2, S.St>, z => shk.or(X, z), shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), S.m2l(S.zero(min, s))), shk.G(1n+g, K, e, t, BI, Shape.sp_zero(min, s)), hO2)) : {M == shk.or(X, shk.G(1n+g, K, e, t, BI, Shape.sp_zero(min, s))) : Maybe<&2, S.St>}}
                       shk.fin(M, g, K, e, t, BI, List.append(&2, S.St, A, Shape.sp_zero(min, s)), Q, B, shk.or2(M, 1n+g, K, e, t, BI, X, A, Shape.sp_zero(min, s), hO, hX))
@@ -599,10 +599,10 @@ def shk.seek(T: Nat, w: S.W, +F: Nat, +ps: List<&2, S.Piece>, +b: S.Base, +K: S.
                       +B = {S.val(b) : Nat}
                       +R = {Shape.sp_reads(1n+g, i, [s], B) : List<&2, S.St>}
                       +P = {Shape.sp_ahead(neg, R, s) : List<&2, S.St>}
-                      +X = {S.seek(U, S.Want{s}, i, b, S.FEnd{}, False{}) : Maybe<&2, S.St>}
+                      +X = {S.seek(bud, S.Want{s}, i, b, S.FEnd{}, False{}) : Maybe<&2, S.St>}
                       +m = {S.ahead.at(neg, X, s) : Maybe<&2, S.St>}
-                      +M = {S.seek(U, S.want(m), t, S.BAfter{b, i}, K, e) : Maybe<&2, S.St>}
-                      +hX = {shk.seek(U, S.Want{s}, 1n+g, i, b, S.FEnd{}, False{}, h) : {X == Shape.sp_head(R) : Maybe<&2, S.St>}}
+                      +M = {S.seek(bud, S.want(m), t, S.BAfter{b, i}, K, e) : Maybe<&2, S.St>}
+                      +hX = {shk.seek(bud, S.Want{s}, 1n+g, i, b, S.FEnd{}, False{}, h) : {X == Shape.sp_head(R) : Maybe<&2, S.St>}}
                       +hm = {Equal.trans(List<&2, S.St>, S.m2l(m), S.m2l(S.ahead.at(neg, Shape.sp_head(R), s)), P, Equal.cong(Maybe<&2, S.St>, List<&2, S.St>, z => S.m2l(S.ahead.at(neg, z, s)), X, Shape.sp_head(R), hX), shk.ahead1(neg, R, s)) : {S.m2l(m) == P : List<&2, S.St>}}
-                      +v = {shk.via(M, 1n+g, m, t, S.BAfter{b, i}, K, e, P, shk.seek(U, S.want(m), 1n+g, t, S.BAfter{b, i}, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.ahead(neg, R, s, 1n+g, hs))), hm) : {M == shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), P) : Maybe<&2, S.St>}}
+                      +v = {shk.via(M, 1n+g, m, t, S.BAfter{b, i}, K, e, P, shk.seek(bud, S.want(m), 1n+g, t, S.BAfter{b, i}, K, e, shk.fits_m(1n+g, m, P, hm, LU.shu.ahead(neg, R, s, 1n+g, hs))), hm) : {M == shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), P) : Maybe<&2, S.St>}}
                       shk.fin(M, g, K, e, t, Nat.add(B, Shape.sp_ncaps(i)), P, S.Ahead{i, neg} <> t, B, Equal.trans(Maybe<&2, S.St>, M, shk.G(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), P), shk.G(1n+g, K, e, t, Nat.add(B, Shape.sp_ncaps(i)), P), v, shk.G_base(1n+g, K, e, t, Nat.add(B, S.ncaps(i)), Nat.add(B, Shape.sp_ncaps(i)), P, shk.ncaps(B, i))))

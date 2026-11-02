@@ -768,7 +768,7 @@ def seek(T: Nat, w: W, +ps: List<&2, Piece>, +b: Base, +K: Fr, +ends: Bool) -> M
   match T:
     case 0n:
       out(w, ps, b, K, ends)
-    case 1n++U:
+    case 1n++st:
       match w:
         case Have{r}:
           Some{r}
@@ -781,41 +781,41 @@ def seek(T: Nat, w: W, +ps: List<&2, Piece>, +b: Base, +K: Fr, +ends: Bool) -> M
                 case FEnd{}:
                   done(ends, s)
                 case FSeq{t, c, k}:
-                  seek(U, Want{s}, t, c, k, ends)
+                  seek(st, Want{s}, t, c, k, ends)
                 case FCap{n, at, from, k}:
-                  seek(U, Want{set(s, n, at, from)}, Nil{}, b, k, ends)
+                  seek(st, Want{set(s, n, at, from)}, Nil{}, b, k, ends)
                 case FRound{q, c, l, k}:
-                  seek(U, want(moved(l, s)), many.next(q), c, k, ends)
+                  seek(st, want(moved(l, s)), many.next(q), c, k, ends)
             case q <> +t:
               match q:
                 case Lit{u}:
-                  seek(U, want(lit(u, False{}, s)), t, b, K, ends)
+                  seek(st, want(lit(u, False{}, s)), t, b, K, ends)
                 case Fold{u}:
-                  seek(U, want(lit(u, True{}, s)), t, b, K, ends)
+                  seek(st, want(lit(u, True{}, s)), t, b, K, ends)
                 case Run{+c, +min, +max}:
-                  seek(U, prefer(seek(U, want(run.step(c, max, s)), run.next(min, max, c, t, ps), b, K, ends), zero(min, s)), t, b, K, ends)
+                  seek(st, prefer(seek(st, want(run.step(c, max, s)), run.next(min, max, c, t, ps), b, K, ends), zero(min, s)), t, b, K, ends)
                 case Cap{+i}:
                   +n = val(b)
-                  seek(U, Want{s}, i, BAt{1n+n}, FCap{n, place(s), after(s), push(t, BAfter{BAt{1n+n}, i}, K)}, ends)
+                  seek(st, Want{s}, i, BAt{1n+n}, FCap{n, place(s), after(s), push(t, BAfter{BAt{1n+n}, i}, K)}, ends)
                 case Opt{+i}:
                   +c = {BAfter{b, i} : Base}
-                  seek(U, prefer(seek(U, Want{s}, i, b, push(t, c, K), ends), Some{s}), t, c, K, ends)
+                  seek(st, prefer(seek(st, Want{s}, i, b, push(t, c, K), ends), Some{s}), t, c, K, ends)
                 case Alt{+a, +c}:
                   +d = {BAfter{b, a} : Base}
                   +K2 = {push(t, BAfter{d, c}, K) : Fr}
-                  seek(U, prefer(seek(U, Want{s}, a, b, K2, ends), Some{s}), c, d, K2, ends)
+                  seek(st, prefer(seek(st, Want{s}, a, b, K2, ends), Some{s}), c, d, K2, ends)
                 case Many{+i, min}:
-                  seek(U, prefer(seek(U, Want{s}, i, b, FRound{ps, b, remain(s), K}, ends), zero(min, s)), t, BAfter{b, i}, K, ends)
+                  seek(st, prefer(seek(st, Want{s}, i, b, FRound{ps, b, remain(s), K}, ends), zero(min, s)), t, BAfter{b, i}, K, ends)
                 case Ahead{+i, neg}:
-                  seek(U, want(ahead.at(neg, seek(U, Want{s}, i, b, FEnd{}, False{}), s)), t, BAfter{b, i}, K, ends)
+                  seek(st, want(ahead.at(neg, seek(st, Want{s}, i, b, FEnd{}, False{}), s)), t, BAfter{b, i}, K, ends)
                 case Same{k}:
-                  seek(U, want(same(k, s)), t, b, K, ends)
+                  seek(st, want(same(k, s)), t, b, K, ends)
                 case Bound{}:
-                  seek(U, want(bound(s)), t, b, K, ends)
+                  seek(st, want(bound(s)), t, b, K, ends)
                 case Begin{}:
-                  seek(U, want(begin(s)), t, b, K, ends)
+                  seek(st, want(begin(s)), t, b, K, ends)
                 case End{}:
-                  seek(U, want(end(s)), t, b, K, ends)
+                  seek(st, want(end(s)), t, b, K, ends)
 
 # the budget of a search from the place s: steps before the matcher falls
 # back to computing every reading, 64 per char after s (a real search
