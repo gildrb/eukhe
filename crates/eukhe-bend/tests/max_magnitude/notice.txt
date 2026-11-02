@@ -1,0 +1,14 @@
+# the restore-notice stepper: an open, then asks and records whose session
+# and stamps are long texts (a u64 stamp, a 14-digit one); string lengths
+# and message counts are what the texts need; a 15-digit length is refused
+open 
+step 0,22,session-999999999999991,22,ipython_state_restored14,99999999999999
+step 1,22,session-999999999999993,1,22,ipython_state_restored14,999999999999990,1,22,ipython_state_restored20,18446744073709551615
+step 0,22,session-999999999999991,22,ipython_state_restored14,99999999999999
+step 0,22,session-999999999999991,22,ipython_state_restored20,18446744073709551615
+step 0,22,session-999999999999990,
+refuse-step 0,{LONG},x
+refuse-step 1,22,session-99999999999999{LONG},
+step 0,22,session-999999999999990,
+refuse-open {LONG}
+refuse-step 0,22,session-999999999999990,
