@@ -447,3 +447,196 @@ law mrw_in_exact:
 # EXCLUDES: a decoder that reads 07 as 7, a vacuous mrw_choice_exact
 law mrw_leading_zero_example:
   {FMr.get_choice("1,07,") == Wr.Bad{} : Wr.Dec<Mr.Choice>} & {FMr.ffi("0,0,0,0,0,0,0,0,0,0,0,0,1,07,") == Wr.err("model_roles: malformed request") : String}
+
+# The entry against a spec (R8)
+# -----------------------------
+# R8: the entry answers every request Rust writes (every selector within
+# the wire), spelled by the spec from the grammar of
+# bend/ffi_model_roles.bend's header with the Wr primitives, with the
+# spec's table (R1-R4 restated below: every role once in the role order;
+# its own setting, else the all-roles setting for a role that takes a chat
+# model, else its default), spelled by the spec; that request followed by
+# more input answers `E model_roles: input left over`; every other input
+# answers `E model_roles: malformed request`. The helpers below never call
+# the entry's encoders or decoders, nor Mr.resolve.
+
+# R1: every role, in the order of eukhe_types ModelRole
+def mrs_roles() -> List<&2, Mr.Role>:
+  [Mr.Chat{}, Mr.Memory{}, Mr.Auxiliary{}, Mr.Image{}, Mr.Subagent{}, Mr.Gateway{}, Mr.Query{}, Mr.Titles{}, Mr.Judge{}, Mr.Translate{}, Mr.Speech{}, Mr.Dictation{}]
+
+# R8: the tag of a role on the wire: its place in mrs_roles
+def mrs_tag(r: Mr.Role) -> Nat:
+  match r:
+    case Mr.Chat{}:
+      0n
+    case Mr.Memory{}:
+      1n
+    case Mr.Auxiliary{}:
+      2n
+    case Mr.Image{}:
+      3n
+    case Mr.Subagent{}:
+      4n
+    case Mr.Gateway{}:
+      5n
+    case Mr.Query{}:
+      6n
+    case Mr.Titles{}:
+      7n
+    case Mr.Judge{}:
+      8n
+    case Mr.Translate{}:
+      9n
+    case Mr.Speech{}:
+      10n
+    case Mr.Dictation{}:
+      11n
+
+# R4: speech and dictation take only local models
+def mrs_local(r: Mr.Role) -> Bool:
+  match r:
+    case Mr.Speech{}:
+      True{}
+    case Mr.Dictation{}:
+      True{}
+    case Mr.Chat{}:
+      False{}
+    case Mr.Memory{}:
+      False{}
+    case Mr.Auxiliary{}:
+      False{}
+    case Mr.Image{}:
+      False{}
+    case Mr.Subagent{}:
+      False{}
+    case Mr.Gateway{}:
+      False{}
+    case Mr.Query{}:
+      False{}
+    case Mr.Titles{}:
+      False{}
+    case Mr.Judge{}:
+      False{}
+    case Mr.Translate{}:
+      False{}
+
+# R3, R4: a role without its own setting: its default when it is local or
+# the all-roles setting is unset, else the all-roles setting
+def mrs_fill(local: Bool, all: Mr.Choice) -> Mr.Src:
+  match local:
+    case True{}:
+      Mr.Default{}
+    case False{}:
+      match all:
+        case Mr.Unset{}:
+          Mr.Default{}
+        case Mr.Sel{n}:
+          Mr.All{n}
+
+# R2-R4: the source of role r whose own setting is mine
+def mrs_src(r: Mr.Role, mine: Mr.Choice, all: Mr.Choice) -> Mr.Src:
+  match mine:
+    case Mr.Sel{n}:
+      Mr.Own{n}
+    case Mr.Unset{}:
+      mrs_fill(mrs_local(r), all)
+
+# R8: a setting on the wire: 0 (unset) | 1, then the selector
+def mrs_w_choice(c: Mr.Choice, rest: String) -> String:
+  match c:
+    case Mr.Unset{}:
+      Wr.put_nat(0n, rest)
+    case Mr.Sel{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# R8: a request: every role's own setting in the role order, then the
+# all-roles setting
+def mrs_w_in(x: Mr.In, rest: String) -> String:
+  match x:
+    case Mr.In{o, all}:
+      match o:
+        case Mr.Owns{chat, memory, auxiliary, image, subagent, gateway, query, titles, judge, translate, speech, dictation}:
+          mrs_w_choice(chat, mrs_w_choice(memory, mrs_w_choice(auxiliary, mrs_w_choice(image, mrs_w_choice(subagent, mrs_w_choice(gateway, mrs_w_choice(query, mrs_w_choice(titles, mrs_w_choice(judge, mrs_w_choice(translate, mrs_w_choice(speech, mrs_w_choice(dictation, mrs_w_choice(all, rest)))))))))))))
+
+# R8: a source on the wire: 0, n (own) | 1, n (all roles) | 2 (default)
+def mrs_w_src(x: Mr.Src, rest: String) -> String:
+  match x:
+    case Mr.Own{n}:
+      Wr.put_nat(0n, Wr.put_nat(n, rest))
+    case Mr.All{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+    case Mr.Default{}:
+      Wr.put_nat(2n, rest)
+
+# R8: the rows of the roles rs, each its tag then its source, then rest
+def mrs_w_rows(rs: List<&2, Mr.Role>, +o: Mr.Owns, +all: Mr.Choice, rest: String) -> String:
+  match rs:
+    case Nil{}:
+      rest
+    case +r <> t:
+      Wr.put_nat(mrs_tag(r), mrs_w_src(mrs_src(r, mr_own(o, r), all), mrs_w_rows(t, o, all, rest)))
+
+# R8: the reply to a request: the count of roles, then a row per role in
+# the role order
+def mrs_w_reply(x: Mr.In) -> String:
+  match x:
+    case Mr.In{+o, +all}:
+      Wr.put_nat(List.length(&2, Mr.Role, mrs_roles()), mrs_w_rows(mrs_roles(), o, all, ""))
+
+# LAW mrw_entry_spec (R8): the entry answers every request Rust spells,
+# every selector within the wire, with the spec's table, spelled
+# EXCLUDES: any reply other than the spec's for a request that fits (a
+#   setting read for another role, a tag or source spelled otherwise, a
+#   row dropped, a wrong source, a codec that agrees only with itself)
+law mrw_entry_spec:
+  for +x: Mr.In
+  for h: {mrw_in_fits(x) == True{} : Bool}
+  {FMr.ffi(mrs_w_in(x, "")) == mrs_w_reply(x) : String}
+
+# LAW mrw_entry_left_over_spec (R8): a request Rust spells followed by
+# more input answers `E model_roles: input left over`
+# EXCLUDES: the input after the request ignored or read into a setting,
+#   another error text
+law mrw_entry_left_over_spec:
+  for +x: Mr.In
+  for +c: Char
+  for +rest: String
+  for h: {mrw_in_fits(x) == True{} : Bool}
+  {FMr.ffi(mrs_w_in(x, SCon{c, rest})) == Wr.err("model_roles: input left over") : String}
+
+# LAW mrw_entry_exact (R8): every input the entry does not answer with the
+# error form is a request the spec spells, every selector within the wire
+# EXCLUDES: a table for input that is no request (an unknown tag, a
+#   zero-padded or 15-digit selector, a short request, input left over)
+law mrw_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FMr.ffi(s)) == False{} : Bool}
+  exs x: Mr.In
+  {s == mrs_w_in(x, "") : String} & {mrw_in_fits(x) == True{} : Bool}
+
+# LAW mrw_entry_left_over_exact (R8): every input the entry answers with
+# `E model_roles: input left over` is a request the spec spells, every
+# selector within the wire, followed by more input
+# EXCLUDES: a malformed request reported as input left over
+law mrw_entry_left_over_exact:
+  for +s: String
+  for e: {FMr.ffi(s) == Wr.err("model_roles: input left over") : String}
+  exs x: Mr.In
+  exs t: String
+  {s == mrs_w_in(x, t) : String} & ({String.is_empty(t) == False{} : Bool} & {mrw_in_fits(x) == True{} : Bool})
+
+# LAW mrw_entry_refuses (R8): every error the entry answers is exactly
+# `E model_roles: malformed request` or `E model_roles: input left over`
+# EXCLUDES: an error text that varies with the input, a third error form
+law mrw_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FMr.ffi(s)) == True{} : Bool}
+  {FMr.ffi(s) == Wr.err("model_roles: malformed request") : String} | {FMr.ffi(s) == Wr.err("model_roles: input left over") : String}
+
+# LAW mrw_entry_spec_example (R8): anchor: speech's own model 5 and the
+# all-roles model 2: every chat role on 2, speech on its own, dictation
+# on its default; the same request with input left over
+# EXCLUDES: a spec that drifts from the Rust reader, the all-roles model
+#   sent to dictation
+law mrw_entry_spec_example:
+  {[FMr.ffi("0,0,0,0,0,0,0,0,0,0,1,5,0,1,2,"), FMr.ffi("0,0,0,0,0,0,0,0,0,0,1,5,0,1,2,x")] == ["12,0,1,2,1,1,2,2,1,2,3,1,2,4,1,2,5,1,2,6,1,2,7,1,2,8,1,2,9,1,2,10,0,5,11,2,", Wr.err("model_roles: input left over")] : List<&2, String>}

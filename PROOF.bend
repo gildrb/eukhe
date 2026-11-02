@@ -1659,6 +1659,15 @@ import ./proof/model_roles/mrw_choice_exact.bend as PMrwChoiceExact
 import ./proof/model_roles/mrw_owns_exact.bend as PMrwOwnsExact
 import ./proof/model_roles/mrw_in_exact.bend as PMrwInExact
 import ./proof/model_roles/mrw_leading_zero_example.bend as PMrwLeadingZeroExample
+import ./proof/model_roles/base/spec.bend as LAModelRolesSpec
+import ./proof/model_roles/base/fits.bend as LAModelRolesFits
+import ./proof/model_roles/base/entry.bend as LAModelRolesEntry
+import ./proof/model_roles/mrw_entry_spec.bend as PMrwEntrySpec
+import ./proof/model_roles/mrw_entry_left_over_spec.bend as PMrwEntryLeftOverSpec
+import ./proof/model_roles/mrw_entry_exact.bend as PMrwEntryExact
+import ./proof/model_roles/mrw_entry_left_over_exact.bend as PMrwEntryLeftOverExact
+import ./proof/model_roles/mrw_entry_refuses.bend as PMrwEntryRefuses
+import ./proof/model_roles/mrw_entry_spec_example.bend as PMrwEntrySpecExample
 import ./proof/workflow/base.bend as LAWorkflow
 import ./proof/workflow/wf_running_within_concurrency.bend as PWfRunningWithinConcurrency
 import ./proof/workflow/wf_spawned_within_budget.bend as PWfSpawnedWithinBudget
