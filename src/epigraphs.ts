@@ -20,20 +20,6 @@ export const epigraphs: ReadonlyMap<string, readonly string[]> = new Map([
     ],
   ],
   [
-    "## Stops",
-    [
-      "κατὰ Σόλωνα δὲ χρεὼν τέλος ὁρᾶν;",
-      "Must one, as Solon says, look to the end? (Aristotle, Nicomachean Ethics 1.1100a10-11)",
-    ],
-  ],
-  [
-    "## Prompt",
-    [
-      "οὗτος ὁ τρόπος ἦν τῶν παλαιῶν τῆς φιλοσοφίας, βραχυλογία τις Λακωνική.",
-      "This was the manner of philosophy among the ancients: a kind of Laconic brevity. (Plato, Protagoras 343b)",
-    ],
-  ],
-  [
     "## Laws",
     [
       "τὸν ἄρα νόμον ἄρχειν αἱρετώτερον μᾶλλον ἢ τῶν πολιτῶν ἕνα τινά.",
