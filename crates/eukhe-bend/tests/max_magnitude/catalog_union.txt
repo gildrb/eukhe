@@ -1,0 +1,9 @@
+# the bundle and the compiled catalog, seven Nats an entry (key, api,
+# data, then each optional field as 0 or 1 + value): every number at its
+# largest; twins at the largest key and at key 0 (the table's deepest and
+# shallowest slots), a twin of another api, a compiled entry the bundle
+# lacks, an empty bundle
+call 14,{MAX},{MAX},{MAX},{MAX},0,{MAX},0,0,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},14,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},99999999999998,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+call 7,{MAX},{MAX},{MAX},0,0,0,0,7,{MAX},99999999999998,{MAX},{MAX},{MAX},{MAX},{MAX},
+call 0,7,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},
+refuse 7,{LONG},0,0,0,0,0,0,0,

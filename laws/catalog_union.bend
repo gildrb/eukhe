@@ -178,3 +178,217 @@ law catalog_union_ffi_rejects_left_over:
   for got: {FCu.get_req(s) == Wr.Got{q, r} : Wr.Dec<FCu.Req>}
   for more: {String.is_empty(r) == False{} : Bool}
   {LawsBase.wire_opens_err(FCu.ffi(s)) == True{} : Bool}
+
+# The entry from the requirement
+# ------------------------------
+# The spec of the whole entry, written from the requirement (C1: the
+# union has the bundled entries in bundled order, each with its compiled
+# twin, the first compiled entry with its key; then the compiled entries
+# whose key the bundle lacks, in compiled order; a bundled entry with a
+# twin keeps its key, api and data and each optional field it states, and
+# takes each one it leaves out from the twin when both use the same api)
+# and the wire's primitives only: no function of bend/catalog_union.bend
+# or bend/ffi_catalog_union.bend (their types only).
+
+# e when b holds, else r
+def cu_sp_pick(b: Bool, e: CU.Ent, r: Maybe<&2, CU.Ent>) -> Maybe<&2, CU.Ent>:
+  match b:
+    case True{}:
+      Some{e}
+    case False{}:
+      r
+
+# the key of an entry
+def cu_sp_key(e: CU.Ent) -> Nat:
+  match e:
+    case CU.Ent{k, a, d, t, c, f, h}:
+      k
+
+# the first entry of xs with key k
+def cu_sp_find(xs: List<&2, CU.Ent>, +k: Nat) -> Maybe<&2, CU.Ent>:
+  match xs:
+    case Nil{}:
+      None{}
+    case +e <> rest:
+      cu_sp_pick(Nat.is_eq(cu_sp_key(e), k), e, cu_sp_find(rest, k))
+
+# an optional field: the bundled one when it states one, else the
+# compiled one when both use the same api, else none
+def cu_sp_fill(o: Maybe<&2, Nat>, c: Maybe<&2, Nat>, same: Bool) -> Maybe<&2, Nat>:
+  match o:
+    case Some{v}:
+      Some{v}
+    case None{}:
+      match same:
+        case True{}:
+          c
+        case False{}:
+          None{}
+
+# a bundled entry with its compiled twin
+def cu_sp_merge(b: CU.Ent, c: CU.Ent) -> CU.Ent:
+  match b c:
+    case CU.Ent{bk, +ba, bd, bt, bc, bf, bh} CU.Ent{ck, +ca, cd, ct, cc, cf, ch}:
+      +same = Nat.is_eq(ba, ca)
+      CU.Ent{bk, ba, bd, cu_sp_fill(bt, ct, same), cu_sp_fill(bc, cc, same), cu_sp_fill(bf, cf, same), cu_sp_fill(bh, ch, same)}
+
+def cu_sp_with(b: CU.Ent, m: Maybe<&2, CU.Ent>) -> CU.Ent:
+  match m:
+    case None{}:
+      b
+    case Some{c}:
+      cu_sp_merge(b, c)
+
+# every bundled entry, with its compiled twin
+def cu_sp_bundled(bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case +b <> rest:
+      cu_sp_with(b, cu_sp_find(cs, cu_sp_key(b))) <> cu_sp_bundled(rest, cs)
+
+# c in front of r unless the bundle has its key (seen)
+def cu_sp_keep(seen: Bool, c: CU.Ent, r: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  match seen:
+    case True{}:
+      r
+    case False{}:
+      c <> r
+
+# the compiled entries whose key the bundle bs lacks
+def cu_sp_extra(cs: List<&2, CU.Ent>, +bs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case +c <> rest:
+      cu_sp_keep(Maybe.is_some(&2, CU.Ent, cu_sp_find(bs, cu_sp_key(c))), c, cu_sp_extra(rest, bs))
+
+# the built-in catalog of the bundle bs and the compiled catalog cs
+def cu_sp_union(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  List.append(&2, CU.Ent, cu_sp_bundled(bs, cs), cu_sp_extra(cs, bs))
+
+# an optional field on the wire: 0 none, 1 + v the value v
+def cu_sp_opt(m: Maybe<&2, Nat>) -> Nat:
+  match m:
+    case None{}:
+      0n
+    case Some{v}:
+      1n+v
+
+def cu_sp_opt_of(n: Nat) -> Maybe<&2, Nat>:
+  match n:
+    case 0n:
+      None{}
+    case 1n+v:
+      Some{v}
+
+# the entries of es, seven Nats each: key, api, data, then each optional
+# field
+def cu_sp_ents(es: List<&2, CU.Ent>) -> List<&2, Nat>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case CU.Ent{k, a, d, t, c, f, h} <> rest:
+      k <> a <> d <> cu_sp_opt(t) <> cu_sp_opt(c) <> cu_sp_opt(f) <> cu_sp_opt(h) <> cu_sp_ents(rest)
+
+def cu_sp_ents_of.cons(e: CU.Ent, m: Maybe<&2, List<&2, CU.Ent>>) -> Maybe<&2, List<&2, CU.Ent>>:
+  match m:
+    case None{}:
+      None{}
+    case Some{es}:
+      Some{e <> es}
+
+# the entries ns spells, seven Nats each; none when a group is short
+def cu_sp_ents_of(ns: List<&2, Nat>) -> Maybe<&2, List<&2, CU.Ent>>:
+  match ns:
+    case Nil{}:
+      Some{Nil{}}
+    case k <> n1:
+      match n1:
+        case Nil{}:
+          None{}
+        case a <> n2:
+          match n2:
+            case Nil{}:
+              None{}
+            case d <> n3:
+              match n3:
+                case Nil{}:
+                  None{}
+                case t <> n4:
+                  match n4:
+                    case Nil{}:
+                      None{}
+                    case c <> n5:
+                      match n5:
+                        case Nil{}:
+                          None{}
+                        case f <> n6:
+                          match n6:
+                            case Nil{}:
+                              None{}
+                            case h <> rest:
+                              cu_sp_ents_of.cons(CU.Ent{k, a, d, cu_sp_opt_of(t), cu_sp_opt_of(c), cu_sp_opt_of(f), cu_sp_opt_of(h)}, cu_sp_ents_of(rest))
+
+def cu_sp_read.both(mb: Maybe<&2, List<&2, CU.Ent>>, mc: Maybe<&2, List<&2, CU.Ent>>, s: String) -> Wr.Dec<FCu.Req>:
+  match mb:
+    case None{}:
+      Wr.Bad{}
+    case Some{b}:
+      match mc:
+        case None{}:
+          Wr.Bad{}
+        case Some{c}:
+          Wr.Got{FCu.Req{b, c}, s}
+
+def cu_sp_read.c(b: List<&2, Nat>, r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FCu.Req>:
+  match r:
+    case Wr.Got{c, s}:
+      cu_sp_read.both(cu_sp_ents_of(b), cu_sp_ents_of(c), s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def cu_sp_read.b(r: Wr.Dec<List<&2, Nat>>) -> Wr.Dec<FCu.Req>:
+  match r:
+    case Wr.Got{b, s}:
+      cu_sp_read.c(b, Wr.get_list(~Nat, ~Wr.get_nat, s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+# the two sources s starts with (each one list of Nats), and what follows
+def cu_sp_read(s: String) -> Wr.Dec<FCu.Req>:
+  cu_sp_read.b(Wr.get_list(~Nat, ~Wr.get_nat, s))
+
+def cu_sp.end(whole: Bool, q: FCu.Req) -> String:
+  match whole:
+    case True{}:
+      match q:
+        case FCu.Req{b, c}:
+          Wr.put_list(~Nat, ~Wr.put_nat, cu_sp_ents(cu_sp_union(b, c)), "")
+    case False{}:
+      Wr.err("catalog_union: input left over")
+
+def cu_sp.run(r: Wr.Dec<FCu.Req>) -> String:
+  match r:
+    case Wr.Got{q, s}:
+      cu_sp.end(Wr.end(s), q)
+    case Wr.Bad{}:
+      Wr.err("catalog_union: malformed request")
+
+# the entry's answer to the input s
+def cu_spec(s: String) -> String:
+  cu_sp.run(cu_sp_read(s))
+
+# LAW catalog_union_ffi_exact (compiled core): on every input the catalog entry answers the
+# spec's union of the two sources the input is exactly (the bundled
+# entries in order, each merged with its first compiled twin; then the
+# compiled entries the bundle lacks, in order), exactly "catalog_union:
+# input left over" for sources followed by more input, and exactly
+# "catalog_union: malformed request" for any other input
+# EXCLUDES: a model hidden, duplicated or reordered, a field taken from
+#   the wrong source, a twin other than the first, an entry misread or
+#   misspelled, a default for malformed input, input left over ignored,
+#   another error text
+law catalog_union_ffi_exact:
+  for +s: String
+  {FCu.ffi(s) == cu_spec(s) : String}

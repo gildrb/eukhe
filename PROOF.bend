@@ -1010,6 +1010,7 @@ import ./proof/catalog_union/catalog_union_ffi_request_round_trip.bend as PCatal
 import ./proof/catalog_union/catalog_union_ffi_answers.bend as PCatalogUnionFfiAnswers
 import ./proof/catalog_union/catalog_union_ffi_rejects_malformed.bend as PCatalogUnionFfiRejectsMalformed
 import ./proof/catalog_union/catalog_union_ffi_rejects_left_over.bend as PCatalogUnionFfiRejectsLeftOver
+import ./proof/catalog_union/catalog_union_ffi_exact.bend as PCatalogUnionFfiExact
 import ./proof/cron/base/bool.bend as LACronBool
 import ./proof/cron/base/cron.bend as LACronCron
 import ./proof/cron/base/list.bend as LACronList
