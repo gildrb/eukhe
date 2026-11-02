@@ -244,3 +244,105 @@ law cron_beats_decide_exact:
   for +op: CB.Op
   for +rs: List<&2, CB.Row>
   {CB.step(CB.AOn{i, op}, rs) == decide_spec(rs, i, op) : List<&2, CB.Row>}
+
+# What every action writes on every record
+# ----------------------------------------
+# The store's whole answer to each action, record by record
+# (crates/eukhe-core/src/cron/store/): a new heartbeat of session s
+# (heartbeat.rs `create_heartbeat`) comes first, active on its plan with
+# its first run and no failures, and the user's stop is applied to every
+# `/heartbeat` record of session s and to no other record (another
+# session's heartbeat, a job of another source); a new job of another
+# source comes first unflagged and every record stays; a per-job decision
+# is decide_spec; a rebind (jobs.rs `rebind_session_jobs`) moves every
+# record of session s or of session file `file` to both, then stops every
+# moved `/heartbeat` record but the `keep`-th record of the file (counted
+# from 0; none kept past the last); a corrupt file leaves no record. The
+# stop and the new job's facts are the spec's (laws/cron_store.bend
+# `halt_spec`, `make_spec`).
+
+# the facts of a new job on plan p, first at `at`
+def made_spec(m: CS.Made, p: CS.Plan) -> CS.Fact:
+  match m:
+    case CS.Made{st, n, k}:
+      CS.Fact{st, p, Some{n}, k}
+
+# the record a new job writes: session s, session file `file`, the
+# `/heartbeat` flag hb
+def new_row_spec(s: Nat, file: Nat, hb: Bool, p: CS.Plan, at: Nat) -> CB.Row:
+  CB.Row{s, file, hb, made_spec(CronStore.make_spec(at), p)}
+
+# facts f after the user's stop (an active or paused job is cancelled with
+# no next run; a finished or cancelled one stays)
+def stopped_spec(+f: CS.Fact) -> CS.Fact:
+  written_spec(cut_sets_spec(CronStore.halt_spec(f, CS.HStop{})), f)
+
+# facts f, stopped when b holds
+def stop_when_spec(b: Bool, +f: CS.Fact) -> CS.Fact:
+  match b:
+    case True{}:
+      stopped_spec(f)
+    case False{}:
+      f
+
+# a record after a new heartbeat of session s: stopped when it is a
+# `/heartbeat` record of session s
+def beat_row_spec(+s: Nat, r: CB.Row) -> CB.Row:
+  match r:
+    case CB.Row{+s2, fl, +hb, +f}:
+      CB.Row{s2, fl, hb, stop_when_spec(Bool.and(hb, Nat.is_eq(s2, s)), f)}
+
+def beat_rows_spec(+s: Nat, rs: List<&2, CB.Row>) -> List<&2, CB.Row>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> t:
+      beat_row_spec(s, r) <> beat_rows_spec(s, t)
+
+def moved_row_spec(moved: Bool, kept: Bool, +s: Nat, +file: Nat, s2: Nat, fl: Nat, +hb: Bool, +f: CS.Fact) -> CB.Row:
+  match moved:
+    case True{}:
+      CB.Row{s, file, hb, stop_when_spec(Bool.and(hb, Bool.not(kept)), f)}
+    case False{}:
+      CB.Row{s2, fl, hb, f}
+
+# the record at index i after a rebind of session s to session file
+# `file` that keeps the `keep`-th record
+def rebound_row_spec(+s: Nat, +file: Nat, +keep: Nat, +i: Nat, r: CB.Row) -> CB.Row:
+  match r:
+    case CB.Row{+s2, +fl, hb, f}:
+      moved_row_spec(Bool.or(Nat.is_eq(s2, s), Nat.is_eq(fl, file)), Nat.is_eq(i, keep), s, file, s2, fl, hb, f)
+
+# the records rs, the first at index i, after that rebind
+def rebound_spec(rs: List<&2, CB.Row>, +s: Nat, +file: Nat, +keep: Nat, +i: Nat) -> List<&2, CB.Row>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> t:
+      rebound_row_spec(s, file, keep, i, r) <> rebound_spec(t, s, file, keep, 1n+i)
+
+# the records after action a, from rs
+def beats_step_spec(a: CB.Act, rs: List<&2, CB.Row>) -> List<&2, CB.Row>:
+  match a:
+    case CB.AHeartbeat{+s, file, p, at}:
+      new_row_spec(s, file, True{}, p, at) <> beat_rows_spec(s, rs)
+    case CB.AJob{s, file, p, at}:
+      new_row_spec(s, file, False{}, p, at) <> rs
+    case CB.AOn{i, op}:
+      decide_spec(rs, i, op)
+    case CB.ARebind{s, file, keep}:
+      rebound_spec(rs, s, file, keep, 0n)
+    case CB.ALose{}:
+      Nil{}
+
+# LAW cron_beats_step_exact: from any records, every store action writes exactly the spec's records: a new heartbeat of session s comes first (session s, its session file, flagged, active on its plan, first at `at`, no failures) and stops only the `/heartbeat` records of session s, every other record (another session's heartbeat, a job of another source) kept exactly; a new job of another source comes first unflagged and keeps every record; a per-job decision is cron_beats_decide_exact; a rebind of session s to session file `file` moves exactly the records of session s or of that file to both and stops exactly the moved `/heartbeat` records but the `keep`-th record, every other record kept exactly; a corrupt file leaves no record
+# EXCLUDES: a new heartbeat that stops another session's heartbeat or a job of another source, or leaves a heartbeat of its session live; a rebind that moves, stops or keeps the wrong records; an action that reorders, drops or adds a record
+law cron_beats_step_exact:
+  for +a: CB.Act
+  for +rs: List<&2, CB.Row>
+  {CB.step(a, rs) == beats_step_spec(a, rs) : List<&2, CB.Row>}
+
+# LAW cron_heartbeat_other_session_example: anchor: session 0 creates its heartbeat (every minute, first at 0), then session 1 creates its own (first at 5): both stay active, session 0's with its next run still at 0
+# EXCLUDES: a new heartbeat of one session that stops another session's heartbeat
+law cron_heartbeat_other_session_example:
+  {CB.run([CB.AHeartbeat{0n, 0n, CS.PEvery{60000n}, 0n}, CB.AHeartbeat{1n, 1n, CS.PEvery{60000n}, 5n}]) == [CB.Row{1n, 1n, True{}, CS.Fact{Cr.Active{}, CS.PEvery{60000n}, Some{5n}, 0n}}, CB.Row{0n, 0n, True{}, CS.Fact{Cr.Active{}, CS.PEvery{60000n}, Some{0n}, 0n}}] : List<&2, CB.Row>}
