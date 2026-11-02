@@ -9,7 +9,9 @@ import ./laws/optchat/queries.bend as OptchatQueries
 import ./laws/compactor.bend as Compactor
 import ./laws/wait.bend as WaitLaws
 import ./laws/child.bend as Child
+import ./laws/child/run.bend as ChildRun
 import ./laws/admission.bend as Admission
+import ./laws/admission/runs.bend as AdmissionRuns
 import ./laws/tree.bend as Tree
 import ./laws/job.bend as Job
 import ./laws/job_step.bend as JobStep

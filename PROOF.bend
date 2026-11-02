@@ -161,6 +161,8 @@ import ./proof/child/child_ffi_exact.bend as PChildFfiExact
 import ./proof/child/child_ffi_answers.bend as PChildFfiAnswers
 import ./proof/child/child_ffi_example.bend as PChildFfiExample
 import ./proof/child/child_req_fits_example.bend as PChildReqFitsExample
+import ./proof/child/child_step_exact.bend as PChildStepExact
+import ./proof/child/child_run_exact.bend as PChildRunExact
 import ./proof/admission/base/admission/St.bend as LAAdmissionAdmissionSt
 import ./proof/admission/base/admission/bit.bend as LAAdmissionAdmissionBit
 import ./proof/admission/base/admission/calm.bend as LAAdmissionAdmissionCalm
@@ -226,6 +228,9 @@ import ./proof/admission/adw_step_exact.bend as PAdwStepExact
 import ./proof/admission/adw_open_spelled.bend as PAdwOpenSpelled
 import ./proof/admission/adw_step_spelled.bend as PAdwStepSpelled
 import ./proof/admission/adw_spec_example.bend as PAdwSpecExample
+import ./proof/admission/admission_run_exact.bend as PAdmissionRunExact
+import ./proof/admission/admission_live_run_exact.bend as PAdmissionLiveRunExact
+import ./proof/admission/admission_live_runs_are_steps.bend as PAdmissionLiveRunsAreSteps
 import ./proof/tree/base/bool.bend as LATreeBool
 import ./proof/tree/base/director.bend as LATreeDirector
 import ./proof/tree/base/list.bend as LATreeList
@@ -436,6 +441,7 @@ import ./proof/director/dir_ffi_malformed.bend as PDirFfiMalformed
 import ./proof/director/dir_ffi_left_over.bend as PDirFfiLeftOver
 import ./proof/director/dir_req_fits_example.bend as PDirReqFitsExample
 import ./proof/director/dir_ffi_exact.bend as PDirFfiExact
+import ./proof/director/dir_run_exact.bend as PDirRunExact
 import ./proof/infer/base.bend as LAInfer
 import ./proof/infer/quirk_unknown_rejected.bend as PQuirkUnknownRejected
 import ./proof/infer/quirk_clash_rejected.bend as PQuirkClashRejected

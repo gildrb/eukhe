@@ -712,3 +712,29 @@ def dirs.spec(s: String) -> String:
 law dir_ffi_exact:
   for +s: String
   {FDr.ffi(s) == dirs.spec(s) : String}
+
+# The loop's run, step by step
+# ----------------------------
+# Dr.run (the loop over the verdicts of each step, which dir_loop_ends and
+# dir_loop_stack_bounded read) folds the steps; the laws above pin each
+# step. This one pins the run, for every loop, to the spec's step.
+
+# the spec's run: the spec's step (dirs.tick) on the verdicts of each
+# step of vss, first step first, from the loop l
+def dirs.steps(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, l: Dr.Loop) -> Dr.Loop:
+  match vss:
+    case Nil{}:
+      l
+    case vs <> rest:
+      dirs.steps(rest, cap, dirs.tick(cap, l, vs))
+
+# LAW dir_run_exact (S5): on every loop and cap, the loop's run over the verdicts of every step is the spec's step on each step's verdicts, one at a time, first step first
+# EXCLUDES: a run that drops, repeats, reorders or invents steps or
+#   verdicts (the run that aborts at once, `run(vss, cap, l) = tick(cap, l,
+#   [Abort{}])`, which passed dir_loop_ends and dir_loop_stack_bounded), a
+#   run that ignores the loop it starts from or steps an ended loop
+law dir_run_exact:
+  for vss: List<&2, List<&2, Dr.Verdict>>
+  for +cap: Nat
+  for +l: Dr.Loop
+  {Dr.run(vss, cap, l) == dirs.steps(vss, cap, l) : Dr.Loop}
