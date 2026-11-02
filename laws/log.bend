@@ -568,3 +568,195 @@ law log_ffi_example:
 #   F, the act tags, the sidecar indexes)
 law log_stepper_example:
   {[log_reply(FLg.open("T")), log_reply(FLg.open("F")), log_reply(FLg.step(FLg.Running{Lr.Store{True{}, False{}}}, "0,")), log_reply(FLg.step(FLg.Running{Lr.Store{True{}, True{}}}, "2,TF")), log_reply(FLg.step(FLg.Running{Lr.Store{False{}, False{}}}, "1,F")), log_reply(FLg.step(FLg.Running{Lr.Store{True{}, True{}}}, "1,X")), log_reply(FLg.open("X")), log_reply(FLg.step(FLg.Shut{}, "0,"))] == ["1,0,", "0,", "4,4,5,3,6,", "8,1,0,1,1,2,0,2,1,3,4,5,6,", "3,1,0,4,6,", Wr.err("log: malformed commit"), Wr.err("log: malformed open"), Wr.err("log: the open was refused")] : List<&2, String>}
+
+# The entry, whole
+# ----------------
+# The laws above pin the entry on the requests Rust writes and send every
+# other input to the error form; these pin its reply (and the stepper's
+# state) on every input string, from spec helpers alone: the wire
+# primitives (Wr.get_nat, Wr.get_bool, Wr.get_list, Wr.end, Wr.err: pinned
+# by laws/wire.bend), the spellers above, the model of the log
+# (spec/durable/log.bend, through log_tail_spec) and the plans
+# log_open_spec and log_commit_spec.
+
+# the file of len bytes whose only newline (0n) is at the index last (None:
+# it has none) and whose every other byte is the data byte 1n; a newline at
+# or past the end is no byte of it
+def log_file(len: Nat, last: Maybe<&2, Nat>) -> List<&2, Nat>:
+  match len:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      match last:
+        case None{}:
+          1n <> log_file(k, None{})
+        case Some{i}:
+          match i:
+            case 0n:
+              0n <> log_file(k, None{})
+            case 1n+j:
+              1n <> log_file(k, Some{j})
+
+def log_tail_facts.in(inside: Bool, len: Nat, i: Nat) -> Lr.Tail:
+  match inside:
+    case True{}:
+      log_tail_spec(log_file(len, Some{i}))
+    case False{}:
+      Lr.Odd{}
+
+# what an open must do from the facts of a file (R1), its length and its
+# last newline: what it must do with a file of those facts (log_tail_spec
+# of log_file); facts no file has (a newline at or past the end) are
+# refused
+def log_tail_facts(+len: Nat, last: Maybe<&2, Nat>) -> Lr.Tail:
+  match last:
+    case None{}:
+      log_tail_spec(log_file(len, None{}))
+    case Some{+i}:
+      log_tail_facts.in(Nat.is_lt(i, len), len, i)
+
+# the last newline of a request, read with the wire primitives: 0 none, 1
+# then the index
+def log_rd_last.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Some{n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def log_rd_last(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{None{}, s}
+        case 1n:
+          log_rd_last.some(Wr.get_nat(s))
+        case 2n+k:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def log_ffi_spec.end(done: Bool, len: Nat, last: Maybe<&2, Nat>) -> String:
+  match done:
+    case True{}:
+      log_spell_tail(log_tail_facts(len, last))
+    case False{}:
+      Wr.err("log: input left over")
+
+def log_ffi_spec.last(len: Nat, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
+  match r:
+    case Wr.Got{m, s}:
+      log_ffi_spec.end(Wr.end(s), len, m)
+    case Wr.Bad{}:
+      Wr.err("log: malformed request")
+
+def log_ffi_spec.len(r: Wr.Dec<Nat>) -> String:
+  match r:
+    case Wr.Got{n, s}:
+      log_ffi_spec.last(n, log_rd_last(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      Wr.err("log: malformed request")
+
+# the reply to the input s of the open of a file: its length, then its
+# last newline, then nothing, answered with the spelling of the open's
+# decision; a malformed field: "log: malformed request"; input left over:
+# "log: input left over"
+def log_ffi_spec(s: String) -> String:
+  log_ffi_spec.len(Wr.get_nat(s))
+
+def log_open_entry.end(done: Bool, fsync: Bool) -> FLg.St & String:
+  match done:
+    case True{}:
+      log_answer(log_open_spec(fsync))
+    case False{}:
+      (FLg.Shut{}, Wr.err("log: input left over"))
+
+def log_open_entry.go(r: Wr.Dec<Bool>) -> FLg.St & String:
+  match r:
+    case Wr.Got{b, s}:
+      log_open_entry.end(Wr.end(s), b)
+    case Wr.Bad{}:
+      (FLg.Shut{}, Wr.err("log: malformed open"))
+
+# the stepper's open of the input s: fsync, then nothing, opens the storage
+# of the open's plan (log_open_spec) and answers its steps; else the
+# stepper is shut and answers "log: malformed open" (no Bool) or "log:
+# input left over"
+def log_open_entry(s: String) -> FLg.St & String:
+  log_open_entry.go(Wr.get_bool(s))
+
+def log_step_entry.commit(s: Lr.Store, ds: List<&2, Bool>) -> FLg.St & String:
+  match s:
+    case Lr.Store{fsync, main}:
+      log_answer(log_commit_spec(fsync, main, ds))
+
+def log_step_entry.end(done: Bool, s: Lr.Store, ds: List<&2, Bool>) -> FLg.St & String:
+  match done:
+    case True{}:
+      log_step_entry.commit(s, ds)
+    case False{}:
+      (FLg.Running{s}, Wr.err("log: input left over"))
+
+def log_step_entry.go(s: Lr.Store, r: Wr.Dec<List<&2, Bool>>) -> FLg.St & String:
+  match r:
+    case Wr.Got{ds, rest}:
+      log_step_entry.end(Wr.end(rest), s, ds)
+    case Wr.Bad{}:
+      (FLg.Running{s}, Wr.err("log: malformed commit"))
+
+# the stepper's step on the input s: a running storage reads a commit's
+# sidecar entries (a list of Bools), then nothing, and moves to the storage
+# of the commit's plan (log_commit_spec), answering its steps; a malformed
+# list ("log: malformed commit") or input left over ("log: input left
+# over") keeps the storage; a shut stepper stays shut and answers "log:
+# the open was refused"
+def log_step_entry(st: FLg.St, s: String) -> FLg.St & String:
+  match st:
+    case FLg.Running{x}:
+      log_step_entry.go(x, Wr.get_list(~Bool, ~Wr.get_bool, s))
+    case FLg.Shut{}:
+      (FLg.Shut{}, Wr.err("log: the open was refused"))
+
+# LAW log_tail_exact (R1): the open's decision on any facts is what the
+# open must do with a file of those facts: keep a file whose bytes all lie
+# in complete lines, cut any other to its complete lines; facts no file
+# has (a newline at or past the end) are refused
+# EXCLUDES: a cut one byte off, a torn tail kept, a whole file cut, a
+#   real file refused or odd facts cut, on facts that the laws above pin
+#   only through a file (log_open_cuts_the_torn_tail) and no law pins alone
+law log_tail_exact:
+  for +len: Nat
+  for +last: Maybe<&2, Nat>
+  {Lr.tail(len, last) == log_tail_facts(len, last) : Lr.Tail}
+
+# LAW log_ffi_exact (R1, R4): the entry's reply to every input string is
+# the spec's: the open's decision on the facts of the one request it
+# spells, or the exact error form of a malformed field or of input left
+# over
+# EXCLUDES: a reply that the specs do not determine for some input (a
+#   decision of the model's own, a value answered to malformed input, an
+#   error form with another text or for the other fault)
+law log_ffi_exact:
+  for +s: String
+  {FLg.ffi(s) == log_ffi_spec(s) : String}
+
+# LAW log_stepper_open_exact (R3, R4): the stepper's open of every input
+# string is the spec's: the storage and steps of the open's plan, or a shut
+# stepper with the exact error form
+# EXCLUDES: a state or reply the specs do not determine for some input
+#   (a storage opened by malformed input, an error form with another text)
+law log_stepper_open_exact:
+  for +s: String
+  {FLg.open(s) == log_open_entry(s) : FLg.St & String}
+
+# LAW log_stepper_step_exact (R3, R4): the stepper's step on every state
+# and every input string is the spec's: the storage and steps of the
+# commit's plan, or the state kept with the exact error form
+# EXCLUDES: a state or reply the specs do not determine for some state or
+#   input (a plan of the model's own, a malformed event that moves the
+#   storage, a shut stepper that plans, an error form with another text)
+law log_stepper_step_exact:
+  for +st: FLg.St
+  for +s: String
+  {FLg.step(st, s) == log_step_entry(st, s) : FLg.St & String}

@@ -923,6 +923,10 @@ import ./proof/log/log_stepper_shut_refuses.bend as PLogStepperShutRefuses
 import ./proof/log/log_fits_example.bend as PLogFitsExample
 import ./proof/log/log_ffi_example.bend as PLogFfiExample
 import ./proof/log/log_stepper_example.bend as PLogStepperExample
+import ./proof/log/log_tail_exact.bend as PLogTailExact
+import ./proof/log/log_ffi_exact.bend as PLogFfiExact
+import ./proof/log/log_stepper_open_exact.bend as PLogStepperOpenExact
+import ./proof/log/log_stepper_step_exact.bend as PLogStepperStepExact
 import ./proof/staging/base.bend as LAStaging
 import ./proof/staging/publish_never_overwrites.bend as PPublishNeverOverwrites
 import ./proof/staging/publish_moves.bend as PPublishMoves
