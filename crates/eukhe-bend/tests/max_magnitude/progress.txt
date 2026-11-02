@@ -1,0 +1,6 @@
+# the goal's check: the bound, the cap, the prior's stalls and work, the work now at their largest
+call {MAX},{MAX},1,{MAX},{MAX},{MAX},
+call {MAX},1,1,{MAX},{MAX},99999999999998,
+call {MAX},{MAX},1,{MAX},99999999999998,{MAX},
+call {MAX},{MAX},0,{MAX},
+refuse {LONG},1,0,0,

@@ -314,7 +314,8 @@ def gs_spell_goal(g: Pr.Goal) -> String:
     case Pr.Stop{s}:
       Wr.put_nat(1n, Wr.put_nat(s, ""))
 
-# the reply Rust reads: the check's verdict
+# the reply Rust reads: the check's verdict (`judge` is gj_spec for every
+# input: goal_judge_exact)
 def gs_answer(q: gs.Req) -> String:
   match q:
     case gs.Req{t, cap, p, work}:
