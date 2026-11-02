@@ -78,7 +78,7 @@ use crate::kernel::ReplKernelManager;
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL; top-level `await` works. State persists across calls and is revived best-effort on resume (unserializable objects are dropped and reported). Shell: `bash('cmd')`/`await bash('cmd')`. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer the `bash` tool for file reads and read-only commands. Run project imports, tests and CLIs in the project's own environment. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
+const IPYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL; top-level `await` works. State persists across calls and is revived best-effort on resume (unserializable objects are dropped and reported). Shell: `bash('cmd')`/`await bash('cmd')`. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run project imports, tests and CLIs through `bash()` in the project's own environment. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
