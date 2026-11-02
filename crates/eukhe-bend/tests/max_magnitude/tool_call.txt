@@ -1,0 +1,18 @@
+# the gate: every question (no number on the wire past a tag)
+call 0,T1,1,
+call 1,T0,0,
+call 2,TTF
+refuse {MAX},T
+refuse {LONG},T
+# the stepper: a first attempt, reports, the end, a report and an end after it
+open T
+refuse-step {LONG},
+refuse-step {MAX},
+step 0,
+step 1,TT
+step 0,
+step 1,FF
+open F
+step 1,TF
+refuse-open {LONG}
+refuse-step 0,
