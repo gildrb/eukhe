@@ -214,58 +214,30 @@ def entries(rs: List<&2, Rule>) -> List<&2, List<&2, Nat>>:
         case Named{n}:
           entries(rest)
 
-def longer.pick(b_longer: Bool, a: List<&2, Nat>, b: List<&2, Nat>) -> List<&2, Nat>:
-  match b_longer:
-    case True{}:
-      b
-    case False{}:
-      a
-
-# the longer of a and b (a when equal)
-def longer(+a: List<&2, Nat>, +b: List<&2, Nat>) -> List<&2, Nat>:
-  longer.pick(Nat.is_lt(List.length(&2, Nat, a), List.length(&2, Nat, b)), a, b)
-
-def root.pick(hit: Bool, +p: List<&2, Nat>, best: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
-  match hit:
-    case False{}:
-      best
-    case True{}:
-      match best:
-        case None{}:
-          Some{p}
-        case Some{b}:
-          Some{longer(p, b)}
-
-# the deepest root `real` is under, if any
-def root.of(rs: List<&2, List<&2, Nat>>, +real: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
-  match rs:
+# p is one of the paths ps
+def listed(ps: List<&2, List<&2, Nat>>, +p: List<&2, Nat>) -> Bool:
+  match ps:
     case Nil{}:
-      None{}
-    case +p <> rest:
-      root.pick(under(p, real), p, root.of(rest, real))
+      False{}
+    case q <> rest:
+      Bool.or(Tl.ids.eq(p, q), listed(rest, p))
 
-def strip.pick(hit: Bool, x: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+def below.pick(hit: Bool, x: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
   match hit:
     case True{}:
       Nil{}
     case False{}:
       x <> rest
 
-# the names of `real` below `root` (deepest first)
-def strip(real: List<&2, Nat>, +root: List<&2, Nat>) -> List<&2, Nat>:
+# the names of `real` below the deepest root that holds it (deepest
+# first): its names up to the first of `real`, its parent, ... that is a
+# root; all of them when no root holds it
+def below(+roots: List<&2, List<&2, Nat>>, real: List<&2, Nat>) -> List<&2, Nat>:
   match real:
     case Nil{}:
       Nil{}
     case +x <> +r:
-      strip.pick(Tl.ids.eq(x <> r, root), x, strip(r, root))
-
-# the names of `real` below its root (all of them with no root)
-def below(+real: List<&2, Nat>, root: Maybe<&2, List<&2, Nat>>) -> List<&2, Nat>:
-  match root:
-    case None{}:
-      real
-    case Some{p}:
-      strip(real, p)
+      below.pick(listed(roots, x <> r), x, below(roots, r))
 
 def parent_is(+real: List<&2, Nat>, +p: List<&2, Nat>) -> Bool:
   match real:
@@ -307,11 +279,11 @@ def cls.pick(sec: Bool, prot: Bool, inside: Bool) -> Cls:
 
 # `real` is protected: a rule covers it, or it is an ancestor of an entry
 def protects(+pol: Pol, +real: List<&2, Nat>) -> Bool:
-  Bool.or(any_covers(Pol.rules(pol), real, below(real, root.of(Pol.roots(pol), real))), any_ancestor(List.append(&2, List<&2, Nat>, entries(Pol.rules(pol)), Pol.secret(pol)), real))
+  Bool.or(any_covers(Pol.rules(pol), real, below(Pol.roots(pol), real)), any_ancestor(List.append(&2, List<&2, Nat>, entries(Pol.rules(pol)), Pol.secret(pol)), real))
 
 # the class of a real path
 def class_of(+pol: Pol, +real: List<&2, Nat>) -> Cls:
-  cls.pick(any_under(Pol.secret(pol), real), protects(pol, real), Maybe.is_some(&2, List<&2, Nat>, root.of(Pol.roots(pol), real)))
+  cls.pick(any_under(Pol.secret(pol), real), protects(pol, real), any_under(Pol.roots(pol), real))
 
 # a path whose links looped is never Inside
 def demote(c: Cls, looped: Bool) -> Cls:
@@ -348,7 +320,7 @@ def inside_ok(sec: Bool, prot: Bool, ins: Bool) -> Bool:
 def safe(+pol: Pol, r: Res) -> Bool:
   match r:
     case Res{+at, looped}:
-      Bool.and(Bool.not(looped), inside_ok(any_under(Pol.secret(pol), at), protects(pol, at), Maybe.is_some(&2, List<&2, Nat>, root.of(Pol.roots(pol), at))))
+      Bool.and(Bool.not(looped), inside_ok(any_under(Pol.secret(pol), at), protects(pol, at), any_under(Pol.roots(pol), at)))
 
 # the real path `at` is a secret or a directory that holds one
 def holds_at(+pol: Pol, +at: List<&2, Nat>) -> Bool:

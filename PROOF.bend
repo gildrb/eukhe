@@ -1170,6 +1170,13 @@ import ./proof/path_policy/path_policy_ffi_request_round_trip.bend as PPathPolic
 import ./proof/path_policy/path_policy_ffi_answers.bend as PPathPolicyFfiAnswers
 import ./proof/path_policy/path_policy_ffi_rejects_malformed.bend as PPathPolicyFfiRejectsMalformed
 import ./proof/path_policy/path_policy_ffi_rejects_left_over.bend as PPathPolicyFfiRejectsLeftOver
+import ./proof/path_policy/path_class_spec.bend as PPathClassSpec
+import ./proof/path_policy/path_holds_spec.bend as PPathHoldsSpec
+import ./proof/path_policy/path_policy_ffi_decides.bend as PPathPolicyFfiDecides
+import ./proof/path_policy/path_policy_ffi_spelled_left_over.bend as PPathPolicyFfiSpelledLeftOver
+import ./proof/path_policy/path_policy_ffi_exact.bend as PPathPolicyFfiExact
+import ./proof/path_policy/path_policy_ffi_malformed_unless_request.bend as PPathPolicyFfiMalformedUnlessRequest
+import ./proof/path_policy/path_policy_ffi_example.bend as PPathPolicyFfiExample
 import ./proof/child_env/base.bend as LAChildEnv
 import ./proof/child_env/env_drops_credentials.bend as PEnvDropsCredentials
 import ./proof/child_env/env_kernel_keeps_only_listed.bend as PEnvKernelKeepsOnlyListed
