@@ -565,6 +565,7 @@ version = "0.10.0"
 dependencies = [
  "cc",
  "eukhe-types",
+ "serde_json",
 ]
 
 [[package]]
@@ -904,7 +905,6 @@ dependencies = [
  "libc",
  "libproc",
  "nix",
- "regex",
  "serde",
  "serde_json",
  "signal-hook",

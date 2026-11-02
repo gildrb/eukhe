@@ -204,6 +204,8 @@ pub enum Entry {
     AwsText = 383,
     /// `bend/ffi_ai_text.bend`: a call.
     AiText = 384,
+    /// `bend/ffi_shape.bend`: a call.
+    Shape = 385,
     /// `bend/ffi_tiny_run.bend`: a stepper.
     TinyRun = 400,
     /// `bend/ffi_wait_race.bend`: a stepper.
@@ -312,6 +314,7 @@ impl Entry {
         Entry::ModelName,
         Entry::AwsText,
         Entry::AiText,
+        Entry::Shape,
         Entry::TinyRun,
         Entry::WaitRace,
     ];

@@ -119,3 +119,7 @@ import ./laws/err_text.bend as ErrText
 import ./laws/model_name.bend as ModelName
 import ./laws/aws_text.bend as AwsText
 import ./laws/ai_text.bend as AiText
+import ./laws/shape/match.bend as Shape
+import ./laws/shape/search.bend as ShapeSearch
+import ./laws/incident_shapes.bend as IncidentShapes
+import ./laws/shape/entry.bend as ShapeEntry

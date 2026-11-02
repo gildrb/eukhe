@@ -82,6 +82,7 @@ import ./ffi_scan.bend as ffi_scan
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_shape.bend as ffi_shape
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
 import ./ffi_slash_args.bend as ffi_slash_args
@@ -294,6 +295,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_aws_text.ffi(input)
     case 384:
       ffi_ai_text.ffi(input)
+    case 385:
+      ffi_shape.ffi(input)
     case _:
       W.err("unknown entry")
 

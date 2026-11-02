@@ -1,6 +1,7 @@
 //! The incident timeline report (TS `buildIncidentReport` and its
 //! aggregation/rendering helpers).
 
+use eukhe_bend::rules::shape::INCIDENT_RULES;
 use eukhe_types::incident::{
     collect_incident_events, collect_worker_pid_map, compute_incident_anomalies,
     format_incident_duration, IncidentCategory, IncidentEvent, IncidentLogEntry, IncidentSeverity,
@@ -112,8 +113,8 @@ pub(crate) fn build_incident_report(
     entries: &[IncidentLogEntry],
     options: &IncidentReportOptions,
 ) -> IncidentReport {
-    let worker_pids = collect_worker_pid_map(entries);
-    let all_events = collect_incident_events(entries, &worker_pids);
+    let worker_pids = collect_worker_pid_map(INCIDENT_RULES, entries);
+    let all_events = collect_incident_events(INCIDENT_RULES, entries, &worker_pids);
     let mut events: Vec<IncidentEvent> = all_events
         .iter()
         .filter(|incident| {

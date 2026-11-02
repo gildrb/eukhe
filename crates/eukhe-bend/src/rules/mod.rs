@@ -38,6 +38,7 @@ pub mod retry_note;
 pub mod runners;
 pub mod scan;
 pub mod semver;
+pub mod shape;
 pub mod shell;
 pub mod slash;
 pub mod slash_args;

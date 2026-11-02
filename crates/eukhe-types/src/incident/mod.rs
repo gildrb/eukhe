@@ -11,11 +11,12 @@
 //! unreadable, the incident CLI falls back to the newest per-daemon log
 //! (`~/.eukhe/logs/<socket>.<hash>.log`, plain-text lines).
 //!
-//! Message shapes below match the strings the supervisor and session
-//! worker actually emit (the `DaemonSupervisor.log` / `DaemonMode.log`
-//! call sites). Unknown warning lines fall through to a generic per-line
-//! summary so new log messages degrade to a readable timeline instead of
-//! disappearing.
+//! Message shapes match the strings the supervisor and session worker
+//! actually emit (the `DaemonSupervisor.log` / `DaemonMode.log` call
+//! sites). The shapes are no Rust regexes: they run in the compiled Bend
+//! core and come in as [`IncidentRules`] (`rules.rs`). Unknown warning
+//! lines fall through to a generic per-line summary so new log messages
+//! degrade to a readable timeline instead of disappearing.
 //!
 //! This module is the classifier only: log-file discovery, the `--since`
 //! / `--until` window CLI parsing, and report rendering belong to eukhe-cli;
@@ -25,7 +26,7 @@
 mod anomaly;
 mod classify;
 mod parse;
-mod patterns;
+mod rules;
 
 pub use anomaly::{
     compute_incident_anomalies, format_incident_duration, latest_incident_stall_timeout_by_subject,
@@ -35,6 +36,7 @@ pub use classify::{
     worker_id_from_socket_path, WorkerPidMap, WorkerPidSighting,
 };
 pub use parse::{parse_incident_daemon_log_line, parse_incident_log_line, timestamp_to_ms};
+pub use rules::{IncidentRules, IncidentShape, ShapeFit};
 
 use std::collections::HashSet;
 

@@ -12,6 +12,11 @@ links = "eukhe_bend"
 # behavior and no C; the rule over its types lives here.
 eukhe-types.workspace = true
 
+[dev-dependencies]
+# rules/shape_incident_tests.rs builds the incident classifier's log
+# entries from JSON, as eukhe-types reads them. Already in the graph.
+serde_json.workspace = true
+
 [build-dependencies]
 # Compiles c/shim.c (which includes the generated c/core.c). Already in the
 # graph (Cargo.lock). MIT OR Apache-2.0.

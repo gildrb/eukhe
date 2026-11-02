@@ -1,28 +1,86 @@
 //! Log-entry classification into incident events (TS
 //! `classifyIncidentEntry` and its helpers).
 
-use super::patterns::{
-    ADOPT_FAILED, AUTH_FAILED, CATCH_UP, CRASH_LINE, CRASH_PREFIX, DAEMON_COMMAND, EVICTED_EMPTY,
-    EVICTED_IDLE, FAILED_AFTER_RETRIES, HEARTBEATS_LIST, MIGRATED, PASSIVATED, RECLAIMED,
-    RECOVERED, RECOVERED_PLAIN, RECOVER_FAILED, REPLACEMENT, SHUTDOWN_EXIT, SIGNAL_SHUTDOWN,
-    STACK_FRAME, STARTUP_FAILED, STDERR_FORWARD, STOP_REQUESTED, SUPERVISOR_COMMAND,
-    SUPERVISOR_LISTENING, UNKNOWN_SESSION, UNRESPONSIVE, WOKE, WORKER_LISTENING, WORKER_SOCKET,
-};
+use super::rules::{IncidentRules, IncidentShape};
 use super::{
     error_message, first_line, lifecycle_classes, truncate_text, IncidentCategory, IncidentEvent,
     IncidentLogEntry, IncidentSeverity, RECOVERY_BREAKDOWN_LIMIT, SUMMARY_TRUNCATION,
 };
 use std::collections::HashMap;
 
+/// The shapes a worker stderr body's first line is asked, in order.
+const BODY_SHAPES: [IncidentShape; 6] = [
+    IncidentShape::WorkerListening,
+    IncidentShape::CrashLine,
+    IncidentShape::ShutdownExit,
+    IncidentShape::SignalShutdown,
+    IncidentShape::StopRequested,
+    IncidentShape::Passivated,
+];
+
+/// The shapes a log message's first line is asked, in order.
+const LINE_SHAPES: [IncidentShape; 18] = [
+    IncidentShape::SupervisorListening,
+    IncidentShape::StartupFailed,
+    IncidentShape::SupervisorCommand,
+    IncidentShape::DaemonCommand,
+    IncidentShape::CatchUp,
+    IncidentShape::HeartbeatsList,
+    IncidentShape::Recovered,
+    IncidentShape::RecoveredPlain,
+    IncidentShape::AdoptFailed,
+    IncidentShape::RecoverFailed,
+    IncidentShape::FailedAfterRetries,
+    IncidentShape::Unresponsive,
+    IncidentShape::Reclaimed,
+    IncidentShape::Migrated,
+    IncidentShape::Replacement,
+    IncidentShape::Woke,
+    IncidentShape::EvictedIdle,
+    IncidentShape::EvictedEmpty,
+];
+
+/// The first of `shapes` that fits `text` (one core call): the shape and
+/// its captures (numbered from 1).
+fn first_shape(
+    rules: IncidentRules,
+    text: &str,
+    shapes: &[IncidentShape],
+) -> Option<(IncidentShape, Captures)> {
+    let fit = (rules.first)(text, shapes)?;
+    let shape = *shapes.get(fit.index)?;
+    Some((shape, Captures(fit.captures)))
+}
+
+/// The texts of a fit's captures.
+struct Captures(Vec<Option<String>>);
+
+impl Captures {
+    /// Capture `k` (from 1), or the empty text when it took no part.
+    fn get(&self, k: usize) -> &str {
+        k.checked_sub(1)
+            .and_then(|i| self.0.get(i))
+            .and_then(Option::as_deref)
+            .unwrap_or("")
+    }
+
+    /// Capture `k` (from 1), if it read something.
+    fn opt(&self, k: usize) -> Option<&str> {
+        self.0.get(k.checked_sub(1)?)?.as_deref()
+    }
+}
+
 /// The worker id a socket path names, if any (TS
 /// `workerIdFromSocketPath`): the last `/` segment of the path.
-pub fn worker_id_from_socket_path(socket_path: Option<&str>) -> Option<&str> {
+#[must_use]
+pub fn worker_id_from_socket_path(
+    rules: IncidentRules,
+    socket_path: Option<&str>,
+) -> Option<String> {
     let socket_path = socket_path?;
     let name = socket_path.rsplit('/').next().unwrap_or(socket_path);
-    WORKER_SOCKET
-        .captures(name)
-        .and_then(|captures| captures.get(1))
-        .map(|group| group.as_str())
+    let (_, captures) = first_shape(rules, name, &[IncidentShape::WorkerSocket])?;
+    captures.opt(1).map(str::to_string)
 }
 
 /// One log sighting of a worker id owning a pid at a timestamp (TS
@@ -41,10 +99,11 @@ pub type WorkerPidMap = HashMap<i64, Vec<WorkerPidSighting>>;
 /// Map pid -> worker-id sightings from entries whose socket path names a
 /// worker socket (TS `collectWorkerPidMap`).
 #[must_use]
-pub fn collect_worker_pid_map(entries: &[IncidentLogEntry]) -> WorkerPidMap {
+pub fn collect_worker_pid_map(rules: IncidentRules, entries: &[IncidentLogEntry]) -> WorkerPidMap {
     let mut map: WorkerPidMap = WorkerPidMap::new();
     for entry in entries {
-        let Some(worker_id) = worker_id_from_socket_path(entry.socket_path.as_deref()) else {
+        let Some(worker_id) = worker_id_from_socket_path(rules, entry.socket_path.as_deref())
+        else {
             continue;
         };
         let Some(pid) = entry.pid else {
@@ -52,7 +111,7 @@ pub fn collect_worker_pid_map(entries: &[IncidentLogEntry]) -> WorkerPidMap {
         };
         map.entry(pid).or_default().push(WorkerPidSighting {
             time_ms: entry.time_ms,
-            worker_id: worker_id.to_string(),
+            worker_id,
         });
     }
     for sightings in map.values_mut() {
@@ -151,7 +210,7 @@ struct CommandFailure {
 
 /// Classify the error body of a failed supervisor/daemon command (TS
 /// `classifyCommandFailure`).
-fn classify_command_failure(command: &str, error: &str) -> CommandFailure {
+fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) -> CommandFailure {
     let err = first_line(error);
     if err.contains("Timed out waiting for daemon worker response") {
         return CommandFailure {
@@ -161,7 +220,13 @@ fn classify_command_failure(command: &str, error: &str) -> CommandFailure {
             tokens: Vec::new(),
         };
     }
-    if AUTH_FAILED.is_match(err) {
+    let fit = first_shape(
+        rules,
+        err,
+        &[IncidentShape::AuthFailed, IncidentShape::UnknownSession],
+    );
+    let shape = fit.as_ref().map(|(shape, _)| *shape);
+    if shape == Some(IncidentShape::AuthFailed) {
         return CommandFailure {
             severity: IncidentSeverity::Error,
             event_class: "auth",
@@ -185,10 +250,8 @@ fn classify_command_failure(command: &str, error: &str) -> CommandFailure {
             tokens: Vec::new(),
         };
     }
-    if let Some(captures) = UNKNOWN_SESSION.captures(err) {
-        let session_id = captures
-            .get(1)
-            .map_or(String::new(), |m| m.as_str().to_string());
+    if let Some((IncidentShape::UnknownSession, captures)) = &fit {
+        let session_id = captures.get(1).to_string();
         return CommandFailure {
             severity: IncidentSeverity::Warn,
             event_class: "command-failure",
@@ -220,18 +283,21 @@ fn classify_command_failure(command: &str, error: &str) -> CommandFailure {
 /// Classify the body of a `Session worker <id> stderr: <body>` log line
 /// (TS `classifyWorkerStderrBody`).
 fn classify_worker_stderr_body(
+    rules: IncidentRules,
     worker_id: &str,
     body: &str,
     include_generic: bool,
 ) -> Option<WorkerStderrEvent> {
     let tokens = vec![worker_id.to_string()];
-    if body.trim().is_empty() || STACK_FRAME.is_match(body) {
+    if body.trim().is_empty() || first_shape(rules, body, &[IncidentShape::StackFrame]).is_some() {
         // Stack frames and blank lines belong to the previous stderr
         // event.
         return None;
     }
     let line = first_line(body);
-    if WORKER_LISTENING.is_match(line) {
+    let fit = first_shape(rules, line, &BODY_SHAPES);
+    let shape = fit.as_ref().map(|(shape, _)| *shape);
+    if shape == Some(IncidentShape::WorkerListening) {
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
             event_class: "worker-start",
@@ -240,7 +306,7 @@ fn classify_worker_stderr_body(
             tokens,
         });
     }
-    if CRASH_LINE.is_match(line) {
+    if shape == Some(IncidentShape::CrashLine) {
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Critical,
             event_class: "worker-crash",
@@ -249,9 +315,9 @@ fn classify_worker_stderr_body(
             tokens,
         });
     }
-    if let Some(captures) = SHUTDOWN_EXIT.captures(line) {
-        let exit = captures.get(1).map_or("", |m| m.as_str());
-        let sessions = captures.get(2).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::ShutdownExit, captures)) = &fit {
+        let exit = captures.get(1);
+        let sessions = captures.get(2);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
             event_class: "worker-stop",
@@ -262,8 +328,8 @@ fn classify_worker_stderr_body(
             tokens,
         });
     }
-    if let Some(captures) = SIGNAL_SHUTDOWN.captures(line) {
-        let signal = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::SignalShutdown, captures)) = &fit {
+        let signal = captures.get(1);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
             event_class: "worker-stop",
@@ -272,8 +338,8 @@ fn classify_worker_stderr_body(
             tokens,
         });
     }
-    if let Some(captures) = STOP_REQUESTED.captures(line) {
-        let sessions = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::StopRequested, captures)) = &fit {
+        let sessions = captures.get(1);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
             event_class: "worker-stop",
@@ -282,12 +348,12 @@ fn classify_worker_stderr_body(
             tokens,
         });
     }
-    if let Some(captures) = PASSIVATED.captures(line) {
-        let session_id = captures.get(1).map_or("", |m| m.as_str());
-        let idle_minutes = captures.get(3).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::Passivated, captures)) = &fit {
+        let session_id = captures.get(1);
+        let idle_minutes = captures.get(3);
         // A missing session name logs as `name=""`; that empty token must
         // not become a filter key.
-        let name = captures.get(2).map_or("", |m| m.as_str()).trim_matches('"');
+        let name = captures.get(2).trim_matches('"');
         let mut passivated_tokens = vec![worker_id.to_string(), session_id.to_string()];
         if !name.is_empty() {
             passivated_tokens.push(name.to_string());
@@ -396,20 +462,22 @@ fn provider_failure_event(entry: &IncidentLogEntry, worker_pids: &WorkerPidMap) 
 // scope for this zero-behavior-change sweep.
 #[allow(clippy::too_many_lines)]
 pub fn classify_incident_entry(
+    rules: IncidentRules,
     entry: &IncidentLogEntry,
     worker_pids: &WorkerPidMap,
 ) -> Option<IncidentEvent> {
     let msg = first_line(&entry.msg);
-    let worker_id = worker_id_from_socket_path(entry.socket_path.as_deref());
+    let worker_id = worker_id_from_socket_path(rules, entry.socket_path.as_deref());
+    let worker_id = worker_id.as_deref();
 
     if entry.component == "ai.provider" {
         return Some(provider_failure_event(entry, worker_pids));
     }
 
-    if let Some(captures) = STDERR_FORWARD.captures(&entry.msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
-        let body = captures.get(2).map_or("", |m| m.as_str());
-        let body = classify_worker_stderr_body(worker, body, true)?;
+    if let Some((_, captures)) = first_shape(rules, &entry.msg, &[IncidentShape::StderrForward]) {
+        let worker = captures.get(1);
+        let body = captures.get(2);
+        let body = classify_worker_stderr_body(rules, worker, body, true)?;
         return Some(incident_event(
             entry,
             body.severity,
@@ -421,7 +489,9 @@ pub fn classify_incident_entry(
         ));
     }
 
-    if SUPERVISOR_LISTENING.is_match(msg) {
+    let fit = first_shape(rules, msg, &LINE_SHAPES);
+    let shape = fit.as_ref().map(|(shape, _)| *shape);
+    if shape == Some(IncidentShape::SupervisorListening) {
         return Some(event(
             entry,
             IncidentSeverity::Info,
@@ -431,8 +501,8 @@ pub fn classify_incident_entry(
             "daemon supervisor listening",
         ));
     }
-    if let Some(captures) = STARTUP_FAILED.captures(msg) {
-        let err = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::StartupFailed, captures)) = &fit {
+        let err = captures.get(1);
         // TS tests the message case-insensitively
         // (/lock file is already being held/i): real log lines carry
         // "Lock file is already being held".
@@ -461,10 +531,10 @@ pub fn classify_incident_entry(
             ),
         ));
     }
-    if let Some(captures) = SUPERVISOR_COMMAND.captures(msg) {
-        let command = captures.get(1).map_or("", |m| m.as_str());
-        let error = captures.get(2).map_or("", |m| m.as_str());
-        let classified = classify_command_failure(command, error);
+    if let Some((IncidentShape::SupervisorCommand, captures)) = &fit {
+        let command = captures.get(1);
+        let error = captures.get(2);
+        let classified = classify_command_failure(rules, command, error);
         return Some(incident_event(
             entry,
             classified.severity,
@@ -475,10 +545,10 @@ pub fn classify_incident_entry(
             classified.tokens,
         ));
     }
-    if let Some(captures) = DAEMON_COMMAND.captures(msg) {
-        let command = captures.get(1).map_or("", |m| m.as_str());
-        let error = captures.get(2).map_or("", |m| m.as_str());
-        let classified = classify_command_failure(command, error);
+    if let Some((IncidentShape::DaemonCommand, captures)) = &fit {
+        let command = captures.get(1);
+        let error = captures.get(2);
+        let classified = classify_command_failure(rules, command, error);
         return Some(incident_event(
             entry,
             classified.severity,
@@ -501,9 +571,9 @@ pub fn classify_incident_entry(
             },
         ));
     }
-    if let Some(captures) = CATCH_UP.captures(msg) {
-        let session_id = captures.get(1).map(|m| m.as_str());
-        let err = captures.get(2).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::CatchUp, captures)) = &fit {
+        let session_id = captures.opt(1);
+        let err = captures.get(2);
         let timed_out = err.contains("Timed out waiting for daemon worker response");
         return Some(incident_event(
             entry,
@@ -530,8 +600,8 @@ pub fn classify_incident_entry(
             session_id.map_or_else(Vec::new, |session_id| vec![session_id.to_string()]),
         ));
     }
-    if let Some(captures) = HEARTBEATS_LIST.captures(msg) {
-        let err = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::HeartbeatsList, captures)) = &fit {
+        let err = captures.get(1);
         let timed_out = err.contains("Timed out waiting for daemon worker response");
         return Some(event(
             entry,
@@ -554,9 +624,9 @@ pub fn classify_incident_entry(
         ));
     }
 
-    if let Some(captures) = RECOVERED.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
-        let operations = captures.get(2).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::Recovered, captures)) = &fit {
+        let worker = captures.get(1);
+        let operations = captures.get(2);
         let (count, breakdown) = recovery_breakdown(operations);
         return Some(incident_event(
             entry,
@@ -571,8 +641,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = RECOVERED_PLAIN.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::RecoveredPlain, captures)) = &fit {
+        let worker = captures.get(1);
         return Some(incident_event(
             entry,
             IncidentSeverity::Info,
@@ -583,9 +653,9 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = ADOPT_FAILED.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
-        let err = captures.get(2).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::AdoptFailed, captures)) = &fit {
+        let worker = captures.get(1);
+        let err = captures.get(2);
         return Some(incident_event(
             entry,
             IncidentSeverity::Warn,
@@ -599,9 +669,9 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = RECOVER_FAILED.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
-        let err = captures.get(2).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::RecoverFailed, captures)) = &fit {
+        let worker = captures.get(1);
+        let err = captures.get(2);
         return Some(incident_event(
             entry,
             IncidentSeverity::Error,
@@ -615,8 +685,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = FAILED_AFTER_RETRIES.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::FailedAfterRetries, captures)) = &fit {
+        let worker = captures.get(1);
         return Some(incident_event(
             entry,
             IncidentSeverity::Error,
@@ -627,8 +697,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = UNRESPONSIVE.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::Unresponsive, captures)) = &fit {
+        let worker = captures.get(1);
         return Some(incident_event(
             entry,
             IncidentSeverity::Error,
@@ -639,8 +709,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = RECLAIMED.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::Reclaimed, captures)) = &fit {
+        let worker = captures.get(1);
         return Some(incident_event(
             entry,
             IncidentSeverity::Info,
@@ -651,8 +721,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = MIGRATED.captures(msg) {
-        let jobs = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::Migrated, captures)) = &fit {
+        let jobs = captures.get(1);
         return Some(event(
             entry,
             IncidentSeverity::Info,
@@ -662,7 +732,7 @@ pub fn classify_incident_entry(
             format!("migrated {jobs} scheduled jobs into session artifacts"),
         ));
     }
-    if REPLACEMENT.is_match(msg) {
+    if shape == Some(IncidentShape::Replacement) {
         return Some(event(
             entry,
             IncidentSeverity::Info,
@@ -672,7 +742,7 @@ pub fn classify_incident_entry(
             msg,
         ));
     }
-    if WOKE.is_match(msg) {
+    if shape == Some(IncidentShape::Woke) {
         // A scheduled wake is a supervisor lifecycle action, not crash
         // recovery.
         return Some(event(
@@ -685,10 +755,10 @@ pub fn classify_incident_entry(
         ));
     }
 
-    if let Some(captures) = EVICTED_IDLE.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
-        let idle = captures.get(2).map_or("", |m| m.as_str());
-        let sessions = captures.get(3).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::EvictedIdle, captures)) = &fit {
+        let worker = captures.get(1);
+        let idle = captures.get(2);
+        let sessions = captures.get(3);
         return Some(incident_event(
             entry,
             IncidentSeverity::Info,
@@ -699,8 +769,8 @@ pub fn classify_incident_entry(
             vec![worker.to_string()],
         ));
     }
-    if let Some(captures) = EVICTED_EMPTY.captures(msg) {
-        let worker = captures.get(1).map_or("", |m| m.as_str());
+    if let Some((IncidentShape::EvictedEmpty, captures)) = &fit {
+        let worker = captures.get(1);
         return Some(incident_event(
             entry,
             IncidentSeverity::Info,
@@ -718,7 +788,7 @@ pub fn classify_incident_entry(
         // stderr forward, so the duplicated log pair collapses in the
         // timeline.
         if let Some(worker_id) = worker_id {
-            if let Some(body) = classify_worker_stderr_body(worker_id, msg, false) {
+            if let Some(body) = classify_worker_stderr_body(rules, worker_id, msg, false) {
                 return Some(incident_event(
                     entry,
                     body.severity,
@@ -729,7 +799,7 @@ pub fn classify_incident_entry(
                     body.tokens,
                 ));
             }
-        } else if CRASH_PREFIX.is_match(msg) {
+        } else if first_shape(rules, msg, &[IncidentShape::CrashPrefix]).is_some() {
             return Some(event(
                 entry,
                 IncidentSeverity::Critical,
@@ -770,13 +840,14 @@ pub fn classify_incident_entry(
 /// summary, same second) (TS `collectIncidentEvents`).
 #[must_use]
 pub fn collect_incident_events(
+    rules: IncidentRules,
     entries: &[IncidentLogEntry],
     worker_pids: &WorkerPidMap,
 ) -> Vec<IncidentEvent> {
     let mut events: Vec<IncidentEvent> = Vec::new();
     let mut last_seen: HashMap<String, (i64, String)> = HashMap::new();
     for entry in entries {
-        let Some(incident) = classify_incident_entry(entry, worker_pids) else {
+        let Some(incident) = classify_incident_entry(rules, entry, worker_pids) else {
             continue;
         };
         // The daemon writes the same lifecycle event both to the
@@ -801,7 +872,3 @@ pub fn collect_incident_events(
     }
     events
 }
-
-#[cfg(test)]
-#[path = "classify_tests.rs"]
-mod tests;
