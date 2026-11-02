@@ -776,6 +776,30 @@ law config_ffi_refuses_example:
   {CS.cf_read("0,2,0,0,7,x") == None{} : Maybe<&2, FC.Ask>} &
   {FC.ffi("0,2,0,0,7,x") == SCon{'E', SCon{' ', "config: malformed request"}} : String}
 
+# the answer to the input s: the error form unless s is exactly one
+# request (CS.cf_read), else the decision cf_w_reply spells; every model
+# function cf_w_reply reads is pinned for all its inputs: Cf.rmw by
+# rmw_written_exact, rmw_missing_is_empty and rmw_refuses_broken,
+# Cf.applied and Cf.reported by leaf_lists_exact, Cf.limits by
+# limits_exact, Cf.project by trust_project_exact, Cf.withheld by
+# trust_withheld_exact, Cf.finds of Cf.merge by merge_finds_exact
+def cf_entry.of(m: Maybe<&2, FC.Ask>) -> String:
+  match m:
+    case None{}:
+      SCon{'E', SCon{' ', "config: malformed request"}}
+    case Some{a}:
+      CS.cf_w_reply(a)
+
+def cf_entry(s: String) -> String:
+  cf_entry.of(CS.cf_read(s))
+
+# LAW config_ffi_total: every input string is answered as the spec entry answers it: the error form unless it reads as exactly one request, else that request's decision
+# EXCLUDES: an input the laws above leave free (a request spelled in a way
+#   the speller never writes but the reader reads, one that does not fit)
+law config_ffi_total:
+  for +s: String
+  {FC.ffi(s) == cf_entry(s) : String}
+
 # The helpers the laws read, each pinned
 # --------------------------------------
 # Every model function a law or spec helper reads is fixed by an exact law

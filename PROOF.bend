@@ -2172,6 +2172,7 @@ import ./proof/config/config_ffi_reads_spelled.bend as PConfigFfiReadsSpelled
 import ./proof/config/config_ffi_malformed_exact.bend as PConfigFfiMalformedExact
 import ./proof/config/config_ffi_example.bend as PConfigFfiExample
 import ./proof/config/config_ffi_refuses_example.bend as PConfigFfiRefusesExample
+import ./proof/config/config_ffi_total.bend as PConfigFfiTotal
 import ./proof/mcp_url/base.bend as LAMcpUrl
 import ./proof/mcp_url/mcp_url_spec.bend as PMcpUrlSpec
 import ./proof/mcp_url/mcp_url_refuses_example.bend as PMcpUrlRefusesExample
