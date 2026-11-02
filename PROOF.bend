@@ -1093,10 +1093,10 @@ import ./proof/orphan/orphan_wire_reply.bend as POrphanWireReply
 import ./proof/orphan/orphan_ffi_decides.bend as POrphanFfiDecides
 import ./proof/orphan/orphan_ffi_malformed.bend as POrphanFfiMalformed
 import ./proof/orphan/orphan_ffi_left_over.bend as POrphanFfiLeftOver
-import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
-import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
 import ./proof/orphan/orphan_ffi_exact.bend as POrphanFfiExact
 import ./proof/orphan/orphan_ffi_exact_example.bend as POrphanFfiExactExample
+import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
+import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
 import ./proof/launcher/base.bend as LALauncher
 import ./proof/launcher/launcher_ffi_answers.bend as PLauncherFfiAnswers
 import ./proof/launcher/launcher_ffi_malformed.bend as PLauncherFfiMalformed
@@ -1106,6 +1106,7 @@ import ./proof/launcher/launcher_step_exact.bend as PLauncherStepExact
 import ./proof/launcher/launcher_closed_gate_waits_example.bend as PLauncherClosedGateWaitsExample
 import ./proof/launcher/launcher_ffi_malformed_exact.bend as PLauncherFfiMalformedExact
 import ./proof/launcher/launcher_adoption_exact.bend as PLauncherAdoptionExact
+import ./proof/launcher/launcher_ffi_reads.bend as PLauncherFfiReads
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates

@@ -264,6 +264,17 @@ law launcher_ffi_malformed:
   for no: {read_ask(s) == None{} : Maybe<&2, La.Ask>}
   {LawsBase.wire_opens_err(FLa.ffi(s)) == True{} : Bool}
 
+# LAW launcher_ffi_reads: every input that is exactly one request (as the wire primitives read
+# it) gets the answer to that request (with launcher_ffi_malformed_exact: the
+# entry's reply to every input is the spec's)
+# EXCLUDES: a reply on another reading of the input (a non-canonical
+#   spelling answered as another request), a request answered as another
+law launcher_ffi_reads:
+  for +s: String
+  for +a: La.Ask
+  for got: {read_ask(s) == Some{a} : Maybe<&2, La.Ask>}
+  {FLa.ffi(s) == spell_answer(a) : String}
+
 # LAW launcher_ffi_example: anchor: the strings Rust sends: a run start at a closed gate, a quiesce of a busy worker at an open gate, a commit with one busy answer, the adoption of a worker of another build and of the supervisor's; input left over is refused
 law launcher_ffi_example:
   {FLa.ffi("0,T") == "F" : String} &
