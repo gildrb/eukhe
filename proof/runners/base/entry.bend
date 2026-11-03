@@ -75,13 +75,6 @@ def rn.cell(r: Wr.Dec<List<&2, Nat>>) -> {Runners.read_cell(r) == FRu.get_cell(r
     case Wr.Bad{}:
       {==}
 
-def rn.registry(r: Wr.Dec<Bool>) -> {Runners.read_registry(r) == FRu.get_registry(r) : Wr.Dec<FRu.Req>}:
-  match r:
-    case Wr.Got{h, s}:
-      {==}
-    case Wr.Bad{}:
-      {==}
-
 def rn.tag(t: Nat, s: String) -> {Runners.read_req.tag(t, s) == FRu.get_req.tag(t, s) : Wr.Dec<FRu.Req>}:
   match t:
     case 0n:
@@ -89,7 +82,7 @@ def rn.tag(t: Nat, s: String) -> {Runners.read_req.tag(t, s) == FRu.get_req.tag(
     case 1n:
       rn.cell(Wr.get_list(~Nat, ~Wr.get_nat, s))
     case 2n:
-      rn.registry(Wr.get_bool(s))
+      {==}
     case 3n+u:
       {==}
 
@@ -129,12 +122,8 @@ def rn.reply(q: FRu.Req) -> {FRu.answer(q) == Runners.spell_answer(q) : String}:
       {==}
     case FRu.QCell{+c, +a, +k}:
       rn.out(Ru.cell(c, a, k))
-    case FRu.QRegistry{h}:
-      match h:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
+    case FRu.QRegistry{}:
+      {==}
 
 def rn.end(b: Bool, q: FRu.Req) -> {FRu.run.end(b, q) == Runners.spec.end(b, q) : String}:
   match b:
@@ -186,18 +175,11 @@ def rn.rt_cell(+c: List<&2, Nat>, +a: List<&2, Nat>, +k: Ru.Asker, +rest: String
   %Equal.sym(Wr.Dec<Ru.Asker>, Runners.read_asker(Wr.get_nat(r2)), Wr.Got{k, rest}, rn.rt_asker(k, rest)) : {Runners.read_cell.asker(c, a, _) == Wr.Got{FRu.QCell{c, a, k}, rest} : Wr.Dec<FRu.Req>}
   {==}
 
-def rn.rt_registry(h: Bool, rest: String) -> {Runners.read_req(Runners.spell_req(FRu.QRegistry{h}, rest)) == Wr.Got{FRu.QRegistry{h}, rest} : Wr.Dec<FRu.Req>}:
-  match h:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
 def rn.rt(q: FRu.Req, +rest: String, fits: {Runners.req_fits(q) == True{} : Bool}) -> {Runners.read_req(Runners.spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FRu.Req>}:
   match q:
     case FRu.QWithin{c, a}:
       rn.rt_within(c, a, rest, fits)
     case FRu.QCell{c, a, k}:
       rn.rt_cell(c, a, k, rest, fits)
-    case FRu.QRegistry{h}:
-      rn.rt_registry(h, rest)
+    case FRu.QRegistry{}:
+      {==}

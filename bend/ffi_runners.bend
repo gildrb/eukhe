@@ -12,8 +12,8 @@
 #                       0, 0 (ran, unasked) | 0, 1 (ran, approved)
 #                       | 1, 0 (refused, denied) | 1, 1 (refused,
 #                       unanswered): `cell`
-#   tag 2  registry  whether the session has chat memory (Bool)
-#                    -> every tool it installs, in order: its name
+#   tag 2  registry  nothing more
+#                    -> every tool a session installs, in order: its name
 #                       (String), its caps (List<Nat>), its gate (0 none,
 #                       1 each step, 2 each call): `registry`
 #
@@ -30,7 +30,7 @@ import ./runners.bend as Ru
 type Req is Data:
   QWithin{caps: List<&2, Nat>, auto: List<&2, Nat>}
   QCell{caps: List<&2, Nat>, auto: List<&2, Nat>, asker: Ru.Asker}
-  QRegistry{chat: Bool}
+  QRegistry{}
 
 # Requests
 # --------
@@ -98,13 +98,6 @@ def get_cell(r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
-def get_registry(r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{h, s}:
-      W.Got{QRegistry{h}, s}
-    case W.Bad{}:
-      W.Bad{}
-
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -112,7 +105,7 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
     case 1n:
       get_cell(get_ns(s))
     case 2n:
-      get_registry(W.get_bool(s))
+      W.Got{QRegistry{}, s}
     case 3n+u:
       W.Bad{}
 
@@ -170,8 +163,8 @@ def answer(q: Req) -> String:
       W.put_bool(Ru.within(c, a), "")
     case QCell{c, +a, k}:
       put_out(Ru.cell(c, a, k), "")
-    case QRegistry{h}:
-      W.put_list(~Ru.Tool, ~put_tool, Ru.registry(h), "")
+    case QRegistry{}:
+      W.put_list(~Ru.Tool, ~put_tool, Ru.registry(), "")
 
 def malformed() -> String:
   W.err("runners: malformed request")

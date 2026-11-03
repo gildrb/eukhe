@@ -21,8 +21,8 @@ def ruf.reply(q: FRu.Req) -> {Runners.spell_answer(q) == Runners.ru_reply(q) : S
     case FRu.QCell{+c, +a, +k}:
       %Runners.runners_cell_spec(c, a, k) : {Runners.spell_answer(FRu.QCell{c, a, k}) == Runners.spell_out(_) : String}
       {==}
-    case FRu.QRegistry{+h}:
-      %Runners.runners_registry_spec(h) : {Runners.spell_answer(FRu.QRegistry{h}) == Wr.put_list(~Ru.Tool, ~Runners.spell_tool, _, "") : String}
+    case FRu.QRegistry{}:
+      %Runners.runners_registry_spec() : {Runners.spell_answer(FRu.QRegistry{}) == Wr.put_list(~Ru.Tool, ~Runners.spell_tool, _, "") : String}
       {==}
 
 def ruf.end(b: Bool, q: FRu.Req) -> {Runners.spec.end(b, q) == Runners.ru_spec.end(b, q) : String}:

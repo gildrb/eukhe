@@ -52,14 +52,7 @@ def pr.cover(xs: List<&2, Ru.Tool>, i: Nat, +t: Ru.Tool, cov: {Ru.covered(xs) ==
         case 1n+p:
           pr.cover(rest, p, t, runners.pr.and_r(Bool.or(Bool.not(Ru.runs(x)), Ru.gated(x)), Ru.covered(rest), cov), at, runs)
 
-def pr.covers(chat: Bool, i: Nat, +t: Ru.Tool, at: {List.get(&2, Ru.Tool, Ru.registry(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}, runs: {Ru.runs(t) == True{} : Bool}) -> {Ru.gated(t) == True{} : Bool}:
-  match chat:
-    case True{}:
-      pr.cover(Ru.registry(True{}), i, t, {==}, at, runs)
-    case False{}:
-      pr.cover(Ru.registry(False{}), i, t, {==}, at, runs)
-
 # (G4) Every runner of code goes through the gate
 
-def Runners.gate_covers_every_runner(chat, i, t, at, runs):
-  pr.covers(chat, i, t, at, runs)
+def Runners.gate_covers_every_runner(i, t, at, runs):
+  pr.cover(Ru.registry(), i, t, {==}, at, runs)

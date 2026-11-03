@@ -5,7 +5,8 @@
 //! it; a subagent starts from the view at its first request and logs
 //! nothing to the chat (its own steps stay in its own session).
 //!
-//! - Tools `zoom(id, n)`, `zoom("Name")` and `date(id)`.
+//! - Tools `zoom(id, n)`, `zoom("Name")` and `date(id)`, in every session
+//!   (the same tool list with or without chat memory, [`tools`]).
 //! - `pi.generation` `before_request`: a root call's request is its
 //!   transcript with the pinned view (`eukhe.optchat.call`) of the older
 //!   history leading its first user message; a subagent's is the view with
@@ -43,11 +44,17 @@ use logger::{LoggerLink, LoggerRequest};
 /// The extension name.
 pub const EXTENSION_NAME: &str = "eukhe.optchat";
 
-/// The `eukhe.optchat` extension of a session with chat memory; `None`
-/// without. A root session also starts the chat logger when it opens.
+/// The `eukhe.optchat` extension: in a session with chat memory its tools,
+/// generation hooks and (root sessions) the chat logger, started when the
+/// session opens; without, only the tools, whose memory reads refuse.
 #[must_use]
-pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
-    let memory = deps.memory.clone()?;
+pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let Some(memory) = deps.memory.clone() else {
+        return define_extension(Extension {
+            tools: tools::memory_tools(None),
+            ..Extension::named(EXTENSION_NAME)
+        });
+    };
     let chat = OptChat::new(
         memory,
         deps.role.memory_role(),
@@ -66,7 +73,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
             .boxed()
         }));
     }
-    Some(chat.extension())
+    chat.extension()
 }
 
 /// One session's chat memory: shared by its hooks, tools, and logger.
@@ -111,7 +118,7 @@ impl OptChat {
             ..GenerationHooks::default()
         };
         define_extension(Extension {
-            tools: tools::memory_tools(&self.memory),
+            tools: tools::memory_tools(Some(self.memory.clone())),
             hooks: vec![hook(&*GENERATION_TASK, generation)],
             ..Extension::named(EXTENSION_NAME)
         })

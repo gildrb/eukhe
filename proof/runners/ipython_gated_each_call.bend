@@ -4,12 +4,5 @@ import Base
 import ../../bend/runners.bend as Ru
 import ../../laws/runners.bend as Runners
 
-def pr.ipython(chat: Bool) -> {Ru.find(Ru.registry(chat), "ipython") == Some{Ru.Tool{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.Tool>}:
-  match chat:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def Runners.ipython_gated_each_call(chat):
-  pr.ipython(chat)
+def Runners.ipython_gated_each_call():
+  {==}

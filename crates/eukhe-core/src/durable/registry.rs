@@ -51,9 +51,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(rlm::extension(deps))?;
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
-    if let Some(extension) = optchat::extension(deps) {
-        install(extension)?;
-    }
+    install(optchat::extension(deps))?;
     install(goals::extension(deps))?;
     install(children::extension(deps))?;
     install(workflow::extension(deps))?;

@@ -55,13 +55,6 @@ pub struct Tool {
     pub gate: Covered,
 }
 
-/// Whether the session has chat memory (its tools join the registry).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChatMemory {
-    On,
-    Off,
-}
-
 /// Whether a call of a tool with `caps` runs unasked under `auto`
 /// (`Ru.within`).
 #[must_use]
@@ -119,13 +112,13 @@ fn cell_call(auto: AutoSet, caps: ShellEffects, asker: Asker) -> Result<Ended, E
 
 /// Every tool a session installs, in install order (`Ru.registry`).
 #[must_use]
-pub fn registry(chat: ChatMemory) -> Vec<Tool> {
-    expect_core(Entry::Runners, registry_call(chat))
+pub fn registry() -> Vec<Tool> {
+    expect_core(Entry::Runners, registry_call())
 }
 
-fn registry_call(chat: ChatMemory) -> Result<Vec<Tool>, Error> {
+fn registry_call() -> Result<Vec<Tool>, Error> {
     let mut request = Writer::new();
-    request.tag(2).bool(chat == ChatMemory::On);
+    request.tag(2);
     let reply = call(Entry::Runners, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let count = reader.count()?;

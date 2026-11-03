@@ -539,7 +539,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
         .append(Kind::User, "remember me")
         .await
         .unwrap();
-    let tools = super::tools::memory_tools(&setup.memory);
+    let tools = super::tools::memory_tools(Some(setup.memory.clone()));
     let declared: Vec<_> = tools
         .iter()
         .map(|tool| {

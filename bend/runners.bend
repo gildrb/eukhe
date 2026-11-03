@@ -72,24 +72,20 @@ def gated(+t: Tool) -> Bool:
 def plain(name: String) -> Tool:
   Tool{name, Nil{}, Ungated{}}
 
-# the tools of the chat memory (`eukhe.optchat`): only a session that has
-# chat memory installs them
-def chat.tools(chat: Bool) -> List<&2, Tool>:
-  match chat:
-    case True{}:
-      [plain("zoom"), plain("date")]
-    case False{}:
-      []
-
 # every tool a session installs, in install order (crates/eukhe-core/src/
-# durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` when chat holds,
-# `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`,
-# `codemode` (its script runs no program itself: each tool it calls runs
-# through that tool's gate; its model tools `classify` and
-# `generateImages` call a model). The `workflow` script runs no program
-# either: its agents are child sessions with their own gates.
-def registry(chat: Bool) -> List<&2, Tool>:
-  Tool{"ipython", [exec()], EachCall{}} <> List.append(&2, Tool, chat.tools(chat), [
+# durable/registry.rs): `eukhe.rlm`, `eukhe.optchat` (`zoom` and `date`,
+# with or without chat memory: a subagent offers its parent's tool list;
+# without chat memory they refuse at call time), `eukhe.workflow`,
+# `eukhe.documents`, `eukhe.shell`, `eukhe.dyn`, `codemode` (its script
+# runs no program itself: each tool it calls runs through that tool's
+# gate; its model tools `classify` and `generateImages` call a model).
+# The `workflow` script runs no program either: its agents are child
+# sessions with their own gates.
+def registry() -> List<&2, Tool>:
+  [
+    Tool{"ipython", [exec()], EachCall{}},
+    plain("zoom"),
+    plain("date"),
     plain("workflow"),
     plain("read"),
     plain("edit"),
@@ -100,7 +96,7 @@ def registry(chat: Bool) -> List<&2, Tool>:
     plain("codemode"),
     plain("pi.codemode.models.classify"),
     plain("pi.codemode.models.generateImages"),
-  ])
+  ]
 
 # every tool of ts that runs code is gated
 def covered(ts: List<&2, Tool>) -> Bool:

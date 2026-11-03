@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_bend::rules::runners::{self, ChatMemory, Covered};
+use eukhe_bend::rules::runners::{self, Covered};
 use eukhe_durable::harness::types::RegistryReader;
 use eukhe_types::pi_ai::ToolResultMessage;
 use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
@@ -73,8 +73,9 @@ impl Summarizer for NoModel {
 }
 
 /// The real registry of a session without and with chat memory is the
-/// compiled core's (`registry`, whose laws `gate_covers_every_runner` and
-/// `ipython_gated_each_call` pin it).
+/// compiled core's one registry (`registry`, whose laws
+/// `gate_covers_every_runner` and `ipython_gated_each_call` pin it): chat
+/// memory adds no tool, so a subagent offers its parent's tool list.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_registry_is_its_model() {
     let fixture = Fixture::new();
@@ -86,16 +87,11 @@ async fn the_registry_is_its_model() {
     let chat = fixture
         .open_configured(move |config| config.memory = Some(memory))
         .await;
-    let model = |chat| {
-        runners::registry(chat)
-            .into_iter()
-            .map(|tool| (tool.name, tool.caps, tool.gate))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        (dump(&classic), dump(&chat)),
-        (model(ChatMemory::Off), model(ChatMemory::On))
-    );
+    let model: Vec<_> = runners::registry()
+        .into_iter()
+        .map(|tool| (tool.name, tool.caps, tool.gate))
+        .collect();
+    assert_eq!((dump(&classic), dump(&chat)), (model.clone(), model));
 }
 
 /// One `ipython` call of `code` under `auto`, answered by `asker`: its

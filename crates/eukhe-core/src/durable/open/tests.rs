@@ -1588,3 +1588,103 @@ async fn open_makes_an_existing_session_dir_private() {
     );
     session.close(cx()).await.expect("close");
 }
+
+/// A root session with chat memory and its subagent (depth 1, no chat
+/// memory, the daemon's subagent cvar agent), otherwise configured alike.
+async fn root_and_subagent_configs(fixture: &Fixture) -> (SessionConfig, SessionConfig) {
+    use crate::durable::cvar_agent::CvarAgent;
+    use crate::durable::deps::{ParentLink, SessionRole};
+    use crate::memory::Memory;
+    let memory = Memory::open(fixture.agent_dir.join("chat"), Arc::new(NoSummarizer))
+        .await
+        .expect("memory");
+    let mut root = fixture.config(SessionStorage::Memory);
+    root.model = Some(fixture.model().into());
+    root.role.rlm_max_depth = 2;
+    let mut child = root.clone();
+    root.memory = Some(memory);
+    child.session_id = "0192a000-0000-7000-8000-0000000000c1".to_owned();
+    child.role = SessionRole {
+        rlm_depth: 1,
+        rlm_max_depth: 2,
+        parent: Some(ParentLink {
+            session_id: root.session_id.clone(),
+            task_id: Some("task-1".to_owned()),
+            agent_name: Some("main".to_owned()),
+            spawned_by_request_id: None,
+        }),
+    };
+    child.cvar_agent = CvarAgent::Subagent {
+        inherited: Vec::new(),
+        name: Some("scout".to_owned()),
+    };
+    (root, child)
+}
+
+/// A subagent's first request offers exactly its parent's tools (names,
+/// descriptions, parameters, order), so it reads the tools prefix the
+/// parent wrote to the provider's prompt cache: a session without chat
+/// memory still offers `zoom` and `date`.
+#[tokio::test]
+async fn a_subagent_offers_the_same_tools_as_its_root_with_chat_memory() {
+    let fixture = fixture();
+    let (root, child) = root_and_subagent_configs(&fixture).await;
+    let mut offered = Vec::new();
+    for config in [root, child] {
+        let captured: Arc<Mutex<Option<Vec<eukhe_types::pi_ai::Tool>>>> = Arc::default();
+        let capture = Arc::clone(&captured);
+        fixture
+            .faux
+            .set_responses(vec![FauxResponseStep::factory(move |context, _, _, _| {
+                *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(get_current_tools(context.messages()));
+                Ok(faux_assistant_message(
+                    "ok",
+                    FauxAssistantMessageOptions::default(),
+                ))
+            })]);
+        let session = open_session(config, cx()).await.expect("open");
+        ask(&session, "hi").await;
+        session.close(cx()).await.expect("close");
+        offered.push(
+            captured
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+                .expect("the request was captured"),
+        );
+    }
+    let names: Vec<&str> = offered[0].iter().map(|tool| tool.name.as_str()).collect();
+    assert!(
+        names.contains(&"zoom") && names.contains(&"date"),
+        "{names:?}"
+    );
+    assert_eq!(offered[1], offered[0]);
+}
+
+/// In a session without chat memory, `zoom` on a line and `date` refuse
+/// with a tool error; `zoom("Name")` reads the subagent registry, which
+/// needs no chat memory.
+#[tokio::test]
+async fn without_chat_memory_zoom_on_a_line_and_date_refuse() {
+    let fixture = fixture();
+    let (_root, child) = root_and_subagent_configs(&fixture).await;
+    fixture.faux.set_responses(vec![
+        tool_call("zoom", serde_json::json!({ "id": 0, "n": 1 }), "call-1"),
+        tool_call("date", serde_json::json!({ "id": 0 }), "call-2"),
+        tool_call("zoom", serde_json::json!({ "id": "scout" }), "call-3"),
+        answer("done"),
+    ]);
+    let session = open_session(child, cx()).await.expect("open");
+    ask(&session, "look back").await;
+    let refusal = "<harness>\n[error] This session has no chat memory: zoom on a line and date read the chat view, which only a session with chat memory has.\n</harness>";
+    assert_eq!(
+        tool_results(&entries(&session).await),
+        vec![
+            ("zoom".to_owned(), true, refusal.to_owned()),
+            ("date".to_owned(), true, refusal.to_owned()),
+            ("zoom".to_owned(), false, "No agent scout.".to_owned()),
+        ]
+    );
+    session.close(cx()).await.expect("close");
+}
