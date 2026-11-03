@@ -532,6 +532,7 @@ async fn session_config(
         parent: None,
     };
     session.thinking = config.thinking.map(thinking_level);
+    session.host = options.app_mode.session_host();
     session.prompt = PromptConfig {
         custom_system_prompt: config.system_prompt.clone(),
         append_system_prompt: config.append_system_prompt.clone(),

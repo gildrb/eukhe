@@ -520,9 +520,6 @@ fn print_mode_overflow_retry_recovers_the_turn() {
             overflow_error(0),
             {"text": "the summary"},
             {"text": "recovered reply"},
-            // The compact-trigger auto-refine review the recovered turn's
-            // checkpoint runs: a decline, so the review stays silent.
-            r#"{"shouldRefine": false, "rationale": "one-off tool output"}"#,
         ]
     });
     let seed = format!("seed turn {}", "x".repeat(48_000));
@@ -700,9 +697,6 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
             overflow_error(0),
             {"text": "the stale recovery summary"},
             {"text": "recovered after the resume"},
-            // The compact-trigger auto-refine review the recovered turn's
-            // checkpoint runs: a decline, so the review stays silent.
-            r#"{"shouldRefine": false, "rationale": "one-off tool output"}"#,
         ]
     });
     let (stdout, stderr, code) =

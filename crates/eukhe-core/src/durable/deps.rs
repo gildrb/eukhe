@@ -71,6 +71,21 @@ impl SessionRole {
     }
 }
 
+/// How long the session's host keeps it open: whether the session may
+/// start model work of its own once its runs settle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionHost {
+    /// The host keeps the session open between runs (the daemon worker,
+    /// rpc mode): the compact-trigger auto-refine review runs once the
+    /// conversation is idle.
+    Resident,
+    /// The host closes the session once its runs settle (print and json
+    /// mode): the session starts no model request at an idle boundary,
+    /// since the exit right after the answer would abandon it after its
+    /// prompt was paid for.
+    EndsWithRuns,
+}
+
 /// Where a session's durable records live.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionStorage {
@@ -246,6 +261,8 @@ pub struct SessionConfig {
     /// override or the auto-bootstrapped `~/.eukhe` kernel venv. Tests set
     /// this checkout's runtime so no test touches the user's home.
     pub kernel_python: Option<PathBuf>,
+    /// How long the host keeps the session open.
+    pub host: SessionHost,
 }
 
 impl SessionConfig {
@@ -283,6 +300,7 @@ impl SessionConfig {
             job_settled: None,
             shell_approval: None,
             prewarm_kernel: false,
+            host: SessionHost::Resident,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
             #[cfg(not(test))]
@@ -341,7 +359,9 @@ impl HarnessCell {
 /// queued inputs; an input admitted after it would start a run on the
 /// closing session that outlives the abort. A child's report therefore
 /// admits through [`SessionClosing::admit`], and once the close began it
-/// stays owed to the reopened session.
+/// stays owed to the reopened session. The compact-trigger auto-refine
+/// round admits through it too: a close waits for the round's model
+/// requests instead of abandoning them, and a closing session starts none.
 #[derive(Clone, Default)]
 pub(crate) struct SessionClosing {
     closing: Arc<tokio::sync::RwLock<bool>>,
@@ -468,6 +488,8 @@ pub struct HostDeps {
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
     pub kernel_python: Option<PathBuf>,
+    /// [`SessionConfig::host`].
+    pub host: SessionHost,
     pub harness: HarnessCell,
     pub host_requests: HostRequestRegistry,
     services: Mutex<Vec<ServiceStart>>,
@@ -540,6 +562,7 @@ impl HostDeps {
             job_settled: config.job_settled.clone(),
             shell_approval: config.shell_approval.clone(),
             prewarm_kernel: config.prewarm_kernel,
+            host: config.host,
             kernel_python: config.kernel_python.clone(),
             harness: HarnessCell::default(),
             host_requests: HostRequestRegistry::default(),

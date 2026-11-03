@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use eukhe_core::durable::SessionHost;
 use eukhe_core::resources::SystemPromptInput;
 
 use crate::args::{Args, AutonomousConfig, Mode};
@@ -49,6 +50,19 @@ impl AppMode {
             AppMode::Rpc => "rpc",
             AppMode::Acp => "acp",
             AppMode::Daemon => "daemon",
+        }
+    }
+
+    /// How a session this mode opens is hosted: print and json mode close
+    /// it once its runs settle and the process exits; every other mode
+    /// keeps it open between runs.
+    #[must_use]
+    pub fn session_host(self) -> SessionHost {
+        match self {
+            AppMode::Print | AppMode::Json => SessionHost::EndsWithRuns,
+            AppMode::Interactive | AppMode::Rpc | AppMode::Acp | AppMode::Daemon => {
+                SessionHost::Resident
+            }
         }
     }
 }

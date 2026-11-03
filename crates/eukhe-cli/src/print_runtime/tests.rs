@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
+use eukhe_ai::providers::faux_script::{
+    create_faux_script_models, parse_faux_script, FauxScriptProvider,
+};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
 
@@ -8,26 +10,33 @@ use super::*;
 use crate::headless_terminal::HeadlessPrimary;
 use crate::mode::{RuntimeConfig, SessionOptions};
 
-/// A memory session on the scripted faux provider (the print harness's
-/// `EUKHE_FAUX_SCRIPT` models without the environment).
-async fn faux_session(dir: &Path, script: &serde_json::Value) -> EukheSession {
+/// A session on the scripted faux provider (the print harness's
+/// `EUKHE_FAUX_SCRIPT` models without the environment), hosted as print
+/// mode hosts it.
+async fn faux_session(
+    dir: &Path,
+    script: &serde_json::Value,
+    storage: SessionStorage,
+) -> (EukheSession, FauxScriptProvider) {
     let script = parse_faux_script(&script.to_string()).expect("faux script");
     let model = script.model.id.clone();
-    let (models, _provider) = create_faux_script_models(script);
+    let (models, provider) = create_faux_script_models(script);
     let mut config = SessionConfig::new(
         dir.join("agent"),
         dir,
         "0198f000-0000-7000-8000-000000000000",
-        SessionStorage::Memory,
+        storage,
     );
     config.models = Some(models);
     config.model = Some(ModelRequest {
         provider: Some("faux".to_owned()),
         pattern: model,
     });
-    open_session(config, &BACKGROUND_CONTEXT)
+    config.host = AppMode::Print.session_host();
+    let session = open_session(config, &BACKGROUND_CONTEXT)
         .await
-        .expect("open the faux session")
+        .expect("open the faux session");
+    (session, provider)
 }
 
 fn run_options(dir: &Path, prompts: &[&str]) -> RunOptions {
@@ -55,20 +64,24 @@ fn run_options(dir: &Path, prompts: &[&str]) -> RunOptions {
     }
 }
 
-/// Run the prompt loop on a faux session and select the terminal result.
-async fn run(
+/// Run the prompt loop on a faux session, select the terminal result, and
+/// close the session as print mode does.
+async fn run_in(
+    dir: &Path,
+    storage: SessionStorage,
     script: &serde_json::Value,
     prompts: &[&str],
 ) -> (
     Option<String>,
     crate::headless_terminal::HeadlessTerminalResult,
+    FauxScriptProvider,
 ) {
-    let dir = tempfile::TempDir::new().expect("tempdir");
+    let (session, provider) = faux_session(dir, script, storage).await;
     let opened = HeadlessSession {
-        session: Arc::new(faux_session(dir.path(), script).await),
+        session: Arc::new(session),
         lease: None,
         session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
-        cwd: dir.path().to_path_buf(),
+        cwd: dir.to_path_buf(),
         parent_session: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
     };
@@ -81,7 +94,7 @@ async fn run(
         &opened,
         &conversation,
         &watch,
-        &run_options(dir.path(), prompts),
+        &run_options(dir, prompts),
         cx,
     )
     .await
@@ -100,6 +113,20 @@ async fn run(
         panic!("the test holds the only session handle");
     };
     session.close(cx).await.expect("close");
+    (failure, result, provider)
+}
+
+/// [`run_in`] on a memory session in a fresh directory.
+async fn run(
+    script: &serde_json::Value,
+    prompts: &[&str],
+) -> (
+    Option<String>,
+    crate::headless_terminal::HeadlessTerminalResult,
+) {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let (failure, result, _provider) =
+        run_in(dir.path(), SessionStorage::Memory, script, prompts).await;
     (failure, result)
 }
 
@@ -114,6 +141,53 @@ async fn every_prompt_answers_in_order_and_the_last_answer_is_the_result() {
     let primary = result.primary.expect("a primary answer");
     assert_eq!(primary.failure(), None);
     assert_eq!(primary.stdout_text(), "second answer");
+}
+
+/// A print run sends nothing after its final answer, even when its turn
+/// compacted: the compact-trigger review would start at the idle right
+/// before the exit, which cancels its request after its prompt was paid
+/// for (bench longmem: one main-model review per compaction, every one
+/// cancelled). The overflow error compacts the turn, the summary and the
+/// retried answer are the run's last scripted requests.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_print_run_sends_no_request_after_its_final_answer() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    // The keep window leaves the seed turn before the cut.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "compaction": { "enabled": true, "reserveTokens": 1, "keepRecentTokens": 10 }
+        })
+        .to_string(),
+    )
+    .expect("settings");
+    let script = serde_json::json!({
+        "responses": [
+            {"text": "seed reply"},
+            {
+                "content": [{ "type": "text", "text": "" }],
+                "stopReason": "error",
+                "errorMessage": "prompt is too long: 213462 tokens > 200000 maximum",
+            },
+            {"text": "the summary"},
+            {"text": "recovered reply"},
+        ]
+    });
+    let seed = format!("seed turn {}", "x".repeat(48_000));
+    let probe = format!("overflow probe {}", "x".repeat(48_000));
+    let storage = SessionStorage::Jsonl {
+        dir: dir.path().join("sessions").join("print"),
+        fsync: false,
+    };
+    let (failure, result, provider) = run_in(dir.path(), storage, &script, &[&seed, &probe]).await;
+    assert_eq!(failure, None);
+    let primary = result.primary.expect("the recovered answer");
+    assert_eq!(primary.stdout_text(), "recovered reply");
+    // The session is closed: a request it started after the answer would
+    // have been counted by now.
+    assert_eq!(provider.call_count(), 4);
 }
 
 #[tokio::test]

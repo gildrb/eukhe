@@ -112,7 +112,17 @@ pub(crate) async fn consume(
         inner.in_flight = true;
         inner.settled_turns_since_review
     };
-    let outcome = run_round(deps, conversation, settled_turns, cx).await;
+    // A round starts under the session's closing gate: a close that begins
+    // meanwhile waits for its requests instead of abandoning them, and a
+    // closing session starts none.
+    let Some(outcome) = deps
+        .closing
+        .admit(|| run_round(deps, conversation, settled_turns, cx))
+        .await
+    else {
+        lock(&runtime.autorefine).in_flight = false;
+        return Ok(());
+    };
     {
         let mut inner = lock(&runtime.autorefine);
         inner.in_flight = false;

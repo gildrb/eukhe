@@ -13,7 +13,8 @@
 //!   `_syncKernelStateAfterCompaction`), a model-context row that also
 //!   keeps a back-to-back second `/compact` preparing in update mode
 //!   instead of skipping as already compacted;
-//! - and it arms the compact-trigger auto-refine (the old
+//! - and, when the host keeps the session open between runs, it arms the
+//!   compact-trigger auto-refine (the old
 //!   `_scheduleAutoRefineAfterCompaction`), serviced once the conversation
 //!   is idle.
 //!
@@ -49,7 +50,7 @@ use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::super::{custom_entry_draft, OpenedSession};
+use super::super::{custom_entry_draft, OpenedSession, SessionHost};
 use super::{CompactionRuntime, HostDeps};
 use crate::durable::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
 
@@ -413,23 +414,28 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
         SettledOutcome::Summarized => {
             // The kernel survived the compaction: its persistence notice
             // (TS `_syncKernelStateAfterCompaction`) lands first.
+            notice_surviving_kernel(deps, &conversation, &cx).await;
             // The compact-trigger review arms (TS
             // `_scheduleAutoRefineAfterCompaction`); the spawned task
-            // consumes it once the conversation is idle.
-            notice_surviving_kernel(deps, &conversation, &cx).await;
-            runtime.autorefine.arm();
-            let arming = Arc::clone(runtime);
-            let idle_conversation = conversation.clone();
-            let idle_cx = cx.clone();
-            tokio::spawn(async move {
-                if idle_conversation.wait_for_idle(&idle_cx).await.is_ok() {
-                    if let Err(error) =
-                        super::autorefine::consume(&arming, &idle_conversation, &idle_cx).await
-                    {
-                        tracing::warn!(target: "eukhe.compaction", "compact auto-refine failed: {error:#}");
+            // consumes it once the conversation is idle. A host that closes
+            // the session once its runs settle (print mode) reaches that
+            // idle right before its exit, which would abandon the review's
+            // request after its prompt was paid for: it arms none.
+            if deps.host == SessionHost::Resident {
+                runtime.autorefine.arm();
+                let arming = Arc::clone(runtime);
+                let idle_conversation = conversation.clone();
+                let idle_cx = cx.clone();
+                tokio::spawn(async move {
+                    if idle_conversation.wait_for_idle(&idle_cx).await.is_ok() {
+                        if let Err(error) =
+                            super::autorefine::consume(&arming, &idle_conversation, &idle_cx).await
+                        {
+                            tracing::warn!(target: "eukhe.compaction", "compact auto-refine failed: {error:#}");
+                        }
                     }
-                }
-            });
+                });
+            }
         }
         SettledOutcome::Skipped => {
             let message = skip_message(&conversation, &cx).await;
