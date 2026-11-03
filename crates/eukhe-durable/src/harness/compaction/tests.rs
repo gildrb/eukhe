@@ -13,7 +13,9 @@ use eukhe_types::pi_ai::{
     UserMessage,
 };
 
-use super::{estimate_context, plan, select_cut, serialize_conversation, Calibration};
+use super::{
+    estimate_context, last_turn_tokens, plan, select_cut, serialize_conversation, Calibration,
+};
 use crate::harness::agent::DEFAULT_COMPACTION_POLICY;
 use crate::harness::context::order_tool_results;
 use crate::harness::types::{BackgroundMargin, CompactionPolicy, ContextView};
@@ -406,7 +408,14 @@ fn a_compaction_counts_pastes_as_the_provider_does_and_keeps_the_context_within_
         66_600 + (estimate(&paste("D")) * 36_600).div_ceil(between)
     );
     assert_eq!(
-        plan(&view, &EUKHE, WINDOW, tokens, Calibration::of(&view)),
+        plan(
+            &view,
+            &EUKHE,
+            WINDOW,
+            tokens,
+            last_turn_tokens(&view),
+            Calibration::of(&view),
+        ),
         super::range::Plan {
             over: Over::Blocking,
             cut: Some(7),
@@ -415,25 +424,63 @@ fn a_compaction_counts_pastes_as_the_provider_does_and_keeps_the_context_within_
     assert_eq!(select_cut(&view, &EUKHE, WINDOW), Some(7));
 }
 
-/// A context over the background threshold compacts early only when its
-/// compaction reaches the target; else it waits for the blocking one.
-#[test]
-fn an_early_compaction_runs_only_when_it_reaches_the_target() {
+/// The plan of a request that follows a turn the provider counted at
+/// `last` tokens and adds a paste of `paste` estimated tokens.
+fn after_turn(last: u64, paste: usize) -> super::range::Plan {
     let mut ids = Ids(0);
     let entries = vec![
         ids.entry("pi.system", vec![system_sections(text("sys", 5000))], None),
         ids.entry("pi.user", vec![user(text("A", 8000))], None),
-        ids.entry("pi.assistant", vec![answer("a1")], None),
-        ids.entry("pi.user", vec![user(text("B", 8000))], None),
+        ids.entry("pi.assistant", vec![counted_answer("a1", last)], None),
+        ids.entry("pi.user", vec![user(text("B", paste))], None),
     ];
     let view = view(entries, None);
-    let at = |tokens| plan(&view, &EUKHE, WINDOW, tokens, Calibration::of(&view));
+    let tokens = estimate_context(&view, &[]);
+    plan(
+        &view,
+        &EUKHE,
+        WINDOW,
+        tokens,
+        last_turn_tokens(&view),
+        Calibration::of(&view),
+    )
+}
+
+/// A turn that left the context over the background threshold compacts
+/// early only when its compaction reaches the target; else it waits for
+/// the blocking one.
+#[test]
+fn an_early_compaction_runs_only_when_it_reaches_the_target() {
     let kept_b = |over| super::range::Plan { over, cut: Some(3) };
     assert_eq!(
-        [50_000, 60_000, 64_000].map(at),
+        [50_000, 60_000, 64_000].map(|last| after_turn(last, 8000)),
         [
             kept_b(Over::Under),
             kept_b(Over::Under),
+            kept_b(Over::Blocking)
+        ]
+    );
+}
+
+/// A compaction runs once the context actually crossed a threshold, as
+/// omp's does: a request of 70k tokens, past the blocking threshold
+/// (63616) but within the 80k window, after a turn of 50k compacts at no
+/// threshold (it used to block before the request: bench longmem compacted
+/// 4 times a run where compacting after the crossing turn takes 2 or 3); the
+/// turn that crossed blocks the next request; a request past the window
+/// blocks after any turn.
+#[test]
+fn compacts_after_the_turn_that_crossed_and_never_lets_a_request_pass_the_window() {
+    let kept_b = |over| super::range::Plan { over, cut: Some(3) };
+    assert_eq!(
+        [
+            after_turn(50_000, 20_000),
+            after_turn(64_000, 8000),
+            after_turn(50_000, 35_000),
+        ],
+        [
+            kept_b(Over::Under),
+            kept_b(Over::Blocking),
             kept_b(Over::Blocking)
         ]
     );

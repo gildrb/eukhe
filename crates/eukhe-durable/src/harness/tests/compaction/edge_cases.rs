@@ -156,15 +156,16 @@ async fn does_not_start_a_background_compaction_when_a_manual_one_was_admitted_d
 async fn starts_no_background_compaction_after_a_blocking_one_in_the_same_generation() {
     let chat = open(medium()).await;
     history(&chat).await;
-    // Blocking at 1500, background at 200: the kept part stays above the
-    // background threshold.
+    // Blocking at 1500, background at 200: a request past the 2000-token
+    // window blocks, and the kept part stays above the background
+    // threshold.
     chat.set_policy(CompactionPolicy {
         background: BackgroundMargin::Tokens(1300.0),
         keep_recent_tokens: 400.0,
         ..BACKGROUND
     });
     chat.faux.summary(summary("SUMMARY"));
-    turn(&chat, &text("u4", 1000), "a4").await;
+    turn(&chat, &text("u4", 1400), "a4").await;
     assert_eq!(chat.faux.summary_requests().len(), 1);
     assert!(compaction_tasks(&chat).await.is_empty());
     chat.harness.close(context()).await.unwrap();

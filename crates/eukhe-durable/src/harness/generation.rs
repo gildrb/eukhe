@@ -61,7 +61,7 @@ use self::stop::Facts;
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{
-    estimate_calibrated, estimate_context, plan, select_cut, Calibration,
+    estimate_calibrated, estimate_context, last_turn_tokens, plan, select_cut, Calibration,
 };
 use crate::harness::inbox::{has_queued_summary, INBOX_DOC};
 use crate::harness::live::run::{
@@ -408,7 +408,8 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     // A generation that compacted reads no threshold (law
     // `run_prepare_compacted_reads_no_threshold`), so its context is not
     // measured. The provider's count costs one request, so it runs only
-    // when the threshold check runs.
+    // when the threshold check runs (the count guards the window; the
+    // thresholds read the last turn's count).
     let checks = !at.compacted && policy.enabled && resolved.context_window != 0;
     let counted = match policy.token_count {
         ThresholdTokens::Provider if checks => {
@@ -420,11 +421,27 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         None
     } else {
         let calibration = Calibration::of(&view);
-        threshold_compaction(&view, resolved.context_window, policy, calibration, || {
-            counted.unwrap_or_else(|| {
-                estimate_calibrated(&view, &planned_messages(&entries), calibration)
-            })
-        })
+        // The thresholds read the context the previous turn reached, at the
+        // first request of a run (as omp compacts after a turn ends); the
+        // later requests of a run only have to stay within the window, so
+        // a turn never rewrites the cache it is still building.
+        let last = if task.input.rounds.is_first() {
+            last_turn_tokens(&view)
+        } else {
+            0
+        };
+        threshold_compaction(
+            &view,
+            resolved.context_window,
+            policy,
+            calibration,
+            last,
+            || {
+                counted.unwrap_or_else(|| {
+                    estimate_calibrated(&view, &planned_messages(&entries), calibration)
+                })
+            },
+        )
     };
     let prepared = before_request(at, threshold);
     let compaction = runtime.registry().builtins().compaction.clone();
@@ -906,23 +923,25 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 }
 
 /// Which threshold compaction preparation starts before its request (spec
-/// §8.3): the plan's ([`plan`]) for the request's input `tokens`: the
-/// threshold the context is over, only with a cut, and the background one
-/// only when its cut brings the context down to the target. `tokens` runs
-/// only when the policy and the window let the check run (else no context
-/// is over a threshold, law `infer_threshold_over_exact`). The caller
-/// starts a background one only while no compaction is listed.
+/// §8.3): the plan's ([`plan`]): a compaction runs once the context the
+/// last turn reached (`last` tokens) is over a threshold, or when the
+/// request's input `tokens` would pass the window; only with a cut, and
+/// the background one only when its cut brings the context down to the
+/// target. `tokens` runs only when the policy and the window let the check
+/// run (else nothing compacts, law `infer_threshold_plan_exact`). The
+/// caller starts a background one only while no compaction is listed.
 fn threshold_compaction(
     view: &ContextView,
     context_window: u64,
     policy: &CompactionPolicy,
     calibration: Calibration,
+    last: u64,
     tokens: impl FnOnce() -> u64,
 ) -> Option<Threshold> {
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    match plan(view, policy, context_window, tokens(), calibration).over {
+    match plan(view, policy, context_window, tokens(), last, calibration).over {
         Over::Under => None,
         Over::Background => Some(Threshold::Background),
         Over::Blocking => Some(Threshold::Blocking),

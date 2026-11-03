@@ -2041,6 +2041,8 @@ import ./proof/infer_threshold/infer_threshold_early_steps.bend as PInferThresho
 import ./proof/infer_threshold/infer_threshold_plan_exact.bend as PInferThresholdPlanExact
 import ./proof/infer_threshold/infer_threshold_cut_within_target.bend as PInferThresholdCutWithinTarget
 import ./proof/infer_threshold/infer_threshold_target_under.bend as PInferThresholdTargetUnder
+import ./proof/infer_threshold/infer_threshold_turn_under.bend as PInferThresholdTurnUnder
+import ./proof/infer_threshold/infer_threshold_past_window_blocks.bend as PInferThresholdPastWindowBlocks
 import ./proof/infer_threshold/infer_threshold_ffi_answers.bend as PInferThresholdFfiAnswers
 import ./proof/infer_threshold/infer_threshold_ffi_malformed_exact.bend as PInferThresholdFfiMalformedExact
 import ./proof/infer_threshold/infer_threshold_ffi_spec.bend as PInferThresholdFfiSpec

@@ -1,15 +1,18 @@
-//! Which compaction threshold a request's context is over and where a
-//! compaction cuts (`bend/infer_threshold.bend` `plan`, entry
-//! `bend/ffi_infer_threshold.bend`; `laws/infer_threshold.bend`). The
-//! caller counts the context's tokens, sizes the entries after the head and
-//! gives the policy's reserve and margin in whole tokens ([`whole`]);
+//! Which compaction threshold a request compacts at and where a compaction
+//! cuts (`bend/infer_threshold.bend` `plan`, entry
+//! `bend/ffi_infer_threshold.bend`; `laws/infer_threshold.bend`). A
+//! compaction runs once the context actually crossed a threshold: the
+//! thresholds read the tokens the last turn reached, and the request only
+//! has to stay within the window. The caller counts the request's tokens
+//! and the last turn's, sizes the entries after the head and gives the
+//! policy's reserve and margin in whole tokens ([`whole`]);
 //! [`Compaction::plan`] encodes them, calls [`Entry::InferThreshold`] and
 //! decodes the decision.
 
 use crate::wire::{Reader, Writer, NAT_MAX};
 use crate::{call, expect_core, Entry, Error};
 
-/// The threshold a context is over (`Over`).
+/// The threshold a request compacts at (`Over`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Over {
     /// None: no compaction.
@@ -39,8 +42,14 @@ pub struct Compaction {
 /// The transcript after the compaction head, as the cut reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range<'a> {
-    /// The context's tokens.
+    /// The request's tokens: it blocks past the window, and a compaction
+    /// cuts them down to the target.
     pub tokens: u64,
+    /// The tokens the last turn since the head reached (its request and
+    /// answer, as the provider counted them): the thresholds read them.
+    /// 0 reads no turn: none since the head, or a later request of the
+    /// same run (a turn compacts once it ended).
+    pub last: u64,
     /// The entries' tokens, newest first.
     pub sizes: &'a [u64],
     /// The numbers of newest entries a cut may keep (`k`: the cut keeps
@@ -97,6 +106,7 @@ impl Compaction {
         request
             .bool(self.enabled)
             .nat(range.tokens.min(NAT_MAX))
+            .nat(range.last.min(NAT_MAX))
             .nat(self.window.min(NAT_MAX));
         signed(&mut request, self.reserve);
         signed(&mut request, self.margin);
@@ -135,10 +145,11 @@ mod tests {
 
     /// The decision comes from the compiled core: window 10, reserve 2
     /// (start 6, target 3), margin 3, keep 9, two entries of 1 and 3
-    /// tokens (newest first) and a cut that keeps the newest: 5 tokens are
-    /// under, 6 compact early as the cut brings them to the target, 9
-    /// block; without a cut nothing compacts. Reserve and margin round up,
-    /// NaN reads 0.
+    /// tokens (newest first) and a cut that keeps the newest: after a turn
+    /// of 5 a request of 5 or 9 is under, after a turn of 6 a request of 6
+    /// compacts early as the cut brings it to the target, after a turn of
+    /// 9 it blocks, and a request of 11 blocks after any turn; without a
+    /// cut nothing compacts. Reserve and margin round up, NaN reads 0.
     #[test]
     fn the_compaction_plan_comes_from_the_compiled_core() {
         let policy = Compaction {
@@ -148,8 +159,9 @@ mod tests {
             margin: 3,
             keep: 9,
         };
-        let range = |tokens, cuts| Range {
+        let range = |tokens, last, cuts| Range {
             tokens,
+            last,
             sizes: &[1, 3],
             cuts,
             full: 2,
@@ -157,12 +169,19 @@ mod tests {
         let cut = |over| Plan { over, cut: Some(1) };
         assert_eq!(
             (
-                [5, 6, 9].map(|tokens| policy.plan(&range(tokens, &[1]))),
-                policy.plan(&range(9, &[])),
+                [(5, 5), (9, 5), (6, 6), (9, 9), (11, 0)]
+                    .map(|(tokens, last)| policy.plan(&range(tokens, last, &[1]))),
+                policy.plan(&range(9, 9, &[])),
                 [whole(2.5), whole(-2.5), whole(f64::NAN), whole(-0.5)],
             ),
             (
-                [cut(Over::Under), cut(Over::Background), cut(Over::Blocking)],
+                [
+                    cut(Over::Under),
+                    cut(Over::Under),
+                    cut(Over::Background),
+                    cut(Over::Blocking),
+                    cut(Over::Blocking)
+                ],
                 Plan {
                     over: Over::Under,
                     cut: None

@@ -185,8 +185,10 @@ pub struct PartialRetryPolicy {
 pub struct CompactionPolicy {
     /// Threshold and overflow compaction.
     pub enabled: bool,
-    /// Room kept free for the answer: generation blocks to compact above
-    /// `contextWindow - reserveTokens`.
+    /// The blocking threshold is `contextWindow - reserveTokens`: once a
+    /// turn's context (as the provider counted it) passed it, generation
+    /// blocks to compact before the next request. A request itself only
+    /// has to stay within the window.
     #[serde(serialize_with = "eukhe_types::pi_ai::js_number::serialize")]
     pub reserve_tokens: f64,
     /// The most tokens of recent context a summary keeps verbatim. With a
@@ -196,13 +198,15 @@ pub struct CompactionPolicy {
     pub keep_recent_tokens: f64,
     /// How far below the blocking threshold background compaction starts.
     pub background: BackgroundMargin,
-    /// Where the threshold check gets the input tokens of a request.
-    /// Stored policies without the field use the local estimate.
+    /// Where the threshold check gets the input tokens of a request (the
+    /// window check and the cut). Stored policies without the field use
+    /// the local estimate.
     #[serde(default)]
     pub token_count: ThresholdTokens,
 }
 
-/// Where the compaction threshold check gets the input tokens of a request.
+/// Where the compaction check gets the input tokens of a request (the
+/// thresholds read the provider's count of the last turn).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ThresholdTokens {

@@ -507,8 +507,8 @@ fn load(
 ///   an explicit `auto`.
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy; `compaction.providerTokenCount` -> where its
-///   threshold check gets the input tokens (the provider's own counter when
-///   on, else the local estimate).
+///   window check gets the request's input tokens (the provider's own
+///   counter when on, else the local estimate).
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
@@ -537,12 +537,13 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             enabled: Some(manager.get_compaction_enabled()),
             reserve_tokens: Some(u64_to_f64(manager.get_compaction_reserve_tokens())),
             keep_recent_tokens: Some(u64_to_f64(manager.get_compaction_keep_recent_tokens())),
-            // Early compaction: a background compaction starts a tenth of
-            // the model's context window below the blocking threshold
-            // (`contextWindow - reserveTokens`), so a turn that grows the
-            // context by up to that much starts one before the context
-            // crosses the blocking threshold (`bend/infer.bend` §5); the
-            // blocking threshold and the overflow arm stay the safety nets.
+            // Early compaction: a background compaction starts once a turn
+            // reaches a tenth of the model's context window below the
+            // blocking threshold (`contextWindow - reserveTokens`), so it
+            // runs beside the next request instead of blocking it
+            // (`bend/infer.bend` §5); the blocking threshold, the window
+            // (a request past it waits) and the overflow arm stay the
+            // safety nets.
             background: Some(BackgroundMargin::WindowPercent(10.0)),
             token_count: Some(if manager.get_compaction_provider_token_count() {
                 ThresholdTokens::Provider

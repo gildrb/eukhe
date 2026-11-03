@@ -1,5 +1,5 @@
-# infer_threshold: which compaction threshold one request's context is
-# over (bend/infer.bend section 5, early compaction, as the harness asks it
+# infer_threshold: which compaction threshold a request compacts at
+# (bend/infer.bend section 5, early compaction, as the harness asks it
 # per request: crates/eukhe-durable generation.rs `threshold_compaction`),
 # and where a compaction cuts the transcript (`plan`). The limit is
 # L = window - reserve; the code compares strictly, so a context of t
@@ -7,13 +7,19 @@
 # margin m > 0, over the background threshold when t >= L - m + 1: the
 # thresholds `first_at` reads. Reserve and margin are whole numbers of
 # tokens with a sign (Rust rounds each up at the boundary).
+# A compaction runs once the context actually crossed a threshold: the
+# thresholds read the context the last turn reached (the provider's count
+# of the newest answer since the last compaction; Rust reads it at a run's
+# first request and sends 0 for the later ones, so a turn compacts once it
+# ended), never the request about to go, which may pass them. The request
+# only has to stay within the window: one past it blocks (`due`).
 # laws/infer_threshold.bend pins `over` to `t + reserve > window` and
-# `t + reserve + margin > window`, that the first request over each
-# threshold is `first_at`'s, and the cut and the hysteresis of `plan`;
-# bend/ffi_infer_threshold.bend runs `plan` as the compiled core. The
-# arithmetic never adds two sizes (sizes are taken away one at a time) and
-# adds at most two wire numbers and 2 (a window and a negative reserve; the
-# walk's tokens within its budget and one size), so it stays below the
+# `t + reserve + margin > window`, that the first context over each
+# threshold is `first_at`'s, `due`, and the cut and the hysteresis of
+# `plan`; bend/ffi_infer_threshold.bend runs `plan` as the compiled core.
+# The arithmetic never adds two sizes (sizes are taken away one at a time)
+# and adds at most two wire numbers and 2 (a window and a negative reserve;
+# the walk's tokens within its budget and one size), so it stays below the
 # runtime's 2^48 - 1 for every number up to 10^14 - 1.
 
 import Base
@@ -80,6 +86,37 @@ def over(on: Bool, +t: Nat, w: Nat, r: Z, m: Z) -> Over:
           +lim = limit_at(1n+v, r)
           over.at(Nat.is_le(lim, t), lim, t, m)
 
+# the first whole request count past the hard window w: w + 1, or L + 1
+# with a negative reserve (a request never outgrows the window, nor the
+# limit a negative reserve sets past it)
+def hard_at(w: Nat, r: Z) -> Nat:
+  match r:
+    case Up{a}:
+      1n+w
+    case Down{a}:
+      Nat.add(2n+a, w)
+
+def due.at(past: Bool, +last: Nat, +w: Nat, r: Z, m: Z) -> Over:
+  match past:
+    case True{}:
+      Blocks{}
+    case False{}:
+      over(True{}, last, w, r, m)
+
+# the threshold a request of t tokens compacts at, the last turn having
+# reached last tokens: with compaction on and a known window, blocking
+# when the request is past the hard window, else the one last is over
+def due(on: Bool, +t: Nat, +last: Nat, w: Nat, +r: Z, m: Z) -> Over:
+  match on:
+    case False{}:
+      Under{}
+    case True{}:
+      match w:
+        case 0n:
+          Under{}
+        case 1n++v:
+          due.at(Nat.is_le(hard_at(1n+v, r), t), last, 1n+v, r, m)
+
 # The cut and the hysteresis
 # --------------------------
 # A compaction summarizes the transcript before its cut and keeps the
@@ -95,11 +132,11 @@ def over(on: Bool, +t: Nat, w: Nat, r: Z, m: Z) -> Over:
 # keeps the most entries that keep base + kept within the target and
 # within `keep` (the policy's keepRecentTokens); when no cut fits, the
 # newest cut (the least it can keep). So a compaction leaves the context
-# at the target, below every threshold, and the next one waits until the
-# context grows past a threshold again. A context over the background
-# threshold compacts early only when its compaction reaches the target:
-# else it would compact again at the next turn, and the blocking
-# threshold compacts it when it must.
+# at the target, below every threshold, and the next one waits until a
+# turn grows the context past a threshold again. A context over the
+# background threshold compacts early only when its compaction reaches
+# the target: else it would compact again after the next turn, and the
+# blocking threshold compacts it when it must.
 
 # the first whole count over any threshold of a window w > 0: L + 1, or
 # L + 1 - c with a margin c > 0 (at least 0)
@@ -279,10 +316,11 @@ def gate(o: Over, c: Maybe<&2, Nat>, xs: List<&2, Nat>, base: Nat, tgt: Nat) -> 
         case Some{k}:
           Blocks{}
 
-# the plan for a context of t tokens, compaction on (or off), window w (0:
-# unknown), reserve r, margin m, keepRecentTokens keep, the entries after
-# the head newest first (sizes xs, cuts, full)
-def plan(on: Bool, +t: Nat, +w: Nat, +r: Z, +m: Z, +keep: Nat, full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>) -> Plan:
+# the plan for a request of t tokens after a turn that reached last
+# tokens, compaction on (or off), window w (0: unknown), reserve r, margin
+# m, keepRecentTokens keep, the entries after the head newest first
+# (sizes xs, cuts, full); the base and the cut read the request
+def plan(on: Bool, +t: Nat, +last: Nat, +w: Nat, +r: Z, +m: Z, +keep: Nat, full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>) -> Plan:
   +base = less(xs, t)
   +c = cut(xs, cuts, budget(w, r, m, keep, base), full)
-  Plan{gate(over(on, t, w, r, m), c, xs, base, target(w, r, m)), c}
+  Plan{gate(due(on, t, last, w, r, m), c, xs, base, target(w, r, m)), c}

@@ -2,9 +2,10 @@
 # Part by part: the base (taking the sizes away one at a time is taking
 # their sum, ipe.less), the budget (the target is the spec's,
 # LAThreshold.gt.target), the cut (the forward walk is the spec's scan,
-# LAWalk.iw.cut), the threshold (LAW infer_threshold_over_exact) and the
-# gate (taking the kept sizes from the room left is comparing their sum,
-# ipe.within).
+# LAWalk.iw.cut), the threshold (the hard window is the spec's test,
+# ipe.past; the last turn's threshold is LAW infer_threshold_over_exact)
+# and the gate (taking the kept sizes from the room left is comparing
+# their sum, ipe.within).
 
 import Base
 import ../../bend/infer_threshold.bend as M
@@ -132,6 +133,38 @@ def ipe.gate(o: M.Over, c: Maybe<&2, Nat>, +xs: List<&2, Nat>, +base: Nat, +tgt:
         case Some{k}:
           {==}
 
+# The threshold after the turn
+# ----------------------------
+
+# a request is past the hard window: t > w, or t + r > w with a negative
+# reserve
+def ipe.past(+w: Nat, r: M.Z, +t: Nat) -> {Nat.is_le(M.hard_at(w, r), t) == InferThreshold.past_spec(t, r, w) : Bool}:
+  match r:
+    case M.Up{a}:
+      Equal.sym(Bool, Nat.is_lt(w, t), Nat.is_le(1n+w, t), LAThreshold.gt.lt_le(w, t))
+    case M.Down{+a}:
+      Equal.sym(Bool, Nat.is_lt(1n+Nat.add(a, w), t), Nat.is_le(2n+Nat.add(a, w), t), LAThreshold.gt.lt_le(1n+Nat.add(a, w), t))
+
+def ipe.due.at(p: Bool, +last: Nat, +w: Nat, +r: M.Z, +m: M.Z) -> {M.due.at(p, last, w, r, m) == InferThreshold.due_spec.at(p, last, r, m, w) : M.Over}:
+  match p:
+    case True{}:
+      {==}
+    case False{}:
+      InferThreshold.infer_threshold_over_exact(True{}, last, w, r, m)
+
+# the threshold a request compacts at is the spec's
+def ipe.due(on: Bool, +t: Nat, +last: Nat, w: Nat, +r: M.Z, +m: M.Z) -> {M.due(on, t, last, w, r, m) == InferThreshold.due_spec(on, t, last, w, r, m) : M.Over}:
+  match on:
+    case False{}:
+      {==}
+    case True{}:
+      match w:
+        case 0n:
+          {==}
+        case 1n++v:
+          %ipe.past(1n+v, r, t) : {M.due.at(Nat.is_le(M.hard_at(1n+v, r), t), last, 1n+v, r, m) == InferThreshold.due_spec.at(_, last, r, m, 1n+v) : M.Over}
+          ipe.due.at(Nat.is_le(M.hard_at(1n+v, r), t), last, 1n+v, r, m)
+
 # The plan
 # --------
 
@@ -143,18 +176,18 @@ def ipe.fin(+xs: List<&2, Nat>, +o: M.Over, -o2: M.Over, +c: Maybe<&2, Nat>, -c2
   %ipe.gate(o, c, xs, ba, tg) : {M.Plan{M.gate(o, c, xs, ba, tg), c} == M.Plan{_, c} : M.Plan}
   {==}
 
-def ipe.plan(on: Bool, +t: Nat, +w: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, eo: {M.over(on, t, w, r, m) == InferThreshold.over_spec(on, t, w, r, m) : M.Over}) -> {M.plan(on, t, w, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, w, r, m, keep, full, xs, cuts) : M.Plan}:
+def ipe.plan(on: Bool, +t: Nat, +last: Nat, +w: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, eo: {M.due(on, t, last, w, r, m) == InferThreshold.due_spec(on, t, last, w, r, m) : M.Over}) -> {M.plan(on, t, last, w, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, last, w, r, m, keep, full, xs, cuts) : M.Plan}:
   +ba = M.less(xs, t)
   +ba2 = Nat.sub(t, InferThreshold.sum(xs))
   +eb = ipe.less(xs, t)
-  ipe.fin(xs, M.over(on, t, w, r, m), InferThreshold.over_spec(on, t, w, r, m),
+  ipe.fin(xs, M.due(on, t, last, w, r, m), InferThreshold.due_spec(on, t, last, w, r, m),
     M.cut(xs, cuts, M.budget(w, r, m, keep, ba), full), InferThreshold.cut_spec(xs, cuts, InferThreshold.budget_spec(w, r, m, keep, ba2), full),
     ba, ba2, M.target(w, r, m), InferThreshold.target_spec(w, r, m),
     eo, ipe.cut(xs, cuts, full, w, r, m, keep, ba, ba2, eb), eb, LAThreshold.gt.target(w, r, m))
 
-def InferThreshold.infer_threshold_plan_exact(on, t, w, r, m, keep, full, xs, cuts):
+def InferThreshold.infer_threshold_plan_exact(on, t, last, w, r, m, keep, full, xs, cuts):
   match on:
     case True{}:
-      ipe.plan(True{}, t, w, r, m, keep, full, xs, cuts, InferThreshold.infer_threshold_over_exact(True{}, t, w, r, m))
+      ipe.plan(True{}, t, last, w, r, m, keep, full, xs, cuts, ipe.due(True{}, t, last, w, r, m))
     case False{}:
-      ipe.plan(False{}, t, w, r, m, keep, full, xs, cuts, InferThreshold.infer_threshold_over_exact(False{}, t, w, r, m))
+      ipe.plan(False{}, t, last, w, r, m, keep, full, xs, cuts, ipe.due(False{}, t, last, w, r, m))

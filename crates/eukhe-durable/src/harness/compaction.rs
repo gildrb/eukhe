@@ -30,7 +30,7 @@ use self::prompt::{
     summary_failure, summary_prompt, summary_text, SUMMARIZATION_SYSTEM_PROMPT, SUMMARY_PREFIX,
     SUMMARY_SUFFIX,
 };
-pub(crate) use self::range::{estimate_calibrated, plan, Calibration};
+pub(crate) use self::range::{estimate_calibrated, last_turn_tokens, plan, Calibration};
 pub use self::range::{estimate_context, select_cut, summarized_messages};
 use crate::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
 use crate::harness::inbox::QueueModes;

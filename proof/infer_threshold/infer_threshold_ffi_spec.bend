@@ -16,9 +16,9 @@ import ./infer_threshold_plan_exact.bend as PGPlan
 # the entry's answer to a request is the spec's reply to it
 def gts.answer(q: FT.Req) -> {FT.answer(q) == InferThreshold.reply_spec(PGtm.gtm.ask(q)) : String}:
   match q:
-    case FT.Req{+on, +t, +w, +r, +m, +keep, +full, +xs, +cuts}:
-      %InferThreshold.infer_threshold_plan_exact(on, t, w, r, m, keep, full, xs, cuts) : {FT.put_plan(M.plan(on, t, w, r, m, keep, full, xs, cuts)) == InferThreshold.spell_plan(_) : String}
-      PGfa.gfa.plan(M.plan(on, t, w, r, m, keep, full, xs, cuts))
+    case FT.Req{+on, +t, +last, +w, +r, +m, +keep, +full, +xs, +cuts}:
+      %InferThreshold.infer_threshold_plan_exact(on, t, last, w, r, m, keep, full, xs, cuts) : {FT.put_plan(M.plan(on, t, last, w, r, m, keep, full, xs, cuts)) == InferThreshold.spell_plan(_) : String}
+      PGfa.gfa.plan(M.plan(on, t, last, w, r, m, keep, full, xs, cuts))
 
 def gts.end(b: Bool, q: FT.Req) -> {FT.run.end(b, q) == InferThreshold.entry_spec.of(InferThreshold.read_ask.end(b, PGtm.gtm.ask(q))) : String}:
   match b:

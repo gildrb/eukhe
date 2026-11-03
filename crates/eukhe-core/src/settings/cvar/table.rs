@@ -352,7 +352,9 @@ pub const COMPACTION_AGENT_CALLABLE: Decl = Decl {
 
 /// When on, the Harness asks the provider's own token counter
 /// (`count_tokens`) for the input tokens of each request before the
-/// compaction threshold check. This adds one request to the provider per
+/// compaction window check (a request past the window waits for its
+/// compaction; the thresholds read the provider's count of the last turn
+/// either way). This adds one request to the provider per
 /// generation. A provider without a counter, or a failed count, uses the
 /// local estimate, and the Harness logs it.
 pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {

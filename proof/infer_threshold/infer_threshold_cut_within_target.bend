@@ -119,28 +119,28 @@ def icw.or(f: Maybe<&2, Nat>, +k: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>,
       icw.fits(j, xs, cuts, base, tgt, keep, hb, bt)
 
 # the plan's cut is the spec's
-def icw.cs(-on: Bool, +t: Nat, +v: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, -k: Nat,
-  pe: {M.plan(on, t, 1n+v, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, 1n+v, r, m, keep, full, xs, cuts) : M.Plan},
-  cut: {M.Plan.cut(M.plan(on, t, 1n+v, r, m, keep, full, xs, cuts)) == Some{k} : Maybe<&2, Nat>})
+def icw.cs(-on: Bool, +t: Nat, +last: Nat, +v: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, -k: Nat,
+  pe: {M.plan(on, t, last, 1n+v, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, last, 1n+v, r, m, keep, full, xs, cuts) : M.Plan},
+  cut: {M.Plan.cut(M.plan(on, t, last, 1n+v, r, m, keep, full, xs, cuts)) == Some{k} : Maybe<&2, Nat>})
   -> {InferThreshold.cut_spec(xs, cuts, InferThreshold.budget_spec(1n+v, r, m, keep, Nat.sub(t, InferThreshold.sum(xs))), full) == Some{k} : Maybe<&2, Nat>}:
   %pe : {M.Plan.cut(_) == Some{k} : Maybe<&2, Nat>}
   cut
 
-def icw.law(-on: Bool, +t: Nat, +v: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, +k: Nat,
+def icw.law(-on: Bool, +t: Nat, +last: Nat, +v: Nat, +r: M.Z, +m: M.Z, +keep: Nat, +full: Nat, +xs: List<&2, Nat>, +cuts: List<&2, Nat>, +k: Nat,
   room: {Nat.is_le(Nat.sub(t, InferThreshold.sum(xs)), InferThreshold.target_spec(1n+v, r, m)) == True{} : Bool},
-  cut: {M.Plan.cut(M.plan(on, t, 1n+v, r, m, keep, full, xs, cuts)) == Some{k} : Maybe<&2, Nat>},
-  pe: {M.plan(on, t, 1n+v, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, 1n+v, r, m, keep, full, xs, cuts) : M.Plan})
+  cut: {M.Plan.cut(M.plan(on, t, last, 1n+v, r, m, keep, full, xs, cuts)) == Some{k} : Maybe<&2, Nat>},
+  pe: {M.plan(on, t, last, 1n+v, r, m, keep, full, xs, cuts) == InferThreshold.plan_spec(on, t, last, 1n+v, r, m, keep, full, xs, cuts) : M.Plan})
   -> {InferThreshold.within(k, xs, cuts, Nat.sub(t, InferThreshold.sum(xs)), InferThreshold.target_spec(1n+v, r, m), keep) == True{} : Bool}:
   +base = Nat.sub(t, InferThreshold.sum(xs))
   +b = InferThreshold.budget_spec(1n+v, r, m, keep, base)
   +n = List.length(&2, Nat, xs)
-  +cs = icw.cs(on, t, v, r, m, keep, full, xs, cuts, k, pe, cut)
+  +cs = icw.cs(on, t, last, v, r, m, keep, full, xs, cuts, k, pe, cut)
   +oc = icw.left(InferThreshold.or_else(InferThreshold.fit_spec(xs, cuts, n, b, n), InferThreshold.newest_spec(xs, cuts)), full, k, cs)
   icw.or(InferThreshold.fit_spec(xs, cuts, n, b, n), k, xs, cuts, base, InferThreshold.target_spec(1n+v, r, m), keep, b, {==}, oc, room, {==})
 
-def InferThreshold.infer_threshold_cut_within_target(on, t, v, r, m, keep, full, xs, cuts, k, room, cut):
+def InferThreshold.infer_threshold_cut_within_target(on, t, last, v, r, m, keep, full, xs, cuts, k, room, cut):
   match on:
     case True{}:
-      icw.law(True{}, t, v, r, m, keep, full, xs, cuts, k, room, cut, InferThreshold.infer_threshold_plan_exact(True{}, t, 1n+v, r, m, keep, full, xs, cuts))
+      icw.law(True{}, t, last, v, r, m, keep, full, xs, cuts, k, room, cut, InferThreshold.infer_threshold_plan_exact(True{}, t, last, 1n+v, r, m, keep, full, xs, cuts))
     case False{}:
-      icw.law(False{}, t, v, r, m, keep, full, xs, cuts, k, room, cut, InferThreshold.infer_threshold_plan_exact(False{}, t, 1n+v, r, m, keep, full, xs, cuts))
+      icw.law(False{}, t, last, v, r, m, keep, full, xs, cuts, k, room, cut, InferThreshold.infer_threshold_plan_exact(False{}, t, last, 1n+v, r, m, keep, full, xs, cuts))

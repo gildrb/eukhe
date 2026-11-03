@@ -8,7 +8,8 @@ import ./infer_threshold.bend as M
 # (crates/eukhe-durable compaction/range.rs `plan`) counts the tokens,
 # sizes the entries and rounds the policy's reserve and margin up to whole
 # tokens; the model decides.
-# Request (a record): compaction on (Bool), the context's tokens, the
+# Request (a record): compaction on (Bool), the request's tokens, the
+# tokens the last turn reached (0: no turn since the last compaction), the
 # model's window (0: unknown), the reserve, the margin, keepRecentTokens,
 # full, the entries' sizes newest first (a list), the cuts (a list); a
 # reserve or a margin is 0 then n (n tokens) | 1 then n (-(1+n) tokens).
@@ -18,7 +19,7 @@ import ./infer_threshold.bend as M
 
 # A request of the entry
 type Req is Data:
-  Req{on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, cuts: List<&2, Nat>}
+  Req{on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, cuts: List<&2, Nat>}
 
 # Decoding
 # --------
@@ -53,59 +54,66 @@ def get_z(d: W.Dec<Nat>) -> W.Dec<M.Z>:
     case W.Bad{}:
       W.Bad{}
 
-def get_req.cuts(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+def get_req.cuts(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, xs: List<&2, Nat>, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
   match d:
     case W.Got{cuts, s}:
-      W.Got{Req{on, t, w, r, m, keep, full, xs, cuts}, s}
+      W.Got{Req{on, t, last, w, r, m, keep, full, xs, cuts}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_req.sizes(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+def get_req.sizes(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, full: Nat, d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
   match d:
     case W.Got{xs, s}:
-      get_req.cuts(on, t, w, r, m, keep, full, xs, W.get_list(~Nat, ~W.get_nat, s))
+      get_req.cuts(on, t, last, w, r, m, keep, full, xs, W.get_list(~Nat, ~W.get_nat, s))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.full(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
+def get_req.full(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, keep: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
   match d:
     case W.Got{full, s}:
-      get_req.sizes(on, t, w, r, m, keep, full, W.get_list(~Nat, ~W.get_nat, s))
+      get_req.sizes(on, t, last, w, r, m, keep, full, W.get_list(~Nat, ~W.get_nat, s))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.keep(on: Bool, t: Nat, w: Nat, r: M.Z, m: M.Z, d: W.Dec<Nat>) -> W.Dec<Req>:
+def get_req.keep(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, m: M.Z, d: W.Dec<Nat>) -> W.Dec<Req>:
   match d:
     case W.Got{keep, s}:
-      get_req.full(on, t, w, r, m, keep, W.get_nat(s))
+      get_req.full(on, t, last, w, r, m, keep, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.margin(on: Bool, t: Nat, w: Nat, r: M.Z, d: W.Dec<M.Z>) -> W.Dec<Req>:
+def get_req.margin(on: Bool, t: Nat, last: Nat, w: Nat, r: M.Z, d: W.Dec<M.Z>) -> W.Dec<Req>:
   match d:
     case W.Got{m, s}:
-      get_req.keep(on, t, w, r, m, W.get_nat(s))
+      get_req.keep(on, t, last, w, r, m, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.reserve(on: Bool, t: Nat, w: Nat, d: W.Dec<M.Z>) -> W.Dec<Req>:
+def get_req.reserve(on: Bool, t: Nat, last: Nat, w: Nat, d: W.Dec<M.Z>) -> W.Dec<Req>:
   match d:
     case W.Got{r, s}:
-      get_req.margin(on, t, w, r, get_z(W.get_nat(s)))
+      get_req.margin(on, t, last, w, r, get_z(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
-def get_req.window(on: Bool, t: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
+def get_req.window(on: Bool, t: Nat, last: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
   match d:
     case W.Got{w, s}:
-      get_req.reserve(on, t, w, get_z(W.get_nat(s)))
+      get_req.reserve(on, t, last, w, get_z(W.get_nat(s)))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.last(on: Bool, t: Nat, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{last, s}:
+      get_req.window(on, t, last, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
 def get_req.tokens(on: Bool, d: W.Dec<Nat>) -> W.Dec<Req>:
   match d:
     case W.Got{t, s}:
-      get_req.window(on, t, W.get_nat(s))
+      get_req.last(on, t, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -147,8 +155,8 @@ def put_plan(p: M.Plan) -> String:
 # the answer to a request
 def answer(q: Req) -> String:
   match q:
-    case Req{on, t, w, r, m, keep, full, xs, cuts}:
-      put_plan(M.plan(on, t, w, r, m, keep, full, xs, cuts))
+    case Req{on, t, last, w, r, m, keep, full, xs, cuts}:
+      put_plan(M.plan(on, t, last, w, r, m, keep, full, xs, cuts))
 
 def fail() -> String:
   W.err("infer_threshold: malformed request")

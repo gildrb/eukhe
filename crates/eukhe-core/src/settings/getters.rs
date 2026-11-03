@@ -232,7 +232,7 @@ impl SettingsManager {
         self.cvars().bool(&table::COMPACTION_AGENT_CALLABLE)
     }
 
-    /// `compaction.providerTokenCount`: whether the compaction threshold
+    /// `compaction.providerTokenCount`: whether the compaction window
     /// check asks the provider's own token counter for each request.
     #[must_use]
     pub fn get_compaction_provider_token_count(&self) -> bool {

@@ -15,12 +15,13 @@ use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message};
 use crate::harness::context::order_tool_results;
 use crate::harness::types::{CompactionPolicy, ContextView};
 
-/// What a compaction of a view does: the threshold its context compacts at
+/// What a compaction of a view does: the threshold its request compacts at
 /// and the index in `view.entries` of the first entry a summary keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Plan {
-    /// The threshold the context is over, kept only when a cut exists, and
-    /// the background one only when the cut brings the context down to
+    /// Blocking for a request past the window, else the threshold the
+    /// context of the last turn is over; kept only when a cut exists, and
+    /// the background one only when the cut brings the request down to
     /// the target (half the size at which compaction starts).
     pub(crate) over: Over,
     /// The first kept entry; `None` when there is nothing to compact.
@@ -38,10 +39,16 @@ pub fn select_cut(
 ) -> Option<usize> {
     let calibration = Calibration::of(view);
     let tokens = estimate_calibrated(view, &[], calibration);
-    plan(view, policy, context_window, tokens, calibration).cut
+    // The cut reads no threshold, so no turn's count.
+    plan(view, policy, context_window, tokens, 0, calibration).cut
 }
 
-/// The plan for `view` with a context of `tokens` tokens (spec §8.3, §8.7).
+/// The plan for a request over `view` of `tokens` tokens after a turn that
+/// reached `last` tokens ([`last_turn_tokens`]; 0: no turn to read) (spec
+/// §8.3, §8.7). A compaction runs once the context actually crossed a
+/// threshold: the thresholds read `last`; the request itself only has to
+/// stay within the window (laws `infer_threshold_turn_under`,
+/// `infer_threshold_past_window_blocks`).
 /// The compiled core keeps the most of the newest entries whose tokens stay
 /// within `keepRecentTokens` and, with a known window, leave the context at
 /// most at the target; when no cut does, the newest cut. A cut starts at an
@@ -59,6 +66,7 @@ pub(crate) fn plan(
     policy: &CompactionPolicy,
     context_window: u64,
     tokens: u64,
+    last: u64,
     calibration: Calibration,
 ) -> Plan {
     let contributions = &view.contributions;
@@ -94,6 +102,7 @@ pub(crate) fn plan(
     };
     let decided = compaction.plan(&Range {
         tokens,
+        last,
         sizes: &sizes,
         cuts: &cuts,
         full,
@@ -261,31 +270,42 @@ pub fn estimate_context(view: &ContextView, extra: &[Message]) -> u64 {
     estimate_calibrated(view, extra, Calibration::of(view))
 }
 
+/// The tokens the provider counted for the newest answer appended after the
+/// head marker (its request and answer): the context the last turn
+/// reached; 0 when no answer since the head was counted.
+pub(crate) fn last_turn_tokens(view: &ContextView) -> u64 {
+    last_turn(view).map_or(0, |turn| calculate_context_tokens(&turn.usage))
+}
+
+/// The newest assistant appended after the head marker that the provider
+/// counted: its request included the marker.
+fn last_turn(view: &ContextView) -> Option<&AssistantMessage> {
+    let after = view.head.as_ref().map(|head| head.id);
+    view.entries
+        .iter()
+        .zip(&view.contributions)
+        .rev()
+        .filter(|(entry, _)| after.is_none_or(|after| entry.id > after))
+        .find_map(|(_, contribution)| {
+            contribution.iter().rev().find_map(|message| match message {
+                Message::Assistant(assistant) if calculate_context_tokens(&assistant.usage) > 0 => {
+                    Some(assistant)
+                }
+                Message::Assistant(_)
+                | Message::System(_)
+                | Message::User(_)
+                | Message::ToolResult(_) => None,
+            })
+        })
+}
+
 /// [`estimate_context`] with the view's `calibration` already read.
 pub(crate) fn estimate_calibrated(
     view: &ContextView,
     extra: &[Message],
     calibration: Calibration,
 ) -> u64 {
-    let mut measured: Option<&AssistantMessage> = None;
-    let after = view.head.as_ref().map(|head| head.id);
-    for (entry, contribution) in view.entries.iter().zip(&view.contributions).rev() {
-        if after.is_some_and(|after| entry.id <= after) {
-            continue;
-        }
-        measured = contribution.iter().rev().find_map(|message| match message {
-            Message::Assistant(assistant) if calculate_context_tokens(&assistant.usage) > 0 => {
-                Some(assistant)
-            }
-            Message::Assistant(_)
-            | Message::System(_)
-            | Message::User(_)
-            | Message::ToolResult(_) => None,
-        });
-        if measured.is_some() {
-            break;
-        }
-    }
+    let measured = last_turn(view);
     let from = measured.map_or(0, |measured| {
         view.messages
             .iter()

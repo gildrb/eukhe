@@ -267,11 +267,12 @@ pub(super) const BACKGROUND: CompactionPolicy = CompactionPolicy {
     token_count: ThresholdTokens::Estimate,
 };
 
-/// Blocking threshold at 700 tokens of a 1000-token window, no background
-/// compaction.
+/// Blocking threshold at 600 tokens of a 1000-token window, no background
+/// compaction: the last turn of [`history`] (about 620 tokens as the faux
+/// provider counts it) crosses it, so the next request blocks to compact.
 pub(super) const BLOCKING: CompactionPolicy = CompactionPolicy {
     enabled: true,
-    reserve_tokens: 300.0,
+    reserve_tokens: 400.0,
     keep_recent_tokens: 250.0,
     background: BackgroundMargin::Tokens(0.0),
     token_count: ThresholdTokens::Estimate,
