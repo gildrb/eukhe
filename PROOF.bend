@@ -150,6 +150,7 @@ import ./proof/child/child_one_live.bend as PChildOneLive
 import ./proof/child/child_report_once.bend as PChildReportOnce
 import ./proof/child/child_resubmits_per_abort.bend as PChildResubmitsPerAbort
 import ./proof/child/child_delivered_once.bend as PChildDeliveredOnce
+import ./proof/child/child_read_never_wakes.bend as PChildReadNeverWakes
 import ./proof/child/child_task_call.bend as PChildTaskCall
 import ./proof/child/child_silent_never_reports.bend as PChildSilentNeverReports
 import ./proof/child/child_report_move.bend as PChildReportMove

@@ -1438,6 +1438,8 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         replied_since_task: false,
         deletion: None,
         settled: true,
+        read: false,
+        report_submission: None,
         usage: None,
         progress: None,
         reporter: None,

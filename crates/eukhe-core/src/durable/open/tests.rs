@@ -1416,6 +1416,8 @@ async fn the_read_tool_serves_internal_urls() {
         replied_since_task: false,
         deletion: None,
         settled: true,
+        read: false,
+        report_submission: None,
         usage: None,
         progress: None,
         reporter: None,

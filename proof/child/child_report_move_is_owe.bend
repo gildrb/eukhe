@@ -16,3 +16,5 @@ def Child.child_report_move_is_owe(f, k, n, open, inbox):
           {==}
         case Ch.Placed{}:
           {==}
+        case Ch.Read{}:
+          {==}

@@ -53,8 +53,8 @@ def pc.eq_next(+m: Nat, +n: Nat, e: {Nat.is_eq(m, n) == True{} : Bool}) -> {Nat.
       pc.eq_next(p, q, e)
 
 # delivered_once: `soon` holds when the open, unmarked task owes id n with
-# no submission of n yet or n queued, or the report is placed; `ready`
-# when n is queued, or the report is placed
+# no submission of n yet or n queued, or the report reached the parent
+# (placed or read); `ready` when n is queued, or the report reached it
 def pc.unmarked(cut: Maybe<&2, Bool>) -> Bool:
   match cut:
     case None{}:
@@ -74,6 +74,8 @@ def pc.fq(x: Maybe<&2, Ch.Fate>) -> Bool:
           False{}
         case Ch.Placed{}:
           False{}
+        case Ch.Read{}:
+          False{}
 
 def pc.fs(x: Maybe<&2, Ch.Fate>) -> Bool:
   match x:
@@ -87,6 +89,8 @@ def pc.fs(x: Maybe<&2, Ch.Fate>) -> Bool:
           False{}
         case Ch.Placed{}:
           False{}
+        case Ch.Read{}:
+          False{}
 
 def pc.ready(s: Ch.St) -> Bool:
   match s:
@@ -97,7 +101,7 @@ def pc.ready(s: Ch.St) -> Bool:
         case Ch.Owing{k, +n}:
           Bool.and(pc.unmarked(cut), Bool.and(open, pc.fq(Ch.fate(inbox, n))))
         case Ch.Ended{}:
-          Nat.is_eq(Ch.placed(inbox), 1n)
+          Nat.is_eq(Nat.add(Ch.placed(inbox), Ch.reads(inbox)), 1n)
 
 def pc.soon(s: Ch.St) -> Bool:
   match s:
@@ -108,7 +112,7 @@ def pc.soon(s: Ch.St) -> Bool:
         case Ch.Owing{k, +n}:
           Bool.and(pc.unmarked(cut), Bool.and(open, pc.fs(Ch.fate(inbox, n))))
         case Ch.Ended{}:
-          Nat.is_eq(Ch.placed(inbox), 1n)
+          Nat.is_eq(Nat.add(Ch.placed(inbox), Ch.reads(inbox)), 1n)
 
 # the submission just made is found queued
 def pc.fs_new(same: Bool, -x: Maybe<&2, Ch.Fate>, e: {same == True{} : Bool}) -> {pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(same, Ch.Queued{}), x)) == True{} : Bool}:
@@ -144,6 +148,8 @@ def pc.fs_of_fq(x: Maybe<&2, Ch.Fate>, e: {pc.fq(x) == True{} : Bool}) -> {pc.fs
           LLogicLogic.child.pc.absurd({pc.fs(Some{Ch.Withdrawn{}}) == True{} : Bool}, e)
         case Ch.Placed{}:
           LLogicLogic.child.pc.absurd({pc.fs(Some{Ch.Placed{}}) == True{} : Bool}, e)
+        case Ch.Read{}:
+          LLogicLogic.child.pc.absurd({pc.fs(Some{Ch.Read{}}) == True{} : Bool}, e)
 
 # no queued submission where none exists
 def pc.fq_none(-A: Type, x: Maybe<&2, Ch.Fate>, e: {None{} == x : Maybe<&2, Ch.Fate>}, r: {pc.fq(x) == True{} : Bool}) -> A:
@@ -164,7 +170,12 @@ def pc.soon_owe.at(same: Bool, +kr: Ch.Report, +n: Nat, +m: Nat, f: Ch.Fate, +re
           %LA.pc.old_none(rest, m, 1n+n, kin, LNat.pc.le_succ(m, n, LA.pc.le_of_eq(m, n, eb))) : {pc.fs(Maybe.or(&2, Ch.Fate, Ch.fate.here(Nat.is_eq(m, 1n+n), Ch.Withdrawn{}), _)) == True{} : Bool}
           pc.fs_off(Nat.is_eq(m, 1n+n), Ch.Withdrawn{}, pc.eq_next(m, n, eb))
         case Ch.Placed{}:
-          %LA.pc.old_placed(rest, m, kin) : {Nat.is_eq(Nat.add(1n, _), 1n) == True{} : Bool}
+          %LA.pc.old_placed(rest, m, kin) : {Nat.is_eq(Nat.add(Nat.add(1n, _), Ch.reads(rest)), 1n) == True{} : Bool}
+          %LA.pc.old_reads(rest, m, kin) : {Nat.is_eq(Nat.add(1n, _), 1n) == True{} : Bool}
+          {==}
+        case Ch.Read{}:
+          %LA.pc.old_placed(rest, m, kin) : {Nat.is_eq(Nat.add(_, Nat.add(1n, Ch.reads(rest))), 1n) == True{} : Bool}
+          %LA.pc.old_reads(rest, m, kin) : {Nat.is_eq(Nat.add(0n, Nat.add(1n, _)), 1n) == True{} : Bool}
           {==}
     case False{}:
       %LA.pc.old_none(rest, m, n, kin, LA.pc.le_pred(m, n, LA.pc.le_of_eq(1n+m, n, LA.pc.and_l(Nat.is_eq(1n+m, n), LA.pc.isW(f), kph)))) : {pc.soon(Ch.owe(_, kr, n, True{}, Ch.Sub{m, f} <> rest)) == True{} : Bool}
@@ -193,6 +204,8 @@ def pc.ready_owe(x: Maybe<&2, Ch.Fate>, +kr: Ch.Report, +n: Nat, +inbox: List<&2
           LLogicLogic.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Withdrawn{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
         case Ch.Placed{}:
           LLogicLogic.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Placed{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
+        case Ch.Read{}:
+          LLogicLogic.child.pc.absurd({pc.ready(Ch.owe(Some{Ch.Read{}}, kr, n, True{}, inbox)) == True{} : Bool}, sn)
 
 def pc.ready_soon(+cfg: Ch.Cfg, s: Ch.St, +d: Nat, +o: Ch.Obs, sn: {pc.soon(s) == True{} : Bool}) -> {pc.ready(Ch.step(cfg, s, Ch.Poll{d, o})) == True{} : Bool}:
   match s:
@@ -236,45 +249,59 @@ def pc.soon_of_ready(s: Ch.St, r: {pc.ready(s) == True{} : Bool}) -> {pc.soon(s)
         case Ch.Ended{}:
           r
 
-# a delivery of the queued submission n places it: one entry placed
-def pc.del_at(same: Bool, +n: Nat, +m: Nat, f: Ch.Fate, +rest: List<&2, Ch.Sub>, eb: {Nat.is_eq(m, n) == same : Bool}, kph: {LA.pc.Kowe.at(same, n, m, f) == True{} : Bool}, +kin: {LA.pc.Old(rest, m) == True{} : Bool}, r: {pc.fq(Maybe.or(&2, Ch.Fate, Ch.fate.here(same, f), Ch.fate(rest, n))) == True{} : Bool}) -> {Ch.placed(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n})) == 1n : Nat}:
+# a delivery of the queued submission n places it: the report reached
+# the parent once
+def pc.del_at(same: Bool, +n: Nat, +m: Nat, f: Ch.Fate, +rest: List<&2, Ch.Sub>, eb: {Nat.is_eq(m, n) == same : Bool}, kph: {LA.pc.Kowe.at(same, n, m, f) == True{} : Bool}, +kin: {LA.pc.Old(rest, m) == True{} : Bool}, r: {pc.fq(Maybe.or(&2, Ch.Fate, Ch.fate.here(same, f), Ch.fate(rest, n))) == True{} : Bool}) -> {Nat.add(Ch.placed(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n})), Ch.reads(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n}))) == 1n : Nat}:
   match same:
     case True{}:
       match f:
         case Ch.Queued{}:
-          %LA.pc.old_placed(Ch.act(rest, Ch.Place{n}), m, LA.pc.old_act(rest, m, Ch.Place{n}, kin)) : {Nat.add(Ch.Fate.placed(Ch.Act.hit(Nat.is_eq(m, n), Ch.Placed{})), _) == 1n : Nat}
-          %Equal.sym(Bool, Nat.is_eq(m, n), True{}, eb) : {Nat.add(Ch.Fate.placed(Ch.Act.hit(_, Ch.Placed{})), 0n) == 1n : Nat}
+          %LA.pc.old_placed(Ch.act(rest, Ch.Place{n}), m, LA.pc.old_act(rest, m, Ch.Place{n}, kin)) : {Nat.add(Nat.add(Ch.Fate.placed(Ch.Act.hit(Nat.is_eq(m, n), Ch.Placed{})), _), Nat.add(Ch.Fate.read_n(Ch.Act.hit(Nat.is_eq(m, n), Ch.Placed{})), Ch.reads(Ch.act(rest, Ch.Place{n})))) == 1n : Nat}
+          %LA.pc.old_reads(Ch.act(rest, Ch.Place{n}), m, LA.pc.old_act(rest, m, Ch.Place{n}, kin)) : {Nat.add(Nat.add(Ch.Fate.placed(Ch.Act.hit(Nat.is_eq(m, n), Ch.Placed{})), 0n), Nat.add(Ch.Fate.read_n(Ch.Act.hit(Nat.is_eq(m, n), Ch.Placed{})), _)) == 1n : Nat}
+          %Equal.sym(Bool, Nat.is_eq(m, n), True{}, eb) : {Nat.add(Nat.add(Ch.Fate.placed(Ch.Act.hit(_, Ch.Placed{})), 0n), Nat.add(Ch.Fate.read_n(Ch.Act.hit(_, Ch.Placed{})), 0n)) == 1n : Nat}
           {==}
         case Ch.Withdrawn{}:
-          LLogicLogic.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
+          LLogicLogic.child.pc.absurd({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{n})), Ch.reads(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{n}))) == 1n : Nat}, r)
         case Ch.Placed{}:
-          LLogicLogic.child.pc.absurd({Ch.placed(Ch.act(Ch.Sub{m, Ch.Placed{}} <> rest, Ch.Place{n})) == 1n : Nat}, r)
+          LLogicLogic.child.pc.absurd({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, Ch.Placed{}} <> rest, Ch.Place{n})), Ch.reads(Ch.act(Ch.Sub{m, Ch.Placed{}} <> rest, Ch.Place{n}))) == 1n : Nat}, r)
+        case Ch.Read{}:
+          LLogicLogic.child.pc.absurd({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, Ch.Read{}} <> rest, Ch.Place{n})), Ch.reads(Ch.act(Ch.Sub{m, Ch.Read{}} <> rest, Ch.Place{n}))) == 1n : Nat}, r)
     case False{}:
-      pc.fq_none({Ch.placed(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n})) == 1n : Nat}, Ch.fate(rest, n), LA.pc.old_none(rest, m, n, kin, LA.pc.le_pred(m, n, LA.pc.le_of_eq(1n+m, n, LA.pc.and_l(Nat.is_eq(1n+m, n), LA.pc.isW(f), kph)))), r)
+      pc.fq_none({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n})), Ch.reads(Ch.act(Ch.Sub{m, f} <> rest, Ch.Place{n}))) == 1n : Nat}, Ch.fate(rest, n), LA.pc.old_none(rest, m, n, kin, LA.pc.le_pred(m, n, LA.pc.le_of_eq(1n+m, n, LA.pc.and_l(Nat.is_eq(1n+m, n), LA.pc.isW(f), kph)))), r)
 
-# a delivery of any id leaves a placed report placed once
-def pc.del_end(inbox: List<&2, Ch.Sub>, +x: Nat, kin: {LA.pc.Kin(inbox) == True{} : Bool}, r: {Nat.is_eq(Ch.placed(inbox), 1n) == True{} : Bool}) -> {Ch.placed(Ch.act(inbox, Ch.Place{x})) == 1n : Nat}:
+def pc.zero_add(-a: Nat, -b: Nat, ea: {0n == a : Nat}, eb: {0n == b : Nat}) -> {0n == Nat.add(a, b) : Nat}:
+  %ea : {0n == Nat.add(_, b) : Nat}
+  eb
+
+# a delivery of any id leaves a report that reached the parent reached
+# once
+def pc.del_end(inbox: List<&2, Ch.Sub>, +x: Nat, +kin: {LA.pc.Kin(inbox) == True{} : Bool}, r: {Nat.is_eq(Nat.add(Ch.placed(inbox), Ch.reads(inbox)), 1n) == True{} : Bool}) -> {Nat.add(Ch.placed(Ch.act(inbox, Ch.Place{x})), Ch.reads(Ch.act(inbox, Ch.Place{x}))) == 1n : Nat}:
   match inbox:
     case Nil{}:
-      LLogicLogic.child.pc.absurd({Ch.placed(Ch.act(Nil{}, Ch.Place{x})) == 1n : Nat}, r)
+      LLogicLogic.child.pc.absurd({Nat.add(Ch.placed(Ch.act(Nil{}, Ch.Place{x})), Ch.reads(Ch.act(Nil{}, Ch.Place{x}))) == 1n : Nat}, r)
     case s <> +rest:
       match s:
         case Ch.Sub{+m, f}:
           match f:
             case Ch.Queued{}:
-              pc.one_zero({Ch.placed(Ch.act(Ch.Sub{m, Ch.Queued{}} <> rest, Ch.Place{x})) == 1n : Nat}, Ch.placed(rest), LA.pc.old_placed(rest, m, kin), r)
+              pc.one_zero({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, Ch.Queued{}} <> rest, Ch.Place{x})), Ch.reads(Ch.act(Ch.Sub{m, Ch.Queued{}} <> rest, Ch.Place{x}))) == 1n : Nat}, Nat.add(Ch.placed(rest), Ch.reads(rest)), pc.zero_add(Ch.placed(rest), Ch.reads(rest), LA.pc.old_placed(rest, m, kin), LA.pc.old_reads(rest, m, kin)), r)
             case Ch.Withdrawn{}:
-              pc.one_zero({Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{x})) == 1n : Nat}, Ch.placed(rest), LA.pc.old_placed(rest, m, kin), r)
+              pc.one_zero({Nat.add(Ch.placed(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{x})), Ch.reads(Ch.act(Ch.Sub{m, Ch.Withdrawn{}} <> rest, Ch.Place{x}))) == 1n : Nat}, Nat.add(Ch.placed(rest), Ch.reads(rest)), pc.zero_add(Ch.placed(rest), Ch.reads(rest), LA.pc.old_placed(rest, m, kin), LA.pc.old_reads(rest, m, kin)), r)
             case Ch.Placed{}:
-              %LA.pc.old_placed(Ch.act(rest, Ch.Place{x}), m, LA.pc.old_act(rest, m, Ch.Place{x}, kin)) : {Nat.add(1n, _) == 1n : Nat}
+              %LA.pc.old_placed(Ch.act(rest, Ch.Place{x}), m, LA.pc.old_act(rest, m, Ch.Place{x}, kin)) : {Nat.add(Nat.add(1n, _), Ch.reads(Ch.act(rest, Ch.Place{x}))) == 1n : Nat}
+              %LA.pc.old_reads(Ch.act(rest, Ch.Place{x}), m, LA.pc.old_act(rest, m, Ch.Place{x}, kin)) : {Nat.add(1n, _) == 1n : Nat}
+              {==}
+            case Ch.Read{}:
+              %LA.pc.old_placed(Ch.act(rest, Ch.Place{x}), m, LA.pc.old_act(rest, m, Ch.Place{x}, kin)) : {Nat.add(_, Nat.add(1n, Ch.reads(Ch.act(rest, Ch.Place{x})))) == 1n : Nat}
+              %LA.pc.old_reads(Ch.act(rest, Ch.Place{x}), m, LA.pc.old_act(rest, m, Ch.Place{x}, kin)) : {Nat.add(0n, Nat.add(1n, _)) == 1n : Nat}
               {==}
 
-def pc.ready_deliver0(+cfg: Ch.Cfg, s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool}, r: {pc.ready(s) == True{} : Bool}) -> {Ch.St.placed(Ch.step(cfg, s, Ch.Deliver{Ch.St.owed(s)})) == 1n : Nat}:
+def pc.ready_deliver0(+cfg: Ch.Cfg, s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool}, r: {pc.ready(s) == True{} : Bool}) -> {Ch.St.reached(Ch.step(cfg, s, Ch.Deliver{Ch.St.owed(s)})) == 1n : Nat}:
   match s:
     case Ch.St{ph, cut, open, +inbox}:
       match ph:
         case Ch.Watching{w}:
-          LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Deliver{0n})) == 1n : Nat}, r)
+          LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.step(cfg, Ch.St{Ch.Watching{w}, cut, open, inbox}, Ch.Deliver{0n})) == 1n : Nat}, r)
         case Ch.Owing{kr, +n}:
           match cut:
             case None{}:
@@ -282,31 +309,32 @@ def pc.ready_deliver0(+cfg: Ch.Cfg, s: Ch.St, +k: {LA.pc.K(s) == True{} : Bool},
                 case True{}:
                   match inbox:
                     case Nil{}:
-                      LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, Nil{}}, Ch.Deliver{n})) == 1n : Nat}, r)
+                      LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, Nil{}}, Ch.Deliver{n})) == 1n : Nat}, r)
                     case s2 <> +rest:
                       match s2:
                         case Ch.Sub{+m, +f}:
                           pc.del_at(Nat.is_eq(m, n), n, m, f, rest, {==}, LA.pc.and_l(LA.pc.Kowe.at(Nat.is_eq(m, n), n, m, f), LA.pc.Old(rest, m), k), LA.pc.and_r(LA.pc.Kowe.at(Nat.is_eq(m, n), n, m, f), LA.pc.Old(rest, m), k), r)
                 case False{}:
-                  LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
+                  LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, False{}, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
             case Some{del}:
-              LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
+              LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.step(cfg, Ch.St{Ch.Owing{kr, n}, Some{del}, open, inbox}, Ch.Deliver{n})) == 1n : Nat}, r)
         case Ch.Ended{}:
           pc.del_end(inbox, 0n, k, r)
 
-def pc.ready_deliver(+cfg: Ch.Cfg, +s: Ch.St, +m: Nat, k: {LA.pc.K(s) == True{} : Bool}, r: {pc.ready(s) == True{} : Bool}, em: {Ch.St.owed(s) == m : Nat}) -> {Ch.St.placed(Ch.step(cfg, s, Ch.Deliver{m})) == 1n : Nat}:
-  %em : {Ch.St.placed(Ch.step(cfg, s, Ch.Deliver{_})) == 1n : Nat}
+def pc.ready_deliver(+cfg: Ch.Cfg, +s: Ch.St, +m: Nat, k: {LA.pc.K(s) == True{} : Bool}, r: {pc.ready(s) == True{} : Bool}, em: {Ch.St.owed(s) == m : Nat}) -> {Ch.St.reached(Ch.step(cfg, s, Ch.Deliver{m})) == 1n : Nat}:
+  %em : {Ch.St.reached(Ch.step(cfg, s, Ch.Deliver{_})) == 1n : Nat}
   pc.ready_deliver0(cfg, s, k, r)
 
 # from any state that owes the report: a reopen, three task steps (the
 # first may run a pending abort, which hands the report on), and a
-# delivery of the id the task then owes place it, exactly once
-def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, +m: Nat, +k: {LA.pc.K(s) == True{} : Bool}, ow: {Ch.Ph.owing(Ch.St.ph(s)) == True{} : Bool}, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, s)) == m : Nat}) -> {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, s)) == 1n : Nat}:
+# delivery of the id the task then owes have it reach the parent, exactly
+# once
+def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, +m: Nat, +k: {LA.pc.K(s) == True{} : Bool}, ow: {Ch.Ph.owing(Ch.St.ph(s)) == True{} : Bool}, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, s)) == m : Nat}) -> {Ch.St.reached(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, s)) == 1n : Nat}:
   match s:
     case Ch.St{ph, cut, open, +inbox}:
       match ph:
         case Ch.Watching{w}:
-          LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Watching{w}, cut, open, inbox})) == 1n : Nat}, ow)
+          LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Watching{w}, cut, open, inbox})) == 1n : Nat}, ow)
         case Ch.Owing{+kr, +n}:
           match cut:
             case None{}:
@@ -314,9 +342,9 @@ def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: C
             case Some{del}:
               pc.ready_deliver(cfg, Ch.step(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), Ch.Poll{d3, o3}), m, LA.pc.K_step(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), Ch.Poll{d3, o3}, LA.pc.K_step(cfg, Ch.St{Ch.Owing{kr, n}, None{}, True{}, inbox}, Ch.Poll{d2, o2}, k)), pc.ready_soon(cfg, Ch.owe(Ch.fate(inbox, n), kr, n, True{}, inbox), d3, o3, pc.soon_owe(inbox, kr, n, LA.pc.and_l(LA.pc.Kowe(inbox, n), LA.pc.Kin(inbox), k), LA.pc.and_r(LA.pc.Kowe(inbox, n), LA.pc.Kin(inbox), k))), em)
         case Ch.Ended{}:
-          LLogicLogic.child.pc.absurd({Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Ended{}, cut, open, inbox})) == 1n : Nat}, ow)
+          LLogicLogic.child.pc.absurd({Ch.St.reached(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.St{Ch.Ended{}, cut, open, inbox})) == 1n : Nat}, ow)
 
-def pc.delivered_once(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, ow: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}, +m: Nat, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}) -> {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}:
+def pc.delivered_once(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, ow: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}, +m: Nat, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}) -> {Ch.St.reached(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}:
   pc.delivered(cfg, Ch.run(evs, cfg, Ch.St.init(cfg)), d1, o1, d2, o2, d3, o3, m, LA.pc.K_run(evs, cfg, Ch.St.init(cfg), {==}), ow, em)
 
 def Child.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):

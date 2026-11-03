@@ -13,6 +13,8 @@ def pc.le1_placed(f: Ch.Fate) -> {Nat.is_le(Nat.add(Ch.Fate.placed(f), 0n), 1n) 
       {==}
     case Ch.Placed{}:
       {==}
+    case Ch.Read{}:
+      {==}
 
 def pc.placed_le(inbox: List<&2, Ch.Sub>, kin: {LA.pc.Kin(inbox) == True{} : Bool}) -> {Nat.is_le(Ch.placed(inbox), 1n) == True{} : Bool}:
   match inbox:

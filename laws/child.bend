@@ -80,10 +80,11 @@ law child_resubmits_per_abort:
   for +evs: List<&2, Ch.Ev>
   {Nat.is_le(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), Nat.add(Ch.cuts(evs), 1n)) == True{} : Bool}
 
-# LAW child_delivered_once: a report the task owes is placed exactly once when the parent
-# reopens, the task takes three steps (the first may run a pending abort)
-# and the parent's run places the submission the task then waits on (its
-# owed id m): the report is never lost
+# LAW child_delivered_once: a report the task owes reaches the parent exactly once when the
+# parent reopens, the task takes three steps (the first may run a pending
+# abort) and the parent's run places the submission the task then waits
+# on (its owed id m): placed in its transcript, or read by the parent
+# itself before (rlm.collect): the report is never lost
 law child_delivered_once:
   for +cfg: Ch.Cfg
   for +evs: List<&2, Ch.Ev>
@@ -96,7 +97,20 @@ law child_delivered_once:
   for owing: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}
   for +m: Nat
   for waits: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}
-  {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}
+  {Ch.St.reached(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}
+
+# LAW child_read_never_wakes: once the parent read the report itself (rlm.collect), no
+# submission of it waits in the parent's inbox or reaches its transcript,
+# whatever happens next: a parent that already answered is never woken
+# for a turn that restates what it read
+# EXCLUDES: a read that leaves the queued notice in the inbox, a task that
+#   submits the report again after the read
+law child_read_never_wakes:
+  for +cfg: Ch.Cfg
+  for +evs: List<&2, Ch.Ev>
+  for +later: List<&2, Ch.Ev>
+  for read: {Ch.St.read(Ch.run(evs, cfg, Ch.St.init(cfg))) == 1n : Nat}
+  {Nat.add(Ch.St.queued(Ch.run(later, cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))), Ch.St.placed(Ch.run(later, cfg, Ch.run(evs, cfg, Ch.St.init(cfg))))) == 0n : Nat}
 
 # The task's decisions, as the Rust task runs them (bend/child.bend
 # `verdict`, `owe.next`, `cut.ph`): the call on one poll, the report
@@ -119,7 +133,8 @@ def ChildActed(x: Ch.Next, m: Ch.Mode) -> Ch.Call:
       Ch.Settles{None{}}
 
 # the report phase's move on the fate of submission n: none yet, submit
-# it under n; queued, wait; withdrawn, owe it under n + 1; placed, end
+# it under n; queued, wait; withdrawn, owe it under n + 1; placed or read
+# by the parent, end
 def ChildMove(f: Maybe<&2, Ch.Fate>, +n: Nat) -> Ch.Move:
   match f:
     case None{}:
@@ -131,6 +146,8 @@ def ChildMove(f: Maybe<&2, Ch.Fate>, +n: Nat) -> Ch.Move:
         case Ch.Withdrawn{}:
           Ch.Resubmit{1n+n}
         case Ch.Placed{}:
+          Ch.Delivered{}
+        case Ch.Read{}:
           Ch.Delivered{}
 
 # the phase an abort leaves: a delete of a watched child owes a cancelled
@@ -171,7 +188,7 @@ law child_silent_never_reports:
 
 # LAW child_report_move: the report phase's move is the one report rule
 # EXCLUDES: a second submission while one is queued, a resubmission under
-# the same id, an end before the report is placed
+# the same id, an end before the report is placed or read
 law child_report_move:
   for f: Maybe<&2, Ch.Fate>
   for +n: Nat
@@ -434,7 +451,8 @@ def ch_spell_report(k: Ch.Report, rest: String) -> String:
     case Ch.Unreachable{}:
       Wr.put_nat(4n, rest)
 
-# a submission's fate, if any: 0 none | 1, then Queued 0 | Withdrawn 1 | Placed 2
+# a submission's fate, if any: 0 none | 1, then Queued 0 | Withdrawn 1 |
+# Placed 2 | Read 3
 def ch_spell_mfate(f: Maybe<&2, Ch.Fate>, rest: String) -> String:
   match f:
     case None{}:
@@ -447,6 +465,8 @@ def ch_spell_mfate(f: Maybe<&2, Ch.Fate>, rest: String) -> String:
           Wr.put_nat(1n, Wr.put_nat(1n, rest))
         case Ch.Placed{}:
           Wr.put_nat(1n, Wr.put_nat(2n, rest))
+        case Ch.Read{}:
+          Wr.put_nat(1n, Wr.put_nat(3n, rest))
 
 # a phase: Watching 0 (the clock) | Owing 1 (the report, the id) | Ended 2
 def ch_spell_ph(p: Ch.Ph, rest: String) -> String:
@@ -663,7 +683,9 @@ def ch_read_fate.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
       Wr.Got{Some{Ch.Withdrawn{}}, s}
     case 2n:
       Wr.Got{Some{Ch.Placed{}}, s}
-    case 3n+q:
+    case 3n:
+      Wr.Got{Some{Ch.Read{}}, s}
+    case 4n+q:
       Wr.Bad{}
 
 def ch_read_fate(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
@@ -859,7 +881,7 @@ law child_ffi_answers:
 # EXCLUDES: another spelling of a request or a reply
 law child_ffi_example:
   {[FCh.ffi("0,100,3,1,7,50,2,10,0,1,7,0,"), FCh.ffi("0,100,3,1,7,50,2,10,0,1,8,0,"), FCh.ffi("0,100,3,1,7,50,2,50,0,1,7,0,"), FCh.ffi("0,100,3,1,7,50,1,10,1,0,"), FCh.ffi("0,100,3,0,50,3,10,2,T1,"), FCh.ffi("0,100,3,0,50,3,10,3,1,")] == ["0,1,7,40,3,", "0,1,8,100,3,", "1,3,", "1,4,", "2,0,", "2,1,1,"] : List<&2, String>} &
-  {[FCh.ffi("1,0,4,"), FCh.ffi("1,1,0,4,"), FCh.ffi("1,1,1,4,"), FCh.ffi("1,1,2,4,"), FCh.ffi("2,0,1,7,50,3,T"), FCh.ffi("2,0,0,50,3,F"), FCh.ffi("2,1,3,4,T")] == ["0,4,", "1,", "2,5,", "3,", "1,2,1,", "2,", "1,3,4,"] : List<&2, String>} &
+  {[FCh.ffi("1,0,4,"), FCh.ffi("1,1,0,4,"), FCh.ffi("1,1,1,4,"), FCh.ffi("1,1,2,4,"), FCh.ffi("1,1,3,4,"), FCh.ffi("2,0,1,7,50,3,T"), FCh.ffi("2,0,0,50,3,F"), FCh.ffi("2,1,3,4,T")] == ["0,4,", "1,", "2,5,", "3,", "3,", "1,2,1,", "2,", "1,3,4,"] : List<&2, String>} &
   {[FCh.ffi(""), FCh.ffi("3,"), FCh.ffi("0,x"), FCh.ffi("0,1,2,x"), FCh.ffi("0,1,2,0,5,5,x"), FCh.ffi("0,1,2,0,5,5,1,9,"), FCh.ffi("0,1,2,0,5,5,1,1,2,"), FCh.ffi("0,1,2,0,5,5,1,1,0,x")] == [ch_err("child: bad request"), ch_err("child: unknown request"), ch_err("child: bad settings"), ch_err("child: bad clock"), ch_err("child: bad elapsed ms"), ch_err("child: bad poll"), ch_err("child: bad mode"), ch_err("child: input left over")] : List<&2, String>} &
   {[FCh.ffi("1,2,"), FCh.ffi("1,0,x"), FCh.ffi("1,0,1,x"), FCh.ffi("2,3,"), FCh.ffi("2,2,x"), FCh.ffi("2,2,Tx")] == [ch_err("child: bad fate"), ch_err("child: bad id"), ch_err("child: input left over"), ch_err("child: bad phase"), ch_err("child: bad delete flag"), ch_err("child: input left over")] : List<&2, String>}
 

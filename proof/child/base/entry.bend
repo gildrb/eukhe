@@ -376,6 +376,8 @@ def cc.move(f: Maybe<&2, Ch.Fate>, +n: Nat) -> {FCh.put_move(Ch.owe.next(f, n), 
           {==}
         case Ch.Placed{}:
           {==}
+        case Ch.Read{}:
+          {==}
 
 def cc.ph(p: Ch.Ph, d: Bool) -> {FCh.put_ph(Ch.cut.ph(p, d), "") == Child.ch_spell_ph(Child.ChildAbort(p, d), "") : String}:
   match p:
@@ -604,6 +606,10 @@ def rt.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == Child.
         case Ch.Placed{}:
           %LWire.pw6.nat(1n, Wr.put_nat(2n, rest), {==}) : {Wr.Got{Some{Ch.Placed{}}, rest} == Child.ch_read_mfate(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
           %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Some{Ch.Placed{}}, rest} == Child.ch_read_fate(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+          {==}
+        case Ch.Read{}:
+          %LWire.pw6.nat(1n, Wr.put_nat(3n, rest), {==}) : {Wr.Got{Some{Ch.Read{}}, rest} == Child.ch_read_mfate(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+          %LWire.pw6.nat(3n, rest, {==}) : {Wr.Got{Some{Ch.Read{}}, rest} == Child.ch_read_fate(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
           {==}
 
 def rt.ph(p: Ch.Ph, +rest: String, +h: {Child.wire_ph_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == Child.ch_read_ph(Wr.get_nat(Child.ch_spell_ph(p, rest))) : Wr.Dec<Ch.Ph>}:

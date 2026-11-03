@@ -16,3 +16,5 @@ def Child.child_report_move(f, n):
           {==}
         case Ch.Placed{}:
           {==}
+        case Ch.Read{}:
+          {==}

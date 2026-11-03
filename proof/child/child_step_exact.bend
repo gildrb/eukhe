@@ -1,7 +1,8 @@
 # eukhe: the proof of LAW child_step_exact
 # Event by event: the inbox's acts and lookups are the rule's (pcs.act,
 # pcs.find), the watch's verdict is K1's (LAE.cl.look), the abort, the
-# report rule and the mark are the rule's, case by case.
+# report rule, the parent's read (pcs.read) and the mark are the rule's,
+# case by case.
 
 import Base
 import ../../bend/child.bend as Ch
@@ -29,6 +30,8 @@ def pcs.settle(f: Ch.Fate, a: Ch.Act, +i: Nat) -> {Ch.Fate.act(a, i, f) == Child
     case Ch.Withdrawn{}:
       {==}
     case Ch.Placed{}:
+      {==}
+    case Ch.Read{}:
       {==}
 
 def pcs.act(xs: List<&2, Ch.Sub>, +a: Ch.Act) -> {Ch.act(xs, a) == ChildRun.chr_inbox(xs, a) : List<&2, Ch.Sub>}:
@@ -104,6 +107,41 @@ def pcs.owe(f: Maybe<&2, Ch.Fate>, k: Ch.Report, +n: Nat, open: Bool, inbox: Lis
           {==}
         case Ch.Placed{}:
           {==}
+        case Ch.Read{}:
+          {==}
+
+def pcs.read.at(same: Bool, +n: Nat, +i: Nat, f: Ch.Fate, r: List<&2, Ch.Sub>) -> {Ch.read.at(same, n, Ch.Sub{i, f}, r) == ChildRun.chr_read.at(same, n, i, f, r) : List<&2, Ch.Sub>}:
+  match same:
+    case True{}:
+      match f:
+        case Ch.Queued{}:
+          {==}
+        case Ch.Withdrawn{}:
+          {==}
+        case Ch.Placed{}:
+          {==}
+        case Ch.Read{}:
+          {==}
+    case False{}:
+      {==}
+
+def pcs.read.sub(xs: List<&2, Ch.Sub>, +n: Nat) -> {Ch.read.sub(xs, n) == ChildRun.chr_read.sub(xs, n) : List<&2, Ch.Sub>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> r:
+      match x:
+        case Ch.Sub{+i, f}:
+          pcs.read.at(Nat.is_eq(i, n), n, i, f, r)
+
+def pcs.read(ph: Ch.Ph, +inbox: List<&2, Ch.Sub>) -> {Ch.read(ph, inbox) == ChildRun.chr_read(ph, inbox) : List<&2, Ch.Sub>}:
+  match ph:
+    case Ch.Watching{w}:
+      {==}
+    case Ch.Owing{k, +n}:
+      pcs.read.sub(inbox, n)
+    case Ch.Ended{}:
+      {==}
 
 def pcs.poll(+cfg: Ch.Cfg, cut: Maybe<&2, Bool>, +ph: Ch.Ph, +open: Bool, +inbox: List<&2, Ch.Sub>, +dt: Nat, +o: Ch.Obs) -> {Ch.task(cfg, ph, cut, open, inbox, dt, o) == ChildRun.chr_poll(cfg, cut, ph, open, inbox, dt, o) : Ch.St}:
   match cut:
@@ -144,6 +182,9 @@ def pcs.step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev) -> {Ch.step(cfg, s, e) == ChildRu
           {==}
         case Ch.Cut{+del}:
           %pcs.mark(cut, del) : {Ch.St{ph, Ch.mark(cut, del), open, inbox} == Ch.St{ph, _, open, inbox} : Ch.St}
+          {==}
+        case Ch.Collect{}:
+          %pcs.read(ph, inbox) : {Ch.St{ph, cut, open, Ch.read(ph, inbox)} == Ch.St{ph, cut, open, _} : Ch.St}
           {==}
 
 def ChildRun.child_step_exact(cfg, s, e):

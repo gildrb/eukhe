@@ -503,6 +503,8 @@ async fn admit_spawns(
                         replied_since_task: false,
                         deletion: None,
                         settled: false,
+                        read: false,
+                        report_submission: None,
                         usage: None,
                         progress: None,
                         reporter: None,
@@ -641,6 +643,9 @@ pub(super) fn entry(
     }
 }
 
+/// `rlm.list_subagents`: the roster. A listing is no read ([`mark_read`]):
+/// it shows a settled child's compacted answer preview, never its full
+/// answer, so the child's report still reaches the parent.
 async fn list_subagents(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let harness = children.harness.require().map_err(session_error)?;
     let state = read_children(&harness, conversation_of(&call), &cx())
@@ -890,6 +895,14 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
     let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
+    mark_read(
+        &harness,
+        conversation_id,
+        &call,
+        live.iter()
+            .filter_map(|task_id| state.children.get(&task_id.to_string())),
+    )
+    .await?;
     let now = now_ms();
     let results: Vec<RlmChildResult> = live
         .iter()
@@ -898,6 +911,47 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         .map(|row| collect_result(row, now))
         .collect();
     Ok(json!({ "results": results }))
+}
+
+/// The parent read the outcome of each settled child of `rows` through a
+/// cell of its own tool call (`call`): its report reached the parent. Each
+/// unread one turns read and its queued report is withdrawn (`Collect` in
+/// `bend/child.bend`), so its report phase ends without waking the parent
+/// for a turn that restates what it read. A request outside a tool call (a
+/// detached job's) reads for nobody.
+async fn mark_read<'a>(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    call: &HostCall,
+    rows: impl IntoIterator<Item = &'a ChildRow>,
+) -> anyhow::Result<()> {
+    if call.call.is_none() {
+        return Ok(());
+    }
+    let task_ids: Vec<TaskId> = rows
+        .into_iter()
+        .filter(|row| row.status.is_terminal() && !row.read)
+        .map(ChildRow::task_id)
+        .collect();
+    if task_ids.is_empty() {
+        return Ok(());
+    }
+    let queued = commit(harness, conversation_id, move |tx| async move {
+        let mut queued = Vec::new();
+        for task_id in task_ids {
+            let row = tx_update_row(&tx, conversation_id, task_id, |row| row.read = true).await?;
+            queued.extend(row.report_submission);
+        }
+        Ok(queued)
+    })
+    .await?;
+    for submission in queued {
+        harness
+            .abort_submission(submission, Some(conversation_id), &cx())
+            .await
+            .map_err(session_error)?;
+    }
+    Ok(())
 }
 
 /// Wait until every child of `task_ids` reached its verdict (its row left
@@ -985,10 +1039,12 @@ async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value
         bail!("rlm.answer target must be a non-empty string");
     };
     let harness = children.harness.require().map_err(session_error)?;
-    let state = read_children(&harness, conversation_of(&call), &cx())
+    let conversation_id = conversation_of(&call);
+    let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
     let row = resolve_live(state.children.values(), target, "child")?;
+    mark_read(&harness, conversation_id, &call, [row]).await?;
     Ok(json!({
         "status": row.status.collect_status(),
         "settled": row.status.is_terminal(),

@@ -261,7 +261,6 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
                 ),
             )),
             { "text": "parent turn done" },
-            { "text": "report noted" },
         ]),
     );
     let _daemon = spawn_supervisor(&lane.socket(), &lane.agent_dir());
@@ -366,7 +365,6 @@ fn a_child_still_writing_at_its_end_stops_before_its_hand_back() {
                 ),
             )),
             { "text": "parent turn done" },
-            { "text": "report noted" },
         ]),
     );
     let _daemon = spawn_supervisor(&lane.socket(), &lane.agent_dir());

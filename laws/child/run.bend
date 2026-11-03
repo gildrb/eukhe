@@ -27,7 +27,7 @@ def chr_hit(b: Bool, f: Ch.Fate) -> Ch.Fate:
 
 # the fate f of submission i after act a: a queued one is placed when a
 # places i, withdrawn when a withdraws i or every submission, else stays
-# queued; a withdrawn or placed one stays as it settled
+# queued; a withdrawn, placed or read one stays as it settled
 def chr_settle(f: Ch.Fate, a: Ch.Act, +i: Nat) -> Ch.Fate:
   match f:
     case Ch.Queued{}:
@@ -42,6 +42,8 @@ def chr_settle(f: Ch.Fate, a: Ch.Act, +i: Nat) -> Ch.Fate:
       Ch.Withdrawn{}
     case Ch.Placed{}:
       Ch.Placed{}
+    case Ch.Read{}:
+      Ch.Read{}
 
 # the inbox xs (newest first) after act a: each submission keeps its id
 # and place, its fate settled by a
@@ -73,6 +75,46 @@ def chr_find(xs: List<&2, Ch.Sub>, +n: Nat) -> Maybe<&2, Ch.Fate>:
         case Ch.Sub{+i, f}:
           chr_here(Nat.is_eq(i, n), f, chr_find(r, n))
 
+# the parent's read of report n, on the inbox xs (newest first): the
+# newest submission, when it is n, is read unless it was placed (a queued
+# one is withdrawn for the read); else a read submission n stands newest
+def chr_read.fate(f: Ch.Fate) -> Ch.Fate:
+  match f:
+    case Ch.Queued{}:
+      Ch.Read{}
+    case Ch.Withdrawn{}:
+      Ch.Read{}
+    case Ch.Placed{}:
+      Ch.Placed{}
+    case Ch.Read{}:
+      Ch.Read{}
+
+def chr_read.at(same: Bool, +n: Nat, +i: Nat, f: Ch.Fate, r: List<&2, Ch.Sub>) -> List<&2, Ch.Sub>:
+  match same:
+    case True{}:
+      Ch.Sub{i, chr_read.fate(f)} <> r
+    case False{}:
+      Ch.Sub{n, Ch.Read{}} <> Ch.Sub{i, f} <> r
+
+def chr_read.sub(xs: List<&2, Ch.Sub>, +n: Nat) -> List<&2, Ch.Sub>:
+  match xs:
+    case Nil{}:
+      [Ch.Sub{n, Ch.Read{}}]
+    case x <> r:
+      match x:
+        case Ch.Sub{+i, f}:
+          chr_read.at(Nat.is_eq(i, n), n, i, f, r)
+
+# the parent reads the settled child: only an owed report is read
+def chr_read(ph: Ch.Ph, +xs: List<&2, Ch.Sub>) -> List<&2, Ch.Sub>:
+  match ph:
+    case Ch.Watching{w}:
+      xs
+    case Ch.Owing{k, +n}:
+      chr_read.sub(xs, n)
+    case Ch.Ended{}:
+      xs
+
 # The task
 # --------
 
@@ -99,7 +141,8 @@ def chr_watched(x: Ch.Next) -> Ch.Ph:
 # the one report rule (ChildMove carried out) on the fate f of submission
 # n of report k: none yet, submit it under n queued (a closing parent
 # admits none: the task waits under n); queued, wait under n; withdrawn,
-# owe it under n + 1; placed, end. The mark is clear after the step.
+# owe it under n + 1; placed or read, end. The mark is clear after the
+# step.
 def chr_owe(f: Maybe<&2, Ch.Fate>, k: Ch.Report, +n: Nat, open: Bool, inbox: List<&2, Ch.Sub>) -> Ch.St:
   match f:
     case None{}:
@@ -115,6 +158,8 @@ def chr_owe(f: Maybe<&2, Ch.Fate>, k: Ch.Report, +n: Nat, open: Bool, inbox: Lis
         case Ch.Withdrawn{}:
           Ch.St{Ch.Owing{k, 1n+n}, None{}, open, inbox}
         case Ch.Placed{}:
+          Ch.St{Ch.Ended{}, None{}, open, inbox}
+        case Ch.Read{}:
           Ch.St{Ch.Ended{}, None{}, open, inbox}
 
 # the task's step on a poll that read o, 1 + dt ms after the last: an
@@ -137,10 +182,11 @@ def chr_poll(+cfg: Ch.Cfg, cut: Maybe<&2, Bool>, ph: Ch.Ph, open: Bool, +inbox: 
 
 # one event: a poll steps the task; the parent places or withdraws one
 # submission, aborts (withdraws every queued one), closes (the same, and
-# admits none), reopens; a cancel or delete marks the task for an abort
+# admits none), reopens, or reads the owed report itself; a cancel or
+# delete marks the task for an abort
 def chr_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev) -> Ch.St:
   match s:
-    case Ch.St{ph, cut, open, +inbox}:
+    case Ch.St{+ph, cut, open, +inbox}:
       match e:
         case Ch.Poll{dt, o}:
           chr_poll(cfg, cut, ph, open, inbox, dt, o)
@@ -156,6 +202,8 @@ def chr_step(+cfg: Ch.Cfg, s: Ch.St, e: Ch.Ev) -> Ch.St:
           Ch.St{ph, cut, True{}, inbox}
         case Ch.Cut{del}:
           Ch.St{ph, chr_mark(cut, del), open, inbox}
+        case Ch.Collect{}:
+          Ch.St{ph, cut, open, chr_read(ph, inbox)}
 
 # the spec's run: the spec's step on each event of evs, oldest first, from s
 def chr_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, s: Ch.St) -> Ch.St:
@@ -165,7 +213,7 @@ def chr_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, s: Ch.St) -> Ch.St:
     case e <> r:
       chr_run(r, cfg, chr_step(cfg, s, e))
 
-# LAW child_step_exact (H5): on every setting and state, the task's step on every event is the rule's: a poll runs a pending abort (ChildAbort), else K1's verdict on a watched child, the one report rule on an owed report's submission, or nothing on an ended task, and clears the mark; the parent's placement, withdrawal, abort and close settle exactly its queued submissions they name, a close and a reopen set its openness; a cancel or delete marks the task
+# LAW child_step_exact (H5): on every setting and state, the task's step on every event is the rule's: a poll runs a pending abort (ChildAbort), else K1's verdict on a watched child, the one report rule on an owed report's submission, or nothing on an ended task, and clears the mark; the parent's placement, withdrawal, abort and close settle exactly its queued submissions they name, a close and a reopen set its openness, its read reads the owed report alone; a cancel or delete marks the task
 # EXCLUDES: a step that loses, invents or renumbers a submission, settles
 #   one twice or one it does not name, submits while one is queued or to a
 #   closing parent, resubmits under the same id, keeps an abort mark after

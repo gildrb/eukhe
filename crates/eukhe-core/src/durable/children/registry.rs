@@ -15,7 +15,8 @@ use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::harness::usage::{record_usage, UsageBucket};
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
-    ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, LatestFork, TaskId,
+    ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, LatestFork,
+    SubmissionId, TaskId,
 };
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{IndexMap, Usage, UsageCost};
@@ -116,6 +117,17 @@ pub(crate) struct ChildRow {
     /// the transcript, submitting it again if the inbox withdraws it).
     #[serde(default)]
     pub(crate) settled: bool,
+    /// The parent read this settled child's outcome itself (`rlm.collect`
+    /// or `rlm.answer` from a cell of its own tool call): the report reached
+    /// it, so the report phase withdraws a queued notice and submits none
+    /// (`Read` in `bend/child.bend`). A parent that already answered is
+    /// never woken for a turn that restates what it read.
+    #[serde(default)]
+    pub(crate) read: bool,
+    /// The report's submission to the parent's inbox while it may be
+    /// queued: a read withdraws it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) report_submission: Option<SubmissionId>,
     /// Child spend already attributed to the parent (cumulative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) usage: Option<Usage>,
