@@ -4,10 +4,13 @@
 //! decode through one contract per function and share the store, so a
 //! `read()` in the kernel makes its lines anchorable for the `edit` tool and
 //! the other way round. `read` also serves the internal URLs (`urls`), and
-//! `ssh://` through the user's own `ssh` program (`ssh`).
+//! `ssh://` through the user's own `ssh` program (`ssh`). A durable
+//! session keeps its seen lines in its storage (`seen_log`), so the next
+//! process of the session anchors edits to the lines the model saw.
 
 mod contract;
 mod requests;
+mod seen_log;
 #[cfg(test)]
 mod seen_tests;
 mod ssh;
@@ -83,11 +86,16 @@ impl DocumentsHost {
 /// `<agent dir>/locks`, shared by every session of the eukhe home.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let lock_dir = deps.agent_dir.join("locks");
+    let home = eukhe_types::platform::home_dir();
+    let documents = match &deps.storage_dir {
+        Some(dir) => {
+            Documents::journaled(lock_dir, home, Arc::new(seen_log::SeenLog::in_storage(dir)))
+        }
+        None => Documents::new(lock_dir, home),
+    };
     let host = Arc::new(DocumentsHost {
-        documents: Documents::new(
-            deps.agent_dir.join("locks"),
-            eukhe_types::platform::home_dir(),
-        ),
+        documents,
         workspace: deps.cwd.clone(),
         resources: Arc::clone(&deps.resources),
         memory: deps.memory.clone(),

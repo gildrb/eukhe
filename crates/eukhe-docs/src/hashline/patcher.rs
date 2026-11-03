@@ -630,6 +630,8 @@ pub(crate) fn stage_patch(
             Some(FileOp::Rem) => &[][..],
             Some(FileOp::Move { .. }) | None => parsed.edits.as_slice(),
         };
+        // The lines an earlier process of the session saw of this text.
+        store.restore(&read.canonical, &read.text);
         let apply = apply_with_recovery(
             &section.path,
             tag,

@@ -23,6 +23,14 @@
 # model must read again. `edit` adds what the store keeps after the
 # verdict (the laws state the retry over it).
 #
+# The seen lines outlive the process (crates/eukhe-docs/src/seen_log.rs,
+# the store's `restore`): each time lines of a version of a file become
+# seen, the store appends a record of that version and those runs. A
+# later process of the session, at its first edit of the file, keeps the
+# records of the version the file holds then (`reload`) and drops the
+# file's other records; the runs of the kept records are the seen lines
+# of that version (`restored`), the snapshot `check` reads.
+#
 # Cost: an anchor's membership walks the runs and stops at the first run
 # that holds it, so an edit costs O(anchors x runs); a read-only file
 # has a few runs.
@@ -227,3 +235,43 @@ def edit.go(seen: List<&2, Iv>, c: Check) -> Step:
 # (the unseen anchors join them when the rejection was whole)
 def edit(+seen: List<&2, Iv>, ats: List<&2, At>) -> Step:
   edit.go(seen, check(seen, ats))
+
+# A record of the seen log: the version of the file it names (`tag`: the
+# Rust's four-hex tag and the digest of the text, which name one text),
+# and the runs of lines of that version that became seen
+type Rec is Data:
+  Rec{tag: Nat, runs: List<&2, Iv>}
+
+def Rec.tag(r: Rec) -> Nat:
+  match r:
+    case Rec{t, s}:
+      t
+
+def Rec.runs(r: Rec) -> List<&2, Iv>:
+  match r:
+    case Rec{t, s}:
+      s
+
+def reload.put(+r: Rec, rest: List<&2, Rec>, keep: Bool) -> List<&2, Rec>:
+  match keep:
+    case True{}:
+      r <> rest
+    case False{}:
+      rest
+
+# the records of one file a reload keeps when the file holds the version
+# `live`, in order
+def reload(+live: Nat, log: List<&2, Rec>) -> List<&2, Rec>:
+  match log:
+    case Nil{}:
+      Nil{}
+    case +r <> rest:
+      reload.put(r, reload(live, rest), Nat.is_eq(Rec.tag(r), live))
+
+# the seen runs the kept records restore: the runs of each, in order
+def restored(rs: List<&2, Rec>) -> List<&2, Iv>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      List.append(&2, Iv, Rec.runs(r), restored(rest))

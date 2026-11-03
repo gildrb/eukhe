@@ -50,6 +50,8 @@ path = "src/main.rs"
 [dev-dependencies]
 tempfile = "3"
 base64 = "0.22"
+# The e2e edits name each file version by its tag (`file_hash`).
+eukhe-docs = { path = "../eukhe-docs" }
 # The Prime Inference login tests encrypt the challenge result with the
 # flow's own public key (same versions the workspace resolves for the engine).
 rsa = { version = "0.9", features = ["sha2", "pem"] }

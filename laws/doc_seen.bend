@@ -286,6 +286,68 @@ law seen_entry_rejects_example:
 law seen_wire_fits_example:
   {seen.WireFits([Ds.Iv{1n, 3n}], [Ds.At{2n, Some{80n}}, Ds.At{9n, None{}}]) == True{} : Bool}
 
+# Reload
+# ------
+# bend/doc_seen.bend `reload` and `restored`: every input is free: any
+# log of one file (any records, each of any version with any runs), any
+# version the file holds when a later process of the session edits it.
+
+def seen.Live.keep(+r: Ds.Rec, rest: List<&2, Ds.Rec>, same: Bool) -> List<&2, Ds.Rec>:
+  match same:
+    case True{}:
+      r <> rest
+    case False{}:
+      rest
+
+# the records of log whose version is live, in order
+def seen.Live(+live: Nat, log: List<&2, Ds.Rec>) -> List<&2, Ds.Rec>:
+  match log:
+    case Nil{}:
+      Nil{}
+    case +r <> rest:
+      match r:
+        case Ds.Rec{t, s}:
+          seen.Live.keep(Ds.Rec{t, s}, seen.Live(live, rest), Nat.is_eq(t, live))
+
+# line n is held by a record of log whose version is live
+def seen.HeldLive(+n: Nat, +live: Nat, log: List<&2, Ds.Rec>) -> Bool:
+  match log:
+    case Nil{}:
+      False{}
+    case r <> rest:
+      match r:
+        case Ds.Rec{t, s}:
+          Bool.or(Bool.and(Nat.is_eq(t, live), seen.In(n, s)), seen.HeldLive(n, live, rest))
+
+# LAW reload_keeps_exactly_the_live_version: a reload keeps exactly the records of the
+# version the file holds, in order: none of another version (the file
+# changed since, or changed back and forth: those lines were not seen of
+# this text) and every one of this version
+# EXCLUDES: restoring by path alone, keeping only the last record or the
+# first, dropping a record of the live version, keeping a stale one
+law reload_keeps_exactly_the_live_version:
+  for +live: Nat
+  for +log: List<&2, Ds.Rec>
+  {Ds.reload(live, log) == seen.Live(live, log) : List<&2, Ds.Rec>}
+
+# LAW reload_sees_exactly_the_live_records: after a reload, a line is seen exactly when a
+# record of the version the file holds names it: the guard then lets an
+# edit through exactly on the lines an earlier process saw of this text
+# EXCLUDES: a line seen from a stale record, a line of a kept record lost
+# (only the first record's runs restored, the last record's runs alone)
+law reload_sees_exactly_the_live_records:
+  for +n: Nat
+  for +live: Nat
+  for +log: List<&2, Ds.Rec>
+  {seen.In(n, Ds.restored(Ds.reload(live, log))) == seen.HeldLive(n, live, log) : Bool}
+
+# LAW reload_example (anchor): of a log of versions 5, 7, 5, the file holding 5 keeps
+# the first and the third record, and their runs are the seen lines; the
+# file holding 9 keeps nothing
+# EXCLUDES: a reload that matches every version, or none
+law reload_example:
+  {Ds.restored(Ds.reload(5n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}, Ds.Rec{5n, [Ds.Iv{9n, 9n}]}])) == [Ds.Iv{1n, 3n}, Ds.Iv{9n, 9n}] : List<&2, Ds.Iv>} & {Ds.reload(9n, [Ds.Rec{5n, [Ds.Iv{1n, 3n}]}, Ds.Rec{7n, [Ds.Iv{4n, 4n}]}]) == [] : List<&2, Ds.Rec>}
+
 # The entry from the requirement
 # ------------------------------
 # The spec of the whole entry, written from the requirement (F11, the

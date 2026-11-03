@@ -1728,6 +1728,9 @@ import ./proof/doc_seen/reveal_bounds.bend as PRevealBounds
 import ./proof/doc_seen/seen_entry_refines.bend as PSeenEntryRefines
 import ./proof/doc_seen/seen_entry_rejects_example.bend as PSeenEntryRejectsExample
 import ./proof/doc_seen/seen_wire_fits_example.bend as PSeenWireFitsExample
+import ./proof/doc_seen/reload_keeps_exactly_the_live_version.bend as PReloadKeepsExactlyTheLiveVersion
+import ./proof/doc_seen/reload_sees_exactly_the_live_records.bend as PReloadSeesExactlyTheLiveRecords
+import ./proof/doc_seen/reload_example.bend as PReloadExample
 import ./proof/doc_seen/doc_seen_ffi_exact.bend as PDocSeenFfiExact
 import ./proof/doc_search/base.bend as LADocSearch
 import ./proof/doc_search/grep_accounts_every_file.bend as PGrepAccountsEveryFile

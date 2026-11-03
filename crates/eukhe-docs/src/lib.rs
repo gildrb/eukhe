@@ -2,7 +2,8 @@
 //!
 //! - [`file_hash`]: the four-hex file tag (`[path#TAG]`), omp's xxh32 tag.
 //! - [`EditStore`]: per-session snapshots of read text, seen lines, clipboard
-//!   registers, and the no-op loop guard.
+//!   registers, and the no-op loop guard; [`SeenJournal`]: where the seen
+//!   lines outlive the process.
 //! - [`AccessGate`]: the host's check of each path a tool reads or writes
 //!   (the path policy and the user's approval), on the real path.
 //! - [`Documents`]: the session's authority: reads project `[path#TAG]` plus
@@ -38,6 +39,7 @@ mod path_tree;
 mod read;
 mod rebase;
 mod scope;
+mod seen_log;
 mod store;
 #[cfg(test)]
 mod testing;
@@ -60,6 +62,7 @@ pub use read::{
     display_path, DirEntry, FileView, ImageFormat, ImageView, LineSpan, ReadContent, ReadError,
     ReadView, Row, SelectorError,
 };
+pub use seen_log::{SeenJournal, SeenRecord};
 pub use store::{
     file_hash, payload_hash, seen_lines_from_body, Clipboard, EditStore, Snapshot,
     DEFAULT_MAX_PATHS, DEFAULT_MAX_TOTAL_BYTES, DEFAULT_MAX_VERSIONS_PER_PATH,

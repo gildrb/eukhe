@@ -3,6 +3,7 @@
 //! host's [`AccessGate`]: each path access happens only after it let it.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::error::EditError;
 use crate::gate::AccessGate;
@@ -10,6 +11,7 @@ use crate::glob::{GlobError, GlobOutput, GlobRequest};
 use crate::grep::{GrepError, GrepOutput, GrepRequest};
 use crate::hashline::{apply_hashline, HashlineOptions, HashlineOutcome};
 use crate::read::{self, ReadError, ReadView};
+use crate::seen_log::SeenJournal;
 use crate::store::EditStore;
 use crate::url::{Located, Url};
 use crate::write::{self, LockedWriter, WriteError, WriteOutcome};
@@ -29,6 +31,22 @@ impl Documents {
     pub fn new(lock_dir: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             store: EditStore::new(),
+            lock_dir,
+            home,
+        }
+    }
+
+    /// [`Documents::new`] with the seen lines kept in `journal`: an edit
+    /// anchors to the lines an earlier process of the session saw of the
+    /// text the file still holds ([`EditStore::restore`]).
+    #[must_use]
+    pub fn journaled(
+        lock_dir: PathBuf,
+        home: Option<PathBuf>,
+        journal: Arc<dyn SeenJournal>,
+    ) -> Self {
+        Self {
+            store: EditStore::journaled(journal),
             lock_dir,
             home,
         }
