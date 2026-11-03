@@ -16,7 +16,9 @@ use super::{
     billing, get_anthropic_compat, model_compat, AnthropicOptions, AnthropicToolChoice,
     CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
 };
-use crate::api::cache_breakpoints::{has_cache_breakpoint, placed_marks};
+use crate::api::cache_breakpoints::{
+    has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
+};
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
@@ -224,8 +226,8 @@ fn is_blank(text: &str) -> bool {
 }
 
 #[allow(clippy::too_many_lines)] // 1:1 port of the TS `convertMessages` body.
-/// TS `convertMessages`. eukhe addition: user text blocks with a
-/// `cache_breakpoint` carry the request's `cache_control` mark.
+/// TS `convertMessages`. eukhe addition: user and assistant text blocks with
+/// a `cache_breakpoint` carry the request's `cache_control` mark.
 fn convert_messages(
     transformed: &[Message],
     settings: &ConvertSettings<'_>,
@@ -321,9 +323,15 @@ fn convert_messages(
                             if is_blank(&text.text) {
                                 continue;
                             }
-                            blocks.push(
-                                json!({ "type": "text", "text": sanitize_surrogates(&text.text) }),
-                            );
+                            let mut text_block =
+                                json!({ "type": "text", "text": sanitize_surrogates(&text.text) });
+                            if let Some(cache_control) = settings
+                                .cache_control
+                                .filter(|_| has_assistant_cache_breakpoint(block))
+                            {
+                                text_block["cache_control"] = cache_control.clone();
+                            }
+                            blocks.push(text_block);
                         }
                         AssistantContentBlock::Thinking(thinking) => {
                             if thinking.redacted == Some(true) {

@@ -587,7 +587,7 @@ pub(crate) fn get_compat_cache_control(
 ///
 /// eukhe addition: the end mark is placed first and the system and tool
 /// marks only take the slots `eukhe_bend::rules::cache_marks::grant` leaves after the
-/// explicitly marked user blocks. Without marked blocks every mark fits and
+/// explicitly marked text blocks. Without marked blocks every mark fits and
 /// the result equals the TS output. A system prompt sent as its shared
 /// prefix and the session's tail (two text parts) marks the prefix first,
 /// then the tool, then the tail.

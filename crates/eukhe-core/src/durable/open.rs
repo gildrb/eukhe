@@ -738,4 +738,4 @@ pub fn session_artifact_dir_for_log(log: &std::path::Path) -> Option<std::path::
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

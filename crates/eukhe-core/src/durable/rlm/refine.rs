@@ -446,21 +446,11 @@ pub(crate) fn refiner(
                 })],
                 tools: None,
             };
-            let reply = models
-                .complete_simple(&model, context, ModelsSimpleStreamOptions::default())
-                .await;
-            match reply.stop_reason {
-                StopReason::Error | StopReason::Aborted => anyhow::bail!(
-                    "{}",
-                    reply
-                        .error_message
-                        .unwrap_or_else(|| "refinement request failed".to_string())
-                ),
-                StopReason::Pending | StopReason::Deferred => {
-                    anyhow::bail!("refinement request did not complete")
-                }
-                StopReason::Stop | StopReason::Length | StopReason::ToolUse => {}
-            }
+            let reply = completed(
+                models
+                    .complete_simple(&model, context, ModelsSimpleStreamOptions::default())
+                    .await,
+            )?;
             let text: Vec<eukhe_types::ai::AssistantContentBlock> = reply
                 .content
                 .iter()
@@ -496,6 +486,25 @@ pub(crate) fn refiner(
             })
         })
     })
+}
+
+/// A refinement model call's reply once it completed: a failed, aborted,
+/// or unfinished request is the call's error.
+pub(crate) fn completed(
+    reply: eukhe_types::pi_ai::AssistantMessage,
+) -> anyhow::Result<eukhe_types::pi_ai::AssistantMessage> {
+    match reply.stop_reason {
+        StopReason::Error | StopReason::Aborted => anyhow::bail!(
+            "{}",
+            reply
+                .error_message
+                .unwrap_or_else(|| "refinement request failed".to_string())
+        ),
+        StopReason::Pending | StopReason::Deferred => {
+            anyhow::bail!("refinement request did not complete")
+        }
+        StopReason::Stop | StopReason::Length | StopReason::ToolUse => Ok(reply),
+    }
 }
 
 /// Strip display-only `local:`/`global:` prefixes from proposal edit ids.

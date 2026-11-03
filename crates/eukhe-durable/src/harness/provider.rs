@@ -7,9 +7,9 @@ use eukhe_chord::json::{from_json, JsonValue};
 use serde::{Deserialize, Serialize};
 
 use crate::documents::{ConversationDoc, DocDefinition};
-use crate::session::{SessionError, SessionResult};
+use crate::session::{Session, SessionError, SessionResult, Tx};
 use crate::tasks::{TaskRuntime, TaskValue};
-use crate::types::{DocumentReaderExt, LatestFork};
+use crate::types::{ConversationId, DocumentReaderExt, LatestFork};
 
 /// Stable provider-facing identity of one conversation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,11 +74,7 @@ where
     runtime
         .commit(
             move |tx, _current| async move {
-                let state = tx.doc(&PROVIDER_DOC, conversation_id).await?;
-                let session_id = state.get("sessionId")?.and_then(|item| {
-                    item.as_value()
-                        .and_then(|value| value.as_str().map(str::to_owned))
-                });
+                let session_id = stored_session_id(&tx, conversation_id).await?;
                 *slot
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = session_id;
@@ -91,9 +87,49 @@ where
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take();
-    created.ok_or_else(|| {
-        SessionError::error(format!(
-            "Conversation {conversation_id} has no provider session ID"
-        ))
-    })
+    created.ok_or_else(|| no_session_id(conversation_id))
+}
+
+/// [`ensure_provider_session_id`] outside a task invocation: the
+/// conversation's identity read through `session`, with the same migration
+/// commit for a legacy conversation.
+///
+/// # Errors
+///
+/// Read or commit failures of the session.
+pub(crate) async fn session_provider_session_id(
+    session: &Session,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<String> {
+    if let Some(existing) = session.snapshot(&PROVIDER_DOC, conversation_id, cx).await? {
+        let state: ProviderState = from_json(&JsonValue::Object(existing))?;
+        return Ok(state.session_id);
+    }
+    session
+        .commit(
+            move |tx| async move { stored_session_id(&tx, conversation_id).await },
+            cx,
+        )
+        .await?
+        .ok_or_else(|| no_session_id(conversation_id))
+}
+
+/// The identity `tx` holds; reading `pi.provider` there runs `initial()`
+/// for a conversation without it.
+async fn stored_session_id(
+    tx: &Tx,
+    conversation_id: ConversationId,
+) -> SessionResult<Option<String>> {
+    let state = tx.doc(&PROVIDER_DOC, conversation_id).await?;
+    Ok(state.get("sessionId")?.and_then(|item| {
+        item.as_value()
+            .and_then(|value| value.as_str().map(str::to_owned))
+    }))
+}
+
+fn no_session_id(conversation_id: ConversationId) -> SessionError {
+    SessionError::error(format!(
+        "Conversation {conversation_id} has no provider session ID"
+    ))
 }

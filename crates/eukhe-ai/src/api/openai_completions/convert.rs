@@ -6,6 +6,7 @@ use eukhe_bend::rules::model_facts;
 use serde_json::json;
 
 use super::compat::ResolvedCompat;
+use crate::api::cache_breakpoints::has_assistant_cache_breakpoint;
 use crate::api::constrained_sampling::{
     get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
     ConstrainedSamplingError, StrictPlan, StrictSupport, StrictToolParameters,
@@ -29,8 +30,9 @@ pub struct ConvertCompletionsMessagesOptions<'a> {
     /// Tool name → grammar input property of tools sent as `OpenAI` custom tools.
     pub grammar_tool_input_properties: Option<&'a IndexMap<String, String>>,
     /// eukhe addition: the Anthropic-format `cache_control` mark of this
-    /// request. When set, user text blocks carrying a `cache_breakpoint` get
-    /// it as an explicit prompt-cache breakpoint.
+    /// request. When set, user and assistant text blocks carrying a
+    /// `cache_breakpoint` get it as an explicit prompt-cache breakpoint; an
+    /// assistant message with a marked block sends its text as text parts.
     pub cache_control: Option<&'a JsonValue>,
     /// eukhe addition: [`crate::types::StreamOptions::system_cache_breakpoint`].
     /// With `cache_control` set, a split leading prompt goes as two text
@@ -454,19 +456,42 @@ fn convert_assistant(
         },
     );
 
-    let assistant_text_parts: Vec<String> = msg
+    // eukhe addition: each sent text part with the mark of its block.
+    let assistant_text_parts: Vec<(String, Option<&JsonValue>)> = msg
         .content
         .iter()
         .filter_map(|block| match block {
-            AssistantContentBlock::Text(text) if !js_trim(&text.text).is_empty() => {
-                Some(sanitize_surrogates(&text.text).into_owned())
-            }
+            AssistantContentBlock::Text(text) if !js_trim(&text.text).is_empty() => Some((
+                sanitize_surrogates(&text.text).into_owned(),
+                options
+                    .cache_control
+                    .filter(|_| has_assistant_cache_breakpoint(block)),
+            )),
             AssistantContentBlock::Text(_)
             | AssistantContentBlock::Thinking(_)
             | AssistantContentBlock::ToolCall(_) => None,
         })
         .collect();
-    let assistant_text = assistant_text_parts.concat();
+    let assistant_text: String = assistant_text_parts
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect();
+    let text_part = |(text, mark): &(String, Option<&JsonValue>)| {
+        let mut part = json!({ "type": "text", "text": text });
+        if let Some(mark) = *mark {
+            part["cache_control"] = mark.clone();
+        }
+        part
+    };
+    // eukhe addition: a marked text block ends a cacheable prefix, and its
+    // mark needs the text as parts; unmarked text stays one string.
+    let text_content = || {
+        if assistant_text_parts.iter().any(|(_, mark)| mark.is_some()) {
+            JsonValue::Array(assistant_text_parts.iter().map(text_part).collect())
+        } else {
+            json!(assistant_text)
+        }
+    };
 
     let thinking_blocks: Vec<&ThinkingContent> = msg
         .content
@@ -510,18 +535,14 @@ fn convert_assistant(
                 .collect::<Vec<_>>()
                 .join("\n\n");
             let mut content = vec![json!({ "type": "text", "text": thinking_text })];
-            content.extend(
-                assistant_text_parts
-                    .iter()
-                    .map(|text| json!({ "type": "text", "text": text })),
-            );
+            content.extend(assistant_text_parts.iter().map(text_part));
             assistant_msg.insert("content".into(), JsonValue::Array(content));
         } else {
             // Always send assistant content as a plain string (the Chat
             // Completions standard); arrays make some models mirror the block
-            // structure literally.
+            // structure literally. eukhe addition: a marked block needs parts.
             if !assistant_text.is_empty() {
-                assistant_msg.insert("content".into(), json!(assistant_text));
+                assistant_msg.insert("content".into(), text_content());
             }
             // reasoning_details is the structured alternative to a raw reasoning field.
             if preserved_reasoning_details.is_none() {
@@ -546,7 +567,7 @@ fn convert_assistant(
             }
         }
     } else if !assistant_text.is_empty() {
-        assistant_msg.insert("content".into(), json!(assistant_text));
+        assistant_msg.insert("content".into(), text_content());
     }
 
     if !tool_calls.is_empty() {

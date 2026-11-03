@@ -4,8 +4,8 @@
 
 use super::planner::{
     apply_refinement_proposal, parse_proposal, refinement_request, rollback_proposal, ApplyOptions,
-    RefinementProposal, AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS, AUTO_REFINE_REVIEW_SYSTEM_PROMPT,
-    REFINEMENT_MAX_OUTPUT_TOKENS, REFINEMENT_SYSTEM_PROMPT,
+    RefinementProposal, AUTO_REFINE_REVIEW_SYSTEM_PROMPT, REFINEMENT_MAX_OUTPUT_TOKENS,
+    REFINEMENT_SYSTEM_PROMPT,
 };
 use super::{
     infer_refinement_result_scope, HarnessMemory, HarnessScope, HarnessState, RefinementKind,
@@ -357,51 +357,51 @@ fn parse_auto_refine_review(text: &str) -> anyhow::Result<AutoRefineReview> {
     })
 }
 
-/// The automatic /refine review gate.
+/// Model-call seam of the auto-refine review (test seam over the session's
+/// models): sends the review prompt as the last user message of a request
+/// that continues the reviewed conversation, and returns the reply's text.
+pub type ReviewFn = Box<
+    dyn FnOnce(
+            String,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send>,
+        > + Send,
+>;
+
+/// The automatic /refine review gate. The reviewed trajectory is the
+/// conversation the request continues; the review prompt follows it: the
+/// gate's instructions, the trigger, the merged harness state, and the
+/// refinement history.
 ///
 /// # Errors
 ///
-/// Returns an error when the review request cannot be built, the LLM call
-/// fails, or its reply cannot be parsed into a review.
+/// Returns an error when the review call fails or its reply cannot be
+/// parsed into a review.
 pub async fn review_auto_refine(
-    messages: &[AgentMessage],
     state: &HarnessState,
     history: &[RefinementResult],
-    model: &eukhe_types::ai::Model,
     context: &AutoRefineReviewContext,
-    review_call: RefinerFn,
+    review_call: ReviewFn,
 ) -> anyhow::Result<AutoRefineReview> {
-    let conversation_text = conversation_text(messages, 40_000);
-    let build_prompt = |conversation: &str| -> String {
-        [
-            format!(
-                "<trigger>\n{}; {} assistant turns since last auto-refine review\n</trigger>",
-                context.reason, context.turns_since_last_review
-            ),
-            format!(
-                "<current_harness_state>\n{}\n</current_harness_state>",
-                overview_for_prompt(state, HarnessMemory::Harness)
-            ),
-            format!(
-                "<refinement_history>\n{}\n</refinement_history>",
-                history_for_prompt(history)
-            ),
-            format!("<conversation>\n{conversation}\n</conversation>"),
-            "Return shouldRefine=true when the trajectory contains evidence useful to this session's future turns. Prefer local harness edits for current task progress, temporary blockers, and current-run coordination. Ask for global refinement only for durable cross-session lessons or explicitly project-qualified lessons likely to be reused in future sessions.".to_string(),
-        ]
-        .join("\n\n")
-    };
-    let (request_max_tokens, user_prompt) = refinement_request(
-        model,
-        AUTO_REFINE_REVIEW_SYSTEM_PROMPT,
-        &conversation_text,
-        &build_prompt,
-        AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS,
-    )?;
-    let mut request_model = model.clone();
-    request_model.max_tokens = request_max_tokens.min(AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS);
-    let reply = review_call(request_model, AUTO_REFINE_REVIEW_SYSTEM_PROMPT, user_prompt).await?;
-    parse_auto_refine_review(&assistant_text(&reply))
+    let prompt = [
+        AUTO_REFINE_REVIEW_SYSTEM_PROMPT.to_string(),
+        "The conversation above is the trajectory under review. Answer only this review, with the JSON object; call no tools.".to_string(),
+        format!(
+            "<trigger>\n{}; {} assistant turns since last auto-refine review\n</trigger>",
+            context.reason, context.turns_since_last_review
+        ),
+        format!(
+            "<current_harness_state>\n{}\n</current_harness_state>",
+            overview_for_prompt(state, HarnessMemory::Harness)
+        ),
+        format!(
+            "<refinement_history>\n{}\n</refinement_history>",
+            history_for_prompt(history)
+        ),
+        "Return shouldRefine=true when the trajectory contains evidence useful to this session's future turns. Prefer local harness edits for current task progress, temporary blockers, and current-run coordination. Ask for global refinement only for durable cross-session lessons or explicitly project-qualified lessons likely to be reused in future sessions.".to_string(),
+    ]
+    .join("\n\n");
+    parse_auto_refine_review(&review_call(prompt).await?)
 }
 
 #[cfg(test)]
@@ -441,29 +441,29 @@ mod tests {
         })
     }
 
-    /// The two refiner calls carry their own system prompts (TS sends the
-    /// review-gate prompt for the auto-refine review, the `/refine`
-    /// subsystem prompt for the plan).
+    fn review_seam(text: &str) -> ReviewFn {
+        let text = text.to_string();
+        Box::new(move |_prompt| Box::pin(async move { Ok(text) }))
+    }
+
+    /// The review prompt opens with the review gate's instructions (TS
+    /// sends them as the review's system prompt; here the review continues
+    /// the conversation, so they lead its last user message); the plan
+    /// carries the `/refine` subsystem prompt as its system prompt.
     #[tokio::test]
     async fn review_and_plan_carry_their_own_system_prompts() {
         let model = test_model();
-        // The review seam records its system prompt in a shared cell.
-        let review_systems: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>> =
+        // The review seam records its prompt in a shared cell.
+        let review_prompts: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let review_recorder = std::sync::Arc::clone(&review_systems);
-        let review_call: RefinerFn = Box::new(move |_model, system, _prompt| {
-            review_recorder.lock().unwrap().push(system);
-            Box::pin(async move {
-                Ok(text_message(
-                    r#"{"shouldRefine": false, "rationale": "no"}"#,
-                ))
-            })
+        let review_recorder = std::sync::Arc::clone(&review_prompts);
+        let review_call: ReviewFn = Box::new(move |prompt| {
+            review_recorder.lock().unwrap().push(prompt);
+            Box::pin(async move { Ok(r#"{"shouldRefine": false, "rationale": "no"}"#.to_string()) })
         });
         let review = review_auto_refine(
-            &[],
             &super::super::empty_harness_state(),
             &[],
-            &model,
             &AutoRefineReviewContext {
                 reason: "compact".to_string(),
                 turns_since_last_review: 0,
@@ -473,10 +473,12 @@ mod tests {
         .await
         .unwrap();
         assert!(!review.should_refine);
-        assert_eq!(
-            *review_systems.lock().unwrap(),
-            vec![AUTO_REFINE_REVIEW_SYSTEM_PROMPT]
-        );
+        let prompts = review_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].starts_with(AUTO_REFINE_REVIEW_SYSTEM_PROMPT));
+        assert!(prompts[0].contains(
+            "<trigger>\ncompact; 0 assistant turns since last auto-refine review\n</trigger>"
+        ));
         // The plan seam likewise.
         let plan_systems: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -618,15 +620,13 @@ mod tests {
     async fn auto_refine_review_parses_verdict() {
         let state = super::super::empty_harness_state();
         let review = review_auto_refine(
-            &[],
             &state,
             &[],
-            &test_model(),
             &AutoRefineReviewContext {
                 reason: "checkpoint".to_string(),
                 turns_since_last_review: 4,
             },
-            seam(r#"{"shouldRefine":true,"rationale":"pattern seen","instructions":"note the tactic"}"#),
+            review_seam(r#"{"shouldRefine":true,"rationale":"pattern seen","instructions":"note the tactic"}"#),
         )
         .await
         .unwrap();
@@ -634,15 +634,13 @@ mod tests {
         assert_eq!(review.rationale, "pattern seen");
         assert_eq!(review.instructions.as_deref(), Some("note the tactic"));
         let rejected = review_auto_refine(
-            &[],
             &state,
             &[],
-            &test_model(),
             &AutoRefineReviewContext {
                 reason: "checkpoint".to_string(),
                 turns_since_last_review: 1,
             },
-            seam(r#"{"shouldRefine":false}"#),
+            review_seam(r#"{"shouldRefine":false}"#),
         )
         .await
         .unwrap();

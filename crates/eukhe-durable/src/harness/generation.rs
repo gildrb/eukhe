@@ -69,7 +69,7 @@ use crate::harness::live::run::{
 };
 use crate::harness::live::{end_run, LiveDeferred, LiveGeneration, LiveRetry, LIVE_DOC};
 use crate::harness::prompt::{
-    plan_system_entries, render_sections, replay_sections, system_cache_breakpoint, SystemDraft,
+    next_system_entries, replay_sections, system_cache_breakpoint, SystemDraft,
 };
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
@@ -294,7 +294,7 @@ fn phase_mismatch(expected: &str) -> SessionError {
 }
 
 /// pi-ai `reasoning` of a pinned thinking level; `off` sends none.
-fn reasoning(level: ModelThinkingLevel) -> Option<ThinkingLevel> {
+pub(crate) fn reasoning(level: ModelThinkingLevel) -> Option<ThinkingLevel> {
     match level {
         ModelThinkingLevel::Off => None,
         ModelThinkingLevel::Minimal => Some(ThinkingLevel::Minimal),
@@ -392,12 +392,11 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         conversation_id,
         agent: Arc::clone(&agent),
         env,
-        shown: shown.clone(),
+        shown,
         read: Arc::new(runtime.clone()),
     };
-    let desired = render_sections(&agent.sections, &input, &shown, &report, &cx).await?;
-    let tools: Vec<_> = agent.tools.iter().map(|tool| tool.tool()).collect();
-    let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
+    let entries =
+        next_system_entries(&input, &view, &report, timestamp(runtime.now()?)?, &cx).await?;
     let at = Counts {
         attempt,
         notes: note.as_ref().map_or(0, |note| note.spent),

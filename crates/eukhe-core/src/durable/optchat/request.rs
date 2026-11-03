@@ -37,33 +37,90 @@ pub(super) async fn transform(
     api: HookApi,
     cx: Context,
 ) -> HookResult<RequestMessages> {
+    let messages = shape(
+        &chat,
+        api.conversation_id(),
+        request.messages,
+        Caller::Turn,
+        &cx,
+    )
+    .await?;
+    Ok(Some(RequestMessages {
+        messages,
+        force_tool: request.force_tool,
+    }))
+}
+
+/// The run key a side request pins a root's view under while no run is
+/// live: the next run takes the view over, as a run takes over the view of
+/// the run before it.
+const IDLE_KEY: &str = "idle";
+
+/// Which request the messages are shaped for.
+#[derive(Clone, Copy)]
+enum Caller {
+    /// A generation's request: a root conversation's only while its run
+    /// is live.
+    Turn,
+    /// A side request that continues the conversation's next turn
+    /// ([`OptChat::side_request`]).
+    Side,
+}
+
+impl OptChat {
+    /// The messages of a side request that continues the next turn of
+    /// `conversation` (`messages`: its committed context): the shape that
+    /// turn's request gets. An idle root conversation pins its view under
+    /// its current head as a run would; the next run takes it over, so the
+    /// side request and the turn lead with the same view.
+    ///
+    /// # Errors
+    ///
+    /// Session reads and commits; the chat memory's render.
+    pub(crate) async fn side_request(
+        &self,
+        conversation: ConversationId,
+        messages: Vec<Message>,
+        cx: &Context,
+    ) -> SessionResult<Vec<Message>> {
+        shape(self, conversation, messages, Caller::Side, cx).await
+    }
+}
+
+/// The request messages of `conversation` for `caller`: `messages` as they
+/// are, or led by the pinned view.
+async fn shape(
+    chat: &OptChat,
+    conversation: ConversationId,
+    messages: Vec<Message>,
+    caller: Caller,
+    cx: &Context,
+) -> SessionResult<Vec<Message>> {
     let harness = chat.harness.require()?;
-    let conversation = api.conversation_id();
     let root = match chat.role {
         MemoryRole::Root => {
-            if !is_root_conversation(&harness, conversation, &cx).await? {
-                return Ok(None);
+            if !is_root_conversation(&harness, conversation, cx).await? {
+                return Ok(messages);
             }
-            let Some(run) = live_run(&harness, conversation, &cx).await? else {
-                return Ok(None);
-            };
-            Some(run)
+            let run = live_run(&harness, conversation, cx).await?;
+            match (run, caller) {
+                (Some(run), Caller::Turn | Caller::Side) => Some(run_key(&run)),
+                (None, Caller::Side) => Some(IDLE_KEY.to_owned()),
+                (None, Caller::Turn) => return Ok(messages),
+            }
         }
         MemoryRole::Subagent => None,
     };
-    let Some(handle) = harness.conversation(conversation, &cx).await? else {
-        return Ok(None);
+    let Some(handle) = harness.conversation(conversation, cx).await? else {
+        return Ok(messages);
     };
     let view = handle
-        .context(
-            &cx,
-            eukhe_durable::harness::types::ContextOptions::default(),
-        )
+        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await?;
-    let Some(run) = root else {
-        let call = match call_state(&harness, conversation, &cx).await? {
+    let Some(key) = root else {
+        let call = match call_state(&harness, conversation, cx).await? {
             Some(call) => call,
-            None => pin(&chat, &harness, conversation, Pinned::Subagent, &cx).await?,
+            None => pin(chat, &harness, conversation, Pinned::Subagent, cx).await?,
         };
         let mut state_rows: Vec<Message> = Vec::new();
         for (entry, contributed) in view.entries.iter().zip(&view.contributions) {
@@ -71,17 +128,12 @@ pub(super) async fn transform(
                 state_rows.extend(contributed.iter().cloned());
             }
         }
-        let messages = request_messages(&call, request.messages, 0, |message| {
+        return Ok(request_messages(&call, messages, 0, |message| {
             state_rows.contains(message)
-        });
-        return Ok(Some(RequestMessages {
-            messages,
-            force_tool: request.force_tool,
         }));
     };
-    let key = run_key(&run);
     let head = view.head.as_ref().map(|head| head.id);
-    let call = match call_state(&harness, conversation, &cx).await? {
+    let call = match call_state(&harness, conversation, cx).await? {
         // The transcript has the head the view was rendered under: nothing
         // more scrolled out of it, so the view stays byte-identical and
         // the request only grows at its end. A new run takes it over.
@@ -93,7 +145,7 @@ pub(super) async fn transform(
                     run_key: Some(key),
                     ..call
                 };
-                commit_call(&harness, conversation, &call, &cx).await?;
+                commit_call(&harness, conversation, &call, cx).await?;
                 chat.wake();
                 call
             }
@@ -103,23 +155,19 @@ pub(super) async fn transform(
             // renders; the view keeps only what the transcript no longer
             // holds verbatim.
             chat.flush().await?;
-            let logged = logged_through(&harness, conversation, &cx).await?;
+            let logged = logged_through(&harness, conversation, cx).await?;
             let verbatim = verbatim_lines(&view.entries, logged)?;
             let pinned = Pinned::Root {
                 run_key: key,
                 head,
                 verbatim,
             };
-            let call = pin(&chat, &harness, conversation, pinned, &cx).await?;
+            let call = pin(chat, &harness, conversation, pinned, cx).await?;
             chat.wake();
             call
         }
     };
-    let messages = root_request(&call, request.messages);
-    Ok(Some(RequestMessages {
-        messages,
-        force_tool: request.force_tool,
-    }))
+    Ok(root_request(&call, messages))
 }
 
 /// The chat log lines the transcript still holds verbatim: those of its

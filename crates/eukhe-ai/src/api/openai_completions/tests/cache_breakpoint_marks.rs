@@ -1,11 +1,13 @@
 //! eukhe addition: explicit prompt-cache breakpoints
 //! (`TextContent::cache_breakpoint`) on Anthropic-format `cache_control`
-//! models. Marked user text blocks carry `cache_control`, the optional system
-//! and tool marks share the four-mark budget, and over-marked transcripts fail
-//! before a request is sent.
+//! models. Marked user and assistant text blocks carry `cache_control`, the
+//! optional system and tool marks share the four-mark budget, and
+//! over-marked transcripts fail before a request is sent.
 
 use serde_json::json;
 
+use super::super::compat::get_compat;
+use super::super::convert::{convert_messages, ConvertCompletionsMessagesOptions};
 use super::support::{collect, context, options_with_fetch, sse_fetch, stop_chunks, test_model};
 use crate::api::openai_completions::stream_with_options;
 use crate::api::system_one_shared::test_fetch::recorded;
@@ -38,6 +40,30 @@ fn marked_context(blocks: &JsonValue) -> TranscriptContext {
     }))
 }
 
+/// A user turn, a same-model assistant answer with `content`, then the user
+/// turn that continues it.
+fn assistant_context(content: &JsonValue) -> TranscriptContext {
+    context(json!({
+        "messages": [
+            { "role": "user", "content": "question", "timestamp": 1 },
+            {
+                "role": "assistant",
+                "content": content,
+                "api": "openai-completions",
+                "provider": "openrouter",
+                "model": "anthropic/claude-sonnet-4",
+                "usage": {
+                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                },
+                "stopReason": "stop",
+                "timestamp": 2,
+            },
+            { "role": "user", "content": "review", "timestamp": 3 },
+        ],
+    }))
+}
+
 fn marked(text: &str) -> JsonValue {
     json!({ "type": "text", "text": text, "cacheBreakpoint": "ephemeral" })
 }
@@ -46,11 +72,11 @@ fn plain(text: &str) -> JsonValue {
     json!({ "type": "text", "text": text })
 }
 
-async fn payload_for(blocks: &JsonValue) -> JsonValue {
+async fn payload_for(context: &TranscriptContext) -> JsonValue {
     let (fetch, requests) = sse_fetch(stop_chunks());
     let (_, message) = collect(stream_with_options(
         &openrouter_anthropic(),
-        &marked_context(blocks),
+        context,
         options_with_fetch(fetch),
     ))
     .await;
@@ -69,7 +95,7 @@ fn message_with_role<'a>(payload: &'a JsonValue, role: &str) -> &'a JsonValue {
 
 #[tokio::test]
 async fn marked_user_text_blocks_carry_cache_control() {
-    let payload = payload_for(&json!([marked("first"), plain("second")])).await;
+    let payload = payload_for(&marked_context(&json!([marked("first"), plain("second")]))).await;
 
     assert_eq!(
         message_with_role(&payload, "user"),
@@ -97,7 +123,13 @@ async fn marked_user_text_blocks_carry_cache_control() {
 
 #[tokio::test]
 async fn three_marked_blocks_drop_the_optional_system_and_tool_marks() {
-    let payload = payload_for(&json!([marked("a"), marked("b"), marked("c"), plain("d")])).await;
+    let payload = payload_for(&marked_context(&json!([
+        marked("a"),
+        marked("b"),
+        marked("c"),
+        plain("d")
+    ])))
+    .await;
 
     assert_eq!(
         message_with_role(&payload, "user"),
@@ -118,6 +150,78 @@ async fn three_marked_blocks_drop_the_optional_system_and_tool_marks() {
     assert!(
         payload["tools"][0].get("cache_control").is_none(),
         "{payload}"
+    );
+}
+
+#[tokio::test]
+async fn a_marked_assistant_text_block_sends_the_answer_as_marked_text_parts() {
+    let payload = payload_for(&assistant_context(&json!([
+        plain("draft"),
+        marked("answer")
+    ])))
+    .await;
+
+    assert_eq!(
+        message_with_role(&payload, "assistant"),
+        &json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "draft" },
+                { "type": "text", "text": "answer", "cache_control": { "type": "ephemeral" } },
+            ],
+        })
+    );
+}
+
+#[tokio::test]
+async fn an_unmarked_assistant_answer_stays_one_string() {
+    let payload = payload_for(&assistant_context(&json!([
+        plain("draft"),
+        plain("answer")
+    ])))
+    .await;
+
+    assert_eq!(
+        message_with_role(&payload, "assistant"),
+        &json!({ "role": "assistant", "content": "draftanswer" })
+    );
+}
+
+#[test]
+fn a_marked_assistant_text_part_carries_cache_control_after_thinking_as_text() {
+    let model = test_model(json!({
+        "id": "anthropic/claude-sonnet-4",
+        "name": "Anthropic: Claude Sonnet 4",
+        "provider": "openrouter",
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "compat": { "cacheControlFormat": "anthropic", "requiresThinkingAsText": true },
+    }));
+    let cache_control = json!({ "type": "ephemeral" });
+    let messages = convert_messages(
+        &model,
+        &assistant_context(&json!([
+            { "type": "thinking", "thinking": "plan" },
+            plain("draft"),
+            marked("answer"),
+        ])),
+        &get_compat(&model),
+        &ConvertCompletionsMessagesOptions {
+            cache_control: Some(&cache_control),
+            ..ConvertCompletionsMessagesOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("convert_messages failed: {error:?}"));
+
+    assert_eq!(
+        messages[1],
+        json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "plan" },
+                { "type": "text", "text": "draft" },
+                { "type": "text", "text": "answer", "cache_control": { "type": "ephemeral" } },
+            ],
+        })
     );
 }
 

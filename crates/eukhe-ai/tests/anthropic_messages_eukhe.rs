@@ -82,6 +82,51 @@ async fn full_mark_budget_drops_the_optional_marks() {
     assert!(body["tools"][0].get("cache_control").is_none());
 }
 
+#[tokio::test]
+async fn a_marked_assistant_text_block_carries_cache_control() {
+    let (fetch, captured) = ok_fetch();
+    let context = anthropic_support::context(&json!({
+        "messages": [
+            { "role": "user", "content": "question", "timestamp": 1 },
+            {
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "draft" }, marked("answer")],
+                "api": "anthropic-messages",
+                "provider": "anthropic",
+                "model": "claude-test",
+                "usage": {
+                    "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                },
+                "stopReason": "stop",
+                "timestamp": 2,
+            },
+            { "role": "user", "content": "review", "timestamp": 3 }
+        ]
+    }));
+    let (_, result) = collect(stream_anthropic(
+        &model(&json!({})),
+        &context,
+        options(fetch),
+    ))
+    .await;
+    assert_eq!(result.stop_reason, StopReason::Stop);
+    let body = requests(&captured).pop().expect("request").body;
+    assert_eq!(
+        body["messages"],
+        json!([
+            { "role": "user", "content": "question" },
+            { "role": "assistant", "content": [
+                { "type": "text", "text": "draft" },
+                { "type": "text", "text": "answer", "cache_control": { "type": "ephemeral" } }
+            ] },
+            { "role": "user", "content": [
+                { "type": "text", "text": "review", "cache_control": { "type": "ephemeral" } }
+            ] }
+        ])
+    );
+}
+
 /// A transcript whose leading system message has a shared `core` section
 /// and a per-session `cwd` section, then `messages`.
 fn sectioned(messages: Value) -> eukhe_types::pi_ai::TranscriptContext {

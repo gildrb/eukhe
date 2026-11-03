@@ -505,6 +505,10 @@ pub struct HostDeps {
     /// The `eukhe.rlm` kernel pool, set when the extension installs (the
     /// daemon's out-of-band kernel lanes, [`super::rlm::kernel_bash_activity`]).
     pub(crate) rlm_kernels: OnceLock<Weak<super::rlm::KernelPool>>,
+    /// The session's chat memory, set when the `eukhe.optchat` extension
+    /// installs with a memory: a side request shapes its messages as the
+    /// chat memory's `before_request` hook shapes a turn's.
+    pub(crate) optchat: OnceLock<Weak<super::optchat::OptChat>>,
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
@@ -569,6 +573,7 @@ impl HostDeps {
             services: Mutex::new(Vec::new()),
             provider_runtime: std::sync::OnceLock::new(),
             rlm_kernels: OnceLock::new(),
+            optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
             jobs: super::jobs::JobTable::default(),

@@ -7,9 +7,9 @@
 //!
 //! eukhe additions on top of v1.0.4:
 //! - explicit prompt-cache breakpoints (`TextContent::cache_breakpoint`):
-//!   marked user text blocks carry `cache_control`, the optional marks share
-//!   the four-mark budget, and over-marked transcripts fail before sending
-//!   (see [`crate::api::cache_breakpoints`]);
+//!   marked user and assistant text blocks carry `cache_control`, the
+//!   optional marks share the four-mark budget, and over-marked transcripts
+//!   fail before sending (see [`crate::api::cache_breakpoints`]);
 //! - provider stream-failure diagnostics: failed streams carry a
 //!   `provider_stream_failure` diagnostic
 //!   ([`crate::utils::stream_failure::record_stream_failure`]).

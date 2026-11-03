@@ -17,7 +17,7 @@ use serde_json::json;
 
 use super::client_config::get_configured_bedrock_region;
 use super::{BedrockOptions, BedrockThinkingDisplay, BedrockToolChoice};
-use crate::api::cache_breakpoints::has_cache_breakpoint;
+use crate::api::cache_breakpoints::{has_assistant_cache_breakpoint, has_cache_breakpoint};
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, ConstrainedSamplingError, StrictPlan, StrictSupport,
     StrictToolParameters,
@@ -330,13 +330,22 @@ fn convert_tool_result_content(
 }
 
 /// The assistant blocks of one message (TS `convertMessages`, `assistant`).
-fn convert_assistant_content(content: &[AssistantContentBlock], model: &Model) -> Vec<JsonValue> {
+/// eukhe addition: when `breakpoints` is on, a cache point follows each
+/// marked text block that is sent.
+fn convert_assistant_content(
+    content: &[AssistantContentBlock],
+    model: &Model,
+    breakpoints: bool,
+) -> Vec<JsonValue> {
     let mut blocks = Vec::new();
     for block in content {
         match block {
             AssistantContentBlock::Text(text) => {
                 if let Some(text_block) = create_non_blank_text_block(&text.text) {
                     blocks.push(text_block);
+                    if breakpoints && has_assistant_cache_breakpoint(block) {
+                        blocks.push(breakpoint_cache_point());
+                    }
                 }
             }
             AssistantContentBlock::ToolCall(call) => {
@@ -450,7 +459,7 @@ pub(crate) fn convert_messages(
             Message::Assistant(assistant) => {
                 // Bedrock rejects messages with empty content arrays.
                 if !assistant.content.is_empty() {
-                    let content = convert_assistant_content(&assistant.content, model);
+                    let content = convert_assistant_content(&assistant.content, model, caching);
                     if !content.is_empty() {
                         result.push(json!({ "role": "assistant", "content": content }));
                     }
@@ -696,6 +705,38 @@ mod tests {
                     json!({ "text": "[image omitted: error result]" })
                 ],
                 2,
+            )
+        );
+    }
+
+    /// eukhe addition: with breakpoints on, a marked assistant text block is
+    /// followed by a cache point; without them the blocks go unmarked.
+    #[test]
+    fn a_marked_assistant_text_block_is_followed_by_a_cache_point() {
+        let model = crate::providers::all::get_builtin_model(
+            "amazon-bedrock",
+            "global.anthropic.claude-opus-4-6-v1",
+        )
+        .expect("catalog model");
+        let content = vec![
+            AssistantContentBlock::Text(eukhe_types::pi_ai::TextContent::new("draft")),
+            AssistantContentBlock::Text(eukhe_types::pi_ai::TextContent {
+                cache_breakpoint: Some(eukhe_types::pi_ai::CacheBreakpoint::Ephemeral),
+                ..eukhe_types::pi_ai::TextContent::new("answer")
+            }),
+        ];
+        assert_eq!(
+            (
+                convert_assistant_content(&content, &model, true),
+                convert_assistant_content(&content, &model, false),
+            ),
+            (
+                vec![
+                    json!({ "text": "draft" }),
+                    json!({ "text": "answer" }),
+                    json!({ "cachePoint": { "type": "default" } }),
+                ],
+                vec![json!({ "text": "draft" }), json!({ "text": "answer" })],
             )
         );
     }

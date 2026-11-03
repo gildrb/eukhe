@@ -62,6 +62,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         Arc::clone(&deps.settings),
         deps.harness.clone(),
     );
+    // Weakly: the extension's hooks own the chat memory.
+    let _first_extension_wins = deps.optchat.set(Arc::downgrade(&chat));
     if chat.role == MemoryRole::Root {
         let logged = Arc::clone(&chat);
         deps.add_service(Box::new(move |opened| {

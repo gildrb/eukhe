@@ -417,9 +417,10 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
             notice_surviving_kernel(deps, &conversation, &cx).await;
             // The compact-trigger review arms (TS
             // `_scheduleAutoRefineAfterCompaction`); the spawned task
-            // consumes it once the conversation is idle. A host that closes
-            // the session once its runs settle (print mode) reaches that
-            // idle right before its exit, which would abandon the review's
+            // consumes it once the conversation is idle, and again at its
+            // next idle when a run started first. A host that closes the
+            // session once its runs settle (print mode) reaches that idle
+            // right before its exit, which would abandon the review's
             // request after its prompt was paid for: it arms none.
             if deps.host == SessionHost::Resident {
                 runtime.autorefine.arm();
@@ -427,11 +428,16 @@ async fn handle(runtime: &Arc<CompactionRuntime>, event: Settled) -> anyhow::Res
                 let idle_conversation = conversation.clone();
                 let idle_cx = cx.clone();
                 tokio::spawn(async move {
-                    if idle_conversation.wait_for_idle(&idle_cx).await.is_ok() {
-                        if let Err(error) =
-                            super::autorefine::consume(&arming, &idle_conversation, &idle_cx).await
+                    while idle_conversation.wait_for_idle(&idle_cx).await.is_ok() {
+                        match super::autorefine::consume(&arming, &idle_conversation, &idle_cx)
+                            .await
                         {
-                            tracing::warn!(target: "eukhe.compaction", "compact auto-refine failed: {error:#}");
+                            Ok(super::autorefine::Consumed::Busy) => {}
+                            Ok(super::autorefine::Consumed::Settled) => break,
+                            Err(error) => {
+                                tracing::warn!(target: "eukhe.compaction", "compact auto-refine failed: {error:#}");
+                                break;
+                            }
                         }
                     }
                 });

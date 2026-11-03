@@ -927,7 +927,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
 /// The Anthropic Messages body an OAuth client sends for a request the
 /// faux provider captured: the payload hook keeps it and fails the request
 /// before anything goes out.
-async fn anthropic_body(
+pub(crate) async fn anthropic_body(
     context: &eukhe_types::pi_ai::TranscriptContext,
     options: &eukhe_ai::types::SimpleStreamOptions,
 ) -> serde_json::Value {

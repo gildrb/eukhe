@@ -773,6 +773,92 @@ async fn a_root_request_grows_only_at_its_end_until_a_compaction() {
     session.close(&setup).await;
 }
 
+/// A side request that continues an idle root after a compaction (the
+/// auto-refine review) pins the view under the new head as a run would;
+/// the next run takes that view over instead of rendering another, so the
+/// side request's messages are the run's request up to its input, even
+/// when the chat grew in between.
+#[tokio::test]
+async fn a_side_request_pins_the_view_the_next_run_sends() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    setup.settings.update(|settings| {
+        settings.compaction = Some(PartialCompactionPolicy {
+            keep_recent_tokens: Some(1.0),
+            ..PartialCompactionPolicy::default()
+        });
+    });
+    let script = Arc::new(Mutex::new(std::collections::VecDeque::from([
+        answer("done"),
+        answer("ok"),
+    ])));
+    let requests = Requests::default();
+    setup.faux.set_responses(
+        (0..4)
+            .map(|_| {
+                let (script, requests) = (Arc::clone(&script), Arc::clone(&requests.0));
+                FauxResponseStep::factory(move |request, _, _, _| {
+                    let messages = request.messages();
+                    let summarizer = matches!(
+                        messages.first(),
+                        Some(Message::System(SystemMessage { content: SystemContent::Text(text), .. }))
+                            if text.starts_with("You are a context summarization assistant")
+                    );
+                    if summarizer {
+                        return Ok(answer("SUMMARY"));
+                    }
+                    lock(&requests).push(messages.to_vec());
+                    Ok(lock(&script).pop_front().expect("a scripted answer"))
+                })
+            })
+            .collect(),
+    );
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    session.run(&setup.chat, "hello").await;
+    let compaction = session.root.compact(None, cx()).await.unwrap();
+    session
+        .harness
+        .wait_for_task(compaction, cx())
+        .await
+        .unwrap();
+    session.root.wait_for_idle(cx()).await.unwrap();
+    setup.chat.flush().await.unwrap();
+
+    let continuation = session
+        .root
+        .continuation(cx())
+        .await
+        .unwrap()
+        .expect("the root has a model");
+    let side = setup
+        .chat
+        .side_request(session.root.id(), continuation.messages, cx())
+        .await
+        .unwrap();
+    // A rendered view would hold this line; the pinned one does not.
+    setup
+        .memory
+        .append(Kind::User, "logged later")
+        .await
+        .unwrap();
+    session.run(&setup.chat, "more").await;
+
+    let all = requests.all();
+    let next = all.last().expect("the run's request");
+    assert_eq!(
+        (next[..side.len()].to_vec(), next.len()),
+        (side.clone(), side.len() + 1)
+    );
+    // The view the side request pinned: the history before the kept
+    // answer, without the line logged after it.
+    assert_eq!(
+        describe(&side[1]),
+        "user:<chat>\n0+1|user: hello\n</chat>[cache]|The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>"
+    );
+    session.close(&setup).await;
+}
+
 #[tokio::test]
 async fn a_crash_between_append_and_cursor_logs_no_line_twice() {
     let setup = Setup::new(MemoryRole::Root).await;

@@ -473,3 +473,175 @@ async fn input_and_reads_proceed_while_the_summary_is_in_flight() {
     assert!(text.contains("gated summary"), "summary: {text}");
     session.close(cx()).await.unwrap();
 }
+
+/// One request the faux provider answered: its context and options.
+type Captured = (
+    eukhe_types::pi_ai::TranscriptContext,
+    eukhe_ai::types::SimpleStreamOptions,
+);
+
+/// A faux step that records its request, notifies `seen`, and answers
+/// `reply`.
+fn recorded(
+    requests: &Arc<Mutex<Vec<Captured>>>,
+    seen: &Arc<Notify>,
+    reply: AssistantMessage,
+) -> FauxResponseStep {
+    let (requests, seen) = (Arc::clone(requests), Arc::clone(seen));
+    FauxResponseStep::factory(move |context, options, _, _| {
+        requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((context.clone(), options.cloned().unwrap_or_default()));
+        seen.notify_one();
+        Ok(reply.clone())
+    })
+}
+
+/// `body` without its cache marks: the provider's prompt cache keys on
+/// the content, the marks only say where entries are written. A message's
+/// string content is its one text block (the end mark turns the last
+/// message's string into that block).
+fn unmarked(mut body: serde_json::Value) -> serde_json::Value {
+    fn strip(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(object) => {
+                object.remove("cache_control");
+                if let Some(serde_json::Value::String(text)) = object.get("content") {
+                    let block = serde_json::json!([{ "type": "text", "text": text }]);
+                    object.insert("content".to_owned(), block);
+                }
+                object.values_mut().for_each(strip);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(strip),
+            serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {}
+        }
+    }
+    strip(&mut body);
+    body
+}
+
+/// The Anthropic body of `request` without marks, and its messages up to
+/// the request's own end: without the trailing message that sets the
+/// request's thinking effort (it ends every request).
+async fn wire(request: &Captured) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let mut body =
+        unmarked(crate::durable::open::tests::anthropic_body(&request.0, &request.1).await);
+    let mut messages = body["messages"].as_array().expect("messages").clone();
+    let effort = messages.pop().expect("the effort message");
+    assert_eq!(effort["role"], "system");
+    body.as_object_mut().expect("body").remove("messages");
+    (body, messages)
+}
+
+/// The compact-trigger review continues the session's request: after an
+/// overflow compaction it sends the retried turn's request (system prompt,
+/// tools, thinking, messages) byte for byte, then the answer, marked as
+/// the end of the shared prefix, then the review prompt. The next turn's
+/// request starts with that same prefix, so it reads what the review
+/// wrote. (The review was a request of its own: the review prompt as the
+/// system prompt, the transcript as one user message, no tools.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_review_continues_the_sessions_request() {
+    let fixture = Fixture::new();
+    // The keep window leaves the seed turn before the cut.
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        r#"{"compaction":{"enabled":true,"reserveTokens":1,"keepRecentTokens":10}}"#,
+    )
+    .expect("settings file");
+    let requests: Arc<Mutex<Vec<Captured>>> = Arc::default();
+    let arrived = Arc::new(Notify::new());
+    let overflow = faux_assistant_message(
+        vec![faux_text("")],
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Error),
+            error_message: Some("prompt is too long: 213462 tokens > 200000 maximum".to_owned()),
+            ..FauxAssistantMessageOptions::default()
+        },
+    );
+    fixture.faux.set_responses(
+        [
+            stop_message("seed reply"),
+            overflow,
+            stop_message("the summary"),
+            stop_message("recovered reply"),
+            stop_message(r#"{"shouldRefine": false, "rationale": "one-off"}"#),
+            stop_message("next reply"),
+        ]
+        .into_iter()
+        .map(|reply| recorded(&requests, &arrived, reply))
+        .collect(),
+    );
+    let session = fixture.open().await;
+    let seed = format!("seed turn {}", "x".repeat(48_000));
+    let probe = format!("overflow probe {}", "x".repeat(48_000));
+    fixture.submit(&session, &seed).await;
+    session.root().wait_for_idle(cx()).await.unwrap();
+    fixture.submit(&session, &probe).await;
+    session.root().wait_for_idle(cx()).await.unwrap();
+    // The review starts once the conversation is idle.
+    let count = || {
+        requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    };
+    while count() < 5 {
+        arrived.notified().await;
+    }
+    fixture.submit(&session, "next prompt").await;
+    session.root().wait_for_idle(cx()).await.unwrap();
+    session.close(cx()).await.unwrap();
+
+    let requests = requests
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let [_, _, _, retried, review, next] = &requests[..] else {
+        panic!("six requests: {}", requests.len());
+    };
+    // The review's last message is the review prompt, after the answer.
+    let review_messages = review.0.messages();
+    let Some(Message::User(prompt)) = review_messages.last() else {
+        panic!("the review prompt ends the review");
+    };
+    assert!(matches!(&prompt.content, UserContent::Text(text)
+        if text.starts_with(crate::refinement::planner::AUTO_REFINE_REVIEW_SYSTEM_PROMPT)));
+    let Some(Message::Assistant(answer)) = review_messages.iter().rev().nth(1) else {
+        panic!("the answer precedes the review prompt");
+    };
+    assert_eq!(
+        answer
+            .content
+            .iter()
+            .map(|block| match block {
+                eukhe_types::pi_ai::AssistantContentBlock::Text(text) => {
+                    (text.text.as_str(), text.cache_breakpoint)
+                }
+                eukhe_types::pi_ai::AssistantContentBlock::Thinking(_)
+                | eukhe_types::pi_ai::AssistantContentBlock::ToolCall(_) => ("", None),
+            })
+            .collect::<Vec<_>>(),
+        vec![(
+            "recovered reply",
+            Some(eukhe_types::pi_ai::CacheBreakpoint::Ephemeral)
+        )]
+    );
+
+    let (retried_body, retried_messages) = wire(retried).await;
+    let (review_body, review_wire) = wire(review).await;
+    let (next_body, next_wire) = wire(next).await;
+    // Everything but the messages (system prompt, tools, thinking, ...) is
+    // the session's, and the review's messages start with the retried
+    // turn's; the next turn's start with the review's through the answer.
+    assert_eq!(review_body, retried_body);
+    assert_eq!(next_body, review_body);
+    assert_eq!(review_wire[..retried_messages.len()], retried_messages[..]);
+    let shared = review_wire.len() - 1;
+    assert_eq!(next_wire.len(), shared + 1);
+    assert_eq!(next_wire[..shared], review_wire[..shared]);
+}

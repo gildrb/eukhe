@@ -197,6 +197,24 @@ pub fn plan_system_entries(
         .collect()
 }
 
+/// The `pi.system` entries a generation's preparation appends ahead of its
+/// request: the agent's sections rendered for `input` and its tool loadout,
+/// planned against `view`.
+///
+/// # Errors
+/// A section's error once `cx` is aborted; a report `report` refuses.
+pub(crate) async fn next_system_entries(
+    input: &PromptInput,
+    view: &ContextView,
+    report: &(dyn Fn(SessionError) -> SessionResult<()> + Send + Sync),
+    timestamp: u64,
+    cx: &Context,
+) -> SessionResult<Vec<SystemDraft>> {
+    let desired = render_sections(&input.agent.sections, input, &input.shown, report, cx).await?;
+    let tools: Vec<Tool> = input.agent.tools.iter().map(|tool| tool.tool()).collect();
+    Ok(plan_system_entries(view, &desired, &tools, timestamp))
+}
+
 /// Tool changes from `offered` to `desired`. A changed declaration is
 /// removed and re-added. Replay keeps retained tools in place and appends
 /// additions; when that would not yield the desired order, every offered

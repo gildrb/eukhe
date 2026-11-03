@@ -17,7 +17,6 @@ pub const AUTO_REFINE_REVIEW_SYSTEM_PROMPT: &str = "You are Eukhe's automatic /r
 
 /// Output caps (reasoning off shares the model's output budget with JSON).
 pub const REFINEMENT_MAX_OUTPUT_TOKENS: u64 = 32_000;
-pub const AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS: u64 = 4_096;
 
 pub const TRUNCATED_JSON_ERROR: &str = "the model stopped before completing its JSON object. This usually means the output budget was exhausted; retry with a smaller request.";
 

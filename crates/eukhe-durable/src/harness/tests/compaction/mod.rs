@@ -3,6 +3,7 @@
 //! model that answers agent and summarization requests from separate queues.
 
 mod automatic;
+mod continuation;
 mod edge_cases;
 mod inbox;
 mod interactions;
