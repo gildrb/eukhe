@@ -477,6 +477,7 @@ impl SupervisorChildSessionsInner {
 }
 
 mod durable_host;
+mod first_prompt;
 mod lifecycle;
 
 #[cfg(test)]

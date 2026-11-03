@@ -9,6 +9,10 @@
 //! by a `create` naming that id), a prompt rides the child's submission
 //! dedupe (`admissionId` = the key), and cancel/delete of a child that is
 //! already gone are no-ops.
+//!
+//! The first prompts of siblings that share a prompt-cache prefix (same
+//! model, same cwd) are staggered behind the first one's first response
+//! ([`super::first_prompt`]), so the others read the prefix it wrote.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
@@ -22,6 +26,7 @@ use eukhe_types::daemon::{DaemonCommand, PromptInput, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
 
+use super::first_prompt::{Cohort, FirstPromptGate, LeaderRead, Turn};
 use super::{
     assert_thinking_supported, json, now_ms, resolve_child_model_from_settings, Arc, Context,
     Duration, Map, Path, Result, SupervisorChildSessions, SupervisorChildSessionsInner, Value,
@@ -101,6 +106,11 @@ pub(super) struct DurableCalls {
     /// Durable ids of children whose run this process saw in flight: a
     /// resumed watch that later finds such a child idle saw it settle.
     seen_running: HashSet<String>,
+    /// The cohort of each child this process created and has not prompted
+    /// yet (its first prompt takes a turn in [`Self::first_prompts`]).
+    cohorts: HashMap<String, Cohort>,
+    /// The first-prompt gate of this host's children.
+    first_prompts: FirstPromptGate,
 }
 
 impl SupervisorChildSessionsInner {
@@ -219,7 +229,7 @@ impl SupervisorChildSessionsInner {
 
     /// The child's cumulative usage from its `get_session_stats` (`tokens`
     /// and `cost`); `None` when the child reports none.
-    async fn child_usage(&self, session_id: &str) -> Option<Usage> {
+    async fn child_usage(&self, session_id: &str) -> Result<Option<Usage>> {
         let stats = self
             .durable_command(session_id, STATE_TIMEOUT_MS, |selector| {
                 DaemonCommand::GetSessionStats {
@@ -228,9 +238,8 @@ impl SupervisorChildSessionsInner {
                     rest: Map::default(),
                 }
             })
-            .await
-            .ok()?;
-        stats_usage(&stats)
+            .await?;
+        Ok(stats_usage(&stats))
     }
 
     /// The spawn kickoff (TS `spawnMessage`): the task text labeled
@@ -373,6 +382,13 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         Some(&session_id),
                     )
                     .await?;
+                this.durable_calls().cohorts.insert(
+                    session_id.clone(),
+                    Cohort {
+                        model: model.clone(),
+                        cwd,
+                    },
+                );
                 durable::RlmChildSession {
                     active_session_id: created.active_session_id,
                     session_id: session_id.clone(),
@@ -426,8 +442,24 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // child's, live through it) refuses the connect before any
             // command is sent: the prompt waits for the supervisor to
             // accept again, within its budget, instead of failing the
-            // child as undelivered.
+            // child as undelivered. A follower's wait for its cohort's
+            // leader (`first_prompt`) spends the same budget.
             let deadline = tokio::time::Instant::now() + Duration::from_millis(PROMPT_TIMEOUT_MS);
+            let turn = {
+                let mut calls = this.durable_calls();
+                match calls.cohorts.remove(&request.session_id) {
+                    Some(cohort) => calls.first_prompts.turn(cohort),
+                    None => Turn::Open,
+                }
+            };
+            let leader = match turn {
+                Turn::Lead(leader) => Some(leader),
+                Turn::Follow(follower) => {
+                    follower.wait(deadline).await;
+                    None
+                }
+                Turn::Open => None,
+            };
             let mut pause = SUPERVISOR_RETRY_BASE;
             loop {
                 match this
@@ -451,6 +483,27 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
             }
             this.durable_calls().done.insert(key);
+            // The leader's first response lands in the background: its
+            // stats show usage, or it settles without one, or it cannot be
+            // read; any of these releases its followers.
+            if let Some(leader) = leader {
+                let session_id = request.session_id;
+                tokio::spawn(leader.watch(move || {
+                    let (this, session_id) = (Arc::clone(&this), session_id.clone());
+                    async move {
+                        match this.child_usage(&session_id).await {
+                            Ok(None) => {
+                                match this.child_busy(&this.durable_selector(&session_id)).await {
+                                    Ok(true) => LeaderRead::Running,
+                                    Ok(false) => LeaderRead::Idle,
+                                    Err(_) => LeaderRead::Done,
+                                }
+                            }
+                            Ok(Some(_)) | Err(_) => LeaderRead::Done,
+                        }
+                    }
+                }));
+            }
             Ok(())
         })
     }
@@ -466,7 +519,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             let observe = move |state, progress, answer| async move {
                 durable::RlmChildObservation {
                     state,
-                    usage: this.child_usage(&request.session_id).await,
+                    usage: this.child_usage(&request.session_id).await.ok().flatten(),
                     progress,
                     answer,
                 }
