@@ -6,8 +6,8 @@ import Base
 import ../../bend/admission.bend as Ad
 import ../../bend/ffi_admission.bend as FAd
 import ../../bend/wire.bend as Wr
-import ../../laws/admission.bend as Admission
+import ../../laws/admission/entry.bend as AdmissionEntry
 import ./base/entry.bend as LE
 
-def Admission.adw_open_exact(s):
+def AdmissionEntry.adw_open_exact(s):
   LE.pae.open(s)

@@ -4,8 +4,8 @@ import Base
 import ../../bend/admission.bend as Ad
 import ../../bend/ffi_admission.bend as FAd
 import ../../bend/wire.bend as Wr
-import ../../laws/admission.bend as Admission
+import ../../laws/admission/entry.bend as AdmissionEntry
 import ./base/entry.bend as LE
 
-def Admission.adw_spec_example():
+def AdmissionEntry.adw_spec_example():
   ({==}, {==}, {==})
