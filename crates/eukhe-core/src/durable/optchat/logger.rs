@@ -36,7 +36,7 @@ use super::lines::entry_lines;
 use super::request::{call_state, live_run, run_key, run_start};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::{AppendKey, RETRY};
+use crate::memory::{AppendKey, CLOSE_TIMEOUT, RETRY};
 
 const SCAN_PAGE_SIZE: usize = 256;
 
@@ -260,8 +260,13 @@ impl Logger {
         self.close().await;
     }
 
-    /// Log what there is to log, persist, and stop.
+    /// Let the compactor calls already running finish (none starts from
+    /// here: stopped, the next process would send them again), log what
+    /// there is to log, persist, and stop.
     async fn close(&mut self) {
+        if let Err(error) = self.chat.memory.finish_calls(CLOSE_TIMEOUT).await {
+            tracing::warn!(target: "chat_memory", "cannot finish the chat's summaries at close: {error:#}");
+        }
         if let Err(error) = self.pass(PassMode::Closing).await {
             tracing::warn!(target: "chat_memory", "cannot log to the chat at close: {error}");
         }

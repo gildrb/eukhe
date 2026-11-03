@@ -168,6 +168,12 @@ enum Request {
     Status,
     Persist,
     Parts,
+    /// The session closes: start no compactor call from now on (until a
+    /// turn waits for the view again) and answer once the running calls
+    /// have ended, or once `within_ms` passes.
+    Close {
+        within_ms: u64,
+    },
     /// Stream every update on this connection, as `Update` replies under
     /// the request's id, until it closes.
     Subscribe,
@@ -208,6 +214,8 @@ enum Reply {
         level: eukhe_types::daemon::MemoryTreeLevel,
     },
     Persisting,
+    /// The running compactor calls ended, or the close's wait passed.
+    Closed,
     Parts {
         parts: Vec<(u32, u64)>,
     },
@@ -494,6 +502,26 @@ impl Memory {
         }
     }
 
+    /// The session closes: the owner in this process starts no compactor
+    /// call from now on and lets the running ones finish, up to `within`,
+    /// so their lines are kept rather than asked again by the next process.
+    /// Without an owner here, nothing to do: the owning process goes on.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the owner has stopped.
+    pub async fn finish_calls(&self, within: Duration) -> anyhow::Result<()> {
+        let owner = match &*self.inner.link.lock().await {
+            Some(Link::Owner(owner)) => Arc::clone(owner),
+            Some(Link::Client(_)) | None => return Ok(()),
+        };
+        let within_ms = u64::try_from(within.as_millis()).unwrap_or(u64::MAX);
+        match owner.request(Request::Close { within_ms }).await? {
+            Reply::Closed => Ok(()),
+            other => Err(unexpected(&other)),
+        }
+    }
+
     /// The compactor's progress from now on, from whichever process owns
     /// the chat (display only: never log an update or send it to a model).
     ///
@@ -560,6 +588,7 @@ impl Memory {
                             | Request::Tree { .. }
                             | Request::Status
                             | Request::Persist
+                            | Request::Close { .. }
                             | Request::Parts => {}
                         }
                     }
@@ -692,7 +721,7 @@ impl Request {
     /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import.
     fn reply_deadline(&self) -> Duration {
         match self {
-            Request::SettledRender { within_ms, .. } => {
+            Request::SettledRender { within_ms, .. } | Request::Close { within_ms } => {
                 Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
             Request::Import { items } => {

@@ -68,6 +68,20 @@ pub(super) struct Actor {
     persisting: bool,
     persist_again: bool,
     persist_reported: bool,
+    /// Whether compactor calls may start.
+    calls: Calls,
+    /// The closes waiting for the running calls to end, with their
+    /// deadline.
+    closers: Vec<(Instant, oneshot::Sender<Outcome>)>,
+}
+
+/// Whether compactor calls may start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Calls {
+    Start,
+    /// The session closes: no call starts until a turn waits for the view
+    /// again; the running ones finish.
+    Closing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,21 +180,30 @@ impl Actor {
             persisting: false,
             persist_again: false,
             persist_reported: false,
+            calls: Calls::Start,
+            closers: Vec::new(),
         };
         actor.pump();
         actor.built_lines.clear();
         Ok(actor)
     }
 
-    /// Handle commands in order; between them, answer the turns whose
-    /// deadline passed. The deadlines run on this thread's clock.
+    /// Handle commands in order; between them, answer the turns and the
+    /// closes whose deadline passed. The deadlines run on this thread's
+    /// clock.
     pub(super) fn run(mut self, receiver: &mpsc::Receiver<Command>) {
         loop {
-            let next = match self.view_waiters.keys().next() {
+            let turn = self
+                .view_waiters
+                .keys()
+                .next()
+                .map(|(deadline, _)| *deadline);
+            let close = self.closers.iter().map(|(deadline, _)| *deadline).min();
+            let next = match turn.into_iter().chain(close).min() {
                 None => receiver
                     .recv()
                     .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
-                Some((deadline, _)) => {
+                Some(deadline) => {
                     receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 }
             };
@@ -188,6 +211,7 @@ impl Actor {
                 Ok(command) => command,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     self.expire_waiters();
+                    self.answer_closers();
                     self.publish_built();
                     continue;
                 }
@@ -229,6 +253,7 @@ impl Actor {
                 Command::Persisted(result) => self.persisted(result),
                 Command::Shutdown => return,
             }
+            self.answer_closers();
             self.publish_built();
         }
     }
@@ -240,6 +265,10 @@ impl Actor {
                 verbatim,
             } => {
                 self.add_view_waiter(reply, Duration::from_millis(within_ms), verbatim);
+                return;
+            }
+            Request::Close { within_ms } => {
+                self.close(reply, Duration::from_millis(within_ms));
                 return;
             }
             Request::Append {
@@ -498,7 +527,12 @@ impl Actor {
                 Demand::Background
             };
             let mut built = false;
-            for part in self.chat.candidates(demand, self.due) {
+            // A closing session starts nothing: its process is about to go.
+            let parts = match self.calls {
+                Calls::Closing => Vec::new(),
+                Calls::Start => self.chat.candidates(demand, self.due),
+            };
+            for part in parts {
                 match self.prepare(part) {
                     Ok(Prepared::Free(text)) => match self.save_node(part, &text) {
                         Ok(()) => built = true,
@@ -718,6 +752,8 @@ impl Actor {
         verbatim: u64,
     ) {
         let end = self.chat.total().saturating_sub(verbatim);
+        // A turn waits: the chat is in use again.
+        self.calls = Calls::Start;
         self.due = self.due.max(end);
         if self.chat.settled(end) {
             // The requester may have stopped waiting.
@@ -766,6 +802,35 @@ impl Actor {
         self.view_waiters
             .retain(|_, waiter| !waiter.reply.is_closed());
         !self.view_waiters.is_empty()
+    }
+
+    /// The session closes (`within` from now at most): no call starts from
+    /// now on, and the close is answered once the running calls end.
+    fn close(&mut self, reply: oneshot::Sender<Outcome>, within: Duration) {
+        self.calls = Calls::Closing;
+        let now = Instant::now();
+        let deadline = now
+            .checked_add(within)
+            .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)));
+        self.closers.push((deadline, reply));
+        self.answer_closers();
+    }
+
+    /// Answer every close once no call runs, and each one whose deadline
+    /// passed.
+    fn answer_closers(&mut self) {
+        if self.closers.is_empty() {
+            return;
+        }
+        let (idle, now) = (self.builds.is_empty(), Instant::now());
+        for (deadline, reply) in std::mem::take(&mut self.closers) {
+            if idle || deadline <= now {
+                // The closing session may have stopped waiting.
+                let _ = reply.send(Outcome::Ok(Reply::Closed));
+            } else {
+                self.closers.push((deadline, reply));
+            }
+        }
     }
 
     /// Answer the waiting turns whose lines are all summaries: the check

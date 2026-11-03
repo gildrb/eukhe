@@ -92,6 +92,10 @@ pub const RETRY: Duration = Duration::from_secs(10);
 /// (`memory.settleTimeoutMs`): then it takes the view as it is, each line
 /// not built yet shown as its input cut to [`NODE`] bytes (H2.3).
 pub const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a closing session waits for the compactor calls already
+/// running: their lines are kept, where stopping them would leave the
+/// next process to send the same calls again. No call starts meanwhile.
+pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Largest logged tool result, in characters; head and tail are kept. Any
 /// other text longer than this is logged as several messages in a row.
 pub const CAP: usize = 30_000;

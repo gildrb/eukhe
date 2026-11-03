@@ -50,6 +50,10 @@ fn every_request() -> Vec<Request> {
         Request::Status,
         Request::Persist,
         Request::Parts,
+        Request::Close { within_ms: 0 },
+        Request::Close {
+            within_ms: u64::MAX,
+        },
         Request::Subscribe,
     ]
 }
@@ -64,7 +68,7 @@ fn every_request_to_a_remote_owner_has_a_reply_deadline() {
     for request in every_request() {
         let deadline = request.reply_deadline();
         let least = match &request {
-            Request::SettledRender { within_ms, .. } => {
+            Request::SettledRender { within_ms, .. } | Request::Close { within_ms } => {
                 Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE)
             }
             Request::Import { items } => {

@@ -96,6 +96,50 @@ async fn a_waiting_compaction_goes_once_the_writers_response_starts() {
     assert_eq!((alone, first_open), (true, true));
 }
 
+/// A closing session lets the running calls finish (stopped, the next
+/// process would send them again) and starts none: the merge their lines
+/// make ready waits. A turn that waits again opens the chat back up.
+/// The lines together pass [`NODE`]: their merge is a model call.
+#[tokio::test]
+async fn a_closing_session_finishes_the_running_calls_and_starts_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut asked) = mpsc::unbounded_channel();
+    let memory = Memory::open(dir.path(), Arc::new(Staged { calls }))
+        .await
+        .unwrap();
+    let item = |text: String| ImportItem {
+        kind: Kind::Echo,
+        text,
+        date: "2026-10-12".to_string(),
+    };
+    memory
+        .import(vec![item("x".repeat(NODE)), item("y".repeat(NODE))])
+        .await
+        .unwrap();
+    let turn = wait_for_the_view(&memory);
+    let (mut started, first) = within(asked.recv()).await.unwrap();
+    turn.abort();
+    let closing = memory.clone();
+    let close = tokio::spawn(async move { closing.finish_calls(Duration::from_secs(30)).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let waited = !close.is_finished();
+    // The call held back for the first one's prefix was admitted before
+    // the close: it runs, and the close waits for it too.
+    started.signal();
+    let (_, second) = within(asked.recv()).await.unwrap();
+    let line = |c: &str| c.repeat(NODE / 2 + 1);
+    first.send(line("x")).unwrap();
+    second.send(line("y")).unwrap();
+    within(close).await.unwrap().unwrap();
+    let status = memory.status().await.unwrap();
+    let merge_started = asked.try_recv().is_ok();
+    assert_eq!((waited, status.running, merge_started), (true, 0, false));
+    memory.settled_history(SETTLE_TIMEOUT, 0).await.unwrap();
+    memory.append(Kind::Echo, "z").await.unwrap();
+    let (_, merge) = within(asked.recv()).await.unwrap();
+    merge.send(line("m")).unwrap();
+}
+
 /// A turn that waits for the whole view: its lines become due, so the
 /// compactor builds them (nothing is built before a request asks).
 fn wait_for_the_view(memory: &Memory) -> tokio::task::JoinHandle<anyhow::Result<RenderedView>> {
