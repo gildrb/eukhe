@@ -1,0 +1,20 @@
+
+# cargo-vet audits file
+
+[[audits.zstd]]
+who = "eukhe maintainers (agent-assisted diff review)"
+criteria = "safe-to-deploy"
+delta = "0.13.3 -> 0.13.4"
+notes = "Reviewed the full release diff (v0.13.3...v0.13.4): the four security fixes of RUSTSEC-2026-0391/-0398/-0403/-0410 (session reset in raw::{Encoder,Decoder}::with_context; seekable offset clamp; buffer positions of failed streaming calls not committed; wasm allocator shim NULL handling), CI updates, doc fixes, license consolidation, and release tests. No build-script changes. eukhe reaches the streaming paths through eukhe-ai's Bedrock eventstream framing."
+
+[[audits.zstd-safe]]
+who = "eukhe maintainers (agent-assisted diff review)"
+criteria = "safe-to-deploy"
+delta = "7.3.0 -> 7.4.0"
+notes = "Reviewed the full release diff (zstd-safe-7.3.0...zstd-safe-7.4.0): RUSTSEC-2026-0398 (Seekable::decompress clamped to the data end; WriteBuf asserts the C-reported count fits the capacity) and RUSTSEC-2026-0403 (a failed streaming call forgets the positions the legacy decoders report), the wasm shim fix, license consolidation, and tests. The legacy-frame uninitialized-memory path is the one eukhe's eventstream decode exercises."
+
+[[audits.zstd-sys]]
+who = "eukhe maintainers (agent-assisted diff review)"
+criteria = "safe-to-deploy"
+delta = "2.1.0+zstd.1.5.7 -> 2.1.2+zstd.1.5.7"
+notes = "Reviewed the full release diff (zstd-sys-2.1.0...zstd-sys-2.1.2): RUSTSEC-2026-0410 (wasm_shim_alloc returns NULL on failure or overflow, free(NULL) a no-op), regenerated bindgen bindings, allocator test scaffolding, examples, and Readme/build changes. wasm32 is not an eukhe target; the same zstd 1.5.7 C sources are vendored."

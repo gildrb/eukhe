@@ -1,8 +1,6 @@
 //! Node's POSIX `path` functions, `os.homedir()`, `os.tmpdir()`, and
 //! `url.fileURLToPath()`, as `env/node.ts` uses them.
 
-use percent_encoding::percent_decode_str;
-
 /// The segments of `path` after removing `.`, empty segments, and resolving
 /// `..`; with `allow_above_root`, leading `..` segments are kept. Node's
 /// `normalizeString`.
@@ -156,10 +154,40 @@ pub(crate) fn file_url_to_path(input: &str) -> Option<String> {
             return None;
         }
     }
-    percent_decode_str(pathname)
-        .decode_utf8()
-        .ok()
-        .map(std::borrow::Cow::into_owned)
+    percent_decode_utf8(pathname)
+}
+
+/// The bytes of `input` with `%XX` escapes decoded, or `None` when the
+/// result is not UTF-8. An invalid escape keeps its literal bytes.
+fn percent_decode_utf8(input: &str) -> Option<String> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                out.push(high << 4 | low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(out).ok()
+}
+
+/// The value of a hexadecimal digit, `None` for anything else.
+fn hex_value(byte: u8) -> Option<u8> {
+    let digit = byte.wrapping_sub(b'0');
+    if digit < 10 {
+        return Some(digit);
+    }
+    // Fold the case: `A`-`F` and `a`-`f` differ only in bit 5.
+    let value = (byte | 0x20).wrapping_sub(b'a');
+    (value < 6).then_some(value + 10)
 }
 
 /// `resolvePath` of `env/node.ts`: `~`, `~/…`, and `file://` URLs, then
@@ -211,5 +239,16 @@ mod tests {
         );
         assert_eq!(file_url_to_path("file://host/tmp/x"), None);
         assert_eq!(file_url_to_path("file:///tmp/a%2Fb"), None);
+        assert_eq!(
+            file_url_to_path("file:///tmp/%C3%A9.txt").as_deref(),
+            Some("/tmp/é.txt")
+        );
+        // An invalid escape keeps its literal bytes.
+        assert_eq!(
+            file_url_to_path("file:///tmp/100%.txt").as_deref(),
+            Some("/tmp/100%.txt")
+        );
+        // Percent bytes that are not UTF-8 make the decode fail.
+        assert_eq!(file_url_to_path("file:///tmp/%ff.txt"), None);
     }
 }

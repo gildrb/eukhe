@@ -9,7 +9,8 @@ use std::{
 
 use parking_lot::Mutex;
 use regex::Regex;
-use twox_hash::XxHash32;
+
+use crate::xxhash::xxh32;
 
 /// Retained path count before LRU eviction.
 pub const DEFAULT_MAX_PATHS: usize = 256;
@@ -84,10 +85,7 @@ pub fn file_hash(text: &str) -> String {
         normalized.push_str(line.trim_end_matches([' ', '\t', '\r']));
         normalized.push_str(newline);
     }
-    format!(
-        "{:04X}",
-        XxHash32::oneshot(0, normalized.as_bytes()) & 0xffff
-    )
+    format!("{:04X}", xxh32(0, normalized.as_bytes()) & 0xffff)
 }
 
 /// Compute a process-local 64-bit key for raw patch input.
@@ -143,7 +141,7 @@ impl PathHistory {
 /// The digest of raw bytes (xxh64, 16 hex digits): what names a version
 /// the session saw.
 pub(crate) fn digest(bytes: &[u8]) -> String {
-    format!("{:016x}", twox_hash::XxHash64::oneshot(0, bytes))
+    format!("{:016x}", crate::xxhash::xxh64(0, bytes))
 }
 
 struct StoreState {

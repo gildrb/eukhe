@@ -24,14 +24,13 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use eukhe_types::path_policy::{real_path, resolve};
-use twox_hash::XxHash64;
-
 use crate::error::EditError;
 use crate::gate::{Access, AccessGate};
 use crate::hashline::{EditWriter, Published, WriteOp, WriteRequest as EditWriteRequest};
 use crate::store::EditStore;
 use crate::text::{self, encoding_name, LineEnding, Projection, BOM};
+use crate::xxhash::xxh64;
+use eukhe_types::path_policy::{real_path, resolve};
 
 /// An exclusive lock on one canonical path; released on drop.
 #[derive(Debug)]
@@ -42,7 +41,7 @@ pub(crate) struct PathLock {
 /// Block until this process holds the lock of `canonical`.
 pub(crate) fn lock(lock_dir: &Path, canonical: &Path) -> std::io::Result<PathLock> {
     std::fs::create_dir_all(lock_dir)?;
-    let key = XxHash64::oneshot(0, canonical.as_os_str().as_encoded_bytes());
+    let key = xxh64(0, canonical.as_os_str().as_encoded_bytes());
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -59,7 +58,7 @@ fn name_digest(target: &Path) -> String {
     let name = target
         .file_name()
         .map_or(&[][..], |name| name.as_encoded_bytes());
-    format!("{:016x}", XxHash64::oneshot(0, name))
+    format!("{:016x}", xxh64(0, name))
 }
 
 /// The name prefix of the temporary files of `target` (the core's

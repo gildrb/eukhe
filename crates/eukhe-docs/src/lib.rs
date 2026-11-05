@@ -44,6 +44,7 @@ mod testing;
 pub mod text;
 mod url;
 mod write;
+mod xxhash;
 
 pub use documents::Documents;
 pub use error::{EditError, EditResult};

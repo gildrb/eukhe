@@ -16,8 +16,7 @@ thiserror = { workspace = true }
 # and no link-time dependency; the worker loads the system
 # libonnxruntime (nixpkgs `onnxruntime`) at run time. `api-24`: the
 # oldest runtime it accepts is 1.24 (nixpkgs ships 1.24.x).
-ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
-ndarray = { version = "0.17", default-features = false, features = ["std"] }
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "load-dynamic", "api-24"] }
 # The text models' tokenizer.json (own byte-level BPE in tokenizer.rs):
 # the pre-tokenizer regexes need look-ahead (`\s+(?!\S)`), and added
 # tokens match leftmost-longest. Both crates are already in the graph.
