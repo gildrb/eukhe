@@ -36,6 +36,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 ## Change hygiene
 
 - One logical change per commit or PR.
+- Dependency freeze: never bump a dependency without a commit we need (an advisory fix, a bug we hit, a feature we import); `make vet` (cargo-vet, `supply-chain/`) fails on any version whose diff was not audited, so a bump starts with `cargo vet` and an audit of the diff. Prefer patching a vendored fork (`vendor/crossterm`) over upgrading. An in-house replacement is only for single-use leaves; never for crypto, parsers, the JS VM, or the regex engines.
 - Dependency changes regenerate `Cargo.lock` in the same change. A new dependency needs a reason; `make deny` stays clean.
 - A change that forces edits across many crate internals: fix the boundary instead.
 

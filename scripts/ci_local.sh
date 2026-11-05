@@ -307,6 +307,7 @@ workspace_tests() {
 side_lane() {
   gate secrets secrets_range
   gate deny make --no-print-directory deny
+  gate vet make --no-print-directory vet
   gate laws laws
   gate runtime-test make --no-print-directory runtime-test
   gate dashboard-ui dashboard_ui

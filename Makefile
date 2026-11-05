@@ -73,6 +73,13 @@ deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
 	cargo deny --all-features --workspace check advisories bans licenses sources
 
+# The supply-chain freeze (AGENTS.md): every locked version is vetted
+# (supply-chain/audits.toml, or an exemption in config.toml); a bump fails
+# here until `cargo vet` records an audit of the version's diff.
+vet:
+	@command -v cargo-vet >/dev/null 2>&1 || { echo "cargo-vet not installed (cargo install cargo-vet --locked)"; exit 1; }
+	cargo vet check --locked
+
 # Lints the one workflow file (.github/workflows/eukhe-release.yml).
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
@@ -228,4 +235,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check dashboard-tokens deny vet actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui
