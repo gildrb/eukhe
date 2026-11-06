@@ -398,20 +398,47 @@ struct Delivery {
     ended: bool,
 }
 
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "one-to-one port of the TS watch's private flags"
-)]
+/// The watch's delivery lifecycle: one-way, from no listener to a terminal
+/// result. `Scheduled`/`Running` track the single drain task; `Terminated`
+/// carries the terminal result (the old `end`).
+#[derive(Debug, Clone)]
+enum WatchPhase {
+    /// No listener installed yet.
+    NotStarted,
+    /// Listener installed, no drain task in flight.
+    Idle,
+    /// A drain task is spawned but has not started running.
+    Scheduled,
+    /// A drain task is running.
+    Running,
+    /// The watch terminated with this result.
+    Terminated(WatchEnd),
+}
+
+impl WatchPhase {
+    /// Whether a listener is installed (the old `started`).
+    #[must_use]
+    fn started(&self) -> bool {
+        !matches!(self, Self::NotStarted)
+    }
+
+    /// The terminal result, if any (the old `end`).
+    #[must_use]
+    fn end(&self) -> Option<&WatchEnd> {
+        match self {
+            Self::Terminated(end) => Some(end),
+            _ => None,
+        }
+    }
+}
+
 struct WatchState<T> {
     value: T,
     pending: VecDeque<WatchFrame<T>>,
     listener: Option<WatchListener<T>>,
-    started: bool,
-    scheduled: bool,
-    running: bool,
+    phase: WatchPhase,
     detach: Option<Box<dyn FnOnce() + Send>>,
     retired: bool,
-    end: Option<WatchEnd>,
     /// `seq` of the newest queued frame.
     queued: u64,
     resolved: bool,
@@ -449,8 +476,7 @@ impl<T: ObservedValue> fmt::Debug for CommittedWatch<T> {
         let state = self.lock();
         formatter
             .debug_struct("CommittedWatch")
-            .field("started", &state.started)
-            .field("end", &state.end)
+            .field("phase", &state.phase)
             .finish_non_exhaustive()
     }
 }
@@ -473,12 +499,9 @@ impl<T: ObservedValue> CommittedWatch<T> {
                     value,
                     pending: VecDeque::new(),
                     listener: None,
-                    started: false,
-                    scheduled: false,
-                    running: false,
+                    phase: WatchPhase::NotStarted,
                     detach: Some(detach),
                     retired: false,
-                    end: None,
                     queued: 0,
                     resolved: false,
                     cancellation_installed: false,
@@ -532,13 +555,16 @@ impl<T: ObservedValue> CommittedWatch<T> {
     /// `Watch is already started`, or `Watch is stopped` after termination.
     pub fn start(&self, listener: WatchListener<T>) -> SessionResult<()> {
         let mut state = self.lock();
-        if state.started {
-            return Err(SessionError::error("Watch is already started"));
+        match state.phase {
+            WatchPhase::NotStarted => {}
+            WatchPhase::Idle | WatchPhase::Scheduled | WatchPhase::Running => {
+                return Err(SessionError::error("Watch is already started"));
+            }
+            WatchPhase::Terminated(_) => {
+                return Err(SessionError::error("Watch is stopped"));
+            }
         }
-        if state.end.is_some() {
-            return Err(SessionError::error("Watch is stopped"));
-        }
-        state.started = true;
+        state.phase = WatchPhase::Idle;
         state.listener = Some(listener);
         if !state.pending.is_empty() {
             self.schedule(&mut state);
@@ -580,7 +606,7 @@ impl<T: ObservedValue> CommittedWatch<T> {
                 "Watch cancellation is already installed",
             ));
         }
-        if state.end.is_some() {
+        if state.phase.end().is_some() {
             return Ok(());
         }
         state.cancellation_installed = true;
@@ -613,7 +639,7 @@ impl<T: ObservedValue> CommittedWatch<T> {
     /// root replacement.
     pub(crate) fn advance(&self, value: T, ops: Ops, context: Context) {
         let mut state = self.lock();
-        if state.end.is_some() || state.retired {
+        if state.phase.end().is_some() || state.retired {
             return;
         }
         if value.is_retirement() {
@@ -643,19 +669,18 @@ impl<T: ObservedValue> CommittedWatch<T> {
                 seq,
             });
         }
-        if state.started {
+        if state.phase.started() {
             self.schedule(&mut state);
         }
     }
 
     fn schedule(&self, state: &mut WatchState<T>) {
-        if state.scheduled || state.running || state.end.is_some() {
+        if !matches!(state.phase, WatchPhase::Idle) {
             return;
         }
-        state.scheduled = true;
+        state.phase = WatchPhase::Scheduled;
         let watch = self.clone();
         tokio::spawn(async move {
-            watch.lock().scheduled = false;
             watch.drain().await;
         });
     }
@@ -663,17 +688,17 @@ impl<T: ObservedValue> CommittedWatch<T> {
     async fn drain(&self) {
         {
             let mut state = self.lock();
-            if state.running || state.end.is_some() || !state.started {
+            if !matches!(state.phase, WatchPhase::Scheduled) {
                 drop(state);
                 self.finish_if_ready();
                 return;
             }
-            state.running = true;
+            state.phase = WatchPhase::Running;
         }
         loop {
             let (frame, listener) = {
                 let mut state = self.lock();
-                if state.end.is_some() {
+                if state.phase.end().is_some() {
                     break;
                 }
                 let Some(frame) = state.pending.pop_front() else {
@@ -689,7 +714,7 @@ impl<T: ObservedValue> CommittedWatch<T> {
             let retirement = frame.value.is_retirement();
             let seq = frame.seq;
             if let Err(error) = listener(frame.value, frame.ops, delivery_context).await {
-                if self.lock().end.is_none() {
+                if self.lock().phase.end().is_none() {
                     (self.inner.report)(SessionError::Other(Arc::clone(&error)));
                     self.terminate(WatchEnd::ListenerError(error));
                 }
@@ -705,8 +730,10 @@ impl<T: ObservedValue> CommittedWatch<T> {
         }
         {
             let mut state = self.lock();
-            state.running = false;
-            if state.end.is_none() && !state.pending.is_empty() {
+            if matches!(state.phase, WatchPhase::Running) {
+                state.phase = WatchPhase::Idle;
+            }
+            if state.phase.end().is_none() && !state.pending.is_empty() {
                 self.schedule(&mut state);
             }
         }
@@ -716,10 +743,10 @@ impl<T: ObservedValue> CommittedWatch<T> {
     fn terminate(&self, end: WatchEnd) {
         let detach = {
             let mut state = self.lock();
-            if state.end.is_some() {
+            if state.phase.end().is_some() {
                 return;
             }
-            state.end = Some(end);
+            state.phase = WatchPhase::Terminated(end);
             state.pending.clear();
             state.detach.take()
         };
@@ -738,7 +765,7 @@ impl<T: ObservedValue> CommittedWatch<T> {
             if state.resolved {
                 return;
             }
-            let Some(end) = state.end.clone() else {
+            let Some(end) = state.phase.end().cloned() else {
                 return;
             };
             state.resolved = true;
