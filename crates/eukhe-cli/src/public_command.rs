@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use crate::args::{parse_args, INTERNAL_RUNTIME_COMMAND_MARKER};
 
 use crate::command_registry::{
-    format_command_help, format_top_level_help, get_child_command_specs, get_command_spec,
-    is_help_command_request, public_command_names, REMOVED_COMMAND_NAMES,
+    find_command_suggestion, format_command_help, format_top_level_help, get_child_command_specs,
+    get_command_spec, public_command_names, REMOVED_COMMAND_NAMES,
 };
 use crate::config::APP_NAME;
 use crate::global_flags::{extract_help_command_path, rotate_global_flags_before_command};
@@ -47,6 +47,32 @@ fn continue_with(args: Vec<String>) -> PublicCommandResult {
     }
 }
 
+/// A usage error (unknown command or option, missing or invalid input,
+/// conflicting flags): the CLI contract exits `2` for these, `1` for
+/// operational failures. Carriers embed it in an `anyhow` chain; the
+/// router downcasts it to pick the exit code.
+#[derive(Debug, Clone)]
+pub(crate) struct UsageError(pub String);
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UsageError {}
+
+/// Wrap a message as a usage error inside an `anyhow` chain.
+pub(crate) fn usage_error(message: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::new(UsageError(message.to_string()))
+}
+
+/// The exit code for an `anyhow` failure: `2` when its root is a
+/// [`UsageError`], `1` for every operational failure.
+pub(crate) fn exit_code_for(error: &anyhow::Error) -> i32 {
+    i32::from(error.downcast_ref::<UsageError>().is_some()) + 1
+}
+
 /// The error message used when a routed command needs a runtime subsystem that
 /// is not linked into this build yet.
 fn fail(message: impl AsRef<str>, hint: Option<String>) -> PublicCommandResult {
@@ -63,8 +89,48 @@ fn fail(message: impl AsRef<str>, hint: Option<String>) -> PublicCommandResult {
     }
 }
 
+/// A usage failure (unknown command or option, missing or invalid
+/// arguments, a declined or impossible confirmation): exit `2`.
+fn fail_usage(message: impl AsRef<str>, hint: Option<String>) -> PublicCommandResult {
+    let mut result = fail(message, hint);
+    result.exit_code = Some(2);
+    result
+}
+
+/// Whether the invocation asked for the machine format (`--json` before
+/// the `--` handoff): a router-side usage failure then reports through the
+/// one-line JSON error document instead of the human `Error:` line.
+fn wants_json(args: &[String]) -> bool {
+    args.iter()
+        .take_while(|arg| arg.as_str() != "--")
+        .any(|arg| arg == "--json")
+}
+
+/// A router-side usage failure for an invocation that may have asked for
+/// JSON: same exit class, machine format when selected.
+fn fail_usage_json(args: &[String], message: String, hint: Option<String>) -> PublicCommandResult {
+    if wants_json(args) {
+        crate::json_out::print_json_error("error", "invalid_arguments", &message);
+        return handled_with_exit(2);
+    }
+    fail_usage(message, hint)
+}
+
 fn handled() -> PublicCommandResult {
     HANDLED()
+}
+
+/// Override the exit code of an already-printed failure (the class decides:
+/// a `UsageError` root exits 2, an operational failure 1).
+trait WithCode {
+    fn with_code(self, code: i32) -> PublicCommandResult;
+}
+
+impl WithCode for PublicCommandResult {
+    fn with_code(mut self, code: i32) -> PublicCommandResult {
+        self.exit_code = Some(code);
+        self
+    }
 }
 
 /// A handled invocation whose driver already printed everything, with its own
@@ -79,15 +145,15 @@ fn handled_with_exit(exit_code: i32) -> PublicCommandResult {
     }
 }
 
-/// A handled invocation whose `fail()` branch already printed an error: the
-/// exit code is 1, matching `process.exitCode = 1` in the TS `fail` helper.
+/// A handled invocation whose `fail()` branch already printed a usage
+/// error (argument shape, unknown subcommand): the exit code is 2.
 fn handled_failed() -> PublicCommandResult {
     PublicCommandResult {
         handled: true,
         args: vec![],
         explicit_agents_view: false,
         attach_agent: None,
-        exit_code: Some(1),
+        exit_code: Some(2),
     }
 }
 
@@ -100,12 +166,14 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
     let args = rotate_global_flags_before_command(args, &public, &removed);
 
     if args.first().map(String::as_str) == Some("help") {
+        // A bare `help` shows the top-level help; a path resolves to that
+        // command's help, or fails as a usage error naming the unknown
+        // segment.
         if let Some(help_path) = extract_help_command_path(&args, 1) {
-            let help_path_ref: Vec<&str> = help_path.iter().map(String::as_str).collect();
-            if is_help_command_request(&help_path_ref) {
-                return print_requested_help(&help_path);
-            }
+            return print_requested_help(&help_path);
         }
+        println!("{}", format_top_level_help());
+        return handled();
     }
 
     let Some(command) = args.first() else {
@@ -181,7 +249,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "transcribe" => handled_with_exit(crate::tiny_command::run_transcribe_command(&rest)),
         "config" => {
             if !rest.is_empty() {
-                return fail(format!("Usage: {APP_NAME} config"), None);
+                return fail_usage(format!("Usage: {APP_NAME} config"), None);
             }
             continue_with(args.clone())
         }
@@ -218,7 +286,7 @@ fn print_requested_help(path: &[String]) -> PublicCommandResult {
         // The exact TS message includes no hint when there is no suggestion.
         message = format!("Unknown command: {}", path.join(" "));
     }
-    fail(message, hint)
+    fail_usage(message, hint)
 }
 
 fn get_command_path(args: &[String]) -> Vec<String> {
@@ -246,7 +314,7 @@ fn reject_removed_command(args: &[String]) -> PublicCommandResult {
         _ => None,
     };
     let joined: Vec<&str> = args.iter().take(2).map(String::as_str).collect();
-    fail(
+    fail_usage(
         format!("Unknown command: {}", joined.join(" ")),
         replacement,
     )
@@ -258,7 +326,22 @@ fn reject_removed_command(args: &[String]) -> PublicCommandResult {
 fn run_internal_agent_command(command: &str, args: &[String]) -> PublicCommandResult {
     match crate::daemon_command::run_daemon_command(command, args) {
         Ok(()) => handled(),
-        Err(error) => fail(error.to_string(), None),
+        // A `--json` run printed its error document already: keep the
+        // class's exit code, print nothing more.
+        Err(error)
+            if error
+                .downcast_ref::<crate::daemon_command::JsonErrorPrinted>()
+                .is_some() =>
+        {
+            handled_with_exit(
+                error
+                    .downcast_ref::<crate::daemon_command::JsonErrorPrinted>()
+                    .map_or(1, |printed| printed.0),
+            )
+        }
+        // A shaped argument error (a `UsageError` in the chain) exits 2;
+        // every daemon-side failure stays operational (1).
+        Err(error) => fail(error.to_string(), None).with_code(exit_code_for(&error)),
     }
 }
 
@@ -273,14 +356,14 @@ fn run_nested_agent_command(
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     let Some(subcommand) = subcommand else {
-        return fail(
+        return fail_usage(
             format!("Missing {parent} command."),
             Some(format!("Run \"{APP_NAME} help {parent}\" for usage.")),
         );
     };
     if !children.contains(&subcommand) {
-        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
-        return fail(
+        let suggestion = find_command_suggestion(subcommand, &children);
+        return fail_usage(
             format!("Unknown {parent} command: {subcommand}"),
             Some(suggestion.map_or_else(
                 || format!("Run \"{APP_NAME} help {parent}\" for usage."),
@@ -303,12 +386,12 @@ fn validate_schedule_args(args: &[String]) -> bool {
                 continue;
             }
             if arg.starts_with('-') {
-                fail("Usage: eukhe schedule list [--all] [agent] [--json]", None);
+                fail_usage("Usage: eukhe schedule list [--all] [agent] [--json]", None);
                 return false;
             }
             agent_count += 1;
             if agent_count > 1 {
-                fail("Usage: eukhe schedule list [--all] [agent] [--json]", None);
+                fail_usage("Usage: eukhe schedule list [--all] [agent] [--json]", None);
                 return false;
             }
         }
@@ -319,7 +402,7 @@ fn validate_schedule_args(args: &[String]) -> bool {
         if operands.len() == 1 && !operands[0].starts_with('-') {
             return true;
         }
-        fail("Usage: eukhe schedule cancel <job-id>", None);
+        fail_usage("Usage: eukhe schedule cancel <job>", None);
         return false;
     }
     true
@@ -333,8 +416,20 @@ fn parse_boolean_options(
     let mut options = HashSet::new();
     for arg in args {
         if !allowed.contains(&arg.as_str()) {
-            fail(
-                format!("Unknown option for {command}: {arg}"),
+            let bare: Vec<&str> = allowed
+                .iter()
+                .map(|option| option.trim_start_matches('-'))
+                .collect();
+            let suggestion = find_command_suggestion(arg.trim_start_matches('-'), &bare);
+            let message = match suggestion {
+                Some(suggestion) => {
+                    format!("Unknown option for {command}: {arg}. Did you mean --{suggestion}?")
+                }
+                None => format!("Unknown option for {command}: {arg}"),
+            };
+            fail_usage_json(
+                args,
+                message,
                 Some(format!("Run \"{APP_NAME} help {command}\" for usage.")),
             );
             return None;
@@ -372,7 +467,7 @@ fn parse_discovery_options(
         let arg = &args[index];
         if arg == "--daemon-socket" || arg == "--socket" {
             let Some(value) = args.get(index + 1) else {
-                fail(format!("{arg} requires a value"), None);
+                fail_usage_json(args, format!("{arg} requires a value"), None);
                 return None;
             };
             daemon_socket = Some(value.clone());
@@ -393,8 +488,10 @@ fn run_status(args: &[String]) -> PublicCommandResult {
     let Some(options) = parse_discovery_options(args, &["--json"], "status") else {
         return handled_failed();
     };
-    daemon_discovery::run_ps(options.flags.contains("--json"), &options.state_root());
-    handled()
+    handled_with_exit(daemon_discovery::run_ps(
+        options.flags.contains("--json"),
+        &options.state_root(),
+    ))
 }
 
 fn run_doctor(args: &[String]) -> PublicCommandResult {
@@ -405,11 +502,10 @@ fn run_doctor(args: &[String]) -> PublicCommandResult {
     // runDoctor: runReap with force=false, else runPs).
     let json = options.flags.contains("--json");
     if options.flags.contains("--fix") {
-        daemon_discovery::run_reap(json, &options.state_root());
+        handled_with_exit(daemon_discovery::run_reap(json, &options.state_root()))
     } else {
-        daemon_discovery::run_ps(json, &options.state_root());
+        handled_with_exit(daemon_discovery::run_ps(json, &options.state_root()))
     }
-    handled()
 }
 
 /// `eukhe incident` (TS `runIncidentCommand`): parse the options,
@@ -418,7 +514,7 @@ fn run_incident_command(args: &[String]) -> PublicCommandResult {
     let options = match crate::incident::parse_incident_options(args) {
         Ok(options) => options,
         Err(error) => {
-            return fail(
+            return fail_usage(
                 error.to_string(),
                 Some(format!("Run \"{APP_NAME} help incident\" for usage.")),
             )
@@ -430,7 +526,7 @@ fn run_incident_command(args: &[String]) -> PublicCommandResult {
     let window = match crate::incident::resolve_incident_window(&options, now_ms) {
         Ok(window) => window,
         Err(error) => {
-            return fail(
+            return fail_usage(
                 error.to_string(),
                 Some(format!("Run \"{APP_NAME} help incident\" for usage.")),
             )
@@ -464,19 +560,19 @@ fn run_mcp(args: &[String]) -> PublicCommandResult {
             println!("{message}");
             handled()
         }
-        Err(error) => fail(error.to_string(), None),
+        Err(error) => fail(error.to_string(), None).with_code(exit_code_for(&error)),
     }
 }
 
 fn run_package(args: &[String]) -> PublicCommandResult {
     let Some(subcommand) = args.first().map(String::as_str) else {
-        return fail(
+        return fail_usage(
             "Missing package command.",
             Some("Run \"eukhe help package\" for usage.".to_string()),
         );
     };
     if subcommand == "uninstall" {
-        return fail(
+        return fail_usage(
             "Unknown package command: uninstall",
             Some("Use \"eukhe package remove\".".to_string()),
         );
@@ -486,8 +582,8 @@ fn run_package(args: &[String]) -> PublicCommandResult {
         .map(|spec| spec.path[spec.path.len() - 1])
         .collect();
     if !children.contains(&subcommand) {
-        let suggestion = eukhe_bend::rules::slash::suggestion(subcommand, &children);
-        return fail(
+        let suggestion = find_command_suggestion(subcommand, &children);
+        return fail_usage(
             format!("Unknown package command: {subcommand}"),
             Some(suggestion.map_or_else(
                 || "Run \"eukhe help package\" for usage.".to_string(),
@@ -497,7 +593,7 @@ fn run_package(args: &[String]) -> PublicCommandResult {
     }
     let rest = &args[1..];
     if subcommand == "list" && !rest.is_empty() {
-        return fail(format!("Usage: {APP_NAME} package list"), None);
+        return fail_usage(format!("Usage: {APP_NAME} package list"), None);
     }
     if subcommand == "update"
         && rest
@@ -531,21 +627,21 @@ fn run_update(args: &[String]) -> PublicCommandResult {
     if options.is_empty() {
         return fail(EXTERNAL_UPDATES, None);
     }
-    println!("Running:  {}", crate::config::version());
+    println!("Version:  {}", crate::config::version());
     println!("{EXTERNAL_UPDATES}");
     handled()
 }
 
 fn run_attach(rest: &[String]) -> PublicCommandResult {
     let Some(agent) = rest.first().filter(|agent| !agent.starts_with('-')) else {
-        return fail(format!("Usage: {APP_NAME} attach <agent>"), None);
+        return fail_usage(format!("Usage: {APP_NAME} attach <agent>"), None);
     };
     let options = &rest[1..];
     if has_positional_arguments(options) {
-        return fail(format!("Usage: {APP_NAME} attach <agent>"), None);
+        return fail_usage(format!("Usage: {APP_NAME} attach <agent>"), None);
     }
     if has_conflicting_attach_option(options) {
-        return fail(
+        return fail_usage(
             "attach cannot be combined with --resume, --continue, or --fork.",
             None,
         );
@@ -588,8 +684,8 @@ fn rewrite_nested_command(
         let candidate = args.first().map(String::as_str);
         return match candidate {
             Some(candidate) => {
-                let suggestion = eukhe_bend::rules::slash::suggestion(candidate, &[subcommand]);
-                fail(
+                let suggestion = find_command_suggestion(candidate, &[subcommand]);
+                fail_usage(
                     format!("Unknown {parent} command: {candidate}"),
                     Some(suggestion.map_or_else(
                         || format!("Run \"{APP_NAME} help {parent}\" for usage."),
@@ -597,7 +693,7 @@ fn rewrite_nested_command(
                     )),
                 )
             }
-            None => fail(
+            None => fail_usage(
                 format!("Missing {parent} command."),
                 Some(format!("Run \"{APP_NAME} help {parent}\" for usage.")),
             ),
@@ -608,7 +704,7 @@ fn rewrite_nested_command(
         |spec| format!("{APP_NAME} {}", spec.usage),
     );
     let Some((operands, options)) = split_operands_and_options(&args[1..]) else {
-        return fail(format!("Usage: {usage}"), None);
+        return fail_usage(format!("Usage: {usage}"), None);
     };
     let valid_count = if parent == "model" {
         operands.len() <= 1
@@ -616,7 +712,7 @@ fn rewrite_nested_command(
         !operands.is_empty() && operands.len() <= 2
     };
     if !valid_count {
-        return fail(format!("Usage: {usage}"), None);
+        return fail_usage(format!("Usage: {usage}"), None);
     }
     let mut args: Vec<String> = vec![
         INTERNAL_RUNTIME_COMMAND_MARKER.to_string(),
@@ -647,6 +743,12 @@ fn require_operand_count(
     maximum: Option<usize>,
     command: &str,
 ) -> bool {
+    let usage_line = || {
+        format!(
+            "Usage: {APP_NAME} {}",
+            get_command_spec(&[command]).map_or(command, |s| s.usage)
+        )
+    };
     let mut operands: Vec<&str> = Vec::new();
     let mut index = 0;
     while index < args.len() {
@@ -660,13 +762,7 @@ fn require_operand_count(
             continue;
         }
         if arg.starts_with('-') {
-            fail(
-                format!(
-                    "Usage: {APP_NAME} {}",
-                    get_command_spec(&[command]).map_or(command, |s| s.usage)
-                ),
-                None,
-            );
+            fail_usage_json(args, usage_line(), None);
             return false;
         }
         operands.push(arg);
@@ -675,13 +771,7 @@ fn require_operand_count(
     if operands.len() >= minimum && maximum.is_none_or(|max| operands.len() <= max) {
         return true;
     }
-    fail(
-        format!(
-            "Usage: {APP_NAME} {}",
-            get_command_spec(&[command]).map_or(command, |s| s.usage)
-        ),
-        None,
-    );
+    fail_usage_json(args, usage_line(), None);
     false
 }
 
@@ -723,7 +813,7 @@ mod incident_dispatch_tests {
     fn rejects_unknown_incident_options_with_usage_guidance() {
         let result = handle_public_command(&args(&["incident", "--json"]));
         assert!(result.handled);
-        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(result.exit_code, Some(2));
     }
 
     #[test]
@@ -736,14 +826,14 @@ mod incident_dispatch_tests {
             "2026-09-10T20:00",
         ]));
         assert!(result.handled);
-        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(result.exit_code, Some(2));
     }
 
     #[test]
     fn rejects_a_bad_incident_time_with_usage_guidance() {
         let result = handle_public_command(&args(&["incident", "--since", "yesterday"]));
         assert!(result.handled);
-        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(result.exit_code, Some(2));
     }
 
     #[test]
@@ -759,7 +849,7 @@ mod incident_dispatch_tests {
             "{help}"
         );
         assert!(
-            help.contains("--since <time>  Window start (ISO date/time, date, or HH:MM today; default: 24h ago)"),
+            help.contains("--since <TIME>  Window start (ISO date/time, date, or HH:MM today; default: 24h ago)"),
             "{help}"
         );
         assert!(

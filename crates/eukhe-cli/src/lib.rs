@@ -49,6 +49,7 @@ pub(crate) mod headless_wait;
 pub(crate) mod incident;
 pub(crate) mod initial_message;
 pub(crate) mod interactive_mode;
+pub(crate) mod json_out;
 pub(crate) mod kernel_command;
 pub(crate) mod list_models;
 pub(crate) mod mcp_command;
@@ -60,6 +61,7 @@ pub(crate) mod prompt_command;
 pub(crate) mod provider_command;
 pub(crate) mod provider_login;
 pub(crate) mod public_command;
+pub(crate) mod sanitize;
 pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
 pub(crate) mod styling;
@@ -88,7 +90,7 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
         Ok(code) => code,
         Err(error) => {
             eprintln!("Error: {error}");
-            1
+            error.exit_code()
         }
     }
 }
@@ -138,6 +140,30 @@ enum CliError {
     Worker(#[source] anyhow::Error),
 }
 
+impl CliError {
+    /// The exit class: the terminal refusals, flag-shape and cwd errors are
+    /// usage or missing-input failures (2); everything else is operational.
+    fn exit_code(&self) -> i32 {
+        match self {
+            Self::AttachNeedsTerminal
+            | Self::AgentsNeedsTerminal
+            | Self::BareResumeNeedsTerminal
+            | Self::FileArgsInProtocolMode
+            | Self::ForkConflict(_)
+            | Self::Chdir { .. }
+            | Self::StartupBenchmarkMode
+            | Self::PromptFile(_) => 2,
+            Self::ExportCwd(_)
+            | Self::Export(_)
+            | Self::CurrentDir(_)
+            | Self::SessionDir(_)
+            | Self::Missing(_)
+            | Self::WorkerRuntime(_)
+            | Self::Worker(_) => 1,
+        }
+    }
+}
+
 fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliError> {
     use std::io::IsTerminal;
 
@@ -168,6 +194,17 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliErr
     }
 
     let parsed = args::parse_args(&args);
+    // Help is recognized before any other validation: a `--help` anywhere
+    // prints help and exits 0, even next to invalid options. `--version`
+    // comes next; only then do the parse diagnostics fail the run.
+    if parsed.help {
+        println!("{}", command_registry::format_top_level_help());
+        return Ok(0);
+    }
+    if parsed.version {
+        println!("{}", crate::config::version());
+        return Ok(0);
+    }
     if !parsed.diagnostics.is_empty() {
         for diagnostic in &parsed.diagnostics {
             let label = if diagnostic.is_error {
@@ -178,7 +215,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliErr
             eprintln!("{label}: {}", diagnostic.message);
         }
         if parsed.diagnostics.iter().any(|d| d.is_error) {
-            return Ok(1);
+            return Ok(2);
         }
     }
 
@@ -192,15 +229,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliErr
     }
     if parsed.resume_bare && app_mode != mode::AppMode::Interactive {
         return Err(CliError::BareResumeNeedsTerminal);
-    }
-
-    if parsed.version {
-        println!("{}", crate::config::version());
-        return Ok(0);
-    }
-    if parsed.help {
-        println!("{}", command_registry::format_top_level_help());
-        return Ok(0);
     }
 
     if parsed.export.is_some() {
@@ -331,15 +359,22 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliErr
         stdin_content.as_deref(),
     )
     .initial_message;
+    let config = match mode::runtime_config_from_args(
+        &parsed,
+        cwd,
+        agent_dir,
+        session_dir.clone(),
+        app_mode,
+    ) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return Ok(2);
+        }
+    };
     let options = mode::RunOptions {
         app_mode,
-        config: mode::runtime_config_from_args(
-            &parsed,
-            cwd,
-            agent_dir,
-            session_dir.clone(),
-            app_mode,
-        )?,
+        config,
         session: mode::SessionOptions {
             continue_recent: parsed.continue_,
             resume_bare: parsed.resume_bare,

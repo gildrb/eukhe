@@ -34,23 +34,27 @@ use super::{
 
 /// `status` (TS `runPs`): the daemons discovered in the given state root as
 /// JSON or as the table.
-pub(crate) fn run_ps(json: bool, root: &DaemonStateRoot) {
+pub(crate) fn run_ps(json: bool, root: &DaemonStateRoot) -> i32 {
     let daemons = discover_daemons(root);
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&daemons).unwrap_or_default()
-        );
-        return;
+        let document = serde_json::json!({ "services": daemons });
+        return match crate::json_out::print_json_document(&document) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                1
+            }
+        };
     }
     if daemons.is_empty() {
-        println!("No background services found.");
-        return;
+        println!("No background services.");
+        return 0;
     }
     println!(
         "{}",
         super::format_daemon_list_table(&daemons, crate::styling::Styling::for_stdout())
     );
+    0
 }
 
 /// `doctor --fix` (TS `runReap`): clean up clearly-safe daemons. Returns the
@@ -109,8 +113,16 @@ pub(crate) fn run_reap(json: bool, root: &DaemonStateRoot) -> i32 {
         }
     }
     if json {
-        println!("{}", reap_report_json(&reaped, &skipped));
-        return 0;
+        return match reap_report_json(&reaped, &skipped) {
+            Ok(text) => {
+                println!("{text}");
+                0
+            }
+            Err(error) => {
+                eprintln!("Error: {error}");
+                1
+            }
+        };
     }
     print_reap_report(&reaped, &skipped);
     0
@@ -125,10 +137,14 @@ fn reap_reachable_daemon(socket_path: &Path, pid: Option<u32>) -> StopOutcome {
     }
     if probe.session_count != Some(0) {
         let count = match probe.session_count {
-            Some(count) => count.to_string(),
-            None => "unknown".to_string(),
+            Some(count) => format!(
+                "{} {}",
+                count,
+                if count == 1 { "session" } else { "sessions" }
+            ),
+            None => "an unknown number of sessions".to_string(),
         };
-        return StopOutcome::Skipped(format!("now has {count} session(s)"));
+        return StopOutcome::Skipped(format!("now has {count}"));
     }
     if shutdown_daemon(socket_path, false) {
         StopOutcome::Reaped(format!(
@@ -169,38 +185,30 @@ pub(crate) fn run_shutdown_all(json: bool, force: bool, root: &DaemonStateRoot) 
         std::io::IsTerminal::is_terminal(&std::io::stdin()),
     ) {
         ShutdownConfirmationPlan::JsonError => {
-            let failed: Vec<(String, String)> = daemons
-                .iter()
-                .map(|daemon| {
-                    (
-                        daemon.socket_path.display().to_string(),
-                        r#"confirmation required; use "eukhe shutdown --force --json""#.to_string(),
-                    )
-                })
-                .collect();
-            println!("{}", shutdown_report_json(&[], &failed));
-            1
+            // A missing consent is missing input: the JSON run prints the
+            // one-line error document on stderr and exits 2, stdout empty.
+            crate::json_out::print_json_error(
+                "action_required",
+                "confirmation_required",
+                "Stopping background services needs consent in non-interactive mode. Pass --force to stop them without asking.",
+            );
+            2
         }
         ShutdownConfirmationPlan::TtyError => {
-            // TS throws this out of `runShutdownAll` and the public-command
-            // wrapper turns the throw into the standard `Error: ...` failure
-            // (stderr + exit 1); only reachable once there are daemons to
-            // stop, so an empty machine shuts down cleanly without a TTY.
+            // Missing input: the confirmation needs a terminal, or --force
+            // supplies the consent.
             eprintln!(
                 "Error: Shutdown requires confirmation in an interactive terminal. Use \"eukhe shutdown --force\"."
             );
-            1
+            2
         }
         ShutdownConfirmationPlan::Prompt => {
             if !prompt_yes_no(
                 "Stop every agent and background service? Active work will be interrupted.",
             ) {
-                println!(
-                    "{}",
-                    crate::styling::Styling::for_stdout()
-                        .paint(crate::styling::Sgr::Dim, "Shutdown cancelled.")
-                );
-                return 0;
+                // A declined confirmation cancels before anything started.
+                eprintln!("Canceled.");
+                return 130;
             }
             run_shutdown_converging(json, force, root)
         }
@@ -337,8 +345,16 @@ fn run_shutdown_converging(json: bool, force: bool, root: &DaemonStateRoot) -> i
     // The exit code follows the failures in both output modes (TS sets
     // process.exitCode = 1 for any failed stop).
     if json {
-        println!("{}", shutdown_report_json(&stopped, &failed));
-        return i32::from(!failed.is_empty());
+        return match shutdown_report_json(&stopped, &failed) {
+            Ok(text) => {
+                println!("{text}");
+                i32::from(!failed.is_empty())
+            }
+            Err(error) => {
+                eprintln!("Error: {error}");
+                1
+            }
+        };
     }
     print_shutdown_report(&stopped, &failed);
     i32::from(!failed.is_empty())
@@ -458,10 +474,11 @@ fn shutdown_daemon(socket_path: &Path, force: bool) -> bool {
 }
 
 /// `promptYesNo`: empty or anything-but-yes resolves false (default No).
+/// The question renders on stderr; stdout stays the answer's stream.
 pub(crate) fn prompt_yes_no(message: &str) -> bool {
     use std::io::Write as _;
-    print!("{message} [y/N] ");
-    let _ = std::io::stdout().flush();
+    eprint!("{message} [y/N] ");
+    let _ = std::io::stderr().flush();
     let mut answer = String::new();
     if std::io::stdin().read_line(&mut answer).is_err() {
         return false;
@@ -520,20 +537,24 @@ fn reason_entries(rows: &[(String, String)]) -> Vec<ReasonEntry> {
         .collect()
 }
 
-fn reap_report_json(reaped: &[(String, String)], skipped: &[(String, String)]) -> String {
-    serde_json::to_string_pretty(&ReapReport {
+fn reap_report_json(
+    reaped: &[(String, String)],
+    skipped: &[(String, String)],
+) -> Result<String, String> {
+    crate::json_out::json_document(&ReapReport {
         reaped: action_entries(reaped),
         skipped: reason_entries(skipped),
     })
-    .unwrap_or_default()
 }
 
-fn shutdown_report_json(stopped: &[(String, String)], failed: &[(String, String)]) -> String {
-    serde_json::to_string_pretty(&ShutdownReport {
+fn shutdown_report_json(
+    stopped: &[(String, String)],
+    failed: &[(String, String)],
+) -> Result<String, String> {
+    crate::json_out::json_document(&ShutdownReport {
         stopped: action_entries(stopped),
         failed: reason_entries(failed),
     })
-    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -582,13 +603,16 @@ mod tests {
         // Every failure path funnels into this report (TS prints
         // `{stopped, failed}`); the shape is the `--json` contract, so a
         // survived SIGKILL must surface as a `failed` reason entry.
-        let report = serde_json::from_str::<serde_json::Value>(&shutdown_report_json(
-            &[],
-            &[(
-                "/tmp/r6-shape.sock".to_string(),
-                "could not safely stop daemon (pid 4242); it survived SIGKILL".to_string(),
-            )],
-        ))
+        let report = serde_json::from_str::<serde_json::Value>(
+            &shutdown_report_json(
+                &[],
+                &[(
+                    "/tmp/r6-shape.sock".to_string(),
+                    "could not safely stop daemon (pid 4242); it survived SIGKILL".to_string(),
+                )],
+            )
+            .expect("the report serializes"),
+        )
         .expect("well-formed JSON");
         assert_eq!(
             report,

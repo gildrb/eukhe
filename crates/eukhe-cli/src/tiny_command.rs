@@ -148,13 +148,17 @@ fn block_on<T>(future: impl Future<Output = T>) -> Result<T, TinyCommandError> {
     Ok(runtime.block_on(future))
 }
 
-/// Prints `result`'s error and maps it to an exit code.
+/// Prints `result`'s error and maps it to an exit code: a usage error
+/// exits 2, everything else 1.
 fn exit(result: Result<(), TinyCommandError>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error}");
-            1
+            match error {
+                TinyCommandError::Usage(_) => 2,
+                _ => 1,
+            }
         }
     }
 }

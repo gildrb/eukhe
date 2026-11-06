@@ -71,7 +71,7 @@ enum FactoryUsageError {
     },
     #[error("--out requires a file path")]
     OutWithoutPath,
-    #[error("unknown option {0:?}")]
+    #[error("unknown option: {0}")]
     UnknownOption(String),
     #[error("Usage: eukhe factory list [--json]")]
     ListUsage,
@@ -176,15 +176,10 @@ fn parse_factory_command(args: &[String]) -> Result<FactoryCommand, FactoryUsage
 pub fn run_factory_command(args: &[String]) -> i32 {
     let command = match parse_factory_command(args) {
         Ok(command) => command,
-        Err(error @ FactoryUsageError::Missing) => {
-            eprintln!("{error}");
-            eprintln!("Run \"eukhe help factory\" for usage.");
-            return 1;
-        }
         Err(error) => {
             eprintln!("Error: {error}");
-            eprintln!("Run `eukhe help factory` for usage.");
-            return 1;
+            eprintln!("Run \"eukhe help factory\" for usage.");
+            return 2;
         }
     };
     match command {
@@ -236,17 +231,24 @@ fn render_list(result: &Value, json: bool) -> i32 {
         return code;
     }
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(result).unwrap_or_default()
-        );
-        return 0;
+        return match crate::json_out::print_json_document(result) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                1
+            }
+        };
     }
-    let machines: Vec<MachineListing> = result
-        .get("machines")
-        .cloned()
-        .map(|value| serde_json::from_value(value).unwrap_or_default())
-        .unwrap_or_default();
+    let machines: Vec<MachineListing> = match result.get("machines") {
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(machines) => machines,
+            Err(error) => {
+                eprintln!("Error: the kernel's machine list does not parse: {error}");
+                return 1;
+            }
+        },
+        None => Vec::new(),
+    };
     for warning in result
         .get("warnings")
         .and_then(Value::as_array)
@@ -406,11 +408,13 @@ fn print_dispatch_result(result: &Value, json: bool, verb: &str) -> i32 {
         return code;
     }
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(result).unwrap_or_default()
-        );
-        return 0;
+        return match crate::json_out::print_json_document(result) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                1
+            }
+        };
     }
     let name = result
         .get("name")

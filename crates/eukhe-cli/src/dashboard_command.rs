@@ -39,11 +39,11 @@ enum DashboardUsageError {
     /// A flag that takes a value came last.
     #[error("{0} requires a value")]
     MissingValue(String),
-    #[error("--port takes a port number (1-65535), not {0:?}")]
+    #[error("--port takes a port number (1-65535), not {0}")]
     Port(String),
-    #[error("--allow-host takes a host name such as box.tail1234.ts.net, not {0:?}")]
+    #[error("--allow-host takes a host name such as box.tail1234.ts.net, not {0}")]
     Host(String),
-    #[error("unknown argument {0:?}")]
+    #[error("unknown argument: {0}")]
     UnknownArgument(String),
 }
 
@@ -92,6 +92,13 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, DashboardUsageError> {
     Ok(parsed)
 }
 
+/// How the dashboard's foreground run ended: the server stopped on its
+/// own, or the user's Ctrl+C canceled the wait.
+enum DashboardStop {
+    Served,
+    Canceled,
+}
+
 /// Run the `dashboard` command; returns the process exit code.
 pub fn run_dashboard_command(args: &[String]) -> i32 {
     let args = match parse_args(args) {
@@ -99,7 +106,7 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         Err(error) => {
             eprintln!("Error: {error}");
             eprintln!("{}", usage());
-            return 1;
+            return 2;
         }
     };
     let config = match dashboard_config(args.daemon_socket, args.allowed_hosts) {
@@ -143,13 +150,15 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         let listener = eukhe_dashboard::bind(args.port).await?;
         let fragment = format!("#token={}", token.secret_hex());
         let url = format!("http://{}/{fragment}", listener.local_addr()?);
-        println!("eukhe dashboard: {url}");
-        println!("Serving on loopback only. Press Ctrl+C to stop.");
-        println!(
+        // stdout carries the one value a script captures: the URL. The
+        // guidance around it is context and goes to stderr.
+        println!("{url}");
+        eprintln!("Serving on loopback only. Press Ctrl+C to stop.");
+        eprintln!(
             "The {fragment} part pairs a browser: keep it private. Through a forwarder (porthmeus, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
         );
         for host in &config.allowed_hosts {
-            println!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
+            eprintln!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
         }
         if args.browser == Browser::Open {
             // The browser gets a private page that redirects to the URL:
@@ -159,12 +168,20 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
             eukhe_core::platform::browser::open_in_browser(&opener.display().to_string());
         }
         tokio::select! {
-            served = eukhe_dashboard::serve(listener, config, launcher) => served,
-            signal = tokio::signal::ctrl_c() => signal.context("wait for Ctrl+C"),
+            served = eukhe_dashboard::serve(listener, config, launcher) => {
+                served.map(|()| DashboardStop::Served)
+            }
+            signal = tokio::signal::ctrl_c() => {
+                signal.context("wait for Ctrl+C").map(|()| DashboardStop::Canceled)
+            }
         }
     });
     match served {
-        Ok(()) => 0,
+        // A Ctrl+C stop is a cancel: exit 130, the terminal contract for
+        // an interrupted foreground process. The server stopping on its
+        // own was a clean run.
+        Ok(DashboardStop::Canceled) => 130,
+        Ok(DashboardStop::Served) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
             1
@@ -285,12 +302,12 @@ mod tests {
             errors,
             [
                 "--port requires a value",
-                "--port takes a port number (1-65535), not \"0\"",
-                "--port takes a port number (1-65535), not \"http\"",
-                "unknown argument \"--open\"",
+                "--port takes a port number (1-65535), not 0",
+                "--port takes a port number (1-65535), not http",
+                "unknown argument: --open",
                 "--allow-host requires a value",
-                "--allow-host takes a host name such as box.tail1234.ts.net, not \"https://box.ts.net\"",
-                "--allow-host takes a host name such as box.tail1234.ts.net, not \"box.ts.net:443\"",
+                "--allow-host takes a host name such as box.tail1234.ts.net, not https://box.ts.net",
+                "--allow-host takes a host name such as box.tail1234.ts.net, not box.ts.net:443",
             ]
         );
     }

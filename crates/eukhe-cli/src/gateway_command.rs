@@ -26,14 +26,14 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             "--daemon-socket" | "--socket" => {
                 let Some(value) = rest.next() else {
                     eprintln!("Error: {arg} requires a value");
-                    return 1;
+                    return 2;
                 };
                 daemon_socket = Some(value);
             }
             other => {
-                eprintln!("Error: unknown argument {other:?}");
+                eprintln!("Error: unknown argument: {other}");
                 eprintln!("Usage: {app} gateway [--daemon-socket <path>]");
-                return 1;
+                return 2;
             }
         }
     }

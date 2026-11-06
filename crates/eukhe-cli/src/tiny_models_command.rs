@@ -29,14 +29,15 @@ pub fn run_tiny_models_command(args: &[String]) -> i32 {
             }
             let known: Vec<&str> = CATALOG.iter().map(|model| model.id).collect();
             eprintln!(
-                "Error: unknown tiny model {id:?}; known: {}, or all",
+                "Error: Couldn't find tiny model {id}. Known models: {}, or all",
                 known.join(", ")
             );
             1
         }
         _ => {
-            eprintln!("Usage: {APP_NAME} tiny-models [list | download <id|all>]");
-            1
+            eprintln!("Error: Usage: {APP_NAME} tiny-models [list | download <id|all>]");
+            eprintln!("Run \"eukhe help tiny-models\" for usage.");
+            2
         }
     }
 }
@@ -73,21 +74,28 @@ fn print_list(home: &TinyHome) {
         })
         .collect();
     let header = ["ID", "KIND", "ROLES", "SIZE", "STATE"].map(str::to_owned);
-    let mut widths = header.clone().map(|cell| cell.len());
-    for row in &rows {
-        for (width, cell) in widths.iter_mut().zip(row) {
-            *width = (*width).max(cell.len());
+    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let mut widths = header.clone().map(|cell| cell.len());
+        for row in &rows {
+            for (width, cell) in widths.iter_mut().zip(row) {
+                *width = (*width).max(cell.len());
+            }
         }
+        for row in std::iter::once(&header).chain(&rows) {
+            let line: Vec<String> = row
+                .iter()
+                .zip(widths)
+                .map(|(cell, width)| format!("{cell:<width$}"))
+                .collect();
+            println!("{}", line.join("  ").trim_end());
+        }
+    } else {
+        let mut lines = vec![header.join("\t")];
+        lines.extend(rows.iter().map(|row| row.join("\t")));
+        println!("{}", lines.join("\n"));
     }
-    for row in std::iter::once(&header).chain(&rows) {
-        let line: Vec<String> = row
-            .iter()
-            .zip(widths)
-            .map(|(cell, width)| format!("{cell:<width$}"))
-            .collect();
-        println!("{}", line.join("  ").trim_end());
-    }
-    println!("Models dir: {}", home.models.display());
+    // The models dir is context for the state column, not the answer.
+    eprintln!("Models dir: {}", home.models.display());
 }
 
 fn megabytes(bytes: u64) -> String {

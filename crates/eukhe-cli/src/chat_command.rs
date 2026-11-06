@@ -112,14 +112,10 @@ fn parse_chat_command(args: &[String]) -> Result<ChatCommand, ChatUsageError> {
 pub fn run_chat_command(args: &[String]) -> i32 {
     let command = match parse_chat_command(args) {
         Ok(command) => command,
-        Err(error @ ChatUsageError::Missing) => {
-            eprintln!("{error}");
-            eprintln!("Run \"{APP_NAME} help chat\" for usage.");
-            return 1;
-        }
         Err(error) => {
             eprintln!("Error: {error}");
-            return 1;
+            eprintln!("Run \"{} help chat\" for usage.", crate::config::APP_NAME);
+            return 2;
         }
     };
     let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
@@ -150,17 +146,18 @@ async fn run(command: ChatCommand) -> anyhow::Result<()> {
         ChatCommand::Status { json } => {
             let view = eukhe_core::memory::read_view(&dir).await?;
             if json {
+                let document = serde_json::json!({
+                    "dir": dir,
+                    "messages": view.messages,
+                    "summaries": view.summaries,
+                    "viewLines": view.view_lines,
+                    "viewBytes": view.view_bytes,
+                    "unsummarized": view.unsummarized,
+                    "owner": view.live,
+                });
                 println!(
                     "{}",
-                    serde_json::json!({
-                        "dir": dir,
-                        "messages": view.messages,
-                        "summaries": view.summaries,
-                        "viewLines": view.view_lines,
-                        "viewBytes": view.view_bytes,
-                        "unsummarized": view.unsummarized,
-                        "owner": view.live,
-                    })
+                    crate::json_out::json_document(&document).map_err(anyhow::Error::msg)?
                 );
             } else {
                 println!("Chat:          {}", dir.display());

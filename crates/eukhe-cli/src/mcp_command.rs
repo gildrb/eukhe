@@ -126,7 +126,29 @@ fn run_mcp_command(args: &[String], cwd: &Path, agent_dir: &Path) -> Result<Stri
                 if replaced { "Replaced" } else { "Added" }
             ))
         }
-        _ => bail!("Usage: mcp <add|list|get|remove>."),
+        _ => {
+            let children: Vec<&str> = crate::command_registry::get_child_command_specs(&["mcp"])
+                .into_iter()
+                .map(|spec| spec.path[spec.path.len() - 1])
+                .collect();
+            if action.is_empty() {
+                return Err(crate::public_command::usage_error(format!(
+                    "Missing mcp command. Run \"{} help mcp\" for usage. Commands: {}",
+                    crate::config::APP_NAME,
+                    children.join(", ")
+                )));
+            }
+            let suggestion = crate::command_registry::find_command_suggestion(action, &children);
+            Err(crate::public_command::usage_error(match suggestion {
+                Some(suggestion) => {
+                    format!("Unknown mcp command: {action}. Did you mean \"{suggestion}\"?")
+                }
+                None => format!(
+                    "Unknown mcp command: {action}. Run \"{} help mcp\" for usage.",
+                    crate::config::APP_NAME
+                ),
+            }))
+        }
     }
 }
 
@@ -184,7 +206,9 @@ fn format_mcp_server_list(
 
 fn require_count(args: &[String], count: usize, usage: &str) -> Result<()> {
     if args.len() != count {
-        bail!("Usage: {usage}");
+        return Err(crate::public_command::usage_error(format!(
+            "Usage: {usage}"
+        )));
     }
     Ok(())
 }
@@ -193,7 +217,9 @@ fn validate_name(name: &str) -> Result<&str> {
     if NAME_PATTERN(name) {
         Ok(name)
     } else {
-        bail!("MCP server names must be 1-64 letters, numbers, underscores, or hyphens and start with a letter or number.")
+        Err(crate::public_command::usage_error(
+            "MCP server names must be 1-64 letters, numbers, underscores, or hyphens and start with a letter or number.",
+        ))
     }
 }
 
@@ -217,7 +243,9 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
     while index < option_args.len() {
         let option = option_args[index].as_str();
         if option != "--env" && seen_options.contains(&option) {
-            bail!("Duplicate MCP add option: {option}");
+            return Err(crate::public_command::usage_error(format!(
+                "Duplicate MCP add option: {option}"
+            )));
         }
         seen_options.push(option);
         if option == "--oauth" || option == "--force" {
@@ -234,10 +262,14 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
             && option != "--cwd"
             && option != "--env"
         {
-            bail!("Unknown MCP add option: {option}");
+            return Err(crate::public_command::usage_error(format!(
+                "Unknown MCP add option: {option}"
+            )));
         }
         let Some(value) = option_args.get(index + 1).filter(|v| !v.is_empty()) else {
-            bail!("{option} requires a value.");
+            return Err(crate::public_command::usage_error(format!(
+                "{option} requires a value."
+            )));
         };
         match option {
             "--url" => url = Some(value.clone()),
@@ -248,12 +280,16 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
             _ => {
                 let equals = value.find('=').filter(|&e| e > 0 && e < value.len() - 1);
                 let Some(equals) = equals else {
-                    bail!("--env must use CHILD=SOURCE, where both sides are environment variable names.");
+                    return Err(crate::public_command::usage_error(
+                        "--env must use CHILD=SOURCE, where both sides are environment variable names.",
+                    ));
                 };
                 let child = validate_env_name(&value[..equals], "--env child")?;
                 let source = validate_env_name(&value[equals + 1..], "--env source")?;
                 if env.contains_key(child.as_str()) {
-                    bail!("Duplicate child environment variable: {child}");
+                    return Err(crate::public_command::usage_error(format!(
+                        "Duplicate child environment variable: {child}"
+                    )));
                 }
                 env.insert(child, EnvRef { env: Some(source) });
             }
@@ -263,11 +299,15 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
 
     if separator.is_some() {
         if url.is_some() || bearer_token_env_var.is_some() || oauth {
-            bail!("Stdio MCP servers cannot use HTTP options.");
+            return Err(crate::public_command::usage_error(
+                "Stdio MCP servers cannot use HTTP options.",
+            ));
         }
         let command = command_args.first().filter(|c| !c.trim().is_empty());
         let Some(command) = command else {
-            bail!("A command is required after --.");
+            return Err(crate::public_command::usage_error(
+                "A command is required after --.",
+            ));
         };
         return Ok((
             name,
@@ -287,13 +327,19 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
     }
 
     if cwd.is_some() || !env.is_empty() {
-        bail!("--cwd and --env require a stdio command after --.");
+        return Err(crate::public_command::usage_error(
+            "--cwd and --env require a stdio command after --.",
+        ));
     }
     let Some(url) = url else {
-        bail!("Use --url <url> for HTTP or -- <command> [args...] for stdio.");
+        return Err(crate::public_command::usage_error(
+            "Use --url <url> for HTTP or -- <command> [args...] for stdio.",
+        ));
     };
     if bearer_token_env_var.is_some() && oauth {
-        bail!("--oauth and --bearer-token-env-var cannot be combined.");
+        return Err(crate::public_command::usage_error(
+            "--oauth and --bearer-token-env-var cannot be combined.",
+        ));
     }
     Ok((
         name,

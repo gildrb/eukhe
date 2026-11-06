@@ -15,8 +15,6 @@ use crate::args::Args;
 /// Why the export did not run; the main entry prints it as `Error: ...`.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SessionExportError {
-    #[error("--export requires a value")]
-    MissingInput,
     #[error("starting the export runtime: {0}")]
     Runtime(#[source] std::io::Error),
     #[error("{0:#}")]
@@ -28,7 +26,9 @@ pub(crate) enum SessionExportError {
 /// `Error: ...` prefix + exit 1). Theme warnings print before it.
 pub(crate) fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, SessionExportError> {
     let Some(input) = parsed.export.as_deref() else {
-        return Err(SessionExportError::MissingInput);
+        eprintln!("Error: --export requires a value");
+        eprintln!("Usage: eukhe session export <file> [output]");
+        return Ok(2);
     };
     let output = parsed.messages.first().map(String::as_str);
     let sources = eukhe_core::resources::theme_sources(&ThemePathOptions {

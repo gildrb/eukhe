@@ -48,14 +48,29 @@ pub fn run(options: &RunOptions) {
 }
 
 /// The TS `formatNoModelsAvailableMessage`: guidance plus the bundled docs
-/// paths for providers and models.
+/// paths for providers and models. Every suggestion it makes must hold in
+/// the current state, so a docs file that is not installed names no path.
 fn no_models_available_message() -> String {
     let docs = eukhe_core::packages::docs_path();
-    format!(
-        "No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
-        docs.join("providers.md").display(),
-        docs.join("models.md").display()
-    )
+    let providers = docs.join("providers.md");
+    let models = docs.join("models.md");
+    let mut message = String::from(
+        "No models available. Start an interactive session (run `eukhe`) and use /login to log into a provider via OAuth or API key.",
+    );
+    let mut paths = Vec::new();
+    for path in [providers, models] {
+        if path.is_file() {
+            paths.push(format!("  {}", path.display()));
+        }
+    }
+    if !paths.is_empty() {
+        message.push_str("\nSee:");
+        for line in paths {
+            message.push('\n');
+            message.push_str(&line);
+        }
+    }
+    message
 }
 
 /// One table row's rendered columns.
@@ -123,14 +138,21 @@ pub(crate) fn format_token_count(count: u64) -> String {
     }
 }
 
-/// The catalog table: fixed headers, two-space gutters, and every column
+/// The catalog table: on a terminal, two-space gutters and every column
 /// padded to its widest value (trailing padding included, like the TS
-/// `padEnd` render).
+/// `padEnd` render). Piped stdout keeps the header and separates the
+/// columns with one tab, never padding.
 fn print_table(models: &[eukhe_types::ai::Model]) {
     const HEADERS: [&str; 6] = [
         "provider", "model", "context", "max-out", "thinking", "images",
     ];
     let rows: Vec<Row> = models.iter().map(Row::from_model).collect();
+    if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let mut lines = vec![HEADERS.join("\t")];
+        lines.extend(rows.iter().map(|row| row.cells().join("\t")));
+        println!("{}", lines.join("\n"));
+        return;
+    }
     let mut widths = [0usize; 6];
     for (index, header) in HEADERS.iter().enumerate() {
         widths[index] = header.chars().count();

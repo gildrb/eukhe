@@ -598,8 +598,12 @@ fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
     ];
     let status = run_cli_scoped(root, &env_scope, &["status", "--json"]);
     assert_eq!(status.status.code(), Some(0), "{}", stderr(&status));
-    let listed: Vec<String> = serde_json::from_str::<Vec<Value>>(&stdout(&status))
+    let listed: Vec<String> = serde_json::from_str::<Value>(&stdout(&status))
         .expect("status json")
+        .get("services")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
         .iter()
         .filter_map(|row| row.get("socketPath").and_then(Value::as_str))
         .map(str::to_string)

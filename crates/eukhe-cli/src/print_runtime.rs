@@ -65,6 +65,11 @@ enum HeadlessModeError {
     SystemPrompt(#[source] serde_json::Error),
     #[error("appended system prompt input: {0}")]
     AppendedSystemPrompt(#[source] serde_json::Error),
+    /// The session resolved no model: a run with prompts must fail loudly.
+    #[error(
+        "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
+    )]
+    NoModel,
 }
 
 /// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
@@ -443,6 +448,25 @@ async fn run_prompts(
     let session = &opened.session;
     let json_mode = options.app_mode == AppMode::Json;
     let conversation = session.main();
+    // A run with prompts needs a model: a session that resolved none must
+    // fail loudly (exit 1), never idle through every prompt in silence.
+    if prompts(options).next().is_some() {
+        let agent = conversation
+            .agent(cx)
+            .await
+            .map_err(HeadlessModeError::Durable)?;
+        if agent.model.is_none() {
+            if json_mode {
+                crate::json_out::print_json_error(
+                    "error",
+                    "login_required",
+                    "No model is available for this run.",
+                );
+                return Ok(1);
+            }
+            return Err(HeadlessModeError::NoModel);
+        }
+    }
     let harness = session.harness();
     let events = if json_mode {
         println!("{}", session_header(opened));
@@ -500,7 +524,10 @@ async fn run_prompts(
                 }
                 Some(RunFailure::Silent) => {}
                 None if json_mode => {}
-                None => println!("{}", primary.stdout_text()),
+                // The answer is the model's text: remote data, never
+                // terminal instructions, so the escapes and controls come
+                // out before it reaches stdout (JSON keeps the raw bytes).
+                None => println!("{}", crate::sanitize::text(&primary.stdout_text())),
             }
         }
         for outcome in result.compaction_outcomes {

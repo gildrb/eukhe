@@ -29,7 +29,7 @@ enum PromptRequest {
 enum PromptUsageError {
     #[error("{0} requires a value")]
     MissingValue(&'static str),
-    #[error("unknown option {0:?}")]
+    #[error("unknown option: {0}")]
     UnknownOption(String),
 }
 
@@ -60,11 +60,17 @@ fn parse_args(args: &[String]) -> Result<PromptRequest, PromptUsageError> {
 pub fn run_prompt_command(args: &[String]) -> i32 {
     let parsed = match parse_args(args) {
         Ok(PromptRequest::Run(parsed)) => parsed,
-        Ok(PromptRequest::Help) => return 0,
+        Ok(PromptRequest::Help) => {
+            match crate::command_registry::format_command_help(&["prompt"]) {
+                Some(help) => println!("{help}"),
+                None => eprintln!("Error: the prompt help entry is missing from the registry"),
+            }
+            return 0;
+        }
         Err(error) => {
             eprintln!("Error: {error}");
-            eprintln!("Run `eukhe help prompt` for usage.");
-            return 1;
+            eprintln!("Run \"eukhe help prompt\" for usage.");
+            return 2;
         }
     };
     let cwd = parsed
@@ -78,10 +84,9 @@ pub fn run_prompt_command(args: &[String]) -> i32 {
                 eprintln!("Error: {error}");
             }
             if parsed.json {
-                print_json(&breakdown);
-            } else {
-                print_text(&breakdown);
+                return print_json(&breakdown);
             }
+            print_text(&breakdown);
             0
         }
         Err(error) => {
@@ -172,7 +177,9 @@ fn print_segment(segment: &eukhe_core::prompts::PromptSegment) {
     );
 }
 
-fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
+/// Print the document through the JSON contract; `1` when it cannot
+/// serialize (a contract bug, reported on stderr).
+fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) -> i32 {
     let segments = breakdown
         .segments
         .iter()
@@ -185,14 +192,17 @@ fn print_json(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {
             })
         })
         .collect::<Vec<_>>();
-    println!(
-        "{}",
-        serde_json::json!({
-            "segments": segments,
-            "cachedPrefixLen": breakdown.cached_prefix_len,
-            "prompt": breakdown.assembled,
-        })
-    );
+    match crate::json_out::print_json_document(&serde_json::json!({
+        "segments": segments,
+        "cachedPrefixLen": breakdown.cached_prefix_len,
+        "prompt": breakdown.assembled,
+    })) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            1
+        }
+    }
 }
 
 #[cfg(test)]
@@ -214,8 +224,8 @@ mod tests {
         assert_eq!(parsed.cwd.as_deref(), Some("/w"));
         assert!(parsed.json);
         assert_eq!(
-            parse_args(&["--bogus".to_string()]).map_err(|error| error.to_string()),
-            Err("unknown option \"--bogus\"".to_string())
+            parse_args(&["--bogus".to_string()]),
+            Err(PromptUsageError::UnknownOption("--bogus".to_string()))
         );
         assert_eq!(
             parse_args(&["--model".to_string()]).map_err(|error| error.to_string()),

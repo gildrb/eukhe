@@ -440,7 +440,7 @@ fn rust_daemon_cli_commands_end_to_end() {
         &agent_dir,
         &list_args(&socket_str, &["list", "--bogus"]),
     );
-    assert_eq!(bogus.status.code(), Some(1));
+    assert_eq!(bogus.status.code(), Some(2));
     assert_eq!(stderr(&bogus), "Error: Unknown list option: --bogus\n");
 
     // Golden: empty sessions table messages (TS binary output).
@@ -468,7 +468,7 @@ fn rust_daemon_cli_commands_end_to_end() {
         &agent_dir,
         &list_args(&socket_str, &["sessions", "--bogus"]),
     );
-    assert_eq!(sessions_bogus.status.code(), Some(1));
+    assert_eq!(sessions_bogus.status.code(), Some(2));
     assert_eq!(
         stderr(&sessions_bogus),
         "Error: Unknown sessions option: --bogus\n"
@@ -668,7 +668,8 @@ fn cli_connect_error_matches_ts_golden() {
     assert_eq!(output.status.code(), Some(1));
     // Golden (TS): `Error: Failed to connect to the Eukhe daemon:
     // connect ENOENT <path>. Socket: <path>. Daemon log:
-    // <agent-dir>/logs/<socket-basename>.<8-hex>.log.`
+    // <agent-dir>/logs/<socket-basename>.<8-hex>.log.` — plus the CLI
+    // contract's recovery block after a blank line.
     let text = stderr(&output).trim_end().to_string();
     let expected_prefix = format!(
         "Error: Failed to connect to the Eukhe daemon: connect ENOENT {missing}. Socket: {missing}. Daemon log: ",
@@ -678,9 +679,12 @@ fn cli_connect_error_matches_ts_golden() {
         text.starts_with(&expected_prefix),
         "connect error text: {text}"
     );
+    let recovery = "\n\nStart a session so a daemon is running, or point --daemon-socket at the running one:\n    eukhe";
     let log_detail = text
         .strip_prefix(&expected_prefix)
-        .expect("daemon log detail");
+        .expect("daemon log detail")
+        .strip_suffix(recovery)
+        .expect("recovery command after the detail");
     let log_name = log_detail.rsplit('/').next().expect("daemon log file name");
     let hash_end = log_name
         .strip_prefix(&format!(
@@ -693,7 +697,7 @@ fn cli_connect_error_matches_ts_golden() {
         log_detail.starts_with(agent_dir.to_string_lossy().as_ref()),
         "log under agent dir: {text}"
     );
-    assert_eq!(text, format!("{expected_prefix}{log_detail}"));
+    assert_eq!(text, format!("{expected_prefix}{log_detail}{recovery}"));
     assert_eq!(hash_end.len(), 8, "8-hex log suffix: {text}");
     assert!(
         hash_end.chars().all(|c| c.is_ascii_hexdigit()),
@@ -723,11 +727,11 @@ fn schedule_usage_errors_and_valid_invocations() {
     let usage_shapes = [
         (
             vec!["schedule", "cancel"],
-            "Error: Usage: eukhe schedule cancel <job-id>\n",
+            "Error: Usage: eukhe schedule cancel <job>\n",
         ),
         (
             vec!["schedule", "cancel", "a", "b"],
-            "Error: Usage: eukhe schedule cancel <job-id>\n",
+            "Error: Usage: eukhe schedule cancel <job>\n",
         ),
         (
             vec!["schedule", "list", "--bogus-flag"],
@@ -745,12 +749,13 @@ fn schedule_usage_errors_and_valid_invocations() {
                 "cancel",
                 "id",
             ],
-            "Error: Usage: eukhe schedule cancel <job-id>\n",
+            "Error: Usage: eukhe schedule cancel <job>\n",
         ),
     ];
     for (args, golden) in usage_shapes {
         let out = run_cli(&cli, dir.path(), &agent_dir, &args);
-        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        // Missing input: the usage class exits 2.
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
         assert_eq!(stdout(&out), "", "{args:?}");
         assert_eq!(stderr(&out), golden, "{args:?}");
     }
@@ -770,10 +775,19 @@ fn schedule_usage_errors_and_valid_invocations() {
         let out = run_cli(&cli, dir.path(), &agent_dir, &args);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
         let err = stderr(&out);
-        assert!(
-            err.starts_with("Error: Failed to connect to the Eukhe daemon:"),
-            "{args:?}: {err}"
-        );
+        if args.contains(&"--json") {
+            // A `--json` run reports the connect failure as the one-line
+            // machine document on stderr, stdout empty.
+            assert_eq!(stdout(&out), "", "{args:?}");
+            let document: serde_json::Value =
+                serde_json::from_str(err.trim()).expect("json error document");
+            assert_eq!(document["reason"], "network_error", "{args:?}: {err}");
+        } else {
+            assert!(
+                err.starts_with("Error: Failed to connect to the Eukhe daemon:"),
+                "{args:?}: {err}"
+            );
+        }
     }
 }
 
