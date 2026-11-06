@@ -463,9 +463,9 @@ pub(crate) fn read_pi_manifest(
         return Err(broken("\"pi\" is not an object".to_string()));
     };
     Ok(Some(super::PiManifest {
-        skills: string_array(pi, "skills").map_err(&broken)?,
-        prompts: string_array(pi, "prompts").map_err(&broken)?,
-        themes: string_array(pi, "themes").map_err(&broken)?,
+        skills: string_array(pi, "skills").map_err(broken)?,
+        prompts: string_array(pi, "prompts").map_err(broken)?,
+        themes: string_array(pi, "themes").map_err(broken)?,
     }))
 }
 
