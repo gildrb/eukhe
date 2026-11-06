@@ -389,7 +389,7 @@ async fn a_goal_continues_with_its_context_until_completed() {
     );
     let goal = stored_goal(&harness, &root).await;
     assert_eq!(goal.status, GoalStatus::Complete);
-    assert!(!goal.active);
+    assert!(!goal.is_active());
     assert_eq!(goal.continuations_used, 2);
     assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
     // Every response while the goal was active spent its budget; the final

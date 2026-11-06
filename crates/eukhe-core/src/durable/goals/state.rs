@@ -70,7 +70,6 @@ pub(crate) fn new_goal(
     let objective = validate_goal_objective(objective)?;
     let token_budget = validate_goal_budget(token_budget)?;
     Ok(GoalState {
-        active: true,
         status: GoalStatus::Active,
         goal_id: Some(uuid::Uuid::new_v4().to_string()),
         objective: Some(objective),
@@ -89,7 +88,6 @@ pub(crate) fn new_goal(
 #[must_use]
 pub(crate) fn paused(state: &GoalState, reason: &str) -> Option<GoalState> {
     (state.status == GoalStatus::Active).then(|| GoalState {
-        active: false,
         status: GoalStatus::Paused,
         last_reason: Some(reason.to_owned()),
         last_error: None,
@@ -115,7 +113,6 @@ pub(crate) fn resumed(state: &GoalState) -> Option<GoalState> {
         GoalStatus::Active
     };
     Some(GoalState {
-        active: status == GoalStatus::Active,
         status,
         last_reason: exhausted.then(|| "Goal token budget already reached".to_owned()),
         last_error: None,
@@ -130,7 +127,6 @@ pub(crate) fn completed(state: &GoalState) -> Option<GoalState> {
         return None;
     }
     Some(GoalState {
-        active: false,
         status: GoalStatus::Complete,
         last_reason: Some("Goal achieved".to_owned()),
         last_error: None,
@@ -150,7 +146,6 @@ pub(crate) fn failed(state: &GoalState, error: Option<&str>) -> Option<GoalState
         .filter(|message| !message.is_empty())
         .unwrap_or(ASSISTANT_FAILED);
     Some(GoalState {
-        active: false,
         status: GoalStatus::Error,
         last_reason: Some(reason.to_owned()),
         last_error: Some(reason.to_owned()),
@@ -185,7 +180,6 @@ pub(crate) fn accounted(state: &GoalState, usage: &Usage) -> UsageOutcome {
     };
     match next.token_budget {
         Some(budget) if next.tokens_used >= budget => UsageOutcome::BudgetReached(GoalState {
-            active: false,
             status: GoalStatus::BudgetLimited,
             last_reason: Some(format!("Reached {budget} token goal budget")),
             last_error: None,
