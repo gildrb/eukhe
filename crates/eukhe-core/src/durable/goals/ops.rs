@@ -481,7 +481,6 @@ pub async fn import_legacy_goal(
     if state.status == GoalStatus::Active {
         if let Some(error) = stale_active_goal_failure(entries) {
             state = GoalState {
-                active: false,
                 status: GoalStatus::Error,
                 last_reason: Some(error.clone()),
                 last_error: Some(error),

@@ -62,7 +62,6 @@ impl GoalContextKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GoalState {
-    pub active: bool,
     pub status: GoalStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal_id: Option<String>,
@@ -93,7 +92,6 @@ impl Default for GoalState {
 #[must_use]
 pub fn empty_goal_state() -> GoalState {
     GoalState {
-        active: false,
         status: GoalStatus::Idle,
         goal_id: None,
         objective: None,
@@ -105,6 +103,15 @@ pub fn empty_goal_state() -> GoalState {
         updated_at: None,
         last_reason: None,
         last_error: None,
+    }
+}
+
+impl GoalState {
+    /// Whether the goal is live. Derived from `status`, so it can never drift
+    /// from it (the old separate `active` flag could).
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.status == GoalStatus::Active
     }
 }
 
@@ -122,7 +129,6 @@ mod tests {
         assert_eq!(
             goal,
             GoalState {
-                active: true,
                 status: GoalStatus::Active,
                 goal_id: Some("g1".to_owned()),
                 objective: Some("ship it".to_owned()),
