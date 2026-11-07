@@ -1429,6 +1429,17 @@ async fn run_interactive_surface(
                         reconnect = Some(ReconnectLoop::start_lost());
                         session.dirty = true;
                     }
+                    // The prompt outcomes deferred behind the drained
+                    // frames fold in now, after the loss decision -- the
+                    // events arm's order. Nothing else would fold them:
+                    // the drain emptied the queue they waited on, the
+                    // retained event sender keeps the channel open with
+                    // nothing left to wake the events arm, and the
+                    // recovery swaps the channel, so a note left parked
+                    // held its submit in flight for the rest of the run.
+                    for note in deferred_prompt_notes.drain(..) {
+                        session.apply_prompt_outcome(note, &mut view).await?;
+                    }
                 }
             }
             maybe_input = async {
