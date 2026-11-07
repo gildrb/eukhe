@@ -906,7 +906,9 @@ mod recorded_process_tests {
     }
 }
 
-#[cfg(test)]
+// Linux-only: the stop escalation it asserts signals through a pidfd; other
+// platforms have none, so the daemon never signals the unverifiable pid.
+#[cfg(all(test, target_os = "linux"))]
 mod build_tests {
     use std::sync::Arc;
     use std::time::Duration;

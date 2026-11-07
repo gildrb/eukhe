@@ -1163,6 +1163,9 @@ mod tests {
     /// group — the worker and the grandchild its run started — and records
     /// the stop as effects-unknown. (The old stop waited out the 30 s route
     /// budget and signalled the leader alone.)
+    // Linux-only: the kill rides a pidfd and the /proc descendant-group
+    // census; elsewhere the daemon never signals an unverifiable process.
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn a_wedged_worker_is_killed_with_its_group_after_the_grace() {
         use std::io::BufRead as _;
