@@ -159,27 +159,30 @@ async fn supervisor_pid(socket: &Path) -> u32 {
     pid
 }
 
-/// Liveness that ignores zombies.
+/// Liveness that ignores zombies. Best effort (it runs in `Drop`): a
+/// probe that cannot answer reads as gone.
 fn process_alive(pid: u32) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
-        stat.rsplit_once(')')
-            .and_then(|(_, rest)| rest.split_whitespace().next())
-            .is_some_and(|state| !state.starts_with('Z') && !state.starts_with('X'))
-    })
+    matches!(
+        eukhe_types::platform::process::is_process_alive(pid),
+        Ok(true)
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
-    // The daemon binds only in a private (0700) directory.
+    // The daemon binds only in a private (0700) directory. Canonical, so the
+    // socket path the test names is the one the supervisor records its
+    // workers under (`/tmp` reads `/private/tmp` on macOS).
     let dir = tempfile::Builder::new()
         .prefix("supervisor-crash-")
         .permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700))
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let agent_dir = dir.path().join("agent");
+    let root = dir.path().canonicalize().expect("canonical temp dir");
+    let agent_dir = root.join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    let socket = dir.path().join("daemon.sock");
+    let socket = root.join("daemon.sock");
     // Every supervisor of this test (the first one and the relaunch)
     // inherits this environment: the temp agent dir, this checkout's
     // kernel runtime, no ambient provider keys, and the short lost-exit
@@ -198,7 +201,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
             std::env::remove_var(var);
         }
     }
-    let script_path = dir.path().join("script.json");
+    let script_path = root.join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({ "responses": [{ "text": "survived", "delayMs": RUN_HOLD_MS }] })
@@ -209,7 +212,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
     let launch_count = Arc::new(AtomicUsize::new(0));
     let launcher = BuildLauncher {
         socket: socket.clone(),
-        cwd: dir.path().to_path_buf(),
+        cwd: root.clone(),
         launches: Arc::clone(&launch_count),
     };
     launcher.ensure().await.expect("start the first daemon");
@@ -222,6 +225,8 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
     // The crash, ordered by observation: once the run holds, SIGKILL the
     // supervisor (no graceful stop; its detached worker lives on).
     let kill_session_dir = session_dir.clone();
+    let kill_descriptor_dir = eukhe_daemon::descriptor::descriptor_dir(&agent_dir, &socket);
+    let kill_socket = socket.clone();
     let kill = tokio::spawn(async move {
         // The run holds once its prompt is in the storage.
         let deadline = Instant::now() + WAIT_BOUND;
@@ -238,31 +243,13 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
             assert!(Instant::now() < deadline, "the run never started");
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        // The session workers of the supervisor: its children whose
-        // environment carries the worker role.
-        let role = format!("{}=1", eukhe_daemon::worker::WORKER_ROLE_ENV);
-        let mut workers = Vec::new();
-        for entry in std::fs::read_dir("/proc").expect("read /proc").flatten() {
-            let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-                continue;
-            };
-            let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-                continue;
-            };
-            // `comm` can hold spaces and parens: the fields follow the last ')'.
-            let parent = stat
-                .rsplit_once(')')
-                .and_then(|(_, rest)| rest.split_whitespace().nth(1))
-                .and_then(|parent| parent.parse::<u32>().ok());
-            let worker = std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|environ| {
-                environ
-                    .split(|byte| *byte == 0)
-                    .any(|entry| entry == role.as_bytes())
-            });
-            if parent == Some(first_supervisor) && worker {
-                workers.push(pid);
-            }
-        }
+        // The session workers of the supervisor: the worker records it
+        // persists (each names its worker's pid).
+        let workers: Vec<u32> =
+            eukhe_daemon::descriptor::load_descriptors(&kill_descriptor_dir, &kill_socket)
+                .into_iter()
+                .map(|(_, descriptor)| u32::try_from(descriptor.pid).expect("pid fits u32"))
+                .collect();
         let raw = i32::try_from(first_supervisor).expect("pid fits i32");
         nix::sys::signal::kill(
             nix::unistd::Pid::from_raw(raw),
@@ -286,7 +273,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
     let options = InteractiveOptions {
         models: None,
         socket_path: socket.clone(),
-        cwd: dir.path().to_path_buf(),
+        cwd: root.clone(),
         session_dir: Some(session_dir.clone()),
         script_path: Some(script_path),
         model_selection: ModelSelection::default(),
@@ -353,6 +340,9 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
     // The new supervisor adopted the worker that outlived the crash: it
     // still runs (a replaced worker is stopped, a revived one is new).
     assert_eq!(workers.len(), 1, "one worker at the crash: {workers:?}");
-    assert!(process_alive(workers[0]), "the worker was adopted");
+    assert!(
+        eukhe_types::platform::process::is_process_alive(workers[0]).expect("probe the worker"),
+        "the worker was adopted"
+    );
     drop(teardown);
 }
