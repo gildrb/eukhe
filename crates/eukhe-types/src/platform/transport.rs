@@ -84,8 +84,12 @@ impl TransportListener for PeerListener {
     }
 }
 
-/// `AF_UNIX` `sun_path` capacity: 108 bytes including the terminating NUL.
+/// `AF_UNIX` `sun_path` capacity less its terminating NUL: 108 bytes on
+/// Linux, 104 on macOS (`sys/un.h`).
+#[cfg(target_os = "linux")]
 const MAX_SUN_PATH: usize = 107;
+#[cfg(not(target_os = "linux"))]
+const MAX_SUN_PATH: usize = 103;
 
 /// A kernel-valid `AF_UNIX` address for `bind`/`connect`.
 ///
@@ -283,7 +287,6 @@ pub fn connect_blocking(path: &Path) -> std::io::Result<Box<dyn BlockingTranspor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::FileTypeExt;
 
     /// These tests bind but never accept through the listener: its peer
     /// rule never runs.
@@ -320,8 +323,11 @@ mod tests {
         dir
     }
 
+    /// The `/proc/self/fd` re-anchor exists on Linux only.
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn over_limit_paths_bind_connect_and_land_in_place() {
+        use std::os::unix::fs::FileTypeExt;
         use tokio::io::AsyncReadExt;
         let dir = dir_of_exact_len("roundtrip", 120);
         let socket = dir.join("worker-test.sock");
