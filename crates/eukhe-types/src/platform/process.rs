@@ -127,19 +127,25 @@ pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
 /// before `kill` returns: the kernel hands a process-directed stop to any
 /// one thread, and in a multi-threaded process the caller can run on
 /// (into the resume path, re-arming raw mode on the shell's terminal)
-/// until the group stop reaches it. So the caller blocks SIGTSTP around
-/// the group signal, queues a thread-directed SIGTSTP on itself, and
-/// unblocks: the unblock cannot return before this thread stops (it
-/// either joins the group stop already in progress or starts it with its
-/// own signal). Linux's SIGCONT discards every stop signal still pending,
-/// the thread-directed ones included, so the process stops once.
+/// until the group stop reaches it. So the caller blocks SIGTSTP, queues
+/// a thread-directed SIGTSTP on itself, signals the group, and unblocks:
+/// the unblock cannot return before this thread stops (it either joins
+/// the group stop already in progress or starts it with its own signal).
+/// The thread signal goes first: once the group signal is out, another
+/// thread can start the group stop, and this thread stops at its next
+/// return to user space, before a later `pthread_kill` ran; that signal
+/// would be queued after the SIGCONT and stop the process a second time
+/// at the unblock. Queued first, both signals exist before the stop they
+/// cause, and Linux's SIGCONT discards every pending stop signal (the
+/// shared ones and those of each thread), so the process stops once.
 ///
 /// macOS needs no thread-directed signal and must not get one: xnu
-/// suspends the whole task while it posts the process-directed stop, so
-/// no thread runs past `kill`, and its SIGCONT does not discard a stop
-/// still pending on one thread. A queued thread-directed SIGTSTP would
-/// be delivered at the unblock after the continue and stop the process
-/// again: `fg` would leave the TUI stopped, painting nothing.
+/// suspends the whole task inside the `kill` that posts the default stop,
+/// so no thread runs past `kill`, and its SIGCONT clears pending stop
+/// signals only on the one thread it is posted to. A SIGTSTP pending on
+/// the caller could survive the continue, be delivered at the unblock,
+/// and stop the process again: `fg` would leave the TUI stopped, painting
+/// nothing.
 ///
 /// # Errors
 ///
@@ -160,28 +166,28 @@ pub fn stop_own_process_group() -> anyhow::Result<()> {
     if let Err(errno) = pthread_sigmask(SigmaskHow::SIG_BLOCK, Some(&tstp), Some(&mut previous)) {
         anyhow::bail!("blocking SIGTSTP failed: {}", std::io::Error::from(errno));
     }
-    // Delivers SIGTSTP to the caller's own process group; the default
-    // disposition stops it, exactly like the terminal's own Ctrl+Z (ISIG)
-    // would.
-    let group = kill(Pid::from_raw(0), Signal::SIGTSTP).map_err(|errno| {
+    // Linux: queues SIGTSTP on the calling thread itself, before the
+    // group signal; it stays pending until the unblock below.
+    #[cfg(target_os = "linux")]
+    let own = pthread_kill(pthread_self(), Signal::SIGTSTP).map_err(|errno| {
         anyhow::anyhow!(
-            "stopping the process group failed: {}",
+            "stopping the calling thread failed: {}",
             std::io::Error::from(errno)
         )
     });
-    // Linux: on success, queues SIGTSTP on the calling thread itself; it
-    // stays pending until the unblock below.
-    #[cfg(target_os = "linux")]
-    let delivered = group.and_then(|()| {
-        pthread_kill(pthread_self(), Signal::SIGTSTP).map_err(|errno| {
+    #[cfg(not(target_os = "linux"))]
+    let own = anyhow::Ok(());
+    // Delivers SIGTSTP to the caller's own process group; the default
+    // disposition stops it, exactly like the terminal's own Ctrl+Z (ISIG)
+    // would.
+    let delivered = own.and_then(|()| {
+        kill(Pid::from_raw(0), Signal::SIGTSTP).map_err(|errno| {
             anyhow::anyhow!(
-                "stopping the calling thread failed: {}",
+                "stopping the process group failed: {}",
                 std::io::Error::from(errno)
             )
         })
     });
-    #[cfg(not(target_os = "linux"))]
-    let delivered = group;
     // Restores the caller's previous thread mask; a queued stop lands
     // before this call returns.
     let restore = pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&previous), None);
