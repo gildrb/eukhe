@@ -73,8 +73,10 @@ fn anthropic_remote_login_child_mode() {
     let _ = eukhe_cli::main_with_runtime(&args, &eukhe_cli::PrintRuntime);
 }
 
-/// The fake token endpoint: records every request body and answers the
-/// scripted statuses in order (200 once the script runs out).
+/// The fake token endpoint: records every token request body and answers
+/// the scripted statuses in order (200 once the script runs out). Any
+/// other request (a local port scanner probing `GET /v1/models`) gets a
+/// 404 and is neither recorded nor counted against the script.
 struct TokenServer {
     url: String,
     bodies: Arc<Mutex<Vec<Value>>>,
@@ -93,9 +95,17 @@ impl TokenServer {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
-                let Some(body) = read_request_body(&stream) else {
+                let Some((request_line, body)) = read_request(&stream) else {
                     continue;
                 };
+                let mut stream = stream;
+                if !request_line.starts_with("POST /v1/oauth/token ") {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 404 X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    );
+                    continue;
+                }
                 recorded
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
@@ -106,7 +116,7 @@ impl TokenServer {
                 } else {
                     r#"{"error":"invalid_grant","error_description":"Invalid authorization code"}"#
                 };
-                let mut stream = stream;
+                // The token reply.
                 let _ = write!(
                     stream,
                     "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
@@ -125,9 +135,13 @@ impl TokenServer {
     }
 }
 
-/// One HTTP request's body (by `content-length`).
-fn read_request_body(stream: &TcpStream) -> Option<String> {
+/// One HTTP request: its request line and its body (by `content-length`).
+fn read_request(stream: &TcpStream) -> Option<(String, String)> {
     let mut reader = BufReader::new(stream);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).ok()? == 0 {
+        return None;
+    }
     let mut length = 0usize;
     loop {
         let mut line = String::new();
@@ -146,7 +160,10 @@ fn read_request_body(stream: &TcpStream) -> Option<String> {
     }
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).ok()?;
-    String::from_utf8(body).ok()
+    Some((
+        request_line.trim_end().to_string(),
+        String::from_utf8(body).ok()?,
+    ))
 }
 
 struct Supervisor(Daemon);
@@ -188,7 +205,12 @@ fn graceful_shutdown(socket: &Path) {
     let _ = writeln!(writer, "{shutdown}");
     let _ = writer.flush();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while Path::new(&format!("/proc/{pid}")).exists() && Instant::now() < deadline {
+    let pid = u32::try_from(pid).unwrap_or(0);
+    while matches!(
+        eukhe_types::platform::process::is_process_alive(pid),
+        Ok(true)
+    ) && Instant::now() < deadline
+    {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -405,7 +427,13 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Keep reading the pty while the child exits, as a terminal does:
+        // on macOS the exiting session leader waits until the master has
+        // read its pending output.
+        while matches!(self.child.try_wait(), Ok(None)) {
+            self.pty.drain();
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
