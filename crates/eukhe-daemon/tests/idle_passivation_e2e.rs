@@ -40,8 +40,11 @@ use eukhe_daemon::supervisor_link::SupervisorLink;
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
+#[path = "support/process_table.rs"]
+mod process_table;
 use daemon::supervisor_command;
 use process::Daemon;
+use process_table::process_alive;
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
@@ -132,7 +135,7 @@ fn worker_token(agent_dir: &Path, active_session_id: &str) -> Option<String> {
 
 /// The worker's pid from its persisted descriptor (the process the
 /// passivation must retire).
-fn worker_pid(agent_dir: &Path, active_session_id: &str) -> Option<u64> {
+fn worker_pid(agent_dir: &Path, active_session_id: &str) -> Option<u32> {
     let instances = std::fs::read_dir(agent_dir.join("daemon-workers")).ok()?;
     for instance in instances.flatten() {
         let descriptor_path = instance.path().join(format!("{active_session_id}.json"));
@@ -141,7 +144,7 @@ fn worker_pid(agent_dir: &Path, active_session_id: &str) -> Option<u64> {
         };
         if let Ok(descriptor) = serde_json::from_str::<Value>(&content) {
             if let Some(pid) = descriptor.get("pid").and_then(Value::as_u64) {
-                return Some(pid);
+                return u32::try_from(pid).ok();
             }
         }
     }
@@ -304,8 +307,8 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
         worker_token(&agent_dir, &child_active_session_id).expect("the child worker's token");
     let child_pid =
         worker_pid(&agent_dir, &child_active_session_id).expect("the child worker's pid");
-    assert!(std::path::Path::new(&format!("/proc/{child_pid}")).exists());
-    let child_alive = || std::path::Path::new(&format!("/proc/{child_pid}")).exists();
+    assert!(process_alive(child_pid));
+    let child_alive = || process_alive(child_pid);
 
     // THE PASSIVATION ASK: the child worker's supervisor-link request
     // (the worker-side clock and gates are unit-covered; this drives the
@@ -333,16 +336,10 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
         }
         assert!(
             Instant::now() < deadline,
-            "the child worker process survived the passivation; proc: {} cmd: {} descriptor: {} stderr: {}",
-            std::fs::read_to_string(format!("/proc/{child_pid}/status"))
-                .unwrap_or_default()
-                .lines()
-                .take(6)
-                .collect::<Vec<_>>()
-                .join(" | "),
-            std::fs::read_to_string(format!("/proc/{child_pid}/cmdline"))
-                .map(|raw| raw.replace('\0', " "))
-                .unwrap_or_default(),
+            "the child worker process survived the passivation; process: {:?} descriptor: {} stderr: {}",
+            process_table::snapshot()
+                .into_iter()
+                .find(|row| row.pid == child_pid),
             {
                 let mut found = std::path::PathBuf::new();
                 if let Ok(entries) = std::fs::read_dir(agent_dir.join("daemon-workers")) {
@@ -674,7 +671,7 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
         "the second idle passivation must succeed: {passivated}"
     );
     let deadline = Instant::now() + Duration::from_secs(60);
-    while std::path::Path::new(&format!("/proc/{revived_pid}")).exists() {
+    while process_alive(revived_pid) {
         assert!(
             Instant::now() < deadline,
             "the revived worker survived the second passivation"
@@ -769,7 +766,7 @@ async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcri
     let root_token =
         worker_token(&agent_dir, &root_active_session_id).expect("the root worker's token");
     let root_pid = worker_pid(&agent_dir, &root_active_session_id).expect("the root worker's pid");
-    assert!(std::path::Path::new(&format!("/proc/{root_pid}")).exists());
+    assert!(process_alive(root_pid));
 
     // THE PASSIVATION ASK for a ROOT: the supervisor's handler accepts an
     // unowned worker regardless of depth (without the fix this answers
@@ -790,7 +787,7 @@ async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcri
 
     // The root worker's process is gone (the whole-worker stop).
     let deadline = Instant::now() + Duration::from_secs(60);
-    while std::path::Path::new(&format!("/proc/{root_pid}")).exists() {
+    while process_alive(root_pid) {
         assert!(
             Instant::now() < deadline,
             "the root worker process survived the passivation"

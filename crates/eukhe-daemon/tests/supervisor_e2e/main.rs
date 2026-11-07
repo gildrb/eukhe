@@ -35,6 +35,8 @@ use std::time::{Duration, Instant};
 mod daemon;
 #[path = "../support/process.rs"]
 mod process;
+#[path = "../support/process_table.rs"]
+mod process_table;
 use daemon::supervisor_command;
 use process::Daemon;
 

@@ -15,7 +15,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let _daemon = spawn_daemon(&socket, &agent_dir);
+    let daemon = spawn_daemon(&socket, &agent_dir);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     // Differential goldens captured from the TS supervisor
@@ -34,10 +34,13 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
         Some("protocol-7-schema-30-8e4b17c2a9f5".to_string())
     );
     assert!(hello["supervisorOwnerToken"].is_string());
-    assert!(hello["supervisorProcessStartId"]
-        .as_str()
-        .unwrap_or_default()
-        .starts_with("proc:"));
+    // The platform's pid-reuse identity (`proc:` on Linux, `ps:` on macOS).
+    let start_id = eukhe_types::platform::process::process_start_id(daemon.child.id())
+        .expect("the supervisor's start id");
+    assert_eq!(
+        hello["supervisorProcessStartId"].as_str(),
+        Some(start_id.as_str())
+    );
     assert_eq!(
         hello["serverCapabilities"],
         serde_json::json!([

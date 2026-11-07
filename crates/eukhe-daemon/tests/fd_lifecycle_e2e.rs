@@ -1,7 +1,7 @@
 //! End-to-end fd-lifecycle audit against the real `eukhe-daemon` supervisor:
 //! spawn the supervisor, run create/prompt/kill session cycles, and sample
-//! `/proc/<pid>/fd` per cycle so any monotonically growing fd class in the
-//! supervisor (worker transports, journals, logs, event channels) is
+//! the process's open fds per cycle so any monotonically growing fd class in
+//! the supervisor (worker transports, journals, logs, event channels) is
 //! caught as a regression.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
@@ -40,43 +40,82 @@ use std::time::{Duration, Instant};
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
+#[path = "support/process_table.rs"]
+mod process_table;
 use daemon::{daemon_env, supervisor_args};
 use process::Daemon;
+use process_table::{child_pids_of, process_alive};
 
-/// Sample the open-fd set of a process: count plus one readlink target per
-/// fd. Returns an empty snapshot for a dead pid.
+/// Sample the open-fd set of a process: one class per fd (`socket`,
+/// `pipe`, `memfd`, `device`, `file`). Returns an empty snapshot for a dead
+/// pid. Linux reads the `/proc/<pid>/fd` link targets.
+#[cfg(target_os = "linux")]
 fn fd_snapshot(pid: u32) -> Vec<String> {
     let dir = PathBuf::from(format!("/proc/{pid}/fd"));
-    let mut targets = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
-        return targets;
+        return Vec::new();
     };
-    for entry in entries.flatten() {
-        let target = std::fs::read_link(entry.path())
-            .map_or_else(|_| "?".to_string(), |t| t.to_string_lossy().to_string());
-        targets.push(target);
-    }
-    targets
+    entries
+        .flatten()
+        .map(|entry| {
+            let target = std::fs::read_link(entry.path())
+                .map_or_else(|_| "?".to_string(), |t| t.to_string_lossy().to_string());
+            let class = if target.starts_with("socket:") {
+                "socket"
+            } else if target.starts_with("pipe:") {
+                "pipe"
+            } else if target.starts_with("/memfd:") {
+                "memfd"
+            } else if target.starts_with("/dev/") {
+                "device"
+            } else {
+                "file"
+            };
+            class.to_string()
+        })
+        .collect()
 }
 
-/// Histogram of fd readlink targets (socket inodes collapse to a class).
-fn fd_classes(targets: &[String]) -> Vec<(String, usize)> {
-    let mut classes: HashMap<String, usize> = HashMap::new();
-    for target in targets {
-        let class = if target.starts_with("socket:") {
-            "socket".to_string()
-        } else if target.starts_with("pipe:") {
-            "pipe".to_string()
-        } else if target.starts_with("/memfd:") {
-            "memfd".to_string()
-        } else if target.starts_with("/dev/") {
-            "device".to_string()
-        } else {
-            "file".to_string()
-        };
-        *classes.entry(class).or_default() += 1;
+/// Sample the open-fd set of a process: one class per fd. Without
+/// `/proc`, `lsof` lists it (`-F ft`: each file's fd and type; the
+/// non-numeric fds - cwd, program text, mappings - are no descriptors).
+#[cfg(not(target_os = "linux"))]
+fn fd_snapshot(pid: u32) -> Vec<String> {
+    let output = Command::new("/usr/sbin/lsof")
+        .args(["-n", "-P", "-w", "-p", &pid.to_string(), "-F", "ft"])
+        .output()
+        .expect("run lsof");
+    let mut classes = Vec::new();
+    let mut descriptor = false;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(fd) = line.strip_prefix('f') {
+            descriptor = fd.parse::<u32>().is_ok();
+        } else if let Some(kind) = line.strip_prefix('t') {
+            if descriptor {
+                classes.push(
+                    match kind {
+                        "unix" | "IPv4" | "IPv6" | "systm" => "socket",
+                        "PIPE" | "FIFO" => "pipe",
+                        "CHR" => "device",
+                        "REG" | "DIR" => "file",
+                        other => other,
+                    }
+                    .to_string(),
+                );
+            }
+            descriptor = false;
+        }
     }
-    let mut rows: Vec<(String, usize)> = classes.into_iter().collect();
+    classes
+}
+
+/// Histogram of the fd classes.
+fn fd_classes(classes: &[String]) -> Vec<(String, usize)> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for class in classes {
+        *counts.entry(class.clone()).or_default() += 1;
+    }
+    let mut rows: Vec<(String, usize)> = counts.into_iter().collect();
     rows.sort();
     rows
 }
@@ -426,52 +465,13 @@ fn worker_fd_count_stable_across_prompts() {
 // Worker fd table across connection churn (the EMFILE class)
 // ---------------------------------------------------------------------------
 
-/// Liveness that ignores zombies (an unreaped child keeps its /proc entry).
-fn process_alive(pid: u32) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    let Some((_, rest)) = stat.rsplit_once(')') else {
-        return false;
-    };
-    let state = rest.split_whitespace().next().unwrap_or_default();
-    !state.starts_with('Z') && !state.starts_with('X')
-}
-
-/// Pids whose parent is `ppid`.
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next();
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
-}
-
-/// A live session kernel: spawned as `python -P -m rlm.repl` (NUL-separated
-/// argv); the interpreter probes before it run `python -P -c ...`.
+/// A live session kernel: spawned as `python -P -m rlm.repl`; the
+/// interpreter probes before it run `python -P -c ...`.
 fn is_kernel_process(pid: u32) -> bool {
-    let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) else {
-        return false;
-    };
-    let args: Vec<&str> = cmdline.split('\0').collect();
-    args.windows(2).any(|window| window == ["-m", "rlm.repl"]) && process_alive(pid)
+    process_table::snapshot()
+        .iter()
+        .any(|row| row.pid == pid && row.runs(&["-m", "rlm.repl"]))
+        && process_alive(pid)
 }
 
 fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Instant) {

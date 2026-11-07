@@ -357,9 +357,9 @@ fn create_parent(
 }
 
 /// The parent worker's process id, read from its durable descriptor (the
-/// supervisor persists the live pid at every spawn). The environ check
-/// guards the kill against a stale pid: the process we SIGKILL must be
-/// the worker that owns `parent_id`.
+/// supervisor persists the live pid and its start identity at every
+/// spawn). The identity check guards the kill against a stale pid: the
+/// process we SIGKILL must be the worker that owns `parent_id`.
 fn parent_worker_pid(agent_dir: &Path, socket: &Path, parent_id: &str) -> u32 {
     let descriptor_path = eukhe_daemon::descriptor::descriptor_dir(agent_dir, socket)
         .join(format!("{parent_id}.json"));
@@ -369,11 +369,13 @@ fn parent_worker_pid(agent_dir: &Path, socket: &Path, parent_id: &str) -> u32 {
     )
     .expect("parent descriptor json");
     let pid = descriptor["pid"].as_u64().expect("descriptor pid") as u32;
-    let environ = std::fs::read_to_string(format!("/proc/{pid}/environ"))
-        .unwrap_or_else(|_| panic!("read /proc/{pid}/environ"));
-    assert!(
-        environ.contains(&format!("={parent_id}\0"))
-            && environ.contains(eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV),
+    assert_eq!(
+        eukhe_types::platform::process::process_start_id(pid).as_deref(),
+        Some(
+            descriptor["processStartId"]
+                .as_str()
+                .expect("descriptor start id")
+        ),
         "pid {pid} is not the worker for session {parent_id}"
     );
     pid

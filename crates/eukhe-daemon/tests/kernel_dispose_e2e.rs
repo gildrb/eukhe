@@ -33,56 +33,23 @@ use serde_json::{json, Value};
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
+#[path = "support/process_table.rs"]
+mod process_table;
 use daemon::supervisor_command;
 use process::Daemon;
+use process_table::{descends_from, ProcessRow};
 
-/// Every live `python -m rlm.repl` pid on the box.
-fn kernel_pids() -> Vec<u32> {
-    let mut found = Vec::new();
-    let entries = std::fs::read_dir("/proc").unwrap_or_else(|e| panic!("read /proc: {e}"));
-    for entry in entries.flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) else {
-            continue;
-        };
-        // The kernel is spawned as `python -m rlm.repl` (NUL-separated
-        // argv): the adjacent `-m rlm.repl` pair avoids matching an
-        // unrelated process that merely mentions the module.
-        let args: Vec<&str> = cmdline.split('\0').collect();
-        if args.windows(2).any(|window| window == ["-m", "rlm.repl"]) {
-            found.push(pid);
-        }
-    }
+/// Every live `python -m rlm.repl` process in `table`: the adjacent
+/// `-m rlm.repl` pair avoids matching an unrelated process that merely
+/// mentions the module (a zombie lists no arguments).
+fn kernel_pids(table: &[ProcessRow]) -> Vec<u32> {
+    let mut found: Vec<u32> = table
+        .iter()
+        .filter(|row| row.runs(&["-m", "rlm.repl"]))
+        .map(|row| row.pid)
+        .collect();
     found.sort_unstable();
     found
-}
-
-/// Whether `pid` runs under `ancestor` (its parent chain reaches it).
-fn descends_from(mut pid: u32, ancestor: u32) -> bool {
-    while pid > 1 {
-        // `pid (comm) state ppid ...`: the command may hold spaces and
-        // parentheses, the fields after its last `)` do not.
-        let Some(parent) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-            .ok()
-            .and_then(|stat| {
-                stat.rsplit_once(')')?
-                    .1
-                    .split_whitespace()
-                    .nth(1)?
-                    .parse::<u32>()
-                    .ok()
-            })
-        else {
-            return false;
-        };
-        if parent == ancestor {
-            return true;
-        }
-        pid = parent;
-    }
-    false
 }
 
 /// Poll until a kernel runs under `supervisor` (its workers start the
@@ -90,9 +57,10 @@ fn descends_from(mut pid: u32, ancestor: u32) -> bool {
 fn await_new_kernel(supervisor: u32, budget: Duration) -> Vec<u32> {
     let deadline = Instant::now() + budget;
     loop {
-        let fresh: Vec<u32> = kernel_pids()
+        let table = process_table::snapshot();
+        let fresh: Vec<u32> = kernel_pids(&table)
             .into_iter()
-            .filter(|pid| descends_from(*pid, supervisor))
+            .filter(|pid| descends_from(&table, *pid, supervisor))
             .collect();
         if !fresh.is_empty() {
             return fresh;
@@ -111,7 +79,7 @@ fn await_new_kernel(supervisor: u32, budget: Duration) -> Vec<u32> {
 fn await_kernels_gone(kernels: &[u32], budget: Duration) {
     let deadline = Instant::now() + budget;
     loop {
-        let alive: Vec<u32> = kernel_pids()
+        let alive: Vec<u32> = kernel_pids(&process_table::snapshot())
             .into_iter()
             .filter(|pid| kernels.contains(pid))
             .collect();

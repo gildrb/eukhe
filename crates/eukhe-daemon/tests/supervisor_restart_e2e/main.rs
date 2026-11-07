@@ -43,8 +43,11 @@ use serde_json::{json, Value};
 mod daemon;
 #[path = "../support/process.rs"]
 mod process;
+#[path = "../support/process_table.rs"]
+mod process_table;
 use daemon::supervisor_command;
 use process::Daemon;
+use process_table::{child_pids_of, process_alive};
 
 /// Spawn a supervisor and wait until its socket accepts connections (a
 /// restarted supervisor parks on the stale socket file for up to a second
@@ -63,45 +66,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
         socket,
         Duration::from_secs(15),
     )
-}
-
-/// Liveness that ignores zombies (a re-parented child nobody reaps keeps its
-/// /proc entry until the status is collected).
-fn process_alive(pid: u32) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    let Some((_, rest)) = stat.rsplit_once(')') else {
-        return false;
-    };
-    let state = rest.split_whitespace().next().unwrap_or_default();
-    !state.starts_with('Z') && !state.starts_with('X')
-}
-
-/// Pids whose parent is `ppid`.
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next();
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
 }
 
 struct Client {

@@ -33,9 +33,9 @@
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`). The process-table scans count
-//! only the kernels of the test's own agent dir (the kernel's
-//! `EUKHE_CODING_AGENT_DIR`), so ambient kernels (other agent sessions and
-//! concurrent test runs on the same box) never interfere.
+//! only the kernels running under the test's own supervisor, so ambient
+//! kernels (other agent sessions and concurrent test runs on the same box)
+//! never interfere.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -47,48 +47,30 @@ use serde_json::{json, Value};
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
+#[path = "support/process_table.rs"]
+mod process_table;
 use daemon::supervisor_command;
 use process::Daemon;
+use process_table::descends_from;
 
-/// Every live `python -m rlm.repl` pid serving `agent_dir`: the kernels
-/// of this test's daemon (each kernel's environment names its session's
-/// agent dir in `EUKHE_CODING_AGENT_DIR`).
-fn kernel_pids(agent_dir: &Path) -> Vec<u32> {
-    let marker = format!("EUKHE_CODING_AGENT_DIR={}", agent_dir.display());
-    let mut found = Vec::new();
-    let entries = std::fs::read_dir("/proc").unwrap_or_else(|e| panic!("read /proc: {e}"));
-    for entry in entries.flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) else {
-            continue;
-        };
-        let args: Vec<&str> = cmdline.split('\0').collect();
-        if !args.windows(2).any(|window| window == ["-m", "rlm.repl"]) {
-            continue;
-        }
-        // A process that exited (or another user's) since the cmdline read
-        // is not one of ours.
-        let Ok(environ) = std::fs::read(format!("/proc/{pid}/environ")) else {
-            continue;
-        };
-        if environ
-            .split(|byte| *byte == 0)
-            .any(|variable| variable == marker.as_bytes())
-        {
-            found.push(pid);
-        }
-    }
+/// Every live `python -m rlm.repl` pid under `supervisor`: the kernels its
+/// session workers started (a zombie lists no arguments).
+fn kernel_pids(supervisor: u32) -> Vec<u32> {
+    let table = process_table::snapshot();
+    let mut found: Vec<u32> = table
+        .iter()
+        .filter(|row| row.runs(&["-m", "rlm.repl"]) && descends_from(&table, row.pid, supervisor))
+        .map(|row| row.pid)
+        .collect();
     found.sort_unstable();
     found
 }
 
-/// Poll until at least one kernel of `agent_dir` exists.
-fn await_new_kernel(agent_dir: &Path, budget: Duration) -> Vec<u32> {
+/// Poll until at least one kernel under `supervisor` exists.
+fn await_new_kernel(supervisor: u32, budget: Duration) -> Vec<u32> {
     let deadline = Instant::now() + budget;
     loop {
-        let fresh = kernel_pids(agent_dir);
+        let fresh = kernel_pids(supervisor);
         if !fresh.is_empty() {
             return fresh;
         }
@@ -105,10 +87,10 @@ fn await_new_kernel(agent_dir: &Path, budget: Duration) -> Vec<u32> {
 /// session prewarmed a new one. The new kernel may boot before the old
 /// one finishes its final snapshot flush, so any ordering passes - only
 /// the end state (old gone, new alive) is the contract.
-fn await_kernel_turnover(agent_dir: &Path, old: &[u32], budget: Duration) -> Vec<u32> {
+fn await_kernel_turnover(supervisor: u32, old: &[u32], budget: Duration) -> Vec<u32> {
     let deadline = Instant::now() + budget;
     loop {
-        let fresh = kernel_pids(agent_dir);
+        let fresh = kernel_pids(supervisor);
         let old_gone = old.iter().all(|pid| !fresh.contains(pid));
         if old_gone && !fresh.is_empty() {
             return fresh;
@@ -121,12 +103,12 @@ fn await_kernel_turnover(agent_dir: &Path, old: &[u32], budget: Duration) -> Vec
     }
 }
 
-/// Poll until the kernel pids of `agent_dir` are exactly `expected` (same
+/// Poll until the kernel pids under `supervisor` are exactly `expected` (same
 /// pids, no additions): a tree move must not turn the kernel over.
-fn await_same_kernels(agent_dir: &Path, expected: &[u32], budget: Duration) {
+fn await_same_kernels(supervisor: u32, expected: &[u32], budget: Duration) {
     let deadline = Instant::now() + budget;
     loop {
-        let fresh = kernel_pids(agent_dir);
+        let fresh = kernel_pids(supervisor);
         if fresh == expected {
             return;
         }
@@ -374,12 +356,13 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path());
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
+    let supervisor = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
     run_turn(&mut client, &session_id, "seed the marker", "t1");
-    let first = await_new_kernel(&agent_dir, Duration::from_mins(2));
+    let first = await_new_kernel(supervisor, Duration::from_mins(2));
     assert_eq!(await_receipt(dir.path(), "seed"), "seeded");
 
     // The replacement: TS disposes the old runtime first.
@@ -389,7 +372,7 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
     );
     let replaced = client.read_response("n1");
     assert_eq!(replaced["success"], true, "new_session failed: {replaced}");
-    let _replacement = await_kernel_turnover(&agent_dir, &first, Duration::from_mins(2));
+    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 
     // The fresh session's kernel executes the probe on a cold namespace.
     run_turn(&mut client, &session_id, "probe the marker", "t2");
@@ -412,12 +395,13 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path());
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
+    let supervisor = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
     run_turn(&mut client, &session_id, "seed the marker", "t1");
-    let first = await_new_kernel(&agent_dir, Duration::from_mins(2));
+    let first = await_new_kernel(supervisor, Duration::from_mins(2));
     assert_eq!(await_receipt(dir.path(), "seed"), "seeded");
 
     // A missing switch target fails at the prepare: the live session and
@@ -442,7 +426,7 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
             .contains("/tmp/definitely-missing-replacement.jsonl"),
         "missing switch target error: {failed:?}"
     );
-    await_same_kernels(&agent_dir, &first, Duration::from_secs(30));
+    await_same_kernels(supervisor, &first, Duration::from_secs(30));
 
     // A prepared target replaces the runtime: kernel turnover + cold
     // namespace on the switched-to session.
@@ -473,7 +457,7 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
         switched["success"], true,
         "switch_session failed: {switched}"
     );
-    let _replacement = await_kernel_turnover(&agent_dir, &first, Duration::from_mins(2));
+    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
     run_turn(&mut client, &session_id, "probe the marker", "t2");
     assert_eq!(
         await_receipt(dir.path(), "probe"),
@@ -493,12 +477,13 @@ fn fork_disposes_the_kernel_and_starts_cold() {
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path());
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
+    let supervisor = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
     run_turn(&mut client, &session_id, "seed the marker", "t1");
-    let first = await_new_kernel(&agent_dir, Duration::from_mins(2));
+    let first = await_new_kernel(supervisor, Duration::from_mins(2));
     assert_eq!(await_receipt(dir.path(), "seed"), "seeded");
 
     // Fork before the first user message: the fork's branch is empty and
@@ -519,7 +504,7 @@ fn fork_disposes_the_kernel_and_starts_cold() {
         forked["data"]["cancelled"], false,
         "fork cancelled: {forked}"
     );
-    let _replacement = await_kernel_turnover(&agent_dir, &first, Duration::from_mins(2));
+    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 
     // The fork's kernel executes the probe on a cold namespace.
     run_turn(&mut client, &session_id, "probe the marker", "t2");
@@ -622,12 +607,16 @@ fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
     );
 
     // The post-switch turn runs the cell on the rebuilt session's kernel:
-    // the cwd the tools see is the target session's recorded cwd.
+    // the cwd the tools see is the target session's recorded cwd, as
+    // `os.getcwd()` resolves it (macOS temp dirs sit behind `/var` ->
+    // `/private/var`).
     run_turn(&mut client, &session_id, "print the cwd", "t1");
     let observed = await_receipt_text(&receipt);
     assert_eq!(
         observed,
-        beta.to_string_lossy(),
+        beta.canonicalize()
+            .expect("canonical beta")
+            .to_string_lossy(),
         "the switched-to session's kernel kept the worker's original cwd"
     );
 }
@@ -642,12 +631,13 @@ fn navigate_tree_keeps_the_kernel_warm() {
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path());
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
+    let supervisor = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
     run_turn(&mut client, &session_id, "seed the marker", "t1");
-    let first = await_new_kernel(&agent_dir, Duration::from_mins(2));
+    let first = await_new_kernel(supervisor, Duration::from_mins(2));
     assert_eq!(await_receipt(dir.path(), "seed"), "seeded");
 
     // A branch move to the first user message: in-place context rebuild,
@@ -667,7 +657,7 @@ fn navigate_tree_keeps_the_kernel_warm() {
         moved["data"]["cancelled"], false,
         "navigate_tree cancelled: {moved}"
     );
-    await_same_kernels(&agent_dir, &first, Duration::from_secs(30));
+    await_same_kernels(supervisor, &first, Duration::from_secs(30));
 
     // The same kernel's namespace survived the move.
     run_turn(&mut client, &session_id, "probe the marker", "t2");
@@ -676,5 +666,5 @@ fn navigate_tree_keeps_the_kernel_warm() {
         "warm",
         "a tree move lost the live kernel's namespace"
     );
-    await_same_kernels(&agent_dir, &first, Duration::from_secs(30));
+    await_same_kernels(supervisor, &first, Duration::from_secs(30));
 }
