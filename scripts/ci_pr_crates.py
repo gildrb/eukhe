@@ -42,6 +42,7 @@ WORKSPACE_DEPS = {
     "eukhe-docs": set(),
     "eukhe-core": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
                    "eukhe-models", "eukhe-docs"},
+    "eukhe-sdk": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable", "eukhe-core"},
     "eukhe-daemon": {"eukhe-build-info", "eukhe-core", "eukhe-durable", "eukhe-ai",
                      "eukhe-chord"},
     "eukhe-client": {"eukhe-types", "eukhe-build-info"},

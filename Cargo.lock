@@ -826,6 +826,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-sdk"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "eukhe-ai",
+ "eukhe-chord",
+ "eukhe-core",
+ "eukhe-durable",
+ "eukhe-types",
+ "futures",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "eukhe-shell"
 version = "0.10.0"
 dependencies = [
