@@ -123,23 +123,31 @@ pub fn process_executable_path(pid: u32) -> Option<std::path::PathBuf> {
 /// process in the group stops, and execution continues after SIGCONT.
 /// Errors when the signal could not be delivered.
 ///
-/// The group signal alone does not stop the CALLING thread before
-/// `kill` returns: the kernel hands a process-directed stop to any one
-/// thread, and in a multi-threaded process the caller can run on (into
-/// the resume path, re-arming raw mode on the shell's terminal) until the
-/// group stop reaches it. So the caller blocks SIGTSTP around the group
-/// signal, queues a thread-directed SIGTSTP on itself, and unblocks: the
-/// unblock cannot return before this thread stops (it either joins the
-/// group stop already in progress or starts it with its own signal).
-/// SIGCONT discards every stop signal still pending, so the process
-/// stops once.
+/// On Linux the group signal alone does not stop the CALLING thread
+/// before `kill` returns: the kernel hands a process-directed stop to any
+/// one thread, and in a multi-threaded process the caller can run on
+/// (into the resume path, re-arming raw mode on the shell's terminal)
+/// until the group stop reaches it. So the caller blocks SIGTSTP around
+/// the group signal, queues a thread-directed SIGTSTP on itself, and
+/// unblocks: the unblock cannot return before this thread stops (it
+/// either joins the group stop already in progress or starts it with its
+/// own signal). Linux's SIGCONT discards every stop signal still pending,
+/// the thread-directed ones included, so the process stops once.
+///
+/// macOS needs no thread-directed signal and must not get one: xnu
+/// suspends the whole task while it posts the process-directed stop, so
+/// no thread runs past `kill`, and its SIGCONT does not discard a stop
+/// still pending on one thread. A queued thread-directed SIGTSTP would
+/// be delivered at the unblock after the continue and stop the process
+/// again: `fg` would leave the TUI stopped, painting nothing.
 ///
 /// # Errors
 ///
-/// Returns an error when delivering `SIGTSTP` to the process group or to
-/// the calling thread fails, or when the thread's signal mask cannot be
-/// changed; the error carries the OS error.
+/// Returns an error when delivering `SIGTSTP` to the process group or
+/// (Linux) to the calling thread fails, or when the thread's signal mask
+/// cannot be changed; the error carries the OS error.
 pub fn stop_own_process_group() -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
     use nix::sys::pthread::{pthread_kill, pthread_self};
     use nix::sys::signal::{kill, pthread_sigmask, SigSet, SigmaskHow, Signal};
     use nix::unistd::Pid;
@@ -154,20 +162,26 @@ pub fn stop_own_process_group() -> anyhow::Result<()> {
     }
     // Delivers SIGTSTP to the caller's own process group; the default
     // disposition stops it, exactly like the terminal's own Ctrl+Z (ISIG)
-    // would. On success, queues SIGTSTP on the calling thread itself; it
-    // stays pending until the unblock below.
-    let delivered = match kill(Pid::from_raw(0), Signal::SIGTSTP) {
-        Err(errno) => Err(anyhow::anyhow!(
+    // would.
+    let group = kill(Pid::from_raw(0), Signal::SIGTSTP).map_err(|errno| {
+        anyhow::anyhow!(
             "stopping the process group failed: {}",
             std::io::Error::from(errno)
-        )),
-        Ok(()) => pthread_kill(pthread_self(), Signal::SIGTSTP).map_err(|errno| {
+        )
+    });
+    // Linux: on success, queues SIGTSTP on the calling thread itself; it
+    // stays pending until the unblock below.
+    #[cfg(target_os = "linux")]
+    let delivered = group.and_then(|()| {
+        pthread_kill(pthread_self(), Signal::SIGTSTP).map_err(|errno| {
             anyhow::anyhow!(
                 "stopping the calling thread failed: {}",
                 std::io::Error::from(errno)
             )
-        }),
-    };
+        })
+    });
+    #[cfg(not(target_os = "linux"))]
+    let delivered = group;
     // Restores the caller's previous thread mask; a queued stop lands
     // before this call returns.
     let restore = pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&previous), None);
