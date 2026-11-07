@@ -481,6 +481,50 @@ async fn aborting_during_the_delay_ends_the_stream_aborted() {
     );
 }
 
+/// `holdUntilReleased`: the request connects to the harness's gate and
+/// stays in flight until the harness closes the connection -- a hold ended
+/// by a condition, not a clock.
+#[tokio::test]
+async fn hold_until_released_holds_the_request_until_the_gate_closes() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let gate = dir.path().join("gate.sock");
+    let listener = tokio::net::UnixListener::bind(&gate).expect("bind the gate");
+    let (models, faux) = scripted(&json!({
+        "responses": [{ "text": "released", "holdUntilReleased": gate }],
+    }));
+    let call = tokio::spawn(async move { complete(&models, &faux).await });
+    let (held, _) = listener
+        .accept()
+        .await
+        .expect("the request reaches the gate");
+    assert!(
+        !call.is_finished(),
+        "the request is held while the gate is open"
+    );
+    drop(held);
+    let released = call.await.expect("the call completes");
+    assert_eq!(released.content, vec![faux_text("released")]);
+    assert_eq!(released.stop_reason, StopReason::Stop);
+}
+
+/// A gate nothing listens on fails the request loudly.
+#[tokio::test]
+async fn hold_until_released_without_a_listener_fails_the_request() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let (models, faux) = scripted(&json!({
+        "responses": [{ "text": "never", "holdUntilReleased": dir.path().join("absent.sock") }],
+    }));
+    let failed = complete(&models, &faux).await;
+    assert_eq!(failed.stop_reason, StopReason::Error);
+    assert!(
+        failed
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("the faux hold gate")),
+        "{failed:?}"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn tokens_per_second_paces_streaming() {
     // 40 characters = 10 tokens; at 10 tokens per second the stream takes

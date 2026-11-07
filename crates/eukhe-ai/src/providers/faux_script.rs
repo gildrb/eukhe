@@ -36,8 +36,14 @@
 //! `provider: "faux"` so fixtures can declare faux models in `models.json`.
 
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
+
+use eukhe_types::platform::transport::connect_transport;
+use tokio::io::AsyncReadExt as _;
+
+use crate::utils::diagnostics::{thrown, Thrown};
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, JsonObject, JsonValue, Message, Modality, Model, StopReason,
@@ -121,9 +127,12 @@ pub fn parse_faux_script(script: &str) -> Result<FauxScript, FauxScriptError> {
 /// (answers with the request's system prompt), or
 /// `{"content": [{"type": "thinking"|"text"|"toolCall", ...}]}`. Object
 /// entries may carry `stopReason` (default `toolUse` when the entry has a
-/// tool call, else `stop`), `errorMessage`, and `delayMs` (holds the request
+/// tool call, else `stop`), `errorMessage`, `delayMs` (holds the request
 /// in flight before the first event; an abort during the hold ends the
-/// stream aborted).
+/// stream aborted), and `holdUntilReleased` (a socket path: the request
+/// connects to the listener there and stays in flight until that peer
+/// closes the connection -- a hold the harness ends on a condition
+/// instead of a clock; an abort ends it like `delayMs`).
 ///
 /// Entry objects whose `content` is not an array and whose `text` is not a
 /// string (for example `{"content": 1}` or `{"text": 1}`) are empty text
@@ -280,47 +289,85 @@ fn parse_script_step(entry: &JsonValue) -> Result<FauxResponseStep, FauxScriptEr
         .get("delayMs")
         .and_then(JsonValue::as_u64)
         .unwrap_or_default();
+    let release_gate = entry
+        .get("holdUntilReleased")
+        .and_then(JsonValue::as_str)
+        .map(PathBuf::from);
     let options = FauxAssistantMessageOptions {
         stop_reason: Some(stop_reason),
         error_message,
         ..FauxAssistantMessageOptions::default()
     };
     Ok(match content {
-        ScriptedContent::Blocks(blocks) if delay_ms == 0 => {
+        ScriptedContent::Blocks(blocks) if delay_ms == 0 && release_gate.is_none() => {
             faux_assistant_message(blocks, options).into()
         }
-        content => scripted_factory(content, options, delay_ms),
+        content => scripted_factory(content, options, delay_ms, release_gate),
     })
 }
 
-/// A factory step: content resolved against the request, and a `delay_ms`
-/// hold that keeps the request in flight before the first event. The hold
-/// races the request's abort signal; on abort the faux stream ends aborted
-/// before any content streams, like a transport dying mid-request.
+/// A factory step: content resolved against the request, then the holds
+/// that keep the request in flight before the first event -- `delay_ms`,
+/// and the `release_gate` socket's connection until its peer closes it.
+/// The holds race the request's abort signal; on abort the faux stream
+/// ends aborted before any content streams, like a transport dying
+/// mid-request.
 fn scripted_factory(
     content: ScriptedContent,
     options: FauxAssistantMessageOptions,
     delay_ms: u64,
+    release_gate: Option<PathBuf>,
 ) -> FauxResponseStep {
     FauxResponseStep::Factory(Arc::new(move |context, request, _state, _model| {
         let message = faux_assistant_message(content.resolve(context), options.clone());
         let signal = request.and_then(|request| request.stream.request.signal.clone());
+        let release_gate = release_gate.clone();
         Box::pin(async move {
-            if delay_ms > 0 {
-                let hold = tokio::time::sleep(Duration::from_millis(delay_ms));
-                match signal {
-                    Some(signal) => {
-                        tokio::select! {
-                            () = hold => {}
-                            _ = signal.cancelled() => {}
-                        }
-                    }
-                    None => hold.await,
+            let hold = async {
+                if delay_ms > 0 {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 }
+                match release_gate {
+                    Some(gate) => held_until_released(&gate).await,
+                    None => Ok(()),
+                }
+            };
+            match signal {
+                Some(signal) => {
+                    tokio::select! {
+                        outcome = hold => outcome?,
+                        _ = signal.cancelled() => {}
+                    }
+                }
+                None => hold.await?,
             }
             Ok(message)
         })
     }))
+}
+
+/// The `holdUntilReleased` hold: connect to the harness's listener at
+/// `gate` and wait for the peer to close the connection (bytes it sends
+/// are ignored). A gate nothing listens on fails the request.
+async fn held_until_released(gate: &Path) -> Result<(), Thrown> {
+    let failed = |error: &dyn std::fmt::Display| {
+        thrown(std::io::Error::other(format!(
+            "the faux hold gate {}: {error}",
+            gate.display()
+        )))
+    };
+    let stream = connect_transport(gate)
+        .await
+        .map_err(|error| failed(&error))?;
+    let (mut reader, _writer) = stream.split();
+    let mut sink = [0_u8; 64];
+    while reader
+        .read(&mut sink)
+        .await
+        .map_err(|error| failed(&error))?
+        > 0
+    {}
+    Ok(())
 }
 
 /// Parse one scripted content block (thinking, text, or tool call).
