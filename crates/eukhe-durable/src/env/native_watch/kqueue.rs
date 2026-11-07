@@ -23,6 +23,7 @@ use nix::errno::Errno;
 use nix::libc::timespec;
 use nix::sys::event::{EventFilter, EventFlag, FilterFlag, KEvent, Kqueue};
 use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
 use tokio::task::JoinHandle;
 
 use super::{HandleId, Listener, Notice, Sink};
@@ -107,9 +108,11 @@ impl Backend {
         }
         let instance = Arc::new(Instance {
             // RUSTSEC-2026-0386 does not apply: `KqueueFd` owns its `Kqueue` for
-            // the `AsyncFd`'s whole life (see the inotify backend).
+            // the `AsyncFd`'s whole life (see the inotify backend). Readable
+            // only: a kqueue descriptor has no write filter, and the reactor
+            // refuses to register one (`EINVAL`), which failed every watch.
             #[allow(deprecated)]
-            fd: AsyncFd::new(KqueueFd(Kqueue::new()?))?,
+            fd: AsyncFd::with_interest(KqueueFd(Kqueue::new()?), Interest::READABLE)?,
             registry: Mutex::new(Registry::default()),
         });
         self.reader = Some(tokio::spawn(read_events(
