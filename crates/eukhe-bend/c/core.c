@@ -158757,7 +158757,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_RETN(6);
       }
     } else {
-      Term _U_0 = (_T_0 - 1);
+      Term _st_0 = (_T_0 - 1);
       if (_w_0 == 1) {
         term_sink(e, _ps_0);
         term_sink(e, _b_0);
@@ -158803,7 +158803,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             Term _f_4 = _fb_0[1];
             Term _f_5 = _fb_0[2];
             spare_free(e, cls_fit(3), _sp_0);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = 0;
             r2 = _w_1;
             r3 = _w_2;
@@ -158836,7 +158836,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             spare_free(e, cls_fit(4), _sp_1);
             if (seq) {
               WL_ROOM(5);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _b_0;
               STK(2) = _f_9;
               STK(3) = _ends_0;
@@ -158844,7 +158844,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(5);
             } else {
               u64 _t_7 = task_node(e, FID_shape_seek_k1437, WL_CONT, WL_IDX, 1);
-              e.mem[_t_7 + 0] = _U_0;
+              e.mem[_t_7 + 0] = _st_0;
               e.mem[_t_7 + 1] = _b_0;
               e.mem[_t_7 + 2] = _f_9;
               e.mem[_t_7 + 3] = _ends_0;
@@ -158919,7 +158919,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             }
             _v_13 = _o_6[0];
             spare_free(e, cls_fit(4), _sp_2);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_1;
             r2 = _v_2;
             r3 = _v_3;
@@ -158986,7 +158986,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_19 = _o_8[5];
             spare_free(e, cls_fit(1), _sp_4);
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_14;
             r2 = _v_15;
             r3 = _v_16;
@@ -159047,7 +159047,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_31 = _o_10[5];
             spare_free(e, cls_fit(1), _sp_5);
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_26;
             r2 = _v_27;
             r3 = _v_28;
@@ -159138,7 +159138,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _K_0 = term_keep(e, _K_0, 1);
             if (seq) {
               WL_ROOM(12);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159153,7 +159153,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(12);
             } else {
               u64 _t_11 = task_node(e, FID_shape_seek_k1438, WL_CONT, WL_IDX, 1);
-              e.mem[_t_11 + 0] = _U_0;
+              e.mem[_t_11 + 0] = _st_0;
               e.mem[_t_11 + 1] = _w_1;
               e.mem[_t_11 + 2] = _w_2;
               e.mem[_t_11 + 3] = _w_3;
@@ -159167,7 +159167,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_CONT = term_tsk(FID_shape_seek_k1438, _t_11);
               WL_IDX = 11;
             }
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_38;
             r2 = _v_39;
             r3 = _v_40;
@@ -159198,7 +159198,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             spare_free(e, cls_fit(2), _sp_3);
             if (seq) {
               WL_ROOM(11);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159212,7 +159212,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(11);
             } else {
               u64 _t_13 = task_node(e, FID_shape_seek_k1439, WL_CONT, WL_IDX, 1);
-              e.mem[_t_13 + 0] = _U_0;
+              e.mem[_t_13 + 0] = _st_0;
               e.mem[_t_13 + 1] = _w_1;
               e.mem[_t_13 + 2] = _w_2;
               e.mem[_t_13 + 3] = _w_3;
@@ -159256,7 +159256,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             spare_free(e, cls_fit(1), _sp_10);
             if (seq) {
               WL_ROOM(11);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159270,7 +159270,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(11);
             } else {
               u64 _t_16 = task_node(e, FID_shape_seek_k1440, WL_CONT, WL_IDX, 1);
-              e.mem[_t_16 + 0] = _U_0;
+              e.mem[_t_16 + 0] = _st_0;
               e.mem[_t_16 + 1] = _w_1;
               e.mem[_t_16 + 2] = _w_2;
               e.mem[_t_16 + 3] = _w_3;
@@ -159283,7 +159283,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_CONT = term_tsk(FID_shape_seek_k1440, _t_16);
               WL_IDX = 10;
             }
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = 0;
             r2 = _w_1;
             r3 = _w_2;
@@ -159333,7 +159333,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_81 = term_keep(e, _v_81, 1);
             if (seq) {
               WL_ROOM(11);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159347,7 +159347,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(11);
             } else {
               u64 _t_18 = task_node(e, FID_shape_seek_k1441, WL_CONT, WL_IDX, 1);
-              e.mem[_t_18 + 0] = _U_0;
+              e.mem[_t_18 + 0] = _st_0;
               e.mem[_t_18 + 1] = _w_1;
               e.mem[_t_18 + 2] = _w_2;
               e.mem[_t_18 + 3] = _w_3;
@@ -159360,7 +159360,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_CONT = term_tsk(FID_shape_seek_k1441, _t_18);
               WL_IDX = 10;
             }
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = 0;
             r2 = _w_1;
             r3 = _w_2;
@@ -159415,7 +159415,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _b_0 = term_keep(e, _b_0, 1);
             if (seq) {
               WL_ROOM(13);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159431,7 +159431,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(13);
             } else {
               u64 _t_20 = task_node(e, FID_shape_seek_k1442, WL_CONT, WL_IDX, 1);
-              e.mem[_t_20 + 0] = _U_0;
+              e.mem[_t_20 + 0] = _st_0;
               e.mem[_t_20 + 1] = _w_1;
               e.mem[_t_20 + 2] = _w_2;
               e.mem[_t_20 + 3] = _w_3;
@@ -159446,7 +159446,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_CONT = term_tsk(FID_shape_seek_k1442, _t_20);
               WL_IDX = 12;
             }
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = 0;
             r2 = _w_1;
             r3 = _w_2;
@@ -159482,7 +159482,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             spare_free(e, cls_fit(2), _sp_3);
             if (seq) {
               WL_ROOM(13);
-              STK(0) = _U_0;
+              STK(0) = _st_0;
               STK(1) = _w_1;
               STK(2) = _w_2;
               STK(3) = _w_3;
@@ -159498,7 +159498,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_PUSHN(13);
             } else {
               u64 _t_22 = task_node(e, FID_shape_seek_k1443, WL_CONT, WL_IDX, 1);
-              e.mem[_t_22 + 0] = _U_0;
+              e.mem[_t_22 + 0] = _st_0;
               e.mem[_t_22 + 1] = _w_1;
               e.mem[_t_22 + 2] = _w_2;
               e.mem[_t_22 + 3] = _w_3;
@@ -159513,7 +159513,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               WL_CONT = term_tsk(FID_shape_seek_k1443, _t_22);
               WL_IDX = 12;
             }
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = 0;
             r2 = _w_1;
             r3 = _w_2;
@@ -159574,7 +159574,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_120 = _o_41[5];
             spare_free(e, cls_fit(1), _sp_14);
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_115;
             r2 = _v_116;
             r3 = _v_117;
@@ -159631,7 +159631,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_131 = _o_43[4];
             _v_132 = _o_43[5];
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_127;
             r2 = _v_128;
             r3 = _v_129;
@@ -159688,7 +159688,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_143 = _o_45[4];
             _v_144 = _o_45[5];
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_139;
             r2 = _v_140;
             r3 = _v_141;
@@ -159745,7 +159745,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
             _v_155 = _o_47[4];
             _v_156 = _o_47[5];
             spare_free(e, cls_fit(2), _sp_3);
-            r0 = _U_0;
+            r0 = _st_0;
             r1 = _v_151;
             r2 = _v_152;
             r3 = _v_153;
@@ -159884,7 +159884,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1437)
     WL_POPN(4);
-    Term _U_1 = STK(0);
+    Term _st_1 = STK(0);
     Term _b_1 = STK(1);
     Term _f_10 = STK(2);
     u32 _ends_5 = STK(3);
@@ -159896,7 +159896,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_9 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_9 + 0] = _U_1;
+      e.mem[_t_9 + 0] = _st_1;
       e.mem[_t_9 + 1] = 0;
       e.mem[_t_9 + 2] = _h_3;
       e.mem[_t_9 + 3] = _h_4;
@@ -159909,7 +159909,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_9 + 10] = _ends_5;
       return term_tsk(FID_shape_seek, _t_9);
     }
-    r0 = _U_1;
+    r0 = _st_1;
     r1 = 0;
     r2 = _h_3;
     r3 = _h_4;
@@ -159927,7 +159927,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1438)
     WL_POPN(11);
-    Term _U_2 = STK(0);
+    Term _st_2 = STK(0);
     Term _w_11 = STK(1);
     Term _w_12 = STK(2);
     u32 _w_13 = STK(3);
@@ -159979,7 +159979,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     _v_64 = _o_24[5];
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_12 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_12 + 0] = _U_2;
+      e.mem[_t_12 + 0] = _st_2;
       e.mem[_t_12 + 1] = _v_59;
       e.mem[_t_12 + 2] = _v_60;
       e.mem[_t_12 + 3] = _v_61;
@@ -159992,7 +159992,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_12 + 10] = _ends_6;
       return term_tsk(FID_shape_seek, _t_12);
     }
-    r0 = _U_2;
+    r0 = _st_2;
     r1 = _v_59;
     r2 = _v_60;
     r3 = _v_61;
@@ -160010,7 +160010,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1439)
     WL_POPN(10);
-    Term _U_3 = STK(0);
+    Term _st_3 = STK(0);
     Term _w_16 = STK(1);
     Term _w_17 = STK(2);
     u32 _w_18 = STK(3);
@@ -160057,7 +160057,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     e.mem[_nd_13 + 3] = rfc_seal(e, _v_73);
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_15 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_15 + 0] = _U_3;
+      e.mem[_t_15 + 0] = _st_3;
       e.mem[_t_15 + 1] = 0;
       e.mem[_t_15 + 2] = _w_16;
       e.mem[_t_15 + 3] = _w_17;
@@ -160070,7 +160070,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_15 + 10] = _ends_7;
       return term_tsk(FID_shape_seek, _t_15);
     }
-    r0 = _U_3;
+    r0 = _st_3;
     r1 = 0;
     r2 = _w_16;
     r3 = _w_17;
@@ -160088,7 +160088,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1440)
     WL_POPN(10);
-    Term _U_4 = STK(0);
+    Term _st_4 = STK(0);
     Term _w_21 = STK(1);
     Term _w_22 = STK(2);
     u32 _w_23 = STK(3);
@@ -160123,7 +160123,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     _v_80 = _o_29[5];
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_17 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_17 + 0] = _U_4;
+      e.mem[_t_17 + 0] = _st_4;
       e.mem[_t_17 + 1] = _v_75;
       e.mem[_t_17 + 2] = _v_76;
       e.mem[_t_17 + 3] = _v_77;
@@ -160136,7 +160136,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_17 + 10] = _ends_8;
       return term_tsk(FID_shape_seek, _t_17);
     }
-    r0 = _U_4;
+    r0 = _st_4;
     r1 = _v_75;
     r2 = _v_76;
     r3 = _v_77;
@@ -160154,7 +160154,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1441)
     WL_POPN(10);
-    Term _U_5 = STK(0);
+    Term _st_5 = STK(0);
     Term _w_26 = STK(1);
     Term _w_27 = STK(2);
     u32 _w_28 = STK(3);
@@ -160189,7 +160189,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     _v_88 = _o_31[5];
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_19 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_19 + 0] = _U_5;
+      e.mem[_t_19 + 0] = _st_5;
       e.mem[_t_19 + 1] = _v_83;
       e.mem[_t_19 + 2] = _v_84;
       e.mem[_t_19 + 3] = _v_85;
@@ -160202,7 +160202,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_19 + 10] = _ends_9;
       return term_tsk(FID_shape_seek, _t_19);
     }
-    r0 = _U_5;
+    r0 = _st_5;
     r1 = _v_83;
     r2 = _v_84;
     r3 = _v_85;
@@ -160220,7 +160220,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1442)
     WL_POPN(12);
-    Term _U_6 = STK(0);
+    Term _st_6 = STK(0);
     Term _w_31 = STK(1);
     Term _w_32 = STK(2);
     u32 _w_33 = STK(3);
@@ -160276,7 +160276,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     e.mem[_nd_20 + 1] = rfc_seal(e, _f_42);
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_21 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_21 + 0] = _U_6;
+      e.mem[_t_21 + 0] = _st_6;
       e.mem[_t_21 + 1] = _v_90;
       e.mem[_t_21 + 2] = _v_91;
       e.mem[_t_21 + 3] = _v_92;
@@ -160289,7 +160289,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_21 + 10] = _ends_10;
       return term_tsk(FID_shape_seek, _t_21);
     }
-    r0 = _U_6;
+    r0 = _st_6;
     r1 = _v_90;
     r2 = _v_91;
     r3 = _v_92;
@@ -160307,7 +160307,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_shape_seek_k1443)
     WL_POPN(12);
-    Term _U_7 = STK(0);
+    Term _st_7 = STK(0);
     Term _w_36 = STK(1);
     Term _w_37 = STK(2);
     u32 _w_38 = STK(3);
@@ -160363,7 +160363,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     e.mem[_nd_21 + 1] = rfc_seal(e, _f_47);
     if (!DEVICE && !seq && fid_nofk(FID_shape_seek)) {
       u64 _t_23 = task_node(e, FID_shape_seek, WL_CONT, WL_IDX, 0);
-      e.mem[_t_23 + 0] = _U_7;
+      e.mem[_t_23 + 0] = _st_7;
       e.mem[_t_23 + 1] = _v_102;
       e.mem[_t_23 + 2] = _v_103;
       e.mem[_t_23 + 3] = _v_104;
@@ -160376,7 +160376,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_23 + 10] = _ends_11;
       return term_tsk(FID_shape_seek, _t_23);
     }
-    r0 = _U_7;
+    r0 = _st_7;
     r1 = _v_102;
     r2 = _v_103;
     r3 = _v_104;
