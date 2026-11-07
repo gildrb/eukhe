@@ -150,15 +150,6 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
     }
 }
 
-async fn fake_supervisor(shared: Shared) -> std::path::PathBuf {
-    let socket = std::env::temp_dir().join(format!(
-        "eukhe-durable-host-{}.sock",
-        uuid::Uuid::new_v4().simple()
-    ));
-    serve_fake_supervisor(shared, &socket).await;
-    socket
-}
-
 /// Serve the fake supervisor on `socket`.
 async fn serve_fake_supervisor(shared: Shared, socket: &Path) {
     let listener = bind_transport(socket, eukhe_bend::rules::fsmode::peer_verdict)
@@ -196,7 +187,10 @@ async fn serve_fake_supervisor(shared: Shared, socket: &Path) {
 }
 
 async fn host(shared: &Shared, agent_dir: &std::path::Path) -> SupervisorChildSessions {
-    let socket = fake_supervisor(Arc::clone(shared)).await;
+    // Inside the test's short-named temp dir: the path stays within the
+    // AF_UNIX limit even under macOS's long per-user TMPDIR.
+    let socket = agent_dir.join("supervisor.sock");
+    serve_fake_supervisor(Arc::clone(shared), &socket).await;
     let sessions = SupervisorChildSessions::new(
         Arc::new(crate::supervisor_link::SupervisorLink::new(socket)),
         agent_dir.to_path_buf(),

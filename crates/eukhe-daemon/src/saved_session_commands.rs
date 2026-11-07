@@ -1727,7 +1727,12 @@ mod tombstone_usage_tests {
                     usage.is_none(),
                     "a non-regular path captures no usage (no blocking read)"
                 );
-                assert_eq!(canonical_path, &fifo.to_string_lossy());
+                // The key is the canonical path (macOS's temp dir sits
+                // behind the /var -> /private/var symlink).
+                assert_eq!(
+                    canonical_path,
+                    &fifo.canonicalize().unwrap().to_string_lossy()
+                );
             }
             SavedDeleteCapture::TopLevel => {
                 panic!("an unreadable non-regular path is never positively top-level")

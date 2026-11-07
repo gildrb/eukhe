@@ -425,9 +425,10 @@ async fn worker_probe_fails_at_the_deadline_and_names_the_worker() {
 
 #[tokio::test]
 async fn worker_probe_accepts_a_live_socket() {
-    let dir = std::env::temp_dir().join(format!("pa-probe-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let socket = dir.join("live.sock");
+    // A short-named temp dir: the socket path stays within the AF_UNIX
+    // limit even under macOS's long per-user TMPDIR.
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("live.sock");
     let listener = eukhe_types::platform::transport::bind_transport(
         &socket,
         eukhe_bend::rules::fsmode::peer_verdict,
@@ -438,9 +439,7 @@ async fn worker_probe_accepts_a_live_socket() {
     probe_worker_socket("worker-abc", &socket, deadline)
         .await
         .expect("a live worker socket satisfies the probe");
-    let _ = std::fs::remove_file(&socket);
     drop(listener);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The boot roster seed runs exactly once, in the background, once
@@ -1674,7 +1673,14 @@ async fn a_ledger_delete_never_tombstones_an_unrelated_edge_sharing_the_child_id
         1,
         "the unrelated edge sharing the child id must stay live: {live:?}"
     );
-    assert_eq!(live[0].child, file_b, "the survivor is child-b's edge");
+    // The ledger keys edges by canonical path (macOS's temp dir sits
+    // behind the /var -> /private/var symlink).
+    let survivor = std::fs::canonicalize(&file_b).unwrap();
+    assert_eq!(
+        live[0].child,
+        survivor.to_string_lossy(),
+        "the survivor is child-b's edge"
+    );
 }
 
 /// The durable-id wake's reuse arm (the second bot round's finding: the

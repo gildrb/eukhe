@@ -1055,9 +1055,12 @@ pub(crate) mod tests {
             Some(true),
             "the event path never read the file"
         );
+        // The ledger edge carries the canonical child path (macOS's temp
+        // dir sits behind the /var -> /private/var symlink).
+        let child_dir = std::fs::canonicalize(child_file.parent().unwrap()).unwrap();
         assert_eq!(
             immediate.summary["cwd"],
-            child_file.parent().unwrap().to_string_lossy().to_string(),
+            child_dir.to_string_lossy().to_string(),
             "the edge-only row carries the dirname fallback"
         );
         assert!(immediate.summary.get("model").is_none());
