@@ -267,10 +267,12 @@ fn print_mode_persists_a_session_file_by_default() {
     let transcript = read_transcript(&files[0]);
 
     // The main conversation's agent: the run's model, thinking, and cwd
-    // (the isolated HOME).
+    // (the isolated HOME, as the process sees it: canonical, so `/var`
+    // reads `/private/var` on macOS).
     assert_eq!(transcript.agent["model"]["provider"], "faux");
     assert!(transcript.agent["thinkingLevel"].is_string());
-    assert_eq!(transcript.agent["cwd"], home.path().display().to_string());
+    let cwd = home.path().canonicalize().expect("canonical home");
+    assert_eq!(transcript.agent["cwd"], cwd.display().to_string());
     // The user prompt, then the assistant answer.
     let texts = transcript.message_texts();
     let user_at = texts.iter().position(|text| text == "hello there");
@@ -1031,6 +1033,8 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
     let home = isolated_home();
     let project = home.path().join("other-project");
     std::fs::create_dir_all(&project).expect("project dir");
+    // The cwd as the process sees it: canonical (`/private/var` on macOS).
+    let project = project.canonicalize().expect("canonical project dir");
     let script = serde_json::json!({ "responses": ["global answer"] });
     let (stdout, _, code) = run_in_home(home.path(), &["-p", "origin"], &script);
     assert_eq!(code, 0);
