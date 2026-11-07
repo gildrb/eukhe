@@ -178,9 +178,7 @@ async fn tui_prompt_stash_survives_the_agents_view_handoff() {
     // The clipboard seam fixture: the draft carries a pasted image, so the
     // handoff must round-trip the image bytes too (the reopened chat is a
     // fresh UI with an empty paste registry — the stash hydrates it).
-    let png_path = dir.path().join("fixture.png");
-    std::fs::write(&png_path, MINIMAL_PNG).expect("write fixture image");
-    std::env::set_var("EUKHE_TEST_CLIPBOARD_IMAGE", &png_path);
+    install_clipboard_fixture();
     let prompt_stash: std::sync::Arc<std::sync::Mutex<eukhe_tui::prompt_stash::PromptStashStore>> =
         std::sync::Arc::default();
     let make_options = || eukhe_tui::interactive::InteractiveOptions {
@@ -314,14 +312,10 @@ async fn tui_prompt_stash_restores_a_pasted_image_with_the_draft() {
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
     // A one-pixel PNG: the clipboard fixture stands in for the system
-    // clipboard (this harness has no display server).
-    let png_path = dir.path().join("fixture.png");
-    std::fs::write(&png_path, MINIMAL_PNG).expect("write fixture image");
-    // The seam only ever applies to the paste path (ctrl+v) — nothing else
-    // in this binary reads the clipboard. The var stays set for the whole
-    // test process: the parallel stash tests each reset it before their
-    // own paste, so a cross-test remove would race them.
-    std::env::set_var("EUKHE_TEST_CLIPBOARD_IMAGE", &png_path);
+    // clipboard (this harness has no display server). The seam only ever
+    // applies to the paste path (ctrl+v) — nothing else in this binary
+    // reads the clipboard.
+    install_clipboard_fixture();
     let supervisor = spawn_supervisor(dir.path());
     let script = serde_json::json!({
         "engine": "faux",
@@ -445,11 +439,8 @@ async fn tui_ctrl_s_stashes_and_restores_the_prompt_draft() {
     std::fs::create_dir_all(&session_dir).expect("session dir");
     // The clipboard seam fixture: the draft carries a pasted image, so the
     // manual stash must round-trip the image bytes exactly like the auto
-    // paths do (the var stays set for the whole test process, matching the
-    // parallel stash tests' pattern).
-    let png_path = dir.path().join("fixture.png");
-    std::fs::write(&png_path, MINIMAL_PNG).expect("write fixture image");
-    std::env::set_var("EUKHE_TEST_CLIPBOARD_IMAGE", &png_path);
+    // paths do.
+    install_clipboard_fixture();
     let supervisor = spawn_supervisor(dir.path());
     let script = serde_json::json!({
         "engine": "faux",

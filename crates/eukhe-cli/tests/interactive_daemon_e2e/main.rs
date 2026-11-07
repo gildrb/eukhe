@@ -58,6 +58,25 @@ const MINIMAL_PNG: &[u8] = &[
     5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
+/// Point the clipboard seam (`EUKHE_TEST_CLIPBOARD_IMAGE`) at the shared
+/// [`MINIMAL_PNG`] fixture. The variable is process-wide, so every pasting
+/// test reads ONE fixture file that outlives them all (cargo's
+/// `CARGO_TARGET_TMPDIR`): a per-test file under the test's own temp dir
+/// dangled once that test finished, and a parallel test's paste then read
+/// the deleted path -- no image, no `[image #N]` marker. The file lands by
+/// rename, so a concurrent run of this binary never reads it half-written.
+fn install_clipboard_fixture() {
+    static INSTALLED: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let fixture = dir.join("clipboard-fixture.png");
+        let staged = dir.join(format!("clipboard-fixture.png.{}", std::process::id()));
+        std::fs::write(&staged, MINIMAL_PNG).expect("write the clipboard fixture");
+        std::fs::rename(&staged, &fixture).expect("place the clipboard fixture");
+        std::env::set_var("EUKHE_TEST_CLIPBOARD_IMAGE", &fixture);
+    });
+    std::sync::LazyLock::force(&INSTALLED);
+}
+
 struct Supervisor(Daemon);
 
 impl std::ops::Deref for Supervisor {
