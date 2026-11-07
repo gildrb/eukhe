@@ -228,6 +228,9 @@ fn every_exit_route_restores_the_kitty_mode() {
 enum Stage {
     Wait(&'static [u8], &'static str),
     Write(&'static [u8]),
+    /// A write racing the child's exit: it lands, or the child is
+    /// already gone and there is no terminal left to take it.
+    WriteAroundExit(&'static [u8]),
 }
 
 impl Stage {
@@ -274,7 +277,7 @@ fn route_stages(route: Route, known_terminal: bool) -> Vec<Stage> {
                 Stage::wait(b"row 0", "the surface mounted"),
                 Stage::Write(b"\x04"),
                 Stage::wait(BRACKETED_PASTE_OFF, "the exit's paste disable"),
-                Stage::Write(KITTY_ANSWER),
+                Stage::WriteAroundExit(KITTY_ANSWER),
             ]
         }
         Route::HandoffViewExit => {
@@ -343,6 +346,7 @@ fn run_route(route: Route, known_terminal: bool) {
                 }
             }
             Stage::Write(payload) => harness.write(payload),
+            Stage::WriteAroundExit(payload) => harness.master.write_around_exit(payload),
         }
     }
     if route == Route::LateAnswer {
@@ -728,6 +732,18 @@ impl PtyReader {
 
     fn write(&mut self, payload: &[u8]) {
         self.file.write_all(payload).expect("write to the pty");
+    }
+
+    /// A write that tolerates the child being gone: once the exiting
+    /// child (the pty's session leader) is out, macOS has revoked the
+    /// terminal and refuses the write with EIO, where Linux still takes
+    /// it. Any other error fails the route.
+    fn write_around_exit(&mut self, payload: &[u8]) {
+        match self.file.write_all(payload) {
+            Ok(()) => {}
+            Err(error) if error.raw_os_error() == Some(nix::errno::Errno::EIO as i32) => {}
+            Err(error) => panic!("write to the pty: {error}"),
+        }
     }
 
     fn drain_until_quiet(&mut self, quiet_polls: usize) {

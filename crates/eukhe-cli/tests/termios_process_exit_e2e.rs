@@ -283,11 +283,11 @@ fn a_full_session_with_a_mid_session_ctrl_s_exits_whole() {
 /// Route: the launch on a Ctrl+S-STOPPED tty. The user pressed Ctrl+S
 /// at the shell prompt, then launched the TUI: the gate holds the child
 /// in the cooked pre-mount window while the harness arms the output
-/// stop, and the mount must lift it (`cfmakeraw`'s IXON clearing is the
-/// kernel's one stop-lift trigger). The first frame renders, the
-/// session works, and the exit leaves a flowing shell. A bracket that
-/// stops clearing IXON — or a termios path that never runs it — fails
-/// this route at the first wait.
+/// stop, and the mount must lift it (Linux lifts on the IXON clearing of
+/// `cfmakeraw`, xnu only on `tcflow(TCOON)`; the mount's
+/// `restart_output` runs both). The first frame renders, the session
+/// works, and the exit leaves a flowing shell. A mount that skips the
+/// lift fails this route at the first wait.
 #[test]
 fn a_launch_on_a_ctrl_s_stopped_tty_flows_and_exits_whole() {
     let _lock = harness::harness_lock();
@@ -327,7 +327,8 @@ fn a_launch_on_a_ctrl_s_stopped_tty_flows_and_exits_whole() {
     }
     assert!(
         armed,
-        "the Ctrl+S write did not arm the output stop (the cooked-tty echo came back); the route cannot prove the lift"
+        "the Ctrl+S write did not arm the output stop (the cooked-tty echo came back: {:?}); the route cannot prove the lift",
+        String::from_utf8_lossy(&harness.output()[arm_mark..])
     );
     // The release: completes the sentinel line, so the child's gate
     // read returns and the mount runs under the armed stop.
@@ -456,7 +457,13 @@ impl SuspendCycleHarness {
         let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind mock socket");
         let server = std::thread::spawn({
             let listener = listener.try_clone().expect("clone mock listener");
-            move || harness::MockSupervisor::serve(&listener, &[])
+            move || {
+                harness::MockSupervisor::serve(
+                    &listener,
+                    &[],
+                    &std::sync::atomic::AtomicBool::new(false),
+                );
+            }
         });
         drop(listener);
 
@@ -470,6 +477,7 @@ impl SuspendCycleHarness {
             None,
         )
         .expect("open pty");
+        harness::restart_output_only_on_xon(&pty.master);
         let before = Termios::capture(&pty.master);
         let child = spawn_group_child(&socket, &pty.slave);
         SuspendCycleHarness {

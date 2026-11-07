@@ -22,6 +22,8 @@ use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
@@ -47,11 +49,13 @@ use crate::{
 pub(crate) struct DifferentialHarness {
     pub(crate) child: Child,
     pub(crate) master: PtyReader,
-    /// The mock-supervisor listener the harness owns (a route may shut
-    /// it down to refuse later connections).
+    /// The mock-supervisor listener the harness owns (a route may drop
+    /// it to refuse later connections).
     listener: Option<std::os::unix::net::UnixListener>,
-    _server: Option<std::thread::JoinHandle<()>>,
-    /// The mock socket's path (the refusal determinism polls it).
+    server: Option<std::thread::JoinHandle<()>>,
+    /// Set to stop the serve loop at its next accept.
+    refusing: Arc<AtomicBool>,
+    /// The mock socket's path (the refusal wakes the accept through it).
     socket_path: PathBuf,
     /// The pty's termios before the child spawned.
     pub(crate) before: Termios,
@@ -65,10 +69,12 @@ impl DifferentialHarness {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let socket = dir.path().join("tui.sock");
         let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind mock socket");
+        let refusing = Arc::new(AtomicBool::new(false));
         let server = std::thread::spawn({
             let listener = listener.try_clone().expect("clone mock listener");
             let stall = spec.stall;
-            move || MockSupervisor::serve(&listener, stall)
+            let refusing = Arc::clone(&refusing);
+            move || MockSupervisor::serve(&listener, stall, &refusing)
         });
 
         let pty = openpty(
@@ -81,6 +87,7 @@ impl DifferentialHarness {
             None,
         )
         .expect("open pty");
+        restart_output_only_on_xon(&pty.master);
         let before = Termios::capture(&pty.master);
         let child = spawn_child(spec, &socket, &pty.slave);
         // The child needs the socket and the temp dir for its lifetime;
@@ -90,7 +97,8 @@ impl DifferentialHarness {
             child,
             master: PtyReader::new(pty.master),
             listener: Some(listener),
-            _server: Some(server),
+            server: Some(server),
+            refusing,
             socket_path: socket,
             before,
         }
@@ -149,31 +157,28 @@ impl DifferentialHarness {
     }
 
     /// Refuse every later daemon connection (the roster-failure route:
-    /// the agents view's connect behind the chat handoff fails).
-    /// Shutting the listener's socket down fails the serve thread's
-    /// pending accept; the thread then drops its listener, and once no
-    /// live descriptor remains every later connect gets ECONNREFUSED.
-    /// Already-served connections (the chat's) stay alive on their own
-    /// threads. The refusal is polled to determinism: the route proceeds
-    /// only once the socket truly refuses.
+    /// the agents view's connect behind the chat handoff fails). The
+    /// serve thread holds the last listener descriptor in a blocking
+    /// accept: the harness flags the refusal, drops its own descriptor,
+    /// and wakes the accept with one connection; the serve loop drops it
+    /// and returns, closing its listener. Once the thread is joined no
+    /// live descriptor remains, so every later connect gets
+    /// ECONNREFUSED. Already-served connections (the chat's) stay alive
+    /// on their own threads.
     pub(crate) fn refuse_later_connections(&mut self) {
-        if let Some(listener) = self.listener.take() {
-            // `shutdown` only invalidates the listening socket's accept
-            // queue — the harness owns it and serves nothing on it.
-            // Ignored as before: the refusal poll below is the check.
-            let _ =
-                nix::sys::socket::shutdown(listener.as_raw_fd(), nix::sys::socket::Shutdown::Both);
-            drop(listener);
-            let socket = self.socket_path.clone();
-            let deadline = Instant::now() + Duration::from_secs(10);
-            while Instant::now() < deadline {
-                if std::os::unix::net::UnixStream::connect(&socket).is_err() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            panic!("the harness could not refuse later connections in time");
-        }
+        let (Some(listener), Some(server)) = (self.listener.take(), self.server.take()) else {
+            return;
+        };
+        self.refusing.store(true, Ordering::SeqCst);
+        drop(listener);
+        let wake = std::os::unix::net::UnixStream::connect(&self.socket_path)
+            .expect("wake the mock accept loop");
+        server.join().expect("the mock accept loop stops");
+        drop(wake);
+        assert!(
+            std::os::unix::net::UnixStream::connect(&self.socket_path).is_err(),
+            "the mock socket refuses once its accept loop stopped"
+        );
     }
 
     /// The whole-route assertion: the child exited, the byte stream is
@@ -208,6 +213,13 @@ impl Drop for DifferentialHarness {
         // controlling terminal of its own session and outlives the
         // harness.
         let _ = self.child.kill();
+        // Close the terminal before the wait, as a closing terminal
+        // window does: on macOS the killed session leader's exit waits
+        // for its pending output to drain, which an unread (or stopped)
+        // pty never does.
+        if let Ok(null) = std::fs::File::open("/dev/null") {
+            drop(std::mem::replace(&mut self.master.file, null));
+        }
         let _ = self.child.wait();
     }
 }
@@ -374,6 +386,18 @@ impl Termios {
     }
 }
 
+/// Make a fresh harness pty restart stopped output only on XON (IXANY
+/// off, Linux's pty default; macOS turns IXANY on), so a Ctrl+S stop
+/// holds until something lifts it on purpose: the flow routes' typed
+/// sentinels must not lift it themselves.
+pub(crate) fn restart_output_only_on_xon(master: &OwnedFd) {
+    use nix::sys::termios::{tcgetattr, tcsetattr, InputFlags, SetArg};
+    let mut termios = tcgetattr(master).expect("the harness could not read the pty's termios");
+    termios.input_flags.remove(InputFlags::IXANY);
+    tcsetattr(master, SetArg::TCSANOW, &termios)
+        .expect("the harness could not set the pty's termios");
+}
+
 // ---------------------------------------------------------------------------
 // The mock supervisor
 // ---------------------------------------------------------------------------
@@ -388,15 +412,19 @@ pub(crate) struct MockSupervisor;
 
 impl MockSupervisor {
     /// One listener, every connection served on its own thread: the
-    /// accept loop must never block inside a connection (a shutdown of
-    /// the listener fails the pending accept instantly — the
-    /// roster-failure route's refusal is deterministic), and a served
-    /// connection (the chat's) stays alive while the loop moves on.
+    /// accept loop must never block inside a connection (the
+    /// roster-failure route's refusal stops the loop at its next accept
+    /// once `refusing` is set), and a served connection (the chat's)
+    /// stays alive while the loop moves on.
     pub(crate) fn serve(
         listener: &std::os::unix::net::UnixListener,
         stall: &'static [&'static str],
+        refusing: &AtomicBool,
     ) {
         for stream in listener.incoming() {
+            if refusing.load(Ordering::SeqCst) {
+                return;
+            }
             match stream {
                 Ok(stream) => {
                     std::thread::spawn(move || Self::serve_connection(stream, stall));
