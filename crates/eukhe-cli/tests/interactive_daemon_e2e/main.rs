@@ -435,7 +435,11 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     // the backstop. The per-test guards drop before the owning harness
     // thread can exit, so the early-fire window is empty.
     let mut command = die_with_test_binary(&command);
-    Supervisor(Daemon::spawn_bound(
+    // Ready means the socket accepts a connect: the file appears at the
+    // listener's `bind`, a beat before its `listen`, and a loaded host
+    // can stretch that beat -- a test that connected on the file alone
+    // got `Connection refused`.
+    Supervisor(Daemon::spawn_listening(
         &mut command,
         &socket,
         Duration::from_mins(1),
