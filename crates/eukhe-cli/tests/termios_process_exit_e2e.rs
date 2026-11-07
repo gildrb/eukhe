@@ -235,11 +235,16 @@ fn assert_the_shell_flows(master: &mut PtyReader, context: &str) {
 /// Run one route's whole terminal-handback contract: the terminal state
 /// the child leaves equals the state it received (the mode ledger AND
 /// the termios snapshot), no process still holds the pty, and the tty
-/// flows after the handback.
+/// flows after the handback. The route's child leads its own session
+/// with the pty as its controlling terminal.
 fn assert_the_handback_is_whole(harness: &mut DifferentialHarness, context: &str) {
     harness.assert_terminal_state_restored(context);
-    assert_no_process_holds_the_pty(&harness.master.file, context);
-    assert_the_shell_flows(&mut harness.master, context);
+    // Linux-only: xnu revokes a session leader's controlling tty on exit, so nothing is observable after it.
+    #[cfg(target_os = "linux")]
+    {
+        assert_no_process_holds_the_pty(&harness.master.file, context);
+        assert_the_shell_flows(&mut harness.master, context);
+    }
 }
 
 // ---------------------------------------------------------------------------

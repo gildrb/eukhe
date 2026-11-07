@@ -83,9 +83,13 @@ const BRACKETED_PASTE_OFF: &[u8] = b"\x1b[?2004l";
 /// The kitty CSI-u form of the Up arrow press (functional key code
 /// `A`, no modifiers, event type 1) — what an armed terminal sends; the
 /// shell-echo symptom the operator reported rides exactly these bytes.
+// Linux-only: xnu revokes a session leader's controlling tty on exit, so nothing is observable after it.
+#[cfg(target_os = "linux")]
 const UP_PRESS_KITTY: &[u8] = b"\x1b[1;1:1A";
 /// The legacy Up arrow a mode-off terminal sends (the shell's history
 /// key).
+// Linux-only: xnu revokes a session leader's controlling tty on exit, so nothing is observable after it.
+#[cfg(target_os = "linux")]
 const UP_PRESS_LEGACY: &[u8] = b"\x1b[A";
 
 /// Child-mode env: the route under test.
@@ -469,31 +473,36 @@ fn run_route(route: Route, known_terminal: bool) {
     // those bytes must not be transformed into the stream by anything
     // left running (the child is dead), and the legacy echo proves the
     // pane is cooked.
-    let echo_mark = harness.mark();
-    harness.write(UP_PRESS_LEGACY);
-    harness.drain_until_quiet(6);
-    let echoed = harness.output_since(echo_mark);
-    assert!(
-        !contains(&echoed, UP_PRESS_KITTY),
-        "{}: the synthetic up arrow came back as the kitty press form — the mode is still armed",
-        route.name(),
-    );
-    assert!(
-        contains(&echoed, b"\x1b[A") || !echoed.is_empty(),
-        "{}: the cooked tty did not echo the up arrow — the pane handed to the shell is not cooked",
-        route.name(),
-    );
-    // The armed-form injection around the dead child: no writer remains
-    // (the child is gone), so the only bytes back are the echo itself.
-    let arm_mark = harness.mark();
-    harness.write(UP_PRESS_KITTY);
-    harness.drain_until_quiet(6);
-    let armed_echo = harness.output_since(arm_mark);
-    assert!(
-        !contains(&armed_echo, b"\x1b[>7u"),
-        "{}: a write landed after the child died — a stray thread re-armed the mode",
-        route.name(),
-    );
+    // Linux-only: xnu revokes a session leader's controlling tty on exit, so nothing is observable after it.
+    #[cfg(target_os = "linux")]
+    {
+        let echo_mark = harness.mark();
+        harness.write(UP_PRESS_LEGACY);
+        harness.drain_until_quiet(6);
+        let echoed = harness.output_since(echo_mark);
+        assert!(
+            !contains(&echoed, UP_PRESS_KITTY),
+            "{}: the synthetic up arrow came back as the kitty press form — the mode is still armed",
+            route.name(),
+        );
+        assert!(
+            contains(&echoed, b"\x1b[A") || !echoed.is_empty(),
+            "{}: the cooked tty did not echo the up arrow — the pane handed to the shell is not cooked",
+            route.name(),
+        );
+        // The armed-form injection around the dead child: no writer
+        // remains (the child is gone), so the only bytes back are the
+        // echo itself.
+        let arm_mark = harness.mark();
+        harness.write(UP_PRESS_KITTY);
+        harness.drain_until_quiet(6);
+        let armed_echo = harness.output_since(arm_mark);
+        assert!(
+            !contains(&armed_echo, b"\x1b[>7u"),
+            "{}: a write landed after the child died — a stray thread re-armed the mode",
+            route.name(),
+        );
+    }
 
     harness.finish();
 }
@@ -557,6 +566,8 @@ impl RouteHarness {
         self.master.output.clone()
     }
 
+    // Linux-only: xnu revokes a session leader's controlling tty on exit, so nothing is observable after it.
+    #[cfg(target_os = "linux")]
     fn output_since(&self, mark: usize) -> Vec<u8> {
         self.master.output[mark..].to_vec()
     }

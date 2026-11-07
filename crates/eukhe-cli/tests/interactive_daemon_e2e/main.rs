@@ -195,6 +195,8 @@ fn assert_daemon_stops_clean(socket: &Path) {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Linux-only: off Linux a refused connect cannot prove the listener dead (a full backlog refuses too), so the daemon leaves the file to the next bind.
+    #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
         "the spawned supervisor removed its socket file"
