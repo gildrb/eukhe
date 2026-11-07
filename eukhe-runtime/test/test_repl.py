@@ -3261,6 +3261,21 @@ class ErrorEventCapTest(unittest.TestCase):
         )
 
 
+def _exit_watch(pid: int):
+    """Arm the OS exit notification for `pid` (kqueue NOTE_EXIT on macOS/BSD, a pidfd on Linux,
+    the runtime's own owner-watch choice); the returned wait answers whether the exit arrived
+    within `timeout_s`."""
+    if hasattr(select, "kqueue"):
+        kq = select.kqueue()
+        kq.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD, select.KQ_NOTE_EXIT)], 0, 0)
+        return lambda timeout_s: bool(kq.control(None, 1, timeout_s))
+    import rlm.repl as repl_module
+
+    poller = select.poll()
+    poller.register(repl_module._pidfd_open(pid), select.POLLIN)
+    return lambda timeout_s: bool(poller.poll(timeout_s * 1000))
+
+
 class OwnerWatchdogTest(unittest.TestCase):
     def test_owner_watchdog_exits_busy_runtime(self):
         # The reproduced F4 scenario: stdin stays open (no EOF shutdown), a
@@ -3305,14 +3320,15 @@ class OwnerWatchdogTest(unittest.TestCase):
             child = int(event["text"].strip())
             sys.path.insert(0, SRC)
             self.addCleanup(sys.path.remove, SRC)
-            import rlm.repl as repl_module
-
-            child_exit = select.poll()
-            child_exit.register(repl_module._pidfd_open(child), select.POLLIN)
+            child_exit = _exit_watch(child)
             owner.kill()
             owner.wait(timeout=10)
-            self.assertEqual(repl.proc.wait(timeout=15), -signal.SIGKILL)
-            self.assertTrue(child_exit.poll(15_000), "the cell's subprocess outlived the kernel")
+            # The group SIGKILL takes the kernel down too, but macOS delivers the
+            # self-directed signal asynchronously, so the watchdog's fallback
+            # `os._exit(1)` can win the race there; Linux always dies by the
+            # signal. The group kill itself is proven by the cell's subprocess.
+            self.assertIn(repl.proc.wait(timeout=15), (-signal.SIGKILL, 1))
+            self.assertTrue(child_exit(15), "the cell's subprocess outlived the kernel")
         finally:
             if owner.poll() is None:
                 owner.kill()
