@@ -496,6 +496,9 @@ fn pdeathsig_trampoline_child_mode() {
     };
     let command_line: Vec<String> = serde_json::from_str(&encoded).expect("decode the daemon argv");
     let (program, args) = command_line.split_first().expect("the daemon program");
+    // Linux only: other platforms have no parent-death signal, so there
+    // the per-test guards are the whole teardown.
+    #[cfg(target_os = "linux")]
     rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))
         .expect("arm the parent-death signal");
     let error = Command::new(program)

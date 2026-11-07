@@ -328,12 +328,18 @@ impl Termios {
         let raw = libc::termios::from(
             nix::sys::termios::tcgetattr(fd).expect("the harness could not read the pty's termios"),
         );
+        // The line discipline (`c_line`) is Linux only; other platforms'
+        // termios has no such field, so it reads 0 on both sides of a delta.
+        #[cfg(target_os = "linux")]
+        let line = raw.c_line;
+        #[cfg(not(target_os = "linux"))]
+        let line = 0;
         Termios {
             iflag: raw.c_iflag,
             oflag: raw.c_oflag,
             cflag: raw.c_cflag,
             lflag: raw.c_lflag,
-            line: raw.c_line,
+            line,
             cc: raw.c_cc,
         }
     }
