@@ -63,11 +63,20 @@ async fn runtime_socket_opens_exchanges_messages_and_reports_the_close() {
     assert_eq!(server.await.expect("server").as_deref(), Some("yes"));
 }
 
+/// The refused port is held bound without a listen: a connect to it is
+/// refused, and no other socket (of this process or another) can take
+/// the port and answer it, as one could after a listener's close.
 #[tokio::test]
 async fn runtime_socket_connect_failure_is_an_error_event() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let address = listener.local_addr().expect("address");
-    drop(listener);
+    let held =
+        socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).expect("socket");
+    held.bind(&std::net::SocketAddr::from(([127, 0, 0, 1], 0)).into())
+        .expect("bind");
+    let address = held
+        .local_addr()
+        .expect("address")
+        .as_socket()
+        .expect("an IPv4 address");
     let url = format!("ws://{address}/");
     let socket = TungsteniteWebSocket::connect(&url, IndexMap::new(), None).expect("socket");
     let mut listener = socket.listen();
@@ -79,6 +88,7 @@ async fn runtime_socket_connect_failure_is_an_error_event() {
             )),
         }
     );
+    drop(held);
 }
 
 #[tokio::test]

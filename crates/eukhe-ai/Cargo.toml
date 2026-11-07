@@ -74,6 +74,9 @@ tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 # Mock HTTP responses for the `fetch` option in provider tests (`http::Response` → `reqwest::Response`).
 http = "1"
+# A refused TCP port: a socket bound without a listen holds the port, so no
+# other socket takes it (already in the graph through tokio).
+socket2 = "0.6"
 
 [lints]
 workspace = true
