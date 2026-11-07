@@ -394,10 +394,14 @@ pub struct DaemonClient {
     reader_dead_rx: tokio::sync::watch::Receiver<bool>,
 }
 
+/// The client name of [`DaemonClient::connect`]: the terminal UI's.
+const TUI_CLIENT_NAME: &str = "daemon-tui";
+
 impl DaemonClient {
-    /// Connect to `socket_path`, complete the hello handshake, and return the
-    /// client plus the event receiver. The event receiver must be polled or
-    /// the reader task stalls once the channel's buffer fills.
+    /// Connect to `socket_path` as the terminal UI, complete the hello
+    /// handshake, and return the client plus the event receiver. The event
+    /// receiver must be polled or the reader task stalls once the channel's
+    /// buffer fills.
     ///
     /// # Errors
     ///
@@ -407,7 +411,22 @@ impl DaemonClient {
     pub async fn connect(
         socket_path: &Path,
     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
-        Self::open(socket_path, HELLO_TIMEOUT_MS, false).await
+        Self::connect_named(socket_path, TUI_CLIENT_NAME).await
+    }
+
+    /// [`Self::connect`] as the client `client_name`: the daemon sees this
+    /// connection as `<client_name>:<pid>` (the client id of every request,
+    /// the owner of the client-owned sessions it creates). A host names
+    /// itself here, as the terminal UI is `daemon-tui`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::connect`].
+    pub async fn connect_named(
+        socket_path: &Path,
+        client_name: &str,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
+        Self::open(socket_path, client_name, HELLO_TIMEOUT_MS, false).await
     }
 
     /// [`Self::connect`] for discovery probes (TS `probeDaemon`): the
@@ -423,7 +442,7 @@ impl DaemonClient {
         socket_path: &Path,
         hello_timeout_ms: u64,
     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
-        Self::open(socket_path, hello_timeout_ms, true).await
+        Self::open(socket_path, TUI_CLIENT_NAME, hello_timeout_ms, true).await
     }
 
     // One connection's setup in order (connect, hello, reader and writer
@@ -431,6 +450,7 @@ impl DaemonClient {
     #[allow(clippy::too_many_lines)]
     async fn open(
         socket_path: &Path,
+        client_name: &str,
         hello_timeout_ms: u64,
         keep_foreign: bool,
     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
@@ -582,7 +602,7 @@ impl DaemonClient {
         Ok((
             DaemonClient {
                 socket_path: socket_path.to_path_buf(),
-                client_id: format!("daemon-tui:{}", std::process::id()),
+                client_id: format!("{client_name}:{}", std::process::id()),
                 protocol,
                 hello,
                 next_request_id: Arc::new(AtomicU64::new(0)),

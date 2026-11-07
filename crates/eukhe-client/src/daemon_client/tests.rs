@@ -118,6 +118,54 @@ async fn handshake_and_request_round_trip() {
 }
 
 #[tokio::test]
+async fn a_named_client_is_its_name_and_pid_to_the_daemon() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("d.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (seen_tx, seen_rx) = oneshot::channel::<Value>();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let hello = json!({
+            "type": "daemon_hello",
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "serverCapabilities": [],
+        });
+        writer
+            .write_all(format!("{hello}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(reader).read_line(&mut line).await.unwrap();
+        let _ = seen_tx.send(serde_json::from_str(line.trim()).unwrap());
+    });
+
+    let (client, _events) = DaemonClient::connect_named(&socket, "local-studio")
+        .await
+        .unwrap();
+    let requester = client.clone();
+    let request = tokio::spawn(async move {
+        requester
+            .request(DaemonCommand::List {
+                id: None,
+                all: None,
+                cwd: None,
+                session_dir: None,
+                include_client_owned: None,
+                rest: Map::default(),
+            })
+            .await
+    });
+    let envelope = seen_rx.await.unwrap();
+    assert_eq!(
+        envelope["clientId"],
+        json!(format!("local-studio:{}", std::process::id()))
+    );
+    request.abort();
+    client.close();
+}
+
+#[tokio::test]
 async fn request_timeout_reports_socket() {
     let dir = tempfile::TempDir::new().unwrap();
     let socket = dir.path().join("d.sock");
