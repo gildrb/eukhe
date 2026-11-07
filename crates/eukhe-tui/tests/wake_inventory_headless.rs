@@ -49,6 +49,11 @@ impl MockBoot {
                 Err(_) => return,
             }
         };
+        // macOS accept(2) hands the connection the listener's O_NONBLOCK
+        // (Linux does not); the serve below reads blocking.
+        stream
+            .set_nonblocking(false)
+            .expect("blocking mock connection");
         let write_stream = stream.try_clone().expect("clone mock socket");
         let mut writer = write_stream;
         let mut reader = BufReader::new(stream);

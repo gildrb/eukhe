@@ -116,6 +116,11 @@ impl MockSupervisor {
         loop {
             match self.listener.accept() {
                 Ok((stream, _)) => {
+                    // macOS accept(2) hands the connection the listener's
+                    // O_NONBLOCK (Linux does not); the serve reads blocking.
+                    stream
+                        .set_nonblocking(false)
+                        .expect("blocking mock connection");
                     let shared = std::sync::Arc::clone(&shared);
                     connections.push(std::thread::spawn(move || {
                         shared.serve_connection(stream);

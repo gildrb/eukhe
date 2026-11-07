@@ -262,7 +262,14 @@ fn accept(listener: &UnixListener, what: &str) -> UnixStream {
     let deadline = std::time::Instant::now() + Duration::from_millis(ACCEPT_WAIT_MS);
     loop {
         match listener.accept() {
-            Ok((stream, _)) => return stream,
+            Ok((stream, _)) => {
+                // macOS accept(2) hands the connection the listener's
+                // O_NONBLOCK (Linux does not); the serves read blocking.
+                stream
+                    .set_nonblocking(false)
+                    .expect("blocking mock connection");
+                return stream;
+            }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 assert!(
                     std::time::Instant::now() < deadline,
