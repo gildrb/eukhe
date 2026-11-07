@@ -1686,6 +1686,10 @@ mod tests {
     async fn nonreading_kernel_fails_bootstrap_without_parking_shutdown() {
         use std::os::unix::fs::PermissionsExt;
 
+        // Its kernel is live in the process-wide registry: the test that
+        // shuts every live kernel down must not tear it down mid-boot.
+        let _kernels = crate::durable::rlm::kernel_test_lock().await;
+
         let dir = tempfile::TempDir::new().expect("temp dir");
         let python = dir.path().join("ready-but-not-reading");
         std::fs::write(
@@ -1751,6 +1755,10 @@ for line in sys.stdin:
         break
 "#;
 
+        // Its kernel is live in the process-wide registry: the test that
+        // shuts every live kernel down must not tear it down mid-boot (a
+        // "Kernel has been shut down" first attempt retried the boot).
+        let _kernels = crate::durable::rlm::kernel_test_lock().await;
         let dir = tempfile::TempDir::new().expect("temp dir");
         let python = dir.path().join("fake-kernel");
         std::fs::write(&python, SILENT_BOOTSTRAP_RUNTIME).expect("write fake runtime");
