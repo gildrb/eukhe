@@ -97,17 +97,14 @@ impl Drop for Supervisor {
     }
 }
 
-/// Liveness that ignores zombies: an unreaped child keeps its `/proc`
-/// entry, so path existence alone would call an exited process alive.
+/// Liveness that ignores zombies (the platform probe: `/proc` where it is
+/// mounted, `kill(pid, 0)` plus `ps` elsewhere). Best effort (it runs in
+/// `Drop`): a probe that cannot answer reads as gone.
 fn process_alive(pid: u32) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    let Some((_, rest)) = stat.rsplit_once(')') else {
-        return false;
-    };
-    let state = rest.split_whitespace().next().unwrap_or_default();
-    !state.starts_with('Z') && !state.starts_with('X')
+    matches!(
+        eukhe_types::platform::process::is_process_alive(pid),
+        Ok(true)
+    )
 }
 
 /// Send the daemon protocol shutdown and wait (bounded) for the supervisor
@@ -261,6 +258,19 @@ impl PtyReader {
         self.file.write_all(payload).expect("write to the pty");
     }
 
+    /// Read what the child wrote so far, as a terminal keeps doing while
+    /// its program exits: on macOS the exiting child's last close of its
+    /// controlling tty waits until the master has read the pending output.
+    fn drain(&mut self) {
+        let mut buffer = [0u8; 8192];
+        while let Ok(n) = self.file.read(&mut buffer) {
+            if n == 0 {
+                break;
+            }
+            self.output.extend_from_slice(&buffer[..n]);
+        }
+    }
+
     /// Drain the master until the needle appears in the collected stream,
     /// bounded by the harness deadline.
     fn wait_for(&mut self, needle: &str, what: &str) {
@@ -307,6 +317,9 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     let cwd = dir.path().join("project");
     std::fs::create_dir_all(&session_dir).expect("sessions dir");
     std::fs::create_dir_all(&cwd).expect("project dir");
+    // The cwd as the launched process sees it: canonical (`/var` reads
+    // `/private/var` on macOS).
+    let cwd = cwd.canonicalize().expect("canonical project dir");
     // The home has onboarding behind it: a completed first run is the
     // only thing that skips the flow (the marker alone gates it — a
     // fork user has one), and the launch must open the fork, not the
@@ -476,6 +489,7 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     pty_reader.write(b"\x04");
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
+        pty_reader.drain();
         if let Some(status) = child.try_wait().expect("child status") {
             assert!(status.success(), "the interactive child failed: {status}");
             break;
