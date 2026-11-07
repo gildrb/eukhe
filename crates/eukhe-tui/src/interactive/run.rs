@@ -4,7 +4,7 @@
 //! routes, the terminal handoffs, the spinner cadence, and the reconnect
 //! attempts live in their own modules.
 
-use super::headless::settled_sequence;
+use super::headless::{settled_sequence, wait_idle_holds};
 use super::open_failure::finish_failed_open;
 use super::reconnect::{close_expired_recovery, retry_session_attach};
 use super::render::{hand_terminal_to_requests, next_spinner_deadline, SPINNER_INTERVAL_MS};
@@ -759,18 +759,11 @@ async fn run_interactive_surface(
         while inputs_pending {
             if let Some(UiInput::WaitIdle { timeout_ms }) = pending.front() {
                 let timeout_ms = *timeout_ms;
-                // A parked follow-up/steering message keeps the barrier waiting
-                // until the session delivers it (the queue strip must clear
-                // before the next step observes the frames). A submit whose
-                // round trip is still armed holds the barrier too: the async
-                // submit resolves off the render path (the inline submit
-                // held the barrier by blocking the loop until its ack
-                // landed), so the outcome must land before the barrier can
-                // read idle.
-                if session.turn_active
-                    || !view.queued.is_empty()
-                    || session.prompt_submits_in_flight() > 0
-                {
+                // The barrier reads idle only with no turn, nothing parked or
+                // starting, and no submit round trip armed (see
+                // `wait_idle_holds`).
+                let submits = session.prompt_submits_in_flight();
+                if wait_idle_holds(session.turn_active, &view.queued, submits) {
                     if wait_idle_deadline.is_none() {
                         wait_idle_deadline =
                             Some(Instant::now() + Duration::from_millis(timeout_ms));

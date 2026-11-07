@@ -242,3 +242,40 @@ pub(super) async fn settled_sequence(
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("get_rlm_children carried no eventSequence"))
 }
+
+/// Whether the `WaitIdle` barrier still holds: a turn runs, a parked
+/// steering/follow-up message waits for its delivery (the queue strip
+/// must clear before the next step observes the frames), a picked-up
+/// message's turn is still starting (between the previous turn's end
+/// and its own start no turn runs, yet the run is not idle), or a
+/// submit's round trip is still armed (the async submit resolves off the
+/// render path, so its outcome must land before the barrier reads idle).
+pub(super) fn wait_idle_holds(
+    turn_active: bool,
+    queued: &crate::queued::QueuedMessages,
+    submits_in_flight: usize,
+) -> bool {
+    turn_active || !queued.is_empty() || queued.starting.is_some() || submits_in_flight > 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wait_idle_holds;
+    use crate::queued::QueuedMessages;
+
+    /// The gap between a finished turn and the start of the parked message
+    /// it picked up is not idle: the strip still shows the message as
+    /// starting and its turn has yet to run (a barrier released there
+    /// ended headless plans before the queued delivery rendered).
+    #[test]
+    fn a_picked_up_message_still_starting_holds_the_idle_barrier() {
+        let starting = QueuedMessages {
+            starting: Some("steering prompt".to_string()),
+            ..QueuedMessages::default()
+        };
+        assert!(wait_idle_holds(false, &starting, 0));
+        assert!(!wait_idle_holds(false, &QueuedMessages::default(), 0));
+        assert!(wait_idle_holds(true, &QueuedMessages::default(), 0));
+        assert!(wait_idle_holds(false, &QueuedMessages::default(), 1));
+    }
+}
