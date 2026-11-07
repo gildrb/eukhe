@@ -200,7 +200,7 @@ Download: user only, `eukhe tiny-models download <id>` / `eukhe tiny-models down
 2. Wrong size or sha256 → stop, staging removed, earlier install untouched. Staging not removable → fails with its own error plus a warning naming the directory.
 3. All correct → one rename to `<agent dir>/models/tiny/<id>`: complete or absent.
 
-Worker: one process per model+backend, shared by all eukhe processes. Socket, bind lock, log in `<agent dir>/run/tiny/` (`<id>-onnx.sock`, `.bind.lock`, `.log`), made 0700 by worker and client even if present. Hidden `eukhe tiny-worker <id> --backend onnx --agent-dir <dir>`; agent dir from the starter's command line, never environment (daemon with `--agent-dir` and its worker agree).
+Worker: one process per model+backend, shared by all eukhe processes. Socket, bind lock, log in `<agent dir>/run/tiny/` (`<id>-onnx.sock`, `.bind.lock`, `.log`), made 0700 by worker and client even if present. Hidden `eukhe tiny-worker <id> --backend onnx --agent-dir <dir>` (`eukhe-daemon tiny-worker ...` alike: a process spawns workers of its own executable); agent dir from the starter's command line, never environment (daemon with `--agent-dir` and its worker agree).
 
 1. Client connects, sends `ping`; worker answers launch tag `<build id>|onnx|<device>|<dtype>`.
 2. Same tag → use it (joined).

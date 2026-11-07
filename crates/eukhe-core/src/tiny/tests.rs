@@ -192,18 +192,8 @@ fn an_unavailable_role_names_its_chain_and_the_download() {
 }
 
 #[test]
-fn the_worker_runs_as_eukhe() {
-    let suffix = std::env::consts::EXE_SUFFIX;
-    assert_eq!(
-        (
-            eukhe_sibling(Path::new(&format!("/opt/bin/eukhe{suffix}"))),
-            eukhe_sibling(Path::new(&format!("/opt/bin/eukhe-daemon{suffix}"))),
-        ),
-        (
-            PathBuf::from(format!("/opt/bin/eukhe{suffix}")),
-            PathBuf::from(format!("/opt/bin/eukhe{suffix}")),
-        )
-    );
+fn the_worker_runs_as_this_executable() {
+    assert_eq!(worker_exe().unwrap(), std::env::current_exe().unwrap());
 }
 
 #[test]

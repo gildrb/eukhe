@@ -1,6 +1,11 @@
-//! `eukhe-daemon`: supervisor and session-worker binary.
+//! `eukhe-daemon`: the whole engine image. It serves the supervisor, the
+//! session workers it spawns (`worker`), and the shared tiny-model workers
+//! those sessions spawn (`tiny-worker`, the same entry `eukhe tiny-worker`
+//! runs), so a host that bundles only this binary runs every process of
+//! the engine.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use anyhow::{anyhow, Result};
 
@@ -12,10 +17,10 @@ use anyhow::{anyhow, Result};
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<ExitCode> {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_else(|| {
-        eprintln!("usage: eukhe-daemon <supervisor|worker> [options]");
+        eprintln!("usage: eukhe-daemon <supervisor|worker|tiny-worker> [options]");
         std::process::exit(2);
     });
     match command.as_str() {
@@ -39,11 +44,21 @@ async fn main() -> Result<()> {
                     .unwrap_or_else(eukhe_daemon::socket::default_daemon_socket_path),
                 agent_dir,
             };
-            eukhe_daemon::supervisor::run_supervisor(options).await
+            eukhe_daemon::supervisor::run_supervisor(options)
+                .await
+                .map(|()| ExitCode::SUCCESS)
         }
-        "worker" => eukhe_daemon::worker::run_worker().await,
+        "worker" => eukhe_daemon::worker::run_worker()
+            .await
+            .map(|()| ExitCode::SUCCESS),
+        // The shared worker of one tiny model (spawned by the tiny client,
+        // never by hand), with the ONNX engine.
+        "tiny-worker" => {
+            let args: Vec<String> = args.collect();
+            Ok(eukhe_tiny::run_worker(&args, eukhe_tiny_onnx::open).await)
+        }
         other => Err(anyhow!(
-            "unknown command: {other} (expected supervisor|worker)"
+            "unknown command: {other} (expected supervisor|worker|tiny-worker)"
         )),
     }
 }

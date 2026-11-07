@@ -21,6 +21,11 @@ eukhe-docs = { path = "../eukhe-docs" }
 eukhe-durable = { path = "../eukhe-durable" }
 eukhe-chord = { path = "../eukhe-chord" }
 eukhe-ai = { path = "../eukhe-ai" }
+# `eukhe-daemon tiny-worker`: the shared tiny-model worker its sessions
+# spawn runs this binary too (the ONNX engine, run-time dlopen), so the
+# daemon binary alone is a complete engine image.
+eukhe-tiny = { path = "../eukhe-tiny" }
+eukhe-tiny-onnx = { path = "../eukhe-tiny-onnx" }
 anyhow = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

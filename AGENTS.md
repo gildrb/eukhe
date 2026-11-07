@@ -93,7 +93,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, shared worker per model and its election, worker client, role-based model selection|`eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tiny-onnx`|Tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
-|`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
+|`eukhe-daemon`|Supervisor, workers, wire protocol; the `eukhe-daemon` binary is the whole engine image (`supervisor`, `worker`, `tiny-worker`)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 |`eukhe-client`|Daemon-wire client for frontends: supervisor connection and events, direct worker link, build order and replacement verdict (`daemon_build`), saved sessions and the daemon launcher seam|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tui`|Terminal UI|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-client`|
 |`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-client`, `eukhe-tui` (`width::str_width` only)|

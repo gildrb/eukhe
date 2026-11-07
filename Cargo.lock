@@ -703,6 +703,8 @@ dependencies = [
  "eukhe-docs",
  "eukhe-durable",
  "eukhe-theme",
+ "eukhe-tiny",
+ "eukhe-tiny-onnx",
  "eukhe-types",
  "filetime",
  "futures",

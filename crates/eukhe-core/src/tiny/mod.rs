@@ -333,25 +333,15 @@ async fn run_remote(
     Ok(eukhe_tiny::remote_reply_text(request, &text))
 }
 
-/// The executable the tiny worker runs as (`eukhe tiny-worker`): this
-/// process's executable when it is `eukhe`, else the `eukhe` next to it
-/// (the `eukhe-daemon` binary).
+/// The executable the tiny worker runs as (`<exe> tiny-worker`): this
+/// process's own executable. Both `eukhe` and `eukhe-daemon` serve
+/// `tiny-worker`, so the worker runs the build that spawned it.
 ///
 /// # Errors
 ///
 /// The current executable cannot be resolved.
 pub fn worker_exe() -> std::io::Result<PathBuf> {
-    let current = std::env::current_exe()?;
-    Ok(eukhe_sibling(&current))
-}
-
-/// `exe` when its name is `eukhe`, else `eukhe` in its directory.
-fn eukhe_sibling(exe: &Path) -> PathBuf {
-    let name = exe.file_stem().and_then(|stem| stem.to_str());
-    match name {
-        Some("eukhe") => exe.to_path_buf(),
-        Some(_) | None => exe.with_file_name(format!("eukhe{}", std::env::consts::EXE_SUFFIX)),
-    }
+    std::env::current_exe()
 }
 
 /// The tiny client of an agent dir with the settings' engine options.
