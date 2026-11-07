@@ -1122,20 +1122,15 @@ async fn tui_dispatches_declared_editor_keybindings() {
     )
     .expect("write keybindings.json");
     let supervisor = spawn_supervisor(dir.path());
-    // The second response keeps the turn alive on a visible marker while
-    // the interrupt key lands (the pacing the menu-over-turn verifiers
-    // use; the turn aborts long before its final answer).
+    // The second response holds its request at the provider (`delayMs`)
+    // far past the plan: the turn is provably running when the interrupt
+    // key lands, and only the abort ends it -- the hold, not a streaming
+    // pace the loaded box may outrun, keeps the final answer back.
     let script = serde_json::json!({
         "engine": "faux",
-        "tokensPerSecond": 4,
         "responses": [
             { "text": "quick reply", "delayMs": 10 },
-            { "content": [
-                { "type": "text", "text": "the slow turn is streaming" },
-                { "type": "thinking",
-                  "thinking": "a long slow thinking pass keeps the turn alive while the interrupt key lands" },
-                { "type": "text", "text": "the final answer that the abort must never deliver" },
-            ] },
+            { "text": "the final answer that the abort must never deliver", "delayMs": 120_000 },
         ],
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
@@ -1152,17 +1147,18 @@ async fn tui_dispatches_declared_editor_keybindings() {
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
-            // The script's quick reply plays first so the slow turn below
-            // streams while the interrupt key lands.
+            // The script's quick reply plays first so the held turn below
+            // is the one the interrupt key lands in.
             eukhe_tui::interactive::HeadlessStep::Submit("hello".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
             // ctrl+l opens the /model role hub.
             key(KeyCode::Char('l'), KeyModifiers::CONTROL),
             wait_render("Search roles"),
             key(KeyCode::Esc, KeyModifiers::NONE),
-            // The slow turn runs so the interrupt key lands mid-turn.
+            // The slow turn's request waits on the provider when the
+            // interrupt key lands.
             eukhe_tui::interactive::HeadlessStep::Submit("start the slow turn".to_string()),
-            wait_render("the slow turn is streaming"),
+            wait_render("Waiting - "),
             key(
                 KeyCode::Char('i'),
                 KeyModifiers::CONTROL | KeyModifiers::ALT,
