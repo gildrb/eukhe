@@ -1,5 +1,6 @@
 use super::*;
 use crate::chat::{AssistantLead, AssistantMessage, MessageBlock};
+use crate::keybindings::HOST_ALT_LABEL;
 use crate::style::Modifier;
 use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
 use crate::tool_card::{ToolCallCard, ToolResultView};
@@ -279,11 +280,10 @@ fn hint_rows_carry_the_platform_alt_label() {
         joined.contains("browse"),
         "the queue browse header renders: {joined}"
     );
-    if std::env::consts::OS == "macos" {
-        assert!(joined.contains("Option+up"), "macOS hint row: {joined}");
-    } else {
-        assert!(joined.contains("Alt+up"), "hint row: {joined}");
-    }
+    assert!(
+        joined.contains(&format!("{HOST_ALT_LABEL}+up")),
+        "hint row: {joined}"
+    );
 }
 
 #[test]

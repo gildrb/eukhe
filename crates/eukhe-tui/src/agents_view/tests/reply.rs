@@ -5,6 +5,7 @@
 use super::*;
 use crate::agents_view::rename::{Rename, RenameTarget};
 use crate::agents_view::reply::{KillRequest, ReplyRequest, ReplySent};
+use crate::keybindings::HOST_ALT_LABEL;
 use eukhe_types::daemon::StreamingBehavior;
 
 /// One armed composer over the fixture's live parent row.
@@ -374,7 +375,7 @@ fn the_reply_hints_follow_the_target_state() {
     with_text.handle_key("h");
     assert_eq!(
         flat(&with_text.render_hints(120, None)),
-        "Enter send   Alt+Enter queue   Esc/Ctrl+C cancel"
+        format!("Enter send   {HOST_ALT_LABEL}+Enter queue   Esc/Ctrl+C cancel")
     );
     let saved = armed_saved();
     assert_eq!(

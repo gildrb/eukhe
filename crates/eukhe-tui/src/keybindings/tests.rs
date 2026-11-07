@@ -569,12 +569,20 @@ fn effective_config_covers_every_definition() {
     );
 }
 
+/// The host formatter: the platform-neutral parts render the same
+/// everywhere, and `alt` takes the host's label.
 #[test]
 fn formats_key_text() {
     assert_eq!(format_key_text("ctrl+o"), "Ctrl+O");
-    assert_eq!(format_key_text("shift+alt+up"), "Shift+Alt+up");
+    assert_eq!(
+        format_key_text("shift+alt+up"),
+        format!("Shift+{HOST_ALT_LABEL}+up")
+    );
     assert_eq!(format_key_text("escape"), "Esc");
-    assert_eq!(format_key_text("ctrl+o/alt+o"), "Ctrl+O/Alt+O");
+    assert_eq!(
+        format_key_text("ctrl+o/alt+o"),
+        format!("Ctrl+O/{HOST_ALT_LABEL}+O")
+    );
 }
 
 #[test]

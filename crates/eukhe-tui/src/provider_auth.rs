@@ -610,6 +610,7 @@ impl ProviderAuthSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keybindings::HOST_ALT_LABEL;
 
     fn kb() -> KeybindingsManager {
         KeybindingsManager::new()
@@ -988,7 +989,8 @@ mod tests {
         assert!(text[4].contains("Paste value"));
         assert_eq!(text[5], "", "the blank between the field and the actions");
         assert_eq!(
-            text[6], " Enter submit  Alt+C copy  Esc/Ctrl+C cancel",
+            text[6],
+            format!(" Enter submit  {HOST_ALT_LABEL}+C copy  Esc/Ctrl+C cancel"),
             "the TS auth-actions row: {text:?}"
         );
         assert_eq!(text.len(), 7, "no bottom rule rides the prompt: {text:?}");

@@ -19,6 +19,13 @@ use eukhe_tui::interactive::{
 };
 use serde_json::{json, Value};
 
+/// The `alt` label the hints render on this host (`Option` on macOS).
+const ALT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Option"
+} else {
+    "Alt"
+};
+
 fn write_json(writer: &mut UnixStream, value: &Value) {
     let mut line = serde_json::to_string(value).expect("serialize mock frame");
     line.push('\n');
@@ -295,15 +302,16 @@ fn the_collapsed_block_names_keys_that_expand_it() {
         needle: needle.to_string(),
         timeout_ms: 10_000,
     };
+    let collapsed_from_editor = format!("... 2 more ({ALT_LABEL}+A, Space: expand)");
     let plan = HeadlessPlan {
         steps: vec![
             wait("Agents  5 running"),
-            wait("... 2 more (Alt+A, Space: expand)"),
+            wait(&collapsed_from_editor),
             key(KeyCode::Char('h'), KeyModifiers::NONE),
             key(KeyCode::Char(' '), KeyModifiers::NONE),
             key(KeyCode::Char('i'), KeyModifiers::NONE),
             wait("> h i"),
-            wait("... 2 more (Alt+A, Space: expand)"),
+            wait(&collapsed_from_editor),
             key(KeyCode::Char('a'), KeyModifiers::ALT),
             wait("... 2 more (Space: expand)"),
             key(KeyCode::Char(' '), KeyModifiers::NONE),

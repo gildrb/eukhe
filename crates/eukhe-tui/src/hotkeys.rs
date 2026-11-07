@@ -170,6 +170,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keybindings::HOST_ALT_LABEL;
 
     #[test]
     fn guide_renders_default_keys() {
@@ -198,11 +199,15 @@ mod tests {
         );
         assert!(guide.contains("Select to start / end of text"), "{guide}");
         assert!(
-            guide.contains("| `Alt+up` / `Alt+down` | Browse and edit queued messages |"),
+            guide.contains(&format!(
+                "| `{HOST_ALT_LABEL}+up` / `{HOST_ALT_LABEL}+down` | Browse and edit queued messages |"
+            )),
             "{guide}"
         );
         assert!(
-            guide.contains("| `Shift+Tab` / `Shift+Alt+Tab` | Next / previous thinking level |"),
+            guide.contains(&format!(
+                "| `Shift+Tab` / `Shift+{HOST_ALT_LABEL}+Tab` | Next / previous thinking level |"
+            )),
             "{guide}"
         );
         // The fullscreen transcript window's keys.
@@ -226,7 +231,10 @@ mod tests {
         );
         let kb = KeybindingsManager::with_user_bindings(&cfg);
         let guide = hotkeys_guide(&kb);
-        assert!(guide.contains("| `Ctrl+Alt+X` | Cycle overview"), "{guide}");
+        assert!(
+            guide.contains(&format!("| `Ctrl+{HOST_ALT_LABEL}+X` | Cycle overview")),
+            "{guide}"
+        );
         assert!(!guide.contains("`Ctrl+O`"), "{guide}");
     }
 
@@ -241,6 +249,13 @@ mod tests {
         let kb = KeybindingsManager::with_user_bindings(&cfg);
         let guide = hotkeys_guide(&kb);
         assert!(guide.contains("| `` | Cycle overview"), "{guide}");
-        assert!(!guide.contains("Ctrl+O"), "{guide}");
+        // Key by key: macOS's `Ctrl+Option+]` holds `Ctrl+O` as a
+        // substring, but no key cell holds the Ctrl+O key.
+        assert!(
+            guide
+                .split(|c: char| c == '`' || c == '/' || c.is_whitespace())
+                .all(|key| key != "Ctrl+O"),
+            "{guide}"
+        );
     }
 }

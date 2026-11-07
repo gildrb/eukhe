@@ -748,6 +748,15 @@ impl LabelPlatform {
     }
 }
 
+/// The `alt` label hints render on this host, spelled independently of
+/// [`LabelPlatform`] so a test states its expected hint text per host.
+#[cfg(test)]
+pub(crate) const HOST_ALT_LABEL: &str = if cfg!(target_os = "macos") {
+    "Option"
+} else {
+    "Alt"
+};
+
 /// Format a key id for display in hints ("ctrl+o" -> "Ctrl+O", arrows to
 /// glyphs; `alt` renders as `Option` on macOS, `Alt` elsewhere).
 #[must_use]

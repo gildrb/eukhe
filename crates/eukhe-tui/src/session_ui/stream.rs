@@ -305,7 +305,7 @@ pub(crate) fn resume_hint_from_stats(stats: &Value, theme: &crate::theme::Theme)
 #[cfg(test)]
 mod streaming_tray_hint_tests {
     use super::streaming_tray_hint;
-    use crate::keybindings::{KeybindingsConfig, KeybindingsManager};
+    use crate::keybindings::{KeybindingsConfig, KeybindingsManager, HOST_ALT_LABEL};
 
     /// TS `getTrayOverrideLabel`'s streaming arm: the follow-up hint names
     /// the effective `app.message.followUp` key (the default is
@@ -315,7 +315,7 @@ mod streaming_tray_hint_tests {
         let kb = KeybindingsManager::new();
         assert_eq!(
             streaming_tray_hint(&kb, true, "a draft in the editor"),
-            Some("Alt+Enter to queue message".to_string()),
+            Some(format!("{HOST_ALT_LABEL}+Enter to queue message")),
             "the default binding renders the TS sentence"
         );
     }
