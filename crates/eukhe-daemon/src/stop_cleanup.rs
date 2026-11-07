@@ -177,7 +177,13 @@ pub(crate) fn cancel_scheduled_jobs_for_tree(
             .cancel_jobs_for_session(
                 &CancelJobsFilter {
                     active_session_id: None,
-                    session_id: None,
+                    // The member's id matches its jobs whatever spelling of
+                    // the file they recorded: the tree walk only holds the
+                    // canonical path, while a job keeps the path its worker
+                    // saw (a symlinked component, macOS's /var ->
+                    // /private/var temp dir), which the store compares
+                    // lexically.
+                    session_id: Some(member.session_id.clone()),
                     session_file: Some(member.session_file.to_string_lossy().to_string()),
                 },
                 now,
@@ -695,13 +701,11 @@ mod tests {
         serde_json::from_value(raw["jobs"][0].clone()).unwrap()
     }
 
-    /// A killed tree: the root and its ledger child both hold active
-    /// heartbeat jobs; the finalize cancels every member's jobs and marks
-    /// the root file archived.
-    #[test]
-    fn finalize_cancels_the_tree_and_archives_the_root() {
-        let root = temp_dir();
-        let agent_dir = root.join("agent");
+    /// A killed tree under `base`: the root and its ledger child both hold
+    /// active heartbeat jobs; the finalize cancels every member's jobs and
+    /// marks the root file archived.
+    fn assert_finalize_cancels_the_tree_and_archives_the_root(base: &Path) {
+        let agent_dir = base.join("agent");
         let sessions_dir = agent_dir.join("sessions");
         std::fs::create_dir_all(&sessions_dir).unwrap();
 
@@ -738,6 +742,24 @@ mod tests {
         // The archived-state belt landed on the root's (imported) storage.
         let info = read_session_info(&root_file).unwrap();
         assert_eq!(info.state.as_deref(), Some("archived"));
+    }
+
+    #[test]
+    fn finalize_cancels_the_tree_and_archives_the_root() {
+        assert_finalize_cancels_the_tree_and_archives_the_root(&temp_dir());
+    }
+
+    /// A tree reached through a symlinked directory (macOS's temp dir sits
+    /// behind `/var` -> `/private/var`): the walk holds canonical paths while
+    /// the jobs recorded the linked spelling, and both still cancel.
+    #[test]
+    fn finalize_cancels_a_tree_whose_jobs_recorded_a_symlinked_path() {
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let linked = root.path().join("linked");
+        std::os::unix::fs::symlink(&real, &linked).unwrap();
+        assert_finalize_cancels_the_tree_and_archives_the_root(&linked);
     }
 
     /// A legacy file not imported yet is imported under the session lease
