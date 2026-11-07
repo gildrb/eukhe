@@ -107,7 +107,9 @@ pub(crate) async fn read_worktree_status(
 /// from the caller would redirect every command to a different repository
 /// or index than `cwd` (`GIT_DIR`/`GIT_WORK_TREE` select the tree the manifest
 /// claims to describe), so they are scrubbed and the snapshot's git view
-/// is always `cwd`'s own.
+/// is always `cwd`'s own. The children also run under `LC_ALL=C`: a
+/// failure is classified from git's message, which a translated git
+/// (a German `LANG`) would otherwise word in the user's language.
 pub(crate) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command {
     const GIT_SELECTION_VARS: [&str; 7] = [
         "GIT_DIR",
@@ -122,7 +124,8 @@ pub(crate) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command 
     command
         .args(eukhe_shell::GIT_UNTRUSTED_REPO_ARGS)
         .args(args)
-        .current_dir(cwd);
+        .current_dir(cwd)
+        .env("LC_ALL", "C");
     for variable in GIT_SELECTION_VARS {
         command.env_remove(variable);
     }

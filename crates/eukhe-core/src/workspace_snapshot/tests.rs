@@ -1288,6 +1288,20 @@ fn git_selection_env_is_scrubbed_from_child_commands() {
 }
 
 #[test]
+fn git_child_commands_speak_the_c_locale() {
+    // run_git tells "not a git worktree" from git's message; under a
+    // translated locale (LANG=de_DE.UTF-8) git words it in German and the
+    // worktree check would classify it as a plain git failure.
+    let command = git_command(&["status"], Path::new("/tmp"));
+    let lc_all = command
+        .as_std()
+        .get_envs()
+        .find(|(key, _)| *key == "LC_ALL")
+        .and_then(|(_, value)| value);
+    assert_eq!(lc_all, Some(std::ffi::OsStr::new("C")));
+}
+
+#[test]
 fn status_parser_reads_porcelain_v2_records() {
     let output = b"# branch.oid ee3a902349fa5446bf3edd1e1e8d8f7f48013081\0\
 # branch.head main\0\
