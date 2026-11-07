@@ -11,13 +11,13 @@
 )]
 
 //! The kernel transport (docs/runtime.md S3) on the real runtime: a fake
-//! wrapper (`setsid -w sh -c 'exec "$@"'`, so the stub runs in a session of
-//! its own, like a process behind `docker exec` or `ssh`) runs the
-//! unchanged stub in a sandbox directory that maps to a different host
-//! directory. The stub starts and serves cells there; an `fs.*` host
-//! request reaches the host handler with host paths and its reply's paths
-//! come back as the sandbox's; a path outside every mount is refused with
-//! the typed `FsError`; and a kill ends the stub through its closed stdin.
+//! wrapper ([`SESSION_WRAPPER`], so the stub runs in a session of its own,
+//! like a process behind `docker exec` or `ssh`) runs the unchanged stub in
+//! a sandbox directory that maps to a different host directory. The stub
+//! starts and serves cells there; an `fs.*` host request reaches the host
+//! handler with host paths and its reply's paths come back as the
+//! sandbox's; a path outside every mount is refused with the typed
+//! `FsError`; and a kill ends the stub through its closed stdin.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -40,6 +40,17 @@ use kernel_runtime::kernel_python;
 #[path = "support/process_watch.rs"]
 mod process_watch;
 use process_watch::await_process_gone;
+
+/// The fake wrapper, run by the kernel's Python: `setsid -w` (which macOS
+/// does not ship) - fork, start a new session in the child, exec the
+/// kernel command there, and wait for it.
+const SESSION_WRAPPER: &str = "import os, sys
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    os.execvp(sys.argv[1], sys.argv[1:])
+sys.exit(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]))
+";
 
 /// A host `fs.read` that reads the host file the request names and records
 /// each request it served.
@@ -111,9 +122,11 @@ async fn the_stub_runs_unchanged_under_a_wrapper_and_fs_paths_map_through_the_mo
         bootstrap_code: Some(bootstrap.clone()),
         stderr_log_path: None,
         transport: KernelTransport::Wrapped(KernelWrapper {
-            argv_prefix: ["setsid", "-w", "sh", "-c", "exec \"$@\"", "wrapper"]
-                .map(str::to_owned)
-                .to_vec(),
+            argv_prefix: vec![
+                kernel_python().to_string_lossy().into_owned(),
+                "-c".to_owned(),
+                SESSION_WRAPPER.to_owned(),
+            ],
             command: WrapperCommand::Argv,
             python: kernel_python().to_string_lossy().into_owned(),
             path_map: PathMap::new(vec![PathMount {
