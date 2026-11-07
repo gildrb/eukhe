@@ -154,10 +154,10 @@ impl Drop for DetachedDaemon {
 }
 
 /// Shut the spawned supervisor down by protocol and assert that it — and
-/// every worker process it spawned — actually exited and the socket file
-/// went away. A daemon that only stops its workers but stays parked on its
-/// listening socket would leak both processes (the TS client's
-/// `waitForDaemonGone` relies on the daemon exiting).
+/// every worker process it spawned — actually exited, and (on Linux) the
+/// socket file went away. A daemon that only stops its workers but stays
+/// parked on its listening socket would leak both processes (the TS
+/// client's `waitForDaemonGone` relies on the daemon exiting).
 fn assert_daemon_stops_clean(socket: &Path) {
     // Sync JSONL exchange (called from the sync guard path).
     use std::io::{BufRead, BufReader, Write};
@@ -195,7 +195,9 @@ fn assert_daemon_stops_clean(socket: &Path) {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
-    // Linux-only: off Linux a refused connect cannot prove the listener dead (a full backlog refuses too), so the daemon leaves the file to the next bind.
+    // Linux removes the socket file at the exit; off Linux the exit keeps
+    // it and the next start reclaims it
+    // (`assert_the_next_start_reclaims_the_socket`).
     #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
@@ -212,6 +214,44 @@ fn assert_daemon_stops_clean(socket: &Path) {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+}
+
+/// Off Linux the exit keeps its socket file: a refused connect cannot
+/// prove the listener closed (a full backlog refuses too), so the file
+/// waits for the next start's stale-socket prepare. Both halves hold: the
+/// file outlives the exit and serves nothing, and the product's next
+/// start on the same path replaces it (a new inode), serves its hello,
+/// and stops clean in turn.
+#[cfg(not(target_os = "linux"))]
+async fn assert_the_next_start_reclaims_the_socket(socket: &Path, spawn_cwd: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let stale = std::fs::metadata(socket)
+        .expect("the exit leaves its socket file")
+        .ino();
+    assert!(
+        std::os::unix::net::UnixStream::connect(socket).is_err(),
+        "nothing serves the left-behind socket file"
+    );
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
+    eukhe_cli::ensure_daemon_running_with(
+        &exe,
+        eukhe_client::daemon_build::Build::THIS,
+        socket,
+        spawn_cwd,
+        eukhe_client::daemon_build::Caller::Interactive,
+    )
+    .await
+    .expect("the next start reclaims the left-behind socket");
+    assert_ne!(
+        std::fs::metadata(socket)
+            .expect("the successor's socket file")
+            .ino(),
+        stale,
+        "the successor bound a fresh socket file in place of the stale one"
+    );
+    // The successor serves its hello on the reclaimed path (the stop's
+    // handshake reads it) and leaks nothing either.
+    assert_daemon_stops_clean(socket);
 }
 
 /// Sync JSONL shutdown request (Drop runs inside the async test runtime, so

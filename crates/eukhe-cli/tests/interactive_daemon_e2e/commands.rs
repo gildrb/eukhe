@@ -272,6 +272,8 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
     // protocol and require the process tree to actually exit (the guard
     // stays as the panic backstop; this call asserts the clean stop).
     assert_daemon_stops_clean(&socket);
+    #[cfg(not(target_os = "linux"))]
+    assert_the_next_start_reclaims_the_socket(&socket, dir.path()).await;
 }
 
 /// Slash-command dispatch over a live scripted session: the session command
