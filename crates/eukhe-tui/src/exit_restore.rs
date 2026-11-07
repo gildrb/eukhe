@@ -31,8 +31,8 @@
 //!    would silently restore raw ([`eukhe_types::platform::terminal`]'s
 //!    `stty sane` reconstruction repairs it);
 //! 8. a pending Ctrl+S output stop lifts FIRST -- the stop is runtime
-//!    state, not termios, and it HOLDS writes: the lift (the IXON-toggle,
-//!    [`eukhe_types::platform::terminal::restart_output`]) must precede the
+//!    state, not termios, and it HOLDS writes: the lift
+//!    ([`eukhe_types::platform::terminal::restart_output`]) must precede the
 //!    restore's own output writes or the restore itself would hang on a
 //!    stopped tty, and the shell would keep the frozen prompt the
 //!    restore owed it.
@@ -83,7 +83,8 @@ pub(crate) fn restore_terminal() {
     // (armed in a cooked window this bracket never re-armed -- the suspend
     // error paths, the force-quit from a wedge) holds every WRITE below,
     // so the restore itself would hang before reaching the lift. The
-    // lift is two termios writes, no terminal-output writes -- it flows.
+    // lift is termios and flow-control calls, no terminal-output writes --
+    // it flows.
     eukhe_types::platform::terminal::restart_output();
     let mut out = std::io::stdout();
     crate::enhanced_keys::release_for_exit();

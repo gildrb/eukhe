@@ -14,7 +14,7 @@
 use std::fs::File;
 use std::io;
 
-use nix::sys::termios::{tcgetattr, tcsetattr, SetArg, Termios};
+use nix::sys::termios::{tcflow, tcgetattr, tcsetattr, FlowArg, SetArg, Termios};
 
 /// The classic control characters `stty sane` restores (Linux
 /// defaults): a poisoned tty may carry zeroes here, and canonical
@@ -101,13 +101,15 @@ fn tty() -> Option<File> {
 /// cooked (a Ctrl+S at the shell prompt, or in a suspend window) is
 /// RUNTIME state — it survives every `tcsetattr`, and an exit restore
 /// that never re-arms raw would leave the shell on a frozen prompt
-/// until Ctrl+Q. The kernel lifts it on one condition only: the IXON
-/// transition to off (`n_tty` clears the stopped flag when software
-/// flow control turns off; a `tcflow(TCOON)` clears only the separate
-/// `TCOFF` state, and an identical-attrs write clears nothing). The
-/// two-step toggle clears IXON for one `tcsetattr` (lifting any armed
-/// stop) and writes the captured attributes straight back, so the
-/// shell's own flow-control configuration returns byte-equal.
+/// until Ctrl+Q. The kernels lift it on different triggers. Linux: only
+/// the IXON transition to off (`n_tty` clears the stopped flag when
+/// software flow control turns off; a `tcflow(TCOON)` clears only the
+/// separate `TCOFF` state, and an identical-attrs write clears nothing).
+/// macOS (xnu): only `tcflow(TCOON)` (`TIOCSTART` clears `TS_TTSTOP`;
+/// neither the IXON toggle nor `cfmakeraw` does). So the lift runs
+/// both: the two-step toggle clears IXON for one `tcsetattr` and writes
+/// the captured attributes straight back (the shell's own flow-control
+/// configuration returns byte-equal), then `TCOON` restarts output.
 /// Best-effort: no tty means nothing to lift, and the caller proceeds
 /// (the same swallow-first contract as `disable_raw_mode`).
 pub fn restart_output() {
@@ -120,11 +122,13 @@ pub fn restart_output() {
     let restored = attrs.clone();
     let mut lifted = libc::termios::from(attrs);
     lifted.c_iflag &= !libc::IXON;
-    // The two writes run the kernel's one stop-lift (the IXON
-    // transition) and then restore the exact captured state.
+    // The two writes run Linux's stop-lift (the IXON transition) and
+    // then restore the exact captured state.
     if tcsetattr(&tty, SetArg::TCSANOW, &Termios::from(lifted)).is_ok() {
         let _ = tcsetattr(&tty, SetArg::TCSANOW, &restored);
     }
+    // xnu's stop-lift (Linux: restarts only a TCOFF stop, none here).
+    let _ = tcflow(&tty, FlowArg::TCOON);
 }
 
 /// Verify the process tty and repair a raw state: the force-quit

@@ -591,10 +591,12 @@ fn run_selector_surface(
     // teardown must still hand the terminal back whole (the same
     // unwind-guard contract the session surface arms).
     let _surface_restore = crate::exit_restore::SurfaceRestore::armed();
-    // The raw-mode bracket's `cfmakeraw` write clears IXON, which is the
-    // kernel's one trigger for lifting a pending Ctrl+S stop (see the
-    // flow e2e's launch route).
+    // A pending Ctrl+S stop must lift before the first frame: Linux lifts
+    // it when the raw write's `cfmakeraw` clears IXON, xnu does not, so
+    // the explicit lift follows the raw write (see the flow e2e's launch
+    // route).
     terminal::enable_raw_mode()?;
+    eukhe_types::platform::terminal::restart_output();
     // The selector surface owns the same enhanced-key modes as the session
     // (TS `ProcessTerminal.start`): a pasted filter query arrives as one
     // chunk instead of per-line keystrokes.

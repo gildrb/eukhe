@@ -251,11 +251,13 @@ impl Renderer {
     ) -> Result<Renderer> {
         match ui {
             UiMode::Terminal => {
-                // The raw-mode bracket's own `cfmakeraw` write clears IXON,
-                // which is the kernel's one trigger for lifting a pending
-                // Ctrl+S stop: a tty stopped at the shell prompt self-heals
-                // here (verified by the flow e2e's launch route).
+                // A tty stopped at the shell prompt (a pending Ctrl+S)
+                // must flow before the first frame: Linux lifts the stop
+                // when the raw write's `cfmakeraw` clears IXON, xnu does
+                // not, so the explicit lift follows the raw write
+                // (verified by the flow e2e's launch route).
                 terminal::enable_raw_mode()?;
+                eukhe_types::platform::terminal::restart_output();
                 // The terminal state changed: every later setup step is
                 // fallible and an error from any of them still owns the
                 // release. The flag arms here, not at the end of setup.
@@ -402,12 +404,13 @@ impl Renderer {
     pub(super) fn resume(&mut self) -> Result<()> {
         match self {
             Renderer::Terminal { term, .. } => {
-                // The raw re-arm's `cfmakeraw` write clears IXON - the
-                // kernel's one trigger for lifting a pending Ctrl+S stop -
-                // so a stop armed at the shell while the process sat
-                // suspended never holds the resume's repaint (verified by
-                // the flow e2e's suspend route).
+                // A stop armed at the shell while the process sat
+                // suspended must never hold the resume's repaint: Linux
+                // lifts it when the raw re-arm's `cfmakeraw` clears IXON,
+                // xnu does not, so the explicit lift follows the re-arm
+                // (verified by the flow e2e's suspend route).
                 terminal::enable_raw_mode()?;
+                eukhe_types::platform::terminal::restart_output();
                 // The raw-mode bracket re-arms the enhanced-key modes (TS
                 // `start` on SIGCONT re-runs the paste enable and the kitty
                 // query; the port resolves the kitty capability once per
