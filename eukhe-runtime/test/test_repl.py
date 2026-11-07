@@ -3323,11 +3323,10 @@ class OwnerWatchdogTest(unittest.TestCase):
             child_exit = _exit_watch(child)
             owner.kill()
             owner.wait(timeout=10)
-            # The group SIGKILL takes the kernel down too, but macOS delivers the
-            # self-directed signal asynchronously, so the watchdog's fallback
-            # `os._exit(1)` can win the race there; Linux always dies by the
-            # signal. The group kill itself is proven by the cell's subprocess.
-            self.assertIn(repl.proc.wait(timeout=15), (-signal.SIGKILL, 1))
+            # The owner-death path's own group SIGKILL ends the kernel (never its
+            # bounded fallback exit), on macOS too, where that signal lands
+            # asynchronously.
+            self.assertEqual(repl.proc.wait(timeout=15), -signal.SIGKILL)
             self.assertTrue(child_exit(15), "the cell's subprocess outlived the kernel")
         finally:
             if owner.poll() is None:

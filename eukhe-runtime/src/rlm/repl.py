@@ -1898,6 +1898,10 @@ def _wait_owner_posix(owner: int, initial_ppid: int) -> None:
         wait_for_exit()
 
 
+# How long the owner-death path waits for its own group SIGKILL to land.
+_GROUP_KILL_DELIVERY_GRACE_S = 5.0
+
+
 def _owner_gone() -> None:
     # Event-loop-independent by design: a synchronous cell monopolizes the
     # loop, so the queued EOF shutdown can never run; hard-exit from here.
@@ -1910,6 +1914,11 @@ def _owner_gone() -> None:
     # this process does not lead.
     if os.getpgrp() == os.getpid():
         os.killpg(0, signal.SIGKILL)
+        # The group signal includes this process, but macOS delivers it to the
+        # signalling process asynchronously: wait for it, so the kernel always
+        # dies by the owner-death SIGKILL instead of racing it with the exit
+        # below (which stays the bound, should the signal never land).
+        threading.Event().wait(_GROUP_KILL_DELIVERY_GRACE_S)
     os._exit(1)
 
 
