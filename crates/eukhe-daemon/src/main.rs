@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 
 // Same allocator as the eukhe binary: mimalloc returns freed pages to the
 // OS, so large transient phases (session loads, attach snapshots) do not
@@ -16,8 +16,19 @@ use anyhow::{anyhow, Result};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[tokio::main]
-async fn main() -> Result<ExitCode> {
+fn main() -> Result<ExitCode> {
+    // A launcher that asked for a detached session (eukhe-client's
+    // `ProcessLauncher`) gets it before anything else runs, while the
+    // process is still single-threaded.
+    eukhe_core::platform::process::enter_requested_session().context("start a new session")?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("start the async runtime")?
+        .block_on(run())
+}
+
+async fn run() -> Result<ExitCode> {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_else(|| {
         eprintln!("usage: eukhe-daemon <supervisor|worker|tiny-worker> [options]");

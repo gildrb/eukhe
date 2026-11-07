@@ -15,12 +15,17 @@
 //! - [`saved_sessions`]: the saved-session catalog, the resident-session
 //!   create and attach requests, and the [`DaemonLauncher`] seam that starts
 //!   a daemon before a connection.
+//! - [`launcher`]: [`ProcessLauncher`], the [`DaemonLauncher`] that starts a
+//!   supervisor command (`eukhe --mode daemon ...`, or a bundled
+//!   `eukhe-daemon supervisor ...`) detached and waits until it greets.
 //!
 //! [`DaemonClient`]: daemon_client::DaemonClient
 //! [`DaemonClientEvent`]: daemon_client::DaemonClientEvent
 //! [`DaemonLauncher`]: saved_sessions::DaemonLauncher
+//! [`ProcessLauncher`]: launcher::ProcessLauncher
 
 pub mod daemon_build;
 pub mod daemon_client;
 pub mod direct_transport;
+pub mod launcher;
 pub mod saved_sessions;

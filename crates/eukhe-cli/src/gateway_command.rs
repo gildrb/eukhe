@@ -85,10 +85,14 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let launcher = crate::interactive_mode::CliLauncher {
-        socket_path: config.socket_path.clone(),
-        spawn_cwd: config.new_session_cwd.clone(),
-    };
+    let launcher =
+        match crate::interactive_mode::own_launcher(&config.socket_path, &config.new_session_cwd) {
+            Ok(launcher) => launcher,
+            Err(error) => {
+                eprintln!("Error: {error:#}");
+                return 1;
+            }
+        };
     match runtime.block_on(eukhe_gateway::run(config, launcher)) {
         Ok(()) => 0,
         Err(error) => {

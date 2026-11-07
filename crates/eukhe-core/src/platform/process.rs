@@ -8,6 +8,7 @@
 use std::os::fd::OwnedFd;
 use std::process::Command;
 
+use eukhe_types::platform::process::NEW_SESSION_ENV;
 use nix::sys::signal::{kill, killpg};
 use nix::unistd::Pid;
 
@@ -36,28 +37,13 @@ pub fn set_new_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-/// The marker [`request_new_session`] puts in the child's environment;
-/// the eukhe binary's startup ([`enter_requested_session`]) consumes it.
-pub const NEW_SESSION_ENV: &str = "EUKHE_START_NEW_SESSION";
-
-/// Have the spawned eukhe child start in a new session with no
-/// controlling terminal (`setsid`): the child cannot open `/dev/tty`, and
-/// job-control signals from the parent's terminal never reach it. A new
-/// process group alone is not enough: the group can still open the
-/// terminal, and a background read then stops it with SIGTTIN.
-///
-/// std's only post-fork hook (`pre_exec`) is unsafe, so the child runs
-/// `setsid` itself, first thing in `main`: the command must run the eukhe
-/// binary.
-pub fn request_new_session(command: &mut Command) {
-    command.env(NEW_SESSION_ENV, "1");
-}
-
-/// The child half of [`request_new_session`]: when the launcher asked for
-/// it, leave the inherited session (`setsid`, which also makes this
-/// process its own group leader). Call it first thing in `main`, while
-/// the process is still single-threaded: the marker is removed from the
-/// environment so this process's own children never inherit it.
+/// The child half of
+/// [`request_new_session`](eukhe_types::platform::process::request_new_session):
+/// when the launcher asked for it, leave the inherited session (`setsid`,
+/// which also makes this process its own group leader). Call it first
+/// thing in `main`, while the process is still single-threaded: the marker
+/// is removed from the environment so this process's own children never
+/// inherit it.
 ///
 /// # Errors
 ///

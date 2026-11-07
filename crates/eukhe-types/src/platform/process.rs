@@ -41,6 +41,24 @@ const PS: &str = "/bin/ps";
 #[cfg(not(target_vendor = "apple"))]
 const PS: &str = "ps";
 
+/// The marker [`request_new_session`] puts in the child's environment;
+/// the startup of the eukhe binaries (`eukhe`, `eukhe-daemon`) consumes it
+/// (`eukhe_core::platform::process::enter_requested_session`).
+pub const NEW_SESSION_ENV: &str = "EUKHE_START_NEW_SESSION";
+
+/// Have the spawned eukhe child start in a new session with no
+/// controlling terminal (`setsid`): the child cannot open `/dev/tty`, and
+/// job-control signals from the parent's terminal never reach it. A new
+/// process group alone is not enough: the group can still open the
+/// terminal, and a background read then stops it with SIGTTIN.
+///
+/// std's only post-fork hook (`pre_exec`) is unsafe, so the child runs
+/// `setsid` itself, first thing in `main`: the command must run an eukhe
+/// binary.
+pub fn request_new_session(command: &mut std::process::Command) {
+    command.env(NEW_SESSION_ENV, "1");
+}
+
 /// The `ps -p <pid> -o lstart=` identity (TS `getPsProcessStartId`):
 /// `lstart` renders in the subprocess timezone and locale, so both are
 /// pinned for a durable identity. Formatted `ps:<lstart>` - the exact

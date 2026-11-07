@@ -117,10 +117,14 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let launcher = crate::interactive_mode::CliLauncher {
-        socket_path: config.socket_path.clone(),
-        spawn_cwd: config.new_session_cwd.clone(),
-    };
+    let launcher =
+        match crate::interactive_mode::own_launcher(&config.socket_path, &config.new_session_cwd) {
+            Ok(launcher) => launcher,
+            Err(error) => {
+                eprintln!("Error: {error:#}");
+                return 1;
+            }
+        };
     let token = match eukhe_dashboard::pairing_token(&config.token_path, args.rotation) {
         Ok(token) => token,
         Err(error) => {

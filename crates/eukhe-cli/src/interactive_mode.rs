@@ -5,8 +5,8 @@
 //! exits; reattaching later restores it from the same session file.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -14,15 +14,14 @@ use crate::config;
 use crate::mode::RunOptions;
 use eukhe_tui::interactive::{InteractiveOptions, ModelSelection, SessionSelection, UiMode};
 
-// The daemon-ensure concern (the socket probe, the stale-daemon shutdown,
-// the detached supervisor spawn, and the startup poll window with its
-// consts) moved to the child module at the same tree position
+// The daemon-ensure concern (the CLI's supervisor command and socket
+// takeover over eukhe-client's launcher) lives in the child module
 // (interactive_mode::daemon); the pub re-exports keep the print
 // runtime's and the integration tests' paths stable.
 mod daemon;
 
-pub(crate) use daemon::CliLauncher;
-pub use daemon::{ensure_daemon_running, ensure_daemon_running_with, DaemonReady};
+pub(crate) use daemon::own_launcher;
+pub use daemon::{ensure_daemon_running, ensure_daemon_running_with};
 
 // The first-run onboarding concern (the startup-model probe, the
 // settings sink over the eukhe-tui trait, and the startup task assembly)
@@ -435,6 +434,9 @@ fn build_tui_options(
         crate::provider_login::ProviderAuth::new(config.cwd.clone(), config.agent_dir.clone()),
     ));
     let onboarding = onboarding_task(options, Some(provider_auth.clone()));
+    // A lost daemon relaunches through the background launcher: it starts a
+    // daemon when none listens and never replaces one.
+    let daemon_launcher = own_launcher(&socket_path, &config.cwd)?;
     let tui_options_value = InteractiveOptions {
         code_block_indent,
         tree_filter_mode,
@@ -443,7 +445,7 @@ fn build_tui_options(
         model_configured_providers: configured_providers,
         model_recent_models: recent,
         default_thinking_level,
-        socket_path: socket_path.clone(),
+        socket_path,
         cwd: config.cwd.clone(),
         session_dir,
         script_path,
@@ -519,13 +521,8 @@ fn build_tui_options(
                 agent_dir: config.agent_dir.clone(),
             }),
         }),
-        // A lost daemon relaunches through the background launcher: it
-        // starts a daemon when none listens and never replaces one.
         daemon_launcher: Some(eukhe_client::saved_sessions::SharedDaemonLauncher::new(
-            CliLauncher {
-                socket_path,
-                spawn_cwd: config.cwd.clone(),
-            },
+            daemon_launcher,
         )),
     };
     Ok(tui_options_value)
