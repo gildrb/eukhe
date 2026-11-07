@@ -1135,11 +1135,18 @@ async fn tui_compact_slower_than_the_submit_ack_cap_settles_without_a_timeout_ro
     let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
         .await
         .expect("interactive run");
-    let rendered = outcome.frames.join("\n");
-    assert!(
-        !rendered.contains("waiting for the Eukhe daemon response"),
-        "a healthy compaction slower than the ack cap raised no timeout row:\n{rendered}"
-    );
+    // The `/compact` submit raised no lost-ack row: no frame shows one
+    // below the `/compact` echo. (An earlier turn's admission may still
+    // trail the ack cap on a loaded host -- that row sits above the echo
+    // and is not this submit's.)
+    for frame in &outcome.frames {
+        if let Some(echo) = frame.rfind("/compact") {
+            assert!(
+                !frame[echo..].contains("waiting for the Eukhe daemon response"),
+                "a healthy compaction slower than the ack cap raised no timeout row:\n{frame}"
+            );
+        }
+    }
     let last = outcome.frames.last().expect("the settled frame");
     assert!(
         last.contains("* Context compacted") && last.contains("the slow session story"),
