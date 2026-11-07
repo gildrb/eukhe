@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use serde_json::{Map, Value};
 
-use eukhe_tui::saved_sessions::DaemonLauncher;
+use eukhe_client::saved_sessions::DaemonLauncher;
 
 /// Dashboard configuration, built by the composition root
 /// (`eukhe dashboard`).

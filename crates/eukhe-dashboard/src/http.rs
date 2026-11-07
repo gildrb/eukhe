@@ -23,7 +23,7 @@ use crate::bridge::Bridge;
 use crate::pairing::{Disk, First, Gate, Verdict};
 use crate::protocol::{Pairing, ServerFrame, OPS, PROTOCOL_VERSION};
 use crate::DashboardConfig;
-use eukhe_tui::saved_sessions::DaemonLauncher;
+use eukhe_client::saved_sessions::DaemonLauncher;
 
 /// The path suffix of the bridge's WebSocket.
 const SOCKET_PATH: &str = "/api/ws";

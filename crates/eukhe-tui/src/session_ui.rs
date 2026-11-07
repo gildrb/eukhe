@@ -72,7 +72,6 @@ use crate::chat::{
     ChatEntry, CompactionReason, CompactionState, MessageBlock, RetryState, StatusKind,
     ToolResultView, WorkingState,
 };
-use crate::daemon_client::{DaemonClient, DaemonClientEvent};
 use crate::effort_picker::{self, EffortPickerAction};
 use crate::goal_surface::{format_goal_status, tray_goal_label, GoalPanel, GoalView};
 use crate::heartbeats_picker::{
@@ -97,6 +96,7 @@ use crate::snapshot::{
 use crate::tree_selector::{TreeSelector, TreeSelectorAction};
 use crate::user_message_selector::{UserMessageSelector, UserMessageSelectorAction};
 use crate::view::AgentView;
+use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
 
 use crossterm::event::KeyEvent;
 use std::time::{Duration, Instant};

@@ -563,8 +563,8 @@ async fn run_interactive_surface(
     // The launcher kept a daemon of another build (it had active work, it
     // is newer than this window, or it is another build of this version):
     // say so once.
-    if let Some(notice) = crate::daemon_build::kept_daemon_notice(
-        crate::daemon_build::Build::THIS,
+    if let Some(notice) = eukhe_client::daemon_build::kept_daemon_notice(
+        eukhe_client::daemon_build::Build::THIS,
         session.client.daemon_build(),
     ) {
         view.push_entry(crate::chat::ChatEntry::Status {
@@ -919,8 +919,10 @@ async fn run_interactive_surface(
                             // driver owns the recovery (the operator's
                             // kicked-out class).
                             Err(error)
-                                if crate::daemon_client::is_daemon_rejection(&error)
-                                    || crate::daemon_client::is_daemon_unreachable(&error) =>
+                                if eukhe_client::daemon_client::is_daemon_rejection(&error)
+                                    || eukhe_client::daemon_client::is_daemon_unreachable(
+                                        &error,
+                                    ) =>
                             {
                                 session.error_row(&format!("{error:#}"), &mut view);
                             }

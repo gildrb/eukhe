@@ -1,5 +1,5 @@
 # ffi_replace: the compiled core's entry for the launcher's replacement
-# verdict (bend/replace.bend), called by crates/eukhe-tui
+# verdict (bend/replace.bend), called by crates/eukhe-client
 # (`daemon_build.rs`: `relation`, `replacement_verdict`). The wire format
 # is bend/wire.bend (crates/eukhe-bend/WIRE.md).
 #

@@ -6,8 +6,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use eukhe_tui::daemon_build::{relation, Build, Relation};
-use eukhe_tui::daemon_client::DaemonClientEvent;
+use eukhe_client::daemon_build::{relation, Build, Relation};
+use eukhe_client::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
@@ -24,7 +24,7 @@ use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
 use crate::GatewayConfig;
-use eukhe_tui::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
+use eukhe_client::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
 
 /// Signal shows a typing indicator for about 15 s; refresh it sooner.
 const TYPING_REFRESH: Duration = Duration::from_secs(10);

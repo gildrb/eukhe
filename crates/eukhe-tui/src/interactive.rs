@@ -17,13 +17,13 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::daemon_client::DaemonClient;
-use crate::daemon_client::DaemonClientEvent;
 use crate::daemon_reconnect::RecoveryKind;
 use crate::exit_guard::ExitGuard;
 use crate::keybindings::KeybindingsManager;
 use crate::session_ui::SessionUi;
 use crate::view::AgentView;
+use eukhe_client::daemon_client::DaemonClient;
+use eukhe_client::daemon_client::DaemonClientEvent;
 
 // The first-run onboarding concern (the sink and readiness seams, the flow
 // task, the pane drive, and the phase that runs before the session screen)
@@ -227,7 +227,7 @@ pub struct InteractiveOptions {
     /// it after the first failed reconnect. It starts a daemon only when
     /// none listens and never replaces one. `None` only reconnects (a test
     /// harness that owns its daemon).
-    pub daemon_launcher: Option<crate::saved_sessions::SharedDaemonLauncher>,
+    pub daemon_launcher: Option<eukhe_client::saved_sessions::SharedDaemonLauncher>,
 }
 
 // The opaque service handles (provider_auth,

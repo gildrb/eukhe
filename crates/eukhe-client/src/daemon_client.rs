@@ -1,4 +1,4 @@
-//! JSONL daemon client for the interactive UI.
+//! JSONL daemon client for Eukhe frontends.
 //!
 //! Connects to the supervisor's client socket, performs the `daemon_hello`
 //! handshake, sends `type: "command"` envelopes, and matches responses by
@@ -34,12 +34,11 @@ mod errors;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use errors::is_shell_approval_gone;
 use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, DirectRequestError};
 pub use errors::{
     is_connect_failure, is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable,
-    is_foreign_daemon, is_kernel_not_running, rejected_provider_unauthenticated, ForeignDaemon,
-    ForeignGreeting, RequestRejected,
+    is_foreign_daemon, is_kernel_not_running, is_shell_approval_gone,
+    rejected_provider_unauthenticated, ForeignDaemon, ForeignGreeting, RequestRejected,
 };
 
 /// Default response timeout (TS `DEFAULT_DAEMON_REQUEST_TIMEOUT_MS`).
@@ -49,10 +48,10 @@ pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 /// timeout so a long turn cannot expire the request.
 pub const LONG_RUNNING_REQUEST_TIMEOUT_MS: u64 = 600_000;
 /// The socket connect budget of one [`DaemonClient::connect`].
-pub(crate) const CONNECT_TIMEOUT_MS: u64 = 3_000;
+pub const CONNECT_TIMEOUT_MS: u64 = 3_000;
 /// Hello handshake budget. A daemon loading a very large session can take
 /// well over the 3s TS default to greet.
-pub(crate) const HELLO_TIMEOUT_MS: u64 = 15_000;
+pub const HELLO_TIMEOUT_MS: u64 = 15_000;
 /// Connect attempts before a connect/handshake failure surfaces (the
 /// fatal error paths the operator hit: "Timed out after 15000ms waiting
 /// for the Eukhe daemon handshake" exited their TUI on the FIRST
@@ -427,6 +426,9 @@ impl DaemonClient {
         Self::open(socket_path, hello_timeout_ms, true).await
     }
 
+    // One connection's setup in order (connect, hello, reader and writer
+    // pumps); splitting it would scatter the handshake's single flow.
+    #[allow(clippy::too_many_lines)]
     async fn open(
         socket_path: &Path,
         hello_timeout_ms: u64,

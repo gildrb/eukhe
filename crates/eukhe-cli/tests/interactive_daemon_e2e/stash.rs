@@ -106,7 +106,7 @@ async fn tui_prompt_stash_round_trips_across_in_place_switch() {
 
     // Daemon-side: the restored draft ran on session A, and session B
     // never received it (the editor cleared at the switch).
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last_first = client
@@ -280,7 +280,7 @@ async fn tui_prompt_stash_survives_the_agents_view_handoff() {
     );
 
     // Daemon-side: the restored draft ran on the session.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -565,7 +565,7 @@ async fn tui_ctrl_s_stashes_and_restores_the_prompt_draft() {
 
     // Daemon-side: exactly the restored draft's turn ran (the empty
     // Enter submitted nothing), and its image bytes persisted.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -719,7 +719,7 @@ async fn tui_ctrl_s_stash_keeps_a_held_draft_and_reports_the_empty_editor() {
     );
 
     // Daemon-side: the fresh draft submitted (it never left the editor).
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -868,7 +868,7 @@ async fn tui_ctrl_s_stash_is_remappable_via_keybindings_json() {
     );
 
     // Daemon-side: the restored draft submitted.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -1073,7 +1073,7 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
         "the restored draft is the pre-browse draft, not the parked text"
     );
     // Daemon-side: the restored draft's turn ran last.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client

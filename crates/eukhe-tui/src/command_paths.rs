@@ -225,7 +225,7 @@ impl CommandTable {
         if line.chars().count() > STR_MAX {
             return Resolution::NoCommand;
         }
-        crate::bend_core::decide(
+        eukhe_bend::decide(
             Entry::Command,
             |w| {
                 self.write_table(w);
@@ -255,7 +255,7 @@ impl CommandTable {
         if line.chars().count() > KEY_LINE_MAX {
             return PathMenu::Shut;
         }
-        crate::bend_core::decide(
+        eukhe_bend::decide(
             Entry::Command,
             |w| {
                 self.write_table(w);
@@ -294,7 +294,7 @@ impl CommandTable {
                 submit: key == PathKey::Enter,
             };
         }
-        crate::bend_core::decide(
+        eukhe_bend::decide(
             Entry::Command,
             |w| {
                 self.write_table(w);

@@ -1,14 +1,14 @@
 //! The daemon-ensure concern (moved with its concern): the socket
 //! probe, the replacement verdict on the daemon found there
-//! ([`eukhe_tui::daemon_build::replacement_verdict`]), the detached
+//! ([`eukhe_client::daemon_build::replacement_verdict`]), the detached
 //! supervisor spawn, and the startup poll window with its timing consts.
 
 use anyhow::Context as _;
-use eukhe_daemon::timeouts;
-use eukhe_tui::daemon_build::{
+use eukhe_client::daemon_build::{
     kept_daemon_notice, older_client_notice, replacement_verdict, Build, Caller, Relation,
     Replacement,
 };
+use eukhe_daemon::timeouts;
 use eukhe_types::daemon::timing::DAEMON_STARTUP_TIMEOUT_MS;
 
 use super::{anyhow, Command, Duration, Instant, Path, Result, Stdio};
@@ -46,7 +46,7 @@ pub(crate) struct CliLauncher {
     pub(crate) spawn_cwd: std::path::PathBuf,
 }
 
-impl eukhe_tui::saved_sessions::DaemonLauncher for CliLauncher {
+impl eukhe_client::saved_sessions::DaemonLauncher for CliLauncher {
     #[tracing::instrument(skip_all, fields(socket = %self.socket_path.display()))]
     async fn ensure(&self) -> anyhow::Result<()> {
         let ready =
@@ -88,7 +88,7 @@ enum DaemonProbe {
     Absent,
     /// An eukhe supervisor answered.
     Answered {
-        client: Box<eukhe_tui::daemon_client::DaemonClient>,
+        client: Box<eukhe_client::daemon_client::DaemonClient>,
         protocol: Protocol,
     },
     /// Something holds the socket but does not greet as this product's
@@ -100,9 +100,9 @@ enum DaemonProbe {
 /// Probe the socket once: connect, read the hello, and classify it. The
 /// hello is the only round trip.
 async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
-    let client = match eukhe_tui::daemon_client::DaemonClient::connect(socket_path).await {
+    let client = match eukhe_client::daemon_client::DaemonClient::connect(socket_path).await {
         Ok((client, _events)) => client,
-        Err(error) if eukhe_tui::daemon_client::is_foreign_daemon(&error) => {
+        Err(error) if eukhe_client::daemon_client::is_foreign_daemon(&error) => {
             return DaemonProbe::Foreign(format!("{error:#}"));
         }
         Err(_) => return DaemonProbe::Absent,
@@ -281,7 +281,7 @@ enum IdleStop {
 /// agreed but does not exit is stopped through its socket holder. Its
 /// sessions persist and reattach to the replacement.
 async fn stop_daemon_if_idle(
-    client: &eukhe_tui::daemon_client::DaemonClient,
+    client: &eukhe_client::daemon_client::DaemonClient,
     socket_path: &Path,
 ) -> Result<IdleStop> {
     if !client.supports_server_capability(eukhe_types::daemon::IDLE_SHUTDOWN_CAPABILITY) {

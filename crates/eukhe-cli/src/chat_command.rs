@@ -196,7 +196,7 @@ async fn open_through_daemon(
     let ready = crate::interactive_mode::ensure_daemon_running(
         &socket,
         &cwd,
-        eukhe_tui::daemon_build::Caller::Interactive,
+        eukhe_client::daemon_build::Caller::Interactive,
     )
     .await?;
     if let Some(notice) = ready.notice() {

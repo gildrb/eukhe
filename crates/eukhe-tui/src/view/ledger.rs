@@ -133,7 +133,7 @@ impl Ledger {
     /// Returns the ids they committed: their rows go into scrollback now.
     pub(crate) fn apply(&mut self, events: &[Event]) -> Range<usize> {
         let start = self.committed();
-        let (phases, width) = crate::bend_core::decide(
+        let (phases, width) = eukhe_bend::decide(
             Entry::Screen,
             |writer| write_run(writer, start, &self.blocks[start..], self.width, events),
             read_run,

@@ -192,7 +192,7 @@ law replace_ping_pong_example:
 
 # LAWS (D1, the compiled core): the launcher's replacement verdict runs as
 # the model of bend/replace.bend through the compiled core's entry
-# bend/ffi_replace.bend (crates/eukhe-tui daemon_build.rs). The laws of the
+# bend/ffi_replace.bend (crates/eukhe-client daemon_build.rs). The laws of the
 # model itself are in section supervisor. Every input is free: any
 # versions, any build ids, any caller.
 

@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
+use eukhe_client::saved_sessions::DaemonLauncher;
 use eukhe_dashboard::{DashboardConfig, Port};
-use eukhe_tui::saved_sessions::DaemonLauncher;
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;

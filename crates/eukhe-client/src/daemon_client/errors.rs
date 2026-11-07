@@ -183,7 +183,8 @@ pub fn is_kernel_not_running(error: &anyhow::Error) -> bool {
 /// approval question it no longer holds
 /// ([`DaemonErrorInfo::ShellApprovalGone`]: another client answered it,
 /// its step ended, or it went elsewhere): nothing is left to answer.
-pub(crate) fn is_shell_approval_gone(error: &anyhow::Error) -> bool {
+#[must_use]
+pub fn is_shell_approval_gone(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
             .downcast_ref::<RequestRejected>()

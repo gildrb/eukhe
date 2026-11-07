@@ -6,7 +6,7 @@
 
 use serde_json::Value;
 
-use crate::daemon_client::DaemonClient;
+use eukhe_client::daemon_client::DaemonClient;
 use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior};
 
 /// One message for one agent: the CURRENT summary the send resolves

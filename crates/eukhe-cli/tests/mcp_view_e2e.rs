@@ -224,7 +224,7 @@ async fn create_session(socket: &Path, dir: &Path) -> String {
 /// Create a live session driven by the given script (the empty-response
 /// default or the held-turn variant).
 async fn create_session_with(socket: &Path, dir: &Path, script: &Path) -> String {
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect supervisor");
     let data = client
@@ -265,7 +265,7 @@ async fn create_session_with(socket: &Path, dir: &Path, script: &Path) -> String
 /// disconnected built-ins.
 async fn assert_roster_answers_fast(socket: &Path, dir: &Path) {
     let session = create_session(socket, dir).await;
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect supervisor");
     // The worker's created flag commits before the create response, but
@@ -457,9 +457,10 @@ async fn get_mcp_connections_answers_instantly_mid_turn() {
     let supervisor = spawn_supervisor(dir.path());
     let script = held_engine(dir.path());
     let session = create_session_with(&supervisor.0.socket, dir.path(), &script).await;
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.0.socket)
-        .await
-        .expect("connect supervisor");
+    let (client, _events) =
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.0.socket)
+            .await
+            .expect("connect supervisor");
     client
         .request_ok(DaemonCommand::Prompt {
             id: None,

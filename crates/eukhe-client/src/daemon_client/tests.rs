@@ -471,6 +471,9 @@ async fn spawn_mock_worker(listener: tokio::net::UnixListener) {
     }
 }
 
+// One scripted scenario end to end (mock supervisor, mock worker, upgrade,
+// attach, events); split, its steps would lose their shared state.
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn direct_upgrade_routes_attach_and_streams_events() {
     let dir = tempfile::TempDir::new().unwrap();

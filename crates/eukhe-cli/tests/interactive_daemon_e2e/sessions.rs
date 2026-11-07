@@ -36,7 +36,7 @@ async fn create_idle_session_with_settled_turn(
     prompt_text: &str,
 ) -> String {
     let session = create_session_via_daemon(socket, script_path, script, cwd, session_dir).await;
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect supervisor");
     client
@@ -247,7 +247,7 @@ async fn tui_anthropic_warning_warns_once_then_a_fresh_process_reattaches_silent
         storage.display(),
         session_dirs(&session_dir)
     );
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let state = client
@@ -346,7 +346,7 @@ async fn tui_idle_session_event_repaints_without_input() {
     // event on the idle session (the second wire client never touches the
     // TUI's input).
     tokio::time::sleep(std::time::Duration::from_millis(750)).await;
-    let (renamer, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&socket)
+    let (renamer, _events) = eukhe_client::daemon_client::DaemonClient::connect(&socket)
         .await
         .expect("connect supervisor for the rename");
     renamer
@@ -822,7 +822,7 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     let kill_session_dir = session_dir.clone();
     let kill_session_id = session_id.clone();
     let kill_task = tokio::spawn(async move {
-        let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&kill_socket)
+        let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&kill_socket)
             .await
             .expect("connect supervisor");
         let deadline = Instant::now() + Duration::from_secs(30);

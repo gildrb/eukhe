@@ -12,7 +12,7 @@ mod style;
 
 use std::path::PathBuf;
 
-use eukhe_tui::saved_sessions::DaemonLauncher;
+use eukhe_client::saved_sessions::DaemonLauncher;
 pub use setup::{link_device, linked_accounts, restart_service, service_installed};
 
 /// Gateway configuration, built by the composition root (`eukhe gateway`).

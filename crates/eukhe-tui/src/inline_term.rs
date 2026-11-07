@@ -273,7 +273,7 @@ pub(crate) fn paint_decision<F>(
     let mut attempts = [Attempt::Full, Attempt::Fresh].into_iter();
     loop {
         let next = attempts.next();
-        let step = crate::bend_core::decide(
+        let step = eukhe_bend::decide(
             Entry::Screen,
             |writer| {
                 writer.tag(3).count(passed.len());

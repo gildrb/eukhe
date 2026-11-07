@@ -24,8 +24,8 @@ const LOST_FIRST_ATTEMPT_MS: u64 = 1_000;
 /// its relaunch: the first attempt, plus that attempt's single connect
 /// (the connect and the hello budgets of [`DaemonClient::connect`]).
 const LOST_RELAUNCH_LATEST_MS: u64 = LOST_FIRST_ATTEMPT_MS
-    + crate::daemon_client::CONNECT_TIMEOUT_MS
-    + crate::daemon_client::HELLO_TIMEOUT_MS;
+    + eukhe_client::daemon_client::CONNECT_TIMEOUT_MS
+    + eukhe_client::daemon_client::HELLO_TIMEOUT_MS;
 
 // A worker alive at the loss outlives the relaunch (the worker's lost-exit
 // window derives from this bound).

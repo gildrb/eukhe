@@ -75,7 +75,7 @@ impl Pace {
         let recv = cap(self.recv);
         let shown = cap(self.shown);
         let more = cap(more).min(NAT_MAX - recv);
-        let (recv, shown) = crate::bend_core::decide(
+        let (recv, shown) = eukhe_bend::decide(
             Entry::Screen,
             |writer| {
                 writer

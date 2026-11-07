@@ -15,7 +15,7 @@ use super::{
     AgentView, ChatEntry, DaemonCommand, Duration, Map, SessionUi, StatusKind,
     UI_REQUEST_TIMEOUT_MS,
 };
-use crate::daemon_client::DaemonClient;
+use eukhe_client::daemon_client::DaemonClient;
 
 /// A landed open-time fetch. A response from an older fetch (a rebind
 /// raced it) never applies -- the epoch drops it.

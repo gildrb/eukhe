@@ -154,9 +154,10 @@ impl SessionUi {
         let client = self.client.clone();
         let updates = self.agents_updates.clone();
         tokio::spawn(async move {
-            let result = crate::saved_sessions::attach(&client, &worker, DaemonClientKind::Watch)
-                .await
-                .map_err(|error| format!("{error:#}"));
+            let result =
+                eukhe_client::saved_sessions::attach(&client, &worker, DaemonClientKind::Watch)
+                    .await
+                    .map_err(|error| format!("{error:#}"));
             let _ = updates.send(super::AgentsUpdate::Worker(WorkerOutcome::Attached {
                 worker,
                 result,

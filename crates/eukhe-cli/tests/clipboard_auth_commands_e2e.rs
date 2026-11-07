@@ -335,7 +335,7 @@ async fn create_session_via_daemon(
     session_dir: &Path,
 ) -> String {
     std::fs::write(script_path, script.to_string()).expect("write script");
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect supervisor");
     let data = client
@@ -966,9 +966,10 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
         "the missing-cwd message renders:\n{rendered}"
     );
     // The imported branch answers on the fresh session's daemon state.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.0.socket)
-        .await
-        .expect("connect supervisor");
+    let (client, _events) =
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.0.socket)
+            .await
+            .expect("connect supervisor");
     let last = client
         .request_ok(DaemonCommand::GetLastAssistantText {
             id: None,

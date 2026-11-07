@@ -195,7 +195,7 @@ impl SessionUi {
             .await
         {
             Ok(_) => {}
-            Err(error) if crate::daemon_client::is_shell_approval_gone(&error) => {
+            Err(error) if eukhe_client::daemon_client::is_shell_approval_gone(&error) => {
                 view.push_entry(crate::chat::ChatEntry::Status {
                     text: "That shell step question was already settled.".to_string(),
                     kind: StatusKind::Info,

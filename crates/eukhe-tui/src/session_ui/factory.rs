@@ -201,7 +201,7 @@ impl super::SessionUi {
             Ok(reply) => reply,
             // The no-kernel class: the count is exactly zero (nothing
             // can host live runs), so the guard proceeds.
-            Err(error) if crate::daemon_client::is_kernel_not_running(&error) => {
+            Err(error) if eukhe_client::daemon_client::is_kernel_not_running(&error) => {
                 return Some(0);
             }
             // Every other failure class stays unreadable: a timed-out or

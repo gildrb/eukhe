@@ -590,7 +590,7 @@ async fn describe_session_open_failure(
     // decorated -- the typed wrapper's own display adds the framing
     // prefix exactly once.
     let Some((rejected, error_info)) = error
-        .downcast_ref::<crate::daemon_client::RequestRejected>()
+        .downcast_ref::<eukhe_client::daemon_client::RequestRejected>()
         .map(|rejected| (rejected.message.clone(), rejected.error_info.clone()))
     else {
         return error;
@@ -634,7 +634,7 @@ async fn describe_session_open_failure(
     // The refusal stays a typed `RequestRejected`: `is_daemon_rejection`
     // keeps classifying it (the interactive open hands off to the agents
     // view with the notice instead of exiting the client).
-    anyhow::Error::new(crate::daemon_client::RequestRejected {
+    anyhow::Error::new(eukhe_client::daemon_client::RequestRejected {
         command: "create".to_string(),
         message,
         // The typed refusal info rides the decorated refusal unchanged

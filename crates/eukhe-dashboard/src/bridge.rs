@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Context;
 use base64::Engine as _;
-use eukhe_tui::daemon_build::{kept_daemon_notice, Build};
-use eukhe_tui::daemon_client::{DaemonClient, DaemonClientEvent};
-use eukhe_tui::saved_sessions::{
+use eukhe_client::daemon_build::{kept_daemon_notice, Build};
+use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
+use eukhe_client::saved_sessions::{
     create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession,
 };
 use eukhe_types::daemon::{
@@ -34,7 +34,7 @@ use crate::DashboardConfig;
 
 /// The attach capabilities: the interactive client's set (snapshot state
 /// without duplicated history or image payloads, and event sequences for
-/// the resume cursor), as `eukhe_tui::saved_sessions::attach` sends them.
+/// the resume cursor), as `eukhe_client::saved_sessions::attach` sends them.
 const ATTACH_CAPABILITIES: [&str; 4] = [
     "attach_snapshot",
     "event_sequence",

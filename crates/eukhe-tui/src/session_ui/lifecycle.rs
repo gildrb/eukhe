@@ -265,7 +265,7 @@ impl SessionUi {
         // TS #2458 `formatDaemonReconnectBanner`: the recovered window
         // reports the restart version-honestly, build identity included.
         let (text, status_kind) = crate::daemon_reconnect::reconnect_banner(
-            crate::daemon_build::Build::THIS,
+            eukhe_client::daemon_build::Build::THIS,
             self.client.daemon_build(),
         );
         view.push_entry(crate::chat::ChatEntry::Status {

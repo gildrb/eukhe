@@ -8,7 +8,7 @@
 //! so the window's expiry row follows the flow that owns the recovery.
 
 use crate::chat::StatusKind;
-use crate::daemon_build::{relation, Build, Relation};
+use eukhe_client::daemon_build::{relation, Build, Relation};
 
 /// The reconnect driver that owns the run: which daemon closing armed it
 /// decides the backoff and the expiry row.
@@ -26,8 +26,8 @@ pub(crate) enum RecoveryKind {
 
 /// TS #2458 `formatDaemonReconnectBanner`: the row a recovered window
 /// shows, from this window's build (`client`) and the restarted daemon's
-/// build (`daemon`, [`DaemonClient::daemon_build`](crate::daemon_client::DaemonClient::daemon_build)),
-/// in the order of [`crate::daemon_build`]. The row is version-honest: a
+/// build (`daemon`, [`DaemonClient::daemon_build`](eukhe_client::daemon_client::DaemonClient::daemon_build)),
+/// in the order of [`eukhe_client::daemon_build`]. The row is version-honest: a
 /// daemon that is not older than this window names the mismatch (the user
 /// restarts the window to pick the update up), while an older daemon
 /// reports without the advice (restarting this window would pick up

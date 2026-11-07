@@ -64,7 +64,7 @@ async fn tui_renames_session_through_slash_command() {
     // The daemon state reports the name (the summary the roster and the
     // agents view read).
     let (client, _client_events) =
-        eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
             .await
             .expect("connect");
     let state = client

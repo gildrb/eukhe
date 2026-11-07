@@ -94,13 +94,14 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-tiny-onnx`|Tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
-|`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`|
-|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-tui`|
-|`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (all of `web/` via `build.rs`; `web/` = committed `make dashboard-ui` output of Vite+ `vp build` from `ui/` (Preact, Radix, StyleX)), daemon-wire client|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`, `eukhe-tui`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
+|`eukhe-client`|Daemon-wire client for frontends: supervisor connection and events, direct worker link, build order and replacement verdict (`daemon_build`), saved sessions and the daemon launcher seam|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`|
+|`eukhe-tui`|Terminal UI|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-client`|
+|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-client`, `eukhe-tui` (`width::str_width` only)|
+|`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (all of `web/` via `build.rs`; `web/` = committed `make dashboard-ui` output of Vite+ `vp build` from `ui/` (Preact, Radix, StyleX))|`eukhe-types`, `eukhe-bend`, `eukhe-build-info`, `eukhe-client`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-client`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 
 - Dependencies point from higher to lower crates only. No cycles.
-- `eukhe-tui` and `eukhe-dashboard` render from wire types and events; they do not link the session engine.
+- `eukhe-tui`, `eukhe-dashboard` and `eukhe-gateway` talk to the daemon through `eukhe-client` and render from wire types and events; they do not link the session engine.
 - `eukhe-cli` wires crates together; no business logic.
 
 ## Reliability
@@ -108,5 +109,5 @@ First paint and every frame the user waits on never block on disk sync or backgr
 - The daemon is a supervisor: one worker process per active session; workers restart with backoff. Sessions persist as durable storages in `~/.eukhe/sessions/<id>/`, so reattach works after a supervisor restart.
 - A storage is an append-only commit log (`main.jsonl`, fsync per commit). Legacy `<id>.jsonl` files are read only; open imports them once. Imports and forks build in a locked staging directory, fsync it, and rename it into place only when nothing is there. A sweep (boot, every 5 minutes) removes staging directories untouched for 24 hours that no live build holds. A delete removes the storage and its legacy file.
 - A worker whose supervisor stays unreachable for the lost-exit window (default 5 minutes) exits; work in flight defers the exit by at most one more window. Idle worker: closes its session. Worker with work: records it busy and exits without abort or close; the next supervisor resumes the run from storage. Work is one set for every idle decision: a run, a compaction, a queued input, an admitted run start, a background job, a user bash, an unsettled child or workflow run (a withdrawn input is not work). A worker with work records it busy every 5 minutes, so a long run still revives. An attached client relaunches a lost supervisor within 60 seconds.
-- The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. Only an interactive start replaces a daemon, and only an idle daemon of a lower version (`eukhe-tui` `daemon_build`). A background client never replaces a daemon. A client never replaces a newer daemon or another build of the same version; it tells the user.
+- The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. Only an interactive start replaces a daemon, and only an idle daemon of a lower version (`eukhe-client` `daemon_build`). A background client never replaces a daemon. A client never replaces a newer daemon or another build of the same version; it tells the user.
 - No stubs, no `todo!()`, no swallowed errors.

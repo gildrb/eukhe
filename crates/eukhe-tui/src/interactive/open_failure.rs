@@ -39,7 +39,7 @@ pub(super) fn finish_failed_open(
                 .chain()
                 .any(|cause| {
                     cause
-                        .downcast_ref::<crate::daemon_client::RequestRejected>()
+                        .downcast_ref::<eukhe_client::daemon_client::RequestRejected>()
                         .is_some_and(|rejection| rejection.message == expected)
                 })
                 .then(|| {
@@ -53,9 +53,9 @@ pub(super) fn finish_failed_open(
         }
     };
     let notice = unknown_session.or_else(|| {
-        if crate::daemon_client::is_daemon_timeout(&error) {
+        if eukhe_client::daemon_client::is_daemon_timeout(&error) {
             Some(format!("{error:#} -- pick a session to continue."))
-        } else if crate::daemon_client::is_daemon_rejection(&error) {
+        } else if eukhe_client::daemon_client::is_daemon_rejection(&error) {
             Some(format!("{error:#}"))
         } else {
             None

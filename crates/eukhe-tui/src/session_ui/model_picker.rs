@@ -537,7 +537,8 @@ impl SessionUi {
                 SetModelOutcome::Switched
             }
             Err(error) => {
-                if crate::daemon_client::rejected_provider_unauthenticated(&error).is_some() {
+                if eukhe_client::daemon_client::rejected_provider_unauthenticated(&error).is_some()
+                {
                     return SetModelOutcome::NeedsSignIn;
                 }
                 // TS `showError`: the ! Error row with the error tone.

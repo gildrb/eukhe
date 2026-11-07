@@ -170,7 +170,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, session_dir: &Path) -> Supe
 /// `sessionPath` over the socket), so the fork runs against a session the
 /// daemon already hosts. Returns the worker's active session id.
 async fn make_session_active(socket: &Path, session_path: &Path, cwd: &Path) -> String {
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect daemon");
     let data = client
@@ -203,7 +203,7 @@ async fn make_session_active(socket: &Path, session_path: &Path, cwd: &Path) -> 
 /// The live daemon roster rows: `sessionFile` (canonical) and
 /// `activeSessionId` per hosted session.
 async fn daemon_roster(socket: &Path) -> Vec<(PathBuf, String)> {
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect daemon");
     let list = client

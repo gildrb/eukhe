@@ -1,7 +1,7 @@
 //! The saved root sessions the phone picks from: the `list_saved_sessions`
 //! rows, the routing mode, and the `/sessions` lines.
 
-pub(crate) use eukhe_tui::saved_sessions::SavedSession;
+pub(crate) use eukhe_client::saved_sessions::SavedSession;
 
 /// How many sessions `/sessions` shows.
 pub(crate) const LISTED_SESSIONS: usize = 9;

@@ -10,7 +10,10 @@ description = "Signal gateway for Eukhe: chat with the CLI session from a phone.
 eukhe-types = { path = "../eukhe-types" }
 # The table layout runs as the compiled Bend core (bend/ffi_gateway_width.bend).
 eukhe-bend.workspace = true
-# The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
+# The daemon-wire client (`eukhe_client::daemon_client::DaemonClient`).
+eukhe-client = { path = "../eukhe-client" }
+# Only for `width::str_width`: the reply tables measure text the way the
+# terminal does, and terminal text measurement stays in the TUI.
 eukhe-tui = { path = "../eukhe-tui" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -21,7 +21,7 @@ use crate::Line;
 pub(crate) fn stack_rows(children: Vec<Vec<Line>>, rows: usize) -> Vec<Line> {
     let cap = |n: usize| u64::try_from(n).map_or(NAT_MAX, |n| n.min(NAT_MAX));
     let rows = cap(rows);
-    let visible: Vec<usize> = crate::bend_core::decide(
+    let visible: Vec<usize> = eukhe_bend::decide(
         Entry::Screen,
         |writer| {
             writer.tag(2).count(children.len());

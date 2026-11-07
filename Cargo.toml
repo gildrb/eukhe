@@ -15,6 +15,7 @@ members = [
     "crates/eukhe-tiny-onnx",
     "crates/eukhe-core",
     "crates/eukhe-daemon",
+    "crates/eukhe-client",
     "crates/eukhe-tui",
     "crates/eukhe-gateway",
     "crates/eukhe-dashboard",

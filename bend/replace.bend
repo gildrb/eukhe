@@ -1,6 +1,6 @@
 # replace: the model of the launcher's replacement verdict (docs/daemon.md
 # D1): which daemon a client start keeps or replaces. The Rust code
-# crates/eukhe-tui/src/daemon_build.rs (`relation`, `replacement_verdict`)
+# crates/eukhe-client/src/daemon_build.rs (`relation`, `replacement_verdict`)
 # calls this model through the compiled Bend core.
 #
 # A build is its rank and its build id (the hello `runtime.buildId`). A

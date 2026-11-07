@@ -110,7 +110,7 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     let ready = crate::interactive_mode::ensure_daemon_running(
         &socket_path,
         &options.config.cwd,
-        eukhe_tui::daemon_build::Caller::Background,
+        eukhe_client::daemon_build::Caller::Background,
     )
     .await
     .map_err(|error| format!("{error:#}"))?;

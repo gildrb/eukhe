@@ -188,6 +188,9 @@ pub(crate) fn supervisor_supports_direct(hello: &Value) -> bool {
 /// and spawn the link's writer and reader pumps. The reader resolves
 /// responses through `shared` and forwards events to `event_tx` (the same
 /// channel the supervisor reader feeds).
+// One handshake in order (connect, hello, peer_auth, pumps); splitting it
+// would scatter the single flow.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn connect_direct(
     ticket: &DaemonPeerTransportTicket,
     shared: Arc<Shared>,
@@ -370,6 +373,8 @@ async fn read_peer_auth_response<R: tokio::io::AsyncRead + Unpin>(
     }
 }
 
+// Milliseconds since 1970 fit `u64` for the next 500 million years.
+#[allow(clippy::cast_possible_truncation)]
 fn unix_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -379,6 +384,9 @@ fn unix_now_ms() -> u64 {
 /// ISO-8601 UTC timestamp to epoch milliseconds (the ticket `expiresAt`
 /// check). Accepts the `new Date().toISOString()` shape with optional
 /// fraction.
+// `millis` is below 1000 (three digits), and a ticket's expiry is after
+// 1970, so the epoch milliseconds are non-negative.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 fn iso_to_unix_ms(iso: &str) -> Option<u64> {
     let bytes = iso.as_bytes();
     if bytes.len() < 19 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {

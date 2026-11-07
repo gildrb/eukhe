@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use eukhe_tui::daemon_client::{is_connect_failure, DaemonClient};
+use eukhe_client::daemon_client::{is_connect_failure, DaemonClient};
 use eukhe_types::daemon::DaemonCommand;
 use serde::Serialize;
 

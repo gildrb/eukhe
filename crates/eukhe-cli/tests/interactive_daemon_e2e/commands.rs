@@ -126,7 +126,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
     );
 
     // Daemon-side verification: both sessions hold their turns.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -240,10 +240,10 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
     let exe = std::path::PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
     eukhe_cli::ensure_daemon_running_with(
         &exe,
-        eukhe_tui::daemon_build::Build::THIS,
+        eukhe_client::daemon_build::Build::THIS,
         &socket,
         dir.path(),
-        eukhe_tui::daemon_build::Caller::Interactive,
+        eukhe_client::daemon_build::Caller::Interactive,
     )
     .await
     .expect("spawn the daemon");

@@ -21,11 +21,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eukhe_tui::daemon_client::DaemonClient;
+use eukhe_client::daemon_client::DaemonClient;
+use eukhe_client::saved_sessions::{DaemonLauncher, SharedDaemonLauncher};
 use eukhe_tui::interactive::{
     HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
-use eukhe_tui::saved_sessions::{DaemonLauncher, SharedDaemonLauncher};
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
@@ -79,10 +79,10 @@ impl DaemonLauncher for BuildLauncher {
             let exe = PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
             eukhe_cli::ensure_daemon_running_with(
                 &exe,
-                eukhe_tui::daemon_build::Build::THIS,
+                eukhe_client::daemon_build::Build::THIS,
                 &socket,
                 &cwd,
-                eukhe_tui::daemon_build::Caller::Background,
+                eukhe_client::daemon_build::Caller::Background,
             )
             .await
             .map(drop)

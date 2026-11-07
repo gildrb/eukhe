@@ -602,6 +602,7 @@ dependencies = [
  "eukhe-bend",
  "eukhe-build-info",
  "eukhe-chord",
+ "eukhe-client",
  "eukhe-core",
  "eukhe-daemon",
  "eukhe-dashboard",
@@ -628,6 +629,20 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "eukhe-client"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "eukhe-bend",
+ "eukhe-build-info",
+ "eukhe-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -715,7 +730,7 @@ dependencies = [
  "base64",
  "eukhe-bend",
  "eukhe-build-info",
- "eukhe-tui",
+ "eukhe-client",
  "eukhe-types",
  "futures",
  "getrandom 0.4.3",
@@ -784,6 +799,7 @@ version = "0.10.0"
 dependencies = [
  "anyhow",
  "eukhe-bend",
+ "eukhe-client",
  "eukhe-tui",
  "eukhe-types",
  "serde",
@@ -878,6 +894,7 @@ dependencies = [
  "crossterm",
  "eukhe-bend",
  "eukhe-build-info",
+ "eukhe-client",
  "eukhe-theme",
  "eukhe-types",
  "fancy-regex",

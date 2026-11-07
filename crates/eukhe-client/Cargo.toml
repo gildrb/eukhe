@@ -1,0 +1,27 @@
+[package]
+name = "eukhe-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Daemon-wire client for Eukhe frontends"
+
+[dependencies]
+# The daemon wire: commands, responses, events, framing, the socket transport.
+eukhe-types = { path = "../eukhe-types" }
+# The replacement verdict runs as its Bend model (bend/ffi_replace.bend).
+eukhe-bend.workspace = true
+# The build identity a daemon's hello is compared against.
+eukhe-build-info = { path = "../eukhe-build-info" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "io-util", "net"] }
+
+[dev-dependencies]
+# The tests' socket and ticket directories.
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

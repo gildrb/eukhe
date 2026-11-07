@@ -14,6 +14,7 @@ eukhe-build-info = { path = "../eukhe-build-info" }
 eukhe-core = { path = "../eukhe-core" }
 eukhe-models = { path = "../eukhe-models" }
 eukhe-daemon = { path = "../eukhe-daemon" }
+eukhe-client = { path = "../eukhe-client" }
 eukhe-tui = { path = "../eukhe-tui" }
 eukhe-gateway = { path = "../eukhe-gateway" }
 eukhe-dashboard = { path = "../eukhe-dashboard" }

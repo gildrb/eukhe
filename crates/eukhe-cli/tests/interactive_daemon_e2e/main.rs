@@ -515,7 +515,7 @@ async fn create_session_via_daemon(
     session_dir: &Path,
 ) -> String {
     std::fs::write(script_path, script.to_string()).expect("write script");
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(socket)
+    let (client, _events) = eukhe_client::daemon_client::DaemonClient::connect(socket)
         .await
         .expect("connect supervisor");
     let data = client

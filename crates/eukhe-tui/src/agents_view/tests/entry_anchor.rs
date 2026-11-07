@@ -233,10 +233,10 @@ fn the_saved_catalog_fetch_uses_the_long_running_budget() {
     // timeout).
     assert_eq!(
         saved_catalog_timeout_ms(),
-        crate::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS
+        eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS
     );
     assert!(
-        saved_catalog_timeout_ms() > crate::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
+        saved_catalog_timeout_ms() > eukhe_client::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
         "the saved scan must never fall back to the 30s default class"
     );
 }

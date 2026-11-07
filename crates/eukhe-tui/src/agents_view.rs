@@ -30,11 +30,11 @@ use crate::agents_view_state::{
 /// key returns to it.
 pub use crate::agents_view_forest::AgentsViewScope;
 pub use crate::agents_view_forest::SelectionKey as AgentsViewSelectionKey;
-use crate::daemon_client::{DaemonClient, DaemonClientEvent};
 use crate::interactive::SessionSelection;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{pad_line, str_width};
 use crate::Line;
+use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
 mod data_input;
 
 mod open_incident;
@@ -257,7 +257,7 @@ const ANCHOR_LOADING_HINT: &str =
 /// scan-state-cache lane owns the scan's speed; this is the lifecycle's
 /// budget so the state can complete at all.
 fn saved_catalog_timeout_ms() -> u64 {
-    crate::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS
+    eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS
 }
 
 enum UiInput {

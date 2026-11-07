@@ -63,7 +63,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         let daemon_notice = ensure_daemon_running(
             &tui_options.socket_path,
             &tui_options.cwd,
-            eukhe_tui::daemon_build::Caller::Interactive,
+            eukhe_client::daemon_build::Caller::Interactive,
         )
         .await?
         .notice();
@@ -521,7 +521,7 @@ fn build_tui_options(
         }),
         // A lost daemon relaunches through the background launcher: it
         // starts a daemon when none listens and never replaces one.
-        daemon_launcher: Some(eukhe_tui::saved_sessions::SharedDaemonLauncher::new(
+        daemon_launcher: Some(eukhe_client::saved_sessions::SharedDaemonLauncher::new(
             CliLauncher {
                 socket_path,
                 spawn_cwd: config.cwd.clone(),

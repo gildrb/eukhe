@@ -565,7 +565,7 @@ pub(crate) async fn session_open_guard(
 ) -> Result<SessionLease, String> {
     let socket = crate::interactive_mode::resolve_socket_path(socket_path);
     let checked = |error: anyhow::Error| format!("Could not check active sessions: {error:#}");
-    let connection = match eukhe_tui::daemon_client::DaemonClient::connect_probe(
+    let connection = match eukhe_client::daemon_client::DaemonClient::connect_probe(
         &socket,
         crate::daemon_command::HELLO_TIMEOUT_MS,
     )
@@ -573,7 +573,7 @@ pub(crate) async fn session_open_guard(
     {
         Ok(connection) => Some(connection),
         // No daemon: the lease below is the whole guard.
-        Err(error) if eukhe_tui::daemon_client::is_connect_failure(&error) => None,
+        Err(error) if eukhe_client::daemon_client::is_connect_failure(&error) => None,
         Err(error) => {
             return Err(checked(crate::daemon_command::connect_error(
                 error, &socket,
@@ -593,7 +593,7 @@ pub(crate) async fn session_open_guard(
             &client,
             &mut events,
             list,
-            eukhe_tui::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
+            eukhe_client::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
         )
         .await
         .map_err(checked)?;

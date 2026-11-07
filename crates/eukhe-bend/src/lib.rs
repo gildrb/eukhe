@@ -133,6 +133,36 @@ pub fn expect_core<T, E: Into<Error>>(entry: Entry, result: Result<T, E>) -> T {
     }
 }
 
+/// The reply of `entry` to the request `write` writes, read by `read`
+/// (which must read all of it): one [`call`] on a request the caller
+/// encodes itself.
+///
+/// The caller writes its numbers saturated at [`wire::NAT_MAX`] and its
+/// strings below [`wire::STR_MAX`], so a failure can only mean an
+/// inconsistent build: [`expect_core`] reports it.
+///
+/// # Panics
+///
+/// When the request does not fit the wire format, the call fails, or the
+/// reply does not read as `read` expects (an inconsistent build).
+pub fn decide<T>(
+    entry: Entry,
+    write: impl FnOnce(&mut wire::Writer),
+    read: impl FnOnce(&mut wire::Reader<'_>) -> Result<T, WireError>,
+) -> T {
+    let result = (|| -> Result<T, Error> {
+        let mut writer = wire::Writer::new();
+        write(&mut writer);
+        let request = writer.finish()?;
+        let reply = call(entry, &request)?;
+        let mut reader = wire::Reader::reply(&reply)?;
+        let value = read(&mut reader)?;
+        reader.end()?;
+        Ok(value)
+    })();
+    expect_core(entry, result)
+}
+
 /// A state of an entry's stepper, kept in the Bend heap. Each input replaces
 /// it with the state the entry's `step` answers; dropping it frees it.
 #[derive(Debug)]

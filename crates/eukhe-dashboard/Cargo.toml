@@ -10,8 +10,8 @@ description = "Web dashboard for Eukhe: the CLI session, its memory and its cont
 eukhe-types = { path = "../eukhe-types" }
 # The build identity `hello` reports (with the web files' digest).
 eukhe-build-info = { path = "../eukhe-build-info" }
-# The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
-eukhe-tui = { path = "../eukhe-tui" }
+# The daemon-wire client (`eukhe_client::daemon_client::DaemonClient`).
+eukhe-client = { path = "../eukhe-client" }
 # The pairing choices run as the compiled Bend core (bend/ffi_dash.bend).
 eukhe-bend.workspace = true
 serde = { workspace = true }

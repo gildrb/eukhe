@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use eukhe_tui::daemon_client::{
+use eukhe_client::daemon_client::{
     is_connect_failure, is_daemon_timeout, is_foreign_daemon, DaemonClient, DaemonClientEvent,
     DEFAULT_REQUEST_TIMEOUT_MS,
 };

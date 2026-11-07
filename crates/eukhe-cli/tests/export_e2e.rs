@@ -107,9 +107,10 @@ async fn tui_export_surface() {
     ] });
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.0.socket)
-        .await
-        .expect("connect supervisor");
+    let (client, _events) =
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.0.socket)
+            .await
+            .expect("connect supervisor");
     let data = client
         .request_ok(DaemonCommand::Create {
             id: None,

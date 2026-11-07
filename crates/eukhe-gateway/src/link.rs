@@ -6,15 +6,15 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context;
-use eukhe_tui::daemon_build::{kept_daemon_notice, Build};
-use eukhe_tui::daemon_client::{DaemonClient, DaemonClientEvent};
-use eukhe_tui::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
+use eukhe_client::daemon_build::{kept_daemon_notice, Build};
+use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
+use eukhe_client::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
 use eukhe_types::daemon::{DaemonClientKind, DaemonCommand};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::sessions::{SavedSession, SessionRef};
-use eukhe_tui::saved_sessions::DaemonLauncher;
+use eukhe_client::saved_sessions::DaemonLauncher;
 
 /// The wait before the next attempt to reach the daemon, after `last`
 /// (none: the first attempt). The compiled Bend core decides

@@ -1099,7 +1099,7 @@ impl SessionUi {
                 // fate is unknown -- a live turn raises its own loader at
                 // `agent_start`): the send loader comes down.
                 self.settle_send_loader(view);
-                if crate::daemon_client::is_daemon_timeout(&error)
+                if eukhe_client::daemon_client::is_daemon_timeout(&error)
                     || sent_before_link_closed(&error)
                 {
                     // Sent but unanswered (a timeout), or the DIRECT link
@@ -1129,8 +1129,8 @@ impl SessionUi {
                     }
                     return Ok(());
                 }
-                if crate::daemon_client::is_daemon_rejection(&error)
-                    || crate::daemon_client::is_daemon_unreachable(&error)
+                if eukhe_client::daemon_client::is_daemon_rejection(&error)
+                    || eukhe_client::daemon_client::is_daemon_unreachable(&error)
                 {
                     // TS `onSubmit`'s prompt catch: the daemon answered
                     // with a refusal for THIS request (admission, queue
@@ -1245,7 +1245,7 @@ fn refused_row_text(rendered: &str, draft: RetainedDraft) -> String {
 /// closed before the answer (`request_direct` sent it): the daemon may
 /// have admitted the turn, so this is not a refusal.
 fn sent_before_link_closed(error: &anyhow::Error) -> bool {
-    crate::daemon_client::is_daemon_unreachable(error)
+    eukhe_client::daemon_client::is_daemon_unreachable(error)
         && format!("{error:#}")
             .to_lowercase()
             .contains("session connection closed")

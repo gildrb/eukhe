@@ -114,7 +114,7 @@ fn read_relation(reader: &mut Reader<'_>) -> Result<Relation, WireError> {
 /// How the `daemon` build relates to the `client` build.
 #[must_use]
 pub fn relation(client: Build<'_>, daemon: Build<'_>) -> Relation {
-    crate::bend_core::decide(
+    eukhe_bend::decide(
         Entry::Replace,
         |writer| {
             writer.tag(0);
@@ -128,7 +128,7 @@ pub fn relation(client: Build<'_>, daemon: Build<'_>) -> Relation {
 /// interactive start replaces an older daemon; every other start keeps it.
 #[must_use]
 pub fn replacement_verdict(client: Build<'_>, daemon: Build<'_>, caller: Caller) -> Replacement {
-    crate::bend_core::decide(
+    eukhe_bend::decide(
         Entry::Replace,
         |writer| {
             writer.tag(1);
