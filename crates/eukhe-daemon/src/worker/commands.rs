@@ -608,7 +608,8 @@ impl Worker {
     /// `kill`: abort the run, close the session (Harness close, lease
     /// release), and announce `session_closed`. `killed` cancels the
     /// session's scheduled jobs and archives it; `replaced` cancels its RLM
-    /// heartbeats; `shutdown` keeps both (the later wake resumes it).
+    /// heartbeats; `shutdown` keeps both (the later wake resumes it). The
+    /// kill answers once the announcement is on every connection's socket.
     async fn handle_kill(&self, payload: &Value) -> DaemonResponse {
         let reason = KillCloseReason::from_payload(payload);
         self.side_questions
@@ -655,6 +656,12 @@ impl Worker {
             .active_session_id
             .clone();
         let _ = self.emit_session_closed(&active_session_id, reason.session_closed_reason());
+        // The announcement reaches every attached client before the kill
+        // answers (TS writes it to each socket synchronously): the
+        // supervisor stops this process on the answer, and a client fan-out
+        // still writing the frame then would lose it - the client would see
+        // only its dropped link, never why.
+        self.events.delivered(self.events.current_seq()).await;
         let _ = self.record_recovery(false, reason.recovery_operation());
         // The pane reporter releases its pane as the last write.
         let reporter = std::mem::take(

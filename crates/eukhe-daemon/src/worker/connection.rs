@@ -102,6 +102,9 @@ pub(crate) struct EventPump {
     events: broadcast::Sender<Arc<OutboundFrame>>,
     next_seq: AtomicU64,
     send_guard: std::sync::Mutex<()>,
+    /// Every connection's outbound sink, for [`EventPump::delivered`]; an
+    /// ended connection's entry is dropped at the next registration.
+    sinks: std::sync::Mutex<Vec<std::sync::Weak<ConnectionSink>>>,
 }
 
 impl EventPump {
@@ -111,11 +114,40 @@ impl EventPump {
             events,
             next_seq: AtomicU64::new(0),
             send_guard: std::sync::Mutex::new(()),
+            sinks: std::sync::Mutex::new(Vec::new()),
         }
     }
 
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<Arc<OutboundFrame>> {
         self.events.subscribe()
+    }
+
+    /// Count `sink` in [`EventPump::delivered`] for as long as its
+    /// connection lives.
+    pub(crate) fn register(&self, sink: &Arc<ConnectionSink>) {
+        let mut sinks = self
+            .sinks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        sinks.retain(|registered| registered.strong_count() > 0);
+        sinks.push(Arc::downgrade(sink));
+    }
+
+    /// Resolves once every live connection's fan-out flushed the frames up
+    /// to `gate` (or ended): a frame broadcast before the call is on every
+    /// connection's socket, not only on the one a response goes out on
+    /// ([`ConnectionSink`]'s ordering covers that one alone).
+    pub(crate) async fn delivered(&self, gate: u64) {
+        let sinks: Vec<Arc<ConnectionSink>> = self
+            .sinks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter_map(std::sync::Weak::upgrade)
+            .collect();
+        for sink in sinks {
+            sink.wait_flushed(gate).await;
+        }
     }
 
     /// Stamp the frame with the next sequence and broadcast it.
@@ -373,8 +405,10 @@ impl Worker {
         let entry_seq = self.events.current_seq() + 1;
         // The connection's outbound sink: the framed writer plus the
         // fan-out flush position (response writes wait on it; see
-        // `ConnectionSink`).
+        // `ConnectionSink`), registered for the pump's cross-connection
+        // delivery barrier.
         let sink = Arc::new(ConnectionSink::new(Arc::clone(&writer), entry_seq));
+        self.events.register(&sink);
         // daemon_hello goes out immediately on every connection. The
         // factory lane's advertisement gate reads the settings file
         // (metadata plus a locked read on a cache miss) — off the

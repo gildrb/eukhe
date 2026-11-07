@@ -9,7 +9,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
-use super::{OutboundFrame, Worker, WorkerConfig};
+use super::{ConnectionSink, OutboundFrame, Worker, WorkerConfig};
 use crate::durable_test_support::wait_busy;
 use crate::journal::{WorkerRecoveryJournal, WorkerRecoveryRecord};
 
@@ -804,4 +804,53 @@ async fn a_refresh_tick_records_an_idle_session_with_work_busy() {
     let record = latest_record(dir.path(), "recovery.jsonl");
     let expected = orphan_exit_record(&worker, true, "refresh", record.recorded_at.clone());
     assert_eq!(record, expected);
+}
+
+/// A kill answers only once its `session_closed` announcement is on every
+/// connection's socket: the supervisor stops the worker process on the
+/// answer, so a client connection whose fan-out was still behind the frame
+/// lost it (the TUI saw its dropped link, never the stop). A registered
+/// connection that has not flushed the frame holds the answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_answers_once_its_closed_notice_reached_every_connection() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": [] })).await;
+    let mut events = worker.events.subscribe();
+    // An attached client whose fan-out has not caught up: its sink flushes
+    // only when this test says so.
+    let writer: Box<dyn eukhe_types::platform::transport::AsyncWriteHalf> =
+        Box::new(tokio::io::sink());
+    let client = Arc::new(ConnectionSink::new(
+        Arc::new(tokio::sync::Mutex::new(writer)),
+        worker.events.current_seq() + 1,
+    ));
+    worker.events.register(&client);
+
+    let payload = json!({});
+    let kill = worker.dispatch("kill", &payload);
+    tokio::pin!(kill);
+    // The kill runs until it broadcasts the announcement; answering in the
+    // same step (before the client flushed it) fails.
+    let closed = loop {
+        tokio::select! {
+            biased;
+            frame = events.recv() => {
+                let frame = frame.expect("event pump");
+                let payload: Value = serde_json::from_slice(&frame.payload).expect("frame JSON");
+                if payload["type"] == "session_closed" {
+                    break frame.seq;
+                }
+            }
+            answer = &mut kill => {
+                panic!("the kill answered before its session_closed was broadcast and flushed: {answer:?}")
+            }
+        }
+    };
+    assert!(
+        futures::poll!(&mut kill).is_pending(),
+        "the kill answered while a connection had not flushed its session_closed"
+    );
+    client.mark_flushed(closed);
+    let answer = kill.await;
+    assert!(answer.success, "kill: {answer:?}");
 }
