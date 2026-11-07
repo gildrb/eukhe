@@ -36,7 +36,11 @@ fn now(event: serde_json::Value) -> Paced {
     }
 }
 
-async fn read_request_head(socket: &mut TcpStream) {
+/// Reads one request: its head, then the `content-length` bytes of its
+/// body. A socket closed with request bytes still unread resets the
+/// connection, and the reset can discard the response tail the client has
+/// not read yet (macOS does), failing an answered request.
+async fn read_request(socket: &mut TcpStream) {
     let mut head = Vec::new();
     let mut byte = [0_u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
@@ -44,6 +48,17 @@ async fn read_request_head(socket: &mut TcpStream) {
         assert_ne!(read, 0, "the client closed before its request head");
         head.push(byte[0]);
     }
+    let head = String::from_utf8(head).expect("UTF-8 request head");
+    let length = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().expect("content-length"))
+        })
+        .expect("the request states its body length");
+    let mut body = vec![0_u8; length];
+    socket.read_exact(&mut body).await.expect("request body");
 }
 
 /// The idle deadline of these tests. It counts from the request's start,
@@ -69,7 +84,7 @@ async fn serve_once(
     let (head_sent, head) = oneshot::channel();
     tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.expect("accept");
-        read_request_head(&mut socket).await;
+        read_request(&mut socket).await;
         socket
             .write_all(
                 b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n",
