@@ -2,23 +2,14 @@
 
 use std::time::{Duration, Instant};
 
-/// True while a live (non-zombie) process with this pid exists.
+/// True while a live (non-zombie) process with this pid exists: the
+/// platform probe, which reads `/proc` where it is mounted and falls back
+/// to `kill(pid, 0)` plus `ps` (macOS has no `/proc`).
 pub fn process_alive(pid: i32) -> bool {
-    if pid <= 0 {
+    let Ok(pid) = u32::try_from(pid) else {
         return false;
-    }
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .ok()
-        .and_then(|raw| {
-            // pid (comm) state ...
-            let close = raw.rfind(')')?;
-            raw[close + 1..]
-                .trim_start()
-                .chars()
-                .next()
-                .map(|state| state != 'Z' && state != 'X')
-        })
-        .unwrap_or(false)
+    };
+    eukhe_types::platform::process::is_process_alive(pid).expect("the process liveness probe")
 }
 
 /// Poll until the pid leaves the live-process table (teardown kills are
