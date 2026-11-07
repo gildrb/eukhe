@@ -245,19 +245,58 @@ pub fn ignore_sigint_for_suspend() -> anyhow::Result<()> {
 
 /// Restore SIGINT's default behavior on the SIGCONT resume (TS removes
 /// its no-op listener before restarting the TUI): the shield's handler
-/// runs SIGINT's default action again. Never fails (the handler stays
-/// installed; only its mode flips).
+/// runs SIGINT's default action again.
+///
+/// The handler decides at delivery, not at generation, so a SIGINT sent
+/// inside the shielded window (an external editor's `kill -INT 0`, a
+/// Ctrl+C at the cooked shell) must be delivered before the shield
+/// drops. The kernel can leave it pending past the window: a
+/// process-directed signal wakes one thread that does not block it, and
+/// on a loaded host that thread may not run before the caller lowers the
+/// shield -- the late delivery then ran the default action, and the TUI
+/// died right after its external editor exited. So the caller takes
+/// every pending SIGINT it can reach under the raised shield first: it
+/// unblocks SIGINT on itself (a real mask change: the kernel recomputes
+/// the thread's deliverable signals only when the mask changes, so the
+/// blocking call comes first) and the pending SIGINT runs the shield
+/// before the unblocking call returns; then the caller's own mask comes
+/// back. A SIGINT pending on the caller itself is always reached; Linux
+/// keeps a process-directed signal in the process-wide queue until some
+/// thread dequeues it, so the caller reaches that one too. xnu posts a
+/// process-directed signal to one thread at generation time (the first
+/// that does not block it), so there the caller reaches it when it is
+/// that thread.
 ///
 /// # Errors
 ///
-/// None in practice; the `Result` keeps the suspend driver's contract.
+/// Returns an error when the calling thread's signal mask cannot be
+/// changed; the shield stays up then (a swallowed SIGINT is the safe
+/// side of a failed restore).
 pub fn restore_default_sigint() -> anyhow::Result<()> {
+    use nix::sys::signal::{pthread_sigmask, SigSet, SigmaskHow, Signal};
     use std::sync::atomic::Ordering;
     use std::sync::PoisonError;
     let shield = SIGINT_SHIELD.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(default_action) = shield.as_ref() {
-        default_action.store(true, Ordering::SeqCst);
-    }
+    let Some(default_action) = shield.as_ref() else {
+        return Ok(());
+    };
+    let mut sigint = SigSet::empty();
+    sigint.add(Signal::SIGINT);
+    let mut previous = SigSet::empty();
+    let mask_change = |how, set: &SigSet, old: Option<&mut SigSet>| {
+        pthread_sigmask(how, Some(set), old).map_err(|errno| {
+            anyhow::anyhow!(
+                "changing the SIGINT mask failed: {}",
+                std::io::Error::from(errno)
+            )
+        })
+    };
+    mask_change(SigmaskHow::SIG_BLOCK, &sigint, Some(&mut previous))?;
+    // A pending SIGINT runs the still-raised shield inside this call.
+    let unblocked = mask_change(SigmaskHow::SIG_UNBLOCK, &sigint, None);
+    mask_change(SigmaskHow::SIG_SETMASK, &previous, None)?;
+    unblocked?;
+    default_action.store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -581,6 +620,50 @@ mod suspend_shield_tests {
         raise(Signal::SIGINT).expect("raise SIGINT after the restore");
         std::thread::sleep(std::time::Duration::from_secs(5));
         panic!("SIGINT did not terminate the process after the restore");
+    }
+
+    /// A SIGINT generated inside the window but still pending when the
+    /// window closes is swallowed: the restore delivers it under the
+    /// raised shield. Pinned with a SIGINT pending on the restoring
+    /// thread itself (raised while that thread blocks it); before the
+    /// fix the restore lowered the shield first, and the pending signal
+    /// ran the default action at the unblock -- the TUI that died right
+    /// after its external editor exited.
+    #[test]
+    fn a_sigint_pending_at_the_restore_is_swallowed() {
+        const CHILD: &str = "EUKHE_TYPES_SIGINT_PENDING_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(
+                std::env::current_exe().expect("test binary"),
+            )
+            .args([
+                "--exact",
+                "platform::process::suspend_shield_tests::a_sigint_pending_at_the_restore_is_swallowed",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("re-run the pending-SIGINT test in a child");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success() && stdout.contains("pending SIGINT swallowed"),
+                "the SIGINT pending at the restore must not terminate the process \
+                 ({:?}):\n{stdout}{stderr}",
+                output.status
+            );
+            return;
+        }
+        let mut sigint = nix::sys::signal::SigSet::empty();
+        sigint.add(Signal::SIGINT);
+        ignore_sigint_for_suspend().expect("shield");
+        sigint.thread_block().expect("block SIGINT on this thread");
+        raise(Signal::SIGINT).expect("raise SIGINT inside the window");
+        restore_default_sigint().expect("restore");
+        sigint
+            .thread_unblock()
+            .expect("unblock SIGINT on this thread");
+        println!("pending SIGINT swallowed");
     }
 }
 
