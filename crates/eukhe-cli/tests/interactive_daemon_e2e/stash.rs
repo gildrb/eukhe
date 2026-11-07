@@ -964,7 +964,13 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
         steps: vec![
             // The slow turn holds the run busy through the whole dance.
             eukhe_tui::interactive::HeadlessStep::Submit("start the slow turn".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitMs(750),
+            // The loader's waiting phase shows the turn's request is out
+            // to the scripted provider, which holds it: the turn is
+            // provably running before the prompts below park behind it.
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Waiting - ".to_string(),
+                timeout_ms: 30_000,
+            },
             // Two parked prompts: Enter while busy parks on the steering
             // lane, alt+Enter parks on the follow-up lane.
             eukhe_tui::interactive::HeadlessStep::Submit("steering prompt".to_string()),
