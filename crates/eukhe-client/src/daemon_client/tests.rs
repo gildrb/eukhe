@@ -211,6 +211,93 @@ async fn request_timeout_reports_socket() {
     assert!(!is_daemon_rejection(&error));
 }
 
+/// `request_ok_with_timeout` holds the caller's budget, not the command
+/// class default (a `prompt` defaults to the 30 s short route): a silent
+/// daemon times the request out at the caller's bound. An answered
+/// refusal surfaces as the typed rejection, like `request_ok`.
+#[tokio::test]
+async fn request_ok_with_timeout_holds_the_callers_budget_and_types_refusals() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let socket = dir.path().join("d.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    // A daemon that refuses `list` and never answers `prompt`.
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+        let mut hello = json!({
+            "type": "daemon_hello",
+            "protocol": { "name": "eukhe.daemon", "version": 7 },
+            "clientId": "srv",
+            "serverCapabilities": [],
+        })
+        .to_string();
+        hello.push('\n');
+        writer.write_all(hello.as_bytes()).await.unwrap();
+        let mut seen = String::new();
+        loop {
+            seen.clear();
+            match reader.read_line(&mut seen).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let envelope: Value = serde_json::from_str(seen.trim()).unwrap();
+            if envelope["command"]["type"] != "list" {
+                continue;
+            }
+            let mut refusal = json!({
+                "type": "response",
+                "id": envelope["id"],
+                "command": "list",
+                "success": false,
+                "error": "boom",
+            })
+            .to_string();
+            refusal.push('\n');
+            writer.write_all(refusal.as_bytes()).await.unwrap();
+        }
+    });
+    let (client, _events) = DaemonClient::connect(&socket).await.unwrap();
+    let error = client
+        .request_ok_with_timeout(
+            DaemonCommand::Prompt {
+                id: None,
+                active_session_id: "s1".to_string(),
+                message: "/compact".to_string(),
+                input: empty_prompt_input(),
+                rest: Map::default(),
+            },
+            100,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("Timed out after 100ms"),
+        "unexpected error: {error}"
+    );
+    assert!(is_daemon_timeout(&error));
+    let refusal = client
+        .request_ok_with_timeout(
+            DaemonCommand::List {
+                id: None,
+                all: None,
+                cwd: None,
+                session_dir: None,
+                include_client_owned: None,
+                rest: Map::default(),
+            },
+            5_000,
+        )
+        .await
+        .unwrap_err();
+    assert!(is_daemon_rejection(&refusal), "unexpected error: {refusal}");
+    assert!(
+        refusal.to_string().contains("boom"),
+        "unexpected error: {refusal}"
+    );
+    client.close();
+}
+
 #[tokio::test]
 async fn a_request_after_the_reader_died_refuses_instead_of_riding_the_budget() {
     let dir = tempfile::TempDir::new().unwrap();

@@ -898,6 +898,25 @@ impl DaemonClient {
         response_data_or_error(&name, response)
     }
 
+    /// [`Self::request_ok`] with the caller's response budget instead of
+    /// the command-class default: for a request whose answer settles with
+    /// work the caller knows to be long (a `prompt` carrying a session
+    /// command answers once the command ran).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when [`Self::request_with_timeout`] fails or the
+    /// response carries `success: false` (the daemon error string surfaces).
+    pub async fn request_ok_with_timeout(
+        &self,
+        command: DaemonCommand,
+        timeout_ms: u64,
+    ) -> Result<Value> {
+        let name = command_type_debug(&command);
+        let response = self.request_with_timeout(command, timeout_ms).await?;
+        response_data_or_error(&name, response)
+    }
+
     /// Whether a session-plane command for the direct link's session may
     /// travel over the direct link (TS `servesDirect`).
     /// The live direct link that may serve `command` (TS `servesDirect`):

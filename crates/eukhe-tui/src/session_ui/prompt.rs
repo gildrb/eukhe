@@ -86,6 +86,10 @@ pub(crate) struct PromptOrder {
     pub(crate) stashed_images: Vec<(u64, LoadedImage)>,
     pub(crate) stash_to_restore: Option<PromptStash>,
     pub(crate) expected_turn_end: Option<u64>,
+    /// The prompt is a session command (`/compact`, `/refine`, ...): the
+    /// daemon answers it once the command ran, so its round trip is
+    /// bounded by that work, not by the admission ack cap.
+    pub(crate) session_command: bool,
     pub(crate) generation: u64,
     pub(crate) rebind_available: bool,
 }
@@ -847,6 +851,7 @@ impl SessionUi {
             stashed_images,
             stash_to_restore,
             expected_turn_end,
+            session_command,
             generation,
             rebind_available,
         });
@@ -892,17 +897,34 @@ impl SessionUi {
                 },
                 rest: Map::default(),
             };
-            let result = tokio::time::timeout(
-                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                order.client.request_ok(command),
-            )
-            .await
-            .map_err(|_| {
-                anyhow!(
-                    "timed out after {UI_REQUEST_TIMEOUT_MS}ms waiting for the Eukhe daemon response"
+            // A turn prompt's answer is its admission (the ack cap names a
+            // lost ack). A session command's answer settles with the
+            // command: a `/compact` summarizer call or a `/refine` review
+            // runs a model request, so the ack cap would report a healthy
+            // run as a lost ack and release the submit mid-command; it
+            // rides the client's long-running class like a turn-long wait.
+            let result = if order.session_command {
+                order
+                    .client
+                    .request_ok_with_timeout(
+                        command,
+                        eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS,
+                    )
+                    .await
+                    .map(|_| ())
+            } else {
+                tokio::time::timeout(
+                    Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                    order.client.request_ok(command),
                 )
-            })
-            .and_then(|result| result.map(|_| ()));
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "timed out after {UI_REQUEST_TIMEOUT_MS}ms waiting for the Eukhe daemon response"
+                    )
+                })
+                .and_then(|result| result.map(|_| ()))
+            };
             let _ = notes.send(PromptSubmitNote {
                 active_session_id: order.active_session_id,
                 session_id: order.session_id,
