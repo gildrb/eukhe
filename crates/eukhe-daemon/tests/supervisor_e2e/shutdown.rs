@@ -1,49 +1,8 @@
 //! The supervisor process-exit paths - the shutdown command and the SIGTERM
-//! graceful drain - with the /proc process-tree helpers they lean on.
+//! graceful drain.
 
+use super::process_table::{child_pids_of, process_alive};
 use super::*;
-
-/// Pids whose parent is `ppid` (the supervisor's live worker children).
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        // `comm` can contain spaces and parens, so parse after the last ')'.
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next(); // process state
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
-}
-
-/// Liveness that ignores zombies: a detached child nobody reaps keeps its
-/// `/proc` entry (exit status pending), so path existence alone would call
-/// an exited process alive.
-fn process_alive(pid: u32) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    // `comm` can contain spaces and parens, so parse after the last ')'.
-    let Some((_, rest)) = stat.rsplit_once(')') else {
-        return false;
-    };
-    let state = rest.split_whitespace().next().unwrap_or_default();
-    !state.starts_with('Z') && !state.starts_with('X')
-}
 
 /// Wait for the child to exit by itself within `timeout` (no kill).
 fn wait_child_exit(child: &mut Child, timeout: Duration) -> Option<std::process::ExitStatus> {
@@ -114,6 +73,10 @@ fn shutdown_command_exits_the_supervisor_process() {
     let exit = wait_child_exit(&mut daemon.child, Duration::from_secs(10))
         .expect("the supervisor process exited after shutdown");
     assert!(exit.success(), "supervisor exit: {exit:?}");
+    // Linux-only: off Linux a refused connect cannot prove the listener
+    // closed (a full backlog refuses too), so the exit keeps the file for
+    // the next bind's stale-socket prepare.
+    #[cfg(target_os = "linux")]
     assert!(!socket.exists(), "the socket file is removed on exit");
 
     // No worker process outlives the shutdown.
@@ -163,6 +126,8 @@ fn a_sigterm_exits_the_supervisor_through_the_graceful_drain() {
         status.success(),
         "the drain must end in a clean exit 0, not a signal death: {status}"
     );
+    // Linux-only: off Linux the exit keeps the file (see the shutdown test).
+    #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
         "the drained supervisor cleans its socket file up"
@@ -212,6 +177,8 @@ fn a_sigterm_landing_before_the_accept_loop_still_drains() {
         status.success(),
         "the early drain must end in a clean exit 0, not a signal death: {status}"
     );
+    // Linux-only: off Linux the exit keeps the file (see the shutdown test).
+    #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
         "the drained supervisor cleans its socket file up"

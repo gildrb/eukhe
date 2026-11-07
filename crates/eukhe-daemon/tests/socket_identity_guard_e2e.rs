@@ -285,6 +285,10 @@ fn orphan_exit_never_unlinks_a_replacement_bound_on_the_worker_path() {
 /// the reply could be cut by that signal and leak the file.
 /// The still-ours directions of the other two call sites are pinned by the
 /// in-tree controls named in the module doc.
+// Linux-only: only Linux proves a closed listener by a refused connect (a
+// full backlog also refuses elsewhere), so off Linux the exit keeps the
+// file for the next bind's stale-socket prepare.
+#[cfg(target_os = "linux")]
 #[test]
 fn routed_shutdown_removes_the_workers_own_socket_file() {
     let dir = tempfile::TempDir::new().expect("temp dir");

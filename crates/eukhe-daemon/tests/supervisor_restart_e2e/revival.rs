@@ -391,6 +391,9 @@ fn a_failed_boot_revival_retries_under_the_restart_budget() {
 /// dropped, so its session never came back while the process kept it.
 /// The boot now stops that process (identity-gated) before it relaunches
 /// the session under the restart budget.
+// Linux-only: the stop is a pidfd-pinned signal; without pidfds (macOS) the
+// daemon never signals the unverifiable holder, so no relaunch beside it.
+#[cfg(target_os = "linux")]
 #[test]
 fn an_unreachable_live_worker_is_stopped_then_relaunched() {
     let dir = tempfile::TempDir::new().expect("temp dir");

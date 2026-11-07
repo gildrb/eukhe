@@ -91,7 +91,11 @@ fn orphaned_worker_exits_when_the_supervisor_socket_never_answers() {
         "the orphaned worker exited on the supervisor-lost window"
     );
     // The TS graceful exit owns its socket file: the orphan exit removes
-    // it, so a respawn does not wait out the stale-socket path.
+    // it, so a respawn does not wait out the stale-socket path. Linux-only:
+    // off Linux a refused connect cannot prove the listener closed (a full
+    // backlog refuses too), so the exit keeps the file for the next bind's
+    // stale-socket prepare.
+    #[cfg(target_os = "linux")]
     assert!(
         !dir.path().join("worker.sock").exists(),
         "the exited worker removed its socket file"
@@ -193,18 +197,15 @@ impl Client {
     }
 }
 
-/// The process start time of `pid` (`/proc/<pid>/stat` field 22), `None`
-/// once the process is gone or a zombie: pairs with the pid to identify
-/// the process across a possible pid reuse.
+/// The pid-reuse start identity of `pid` (`proc:` on Linux, `ps:` on
+/// macOS), `None` once the process is gone or a zombie: pairs with the pid
+/// to identify the process across a possible pid reuse.
 fn live_start_time(pid: u32) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // Fields after the parenthesized comm: state is the first, start
-    // time the 20th.
-    let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
-    if fields.first() == Some(&"Z") {
+    use eukhe_types::platform::process::{is_process_alive, process_start_id};
+    if !is_process_alive(pid).expect("liveness probe") {
         return None;
     }
-    fields.get(19).map(ToString::to_string)
+    process_start_id(pid)
 }
 
 /// SIGKILL `pid` at scope exit unless it already exited (a failing run
