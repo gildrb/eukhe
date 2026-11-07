@@ -53,6 +53,8 @@ use kernel_runtime::kernel_python;
 /// the n-th interpreter (0-based, from the count file) until the fixture
 /// creates `gates/gate<n>`, so a test controls exactly when each boot's
 /// handshake may complete - a file barrier, never a timing assumption.
+/// Before it counts itself, the n-th wrapper records its pid (the
+/// interpreter's, which it `exec`s into) for [`spawned_pid`].
 /// The arithmetic expansion strips the blanks BSD `wc` pads the count
 /// with (macOS), which would otherwise split `gate$n` into two words.
 fn counting_gated_kernel(
@@ -65,7 +67,8 @@ fn counting_gated_kernel(
     write_executable_script(
         &wrapper,
         &format!(
-            "#!/bin/sh\nn=$(($(wc -c < '{}')))\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
+            "#!/bin/sh\nn=$(($(wc -c < '{}')))\necho $$ > '{}'.pid$n\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
+            count.display(),
             count.display(),
             count.display(),
             gates.display(),
@@ -80,6 +83,18 @@ fn counting_gated_kernel(
 /// Number of interpreter spawns recorded so far.
 fn starts(count: &std::path::Path) -> u64 {
     count.metadata().map_or(0, |m| m.len())
+}
+
+/// The pid the n-th spawned interpreter recorded; readable once
+/// [`starts`] counts it.
+fn spawned_pid(count: &std::path::Path, n: u64) -> u32 {
+    let mut pid_file = count.as_os_str().to_owned();
+    pid_file.push(format!(".pid{n}"));
+    std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
 }
 
 /// A settled boot's publisher clears only the memo generation it installed
@@ -831,9 +846,11 @@ async fn a_killed_then_disposed_boot_never_flushes_the_snapshot() {
 
 /// A dispose after a kill waits the doomed boot's settle: without the
 /// parked memo, `dispose()` would skip the doomed boot entirely and could
-/// orphan its kernel at worker exit. The observable is the dispose's own
-/// completion - it cannot return while the doomed boot's interpreter is
-/// still held.
+/// orphan its kernel at worker exit. The dispose's signal also cancels the
+/// boot's kernel start (it never waits out the held handshake), so the
+/// observable is the doomed interpreter itself: its gate never opens, yet
+/// it is gone by the time the dispose returns - the dispose waited the
+/// boot's teardown, it did not merely signal it.
 #[tokio::test]
 async fn dispose_after_a_kill_waits_the_doomed_boot() {
     let python = kernel_python();
@@ -862,28 +879,24 @@ async fn dispose_after_a_kill_waits_the_doomed_boot() {
     })
     .await
     .expect("the fixture interpreter spawned");
+    let pid = spawned_pid(&count, 0);
     provisioner.kill();
-    let mut dispose = std::pin::pin!(tokio::spawn({
-        let provisioner = provisioner.clone();
-        async move { provisioner.dispose(None).await }
-    }));
-    // While the doomed boot is still held, the dispose cannot return.
-    let jumped = tokio::time::timeout(Duration::from_secs(2), dispose.as_mut()).await;
     assert!(
-        jumped.is_err(),
+        eukhe_types::platform::process::is_process_alive(pid).unwrap(),
+        "kill() leaves the unpublished boot's interpreter to its own settle"
+    );
+    tokio::time::timeout(Duration::from_secs(30), provisioner.dispose(None))
+        .await
+        .expect("the dispose cancels the held boot instead of waiting its gate");
+    assert!(
+        !eukhe_types::platform::process::is_process_alive(pid).unwrap(),
         "dispose must wait the killed boot's settle, not skip it"
     );
-    // Release the boot: its settle unblocks the dispose.
-    std::fs::write(gates.join("gate0"), "").unwrap();
     let settled = tokio::time::timeout(Duration::from_secs(30), doomed)
         .await
         .expect("the doomed boot settled")
         .unwrap();
     assert!(settled.is_err(), "a killed boot settles as a failure");
-    tokio::time::timeout(Duration::from_secs(30), dispose.as_mut())
-        .await
-        .expect("dispose completes after the doomed boot settles")
-        .unwrap();
 }
 
 /// A `kill()` landing while a fresh boot is still WAITING — here queued
