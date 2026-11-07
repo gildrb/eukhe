@@ -56,10 +56,10 @@ laws:
 # bend-core-check fails when a committed one differs (or bend is not
 # $(BEND_VERSION)). Run bend-core after every change to a bend/ file.
 bend-core:
-	python3 scripts/bend_core.py generate
+	BEND_BIN="$$(command -v bend)" python3 scripts/bend_core.py generate
 
 bend-core-check:
-	python3 scripts/bend_core.py check
+	BEND_BIN="$$(command -v bend)" python3 scripts/bend_core.py check
 
 # The token blocks of crates/eukhe-dashboard/ui/src/tokens.stylex.ts, as
 # the compiled core writes them from bend/tokens.bend (run bend-core first).

@@ -20,8 +20,15 @@ never renumbers the others. An area file defines a call, a stepper or both:
 - crates/eukhe-bend/c/core.c: `bend bend/core.bend -o <it>`.
 `check` regenerates them in a temporary directory and exits 1 when a
 committed file differs or when `bend version` is not the BEND_VERSION of
-scripts/toolchain.env."""
+scripts/toolchain.env.
+
+BEND_BIN names the bend executable (default: `bend` on PATH). The Makefile
+and scripts/ci_local.sh pass the bend their own PATH resolves: a version
+manager's `python3` shim (mise) rewrites PATH for this process, so `bend`
+here could otherwise be the manager's global release, not the pinned one
+the gate checked."""
 import difflib
+import os
 import re
 import shutil
 import subprocess
@@ -37,6 +44,7 @@ CORE_BEND = "bend/core.bend"
 ENTRIES_RS = "crates/eukhe-bend/src/entries.rs"
 CORE_C = "crates/eukhe-bend/c/core.c"
 TOOLCHAIN = ROOT / "scripts" / "toolchain.env"
+BEND_BIN = os.environ.get("BEND_BIN") or "bend"
 # The segments crates/eukhe-bend/c/shim.c enters.
 SEGMENTS = ("FID_ffi", "FID_open", "FID_step", "FID_close")
 
@@ -331,7 +339,7 @@ def entries_rs(xs: list[Area]) -> str:
 
 def bend_version() -> str:
     try:
-        out = subprocess.run(["bend", "version"], capture_output=True, text=True, check=True).stdout
+        out = subprocess.run([BEND_BIN, "version"], capture_output=True, text=True, check=True).stdout
     except (OSError, subprocess.CalledProcessError) as e:
         raise Fail(f"bend version failed: {e}") from e
     return out.strip().removeprefix("bend ").strip()
@@ -356,7 +364,7 @@ def build() -> dict[str, str]:
         shutil.copytree(BEND, work, ignore=shutil.ignore_patterns("core.bend"))
         (work / "core.bend").write_text(out[CORE_BEND])
         c = Path(tmp) / "core.c"
-        r = subprocess.run(["bend", "core.bend", "-o", str(c)], cwd=work, capture_output=True, text=True)
+        r = subprocess.run([BEND_BIN, "core.bend", "-o", str(c)], cwd=work, capture_output=True, text=True)
         if r.returncode != 0 or not c.exists():
             raise Fail(f"bend bend/core.bend -o core.c failed:\n{r.stdout}{r.stderr}")
         out[CORE_C] = c.read_text()
