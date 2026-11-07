@@ -378,12 +378,17 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
 
-    // The first turn holds in flight for 1.5s (`delayMs`): the parked
-    // submissions land inside that window, deterministically busy (they
-    // go out once the loader shows the request waiting on the provider).
+    // The first turn holds in flight for 8s (`delayMs`, the queue-browse
+    // verifier's window): the parked submissions land inside that window,
+    // deterministically busy (they go out once the loader shows the
+    // request waiting on the provider). The window must cover the typed
+    // follow-up and both serialized submit round trips on a loaded box:
+    // at 1.5s a loaded host reached the provider 3s after the submit and
+    // the follow-up's admission trailed the window, so it delivered
+    // without ever showing in the strip.
     let script_path = dir.path().join("script.json");
     let script = serde_json::json!({ "responses": [
-        { "text": "first turn", "delayMs": 1500 },
+        { "text": "first turn", "delayMs": 8000 },
         { "text": "queued delivery" },
     ]});
     std::fs::write(&script_path, script.to_string()).expect("write script");
