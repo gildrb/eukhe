@@ -23,11 +23,8 @@ pub(crate) enum Mode {
 
 /// Nesting limit standing in for V8's call stack: schema recursion that never
 /// consumes the value (`{"$ref": "#"}`) throws `RangeError` like the TS.
-/// Sized to the native stack the check runs on (2 MiB for tokio workers and
-/// test threads): one level costs about 4 KiB in an unoptimized aarch64
-/// build, so 512 levels overflowed that stack before the `RangeError`;
-/// 256 leave half of it to the caller.
-const MAX_DEPTH: usize = 256;
+/// The validation thread's stack (`VALIDATION_STACK_BYTES`) is sized for it.
+const MAX_DEPTH: usize = 512;
 
 /// The state of one `Check` or `Errors` run.
 pub(crate) struct Engine<'v, 's> {
