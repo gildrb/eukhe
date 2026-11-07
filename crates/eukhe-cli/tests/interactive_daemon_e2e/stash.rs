@@ -1113,15 +1113,24 @@ async fn tui_dispatches_declared_editor_keybindings() {
     )
     .expect("write keybindings.json");
     let supervisor = spawn_supervisor(dir.path());
-    // The second response holds its request at the provider (`delayMs`)
-    // far past the plan: the turn is provably running when the interrupt
-    // key lands, and only the abort ends it -- the hold, not a streaming
-    // pace the loaded box may outrun, keeps the final answer back.
+    // The second response holds its request at the provider on a gate this
+    // test never releases during the run (`holdUntilReleased`): the turn is
+    // provably running when the interrupt key lands, and only the abort
+    // ends it -- no streaming pace or clock the loaded box may outrun.
+    let gate = dir.path().join("hold.sock");
+    let gate_listener = tokio::net::UnixListener::bind(&gate).expect("bind the hold gate");
+    let held = tokio::spawn(async move {
+        let (held, _) = gate_listener
+            .accept()
+            .await
+            .expect("the held turn's request reaches the gate");
+        held
+    });
     let script = serde_json::json!({
         "engine": "faux",
         "responses": [
             { "text": "quick reply", "delayMs": 10 },
-            { "text": "the final answer that the abort must never deliver", "delayMs": 120_000 },
+            { "text": "the final answer that the abort must never deliver", "holdUntilReleased": gate },
         ],
     });
     std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
@@ -1195,5 +1204,7 @@ async fn tui_dispatches_declared_editor_keybindings() {
         !last.contains("stale draft"),
         "the new session discarded the editor draft:\n{last}"
     );
+    // The gate closes with the test: nothing but the abort ended the turn.
+    held.abort();
     drop(supervisor);
 }
