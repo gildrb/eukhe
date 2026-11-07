@@ -14,7 +14,7 @@ use base64::Engine as _;
 use eukhe_client::daemon_build::{kept_daemon_notice, Build};
 use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
 use eukhe_client::saved_sessions::{
-    create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession,
+    create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession, SessionDir,
 };
 use eukhe_types::daemon::{
     DaemonCommand, DaemonReplayStatus, DaemonResumeCursor, PromptInput, SessionEvent,
@@ -737,7 +737,7 @@ impl Tab {
     async fn root_sessions(&self) -> anyhow::Result<Vec<SavedSession>> {
         list_root_sessions(
             &self.client,
-            &self.config.session_dir,
+            SessionDir::At(&self.config.session_dir),
             &self.config.new_session_cwd,
         )
         .await

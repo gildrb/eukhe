@@ -8,7 +8,9 @@ use std::time::Duration;
 use anyhow::Context;
 use eukhe_client::daemon_build::{kept_daemon_notice, Build};
 use eukhe_client::daemon_client::{DaemonClient, DaemonClientEvent};
-use eukhe_client::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
+use eukhe_client::saved_sessions::{
+    attach, create_resident, list_root_sessions, CreatedSession, SessionDir,
+};
 use eukhe_types::daemon::{DaemonClientKind, DaemonCommand};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, watch};
@@ -195,7 +197,7 @@ impl<L: DaemonLauncher> Link<L> {
         session_dir: &Path,
         cwd: &Path,
     ) -> anyhow::Result<Vec<SavedSession>> {
-        list_root_sessions(&self.client, session_dir, cwd).await
+        list_root_sessions(&self.client, SessionDir::At(session_dir), cwd).await
     }
 
     /// Open a session as a resident one (a saved `session_path`, else a new

@@ -135,6 +135,16 @@ fn root_sessions(data: &Value) -> anyhow::Result<Vec<SavedSession>> {
         .collect())
 }
 
+/// The sessions directory a saved-session list scans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionDir<'a> {
+    /// The daemon's own: the session dir its settings name under its agent
+    /// dir (a host that does not read eukhe settings).
+    Configured,
+    /// This directory (`~` expands on the daemon side).
+    At(&'a Path),
+}
+
 /// The saved root sessions of `session_dir`, newest first; see
 /// [`root_sessions`].
 ///
@@ -143,9 +153,13 @@ fn root_sessions(data: &Value) -> anyhow::Result<Vec<SavedSession>> {
 /// The request fails or the answer has another shape.
 pub async fn list_root_sessions(
     client: &DaemonClient,
-    session_dir: &Path,
+    session_dir: SessionDir<'_>,
     cwd: &Path,
 ) -> anyhow::Result<Vec<SavedSession>> {
+    let session_dir = match session_dir {
+        SessionDir::Configured => None,
+        SessionDir::At(dir) => Some(dir.display().to_string()),
+    };
     let data = client
         .request_ok(DaemonCommand::ListSavedSessions {
             id: None,
@@ -153,7 +167,7 @@ pub async fn list_root_sessions(
             // Required by the cwd-addressed form; without the `current`
             // scope every cwd's sessions answer.
             cwd: Some(cwd.display().to_string()),
-            session_dir: Some(session_dir.display().to_string()),
+            session_dir,
             scope: Value::Null,
             rest: Map::default(),
         })
