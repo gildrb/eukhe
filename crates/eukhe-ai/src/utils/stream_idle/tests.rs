@@ -3,7 +3,7 @@
 //! retryable stall and drops the connection; provider events that carry no
 //! content still hold it open.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use eukhe_types::pi_ai::{AnyModel, AssistantContentBlock, Context, Model, StopReason};
@@ -36,29 +36,44 @@ fn now(event: serde_json::Value) -> Paced {
     }
 }
 
-/// Reads one request: its head, then the `content-length` bytes of its
-/// body. A socket closed with request bytes still unread resets the
-/// connection, and the reset can discard the response tail the client has
-/// not read yet (macOS does), failing an answered request.
-async fn read_request(socket: &mut TcpStream) {
+/// The API key of the test's client.
+const KEY: &str = "test-key";
+
+/// Reads one request; whether it is the test client's messages request
+/// (`POST /v1/messages` with [`KEY`]), read whole. The port is the host's:
+/// a connect to a port its owner (a test of this process or of another)
+/// closed reaches whichever listener reuses it, so a foreign request, or
+/// a peer that closes mid-request, is never served. The body is read too:
+/// a socket closed with request bytes still unread resets the connection,
+/// and the reset can discard the response tail the client has not read
+/// yet (macOS does), failing an answered request.
+async fn read_messages_request(socket: &mut TcpStream) -> bool {
     let mut head = Vec::new();
     let mut byte = [0_u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
-        let read = socket.read(&mut byte).await.expect("request bytes");
-        assert_ne!(read, 0, "the client closed before its request head");
-        head.push(byte[0]);
+        match socket.read(&mut byte).await {
+            Ok(0) | Err(_) => return false,
+            Ok(_) => head.push(byte[0]),
+        }
     }
-    let head = String::from_utf8(head).expect("UTF-8 request head");
-    let length = head
-        .lines()
-        .find_map(|line| {
+    let Ok(head) = String::from_utf8(head) else {
+        return false;
+    };
+    let header = |wanted: &str| {
+        head.lines().skip(1).find_map(|line| {
             let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length")
-                .then(|| value.trim().parse::<usize>().expect("content-length"))
+            name.eq_ignore_ascii_case(wanted).then(|| value.trim())
         })
-        .expect("the request states its body length");
+    };
+    let length = header("content-length").and_then(|value| value.parse::<usize>().ok());
+    let (true, Some(length)) = (
+        head.starts_with("POST /v1/messages") && header("x-api-key") == Some(KEY),
+        length,
+    ) else {
+        return false;
+    };
     let mut body = vec![0_u8; length];
-    socket.read_exact(&mut body).await.expect("request body");
+    socket.read_exact(&mut body).await.is_ok()
 }
 
 /// The idle deadline of these tests. It counts from the request's start,
@@ -71,10 +86,10 @@ const IDLE_MS: u64 = 5_000;
 /// with room for a loaded machine.
 const BOUND: Duration = Duration::from_millis(4 * IDLE_MS);
 
-/// Serves one request: SSE headers, then `events`; with `stall`, the
-/// connection then stays silent and `closed` fires once the client drops
-/// it, otherwise the response ends. Returns the base URL and a receiver
-/// that fires once the response head is written.
+/// Serves the test client's one request: SSE headers, then `events`; with
+/// `stall`, the connection then stays silent and `closed` fires once the
+/// client drops it, otherwise the response ends. Returns the base URL and
+/// a receiver that fires once the response head is written.
 async fn serve_once(
     events: Vec<Paced>,
     stall: Option<oneshot::Sender<()>>,
@@ -82,32 +97,50 @@ async fn serve_once(
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base_url = format!("http://{}", listener.local_addr().expect("address"));
     let (head_sent, head) = oneshot::channel();
+    let exchange = Arc::new(Mutex::new(Some((events, stall, head_sent))));
     tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.expect("accept");
-        read_request(&mut socket).await;
-        socket
-            .write_all(
-                b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n",
-            )
-            .await
-            .expect("response head");
-        // The test may have ended already.
-        let _ = head_sent.send(());
-        for Paced { delay, event } in events {
-            // The pacing is the stimulus: gaps between wire events.
-            tokio::time::sleep(delay).await;
-            let name = event["type"].as_str().expect("event type");
-            let data = format!("event: {name}\ndata: {event}\n\n");
-            let chunk = format!("{:x}\r\n{data}\r\n", data.len());
-            socket.write_all(chunk.as_bytes()).await.expect("chunk");
-        }
-        match stall {
-            Some(closed) => {
-                let mut rest = [0_u8; 1024];
-                while socket.read(&mut rest).await.is_ok_and(|read| read > 0) {}
-                let _ = closed.send(());
-            }
-            None => socket.write_all(b"0\r\n\r\n").await.expect("last chunk"),
+        loop {
+            // A peer gone before its accept leaves the listener intact.
+            let Ok((mut socket, _)) = listener.accept().await else {
+                continue;
+            };
+            let exchange = Arc::clone(&exchange);
+            tokio::spawn(async move {
+                if !read_messages_request(&mut socket).await {
+                    return;
+                }
+                let taken = exchange
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                let Some((events, stall, head_sent)) = taken else {
+                    return;
+                };
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n",
+                    )
+                    .await
+                    .expect("response head");
+                // The test may have ended already.
+                let _ = head_sent.send(());
+                for Paced { delay, event } in events {
+                    // The pacing is the stimulus: gaps between wire events.
+                    tokio::time::sleep(delay).await;
+                    let name = event["type"].as_str().expect("event type");
+                    let data = format!("event: {name}\ndata: {event}\n\n");
+                    let chunk = format!("{:x}\r\n{data}\r\n", data.len());
+                    socket.write_all(chunk.as_bytes()).await.expect("chunk");
+                }
+                match stall {
+                    Some(closed) => {
+                        let mut rest = [0_u8; 1024];
+                        while socket.read(&mut rest).await.is_ok_and(|read| read > 0) {}
+                        let _ = closed.send(());
+                    }
+                    None => socket.write_all(b"0\r\n\r\n").await.expect("last chunk"),
+                }
+            });
         }
     });
     (base_url, head)
@@ -128,7 +161,7 @@ impl ApiKeyAuth for TestKey {
         Box::pin(async {
             Ok(Some(AuthResult {
                 auth: ModelAuth {
-                    api_key: Some("test-key".to_owned()),
+                    api_key: Some(KEY.to_owned()),
                     ..ModelAuth::default()
                 },
                 ..AuthResult::default()
@@ -192,6 +225,15 @@ fn message_start() -> serde_json::Value {
 async fn a_stream_silent_after_its_headers_fails_as_a_retryable_stall_and_drops_the_connection() {
     let (closed, connection_closed) = oneshot::channel();
     let (base_url, mut head) = serve_once(vec![now(message_start())], Some(closed)).await;
+    // A foreign request reaching the port first (another test's connect to
+    // a port it saw closed) is not served.
+    let mut stranger = TcpStream::connect(base_url.trim_start_matches("http://"))
+        .await
+        .expect("connect");
+    stranger
+        .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\n\r\n")
+        .await
+        .expect("foreign request");
     let (models, model) = models_at(&base_url);
     // Without the deadline the stream never ends; the guard turns that hang
     // into a failure.
