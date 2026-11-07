@@ -18,6 +18,36 @@ fn wait_child_exit(child: &mut Child, timeout: Duration) -> Option<std::process:
     }
 }
 
+/// Off Linux the exit keeps its socket file: a refused connect cannot
+/// prove the listener closed (a full backlog refuses too), so the file
+/// waits for the next start's stale-socket prepare. Both halves hold: the
+/// file outlives the exit and serves nothing, and a fresh supervisor on
+/// the same path replaces it (a new inode) and serves its hello.
+#[cfg(not(target_os = "linux"))]
+fn assert_the_next_start_reclaims_the_socket(
+    socket: &std::path::Path,
+    agent_dir: &std::path::Path,
+) {
+    use std::os::unix::fs::MetadataExt;
+    let stale = std::fs::metadata(socket)
+        .expect("the exit leaves its socket file")
+        .ino();
+    assert!(
+        UnixStream::connect(socket).is_err(),
+        "nothing serves the left-behind socket file"
+    );
+    let _successor = spawn_daemon(socket, agent_dir);
+    let (_client, hello) = Client::connect(socket);
+    assert_eq!(hello["type"], "daemon_hello");
+    assert_ne!(
+        std::fs::metadata(socket)
+            .expect("the successor's socket file")
+            .ino(),
+        stale,
+        "the successor bound a fresh socket file in place of the stale one"
+    );
+}
+
 /// The shutdown command must stop every worker and exit the supervisor
 /// process itself, cleaning up its socket (the CLI's stale-replacement and
 /// shutdown paths wait for the daemon to be gone; a supervisor that stays
@@ -73,9 +103,8 @@ fn shutdown_command_exits_the_supervisor_process() {
     let exit = wait_child_exit(&mut daemon.child, Duration::from_secs(10))
         .expect("the supervisor process exited after shutdown");
     assert!(exit.success(), "supervisor exit: {exit:?}");
-    // Linux-only: off Linux a refused connect cannot prove the listener
-    // closed (a full backlog refuses too), so the exit keeps the file for
-    // the next bind's stale-socket prepare.
+    // Linux removes the socket file at the exit; off Linux the exit keeps
+    // it and the next start reclaims it (checked once the workers are gone).
     #[cfg(target_os = "linux")]
     assert!(!socket.exists(), "the socket file is removed on exit");
 
@@ -90,6 +119,8 @@ fn shutdown_command_exits_the_supervisor_process() {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    #[cfg(not(target_os = "linux"))]
+    assert_the_next_start_reclaims_the_socket(&socket, &agent_dir);
 }
 
 /// The OS-signal drain, end to end: a SIGTERM to the live supervisor is
@@ -126,12 +157,15 @@ fn a_sigterm_exits_the_supervisor_through_the_graceful_drain() {
         status.success(),
         "the drain must end in a clean exit 0, not a signal death: {status}"
     );
-    // Linux-only: off Linux the exit keeps the file (see the shutdown test).
+    // Linux removes the socket file at the exit; off Linux the exit keeps
+    // it and the next start reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
         "the drained supervisor cleans its socket file up"
     );
+    #[cfg(not(target_os = "linux"))]
+    assert_the_next_start_reclaims_the_socket(&socket, &agent_dir);
 }
 
 /// A SIGTERM that lands as soon as the socket first accepts a connect -
@@ -177,10 +211,13 @@ fn a_sigterm_landing_before_the_accept_loop_still_drains() {
         status.success(),
         "the early drain must end in a clean exit 0, not a signal death: {status}"
     );
-    // Linux-only: off Linux the exit keeps the file (see the shutdown test).
+    // Linux removes the socket file at the exit; off Linux the exit keeps
+    // it and the next start reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
         !socket.exists(),
         "the drained supervisor cleans its socket file up"
     );
+    #[cfg(not(target_os = "linux"))]
+    assert_the_next_start_reclaims_the_socket(&socket, &agent_dir);
 }

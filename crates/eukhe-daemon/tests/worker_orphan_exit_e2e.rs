@@ -90,15 +90,68 @@ fn orphaned_worker_exits_when_the_supervisor_socket_never_answers() {
         wait_exit(&mut worker.child, Duration::from_secs(15)),
         "the orphaned worker exited on the supervisor-lost window"
     );
-    // The TS graceful exit owns its socket file: the orphan exit removes
-    // it, so a respawn does not wait out the stale-socket path. Linux-only:
-    // off Linux a refused connect cannot prove the listener closed (a full
-    // backlog refuses too), so the exit keeps the file for the next bind's
-    // stale-socket prepare.
+    // The TS graceful exit owns its socket file: on Linux the orphan exit
+    // removes it, so a respawn does not wait out the stale-socket path.
+    // Off Linux a refused connect cannot prove the listener closed (a full
+    // backlog refuses too): the exit keeps the file and the next start on
+    // the path reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
         !dir.path().join("worker.sock").exists(),
         "the exited worker removed its socket file"
+    );
+    #[cfg(not(target_os = "linux"))]
+    assert_the_next_worker_reclaims_the_socket(dir.path(), &supervisor_socket);
+}
+
+/// Off Linux: the exited worker's socket file outlives it and serves
+/// nothing, and a fresh worker on the same path replaces it (a new inode)
+/// and serves its hello frame.
+#[cfg(not(target_os = "linux"))]
+fn assert_the_next_worker_reclaims_the_socket(dir: &Path, supervisor_socket: &Path) {
+    use std::io::Read as _;
+    use std::os::unix::fs::MetadataExt;
+    let socket = dir.join("worker.sock");
+    let stale = std::fs::metadata(&socket)
+        .expect("the exit leaves its socket file")
+        .ino();
+    assert!(
+        UnixStream::connect(&socket).is_err(),
+        "nothing serves the left-behind socket file"
+    );
+    let mut successor = spawn_worker(dir, supervisor_socket);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut stream = loop {
+        if let Ok(stream) = UnixStream::connect(&socket) {
+            break stream;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the successor never served the reclaimed path"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("set read timeout");
+    let mut prefix = [0u8; 8];
+    stream.read_exact(&mut prefix).expect("hello frame prefix");
+    let header_len = u32::from_be_bytes(prefix[0..4].try_into().expect("header length"));
+    let mut header = vec![0u8; usize::try_from(header_len).expect("header length fits")];
+    stream.read_exact(&mut header).expect("hello frame header");
+    let header: Value = serde_json::from_slice(&header).expect("hello frame header json");
+    assert_eq!(header["outboundType"], "daemon_hello");
+    assert_ne!(
+        std::fs::metadata(&socket)
+            .expect("the successor's socket file")
+            .ino(),
+        stale,
+        "the successor bound a fresh socket file in place of the stale one"
+    );
+    drop(stream);
+    assert!(
+        wait_exit(&mut successor.child, Duration::from_secs(15)),
+        "the successor exited on the supervisor-lost window too"
     );
 }
 
