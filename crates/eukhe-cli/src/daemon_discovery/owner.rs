@@ -146,7 +146,9 @@ impl SocketOwner {
             });
         let on_socket = match socket_arg {
             Some(path) => Path::new(path) == socket_path,
-            None => socket_path == eukhe_daemon::socket::default_daemon_socket_path(),
+            None => {
+                socket_path == eukhe_types::platform::daemon_socket::default_daemon_socket_path()
+            }
         };
         if !on_socket {
             return Some(format!(

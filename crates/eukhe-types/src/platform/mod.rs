@@ -8,6 +8,7 @@
 //! `cfg` themselves.
 
 pub mod access;
+pub mod daemon_socket;
 pub mod dirs;
 pub mod identity;
 pub mod process;

@@ -45,7 +45,8 @@ pub fn agent_dir() -> Option<PathBuf> {
 
 /// Expand a leading `~`/`~/` against [`home_dir`]; other values pass
 /// through (TS `expandTildePath`: `~foo` is not an expansion).
-fn expand_tilde(path: &str) -> PathBuf {
+#[must_use]
+pub fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         return home_dir().map_or_else(|| PathBuf::from(path), |home| home.join(rest));
     }

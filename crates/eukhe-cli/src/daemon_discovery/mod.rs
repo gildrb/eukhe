@@ -198,18 +198,20 @@ pub(crate) struct DaemonInfo {
 /// dir; only an invocation naming neither gets the default scope.
 pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot {
     let env_names = |key: &str| std::env::var_os(key).is_some_and(|value| !value.is_empty());
-    let scope = if daemon_socket.is_some() || env_names(config::ENV_DAEMON_SOCKET) {
+    let scope = if daemon_socket.is_some() || env_names(eukhe_client::paths::ENV_DAEMON_SOCKET) {
         DiscoveryScope::Socket
     } else if env_names(config::ENV_AGENT_DIR) {
         DiscoveryScope::AgentDir
     } else {
         DiscoveryScope::Default {
-            socket_dir: eukhe_daemon::platform::socket_dir(),
+            socket_dir: eukhe_types::platform::daemon_socket::socket_dir(),
         }
     };
     DaemonStateRoot {
         agent_dir: config::get_agent_dir(),
-        default_socket_path: config::resolve_daemon_socket_path(daemon_socket),
+        default_socket_path: eukhe_client::paths::resolve_daemon_socket_path(
+            daemon_socket.map(Path::new),
+        ),
         scope,
     }
 }
@@ -801,18 +803,20 @@ mod tests {
         let agent_dir = tmp.path().join("agent");
         let scopes = {
             let _env = config::env_lock();
-            let saved: Vec<(&str, Option<std::ffi::OsString>)> =
-                [config::ENV_DAEMON_SOCKET, config::ENV_AGENT_DIR]
-                    .into_iter()
-                    .map(|key| (key, std::env::var_os(key)))
-                    .collect();
-            std::env::remove_var(config::ENV_DAEMON_SOCKET);
+            let saved: Vec<(&str, Option<std::ffi::OsString>)> = [
+                eukhe_client::paths::ENV_DAEMON_SOCKET,
+                config::ENV_AGENT_DIR,
+            ]
+            .into_iter()
+            .map(|key| (key, std::env::var_os(key)))
+            .collect();
+            std::env::remove_var(eukhe_client::paths::ENV_DAEMON_SOCKET);
             std::env::remove_var(config::ENV_AGENT_DIR);
             let unscoped = current_state_root(None).scope;
             let flag = current_state_root(socket.to_str()).scope;
             std::env::set_var(config::ENV_AGENT_DIR, &agent_dir);
             let agent_dir_env = current_state_root(None).scope;
-            std::env::set_var(config::ENV_DAEMON_SOCKET, &socket);
+            std::env::set_var(eukhe_client::paths::ENV_DAEMON_SOCKET, &socket);
             let both_env = current_state_root(None).scope;
             for (key, value) in saved {
                 match value {
@@ -826,7 +830,7 @@ mod tests {
             scopes,
             [
                 DiscoveryScope::Default {
-                    socket_dir: eukhe_daemon::platform::socket_dir(),
+                    socket_dir: eukhe_types::platform::daemon_socket::socket_dir(),
                 },
                 DiscoveryScope::Socket,
                 DiscoveryScope::AgentDir,
@@ -894,15 +898,15 @@ mod tests {
         let flag_socket = tmp.path().join("flag-daemon.sock");
         let (from_env, from_flag) = {
             let _env = config::env_lock();
-            let saved = std::env::var_os(config::ENV_DAEMON_SOCKET);
-            std::env::set_var(config::ENV_DAEMON_SOCKET, &env_socket);
+            let saved = std::env::var_os(eukhe_client::paths::ENV_DAEMON_SOCKET);
+            std::env::set_var(eukhe_client::paths::ENV_DAEMON_SOCKET, &env_socket);
             let roots = (
                 current_state_root(None),
                 current_state_root(flag_socket.to_str()),
             );
             match saved {
-                Some(value) => std::env::set_var(config::ENV_DAEMON_SOCKET, value),
-                None => std::env::remove_var(config::ENV_DAEMON_SOCKET),
+                Some(value) => std::env::set_var(eukhe_client::paths::ENV_DAEMON_SOCKET, value),
+                None => std::env::remove_var(eukhe_client::paths::ENV_DAEMON_SOCKET),
             }
             roots
         };

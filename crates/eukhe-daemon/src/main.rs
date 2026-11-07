@@ -51,8 +51,9 @@ async fn run() -> Result<ExitCode> {
                 None => eukhe_daemon::paths::agent_dir()?,
             };
             let options = eukhe_daemon::supervisor::SupervisorOptions {
-                socket_path: socket_path
-                    .unwrap_or_else(eukhe_daemon::socket::default_daemon_socket_path),
+                socket_path: socket_path.unwrap_or_else(
+                    eukhe_types::platform::daemon_socket::default_daemon_socket_path,
+                ),
                 agent_dir,
             };
             eukhe_daemon::supervisor::run_supervisor(options)

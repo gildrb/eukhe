@@ -104,7 +104,9 @@ fn run_on_runtime(future: impl Future<Output = Result<i32, String>>) -> Result<i
 async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract as
     // every other mode.
-    let socket_path = crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
+    let socket_path = eukhe_client::paths::resolve_daemon_socket_path(
+        options.daemon_socket.as_deref().map(std::path::Path::new),
+    );
     // An editor starts ACP, not the user at a terminal: it never replaces
     // a running daemon.
     let ready = crate::interactive_mode::ensure_daemon_running(

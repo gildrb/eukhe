@@ -358,7 +358,7 @@ fn current_screen_mode(base: &InteractiveOptions) -> eukhe_tui::screen_mode::Scr
 /// or the per-user default socket path (precedence in that order).
 #[must_use]
 pub fn resolve_socket_path(daemon_socket: Option<&str>) -> PathBuf {
-    config::resolve_daemon_socket_path(daemon_socket)
+    eukhe_client::paths::resolve_daemon_socket_path(daemon_socket.map(Path::new))
 }
 
 fn build_tui_options(

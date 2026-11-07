@@ -796,7 +796,7 @@ fn ts_daemon_differential_cli_output() {
     // The `schedule` command cannot take --daemon-socket (TS parity), so the
     // daemon must live on the default socket path under the temp TMPDIR.
     std::env::set_var("TMPDIR", dir.path());
-    let socket = eukhe_daemon::socket::default_daemon_socket_path();
+    let socket = eukhe_types::platform::daemon_socket::default_daemon_socket_path();
     // The TS daemon does not create the socket's parent directory on bind
     // (the Rust supervisor does), so the default-path socket needs the
     // directory to exist before the TS daemon is spawned.

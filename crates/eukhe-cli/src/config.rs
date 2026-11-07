@@ -19,46 +19,6 @@ pub const CONFIG_DIR_NAME: &str = ".eukhe";
 /// `EUKHE_CODING_AGENT_DIR`: overrides the agent state directory.
 pub const ENV_AGENT_DIR: &str = "EUKHE_CODING_AGENT_DIR";
 
-/// `EUKHE_DAEMON_SOCKET`: overrides the daemon socket path when no
-/// explicit `--daemon-socket` flag is given.
-pub const ENV_DAEMON_SOCKET: &str = "EUKHE_DAEMON_SOCKET";
-
-/// The daemon socket path: an explicit `--daemon-socket` flag wins, then
-/// [`ENV_DAEMON_SOCKET`], then the per-user default. A relative path resolves
-/// against the current directory (TS `normalizeSocketPath`), so the daemon
-/// binds, and the OS listener census reports, the same absolute path every
-/// client and `shutdown` resolve.
-pub fn resolve_daemon_socket_path(daemon_socket: Option<&str>) -> PathBuf {
-    let socket_path = daemon_socket
-        .map(expand_tilde_path)
-        .or_else(|| {
-            std::env::var_os(ENV_DAEMON_SOCKET)
-                .filter(|value| !value.is_empty())
-                .as_deref()
-                .map(expand_tilde_path_os)
-        })
-        .unwrap_or_else(eukhe_daemon::socket::default_daemon_socket_path);
-    if socket_path.is_relative() {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(socket_path)
-    } else {
-        socket_path
-    }
-}
-
-/// [`expand_tilde_path`] over a raw environment value: a tilde-prefixed
-/// value expands against the home dir; anything else passes through as
-/// the original bytes -- a `to_string_lossy` here would silently rewrite a
-/// non-UTF-8 socket path (U+FFFD) and point the CLI at a socket nobody
-/// is serving.
-pub fn expand_tilde_path_os(value: &std::ffi::OsStr) -> PathBuf {
-    if value.to_str().is_some_and(|path| path.starts_with('~')) {
-        return expand_tilde_path(&value.to_string_lossy());
-    }
-    PathBuf::from(value)
-}
-
 /// The version compiled into this build (eukhe-build-info: the release a
 /// release build names, else `<workspace version>-dev`), used when no
 /// packaged manifest overrides it (dev checkouts, cargo target dirs).
@@ -152,28 +112,6 @@ pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Precedence: an explicit `--daemon-socket` flag wins over the
-    /// `EUKHE_DAEMON_SOCKET` environment, which wins over the
-    /// per-user default. The env is what the `eukhe` launcher
-    /// pins, so the flag/env/default order is the co-existence contract:
-    /// an explicit flag still overrides what any launcher installed.
-    #[test]
-    fn daemon_socket_resolution_prefers_flag_then_env_then_default() {
-        let _env = env_lock();
-        let default = eukhe_daemon::socket::default_daemon_socket_path();
-        std::env::set_var(ENV_DAEMON_SOCKET, "/tmp/rust-launcher.sock");
-        assert_eq!(
-            resolve_daemon_socket_path(None),
-            PathBuf::from("/tmp/rust-launcher.sock")
-        );
-        assert_eq!(
-            resolve_daemon_socket_path(Some("/tmp/flag.sock")),
-            PathBuf::from("/tmp/flag.sock")
-        );
-        std::env::remove_var(ENV_DAEMON_SOCKET);
-        assert_eq!(resolve_daemon_socket_path(None), default);
-    }
 
     #[test]
     fn expands_tilde() {

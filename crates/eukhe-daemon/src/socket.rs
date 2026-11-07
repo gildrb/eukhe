@@ -9,10 +9,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use anyhow::{Context as _, Result};
 
-pub use crate::platform::socket_dir;
-pub use crate::platform::{
-    default_daemon_socket_path, socket_identity, worker_socket_path, SocketIdentity,
-};
+pub use crate::platform::{socket_identity, worker_socket_path, SocketIdentity};
 
 /// Try to connect to an endpoint within `timeout`; true when a peer accepts.
 pub async fn can_connect(path: &Path, timeout: Duration) -> bool {

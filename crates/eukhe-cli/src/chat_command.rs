@@ -191,7 +191,7 @@ async fn run(command: ChatCommand) -> anyhow::Result<()> {
 async fn open_through_daemon(
     agent_dir: &std::path::Path,
 ) -> anyhow::Result<eukhe_core::memory::Memory> {
-    let socket = crate::config::resolve_daemon_socket_path(None);
+    let socket = eukhe_client::paths::resolve_daemon_socket_path(None);
     let cwd = std::env::current_dir()?;
     let ready = crate::interactive_mode::ensure_daemon_running(
         &socket,

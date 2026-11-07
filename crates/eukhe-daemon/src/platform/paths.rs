@@ -1,9 +1,8 @@
-//! Daemon endpoint naming (TS: `daemon-socket.ts`
-//! `defaultDaemonSocketPath` / `daemon-supervisor.ts` `workerSocketPath`):
-//! the default supervisor socket under `<tmpdir>/eukhe-<uid>/`, and every
-//! worker socket beside its own supervisor's socket. The socket dir is
-//! checked before a bind ([`prepare_socket_dir`], whose verdict is the
-//! compiled core's: `bend/fsmode.bend`, law `socket_dir_owned`).
+//! Daemon endpoint naming (TS: `daemon-supervisor.ts` `workerSocketPath`):
+//! every worker socket beside its own supervisor's socket (the default
+//! supervisor socket is `eukhe_types::platform::daemon_socket`'s). A socket
+//! dir is checked before a bind ([`prepare_socket_dir`], whose verdict is
+//! the compiled core's: `bend/fsmode.bend`, law `socket_dir_owned`).
 
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
@@ -13,14 +12,6 @@ use eukhe_bend::rules::fsmode::{self, DirVerdict, Node, Why};
 use eukhe_types::platform::access::current_uid;
 
 use crate::paths::hash_key;
-
-/// Default directory holding daemon socket files: `eukhe-<uid>` in
-/// `$TMPDIR` (else `/tmp`).
-#[must_use]
-pub fn socket_dir() -> PathBuf {
-    let tmp = std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
-    tmp.join(format!("eukhe-{}", current_uid()))
-}
 
 /// What [`prepare_socket_dir`] did with a safe socket dir.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,12 +108,6 @@ fn refused(dir: &Path, why: Why, found: Option<&std::fs::Metadata>) -> anyhow::E
          with a path in a private directory.",
         dir.display()
     )
-}
-
-/// Default supervisor endpoint: `daemon.sock` in the socket dir.
-#[must_use]
-pub fn default_daemon_socket_path() -> PathBuf {
-    socket_dir().join("daemon.sock")
 }
 
 /// Worker endpoint next to the supervisor's: in the supervisor socket's own

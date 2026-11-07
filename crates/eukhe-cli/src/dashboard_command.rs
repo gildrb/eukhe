@@ -192,7 +192,9 @@ fn dashboard_config(
         );
     }
     Ok(eukhe_dashboard::DashboardConfig {
-        socket_path: crate::config::resolve_daemon_socket_path(daemon_socket),
+        socket_path: eukhe_client::paths::resolve_daemon_socket_path(
+            daemon_socket.map(std::path::Path::new),
+        ),
         session_dir,
         new_session_cwd: home,
         create_config,

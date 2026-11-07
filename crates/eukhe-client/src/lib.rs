@@ -18,6 +18,8 @@
 //! - [`launcher`]: [`ProcessLauncher`], the [`DaemonLauncher`] that starts a
 //!   supervisor command (`eukhe --mode daemon ...`, or a bundled
 //!   `eukhe-daemon supervisor ...`) detached and waits until it greets.
+//! - [`paths`]: the daemon socket path (explicit, `EUKHE_DAEMON_SOCKET`,
+//!   else the per-user default), resolved as the `eukhe` CLI resolves it.
 //!
 //! [`DaemonClient`]: daemon_client::DaemonClient
 //! [`DaemonClientEvent`]: daemon_client::DaemonClientEvent
@@ -28,4 +30,5 @@ pub mod daemon_build;
 pub mod daemon_client;
 pub mod direct_transport;
 pub mod launcher;
+pub mod paths;
 pub mod saved_sessions;

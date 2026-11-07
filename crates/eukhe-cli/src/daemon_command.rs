@@ -262,7 +262,7 @@ fn parse_daemon_command(command: &str, args: &[String]) -> Result<ParsedDaemonCo
 }
 
 fn default_socket_path() -> PathBuf {
-    crate::config::resolve_daemon_socket_path(None)
+    eukhe_client::paths::resolve_daemon_socket_path(None)
 }
 
 /// `normalizeSocketPath`: lexically resolve against the current directory.

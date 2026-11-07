@@ -9,7 +9,8 @@ use crate::config;
 
 /// Run the daemon supervisor in-process until it shuts down.
 pub fn run_daemon_mode(daemon_socket: Option<&str>) -> Result<i32> {
-    let socket_path = config::resolve_daemon_socket_path(daemon_socket);
+    let socket_path =
+        eukhe_client::paths::resolve_daemon_socket_path(daemon_socket.map(std::path::Path::new));
     let agent_dir = config::get_agent_dir();
     let options = eukhe_daemon::supervisor::SupervisorOptions {
         socket_path,
