@@ -53,6 +53,8 @@ use kernel_runtime::kernel_python;
 /// the n-th interpreter (0-based, from the count file) until the fixture
 /// creates `gates/gate<n>`, so a test controls exactly when each boot's
 /// handshake may complete - a file barrier, never a timing assumption.
+/// The arithmetic expansion strips the blanks BSD `wc` pads the count
+/// with (macOS), which would otherwise split `gate$n` into two words.
 fn counting_gated_kernel(
     dir: &std::path::Path,
     python: &std::path::Path,
@@ -63,7 +65,7 @@ fn counting_gated_kernel(
     write_executable_script(
         &wrapper,
         &format!(
-            "#!/bin/sh\nn=$(wc -c < '{}')\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
+            "#!/bin/sh\nn=$(($(wc -c < '{}')))\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
             count.display(),
             count.display(),
             gates.display(),
