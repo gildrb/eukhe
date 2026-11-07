@@ -319,17 +319,23 @@ fn is_refine_plan_request(body: &Value) -> bool {
     })
 }
 
-fn read_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<Value> {
+/// The completion call's body; `None` for anything that is no completion
+/// call (POST) of the daemon's - an empty connection, or a localhost port
+/// scanner's `GET /v1/models` - which the mock never records.
+fn read_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Value>> {
     let mut head = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
-            return Ok(Value::Null);
+            return Ok(None);
         }
         head.push_str(&line);
         if line == "\r\n" {
             break;
         }
+    }
+    if !head.starts_with("POST ") {
+        return Ok(None);
     }
     let mut content_length = 0usize;
     for line in head.lines() {
@@ -342,7 +348,9 @@ fn read_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<Value> {
     if content_length > 0 {
         reader.read_exact(&mut body_bytes)?;
     }
-    serde_json::from_slice(&body_bytes).map_err(|_| std::io::Error::other("bad body"))
+    serde_json::from_slice(&body_bytes)
+        .map(Some)
+        .map_err(|_| std::io::Error::other("bad body"))
 }
 
 fn write_sse(stream: &mut TcpStream, reply: &str, usage: &Value) -> std::io::Result<()> {
@@ -392,7 +400,11 @@ fn serve(
     turn_delay_ms: &Arc<AtomicU64>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let body = read_body(&mut reader)?;
+    let Some(body) = read_body(&mut reader)? else {
+        return stream.write_all(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+    };
     requests.lock().expect("mock lock").push(body.clone());
     if is_review_request(&body) {
         *review_request_at.lock().expect("review lock") = Some(Instant::now());

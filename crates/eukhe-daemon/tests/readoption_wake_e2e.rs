@@ -109,6 +109,18 @@ fn chunk(delta: &Value, finish_reason: Option<&str>) -> String {
 fn serve(mut stream: TcpStream, next: &AtomicUsize) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut content_length = 0usize;
+    // Only the completion calls (POST) are the daemon's: anything else on
+    // the port (a localhost port scanner's `GET /v1/models`) is answered
+    // 404 and never takes a scripted answer.
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 {
+        return Ok(());
+    }
+    if !request_line.starts_with("POST ") {
+        return stream.write_all(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+    }
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {

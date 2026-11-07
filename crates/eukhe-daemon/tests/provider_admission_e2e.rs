@@ -137,6 +137,14 @@ fn serve(mut stream: TcpStream, state: &(Mutex<MockState>, Condvar)) -> std::io:
             break;
         }
     }
+    // Only the completion calls (POST) are the daemon's: anything else on
+    // the port (a localhost port scanner's `GET /v1/models`) is answered
+    // 404 and never recorded.
+    if !head.starts_with("POST ") {
+        return stream.write_all(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+    }
     let content_length = head
         .lines()
         .find_map(|line| {

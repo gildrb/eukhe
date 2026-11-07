@@ -91,6 +91,14 @@ fn serve(
             break;
         }
     }
+    // Only the completion calls (POST) are the daemon's: anything else on
+    // the port (a localhost port scanner's `GET /v1/models`) is answered
+    // 404 and never counted.
+    if !head.starts_with("POST ") {
+        return stream.write_all(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+    }
     let mut content_length = 0usize;
     for line in head.lines() {
         let lower = line.to_ascii_lowercase();

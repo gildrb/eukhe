@@ -370,8 +370,15 @@ fn classify(index: usize, body: Value, raw_len: usize) -> Request {
     }
 }
 
+/// The completion call's body and length; `None` for anything that is no
+/// completion call (POST) of the daemon's - an empty connection, or a
+/// localhost port scanner's `GET /v1/models` - which never enters the log.
 fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize)>> {
     let mut reader = BufReader::new(stream.try_clone()?);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 || !request_line.starts_with("POST ") {
+        return Ok(None);
+    }
     let mut content_length = 0usize;
     loop {
         let mut line = String::new();
@@ -395,6 +402,8 @@ fn read_request(stream: &TcpStream) -> std::io::Result<Option<(Value, usize)>> {
 
 fn serve(shared: &Shared, mut stream: TcpStream) {
     let Ok(Some((body, raw_len))) = read_request(&stream) else {
+        let _ = stream
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return;
     };
     let (index, reply) = shared.update(|state| {
