@@ -243,11 +243,20 @@ fn validate_tool_call_reports_unknown_tools() {
 }
 
 /// A `$ref` cycle that never consumes the value overflows V8's stack in the
-/// TS; the port reports the same `RangeError` instead of crashing.
+/// TS; the port reports the same `RangeError` instead of crashing, with
+/// stack to spare: the check runs on a 2 MiB worker or test thread whose
+/// caller already holds part of it (here 512 KiB).
 #[test]
 fn self_referencing_ref_cycles_throw_range_error() {
-    let tool = tool(json!({ "$ref": "#" }));
-    let error = validate_tool_arguments(&tool, &tool_call(json!({}))).expect_err("cycle");
+    let error = std::thread::Builder::new()
+        .stack_size(1536 * 1024)
+        .spawn(|| {
+            let tool = tool(json!({ "$ref": "#" }));
+            validate_tool_arguments(&tool, &tool_call(json!({}))).expect_err("cycle")
+        })
+        .expect("spawn the validation thread")
+        .join()
+        .expect("the validation thread");
     assert_eq!(
         error,
         ValidationError::Thrown {
