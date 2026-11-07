@@ -452,6 +452,13 @@ fn an_announced_shutdown_reconnects_when_the_daemon_comes_back() {
     };
     let options = options_with_session(socket, SessionSelection::New);
     let outcome = runtime.block_on(run_interactive(options, UiMode::Headless(plan)));
+    // The successor serves until its client's connection closes, and the
+    // connection closes with the last client handle -- which a background
+    // task the runtime still owns can hold past the run's return (a
+    // loaded-host run hung here with the successor blocked in its read).
+    // The runtime shuts down first, so the join never waits on a
+    // connection nothing will close.
+    drop(runtime);
     let _ = handle.join();
     let outcome = outcome.expect("the recovered run returns normally");
     let all = outcome.frames.join("\n");
