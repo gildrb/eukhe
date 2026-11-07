@@ -305,8 +305,14 @@ const DEAD_CHILDREN: usize = 300;
 
 #[tokio::test]
 async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
+    // A short canonical root: the daemon names sessions by canonical path
+    // (`/var` reads `/private/var` on macOS), and the worker sockets beside
+    // the supervisor's must stay within the AF_UNIX path limit.
+    let dir = tempfile::Builder::new()
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = dir.path().canonicalize().expect("canonical temp dir");
+    let agent_dir = root.join("agent");
     let sessions_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("session dir");
 
@@ -373,7 +379,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
             .expect("append spawn edge");
     }
 
-    let supervisor = spawn_supervisor(dir.path());
+    let supervisor = spawn_supervisor(&root);
     let mut client = Client::connect(&supervisor.0.socket);
 
     // Before the family's worker ever registers, the roster snapshot is
@@ -397,7 +403,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
             "type": "create",
             "sessionPath": parent_file.to_string_lossy(),
             "config": {
-                "cwd": dir.path().to_string_lossy(),
+                "cwd": root.to_string_lossy(),
                 "sessionDir": sessions_dir.to_string_lossy(),
                 "provider": "battery",
                 "model": "mock-1",
@@ -465,7 +471,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
     // ledger walk): the parent plus its hundreds of children.
     client.send_command(
         "s1",
-        &json!({ "type": "list_saved_sessions", "cwd": dir.path().to_string_lossy() }),
+        &json!({ "type": "list_saved_sessions", "cwd": root.to_string_lossy() }),
     );
     let saved = client.request("s1");
     assert_eq!(saved["success"], true, "list_saved_sessions: {saved}");

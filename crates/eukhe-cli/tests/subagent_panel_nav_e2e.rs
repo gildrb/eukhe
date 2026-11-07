@@ -201,11 +201,17 @@ fn session_options(
 
 #[tokio::test]
 async fn down_arrow_focuses_the_dock_and_enter_opens_the_scoped_agents_view() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
+    // A short canonical root: the daemon names sessions by canonical path
+    // (`/var` reads `/private/var` on macOS), and the worker sockets beside
+    // the supervisor's must stay within the AF_UNIX path limit.
+    let dir = tempfile::Builder::new()
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = dir.path().canonicalize().expect("canonical temp dir");
+    let agent_dir = root.join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    let supervisor = spawn_supervisor(dir.path());
+    let supervisor = spawn_supervisor(&root);
 
     // The family fixture: a parent with a transcript, and a child under it
     // (the linkage the ledger edge carries, with the child's own exchange
