@@ -49,6 +49,9 @@ impl Tree {
 fn real_paths_follow_links_on_the_existing_part() {
     let tree = Tree::new();
     let real = |path: &str| real_path(&tree.at(path));
+    // One `..` more than `ws/src` lies below the root, wherever the temp
+    // dir is.
+    let past_root = format!("ws/src{}", "/..".repeat(tree.top.components().count() + 2));
     assert_eq!(
         [
             real("ws/./src/a.rs"),
@@ -57,7 +60,7 @@ fn real_paths_follow_links_on_the_existing_part() {
             real("ws/keys/../x"),
             real("ws/gone"),
             real("ws/new/../deep/file"),
-            real("ws/src/../../../../../.."),
+            real(&past_root),
         ],
         [
             tree.at("ws/src/a.rs"),
