@@ -1010,7 +1010,10 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
             key(KeyCode::Enter, KeyModifiers::NONE),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
         ],
-        width: 100,
+        // Wide enough for the whole browse header on every host: macOS
+        // labels the modifier `Option` (Linux `Alt`), and at 100 columns
+        // the longer header truncates before "enter steers".
+        width: 120,
         height: 30,
     };
     let outcome = run_headless_bounded(options, plan)

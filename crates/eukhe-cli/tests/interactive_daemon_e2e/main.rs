@@ -42,6 +42,9 @@ mod eukhe;
 mod process;
 use eukhe::{daemon_mode_args, eukhe_command, scrub_provider_keys};
 use process::Daemon;
+#[path = "../../../eukhe-daemon/tests/support/process_table.rs"]
+mod process_table;
+use process_table::{child_pids_of, process_alive};
 
 #[path = "../support/durable_store.rs"]
 mod durable_store;
@@ -79,7 +82,7 @@ impl Drop for Supervisor {
 /// path) and wait briefly for it to disappear.
 fn kill_worker(pid: u32) {
     // The worker pid is a child of the supervisor we just killed, so it is
-    // not our child and cannot be waited on directly; poll /proc liveness.
+    // not our child and cannot be waited on directly; poll its liveness.
     // Best effort by design: this runs inside `Drop` (a failing test's
     // unwind path included), where an assert would abort the process and
     // orphan every other parallel test's daemons. The contractual
@@ -148,48 +151,6 @@ impl Drop for DetachedDaemon {
         }
         let _ = std::fs::remove_file(&self.socket);
     }
-}
-
-/// Pids whose parent is `ppid` (the supervisor's live worker children).
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        // `comm` can contain spaces and parens, so parse after the last ')'.
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next(); // process state
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
-}
-
-/// Liveness that ignores zombies: a detached child nobody reaps keeps its
-/// `/proc` entry (exit status pending), so path existence alone would call
-/// an exited process alive.
-fn process_alive(pid: u32) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    // `comm` can contain spaces and parens, so parse after the last ')'.
-    let Some((_, rest)) = stat.rsplit_once(')') else {
-        return false;
-    };
-    let state = rest.split_whitespace().next().unwrap_or_default();
-    !state.starts_with('Z') && !state.starts_with('X')
 }
 
 /// Shut the spawned supervisor down by protocol and assert that it — and
@@ -340,29 +301,16 @@ fn sweep_orphan_test_daemons() {
         return; // a later test's spawn: the first spawn already swept
     }
     let mut swept = 0;
-    for entry in std::fs::read_dir("/proc").expect("read /proc").flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
-            continue;
-        };
-        // /proc cmdline is NUL-separated.
-        let args: Vec<String> = cmdline
-            .split(|b| *b == 0)
-            .map(|b| String::from_utf8_lossy(b).into_owned())
-            .collect();
-        let flag = |needle: &str| args.iter().any(|a| a == needle);
-        let arg_after = |needle: &str| {
-            args.iter()
-                .position(|a| a == needle)
-                .and_then(|idx| args.get(idx + 1))
-                .cloned()
-        };
-        if !flag("--mode") || arg_after("--mode").as_deref() != Some("daemon") {
+    for row in process_table::snapshot() {
+        if !row.runs(&["--mode", "daemon"]) {
             continue;
         }
-        let Some(socket) = arg_after("--daemon-socket") else {
+        let args: Vec<&str> = row.args.split_whitespace().collect();
+        let Some(socket) = args
+            .iter()
+            .position(|arg| *arg == "--daemon-socket")
+            .and_then(|at| args.get(at + 1))
+        else {
             continue;
         };
         // The orphan signature: a test-spawned daemon (its socket lives in a
@@ -371,7 +319,7 @@ fn sweep_orphan_test_daemons() {
         // killed run's reparent). A live run's daemon keeps its owning test
         // binary as the parent, and the user's product daemons fail the
         // path test, so neither is ever swept.
-        let orphan_socket_dir = Path::new(&socket)
+        let orphan_socket_dir = Path::new(socket)
             .parent()
             .and_then(Path::file_name)
             .and_then(|name| name.to_str())
@@ -379,23 +327,10 @@ fn sweep_orphan_test_daemons() {
         if !orphan_socket_dir {
             continue;
         }
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-            continue;
-        };
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let Ok(parsed_ppid) = rest
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or_default()
-            .parse::<u32>()
-        else {
-            continue;
-        };
-        if parsed_ppid != 1 && process_alive(parsed_ppid) {
+        if row.ppid != 1 && process_alive(row.ppid) {
             continue; // a live run's daemon: its test binary is still up
         }
+        let pid = row.pid;
         let Ok(raw) = i32::try_from(pid) else {
             continue;
         };
