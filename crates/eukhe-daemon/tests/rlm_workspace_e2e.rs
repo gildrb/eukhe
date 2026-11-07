@@ -314,9 +314,11 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
             "files": { "a.txt": "a-child", "b.txt": "b-parent", "c.txt": "c-parent" },
         }),
     );
+    // `os.getcwd()` reports the resolved root (macOS temp dirs: `/var` -> `/private/var`).
+    let tree = root.canonicalize().expect("canonical root").join("tree");
     assert_eq!(
         lane.receipt("child"),
-        json!({ "cwd": root.join("tree").to_string_lossy() }),
+        json!({ "cwd": tree.to_string_lossy() })
     );
     let kept: Vec<(String, String)> = std::fs::read_dir(&conflicts)
         .expect("conflicts dir")

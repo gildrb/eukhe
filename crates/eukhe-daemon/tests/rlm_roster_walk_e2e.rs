@@ -157,8 +157,11 @@ fn write_child_session(path: &Path, id: &str, name: &str, prompt: &str) {
 
 /// Build one synthetic family: a root session in the sessions dir plus
 /// `children` ledger spawn records pointing at persisted (non-resident)
-/// child files, and write the ledger file at its canonical path.
+/// child files, and write the ledger file at its canonical path. The
+/// records name canonical paths, like the product's ledger writer (a macOS
+/// temp dir sits behind the `/var` -> `/private/var` symlink).
 fn write_synthetic_family(agent_dir: &Path, children: usize) -> (PathBuf, usize) {
+    let agent_dir = &agent_dir.canonicalize().expect("canonical agent dir");
     let sessions_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
     let root_id = "root-session-1";

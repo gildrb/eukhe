@@ -277,7 +277,14 @@ fn stale_active_id_rebinds_after_worker_replacement() {
         .expect("current active id in binding event")
         .to_string();
     assert_ne!(new_active, old_id);
-    assert_eq!(binding["sessionFile"].as_str(), Some(session_file.as_str()));
+    // One session, maybe two spellings: the re-open names the file by its
+    // canonical path (macOS temp dirs sit behind `/var` -> `/private/var`).
+    assert_eq!(
+        binding["sessionFile"]
+            .as_str()
+            .map(|file| std::fs::canonicalize(file).expect("canonical binding file")),
+        Some(std::fs::canonicalize(&session_file).expect("canonical session file"))
+    );
 
     // A prompt through the SUPERSEDED id (with an admission id: the
     // admission route's rebind seam) succeeds and streams its turn back to

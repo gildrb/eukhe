@@ -328,14 +328,23 @@ fn the_lease_owner_names_the_live_worker_not_a_stale_inherited_id() {
     // is a hash of the canonical path, but a file acquired before it
     // existed is keyed by its raw path (the canonicalize fallback), so the
     // test locates the lease by the owner's sessionPath instead of
-    // recomputing the key.
+    // recomputing the key - by path identity, as the owner records the
+    // canonical spelling (macOS temp dirs sit behind `/var` ->
+    // `/private/var`).
+    let canonical_file = std::fs::canonicalize(&session_file).expect("canonical session file");
     let leases_dir = agent_dir.join("session-leases");
     let owner: Value = std::fs::read_dir(&leases_dir)
         .expect("session-leases directory")
         .filter_map(std::result::Result::ok)
         .filter_map(|entry| std::fs::read_to_string(entry.path().join("owner.json")).ok())
         .map(|content| serde_json::from_str::<Value>(&content).expect("owner.json"))
-        .find(|owner| owner["sessionPath"].as_str() == Some(session_file.as_str()))
+        .find(|owner| {
+            owner["sessionPath"]
+                .as_str()
+                .and_then(|path| std::fs::canonicalize(path).ok())
+                .as_ref()
+                == Some(&canonical_file)
+        })
         .unwrap_or_else(|| panic!("no session lease for {session_file}"));
     let named = owner["activeSessionId"]
         .as_str()
@@ -418,7 +427,14 @@ fn create_over_a_dead_workers_file_launches_and_rebinds() {
         Some(old_id.as_str()),
         "the binding event advertises the successor"
     );
-    assert_eq!(binding["sessionFile"].as_str(), Some(session_file.as_str()));
+    // One session, maybe two spellings: the re-open names the file by its
+    // canonical path (macOS temp dirs sit behind `/var` -> `/private/var`).
+    assert_eq!(
+        binding["sessionFile"]
+            .as_str()
+            .map(|file| std::fs::canonicalize(file).expect("canonical binding file")),
+        Some(std::fs::canonicalize(&session_file).expect("canonical session file"))
+    );
 }
 
 /// The per-file open single-flight (TS `openingWorkers`'s join): two
