@@ -36,6 +36,14 @@ export BEND_NO_TELEMETRY=1
 # BEND_VERSION and LEAN_VERSION.
 # shellcheck source=scripts/toolchain.env
 source scripts/toolchain.env
+# The pinned Bend (scripts/pinned_bend.sh) leads PATH, and BEND_BIN names
+# it for scripts/bend_core.py (a mise python3 shim rewrites PATH), so every
+# gate and the tests' EUKHE_REQUIRE_BEND builds run it whatever a version
+# manager's default is. check_bend fails, naming the version, without it.
+if BEND_BIN="$(scripts/pinned_bend.sh 2>/dev/null)"; then
+  PATH="$(dirname "${BEND_BIN}"):${PATH}"
+  export PATH BEND_BIN
+fi
 
 gate() {
   local name="$1" rc
@@ -52,16 +60,7 @@ gate() {
 }
 
 check_bend() {
-  local have
-  command -v bend >/dev/null 2>&1 || {
-    echo "bend is not installed. Install Bend ${BEND_VERSION}, the release that scripts/toolchain.env pins."
-    return 1
-  }
-  have="$(bend version | awk '{ print $2 }')"
-  [[ "${have}" == "${BEND_VERSION}" ]] || {
-    echo "bend ${have} is installed, but scripts/toolchain.env pins Bend ${BEND_VERSION}. Install Bend ${BEND_VERSION}."
-    return 1
-  }
+  scripts/pinned_bend.sh >/dev/null
 }
 
 check_lean() {
@@ -127,7 +126,7 @@ bend_touched() {
     for p in "${path}" "${old}"; do
       case "${p}" in
         *.bend | bend/* | crates/eukhe-bend/* | scripts/bend_core.py | \
-          scripts/check_laws_wired.py | scripts/toolchain.env) return 0 ;;
+          scripts/check_laws_wired.py | scripts/pinned_bend.sh | scripts/toolchain.env) return 0 ;;
       esac
     done
   done <<<"$1"
@@ -192,7 +191,7 @@ proofs() {
   fi
   out="$(mktemp)"
   python3 scripts/check_laws_wired.py .
-  BEND_BIN="$(command -v bend)" python3 scripts/bend_core.py check
+  python3 scripts/bend_core.py check
   bend PROOF.bend | tee "${out}"
   grep -qx 'ALL PROOFS CHECK' "${out}"
   rm -f "${out}"
@@ -237,7 +236,7 @@ laws() {
   local out
   out="$(mktemp -d)"
   python3 scripts/check_laws_wired.py .
-  BEND_BIN="$(command -v bend)" python3 scripts/bend_core.py check
+  python3 scripts/bend_core.py check
   bend PROOF.bend | tee "${out}/proof.out"
   grep -qx 'ALL PROOFS CHECK' "${out}/proof.out"
   bend PROOF.bend --verdict | tee "${out}/verdict.out"

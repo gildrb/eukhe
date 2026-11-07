@@ -44,22 +44,23 @@ runtime-test:
 include scripts/toolchain.env
 
 # The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md). The full gate
-# (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION).
+# (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION). Every Bend
+# target runs the pinned Bend $(BEND_VERSION) (scripts/pinned_bend.sh).
 laws:
-	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend $(BEND_VERSION): https://bend-lang.com/install.sh)"; exit 1; }
-	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
-	bend PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
+	@bend="$$(scripts/pinned_bend.sh)" && \
+	"$$bend" PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK' && \
+	"$$bend" PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 
 # The compiled Bend core (crates/eukhe-bend): bend-core regenerates
 # bend/core.bend, crates/eukhe-bend/src/entries.rs and
 # crates/eukhe-bend/c/core.c from bend/core_entries.txt and bend/ffi_*.bend;
-# bend-core-check fails when a committed one differs (or bend is not
-# $(BEND_VERSION)). Run bend-core after every change to a bend/ file.
+# bend-core-check fails when a committed one differs. Run bend-core after
+# every change to a bend/ file.
 bend-core:
-	BEND_BIN="$$(command -v bend)" python3 scripts/bend_core.py generate
+	BEND_BIN="$$(scripts/pinned_bend.sh)" && export BEND_BIN && python3 scripts/bend_core.py generate
 
 bend-core-check:
-	BEND_BIN="$$(command -v bend)" python3 scripts/bend_core.py check
+	BEND_BIN="$$(scripts/pinned_bend.sh)" && export BEND_BIN && python3 scripts/bend_core.py check
 
 # The token blocks of crates/eukhe-dashboard/ui/src/tokens.stylex.ts, as
 # the compiled core writes them from bend/tokens.bend (run bend-core first).

@@ -23,10 +23,10 @@ committed file differs or when `bend version` is not the BEND_VERSION of
 scripts/toolchain.env.
 
 BEND_BIN names the bend executable (default: `bend` on PATH). The Makefile
-and scripts/ci_local.sh pass the bend their own PATH resolves: a version
-manager's `python3` shim (mise) rewrites PATH for this process, so `bend`
-here could otherwise be the manager's global release, not the pinned one
-the gate checked."""
+and scripts/ci_local.sh set it to the pinned release that
+scripts/pinned_bend.sh finds: a version manager's `python3` shim (mise)
+rewrites PATH for this process, so `bend` here could otherwise be the
+manager's global release."""
 import difflib
 import os
 import re
