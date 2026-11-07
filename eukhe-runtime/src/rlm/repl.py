@@ -59,6 +59,9 @@ _PAYLOAD_CAP = 16 * 1024 * 1024
 _ALWAYS_SKIP = {"rlm", "mcp", "bash", "jobs", "read", "write", "edit", "grep", "glob", "asyncio", "In", "Out", "get_ipython", "exit", "quit", "open"}
 # IPython-injected names that may appear in a snapshot payload; never restored.
 _RESTORE_SKIP = {"In", "Out", "get_ipython"}
+# Where the bootstrap records the further names it binds on every start (its
+# pre-imported Python skills); like _ALWAYS_SKIP, never snapshotted.
+_BOOTSTRAP_NAMES_KEY = "_EUKHE_BOOTSTRAP_NAMES"
 # The target of the last successful snapshot, remembered so an EOF shutdown
 # (the host process died without a graceful dispose) can flush the final
 # namespace before exit. `None` until this process has committed a snapshot:
@@ -888,8 +891,9 @@ def _snapshot_state(
                 # into the staged temp. The record header is charged against the aggregate
                 # cap up front, so a completed record can never overflow it (no prefix re-dump).
                 total = fh.write(_SNAPSHOT_MAGIC)
+                bootstrap_names = _bootstrap_names(ns)
                 for name in list(ns.keys()):
-                    if name.startswith("_") or name in _ALWAYS_SKIP:
+                    if name.startswith("_") or name in _ALWAYS_SKIP or name in bootstrap_names:
                         continue
                     value = ns.get(name, missing)
                     if value is missing:
@@ -1096,7 +1100,13 @@ def _revive_with_live_globals(
     if backfill is not None:
         for name, dep in value.__globals__.items():
             # Snapshots never save _-prefixed or skip-listed names; backfill must not smuggle them past that policy.
-            if name in ns or name.startswith("_") or name in _ALWAYS_SKIP or name in _RESTORE_SKIP:
+            if (
+                name in ns
+                or name.startswith("_")
+                or name in _ALWAYS_SKIP
+                or name in _RESTORE_SKIP
+                or name in _bootstrap_names(ns)
+            ):
                 continue
             backfill.append((name, revive(dep)))
     if value.__defaults__:
@@ -1345,11 +1355,23 @@ def _flush_final_snapshot(ns: dict[str, Any]) -> None:
         pass
 
 
+def _bootstrap_names(ns: dict[str, Any]) -> frozenset[str]:
+    """The names the bootstrap recorded binding in `ns` (empty before it ran)."""
+    names = ns.get(_BOOTSTRAP_NAMES_KEY)
+    return names if isinstance(names, frozenset) else frozenset()
+
+
 def _list_names(ns: dict[str, Any]) -> list[str]:
     """User-defined top-level names, filtered like the snapshot."""
+    bootstrap_names = _bootstrap_names(ns)
     # Non-string keys (globals()[1] = 1) are not user-listable names.
     return sorted(
-        name for name in ns if isinstance(name, str) and not name.startswith("_") and name not in _ALWAYS_SKIP
+        name
+        for name in ns
+        if isinstance(name, str)
+        and not name.startswith("_")
+        and name not in _ALWAYS_SKIP
+        and name not in bootstrap_names
     )
 
 

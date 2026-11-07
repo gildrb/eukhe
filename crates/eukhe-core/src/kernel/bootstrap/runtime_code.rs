@@ -108,7 +108,9 @@ except Exception as _eukhe_rlm_error:
 
 /// The code the session injects right after kernel start/restore: binds the
 /// `rlm`, `bash`, and MCP surfaces, imports every Python skill (wrapping
-/// callable ones, replacing broken imports with a stub that raises), and —
+/// callable ones, replacing broken imports with a stub that raises, and
+/// recording the skill names in `_EUKHE_BOOTSTRAP_NAMES`, which the runtime's
+/// snapshot never saves: the bootstrap re-creates them on every start), and —
 /// when any import failed — ends by printing
 /// [`PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER`] plus the errors as JSON so
 /// the host can tell the model, matching the TS `buildRlmBootstrapCode`.
@@ -182,6 +184,7 @@ def _eukhe_wrap_skill_module(module):
     return wrapped
 
 _EUKHE_SKILL_IMPORT_ERRORS = {{}}
+_EUKHE_BOOTSTRAP_NAMES = frozenset({imports_json})
 
 for _eukhe_skill_name in {imports_json}:
     try:

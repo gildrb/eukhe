@@ -709,12 +709,21 @@ class ReplTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "kernel-state.dill")
             manifest_path = os.path.join(tmp, "kernel-state.json")
-            bootstrap = "rlm = bash = jobs = mcp = read = write = edit = grep = glob = 1\nkeep = 2"
+            # The pre-imported Python skills are bound by name and recorded in
+            # `_EUKHE_BOOTSTRAP_NAMES`.
+            bootstrap = (
+                "rlm = bash = jobs = mcp = read = write = edit = grep = glob = 1\n"
+                "agent_observe = goal = 1\n"
+                "_EUKHE_BOOTSTRAP_NAMES = frozenset(['agent_observe', 'goal'])\n"
+                "keep = 2"
+            )
             self.assertEqual(one(self.repl.execute("b1", bootstrap), "done")["status"], "ok")
             self.repl.send({"type": "snapshot", "id": "b2", "path": path, "manifest_path": manifest_path})
             done = one(self.repl.until_done("b2"), "done")
             self.assertEqual(done["status"], "ok")
             self.assertEqual(done["saved"], ["keep"])
+            self.repl.send({"type": "list_names", "id": "b3"})
+            self.assertEqual(one(self.repl.until_done("b3"), "done")["names"], ["keep"])
 
     def test_snapshot_skips_off_cell_bash_handles(self):
         # A handle created outside any cell (here: a plain thread) carries no

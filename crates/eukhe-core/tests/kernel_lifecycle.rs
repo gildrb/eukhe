@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code;
+use eukhe_core::kernel::bootstrap::{build_rlm_bootstrap_code, KernelPythonSkill};
 use eukhe_core::kernel::manager::{KernelStartOptions, ReplKernelManager};
 use eukhe_core::kernel::shared::{
     ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelBashCommands, KernelManagerOptions,
@@ -249,6 +249,44 @@ async fn rlm_bootstrap_injects_the_kernel_surface() {
         Some("True"),
         "rlm/bash/harness must be usable"
     );
+
+    manager
+        .shutdown(KernelShutdownOptions::default())
+        .await
+        .expect("shutdown");
+}
+
+/// The bootstrap re-creates its bindings on every start, its pre-imported
+/// Python skills included, so a kernel that ran nothing but its bootstrap
+/// snapshots no names: a saved skill module made every resumed session's
+/// restore notice announce the skills as revived state.
+#[tokio::test]
+async fn a_boot_only_kernel_snapshot_saves_no_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A stdlib module stands in for an installed skill package.
+    let skill = KernelPythonSkill {
+        name: "json-skill".into(),
+        import_name: "json".into(),
+        package_path: std::path::PathBuf::new(),
+        pyproject_path: std::path::PathBuf::new(),
+    };
+    let options = KernelManagerOptions {
+        bootstrap_code: Some(build_rlm_bootstrap_code(&[skill])),
+        ..test_options(Some(dir.path()))
+    };
+    let manager = started_manager(options).await;
+    let bound = execute(&manager, "type(json).__name__").await;
+    assert_eq!(
+        bound.result.as_deref(),
+        Some("'module'"),
+        "the bootstrap binds the skill"
+    );
+
+    let snapshot = tokio::time::timeout(Duration::from_secs(15), manager.snapshot_state())
+        .await
+        .expect("snapshot must settle")
+        .expect("snapshot must run while the kernel is up");
+    assert_eq!(snapshot.saved, Vec::<String>::new());
 
     manager
         .shutdown(KernelShutdownOptions::default())
