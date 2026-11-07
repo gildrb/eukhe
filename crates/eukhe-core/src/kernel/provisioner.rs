@@ -1065,9 +1065,13 @@ async fn start_kernel(
     emit_startup_progress(inner, on_progress, memo, "Starting Python kernel...");
     // Only the process spawn + ready handshake contends for OS resources under
     // a fan-out, and it is bounded by start()'s own timeout — so the permit
-    // covers only start(). Restore/bootstrap run per-kernel afterwards.
+    // covers only start(). Restore/bootstrap run per-kernel afterwards. The
+    // start races the dispose signal like every later boot stage (TS
+    // startKernel): a session closed while its kernel still boots stops
+    // waiting for the ready handshake, and the failed-boot teardown below
+    // disposes the booting kernel (the manager tracks it from the start).
     let start = manager.start(KernelStartOptions {
-        signal: None,
+        signal: Some(dispose_signal.clone()),
         on_bootstrap_progress: on_progress.cloned(),
     });
     let permit_inner = Arc::clone(inner);
@@ -1677,6 +1681,69 @@ mod tests {
             format!("{error:#}").contains("failed to spawn"),
             "ensure must surface the spawn cause: {error:#}"
         );
+    }
+
+    /// A dispose while the kernel still boots (spawned, no ready handshake
+    /// yet) stops the boot instead of waiting out the 30s ready timeout,
+    /// and the booting kernel dies with it: a session closed right after
+    /// its open (a `kill`) no longer waits for its kernel's whole start.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dispose_during_the_kernel_start_stops_the_boot() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _kernels = crate::durable::rlm::kernel_test_lock().await;
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let pid_file = dir.path().join("kernel.pid");
+        let python = dir.path().join("never-ready");
+        std::fs::write(
+            &python,
+            format!(
+                "#!/usr/bin/env python3\nimport os, time\nopen({:?}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n",
+                pid_file.display().to_string()
+            ),
+        )
+        .expect("write fake kernel");
+        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake kernel");
+        let provisioner = IpythonKernelProvisioner::new(
+            dir.path(),
+            IpythonKernelProvisionerOptions {
+                python: Some(python),
+                ..Default::default()
+            },
+        );
+        let ensure = provisioner.ensure(None, None);
+        tokio::pin!(ensure);
+        // The boot runs until its kernel process is up (it never sends the
+        // ready line).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let pid: u32 = loop {
+            tokio::select! {
+                booted = &mut ensure => {
+                    panic!("the boot settled without a ready kernel (ok: {})", booted.is_ok())
+                }
+                () = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
+            }
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.parse().ok())
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the fake kernel never started"
+            );
+        };
+        let ((), booted) = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            tokio::join!(provisioner.dispose(None), &mut ensure)
+        })
+        .await
+        .expect("the dispose stops the boot instead of waiting out the ready timeout");
+        assert!(booted.is_err(), "a disposed boot yields no kernel");
+        let alive = eukhe_types::platform::process::is_process_alive(pid).expect("liveness");
+        assert!(!alive, "the booting kernel died with the dispose");
     }
 
     /// A ready kernel that stops reading stdin must not wedge its bootstrap
