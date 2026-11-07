@@ -249,6 +249,12 @@ dashboard_ui() {
   test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 }
 
+# The online cores: `nproc` (GNU coreutils), else POSIX `getconf`, else the
+# macOS/BSD sysctl.
+cores() {
+  nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu
+}
+
 # `cargo test --workspace`, split: the test units go to TEST_SHARDS shards
 # (scripts/ci_test_shard.py, a stable assignment), all shards run at the
 # same time on one build, then scripts/ci_test_shard_summary.py audits that
@@ -260,7 +266,7 @@ dashboard_ui() {
 # tests with a real-time window (the kitty answer, the teardown bound)
 # missed it under that load.
 TEST_SHARDS=8
-TEST_THREADS_PER_SHARD=$(( $(nproc) / TEST_SHARDS ))
+TEST_THREADS_PER_SHARD=$(( $(cores) / TEST_SHARDS ))
 if (( TEST_THREADS_PER_SHARD < 1 )); then
   TEST_THREADS_PER_SHARD=1
 fi
