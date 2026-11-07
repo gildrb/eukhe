@@ -8,9 +8,10 @@ check:
 	cargo build --release --workspace --locked
 
 # The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
-# here. ci-fast is the pre-commit gate: rustfmt, the secrets scan of the
-# staged diff (when gitleaks is installed), clippy on the crates the staged
-# change touches (scripts/ci_pr_crates.py). The pre-push gate checks the
+# here. ci-fast is the pre-commit gate: rustfmt, the crate layering
+# (scripts/check_crate_layers.py), the secrets scan of the staged diff (when
+# gitleaks is installed), clippy on the crates the staged change touches
+# (scripts/ci_pr_crates.py). The pre-push gate checks the
 # pushed commits: rustfmt, their secrets scan, clippy and tests on the
 # crates they touch, `bend PROOF.bend`. ci-local is the full gate; the
 # nightly run (scripts/ci_nightly.sh, a systemd user timer) runs it on

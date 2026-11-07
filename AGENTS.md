@@ -103,6 +103,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 
 - Dependencies point from higher to lower crates only. No cycles.
 - `eukhe-tui`, `eukhe-dashboard` and `eukhe-gateway` talk to the daemon through `eukhe-client` and render from wire types and events; they do not link the session engine.
+- Layering (`scripts/check_crate_layers.py`, in `make ci-fast` and `make ci-local`): only a frontend (`eukhe-tui`, `eukhe-cli`, `eukhe-dashboard`, `eukhe-gateway`) depends on a frontend; `eukhe-client`, `eukhe-tui`, `eukhe-dashboard` and `eukhe-gateway` never link `eukhe-core`, `eukhe-daemon` or `eukhe-durable`, directly or transitively. A crate's own build and dev dependencies count.
 - `eukhe-cli` wires crates together; no business logic.
 
 ## Reliability

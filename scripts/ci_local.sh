@@ -5,9 +5,11 @@
 # (scripts/ci_nightly.sh) runs full and releases only when it passes.
 #
 #   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate:
-#                                 rustfmt, the secrets scan of the staged
-#                                 diff, and clippy on the crates the staged
-#                                 change touches.
+#                                 rustfmt, the crate layering
+#                                 (scripts/check_crate_layers.py), the
+#                                 secrets scan of the staged diff, and
+#                                 clippy on the crates the staged change
+#                                 touches.
 #   scripts/ci_local.sh pre-push  the pre-push gate, on the pushed commits
 #                                 (PRE_COMMIT_FROM_REF..PRE_COMMIT_TO_REF,
 #                                 from prek), in this worktree: rustfmt,
@@ -322,6 +324,7 @@ case "${mode}" in
   fast)
     gate "bend version" check_bend
     gate fmt cargo fmt --all --check
+    gate "crate layers" python3 scripts/check_crate_layers.py .
     gate secrets secrets_staged
     gate "clippy (touched crates)" clippy_touched "$(change_rows --cached)"
     ;;
@@ -335,6 +338,7 @@ case "${mode}" in
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
+    gate "crate layers" python3 scripts/check_crate_layers.py .
     # The other lane runs in the background. Bash starts a background job
     # with SIGINT ignored, and the eukhe-runtime tests send SIGINT, so the
     # job restores the default action first (`trap - INT`); Ctrl+C then
