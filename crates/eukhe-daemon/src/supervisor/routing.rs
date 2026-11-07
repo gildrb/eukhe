@@ -95,6 +95,23 @@ impl Drop for ReplySlot<'_> {
 /// TS daemon-supervisor.ts:204 `WORKER_REQUEST_TIMEOUT_MS`.
 pub(crate) const WORKER_REQUEST_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// A `prompt` its worker runs as a typed session command (`/compact`,
+/// `/refine`, ...; the worker's `handle_prompt` classification: no
+/// images, no custom row): its answer settles with the command -- a
+/// summarizer or review model call -- not with an admission.
+fn prompt_runs_session_command(command: &DaemonCommand) -> bool {
+    let DaemonCommand::Prompt { message, input, .. } = command else {
+        return false;
+    };
+    input.custom_message.is_none()
+        && input
+            .images
+            .as_ref()
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+        && eukhe_core::durable::classify_session_command(message).is_some()
+}
+
 /// The route budget of a client command: turn-long waits ride TS's 24 h
 /// worker-request budget, a kill rides the stop grace
 /// ([`crate::timeouts::Derived::stop_grace_ms`]), everything else is a short
@@ -112,7 +129,8 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
             | DaemonCommand::NavigateTree { .. }
             // A relayed approval question waits for the user.
             | DaemonCommand::RelayShellApproval { .. }
-    ) {
+    ) || prompt_runs_session_command(command)
+    {
         WORKER_REQUEST_TIMEOUT_MS
     } else if matches!(command, DaemonCommand::Kill { .. }) {
         crate::timeouts::derived().stop_grace_ms
@@ -137,7 +155,8 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
             | DaemonCommand::NavigateTree { .. }
             // A question parked on the user, like a turn-long wait.
             | DaemonCommand::RelayShellApproval { .. }
-    ) {
+    ) || prompt_runs_session_command(command)
+    {
         RouteAdmission::Watch
     } else if matches!(
         command,
@@ -1417,4 +1436,55 @@ pub(crate) fn spliced_client_line(command_id: &str, worker_payload: &[u8]) -> Ve
     }
     line.push(b'\n');
     line
+}
+
+#[cfg(test)]
+mod route_class_tests {
+    use super::{
+        client_route_admission, client_route_timeout, DaemonCommand, RouteAdmission,
+        ROUTE_TIMEOUT_MS, WORKER_REQUEST_TIMEOUT_MS,
+    };
+    use serde_json::json;
+
+    fn command(wire: serde_json::Value) -> DaemonCommand {
+        serde_json::from_value(wire).expect("a wire command")
+    }
+
+    /// A `/compact` prompt answers once its summarizer ran (the worker runs
+    /// it as a session command), so it routes like the `compact` command:
+    /// the turn-long budget and a watch admission. A model prompt, and a
+    /// `/compact` text the worker sends to the model (images attached),
+    /// keep the short client route.
+    #[test]
+    fn a_session_command_prompt_routes_like_the_compact_command() {
+        let compact = command(json!({
+            "type": "prompt", "activeSessionId": "s", "message": "/compact focus",
+        }));
+        assert_eq!(client_route_timeout(&compact), WORKER_REQUEST_TIMEOUT_MS);
+        assert_eq!(client_route_admission(&compact), RouteAdmission::Watch);
+        let compact_command = command(json!({ "type": "compact", "activeSessionId": "s" }));
+        assert_eq!(
+            client_route_timeout(&compact_command),
+            client_route_timeout(&compact)
+        );
+        for model_prompt in [
+            json!({ "type": "prompt", "activeSessionId": "s", "message": "compact this" }),
+            json!({
+                "type": "prompt", "activeSessionId": "s", "message": "/compact",
+                "images": [{ "type": "image", "data": "AA==", "mimeType": "image/png" }],
+            }),
+        ] {
+            let prompt = command(model_prompt);
+            assert_eq!(
+                client_route_timeout(&prompt),
+                ROUTE_TIMEOUT_MS,
+                "{prompt:?}"
+            );
+            assert_eq!(
+                client_route_admission(&prompt),
+                RouteAdmission::ClientRequest,
+                "{prompt:?}"
+            );
+        }
+    }
 }
