@@ -378,20 +378,58 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let supervisor = spawn_supervisor(dir.path());
 
-    // The first turn holds in flight for 8s (`delayMs`, the queue-browse
-    // verifier's window): the parked submissions land inside that window,
-    // deterministically busy (they go out once the loader shows the
-    // request waiting on the provider). The window must cover the typed
-    // follow-up and both serialized submit round trips on a loaded box:
-    // at 1.5s a loaded host reached the provider 3s after the submit and
-    // the follow-up's admission trailed the window, so it delivered
-    // without ever showing in the strip.
+    // The first turn's request holds at the provider until this test
+    // releases it (`holdUntilReleased`): the parked submissions land while
+    // the turn provably runs, however slow the box, and the turn ends only
+    // once the TUI rendered both previews -- the plan then renames the
+    // session (`/name`), the one signal a second wire client can see.
+    let gate = dir.path().join("release.sock");
+    let gate_listener = tokio::net::UnixListener::bind(&gate).expect("bind the release gate");
     let script_path = dir.path().join("script.json");
     let script = serde_json::json!({ "responses": [
-        { "text": "first turn", "delayMs": 8000 },
+        { "text": "first turn", "holdUntilReleased": gate },
         { "text": "queued delivery" },
     ]});
-    std::fs::write(&script_path, script.to_string()).expect("write script");
+    let session = create_session_via_daemon(
+        &supervisor.socket,
+        &script_path,
+        &script,
+        dir.path(),
+        &session_dir,
+    )
+    .await;
+    let (watcher, mut session_events) =
+        eukhe_client::daemon_client::DaemonClient::connect(&supervisor.socket)
+            .await
+            .expect("connect the release watcher");
+    eukhe_client::saved_sessions::attach(
+        &watcher,
+        &session,
+        eukhe_types::daemon::DaemonClientKind::Watch,
+    )
+    .await
+    .expect("the release watcher attaches");
+    let release = tokio::spawn(async move {
+        let (held, _) = gate_listener
+            .accept()
+            .await
+            .expect("the first turn's request reaches the release gate");
+        while let Some(event) = session_events.recv().await {
+            if let eukhe_client::daemon_client::DaemonClientEvent::SessionEvent { event, .. } =
+                event
+            {
+                if matches!(
+                    &*event,
+                    eukhe_types::daemon::SessionEvent::SessionInfoChanged { name: Some(name) }
+                        if name == "strip shown"
+                ) {
+                    break;
+                }
+            }
+        }
+        drop(held);
+        watcher.close();
+    });
 
     let options = eukhe_tui::interactive::InteractiveOptions {
         models: None,
@@ -405,7 +443,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         model_recent_models: Vec::new(),
         default_thinking_level: None,
         no_session: false,
-        session: eukhe_tui::interactive::SessionSelection::New,
+        session: eukhe_tui::interactive::SessionSelection::Attach(session.clone()),
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
@@ -445,6 +483,12 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
                 KeyCode::Enter,
                 KeyModifiers::ALT,
             )),
+            // Both previews showed: the rename releases the held turn.
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Follow-up: follow-up prompt".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::Submit("/name strip shown".to_string()),
             // The barrier holds until the queue drained behind the turn.
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 60_000 },
         ],
@@ -454,6 +498,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     let outcome = run_headless_bounded(options, plan)
         .await
         .expect("interactive run");
+    release.await.expect("the release watcher settled");
 
     assert!(!outcome.frames.is_empty(), "frames were captured");
     let rendered = outcome.frames.join("\n");
