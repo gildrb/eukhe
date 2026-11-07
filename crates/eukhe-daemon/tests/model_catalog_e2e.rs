@@ -187,10 +187,10 @@ fn a_bundle_without_a_compiled_model_still_lists_it() {
     let _serial = DAEMON_E2E
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let temp = tempfile::Builder::new()
-        .prefix("pa-model-catalog-")
-        .tempdir()
-        .expect("temp dir");
+    // The default short prefix: a worker socket sits beside the supervisor
+    // socket, and under macOS's per-user temp dir a longer dir name pushes
+    // it past the 103-byte socket-path limit.
+    let temp = tempfile::TempDir::new().expect("temp dir");
     let dir = temp.path();
     let agent_dir = dir.join("agent");
     let package_dir = dir.join("package");
@@ -238,10 +238,8 @@ fn daemon_serves_the_local_catalog() {
     let _serial = DAEMON_E2E
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let temp = tempfile::Builder::new()
-        .prefix("pa-model-catalog-")
-        .tempdir()
-        .expect("temp dir");
+    // The default short prefix (see the test above).
+    let temp = tempfile::TempDir::new().expect("temp dir");
     let dir = temp.path();
     let agent_dir = dir.join("agent");
     let socket = dir.join("daemon.sock");
