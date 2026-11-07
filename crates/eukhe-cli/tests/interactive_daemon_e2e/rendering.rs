@@ -380,9 +380,8 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     let supervisor = spawn_supervisor(dir.path());
 
     // The first turn holds in flight for 1.5s (`delayMs`): the parked
-    // submissions land inside that window, deterministically busy (the
-    // runner flips `busy` when it pops the work, long before the 750ms
-    // barrier below).
+    // submissions land inside that window, deterministically busy (they
+    // go out once the loader shows the request waiting on the provider).
     let script_path = dir.path().join("script.json");
     let script = serde_json::json!({ "responses": [
         { "text": "first turn", "delayMs": 1500 },
@@ -426,9 +425,14 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::Submit("start the slow turn".to_string()),
-            // Half-way through the scripted hold the turn is provably
-            // running: the parked submissions below queue behind it.
-            eukhe_tui::interactive::HeadlessStep::WaitMs(750),
+            // The loader's waiting phase shows the turn's request is out
+            // to the scripted provider, which holds it: the turn is
+            // provably running, so the parked submissions below queue
+            // behind it.
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Waiting - ".to_string(),
+                timeout_ms: 30_000,
+            },
             // Enter while the turn runs parks on the steering lane.
             eukhe_tui::interactive::HeadlessStep::Submit("steering prompt".to_string()),
             // The follow-up key (alt+enter) parks on the follow-up lane.
