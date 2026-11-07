@@ -4,7 +4,7 @@
 //! the deadline), and the turn answers instead of holding the run until
 //! someone aborts it. Every wait of the test is bounded.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use eukhe_ai::api::builtin::anthropic_messages_api;
@@ -37,29 +37,44 @@ enum Exchange {
     Answer(Vec<serde_json::Value>),
 }
 
-/// Reads one request: its head, then the `content-length` bytes of its
-/// body. A socket closed with request bytes still unread resets the
-/// connection, and the reset can discard the response tail the client has
-/// not read yet (macOS does), failing an answered request.
-async fn read_request(socket: &mut TcpStream) {
+/// The API key of the test's client.
+const KEY: &str = "test-key";
+
+/// Reads one request; whether it is the test client's messages request
+/// (`POST /v1/messages` with [`KEY`]), read whole. The port is the host's:
+/// a connect to a port its owner (a test of this process or of another)
+/// closed reaches whichever listener reuses it, so a foreign request, or
+/// a peer that closes mid-request, is never served. The body is read too:
+/// a socket closed with request bytes still unread resets the connection,
+/// and the reset can discard the response tail the client has not read
+/// yet (macOS does), failing an answered request.
+async fn read_messages_request(socket: &mut TcpStream) -> bool {
     let mut head = Vec::new();
     let mut byte = [0_u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
-        let read = socket.read(&mut byte).await.expect("request bytes");
-        assert_ne!(read, 0, "the client closed before its request head");
-        head.push(byte[0]);
+        match socket.read(&mut byte).await {
+            Ok(0) | Err(_) => return false,
+            Ok(_) => head.push(byte[0]),
+        }
     }
-    let head = String::from_utf8(head).expect("UTF-8 request head");
-    let length = head
-        .lines()
-        .find_map(|line| {
+    let Ok(head) = String::from_utf8(head) else {
+        return false;
+    };
+    let header = |wanted: &str| {
+        head.lines().skip(1).find_map(|line| {
             let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length")
-                .then(|| value.trim().parse::<usize>().expect("content-length"))
+            name.eq_ignore_ascii_case(wanted).then(|| value.trim())
         })
-        .expect("the request states its body length");
+    };
+    let length = header("content-length").and_then(|value| value.parse::<usize>().ok());
+    let (true, Some(length)) = (
+        head.starts_with("POST /v1/messages") && header("x-api-key") == Some(KEY),
+        length,
+    ) else {
+        return false;
+    };
     let mut body = vec![0_u8; length];
-    socket.read_exact(&mut body).await.expect("request body");
+    socket.read_exact(&mut body).await.is_ok()
 }
 
 async fn write_chunk(socket: &mut TcpStream, data: &str) {
@@ -86,19 +101,34 @@ struct Served {
 }
 
 /// A local Anthropic-messages endpoint serving `exchanges` in order, one
-/// per connection. Returns its base URL and what it served.
+/// per request of the test's client (its requests are sequential). Returns
+/// its base URL and what it served.
 async fn sse_server(exchanges: Vec<Exchange>) -> (String, Served) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base_url = format!("http://{}", listener.local_addr().expect("address"));
     let (closed_sender, closed) = mpsc::unbounded_channel();
     let (head_sender, heads) = mpsc::unbounded_channel();
+    let exchanges = Arc::new(Mutex::new(exchanges.into_iter().enumerate()));
     tokio::spawn(async move {
-        for (index, exchange) in exchanges.into_iter().enumerate() {
-            let (mut socket, _) = listener.accept().await.expect("accept");
+        loop {
+            // A peer gone before its accept leaves the listener intact.
+            let Ok((mut socket, _)) = listener.accept().await else {
+                continue;
+            };
+            let exchanges = Arc::clone(&exchanges);
             let closed_sender = closed_sender.clone();
             let head_sender = head_sender.clone();
             tokio::spawn(async move {
-                read_request(&mut socket).await;
+                if !read_messages_request(&mut socket).await {
+                    return;
+                }
+                let next = exchanges
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .next();
+                let Some((index, exchange)) = next else {
+                    return;
+                };
                 socket
                     .write_all(
                         b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n",
@@ -175,7 +205,7 @@ impl ApiKeyAuth for TestKey {
         Box::pin(async {
             Ok(Some(AuthResult {
                 auth: ModelAuth {
-                    api_key: Some("test-key".to_owned()),
+                    api_key: Some(KEY.to_owned()),
                     ..ModelAuth::default()
                 },
                 ..AuthResult::default()
@@ -229,6 +259,15 @@ async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_th
     stalled.extend(text_events("half an ans"));
     let (base_url, mut served) =
         sse_server(vec![Exchange::Stall(stalled), answer("recovered")]).await;
+    // A foreign request reaching the port first (another test's connect to
+    // a port it saw closed) is not served.
+    let mut stranger = TcpStream::connect(base_url.trim_start_matches("http://"))
+        .await
+        .expect("connect");
+    stranger
+        .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\n\r\n")
+        .await
+        .expect("foreign request");
     let setup = chat_setup(RegisterFauxProviderOptions::default())
         .with_models(anthropic_models_at(&base_url));
     setup.settings.update(|settings| {
