@@ -1193,9 +1193,36 @@ async fn tui_dispatches_declared_editor_keybindings() {
         rendered.contains("Search roles"),
         "ctrl+l opened the model hub:\n{rendered}"
     );
+    // The held response can never deliver its text, so its absence alone
+    // proves nothing: the interrupt ended the turn because the WaitIdle
+    // barrier after it settled instead of expiring (a missed abort leaves
+    // the turn held on the gate until the barrier's timeout note).
+    assert!(
+        !rendered.contains("timed out waiting for the turn to finish"),
+        "the interrupt aborted the held turn; the WaitIdle barrier expired instead:\n{rendered}"
+    );
     assert!(
         !rendered.contains("the final answer that the abort must never deliver"),
         "the interrupt aborted the turn before its final answer:\n{rendered}"
+    );
+    // The abort ended the provider request: its hold connection closed.
+    let mut held = tokio::time::timeout(Duration::from_secs(10), held)
+        .await
+        .expect("the held turn's request reached the gate")
+        .expect("the gate task");
+    let mut buf = [0_u8; 64];
+    let read = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match tokio::io::AsyncReadExt::read(&mut held, &mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    })
+    .await;
+    assert!(
+        read.is_ok(),
+        "the aborted turn's provider request still holds the gate"
     );
     // The new session started with no draft: the stale text the editor
     // held at the keypress never rendered into the new session's frames.
@@ -1204,7 +1231,6 @@ async fn tui_dispatches_declared_editor_keybindings() {
         !last.contains("stale draft"),
         "the new session discarded the editor draft:\n{last}"
     );
-    // The gate closes with the test: nothing but the abort ended the turn.
-    held.abort();
+    drop(held);
     drop(supervisor);
 }
