@@ -1,0 +1,26 @@
+# holds: every rule kind (contains, is, starts, then, number, segment) in
+# one set; the number rule's least at {MAX} (Rust writes a u8, the grammar
+# any Nat: it is only compared with one digit's value) and at 0; an empty
+# set, an empty group, an empty name; names whose digit runs are 14, 15 and
+# 29 digits (read char by char, never valued), four-byte chars, a line feed
+# between the two parts of a then rule (no Nat but counts and lengths)
+call 0,4,6,0,1,8,opus-4-61,2,7,gpt-5.50,2,1,8,gemini-23,6,claude3,-4-4,1,6,gpt-5.{MAX},T5,2,4,qwen1,𝄞1,4,2,6,gpt-5.7,gemini-0,F2,4,1,0,{MAX},F3,0,0,0,3,7,17,x/claude-opus-4-620,gpt-5.{MAX}26,gpt-5.{LONG}-mini12,vendor/qwen𝄞36,gemini-{MAX}{LONG}10,claude\n-4-3,𝄞/𝄞0,1,0,
+call 0,0,3,7,17,x/claude-opus-4-620,gpt-5.{MAX}26,gpt-5.{LONG}-mini12,vendor/qwen𝄞36,gemini-{MAX}{LONG}10,claude\n-4-3,𝄞/𝄞0,1,0,
+call 0,4,6,0,1,8,opus-4-61,2,7,gpt-5.50,2,1,8,gemini-23,6,claude3,-4-4,1,6,gpt-5.{MAX},T5,2,4,qwen1,𝄞1,4,2,6,gpt-5.7,gemini-0,F2,4,1,0,{MAX},F3,0,0,0,0,
+# dash: separator runs (White_Space, a U+3000, `_`, `.`, `:`, a line feed)
+# around four-byte chars and digit runs; no texts
+call 1,6,18,claude 3.5:_sonnet3,a　b3,𝄞_𝄞29,{MAX}.{MAX}5, \n_.:0,
+call 1,0,
+# a request or rule tag past the last, a 15-digit field, a count or a
+# length the input cannot back, a bad Bool, input left over: refused
+refuse 2,0,
+refuse {MAX},0,
+refuse {LONG},0,
+refuse 0,1,1,6,0,0,
+refuse 0,1,1,{MAX},0,0,
+refuse 0,1,1,4,0,{LONG},T0,
+refuse 0,1,1,4,0,{MAX},X0,
+refuse 0,{MAX},
+refuse 0,0,{LONG},
+refuse 1,1,{MAX},x
+refuse 1,0,x

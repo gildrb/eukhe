@@ -1,0 +1,31 @@
+# every question; the only Nats are tags, counts, lengths and answers that
+# count chars of the input (the mime's length, a boundary's start and
+# length): version digits of 14 and 29 digits (a run is taken as text, never
+# valued), four-byte chars, a data URL split across chunks, line feeds (the
+# file format has no `\r`)
+call 0,45,gemini-live-{MAX}{LONG}-pro
+call 0,8,gemini-𝄞
+call 0,0,
+call 1,42,/v{MAX}beta{LONG}/models
+call 1,21,/v𝄞/v{LONG}x
+call 1,0,
+call 2,4,5,data:21,image/𝄞{MAX}8,;base64,18,{MAX}QUJD
+call 2,3,2,da9,ta:x;base4,64,Q
+call 2,1,17,data:a;base64,Q\nQ
+call 2,1,15,data:;base64,QQ
+call 2,0,
+call 3,18,𝄞{MAX}\n\nb
+call 3,17,a\nb{MAX}
+call 3,0,
+call 4,35,a\n𝄞{MAX}\n\n{LONG}\n
+call 4,0,
+# a tag past 4, a 15-digit field, a count or a length the input cannot
+# back, input left over: refused
+refuse 5,0,
+refuse {MAX},0,
+refuse {LONG},0,
+refuse 0,{MAX},x
+refuse 2,{MAX},
+refuse 2,1,{LONG},x
+refuse 3,{LONG},x
+refuse 4,1,ax

@@ -1,0 +1,33 @@
+# every question; the only Nats are tags, counts, lengths and the answer's
+# index (one per name read): regions, hosts and ARNs whose digit runs are
+# 14 and 29 digits (read char by char, never valued), four-byte chars
+# (base64 counts their two UTF-16 units modulo 4)
+call 0,26,us-gov-west-{MAX}
+call 0,42,eusc-de-east-{MAX}{LONG}
+call 0,9,us-east-𝄞
+call 0,0,
+call 1,4,12,content-type14,x-𝄞-request-id27,x-{MAX}-request-id16,x-amzn-requestid
+call 1,0,
+call 2,3,4,QUJD14,{MAX}2,==
+call 2,2,2,𝄞𝄞0,
+call 2,1,3,QUJ
+call 2,0,
+call 3,64,bedrock-runtime-fips.us-gov-west-{MAX}.amazonaws.com.cn
+call 3,31,bedrock.us-east-1.amazonaws.com
+call 4,72,arn:aws-iso-b:bedrock:us-isob-east-{MAX}:{MAX}:model/x
+call 4,17,arn:aws:bedrock:𝄞
+call 5,31,fips-dkr-us-east-{MAX}
+call 5,27,us-east-{MAX}-fips
+call 5,12,𝄞fips-prod-x
+call 5,0,
+# a tag past 5, a 15-digit field, a count or a length the input cannot
+# back, input left over: refused
+refuse 6,0,
+refuse {MAX},0,
+refuse {LONG},0,
+refuse 0,{MAX},x
+refuse 1,{MAX},
+refuse 2,1,{LONG},x
+refuse 3,{LONG},x
+refuse 4,1,ax
+refuse 5,0,0,

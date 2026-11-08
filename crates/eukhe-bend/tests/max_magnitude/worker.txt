@@ -1,0 +1,54 @@
+# step: every event (pause, resume, gate of each kind and of kind {MAX},
+# done, waking and kept messages, end) on a running and a paused tree with
+# the parked id, three kept ids, the in-flight count and every event id at
+# {MAX}; done at 0 in flight. A tool gate on a running tree answers
+# {MAX} + 1 in flight (10^14, below 2^48-1: the one sum the entry forms)
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},0,
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},0,
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},1,
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},1,
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},2,1,{MAX},
+call 0,0,0,3,{MAX},{MAX},{MAX},{MAX},2,0,{MAX},
+call 0,0,0,3,{MAX},{MAX},{MAX},{MAX},2,2,{MAX},
+call 0,0,0,3,{MAX},{MAX},{MAX},{MAX},2,{MAX},{MAX},
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},2,1,{MAX},
+call 0,1,0,3,{MAX},{MAX},{MAX},{MAX},2,{MAX},{MAX},
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},3,
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},0,3,
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},4,{MAX},T
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},4,{MAX},F
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},4,{MAX},T
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},4,{MAX},F
+call 0,1,0,0,0,4,{MAX},F
+call 0,0,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},5,
+call 0,1,1,{MAX},3,{MAX},{MAX},{MAX},{MAX},5,
+# forward: seqs and the cursor at {MAX} (the cursor is the largest of them,
+# compared, never summed), messages past and not past it, empty and
+# four-byte texts, a note, an empty note, none
+call 1,0,4,{MAX},3, b 1,2,c\n{MAX},1,𝄞{MAX},0,1,14,{MAX}
+call 1,{MAX},2,{MAX},1,a0,1,𝄞1,1,𝄞
+call 1,{MAX},1,{MAX},1,a0,
+call 1,0,0,1,0,
+call 1,0,0,0,
+# a request, mode, Maybe or event tag past the last, a 15-digit field, a
+# count or a length the input cannot back, a bad Bool, input left over:
+# refused
+refuse 2,0,
+refuse {MAX},0,
+refuse {LONG},0,
+refuse 0,2,0,0,0,0,
+refuse 0,0,2,0,0,0,
+refuse 0,0,0,0,0,6,
+refuse 0,0,0,0,0,{MAX},
+refuse 0,0,0,0,{LONG},0,
+refuse 0,0,1,{LONG},0,0,0,
+refuse 0,0,0,1,{LONG},0,0,
+refuse 0,0,0,{MAX},0,0,
+refuse 0,0,0,0,0,2,1,{LONG},
+refuse 0,0,0,0,0,4,{MAX},x
+refuse 0,0,0,0,0,5,x
+refuse 1,{LONG},0,0,
+refuse 1,0,1,{LONG},1,a0,
+refuse 1,0,0,2,
+refuse 1,0,0,1,{MAX},x
+refuse 1,0,{MAX},0,
