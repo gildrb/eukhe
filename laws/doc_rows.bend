@@ -432,6 +432,47 @@ law rows_entry_exact:
   exs r: rows.Req
   {s == rows.spell_req(r) : String} & {rows.ReqFits(r) == True{} : Bool}
 
+# the spelling of a request, then rest (rows.spell_req is it before
+# nothing)
+def rows.spell_req_then(r: rows.Req, rest: String) -> String:
+  match r:
+    case rows.GateReq{raw, u8, u16, nul}:
+      Wr.put_nat(0n, Wr.put_bool(raw, Wr.put_bool(u8, Wr.put_bool(u16, Wr.put_bool(nul, rest)))))
+    case rows.ViewReq{sel, u8, over, p}:
+      Wr.put_nat(1n, rows.spell_sel(sel, Wr.put_bool(u8, Wr.put_bool(over, LawsBase.proj_spell(p, rest)))))
+
+# LAW rows_entry_left_over_spelled: a spelled request whose numbers fit,
+# followed by any more input, answers exactly the error form "doc_rows:
+# input left over" (a gate and a view alike)
+# EXCLUDES: trailing input ignored or read as part of the request, the
+# left-over error reworded or swapped with the malformed one
+law rows_entry_left_over_spelled:
+  for +r: rows.Req
+  for h: {rows.ReqFits(r) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {Fdr.ffi(rows.spell_req_then(r, SCon{c, t})) == Wr.err("doc_rows: input left over") : String}
+
+# LAW rows_entry_malformed_unless_request: every answer but the error form
+# "doc_rows: malformed request" comes from an input that begins with a
+# spelled request whose numbers fit
+# EXCLUDES: the left-over error (or any answer) for input that does not
+# begin with a request (an unknown tag, a malformed field anywhere), the
+# malformed error reworded
+law rows_entry_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(Fdr.ffi(s), Wr.err("doc_rows: malformed request")) == False{} : Bool}
+  exs r: rows.Req
+  exs rest: String
+  {(s, rows.ReqFits(r)) == (rows.spell_req_then(r, rest), True{}) : String & Bool}
+
+# LAW rows_entry_errors_example (anchor): the error texts Rust reads: an
+# unknown tag is malformed; a gate and a view with input left over are
+# refused as such
+# EXCLUDES: the two texts swapped or reworded
+law rows_entry_errors_example:
+  {[Fdr.ffi("9,"), Fdr.ffi("0,FFTFx"), Fdr.ffi("1,0,TFF3,1,1,0,1,1,0,0,0,x")] == [Wr.err("doc_rows: malformed request"), Wr.err("doc_rows: input left over"), Wr.err("doc_rows: input left over")] : List<&2, String>}
+
 # LAW rows_entry_example (anchor): the requests Rust writes, as text: the
 # gate of a UTF-16 file; a whole read of a 2-line file with a final `\n`;
 # a read at 4-5 of it; one over the limit; an unknown tag
