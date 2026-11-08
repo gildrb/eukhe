@@ -30,12 +30,15 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     // Paced at 3000 tokens/second so the ~12k-token turn streams for
     // ~4s: the mid-turn marker-progression assertion needs several wire
     // updates inside the turn (an unpaced faux finishes in ~0.3s and the
-    // whole stream lands in a handful of frames). The render is CPU-bound
-    // (a debug build spends ~30s of CPU per turn on an idle Mac), so its
-    // wall time scales with the host's free CPU: the settle bound is
-    // 120s per turn, which a loaded pre-push host stays under, while the
-    // pre-fix starvation pipeline (one ~4-token delta per 50ms tick, a
-    // tick-bound pace no free CPU speeds up) took 150+ seconds per turn.
+    // whole stream lands in a handful of frames). The settle bound is
+    // calibrated against the producer pace with a load-realistic margin,
+    // while the pre-fix starvation pipeline (one ~4-token delta per 50ms
+    // tick, a tick-bound pace no free CPU speeds up) took 150+ seconds per
+    // turn. On Linux a healthy debug render takes ~11s per turn (the whole
+    // test ~23s idle, ~28s beside 14 busy loops), so 45s per turn keeps a
+    // 3x margin against starvation. On macOS the debug render is CPU-bound
+    // at ~30s of CPU per turn (63-71s wall for the test alone) and a loaded
+    // pre-push host passes 45s, so the bound there is 120s per turn.
     // The mid-turn marker progression below is the content proof.
     let script = serde_json::json!({
         "engine": "faux",
@@ -80,26 +83,30 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         dictation: None,
         daemon_launcher: None,
     };
-    // 120s per turn is the throughput bound (see the script comment): real
-    // box load (a second suite, sibling e2e binaries) slows the CPU-bound
-    // render, while a starved render still expires the barrier.
+    let turn_bound_ms = if cfg!(target_os = "linux") {
+        45_000
+    } else {
+        120_000
+    };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::Submit("first".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle {
-                timeout_ms: 120_000,
+                timeout_ms: turn_bound_ms,
             },
             eukhe_tui::interactive::HeadlessStep::Submit("second".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle {
-                timeout_ms: 120_000,
+                timeout_ms: turn_bound_ms,
             },
         ],
         width: 100,
         height: 30,
     };
+    let started = Instant::now();
     let outcome = run_headless_bounded(options, plan)
         .await
         .expect("interactive run");
+    let wall = started.elapsed();
 
     // Verification seam: dump the captured frames for manual frame-diffing
     // against the TS product (EUKHE_TUI_DUMP_FRAMES=<dir>).
@@ -144,6 +151,13 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         "only {len} segment markers ever rendered mid-turn (needs >= 5); the applied stream starved",
         len = marks.len()
     );
+    // The whole run keeps up with the producer (Linux, see the bound).
+    if cfg!(target_os = "linux") {
+        assert!(
+            wall < Duration::from_secs(100),
+            "the whole run took {wall:?}; the turn render must keep up with the producer"
+        );
+    }
     drop(supervisor);
 }
 
