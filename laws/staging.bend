@@ -825,6 +825,35 @@ law staging_entry_exact:
   exs r: FSg.Req
   {s == sp_w_req(r, "") : String} & {sp_fit_req(r) == True{} : Bool}
 
+# LAW staging_entry_left_over_spelled (R8): a spelled request that fits, followed by any more
+# input, answers exactly the error form "staging: input left over"
+# EXCLUDES: trailing input ignored or read as part of the request, the
+#   left-over error reworded or swapped with the malformed one
+law staging_entry_left_over_spelled:
+  for +r: FSg.Req
+  for h: {sp_fit_req(r) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FSg.ffi(sp_w_req(r, SCon{c, t})) == Wr.err("staging: input left over") : String}
+
+# LAW staging_entry_malformed_unless_request (R8): every answer but the error form "staging:
+# malformed request" comes from an input that begins with a spelled request
+# that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error reworded
+law staging_entry_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FSg.ffi(s), Wr.err("staging: malformed request")) == False{} : Bool}
+  exs r: FSg.Req
+  exs rest: String
+  {(s, sp_fit_req(r)) == (sp_w_req(r, rest), True{}) : String & Bool}
+
+# LAW staging_entry_errors_example (R8): anchor: the error texts Rust reads: an unknown tag is
+# malformed, a request with input left over is refused as such
+# EXCLUDES: the two texts swapped or reworded
+law staging_entry_errors_example:
+  {[FSg.ffi("5,"), FSg.ffi("0,TX")] == [Wr.err("staging: malformed request"), Wr.err("staging: input left over")] : List<&2, String>}
+
 # LAW staging_entry_example (R8): anchor: the wire strings Rust sends and the replies it reads
 # EXCLUDES: tags in another order, a field order other than Rust's
 law staging_entry_example:
