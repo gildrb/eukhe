@@ -74,7 +74,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 
 ## Merge gates
 
-- `make check`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- `make check`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and the doctests (`cargo test --workspace --doc`; never plain `cargo test`: one process for every test breaks tests that rely on process-wide state, such as the privacy token map), the runtime tests, the release build.
 - Before a push: the pre-push hook passes; never bypass hooks. The full gate (`make ci-local`) runs nightly and gates the release.
 - `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs`, `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled model catalog. Built-in catalog = its union with the bundled snapshot (`eukhe-models` `effective.rs`; laws: `laws/catalog_union.bend`). `eukhe-models` adds transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`). `scripts/generate-catalog-fixture.py` refreshes `crates/eukhe-models/tests/fixtures/catalog.v1.json`.
 

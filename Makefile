@@ -1,9 +1,12 @@
 # Merge gate (AGENTS.md): fmt + clippy + test + release build must pass before every merge.
+# The tests run as every gate runs them: nextest, one process per test
+# (.config/nextest.toml), then the doctests, which nextest does not run.
 check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets --locked -- -D warnings
 	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from eukhe-runtime/uv.lock"; exit 1; }
-	cargo test --workspace --locked
+	cargo nextest run --workspace --locked
+	cargo test --workspace --doc --locked
 	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
 
