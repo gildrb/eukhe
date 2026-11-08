@@ -263,7 +263,7 @@ pub(super) fn secrets() -> Vec<(String, String)> {
 /// No detector changes code or data: the corpus passes byte for byte.
 #[test]
 fn code_and_data_pass_unchanged() {
-    let scrubber = Scrubber::new(&["Ada Lovelace".to_owned()]);
+    let scrubber = Scrubber::new(&["Ada Lovelace".to_owned()], TokenMap::default());
     let changed: Vec<(&str, String)> = UNTOUCHED
         .iter()
         .filter_map(|text| {
@@ -277,24 +277,24 @@ fn code_and_data_pass_unchanged() {
 /// Every personal value leaves as a token and comes back as itself.
 #[test]
 fn personal_values_become_tokens_that_come_back() {
-    let scrubber = Scrubber::new(&[]);
+    let scrubber = Scrubber::new(&[], TokenMap::default());
     for (text, value) in PERSONAL {
         let out = scrubber.scrub_str(text);
         assert!(!out.contains(value), "{value} survived: {out}");
-        assert_eq!(restore(&out), *text);
+        assert_eq!(scrubber.tokens().restore(&out), *text);
     }
 }
 
 /// Restoring the scrubbed corpus gives the corpus back.
 #[test]
 fn the_corpus_round_trips() {
-    let scrubber = Scrubber::new(&["Ada Lovelace".to_owned()]);
+    let scrubber = Scrubber::new(&["Ada Lovelace".to_owned()], TokenMap::default());
     for text in UNTOUCHED
         .iter()
         .copied()
         .chain(PERSONAL.iter().map(|(text, _)| *text))
     {
-        assert_eq!(restore(&scrubber.scrub_str(text)), text);
+        assert_eq!(scrubber.tokens().restore(&scrubber.scrub_str(text)), text);
     }
 }
 
@@ -384,7 +384,8 @@ fn the_core_finds_exactly_the_personal_addresses() {
 #[test]
 fn a_stylesheet_read_and_written_back_through_the_scrub_is_unchanged() {
     let file = "/* staging origin 203.0.113.7 */\n.card::before { content: \"\"; }\n.card::after,\nli::marker { color: #ffcc00; }\n";
-    let read = Scrubber::new(&[]).scrub_str(file);
+    let scrubber = Scrubber::new(&[], TokenMap::default());
+    let read = scrubber.scrub_str(file);
     assert_eq!(
         read,
         "/* staging origin IP_1 */\n.card::before { content: \"\"; }\n.card::after,\nli::marker { color: #ffcc00; }\n"
@@ -401,7 +402,7 @@ fn a_stylesheet_read_and_written_back_through_the_scrub_is_unchanged() {
         "stopReason": "toolUse",
     }))
     .expect("the wire shape");
-    let written = restore_message(message);
+    let written = scrubber.tokens().restore_message(message);
     let AssistantContentBlock::ToolCall(call) = &written.content[0] else {
         panic!("a tool call: {written:?}");
     };

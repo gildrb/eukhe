@@ -10,7 +10,8 @@
 //!   groups when compressed, whose value is no loopback, unspecified, or
 //!   IPv4-mapped or -compatible loopback, 0.x or 255.x; an IPv4 that is
 //!   no version, loopback, 0.x or 255.x), all of them in one call.
-//! - The stepper ([`Tokens`]): the token map of the daemon. A personal
+//! - The stepper ([`Tokens`]): the token map of one session (eukhe-ai
+//!   `privacy::TokenMap` holds one per session). A personal
 //!   value's token is its index in its class, kept for the map's life; a
 //!   credential's is one way (its hash, which the host writes). One step
 //!   asks the tokens of one text's values, one step the values of one

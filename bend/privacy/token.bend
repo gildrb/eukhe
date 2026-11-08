@@ -1,7 +1,8 @@
 # privacy/token: the tokens of the outbound scrubber
 # (crates/eukhe-ai/src/privacy), as the compiled core runs them
 # (bend/ffi_privacy.bend's stepper; Rust: eukhe-bend rules/privacy.rs,
-# held by eukhe-ai privacy/mod.rs for the daemon's life).
+# one per session: eukhe-ai privacy/mod.rs `TokenMap`, for the session's
+# life).
 # laws/privacy/token.bend pins it against spec/harness/privacy.bend.
 #
 # 1. Classes. Personal values (PERSON, EMAIL, PHONE, IP, ID) map back:

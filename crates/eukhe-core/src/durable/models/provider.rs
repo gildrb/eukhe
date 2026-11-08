@@ -140,14 +140,16 @@ impl CarriedOptions {
 
 /// Send `context` to `model` through `send`. A remote model
 /// (`privacy.anonymizeRemote`, `eukhe_ai::privacy`) gets the scrubbed
-/// context, and its answer comes back restored, so the transcript, the
-/// user and every tool see the real strings. Every dispatch of the
-/// wrapped chain (the primary and each failover sibling) sends through
-/// here once, against the model it reaches, so no caller (turns, the
-/// compactor, branch summaries, side questions) can send raw text to a
-/// remote endpoint. Loopback models see the raw text.
+/// context, numbered in `privacy`, the session's token map, and its
+/// answer comes back restored with that map, so the transcript, the user
+/// and every tool see the real strings and no other session's value.
+/// Every dispatch of the wrapped chain (the primary and each failover
+/// sibling) sends through here once, against the model it reaches, so no
+/// caller (turns, the compactor, branch summaries, side questions) can
+/// send raw text to a remote endpoint. Loopback models see the raw text.
 fn send_private(
     settings: &Arc<crate::durable::EukheSettings>,
+    privacy: &eukhe_ai::privacy::TokenMap,
     model: &Model,
     context: &TranscriptContext,
     send: impl FnOnce(&TranscriptContext) -> AssistantMessageEventStream,
@@ -156,11 +158,11 @@ fn send_private(
     if !manager.get_privacy_anonymize_remote() || eukhe_ai::privacy::is_local(&model.base_url) {
         return send(context);
     }
-    let scrubber = eukhe_ai::privacy::Scrubber::new(&manager.get_privacy_terms());
+    let scrubber = eukhe_ai::privacy::Scrubber::new(&manager.get_privacy_terms(), privacy.clone());
     let outbound = TranscriptContext::from_normalized_messages(
         scrubber.scrub_messages(context.clone().into_messages()),
     );
-    eukhe_ai::privacy::restore_stream(send(&outbound))
+    privacy.restore_stream(send(&outbound))
 }
 
 /// The installed provider runtime of one session.
@@ -177,6 +179,9 @@ struct Inner {
     /// Every provider's original (unwrapped) stream functions, keyed by
     /// provider id: a failover re-dispatch must bypass the wrappers.
     originals: Mutex<HashMap<String, (StreamFn, StreamSimpleFn)>>,
+    /// The session's privacy token map (`privacy.anonymizeRemote`): it
+    /// opens empty with the session and goes with it.
+    privacy: eukhe_ai::privacy::TokenMap,
 }
 
 impl ProviderRuntime {
@@ -194,6 +199,7 @@ impl ProviderRuntime {
                 park: Mutex::new(None),
                 timing: Arc::new(timing::RequestTimingWiring::new(&deps.agent_dir)),
                 originals: Mutex::new(HashMap::new()),
+                privacy: eukhe_ai::privacy::TokenMap::default(),
             }),
         });
         for provider in models.get_providers() {
@@ -218,9 +224,10 @@ impl ProviderRuntime {
                 let dispatch: OriginalDispatch = {
                     let original = original_stream.clone();
                     let settings = Arc::clone(&inner.deps.settings);
+                    let privacy = inner.privacy.clone();
                     let options = options;
                     Arc::new(move |model, context| {
-                        send_private(&settings, model, context, |context| {
+                        send_private(&settings, &privacy, model, context, |context| {
                             original(model, context, options.clone())
                         })
                     })
@@ -243,9 +250,10 @@ impl ProviderRuntime {
                 let dispatch: OriginalDispatch = {
                     let original = original_simple.clone();
                     let settings = Arc::clone(&inner.deps.settings);
+                    let privacy = inner.privacy.clone();
                     let options = options;
                     Arc::new(move |model, context| {
-                        send_private(&settings, model, context, |context| {
+                        send_private(&settings, &privacy, model, context, |context| {
                             original(model, context, options.clone())
                         })
                     })
@@ -565,6 +573,7 @@ fn original_dispatch(
         .cloned();
     let models = inner.models.clone();
     let settings = Arc::clone(&inner.deps.settings);
+    let privacy = inner.privacy.clone();
     Arc::new(move |model: &Model, context: &TranscriptContext| {
         let Some((stream, stream_simple)) = original.clone() else {
             return create_assistant_message_event_stream();
@@ -572,6 +581,7 @@ fn original_dispatch(
         let models = models.clone();
         let carried = carried.clone();
         let settings = Arc::clone(&settings);
+        let privacy = privacy.clone();
         let (mut request_model, context) = (model.clone(), context.clone());
         lazy_stream(model, async move {
             let mut request = ProviderRequestOptions {
@@ -600,6 +610,7 @@ fn original_dispatch(
             // local: scrub (and restore) against the resolved target.
             Ok(send_private(
                 &settings,
+                &privacy,
                 &request_model,
                 &context,
                 |context| {
