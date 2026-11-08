@@ -592,6 +592,11 @@ import ./proof/tiny/tiny_ffi_request_round_trip.bend as PTinyFfiRequestRoundTrip
 import ./proof/tiny/tiny_ffi_answers.bend as PTinyFfiAnswers
 import ./proof/tiny/tiny_ffi_rejects_malformed.bend as PTinyFfiRejectsMalformed
 import ./proof/tiny/tiny_ffi_rejects_left_over.bend as PTinyFfiRejectsLeftOver
+import ./proof/tiny/tiny_ffi_answers_spelled.bend as PTinyFfiAnswersSpelled
+import ./proof/tiny/tiny_ffi_left_over_spelled.bend as PTinyFfiLeftOverSpelled
+import ./proof/tiny/tiny_ffi_reads_only_requests.bend as PTinyFfiReadsOnlyRequests
+import ./proof/tiny/tiny_ffi_malformed_unless_request.bend as PTinyFfiMalformedUnlessRequest
+import ./proof/tiny/tiny_ffi_tags_example.bend as PTinyFfiTagsExample
 import ./proof/tiny/tiny_terms_exact.bend as PTinyTermsExact
 import ./proof/tiny/tiny_worker_terms_exact.bend as PTinyWorkerTermsExact
 import ./proof/tiny/tiny_elect_spec.bend as PTinyElectSpec
