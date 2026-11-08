@@ -2007,6 +2007,9 @@ import ./proof/wire/wire_nats_decimal.bend as PWireNatsDecimal
 import ./proof/wire/wire_nats_reads_decimal.bend as PWireNatsReadsDecimal
 import ./proof/wire/wire_strs_decimal.bend as PWireStrsDecimal
 import ./proof/wire/wire_strs_reads_decimal.bend as PWireStrsReadsDecimal
+import ./proof/echo/echo_ffi_identity.bend as PEchoFfiIdentity
+import ./proof/echo/echo_stepper_history.bend as PEchoStepperHistory
+import ./proof/echo/echo_example.bend as PEchoExample
 import ./proof/effort/core_effort_answers_spelled/spell.bend as LAEffortSpell
 import ./proof/effort/core_effort_reads_only_requests/exact.bend as LAEffortExact
 import ./proof/effort/core_effort_answers_spelled.bend as PCoreEffortAnswersSpelled

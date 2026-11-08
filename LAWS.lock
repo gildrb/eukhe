@@ -914,6 +914,9 @@
     "laws/doc_tags.bend::tags_entry_example": "92bff4c1b82e78062ef50a384ae29eb1114e777637dfd3f902be625c44e53d77",
     "laws/doc_tags.bend::tags_entry_reads": "1b07818dbc5665309d25bd717c870846ca8250d65ac57752e67803f1e229e244",
     "laws/doc_tags.bend::tags_entry_refuses": "83bb46eed2b959c0a5213796db61cce1107d631f182faf22910ebc8ffacbce04",
+    "laws/echo.bend::echo_example": "623f197f6cb373763ce5f795334fa1556a6ae8214cde37d3f705350e7a705628",
+    "laws/echo.bend::echo_ffi_identity": "3d63cb2fc174f7d7de43a88e415de5f9c63a04d97c977ecece880e3628f09152",
+    "laws/echo.bend::echo_stepper_history": "f01e786ca7dcf461ab66ed3557a3904d2340b34de197edaf3fe1b1606c4c9fe9",
     "laws/effort.bend::core_effort_answers_spelled": "4138d65e9681956ec3ec15e40cbc63197b97e964c346ad9e15abeb7846c064ef",
     "laws/effort.bend::core_effort_clamp": "0c808accaff268fd82e2fc35e8b35c886324afce29016f17c6d0041f953c4d2c",
     "laws/effort.bend::core_effort_cycle": "d666646458e7a6af15198e266839ec008765907e85843bd1139759f491b3d904",
@@ -2461,7 +2464,7 @@
     "laws/workflow.bend::wfw_unknown_row_sts": "4799406a788972c824efbff2d177f286f0ed87215499ff20fa78efc59ae47c6e"
   },
   "spec": {
-    "LAWS.bend": "9440dd55130049a58a1c012ffd066071e9322e4db228f55cef04aa8cd77a6a35",
+    "LAWS.bend": "001c5f8f099879784e600593017b1f868834de35fe7eb2ee8ad2ffcb2611afea",
     "laws/admission.bend": "651564580cbb1ebe062f64c556f197b273d79521a7387feb25871f69da7abc1e",
     "laws/ai_text.bend": "ea21cf667dc82d2bb59d3426d10f645ee39d57f53f3e0ffeb9e3bf31a4a76097",
     "laws/approvals/desk.bend": "e638163606a58e3d62c5b538e39d61de086bdc2d65c3c49c0b46364054b17cce",
@@ -2514,6 +2517,7 @@
     "laws/doc_search.bend": "10725776a0c24b82746dcc33647a3694a8204fd5cb8391cb84e82bb0a4b28db0",
     "laws/doc_seen.bend": "900d43ad87b0ac7643fdcb42a24d8e94e995cd161053a5d908d28ed2fa05b78f",
     "laws/doc_tags.bend": "61e375a4247048d28e4bdac303e75cf38b2f8e9390cc9d68eb2a2e20c657ab5c",
+    "laws/echo.bend": "7b2bb6ec26d6e3dfebecb04f4dfe47358fdee577cb4b0dda6d1e2bebb6ae7f07",
     "laws/effort.bend": "ad4bdcda7dc060ed2d276d1ff8ae2dcf31d10963e32cbaf2f1b92015643fd299",
     "laws/err_text.bend": "48c809855a3e8d49404e48ab87f0dc10997be67d05d7f97eb391eb441c9966e6",
     "laws/error_body.bend": "7f4379f5d892c8aa87b8b4aaf7347b8e6461d29410abdee3c6e6707733cf326e",
