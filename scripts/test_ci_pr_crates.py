@@ -94,6 +94,19 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-gateway,eukhe-tui")
 
+    def test_client_only_runs_every_client_dependent(self):
+        rc, out, outputs = run_mapper(["crates/eukhe-client/src/lib.rs"])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(
+            outputs["crates"],
+            "eukhe-cli,eukhe-client,eukhe-dashboard,eukhe-gateway,eukhe-tui",
+        )
+
+    def test_dashboard_only_runs_cli_too(self):
+        rc, out, outputs = run_mapper(["crates/eukhe-dashboard/src/lib.rs"])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-dashboard")
+
     def test_an_unknown_crate_fails_safe(self):
         rc, out, outputs = run_mapper(["crates/eukhe-future/src/lib.rs"])
         self.assertEqual(rc, 0, out)

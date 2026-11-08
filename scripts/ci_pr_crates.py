@@ -48,9 +48,10 @@ WORKSPACE_DEPS = {
     "eukhe-client": {"eukhe-types", "eukhe-build-info"},
     "eukhe-tui": {"eukhe-types", "eukhe-build-info", "eukhe-core", "eukhe-client"},
     "eukhe-gateway": {"eukhe-types", "eukhe-client", "eukhe-tui"},
+    "eukhe-dashboard": {"eukhe-types", "eukhe-build-info", "eukhe-client"},
     "eukhe-cli": {"eukhe-types", "eukhe-build-info", "eukhe-chord", "eukhe-ai",
                   "eukhe-durable", "eukhe-models", "eukhe-docs", "eukhe-core", "eukhe-daemon",
-                  "eukhe-client", "eukhe-tui", "eukhe-gateway"},
+                  "eukhe-client", "eukhe-tui", "eukhe-gateway", "eukhe-dashboard"},
 }
 
 
