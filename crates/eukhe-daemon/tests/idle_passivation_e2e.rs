@@ -46,6 +46,18 @@ use daemon::supervisor_command;
 use process::Daemon;
 use process_table::process_alive;
 
+/// Whether `pid` still holds a process-table entry. On Linux that is its
+/// `/proc` entry, which a zombie keeps until its parent reaps it, so a
+/// supervisor that stops reaping the workers it retires fails the waits
+/// below; elsewhere the zombie-blind liveness probe answers.
+fn process_present(pid: u32) -> bool {
+    if cfg!(target_os = "linux") {
+        Path::new(&format!("/proc/{pid}")).exists()
+    } else {
+        process_alive(pid)
+    }
+}
+
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
     let log_err = log_file.try_clone().expect("clone log file");
@@ -308,7 +320,7 @@ async fn a_settled_child_passivates_stays_listable_and_revives_by_agent_message(
     let child_pid =
         worker_pid(&agent_dir, &child_active_session_id).expect("the child worker's pid");
     assert!(process_alive(child_pid));
-    let child_alive = || process_alive(child_pid);
+    let child_alive = || process_present(child_pid);
 
     // THE PASSIVATION ASK: the child worker's supervisor-link request
     // (the worker-side clock and gates are unit-covered; this drives the
@@ -671,7 +683,7 @@ async fn a_parent_rename_after_a_revival_and_second_passivation_reaches_the_chil
         "the second idle passivation must succeed: {passivated}"
     );
     let deadline = Instant::now() + Duration::from_secs(60);
-    while process_alive(revived_pid) {
+    while process_present(revived_pid) {
         assert!(
             Instant::now() < deadline,
             "the revived worker survived the second passivation"
@@ -787,7 +799,7 @@ async fn an_idle_root_passivates_and_resumes_by_its_durable_id_with_its_transcri
 
     // The root worker's process is gone (the whole-worker stop).
     let deadline = Instant::now() + Duration::from_secs(60);
-    while process_alive(root_pid) {
+    while process_present(root_pid) {
         assert!(
             Instant::now() < deadline,
             "the root worker process survived the passivation"
