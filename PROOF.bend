@@ -1941,6 +1941,14 @@ import ./proof/wire/wire_nats_decimal.bend as PWireNatsDecimal
 import ./proof/wire/wire_nats_reads_decimal.bend as PWireNatsReadsDecimal
 import ./proof/wire/wire_strs_decimal.bend as PWireStrsDecimal
 import ./proof/wire/wire_strs_reads_decimal.bend as PWireStrsReadsDecimal
+import ./proof/effort/core_effort_answers_spelled/spell.bend as LAEffortSpell
+import ./proof/effort/core_effort_reads_only_requests/exact.bend as LAEffortExact
+import ./proof/effort/core_effort_answers_spelled.bend as PCoreEffortAnswersSpelled
+import ./proof/effort/core_effort_left_over_spelled.bend as PCoreEffortLeftOverSpelled
+import ./proof/effort/core_effort_unknown_request.bend as PCoreEffortUnknownRequest
+import ./proof/effort/core_effort_reads_only_requests.bend as PCoreEffortReadsOnlyRequests
+import ./proof/effort/core_effort_malformed_unless_request.bend as PCoreEffortMalformedUnlessRequest
+import ./proof/effort/core_effort_tags_example.bend as PCoreEffortTagsExample
 import ./proof/command/command_ffi_example.bend as PCommandFfiExample
 import ./proof/command/command_spacing_example.bend as PCommandSpacingExample
 import ./proof/command/base/entry.bend as LACommandEntry
