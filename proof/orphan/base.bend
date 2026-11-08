@@ -5,6 +5,9 @@ import ../../bend/ffi_orphan.bend as FO
 import ../../bend/orphan.bend as Or
 import ../../laws/orphan.bend as Orphan
 import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
+import ../base/wire.bend as LWire
+import ../base/logic/bool.bend as LLogicBool
 import ./orphan_work_exit_due.bend as POrphanWorkExitDue
 
 def ps.ffi_work(k: Or.Work, +r: String) -> {Wr.Got{k, r} == FO.get_work(FO.put_work(k, r)) : Wr.Dec<Or.Work>}:
@@ -13,6 +16,64 @@ def ps.ffi_work(k: Or.Work, +r: String) -> {Wr.Got{k, r} == FO.get_work(FO.put_w
       {==}
     case Or.Ongoing{}:
       {==}
+
+# The entry, by the grammar's spelling
+# ------------------------------------
+
+# a spelled window that fits reads back
+def oe.window(m: Maybe<&2, Nat>, +r: String, fm: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, r} == FO.get_window(Orphan.orphan_spell_mwindow(m, r)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      %LWire.ps.ffi_nat(0n, r, {==}) : {Wr.Got{None{}, r} == FO.get_window.of(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+    case Some{+n}:
+      %LWire.ps.ffi_nat(1n, Wr.put_nat(n, r), {==}) : {Wr.Got{Some{n}, r} == FO.get_window.of(_) : Wr.Dec<Maybe<&2, Nat>>}
+      %LWire.ps.ffi_nat(n, r, fm) : {Wr.Got{Some{n}, r} == FO.get_window.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+# a spelled work reads back
+def oe.work(k: Or.Work, +r: String) -> {Wr.Got{k, r} == FO.get_work(Orphan.orphan_spell_work(k, r)) : Wr.Dec<Or.Work>}:
+  match k:
+    case Or.Idle{}:
+      {==}
+    case Or.Ongoing{}:
+      {==}
+
+# a spelled request that fits reads back
+def oe.req(q: FO.Req, +rest: String, fits: {Orphan.orphan_req_fits(q) == True{} : Bool}) -> {Wr.Got{q, rest} == FO.get_req(Orphan.orphan_spell_req(q, rest)) : Wr.Dec<FO.Req>}:
+  match q:
+    case FO.Req{+m, +a, +k}:
+      +fs = fits
+      %oe.window(m, Wr.put_nat(a, Orphan.orphan_spell_work(k, rest)), LLogicBool.pq.and_l(LawsBase.wire_mfits(m), LawsBase.wire_fits(a), fs)) : {Wr.Got{FO.Req{m, a, k}, rest} == FO.get_req.window(_) : Wr.Dec<FO.Req>}
+      %LWire.ps.ffi_nat(a, Orphan.orphan_spell_work(k, rest), LLogicBool.pq.and_r(LawsBase.wire_mfits(m), LawsBase.wire_fits(a), fs)) : {Wr.Got{FO.Req{m, a, k}, rest} == FO.get_req.absent(m, _) : Wr.Dec<FO.Req>}
+      %oe.work(k, rest) : {Wr.Got{FO.Req{m, a, k}, rest} == FO.get_req.work(m, a, _) : Wr.Dec<FO.Req>}
+      {==}
+
+# a spelled request that fits, then rest, runs to the entry's last stage
+def oe.run(+q: FO.Req, +rest: String, fits: {Orphan.orphan_req_fits(q) == True{} : Bool}) -> {FO.ffi(Orphan.orphan_spell_req(q, rest)) == FO.ffi.fin(Wr.end(rest), q) : String}:
+  %oe.req(q, rest, fits) : {FO.ffi.go(_) == FO.ffi.fin(Wr.end(rest), q) : String}
+  {==}
+
+def oe.answer.at(m: Maybe<&2, Nat>, +a: Nat, k: Or.Work) -> {FO.put_reply(FO.decide(FO.Req{m, a, k}), "") == Orphan.orphan_spell_answer(FO.Req{m, a, k}) : String}:
+  match m:
+    case None{}:
+      match k:
+        case Or.Idle{}:
+          {==}
+        case Or.Ongoing{}:
+          {==}
+    case Some{+w}:
+      match k:
+        case Or.Idle{}:
+          {==}
+        case Or.Ongoing{}:
+          Equal.cong(Bool, String, x => Wr.put_bool(x, Wr.put_nat(1n, "")), Or.exit_due.at(Some{w}, a, Or.Ongoing{}), Nat.is_le(Nat.add(w, w), a), Orphan.orphan_work_exit_due(w, a))
+
+# the entry's reply on the model's decision is the spelled spec decision
+def oe.answer(q: FO.Req) -> {FO.put_reply(FO.decide(q), "") == Orphan.orphan_spell_answer(q) : String}:
+  match q:
+    case FO.Req{m, +a, k}:
+      oe.answer.at(m, a, k)
 
 # The event machine by its history
 # --------------------------------

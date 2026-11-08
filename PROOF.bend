@@ -1012,6 +1012,13 @@ import ./proof/orphan/orphan_live_not_due.bend as POrphanLiveNotDue
 import ./proof/orphan/orphan_next_by_history.bend as POrphanNextByHistory
 import ./proof/orphan/orphan_exited_stays.bend as POrphanExitedStays
 import ./proof/orphan/orphan_history_example.bend as POrphanHistoryExample
+import ./proof/orphan/orphan_ffi_answers_spelled.bend as POrphanFfiAnswersSpelled
+import ./proof/orphan/orphan_ffi_left_over_spelled.bend as POrphanFfiLeftOverSpelled
+import ./proof/orphan/orphan_ffi_unknown_work.bend as POrphanFfiUnknownWork
+import ./proof/orphan/orphan_ffi_unknown_window.bend as POrphanFfiUnknownWindow
+import ./proof/orphan/orphan_ffi_reads_only_requests.bend as POrphanFfiReadsOnlyRequests
+import ./proof/orphan/orphan_ffi_malformed_unless_request.bend as POrphanFfiMalformedUnlessRequest
+import ./proof/orphan/orphan_ffi_tags_example.bend as POrphanFfiTagsExample
 import ./proof/launcher/idle_shutdown_never_aborts.bend as PIdleShutdownNeverAborts
 import ./proof/launcher/adopt_same_build.bend as PAdoptSameBuild
 import ./proof/launcher/base.bend as LALauncher

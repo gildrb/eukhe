@@ -355,3 +355,138 @@ law orphan_ffi_left_over:
   for h: {FO.get_req(s) == Wr.Got{q, r} : Wr.Dec<FO.Req>}
   for ne: {String.is_empty(r) == False{} : Bool}
   {FO.ffi(s) == Wr.err("orphan: input left over") : String}
+
+# The orphan entry, spelled by the grammar Rust writes and reads
+# (crates/eukhe-daemon/src/work_gate.rs `orphan_call`), not by the entry's
+# own encoders
+
+# a window: 0 none (past the wire's range), 1 then the window in ms
+def orphan_spell_mwindow(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# the work: Idle 0, Ongoing 1
+def orphan_spell_work(k: Or.Work, rest: String) -> String:
+  match k:
+    case Or.Idle{}:
+      Wr.put_nat(0n, rest)
+    case Or.Ongoing{}:
+      Wr.put_nat(1n, rest)
+
+# the exit: Shut 0, Handover 1
+def orphan_spell_exit(e: Or.Exit, rest: String) -> String:
+  match e:
+    case Or.Shut{}:
+      Wr.put_nat(0n, rest)
+    case Or.Handover{}:
+      Wr.put_nat(1n, rest)
+
+# a request: the window, the ms absent, the work, then rest
+def orphan_spell_req(q: FO.Req, rest: String) -> String:
+  match q:
+    case FO.Req{m, a, k}:
+      orphan_spell_mwindow(m, Wr.put_nat(a, orphan_spell_work(k, rest)))
+
+# every number of a request fits the wire
+def orphan_req_fits(q: FO.Req) -> Bool:
+  match q:
+    case FO.Req{m, a, k}:
+      Bool.and(LawsBase.wire_mfits(m), LawsBase.wire_fits(a))
+
+# whether the worker exits now: no window never; without work once the
+# window passed; with work once two windows passed
+def orphan_due_spec(m: Maybe<&2, Nat>, +a: Nat, k: Or.Work) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+w}:
+      match k:
+        case Or.Idle{}:
+          Nat.is_le(w, a)
+        case Or.Ongoing{}:
+          Nat.is_le(Nat.add(w, w), a)
+
+# the spelled reply of the spec's decision on request q: due, then the exit
+def orphan_spell_answer(q: FO.Req) -> String:
+  match q:
+    case FO.Req{m, +a, +k}:
+      Wr.put_bool(orphan_due_spec(m, a, k), orphan_spell_exit(orphan_exit_spec(k), ""))
+
+# LAW orphan_ffi_answers_spelled: a request spelled by the grammar, every number within the
+# wire, is answered with the grammar's spelling of the decision: T when the
+# exit is due (no window: never; no work: once the window passed; work:
+# once two windows passed), else F, then the exit tag (0 shut without
+# work, 1 handover with work)
+# EXCLUDES: a due flag written reversed, an exit, work or window tag that
+#   drifts from the grammar Rust reads and writes (swapped on both sides of
+#   the entry alike), a field lost, swapped or defaulted
+law orphan_ffi_answers_spelled:
+  for +q: FO.Req
+  for fits: {orphan_req_fits(q) == True{} : Bool}
+  {FO.ffi(orphan_spell_req(q, "")) == orphan_spell_answer(q) : String}
+
+# LAW orphan_ffi_left_over_spelled: a spelled request that fits, followed by any more input,
+# answers the error form "orphan: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request
+law orphan_ffi_left_over_spelled:
+  for +q: FO.Req
+  for fits: {orphan_req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FO.ffi(orphan_spell_req(q, SCon{c, t})) == Wr.err("orphan: input left over") : String}
+
+# LAW orphan_ffi_unknown_work: a spelled window and absence that fit, then a work tag of 2 or
+# more (of any length), answer the error form "orphan: malformed request",
+# whatever follows
+# EXCLUDES: an unknown work tag read as a known work, or as another error
+law orphan_ffi_unknown_work:
+  for +m: Maybe<&2, Nat>
+  for +a: Nat
+  for fits: {Bool.and(LawsBase.wire_mfits(m), LawsBase.wire_fits(a)) == True{} : Bool}
+  for +n: Nat
+  for +rest: String
+  {FO.ffi(orphan_spell_mwindow(m, Wr.put_nat(a, Wr.put_nat(2n+n, rest)))) == Wr.err("orphan: malformed request") : String}
+
+# LAW orphan_ffi_unknown_window: a window tag of 2 or more (of any length) answers the error
+# form "orphan: malformed request", whatever follows
+# EXCLUDES: an unknown window tag read as none or some window
+law orphan_ffi_unknown_window:
+  for +n: Nat
+  for +rest: String
+  {FO.ffi(Wr.put_nat(2n+n, rest)) == Wr.err("orphan: malformed request") : String}
+
+# LAW orphan_ffi_reads_only_requests: an answer that is not the error form answers a request:
+# the input is exactly the spelling of a request whose numbers fit the
+# wire, and the answer is the spelled reply of the spec's decision on it
+# EXCLUDES: a decoder that accepts an unknown tag (window or work), a
+#   missing or extra field, or input left over, and answers it anyway (a
+#   default instead of the error form)
+law orphan_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FO.ffi(s)) == False{} : Bool}
+  exs q: FO.Req
+  {(s, (orphan_req_fits(q), FO.ffi(s))) == (orphan_spell_req(q, ""), (True{}, orphan_spell_answer(q))) : String & (Bool & String)}
+
+# LAW orphan_ffi_malformed_unless_request: every answer but the error form "orphan: malformed
+# request" comes from an input that begins with a spelled request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law orphan_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FO.ffi(s), Wr.err("orphan: malformed request")) == False{} : Bool}
+  exs q: FO.Req
+  exs rest: String
+  {(s, orphan_req_fits(q)) == (orphan_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW orphan_ffi_tags_example: anchor: the bytes Rust sends and reads: window 2, 5 ms absent,
+# no work: due, shut (T0,); 1 ms absent: not due (F0,); work, 4 ms: due,
+# handover (T1,); work, 3 ms: not due, handover (F1,); no window, 9 ms:
+# never due (F0,); work tag 2 and window tag 2 are malformed; a request
+# with input left over is refused
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, a reversed due flag, an unknown tag read as a known one
+law orphan_ffi_tags_example:
+  {[FO.ffi("1,2,5,0,"), FO.ffi("1,2,1,0,"), FO.ffi("1,2,4,1,"), FO.ffi("1,2,3,1,"), FO.ffi("0,9,0,"), FO.ffi("1,2,5,2,"), FO.ffi("2,5,0,"), FO.ffi("1,2,5,0,x")] == ["T0,", "F0,", "T1,", "F1,", "F0,", Wr.err("orphan: malformed request"), Wr.err("orphan: malformed request"), Wr.err("orphan: input left over")] : List<&2, String>}
