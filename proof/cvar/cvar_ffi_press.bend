@@ -3,7 +3,7 @@
 import Base
 import ../../bend/ffi_cvar.bend as FCv
 import ../../bend/wire.bend as Wr
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/entry.bend as Cvar
 import ../../laws/wire.bend as Wire
 import ../base/wire.bend as LWire
 

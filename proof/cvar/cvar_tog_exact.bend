@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/resolution.bend as Cvar
 import ./base/resolve.bend as LR
 
 def tg.flip(+x: Nat, m: Maybe<&2, Cv.Val>) -> {Cv.tog.flip(Cv.flip(x, m)) == Cvar.spec_tog.flip(x, m) : Cv.Tog}:

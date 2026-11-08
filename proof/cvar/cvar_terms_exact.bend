@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/resolution.bend as Cvar
 import ./base/resolve.bend as LR
 
 def tm.unique(ds: List<&2, Cv.Decl>) -> {Cv.unique(ds) == Cvar.spec_unique(ds) : Bool}:

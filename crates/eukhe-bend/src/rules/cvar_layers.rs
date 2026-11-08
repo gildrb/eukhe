@@ -1,7 +1,7 @@
 //! The resolution of the cvars (docs/control.md S4): the model
 //! `bend/cvar.bend` (`refusal`, `value`, `layered`, `tog`, `check`,
 //! `written`, `document`), entry `bend/ffi_cvar_layers.bend`, laws
-//! `laws/cvar.bend` and `laws/cvar_layers.bend`.
+//! `laws/cvar/` and `laws/cvar_layers.bend`.
 //!
 //! The model sees numbers: the caller numbers the cvars, and a value is a
 //! Bool (a toggle flips it) or a number, the caller's reference to a value

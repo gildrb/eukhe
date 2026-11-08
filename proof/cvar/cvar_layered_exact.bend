@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/resolution.bend as Cvar
 import ./base/resolve.bend as LR
 
 def Cvar.cvar_layered_exact(ds, cfg, fam, x):

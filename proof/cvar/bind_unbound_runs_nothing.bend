@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 
 def Cvar.bind_unbound_runs_nothing(bs, k, as, free):
   %Equal.sym(List<&2, Cv.Cmd>, Cv.bound(bs, k), Nil{}, free) : {Cv.expand(_, as) == Cv.Flat{Nil{}} : Cv.Exp}

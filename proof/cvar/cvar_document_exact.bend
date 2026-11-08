@@ -6,7 +6,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/resolution.bend as Cvar
 import ./base/resolve.bend as LR
 
 def dc.one(+x: Nat, m: Maybe<&2, Cv.Val>, +r: List<&2, Cv.Bind>) -> {Cv.doc.one(x, m, r) == Cvar.spec_doc.one(x, m, r) : List<&2, Cv.Bind>}:

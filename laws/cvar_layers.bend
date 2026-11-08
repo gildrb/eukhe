@@ -13,7 +13,7 @@ import ./base.bend as LawsBase
 # value of each cvar and the value a layer sets, the verdict on a set and
 # on a toggle, the sets an agent writes, the config sets of a settings
 # document. Each law is a claim about FCL.ffi, bytes in and bytes out; the
-# model's decisions are pinned whole by laws/cvar.bend (cvar resolution).
+# model's decisions are pinned whole by laws/cvar/resolution.bend (cvar resolution).
 # Every input is free: any request, any text.
 #
 # R1: a request Rust writes (the grammar below, every Nat within the wire)

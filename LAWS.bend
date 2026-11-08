@@ -14,7 +14,9 @@ import ./laws/job.bend as Job
 import ./laws/job_step.bend as JobStep
 import ./laws/tool_call.bend as ToolCall
 import ./laws/sandbox.bend as Sandbox
-import ./laws/cvar.bend as Cvar
+import ./laws/cvar/model.bend as Cvar
+import ./laws/cvar/entry.bend as CvarEntry
+import ./laws/cvar/resolution.bend as CvarResolution
 import ./laws/cvar_layers.bend as CvarLayers
 import ./laws/director.bend as Director
 import ./laws/infer.bend as Infer

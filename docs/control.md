@@ -51,7 +51,7 @@ One command language for cfg files, the `/set` family and key binds. Line = comm
    - Unreadable `binds.cfg` or unwritable import: warning at startup and `/reload`.
 6. `/cvar save` writes the agent's `persist` sets to `agents/<name>.cfg`; read back as profile, same values.
 
-Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `tog`, `written`, `document`, `toggle`, `expand`, `press`). Laws: `laws/cvar.bend` (S4), `laws/cvar_layers.bend` (the entry). Proofs: `proof/cvar/`, `proof/cvar_layers/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds, any request text.
+Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `tog`, `written`, `document`, `toggle`, `expand`, `press`). Laws: `laws/cvar/` (S4: `model.bend` the registry, values, expansion and presses; `resolution.bend` each resolution decision against a spec; `entry.bend` the expand and press entry), `laws/cvar_layers.bend` (the entry). Proofs: `proof/cvar/`, `proof/cvar_layers/`. Free inputs: any declarations (duplicate ids, wrong defaults), config, agent family with any profiles and sets (wrong types, Global cvars, undeclared ids), alias table, binds, any request text.
 
 | Law | Says |
 | --- | --- |
@@ -89,7 +89,7 @@ Model: `bend/cvar.bend` (`registry`, `refusal`, `value`, `layered`, `check`, `to
 Code:
 
 - `eukhe-types/src/cvar.rs` (command language): `parse_list`, `parse_script`, `Aliases`, `Binds`, `ExpandError`.
-- `eukhe-bend/src/rules/cvar.rs`: `expand`, `Presses`: expansion and key presses run as the compiled model (entry `bend/ffi_cvar.bend`, laws `laws/cvar.bend`); a press table lives in the core, so a press sends only its key.
+- `eukhe-bend/src/rules/cvar.rs`: `expand`, `Presses`: expansion and key presses run as the compiled model (entry `bend/ffi_cvar.bend`, laws `laws/cvar/entry.bend`); a press table lives in the core, so a press sends only its key.
 - `eukhe-bend/src/rules/cvar_layers.rs`: `refusal`, `values`, `toggle`, `check`, `written`, `document`: every resolution decision runs as the compiled model (entry `bend/ffi_cvar_layers.bend`, id 64). The model sees numbers: a cvar is its place in the table, a non-Bool value a reference Rust keeps, crossing with its cvar's type when `CvarType::admits` it (Rust reads value syntax only).
 - `eukhe-core/src/settings/cvar.rs`: `Registry` (the core's refusal), `Cvars` (keeps the layers; the core resolves every value in one call after a change, on the first read), `Cvars::check`, `Cvars::execute`, `Sets::written`, `document_sets`; `settings/cvar/table.rs` (declarations).
 - `settings/cfg.rs`: config layer (`settings.json`, then `config.cfg` files under trust rules).

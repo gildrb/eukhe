@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 

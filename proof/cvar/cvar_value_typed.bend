@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 import ./base.bend as LA
 
 def pv.MD(m: Maybe<&2, Cv.Decl>, n: Type, s: Type) -> Type:

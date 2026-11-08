@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 
 # reversing a concatenation: the second, reversed onto the first reversed
 def pv.rev_app(z: List<&2, Cv.Cmd>, +y: List<&2, Cv.Cmd>, +p: List<&2, Cv.Cmd>) -> {Cv.rev(List.append(&2, Cv.Cmd, z, y), p) == Cv.rev(y, Cv.rev(z, p)) : List<&2, Cv.Cmd>}:

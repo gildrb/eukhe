@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 
 def pv.gone(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>, +out: List<&2, Cv.Cmd>) -> {Cv.expand.go(k, [Cv.CGone{n}], as, Cv.Flat{out}) == Cv.Unknown{n} : Cv.Exp}:
   match k:

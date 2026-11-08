@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/resolution.bend as Cvar
 import ./base/resolve.bend as LR
 
 def wr.flag(m: Maybe<&2, Cv.Decl>, f: Cv.Flag) -> {Cv.flag.at(m, f) == Cvar.spec_flag.at(m, f) : Bool}:

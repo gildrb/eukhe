@@ -4,7 +4,7 @@ import Base
 import ../../bend/cvar.bend as Cv
 import ../../bend/ffi_cvar.bend as FCv
 import ../../bend/wire.bend as Wr
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/entry.bend as Cvar
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 import ./base.bend as LA
 
 def Cvar.bind_first_wins(k, c, rest, as):

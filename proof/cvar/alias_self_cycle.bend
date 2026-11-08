@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/cvar.bend as Cv
-import ../../laws/cvar.bend as Cvar
+import ../../laws/cvar/model.bend as Cvar
 import ./base.bend as LA
 
 def pv.self(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>, +out: List<&2, Cv.Cmd>) -> {Cv.expand.go(k, [Cv.CRun{n}], Cv.Alias{n, [Cv.CRun{n}]} <> as, Cv.Flat{out}) == Cv.Cycle{n} : Cv.Exp}:
