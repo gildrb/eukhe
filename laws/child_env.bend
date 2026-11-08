@@ -243,3 +243,97 @@ law env_ffi_left_over:
 # LAW env_req_fits_example: witness: a request fits
 law env_req_fits_example:
   {env_req_fits(FEnv.Req{["OPENAI_API_KEY"], ["GITHUB_TOKEN"], [Env.Var{"PATH", "0"}], [Env.Var{"HOME", "1"}]}) == True{} : Bool}
+
+# The entry, spelled by the grammar Rust writes and reads
+# (crates/eukhe-core/src/kernel/manager/startup.rs `child_env` and
+# `read_env`), not by the entry's own encoders
+
+# a variable: its name, then its value (a string each)
+def env_spell_var(v: Env.Var, rest: String) -> String:
+  match v:
+    case Env.Var{n, x}:
+      Wr.put_str(n, Wr.put_str(x, rest))
+
+# the variables of xs, each spelled, then rest
+def env_spell_vars.items(xs: List<&2, Env.Var>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      env_spell_var(x, env_spell_vars.items(t, rest))
+
+# a list of variables: its count, then each variable
+def env_spell_vars(+xs: List<&2, Env.Var>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Env.Var, xs), env_spell_vars.items(xs, rest))
+
+# a request: the registry and the keep list (lists of strings), then the
+# base and the overlay (lists of variables), then rest
+def env_spell_req(q: FEnv.Req, rest: String) -> String:
+  match q:
+    case FEnv.Req{r, k, b, o}:
+      LawsBase.wire_spell_strs(r, LawsBase.wire_spell_strs(k, env_spell_vars(b, env_spell_vars(o, rest))))
+
+# the spelled reply of the model's decision on request q: the variables of
+# the environment of the child
+def env_spell_answer(q: FEnv.Req) -> String:
+  match q:
+    case FEnv.Req{r, k, b, o}:
+      env_spell_vars(Env.child(r, k, b, o), "")
+
+# LAW env_ffi_answers_spelled: a request spelled by the grammar, every count and length within
+# the wire, is answered with the grammar's spelling of the environment of
+# the child (Env.child of the registry, the keep list, the base and the
+# overlay): its count, then each variable's name and value
+# EXCLUDES: a field order, a variable's name and value, or a list count
+#   that drifts from the grammar Rust reads and writes (swapped on both
+#   sides of the entry alike); a field lost, swapped or defaulted
+law env_ffi_answers_spelled:
+  for +q: FEnv.Req
+  for fits: {env_req_fits(q) == True{} : Bool}
+  {FEnv.ffi(env_spell_req(q, "")) == env_spell_answer(q) : String}
+
+# LAW env_ffi_left_over_spelled: a spelled request that fits, followed by any more input, answers
+# the error form "child_env: input left over"
+# EXCLUDES: trailing input ignored, read as part of the request, or
+#   answered with the malformed error
+law env_ffi_left_over_spelled:
+  for +q: FEnv.Req
+  for fits: {env_req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FEnv.ffi(env_spell_req(q, SCon{c, t})) == Wr.err("child_env: input left over") : String}
+
+# LAW env_ffi_reads_only_requests: an answer that is not the error form answers a request: the
+# input is exactly the spelling of a request whose counts and lengths fit
+# the wire, and the answer is the spelled environment of the child
+# EXCLUDES: a decoder that accepts a count larger or smaller than its
+#   items, a short string, a missing or extra field, or input left over,
+#   and answers it anyway (a default instead of the error form)
+law env_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FEnv.ffi(s)) == False{} : Bool}
+  exs q: FEnv.Req
+  {(s, (env_req_fits(q), FEnv.ffi(s))) == (env_spell_req(q, ""), (True{}, env_spell_answer(q))) : String & (Bool & String)}
+
+# LAW env_ffi_malformed_unless_request: every answer but the error form "child_env: malformed
+# request" comes from an input that begins with a spelled request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law env_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FEnv.ffi(s), Wr.err("child_env: malformed request")) == False{} : Bool}
+  exs q: FEnv.Req
+  exs rest: String
+  {(s, env_req_fits(q)) == (env_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW env_ffi_tags_example: anchor: the bytes Rust sends and reads: a provider name X in the
+# registry, no kept name, a base of X (value 0) and P (value 1), an
+# overlay of P (value 2): only P with the overlay's value 2 reaches the
+# child; nothing at all; a count larger than its items, a string shorter
+# than its length, a missing list are malformed; a request with input left
+# over is refused
+# EXCLUDES: a grammar both sides of the Bend entry agree on but Rust does
+#   not (a value before its name, a count after its items), a provider
+#   name kept, the base's value over the overlay's
+law env_ffi_tags_example:
+  {[FEnv.ffi("1,1,X0,2,1,X1,01,P1,11,1,P1,2"), FEnv.ffi("0,0,0,0,"), FEnv.ffi("2,1,X"), FEnv.ffi("1,2,X"), FEnv.ffi("0,0,0,"), FEnv.ffi("0,0,0,0,x")] == ["1,1,P1,2", "0,", Wr.err("child_env: malformed request"), Wr.err("child_env: malformed request"), Wr.err("child_env: malformed request"), Wr.err("child_env: input left over")] : List<&2, String>}

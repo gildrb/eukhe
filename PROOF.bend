@@ -1233,6 +1233,11 @@ import ./proof/child_env/env_ffi_is_child.bend as PEnvFfiIsChild
 import ./proof/child_env/env_ffi_malformed.bend as PEnvFfiMalformed
 import ./proof/child_env/env_ffi_left_over.bend as PEnvFfiLeftOver
 import ./proof/child_env/env_req_fits_example.bend as PEnvReqFitsExample
+import ./proof/child_env/env_ffi_answers_spelled.bend as PEnvFfiAnswersSpelled
+import ./proof/child_env/env_ffi_left_over_spelled.bend as PEnvFfiLeftOverSpelled
+import ./proof/child_env/env_ffi_reads_only_requests.bend as PEnvFfiReadsOnlyRequests
+import ./proof/child_env/env_ffi_malformed_unless_request.bend as PEnvFfiMalformedUnlessRequest
+import ./proof/child_env/env_ffi_tags_example.bend as PEnvFfiTagsExample
 import ./proof/runners/base.bend as LARunners
 import ./proof/runners/gate_covers_every_runner.bend as PGateCoversEveryRunner
 import ./proof/runners/ipython_gated_each_call.bend as PIpythonGatedEachCall
