@@ -358,3 +358,211 @@ law tree_ffi_fits_exists:
 # EXCLUDES: a field order or a tag that differs from the Rust side
 law tree_ffi_example:
   {[Ft.put_ask(Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""), Ft.put_ask(Tr.Note{Tr.Do{Tr.Del{2n}}}, ""), Ft.put_ask(Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""), Ft.put_ask(Tr.Plan{4n}, ""), Ft.put_ask(Tr.Snap{5n}, ""), Ft.put_ans(Tr.Kept{}, ""), Ft.put_ans(Tr.Took{}, ""), Ft.put_ans(Tr.Cut{[2n, 3n]}, ""), Ft.put_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}, ""), Ft.put_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]}, "")] == ["0,0,0,2,1,7,", "0,0,1,2,", "0,1,2,1,3,0,2,1,0,", "1,4,", "2,5,", "0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>}
+
+# The spelled entry
+# -----------------
+# The bytes Rust writes and reads (crates/eukhe-durable src/tree/journal.rs),
+# spelled from the wire's primitives only, never with the entry's own
+# put_*/get_*: a tag, a field order or a count that drifts on both sides of
+# the entry alike breaks these laws. With them, every input of a live step
+# is pinned: a spelled ask that fits answers the core's step
+# (tree_ffi_answers_spelled), the same followed by more input answers the
+# left-over error (tree_ffi_left_over_spelled), any other input answers
+# the malformed error (tree_ffi_malformed_unless_ask), and every error
+# keeps the core (tree_ffi_error_keeps). The open is pinned by
+# tree_ffi_open* on the wire's own list of Nats, a refused open by
+# tree_ffi_refused.
+
+# an op: 0, key, parent, value (put) | 1, key (delete)
+def tree.spell_op(o: Tr.Op, rest: String) -> String:
+  match o:
+    case Tr.Put{k, p, v}:
+      Wr.put_nat(0n, Wr.put_nat(k, Wr.put_nat(p, Wr.put_nat(v, rest))))
+    case Tr.Del{k}:
+      Wr.put_nat(1n, Wr.put_nat(k, rest))
+
+# the ops of a rewind, each spelled, then rest
+def tree.spell_ops(ops: List<&2, Tr.Op>, rest: String) -> String:
+  match ops:
+    case Nil{}:
+      rest
+    case o <> more:
+      tree.spell_op(o, tree.spell_ops(more, rest))
+
+# an ask: 0 then a record (0 then an op: do | 1, the count of ops, then
+# the ops: rewind) | 1, n (plan) | 2, n (snapshot)
+def tree.spell_ask(q: Tr.Ask, rest: String) -> String:
+  match q:
+    case Tr.Note{r}:
+      match r:
+        case Tr.Do{o}:
+          Wr.put_nat(0n, Wr.put_nat(0n, tree.spell_op(o, rest)))
+        case Tr.Rewind{+ops}:
+          Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(List.length(&2, Tr.Op, ops), tree.spell_ops(ops, rest))))
+    case Tr.Plan{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+    case Tr.Snap{n}:
+      Wr.put_nat(2n, Wr.put_nat(n, rest))
+
+# an effect: 0 start | 1 stop | 2 restore, then the key
+def tree.spell_eff(e: Tr.Eff, rest: String) -> String:
+  match e:
+    case Tr.Start{k}:
+      Wr.put_nat(0n, Wr.put_nat(k, rest))
+    case Tr.Stop{k}:
+      Wr.put_nat(1n, Wr.put_nat(k, rest))
+    case Tr.Restore{k}:
+      Wr.put_nat(2n, Wr.put_nat(k, rest))
+
+# the effects of a plan, each spelled, then rest
+def tree.spell_effs(es: List<&2, Tr.Eff>, rest: String) -> String:
+  match es:
+    case Nil{}:
+      rest
+    case e <> more:
+      tree.spell_eff(e, tree.spell_effs(more, rest))
+
+# a node: key, parent, value
+def tree.spell_ent(e: Tr.Ent, rest: String) -> String:
+  match e:
+    case Tr.Ent{k, p, v}:
+      Wr.put_nat(k, Wr.put_nat(p, Wr.put_nat(v, rest)))
+
+# the nodes of a snapshot, each spelled, then rest
+def tree.spell_ents(es: List<&2, Tr.Ent>, rest: String) -> String:
+  match es:
+    case Nil{}:
+      rest
+    case e <> more:
+      tree.spell_ent(e, tree.spell_ents(more, rest))
+
+# an answer: 0 kept | 1 took | 2, the count, the keys cut | 3, the count,
+# the effects | 4, the count, the nodes
+def tree.spell_ans(a: Tr.Ans, rest: String) -> String:
+  match a:
+    case Tr.Kept{}:
+      Wr.put_nat(0n, rest)
+    case Tr.Took{}:
+      Wr.put_nat(1n, rest)
+    case Tr.Cut{ks}:
+      Wr.put_nat(2n, LawsBase.wire_spell_nats(ks, rest))
+    case Tr.Effects{+es}:
+      Wr.put_nat(3n, Wr.put_nat(List.length(&2, Tr.Eff, es), tree.spell_effs(es, rest)))
+    case Tr.Nodes{+es}:
+      Wr.put_nat(4n, Wr.put_nat(List.length(&2, Tr.Ent, es), tree.spell_ents(es, rest)))
+
+# LAW tree_ffi_answers_spelled: in every state of the core, an ask spelled by the grammar,
+# every number within the wire, steps the core as the core decides and
+# answers the grammar's spelling of the core's answer
+# EXCLUDES: an ask or answer tag, a field order or a count that drifts
+#   from the grammar Rust writes and reads (on both sides of the entry
+#   alike), a field lost, swapped or defaulted, an answer or a next core
+#   other than the core's
+law tree_ffi_answers_spelled:
+  for +s: Tr.St
+  for +q: Tr.Ask
+  for fits: {tree.ask_fits(q) == True{} : Bool}
+  {Ft.step(Ft.Live{s}, tree.spell_ask(q, "")) == (Ft.Live{Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q))}, tree.spell_ans(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(s, q)), "")) : Ft.St & String}
+
+# LAW tree_ffi_left_over_spelled: a spelled ask that fits, followed by any more input, keeps
+# the core and answers the error form "tree: input left after the ask"
+# EXCLUDES: trailing input ignored, or read as part of the ask
+law tree_ffi_left_over_spelled:
+  for +s: Tr.St
+  for +q: Tr.Ask
+  for fits: {tree.ask_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {Ft.step(Ft.Live{s}, tree.spell_ask(q, SCon{c, t})) == (Ft.Live{s}, Wr.err("tree: input left after the ask")) : Ft.St & String}
+
+# LAW tree_ffi_unknown_ask: an ask tag of 3 or more (of any length) keeps the core and
+# answers the error form "tree: malformed ask", whatever follows
+# EXCLUDES: an unknown ask read as a note, a plan or a snapshot, or as the
+#   left-over error
+law tree_ffi_unknown_ask:
+  for +s: Tr.St
+  for +n: Nat
+  for +rest: String
+  {Ft.step(Ft.Live{s}, Wr.put_nat(3n+n, rest)) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+
+# LAW tree_ffi_unknown_record: a note whose record tag is 2 or more (of any length) keeps the
+# core and answers the error form "tree: malformed ask", whatever follows
+# EXCLUDES: an unknown record read as a do or a rewind
+law tree_ffi_unknown_record:
+  for +s: Tr.St
+  for +n: Nat
+  for +rest: String
+  {Ft.step(Ft.Live{s}, Wr.put_nat(0n, Wr.put_nat(2n+n, rest))) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+
+# LAW tree_ffi_unknown_op: a do whose op tag is 2 or more (of any length) keeps the core and
+# answers the error form "tree: malformed ask", whatever follows
+# EXCLUDES: an unknown op read as a put or a delete
+law tree_ffi_unknown_op:
+  for +s: Tr.St
+  for +n: Nat
+  for +rest: String
+  {Ft.step(Ft.Live{s}, Wr.put_nat(0n, Wr.put_nat(0n, Wr.put_nat(2n+n, rest)))) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+
+# LAW tree_ffi_unknown_rewind_op: a rewind of one or more ops (any count) whose first op tag is
+# 2 or more (of any length) keeps the core and answers the error form
+# "tree: malformed ask", whatever follows
+# EXCLUDES: an unknown op of a rewind read as a put or a delete, or
+#   skipped
+law tree_ffi_unknown_rewind_op:
+  for +s: Tr.St
+  for +m: Nat
+  for +n: Nat
+  for +rest: String
+  {Ft.step(Ft.Live{s}, Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(1n+m, Wr.put_nat(2n+n, rest))))) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+
+# LAW tree_ffi_reads_only_asks: in every state, an answer that is not the error form answers an
+# ask: the input is exactly the spelling of an ask whose numbers fit the
+# wire, and the step is the core's step on it, its answer spelled
+# EXCLUDES: a decoder that accepts an unknown tag, a missing or extra
+#   field or op, a non-canonical number, or input left over, and answers
+#   it anyway (a default instead of the error form)
+law tree_ffi_reads_only_asks:
+  for +s: Tr.St
+  for +input: String
+  for ok: {LawsBase.wire_opens_err(Pair.snd(Ft.St, String, Ft.step(Ft.Live{s}, input))) == False{} : Bool}
+  exs q: Tr.Ask
+  {(input, (tree.ask_fits(q), Ft.step(Ft.Live{s}, input))) == (tree.spell_ask(q, ""), (True{}, (Ft.Live{Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q))}, tree.spell_ans(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(s, q)), "")))) : String & (Bool & (Ft.St & String))}
+
+# LAW tree_ffi_malformed_unless_ask: in every state, every answer but the error form "tree:
+# malformed ask" comes from an input that begins with a spelled ask that
+# fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with an ask, the malformed error spelled with another text
+law tree_ffi_malformed_unless_ask:
+  for +s: Tr.St
+  for +input: String
+  for other: {String.eq(Pair.snd(Ft.St, String, Ft.step(Ft.Live{s}, input)), Wr.err("tree: malformed ask")) == False{} : Bool}
+  exs q: Tr.Ask
+  exs rest: String
+  {(input, tree.ask_fits(q)) == (tree.spell_ask(q, rest), True{}) : String & Bool}
+
+# LAW tree_ffi_error_keeps: in every state, a step answered with the error form keeps the
+# core as it was
+# EXCLUDES: a malformed or left-over input that changes, resets or
+#   refuses the core
+law tree_ffi_error_keeps:
+  for +s: Tr.St
+  for +input: String
+  for bad: {LawsBase.wire_opens_err(Pair.snd(Ft.St, String, Ft.step(Ft.Live{s}, input))) == True{} : Bool}
+  {Pair.fst(Ft.St, String, Ft.step(Ft.Live{s}, input)) == Ft.Live{s} : Ft.St}
+
+# LAW tree_ffi_tags_example: anchor: the bytes Rust sends and reads, on the core opened with
+# the halves [1] (s0) and on it after the put of node 1 under the root with
+# value 7 (s1): on s0 that put takes (1,) and a delete of the root is kept
+# (0,); on s1 a delete of 1 cuts [1] (2,1,1,), a put of 2 under 0 takes
+# and one under 5 is kept, a rewind deleting 1 takes, the plan to 0
+# records stops 1 (3,1,1,1,), the snapshot after 1 record is the node
+# (4,1,1,0,7,); an ask tag 3, a record tag 2, an op tag 2, a rewind op
+# tag 2 and the empty input are malformed, a plan with input after it is
+# left over; the open of the halves [2, 1] answers nothing, a short one is
+# malformed and one with input after it is left over
+# EXCLUDES: a tag or field order that differs from the Rust side (the
+#   universal laws share the laws' spelling), an unknown tag read as a
+#   known one, an error text that differs
+law tree_ffi_tags_example:
+  {[Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,0,1,0,7,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,1,0,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,1,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,0,2,0,3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,0,0,2,5,3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "0,1,1,1,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "1,0,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.feed([1n], [Tr.Do{Tr.Put{1n, 0n, 7n}}])}, "2,1,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "3,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,0,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "0,1,1,2,")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "")), Pair.snd(Ft.St, String, Ft.step(Ft.Live{Tr.core.start([1n])}, "1,4,x")), Pair.snd(Ft.St, String, Ft.open("2,2,1,")), Pair.snd(Ft.St, String, Ft.open("2,2,")), Pair.snd(Ft.St, String, Ft.open("0,x"))] == ["1,", "0,", "2,1,1,", "1,", "0,", "1,", "3,1,1,1,", "4,1,1,0,7,", Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: malformed ask"), Wr.err("tree: input left after the ask"), "", Wr.err("tree: malformed halves"), Wr.err("tree: input left after the halves")] : List<&2, String>}
