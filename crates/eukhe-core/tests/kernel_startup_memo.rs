@@ -848,9 +848,12 @@ async fn a_killed_then_disposed_boot_never_flushes_the_snapshot() {
 /// parked memo, `dispose()` would skip the doomed boot entirely and could
 /// orphan its kernel at worker exit. The dispose's signal also cancels the
 /// boot's kernel start (it never waits out the held handshake), so the
-/// observable is the doomed interpreter itself: its gate never opens, yet
-/// it is gone by the time the dispose returns - the dispose waited the
-/// boot's teardown, it did not merely signal it.
+/// observables are the doomed boot and its interpreter: the gate never
+/// opens, yet by the time the dispose returns the boot has settled (its
+/// ensure answers on the next poll, with no scheduler turn in between) and
+/// the interpreter is gone - the dispose waited the boot's teardown, it did
+/// not merely signal it. A dead but unreaped interpreter reads as gone to
+/// `is_process_alive`, so the boot's settle is the observable that pins it.
 #[tokio::test]
 async fn dispose_after_a_kill_waits_the_doomed_boot() {
     let python = kernel_python();
@@ -867,11 +870,14 @@ async fn dispose_after_a_kill_waits_the_doomed_boot() {
             ..Default::default()
         },
     );
-    // Boot A spawns its interpreter held at gate0.
-    let doomed = tokio::spawn({
-        let provisioner = provisioner.clone();
-        async move { provisioner.ensure(None, None).await }
-    });
+    // Boot A spawns its interpreter held at gate0. The doomed ensure stays
+    // on this task, polled once to arm the boot, so its readiness at the
+    // dispose's return is a fact rather than a scheduling race.
+    let mut doomed = std::pin::pin!(provisioner.ensure(None, None));
+    assert!(
+        futures::poll!(doomed.as_mut()).is_pending(),
+        "the boot is held at its gate"
+    );
     tokio::time::timeout(Duration::from_secs(30), async {
         while starts(&count) == 0 {
             tokio::task::yield_now().await;
@@ -888,15 +894,20 @@ async fn dispose_after_a_kill_waits_the_doomed_boot() {
     tokio::time::timeout(Duration::from_secs(30), provisioner.dispose(None))
         .await
         .expect("the dispose cancels the held boot instead of waiting its gate");
+    let std::task::Poll::Ready(settled) = futures::poll!(doomed.as_mut()) else {
+        panic!("dispose returned before the doomed boot settled");
+    };
+    assert!(settled.is_err(), "a killed boot settles as a failure");
     assert!(
         !eukhe_types::platform::process::is_process_alive(pid).unwrap(),
         "dispose must wait the killed boot's settle, not skip it"
     );
-    let settled = tokio::time::timeout(Duration::from_secs(30), doomed)
-        .await
-        .expect("the doomed boot settled")
-        .unwrap();
-    assert!(settled.is_err(), "a killed boot settles as a failure");
+    // The settle waited the interpreter's exit: no zombie is left either.
+    #[cfg(target_os = "linux")]
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        "the doomed interpreter was reaped before the dispose returned"
+    );
 }
 
 /// A `kill()` landing while a fresh boot is still WAITING — here queued
