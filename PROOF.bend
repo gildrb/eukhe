@@ -376,6 +376,8 @@ import ./proof/sandbox/cow_keeps_parent.bend as PCowKeepsParent
 import ./proof/sandbox/cow_takes_child.bend as PCowTakesChild
 import ./proof/sandbox/cow_conflict_reported.bend as PCowConflictReported
 import ./proof/sandbox/cow_conflict_is_real.bend as PCowConflictIsReal
+import ./proof/sandbox/cow_same_means_equal.bend as PCowSameMeansEqual
+import ./proof/sandbox/cow_equal_is_same.bend as PCowEqualIsSame
 import ./proof/sandbox/cow_plan.bend as PCowPlan
 import ./proof/sandbox/cow_plan_is_merge.bend as PCowPlanIsMerge
 import ./proof/sandbox/cow_entry.bend as PCowEntry

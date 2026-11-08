@@ -92,6 +92,24 @@ law cow_conflict_is_real:
   for clash: {Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k) == True{} : Bool}
   {Bool.or(Bool.or(Sb.m.eq(Sb.read(child, k), Sb.read(base, k)), Sb.m.eq(Sb.read(par, k), Sb.read(base, k))), Sb.m.eq(Sb.read(par, k), Sb.read(child, k))) == False{} : Bool}
 
+# LAW cow_same_means_equal: the hand-back counts two contents of a path as the same only when
+# they are equal: both absent, or the same id. The laws above that read Sb.m.eq then
+# speak of real equality.
+# EXCLUDES: a file one side created or removed taken as unchanged (an absent and a
+#   present content counted the same), two different ids counted the same
+law cow_same_means_equal:
+  for +a: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for same: {Sb.m.eq(a, b) == True{} : Bool}
+  {a == b : Maybe<&2, Nat>}
+
+# LAW cow_equal_is_same: every content of a path is the same as itself
+# EXCLUDES: an unchanged path counted as changed (a spurious take, removal or
+#   conflict)
+law cow_equal_is_same:
+  for +a: Maybe<&2, Nat>
+  {Sb.m.eq(a, a) == True{} : Bool}
+
 # The plan of one path the Rust hand-back runs (bend/sandbox.bend
 # `plan`): the parent's content stays (taken: both made the same change),
 # a conflict, the child's file goes in, or the child's removal does.

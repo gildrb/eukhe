@@ -194,6 +194,7 @@ Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`, `plan`). Laws: `laws/sand
 | `cow_takes_child` | only child changed: child's content (workspace 4) |
 | `cow_conflict_reported` | both changed differently: parent's content, reported conflict; no silent loss (workspace 4, 5) |
 | `cow_conflict_is_real` | conflict only if both changed to different contents (workspace 4) |
+| `cow_same_means_equal`, `cow_equal_is_same` | two contents of a path are the same exactly when equal: both absent or the same id (workspace 4) |
 | `cow_plan`, `cow_plan_is_merge` | one path's plan = the copy-on-write rule (keep, taken, conflict, child's file, child's removal); it carries out the merge (workspace 4, 5) |
 | `cow_entry` (`laws/sandbox.bend`) | core's sandbox entry answers, on the request Rust writes, the encoded plan |
 
