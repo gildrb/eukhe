@@ -748,11 +748,13 @@ impl PtyReader {
     /// A write that tolerates the child being gone: once the exiting
     /// child (the pty's session leader) is out, macOS has revoked the
     /// terminal and refuses the write with EIO, where Linux still takes
-    /// it. Any other error fails the route.
+    /// it (so on Linux EIO fails the route like any other error).
     fn write_around_exit(&mut self, payload: &[u8]) {
         match self.file.write_all(payload) {
             Ok(()) => {}
-            Err(error) if error.raw_os_error() == Some(nix::errno::Errno::EIO as i32) => {}
+            Err(error)
+                if cfg!(target_os = "macos")
+                    && error.raw_os_error() == Some(nix::errno::Errno::EIO as i32) => {}
             Err(error) => panic!("write to the pty: {error}"),
         }
     }
