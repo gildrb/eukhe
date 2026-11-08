@@ -9,6 +9,26 @@ import ../base.bend as LawsBase
 
 # (facts) The thinking budgets: bend/ffi_facts.bend
 # -------------------------------------------------
+# Rust (crates/eukhe-ai `api/simple_options.rs` `budgets_call`,
+# `api/google_shared/options.rs`; crates/eukhe-core `memory/summarizer.rs`)
+# writes one budget request with its `Writer` and reads one reply with its
+# `Reader`, in the grammar of the header of bend/ffi_facts.bend.
+# Requirements, each with the laws that state it:
+#   R1 the codec: a request spelled by the grammar (wire primitives, Rust's
+#      field order), every number within the wire, is read as that very
+#      request, the rest untouched (core_facts_round_trip); the bytes Rust
+#      writes (core_facts_req_example, core_facts_cap_example)
+#   R2 the entry answers the model's decision on the request, spelled as
+#      Rust's reader reads it (core_facts_answers_spelled, core_facts_cap,
+#      laws/facts/entry.bend facts_ffi_exact; the decisions themselves:
+#      laws/facts/model.bend S6.10.2 and the output cap)
+#   R3 input that is not exactly one request answers the error form: "budget
+#      request: malformed" when no request starts it
+#      (core_facts_malformed_unless_request, core_facts_reads_only_requests,
+#      core_facts_unknown_*), "budget request: input left over" when more
+#      follows (core_facts_left_over, core_facts_left_over_spelled)
+#   A1 an unknown tag of any length (request, level, presence, rule,
+#      budget level) is no request (core_facts_unknown_*)
 
 def core_customs_fit(c: Fx.Customs) -> Bool:
   match c:
@@ -47,48 +67,6 @@ def core_facts_req_fits(q: FFx.Req) -> Bool:
     case FFx.Cap{x, mm, n, w}:
       Bool.and(LawsBase.core_mfits(x), Bool.and(LawsBase.wire_fits(mm), core_win_fit(w)))
 
-# LAW core_facts_round_trip (R1): a budget request that fits reads back, and the rest is untouched
-# EXCLUDES: a level, a user's budget, a default budget, a cap or the
-#   answer's room lost, swapped or misread; a user's budget read as none
-law core_facts_round_trip:
-  for +q: FFx.Req
-  for rest: String
-  for h: {core_facts_req_fits(q) == True{} : Bool}
-  {FFx.get_req(FFx.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FFx.Req>}
-
-# LAW core_facts_level (R2): the level request answers the level's budget
-# EXCLUDES: the default budget over the user's, another level's budget
-law core_facts_level:
-  for +l: Fx.ELv
-  for +c: Fx.Customs
-  for +d: Fx.Budgets
-  for h: {core_facts_req_fits(FFx.Level{l, c, d}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Level{l, c, d}, "")) == Wr.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "") : String}
-
-# LAW core_facts_room (R2): the room request answers the budget under the answer's room
-# EXCLUDES: the budget, the ceiling and the answer's tokens swapped
-law core_facts_room:
-  for +b: Nat
-  for +m: Nat
-  for +a: Nat
-  for h: {core_facts_req_fits(FFx.Room{b, m, a}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Room{b, m, a}, "")) == Wr.put_nat(Fx.room(b, m, a), "") : String}
-
-# LAW core_facts_adjust (R2): the adjust request answers the fitted ceiling and budget
-# EXCLUDES: the caller's cap read as none, the model's cap and the answer's
-#   tokens swapped, the ceiling and the budget swapped in the reply, the
-#   window facts lost or misread
-law core_facts_adjust:
-  for +base: Maybe<&2, Nat>
-  for +mm: Nat
-  for +l: Fx.ELv
-  for +c: Fx.Customs
-  for +d: Fx.Budgets
-  for +a: Nat
-  for +w: Fx.Win
-  for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a, w}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a, w}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a, w), "") : String}
-
 # LAW core_facts_cap (R2): the cap request answers the output cap of the request: none (0) or the cap
 # EXCLUDES: the caller's cap read as none, the catalog's max and the window
 #   swapped, needs or stops lost or flipped, an omitted cap read back as a cap
@@ -99,33 +77,6 @@ law core_facts_cap:
   for +w: Fx.Win
   for h: {core_facts_req_fits(FFx.Cap{x, mm, n, w}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Cap{x, mm, n, w}, "")) == FFx.put_mnat(Fx.cap(x, mm, n, w), "") : String}
-
-# LAW core_facts_google (R2): the Google request answers the Google budget, the refusal of an
-# unordered rule included
-# EXCLUDES: a rule read as none, a dynamic budget for an unordered rule
-law core_facts_google:
-  for +rule: Maybe<&2, Fx.Budgets>
-  for +c: Fx.Customs
-  for +l: Fx.Lv
-  for h: {core_facts_req_fits(FFx.Google{rule, c, l}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Google{rule, c, l}, "")) == FFx.put_gb(Fx.gbudget(rule, c, l), "") : String}
-
-# LAW core_facts_aux (R2): the aux request answers the auxiliary call's output cap
-# EXCLUDES: the answer's tokens and the top swapped, a cap past the top
-law core_facts_aux:
-  for +c: Fx.Customs
-  for +d: Fx.Budgets
-  for +a: Nat
-  for +top: Nat
-  for h: {core_facts_req_fits(FFx.Aux{c, d, a, top}) == True{} : Bool}
-  {FFx.ffi(FFx.put_req(FFx.Aux{c, d, a, top}, "")) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
-
-# LAW core_facts_malformed (R3): a malformed budget request answers the error form
-# EXCLUDES: a default budget for a request it cannot read
-law core_facts_malformed:
-  for +s: String
-  for h: {FFx.get_req(s) == Wr.Bad{} : Wr.Dec<FFx.Req>}
-  {FFx.ffi(s) == Wr.err("budget request: malformed") : String}
 
 # LAW core_facts_left_over (R3): a budget request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
@@ -160,8 +111,10 @@ law core_facts_cap_example:
 law core_facts_reply_example:
   {FFx.put_gb(Fx.Dynamic{}, FFx.put_gb(Fx.Tokens{5n}, FFx.put_gb(Fx.Unordered{}, ""))) == "0,1,5,2," : String} & {FFx.put_fit(Fx.Fit{9n, 4n}, "") == "9,4," : String}
 
-# LAW core_facts_malformed_example (R3): witness: a malformed budget request exists (an unknown tag)
-# EXCLUDES: a vacuous core_facts_malformed
+# LAW core_facts_malformed_example (R3): anchor: an unknown request tag (6) is no request: the decoder
+# refuses it and the entry answers the error form "budget request: malformed"
+# EXCLUDES: an unknown tag read as a request, the malformed error spelled
+#   with another text
 law core_facts_malformed_example:
   {FFx.get_req("6,") == Wr.Bad{} : Wr.Dec<FFx.Req>} & {FFx.ffi("6,") == Wr.err("budget request: malformed") : String}
 
@@ -267,8 +220,21 @@ def facts_spell_gb(g: Fx.GB, rest: String) -> String:
     case Fx.Unordered{}:
       Wr.put_nat(2n, rest)
 
+# LAW core_facts_round_trip (R1): a budget request spelled by the grammar (facts_spell_req: wire
+# primitives, Rust's field order), every number within the wire, is read
+# by the entry's decoder as that very request, and the rest is untouched
+# EXCLUDES: a level, a user's budget, a default budget, a cap, the
+#   answer's room or the window facts lost, swapped or misread, a user's
+#   budget read as none, a field or tag order of the decoder that differs
+#   from the grammar's
+law core_facts_round_trip:
+  for +q: FFx.Req
+  for +rest: String
+  for +h: {core_facts_req_fits(q) == True{} : Bool}
+  {FFx.get_req(facts_spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FFx.Req>}
+
 # the spelled reply to a request: the model's decision (pinned by the laws
-# of model_facts below), as Rust's reader reads it
+# of laws/facts/model.bend), as Rust's reader reads it
 def facts_spell_answer(q: FFx.Req) -> String:
   match q:
     case FFx.Level{l, c, d}:
@@ -385,20 +351,21 @@ law core_facts_malformed_unless_request:
   exs rest: String
   {(s, core_facts_req_fits(q)) == (facts_spell_req(q, rest), True{}) : String & Bool}
 
-# LAW core_facts_tags_example: anchor: the bytes Rust sends and reads: an xhigh level request
-# with no user's budget and defaults 1, 2, 3, 4 answers the high default
-# (4,), a medium one with the user's 7 answers 7; room 9 under ceiling 8
-# with 3 for the answer answers 5; an adjust with the caller's cap 3,
-# model cap 9, low, answer 2 and an unknown window (0, 0, 0, 0, F)
-# answers ceiling 5, budget 2; with no cap,
-# model cap 6, high, the user's 7 answers 6 then 4; a Google request with
-# no rule and no user's budget is dynamic (0,), with rule 1, 2, 3, 4 and
-# the user's low 9 is 1 then 4, an unordered rule answers 2; an aux
-# request answers 2 more than the high budget (6,), held at the top 5;
-# request tag 6, level tag 6, rule tag 2, budget level tag 4 and no input
-# are malformed; a request with input left over is refused
-# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
-#   does not, a reply in another order, an unknown tag read as a known
-#   one, the two error texts swapped
+# LAW core_facts_tags_example: anchor: byte vectors spelled by hand from the grammar of the header
+# of bend/ffi_facts.bend (no Rust test emits or reads these vectors): an
+# xhigh level request with no user's budget and defaults 1, 2, 3, 4
+# answers the high default (4,), a medium one with the user's 7 answers 7;
+# room 9 under ceiling 8 with 3 for the answer answers 5; an adjust with
+# the caller's cap 3, model cap 9, low, answer 2 and an unknown window
+# (0, 0, 0, 0, F) answers ceiling 5, budget 2; with no cap, model cap 6,
+# high, the user's 7 answers 6 then 4; a Google request with no rule and
+# no user's budget is dynamic (0,), with rule 1, 2, 3, 4 and the user's
+# low 9 is 1 then 4, an unordered rule answers 2; an aux request answers 2
+# more than the high budget (6,), held at the top 5; request tag 6, level
+# tag 6, rule tag 2, budget level tag 4 and no input are malformed; a
+# request with input left over is refused
+# EXCLUDES: a tag table the decoder and the reply speller drift from the
+#   grammar alike (on these vectors), a reply in another order, an unknown
+#   tag read as a known one, the two error texts swapped
 law core_facts_tags_example:
   {[FFx.ffi("0,4,0,0,0,0,1,2,3,4,"), FFx.ffi("0,2,0,0,1,7,0,1,2,3,4,"), FFx.ffi("1,9,8,3,"), FFx.ffi("2,1,3,9,1,0,0,0,0,1,2,3,4,2,0,0,0,0,F"), FFx.ffi("2,0,6,3,0,0,0,1,7,1,2,3,4,2,0,0,0,0,F"), FFx.ffi("3,0,0,0,0,0,2,"), FFx.ffi("3,1,1,2,3,4,0,1,9,0,0,1,"), FFx.ffi("3,1,4,3,2,1,0,0,0,0,0,"), FFx.ffi("4,0,0,0,0,1,2,3,4,2,9,"), FFx.ffi("4,0,0,0,0,1,2,3,4,2,5,"), FFx.ffi("6,"), FFx.ffi("0,6,"), FFx.ffi("3,2,"), FFx.ffi("3,0,0,0,0,0,4,"), FFx.ffi(""), FFx.ffi("1,9,8,3,x")] == ["4,", "7,", "5,", "5,2,", "6,4,", "0,", "1,4,", "2,", "6,", "5,", Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: malformed"), Wr.err("budget request: input left over")] : List<&2, String>}

@@ -15,7 +15,7 @@ import ./model.bend as Facts
 # reply to every input from:
 #   - a reader of the request grammar (the header of bend/ffi_facts.bend)
 #     built only from the wire primitives of bend/wire.bend;
-#   - the decisions as the laws of laws/facts.bend state them (the user's
+#   - the decisions as the laws of laws/facts/model.bend state them (the user's
 #     budget over the default, xhigh and max at high; the room under the
 #     ceiling; the fitted ceiling and budget; the Google budget; the aux
 #     cap; the output cap), written here with spec terms only;
@@ -472,7 +472,7 @@ def fs.high(d: Fx.Budgets) -> Nat:
       hi
 
 # the budget of the level l: the user's, else the default
-# (facts_budget_user_first, facts_budget_default)
+# (stated by facts_ffi_exact itself; no model law restates it)
 def fs.budget(c: Fx.Customs, d: Fx.Budgets, +l: Fx.Lv) -> Nat:
   Maybe.default(&2, Nat, Facts.customs_spec(c, l), fs.at(d, l))
 
@@ -495,7 +495,7 @@ def fs.shrink(+x: Nat, +win: Fx.Win) -> Nat:
 
 # the thinking ceiling before the window: the caller's cap plus the
 # budget, at most the model's cap; else the model's cap
-# (facts_fit_exact_caller, facts_fit_exact_model)
+# (facts_fit_ceiling_is_the_cap)
 def fs.ceiling(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> Nat:
   match base:
     case None{}:
@@ -513,7 +513,7 @@ def fs.ordered(d: Fx.Budgets) -> Bool:
       Bool.and(Nat.is_le(mi, lo), Bool.and(Nat.is_le(lo, me), Nat.is_le(me, hi)))
 
 # a Google budget without a rule: the user's budget, else dynamic
-# (facts_google_free_user, facts_google_free_dynamic)
+# (stated by facts_ffi_exact itself; no model law restates it)
 def fs.gb.free(m: Maybe<&2, Nat>) -> Fx.GB:
   match m:
     case Some{n}:
@@ -524,7 +524,8 @@ def fs.gb.free(m: Maybe<&2, Nat>) -> Fx.GB:
 # a Google budget with the rule b: refused when the rule is not ordered,
 # else the user's budget of the level, else the rule's, held inside the
 # rule's minimal..high (facts_google_unordered_refused,
-# facts_google_ordered_tokens, facts_google_budget_held)
+# facts_google_user_kept, facts_google_user_raised, facts_google_user_lowered,
+# facts_google_rule_default)
 def fs.gb.rule(ok: Bool, +b: Fx.Budgets, c: Fx.Customs, +l: Fx.Lv) -> Fx.GB:
   match ok:
     case True{}:
@@ -540,8 +541,7 @@ def fs.gb(rule: Maybe<&2, Fx.Budgets>, c: Fx.Customs, +l: Fx.Lv) -> Fx.GB:
       fs.gb.rule(fs.ordered(b), b, c, l)
 
 # an auxiliary call's output cap: the high budget plus the answer's tokens,
-# at most the top (facts_aux_exact, facts_aux_cap_within,
-# facts_aux_cap_answer_room)
+# at most the top (facts_aux_keeps_answer_room, facts_aux_saturates_at_top)
 def fs.aux(c: Fx.Customs, d: Fx.Budgets, +a: Nat, +top: Nat) -> Nat:
   Nat.min(Nat.add(fs.budget(c, d, Fx.High{}), a), top)
 
@@ -615,7 +615,7 @@ def fs.run(r: Wr.Dec<FFx.Req>) -> String:
 def fs.spec(s: String) -> String:
   fs.run(fr.read(s))
 
-# LAW facts_ffi_exact (R1-R3): on every input the entry answers the decision (as the laws of laws/facts.bend state it) on the request the input starts with, spelled as the Rust reader reads it, when nothing follows the request; "budget request: input left over" when something does; "budget request: malformed" when the input starts with no request
+# LAW facts_ffi_exact (R1-R3 of laws/facts/budgets.bend): on every input the entry answers the decision (as the laws of laws/facts/model.bend state it) on the request the input starts with, spelled as the Rust reader reads it, when nothing follows the request; "budget request: input left over" when something does; "budget request: malformed" when the input starts with no request
 # EXCLUDES: a budget, a fit, a Google budget, an aux cap or an output cap
 #   other than the laws' on any request (the default over the user's
 #   budget, a ceiling past the model's cap, an unordered rule clamped, a

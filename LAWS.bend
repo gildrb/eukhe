@@ -93,6 +93,7 @@ import ./laws/wire_entry.bend as WireEntry
 import ./laws/facts/budgets.bend as FactsBudgets
 import ./laws/facts/model.bend as Facts
 import ./laws/facts/entry.bend as FactsEntry
+import ./laws/facts/adaptive.bend as FactsAdaptive
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/retry.bend as Retry
 import ./laws/retry_idle.bend as RetryIdle
