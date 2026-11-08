@@ -1574,6 +1574,12 @@ import ./proof/doc_lines/lines_entry_answers.bend as PLinesEntryAnswers
 import ./proof/doc_lines/lines_entry_exact.bend as PLinesEntryExact
 import ./proof/doc_lines/lines_entry_example.bend as PLinesEntryExample
 import ./proof/doc_lines/lines_req_fits_example.bend as PLinesReqFitsExample
+import ./proof/doc_lines/lines_entry_left_over_spelled.bend as PLinesEntryLeftOverSpelled
+import ./proof/doc_lines/lines_entry_malformed_unless_carry.bend as PLinesEntryMalformedUnlessCarry
+import ./proof/doc_lines/lines_entry_malformed_unless_load.bend as PLinesEntryMalformedUnlessLoad
+import ./proof/doc_lines/lines_entry_malformed_unless_write.bend as PLinesEntryMalformedUnlessWrite
+import ./proof/doc_lines/lines_entry_malformed_unless_runs.bend as PLinesEntryMalformedUnlessRuns
+import ./proof/doc_lines/lines_entry_errors_example.bend as PLinesEntryErrorsExample
 import ./proof/doc_rows/base.bend as LADocRows
 import ./proof/doc_rows/rows_lines_are_read_rows.bend as PRowsLinesAreReadRows
 import ./proof/doc_rows/rows_raw_lines_are_pieces.bend as PRowsRawLinesArePieces

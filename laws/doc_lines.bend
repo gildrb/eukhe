@@ -523,3 +523,107 @@ law lines_entry_example:
 # wire (lines_entry_answers is not vacuous)
 law lines_req_fits_example:
   {[lines.ReqFits(lines.Load{Dl.Proj{False{}, [Dl.Line{3n, Some{Dl.CrLf{}}}, Dl.Line{0n, None{}}]}}), lines.ReqFits(lines.Write{Dl.Proj{True{}, Nil{}}, Dl.Proj{False{}, [Dl.Line{1n, None{}}]}}), lines.ReqFits(lines.Plan{[Dl.Run{None{}, 2n}], Dl.Lf{}})] == [True{}, True{}, True{}] : List<&2, Bool>}
+
+# The entry's errors
+# ------------------
+# Which input gets which error text. With lines_entry_answers and
+# lines_entry_exact these laws pin every answer of the entry: a spelled
+# request that fits answers the spelled decision, with input after it the
+# left-over error; spelled runs then no spelled carry the carry's error;
+# `L` or `W` then no spelled projection(s) the projection's error; any
+# other input that does not open with spelled runs the runs' error.
+
+# the spelling of a request, then rest (lines.spell_req is it with no rest)
+def lines.spell_req_on(r: lines.Req, rest: String) -> String:
+  match r:
+    case lines.Plan{rs, c}:
+      Wr.put_list(~Dl.Run, ~lines.spell_run, rs, LawsBase.proj_spell_end(c, rest))
+    case lines.Load{p}:
+      SCon{'L', LawsBase.proj_spell(p, rest)}
+    case lines.Write{p, q}:
+      SCon{'W', LawsBase.proj_spell(p, LawsBase.proj_spell(q, rest))}
+
+# s opens with the mark of a load (`L`) or a write (`W`)
+def lines.Marked(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+c, t}:
+      Bool.or(Char.is_eq(c, 'L'), Char.is_eq(c, 'W'))
+
+# LAW lines_entry_left_over_spelled: a spelled request that fits (a plan, a
+# load or a write), followed by any more input, answers the error form
+# "doc_lines: input left over"
+# EXCLUDES: trailing input ignored, read as part of the request, or named
+#   as a malformed field
+law lines_entry_left_over_spelled:
+  for +r: lines.Req
+  for fits: {lines.ReqFits(r) == True{} : Bool}
+  for +c: Char
+  for +rest: String
+  {Fdl.ffi(lines.spell_req_on(r, SCon{c, rest})) == Wr.err("doc_lines: input left over") : String}
+
+# LAW lines_entry_malformed_unless_carry: after spelled runs that fit, every
+# answer but the error form "doc_lines: malformed carry" comes from input
+# that goes on with a spelled ending (0 LF, 1 CRLF)
+# EXCLUDES: an unknown or cut carry read as LF or CRLF (a default), named
+#   as the runs' error or as input left over, the carry's error spelled
+#   with another text
+law lines_entry_malformed_unless_carry:
+  for +rs: List<&2, Dl.Run>
+  for fits: {lines.WireFits(rs) == True{} : Bool}
+  for +t: String
+  for other: {String.eq(Fdl.ffi(Wr.put_list(~Dl.Run, ~lines.spell_run, rs, t)), Wr.err("doc_lines: malformed carry")) == False{} : Bool}
+  exs c: Dl.End
+  exs rest: String
+  {t == LawsBase.proj_spell_end(c, rest) : String}
+
+# LAW lines_entry_malformed_unless_load: after `L`, every answer but the
+# error form "doc_lines: malformed projection" comes from input that goes
+# on with a spelled projection that fits
+# EXCLUDES: a projection that does not read (an unknown ending tag, a cut
+#   line, a short count, no BOM flag) answered with a carry or another
+#   error, the projection's error spelled with another text
+law lines_entry_malformed_unless_load:
+  for +t: String
+  for other: {String.eq(Fdl.ffi(SCon{'L', t}), Wr.err("doc_lines: malformed projection")) == False{} : Bool}
+  exs p: Dl.Proj
+  exs rest: String
+  {t == LawsBase.proj_spell(p, rest) : String} & {LawsBase.proj_fits(p) == True{} : Bool}
+
+# LAW lines_entry_malformed_unless_write: after `W`, every answer but the
+# error form "doc_lines: malformed projection" comes from input that goes
+# on with two spelled projections that fit
+# EXCLUDES: either projection that does not read answered with a decision
+#   or another error (the second one's error named as left-over input),
+#   the projection's error spelled with another text
+law lines_entry_malformed_unless_write:
+  for +t: String
+  for other: {String.eq(Fdl.ffi(SCon{'W', t}), Wr.err("doc_lines: malformed projection")) == False{} : Bool}
+  exs p: Dl.Proj
+  exs q: Dl.Proj
+  exs rest: String
+  {t == LawsBase.proj_spell(p, LawsBase.proj_spell(q, rest)) : String} & {Bool.and(LawsBase.proj_fits(p), LawsBase.proj_fits(q)) == True{} : Bool}
+
+# LAW lines_entry_malformed_unless_runs: an input that does not open with
+# `L` or `W` answers the error form "doc_lines: malformed runs" unless it
+# begins with spelled runs that fit (a plan)
+# EXCLUDES: input that is no request (empty, another mark, runs with an
+#   unknown ending tag, a cut run) answered with a decision, the carry's or
+#   another error, the runs' error spelled with another text
+law lines_entry_malformed_unless_runs:
+  for +s: String
+  for plain: {lines.Marked(s) == False{} : Bool}
+  for other: {String.eq(Fdl.ffi(s), Wr.err("doc_lines: malformed runs")) == False{} : Bool}
+  exs rs: List<&2, Dl.Run>
+  exs t: String
+  {s == Wr.put_list(~Dl.Run, ~lines.spell_run, rs, t) : String} & {lines.WireFits(rs) == True{} : Bool}
+
+# LAW lines_entry_errors_example (anchor): no input, and a run with an
+# ending tag 2, answer the runs' error; runs with no carry the carry's; a
+# plan with input after it, a load with input after it and a write with
+# input after it the left-over error; `L` alone, a line with an ending tag
+# 2, and a write with one projection the projection's error
+# EXCLUDES: two error texts swapped, a field's error named as another
+law lines_entry_errors_example:
+  {[Fdl.ffi(""), Fdl.ffi("1,2,0,0,"), Fdl.ffi("0,"), Fdl.ffi("0,0,x"), Fdl.ffi("LF0,0,"), Fdl.ffi("WF0,F0,T"), Fdl.ffi("L"), Fdl.ffi("LF1,0,2,"), Fdl.ffi("WF0,")] == [Wr.err("doc_lines: malformed runs"), Wr.err("doc_lines: malformed runs"), Wr.err("doc_lines: malformed carry"), Wr.err("doc_lines: input left over"), Wr.err("doc_lines: input left over"), Wr.err("doc_lines: input left over"), Wr.err("doc_lines: malformed projection"), Wr.err("doc_lines: malformed projection"), Wr.err("doc_lines: malformed projection")] : List<&2, String>}
