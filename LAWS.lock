@@ -1659,6 +1659,7 @@
     "laws/replace.bend::replace_ffi_verdict": "044d82f54f26312116d9ecf619cc684ae016ac6783aab3226020c4e6b5eac229",
     "laws/replace.bend::replace_ffi_verdict_spelled": "66cd6e824c4b304f8455e510e7242efd22c333d06b2f20bdcb09d4a067aa8364",
     "laws/replace.bend::replace_history_example": "828d43cd7f7624628a7380e0ff9c7086ab7e5b98b08c258ee0288c26f823c138",
+    "laws/replace.bend::replace_lt_exact": "d452533188032b7492f58f1f7eb5061992fad8c08a6e0f5a617231104c193108",
     "laws/replace.bend::replace_never_back_exact": "99d8063b5585cc02f04503824e69dfe2b34c05c125a58c826b6321db8c9ed9b6",
     "laws/replace.bend::replace_never_downgrades": "f2549a6db1cff92c986e4bf3fa88f6130bc63ff2dded697b570a648115f7d0c7",
     "laws/replace.bend::replace_never_downgrades_spec": "817406e37f9664304a5502901cf1fca9330226cd41134d331a872ed1d76bad92",

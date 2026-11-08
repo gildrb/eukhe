@@ -234,6 +234,17 @@ law replace_build_of_rank:
   for i: String
   {Rp.Build.of(v, i) == Rp.Build{rank_spec(v), i} : Rp.Build}
 
+# LAW replace_lt_exact: the model's order of ranks is exactly rank_below: lexicographic, the
+# empty rank lowest
+# EXCLUDES: an order answered the wrong way round (xs above ys), hidden
+#   from replace_relation_exact by a relation that swaps its arguments back
+#   (an adversary found this; no caller but the relation reads the order
+#   today, so it was no user-facing bug)
+law replace_lt_exact:
+  for xs: List<&2, Nat>
+  for ys: List<&2, Nat>
+  {Rp.lt(xs, ys) == rank_below(xs, ys) : Bool}
+
 # LAW replace_relation_exact: the relation of the daemon to the client is exactly rel_spec
 # EXCLUDES: a relation that ignores the build ids, compares ranks the
 # wrong way round, or calls an equal rank older or newer

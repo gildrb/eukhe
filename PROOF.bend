@@ -1169,6 +1169,7 @@ import ./proof/replace/replace_rank_reads_semver.bend as PReplaceRankReadsSemver
 import ./proof/replace/replace_rank_example.bend as PReplaceRankExample
 import ./proof/replace/replace_rank_past_range_example.bend as PReplaceRankPastRangeExample
 import ./proof/replace/replace_build_of_rank.bend as PReplaceBuildOfRank
+import ./proof/replace/replace_lt_exact.bend as PReplaceLtExact
 import ./proof/replace/replace_relation_exact.bend as PReplaceRelationExact
 import ./proof/replace/replace_verdict_exact.bend as PReplaceVerdictExact
 import ./proof/replace/replace_ping_pong_example.bend as PReplacePingPongExample
