@@ -1,7 +1,8 @@
 # eukhe: lemmas the proofs of area headless_exit share: a failure below
-# the command and the wait fails the exit; the cause is the spec's; the
-# entry's decoder is the laws' reader (spec/durable/headless_wire.bend),
-# stage by stage; a spelled request reads back whole
+# the command and the wait fails the exit; the cause is the first failure
+# of the list of E1 (hx.cause_eq, a proof step, not a spec); the entry's
+# decoder is the laws' reader (spec/durable/headless_wire.bend), stage by
+# stage; a spelled request reads back whole
 
 import Base
 import ../../bend/headless_exit.bend as Hx
@@ -62,9 +63,31 @@ def hx.facts_fail(cf: Bool, gu: Bool, -run: Hx.Run, -p: Hx.Primary, -c: Bool, -a
 # The cause
 # ---------
 
-# below the run, the model's cause is the first of the spec's last three
+# the first failure of the list, else answered
+def hx.first(xs: List<&2, Maybe<&2, Hx.Cause>>) -> Hx.Cause:
+  match xs:
+    case Nil{}:
+      Hx.CAnswered{}
+    case Con{m, rest}:
+      match m:
+        case None{}:
+          hx.first(rest)
+        case Some{c}:
+          c
+
+# the failures in the order of E1
+def hx.failures(f: Hx.Facts) -> List<&2, Maybe<&2, Hx.Cause>>:
+  match f:
+    case Hx.Facts{cf, gu, run, p, c, a}:
+      [Sp.when(cf, Hx.CCommandFailed{}), Sp.when(gu, Hx.CGaveUp{}), Sp.run_cause(run), Sp.primary_cause(p), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})]
+
+# the first failure of the facts, in the order of E1
+def hx.cause_spec(f: Hx.Facts) -> Hx.Cause:
+  hx.first(hx.failures(f))
+
+# below the run, the model's cause is the first of the last three
 # failures
-def hx.tail(p: Hx.Primary, c: Bool, a: Bool) -> {Hx.by_primary(p, c, a) == Sp.first([Sp.primary_cause(p), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})]) : Hx.Cause}:
+def hx.tail(p: Hx.Primary, c: Bool, a: Bool) -> {Hx.by_primary(p, c, a) == hx.first([Sp.primary_cause(p), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})]) : Hx.Cause}:
   match p:
     case Hx.PNothing{}:
       match c:
@@ -105,8 +128,8 @@ def hx.tail(p: Hx.Primary, c: Bool, a: Bool) -> {Hx.by_primary(p, c, a) == Sp.fi
     case Hx.PSlashFailed{}:
       {==}
 
-# the model's cause is the spec's
-def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == Sp.cause_spec(f) : Hx.Cause}:
+# the model's cause is the first failure of the facts
+def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == hx.cause_spec(f) : Hx.Cause}:
   match f:
     case Hx.Facts{cf, gu, run, p, c, a}:
       match cf:

@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW kin_entry_answers
 #
-# PROOF: the spelled request reads back whole with nothing left (ke.req_rt), so the entry answers the model's decision or landing, which is the spec's (kin_refines_spec; ke.answer).
+# PROOF: the spelled request reads back whole with nothing left (ke.req_rt), so the entry answers the core's decision or landing, spelled as the laws spell it (ke.answer).
 
 import Base
 import ../../bend/kin.bend as K

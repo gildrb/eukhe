@@ -4,6 +4,7 @@ import Base
 import ../bend/headless_exit.bend as Hx
 import ../bend/ffi_headless_exit.bend as FHx
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 import ../spec/durable/headless.bend as Sp
 import ../spec/durable/headless_wire.bend as SpW
 
@@ -12,21 +13,27 @@ import ../spec/durable/headless_wire.bend as SpW
 # bend/headless_exit.bend, run as the compiled core by
 # bend/ffi_headless_exit.bend (eukhe-bend rules/headless.rs `exit`; asked
 # by eukhe-cli when `eukhe -p` or `--mode json` ends, for the process exit
-# code). spec/durable/headless.bend restates the rule (E1-E2),
-# spec/durable/headless_wire.bend the wire (W3-W5). Every input is free:
-# any facts, any string.
+# code). spec/durable/headless.bend states the rule in words (E1-E2) and
+# the failure of a run and of a terminal entry as tables (run_cause,
+# primary_cause); spec/durable/headless_wire.bend the wire (W3-W5). Every
+# input is free: any facts, any string.
 #
-# R1: the exit of every facts is the spec's (E1-E2).
-# R2: the code is 0 exactly when the run answered, and 1 otherwise.
+# R1: the exit of every facts is the one E1-E2 state: R2-R5 fix its code
+#     and its cause for every facts.
+# R2: the code is 0 exactly when no failure fact holds (the run
+#     answered), and 1 otherwise.
 # R3: every failure fact makes the code nonzero, whatever the other
 #     facts: a failed command, a give-up, each failing reason of an
 #     unanswered run, a provider error, an aborted, unfinished or failed
 #     slash entry, a failed compaction, a failed autonomous turn.
-# R4: the cause is the first failure in the order of E1.
+# R4: the cause is the first failure in the order of E1, and that the run
+#     answered when no failure holds.
 # R5: a run that answered, was reset, went stale or was withdrawn is no
 #     failure by itself: the exit is that of no run.
 # R6: the entry answers each request Rust writes (W3) with the spelling
-#     (W4) of the spec's exit, and any input that is not exactly one
+#     (W4) of the core's exit (bend/headless_exit.bend `decide`, fixed by
+#     R1-R5), answers no input but exactly one request with anything but
+#     the error form, and answers any input that is not exactly one
 #     request with exactly `E headless_exit: malformed request`.
 
 # the code of an exit
@@ -41,25 +48,46 @@ def cause_of(v: Hx.Verdict) -> Hx.Cause:
     case Hx.Verdict{n, c}:
       c
 
+# a failure that does not hold
+def holds_not(m: Maybe<&2, Hx.Cause>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{x}:
+      False{}
+
+# E1 read over the facts: no failure holds: no failed command, no give-up,
+# a run that did not fail (no run, answered, reset, stale, withdrawn:
+# Sp.run_cause), a terminal entry that is no failure (nothing, an answer,
+# a slash command that succeeded: Sp.primary_cause), no failed compaction,
+# no failed autonomous turn
+def no_failure(f: Hx.Facts) -> Bool:
+  match f:
+    case Hx.Facts{cf, gu, run, p, c, a}:
+      Bool.and(Bool.not(cf), Bool.and(Bool.not(gu), Bool.and(holds_not(Sp.run_cause(run)), Bool.and(holds_not(Sp.primary_cause(p)), Bool.and(Bool.not(c), Bool.not(a))))))
+
 # Laws: the exit (R1-R2)
 # ----------------------
 
-# LAW headless_exit_refines_spec (R1): the exit of every facts is the
-# spec's
-# EXCLUDES: a failure fact left out, causes checked in another order, a
-#   reset, stale or withdrawn run read as a failure, a code that does not
-#   follow the cause
-law headless_exit_refines_spec:
+# LAW headless_exit_zero_iff_no_failure (R2): the code is 0 exactly when
+# no failure fact holds (no_failure: no failed command, no give-up, a run
+# that did not fail by the table Sp.run_cause, a terminal entry that is no
+# failure by the table Sp.primary_cause, no failed compaction, no failed
+# autonomous turn)
+# EXCLUDES: a failed run that exits 0 (a script reads it as done), a run
+#   with no failure that exits nonzero, a failure fact the code ignores
+law headless_exit_zero_iff_no_failure:
   for +f: Hx.Facts
-  {Hx.decide(f) == Sp.exit_spec(f) : Hx.Verdict}
+  {Nat.is_eq(code_of(Hx.decide(f)), 0n) == no_failure(f) : Bool}
 
-# LAW headless_exit_zero_iff_answered (R2): the code is 0 exactly when the
-# run answered
-# EXCLUDES: a failed run that exits 0 (a script reads it as done), an
-#   answered run that exits nonzero
-law headless_exit_zero_iff_answered:
+# LAW headless_exit_no_failure_answered (R1, R4): when no failure fact
+# holds (no_failure), the cause is that the run answered
+# EXCLUDES: a run with no failure reported with a failure cause (a cause
+#   invented from a reset or a slash command that succeeded)
+law headless_exit_no_failure_answered:
   for +f: Hx.Facts
-  {Nat.is_eq(code_of(Hx.decide(f)), 0n) == Sp.answered(cause_of(Hx.decide(f))) : Bool}
+  for clean: {no_failure(f) == True{} : Bool}
+  {cause_of(Hx.decide(f)) == Hx.CAnswered{} : Hx.Cause}
 
 # LAW headless_exit_code_at_most_one (R2): the code is 0 or 1
 # EXCLUDES: a code past 1 (a signal number, a code a shell reads as
@@ -295,6 +323,19 @@ law headless_exit_compaction_before_autonomous:
   for clean: {Sp.primary_cause(p) == None{} : Maybe<&2, Hx.Cause>}
   {cause_of(Hx.decide(Hx.Facts{False{}, False{}, r, p, True{}, a})) == Hx.CCompactionFailed{} : Hx.Cause}
 
+# LAW headless_exit_autonomous_last (R4): without an earlier failure (no
+# failed command, no give-up, a run that did not fail by Sp.run_cause, a
+# terminal entry that is no failure by Sp.primary_cause, no failed
+# compaction), a failed autonomous turn is the cause
+# EXCLUDES: a failed autonomous turn reported as an answer or as another
+#   cause
+law headless_exit_autonomous_last:
+  for +r: Hx.Run
+  for +p: Hx.Primary
+  for ok: {Sp.run_cause(r) == None{} : Maybe<&2, Hx.Cause>}
+  for clean: {Sp.primary_cause(p) == None{} : Maybe<&2, Hx.Cause>}
+  {cause_of(Hx.decide(Hx.Facts{False{}, False{}, r, p, False{}, True{}})) == Hx.CAutonomousFailed{} : Hx.Cause}
+
 # Laws: no failure by itself (R5)
 # -------------------------------
 
@@ -314,41 +355,32 @@ law headless_exit_unfailed_run_neutral:
 # LAW headless_exit_example (R1-R5): anchor: an answered run exits 0; a
 # slash command alone exits 0; a model error, a stale run left with a
 # tool use, a give-up and a failed command exit 1 with their causes
-# EXCLUDES: a spec that drifts from the exits Rust reports
+# EXCLUDES: an exit other than E1-E2 give for these facts
 law headless_exit_example:
   {[Hx.decide(Hx.Facts{False{}, False{}, Hx.Answered{}, Hx.PAnswer{}, False{}, False{}}), Hx.decide(Hx.Facts{False{}, False{}, Hx.NoRun{}, Hx.PSlashOk{}, False{}, False{}}), Hx.decide(Hx.Facts{False{}, False{}, Hx.Unanswered{Hx.ModelError{}}, Hx.PProviderError{}, False{}, False{}}), Hx.decide(Hx.Facts{False{}, False{}, Hx.Unanswered{Hx.Stale{}}, Hx.PUnfinished{}, False{}, False{}}), Hx.decide(Hx.Facts{False{}, True{}, Hx.Answered{}, Hx.PAnswer{}, False{}, False{}}), Hx.decide(Hx.Facts{True{}, False{}, Hx.NoRun{}, Hx.PNothing{}, False{}, False{}})] == [Hx.Verdict{0n, Hx.CAnswered{}}, Hx.Verdict{0n, Hx.CAnswered{}}, Hx.Verdict{1n, Hx.CRunFailed{Hx.ModelError{}}}, Hx.Verdict{1n, Hx.CUnfinished{}}, Hx.Verdict{1n, Hx.CGaveUp{}}, Hx.Verdict{1n, Hx.CCommandFailed{}}] : List<&2, Hx.Verdict>}
 
 # Laws: the entry (R6)
 # --------------------
 
-# the entry's answer to the input s, from the laws' reader: the spelled
-# spec exit for the request that s is exactly, else the error form
-def exit_entry.whole(m: Maybe<&2, Hx.Facts>) -> String:
-  match m:
-    case Some{f}:
-      SpW.w_exit_reply(f)
-    case None{}:
-      Wr.err("headless_exit: malformed request")
-
-def exit_entry(s: String) -> String:
-  exit_entry.whole(SpW.read_exit(s))
-
 # LAW headless_exit_entry_answers (R6): the entry answers every request
-# Rust spells with the spelling of the spec's exit
+# Rust spells (W3) with the spelling (W4) of the core's exit for it
 # EXCLUDES: a field misread or swapped (two flags, a run and a primary
 #   tag), a reason lost on the way back, a cause tag of another cause, a
 #   default
 law headless_exit_entry_answers:
   for +f: Hx.Facts
-  {FHx.ffi(SpW.w_exit_req(f, "")) == SpW.w_exit_reply(f) : String}
+  {FHx.ffi(SpW.w_exit_req(f, "")) == SpW.w_verdict(Hx.decide(f), "") : String}
 
-# LAW headless_exit_entry_reads (R6): the laws' reader reads every spelled
-# request back whole, so headless_exit_entry_malformed_exact refuses only
-# what Rust never writes
-# EXCLUDES: a reader (and so an entry) that refuses a request Rust writes
-law headless_exit_entry_reads:
-  for +f: Hx.Facts
-  {SpW.read_exit(SpW.w_exit_req(f, "")) == Some{f} : Maybe<&2, Hx.Facts>}
+# LAW headless_exit_entry_reads_only_requests (R6): every input the entry
+# does not answer with the error form is exactly one spelled request (W3),
+# with nothing before or after it
+# EXCLUDES: an exit answered for input that is no request (an unknown tag
+#   or reason, a short request, input left over, a lenient field reader)
+law headless_exit_entry_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FHx.ffi(s)) == False{} : Bool}
+  exs f: Hx.Facts
+  {s == SpW.w_exit_req(f, "") : String}
 
 # LAW headless_exit_entry_malformed_exact (R6): every input that is not
 # exactly one request (an unknown tag, a malformed field, input left
@@ -368,13 +400,3 @@ law headless_exit_entry_malformed_exact:
 # EXCLUDES: another spelling of a request or a reply
 law headless_exit_entry_example:
   {[FHx.ffi("FF1,1,FF"), FHx.ffi("FF2,0,1,FF"), FHx.ffi("FF2,7,4,FF"), FHx.ffi("FF0,0,TF"), FHx.ffi("FF2,10,1,FF"), FHx.ffi("FF1,1,F"), FHx.ffi("FF1,1,FFx")] == ["0,0,", "1,3,0,", "1,5,", "1,8,", Wr.err("headless_exit: malformed request"), Wr.err("headless_exit: malformed request"), Wr.err("headless_exit: malformed request")] : List<&2, String>}
-
-# LAW headless_exit_entry_exact (R6): on every input the entry
-# answers exactly the spelling of the spec's exit for the request the
-# input is (as the laws' reader reads it, whole), and the error form on
-# any other input
-# EXCLUDES: another answer for an input the reader reads whole (a
-#   lenient decoder, a field misread), another error text
-law headless_exit_entry_exact:
-  for +s: String
-  {FHx.ffi(s) == exit_entry(s) : String}

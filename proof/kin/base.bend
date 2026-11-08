@@ -1,7 +1,8 @@
-# eukhe: lemmas of the decision proofs of area kin: the code's steps are
-# the spec's (kp.*), the spec's verdict admits as the spec says (ka.*),
-# what an admitted verdict names (kr.*), and the spec's links of two
-# trees put one after the other (kb.*)
+# eukhe: lemmas of the decision proofs of area kin: the code's decision
+# is a three-step verdict over the spec's edge test (kp.verdict, a proof
+# step, not a spec; kp.decide_eq), that verdict admits as the spec says
+# (ka.*), what an admitted verdict names (kr.*), and the spec's links of
+# two trees put one after the other (kb.*)
 
 import Base
 import ../../bend/kin.bend as K
@@ -9,8 +10,36 @@ import ../../spec/agents/kin.bend as KinSpec
 import ../../laws/kin.bend as Kin
 import ../base/staging.bend as LStg
 
-# The code's steps are the spec's
-# -------------------------------
+# The code's steps over the spec's edge test
+# ------------------------------------------
+
+def kp.verdict.child(y: Bool) -> K.Verdict:
+  match y:
+    case True{}:
+      K.Admit{K.Child{}}
+    case False{}:
+      K.Refuse{K.NotKin{}}
+
+def kp.verdict.parent(x: Bool, +s: String, +t: String, cs: List<&2, String>, ps: List<&2, String>) -> K.Verdict:
+  match x:
+    case True{}:
+      K.Admit{K.Parent{}}
+    case False{}:
+      kp.verdict.child(KinSpec.has_edge(cs, ps, t, s))
+
+def kp.verdict.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> K.Verdict:
+  match e:
+    case True{}:
+      K.Refuse{K.SelfMessage{}}
+    case False{}:
+      kp.verdict.parent(KinSpec.has_edge(cs, ps, s, t), s, t, cs, ps)
+
+# the decision as itself refused, then a parent, then a child
+def kp.verdict(+s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> K.Verdict:
+  kp.verdict.self(String.eq(s, t), s, t, cs, ps)
+
+# The code's steps
+# ----------------
 
 # the code's edge test is the spec's
 def kp.has(cs: List<&2, String>, ps: List<&2, String>, +a: String, +b: String) -> {K.has(cs, ps, a, b) == KinSpec.has_edge(cs, ps, a, b) : Bool}:
@@ -24,49 +53,53 @@ def kp.has(cs: List<&2, String>, ps: List<&2, String>, +a: String, +b: String) -
     case Con{+c, +ct} Con{+p, +pt}:
       Equal.cong(Bool, Bool, z => Bool.or(Bool.and(String.eq(c, a), String.eq(p, b)), z), K.has(ct, pt, a, b), KinSpec.has_edge(ct, pt, a, b), kp.has(ct, pt, a, b))
 
-def kp.child(y: Bool) -> {K.decide.down(y) == KinSpec.verdict.child(y) : K.Verdict}:
+def kp.child(y: Bool) -> {K.decide.down(y) == kp.verdict.child(y) : K.Verdict}:
   match y:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def kp.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {K.decide.up(x, s, t, cs, ps) == KinSpec.verdict.parent(x, s, t, cs, ps) : K.Verdict}:
+def kp.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {K.decide.up(x, s, t, cs, ps) == kp.verdict.parent(x, s, t, cs, ps) : K.Verdict}:
   match x:
     case True{}:
       {==}
     case False{}:
-      %kp.has(cs, ps, t, s) : {K.decide.down(K.has(cs, ps, t, s)) == KinSpec.verdict.child(_) : K.Verdict}
+      %kp.has(cs, ps, t, s) : {K.decide.down(K.has(cs, ps, t, s)) == kp.verdict.child(_) : K.Verdict}
       kp.child(K.has(cs, ps, t, s))
 
-# the code's decision, step by step, is the spec's
-def kp.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {K.decide.self(e, s, t, cs, ps) == KinSpec.verdict.self(e, s, t, cs, ps) : K.Verdict}:
+# the code's decision, step by step, is the verdict
+def kp.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {K.decide.self(e, s, t, cs, ps) == kp.verdict.self(e, s, t, cs, ps) : K.Verdict}:
   match e:
     case True{}:
       {==}
     case False{}:
-      %kp.has(cs, ps, s, t) : {K.decide.up(K.has(cs, ps, s, t), s, t, cs, ps) == KinSpec.verdict.parent(_, s, t, cs, ps) : K.Verdict}
+      %kp.has(cs, ps, s, t) : {K.decide.up(K.has(cs, ps, s, t), s, t, cs, ps) == kp.verdict.parent(_, s, t, cs, ps) : K.Verdict}
       kp.parent(K.has(cs, ps, s, t), s, t, cs, ps)
+
+# the code's decision is the three-step verdict
+def kp.decide_eq(+s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {K.decide(s, t, cs, ps) == kp.verdict(s, t, cs, ps) : K.Verdict}:
+  kp.self(String.eq(s, t), s, t, cs, ps)
 
 # Admission in the spec
 # ---------------------
 
-def ka.child(y: Bool) -> {Kin.kin_admitted(KinSpec.verdict.child(y)) == y : Bool}:
+def ka.child(y: Bool) -> {Kin.kin_admitted(kp.verdict.child(y)) == y : Bool}:
   match y:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def ka.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {Kin.kin_admitted(KinSpec.verdict.parent(x, s, t, cs, ps)) == Bool.or(x, KinSpec.has_edge(cs, ps, t, s)) : Bool}:
+def ka.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {Kin.kin_admitted(kp.verdict.parent(x, s, t, cs, ps)) == Bool.or(x, KinSpec.has_edge(cs, ps, t, s)) : Bool}:
   match x:
     case True{}:
       {==}
     case False{}:
       ka.child(KinSpec.has_edge(cs, ps, t, s))
 
-# the spec's verdict admits exactly when the spec admits
-def ka.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {Kin.kin_admitted(KinSpec.verdict.self(e, s, t, cs, ps)) == Bool.and(Bool.not(e), Bool.or(KinSpec.has_edge(cs, ps, s, t), KinSpec.has_edge(cs, ps, t, s))) : Bool}:
+# the verdict admits exactly when the spec admits
+def ka.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> {Kin.kin_admitted(kp.verdict.self(e, s, t, cs, ps)) == Bool.and(Bool.not(e), Bool.or(KinSpec.has_edge(cs, ps, s, t), KinSpec.has_edge(cs, ps, t, s))) : Bool}:
   match e:
     case True{}:
       {==}
@@ -95,7 +128,7 @@ def kr.rel_of(v: K.Verdict) -> K.Relation:
     case K.Refuse{f}:
       K.Parent{}
 
-def kr.child(y: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, hy: {KinSpec.has_edge(cs, ps, t, s) == y : Bool}, h: {KinSpec.verdict.child(y) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
+def kr.child(y: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, hy: {KinSpec.has_edge(cs, ps, t, s) == y : Bool}, h: {kp.verdict.child(y) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
   match y:
     case True{}:
       %Equal.cong(K.Verdict, K.Relation, v => kr.rel_of(v), K.Admit{K.Child{}}, K.Admit{r}, h) : {Kin.kin_rel_holds(_, s, t, cs, ps) == True{} : Bool}
@@ -103,7 +136,7 @@ def kr.child(y: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&
     case False{}:
       kr.absurd({Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}, K.NotKin{}, r, h)
 
-def kr.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, hx: {KinSpec.has_edge(cs, ps, s, t) == x : Bool}, h: {KinSpec.verdict.parent(x, s, t, cs, ps) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
+def kr.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, hx: {KinSpec.has_edge(cs, ps, s, t) == x : Bool}, h: {kp.verdict.parent(x, s, t, cs, ps) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
   match x:
     case True{}:
       %Equal.cong(K.Verdict, K.Relation, v => kr.rel_of(v), K.Admit{K.Parent{}}, K.Admit{r}, h) : {Kin.kin_rel_holds(_, s, t, cs, ps) == True{} : Bool}
@@ -111,8 +144,8 @@ def kr.parent(x: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<
     case False{}:
       kr.child(KinSpec.has_edge(cs, ps, t, s), s, t, cs, ps, r, {==}, h)
 
-# an admitted verdict of the spec names an edge that holds
-def kr.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, h: {KinSpec.verdict.self(e, s, t, cs, ps) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
+# an admitted verdict names an edge that holds
+def kr.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>, +r: K.Relation, h: {kp.verdict.self(e, s, t, cs, ps) == K.Admit{r} : K.Verdict}) -> {Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}:
   match e:
     case True{}:
       kr.absurd({Kin.kin_rel_holds(r, s, t, cs, ps) == True{} : Bool}, K.SelfMessage{}, r, h)

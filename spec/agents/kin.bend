@@ -1,7 +1,7 @@
 # kin (spec): who may message whom in an agent tree, and how a message
-# lands, restated without the messaging code (bend/kin.bend). The laws of
-# area kin (laws/kin.bend) state that the code refines it. A spec: the
-# shipped code never calls it.
+# lands, stated without the messaging code (bend/kin.bend). The laws of
+# area kin (laws/kin.bend) state K1-K4 of the code one property at a
+# time, with the helpers below. A spec: the shipped code never calls it.
 #
 # K1: the tree is a list of links, each a child and its parent: the i-th
 #     child with the i-th parent, as many links as the shorter column.
@@ -61,58 +61,9 @@ def mentions(xs: List<&2, String>, +a: String) -> Bool:
     case x <> t:
       Bool.or(String.eq(x, a), mentions(t, a))
 
-# K2, K3: the decision
-# --------------------
+# K2, K3: admission
+# -----------------
 
 # s may message t: not itself, and t is its parent or its child
 def admits(+s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> Bool:
   Bool.and(Bool.not(String.eq(s, t)), Bool.or(has_edge(cs, ps, s, t), has_edge(cs, ps, t, s)))
-
-def verdict.child(y: Bool) -> K.Verdict:
-  match y:
-    case True{}:
-      K.Admit{K.Child{}}
-    case False{}:
-      K.Refuse{K.NotKin{}}
-
-def verdict.parent(x: Bool, +s: String, +t: String, cs: List<&2, String>, ps: List<&2, String>) -> K.Verdict:
-  match x:
-    case True{}:
-      K.Admit{K.Parent{}}
-    case False{}:
-      verdict.child(has_edge(cs, ps, t, s))
-
-def verdict.self(e: Bool, +s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> K.Verdict:
-  match e:
-    case True{}:
-      K.Refuse{K.SelfMessage{}}
-    case False{}:
-      verdict.parent(has_edge(cs, ps, s, t), s, t, cs, ps)
-
-# the decision on a message from s to t in the tree of cs and ps
-def verdict(+s: String, +t: String, +cs: List<&2, String>, +ps: List<&2, String>) -> K.Verdict:
-  verdict.self(String.eq(s, t), s, t, cs, ps)
-
-# K4: the landing
-# ---------------
-
-# how a message reaches a target in state st
-def lands(st: K.State) -> K.Landing:
-  match st:
-    case K.Busy{}:
-      K.Queue{}
-    case K.Idle{}:
-      K.Deliver{}
-    case K.Parked{}:
-      K.WakeThenDeliver{}
-
-# the landing l ends with the message in the target's inbox: queued, or
-# delivered (after a wake)
-def in_inbox(l: K.Landing) -> Bool:
-  match l:
-    case K.Queue{}:
-      True{}
-    case K.Deliver{}:
-      True{}
-    case K.WakeThenDeliver{}:
-      True{}

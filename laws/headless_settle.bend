@@ -4,6 +4,7 @@ import Base
 import ../bend/headless_settle.bend as Hs
 import ../bend/ffi_headless_settle.bend as FHs
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 import ../spec/durable/headless.bend as Sp
 import ../spec/durable/headless_wire.bend as SpW
 
@@ -12,11 +13,13 @@ import ../spec/durable/headless_wire.bend as SpW
 # bend/headless_settle.bend, run as the compiled core by
 # bend/ffi_headless_settle.bend (eukhe-bend rules/headless.rs `settle`;
 # asked by eukhe-cli after each settle notice of `eukhe -p`, `--mode
-# json` and `--mode rpc`). spec/durable/headless.bend restates the rule
-# (Q1-Q2), spec/durable/headless_wire.bend the wire (W1, W2, W5). Every
-# input is free: any facts, any string.
+# json` and `--mode rpc`). spec/durable/headless.bend states the rule
+# (Q1-Q2) and quiet (Q1), spec/durable/headless_wire.bend the wire (W1,
+# W2, W5). Every input is free: any facts, any string.
 #
-# R1: the decision for every facts is the spec's (Q1-Q2).
+# R1: the decision for every facts is the one Q1-Q2 state: R2 and R3 fix
+#     it for every facts (finished exactly when quiet; else give up at the
+#     limit, wait below it).
 # R2: the run stops (finished) exactly when it is quiet: never while the
 #     main conversation is busy, while any job, kernel job, subagent,
 #     workflow run or settle notice is pending, or while the pending-work
@@ -24,9 +27,11 @@ import ../spec/durable/headless_wire.bend as SpW
 # R3: the run gives up only once the wait limit elapsed, and once it
 #     elapsed it never waits again: every wait has an exit.
 # R4: the entry answers each request Rust writes (W1, every count within
-#     the wire) with the spelling (W2) of the spec's decision, and any
-#     input that is not exactly one request with exactly
-#     `E headless_settle: malformed request`.
+#     the wire) with the spelling (W2) of the core's decision
+#     (bend/headless_settle.bend `settle`, fixed by R1-R3), answers no
+#     input but exactly one such request with anything but the error
+#     form, and answers any input that is not exactly one request with
+#     exactly `E headless_settle: malformed request`.
 
 # the decision is to stop
 def finished(x: Hs.Settle) -> Bool:
@@ -60,15 +65,6 @@ def gives_up(x: Hs.Settle) -> Bool:
 
 # Laws: the decision (R1-R3)
 # --------------------------
-
-# LAW headless_settle_refines_spec (R1): the decision for every facts is
-# the spec's
-# EXCLUDES: a count or flag left out of the check, a busy or unknown flag
-#   read the wrong way round, a give-up below the limit, a wait at the
-#   limit, a stop with work pending
-law headless_settle_refines_spec:
-  for +f: Hs.Facts
-  {Hs.settle(f) == Sp.settle_spec(f) : Hs.Settle}
 
 # LAW headless_settle_done_iff_quiet (R2): the run stops exactly when it
 # is quiet
@@ -205,44 +201,34 @@ law headless_settle_limit_exits:
 # LAW headless_settle_example (R1-R3): anchor: quiet stops (below and at
 # the limit); a job waits; two subagents at the limit give up; a wake, an
 # unknown read and a busy conversation wait
-# EXCLUDES: a spec that drifts from the decisions Rust acts on
+# EXCLUDES: a decision other than Q1-Q2 give for these facts
 law headless_settle_example:
   {[Hs.settle(Hs.Facts{False{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}}), Hs.settle(Hs.Facts{False{}, 0n, 0n, 0n, 0n, 0n, False{}, True{}}), Hs.settle(Hs.Facts{False{}, 1n, 0n, 0n, 0n, 0n, False{}, False{}}), Hs.settle(Hs.Facts{False{}, 0n, 0n, 2n, 0n, 0n, False{}, True{}}), Hs.settle(Hs.Facts{False{}, 0n, 0n, 0n, 0n, 1n, False{}, False{}}), Hs.settle(Hs.Facts{False{}, 0n, 0n, 0n, 0n, 0n, True{}, False{}}), Hs.settle(Hs.Facts{True{}, 0n, 0n, 0n, 0n, 0n, False{}, False{}})] == [Hs.Finished{}, Hs.Finished{}, Hs.Waiting{}, Hs.GiveUp{}, Hs.Waiting{}, Hs.Waiting{}, Hs.Waiting{}] : List<&2, Hs.Settle>}
 
 # Laws: the entry (R4)
 # --------------------
 
-# the entry's answer to the input s, from the laws' reader: the spelled
-# spec decision for the request that s is exactly, else the error form
-def settle_entry.whole(m: Maybe<&2, Hs.Facts>) -> String:
-  match m:
-    case Some{f}:
-      SpW.w_settle_reply(f)
-    case None{}:
-      Wr.err("headless_settle: malformed request")
-
-def settle_entry(s: String) -> String:
-  settle_entry.whole(SpW.read_settle(s))
-
 # LAW headless_settle_entry_answers (R4): the entry answers every request
-# Rust spells, every count within the wire, with the spelling of the
-# spec's decision
+# Rust spells (W1), every count within the wire, with the spelling (W2)
+# of the core's decision for it
 # EXCLUDES: a field misread or swapped (two counts, busy and unknown), a
 #   decision tag of another answer, a default
 law headless_settle_entry_answers:
   for +f: Hs.Facts
   for fit: {SpW.fit_settle(f) == True{} : Bool}
-  {FHs.ffi(SpW.w_settle_req(f, "")) == SpW.w_settle_reply(f) : String}
+  {FHs.ffi(SpW.w_settle_req(f, "")) == SpW.w_settle(Hs.settle(f), "") : String}
 
-# LAW headless_settle_entry_reads (R4): the laws' reader reads every
-# spelled request that fits the wire back whole, so
-# headless_settle_entry_malformed_exact refuses only what Rust never
-# writes
-# EXCLUDES: a reader (and so an entry) that refuses a request Rust writes
-law headless_settle_entry_reads:
-  for +f: Hs.Facts
-  for fit: {SpW.fit_settle(f) == True{} : Bool}
-  {SpW.read_settle(SpW.w_settle_req(f, "")) == Some{f} : Maybe<&2, Hs.Facts>}
+# LAW headless_settle_entry_reads_only_requests (R4): every input the
+# entry does not answer with the error form is exactly one spelled request
+# (W1), every count within the wire, with nothing before or after it
+# EXCLUDES: a decision answered for input that is no request (a short
+#   request, input left over, a count past the wire, a lenient field
+#   reader)
+law headless_settle_entry_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FHs.ffi(s)) == False{} : Bool}
+  exs f: Hs.Facts
+  {s == SpW.w_settle_req(f, "") : String} & {SpW.fit_settle(f) == True{} : Bool}
 
 # LAW headless_settle_entry_malformed_exact (R4): every input that is not
 # exactly one request (a malformed field, a short request, input left
@@ -261,13 +247,3 @@ law headless_settle_entry_malformed_exact:
 # EXCLUDES: another spelling of a request or a reply
 law headless_settle_entry_example:
   {[FHs.ffi("F0,0,0,0,0,FF"), FHs.ffi("T0,0,0,0,0,FF"), FHs.ffi("F0,3,0,0,0,FT"), FHs.ffi("F0,0,1,0,0,FF"), FHs.ffi("F0,0,0,0,0,F"), FHs.ffi("F0,0,0,0,0,FFx"), FHs.ffi("F01,0,0,0,0,FF")] == ["0,", "1,", "2,", "1,", Wr.err("headless_settle: malformed request"), Wr.err("headless_settle: malformed request"), Wr.err("headless_settle: malformed request")] : List<&2, String>}
-
-# LAW headless_settle_entry_exact (R4): on every input the entry
-# answers exactly the spelling of the spec's decision for the request the
-# input is (as the laws' reader reads it, whole), and the error form on
-# any other input
-# EXCLUDES: another answer for an input the reader reads whole (a
-#   lenient decoder, a field misread), another error text
-law headless_settle_entry_exact:
-  for +s: String
-  {FHs.ffi(s) == settle_entry(s) : String}

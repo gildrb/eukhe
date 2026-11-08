@@ -1,6 +1,7 @@
-# eukhe: lemmas of the decision proofs of area family: the code's steps
-# are the spec's (fp.*), what an admitted verdict says (fd.*), and the
-# spec's batch arithmetic (fb.*)
+# eukhe: lemmas of the decision proofs of area family: the code's
+# decision is a three-step verdict over the spec's parts (fp.verdict, a
+# proof step, not a spec; fp.decide_eq), what an admitted verdict says
+# (fd.*), and the spec's batch arithmetic (fb.*)
 
 import Base
 import ../../bend/family.bend as F
@@ -8,8 +9,36 @@ import ../../spec/rlm/family.bend as FamSpec
 import ../../laws/family.bend as Family
 import ../base/staging.bend as LStg
 
-# The code's steps are the spec's
-# -------------------------------
+# The code's steps over the spec's parts
+# --------------------------------------
+
+def fp.verdict.cap(ok: Bool, +c: Nat, +d: Nat) -> F.Verdict:
+  match ok:
+    case True{}:
+      F.Admit{1n+d}
+    case False{}:
+      F.Refuse{F.FamilyFull{c}}
+
+def fp.verdict.deep(x: Bool, +d: Nat, +r: Nat, +c: Nat, +n: Nat) -> F.Verdict:
+  match x:
+    case True{}:
+      F.Refuse{F.DepthLimit{}}
+    case False{}:
+      fp.verdict.cap(FamSpec.cap_ok(r, c, n), c, d)
+
+def fp.verdict.of(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat) -> F.Verdict:
+  match b:
+    case Some{i}:
+      F.Refuse{F.NoReason{i}}
+    case None{}:
+      fp.verdict.deep(FamSpec.deep(d, m), d, r, c, n)
+
+# the decision as the first bad why, then the depth, then the cap
+def fp.verdict(+d: Nat, +m: Nat, +r: Nat, +c: Nat, +ws: List<&2, String>) -> F.Verdict:
+  fp.verdict.of(FamSpec.first_bad(ws, 0n), d, m, r, c, List.length(&2, String, ws))
+
+# The code's steps
+# ----------------
 
 def fp.reason(p: Bool, i: Bool, t: Bool, u: Bool, +k: Nat, x: Maybe<&2, Nat>) -> {F.bad.at(F.reason.of(p, i, t, u), k, x) == FamSpec.first_bad.of(Bool.or(p, Bool.or(i, Bool.or(t, Bool.or(u, False{})))), k, x) : Maybe<&2, Nat>}:
   match p:
@@ -39,33 +68,38 @@ def fp.bad(ws: List<&2, String>, +k: Nat) -> {F.bad(ws, k) == FamSpec.first_bad(
       %fp.bad(t, 1n+k) : {F.bad.at(F.reason(w), k, F.bad(t, 1n+k)) == FamSpec.first_bad.of(FamSpec.allowed(w), k, _) : Maybe<&2, Nat>}
       fp.reason(String.eq(w, "parallel"), String.eq(w, "isolate"), String.eq(w, "tools"), String.eq(w, "user"), k, F.bad(t, 1n+k))
 
-def fp.capb(b: Bool, +c: Nat, +d: Nat) -> {F.decide.cap(Bool.not(b), c, d) == FamSpec.verdict.cap(Bool.or(False{}, b), c, d) : F.Verdict}:
+def fp.capb(b: Bool, +c: Nat, +d: Nat) -> {F.decide.cap(Bool.not(b), c, d) == fp.verdict.cap(Bool.or(False{}, b), c, d) : F.Verdict}:
   match b:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def fp.cap(c: Nat, +x: Nat, +d: Nat) -> {F.decide.cap(F.full.of(c, x), c, d) == FamSpec.verdict.cap(Bool.or(Nat.is_eq(c, 0n), Nat.is_le(x, c)), c, d) : F.Verdict}:
+def fp.cap(c: Nat, +x: Nat, +d: Nat) -> {F.decide.cap(F.full.of(c, x), c, d) == fp.verdict.cap(Bool.or(Nat.is_eq(c, 0n), Nat.is_le(x, c)), c, d) : F.Verdict}:
   match c:
     case 0n:
       {==}
     case 1n++k:
       fp.capb(Nat.is_le(x, 1n+k), 1n+k, d)
 
-def fp.deep(x: Bool, +d: Nat, +r: Nat, +c: Nat, +n: Nat) -> {F.decide.depth(x, d, r, c, n) == FamSpec.verdict.deep(x, d, r, c, n) : F.Verdict}:
+def fp.deep(x: Bool, +d: Nat, +r: Nat, +c: Nat, +n: Nat) -> {F.decide.depth(x, d, r, c, n) == fp.verdict.deep(x, d, r, c, n) : F.Verdict}:
   match x:
     case True{}:
       {==}
     case False{}:
       fp.cap(c, Nat.add(r, n), d)
 
-def fp.why(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat) -> {F.decide.why(b, d, m, r, c, n) == FamSpec.verdict.of(b, d, m, r, c, n) : F.Verdict}:
+def fp.why(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat) -> {F.decide.why(b, d, m, r, c, n) == fp.verdict.of(b, d, m, r, c, n) : F.Verdict}:
   match b:
     case Some{i}:
       {==}
     case None{}:
       fp.deep(Nat.is_le(m, d), d, r, c, n)
+
+# the code's decision is the three-step verdict
+def fp.decide_eq(+d: Nat, +m: Nat, +r: Nat, +c: Nat, +ws: List<&2, String>) -> {F.decide(d, m, r, c, ws) == fp.verdict(d, m, r, c, ws) : F.Verdict}:
+  %fp.bad(ws, 0n) : {F.decide.why(F.bad(ws, 0n), d, m, r, c, List.length(&2, String, ws)) == fp.verdict.of(_, d, m, r, c, List.length(&2, String, ws)) : F.Verdict}
+  fp.why(F.bad(ws, 0n), d, m, r, c, List.length(&2, String, ws))
 
 # What a verdict says
 # -------------------
@@ -108,7 +142,7 @@ def fd.below(m: Nat, d: Nat, h: {Nat.is_le(m, d) == False{} : Bool}) -> {Nat.is_
     case 1n+p 1n+q:
       fd.below(p, q, h)
 
-def fd.cap(y: Bool, +d: Nat, +m: Nat, +c: Nat, +k: Nat, h: {Nat.is_le(m, d) == False{} : Bool}, e: {FamSpec.verdict.cap(y, c, d) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
+def fd.cap(y: Bool, +d: Nat, +m: Nat, +c: Nat, +k: Nat, h: {Nat.is_le(m, d) == False{} : Bool}, e: {fp.verdict.cap(y, c, d) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
   match y:
     case True{}:
       +ek = Equal.cong(F.Verdict, Nat, v => fd.depth_of(v), F.Admit{1n+d}, F.Admit{k}, e)
@@ -117,15 +151,15 @@ def fd.cap(y: Bool, +d: Nat, +m: Nat, +c: Nat, +k: Nat, h: {Nat.is_le(m, d) == F
     case False{}:
       fd.absurd({k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}, F.FamilyFull{c}, k, e)
 
-def fd.deep(x: Bool, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat, +k: Nat, h: {Nat.is_le(m, d) == x : Bool}, e: {FamSpec.verdict.deep(x, d, r, c, n) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
+def fd.deep(x: Bool, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat, +k: Nat, h: {Nat.is_le(m, d) == x : Bool}, e: {fp.verdict.deep(x, d, r, c, n) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
   match x:
     case True{}:
       fd.absurd({k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}, F.DepthLimit{}, k, e)
     case False{}:
       fd.cap(FamSpec.cap_ok(r, c, n), d, m, c, k, h, e)
 
-# an admitted verdict of the spec: the child one level deeper, within the bound
-def fd.of(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat, +k: Nat, e: {FamSpec.verdict.of(b, d, m, r, c, n) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
+# an admitted verdict: the child one level deeper, within the bound
+def fd.of(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat, +k: Nat, e: {fp.verdict.of(b, d, m, r, c, n) == F.Admit{k} : F.Verdict}) -> {k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}:
   match b:
     case Some{i}:
       fd.absurd({k == 1n+d : Nat} & {Nat.is_le(k, m) == True{} : Bool}, F.NoReason{i}, k, e)
@@ -143,21 +177,21 @@ def fa.nz(b: Maybe<&2, Nat>, x: Bool) -> Bool:
     case Some{i}:
       False{}
 
-def fa.cap(y: Bool, +c: Nat, +d: Nat) -> {Family.fam_admitted(FamSpec.verdict.cap(y, c, d)) == y : Bool}:
+def fa.cap(y: Bool, +c: Nat, +d: Nat) -> {Family.fam_admitted(fp.verdict.cap(y, c, d)) == y : Bool}:
   match y:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def fa.deep(x: Bool, +d: Nat, +r: Nat, +c: Nat, +n: Nat) -> {Family.fam_admitted(FamSpec.verdict.deep(x, d, r, c, n)) == Bool.and(Bool.not(x), FamSpec.cap_ok(r, c, n)) : Bool}:
+def fa.deep(x: Bool, +d: Nat, +r: Nat, +c: Nat, +n: Nat) -> {Family.fam_admitted(fp.verdict.deep(x, d, r, c, n)) == Bool.and(Bool.not(x), FamSpec.cap_ok(r, c, n)) : Bool}:
   match x:
     case True{}:
       {==}
     case False{}:
       fa.cap(FamSpec.cap_ok(r, c, n), c, d)
 
-def fa.of(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat) -> {Family.fam_admitted(FamSpec.verdict.of(b, d, m, r, c, n)) == fa.nz(b, Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, n))) : Bool}:
+def fa.of(b: Maybe<&2, Nat>, +d: Nat, +m: Nat, +r: Nat, +c: Nat, +n: Nat) -> {Family.fam_admitted(fp.verdict.of(b, d, m, r, c, n)) == fa.nz(b, Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, n))) : Bool}:
   match b:
     case Some{i}:
       {==}
@@ -186,9 +220,9 @@ def fa.assoc(a: Bool, -b: Bool, -c: Bool) -> {Bool.and(Bool.and(a, b), c) == Boo
     case False{}:
       {==}
 
-# the spec's verdict admits exactly when the spec admits
-def fa.verdict(+d: Nat, +m: Nat, +r: Nat, +c: Nat, +ws: List<&2, String>) -> {Family.fam_admitted(FamSpec.verdict(d, m, r, c, ws)) == FamSpec.admits(d, m, r, c, ws) : Bool}:
-  Equal.trans(Bool, Family.fam_admitted(FamSpec.verdict(d, m, r, c, ws)), fa.nz(FamSpec.first_bad(ws, 0n), Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, List.length(&2, String, ws)))), FamSpec.admits(d, m, r, c, ws), fa.of(FamSpec.first_bad(ws, 0n), d, m, r, c, List.length(&2, String, ws)), fa.bad(ws, 0n, Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, List.length(&2, String, ws)))))
+# the verdict admits exactly when the spec admits
+def fa.verdict(+d: Nat, +m: Nat, +r: Nat, +c: Nat, +ws: List<&2, String>) -> {Family.fam_admitted(fp.verdict(d, m, r, c, ws)) == FamSpec.admits(d, m, r, c, ws) : Bool}:
+  Equal.trans(Bool, Family.fam_admitted(fp.verdict(d, m, r, c, ws)), fa.nz(FamSpec.first_bad(ws, 0n), Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, List.length(&2, String, ws)))), FamSpec.admits(d, m, r, c, ws), fa.of(FamSpec.first_bad(ws, 0n), d, m, r, c, List.length(&2, String, ws)), fa.bad(ws, 0n, Bool.and(Bool.not(FamSpec.deep(d, m)), FamSpec.cap_ok(r, c, List.length(&2, String, ws)))))
 
 # The batch arithmetic
 # --------------------

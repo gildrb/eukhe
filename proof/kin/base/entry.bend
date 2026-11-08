@@ -17,7 +17,6 @@ import ../../base/wire_strs.bend as LS
 import ../../base/bool.bend as LBool
 import ../../base/logic/bool.bend as LLogicBool
 import ../../base/staging.bend as LStg
-import ../kin_refines_spec.bend as PKinRefinesSpec
 
 # The edge columns
 # ----------------
@@ -86,11 +85,11 @@ def ke.verdict(v: K.Verdict) -> {FK.put_verdict(v) == Kin.kin_w_verdict(v) : Str
         case K.NotKin{}:
           {==}
 
-# the entry's answer is the spec's decision or landing, spelled
+# the entry's answer is the core's decision or landing, spelled as the
+# laws spell it
 def ke.answer(q: FK.Req) -> {FK.answer(q) == Kin.kin_w_reply(q) : String}:
   match q:
-    case FK.QAdmit{+sn, +tg, +cs, +ps}:
-      %Kin.kin_refines_spec(sn, tg, cs, ps) : {FK.put_verdict(K.decide(sn, tg, cs, ps)) == Kin.kin_w_verdict(_) : String}
+    case FK.QAdmit{sn, tg, cs, ps}:
       ke.verdict(K.decide(sn, tg, cs, ps))
     case FK.QLand{st}:
       match st:
