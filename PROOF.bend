@@ -1016,6 +1016,8 @@ import ./proof/launcher/launcher_adoption_exact.bend as PLauncherAdoptionExact
 import ./proof/replace/base.bend as LAReplace
 import ./proof/replace/replace_never_downgrades.bend as PReplaceNeverDowngrades
 import ./proof/replace/replacement_terminates.bend as PReplacementTerminates
+import ./proof/replace/replacement_terminates_any.bend as PReplacementTerminatesAny
+import ./proof/replace/replacement_terminates_example.bend as PReplacementTerminatesExample
 import ./proof/replace/background_never_replaces.bend as PBackgroundNeverReplaces
 import ./proof/replace/replace_rank_reads_semver.bend as PReplaceRankReadsSemver
 import ./proof/replace/replace_rank_example.bend as PReplaceRankExample

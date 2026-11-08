@@ -24,6 +24,65 @@ law replacement_terminates:
   for cover: {Rp.covers(bs, ss) == True{} : Bool}
   {Nat.is_le(Rp.replaced(ss), Nat.sub(List.length(&2, Rp.Build, bs), 1n)) == True{} : Bool}
 
+# The builds of client starts, by the laws' own equality (independent of
+# the model's Rp.covers)
+
+# the numbers of xs and ys are equal, item by item, and as many
+def rp_nats_same(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Nil{} y <> yr:
+      False{}
+    case x <> xr Nil{}:
+      False{}
+    case +x <> xr +y <> yr:
+      Bool.and(Nat.is_eq(x, y), rp_nats_same(xr, yr))
+
+# a and b are the same build: equal build ids and equal ranks
+def rp_build_same(a: Rp.Build, b: Rp.Build) -> Bool:
+  match a b:
+    case Rp.Build{ra, ia} Rp.Build{rb, ib}:
+      Bool.and(String.eq(ia, ib), rp_nats_same(ra, rb))
+
+# b is one of the builds bs
+def rp_built(bs: List<&2, Rp.Build>, +b: Rp.Build) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case e <> t:
+      Bool.or(rp_build_same(e, b), rp_built(t, b))
+
+# the build of every start of ss is one of bs
+def rp_all_built(+bs: List<&2, Rp.Build>, ss: List<&2, Rp.Start>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case s <> rest:
+      match s:
+        case Rp.Start{c, k}:
+          Bool.and(rp_built(bs, c), rp_all_built(bs, rest))
+
+# LAW replacement_terminates_any: replacements stop. Client starts whose builds are all in bs (k
+# builds), by the laws' own build equality (same id, same rank), replace the
+# daemon k - 1 times at most
+# EXCLUDES: a vacuous replacement_terminates (a model whose Rp.covers or
+#   Rp.ranks_eq answers False for builds that are in bs), endless
+#   replacements between the builds of bs
+law replacement_terminates_any:
+  for +bs: List<&2, Rp.Build>
+  for +ss: List<&2, Rp.Start>
+  for cover: {rp_all_built(bs, ss) == True{} : Bool}
+  {Nat.is_le(Rp.replaced(ss), Nat.sub(List.length(&2, Rp.Build, bs), 1n)) == True{} : Bool}
+
+# LAW replacement_terminates_example: witness and teeth: an interactive start of an older build o,
+# then of a newer build n: both builds are in [o, n], and the one
+# replacement meets the bound k - 1 = 1
+# EXCLUDES: a vacuous replacement_terminates_any (no starts satisfy its
+#   premise), a bound met only because nothing is ever replaced
+law replacement_terminates_example:
+  {rp_all_built([Rp.Build{[1n, 0n, 1n, 0n], "o"}, Rp.Build{[1n, 0n, 1n, 1n], "n"}], [Rp.Start{Rp.Build{[1n, 0n, 1n, 0n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[1n, 0n, 1n, 1n], "n"}, Rp.Interactive{}}]) == True{} : Bool} & {Rp.replaced([Rp.Start{Rp.Build{[1n, 0n, 1n, 0n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[1n, 0n, 1n, 1n], "n"}, Rp.Interactive{}}]) == 1n : Nat} & {Nat.sub(List.length(&2, Rp.Build, [Rp.Build{[1n, 0n, 1n, 0n], "o"}, Rp.Build{[1n, 0n, 1n, 1n], "n"}]), 1n) == 1n : Nat}
+
 # LAW background_never_replaces: a background client (the dashboard, the gateway, ACP, a reconnect)
 # never replaces a running daemon
 law background_never_replaces:
