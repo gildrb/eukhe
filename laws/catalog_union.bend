@@ -138,118 +138,246 @@ law union_order_free:
   for sy: {CU.find(ys, k) == CU.find(ys2, k) : Maybe<&2, CU.Ent>}
   {CU.find(CU.read(CU.Cat{CU.Bundled{}, xs}, CU.Cat{CU.Compiled{}, ys}), k) == CU.find(CU.read(CU.Cat{CU.Compiled{}, ys2}, CU.Cat{CU.Bundled{}, xs2}), k) : Maybe<&2, CU.Ent>}
 
-# (C1) The union, entry by entry, against a spec
-# ---------------------------------------------
+# (C1) The union, entry by entry
+# ------------------------------
 # The laws above read the union through CU.find (the first entry with a
-# key) and the model's own field views: the order of the list the entry
-# answers, and an entry behind a duplicated key, are free in them (a
-# union that lists the compiled-only models first, or reverses the
-# bundle, passes them). The spec below is the union in the order the
-# module docs of crates/eukhe-models/src/effective.rs state: every bundled
-# entry in order, each with its compiled twin (the first compiled entry
-# with its key) merged in, then every compiled entry whose key the bundle
-# lacks, in order.
+# key) and the model's own views (CU.slot through Ent.key, Ent.api,
+# Ent.data): the order of the list, an entry behind a duplicated key, and
+# a view both sides of a law read alike are free in them. The laws below
+# read the list itself, at each place, and compare it to the sources'
+# constructor fields, in the order the module docs of
+# crates/eukhe-models/src/effective.rs state: the bundled entries in
+# bundled order, then the compiled entries whose key the bundle lacks, in
+# compiled order. The helpers read an entry by its constructor, never
+# through the model's views or lookups.
 
-# the key of an entry
-def cu_key(e: CU.Ent) -> Nat:
-  match e:
-    case CU.Ent{k, a, d, t, c, f, h}:
-      k
-
-def cu_pick(hit: Bool, e: CU.Ent, rest: Maybe<&2, CU.Ent>) -> Maybe<&2, CU.Ent>:
-  match hit:
-    case True{}:
-      Some{e}
-    case False{}:
-      rest
-
-# the first entry of xs with key k
-def cu_find(xs: List<&2, CU.Ent>, +k: Nat) -> Maybe<&2, CU.Ent>:
+# the keys of the entries, in order
+def cu_keys(xs: List<&2, CU.Ent>) -> List<&2, Nat>:
   match xs:
     case Nil{}:
-      None{}
-    case +e <> rest:
-      cu_pick(Nat.is_eq(cu_key(e), k), e, cu_find(rest, k))
+      Nil{}
+    case CU.Ent{k, a, d, t, c, f, h} <> rest:
+      k <> cu_keys(rest)
 
-# an optional field of a model in both: the bundled one when it states
-# one, else the compiled one when both use the same api, else none
-def cu_fill(o: Maybe<&2, Nat>, c: Maybe<&2, Nat>, same: Bool) -> Maybe<&2, Nat>:
-  match o:
-    case Some{v}:
-      Some{v}
-    case None{}:
-      match same:
-        case True{}:
-          c
-        case False{}:
-          None{}
-
-# the bundled entry b with its compiled twin c: key, api and data from b
-def cu_merge(b: CU.Ent, c: CU.Ent) -> CU.Ent:
-  match b c:
-    case CU.Ent{bk, +ba, bd, bt, bc, bf, bh} CU.Ent{ck, +ca, cd, ct, cc, cf, ch}:
-      +same = Nat.is_eq(ba, ca)
-      CU.Ent{bk, ba, bd, cu_fill(bt, ct, same), cu_fill(bc, cc, same), cu_fill(bf, cf, same), cu_fill(bh, ch, same)}
-
-def cu_with(+b: CU.Ent, m: Maybe<&2, CU.Ent>) -> CU.Ent:
-  match m:
-    case None{}:
-      b
-    case Some{c}:
-      cu_merge(b, c)
-
-# every bundled entry, in order, with its compiled twin merged in
-def cu_bundled(bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
-  match bs:
+# the key, api and data of each entry, in order
+def cu_kad(xs: List<&2, CU.Ent>) -> List<&2, Nat>:
+  match xs:
     case Nil{}:
       Nil{}
-    case +b <> rest:
-      cu_with(b, cu_find(cs, cu_key(b))) <> cu_bundled(rest, cs)
+    case CU.Ent{k, a, d, t, c, f, h} <> rest:
+      k <> a <> d <> cu_kad(rest)
 
-def cu_keep(seen: Bool, c: CU.Ent, rest: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
-  match seen:
+# k is one of ks
+def cu_in(ks: List<&2, Nat>, +k: Nat) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(Nat.is_eq(x, k), cu_in(rest, k))
+
+def cu_bump(hit: Bool, n: Nat) -> Nat:
+  match hit:
     case True{}:
-      rest
+      1n+n
     case False{}:
-      c <> rest
+      n
 
-# every compiled entry whose key the bundle lacks, in order
-def cu_extra(cs: List<&2, CU.Ent>, +bs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
-  match cs:
+# how many times k occurs in ks
+def cu_times(ks: List<&2, Nat>, +k: Nat) -> Nat:
+  match ks:
+    case Nil{}:
+      0n
+    case x <> rest:
+      cu_bump(Nat.is_eq(x, k), cu_times(rest, k))
+
+def cu_sel(keep: Bool, x: CU.Ent, rest: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  match keep:
+    case True{}:
+      x <> rest
+    case False{}:
+      rest
+
+# the entries of xs the mask m marks True, in order (an entry past the
+# end of m is left out): any ordered subsequence of xs is one
+def cu_select(m: List<&2, Bool>, xs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  match m:
     case Nil{}:
       Nil{}
-    case +c <> rest:
-      cu_keep(Maybe.is_some(&2, CU.Ent, cu_find(bs, cu_key(c))), c, cu_extra(rest, bs))
+    case keep <> mr:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case x <> rest:
+          cu_sel(keep, x, cu_select(mr, rest))
 
-# the built-in catalog: the bundle merged, then the compiled-only models
-def cu_union(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
-  List.append(&2, CU.Ent, cu_bundled(bs, cs), cu_extra(cs, bs))
+# LAW union_nil_compiled: with an empty compiled catalog the built-in catalog is the
+# bundle, entry for entry
+# EXCLUDES: a bundled entry dropped, reordered, listed twice or changed
+#   when nothing merges into it
+law union_nil_compiled:
+  for +bs: List<&2, CU.Ent>
+  {CU.union(bs, Nil{}) == bs : List<&2, CU.Ent>}
 
-# LAW union_spec: the built-in catalog is every bundled entry in order, each merged with
-# its compiled twin, then every compiled entry whose key the bundle
-# lacks, in order
-# EXCLUDES: a union in another order (compiled-only models first, a
-#   source reversed), an entry behind a duplicated key dropped, merged
-#   with another twin or listed twice, a compiled entry the bundle has
-#   listed again
-law union_spec:
+# LAW union_nil_bundled: with an empty bundle the built-in catalog is the compiled catalog,
+# entry for entry
+# EXCLUDES: a compiled entry dropped, reordered, listed twice or changed
+#   when the bundle is empty
+law union_nil_bundled:
+  for +cs: List<&2, CU.Ent>
+  {CU.union(Nil{}, cs) == cs : List<&2, CU.Ent>}
+
+# LAW union_head_is_bundle: the first entries of the built-in catalog, as many as the bundle
+# has, are the bundled entries in bundled order, each with its own key,
+# api and data
+# EXCLUDES: compiled-only models listed first or among the bundled ones,
+#   the bundle reordered, a bundled entry dropped or listed twice, a key,
+#   api or data taken from the compiled twin
+law union_head_is_bundle:
   for +bs: List<&2, CU.Ent>
   for +cs: List<&2, CU.Ent>
-  {CU.union(bs, cs) == cu_union(bs, cs) : List<&2, CU.Ent>}
+  {cu_kad(List.take(&2, CU.Ent, CU.union(bs, cs), List.length(&2, CU.Ent, bs))) == cu_kad(bs) : List<&2, Nat>}
 
-# LAW union_terms_exact: the model's views of an entry the laws above read (`Ent.key`,
-# `Ent.api`, `Ent.data`, `Ent.opt`) are its fields
-# EXCLUDES: a view that answers a constant (a mutation probe found
-#   `Ent.data` free: the laws read the data through it) or another field
-law union_terms_exact:
+# LAW union_tail_in_compiled_order: the entries after the bundled ones are compiled entries,
+# unchanged, in compiled order (an ordered subsequence of the compiled
+# catalog)
+# EXCLUDES: a compiled-only model changed, invented, listed twice or out of
+#   compiled order, a bundled entry listed again after the bundle
+law union_tail_in_compiled_order:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  exs m: List<&2, Bool>
+  {cu_select(m, cs) == List.drop(&2, CU.Ent, CU.union(bs, cs), List.length(&2, CU.Ent, bs)) : List<&2, CU.Ent>}
+
+# LAW union_tail_lacks_bundled: no entry after the bundled ones has a key the bundle has
+# EXCLUDES: a compiled twin listed again after its bundled entry (a
+#   model listed twice), a twin found by another key test
+law union_tail_lacks_bundled:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for hb: {cu_in(cu_keys(bs), k) == True{} : Bool}
+  {cu_times(cu_keys(List.drop(&2, CU.Ent, CU.union(bs, cs), List.length(&2, CU.Ent, bs))), k) == 0n : Nat}
+
+# LAW union_tail_keeps_compiled_only: a key the bundle lacks occurs after the bundled entries as
+# often as in the compiled catalog (with union_tail_in_compiled_order and
+# union_tail_lacks_bundled: the entries after the bundled ones are exactly
+# the compiled entries whose key the bundle lacks, in compiled order)
+# EXCLUDES: a compiled-only model dropped or listed once of the times the
+#   compiled catalog lists it
+law union_tail_keeps_compiled_only:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for hb: {cu_in(cu_keys(bs), k) == False{} : Bool}
+  {cu_times(cu_keys(List.drop(&2, CU.Ent, CU.union(bs, cs), List.length(&2, CU.Ent, bs))), k) == cu_times(cu_keys(cs), k) : Nat}
+
+# LAW union_at_bundled_alone: a bundled entry whose key the compiled catalog lacks is, at its
+# own place in the built-in catalog (its place in the bundle), the
+# bundled entry itself, every field (bundled entries before it with the
+# same key or not)
+# EXCLUDES: a bundled entry changed when it has no twin, an entry behind a
+#   duplicated bundled key dropped or replaced by the first
+law union_at_bundled_alone:
+  for +bp: List<&2, CU.Ent>
+  for +bq: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
   for +k: Nat
   for +a: Nat
   for +d: Nat
   for +t: Maybe<&2, Nat>
-  for +c: Maybe<&2, Nat>
-  for +f: Maybe<&2, Nat>
-  for +h: Maybe<&2, Nat>
-  {[CU.Ent.key(CU.Ent{k, a, d, t, c, f, h}), CU.Ent.api(CU.Ent{k, a, d, t, c, f, h}), CU.Ent.data(CU.Ent{k, a, d, t, c, f, h})] == [k, a, d] : List<&2, Nat>} & {[CU.Ent.opt(CU.Ent{k, a, d, t, c, f, h}, CU.Tlm{}), CU.Ent.opt(CU.Ent{k, a, d, t, c, f, h}, CU.Compat{}), CU.Ent.opt(CU.Ent{k, a, d, t, c, f, h}, CU.Featured{}), CU.Ent.opt(CU.Ent{k, a, d, t, c, f, h}, CU.Headers{})] == [t, c, f, h] : List<&2, Maybe<&2, Nat>>}
+  for +cm: Maybe<&2, Nat>
+  for +ft: Maybe<&2, Nat>
+  for +hd: Maybe<&2, Nat>
+  for hc: {cu_in(cu_keys(cs), k) == False{} : Bool}
+  {List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), cs), List.length(&2, CU.Ent, bp)) == Some{CU.Ent{k, a, d, t, cm, ft, hd}} : Maybe<&2, CU.Ent>}
+
+# LAW union_at_both_keeps_bundled: a bundled entry whose key the compiled catalog has (its twin:
+# the first compiled entry with that key) is, at its own place in the
+# built-in catalog, shown by an optional field it states: the bundled
+# entry's key, api, data and that field
+# EXCLUDES: a merged entry that takes its key, api or data (or a stated
+#   field) from the twin, a view (CU.slot) that answers another field or
+#   a constant, a twin other than the first, an entry behind a
+#   duplicated bundled key left unmerged
+law union_at_both_keeps_bundled:
+  for +bp: List<&2, CU.Ent>
+  for +bq: List<&2, CU.Ent>
+  for +cp: List<&2, CU.Ent>
+  for +cq: List<&2, CU.Ent>
+  for +k: Nat
+  for +a: Nat
+  for +d: Nat
+  for +t: Maybe<&2, Nat>
+  for +cm: Maybe<&2, Nat>
+  for +ft: Maybe<&2, Nat>
+  for +hd: Maybe<&2, Nat>
+  for +ca: Nat
+  for +cd: Nat
+  for +ct: Maybe<&2, Nat>
+  for +cc: Maybe<&2, Nat>
+  for +cf: Maybe<&2, Nat>
+  for +ch: Maybe<&2, Nat>
+  for +fld: CU.Fld
+  for +v: Nat
+  for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
+  for hv: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == Some{v} : Maybe<&2, Nat>}
+  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, Some{v}}} : Maybe<&2, CU.Slot>}
+
+# LAW union_at_both_fills_from_compiled: and an optional field the bundled entry leaves out is the
+# twin's when both use the same api
+# EXCLUDES: a field the bundle leaves out kept out, or taken from another
+#   twin or another field, when the apis agree; key, api or data from the
+#   twin
+law union_at_both_fills_from_compiled:
+  for +bp: List<&2, CU.Ent>
+  for +bq: List<&2, CU.Ent>
+  for +cp: List<&2, CU.Ent>
+  for +cq: List<&2, CU.Ent>
+  for +k: Nat
+  for +a: Nat
+  for +d: Nat
+  for +t: Maybe<&2, Nat>
+  for +cm: Maybe<&2, Nat>
+  for +ft: Maybe<&2, Nat>
+  for +hd: Maybe<&2, Nat>
+  for +ca: Nat
+  for +cd: Nat
+  for +ct: Maybe<&2, Nat>
+  for +cc: Maybe<&2, Nat>
+  for +cf: Maybe<&2, Nat>
+  for +ch: Maybe<&2, Nat>
+  for +fld: CU.Fld
+  for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
+  for hn: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == None{} : Maybe<&2, Nat>}
+  for ha: {Nat.is_eq(a, ca) == True{} : Bool}
+  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld)}} : Maybe<&2, CU.Slot>}
+
+# LAW union_at_both_other_api: and stays out when the two use different apis
+# EXCLUDES: a field filled from a twin of another api; key, api or data
+#   from the twin
+law union_at_both_other_api:
+  for +bp: List<&2, CU.Ent>
+  for +bq: List<&2, CU.Ent>
+  for +cp: List<&2, CU.Ent>
+  for +cq: List<&2, CU.Ent>
+  for +k: Nat
+  for +a: Nat
+  for +d: Nat
+  for +t: Maybe<&2, Nat>
+  for +cm: Maybe<&2, Nat>
+  for +ft: Maybe<&2, Nat>
+  for +hd: Maybe<&2, Nat>
+  for +ca: Nat
+  for +cd: Nat
+  for +ct: Maybe<&2, Nat>
+  for +cc: Maybe<&2, Nat>
+  for +cf: Maybe<&2, Nat>
+  for +ch: Maybe<&2, Nat>
+  for +fld: CU.Fld
+  for hp: {cu_in(cu_keys(cp), k) == False{} : Bool}
+  for hn: {CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld) == None{} : Maybe<&2, Nat>}
+  for ha: {Nat.is_eq(a, ca) == False{} : Bool}
+  {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, None{}}} : Maybe<&2, CU.Slot>}
 
 # LAW catalog_union_ffi_request_round_trip (compiled core): the catalog entry (bend/ffi_catalog_union.bend) reads back
 # the two sources as Rust writes it, and leaves what follows untouched

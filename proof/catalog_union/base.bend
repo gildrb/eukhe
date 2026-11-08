@@ -2,6 +2,7 @@
 
 import Base
 import ../../bend/catalog_union.bend as CU
+import ../../laws/catalog_union.bend as CatalogUnion
 
 # ---- catalog_union ----
 
@@ -211,4 +212,118 @@ def pcu.both(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +k: Nat, +b: CU.Ent, 
   +u = pcu.at(bs, cs, k, Some{b}, Some{c}, hb, hc)
   %Equal.sym(Maybe<&2, CU.Ent>, CU.find(CU.union(bs, cs), k), Some{CU.merge(b, c)}, u) : {CU.slot(_, f) == Some{CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.fill(CU.Ent.opt(b, f), CU.Ent.opt(c, f), Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)))}} : Maybe<&2, CU.Slot>}
   %Equal.sym(CU.Slot, CU.Ent.slot(CU.merge(b, c), f), CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.fill(CU.Ent.opt(b, f), CU.Ent.opt(c, f), Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)))}, pcu.merge_slot(b, c, f)) : {Some{_} == Some{CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.fill(CU.Ent.opt(b, f), CU.Ent.opt(c, f), Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)))}} : Maybe<&2, CU.Slot>}
+  {==}
+
+# The list, place by place
+# ------------------------
+# The laws union_nil_*, union_head_is_bundle, union_tail_* and union_at_*
+# read the union's list against the laws' constructor helpers
+# (CatalogUnion.cu_keys, cu_kad, cu_in, cu_times): the bundled part has
+# one entry per bundled entry, in order, so the union cut at the bundle's
+# length is the bundled part and the compiled part (`pcu.take_bundled`,
+# `pcu.drop_bundled`), and its entry at a bundled entry's place is that
+# entry with its twin (`pcu.get_bundled`); the bundle has a key exactly
+# when its keys hold it (`pcu.has_in`); the first entry with a key is the
+# lookup's twin (`pcu.find_first`).
+
+def pcu.is_eq_refl(k: Nat) -> {Nat.is_eq(k, k) == True{} : Bool}:
+  match k:
+    case 0n:
+      {==}
+    case 1n+p:
+      pcu.is_eq_refl(p)
+
+def pcu.or_false_l(x: Bool, y: Bool, h: {Bool.or(x, y) == False{} : Bool}) -> {x == False{} : Bool}:
+  match x:
+    case False{}:
+      {==}
+    case True{}:
+      pcu.absurdF({True{} == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+
+def pcu.or_false_r(x: Bool, y: Bool, h: {Bool.or(x, y) == False{} : Bool}) -> {y == False{} : Bool}:
+  match x:
+    case False{}:
+      h
+    case True{}:
+      pcu.absurdF({y == False{} : Bool}, Equal.sym(Bool, True{}, False{}, h))
+
+def pcu.take_zero(xs: List<&2, CU.Ent>) -> {List.take(&2, CU.Ent, xs, 0n) == Nil{} : List<&2, CU.Ent>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      {==}
+
+def pcu.drop_zero(xs: List<&2, CU.Ent>) -> {List.drop(&2, CU.Ent, xs, 0n) == xs : List<&2, CU.Ent>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      {==}
+
+# the first entries of the bundled part then e, as many as the bundle
+# has, are the bundled part
+def pcu.take_bundled(bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +e: List<&2, CU.Ent>) -> {List.take(&2, CU.Ent, List.append(&2, CU.Ent, CU.bundled(bs, cs), e), List.length(&2, CU.Ent, bs)) == CU.bundled(bs, cs) : List<&2, CU.Ent>}:
+  match bs:
+    case Nil{}:
+      pcu.take_zero(e)
+    case +b <> +rest:
+      Equal.cong(List<&2, CU.Ent>, List<&2, CU.Ent>, z => CU.with(b, CU.find(cs, CU.Ent.key(b))) <> z, List.take(&2, CU.Ent, List.append(&2, CU.Ent, CU.bundled(rest, cs), e), List.length(&2, CU.Ent, rest)), CU.bundled(rest, cs), pcu.take_bundled(rest, cs, e))
+
+# and the entries after them are e
+def pcu.drop_bundled(bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +e: List<&2, CU.Ent>) -> {List.drop(&2, CU.Ent, List.append(&2, CU.Ent, CU.bundled(bs, cs), e), List.length(&2, CU.Ent, bs)) == e : List<&2, CU.Ent>}:
+  match bs:
+    case Nil{}:
+      pcu.drop_zero(e)
+    case b <> rest:
+      pcu.drop_bundled(rest, cs, e)
+
+# the entry at the place of b in the bundled part (then e) is b with its
+# twin
+def pcu.get_bundled(xs: List<&2, CU.Ent>, +b: CU.Ent, +ys: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>, +e: List<&2, CU.Ent>) -> {List.get(&2, CU.Ent, List.append(&2, CU.Ent, CU.bundled(List.append(&2, CU.Ent, xs, b <> ys), cs), e), List.length(&2, CU.Ent, xs)) == Some{CU.with(b, CU.find(cs, CU.Ent.key(b)))} : Maybe<&2, CU.Ent>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      pcu.get_bundled(rest, b, ys, cs, e)
+
+def pcu.has_in.go(hit: Bool, +e: CU.Ent, +rest: List<&2, CU.Ent>, +k: Nat, ih: {CU.has(rest, k) == CatalogUnion.cu_in(CatalogUnion.cu_keys(rest), k) : Bool}) -> {Maybe.is_some(&2, CU.Ent, CU.find.go(e <> rest, k, hit)) == Bool.or(hit, CatalogUnion.cu_in(CatalogUnion.cu_keys(rest), k)) : Bool}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# the bundle has a key exactly when its keys hold it
+def pcu.has_in(bs: List<&2, CU.Ent>, +k: Nat) -> {CU.has(bs, k) == CatalogUnion.cu_in(CatalogUnion.cu_keys(bs), k) : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case b <> +rest:
+      match b:
+        case CU.Ent{+bk, +ba, +bd, +bt, +bc, +bf, +bh}:
+          pcu.has_in.go(Nat.is_eq(bk, k), CU.Ent{bk, ba, bd, bt, bc, bf, bh}, rest, k, pcu.has_in(rest, k))
+
+# c has key k and no entry of cp does: the lookup in cp, c, cq finds c
+def pcu.find_first(cp: List<&2, CU.Ent>, +c: CU.Ent, +cq: List<&2, CU.Ent>, +k: Nat, +hc: {Nat.is_eq(CU.Ent.key(c), k) == True{} : Bool}, +h: {CatalogUnion.cu_in(CatalogUnion.cu_keys(cp), k) == False{} : Bool}) -> {CU.find(List.append(&2, CU.Ent, cp, c <> cq), k) == Some{c} : Maybe<&2, CU.Ent>}:
+  match cp:
+    case Nil{}:
+      %Equal.sym(Bool, Nat.is_eq(CU.Ent.key(c), k), True{}, hc) : {CU.find.go(c <> cq, k, _) == Some{c} : Maybe<&2, CU.Ent>}
+      {==}
+    case e <> +rest:
+      match e:
+        case CU.Ent{+ek, +ea, +ed, +et, +ec, +ef, +eh}:
+          +hx = pcu.or_false_l(Nat.is_eq(ek, k), CatalogUnion.cu_in(CatalogUnion.cu_keys(rest), k), h)
+          +hr = pcu.or_false_r(Nat.is_eq(ek, k), CatalogUnion.cu_in(CatalogUnion.cu_keys(rest), k), h)
+          %Equal.sym(Bool, Nat.is_eq(ek, k), False{}, hx) : {CU.find.go(CU.Ent{ek, ea, ed, et, ec, ef, eh} <> List.append(&2, CU.Ent, rest, c <> cq), k, _) == Some{c} : Maybe<&2, CU.Ent>}
+          pcu.find_first(rest, c, cq, k, hc, hr)
+
+# a bundled entry at its place, its twin the first compiled entry with
+# its key, as field fld shows it
+def pcu.at_both(+bp: List<&2, CU.Ent>, +bq: List<&2, CU.Ent>, +cp: List<&2, CU.Ent>, +cq: List<&2, CU.Ent>, +k: Nat, +a: Nat, +d: Nat, +t: Maybe<&2, Nat>, +cm: Maybe<&2, Nat>, +ft: Maybe<&2, Nat>, +hd: Maybe<&2, Nat>, +ca: Nat, +cd: Nat, +ct: Maybe<&2, Nat>, +cc: Maybe<&2, Nat>, +cf: Maybe<&2, Nat>, +ch: Maybe<&2, Nat>, +fld: CU.Fld, hp: {CatalogUnion.cu_in(CatalogUnion.cu_keys(cp), k) == False{} : Bool}) -> {CU.slot(List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), fld) == Some{CU.Slot{k, a, d, CU.fill(CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld), CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld), Nat.is_eq(a, ca))}} : Maybe<&2, CU.Slot>}:
+  +g = pcu.get_bundled(bp, CU.Ent{k, a, d, t, cm, ft, hd}, bq, List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq), CU.extra(List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq), List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq)))
+  %Equal.sym(Maybe<&2, CU.Ent>, List.get(&2, CU.Ent, CU.union(List.append(&2, CU.Ent, bp, CU.Ent{k, a, d, t, cm, ft, hd} <> bq), List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq)), List.length(&2, CU.Ent, bp)), Some{CU.with(CU.Ent{k, a, d, t, cm, ft, hd}, CU.find(List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq), k))}, g) : {CU.slot(_, fld) == Some{CU.Slot{k, a, d, CU.fill(CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld), CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld), Nat.is_eq(a, ca))}} : Maybe<&2, CU.Slot>}
+  +tw = pcu.find_first(cp, CU.Ent{k, ca, cd, ct, cc, cf, ch}, cq, k, pcu.is_eq_refl(k), hp)
+  %Equal.sym(Maybe<&2, CU.Ent>, CU.find(List.append(&2, CU.Ent, cp, CU.Ent{k, ca, cd, ct, cc, cf, ch} <> cq), k), Some{CU.Ent{k, ca, cd, ct, cc, cf, ch}}, tw) : {CU.slot(Some{CU.with(CU.Ent{k, a, d, t, cm, ft, hd}, _)}, fld) == Some{CU.Slot{k, a, d, CU.fill(CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld), CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld), Nat.is_eq(a, ca))}} : Maybe<&2, CU.Slot>}
+  %Equal.sym(CU.Slot, CU.Ent.slot(CU.merge(CU.Ent{k, a, d, t, cm, ft, hd}, CU.Ent{k, ca, cd, ct, cc, cf, ch}), fld), CU.Slot{k, a, d, CU.fill(CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld), CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld), Nat.is_eq(a, ca))}, pcu.merge_slot(CU.Ent{k, a, d, t, cm, ft, hd}, CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld)) : {Some{_} == Some{CU.Slot{k, a, d, CU.fill(CU.Ent.opt(CU.Ent{k, a, d, t, cm, ft, hd}, fld), CU.Ent.opt(CU.Ent{k, ca, cd, ct, cc, cf, ch}, fld), Nat.is_eq(a, ca))}} : Maybe<&2, CU.Slot>}
   {==}
