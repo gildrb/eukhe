@@ -58,7 +58,10 @@ pub struct LockDir {
 }
 
 impl LockDir {
-    /// Lock path for the guarded file.
+    /// Lock path for the guarded file, taken as given. proper-lockfile
+    /// resolves the file first by default (`realpath: true`): a caller
+    /// whose TS lock does that (the auth document) passes the real file,
+    /// so symlinked aliases of one file share one lock.
     #[must_use]
     pub fn path_for(file: &Path) -> PathBuf {
         let mut path = file.as_os_str().to_os_string();

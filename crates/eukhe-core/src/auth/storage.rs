@@ -108,12 +108,32 @@ impl FileAuthStorageBackend {
         Ok(())
     }
 
-    /// TS `acquireLockSyncWithRetry`: 10 attempts, 20ms apart, retrying only
-    /// contention (ELOCKED); other errors fail fast.
-    fn acquire_lock(&self) -> Result<LockGuard> {
+    /// The document's real file: every lock and process-wide map of a
+    /// document is keyed by it. TS `acquireLockSyncWithRetry` takes
+    /// proper-lockfile's lock with its default `realpath: true`, which locks
+    /// `realpath(file).lock`, "so symlinked aliases of auth.json share one
+    /// lock" (TS #11655): an agent dir whose auth.json links to a shared
+    /// document (`~/.eukhe/auth.json` -> `~/.pi/agent/auth.json`) and the
+    /// document's own dir must never refresh one OAuth token at once. A
+    /// missing document is created first (agent dir 0700, then the
+    /// exclusive-create initializer), as every locked read and write did,
+    /// so a document is keyed by one path from its first use.
+    fn document(&self) -> Result<PathBuf> {
+        if let Ok(real) = fs::canonicalize(&self.auth_path) {
+            return Ok(real);
+        }
+        self.ensure_parent_dir()?;
+        self.ensure_file_exists()?;
+        super::super::settings::storage::realpath_if_present(&self.auth_path)
+    }
+
+    /// TS `acquireLockSyncWithRetry` on the document's real file `real`:
+    /// 10 attempts, 20ms apart, retrying only contention (ELOCKED); other
+    /// errors fail fast.
+    fn acquire_lock(real: &Path) -> Result<LockGuard> {
         let mut last_error: Option<std::io::Error> = None;
         for _ in 1..=10 {
-            match LockGuard::acquire(&self.auth_path, STALE_AFTER) {
+            match LockGuard::acquire(real, STALE_AFTER) {
                 Ok(guard) => return Ok(guard),
                 // Only lock contention retries; open failures fail fast.
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -151,11 +171,13 @@ impl FileAuthStorageBackend {
 /// is threaded, and two threads racing the same document pay the full TS
 /// retry sleep against each other (a fresh session's first turn resolves
 /// its model while a concurrent read holds the lock). A process-local
-/// mutex keyed by the document path serializes same-process callers for
-/// the microseconds the small read/modify/write holds; the file protocol
+/// mutex keyed by the document's real file
+/// ([`FileAuthStorageBackend::document`], so two agent dirs linked to one
+/// document share it) serializes same-process callers for the
+/// microseconds the small read/modify/write holds; the file protocol
 /// and its retry semantics are untouched, so a foreign holder (another
 /// process) still surfaces `WouldBlock` and still takes the 10x20ms
-/// retry. Each path's mutex is created once and lives for the process
+/// retry. Each document's mutex is created once and lives for the process
 /// (a handful of documents per process, a `Mutex<()>` each).
 ///
 /// The mutex is a leaf: the locked section performs only the document's
@@ -207,8 +229,9 @@ struct CachedRead {
     content: String,
 }
 
-/// Validated content per auth document, process-wide: the read-through
-/// cache for [`FileAuthStorageBackend::read`]. Entries live for the process
+/// Validated content per auth document (keyed by its real file, like the
+/// process-lock registry), process-wide: the read-through cache for
+/// [`FileAuthStorageBackend::read`]. Entries live for the process
 /// (a handful of small documents per process, mirroring the process-lock
 /// registry's lifetime policy); a stat identity that no longer matches
 /// simply misses and re-reads, so entries never outlive their file.
@@ -220,39 +243,35 @@ fn read_cache() -> &'static Mutex<HashMap<PathBuf, CachedRead>> {
 }
 
 impl AuthStorageBackend for FileAuthStorageBackend {
-    /// The consolidated read arm: on a cache hit, one `stat` and the
-    /// cached content (no lock protocol at all — the TS session's own
-    /// per-turn reads take no lock either); on a miss, the full locked
-    /// protocol cycle, byte-identical to `with_lock`'s read arm, which
-    /// also populates the cache. The same-process mutex still orders
-    /// this against in-process writers (see [`process_lock`]), and an
-    /// external write changes the stat identity, so the next read
-    /// misses and re-reads fresh.
+    /// The consolidated read arm: on a cache hit, the document's real
+    /// path, one `stat` and the cached content (no lock protocol at all —
+    /// the TS session's own per-turn reads take no lock either); on a
+    /// miss, the full locked protocol cycle, byte-identical to
+    /// `with_lock`'s read arm, which also populates the cache. The
+    /// same-process mutex still orders this against in-process writers
+    /// (see [`process_lock`]), and an external write changes the stat
+    /// identity, so the next read misses and re-reads fresh.
     fn read(&self) -> Result<Option<String>> {
-        let _process_guard = process_lock(&self.auth_path);
-        let now_identity = fs::metadata(&self.auth_path)
+        // A read can arrive before the document's initializer created it:
+        // `document` creates it, so the identity below pairs with the
+        // document as it now stands.
+        let real = self.document()?;
+        let _process_guard = process_lock(&real);
+        let now_identity = fs::metadata(&real)
             .ok()
             .map(|metadata| stat_identity(&metadata));
         if let Some(identity) = now_identity {
             let cache = read_cache()
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(entry) = cache.get(&self.auth_path) {
+            if let Some(entry) = cache.get(&real) {
                 if entry.identity == identity {
                     return Ok(Some(entry.content.clone()));
                 }
             }
         }
         // Miss: the full protocol read — the lock protocol is unchanged.
-        self.ensure_parent_dir()?;
-        self.ensure_file_exists()?;
-        // A read can arrive before the document's initializer created it
-        // (the up-front stat was then `None`), so the identity that pairs
-        // with this read is the document as it now stands.
-        let now_identity = fs::metadata(&self.auth_path)
-            .ok()
-            .map(|metadata| stat_identity(&metadata));
-        let guard = self.acquire_lock()?;
+        let guard = Self::acquire_lock(&real)?;
         let content = self.read_current()?;
         drop(guard);
         if let (Some(identity), Some(content)) = (now_identity, content.as_deref()) {
@@ -260,7 +279,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .insert(
-                    self.auth_path.clone(),
+                    real,
                     CachedRead {
                         identity,
                         content: content.to_string(),
@@ -274,21 +293,20 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         &self,
         update: &mut dyn FnMut(Option<String>) -> Result<((), Option<String>)>,
     ) -> Result<()> {
-        let _process_guard = process_lock(&self.auth_path);
-        self.ensure_parent_dir()?;
-        self.ensure_file_exists()?;
-        let guard = self.acquire_lock()?;
+        let real = self.document()?;
+        let _process_guard = process_lock(&real);
+        let guard = Self::acquire_lock(&real)?;
         let current = self.read_current()?;
         let ((), next) = update(current)?;
         if let Some(next) = next {
             // The replace lands on the symlink's target (TS
-            // `realpathIfPresentSync`): an auth.json linked to a shared
-            // document stays linked, and the shared file is updated.
-            // Credentials are a durable class: the temp is synced before
-            // the rename and the parent directory after it.
-            let target = super::super::settings::storage::realpath_if_present(&self.auth_path)?;
+            // `realpathIfPresentSync`), the file the lock is on: an
+            // auth.json linked to a shared document stays linked, and the
+            // shared file is updated. Credentials are a durable class: the
+            // temp is synced before the rename and the parent directory
+            // after it.
             super::super::settings::storage::atomic_write_with(
-                &target,
+                &real,
                 &next,
                 super::super::settings::storage::AtomicWriteOptions { fsync: true },
             )?;
@@ -301,16 +319,20 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         self.auth_path.display().to_string()
     }
 
-    /// One per document path, kept for the process, as the process-lock
-    /// registry ([`process_lock`]) keeps its mutexes.
+    /// One per document, keyed by its real file, kept for the process, as
+    /// the process-lock registry ([`process_lock`]) keeps its mutexes: two
+    /// agent dirs linked to one document refresh its tokens in one flight.
+    /// A document that cannot be resolved keys by its path.
     fn flights(&self) -> Arc<RefreshFlights> {
         static FLIGHTS: LazyLock<Mutex<HashMap<PathBuf, Arc<RefreshFlights>>>> =
             LazyLock::new(|| Mutex::new(HashMap::new()));
+        let key = super::super::settings::storage::realpath_if_present(&self.auth_path)
+            .unwrap_or_else(|_| self.auth_path.clone());
         Arc::clone(
             FLIGHTS
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .entry(self.auth_path.clone())
+                .entry(key)
                 .or_default(),
         )
     }
@@ -426,6 +448,107 @@ mod tests {
             ),
             (true, false)
         );
+    }
+
+    /// A shared document and two agent dirs whose auth.json links to it
+    /// (`~/.eukhe/auth.json` -> `~/.pi/agent/auth.json`).
+    struct Linked {
+        _dirs: [tempfile::TempDir; 3],
+        real: PathBuf,
+        links: [PathBuf; 2],
+    }
+
+    fn linked_document() -> Linked {
+        let dirs = [(); 3].map(|()| tempfile::tempdir().unwrap());
+        let real = dirs[0].path().join("auth.json");
+        fs::write(&real, "{}").unwrap();
+        let links = [1, 2].map(|i| dirs[i].path().join("auth.json"));
+        for link in &links {
+            std::os::unix::fs::symlink(&real, link).unwrap();
+        }
+        Linked {
+            _dirs: dirs,
+            real,
+            links,
+        }
+    }
+
+    #[test]
+    fn a_linked_auth_file_locks_the_real_file() {
+        // TS proper-lockfile locks `realpath(auth.json).lock` (TS #11655):
+        // the lock of a backend over a link is the shared file's, so a
+        // process holding the shared file's lock blocks it.
+        let Linked { _dirs, real, links } = linked_document();
+        let link = &links[0];
+        let backend = FileAuthStorageBackend::new(link);
+        let mut seen = None;
+        backend
+            .with_lock(&mut |_| {
+                seen = Some((
+                    crate::platform::lock_dir::LockDir::path_for(&real).is_dir(),
+                    crate::platform::lock_dir::LockDir::path_for(link).exists(),
+                ));
+                Ok(((), None))
+            })
+            .unwrap();
+        assert_eq!(seen, Some((true, false)));
+        let held = LockGuard::acquire(&real, STALE_AFTER).unwrap();
+        let error = backend.with_lock(&mut |_| Ok(((), None))).unwrap_err();
+        drop(held);
+        assert!(
+            error
+                .to_string()
+                .starts_with("Failed to acquire auth storage lock"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn auth_files_linked_to_one_document_share_its_refresh_flights() {
+        let Linked { _dirs, real, links } = linked_document();
+        let first = FileAuthStorageBackend::new(&links[0]);
+        let second = FileAuthStorageBackend::new(&links[1]);
+        let own = FileAuthStorageBackend::new(&real);
+        assert_eq!(
+            (
+                Arc::ptr_eq(&first.flights(), &second.flights()),
+                Arc::ptr_eq(&first.flights(), &own.flights())
+            ),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn auth_files_linked_to_one_document_take_turns_in_one_process() {
+        // One in-process lock per document: a writer through the second
+        // link waits for the first one's section (held past the file lock's
+        // whole 10x20ms retry budget), then runs, never beside it.
+        let Linked { _dirs, links, .. } = linked_document();
+        let [first, second] = links.map(FileAuthStorageBackend::new);
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (entered, inside) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn({
+            let done = Arc::clone(&done);
+            move || {
+                first
+                    .with_lock(&mut |_| {
+                        entered.send(()).unwrap();
+                        std::thread::sleep(std::time::Duration::from_millis(400));
+                        done.store(true, std::sync::atomic::Ordering::SeqCst);
+                        Ok(((), None))
+                    })
+                    .unwrap();
+            }
+        });
+        inside.recv().unwrap();
+        let mut after_first = None;
+        let result = second.with_lock(&mut |_| {
+            after_first = Some(done.load(std::sync::atomic::Ordering::SeqCst));
+            Ok(((), None))
+        });
+        holder.join().unwrap();
+        result.unwrap();
+        assert_eq!(after_first, Some(true));
     }
 
     #[test]
