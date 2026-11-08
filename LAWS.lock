@@ -1606,6 +1606,7 @@
     "laws/refine_plan/model.bend::refine_plan_slug_spec": "47363c2da7379b6bcb1a240f53ee1df0cc759b9c3000933c33f46e181f5a6acc",
     "laws/replace.bend::background_never_replaces": "b2ad37286248069b93c2a32b7baa61c03dd1e00aebf72bec8010c5fa5c659b8d",
     "laws/replace.bend::replace_after_exact": "14c361797f8e70d7de84eba3bd9bc3655c2ea0e3a1dbe7e9ed7e1e031dc3e827",
+    "laws/replace.bend::replace_build_of_rank": "c22395fe5dd140637a03e13ec047ae20cc38b2270972e8cfcfbfcc23dd6682e3",
     "laws/replace.bend::replace_daemons_exact": "c71b838feaf49838ef305585f08d8e8e3528a08ae90d49bfac640c434c81e5fb",
     "laws/replace.bend::replace_ffi_example": "1f9072314be4622ebcedae4d9bfa995ccc16a04a00ef781dbc6c2b6b2ca4095a",
     "laws/replace.bend::replace_ffi_left_over": "5073ee656614bba72b75109342ca5f99418407a1806f8c6dbfcd897764126cc5",

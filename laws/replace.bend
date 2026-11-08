@@ -223,6 +223,17 @@ law replace_rank_example:
 law replace_rank_past_range_example:
   {[Rp.rank("100000000000000.0.0"), Rp.rank("0.100000000000000.0"), Rp.rank("0.0.100000000000000-dev")] == [[], [], []] : List<&2, List<&2, Nat>>}
 
+# LAW replace_build_of_rank: a build made from a version text and a build id carries exactly
+# that text's semver rank and that id
+# EXCLUDES: a build whose rank is an order-preserving recoding of the
+#   version's (a prefix, a shift): it orders like semver between two such
+#   builds, yet a new client of it keeps an older daemon of the rank semver
+#   gives (an adversary found this gap)
+law replace_build_of_rank:
+  for +v: String
+  for i: String
+  {Rp.Build.of(v, i) == Rp.Build{rank_spec(v), i} : Rp.Build}
+
 # LAW replace_relation_exact: the relation of the daemon to the client is exactly rel_spec
 # EXCLUDES: a relation that ignores the build ids, compares ranks the
 # wrong way round, or calls an equal rank older or newer
