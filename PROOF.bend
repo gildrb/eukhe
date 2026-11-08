@@ -996,6 +996,13 @@ import ./proof/log/log_stepper_reads_only_commits.bend as PLogStepperReadsOnlyCo
 import ./proof/log/log_stepper_reads_only_fitting_commits.bend as PLogStepperReadsOnlyFittingCommits
 import ./proof/log/log_stepper_refusal_keeps_the_state.bend as PLogStepperRefusalKeepsTheState
 import ./proof/log/log_stepper_shut_refuses.bend as PLogStepperShutRefuses
+import ./proof/log/log_ffi_left_over_spelled.bend as PLogFfiLeftOverSpelled
+import ./proof/log/log_ffi_malformed_unless_request.bend as PLogFfiMalformedUnlessRequest
+import ./proof/log/log_stepper_open_left_over.bend as PLogStepperOpenLeftOver
+import ./proof/log/log_stepper_open_malformed_unless_bool.bend as PLogStepperOpenMalformedUnlessBool
+import ./proof/log/log_stepper_left_over.bend as PLogStepperLeftOver
+import ./proof/log/log_stepper_malformed_unless_commit.bend as PLogStepperMalformedUnlessCommit
+import ./proof/log/log_stepper_shut_refused_text.bend as PLogStepperShutRefusedText
 import ./proof/log/log_fits_example.bend as PLogFitsExample
 import ./proof/log/log_ffi_example.bend as PLogFfiExample
 import ./proof/log/log_stepper_example.bend as PLogStepperExample

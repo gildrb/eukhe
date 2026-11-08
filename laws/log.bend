@@ -546,6 +546,92 @@ law log_stepper_shut_refuses:
   for +s: String
   {LawsBase.wire_opens_err(log_reply(FLg.step(FLg.Shut{}, s))) == True{} : Bool}
 
+# the facts of a file as Rust writes them, then rest (log_spell_req is it
+# before nothing)
+def log_spell_req_then(len: Nat, last: Maybe<&2, Nat>, rest: String) -> String:
+  Wr.put_nat(len, log_spell_last(last, rest))
+
+# LAW log_ffi_left_over_spelled (R4): the facts of a file that fit, followed by any more input,
+# answer exactly the error form "log: input left over"
+# EXCLUDES: trailing input ignored or read as part of the request, the
+#   left-over error reworded or swapped with the malformed one
+law log_ffi_left_over_spelled:
+  for +len: Nat
+  for +last: Maybe<&2, Nat>
+  for fits: {Bool.and(LawsBase.wire_fits(len), log_last_fits(last)) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FLg.ffi(log_spell_req_then(len, last, SCon{c, t})) == Wr.err("log: input left over") : String}
+
+# LAW log_ffi_malformed_unless_request (R4): every answer of the entry but the error form "log:
+# malformed request" comes from an input that begins with the facts of a
+# file that fit
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error reworded or swapped with a
+#   stepper's error text
+law log_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FLg.ffi(s), Wr.err("log: malformed request")) == False{} : Bool}
+  exs len: Nat
+  exs last: Maybe<&2, Nat>
+  exs rest: String
+  {(s, Bool.and(LawsBase.wire_fits(len), log_last_fits(last))) == (log_spell_req_then(len, last, rest), True{}) : String & Bool}
+
+# LAW log_stepper_open_left_over (R4): an open with a Bool and any more input answers exactly
+# the error form "log: input left over"
+# EXCLUDES: trailing input ignored, the left-over error reworded or swapped
+#   with the malformed open
+law log_stepper_open_left_over:
+  for fsync: Bool
+  for +c: Char
+  for +t: String
+  {log_reply(FLg.open(Wr.put_bool(fsync, SCon{c, t}))) == Wr.err("log: input left over") : String}
+
+# LAW log_stepper_open_malformed_unless_bool (R4): every answer of the open but the error form
+# "log: malformed open" comes from an input that begins with a Bool
+# EXCLUDES: the left-over error (or a plan) for an open that does not begin
+#   with a Bool, the malformed open reworded or swapped with another text
+law log_stepper_open_malformed_unless_bool:
+  for +s: String
+  for other: {String.eq(log_reply(FLg.open(s)), Wr.err("log: malformed open")) == False{} : Bool}
+  exs fsync: Bool
+  exs rest: String
+  {s == Wr.put_bool(fsync, rest) : String}
+
+# LAW log_stepper_left_over (R4): from every storage, a commit's sidecar entries whose count
+# fits, followed by any more input, answer exactly the error form "log:
+# input left over"
+# EXCLUDES: trailing input ignored or read as part of the commit, the
+#   left-over error reworded or swapped with the malformed commit
+law log_stepper_left_over:
+  for +st: Lr.Store
+  for +ds: List<&2, Bool>
+  for fits: {LawsBase.wire_fits(List.length(&2, Bool, ds)) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {log_reply(FLg.step(FLg.Running{st}, Wr.put_list(~Bool, ~Wr.put_bool, ds, SCon{c, t}))) == Wr.err("log: input left over") : String}
+
+# LAW log_stepper_malformed_unless_commit (R4): from every storage, every answer of a step but
+# the error form "log: malformed commit" comes from an input that begins
+# with a commit's sidecar entries whose count fits
+# EXCLUDES: the left-over error (or a plan) for input that does not begin
+#   with a commit, the malformed commit reworded or swapped with the
+#   refused open's text
+law log_stepper_malformed_unless_commit:
+  for +st: Lr.Store
+  for +s: String
+  for other: {String.eq(log_reply(FLg.step(FLg.Running{st}, s)), Wr.err("log: malformed commit")) == False{} : Bool}
+  exs ds: List<&2, Bool>
+  exs rest: String
+  {(s, LawsBase.wire_fits(List.length(&2, Bool, ds))) == (Wr.put_list(~Bool, ~Wr.put_bool, ds, rest), True{}) : String & Bool}
+
+# LAW log_stepper_shut_refused_text (R4): after a refused open, every event answers exactly the
+# error form "log: the open was refused"
+# EXCLUDES: the refusal reworded, or answered with another error text
+law log_stepper_shut_refused_text:
+  for +s: String
+  {log_reply(FLg.step(FLg.Shut{}, s)) == Wr.err("log: the open was refused") : String}
+
 # LAW log_fits_example (R4): witness: the premises of log_ffi_answers_the_open and
 # log_stepper_commit hold for requests Rust writes
 # EXCLUDES: a vacuous log_ffi_answers_the_open or log_stepper_commit
