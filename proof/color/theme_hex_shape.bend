@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/text.bend as Color
 import ../base/logic/logic.bend as LLogicLogic
 
 def pt.sharp_some(+b: Bool, +m: Maybe<&2, Co.Rgb>, -c: Co.Rgb, h: {Co.hex.sharp(b, m) == Some{c} : Maybe<&2, Co.Rgb>}) -> {b == True{} : Bool}:

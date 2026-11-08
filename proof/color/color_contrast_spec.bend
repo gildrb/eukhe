@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 
 def cc.lum(c: Co.Rgb) -> {Co.lum(c) == Color.th.lum(c) : U32}:
   match c:

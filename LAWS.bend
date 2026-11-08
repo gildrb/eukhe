@@ -28,7 +28,9 @@ import ./laws/effort.bend as Effort
 import ./laws/run.bend as Run
 import ./laws/semver.bend as Semver
 import ./laws/theme.bend as Theme
-import ./laws/color.bend as Color
+import ./laws/color/text.bend as ColorText
+import ./laws/color/math.bend as Color
+import ./laws/color/entry.bend as ColorEntry
 import ./laws/theme_model.bend as ThemeModel
 import ./laws/tokens.bend as Tokens
 import ./laws/progress.bend as Progress

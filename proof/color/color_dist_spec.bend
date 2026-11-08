@@ -3,7 +3,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 import ./color_near_spec.bend as PNear
 
 # for every two colors (the law states it where the spec is exact)

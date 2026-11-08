@@ -1,6 +1,6 @@
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 
 # eukhe: the proof of LAW color_ansi256_spec: one case per range test
 

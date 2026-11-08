@@ -1,6 +1,6 @@
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 import ../../spec/color_model.bend as Cm
 
 # eukhe: the proof of LAW color_lin_spec: the same tree and bits; the

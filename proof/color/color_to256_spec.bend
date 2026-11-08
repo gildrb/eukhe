@@ -4,7 +4,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 import ./color_near_spec.bend as PNear
 import ./color_dist_spec.bend as PDist
 

@@ -3,7 +3,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 
 def hx.up(b: Bool, +x: U32) -> {Co.hexd.up(b, x) == Color.th.hexv.up(b, x) : Maybe<&2, U32>}:
   match b:

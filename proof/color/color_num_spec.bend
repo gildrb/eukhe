@@ -1,6 +1,6 @@
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 import ./color_hex_spec.bend as PHex
 
 # eukhe: the proof of LAW color_num_spec: the same one-to-three-char

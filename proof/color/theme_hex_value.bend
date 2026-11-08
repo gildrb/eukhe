@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/text.bend as Color
 
 def Color.theme_hex_value(a1, a2, a3, a4, a5, a6, x1, x2, x3, x4, x5, x6, h1, h2, h3, h4, h5, h6):
   +want = {Some{Co.Rgb{(x1 * 16 + x2 : U32), (x3 * 16 + x4 : U32), (x5 * 16 + x6 : U32)}} : Maybe<&2, Co.Rgb>}

@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW theme_hex_example
 
 import Base
-import ../../laws/color.bend as Color
+import ../../laws/color/text.bend as Color
 
 # Color text
 # ----------

@@ -5,7 +5,7 @@
 import Base
 import ../../bend/ffi_color.bend as FCo
 import ../../bend/wire.bend as Wr
-import ../../laws/color.bend as Color
+import ../../laws/color/entry.bend as Color
 import ./base.bend as LCo
 
 def cm.end(b: Bool, -r: FCo.Req, no: {Color.co_read_req.end(b, r) == None{} : Maybe<&2, FCo.Req>}) -> {FCo.run.end(b, r) == Color.co_refused() : String}:

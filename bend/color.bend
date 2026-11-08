@@ -1,10 +1,10 @@
 # color: the color math of the themes (crates/eukhe-theme/src/color.rs,
-# laws in laws/color.bend, docs/interface.md Themes). Every function here
+# laws in laws/color/, docs/interface.md Themes). Every function here
 # is on U32 and exact; it runs as the compiled entry bend/ffi_color.bend
 # (and inside bend/ffi_theme.bend).
 #
 # - lin(c): the sRGB channel c (0..255) linearized, in units of 1/10000,
-#   rounded to nearest. A table: laws/color.bend pins all 256 entries to
+#   rounded to nearest. A table: laws/color/math.bend pins all 256 entries to
 #   the sRGB transfer function, rounded.
 # - lum(c): the WCAG relative luminance, 2126·R + 7152·G + 722·B over the
 #   linear channels, in units of 1/1e8.

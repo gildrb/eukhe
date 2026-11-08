@@ -1,5 +1,5 @@
 //! The color math of the themes (`bend/color.bend`, entry
-//! `bend/ffi_color.bend`; `laws/color.bend`): the xterm-256 index a
+//! `bend/ffi_color.bend`; `laws/color/`): the xterm-256 index a
 //! 256-color terminal paints for a color, whether a color is light (its
 //! WCAG relative luminance above one half), and the xterm-256 palette.
 //! A color is its `[red, green, blue]` channels.

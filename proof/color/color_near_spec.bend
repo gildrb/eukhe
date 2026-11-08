@@ -5,7 +5,7 @@
 
 import Base
 import ../../bend/color.bend as Co
-import ../../laws/color.bend as Color
+import ../../laws/color/math.bend as Color
 
 def cn.absd.if(ge: Bool, +a: U32, +b: U32) -> {Co.sel(ge, (a - b : U32), (b - a : U32)) == Color.th.absd.if(ge, a, b) : U32}:
   match ge:

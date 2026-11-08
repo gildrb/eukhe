@@ -214,7 +214,7 @@ Setting `theme` (`/settings`); empty = `eukhe` everywhere. Name resolves by the 
 
 #### Laws
 
-`laws/theme.bend`, `laws/color.bend` (T1), model `bend/theme/`, `bend/color.bend`; proved in `proof/theme/` and `proof/color/`:
+`laws/theme.bend`, `laws/color/` (T1), model `bend/theme/`, `bend/color.bend`; proved in `proof/theme/` and `proof/color/`:
 
 - Empty name → default theme; name → first valid theme having it; unknown name → default theme with warning.
 - Loaded file is valid; a valid file's palette defines every token.

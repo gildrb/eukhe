@@ -8,7 +8,7 @@ import ../../bend/color.bend as Co
 import ../../bend/ffi_color.bend as FCo
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
-import ../../laws/color.bend as Color
+import ../../laws/color/entry.bend as Color
 import ../base/logic/bool.bend as LLogicBool
 import ./base.bend as LCo
 
