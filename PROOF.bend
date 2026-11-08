@@ -1714,6 +1714,17 @@ import ./proof/workflow/wfw_decision_example.bend as PWfwDecisionExample
 import ./proof/workflow/wfw_limits_example.bend as PWfwLimitsExample
 import ./proof/workflow/wfw_ffi_example.bend as PWfwFfiExample
 import ./proof/workflow/wfw_malformed_example.bend as PWfwMalformedExample
+import ./proof/workflow/wfw_answers_spelled/spell.bend as PWfwAnswersSpelledSpell
+import ./proof/workflow/wfw_answers_spelled.bend as PWfwAnswersSpelled
+import ./proof/workflow/wfw_left_over_spelled.bend as PWfwLeftOverSpelled
+import ./proof/workflow/wfw_unknown_kind.bend as PWfwUnknownKind
+import ./proof/workflow/wfw_unknown_prior.bend as PWfwUnknownPrior
+import ./proof/workflow/wfw_unknown_prior_sts.bend as PWfwUnknownPriorSts
+import ./proof/workflow/wfw_unknown_row_sts.bend as PWfwUnknownRowSts
+import ./proof/workflow/wfw_reads_only_requests.bend as PWfwReadsOnlyRequests
+import ./proof/workflow/wfw_malformed_unless_request.bend as PWfwMalformedUnlessRequest
+import ./proof/workflow/wfw_reader_unknown_decision.bend as PWfwReaderUnknownDecision
+import ./proof/workflow/wfw_ffi_tags_example.bend as PWfwFfiTagsExample
 import ./proof/command/base.bend as LACommand
 import ./proof/command/command_path_runs_itself.bend as PCommandPathRunsItself
 import ./proof/command/command_unknown_runs_nothing.bend as PCommandUnknownRunsNothing

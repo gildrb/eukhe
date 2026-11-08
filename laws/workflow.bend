@@ -410,3 +410,217 @@ law wfw_ffi_example:
 # EXCLUDES: a vacuous wfw_malformed
 law wfw_malformed_example:
   {FW.get_req("2,") == Wr.Bad{} : Wr.Dec<FW.Req>} & {FW.ffi("2,") == Wr.err("workflow: malformed request") : String}
+
+# The spelled laws of the entry: the bytes Rust writes (globals.rs
+# `decide`, size.rs `effective_limits`) and reads, spelled here from the
+# wire's Wr.put_nat alone, never through the entry's own put_* or get_*
+# (a tag that drifts on both sides of the entry, a swapped field or a
+# reversed order passes every round trip above). Every input of FW.ffi
+# is pinned: a spelled request that fits answers wfw_spell_answer
+# (wfw_answers_spelled); the same request with more input after it, the
+# left-over error (wfw_left_over_spelled); an input that does not begin
+# with a spelled request that fits, the malformed error
+# (wfw_malformed_unless_request).
+
+# a row status: queued 0, running 1, done 2, failed 3, cancelled 4,
+# cached 5
+def wfw_spell_sts(s: W.Sts, rest: String) -> String:
+  match s:
+    case W.Queued{}:
+      Wr.put_nat(0n, rest)
+    case W.Running{}:
+      Wr.put_nat(1n, rest)
+    case W.Finished{}:
+      Wr.put_nat(2n, rest)
+    case W.Erred{}:
+      Wr.put_nat(3n, rest)
+    case W.Cancelled{}:
+      Wr.put_nat(4n, rest)
+    case W.Cached{}:
+      Wr.put_nat(5n, rest)
+
+# the prior row's status: 0 none, or 1 then the status
+def wfw_spell_prior(m: Maybe<&2, W.Sts>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{s}:
+      Wr.put_nat(1n, wfw_spell_sts(s, rest))
+
+# a row: its key, then its status
+def wfw_spell_row(r: W.Row, rest: String) -> String:
+  match r:
+    case W.Row{k, s}:
+      Wr.put_nat(k, wfw_spell_sts(s, rest))
+
+# the rows of rs, each spelled, then rest
+def wfw_spell_rows.items(rs: List<&2, W.Row>, rest: String) -> String:
+  match rs:
+    case Nil{}:
+      rest
+    case Con{r, t}:
+      wfw_spell_row(r, wfw_spell_rows.items(t, rest))
+
+# a list of rows: its count, then each row
+def wfw_spell_rows(+rs: List<&2, W.Row>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, W.Row, rs), wfw_spell_rows.items(rs, rest))
+
+# a pool: the agents taken, then the agents left
+def wfw_spell_pool(p: W.Pool, rest: String) -> String:
+  match p:
+    case W.Pool{t, l}:
+      Wr.put_nat(t, Wr.put_nat(l, rest))
+
+# a request: an Admit is 0, the prior, the key, the rows, the pool; a
+# Limits is 1, the concurrency, the max agents, the cap
+def wfw_spell_req(q: FW.Req, rest: String) -> String:
+  match q:
+    case FW.AdmitReq{prior, k, rows, p}:
+      Wr.put_nat(0n, wfw_spell_prior(prior, Wr.put_nat(k, wfw_spell_rows(rows, wfw_spell_pool(p, rest)))))
+    case FW.LimitsReq{c, m, cap}:
+      Wr.put_nat(1n, Wr.put_nat(c, Wr.put_nat(m, Wr.put_nat(cap, rest))))
+
+# a decision: ended 0, reattach 1, reuse 2 then the row's index, spawn 3,
+# refused 4
+def wfw_spell_admit(a: W.Admit, rest: String) -> String:
+  match a:
+    case W.Ended{}:
+      Wr.put_nat(0n, rest)
+    case W.Reattach{}:
+      Wr.put_nat(1n, rest)
+    case W.Reuse{i}:
+      Wr.put_nat(2n, Wr.put_nat(i, rest))
+    case W.Spawn{}:
+      Wr.put_nat(3n, rest)
+    case W.Refused{}:
+      Wr.put_nat(4n, rest)
+
+# the reply to an Admit: the decision, then the pool after it
+def wfw_spell_decision(d: W.Admit & W.Pool) -> String:
+  (a, p) = d
+  wfw_spell_admit(a, wfw_spell_pool(p, ""))
+
+# the reply to a Limits: the concurrency, then the max agents
+def wfw_spell_limits(l: W.Limits) -> String:
+  match l:
+    case W.Limits{c, m}:
+      Wr.put_nat(c, Wr.put_nat(m, ""))
+
+# the spelled reply to the request q: the model's admission (W.admit,
+# pinned by the wf_* laws above) or the run's limits (W.effective)
+def wfw_spell_answer(q: FW.Req) -> String:
+  match q:
+    case FW.AdmitReq{prior, k, rows, p}:
+      wfw_spell_decision(W.admit(prior, k, rows, p))
+    case FW.LimitsReq{c, m, cap}:
+      wfw_spell_limits(W.effective(W.Limits{c, m}, cap))
+
+# LAW wfw_answers_spelled: a request spelled by the grammar, every number within the wire, is
+# answered with the grammar's spelling of the model's answer: to an Admit
+# the decision of W.admit (ended 0, reattach 1, reuse 2 then the row,
+# spawn 3, refused 4) then the pool after it (taken, left); to a Limits
+# the concurrency then the max agents of W.effective
+# EXCLUDES: a kind, prior, status or decision tag that drifts from the
+#   grammar Rust reads and writes (swapped on both sides of the entry
+#   alike), a field lost, swapped or defaulted, a reply in another order
+law wfw_answers_spelled:
+  for +q: FW.Req
+  for fits: {wfw_req_fits(q) == True{} : Bool}
+  {FW.ffi(wfw_spell_req(q, "")) == wfw_spell_answer(q) : String}
+
+# LAW wfw_left_over_spelled: a spelled request that fits, followed by any more input, answers
+# the error form "workflow: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request, or
+#   answered with another error text
+law wfw_left_over_spelled:
+  for +q: FW.Req
+  for fits: {wfw_req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +rest: String
+  {FW.ffi(wfw_spell_req(q, SCon{c, rest})) == Wr.err("workflow: input left over") : String}
+
+# LAW wfw_unknown_kind: a request kind tag of 2 or more (of any length) answers the error
+# form "workflow: malformed request", whatever follows
+# EXCLUDES: an unknown kind read as an Admit or a Limits
+law wfw_unknown_kind:
+  for +n: Nat
+  for +rest: String
+  {FW.ffi(Wr.put_nat(2n+n, rest)) == Wr.err("workflow: malformed request") : String}
+
+# LAW wfw_unknown_prior: an Admit whose prior tag is 2 or more (of any length) answers the
+# error form "workflow: malformed request", whatever follows
+# EXCLUDES: an unknown prior tag read as none or as some status
+law wfw_unknown_prior:
+  for +n: Nat
+  for +rest: String
+  {FW.ffi(Wr.put_nat(0n, Wr.put_nat(2n+n, rest))) == Wr.err("workflow: malformed request") : String}
+
+# LAW wfw_unknown_prior_sts: an Admit whose prior status tag is 6 or more (of any length)
+# answers the error form "workflow: malformed request", whatever follows
+# EXCLUDES: an unknown status read as a known one
+law wfw_unknown_prior_sts:
+  for +n: Nat
+  for +rest: String
+  {FW.ffi(Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(6n+n, rest)))) == Wr.err("workflow: malformed request") : String}
+
+# LAW wfw_unknown_row_sts: an Admit with a spelled prior, a key and a row count of one or
+# more that fit, whose first row has a key that fits and a status tag of
+# 6 or more (of any length), answers the error form "workflow: malformed
+# request", whatever follows
+# EXCLUDES: an unknown row status read as a known one, or the row skipped
+law wfw_unknown_row_sts:
+  for +m: Maybe<&2, W.Sts>
+  for +k: Nat
+  for +c: Nat
+  for +key: Nat
+  for fits: {Bool.and(LawsBase.wire_fits(k), Bool.and(LawsBase.wire_fits(1n+c), LawsBase.wire_fits(key))) == True{} : Bool}
+  for +n: Nat
+  for +rest: String
+  {FW.ffi(Wr.put_nat(0n, wfw_spell_prior(m, Wr.put_nat(k, Wr.put_nat(1n+c, Wr.put_nat(key, Wr.put_nat(6n+n, rest))))))) == Wr.err("workflow: malformed request") : String}
+
+# LAW wfw_reads_only_requests: an answer that is not the error form answers a request: the
+# input is exactly the spelling of a request whose numbers fit the wire,
+# and the answer is the spelled reply of the model on it
+# EXCLUDES: a decoder that accepts an unknown tag (kind, prior, status), a
+#   missing or extra field or row, a count larger than the rows, or input
+#   left over, and answers it anyway (a default instead of the error form)
+law wfw_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FW.ffi(s)) == False{} : Bool}
+  exs q: FW.Req
+  {(s, (wfw_req_fits(q), FW.ffi(s))) == (wfw_spell_req(q, ""), (True{}, wfw_spell_answer(q))) : String & (Bool & String)}
+
+# LAW wfw_malformed_unless_request: every answer but the error form "workflow: malformed request"
+# comes from an input that begins with a spelled request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law wfw_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FW.ffi(s), Wr.err("workflow: malformed request")) == False{} : Bool}
+  exs q: FW.Req
+  exs rest: String
+  {(s, wfw_req_fits(q)) == (wfw_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW wfw_reader_unknown_decision: the model of the Rust reader of a reply (FW.get_admit, not
+# run in production) refuses a decision tag of 5 or more, as Rust's
+# `tag_of(5, "an admission")` does in globals.rs `decide`
+# EXCLUDES: a reader model that reads an unknown decision as a known one
+#   (its round trip laws hold all the same)
+law wfw_reader_unknown_decision:
+  for +n: Nat
+  for +rest: String
+  {FW.get_admit(Wr.put_nat(5n+n, rest)) == Wr.Bad{} : Wr.Dec<W.Admit>}
+
+# LAW wfw_ffi_tags_example: anchor: the bytes Rust sends and reads: a new call (no prior,
+# key 7, no rows) spawns while an agent is left (3 then the pool 1 taken,
+# 2 left) and is refused when none is (4); a row of key 7 failed then
+# cached reuses row 1, queued then done reuses row 1, cancelled then
+# running reuses none; a prior queued or running reattaches (1), done,
+# failed, cancelled or cached ends (0); a Limits of 4 and 9 capped at 2
+# is 2 and 9, uncapped 4 and 9; an empty input, kind 2, prior tag 2,
+# status 6 (prior or row), a missing cap and a leading zero are
+# malformed; a whole request with input after it is left over
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, an unknown tag read as a known one, a reply in another order
+law wfw_ffi_tags_example:
+  {[FW.ffi("0,0,7,0,0,3,"), FW.ffi("0,0,7,0,2,0,"), FW.ffi("0,0,7,2,7,3,7,5,0,3,"), FW.ffi("0,0,7,2,7,0,7,2,0,0,"), FW.ffi("0,0,7,2,7,4,7,1,0,0,"), FW.ffi("0,1,0,7,0,0,3,"), FW.ffi("0,1,1,7,0,0,3,"), FW.ffi("0,1,2,7,0,0,3,"), FW.ffi("0,1,3,7,0,0,3,"), FW.ffi("0,1,4,7,0,0,3,"), FW.ffi("0,1,5,7,0,0,3,"), FW.ffi("1,4,9,2,"), FW.ffi("1,4,9,0,")] == ["3,1,2,", "4,2,0,", "2,1,0,3,", "2,1,0,0,", "4,0,0,", "1,0,3,", "1,0,3,", "0,0,3,", "0,0,3,", "0,0,3,", "0,0,3,", "2,9,", "4,9,"] : List<&2, String>} & {[FW.ffi(""), FW.ffi("2,0,"), FW.ffi("0,2,7,0,0,3,"), FW.ffi("0,1,6,7,0,0,3,"), FW.ffi("0,0,7,1,7,6,0,3,"), FW.ffi("1,4,9,"), FW.ffi("1,04,9,2,"), FW.ffi("1,4,9,2,x"), FW.ffi("0,0,7,0,0,3,0,")] == [Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: malformed request"), Wr.err("workflow: input left over"), Wr.err("workflow: input left over")] : List<&2, String>}
