@@ -1192,11 +1192,9 @@ import ./proof/replace/replace_lt_irreflexive.bend as PReplaceLtIrreflexive
 import ./proof/replace/replace_lt_asymmetric.bend as PReplaceLtAsymmetric
 import ./proof/replace/replace_lt_transitive.bend as PReplaceLtTransitive
 import ./proof/replace/replace_lt_total.bend as PReplaceLtTotal
-import ./proof/replace/replace_lt_empty_lowest.bend as PReplaceLtEmptyLowest
+import ./proof/replace/replace_lt_first_difference.bend as PReplaceLtFirstDifference
+import ./proof/replace/replace_lt_only_when.bend as PReplaceLtOnlyWhen
 import ./proof/replace/replace_lt_prefix.bend as PReplaceLtPrefix
-import ./proof/replace/replace_lt_single.bend as PReplaceLtSingle
-import ./proof/replace/replace_lt_shared_head.bend as PReplaceLtSharedHead
-import ./proof/replace/replace_lt_head_decides.bend as PReplaceLtHeadDecides
 import ./proof/replace/replace_relation_exact.bend as PReplaceRelationExact
 import ./proof/replace/replace_verdict_exact.bend as PReplaceVerdictExact
 import ./proof/replace/replace_ping_pong_example.bend as PReplacePingPongExample

@@ -236,9 +236,19 @@ law replace_build_of_rank:
 
 # The order of ranks (A: ranks compare lexicographically, the empty rank
 # lowest), as properties of Rp.lt stated apart from its code. Together
-# replace_lt_asymmetric, _empty_lowest, _shared_head and _head_decides fix
-# the order: every order that has them is the lexicographic one, the empty
-# rank lowest.
+# replace_lt_prefix, _first_difference and _only_when fix the order: a rank
+# is below another exactly when the other extends it, or when at the first
+# place where the two differ its number is smaller. The empty rank is then
+# below every nonempty rank, and no rank is below it.
+
+# ys is xs followed by at least one more number
+def rp_extends(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Type:
+  &y: Nat -> &yr: List<&2, Nat> -> {ys == List.append(&2, Nat, xs, y <> yr) : List<&2, Nat>}
+
+# after a prefix p that xs and ys share, xs has a number x and ys a number
+# y with x < y
+def rp_first_smaller(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Type:
+  &p: List<&2, Nat> -> &x: Nat -> &xr: List<&2, Nat> -> &y: Nat -> &yr: List<&2, Nat> -> {xs == List.append(&2, Nat, p, x <> xr) : List<&2, Nat>} & {ys == List.append(&2, Nat, p, y <> yr) : List<&2, Nat>} & {Nat.is_lt(x, y) == True{} : Bool}
 
 # LAW replace_lt_irreflexive: no rank is below itself
 # EXCLUDES: an order that calls an equal rank lower (another build of the
@@ -277,15 +287,21 @@ law replace_lt_total:
   for nor: {Rp.lt(ys, xs) == False{} : Bool}
   {xs == ys : List<&2, Nat>}
 
-# LAW replace_lt_empty_lowest: the empty rank (a version that does not parse) is below every
-# nonempty rank, and no rank is below it
-# EXCLUDES: a version that does not parse ranked above a release (a
-#   garbage daemon kept for good, or a garbage client replacing a release)
-law replace_lt_empty_lowest:
-  for +xs: List<&2, Nat>
+# LAW replace_lt_first_difference: two ranks that agree up to a place where the first has the
+# smaller number are ordered: the first is below the second, whatever
+# follows that place
+# EXCLUDES: an order that lets a later number (minor, tier, patch) or the
+#   length outweigh an earlier one, compares from the last number, compares
+#   numbers the wrong way round or as text (10 below 9), or answers
+#   differently once a common prefix is added
+law replace_lt_first_difference:
+  for +p: List<&2, Nat>
+  for +x: Nat
   for +y: Nat
-  for +ys: List<&2, Nat>
-  {(Rp.lt(Nil{}, y <> ys), Rp.lt(xs, Nil{})) == (True{}, False{}) : Bool & Bool}
+  for +xr: List<&2, Nat>
+  for +yr: List<&2, Nat>
+  for less: {Nat.is_lt(x, y) == True{} : Bool}
+  {Rp.lt(List.append(&2, Nat, p, x <> xr), List.append(&2, Nat, p, y <> yr)) == True{} : Bool}
 
 # LAW replace_lt_prefix: a rank is below every longer rank that begins with it
 # EXCLUDES: an order that stops at the shorter rank and calls the two equal
@@ -295,33 +311,17 @@ law replace_lt_prefix:
   for +ys: List<&2, Nat>
   {Rp.lt(xs, List.append(&2, Nat, xs, y <> ys)) == True{} : Bool}
 
-# LAW replace_lt_single: a rank of one number is below a rank of one number exactly when its
-# number is smaller
-# EXCLUDES: numbers compared the wrong way round, or as text (10 below 9)
-law replace_lt_single:
-  for +x: Nat
-  for +y: Nat
-  {Rp.lt([x], [y]) == Nat.is_lt(x, y) : Bool}
-
-# LAW replace_lt_shared_head: a first number both ranks share does not change their order
-# EXCLUDES: an order that ranks by a shared major number alone, or that
-#   answers differently once a common prefix is added
-law replace_lt_shared_head:
-  for +x: Nat
+# LAW replace_lt_only_when: a rank is below another only when the other extends it, or when at
+# the first place where the two differ its number is smaller
+# EXCLUDES: an order that ranks a version that does not parse (the empty
+#   rank) above a release, calls a longer rank below its own prefix, or
+#   puts a rank below another for any other reason (a shared major number
+#   alone, a larger number at the first difference)
+law replace_lt_only_when:
   for +xs: List<&2, Nat>
   for +ys: List<&2, Nat>
-  {Rp.lt(x <> xs, x <> ys) == Rp.lt(xs, ys) : Bool}
-
-# LAW replace_lt_head_decides: a rank whose first number is smaller is below, whatever follows
-# EXCLUDES: an order that lets a later number (minor, tier, patch) or the
-#   length outweigh an earlier one, or compares from the last number
-law replace_lt_head_decides:
-  for +x: Nat
-  for +y: Nat
-  for +xs: List<&2, Nat>
-  for +ys: List<&2, Nat>
-  for less: {Nat.is_lt(x, y) == True{} : Bool}
-  {Rp.lt(x <> xs, y <> ys) == True{} : Bool}
+  for below: {Rp.lt(xs, ys) == True{} : Bool}
+  rp_extends(xs, ys) | rp_first_smaller(xs, ys)
 
 # LAW replace_relation_exact: the relation of the daemon to the client is exactly rel_spec
 # EXCLUDES: a relation that ignores the build ids, compares ranks the
