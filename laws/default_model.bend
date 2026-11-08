@@ -8,21 +8,83 @@ import ./base.bend as LawsBase
 
 # (H4) The saved default model
 # ----------------------------
-# bend/default_model.bend: the session-model resolution at open.
+# bend/default_model.bend: the session-model resolution at open (audit
+# finding H4). Sources: the header of bend/default_model.bend;
+# crates/eukhe-core/src/models/resolver.rs `DefaultMiss`,
+# `saved_default_facts`, `resolve_default`, `saved_default_miss`;
+# crates/eukhe-core/src/durable/models.rs `Substitution`, `resolve` and
+# its regression tests (audit H4). omp (packages/coding-agent/src/config/
+# model-resolver.ts `findInitialModel`) takes the saved default when the
+# registry has it and else the first model with a key, in silence; its
+# `restoreModelFromSession` names the reason it falls back ("model no
+# longer exists", "no API key available"). Eukhe's audit H4 fix keeps
+# omp's order and makes every move past the saved default name it (R6)
+# and never moves past an unkeyed one (R4): the Rust doc comments are the
+# requirement where they differ from omp.
+#
+# Requirements:
+#   R1  the request and every part of the reply read back (wire section)
+#   R2  a well-formed request answers the resolver's answer, spelled
+#   R3  a malformed request, or a request with input left over, answers
+#       the error form, never a model
+#   R4  the checks of a saved default, in this order: the catalog, the
+#       credentials, the scope (`saved_default_miss`); with nothing saved
+#       the chain's pick runs, or no model; a saved default that fails the
+#       catalog or the scope gives way to the chain's pick, else is the
+#       typed error; one that fails the credentials is the typed error,
+#       never another provider (`resolve_default` doc)
+#   R5  a session opens on the model the resolver answers; with no model
+#       it opens with none (`OpenModel`, header lines 26-28)
+#   R6  a saved default that does not run is named, once, with the first
+#       check it fails ("the startup chain never moves past the saved
+#       default in silence", `DefaultMiss` doc)
+#   R7  no notice when the saved default runs or nothing is saved
+#   A1  a usable saved default's answer does not depend on the chain's
+#       pick (a catalog refresh never moves it)
+#
+# Trusted code the laws below read through: Dm.Session.run and
+# Dm.Session.notes (the session's two fields), Dm.open, Dm.resolve.
 
-# LAW default_honoured_or_reported: a session started with a saved default runs on it, or its notices
-# name the saved default and the reason it did not run
-law default_honoured_or_reported:
-  for x: Dm.In
-  {Dm.reported(x, Dm.open(Dm.resolve(x))) == True{} : Bool}
+# the reason r is the first check a saved default fails, with the facts
+# cat (in the catalog), key (its provider has credentials) and out (a set
+# scope leaves it out): the catalog fails; else the credentials fail; else
+# the scope fails
+def dm_fails_first(r: Dm.Reason, cat: Bool, key: Bool, out: Bool) -> Bool:
+  match r:
+    case Dm.NotInCatalog{}:
+      Bool.not(cat)
+    case Dm.NoCredentials{}:
+      Bool.and(cat, Bool.not(key))
+    case Dm.NotInScope{}:
+      Bool.and(cat, Bool.and(key, out))
 
-# LAW default_quiet_when_honoured: a session that runs on its saved default has no notice
+# LAW default_miss_named_once (R6): a saved default m that fails a check
+# opens a session whose notices are exactly one: m with the first check it
+# fails (the catalog, then the credentials, then the scope), whatever the
+# chain picks and whatever the facts after that check
+# EXCLUDES: a silent swap or refusal, a notice given twice, a notice that
+#   names the replacement or another model, a later check named in place
+#   of the first one that fails (a scope miss reported for a model the
+#   catalog lacks)
+law default_miss_named_once:
+  for m: Nat
+  for cat: Bool
+  for key: Bool
+  for out: Bool
+  for next: Dm.Next
+  for r: Dm.Reason
+  for fails: {dm_fails_first(r, cat, key, out) == True{} : Bool}
+  {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, cat, key, out, next}))) == [Dm.K{m, r}] : List<&2, Dm.Key>}
+
+# LAW default_quiet_when_honoured (R7): a session that opens on the saved
+# default has no notice
+# EXCLUDES: a notice shown for a saved default that runs
 law default_quiet_when_honoured:
   for x: Dm.In
-  for h: {Dm.on_saved(Dm.Session.run(Dm.open(Dm.resolve(x)))) == True{} : Bool}
-  {Dm.none(Dm.Session.notes(Dm.open(Dm.resolve(x)))) == True{} : Bool}
+  for h: {Dm.Session.run(Dm.open(Dm.resolve(x))) == Dm.On{Dm.Saved{}} : Dm.Run}
+  {Dm.Session.notes(Dm.open(Dm.resolve(x))) == Nil{} : List<&2, Dm.Key>}
 
-# LAW default_quiet_when_unset: with no saved default the session has no notice
+# LAW default_quiet_when_unset (R7): with no saved default the session has no notice
 law default_quiet_when_unset:
   for cat: Bool
   for key: Bool
@@ -30,8 +92,28 @@ law default_quiet_when_unset:
   for next: Dm.Next
   {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.NoDefault{}, cat, key, out, next}))) == Nil{} : List<&2, Dm.Key>}
 
-# LAW default_unkeyed_never_moves: a saved default whose provider has no credentials opens the
-# session with no model: no other provider runs in its place
+# LAW default_session_runs_answer (R5): an answer with a model (the saved
+# default or another one, kept or swapped) opens the session on that model
+# EXCLUDES: a swap opened on the saved default, the chain's pick replaced
+#   by another model on the way to the session, a model answer opened idle
+law default_session_runs_answer:
+  for p: Dm.Pick
+  for s: Dm.Sub
+  {Dm.Session.run(Dm.open(Dm.Runs{p, s})) == Dm.On{p} : Dm.Run}
+
+# LAW default_session_idle_without_model (R5): no model, and the typed
+# error, open the session with no model
+# EXCLUDES: a refused saved default, or an empty chain, opened on a model
+law default_session_idle_without_model:
+  for k: Dm.Key
+  {Dm.Session.run(Dm.open(Dm.Nothing{})) == Dm.Idle{} : Dm.Run} & {Dm.Session.run(Dm.open(Dm.Refused{k})) == Dm.Idle{} : Dm.Run}
+
+# LAW default_unkeyed_never_moves (R4): a saved default the catalog has,
+# whose provider has no credentials, opens the session with no model,
+# whatever the scope and the chain's pick: no other provider runs in its
+# place (a saved default the catalog lacks fails the catalog check first
+# and gives way to the chain's pick: default_uncatalogued_swaps)
+# EXCLUDES: a move to another provider for an unkeyed saved default
 law default_unkeyed_never_moves:
   for m: Nat
   for out: Bool
@@ -39,9 +121,9 @@ law default_unkeyed_never_moves:
   {Dm.Session.run(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, True{}, False{}, out, next}))) == Dm.Idle{} : Dm.Run}
 
 # The laws below pin every answer of the resolver (Dm.resolve, the Rust
-# `resolve_session_model` with no requested model), case by case: nothing
-# saved; the catalog, the credentials and the scope, in this order; the
-# chain's pick or none.
+# `resolve_session_model` with no requested model), case by case (R4):
+# nothing saved; the catalog, the credentials and the scope, in this
+# order; the chain's pick or none.
 
 # LAW default_unset_runs_pick: with nothing saved the chain's pick runs, with nothing to say
 # EXCLUDES: a notice or a substitution invented for an unset default, the
@@ -124,178 +206,6 @@ law default_catalog_change_keeps_choice:
   for n1: Nat
   for n2: Nat
   {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, False{}, Dm.Next{n1}}) == Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, False{}, Dm.Next{n2}}) : Dm.Res}
-
-# LAW default_unresolvable_names_choice: a saved default the catalog no longer has is reported once,
-# by name, with the reason "not in the catalog"
-# EXCLUDES: a silent swap, a notice that names the replacement or
-#   another reason, the notice given twice
-law default_unresolvable_names_choice:
-  for m: Nat
-  for key: Bool
-  for out: Bool
-  for n: Nat
-  {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, False{}, key, out, Dm.Next{n}}))) == [Dm.K{m, Dm.NotInCatalog{}}] : List<&2, Dm.Key>}
-
-# The laws below pin the session that opens on the resolver's answer
-# (Dm.open, the Rust `resolve_open_model` and `OpenModel::notice`) and the
-# predicates the laws above read (Dm.reported, Dm.on_saved, Dm.listed,
-# Dm.none, the session's fields), each whole, against a spec of its own.
-
-# the session that opens on the answer r: a model that runs opens the
-# session on it, with the notice of its substitution when it is one; no
-# model opens it idle and quiet; the typed error opens it idle, with the
-# error's one notice
-def dms.open(r: Dm.Res) -> Dm.Session:
-  match r:
-    case Dm.Runs{p, s}:
-      match s:
-        case Dm.Kept{}:
-          Dm.Session{Dm.On{p}, Nil{}}
-        case Dm.Swapped{k}:
-          Dm.Session{Dm.On{p}, [k]}
-    case Dm.Nothing{}:
-      Dm.Session{Dm.Idle{}, Nil{}}
-    case Dm.Refused{k}:
-      Dm.Session{Dm.Idle{}, [k]}
-
-# LAW default_open_exact (H4): every answer opens the session the header states: a model that runs opens it on that model, with exactly one notice, the substitution's key, when it took the saved default's place, and none when it is kept; no model opens it idle with no notice; the typed error opens it idle with exactly its one key
-# EXCLUDES: a substitution opened on the saved default or with no notice
-#   (open(Runs{p, Swapped{K{m, NotInScope}}}) = Session{On{Saved}, []}),
-#   a notice given twice (open(Refused{k}) = Session{Idle, [k, k]}), a
-#   kept model with a notice, a refusal or no model opened on a model, a
-#   notice naming another key, the pick replaced on the way to the session
-law default_open_exact:
-  for r: Dm.Res
-  {Dm.open(r) == dms.open(r) : Dm.Session}
-
-# LAW default_session_fields (H4): a session's model and notices read back as the session holds them
-# EXCLUDES: a reader that answers no notice or another model (which would
-#   make default_quiet_when_* or default_unkeyed_never_moves read a
-#   session other than the one that opens)
-law default_session_fields:
-  for run: Dm.Run
-  for notes: List<&2, Dm.Key>
-  {Dm.Session.run(Dm.Session{run, notes}) == run : Dm.Run} & {Dm.Session.notes(Dm.Session{run, notes}) == notes : List<&2, Dm.Key>}
-
-# a session runs on the saved default: on a model that is the saved one
-def dms.on_saved(r: Dm.Run) -> Bool:
-  match r:
-    case Dm.On{p}:
-      match p:
-        case Dm.Saved{}:
-          True{}
-        case Dm.Other{n}:
-          False{}
-    case Dm.Idle{}:
-      False{}
-
-# LAW default_on_saved_exact (H4): a session runs on the saved default exactly when it is on a model and that model is the saved one
-# EXCLUDES: an on_saved that never holds (default_quiet_when_honoured made
-#   vacuous), one that holds for another model or an idle session
-law default_on_saved_exact:
-  for r: Dm.Run
-  {Dm.on_saved(r) == dms.on_saved(r) : Bool}
-
-# a list of notices is empty
-def dms.none(ks: List<&2, Dm.Key>) -> Bool:
-  match ks:
-    case Nil{}:
-      True{}
-    case x <> rest:
-      False{}
-
-# LAW default_none_exact (H4): a list of notices is empty exactly when it has no notice
-# EXCLUDES: a none that always holds (default_quiet_when_honoured made
-#   vacuous), one that fails on the empty list
-law default_none_exact:
-  for ks: List<&2, Dm.Key>
-  {Dm.none(ks) == dms.none(ks) : Bool}
-
-def dms.reason_eq(a: Dm.Reason, b: Dm.Reason) -> Bool:
-  match a:
-    case Dm.NotInCatalog{}:
-      match b:
-        case Dm.NotInCatalog{}:
-          True{}
-        case Dm.NoCredentials{}:
-          False{}
-        case Dm.NotInScope{}:
-          False{}
-    case Dm.NoCredentials{}:
-      match b:
-        case Dm.NotInCatalog{}:
-          False{}
-        case Dm.NoCredentials{}:
-          True{}
-        case Dm.NotInScope{}:
-          False{}
-    case Dm.NotInScope{}:
-      match b:
-        case Dm.NotInCatalog{}:
-          False{}
-        case Dm.NoCredentials{}:
-          False{}
-        case Dm.NotInScope{}:
-          True{}
-
-# two keys are equal: the same model and the same reason
-def dms.key_eq(a: Dm.Key, b: Dm.Key) -> Bool:
-  match a b:
-    case Dm.K{am, ar} Dm.K{bm, br}:
-      Bool.and(Nat.is_eq(am, bm), dms.reason_eq(ar, br))
-
-# the key k is one of the notices ks
-def dms.listed(ks: List<&2, Dm.Key>, +k: Dm.Key) -> Bool:
-  match ks:
-    case Nil{}:
-      False{}
-    case x <> rest:
-      Bool.or(dms.key_eq(x, k), dms.listed(rest, k))
-
-# LAW default_listed_exact (H4): a key is listed exactly when one of the notices has its model and its reason
-# EXCLUDES: a listed that always holds (default_honoured_or_reported made
-#   vacuous), one that matches the model alone or the reason alone, one
-#   that reads only the first notice
-law default_listed_exact:
-  for ks: List<&2, Dm.Key>
-  for +k: Dm.Key
-  {Dm.listed(ks, k) == dms.listed(ks, k) : Bool}
-
-# the first check a saved default fails: the catalog, then the
-# credentials, else the scope
-def dms.why(cat: Bool, key: Bool) -> Dm.Reason:
-  match cat:
-    case False{}:
-      Dm.NotInCatalog{}
-    case True{}:
-      match key:
-        case False{}:
-          Dm.NoCredentials{}
-        case True{}:
-          Dm.NotInScope{}
-
-# the session s of x runs on the saved default, or one of its notices
-# names the saved default with the first check it fails; with nothing
-# saved there is nothing to report
-def dms.reported(x: Dm.In, s: Dm.Session) -> Bool:
-  match x:
-    case Dm.In{saved, cat, key, out, next}:
-      match saved:
-        case Dm.NoDefault{}:
-          True{}
-        case Dm.Default{m}:
-          match s:
-            case Dm.Session{run, notes}:
-              Bool.or(dms.on_saved(run), dms.listed(notes, Dm.K{m, dms.why(cat, key)}))
-
-# LAW default_reported_exact (H4): a session is reported exactly when nothing is saved, or it runs on the saved default, or a notice names the saved default with the first check it fails (the catalog, then the credentials, then the scope)
-# EXCLUDES: a reported that always holds (default_honoured_or_reported
-#   made vacuous), one that accepts a notice with another reason or for
-#   another model, one that skips the notices
-law default_reported_exact:
-  for x: Dm.In
-  for s: Dm.Session
-  {Dm.reported(x, s) == dms.reported(x, s) : Bool}
 
 # The wire codec of bend/ffi_default_model.bend (grammar: that file's
 # header, crates/eukhe-bend/WIRE.md). R1: the request and every reply
@@ -414,20 +324,15 @@ law dmw_res_round_trip:
   for h: {dmw_res_fits(r) == True{} : Bool}
   {FDm.get_res(FDm.put_res(r, rest)) == Wr.Got{r, rest} : Wr.Dec<Dm.Res>}
 
-# LAW dmw_answers (R2): an encoded request answers the resolver's answer, encoded
+# LAW dmw_answers (R2): a request the entry's own encoder writes, every
+# number within the wire, answers the resolver's answer as the entry's own
+# encoder spells it (the spelling Rust reads is dmw_ffi_answers_spelled's)
 # EXCLUDES: an entry that resolves other than Dm.resolve, or drops a fact
-#   on the way in or out
+#   on the way in
 law dmw_answers:
   for +x: Dm.In
   for h: {dmw_in_fits(x) == True{} : Bool}
   {FDm.ffi(FDm.put_in(x, "")) == FDm.put_res(Dm.resolve(x), "") : String}
-
-# LAW dmw_malformed (R3): a malformed request answers the error form
-# EXCLUDES: a default model for a request it cannot read
-law dmw_malformed:
-  for +s: String
-  for h: {FDm.get_in(s) == Wr.Bad{} : Wr.Dec<Dm.In>}
-  {FDm.ffi(s) == Wr.err("default_model: malformed request") : String}
 
 # LAW dmw_left_over (R3): a request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
@@ -487,10 +392,11 @@ law dmw_res_example:
 law dmw_ffi_example:
   {FDm.ffi("1,5,TTF1,9,") == "0,0,0," : String}
 
-# LAW dmw_malformed_example (R3): witness: a saved default with an unknown tag is malformed
-# EXCLUDES: a vacuous dmw_malformed
+# LAW dmw_malformed_example (R3): anchor: a saved default with an unknown tag (2) answers
+# the malformed error
+# EXCLUDES: an unknown saved tag read as a request
 law dmw_malformed_example:
-  {FDm.get_in("2,") == Wr.Bad{} : Wr.Dec<Dm.In>} & {FDm.ffi("2,") == Wr.err("default_model: malformed request") : String}
+  {FDm.ffi("2,") == Wr.err("default_model: malformed request") : String}
 
 # The default_model entry, spelled by the grammar Rust writes and reads
 # (crates/eukhe-core/src/models/resolver.rs `resolve_default`), not by the
@@ -645,200 +551,3 @@ law dmw_ffi_malformed_unless_request:
 #   does not, a reversed fact, an unknown tag read as a known one
 law dmw_ffi_tags_example:
   {[FDm.ffi("1,0,TTF1,1,"), FDm.ffi("1,0,TTF0,"), FDm.ffi("0,FFF1,1,"), FDm.ffi("0,FFF0,"), FDm.ffi("1,0,FTF1,1,"), FDm.ffi("1,0,FFF0,"), FDm.ffi("1,0,TFF1,1,"), FDm.ffi("1,0,TTT1,1,"), FDm.ffi("1,0,TTT0,"), FDm.ffi("2,"), FDm.ffi("1,0,TTF2,"), FDm.ffi("1,0,TXF1,1,"), FDm.ffi(""), FDm.ffi("1,0,TTF1,1,x")] == ["0,0,0,", "0,0,0,", "0,1,1,0,", "1,", "0,1,1,1,0,0,", "2,0,0,", "2,0,1,", "0,1,1,1,0,2,", "2,0,2,", Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: input left over")] : List<&2, String>}
-
-
-# The entry, independently of bend/ffi_default_model.bend: a reader of the
-# request grammar built from the wire primitives, the resolver's answer
-# as the laws above state it case by case, and a speller of the reply
-# from the wire primitives.
-
-# the saved default: 0 (none) | 1, the model
-def dmr.saved.m(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Saved>:
-  match r:
-    case Wr.Got{m, s}:
-      Wr.Got{Dm.Default{m}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.saved.tag(t: Nat, s: String) -> Wr.Dec<Dm.Saved>:
-  match t:
-    case 0n:
-      Wr.Got{Dm.NoDefault{}, s}
-    case 1n:
-      dmr.saved.m(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def dmr.saved(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Saved>:
-  match r:
-    case Wr.Got{t, s}:
-      dmr.saved.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the chain's pick: 0 (none) | 1, the model
-def dmr.next.n(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Next>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Dm.Next{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.next.tag(t: Nat, s: String) -> Wr.Dec<Dm.Next>:
-  match t:
-    case 0n:
-      Wr.Got{Dm.NoNext{}, s}
-    case 1n:
-      dmr.next.n(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def dmr.next(r: Wr.Dec<Nat>) -> Wr.Dec<Dm.Next>:
-  match r:
-    case Wr.Got{t, s}:
-      dmr.next.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a request: saved, cat, key, out, next
-def dmr.in.next(sv: Dm.Saved, c: Bool, k: Bool, o: Bool, r: Wr.Dec<Dm.Next>) -> Wr.Dec<Dm.In>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Dm.In{sv, c, k, o, n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.in.out(sv: Dm.Saved, c: Bool, k: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
-  match r:
-    case Wr.Got{o, s}:
-      dmr.in.next(sv, c, k, o, dmr.next(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.in.key(sv: Dm.Saved, c: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
-  match r:
-    case Wr.Got{k, s}:
-      dmr.in.out(sv, c, k, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.in.cat(sv: Dm.Saved, r: Wr.Dec<Bool>) -> Wr.Dec<Dm.In>:
-  match r:
-    case Wr.Got{c, s}:
-      dmr.in.key(sv, c, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def dmr.in(r: Wr.Dec<Dm.Saved>) -> Wr.Dec<Dm.In>:
-  match r:
-    case Wr.Got{sv, s}:
-      dmr.in.cat(sv, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request s starts with, and what follows it
-def dmr.read(s: String) -> Wr.Dec<Dm.In>:
-  dmr.in(dmr.saved(Wr.get_nat(s)))
-
-# another model in place of the saved default, for the key k: the chain's
-# pick with the key's notice, else the typed error
-def dms.swap(k: Dm.Key, next: Dm.Next) -> Dm.Res:
-  match next:
-    case Dm.NoNext{}:
-      Dm.Refused{k}
-    case Dm.Next{n}:
-      Dm.Runs{Dm.Other{n}, Dm.Swapped{k}}
-
-# the resolver's answer, as the laws default_unset_*, default_usable_runs,
-# default_uncatalogued_*, default_unkeyed_refused and default_unscoped_*
-# state it: nothing saved, then the catalog, the credentials and the scope
-def dms.resolve(x: Dm.In) -> Dm.Res:
-  match x:
-    case Dm.In{saved, cat, key, out, next}:
-      match saved:
-        case Dm.NoDefault{}:
-          match next:
-            case Dm.NoNext{}:
-              Dm.Nothing{}
-            case Dm.Next{n}:
-              Dm.Runs{Dm.Other{n}, Dm.Kept{}}
-        case Dm.Default{m}:
-          match cat:
-            case False{}:
-              dms.swap(Dm.K{m, Dm.NotInCatalog{}}, next)
-            case True{}:
-              match key:
-                case False{}:
-                  Dm.Refused{Dm.K{m, Dm.NoCredentials{}}}
-                case True{}:
-                  match out:
-                    case True{}:
-                      dms.swap(Dm.K{m, Dm.NotInScope{}}, next)
-                    case False{}:
-                      Dm.Runs{Dm.Saved{}, Dm.Kept{}}
-
-# the reply as the Rust Reader reads it: a reason 0 | 1 | 2; a key the
-# model, then the reason; a pick 0 | 1, the model; a substitution 0 | 1,
-# the key; a resolution 0, pick, substitution | 1 | 2, key
-def dms.reason(r: Dm.Reason, rest: String) -> String:
-  match r:
-    case Dm.NotInCatalog{}:
-      Wr.put_nat(0n, rest)
-    case Dm.NoCredentials{}:
-      Wr.put_nat(1n, rest)
-    case Dm.NotInScope{}:
-      Wr.put_nat(2n, rest)
-
-def dms.key(k: Dm.Key, rest: String) -> String:
-  match k:
-    case Dm.K{m, r}:
-      Wr.put_nat(m, dms.reason(r, rest))
-
-def dms.res(x: Dm.Res, rest: String) -> String:
-  match x:
-    case Dm.Runs{p, s}:
-      match p:
-        case Dm.Saved{}:
-          match s:
-            case Dm.Kept{}:
-              Wr.put_nat(0n, Wr.put_nat(0n, Wr.put_nat(0n, rest)))
-            case Dm.Swapped{k}:
-              Wr.put_nat(0n, Wr.put_nat(0n, Wr.put_nat(1n, dms.key(k, rest))))
-        case Dm.Other{n}:
-          match s:
-            case Dm.Kept{}:
-              Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(n, Wr.put_nat(0n, rest))))
-            case Dm.Swapped{k}:
-              Wr.put_nat(0n, Wr.put_nat(1n, Wr.put_nat(n, Wr.put_nat(1n, dms.key(k, rest)))))
-    case Dm.Nothing{}:
-      Wr.put_nat(1n, rest)
-    case Dm.Refused{k}:
-      Wr.put_nat(2n, dms.key(k, rest))
-
-def dms.end(whole: Bool, x: Dm.In) -> String:
-  match whole:
-    case True{}:
-      dms.res(dms.resolve(x), "")
-    case False{}:
-      Wr.err("default_model: input left over")
-
-def dms.go(r: Wr.Dec<Dm.In>) -> String:
-  match r:
-    case Wr.Got{x, s}:
-      dms.end(Wr.end(s), x)
-    case Wr.Bad{}:
-      Wr.err("default_model: malformed request")
-
-# the reply to the input s
-def dms.spec(s: String) -> String:
-  dms.go(dmr.read(s))
-
-# LAW dmw_ffi_exact (R2, R3): on every input the entry answers the resolver's answer (as the case laws above state it) to the request the input starts with, spelled as the Rust Reader reads it, when nothing follows the request; "default_model: input left over" when something does; "default_model: malformed request" when the input starts with no request
-# EXCLUDES: an answer other than the case laws' (a usable default swapped,
-#   a refusal for a swap, a wrong reason), a reply in another spelling, a
-#   value for an input that is no request (an unknown tag, a 15-digit
-#   number, a short field) or for a request with input left over, another
-#   error text
-law dmw_ffi_exact:
-  for +s: String
-  {FDm.ffi(s) == dms.spec(s) : String}

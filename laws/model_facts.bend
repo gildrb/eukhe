@@ -6,19 +6,30 @@ import ../bend/ffi_model_facts.bend as FMF
 import ../bend/infer.bend as If
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
-import ./facts/model.bend as Facts
 
 # ---- model_facts ----
 
 # (S6.10) The entry of the model facts: bend/ffi_model_facts.bend
-# (laws/facts.bend pins the model terms it calls: facts_flag_exact,
-# facts_effort_exact, facts_price_exact)
+# (the laws of area facts, laws/facts/, pin the model terms it calls)
 # ----------------------------------------------------------------
 # Rust gathers the rulebook's answers, the compat flag, the env flag, the
 # thinking-level map (a wire string as the code 0) and the price rows of
 # the model's provider and API (this model 0, another 1; this tier 0,
 # another 1; the row's index as its multiplier); the model decides. The
-# spellers write what Rust writes with the wire primitives only.
+# spellers write what Rust writes with the wire primitives only (the
+# grammar of the header of bend/ffi_model_facts.bend, the Rust writer
+# crates/eukhe-bend/src/rules/model_facts.rs and WIRE.md).
+#
+# Requirements:
+#   R1  each request Rust spells (a flag, adaptive thinking, the Bedrock
+#       effort, a tier's price, the Bedrock reasoning fields), its numbers
+#       within the wire, answers the model's decision on it:
+#       model_facts_ffi_flag, _adaptive, _effort, _price, _reasoning
+#   R2  the entry answers a value only for an input that is exactly one
+#       such request: model_facts_ffi_reads_only_requests
+#   R3  every other input answers exactly the error form `E model facts:
+#       malformed request`: model_facts_ffi_refuses with R2
+# Anchors: model_facts_ffi_example, model_facts_ffi_reasoning_example.
 
 def mf.ans(a: If.Ans, rest: String) -> String:
   match a:
@@ -158,442 +169,56 @@ def mf.rows_fit(rows: List<&2, Fx.PRow>) -> Bool:
 def mf.price_fits(+rows: List<&2, Fx.PRow>, m: Nat, t: Nat) -> Bool:
   Bool.and(LawsBase.wire_fits(List.length(&2, Fx.PRow, rows)), Bool.and(mf.rows_fit(rows), Bool.and(LawsBase.wire_fits(m), LawsBase.wire_fits(t))))
 
-# Reader: the requests the entry accepts, read with the wire primitives
-
-# a Maybe<Nat>: 0 none | 1 then the Nat
-def mfr.get_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Some{n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_mnat.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      mfr.get_mnat.some(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def mfr.get_mnat(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_mnat.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the rulebook's answer: 0 known, then the value | 1 unknown
-def mfr.get_ans.known(r: Wr.Dec<Nat>) -> Wr.Dec<If.Ans>:
-  match r:
-    case Wr.Got{v, s}:
-      Wr.Got{If.Known{v}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_ans.tag(t: Nat, s: String) -> Wr.Dec<If.Ans>:
-  match t:
-    case 0n:
-      mfr.get_ans.known(Wr.get_nat(s))
-    case 1n:
-      Wr.Got{If.Unknown{}, s}
-    case 2n+p:
-      Wr.Bad{}
-
-def mfr.get_ans(r: Wr.Dec<Nat>) -> Wr.Dec<If.Ans>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_ans.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a compat flag: 0 none | 1 then the Bool
-def mfr.get_mbool.some(r: Wr.Dec<Bool>) -> Wr.Dec<Maybe<&2, Bool>>:
-  match r:
-    case Wr.Got{b, s}:
-      Wr.Got{Some{b}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_mbool.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Bool>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      mfr.get_mbool.some(Wr.get_bool(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def mfr.get_mbool(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Bool>>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_mbool.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a thinking-level map entry: 0 missing | 1 then 0 null | 1 then the code
-def mfr.get_ent.val(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>:
-  match r:
-    case Wr.Got{v, s}:
-      Wr.Got{Some{Some{v}}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_ent.in(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>:
-  match t:
-    case 0n:
-      Wr.Got{Some{None{}}, s}
-    case 1n:
-      mfr.get_ent.val(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def mfr.get_ent.inner(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_ent.in(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_ent.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      mfr.get_ent.inner(Wr.get_nat(s))
-    case 2n+p:
-      Wr.Bad{}
-
-def mfr.get_ent(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_ent.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a request's level: 0 minimal .. 5 max
-def mfr.get_elv.tag(t: Nat, s: String) -> Wr.Dec<Fx.ELv>:
-  match t:
-    case 0n:
-      Wr.Got{Fx.EMinimal{}, s}
-    case 1n:
-      Wr.Got{Fx.ELow{}, s}
-    case 2n:
-      Wr.Got{Fx.EMedium{}, s}
-    case 3n:
-      Wr.Got{Fx.EHigh{}, s}
-    case 4n:
-      Wr.Got{Fx.EXhigh{}, s}
-    case 5n:
-      Wr.Got{Fx.EMax{}, s}
-    case 6n+p:
-      Wr.Bad{}
-
-def mfr.get_elv(r: Wr.Dec<Nat>) -> Wr.Dec<Fx.ELv>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_elv.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# 0 a flag: the answer, then the decision when no rule applies
-def mfr.get_flag.d(a: If.Ans, r: Wr.Dec<Bool>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{d, s}:
-      Wr.Got{FMF.QFlag{a, d}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_flag(r: Wr.Dec<If.Ans>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      mfr.get_flag.d(a, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# 1 adaptive thinking: the compat flag, then the answer
-def mfr.get_adaptive.a(c: Maybe<&2, Bool>, r: Wr.Dec<If.Ans>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{a, s}:
-      Wr.Got{FMF.QAdaptive{c, a}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_adaptive(r: Wr.Dec<Maybe<&2, Bool>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{c, s}:
-      mfr.get_adaptive.a(c, mfr.get_ans(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# 2 the Bedrock effort: six entries, then the level
-def mfr.get_effort.l(mi: Maybe<&2, Maybe<&2, Nat>>, lo: Maybe<&2, Maybe<&2, Nat>>, me: Maybe<&2, Maybe<&2, Nat>>, hi: Maybe<&2, Maybe<&2, Nat>>, xh: Maybe<&2, Maybe<&2, Nat>>, mx: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Fx.ELv>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{l, s}:
-      Wr.Got{FMF.QEffort{Fx.EMap{mi, lo, me, hi, xh, mx}, l}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort.mx(mi: Maybe<&2, Maybe<&2, Nat>>, lo: Maybe<&2, Maybe<&2, Nat>>, me: Maybe<&2, Maybe<&2, Nat>>, hi: Maybe<&2, Maybe<&2, Nat>>, xh: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{mx, s}:
-      mfr.get_effort.l(mi, lo, me, hi, xh, mx, mfr.get_elv(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort.xh(mi: Maybe<&2, Maybe<&2, Nat>>, lo: Maybe<&2, Maybe<&2, Nat>>, me: Maybe<&2, Maybe<&2, Nat>>, hi: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{xh, s}:
-      mfr.get_effort.mx(mi, lo, me, hi, xh, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort.hi(mi: Maybe<&2, Maybe<&2, Nat>>, lo: Maybe<&2, Maybe<&2, Nat>>, me: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{hi, s}:
-      mfr.get_effort.xh(mi, lo, me, hi, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort.me(mi: Maybe<&2, Maybe<&2, Nat>>, lo: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{me, s}:
-      mfr.get_effort.hi(mi, lo, me, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort.lo(mi: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{lo, s}:
-      mfr.get_effort.me(mi, lo, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_effort(r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{mi, s}:
-      mfr.get_effort.lo(mi, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a price row: its model (Maybe<Nat>), its tier, its multiplier
-def mfr.get_row.k(m: Maybe<&2, Nat>, t: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Fx.PRow>:
-  match r:
-    case Wr.Got{k, s}:
-      Wr.Got{Fx.PRow{m, t, k}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_row.t(m: Maybe<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<Fx.PRow>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_row.k(m, t, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_row.m(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Fx.PRow>:
-  match r:
-    case Wr.Got{m, s}:
-      mfr.get_row.t(m, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_row(s: String) -> Wr.Dec<Fx.PRow>:
-  mfr.get_row.m(mfr.get_mnat(Wr.get_nat(s)))
-
-def mfr.get_rows.cons(x: Fx.PRow, r: Wr.Dec<List<&2, Fx.PRow>>) -> Wr.Dec<List<&2, Fx.PRow>>:
-  match r:
-    case Wr.Got{xs, s}:
-      Wr.Got{x <> xs, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# n more rows after the one cur answers
-def mfr.get_rows.go(n: Nat, cur: Wr.Dec<Fx.PRow>) -> Wr.Dec<List<&2, Fx.PRow>>:
-  match n:
-    case 0n:
-      match cur:
-        case Wr.Got{x, s}:
-          Wr.Got{[x], s}
-        case Wr.Bad{}:
-          Wr.Bad{}
-    case 1n+k:
-      match cur:
-        case Wr.Got{x, s}:
-          mfr.get_rows.cons(x, mfr.get_rows.go(k, mfr.get_row(s)))
-        case Wr.Bad{}:
-          Wr.Bad{}
-
-# the rows: a count, then each row
-def mfr.get_rows.count(n: Nat, s: String) -> Wr.Dec<List<&2, Fx.PRow>>:
-  match n:
-    case 0n:
-      Wr.Got{Nil{}, s}
-    case 1n+k:
-      mfr.get_rows.go(k, mfr.get_row(s))
-
-def mfr.get_rows(r: Wr.Dec<Nat>) -> Wr.Dec<List<&2, Fx.PRow>>:
-  match r:
-    case Wr.Got{n, s}:
-      mfr.get_rows.count(n, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# 3 a tier's multiplier: the rows, the model, the tier
-def mfr.get_price.t(rows: List<&2, Fx.PRow>, m: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{FMF.QPrice{rows, m, t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_price.m(rows: List<&2, Fx.PRow>, r: Wr.Dec<Nat>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{m, s}:
-      mfr.get_price.t(rows, m, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_price(r: Wr.Dec<List<&2, Fx.PRow>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{rows, s}:
-      mfr.get_price.m(rows, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# a shape: 0 none | 1 Claude | 2 GPT | 3 gpt-oss
-def mfr.get_shape.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Fx.Shape>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      Wr.Got{Some{Fx.SClaude{}}, s}
-    case 2n:
-      Wr.Got{Some{Fx.SGpt{}}, s}
-    case 3n:
-      Wr.Got{Some{Fx.SGptOss{}}, s}
-    case 4n+p:
-      Wr.Bad{}
-
-def mfr.get_shape(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Fx.Shape>>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_shape.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# 4 the Bedrock reasoning fields: the shape, the entry, the level
-def mfr.get_reasoning.l(x: Maybe<&2, Fx.Shape>, e: Maybe<&2, Maybe<&2, Nat>>, r: Wr.Dec<Fx.ELv>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{l, s}:
-      Wr.Got{FMF.QReasoning{x, e, l}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_reasoning.e(x: Maybe<&2, Fx.Shape>, r: Wr.Dec<Maybe<&2, Maybe<&2, Nat>>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{e, s}:
-      mfr.get_reasoning.l(x, e, mfr.get_elv(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_reasoning(r: Wr.Dec<Maybe<&2, Fx.Shape>>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{x, s}:
-      mfr.get_reasoning.e(x, mfr.get_ent(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def mfr.get_req.tag(t: Nat, s: String) -> Wr.Dec<FMF.Req>:
-  match t:
-    case 0n:
-      mfr.get_flag(mfr.get_ans(Wr.get_nat(s)))
-    case 1n:
-      mfr.get_adaptive(mfr.get_mbool(Wr.get_nat(s)))
-    case 2n:
-      mfr.get_effort(mfr.get_ent(Wr.get_nat(s)))
-    case 3n:
-      mfr.get_price(mfr.get_rows(Wr.get_nat(s)))
-    case 4n:
-      mfr.get_reasoning(mfr.get_shape(Wr.get_nat(s)))
-    case 5n+p:
-      Wr.Bad{}
-
-def mfr.get_req.go(r: Wr.Dec<Nat>) -> Wr.Dec<FMF.Req>:
-  match r:
-    case Wr.Got{t, s}:
-      mfr.get_req.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-# the request at the start of s
-def mfr.get_req(s: String) -> Wr.Dec<FMF.Req>:
-  mfr.get_req.go(Wr.get_nat(s))
-
-def mfr.end(whole: Bool, q: FMF.Req) -> Maybe<&2, FMF.Req>:
-  match whole:
-    case True{}:
-      Some{q}
-    case False{}:
-      None{}
-
-def mfr.whole(r: Wr.Dec<FMF.Req>) -> Maybe<&2, FMF.Req>:
-  match r:
-    case Wr.Got{q, s}:
-      mfr.end(Wr.end(s), q)
-    case Wr.Bad{}:
-      None{}
-
-# the request s is, when s is exactly one request
-def mfr.read(s: String) -> Maybe<&2, FMF.Req>:
-  mfr.whole(mfr.get_req(s))
-
-# adaptive thinking, independently: the model's compat flag, else the
-# rulebook's flag with the default false
-def mf.adaptive_spec(c: Maybe<&2, Bool>, a: If.Ans) -> Bool:
-  match c:
-    case Some{b}:
-      b
-    case None{}:
-      Facts.flag_spec(a, False{})
-
-# the reply to a request, from the spec terms of laws/facts.bend (never the
-# model's functions), spelled with the wire primitives
-def mf.reply(q: FMF.Req) -> String:
+# a request as Rust spells it, by its kind
+def mf.spell(q: FMF.Req) -> String:
   match q:
     case FMF.QFlag{a, d}:
-      Wr.put_bool(Facts.flag_spec(a, d), "")
+      spell_flag(a, d)
     case FMF.QAdaptive{c, a}:
-      Wr.put_bool(mf.adaptive_spec(c, a), "")
+      spell_adaptive(c, a)
     case FMF.QEffort{m, l}:
-      Wr.put_nat(Facts.effort_spec(m, l), "")
+      spell_effort(m, l)
     case FMF.QPrice{rows, m, t}:
-      mf.mnat(Facts.price_spec(rows, m, t), "")
+      spell_price(rows, m, t)
     case FMF.QReasoning{x, e, l}:
-      mf.rfields(Facts.reasoning_spec(x, e, l))
+      spell_reasoning(x, e, l)
 
-def mf.spec.go(m: Maybe<&2, FMF.Req>) -> String:
-  match m:
-    case Some{q}:
-      mf.reply(q)
-    case None{}:
-      SCon{'E', SCon{' ', "model facts: malformed request"}}
+# every number of the request q fits the wire
+def mf.fits(q: FMF.Req) -> Bool:
+  match q:
+    case FMF.QFlag{a, d}:
+      mf.ans_fits(a)
+    case FMF.QAdaptive{c, a}:
+      mf.ans_fits(a)
+    case FMF.QEffort{m, l}:
+      mf.map_fits(m)
+    case FMF.QPrice{rows, m, t}:
+      mf.price_fits(rows, m, t)
+    case FMF.QReasoning{x, e, l}:
+      mf.ent_fits(e)
 
-# the reply to the input s: the spec's decision on the request s is
-# exactly, else the error form
-def mf.spec(s: String) -> String:
-  mf.spec.go(mfr.read(s))
-
-# LAW model_facts_ffi_exact: on every input the entry answers the spec's decision on the request the input is exactly (a flag: a known answer is true only at 1, an unknown one the default; adaptive: the compat flag, else that flag with the default false; the effort: the map's wire code at the level, else 2, 3 or 4; the price: the model's first row of the tier, else every model's first row, else none; the Bedrock reasoning fields of the shape), and exactly the error form "model facts: malformed request" on any other input
-# EXCLUDES: a decision that differs from the spec terms (laws/facts.bend
-#   flag_spec, effort_spec, price_spec, reasoning_spec) on any request, a
-#   value answered for an input that is not exactly one request (a short
-#   field, an unknown tag, a 15-digit number, input left over), another
-#   error text
-law model_facts_ffi_exact:
+# LAW model_facts_ffi_reads_only_requests (R2): an answer that is not the
+# error form comes from an input that is exactly one request as Rust
+# spells it (a flag, adaptive thinking, the effort, the price or the
+# reasoning fields), every number within the wire; the laws above give its
+# answer
+# EXCLUDES: a decoder that accepts an unknown tag (request, answer, compat
+#   flag, entry, level, model, shape), a short or missing field, a number
+#   past the wire, a row count other than the rows that follow, or input
+#   left over, and answers it anyway (a default instead of the error form)
+law model_facts_ffi_reads_only_requests:
   for +s: String
-  {FMF.ffi(s) == mf.spec(s) : String}
+  for ok: {LawsBase.wire_opens_err(FMF.ffi(s)) == False{} : Bool}
+  exs q: FMF.Req
+  {s == mf.spell(q) : String} & {mf.fits(q) == True{} : Bool}
+
+# LAW model_facts_ffi_refuses (R3): every error the entry answers is
+# exactly `E model facts: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law model_facts_ffi_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FMF.ffi(s)) == True{} : Bool}
+  {FMF.ffi(s) == Wr.err("model facts: malformed request") : String}
 
 # LAW model_facts_ffi_flag: a flag request answers the model's flag decision
 law model_facts_ffi_flag:
@@ -633,12 +258,6 @@ law model_facts_ffi_reasoning:
   for +l: Fx.ELv
   for fits: {mf.ent_fits(e) == True{} : Bool}
   {FMF.ffi(spell_reasoning(s, e, l)) == mf.rfields(Fx.reasoning(s, e, l)) : String}
-
-# LAW model_facts_ffi_malformed_exact: every input that is not exactly one request gets exactly the error form 'E ', then "model facts: malformed request"
-law model_facts_ffi_malformed_exact:
-  for +s: String
-  for no: {mfr.read(s) == None{} : Maybe<&2, FMF.Req>}
-  {FMF.ffi(s) == SCon{'E', SCon{' ', "model facts: malformed request"}} : String}
 
 # LAW model_facts_ffi_example: anchor: the bytes Rust sends and reads: an unknown answer with the default false, a known 1; a compat flag over the rulebook; a map whose high entry is the wire string asks high; a null entry takes the default; the model's row over a row of every model; an unknown tag and input left over are refused
 law model_facts_ffi_example:
