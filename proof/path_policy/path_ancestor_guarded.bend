@@ -3,7 +3,7 @@
 import Base
 import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
 
 def pp.pick_guarded(sec: Bool, ins: Bool) -> {Pp.Cls.guarded(Pp.cls.pick(sec, True{}, ins)) == True{} : Bool}:

@@ -264,7 +264,8 @@ requests) share it, so they cannot judge a path differently.
 
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
 links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
-`run` and `guarded`). Laws: `laws/path_policy.bend`.
+`run` and `guarded`). Laws: `laws/path_policy/` (`policy.bend`: the real
+path, the judgment, the store, the entry; `gate.bend`: the gate).
 Proofs: `proof/path_policy/`. Every input is free: any
 symlinks (loops too), any policy, any paths, any auto set, any answers.
 
@@ -277,6 +278,7 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `gate_write_auto_never_secret` | write without a yes: never to a secret (G1.6) |
 | `gate_secret_read_needs_yes` | secret read: only on a yes (G1.6) |
 | `gate_yes_runs` | a yes runs each access (G1.6) |
+| `gate_secret_read_exact`, `gate_effs_exact`, `gate_runs_exact`, `gate_terms_exact` | the gate's secret read, effects, auto test and answer are an independent spec's: a read, list or search of a secret has the secret effect and never runs unasked (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
 | `secrets_need_yes` | no agent write sequence without a yes changes a secret (G1.6, G1.7) |
 

@@ -9,7 +9,7 @@ import Base
 import ../../bend/ffi_path_policy.bend as FPp
 import ../../bend/path_policy.bend as Pp
 import ../../bend/wire.bend as Wr
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
 import ./path_policy_ffi_request_round_trip.bend as PPathPolicyFfiRequestRoundTrip
 

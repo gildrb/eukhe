@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/path_policy.bend as Pp
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
 
 # the store's keep is the spec's

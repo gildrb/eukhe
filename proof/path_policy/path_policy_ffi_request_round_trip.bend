@@ -6,7 +6,7 @@ import ../../bend/path_policy.bend as Pp
 import ../../bend/wire.bend as Wr
 import ../../bend/wire_flat.bend as Fl
 import ../../laws/base.bend as LawsBase
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ../../laws/wire.bend as Wire
 import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire

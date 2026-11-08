@@ -6,7 +6,7 @@
 import Base
 import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ./path_real_exact.bend as PPathRealExact
 
 def pnl.walk(segs: List<&2, Tl.Seg>, +f: Nat, +at: List<&2, Nat>, +look: Maybe<&2, Pp.Link>, +lk: {look == Pp.look.at(Nil{}, segs, at) : Maybe<&2, Pp.Link>}) -> {Pp.go(1n+f, segs, Nil{}, at, False{}, look) == Pp.Res{PathPolicy.pp_walk_plain(segs, at), False{}} : Pp.Res}:

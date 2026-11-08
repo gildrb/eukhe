@@ -10,7 +10,7 @@
 import Base
 import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ./base.bend as LA
 
 # the model's pick is the spec's

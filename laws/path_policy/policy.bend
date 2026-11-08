@@ -1,12 +1,12 @@
-# eukhe: the laws of area path_policy
+# eukhe: the laws of area path_policy: the real path, the judgment, the store, the entry
 
 import Base
-import ../bend/ffi_path_policy.bend as FPp
-import ../bend/path_policy.bend as Pp
-import ../bend/tools.bend as Tl
-import ../bend/wire.bend as Wr
-import ../bend/wire_flat.bend as Fl
-import ./base.bend as LawsBase
+import ../../bend/ffi_path_policy.bend as FPp
+import ../../bend/path_policy.bend as Pp
+import ../../bend/tools.bend as Tl
+import ../../bend/wire.bend as Wr
+import ../../bend/wire_flat.bend as Fl
+import ../base.bend as LawsBase
 
 # ---- path_policy ----
 
@@ -80,36 +80,6 @@ law path_judge_holds:
   for +pol: Pp.Pol
   for +r: Pp.Res
   {Pp.Judged.holds(Pp.judge(pol, r)) == Bool.or(Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(r)), Pp.any_ancestor(Pp.Pol.secret(pol), Pp.Res.at(r))) : Bool}
-
-# LAW gate_write_auto_never_secret (changed 2026-10-23 by the user: no prompts, like omp): a write
-# without the user's yes never lands on a secret, whatever the auto set
-# holds
-law gate_write_auto_never_secret:
-  for c: Pp.Cls
-  for +auto: List<&2, Nat>
-  for ans: Pp.Ans
-  for ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}
-  for no: {Pp.Ans.yes(ans) == False{} : Bool}
-  {Pp.Cls.secret(c) == False{} : Bool}
-
-# LAW gate_secret_read_needs_yes: a read of a secret (a read or a list of one, a search of a
-# directory that holds one) runs only on the user's yes, whatever the auto
-# set holds
-law gate_secret_read_needs_yes:
-  for c: Pp.Cls
-  for a: Pp.Acc
-  for +auto: List<&2, Nat>
-  for ans: Pp.Ans
-  for s: {Pp.secret_read(c, a) == True{} : Bool}
-  for ran: {Pp.runs(c, a, auto, ans) == True{} : Bool}
-  {Pp.Ans.yes(ans) == True{} : Bool}
-
-# LAW gate_yes_runs: the user's yes runs any access
-law gate_yes_runs:
-  for c: Pp.Cls
-  for a: Pp.Acc
-  for +auto: List<&2, Nat>
-  {Pp.runs(c, a, auto, Pp.Yes{}) == True{} : Bool}
 
 # LAW secrets_need_yes (changed 2026-10-23 by the user: no prompts, like omp): no sequence of
 # agent writes through any paths, each judged by the gate on its real

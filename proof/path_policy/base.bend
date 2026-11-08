@@ -7,7 +7,7 @@ import ../../bend/tools.bend as Tl
 import ../../bend/wire.bend as Wr
 import ../../bend/wire_flat.bend as Fl
 import ../../laws/base.bend as LawsBase
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ../../laws/wire.bend as Wire
 import ../base/logic/logic.bend as LLogicLogic
 import ../wire/wire_nats_spells.bend as PWireNatsSpells

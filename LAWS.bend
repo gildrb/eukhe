@@ -59,7 +59,8 @@ import ./laws/notice.bend as Notice
 import ./laws/gateway_width.bend as GatewayWidth
 import ./laws/tui_color.bend as TuiColor
 import ./laws/fsmode.bend as Fsmode
-import ./laws/path_policy.bend as PathPolicy
+import ./laws/path_policy/policy.bend as PathPolicy
+import ./laws/path_policy/gate.bend as PathPolicyGate
 import ./laws/child_env.bend as ChildEnv
 import ./laws/runners.bend as Runners
 import ./laws/approvals/route.bend as Approvals

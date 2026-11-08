@@ -1296,6 +1296,11 @@ import ./proof/path_policy/path_real_exact.bend as PPathRealExact
 import ./proof/path_policy/path_real_no_links_exact.bend as PPathRealNoLinksExact
 import ./proof/path_policy/path_real_dots_at_root.bend as PPathRealDotsAtRoot
 import ./proof/path_policy/path_real_dots_example.bend as PPathRealDotsExample
+import ./proof/path_policy/gate_secret_read_exact.bend as PGateSecretReadExact
+import ./proof/path_policy/gate_effs_exact.bend as PGateEffsExact
+import ./proof/path_policy/gate_runs_exact.bend as PGateRunsExact
+import ./proof/path_policy/gate_terms_exact.bend as PGateTermsExact
+import ./proof/path_policy/gate_secret_read_example.bend as PGateSecretReadExample
 import ./proof/child_env/base.bend as LAChildEnv
 import ./proof/child_env/env_drops_credentials.bend as PEnvDropsCredentials
 import ./proof/child_env/env_kernel_keeps_only_listed.bend as PEnvKernelKeepsOnlyListed

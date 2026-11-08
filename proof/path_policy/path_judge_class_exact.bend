@@ -12,7 +12,7 @@
 import Base
 import ../../bend/path_policy.bend as Pp
 import ../../bend/tools.bend as Tl
-import ../../laws/path_policy.bend as PathPolicy
+import ../../laws/path_policy/policy.bend as PathPolicy
 import ../base/logic/logic.bend as LLogicLogic
 import ./base.bend as LA
 import ./secrets_need_yes.bend as PSecretsNeedYes
