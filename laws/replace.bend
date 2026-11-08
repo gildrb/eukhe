@@ -292,3 +292,161 @@ law replace_ffi_verdict:
 # EXCLUDES: a request or reply format other than WIRE.md's
 law replace_ffi_example:
   {[FRp.ffi("1,7,0.10.4013,0.9.9-main.46F0,"), FRp.ffi("1,7,0.10.407,0.10.40T0,"), FRp.ffi("0,13,0.9.9-main.467,0.10.40F"), FRp.ffi("0,7,0.10.40")] == ["0,", "1,0,", "2,", Wr.err("replace: malformed request")] : List<&2, String>}
+
+# Spec spellers of the entry: the grammar of the header of
+# bend/ffi_replace.bend and WIRE.md (a constructor is its tag, the index
+# of its declaration from 0, then its fields), spelled with the wire
+# primitives only, never the entry's own encoders.
+
+# a caller: tag 0 Interactive, 1 Background
+def rp_spell_caller(k: Rp.Caller, rest: String) -> String:
+  match k:
+    case Rp.Interactive{}:
+      Wr.put_nat(0n, rest)
+    case Rp.Background{}:
+      Wr.put_nat(1n, rest)
+
+# a relation: tag 0 Same, 1 Older, 2 Newer, 3 Other
+def rp_spell_rel(r: Rp.Rel, rest: String) -> String:
+  match r:
+    case Rp.Same{}:
+      Wr.put_nat(0n, rest)
+    case Rp.Older{}:
+      Wr.put_nat(1n, rest)
+    case Rp.Newer{}:
+      Wr.put_nat(2n, rest)
+    case Rp.Other{}:
+      Wr.put_nat(3n, rest)
+
+# a verdict: tag 0 Replace, or tag 1 Keep then the relation
+def rp_spell_verdict(v: Rp.Verdict, rest: String) -> String:
+  match v:
+    case Rp.Replace{}:
+      Wr.put_nat(0n, rest)
+    case Rp.Keep{r}:
+      Wr.put_nat(1n, rp_spell_rel(r, rest))
+
+# a request: tag 0 Relation{client, daemon, same}, or tag 1
+# Verdict{client, daemon, same, caller}
+def rp_spell_req(q: FRp.Req, rest: String) -> String:
+  match q:
+    case FRp.ReqRelation{c, d, same}:
+      Wr.put_nat(0n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rest))))
+    case FRp.ReqVerdict{c, d, same, k}:
+      Wr.put_nat(1n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rp_spell_caller(k, rest)))))
+
+# both versions of a request fit the wire
+def rp_req_fits(q: FRp.Req) -> Bool:
+  match q:
+    case FRp.ReqRelation{c, d, same}:
+      Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)))
+    case FRp.ReqVerdict{c, d, same, k}:
+      Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)))
+
+# the relation of a daemon of version d to a client of version c, the
+# build ids equal exactly when same: rel_spec of the builds
+# Build{rank_spec(c), ic} and Build{rank_spec(d), id} with same = (ic == id)
+def rp_rel_of(+c: String, +d: String, same: Bool) -> Rp.Rel:
+  +rc = rank_spec(c)
+  +rd = rank_spec(d)
+  rel_spec.pick(same, rank_below(rd, rc), rank_below(rc, rd))
+
+# the spelled reply of the laws' decision on a request: the relation, or
+# verdict_spec of the relation and the caller
+def rp_spell_answer(q: FRp.Req) -> String:
+  match q:
+    case FRp.ReqRelation{c, d, same}:
+      rp_spell_rel(rp_rel_of(c, d, same), "")
+    case FRp.ReqVerdict{c, d, same, k}:
+      rp_spell_verdict(verdict_spec(rp_rel_of(c, d, same), k), "")
+
+# LAW replace_ffi_relation_spelled: a relation request spelled as WIRE.md says, whose versions fit,
+# answers the spelled tag of rel_spec of the two versions' ranks and the
+# id equality same
+# EXCLUDES: wrong or swapped Rel tags on the wire (an Older or Other
+#   answered with another tag), a reply in a format only the entry's own
+#   encoder reads, a request tag other than 0
+law replace_ffi_relation_spelled:
+  for +c: String
+  for +d: String
+  for +same: Bool
+  for +f: {Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d))) == True{} : Bool}
+  {FRp.ffi(rp_spell_req(FRp.ReqRelation{c, d, same}, "")) == rp_spell_answer(FRp.ReqRelation{c, d, same}) : String}
+
+# LAW replace_ffi_verdict_spelled: a verdict request spelled as WIRE.md says, whose versions fit,
+# by any caller, answers the spelled verdict_spec of that relation and
+# caller
+# EXCLUDES: wrong or swapped Verdict, Rel or Caller tags on the wire, a
+#   reply in a format only the entry's own encoder reads
+law replace_ffi_verdict_spelled:
+  for +c: String
+  for +d: String
+  for +same: Bool
+  for +k: Rp.Caller
+  for +f: {Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d))) == True{} : Bool}
+  {FRp.ffi(rp_spell_req(FRp.ReqVerdict{c, d, same, k}, "")) == rp_spell_answer(FRp.ReqVerdict{c, d, same, k}) : String}
+
+# LAW replace_ffi_unknown_request: a request tag of 2 or more (any rest, any length of the tag)
+# answers the malformed error
+# EXCLUDES: an unknown request read as a relation or a verdict, or
+#   answered with a default
+law replace_ffi_unknown_request:
+  for +n: Nat
+  for +rest: String
+  {FRp.ffi(Wr.put_nat(2n+n, rest)) == Wr.err("replace: malformed request") : String}
+
+# LAW replace_ffi_unknown_caller: a verdict request whose caller tag is 2 or more (versions that
+# fit, any same, any rest) answers the malformed error
+# EXCLUDES: an unknown caller read as Background or Interactive, or
+#   answered with a default
+law replace_ffi_unknown_caller:
+  for +c: String
+  for +d: String
+  for +f: {Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d))) == True{} : Bool}
+  for +same: Bool
+  for +n: Nat
+  for +rest: String
+  {FRp.ffi(Wr.put_nat(1n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, Wr.put_nat(2n+n, rest)))))) == Wr.err("replace: malformed request") : String}
+
+# LAW replace_ffi_left_over: a spelled request that fits followed by any more input answers the
+# left-over error
+# EXCLUDES: trailing input ignored (the request answered), or read as part
+#   of the request
+law replace_ffi_left_over:
+  for +q: FRp.Req
+  for f: {rp_req_fits(q) == True{} : Bool}
+  for +ch: Char
+  for +t: String
+  {FRp.ffi(rp_spell_req(q, SCon{ch, t})) == Wr.err("replace: input left over") : String}
+
+# LAW replace_ffi_reads_only_requests: every answer that is not the error form comes from an input that
+# is exactly one spelled request that fits, and answers its spelled reply
+# EXCLUDES: an answer for input that is no request (an unknown tag read as
+#   a known one, a default for malformed input, trailing input accepted)
+law replace_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FRp.ffi(s)) == False{} : Bool}
+  exs q: FRp.Req
+  {(s, (rp_req_fits(q), FRp.ffi(s))) == (rp_spell_req(q, ""), (True{}, rp_spell_answer(q))) : String & (Bool & String)}
+
+# LAW replace_ffi_malformed_unless_request: every answer but the malformed error comes from an input that
+# begins with a spelled request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request
+law replace_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FRp.ffi(s), Wr.err("replace: malformed request")) == False{} : Bool}
+  exs q: FRp.Req
+  exs rest: String
+  {(s, rp_req_fits(q)) == (rp_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW replace_ffi_tags_example: anchor: literal bytes per WIRE.md: a relation request per Rel tag
+# (0 Same: same ids; 1 Older: the daemon's version lower; 2 Newer: higher;
+# 3 Other: equal versions, other ids), a verdict Replace (an interactive
+# start on an older daemon), a Keep with Rel tags 2 and 3, a background
+# start on an older daemon (Keep Older), an unknown caller tag 2, an
+# unknown request tag 2, and input left over
+# EXCLUDES: Rel, Verdict, Caller or request tags in another order, a
+#   refusal in another form
+law replace_ffi_tags_example:
+  {[FRp.ffi("0,5,1.0.05,1.0.0T"), FRp.ffi("0,5,1.0.15,1.0.0F"), FRp.ffi("0,5,1.0.05,1.0.1F"), FRp.ffi("0,5,1.0.05,1.0.0F"), FRp.ffi("1,5,1.0.15,1.0.0F0,"), FRp.ffi("1,5,1.0.05,1.0.1F0,"), FRp.ffi("1,5,1.0.05,1.0.0F0,"), FRp.ffi("1,5,1.0.15,1.0.0F1,"), FRp.ffi("1,5,1.0.05,1.0.0F2,"), FRp.ffi("2,5,1.0.05,1.0.0F"), FRp.ffi("0,5,1.0.05,1.0.0Tx")] == ["0,", "1,", "2,", "3,", "0,", "1,2,", "1,3,", "1,1,", "E replace: malformed request", "E replace: malformed request", "E replace: input left over"] : List<&2, String>}

@@ -1,9 +1,17 @@
 # eukhe: lemmas the proofs of area replace share
 
 import Base
+import ../../bend/ffi_replace.bend as FRp
 import ../../bend/replace.bend as Rp
+import ../../bend/wire.bend as Wr
+import ../../laws/base.bend as LawsBase
 import ../../laws/replace.bend as Replace
+import ../../laws/wire.bend as Wire
+import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic
+import ../base/replace.bend as LReplace
+import ../base/wire.bend as LWire
+import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 
 # x cannot be True and False
 def pr.clash(-A: Type, -x: Bool, t: {x == True{} : Bool}, f: {x == False{} : Bool}) -> A:
@@ -158,3 +166,94 @@ def rk.relation_exact(+c: Rp.Build, +d: Rp.Build) -> {Rp.relation(c, d) == Repla
       %rk.lt_spec(rd, rc) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), _, Replace.rank_below(rc, rd)) : Rp.Rel}
       %rk.lt_spec(rc, rd) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Replace.rel_spec.pick(String.eq(ic, id), Rp.lt(rd, rc), _) : Rp.Rel}
       rk.rel_pick(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd))
+
+# The spelled entry
+# -----------------
+# The entry bend/ffi_replace.bend against the laws' spellers (laws
+# replace_ffi_*_spelled, _left_over, _reads_only_requests): a spelled
+# request that fits reads back with the rest after it untouched
+# (rfe.read), and the entry's answer is the spelled reply of the laws'
+# decision (rfe.answer): the ranks are rank_spec (LReplace.rk.rank), the
+# order rank_below (rk.lt_spec), and each tag the spelled one.
+
+# the entry's Rel tags are the spelled ones
+def rfe.rel(r: Rp.Rel, -rest: String) -> {FRp.put_rel(r, rest) == Replace.rp_spell_rel(r, rest) : String}:
+  match r:
+    case Rp.Same{}:
+      {==}
+    case Rp.Older{}:
+      {==}
+    case Rp.Newer{}:
+      {==}
+    case Rp.Other{}:
+      {==}
+
+# the entry's encoded verdict of the model is the spelled verdict_spec
+def rfe.verdict(r: Rp.Rel, k: Rp.Caller, -rest: String) -> {FRp.put_verdict(Rp.verdict.put(r, k), rest) == Replace.rp_spell_verdict(Replace.verdict_spec(r, k), rest) : String}:
+  match r k:
+    case Rp.Same{} Rp.Interactive{}:
+      {==}
+    case Rp.Same{} Rp.Background{}:
+      {==}
+    case Rp.Older{} Rp.Interactive{}:
+      {==}
+    case Rp.Older{} Rp.Background{}:
+      {==}
+    case Rp.Newer{} Rp.Interactive{}:
+      {==}
+    case Rp.Newer{} Rp.Background{}:
+      {==}
+    case Rp.Other{} Rp.Interactive{}:
+      {==}
+    case Rp.Other{} Rp.Background{}:
+      {==}
+
+# the entry's relation of two versions is the laws' rp_rel_of
+def rfe.relation(+c: String, +d: String, +same: Bool) -> {FRp.relation(c, d, same) == Replace.rp_rel_of(c, d, same) : Rp.Rel}:
+  %LReplace.rk.rank(c) : {FRp.relation(c, d, same) == Replace.rel_spec.pick(same, Replace.rank_below(Replace.rank_spec(d), _), Replace.rank_below(_, Replace.rank_spec(d))) : Rp.Rel}
+  %LReplace.rk.rank(d) : {FRp.relation(c, d, same) == Replace.rel_spec.pick(same, Replace.rank_below(_, Rp.rank(c)), Replace.rank_below(Rp.rank(c), _)) : Rp.Rel}
+  %rk.lt_spec(Rp.rank(d), Rp.rank(c)) : {FRp.relation(c, d, same) == Replace.rel_spec.pick(same, _, Replace.rank_below(Rp.rank(c), Rp.rank(d))) : Rp.Rel}
+  %rk.lt_spec(Rp.rank(c), Rp.rank(d)) : {FRp.relation(c, d, same) == Replace.rel_spec.pick(same, Rp.lt(Rp.rank(d), Rp.rank(c)), _) : Rp.Rel}
+  rk.rel_pick(same, Rp.lt(Rp.rank(d), Rp.rank(c)), Rp.lt(Rp.rank(c), Rp.rank(d)))
+
+# the entry answers a request with the spelled reply of the laws' decision
+def rfe.answer(q: FRp.Req) -> {FRp.answer(q) == Replace.rp_spell_answer(q) : String}:
+  match q:
+    case FRp.ReqRelation{+c, +d, +same}:
+      %rfe.relation(c, d, same) : {FRp.put_rel(FRp.relation(c, d, same), "") == Replace.rp_spell_rel(_, "") : String}
+      rfe.rel(FRp.relation(c, d, same), "")
+    case FRp.ReqVerdict{+c, +d, +same, +k}:
+      %rfe.relation(c, d, same) : {FRp.put_verdict(Rp.verdict.put(FRp.relation(c, d, same), k), "") == Replace.rp_spell_verdict(Replace.verdict_spec(_, k), "") : String}
+      rfe.verdict(FRp.relation(c, d, same), k, "")
+
+# a spelled caller reads back
+def rfe.caller_rt(k: Rp.Caller, +rest: String) -> {FRp.get_caller(Replace.rp_spell_caller(k, rest)) == Wr.Got{k, rest} : Wr.Dec<Rp.Caller>}:
+  match k:
+    case Rp.Interactive{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Wire.wire_nat_round_trip(0n, rest, {==})) : {FRp.get_caller.of(_) == Wr.Got{Rp.Interactive{}, rest} : Wr.Dec<Rp.Caller>}
+      {==}
+    case Rp.Background{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(1n, rest)), Wr.Got{1n, rest}, Wire.wire_nat_round_trip(1n, rest, {==})) : {FRp.get_caller.of(_) == Wr.Got{Rp.Background{}, rest} : Wr.Dec<Rp.Caller>}
+      {==}
+
+# a spelled request that fits reads back, the rest after it untouched
+def rfe.read(q: FRp.Req, +rest: String, +h: {Replace.rp_req_fits(q) == True{} : Bool}) -> {FRp.get_req(Replace.rp_spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FRp.Req>}:
+  match q:
+    case FRp.ReqRelation{+c, +d, +same}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rest))))), Wr.Got{0n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rest)))}, Wire.wire_nat_round_trip(0n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rest))), {==})) : {FRp.get_req.of(_) == Wr.Got{FRp.ReqRelation{c, d, same}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, rest)))), Wr.Got{c, Wr.put_str(d, Wr.put_bool(same, rest))}, Wire.wire_str_round_trip(c, Wr.put_str(d, Wr.put_bool(same, rest)), LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), h))) : {FRp.get_relation(_) == Wr.Got{FRp.ReqRelation{c, d, same}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(d, Wr.put_bool(same, rest))), Wr.Got{d, Wr.put_bool(same, rest)}, Wire.wire_str_round_trip(d, Wr.put_bool(same, rest), LLogicBool.wr_and_r(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), h))) : {FRp.get_relation.d(c, _) == Wr.Got{FRp.ReqRelation{c, d, same}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(same, rest)), Wr.Got{same, rest}, Wire.wire_bool_round_trip(same, rest)) : {FRp.get_relation.same(c, d, _) == Wr.Got{FRp.ReqRelation{c, d, same}, rest} : Wr.Dec<FRp.Req>}
+      {==}
+    case FRp.ReqVerdict{+c, +d, +same, +k}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(1n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest)))))), Wr.Got{1n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest))))}, Wire.wire_nat_round_trip(1n, Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest)))), {==})) : {FRp.get_req.of(_) == Wr.Got{FRp.ReqVerdict{c, d, same, k}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest))))), Wr.Got{c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest)))}, Wire.wire_str_round_trip(c, Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest))), LLogicBool.wr_and_l(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), h))) : {FRp.get_verdict(_) == Wr.Got{FRp.ReqVerdict{c, d, same, k}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest)))), Wr.Got{d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest))}, Wire.wire_str_round_trip(d, Wr.put_bool(same, Replace.rp_spell_caller(k, rest)), LLogicBool.wr_and_r(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d)), h))) : {FRp.get_verdict.d(c, _) == Wr.Got{FRp.ReqVerdict{c, d, same, k}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(same, Replace.rp_spell_caller(k, rest))), Wr.Got{same, Replace.rp_spell_caller(k, rest)}, Wire.wire_bool_round_trip(same, Replace.rp_spell_caller(k, rest))) : {FRp.get_verdict.same(c, d, _) == Wr.Got{FRp.ReqVerdict{c, d, same, k}, rest} : Wr.Dec<FRp.Req>}
+      %Equal.sym(Wr.Dec<Rp.Caller>, FRp.get_caller(Replace.rp_spell_caller(k, rest)), Wr.Got{k, rest}, rfe.caller_rt(k, rest)) : {FRp.get_verdict.k(c, d, same, _) == Wr.Got{FRp.ReqVerdict{c, d, same, k}, rest} : Wr.Dec<FRp.Req>}
+      {==}
+
+# a spelled request that fits, alone, answers the spelled reply
+def rfe.ffi(+q: FRp.Req, h: {Replace.rp_req_fits(q) == True{} : Bool}) -> {FRp.ffi(Replace.rp_spell_req(q, "")) == Replace.rp_spell_answer(q) : String}:
+  %Equal.sym(Wr.Dec<FRp.Req>, FRp.get_req(Replace.rp_spell_req(q, "")), Wr.Got{q, ""}, rfe.read(q, "", h)) : {FRp.ffi.of(_) == Replace.rp_spell_answer(q) : String}
+  rfe.answer(q)

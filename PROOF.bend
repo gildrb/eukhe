@@ -1029,6 +1029,14 @@ import ./proof/replace/replace_rank_cut.bend as PReplaceRankCut
 import ./proof/replace/replace_ffi_relation.bend as PReplaceFfiRelation
 import ./proof/replace/replace_ffi_verdict.bend as PReplaceFfiVerdict
 import ./proof/replace/replace_ffi_example.bend as PReplaceFfiExample
+import ./proof/replace/replace_ffi_relation_spelled.bend as PReplaceFfiRelationSpelled
+import ./proof/replace/replace_ffi_verdict_spelled.bend as PReplaceFfiVerdictSpelled
+import ./proof/replace/replace_ffi_unknown_request.bend as PReplaceFfiUnknownRequest
+import ./proof/replace/replace_ffi_unknown_caller.bend as PReplaceFfiUnknownCaller
+import ./proof/replace/replace_ffi_left_over.bend as PReplaceFfiLeftOver
+import ./proof/replace/replace_ffi_reads_only_requests.bend as PReplaceFfiReadsOnlyRequests
+import ./proof/replace/replace_ffi_malformed_unless_request.bend as PReplaceFfiMalformedUnlessRequest
+import ./proof/replace/replace_ffi_tags_example.bend as PReplaceFfiTagsExample
 import ./proof/notice/base.bend as LANotice
 import ./proof/notice/notice_shown_once.bend as PNoticeShownOnce
 import ./proof/notice/notice_per_restore.bend as PNoticePerRestore
