@@ -197,6 +197,65 @@ fn the_worker_runs_as_this_executable() {
 }
 
 #[test]
+fn a_live_image_runs_from_its_own_path() {
+    assert_eq!(
+        running_image(PathBuf::from("/opt/eukhe/bin/eukhe")),
+        PathBuf::from("/opt/eukhe/bin/eukhe")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_replaced_image_runs_from_proc_self_exe() {
+    assert_eq!(
+        running_image(PathBuf::from("/opt/eukhe/bin/eukhe (deleted)")),
+        PathBuf::from("/proc/self/exe")
+    );
+}
+
+/// An in-place upgrade unlinks the running binary: the tiny worker still
+/// spawns, as this build. The test re-runs a copy of its own harness that
+/// unlinks itself, then spawns `worker_exe()` (the harness's `--list`
+/// stands in for `tiny-worker`).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_replaced_executable_still_spawns_its_tiny_worker() {
+    const CHILD: &str = "EUKHE_TINY_REPLACED_EXE_CHILD";
+    const NAME: &str = "tiny::tests::a_replaced_executable_still_spawns_its_tiny_worker";
+    if std::env::var_os(CHILD).is_some() {
+        std::fs::remove_file(std::env::current_exe().unwrap()).unwrap();
+        let worker = worker_exe().unwrap();
+        let status = std::process::Command::new(&worker)
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap_or_else(|error| panic!("spawn the tiny worker {worker:?}: {error}"));
+        assert!(status.success(), "{worker:?} --list: {status}");
+        return;
+    }
+    let own = std::env::current_exe().unwrap();
+    // Next to the harness: a tmpfs /tmp may be mounted noexec.
+    let dir = tempfile::Builder::new()
+        .prefix("replaced-exe")
+        .tempdir_in(own.parent().unwrap())
+        .unwrap();
+    let copy = dir.path().join("eukhe");
+    std::fs::copy(&own, &copy).unwrap();
+    let output = std::process::Command::new(&copy)
+        .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the replaced copy failed: {}\n{stdout}\n{stderr}",
+        output.status
+    );
+}
+
+#[test]
 fn a_judgment_reply_is_the_labeled_answer() {
     use eukhe_types::pi_ai::{
         ClassifierAnswer, ClassifierBoolCriteria, ClassifierQuestion, IndexMap,

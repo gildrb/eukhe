@@ -337,11 +337,29 @@ async fn run_remote(
 /// process's own executable. Both `eukhe` and `eukhe-daemon` serve
 /// `tiny-worker`, so the worker runs the build that spawned it.
 ///
+/// When the file this process started from was replaced or removed while
+/// it runs (an in-place upgrade), Linux reports `current_exe()` as
+/// `<path> (deleted)`, which no spawn can find; the running image stays
+/// reachable through `/proc/self/exe` (in the forked child, `self` is still
+/// this image until the exec), the rule session worker launches follow.
+///
 /// # Errors
 ///
 /// The current executable cannot be resolved.
 pub fn worker_exe() -> std::io::Result<PathBuf> {
-    std::env::current_exe()
+    Ok(running_image(std::env::current_exe()?))
+}
+
+/// A spawnable path of the image a `current_exe()` path names.
+fn running_image(current: PathBuf) -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if current
+        .to_str()
+        .is_some_and(|path| path.ends_with(" (deleted)"))
+    {
+        return PathBuf::from("/proc/self/exe");
+    }
+    current
 }
 
 /// The tiny client of an agent dir with the settings' engine options.
