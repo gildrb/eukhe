@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ../base/logic/logic.bend as LLogicLogic
 
 def abort_now(+cfg: RnState.Cfg, s: RnState.St, nd: {RnState.done(s) == False{} : Bool}) -> {RnState.St.ph(RnStep.step(cfg, s, RnState.Abort{})) == RnState.Aborted{} : RnState.Ph}:

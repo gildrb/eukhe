@@ -4,7 +4,7 @@ import Base
 import ../../bend/ffi_run.bend as FRn
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/wire.bend as Wr
-import ../../laws/run.bend as Run
+import ../../laws/run/entry.bend as Run
 
 def rk.rt_then(x: RnDecision.Then, +rest: String) -> {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Then>}:
   match x:

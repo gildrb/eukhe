@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.run_compact_is_the_rust_rule(+over: Bool, +got: RnState.Got) -> {RnDecision.decide.compact(over, got) == Run.rust.after_compaction(over, got) : Bool}:
   match over got:

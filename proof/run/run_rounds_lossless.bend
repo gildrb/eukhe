@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.lt_le(+m: Nat, +x: Nat, +e: {Nat.is_lt(x, m) == True{} : Bool}) -> {Nat.is_le(x, Nat.sub(m, 1n)) == True{} : Bool}:

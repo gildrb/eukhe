@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.run_prepare_is_the_rust_rule(+compacted: Bool, +th: RnDecision.Th) -> {RnDecision.decide.prepare(compacted, th) == Run.rust.before_request(compacted, th) : RnDecision.Prepared}:
   match compacted th:

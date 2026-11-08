@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
-import ../../laws/run.bend as Run
+import ../../laws/run/entry.bend as Run
 
 def Run.run_ffi_answer_fits_witness():
   (RnDecision.EndStop{}, (RnDecision.Runs{}, {==}))

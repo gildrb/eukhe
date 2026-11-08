@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/request.bend as RnRequest
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ../base/logic/logic.bend as LLogicLogic
 
 def eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:

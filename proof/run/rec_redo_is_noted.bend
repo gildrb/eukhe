@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
 import ../../bend/run/state.bend as RnState
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def redo_is_noted(-pass: RnState.Reply) -> {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}:
   {==}

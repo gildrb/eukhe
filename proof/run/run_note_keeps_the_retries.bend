@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.na(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +n: Nat) -> {a == RnState.St.a(RnStep.note(cfg, r, c, a, n, p)) : Nat}:
   match n:

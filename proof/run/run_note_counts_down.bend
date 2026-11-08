@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.npred(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnState.St.n(RnStep.note(cfg, r, c, a, Nat.sub(m, x), p)) == Nat.sub(m, 1n+x) : Nat}:

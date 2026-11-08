@@ -5,7 +5,7 @@ import ../../bend/retry.bend as R
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.run_deferred_reply_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At, +fails: Nat, +budget: Nat, +failed: Nat, +gap: Nat) -> {Run.rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(fails, budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Later{gap})) : R.Act}:

@@ -27,7 +27,8 @@ import ./laws/tiny/pick.bend as Tiny
 import ./laws/tiny/elect.bend as TinyElect
 import ./laws/tiny/run.bend as TinyRun
 import ./laws/effort.bend as Effort
-import ./laws/run.bend as Run
+import ./laws/run/model.bend as Run
+import ./laws/run/entry.bend as RunEntry
 import ./laws/semver.bend as Semver
 import ./laws/theme.bend as Theme
 import ./laws/color/text.bend as ColorText

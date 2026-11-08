@@ -5,7 +5,7 @@ import ../../bend/retry.bend as R
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.gt(+w: Nat, +x: Nat) -> {Nat.is_lt(x, w) == Nat.is_gt(Nat.sub(w, x), 0n) : Bool}:

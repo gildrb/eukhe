@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW run_ffi_ask_round_trip
 
 import Base
-import ../../laws/run.bend as Run
+import ../../laws/run/entry.bend as Run
 import ./base.bend as LA
 
 def Run.run_ffi_ask_round_trip(a, rest, h):

@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.rpred_t(+cfg: RnState.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {RnState.St.r(RnStep.round(cfg, True{}, Nat.sub(m, x), c, a, n, p)) == Nat.sub(m, 1n+x) : Nat}:

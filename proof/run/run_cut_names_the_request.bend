@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/request.bend as RnRequest
 import ../../bend/run/state.bend as RnState
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 # a noted reply cuts the request the run sent, and the retry's note names
 # the retry's attempt

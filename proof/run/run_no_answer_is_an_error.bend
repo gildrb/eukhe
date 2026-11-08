@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 # a message that ends the model's turn with no text and no tool call steps
 # as a noted error does: a retry with a note while notes are left, else

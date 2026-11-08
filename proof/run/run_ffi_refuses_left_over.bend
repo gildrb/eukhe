@@ -3,7 +3,7 @@
 import Base
 import ../../bend/ffi_run.bend as FRn
 import ../../bend/wire.bend as Wr
-import ../../laws/run.bend as Run
+import ../../laws/run/entry.bend as Run
 import ./base.bend as LA
 
 def Run.run_ffi_refuses_left_over(a, rest, h, more):

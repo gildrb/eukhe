@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ../base/logic/logic.bend as LLogicLogic
 
 # ---- recover ----

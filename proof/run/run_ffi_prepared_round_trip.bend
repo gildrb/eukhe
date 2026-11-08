@@ -4,7 +4,7 @@ import Base
 import ../../bend/ffi_run.bend as FRn
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/wire.bend as Wr
-import ../../laws/run.bend as Run
+import ../../laws/run/entry.bend as Run
 import ../../laws/wire.bend as Wire
 import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 

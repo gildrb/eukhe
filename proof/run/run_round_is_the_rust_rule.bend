@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.lt_pred(+m: Nat, +x: Nat) -> {Nat.is_lt(x, Nat.sub(m, 1n)) == Nat.is_lt(1n+x, m) : Bool}:
   match m:

@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/request.bend as RnRequest
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 # a note changes what the model reads, never what the run logs
 def note_is_never_logged(q: RnRequest.Req) -> {RnRequest.logged(RnRequest.Req.lines(q)) == RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{RnRequest.Req.ctx(q), 0n})) : List<&2, RnRequest.Line>}:

@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.min_le(+a: Nat, +c: Nat, +r: Nat, +e: {Nat.is_le(r, c) == True{} : Bool}) -> {Nat.is_lt(a, r) == Nat.is_lt(Nat.min(a, c), r) : Bool}:

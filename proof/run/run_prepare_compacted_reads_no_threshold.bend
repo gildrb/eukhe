@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.run_prepare_compacted_reads_no_threshold(+th: RnDecision.Th) -> {RnDecision.decide.prepare(True{}, th) == RnDecision.decide.prepare(True{}, RnDecision.Under{}) : RnDecision.Prepared}:
   match th:

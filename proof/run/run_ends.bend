@@ -4,7 +4,7 @@ import Base
 import ../../bend/run/measure.bend as RnMeasure
 import ../../bend/run/state.bend as RnState
 import ../../bend/run/step.bend as RnStep
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ../base/logic/nat.bend as LLogicNat
 import ../base/nat.bend as LNat
 import ../base/run.bend as LRun

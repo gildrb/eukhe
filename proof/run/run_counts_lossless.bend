@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
 def rk.att(+attempt: Nat, +notes: Nat, +e: {Nat.is_le(1n+notes, attempt) == True{} : Bool}) -> {attempt == 1n+Nat.add(Nat.sub(Nat.sub(attempt, 1n), notes), notes) : Nat}:

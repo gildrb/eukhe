@@ -2,7 +2,7 @@
 
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 # a repeat never runs, under the redirect cap or at it
 def repeat_runs_not(u: Bool, -kept: Bool, -m: Nat, -h: Nat, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec) -> {RnRecovery.Act.runs(RnRecovery.Dec.act(RnRecovery.rec.ran(False{}, u, kept, m, h, n, same, last, r))) == False{} : Bool}:

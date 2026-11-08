@@ -3,7 +3,7 @@
 import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/recovery.bend as RnRecovery
-import ../../laws/run.bend as Run
+import ../../laws/run/model.bend as Run
 
 def rk.below(+a: Nat, +b: Nat) -> {Nat.is_lt(a, b) == RnRecovery.below(a, b) : Bool}:
   match a b:
