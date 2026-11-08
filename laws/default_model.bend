@@ -309,3 +309,157 @@ law dmw_ffi_example:
 # EXCLUDES: a vacuous dmw_malformed
 law dmw_malformed_example:
   {FDm.get_in("2,") == Wr.Bad{} : Wr.Dec<Dm.In>} & {FDm.ffi("2,") == Wr.err("default_model: malformed request") : String}
+
+# The default_model entry, spelled by the grammar Rust writes and reads
+# (crates/eukhe-core/src/models/resolver.rs `resolve_default`), not by the
+# entry's own encoders
+
+# a saved default: 0 (none) | 1, then the model
+def dmw_spell_saved(x: Dm.Saved, rest: String) -> String:
+  match x:
+    case Dm.NoDefault{}:
+      Wr.put_nat(0n, rest)
+    case Dm.Default{m}:
+      Wr.put_nat(1n, Wr.put_nat(m, rest))
+
+# the chain's pick: 0 (none) | 1, then the model
+def dmw_spell_next(x: Dm.Next, rest: String) -> String:
+  match x:
+    case Dm.NoNext{}:
+      Wr.put_nat(0n, rest)
+    case Dm.Next{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# a request: the saved default, then catalog, credentials, out of scope
+# (T or F each), then the chain's pick, then rest
+def dmw_spell_req(x: Dm.In, rest: String) -> String:
+  match x:
+    case Dm.In{saved, cat, key, out, next}:
+      dmw_spell_saved(saved, Wr.put_bool(cat, Wr.put_bool(key, Wr.put_bool(out, dmw_spell_next(next, rest)))))
+
+# a reason: 0 not in the catalog | 1 no credentials | 2 not in the scope
+def dmw_spell_reason(r: Dm.Reason, rest: String) -> String:
+  match r:
+    case Dm.NotInCatalog{}:
+      Wr.put_nat(0n, rest)
+    case Dm.NoCredentials{}:
+      Wr.put_nat(1n, rest)
+    case Dm.NotInScope{}:
+      Wr.put_nat(2n, rest)
+
+# a key: the model, then the reason
+def dmw_spell_key(k: Dm.Key, rest: String) -> String:
+  match k:
+    case Dm.K{m, r}:
+      Wr.put_nat(m, dmw_spell_reason(r, rest))
+
+# a pick: 0 (the saved default) | 1, then the other model
+def dmw_spell_pick(p: Dm.Pick, rest: String) -> String:
+  match p:
+    case Dm.Saved{}:
+      Wr.put_nat(0n, rest)
+    case Dm.Other{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# a substitution: 0 (kept) | 1, then the key
+def dmw_spell_sub(s: Dm.Sub, rest: String) -> String:
+  match s:
+    case Dm.Kept{}:
+      Wr.put_nat(0n, rest)
+    case Dm.Swapped{k}:
+      Wr.put_nat(1n, dmw_spell_key(k, rest))
+
+# a reply: 0, pick, sub (runs) | 1 (no model) | 2, key (refused)
+def dmw_spell_res(r: Dm.Res, rest: String) -> String:
+  match r:
+    case Dm.Runs{p, s}:
+      Wr.put_nat(0n, dmw_spell_pick(p, dmw_spell_sub(s, rest)))
+    case Dm.Nothing{}:
+      Wr.put_nat(1n, rest)
+    case Dm.Refused{k}:
+      Wr.put_nat(2n, dmw_spell_key(k, rest))
+
+# the spelled reply of the resolver's answer (pinned case by case by the
+# default_* laws) on request x
+def dmw_spell_answer(x: Dm.In) -> String:
+  dmw_spell_res(Dm.resolve(x), "")
+
+# LAW dmw_ffi_answers_spelled: a request spelled by the grammar, every number within the wire,
+# is answered with the grammar's spelling of the resolver's answer
+# EXCLUDES: a tag (saved, pick, reason, sub, reply) that drifts from the
+#   grammar Rust reads and writes (swapped on both sides of the entry
+#   alike), a fact (catalog, credentials, scope) read reversed or swapped,
+#   a field lost, swapped or defaulted
+law dmw_ffi_answers_spelled:
+  for +x: Dm.In
+  for fits: {dmw_in_fits(x) == True{} : Bool}
+  {FDm.ffi(dmw_spell_req(x, "")) == dmw_spell_answer(x) : String}
+
+# LAW dmw_ffi_left_over_spelled: a spelled request that fits, followed by any more input,
+# answers the error form "default_model: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request, or
+#   answered with another error text
+law dmw_ffi_left_over_spelled:
+  for +x: Dm.In
+  for fits: {dmw_in_fits(x) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FDm.ffi(dmw_spell_req(x, SCon{c, t})) == Wr.err("default_model: input left over") : String}
+
+# LAW dmw_ffi_unknown_saved: a saved-default tag of 2 or more (of any length) answers the error
+# form "default_model: malformed request", whatever follows
+# EXCLUDES: an unknown saved tag read as none or as a saved default
+law dmw_ffi_unknown_saved:
+  for +n: Nat
+  for +rest: String
+  {FDm.ffi(Wr.put_nat(2n+n, rest)) == Wr.err("default_model: malformed request") : String}
+
+# LAW dmw_ffi_unknown_next: a spelled saved default that fits and the three facts, then a pick
+# tag of 2 or more (of any length), answer the error form "default_model:
+# malformed request", whatever follows
+# EXCLUDES: an unknown pick tag read as none or as a model
+law dmw_ffi_unknown_next:
+  for +sv: Dm.Saved
+  for fits: {dmw_saved_fits(sv) == True{} : Bool}
+  for +cat: Bool
+  for +key: Bool
+  for +out: Bool
+  for +n: Nat
+  for +rest: String
+  {FDm.ffi(dmw_spell_saved(sv, Wr.put_bool(cat, Wr.put_bool(key, Wr.put_bool(out, Wr.put_nat(2n+n, rest)))))) == Wr.err("default_model: malformed request") : String}
+
+# LAW dmw_ffi_reads_only_requests: an answer that is not the error form answers a request: the
+# input is exactly the spelling of a request whose numbers fit the wire,
+# and the answer is the spelled reply of the resolver's answer on it
+# EXCLUDES: a decoder that accepts an unknown tag (saved or pick), a fact
+#   other than T or F, a missing or extra field, or input left over, and
+#   answers it anyway (a default instead of the error form)
+law dmw_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FDm.ffi(s)) == False{} : Bool}
+  exs x: Dm.In
+  {(s, (dmw_in_fits(x), FDm.ffi(s))) == (dmw_spell_req(x, ""), (True{}, dmw_spell_answer(x))) : String & (Bool & String)}
+
+# LAW dmw_ffi_malformed_unless_request: every answer but the error form "default_model:
+# malformed request" comes from an input that begins with a spelled request
+# that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law dmw_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FDm.ffi(s), Wr.err("default_model: malformed request")) == False{} : Bool}
+  exs x: Dm.In
+  exs rest: String
+  {(s, dmw_in_fits(x)) == (dmw_spell_req(x, rest), True{}) : String & Bool}
+
+# LAW dmw_ffi_tags_example: anchor: the bytes Rust sends (saved default 0, chain's pick 1)
+# and reads: a usable default runs (0,0,0,) with or without a pick; nothing
+# saved runs the pick (0,1,1,0,) or nothing (1,); not in the catalog swaps
+# (0,1,1,1,0,0,) or refuses (2,0,0,); no credentials refuses (2,0,1,); not
+# in the scope swaps (0,1,1,1,0,2,) or refuses (2,0,2,); a saved tag 2, a
+# pick tag 2, a fact X and no input are malformed; a request with input
+# left over is refused
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, a reversed fact, an unknown tag read as a known one
+law dmw_ffi_tags_example:
+  {[FDm.ffi("1,0,TTF1,1,"), FDm.ffi("1,0,TTF0,"), FDm.ffi("0,FFF1,1,"), FDm.ffi("0,FFF0,"), FDm.ffi("1,0,FTF1,1,"), FDm.ffi("1,0,FFF0,"), FDm.ffi("1,0,TFF1,1,"), FDm.ffi("1,0,TTT1,1,"), FDm.ffi("1,0,TTT0,"), FDm.ffi("2,"), FDm.ffi("1,0,TTF2,"), FDm.ffi("1,0,TXF1,1,"), FDm.ffi(""), FDm.ffi("1,0,TTF1,1,x")] == ["0,0,0,", "0,0,0,", "0,1,1,0,", "1,", "0,1,1,1,0,0,", "2,0,0,", "2,0,1,", "0,1,1,1,0,2,", "2,0,2,", Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: malformed request"), Wr.err("default_model: input left over")] : List<&2, String>}

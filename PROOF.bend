@@ -1660,6 +1660,13 @@ import ./proof/default_model/dmw_sub_example.bend as PDmwSubExample
 import ./proof/default_model/dmw_res_example.bend as PDmwResExample
 import ./proof/default_model/dmw_ffi_example.bend as PDmwFfiExample
 import ./proof/default_model/dmw_malformed_example.bend as PDmwMalformedExample
+import ./proof/default_model/dmw_ffi_answers_spelled.bend as PDmwFfiAnswersSpelled
+import ./proof/default_model/dmw_ffi_left_over_spelled.bend as PDmwFfiLeftOverSpelled
+import ./proof/default_model/dmw_ffi_unknown_saved.bend as PDmwFfiUnknownSaved
+import ./proof/default_model/dmw_ffi_unknown_next.bend as PDmwFfiUnknownNext
+import ./proof/default_model/dmw_ffi_reads_only_requests.bend as PDmwFfiReadsOnlyRequests
+import ./proof/default_model/dmw_ffi_malformed_unless_request.bend as PDmwFfiMalformedUnlessRequest
+import ./proof/default_model/dmw_ffi_tags_example.bend as PDmwFfiTagsExample
 import ./proof/workflow/base.bend as LAWorkflow
 import ./proof/workflow/wf_running_within_concurrency.bend as PWfRunningWithinConcurrency
 import ./proof/workflow/wf_spawned_within_budget.bend as PWfSpawnedWithinBudget
