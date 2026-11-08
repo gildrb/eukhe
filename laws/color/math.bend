@@ -93,32 +93,69 @@ law color_light_spec:
 law color_light_orange_example:
   {Co.light(Co.Rgb{255, 165, 0}) == False{} : Bool}
 
-# LAW color_lum_spec: the luminance is the WCAG relative luminance, 0.2126 R + 0.7152 G +
-# 0.0722 B over the linear channels (color_lin_spec), in units of
-# 1/100000000, for every color
-# EXCLUDES: the flare (0.05) or any other offset folded into the luminance
-#   (and taken out of light's threshold and the contrast's flare), another
-#   weighting of the channels, swapped channels
-law color_lum_spec:
-  for c: Co.Rgb
-  {Co.lum(c) == th.lum(c) : U32}
+# LAW color_lum_grey: a gray's luminance is its linear channel: for every channel c,
+# Rgb(c, c, c) has luminance 10000 lin(c) (units of 1/100000000), the three
+# channel weights sum to one (WCAG 2.x relative luminance:
+# https://www.w3.org/TR/WCAG22/#dfn-relative-luminance)
+# EXCLUDES: weights that do not sum to one, an offset folded into the
+#   luminance, a gray read from one channel or a channel mean that rounds
+law color_lum_grey:
+  for +c: U32
+  {Co.lum(Co.Rgb{c, c, c}) == (10000 * Co.lin(c) : U32) : U32}
 
-# the WCAG flare, 0.05, in luminance units of 1/100000000 (white is
-# 100000000)
-def th.flare() -> U32:
-  5000000
+# LAW color_lum_order: one channel alone weighs green most, then red, then blue: for every
+# channel c, the luminance of Rgb(0, 0, c) is at most that of Rgb(c, 0, 0),
+# which is at most that of Rgb(0, c, 0) (WCAG's 0.0722 < 0.2126 < 0.7152)
+# EXCLUDES: swapped channels, the weights in another order
+law color_lum_order:
+  for +c: U32
+  {Bool.and(U32.is_le(Co.lum(Co.Rgb{0, 0, c}), Co.lum(Co.Rgb{c, 0, 0})), U32.is_le(Co.lum(Co.Rgb{c, 0, 0}), Co.lum(Co.Rgb{0, c, 0}))) == True{} : Bool}
 
-# LAW color_flare_spec: the flare the contrast adds to both luminances is the WCAG 0.05 (the
-# flare takes no input: this closed law is its whole spec)
-# EXCLUDES: a flare of another size or none, the flare moved into the
-#   luminance
-law color_flare_spec:
-  {Co.flare() == th.flare() : U32}
+# LAW color_lum_rises: the luminance never falls where no linear channel falls: for every two
+# colors whose red, green and blue each linearize at least as high in the
+# second, the second's luminance is at least the first's; with
+# color_lin_rises, raising any channel of a color (0 to 255) never lowers
+# its luminance
+# EXCLUDES: a negative weight, a term that falls as its channel rises, a
+#   sum or product that wraps past 2^32
+law color_lum_rises:
+  for +r: U32
+  for +g: U32
+  for +b: U32
+  for +r2: U32
+  for +g2: U32
+  for +b2: U32
+  for hr: {U32.is_le(Co.lin(r), Co.lin(r2)) == True{} : Bool}
+  for hg: {U32.is_le(Co.lin(g), Co.lin(g2)) == True{} : Bool}
+  for hb: {U32.is_le(Co.lin(b), Co.lin(b2)) == True{} : Bool}
+  {U32.is_le(Co.lum(Co.Rgb{r, g, b}), Co.lum(Co.Rgb{r2, g2, b2})) == True{} : Bool}
+
+# LAW color_lum_wcag_example: anchors from the WCAG 2.x relative luminance
+# (https://www.w3.org/TR/WCAG22/#dfn-relative-luminance, computed with the
+# exact transfer function, not lin's table): the primaries are exactly
+# 0.2126, 0.7152 and 0.0722; gray 128 is 0.21586050, #336699 0.12506457 and
+# orange (255, 165, 0) 0.48170267, each matched within 0.00005 (lin rounds
+# each channel to 1/10000, so the weighted sum is off by at most half that)
+# EXCLUDES: another weighting of the channels, swapped channels, another
+#   transfer function
+law color_lum_wcag_example:
+  {[Co.lum(Co.Rgb{255, 0, 0}), Co.lum(Co.Rgb{0, 255, 0}), Co.lum(Co.Rgb{0, 0, 255})] == [21260000, 71520000, 7220000] : List<&2, U32>} & {[Bool.and(U32.is_le(21581050, Co.lum(Co.Rgb{128, 128, 128})), U32.is_le(Co.lum(Co.Rgb{128, 128, 128}), 21591050)), Bool.and(U32.is_le(12501457, Co.lum(Co.Rgb{51, 102, 153})), U32.is_le(Co.lum(Co.Rgb{51, 102, 153}), 12511457)), Bool.and(U32.is_le(48165267, Co.lum(Co.Rgb{255, 165, 0})), U32.is_le(Co.lum(Co.Rgb{255, 165, 0}), 48175267))] == [True{}, True{}, True{}] : List<&2, Bool>}
+
+# LAW color_contrast_wcag_example: the contrast ratios WCAG documents
+# (https://www.w3.org/TR/WCAG22/#dfn-contrast-ratio: "ratios can range from
+# 1 to 21"): black on white, either way round, is exactly 21:1 (it meets
+# 21/1 but not 21.00001), which holds only with the flare 0.05; gray
+# #767676 on white is 4.54:1 and meets AA's 4.5:1, #777777 is 4.48:1 and
+# does not (the WCAG formula, as WebAIM's contrast checker reports)
+# EXCLUDES: a flare other than 0.05 or none, the ratio upside down, a
+#   threshold met by rounding
+law color_contrast_wcag_example:
+  {[Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 21, 1), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, 21, 1), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 2100001, 100000), Co.contrast_ge(Co.Rgb{118, 118, 118}, Co.Rgb{255, 255, 255}, 9, 2), Co.contrast_ge(Co.Rgb{119, 119, 119}, Co.Rgb{255, 255, 255}, 9, 2)] == [True{}, True{}, False{}, True{}, False{}] : List<&2, Bool>}
 
 # LAW color_flare_example: anchors: the luminance of black, white and (128, 64, 200) is 0, 1 and
 # 0.12429282; plus the flare, 0.05, 1.05 and 0.17429282
-# EXCLUDES: a reading of color_lum_spec or color_flare_spec the human did
-#   not mean
+# EXCLUDES: a flare other than 0.05 or folded into the luminance, a
+#   luminance off at these colors
 law color_flare_example:
   {[Co.lum(Co.Rgb{0, 0, 0}), Co.lum(Co.Rgb{255, 255, 255}), Co.lum(Co.Rgb{128, 64, 200}), (Co.lum(Co.Rgb{0, 0, 0}) + Co.flare() : U32), (Co.lum(Co.Rgb{255, 255, 255}) + Co.flare() : U32), (Co.lum(Co.Rgb{128, 64, 200}) + Co.flare() : U32)] == [0, 100000000, 12429282, 5000000, 105000000, 17429282] : List<&2, U32>}
 

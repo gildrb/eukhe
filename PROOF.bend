@@ -2266,8 +2266,11 @@ import ./proof/color/color_lin_low.bend as PColorLinLow
 import ./proof/color/color_lin_high.bend as PColorLinHigh
 import ./proof/color/color_light_spec.bend as PColorLightSpec
 import ./proof/color/color_light_orange_example.bend as PColorLightOrangeExample
-import ./proof/color/color_lum_spec.bend as PColorLumSpec
-import ./proof/color/color_flare_spec.bend as PColorFlareSpec
+import ./proof/color/color_lum_grey.bend as PColorLumGrey
+import ./proof/color/color_lum_order.bend as PColorLumOrder
+import ./proof/color/color_lum_rises.bend as PColorLumRises
+import ./proof/color/color_lum_wcag_example.bend as PColorLumWcagExample
+import ./proof/color/color_contrast_wcag_example.bend as PColorContrastWcagExample
 import ./proof/color/color_flare_example.bend as PColorFlareExample
 import ./proof/color/color_ansi256_low.bend as PColorAnsi256Low
 import ./proof/color/color_ansi256_high.bend as PColorAnsi256High
