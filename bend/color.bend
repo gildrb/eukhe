@@ -13,7 +13,12 @@
 #   comparison is (L_dark + F)·num <= (L_light + F)·den with F = 0.05 in
 #   lum units; a luminance is at most 1e8, so L + F < 2^27 fits a U32;
 #   with num and den at most 40 (the shipped pairs ask 9/2 and 3/1) the
-#   products fit a U32, past that they are taken exactly on 64 bits.
+#   products fit a U32. Past that the products are compared exactly on
+#   naturals without forming them: with n = nh·2^16 + nl, d·n is
+#   A·2^16 + B with A = d·nh + (d·nl) div 2^16 and B = (d·nl) mod 2^16,
+#   l·e likewise C·2^16 + D, and d·n <= l·e is A < C, or A = C and
+#   B <= D. For every U32 d, n, l, e each term is below 2^48 - 2^16
+#   (d·nh, d·nl <= (2^32 - 1)(2^16 - 1)), inside the runtime's native Nat.
 # - light(c): lum(c) is above one half.
 # - ansi256(i): the color of xterm-256 index i; to256(c): the index a
 #   256-color terminal paints for c.
@@ -138,41 +143,25 @@ def lum(c: Rgb) -> U32:
 def flare() -> U32:
   5000000
 
-# a 64-bit number as its high and low 32 bits
-type W64 is Data:
-  W64{hi: U32, lo: U32}
+# the cut of x·2^16 + y <= u·2^16 + v that keeps every term small: the
+# carries y div 2^16 and v div 2^16 move into the high parts, which are
+# then compared first, the low parts y mod 2^16 and v mod 2^16 on a tie
+def contrast.cut(+x: Nat, +y: Nat, +u: Nat, +v: Nat) -> Bool:
+  +h = Nat.add(x, Nat.div(y, 65536n))
+  +k = Nat.add(u, Nat.div(v, 65536n))
+  Bool.or(Nat.is_lt(h, k), Bool.and(Nat.is_eq(h, k), Nat.is_le(Nat.mod(y, 65536n), Nat.mod(v, 65536n))))
 
-# the product of two U32, exact: 16-bit halves, the middle carry kept
-def mul64(+a: U32, +b: U32) -> W64:
-  +a1 = (a >> 16n : U32)
-  +a0 = (a .&. 65535 : U32)
-  +b1 = (b >> 16n : U32)
-  +b0 = (b .&. 65535 : U32)
-  +p01 = (a0 * b1 : U32)
-  +p00 = (a0 * b0 : U32)
-  +mid = ((a1 * b0 : U32) + p01 : U32)
-  +lo = (p00 + (mid << 16n : U32) : U32)
-  W64{((a1 * b1 : U32) + (mid >> 16n : U32) + sel(U32.is_lt(mid, p01), 65536, 0) + sel(U32.is_lt(lo, p00), 1, 0) : U32), lo}
-
-def le64.lo(eq: Bool, +xl: U32, +yl: U32) -> Bool:
-  match eq:
-    case True{}:
-      U32.is_le(xl, yl)
-    case False{}:
-      False{}
-
-# x is at most y, as 64-bit numbers
-def le64(x: W64, y: W64) -> Bool:
-  match x y:
-    case W64{+xh, +xl} W64{+yh, +yl}:
-      Bool.or(U32.is_lt(xh, yh), le64.lo(U32.is_eq(xh, yh), xl, yl))
+# d·n <= l·e on naturals, with n and e split at 2^16: d·n is
+# d·(n div 2^16)·2^16 + d·(n mod 2^16), and l·e alike
+def contrast.wide(+d: Nat, +n: Nat, +l: Nat, +e: Nat) -> Bool:
+  contrast.cut(Nat.mul(d, Nat.div(n, 65536n)), Nat.mul(d, Nat.mod(n, 65536n)), Nat.mul(l, Nat.div(e, 65536n)), Nat.mul(l, Nat.mod(e, 65536n)))
 
 def contrast.pick(small: Bool, +dark: U32, +light: U32, +num: U32, +den: U32) -> Bool:
   match small:
     case True{}:
       U32.is_le((dark * num : U32), (light * den : U32))
     case False{}:
-      le64(mul64(dark, num), mul64(light, den))
+      contrast.wide(U32.to_nat(dark), U32.to_nat(num), U32.to_nat(light), U32.to_nat(den))
 
 def contrast_ge(+a: Rgb, +b: Rgb, +num: U32, +den: U32) -> Bool:
   +la = lum(a)

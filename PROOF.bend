@@ -1985,6 +1985,8 @@ import ./proof/color/color_dist_spec.bend as PColorDistSpec
 import ./proof/color/color_to256_spec.bend as PColorTo256Spec
 import ./proof/color/color_to256_example.bend as PColorTo256Example
 import ./proof/color/color_contrast_spec.bend as PColorContrastSpec
+import ./proof/color/color_contrast_exact_wide.bend as PColorContrastExactWide
+import ./proof/color/color_contrast_carry_example.bend as PColorContrastCarryExample
 import ./proof/color/color_hexd_spec.bend as PColorHexdSpec
 import ./proof/color/color_hex_letters_example.bend as PColorHexLettersExample
 import ./proof/color/color_eq_spec.bend as PColorEqSpec

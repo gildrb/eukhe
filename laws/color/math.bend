@@ -250,6 +250,42 @@ law color_contrast_spec:
 law color_contrast_no_wrap_example:
   {[Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 45, 10), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 40, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 41, 40), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000000, 200000000), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 4200000001, 200000000)] == [False{}, False{}, True{}, True{}, True{}, False{}] : List<&2, Bool>}
 
+# the exact contrast test with the luminances la and lb, on naturals: the
+# darker plus the flare (0.05) times num, at most the lighter plus the
+# flare times den (a luminance is at most 1e8, so its sum with the flare
+# stays far below 2^32)
+def th.exact.if(lt: Bool, +la: U32, +lb: U32, +num: U32, +den: U32) -> Bool:
+  match lt:
+    case True{}:
+      Nat.is_le(Nat.mul(U32.to_nat((la + 5000000 : U32)), U32.to_nat(num)), Nat.mul(U32.to_nat((lb + 5000000 : U32)), U32.to_nat(den)))
+    case False{}:
+      Nat.is_le(Nat.mul(U32.to_nat((lb + 5000000 : U32)), U32.to_nat(num)), Nat.mul(U32.to_nat((la + 5000000 : U32)), U32.to_nat(den)))
+
+# the WCAG contrast ratio of a and b, (L_light + 0.05) / (L_dark + 0.05),
+# is at least num / den, compared on naturals, for every ratio
+def th.contrast_exact(+a: Co.Rgb, +b: Co.Rgb, +num: U32, +den: U32) -> Bool:
+  th.exact.if(U32.is_lt(th.lum(a), th.lum(b)), th.lum(a), th.lum(b), num, den)
+
+# LAW color_contrast_exact_wide: past terms of 40 the contrast test is exact for every U32 ratio:
+# (L_dark + 0.05)·num <= (L_light + 0.05)·den on naturals
+# EXCLUDES: contrast arithmetic that wraps, drops a carry or a partial
+#   product past 2^32 (the old mul64 carry bug class)
+law color_contrast_exact_wide:
+  for +a: Co.Rgb
+  for +b: Co.Rgb
+  for +num: U32
+  for +den: U32
+  for wide: {Bool.and(U32.is_le(num, 40), U32.is_le(den, 40)) == False{} : Bool}
+  {Co.contrast_ge(a, b, num, den) == th.contrast_exact(a, b, num, den) : Bool}
+
+# LAW color_contrast_carry_example: at the old carry bug's inputs: white on white (1:1) meets
+# 65536/65537 and 65536/65536 but not 65537/65536; black on white (21:1)
+# meets 1376256/65536 (21:1) but not 1376257/65536
+# EXCLUDES: a contrast past 2^16 that adds or drops a carry of the
+#   partial products
+law color_contrast_carry_example:
+  {[Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65536, 65537), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65536, 65536), Co.contrast_ge(Co.Rgb{255, 255, 255}, Co.Rgb{255, 255, 255}, 65537, 65536), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 1376256, 65536), Co.contrast_ge(Co.Rgb{0, 0, 0}, Co.Rgb{255, 255, 255}, 1376257, 65536)] == [True{}, True{}, False{}, True{}, False{}] : List<&2, Bool>}
+
 # x is a code from lo to hi
 def th.within(+x: U32, lo: U32, hi: U32) -> Bool:
   Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
