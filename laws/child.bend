@@ -572,3 +572,395 @@ law child_entry_unknown_report:
 # EXCLUDES: two error texts swapped, a field's error named as another
 law child_entry_errors_example:
   {[FCh.ffi(""), FCh.ffi("0,"), FCh.ffi("0,5,2,"), FCh.ffi("0,5,2,0,5,1,"), FCh.ffi("0,5,2,0,5,1,1,"), FCh.ffi("0,5,2,0,5,1,1,1,"), FCh.ffi("1,"), FCh.ffi("1,0,"), FCh.ffi("2,"), FCh.ffi("2,2,")] == [Wr.err("child: bad request"), Wr.err("child: bad settings"), Wr.err("child: bad clock"), Wr.err("child: bad elapsed ms"), Wr.err("child: bad poll"), Wr.err("child: bad mode"), Wr.err("child: bad fate"), Wr.err("child: bad id"), Wr.err("child: bad phase"), Wr.err("child: bad delete flag")] : List<&2, String>}
+
+# The child entry's reader, spelled from the grammar above with the wire's
+# decoders only (Wr.get_nat, Wr.get_bool, Wr.end; never the entry's own
+# get_*): the fields in order, a constructor's tag read as a Nat and
+# matched against the grammar's tag numbers. A field decodes to Got{value,
+# rest} or to Bad{} (cut short, malformed, or an unknown tag).
+
+# a Maybe<Nat>: 0 none, 1 then the Nat
+def ch_spec_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Some{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_mnat.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      ch_spec_mnat.some(Wr.get_nat(s))
+    case 2n+k:
+      Wr.Bad{}
+
+def ch_spec_mnat.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_mnat.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_mnat(s: String) -> Wr.Dec<Maybe<&2, Nat>>:
+  ch_spec_mnat.go(Wr.get_nat(s))
+
+# the watch's clock: the token, left, tries
+def ch_spec_w.n(t: Maybe<&2, Nat>, +l: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.W>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Ch.W{t, l, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_w.l(t: Maybe<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.W>:
+  match r:
+    case Wr.Got{+l, s}:
+      ch_spec_w.n(t, l, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_w.t(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ch.W>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_w.l(t, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_w(s: String) -> Wr.Dec<Ch.W>:
+  ch_spec_w.t(ch_spec_mnat(s))
+
+# the settings: stall, fails
+def ch_spec_cfg.f(+st: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Cfg>:
+  match r:
+    case Wr.Got{f, s}:
+      Wr.Got{Ch.Cfg{st, f}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_cfg.s(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Cfg>:
+  match r:
+    case Wr.Got{+st, s}:
+      ch_spec_cfg.f(st, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_cfg(s: String) -> Wr.Dec<Ch.Cfg>:
+  ch_spec_cfg.s(Wr.get_nat(s))
+
+# a poll: Busy 0 (token), Lost 1, Answered 2 (Bool), Broke 3, Gone 4
+def ch_spec_obs.busy(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ch.Obs>:
+  match r:
+    case Wr.Got{t, s}:
+      Wr.Got{Ch.Busy{t}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_obs.answered(r: Wr.Dec<Bool>) -> Wr.Dec<Ch.Obs>:
+  match r:
+    case Wr.Got{b, s}:
+      Wr.Got{Ch.Answered{b}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_obs.tag(t: Nat, s: String) -> Wr.Dec<Ch.Obs>:
+  match t:
+    case 0n:
+      ch_spec_obs.busy(ch_spec_mnat(s))
+    case 1n:
+      Wr.Got{Ch.Lost{}, s}
+    case 2n:
+      ch_spec_obs.answered(Wr.get_bool(s))
+    case 3n:
+      Wr.Got{Ch.Broke{}, s}
+    case 4n:
+      Wr.Got{Ch.Gone{}, s}
+    case 5n+k:
+      Wr.Bad{}
+
+def ch_spec_obs.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Obs>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_obs.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_obs(s: String) -> Wr.Dec<Ch.Obs>:
+  ch_spec_obs.go(Wr.get_nat(s))
+
+# a mode: Inbox 0, Silent 1
+def ch_spec_mode.tag(t: Nat, s: String) -> Wr.Dec<Ch.Mode>:
+  match t:
+    case 0n:
+      Wr.Got{Ch.Inbox{}, s}
+    case 1n:
+      Wr.Got{Ch.Silent{}, s}
+    case 2n+k:
+      Wr.Bad{}
+
+def ch_spec_mode.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Mode>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_mode.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_mode(s: String) -> Wr.Dec<Ch.Mode>:
+  ch_spec_mode.go(Wr.get_nat(s))
+
+# a report: Completed 0, Failed 1, Cancelled 2, Stalled 3, Unreachable 4
+def ch_spec_report.tag(t: Nat, s: String) -> Wr.Dec<Ch.Report>:
+  match t:
+    case 0n:
+      Wr.Got{Ch.Completed{}, s}
+    case 1n:
+      Wr.Got{Ch.Failed{}, s}
+    case 2n:
+      Wr.Got{Ch.Cancelled{}, s}
+    case 3n:
+      Wr.Got{Ch.Stalled{}, s}
+    case 4n:
+      Wr.Got{Ch.Unreachable{}, s}
+    case 5n+k:
+      Wr.Bad{}
+
+def ch_spec_report.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Report>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_report.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_report(s: String) -> Wr.Dec<Ch.Report>:
+  ch_spec_report.go(Wr.get_nat(s))
+
+# a fate: Queued 0, Withdrawn 1, Placed 2
+def ch_spec_fate.tag(t: Nat, s: String) -> Wr.Dec<Ch.Fate>:
+  match t:
+    case 0n:
+      Wr.Got{Ch.Queued{}, s}
+    case 1n:
+      Wr.Got{Ch.Withdrawn{}, s}
+    case 2n:
+      Wr.Got{Ch.Placed{}, s}
+    case 3n+k:
+      Wr.Bad{}
+
+def ch_spec_fate.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Fate>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_fate.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_fate(s: String) -> Wr.Dec<Ch.Fate>:
+  ch_spec_fate.go(Wr.get_nat(s))
+
+# a Maybe<Fate>: 0 none, 1 then the fate
+def ch_spec_mfate.some(r: Wr.Dec<Ch.Fate>) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
+  match r:
+    case Wr.Got{x, s}:
+      Wr.Got{Some{x}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_mfate.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
+  match t:
+    case 0n:
+      Wr.Got{None{}, s}
+    case 1n:
+      ch_spec_mfate.some(ch_spec_fate(s))
+    case 2n+k:
+      Wr.Bad{}
+
+def ch_spec_mfate.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_mfate.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_mfate(s: String) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
+  ch_spec_mfate.go(Wr.get_nat(s))
+
+# a phase: Watching 0 (clock), Owing 1 (report, id), Ended 2
+def ch_spec_ph.watching(r: Wr.Dec<Ch.W>) -> Wr.Dec<Ch.Ph>:
+  match r:
+    case Wr.Got{w, s}:
+      Wr.Got{Ch.Watching{w}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_ph.n(k: Ch.Report, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
+  match r:
+    case Wr.Got{n, s}:
+      Wr.Got{Ch.Owing{k, n}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_ph.owing(r: Wr.Dec<Ch.Report>) -> Wr.Dec<Ch.Ph>:
+  match r:
+    case Wr.Got{k, s}:
+      ch_spec_ph.n(k, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_ph.tag(t: Nat, s: String) -> Wr.Dec<Ch.Ph>:
+  match t:
+    case 0n:
+      ch_spec_ph.watching(ch_spec_w(s))
+    case 1n:
+      ch_spec_ph.owing(ch_spec_report(s))
+    case 2n:
+      Wr.Got{Ch.Ended{}, s}
+    case 3n+k:
+      Wr.Bad{}
+
+def ch_spec_ph.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_ph.tag(t, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def ch_spec_ph(s: String) -> Wr.Dec<Ch.Ph>:
+  ch_spec_ph.go(Wr.get_nat(s))
+
+# a whole request r, then the rest: nothing left (left) answers the
+# spelled model decision, else the left-over error
+def ch_spec_fin(r: FCh.Req, left: Bool) -> String:
+  match left:
+    case True{}:
+      ch_spell_answer(r)
+    case False{}:
+      Wr.err("child: input left over")
+
+# a verdict request: settings, clock, elapsed ms, poll, mode; the first
+# field that does not decode names itself
+def ch_spec_vm(+c: Ch.Cfg, +w: Ch.W, +e: Nat, +o: Ch.Obs, r: Wr.Dec<Ch.Mode>) -> String:
+  match r:
+    case Wr.Got{m, s}:
+      ch_spec_fin(FCh.AskVerdict{c, w, e, o, m}, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad mode")
+
+def ch_spec_vo(+c: Ch.Cfg, +w: Ch.W, +e: Nat, r: Wr.Dec<Ch.Obs>) -> String:
+  match r:
+    case Wr.Got{+o, s}:
+      ch_spec_vm(c, w, e, o, ch_spec_mode(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad poll")
+
+def ch_spec_ve(+c: Ch.Cfg, +w: Ch.W, r: Wr.Dec<Nat>) -> String:
+  match r:
+    case Wr.Got{+e, s}:
+      ch_spec_vo(c, w, e, ch_spec_obs(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad elapsed ms")
+
+def ch_spec_vw(+c: Ch.Cfg, r: Wr.Dec<Ch.W>) -> String:
+  match r:
+    case Wr.Got{+w, s}:
+      ch_spec_ve(c, w, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad clock")
+
+def ch_spec_vc(r: Wr.Dec<Ch.Cfg>) -> String:
+  match r:
+    case Wr.Got{+c, s}:
+      ch_spec_vw(c, ch_spec_w(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad settings")
+
+# a move request: fate, id
+def ch_spec_mn(f: Maybe<&2, Ch.Fate>, r: Wr.Dec<Nat>) -> String:
+  match r:
+    case Wr.Got{+n, s}:
+      ch_spec_fin(FCh.AskMove{f, n}, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad id")
+
+def ch_spec_mf(r: Wr.Dec<Maybe<&2, Ch.Fate>>) -> String:
+  match r:
+    case Wr.Got{f, s}:
+      ch_spec_mn(f, Wr.get_nat(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad fate")
+
+# an abort request: phase, delete flag
+def ch_spec_ad(ph: Ch.Ph, r: Wr.Dec<Bool>) -> String:
+  match r:
+    case Wr.Got{d, s}:
+      ch_spec_fin(FCh.AskAbort{ph, d}, Wr.end(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad delete flag")
+
+def ch_spec_ap(r: Wr.Dec<Ch.Ph>) -> String:
+  match r:
+    case Wr.Got{ph, s}:
+      ch_spec_ad(ph, Wr.get_bool(s))
+    case Wr.Bad{}:
+      Wr.err("child: bad phase")
+
+# the request tag: 0 verdict, 1 move, 2 abort, 3 or more unknown
+def ch_spec_req.tag(t: Nat, s: String) -> String:
+  match t:
+    case 0n:
+      ch_spec_vc(ch_spec_cfg(s))
+    case 1n:
+      ch_spec_mf(ch_spec_mfate(s))
+    case 2n:
+      ch_spec_ap(ch_spec_ph(s))
+    case 3n+k:
+      Wr.err("child: unknown request")
+
+# a request tag that does not read is a bad request
+def ch_spec_req(r: Wr.Dec<Nat>) -> String:
+  match r:
+    case Wr.Got{t, s}:
+      ch_spec_req.tag(t, s)
+    case Wr.Bad{}:
+      Wr.err("child: bad request")
+
+# the child entry's answer to input s, by the grammar
+def ch_spec_ffi(s: String) -> String:
+  ch_spec_req(Wr.get_nat(s))
+
+# LAW child_entry_refines: on every input the child entry answers what the
+# grammar's reader ch_spec_ffi answers: a whole request with nothing after
+# it, the spelled model decision; else the error of the first field that
+# does not read as its value (cut short, malformed or an unknown tag:
+# settings, clock, elapsed ms, poll, mode, fate, id, phase, delete flag),
+# "child: bad request" for a request tag that does not read, "child:
+# unknown request" for a tag past 2, "child: input left over" after a
+# whole request
+# EXCLUDES: a malformed field named as another field or as an unknown
+#   request (FCh.ffi("1,0,7") answering "child: unknown request"), a field
+#   read past a malformed one, an error text swapped or reworded, a reply
+#   that drifts from the grammar
+law child_entry_refines:
+  for +s: String
+  {FCh.ffi(s) == ch_spec_ffi(s) : String}
+
+# LAW child_entry_bad_id: in a move request, after a spelled fate presence
+# (any Maybe<Fate>), an id that does not read as a number answers "child:
+# bad id", whatever the rest
+# EXCLUDES: a malformed id named as another field or as an unknown request
+#   (the "1,0,7" answering "child: unknown request" program)
+law child_entry_bad_id:
+  for +f: Maybe<&2, Ch.Fate>
+  for +rest: String
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(1n, ch_spell_mfate(f, rest))) == Wr.err("child: bad id") : String}
+
+# LAW child_entry_malformed_example: anchor: a field that is there but
+# does not read (not a number, an unknown tag, not T or F) names itself:
+# the request tag; the settings; the clock's token tag, token, left and
+# tries; the elapsed ms; the poll's tag, busy token and answered flag; the
+# mode; the fate's presence and tag; the id; the phase's tag, watched
+# clock, owed report and owed id; the delete flag
+# EXCLUDES: a malformed field named as another field, a field read past a
+#   malformed one
+law child_entry_malformed_example:
+  {[FCh.ffi("x"), FCh.ffi("0,x"), FCh.ffi("0,5,x"), FCh.ffi("0,5,2,7,"), FCh.ffi("0,5,2,1,x"), FCh.ffi("0,5,2,0,x"), FCh.ffi("0,5,2,0,5,x"), FCh.ffi("0,5,2,0,5,1,x"), FCh.ffi("0,5,2,0,5,1,1,x"), FCh.ffi("0,5,2,0,5,1,1,0,x"), FCh.ffi("0,5,2,0,5,1,1,2,x"), FCh.ffi("0,5,2,0,5,1,1,1,x"), FCh.ffi("1,x"), FCh.ffi("1,1,x"), FCh.ffi("1,0,7"), FCh.ffi("2,x"), FCh.ffi("2,0,x"), FCh.ffi("2,1,x"), FCh.ffi("2,1,0,x"), FCh.ffi("2,2,x")] == [Wr.err("child: bad request"), Wr.err("child: bad settings"), Wr.err("child: bad settings"), Wr.err("child: bad clock"), Wr.err("child: bad clock"), Wr.err("child: bad clock"), Wr.err("child: bad clock"), Wr.err("child: bad elapsed ms"), Wr.err("child: bad poll"), Wr.err("child: bad poll"), Wr.err("child: bad poll"), Wr.err("child: bad mode"), Wr.err("child: bad fate"), Wr.err("child: bad fate"), Wr.err("child: bad id"), Wr.err("child: bad phase"), Wr.err("child: bad phase"), Wr.err("child: bad phase"), Wr.err("child: bad phase"), Wr.err("child: bad delete flag")] : List<&2, String>}

@@ -153,6 +153,9 @@ import ./proof/child/child_entry_unknown_fate.bend as PChildEntryUnknownFate
 import ./proof/child/child_entry_unknown_phase.bend as PChildEntryUnknownPhase
 import ./proof/child/child_entry_unknown_report.bend as PChildEntryUnknownReport
 import ./proof/child/child_entry_errors_example.bend as PChildEntryErrorsExample
+import ./proof/child/child_entry_refines.bend as PChildEntryRefines
+import ./proof/child/child_entry_bad_id.bend as PChildEntryBadId
+import ./proof/child/child_entry_malformed_example.bend as PChildEntryMalformedExample
 import ./proof/admission/base/admission/St.bend as LAAdmissionAdmissionSt
 import ./proof/admission/base/admission/bit.bend as LAAdmissionAdmissionBit
 import ./proof/admission/base/admission/calm.bend as LAAdmissionAdmissionCalm
