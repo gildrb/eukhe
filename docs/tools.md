@@ -282,6 +282,7 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `gate_secret_read_exact`, `gate_effs_exact`, `gate_runs_exact`, `gate_terms_exact` | the gate's secret read, effects, auto test and answer are an independent spec's: a read, list or search of a secret has the secret effect and never runs unasked (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
 | `secrets_need_yes` | no agent write sequence without a yes changes a secret (G1.6, G1.7) |
+| `store_run_exact` | the store after any writes is an independent spec's: each write lands on its real path exactly when the gate runs it (G1.6, G1.7) |
 
 Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`, `PathPolicy`, `PathRule`, `MAX_LINKS`), `eukhe-shell/src/paths.rs` (`judge`: class and holds-a-secret of a resolved path, run as compiled model `judge`, entry `bend/ffi_path_policy.bend`, request laws `path_policy_ffi_*`; each path component crosses as an id), `eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`), `eukhe-shell/src/run.rs` (step path effects: one `judge_path` per path).
 

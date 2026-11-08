@@ -1301,6 +1301,8 @@ import ./proof/path_policy/gate_effs_exact.bend as PGateEffsExact
 import ./proof/path_policy/gate_runs_exact.bend as PGateRunsExact
 import ./proof/path_policy/gate_terms_exact.bend as PGateTermsExact
 import ./proof/path_policy/gate_secret_read_example.bend as PGateSecretReadExample
+import ./proof/path_policy/store_run_exact.bend as PStoreRunExact
+import ./proof/path_policy/store_run_example.bend as PStoreRunExample
 import ./proof/child_env/base.bend as LAChildEnv
 import ./proof/child_env/env_drops_credentials.bend as PEnvDropsCredentials
 import ./proof/child_env/env_kernel_keeps_only_listed.bend as PEnvKernelKeepsOnlyListed
