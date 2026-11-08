@@ -1,12 +1,18 @@
 //! State save/load for the cron job store: cross-process file locking
-//! (lockfile with stale takeover), state read/write/merge helpers, and the
-//! passes over a whole file (a claim pass, a recovery; the finish step is
-//! in [`super::jobs`]). The compiled core decides each pass record by
-//! record (`eukhe_bend::rules::cron`, `bend/cron_file.bend`): which jobs a
-//! claim pass claims, which claim records stay, what each job becomes. This
-//! file gathers the facts (a key per job id, whose each claim is) and
+//! (an owned lockfile: a live holder is never taken over, and a release
+//! removes only the releasing holder's own lock), state read/write helpers,
+//! and the passes over a whole file (a claim pass, a recovery; the finish
+//! step is in [`super::jobs`]). The compiled core decides each pass record
+//! by record (`eukhe_bend::rules::cron`, `bend/cron_file.bend`): which jobs
+//! a claim pass claims, which claim records stay, what each job becomes.
+//! This file gathers the facts (a key per job id, whose each claim is) and
 //! applies the answers. Section of the port of the `AgentCronJobStore`
 //! half of core/cron-jobs.ts.
+//!
+//! Every change of a jobs file, a pass or a user's action alike, goes
+//! through [`AgentCronJobStore::update_files`]: it reads the file under its
+//! lock, decides on what it read, and writes under the same lock, so no
+//! change is decided on a copy another process has since changed.
 //!
 //! A file that exists but cannot be read or parsed: the compiled core
 //! decides (`rules::cron::moves_aside`) that an update moves it aside
@@ -30,6 +36,7 @@ use super::{
     AgentCronJobStore, CronJobsState,
 };
 use crate::cron::parse_iso_millis;
+use crate::platform::lock_dir::LockDir;
 
 const LOCK_STALE_MS: u64 = 30_000;
 
@@ -52,55 +59,108 @@ impl AgentCronJobStore {
         vec![read_jobs_state(&self.require_file_path())]
     }
 
+    /// The files of this store: the one file, or each registered session's
+    /// artifact file with its session id.
+    fn files(&self) -> Vec<(Option<String>, PathBuf)> {
+        if self.session_artifact_mode {
+            return self
+                .session_artifact_files
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .map(|(session_id, path)| (Some(session_id.clone()), path.clone()))
+                .collect();
+        }
+        vec![(None, self.require_file_path())]
+    }
+
+    /// The one way a jobs file changes: every file of the store is locked,
+    /// read, handed to `change` (with each file's session id in artifact
+    /// mode) and, when `change` succeeds, each file it changed is written
+    /// while the locks are still held. A change that fails writes nothing.
+    /// The heartbeat listeners hear of a change of the heartbeat catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a lock is not acquired (another process holds
+    /// it), when a file cannot be read or written, or `change`'s error.
+    fn update_files<T>(
+        &self,
+        change: impl FnOnce(&[Option<String>], &mut [CronJobsState]) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let (sessions, paths): (Vec<Option<String>>, Vec<PathBuf>) =
+            self.files().into_iter().unzip();
+        let guards = lock_states(&paths)?;
+        let mut states = paths
+            .iter()
+            .map(|path| load_jobs_state(path))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let before: Vec<String> = states
+            .iter()
+            .map(|state| serde_json::to_string(state).unwrap_or_default())
+            .collect();
+        let heartbeats_before = Self::heartbeat_catalog_signature(&all_jobs(&states));
+        let result = change(&sessions, &mut states)?;
+        let mut changed = false;
+        for ((path, state), before) in paths.iter().zip(&states).zip(&before) {
+            if serde_json::to_string(state).unwrap_or_default() != *before {
+                for guard in &guards {
+                    guard.ensure_owned()?;
+                }
+                write_jobs_state(path, state)?;
+                changed = true;
+            }
+        }
+        drop(guards);
+        if changed && Self::heartbeat_catalog_signature(&all_jobs(&states)) != heartbeats_before {
+            self.notify_heartbeat_change();
+        }
+        Ok(result)
+    }
+
+    /// A pass over each file on its own (a claim pass, a recovery, a finish
+    /// step): `mutator` changes one file's state and answers its
+    /// dispatches.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::update_files`].
     pub(crate) fn mutate_states(
         &self,
         mut mutator: impl FnMut(&mut CronJobsState) -> Vec<AgentCronDispatch>,
     ) -> anyhow::Result<Vec<AgentCronDispatch>> {
-        let paths: Vec<PathBuf> = if self.session_artifact_mode {
-            self.session_artifact_files
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .values()
-                .cloned()
-                .collect()
-        } else {
-            vec![self.require_file_path()]
-        };
-        let previous_heartbeats = Self::heartbeat_catalog_signature(&self.read_jobs());
-        let mut changed = false;
-        let dispatches = with_state_locks(&paths, || {
-            let mut dispatches = Vec::new();
-            for path in &paths {
-                let mut state = load_jobs_state(path)?;
-                let before = serde_json::to_string(&state).unwrap_or_default();
-                dispatches.extend(mutator(&mut state));
-                if serde_json::to_string(&state).unwrap_or_default() != before {
-                    write_jobs_state(path, &state)?;
-                    changed = true;
-                }
-            }
-            Ok::<_, anyhow::Error>(dispatches)
-        })
-        .ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))??;
-        if changed && Self::heartbeat_catalog_signature(&self.read_jobs()) != previous_heartbeats {
-            self.notify_heartbeat_change();
-        }
-        Ok(dispatches)
+        self.update_files(|_, states| Ok(states.iter_mut().flat_map(&mut mutator).collect()))
     }
 
-    pub(crate) fn write_jobs(&self, jobs: &[AgentCronJob]) -> anyhow::Result<()> {
-        let previous_heartbeats = Self::heartbeat_catalog_signature(&self.read_jobs());
-        if self.session_artifact_mode {
-            self.write_jobs_session_artifacts(jobs)?;
-        } else {
-            let path = self.require_file_path();
-            with_state_locks(std::slice::from_ref(&path), || write_jobs_file(&path, jobs))
-                .ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))??;
-        }
-        if Self::heartbeat_catalog_signature(&self.read_jobs()) != previous_heartbeats {
-            self.notify_heartbeat_change();
-        }
-        Ok(())
+    /// A user's action on the jobs: `change` sees every job of the store,
+    /// in file order, as the files hold them now, and changes them in
+    /// place (a new job is pushed). In artifact mode each job then goes to
+    /// its session's file and each claim record follows its job (a claim
+    /// record of no job stays in its file); a job of a session with no
+    /// registered file is an error and nothing is written. The claim
+    /// records and the records this build cannot read are never changed.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::update_files`]; also a job whose session has no
+    /// registered artifact file.
+    pub(crate) fn mutate_jobs<T>(
+        &self,
+        change: impl FnOnce(&mut Vec<AgentCronJob>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.update_files(|sessions, states| {
+            let mut jobs: Vec<AgentCronJob> = states
+                .iter_mut()
+                .flat_map(|state| std::mem::take(&mut state.jobs))
+                .collect();
+            let result = change(&mut jobs)?;
+            if !self.session_artifact_mode {
+                states[0].jobs = jobs;
+                return Ok(result);
+            }
+            partition_by_session(sessions, states, jobs)?;
+            Ok(result)
+        })
     }
 
     pub(crate) fn require_file_path(&self) -> PathBuf {
@@ -108,6 +168,58 @@ impl AgentCronJobStore {
             .clone()
             .expect("Cron job store requires a file path")
     }
+}
+
+/// Every job of `states`, in file order.
+fn all_jobs(states: &[CronJobsState]) -> Vec<AgentCronJob> {
+    states
+        .iter()
+        .flat_map(|state| state.jobs.iter().cloned())
+        .collect()
+}
+
+/// Artifact mode: each job goes to the file of its session (in their
+/// order), and each claim record to the file of its job's session; a claim
+/// record of no job stays in its file.
+///
+/// # Errors
+///
+/// Returns an error when a job's session has no registered file.
+fn partition_by_session(
+    sessions: &[Option<String>],
+    states: &mut [CronJobsState],
+    jobs: Vec<AgentCronJob>,
+) -> anyhow::Result<()> {
+    let file_of = |session_id: &str| {
+        sessions
+            .iter()
+            .position(|session| session.as_deref() == Some(session_id))
+    };
+    let mut job_file: HashMap<String, usize> = HashMap::new();
+    for job in &jobs {
+        let Some(file) = file_of(&job.session_id) else {
+            anyhow::bail!(
+                "cron job session artifact not registered: {}",
+                job.session_id
+            );
+        };
+        job_file.insert(job.id.clone(), file);
+    }
+    for job in jobs {
+        let file = job_file[&job.id];
+        states[file].jobs.push(job);
+    }
+    let mut moved: Vec<Vec<AgentCronDispatchRecord>> = vec![Vec::new(); states.len()];
+    for (from, state) in states.iter_mut().enumerate() {
+        for dispatch in std::mem::take(&mut state.dispatches) {
+            let to = job_file.get(&dispatch.job_id).copied().unwrap_or(from);
+            moved[to].push(dispatch);
+        }
+    }
+    for (state, dispatches) in states.iter_mut().zip(moved) {
+        state.dispatches = dispatches;
+    }
+    Ok(())
 }
 
 pub(crate) fn resolve_path(path: &str) -> String {
@@ -134,33 +246,21 @@ pub(crate) fn normalize_optional_label(label: Option<&str>) -> Option<String> {
     trimmed.map(std::string::ToString::to_string)
 }
 
-pub(crate) fn merge_fresh_jobs(
-    current_jobs: Vec<AgentCronJob>,
-    next_jobs: Vec<AgentCronJob>,
-) -> Vec<AgentCronJob> {
-    let mut merged: HashMap<String, AgentCronJob> = HashMap::new();
-    for job in current_jobs {
-        merged.insert(job.id.clone(), job);
-    }
-    for job in next_jobs {
-        let is_fresh = merged
-            .get(&job.id)
-            .is_none_or(|current| is_at_least_as_fresh(&job, current));
-        if is_fresh {
-            merged.insert(job.id.clone(), job);
-        }
-    }
-    merged.into_values().collect()
-}
-
-fn is_at_least_as_fresh(candidate: &AgentCronJob, current: &AgentCronJob) -> bool {
-    let Some(current_time) = parse_iso_millis(&current.updated_at) else {
-        return true;
-    };
-    let Some(candidate_time) = parse_iso_millis(&candidate.updated_at) else {
-        return false;
-    };
-    candidate_time >= current_time
+/// The heartbeat a session runs: its newest active or paused heartbeat.
+pub(crate) fn heartbeat_of<'a>(
+    jobs: &'a [AgentCronJob],
+    active_session_id: &str,
+) -> Option<&'a AgentCronJob> {
+    jobs.iter()
+        .filter(|job| {
+            job.active_session_id == active_session_id
+                && job.source == crate::cron::JobSource::Heartbeat
+                && matches!(
+                    job.status,
+                    crate::cron::JobStatus::Active | crate::cron::JobStatus::Paused
+                )
+        })
+        .max_by_key(|job| parse_iso_millis(&job.updated_at).unwrap_or(0))
 }
 
 /// The key of each job id of `jobs`: the place of its first job record.
@@ -275,22 +375,27 @@ pub(crate) fn recover_interrupted_in_state(
     }
 }
 
-/// Cross-process state locks: lockfile with stale takeover, sorted by path.
-pub(crate) fn with_state_locks<T>(paths: &[PathBuf], action: impl FnOnce() -> T) -> Option<T> {
+/// Cross-process state locks, taken in path order: owned locks (the
+/// `owner` file names this process and this hold), so a lock past the
+/// staleness age is taken over only when its owner is provably dead, and
+/// a release never removes another holder's lock. 100 attempts x 10ms, as
+/// TS `withCronJobsStateLocks`.
+///
+/// # Errors
+///
+/// Returns an error when a lock stays held (contention) or cannot be made.
+fn lock_states(paths: &[PathBuf]) -> anyhow::Result<Vec<LockDir>> {
     let mut unique: Vec<PathBuf> = paths.to_vec();
     unique.sort();
     unique.dedup();
-    let mut guards: Vec<crate::platform::lock_dir::LockDir> = Vec::new();
+    let mut guards = Vec::with_capacity(unique.len());
     for path in &unique {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        // TS `withCronJobsStateLocks`: proper-lockfile on the state file,
-        // 100 attempts x 10ms, 30s staleness takeover.
-        let stale = std::time::Duration::from_millis(LOCK_STALE_MS);
-        match crate::platform::lock_dir::LockDir::acquire_retrying(
+        match LockDir::acquire_owned_retrying(
             path,
-            stale,
+            std::time::Duration::from_millis(LOCK_STALE_MS),
             100,
             std::time::Duration::from_millis(10),
         ) {
@@ -301,13 +406,11 @@ pub(crate) fn with_state_locks<T>(paths: &[PathBuf], action: impl FnOnce() -> T)
                     path = %path.display(),
                     "cron jobs state lock not acquired; skipped"
                 );
-                return None;
+                anyhow::bail!("cron jobs state lock not acquired; skipped");
             }
         }
     }
-    let result = action();
-    drop(guards);
-    Some(result)
+    Ok(guards)
 }
 
 /// What a jobs file holds.
@@ -442,12 +545,6 @@ pub(crate) fn load_jobs_state(path: &Path) -> anyhow::Result<CronJobsState> {
         }
         StateFile::Corrupt(reason) => open_corrupt(path, &reason, Reading::Update),
     }
-}
-
-fn write_jobs_file(path: &Path, jobs: &[AgentCronJob]) -> anyhow::Result<()> {
-    let mut state = load_jobs_state(path)?;
-    state.jobs = merge_fresh_jobs(std::mem::take(&mut state.jobs), jobs.to_vec());
-    write_jobs_state(path, &state)
 }
 
 pub(crate) fn write_jobs_state(path: &Path, state: &CronJobsState) -> anyhow::Result<()> {
