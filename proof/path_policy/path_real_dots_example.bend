@@ -4,4 +4,4 @@ import Base
 import ../../laws/path_policy/policy.bend as PathPolicy
 
 def PathPolicy.path_real_dots_example():
-  ({==}, {==}, {==})
+  ({==}, {==})

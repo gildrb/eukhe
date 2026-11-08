@@ -279,10 +279,19 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `gate_write_auto_never_secret` | write without a yes: never to a secret (G1.6) |
 | `gate_secret_read_needs_yes` | secret read: only on a yes (G1.6) |
 | `gate_yes_runs` | a yes runs each access (G1.6) |
-| `gate_secret_read_exact`, `gate_effs_exact`, `gate_runs_exact`, `gate_terms_exact` | the gate's secret read, effects, auto test and answer are an independent spec's: a read, list or search of a secret has the secret effect and never runs unasked (G1.6) |
+| `gate_effs_exact` | each access's effects are the table of G1.5 (G1.5) |
+| `gate_unasked_only_granted`, `gate_refusal_names_an_effect` | without a yes, an access runs exactly when each of its effects is below secret (6) and in the auto set (G1.6) |
+| `gate_secret_needs_yes`, `gate_holding_search_needs_yes` | every access to a Secret path, and a search of a directory that holds a secret, runs only on a yes (G1.6) |
 | `gate_inside_write_runs` | write in auto set: Inside write runs unasked (G1.6) |
 | `secrets_need_yes` | no agent write sequence without a yes changes a secret (G1.6, G1.7) |
-| `store_run_exact` | the store after any writes is an independent spec's: each write lands on its real path exactly when the gate runs it (G1.6, G1.7) |
+| `store_write_lands`, `store_refused_write_keeps` | a write the gate runs on its judged class lands at its real path; one it refuses leaves the store as it was (G1.6, G1.7) |
+| `store_write_only_its_path`, `store_write_adds_at_most_one`, `store_run_in_pieces` | a write changes only its real path and adds at most one cell; writes run one by one, in order (G1.7) |
+| `path_tree_rule_protects`, `path_dir_rule_protects`, `path_named_rule_protects`, `path_entry_ancestor_protects` | a Tree rule's path and all under it, a Dir rule's directory and its entries, a Named rule's name below the deepest root, a strict ancestor of a rule's entry: Protected unless Secret (G1.2, G1.3) |
+| `path_protected_has_cause` | Protected only with one of those causes or a secret entry below it (G1.2, G1.3) |
+| `path_root_inside`, `path_inside_needs_root`, `path_looped_never_inside`, `path_rule_never_unprotects`, `path_safe_is_inside` | a root holds an unlooped path not Protected or Secret: Inside; Inside needs a root at or above it; a loop is never Inside; a rule added never unprotects; safe only if Inside (G1.1, G1.2) |
+| `path_holds_at_or_under_secret`, `path_holds_above_secret`, `path_holds_only_with_secret` | a path holds a secret exactly when a secret entry is it, above it or below it (G1.5) |
+| `path_real_here_stays`, `path_real_up_cancels_name`, `path_real_up_at_root`, `path_real_link_followed` | `.` stays; `..` after a name that is no link goes back, `..` of `/` is `/`; a name at a link resolves as the link's target then the rest, from `/` or from the link's directory, `..` then going up from the target (G1.1) |
+| `path_real_chain_within`, `path_real_chain_past` | a chain of at most 40 links resolves to its end; more loops (G1.1, `MAX_LINKS`) |
 
 Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`, `PathPolicy`, `PathRule`, `MAX_LINKS`), `eukhe-shell/src/paths.rs` (`judge`: class and holds-a-secret of a resolved path, run as compiled model `judge`, entry `bend/ffi_path_policy.bend`, request laws `path_policy_ffi_*`; each path component crosses as an id), `eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`), `eukhe-shell/src/run.rs` (step path effects: one `judge_path` per path).
 
