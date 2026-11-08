@@ -1250,7 +1250,11 @@ import ./proof/gateway_width/table_aligned.bend as PTableAligned
 import ./proof/gateway_width/ascii_unchanged.bend as PAsciiUnchanged
 import ./proof/gateway_width/layout_widths.bend as PLayoutWidths
 import ./proof/gateway_width/layout_pads.bend as PLayoutPads
-import ./proof/gateway_width/layout_measured_spec.bend as PLayoutMeasuredSpec
+import ./proof/gateway_width/layout_cell_fits.bend as PLayoutCellFits
+import ./proof/gateway_width/layout_column_reached.bend as PLayoutColumnReached
+import ./proof/gateway_width/layout_pad_rows.bend as PLayoutPadRows
+import ./proof/gateway_width/layout_pads_but_last.bend as PLayoutPadsButLast
+import ./proof/gateway_width/layout_pad_fills.bend as PLayoutPadFills
 import ./proof/gateway_width/gateway_width_ffi_request_round_trip.bend as PGatewayWidthFfiRequestRoundTrip
 import ./proof/gateway_width/gateway_width_ffi_answers.bend as PGatewayWidthFfiAnswers
 import ./proof/gateway_width/gateway_width_ffi_rejects_malformed.bend as PGatewayWidthFfiRejectsMalformed
