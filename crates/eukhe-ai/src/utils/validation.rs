@@ -114,7 +114,9 @@ const VALIDATION_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 /// Validates tool call arguments against the tool's schema, returning the
 /// validated (and possibly coerced) arguments. Runs on a thread with its
-/// own [`VALIDATION_STACK_BYTES`] stack.
+/// own [`VALIDATION_STACK_BYTES`] stack; when the OS refuses a thread
+/// (`EAGAIN` under a thread or memory limit) it validates on the caller's
+/// stack instead.
 ///
 /// # Errors
 ///
@@ -124,57 +126,58 @@ const VALIDATION_STACK_BYTES: usize = 8 * 1024 * 1024;
 ///
 /// # Panics
 ///
-/// When the OS cannot start the validation thread (as `std::thread::spawn`
-/// does), and with the validation's own panic.
+/// With the validation's own panic.
 pub fn validate_tool_arguments(
     tool: &Tool,
     tool_call: &ToolCall,
 ) -> Result<JsonValue, ValidationError> {
     std::thread::scope(|scope| {
-        let validation = std::thread::Builder::new()
+        match std::thread::Builder::new()
             .name("tool-argument-validation".to_owned())
             .stack_size(VALIDATION_STACK_BYTES)
-            .spawn_scoped(scope, || {
-                let source = tool.parameters.typebox().unwrap_or(tool.parameters.json());
-                let schema = JsValue::from_json(source);
-                let mut validators = Validators::default();
-                let mut args = JsValue::Object(JsValue::object_from_json(&tool_call.arguments));
-                normalize_optional_nulls(&mut args, &schema, &mut validators)?;
-                Converter::default().convert(source, &mut args)?;
-                let validator = validators.get(&schema).map_err(ValidationError::from)?;
-                // `coerced` is always an object when `args` is, so the TS
-                // replaces the contents of `args` with it.
-                args = coerce_with_json_schema(args, &schema, &mut validators)?;
-                if validator.check(&args)? {
-                    return Ok(args.to_json());
-                }
-                let errors = validator
-                    .errors(&args)?
-                    .iter()
-                    .map(|error| {
-                        format!("  - {}: {}", format_validation_path(error), error.message)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let errors = if errors.is_empty() {
-                    "Unknown validation error".to_owned()
-                } else {
-                    errors
-                };
-                let received =
-                    JsValue::Object(JsValue::object_from_json(&tool_call.arguments)).to_json();
-                let message = format!(
-                    "Validation failed for tool \"{}\":\n{errors}\n\nReceived arguments:\n{}",
-                    tool_call.name,
-                    json_stringify_pretty(&received)
-                );
-                Err(ValidationError::InvalidArguments { message })
-            })
-            .expect("start the tool-argument validation thread");
-        validation
-            .join()
-            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            .spawn_scoped(scope, || validate_here(tool, tool_call))
+        {
+            Ok(validation) => validation
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            Err(_) => validate_here(tool, tool_call),
+        }
     })
+}
+
+/// [`validate_tool_arguments`] on the current thread's stack.
+fn validate_here(tool: &Tool, tool_call: &ToolCall) -> Result<JsonValue, ValidationError> {
+    let source = tool.parameters.typebox().unwrap_or(tool.parameters.json());
+    let schema = JsValue::from_json(source);
+    let mut validators = Validators::default();
+    let mut args = JsValue::Object(JsValue::object_from_json(&tool_call.arguments));
+    normalize_optional_nulls(&mut args, &schema, &mut validators)?;
+    Converter::default().convert(source, &mut args)?;
+    let validator = validators.get(&schema).map_err(ValidationError::from)?;
+    // `coerced` is always an object when `args` is, so the TS replaces the
+    // contents of `args` with it.
+    args = coerce_with_json_schema(args, &schema, &mut validators)?;
+    if validator.check(&args)? {
+        return Ok(args.to_json());
+    }
+    let errors = validator
+        .errors(&args)?
+        .iter()
+        .map(|error| format!("  - {}: {}", format_validation_path(error), error.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let errors = if errors.is_empty() {
+        "Unknown validation error".to_owned()
+    } else {
+        errors
+    };
+    let received = JsValue::Object(JsValue::object_from_json(&tool_call.arguments)).to_json();
+    let message = format!(
+        "Validation failed for tool \"{}\":\n{errors}\n\nReceived arguments:\n{}",
+        tool_call.name,
+        json_stringify_pretty(&received)
+    );
+    Err(ValidationError::InvalidArguments { message })
 }
 
 /// Compiled validators of one validation call, by sub-schema address.

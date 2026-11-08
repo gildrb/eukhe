@@ -7,7 +7,7 @@ use super::compile::Validator;
 use super::engine::{Engine, Mode};
 use super::js_value::JsValue;
 use super::regexp::RegExpCache;
-use super::{validate_tool_arguments, validate_tool_call, ValidationError};
+use super::{validate_here, validate_tool_arguments, validate_tool_call, ValidationError};
 use crate::typebox::Type;
 
 fn tool(parameters: impl Into<ToolSchema>) -> Tool {
@@ -64,6 +64,20 @@ fn still_validates_when_function_constructor_is_unavailable() {
         interpreted.check_schema(&mut super::context::CheckContext::new(), &schema, &value),
         Ok(true)
     );
+}
+
+/// The caller-stack path a refused validation thread falls back to answers
+/// exactly like the validation thread, for a pass and a refusal.
+#[test]
+fn the_inline_fallback_validates_like_the_validation_thread() {
+    let tool = tool(Type::object([("count", Type::number())]));
+    for arguments in [json!({ "count": "42" }), json!({ "count": "many" })] {
+        let call = tool_call(arguments);
+        assert_eq!(
+            validate_here(&tool, &call),
+            validate_tool_arguments(&tool, &call)
+        );
+    }
 }
 
 #[test]
