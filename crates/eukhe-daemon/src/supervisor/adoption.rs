@@ -906,43 +906,39 @@ mod recorded_process_tests {
     }
 }
 
-// Linux-only: the stop escalation it asserts signals through a pidfd; other
-// platforms have none, so the daemon never signals the unverifiable pid.
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod build_tests {
+    use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
 
     use super::{DaemonCommand, Ordering, Supervisor};
-    use crate::protocol::response_failure;
+    use crate::protocol::{response_failure, DaemonResponse};
     use crate::supervisor::SupervisorOptions;
 
-    /// F10: a live worker of another build that registers is not adopted.
-    /// It is told to hand its session over; a registrant that cannot be
-    /// reached gets the stop escalation, which leaves its storage
-    /// resumable. The relaunch on this build is the existing relaunch
-    /// path; here the supervisor is stopping, so no worker image runs.
-    #[tokio::test]
-    async fn a_registrant_of_another_build_is_not_adopted() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        let socket_path = dir.path().join("daemon.sock");
+    /// A live worker of another build (a child of this test, so the stop
+    /// escalation signals nothing else) registers with a supervisor that is
+    /// stopping, so no worker image runs: the supervisor, the registrant's
+    /// process and the registration's answer.
+    async fn register_another_build(
+        dir: &Path,
+    ) -> (Arc<Supervisor>, tokio::process::Child, DaemonResponse) {
+        let socket_path = dir.join("daemon.sock");
         let supervisor = Arc::new(
             Supervisor::new(SupervisorOptions {
                 socket_path: socket_path.clone(),
-                agent_dir: dir.path().join("agent"),
+                agent_dir: dir.join("agent"),
             })
             .expect("supervisor"),
         );
         supervisor.pin_worker_connect_budget_for_tests(Duration::from_millis(1));
-        // The registrant's process: a child of this test, so the stop
-        // escalation signals nothing else.
-        let mut registrant = tokio::process::Command::new("sleep")
+        let registrant = tokio::process::Command::new("sleep")
             .arg("60")
             .kill_on_drop(true)
             .spawn()
             .expect("spawn the registrant");
         let pid = u64::from(registrant.id().expect("the registrant's pid"));
-        let worker_socket = dir.path().join("w-oldbuild.sock");
+        let worker_socket = dir.join("w-oldbuild.sock");
         std::fs::create_dir_all(&supervisor.descriptor_dir).expect("descriptor dir");
         std::fs::write(
             supervisor.descriptor_dir.join("w-oldbuild.json"),
@@ -951,7 +947,7 @@ mod build_tests {
                 "workerId": "w-oldbuild",
                 "pid": pid,
                 "socketPath": worker_socket,
-                "recoveryJournalPath": dir.path().join("w-oldbuild.recovery.jsonl"),
+                "recoveryJournalPath": dir.join("w-oldbuild.recovery.jsonl"),
                 "supervisorSocketPath": socket_path,
                 "authenticationToken": "old-token",
                 "rootActiveSessionId": "w-oldbuild",
@@ -981,6 +977,39 @@ mod build_tests {
         // Before the background move runs (no await since the answer):
         // the relaunch on this build is refused, so no worker image runs.
         supervisor.shutting_down.store(true, Ordering::SeqCst);
+        (supervisor, registrant, response)
+    }
+
+    /// F10: a live worker of another build that registers is not adopted:
+    /// its registration is refused and its session moves to this build.
+    #[tokio::test]
+    async fn a_registrant_of_another_build_is_refused() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let (_supervisor, _registrant, response) = register_another_build(dir.path()).await;
+        assert_eq!(
+            response,
+            response_failure(
+                Some("r1"),
+                "worker_register",
+                "Unknown session worker: w-oldbuild runs another build: its session moves to this supervisor's build; registration refused",
+                None,
+            )
+        );
+    }
+
+    /// F10: a live worker of another build that registers is not adopted.
+    /// It is told to hand its session over; a registrant that cannot be
+    /// reached gets the stop escalation, which leaves its storage
+    /// resumable. The relaunch on this build is the existing relaunch
+    /// path; here the supervisor is stopping, so no worker image runs.
+    // Linux-only: the stop escalation it asserts signals through a pidfd;
+    // other platforms have none, so the daemon never signals the
+    // unverifiable pid.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_registrant_of_another_build_is_not_adopted() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let (supervisor, mut registrant, response) = register_another_build(dir.path()).await;
         assert_eq!(
             response,
             response_failure(
