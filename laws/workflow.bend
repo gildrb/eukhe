@@ -601,10 +601,10 @@ law wfw_malformed_unless_request:
   exs rest: String
   {(s, wfw_req_fits(q)) == (wfw_spell_req(q, rest), True{}) : String & Bool}
 
-# LAW wfw_reader_unknown_decision: the model of the Rust reader of a reply (FW.get_admit, not
-# run in production) refuses a decision tag of 5 or more, as Rust's
-# `tag_of(5, "an admission")` does in globals.rs `decide`
-# EXCLUDES: a reader model that reads an unknown decision as a known one
+# LAW wfw_reader_unknown_decision: the Bend reader of a reply (FW.get_admit, which FW.ffi and
+# production never run) refuses a decision tag of 5 or more. It says nothing about Rust's own
+# reader (globals.rs `decide`): no law ties the two
+# EXCLUDES: a Bend reader that reads an unknown decision tag as a known one
 #   (its round trip laws hold all the same)
 law wfw_reader_unknown_decision:
   for +n: Nat
