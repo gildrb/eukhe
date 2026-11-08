@@ -35,6 +35,9 @@ mod durable_store;
 
 use durable_store::{read_transcript, session_dirs, try_read_transcript, Transcript};
 
+#[path = "../../eukhe-daemon/tests/support/process_table.rs"]
+mod process_table;
+
 /// The texts of the stored model messages of `role`, in order.
 fn role_texts(transcript: &Transcript, role: &str) -> Vec<String> {
     transcript
@@ -250,6 +253,21 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
                 .into_iter()
                 .map(|(_, descriptor)| u32::try_from(descriptor.pid).expect("pid fits u32"))
                 .collect();
+        // An independent census agrees: the supervisor's `worker` children
+        // in the process table are exactly the recorded ones (a duplicate
+        // worker the records miss fails here).
+        let mut census: Vec<u32> = process_table::snapshot()
+            .into_iter()
+            .filter(|row| row.ppid == first_supervisor && row.runs(&["worker"]))
+            .map(|row| row.pid)
+            .collect();
+        census.sort_unstable();
+        let mut recorded = workers.clone();
+        recorded.sort_unstable();
+        assert_eq!(
+            census, recorded,
+            "the supervisor's worker children are its recorded workers"
+        );
         let raw = i32::try_from(first_supervisor).expect("pid fits i32");
         nix::sys::signal::kill(
             nix::unistd::Pid::from_raw(raw),
