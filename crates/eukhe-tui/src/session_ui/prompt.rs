@@ -94,6 +94,25 @@ pub(crate) struct PromptOrder {
     pub(crate) rebind_available: bool,
 }
 
+impl PromptOrder {
+    /// The settled outcome of this order's round trip.
+    fn settled(self, result: Result<(), anyhow::Error>) -> PromptSubmitNote {
+        PromptSubmitNote {
+            active_session_id: self.active_session_id,
+            session_id: self.session_id,
+            text: self.text,
+            behavior: self.behavior,
+            images: self.images,
+            stashed_images: self.stashed_images,
+            stash_to_restore: self.stash_to_restore,
+            expected_turn_end: self.expected_turn_end,
+            generation: self.generation,
+            rebind_available: self.rebind_available,
+            result,
+        }
+    }
+}
+
 impl SessionUi {
     /// The retained-bytes budget for pasted images (TS
     /// `MAX_PASTED_IMAGE_BYTES`): the registry evicts oldest entries once
@@ -863,9 +882,11 @@ impl SessionUi {
     /// serializes its submit writes the same way -- the async handler's
     /// `await` never reorders two submissions (interactive-mode.ts's
     /// `handleSubmit`), and the port's old blocked loop enforced the same
-    /// order by construction. The outcome folds back through the
-    /// prompt-submit channel; the worker exits when the orders channel
-    /// closes (the session dropped its sender).
+    /// order by construction. A session command holds the next submit for
+    /// the ack cap at most (past it, its answer settles on its own task).
+    /// The outcome folds back through the prompt-submit channel; the worker
+    /// exits when the orders channel closes (the session dropped its
+    /// sender).
     pub(super) async fn prompt_submit_worker(
         mut orders: mpsc::UnboundedReceiver<PromptOrder>,
         notes: mpsc::UnboundedSender<PromptSubmitNote>,
@@ -903,41 +924,45 @@ impl SessionUi {
             // runs a model request, so the ack cap would report a healthy
             // run as a lost ack and release the submit mid-command; it
             // rides the client's long-running class like a turn-long wait.
-            let result = if order.session_command {
-                order
-                    .client
-                    .request_ok_with_timeout(
-                        command,
-                        eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS,
-                    )
-                    .await
-                    .map(|_| ())
-            } else {
-                tokio::time::timeout(
-                    Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                    order.client.request_ok(command),
+            // The ordered channel still holds later submits behind it for
+            // the ack cap alone: past it, the command's answer settles on
+            // its own task and the worker takes the next submit, so a long
+            // command never holds the submits typed after it.
+            if order.session_command {
+                let client = order.client.clone();
+                let mut request = Box::pin(async move {
+                    client
+                        .request_ok_with_timeout(
+                            command,
+                            eukhe_client::daemon_client::LONG_RUNNING_REQUEST_TIMEOUT_MS,
+                        )
+                        .await
+                        .map(|_| ())
+                });
+                let cap = Duration::from_millis(UI_REQUEST_TIMEOUT_MS);
+                if let Ok(result) = tokio::time::timeout(cap, &mut request).await {
+                    let _ = notes.send(order.settled(result));
+                } else {
+                    let notes = notes.clone();
+                    tokio::spawn(async move {
+                        let result = request.await;
+                        let _ = notes.send(order.settled(result));
+                    });
+                }
+                continue;
+            }
+            let result = tokio::time::timeout(
+                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                order.client.request_ok(command),
+            )
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "timed out after {UI_REQUEST_TIMEOUT_MS}ms waiting for the Eukhe daemon response"
                 )
-                .await
-                .map_err(|_| {
-                    anyhow!(
-                        "timed out after {UI_REQUEST_TIMEOUT_MS}ms waiting for the Eukhe daemon response"
-                    )
-                })
-                .and_then(|result| result.map(|_| ()))
-            };
-            let _ = notes.send(PromptSubmitNote {
-                active_session_id: order.active_session_id,
-                session_id: order.session_id,
-                text: order.text,
-                behavior: order.behavior,
-                images: order.images,
-                stashed_images: order.stashed_images,
-                stash_to_restore: order.stash_to_restore,
-                expected_turn_end: order.expected_turn_end,
-                generation: order.generation,
-                rebind_available: order.rebind_available,
-                result,
-            });
+            })
+            .and_then(|result| result.map(|_| ()));
+            let _ = notes.send(order.settled(result));
         }
     }
 
@@ -1271,4 +1296,126 @@ fn sent_before_link_closed(error: &anyhow::Error) -> bool {
         && format!("{error:#}")
             .to_lowercase()
             .contains("session connection closed")
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    use super::*;
+
+    fn order(client: &DaemonClient, text: &str, session_command: bool) -> PromptOrder {
+        PromptOrder {
+            client: client.clone(),
+            active_session_id: "s1".to_string(),
+            session_id: "durable-1".to_string(),
+            text: text.to_string(),
+            behavior: SubmitBehavior::Steer,
+            images: None,
+            stashed_images: Vec::new(),
+            stash_to_restore: None,
+            expected_turn_end: (!session_command).then_some(1),
+            session_command,
+            generation: 0,
+            rebind_available: true,
+        }
+    }
+
+    /// A session command whose run outlasts the ack cap (a `/compact` on a
+    /// stalled summarizer) holds the submits typed after it for the cap at
+    /// most, as the ack cap did, and still settles with its real answer
+    /// instead of a lost-ack row.
+    #[tokio::test]
+    async fn a_long_session_command_holds_later_submits_for_the_ack_cap_at_most() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let socket = dir.path().join("d.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+        // A daemon that admits a turn prompt at once and answers the
+        // session command only when the test finishes it.
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            let (reader, writer) = stream.into_split();
+            let writer = std::sync::Arc::new(tokio::sync::Mutex::new(writer));
+            let mut reader = BufReader::new(reader);
+            let mut hello = json!({
+                "type": "daemon_hello",
+                "protocol": { "name": "eukhe.daemon", "version": 7 },
+                "clientId": "srv",
+                "serverCapabilities": [],
+            })
+            .to_string();
+            hello.push('\n');
+            writer
+                .lock()
+                .await
+                .write_all(hello.as_bytes())
+                .await
+                .expect("hello");
+            let mut finish = Some(finish_rx);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let envelope: Value = serde_json::from_str(line.trim()).expect("envelope");
+                if envelope["command"]["type"] != "prompt" {
+                    continue;
+                }
+                let mut answer = json!({
+                    "type": "response",
+                    "id": envelope["id"],
+                    "command": "prompt",
+                    "success": true,
+                    "data": {},
+                })
+                .to_string();
+                answer.push('\n');
+                let writer = std::sync::Arc::clone(&writer);
+                let hold = (envelope["command"]["message"] == "/compact")
+                    .then(|| finish.take())
+                    .flatten();
+                tokio::spawn(async move {
+                    if let Some(hold) = hold {
+                        let _ = hold.await;
+                    }
+                    let _ = writer.lock().await.write_all(answer.as_bytes()).await;
+                });
+            }
+        });
+        let (client, _events) = DaemonClient::connect(&socket).await.expect("connect");
+        let (orders_tx, orders_rx) = mpsc::unbounded_channel();
+        let (notes_tx, mut notes) = mpsc::unbounded_channel();
+        tokio::spawn(SessionUi::prompt_submit_worker(orders_rx, notes_tx));
+        orders_tx
+            .send(order(&client, "/compact", true))
+            .expect("order the command");
+        orders_tx
+            .send(order(&client, "after the command", false))
+            .expect("order the turn prompt");
+
+        let bound = Duration::from_millis(UI_REQUEST_TIMEOUT_MS + 10_000);
+        let first = tokio::time::timeout(bound, notes.recv())
+            .await
+            .expect("the later submit settled within the ack cap")
+            .expect("a note");
+        assert_eq!(first.text, "after the command");
+        assert!(first.result.is_ok(), "{:?}", first.result);
+        assert!(
+            notes.try_recv().is_err(),
+            "the command is still running: no lost-ack row"
+        );
+
+        finish_tx.send(()).expect("finish the command");
+        let command = tokio::time::timeout(Duration::from_secs(10), notes.recv())
+            .await
+            .expect("the command settled")
+            .expect("a note");
+        assert_eq!(command.text, "/compact");
+        assert!(command.result.is_ok(), "{:?}", command.result);
+        client.close();
+    }
 }
