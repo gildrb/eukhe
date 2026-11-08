@@ -184,11 +184,6 @@ def orphan_absent_fold(evs: List<&2, Or.Ev>, a: Nat) -> Nat:
 def orphan_absent(a: Nat, evs: List<&2, Or.Ev>) -> Nat:
   orphan_absent_fold(evs, a)
 
-# the live state a history means, from a fresh worker (no run, nothing
-# queued, no compaction, 0 ms absent)
-def orphan_state(+evs: List<&2, Or.Ev>) -> Or.W:
-  Or.W{orphan_run_open(False{}, evs), orphan_queued(0n, evs), orphan_compact_open(False{}, evs), orphan_absent(0n, evs)}
-
 # whether the worker holds work after the history: a run open, a
 # compaction open, or an input queued
 def orphan_busy(+evs: List<&2, Or.Ev>) -> Bool:
@@ -220,34 +215,282 @@ def orphan_work_of(busy: Bool) -> Or.Work:
     case True{}:
       Or.Ongoing{}
 
-# due: the exit with the work held (closes the session without work, hands
-# it over busy with work, aborts nothing); not due: the worker lives on in w
-def orphan_after_by(due: Bool, +busy: Bool, w: Or.W) -> Or.St:
-  match due:
-    case True{}:
-      Or.Exited{Or.Out{orphan_exit_spec(orphan_work_of(busy)), orphan_work_of(busy), busy, False{}}}
-    case False{}:
-      Or.Live{w}
+# The worker's state, declared by what its history contains
+# ---------------------------------------------------------
+#
+# No step-by-step state: each field is a property of the whole history,
+# read over what comes after each event (docs/daemon.md D1: runs and
+# compactions start and end, inputs are queued and drained, the supervisor
+# stays away g more ms or answers).
 
-# what the worker is after the history evs, when it was live before its
-# last event
-def orphan_after(+window: Nat, +evs: List<&2, Or.Ev>) -> Or.St:
-  orphan_after_by(orphan_due(window, evs), orphan_busy(evs), orphan_state(evs))
+# which events start and end a run, a compaction
+def orphan_starts_run(e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      True{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      False{}
+    case Or.Drain{}:
+      False{}
+    case Or.CompactStart{}:
+      False{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      False{}
+    case Or.Back{}:
+      False{}
 
-# LAW orphan_live_state: a live worker's state is what its history says: a run is open
-# exactly when a run start came after the last run end, a compaction
-# likewise, the inputs queued are the queues less the drains (a drain of
-# none takes nothing), the ms absent are the sum of the absences since
-# the supervisor last answered (any window, any history)
+def orphan_ends_run(e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      False{}
+    case Or.RunEnd{}:
+      True{}
+    case Or.Queue{}:
+      False{}
+    case Or.Drain{}:
+      False{}
+    case Or.CompactStart{}:
+      False{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      False{}
+    case Or.Back{}:
+      False{}
+
+def orphan_starts_compaction(e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      False{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      False{}
+    case Or.Drain{}:
+      False{}
+    case Or.CompactStart{}:
+      True{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      False{}
+    case Or.Back{}:
+      False{}
+
+def orphan_ends_compaction(e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      False{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      False{}
+    case Or.Drain{}:
+      False{}
+    case Or.CompactStart{}:
+      False{}
+    case Or.CompactEnd{}:
+      True{}
+    case Or.Gone{g}:
+      False{}
+    case Or.Back{}:
+      False{}
+
+# whether no event of the history ends a run
+def orphan_no_run_end(evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(Bool.not(orphan_ends_run(e)), orphan_no_run_end(rest))
+
+# whether a run is open after the history: some run start of it has no
+# run end after it
+def orphan_run_unended(evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      False{}
+    case e <> +rest:
+      Bool.or(Bool.and(orphan_starts_run(e), orphan_no_run_end(rest)), orphan_run_unended(rest))
+
+# whether no event of the history ends a compaction
+def orphan_no_compaction_end(evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(Bool.not(orphan_ends_compaction(e)), orphan_no_compaction_end(rest))
+
+# whether a compaction is open after the history: some compaction start of
+# it has no compaction end after it
+def orphan_compaction_unended(evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      False{}
+    case e <> +rest:
+      Bool.or(Bool.and(orphan_starts_compaction(e), orphan_no_compaction_end(rest)), orphan_compaction_unended(rest))
+
+# a queue counts 1, any other event 0
+def orphan_one_queue(e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      0n
+    case Or.RunEnd{}:
+      0n
+    case Or.Queue{}:
+      1n
+    case Or.Drain{}:
+      0n
+    case Or.CompactStart{}:
+      0n
+    case Or.CompactEnd{}:
+      0n
+    case Or.Gone{g}:
+      0n
+    case Or.Back{}:
+      0n
+
+# a drain counts 1, any other event 0
+def orphan_one_drain(e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      0n
+    case Or.RunEnd{}:
+      0n
+    case Or.Queue{}:
+      0n
+    case Or.Drain{}:
+      1n
+    case Or.CompactStart{}:
+      0n
+    case Or.CompactEnd{}:
+      0n
+    case Or.Gone{g}:
+      0n
+    case Or.Back{}:
+      0n
+
+# the queues of the history
+def orphan_queues(evs: List<&2, Or.Ev>) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case e <> rest:
+      Nat.add(orphan_one_queue(e), orphan_queues(rest))
+
+# the drains of the history
+def orphan_drains(evs: List<&2, Or.Ev>) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case e <> rest:
+      Nat.add(orphan_one_drain(e), orphan_drains(rest))
+
+# the inputs queued after the history: the most the queues outnumber the
+# drains by in any final stretch of it (the empty stretch, and a stretch
+# with more drains, count 0)
+def orphan_queued_most(evs: List<&2, Or.Ev>) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case +e <> +rest:
+      Nat.max(Nat.sub(orphan_queues(e <> rest), orphan_drains(e <> rest)), orphan_queued_most(rest))
+
+# the ms of an absence, 0 for any other event
+def orphan_gone_ms(e: Or.Ev) -> Nat:
+  match e:
+    case Or.RunStart{}:
+      0n
+    case Or.RunEnd{}:
+      0n
+    case Or.Queue{}:
+      0n
+    case Or.Drain{}:
+      0n
+    case Or.CompactStart{}:
+      0n
+    case Or.CompactEnd{}:
+      0n
+    case Or.Gone{g}:
+      g
+    case Or.Back{}:
+      0n
+
+# whether the event is the supervisor's answer
+def orphan_answers(e: Or.Ev) -> Bool:
+  match e:
+    case Or.RunStart{}:
+      False{}
+    case Or.RunEnd{}:
+      False{}
+    case Or.Queue{}:
+      False{}
+    case Or.Drain{}:
+      False{}
+    case Or.CompactStart{}:
+      False{}
+    case Or.CompactEnd{}:
+      False{}
+    case Or.Gone{g}:
+      False{}
+    case Or.Back{}:
+      True{}
+
+# whether no event of the history is the supervisor's answer
+def orphan_no_answer(evs: List<&2, Or.Ev>) -> Bool:
+  match evs:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(Bool.not(orphan_answers(e)), orphan_no_answer(rest))
+
+# the ms absent after the history: the sum of the absences the supervisor
+# did not answer after
+def orphan_unanswered_ms(evs: List<&2, Or.Ev>) -> Nat:
+  match evs:
+    case Nil{}:
+      0n
+    case e <> +rest:
+      Nat.add(Bool.pick(Nat, orphan_no_answer(rest), orphan_gone_ms(e), 0n), orphan_unanswered_ms(rest))
+
+# the state the history declares
+def orphan_declared(+evs: List<&2, Or.Ev>) -> Or.W:
+  Or.W{orphan_run_unended(evs), orphan_queued_most(evs), orphan_compaction_unended(evs), orphan_unanswered_ms(evs)}
+
+# whether the history declares work: a run open, a compaction open, or an
+# input queued
+def orphan_declared_busy(+evs: List<&2, Or.Ev>) -> Bool:
+  Bool.or(orphan_run_unended(evs), Bool.or(orphan_compaction_unended(evs), Nat.is_lt(0n, orphan_queued_most(evs))))
+
+# whether the worker exited
+def orphan_exited(s: Or.St) -> Bool:
+  match s:
+    case Or.Live{w}:
+      False{}
+    case Or.Exited{d}:
+      True{}
+
+# LAW orphan_live_by_history: a live worker's state is what its history declares: a run is
+# open exactly when some run start of the history has no run end after it,
+# a compaction likewise; the inputs queued are the most the queues
+# outnumber the drains by in any final stretch of the history (so a drain
+# of none takes nothing, and no more stay queued than were queued); the ms
+# absent are the sum of the absences the supervisor did not answer after
+# (any window, any history)
 # EXCLUDES: a run or compaction its end does not close (or another event
-# opens or closes), a lost, invented or underflowed queued input, a lost
-# or ignored absence, an absence kept past the supervisor's answer
-law orphan_live_state:
+#   opens or closes), a lost, invented or underflowed queued input, a drain
+#   of none kept as a debt against later queues, a lost or ignored
+#   absence, an absence kept past the supervisor's answer
+law orphan_live_by_history:
   for +window: Nat
   for +evs: List<&2, Or.Ev>
   for +w: Or.W
   for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
-  {w == orphan_state(evs) : Or.W}
+  {w == orphan_declared(evs) : Or.W}
 
 # LAW orphan_live_not_due: a live worker never skipped a due exit: the exit check after its
 # last event was not due (the empty history is unchecked: no event, no exit
@@ -261,19 +504,36 @@ law orphan_live_not_due:
   for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
   {orphan_due(window, evs) == False{} : Bool}
 
-# LAW orphan_next_by_history: one more event after a live history: when the exit is due on the
-# longer history the worker exits, closing the session without work and
-# handing it over busy with work, aborting nothing; else it lives on with
-# the state of the longer history
-# EXCLUDES: an early or missed exit, an exit with the wrong work, way,
-# busy flag or abort, a wrong next state
-law orphan_next_by_history:
+# LAW orphan_exits_when_due: one more event after a live history exits the worker exactly when
+# the exit is due on the longer history, read from what that history
+# declares: without work (no run or compaction open, no input queued) once
+# its unanswered absence reaches the window, with work once it reaches two
+# windows
+# EXCLUDES: an early or missed exit, an exit check on a wrong work or
+#   absence, a worker that exits on a not due check or lives past a due one
+law orphan_exits_when_due:
   for +window: Nat
   for +evs: List<&2, Or.Ev>
   for +e: Or.Ev
   for +w: Or.W
   for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
-  {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == orphan_after(window, List.append(&2, Or.Ev, evs, [e])) : Or.St}
+  {orphan_exited(Or.run(window, List.append(&2, Or.Ev, evs, [e]))) == orphan_due_by(window, orphan_declared_busy(List.append(&2, Or.Ev, evs, [e])), orphan_unanswered_ms(List.append(&2, Or.Ev, evs, [e]))) : Bool}
+
+# LAW orphan_exit_holds_work: when one more event exits a live worker, the exit records the work
+# the longer history declares: without work it closes the session idle,
+# with work it hands it over and records the session busy; it aborts
+# nothing either way
+# EXCLUDES: an exit that drops, invents or misreports the work, a close of
+#   a session with work, a handover of nothing, an abort
+law orphan_exit_holds_work:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  for +e: Or.Ev
+  for +w: Or.W
+  for live: {Or.run(window, evs) == Or.Live{w} : Or.St}
+  for +d: Or.Out
+  for out: {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == Or.Exited{d} : Or.St}
+  {d == Or.Out{orphan_exit_spec(orphan_work_of(orphan_declared_busy(List.append(&2, Or.Ev, evs, [e])))), orphan_work_of(orphan_declared_busy(List.append(&2, Or.Ev, evs, [e]))), orphan_declared_busy(List.append(&2, Or.Ev, evs, [e])), False{}} : Or.Out}
 
 # LAW orphan_exited_stays: an exited worker stays exited with the same outcome, whatever the
 # next event
@@ -286,16 +546,6 @@ law orphan_exited_stays:
   for +d: Or.Out
   for out: {Or.run(window, evs) == Or.Exited{d} : Or.St}
   {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == Or.Exited{d} : Or.St}
-
-# LAW orphan_starts_live: before any event a worker lives with no run, nothing queued, no
-# compaction and no absence, for every window (the exit check runs only
-# after an event)
-# EXCLUDES: a worker that starts exited (or with made-up work or absence),
-#   which makes every law on a live worker vacuous and quits before its
-#   window passed
-law orphan_starts_live:
-  for +window: Nat
-  {Or.run(window, Nil{}) == Or.Live{orphan_state(Nil{})} : Or.St}
 
 # LAW orphan_history_example: anchor and witnesses, window 2: a compaction that ended, then
 # 2 ms absent, exits shut idle; a compaction still open after 2 ms stays

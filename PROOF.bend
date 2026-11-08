@@ -1154,11 +1154,11 @@ import ./proof/orphan/orphan_wire_reply.bend as POrphanWireReply
 import ./proof/orphan/orphan_ffi_decides.bend as POrphanFfiDecides
 import ./proof/orphan/orphan_ffi_malformed.bend as POrphanFfiMalformed
 import ./proof/orphan/orphan_ffi_left_over.bend as POrphanFfiLeftOver
-import ./proof/orphan/orphan_live_state.bend as POrphanLiveState
+import ./proof/orphan/orphan_live_by_history.bend as POrphanLiveByHistory
 import ./proof/orphan/orphan_live_not_due.bend as POrphanLiveNotDue
-import ./proof/orphan/orphan_next_by_history.bend as POrphanNextByHistory
+import ./proof/orphan/orphan_exits_when_due.bend as POrphanExitsWhenDue
+import ./proof/orphan/orphan_exit_holds_work.bend as POrphanExitHoldsWork
 import ./proof/orphan/orphan_exited_stays.bend as POrphanExitedStays
-import ./proof/orphan/orphan_starts_live.bend as POrphanStartsLive
 import ./proof/orphan/orphan_history_example.bend as POrphanHistoryExample
 import ./proof/orphan/orphan_ffi_answers_spelled.bend as POrphanFfiAnswersSpelled
 import ./proof/orphan/orphan_ffi_left_over_spelled.bend as POrphanFfiLeftOverSpelled
