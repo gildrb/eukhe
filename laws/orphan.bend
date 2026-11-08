@@ -287,6 +287,16 @@ law orphan_exited_stays:
   for out: {Or.run(window, evs) == Or.Exited{d} : Or.St}
   {Or.run(window, List.append(&2, Or.Ev, evs, [e])) == Or.Exited{d} : Or.St}
 
+# LAW orphan_starts_live: before any event a worker lives with no run, nothing queued, no
+# compaction and no absence, for every window (the exit check runs only
+# after an event)
+# EXCLUDES: a worker that starts exited (or with made-up work or absence),
+#   which makes every law on a live worker vacuous and quits before its
+#   window passed
+law orphan_starts_live:
+  for +window: Nat
+  {Or.run(window, Nil{}) == Or.Live{orphan_state(Nil{})} : Or.St}
+
 # LAW orphan_history_example: anchor and witnesses, window 2: a compaction that ended, then
 # 2 ms absent, exits shut idle; a compaction still open after 2 ms stays
 # live compacting; after 4 ms it exits handing over busy; a run open

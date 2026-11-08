@@ -1353,6 +1353,7 @@
     "laws/orphan.bend::orphan_live_state": "73494205af04ab4f55eeeb9f1ba91cce12492cbbc8ef46368013efe6b615ffc5",
     "laws/orphan.bend::orphan_never_aborts_resumable": "849cac1cb2cc22e3ef27141958c95bcc51e830c362abb8ce96f18fb319c32733",
     "laws/orphan.bend::orphan_next_by_history": "b66ff24e2579740c5ed205aab92cf44a91e4d151dfa766ab0fb076ac11dd8cd4",
+    "laws/orphan.bend::orphan_starts_live": "c2e2793388ab53bd4c13776c944c35047d5aa4095248171d9b11e417beabba70",
     "laws/orphan.bend::orphan_wire_reply": "ac7e4d058ba10eff2d847c00ecc0167148b9bf6e838d67228804ab5f82d96827",
     "laws/orphan.bend::orphan_wire_req_no_window": "0ea6d928898729976b9639b64f572d000607cbc2e23a00cbb85a004ee652699b",
     "laws/orphan.bend::orphan_wire_req_window": "46de8474e85fadc707bed902d6695aeb09d9f78c00e18600f9f075d9082e79e2",
