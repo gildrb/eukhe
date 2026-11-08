@@ -372,6 +372,27 @@ law replace_daemons_exact:
   for +ss: List<&2, Rp.Start>
   {Rp.daemons(ss) == rp_daemons_spec(ss) : List<&2, Rp.Build>}
 
+# LAW replace_replaces_exact: whether one start replaces the running daemon is exactly
+# rp_replaces_spec: 0 when no daemon runs; else 1 when
+# verdict_spec(rel_spec(c, b), k) is Replace (an interactive start of a
+# build that ranks above the running b), else 0
+# EXCLUDES: a per-start replaces that counts a background start, or a start
+#   on a newer, equal or other build, while the history count replaced
+#   stays right (an adversary found this gap)
+law replace_replaces_exact:
+  for +s: Rp.Start
+  for +d: Maybe<&2, Rp.Build>
+  {Rp.replaces(s, d) == rp_replaces_spec(s, d) : Nat}
+
+# LAW replace_replaces_example: anchor: the adversary's input: with o (0.9.9-main.46, rank
+# [0, 9, 0, 9]) running, a background start of n (0.10.40, rank
+# [0, 10, 1, 40]) replaces nothing and an interactive one replaces o; with
+# no daemon running, no start replaces
+# EXCLUDES: every caller treated as interactive, a replacement counted
+#   when no daemon runs
+law replace_replaces_example:
+  {[Rp.replaces(Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Background{}}, Some{Rp.Build{[0n, 9n, 0n, 9n], "o"}}), Rp.replaces(Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}, Some{Rp.Build{[0n, 9n, 0n, 9n], "o"}}), Rp.replaces(Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}, None{})] == [0n, 1n, 0n] : List<&2, Nat>}
+
 # LAW replace_replaced_exact: the count of replacements is exactly the starts whose spec verdict on
 # the running daemon is Replace
 # EXCLUDES: a count that misses or invents a replacement (a replacements

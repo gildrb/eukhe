@@ -1659,6 +1659,8 @@
     "laws/replace.bend::replace_rank_reads_semver": "ae0b5b0ba1694cd480725dd17959fc3c836d1c3cfe668e883dcd6ae6430f8862",
     "laws/replace.bend::replace_relation_exact": "e9017771efc4eab02a6f0626664d51a6e7080aaaca4c7e08ba4434733d33790e",
     "laws/replace.bend::replace_replaced_exact": "3ebc9df76310de1844f56206cb8917d9353995c9adafe97a39d973443f75571b",
+    "laws/replace.bend::replace_replaces_exact": "25893101db989f5ccec2107d5858ff2b9f9be24772835fe92e9cded508bc8da1",
+    "laws/replace.bend::replace_replaces_example": "a08546cdcdf7de43f6bdc3d205f62ea671b221e67020257027d0791c21fa60aa",
     "laws/replace.bend::replace_verdict_exact": "7f225f43276f04a99a13b845a0102b6d150f4d45aa4640a5d35d74189440fd78",
     "laws/replace.bend::replacement_terminates": "c2066a85a601a2c0cded9000798d32368e044f6a736b1bfc77d503d1145eaf12",
     "laws/replace.bend::replacement_terminates_any": "e3a04a50e7b244cd5762a91dac0b0aaec60905ef1a5aa55ca825a48b056c79b4",
