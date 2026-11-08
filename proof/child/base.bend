@@ -345,6 +345,26 @@ def pc.K_run(evs: List<&2, Ch.Ev>, +cfg: Ch.Cfg, +s: Ch.St, k: {pc.K(s) == True{
     case +e <> t:
       pc.K_run(t, cfg, Ch.step(cfg, s, e), pc.K_step(cfg, s, e, k))
 
+# the stall clock is the same for l ms left and e elapsed as for one more of each
+def pc.spent_succ(b: Bool, +tok: Maybe<&2, Nat>, +p: Nat, +f: Nat, +n: Nat) -> {Child.ChildSpent(b, tok, p, f, n) == Child.ChildSpent(b, tok, 1n+p, 1n+f, n) : Ch.Next}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# spending e of the l ms left is the clock Child.ChildSpends names
+def pc.spends(+l: Nat, +e: Nat, +tok: Maybe<&2, Nat>, +n: Nat) -> {Ch.spend(Nat.sub(l, e), tok, n) == Child.ChildSpends(tok, l, e, n) : Ch.Next}:
+  match l e:
+    case 0n 0n:
+      {==}
+    case 0n 1n+f:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+f:
+      Equal.trans(Ch.Next, Ch.spend(Nat.sub(p, f), tok, n), Child.ChildSpent(Nat.is_le(p, f), tok, p, f, n), Child.ChildSpent(Nat.is_le(p, f), tok, 1n+p, 1n+f, n), pc.spends(p, f, tok, n), pc.spent_succ(Nat.is_le(p, f), tok, p, f, n))
+
 def pw6.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
   Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Wire.wire_bool_round_trip(b, rest))
 

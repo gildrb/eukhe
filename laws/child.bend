@@ -52,6 +52,78 @@ law child_progress_is_not_a_stall:
   for news: {Ch.moved(Ch.W.tok(w), Some{x}) == True{} : Bool}
   {Ch.look(cfg, w, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W.fresh(cfg, Some{x})} : Ch.Next}
 
+# the clock after a poll with no progress that took e ms, the watch
+# holding token tok with l ms left, `over` when e reached l: a stall; else
+# the watch goes on holding tok with e ms fewer left and n failed polls left
+def ChildSpent(over: Bool, tok: Maybe<&2, Nat>, +l: Nat, +e: Nat, +n: Nat) -> Ch.Next:
+  match over:
+    case True{}:
+      Ch.Owe{Ch.Stalled{}}
+    case False{}:
+      Ch.Watch{Ch.W{tok, Nat.sub(l, e), n}}
+
+def ChildSpends(tok: Maybe<&2, Nat>, +l: Nat, +e: Nat, +n: Nat) -> Ch.Next:
+  ChildSpent(Nat.is_le(l, e), tok, l, e, n)
+
+# LAW child_quiet_poll_spends_time: a poll that reads the child unsettled
+# with the token the watch holds (no news) and took e ms since the last
+# spends those e ms: when the ms left are at most e the watch ends owing a
+# stalled report; else it goes on holding the same token, e ms fewer left,
+# and its failed polls in a row back to full (this poll answered). This is
+# the decision the task runs (`look`, which `verdict` and the entry
+# carry), so a child hung while reporting busy is stalled in time
+# EXCLUDES: a busy poll with no news that keeps the clock (spends 0 ms),
+#   spends a wrong amount, refills the ms left, changes the token, or
+#   keeps the failed polls in a row
+law child_quiet_poll_spends_time:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  {Ch.look(cfg, w, e, Ch.Busy{Ch.W.tok(w)}) == ChildSpends(Ch.W.tok(w), Ch.W.left(w), e, Ch.Cfg.fails(cfg)) : Ch.Next}
+
+# the verdict on a failed poll that took e ms, the watch holding token
+# tok, l ms and n tries left, `last` when at most one try is left:
+# unreachable; else the e ms are spent as on a quiet poll, one try fewer
+# left
+def ChildMissed(last: Bool, tok: Maybe<&2, Nat>, +l: Nat, +e: Nat, +n: Nat) -> Ch.Next:
+  match last:
+    case True{}:
+      Ch.Owe{Ch.Unreachable{}}
+    case False{}:
+      ChildSpends(tok, l, e, Nat.sub(n, 1n))
+
+def ChildMisses(w: Ch.W, +e: Nat) -> Ch.Next:
+  match w:
+    case Ch.W{tok, +l, +n}:
+      ChildMissed(Nat.is_le(n, 1n), tok, l, e, n)
+
+# LAW child_failed_poll_spends_try_and_time: a failed poll (the probe got
+# no answer) that took e ms since the last spends one try and the e ms: on
+# the last try left (or none) the watch ends owing an unreachable report;
+# else when the ms left are at most e it ends owing a stalled report; else
+# it goes on holding the same token, e ms fewer and one try fewer left.
+# This is the decision the task runs (`look`), so a child that stops
+# answering is unreachable in time
+# EXCLUDES: a failed poll that keeps or refills the tries, spends no or a
+#   wrong amount of ms, reports stalled on the last try, or changes the
+#   token
+law child_failed_poll_spends_try_and_time:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  {Ch.look(cfg, w, e, Ch.Lost{}) == ChildMisses(w, e) : Ch.Next}
+
+# LAW child_quiet_poll_example: anchor, on the bytes Rust sends: settings
+# stall 5, fails 2; clock token 7, 1 ms left, 2 tries; 1 ms elapsed; a
+# busy poll with token 7 (no news) in inbox mode reports stalled; with 3
+# ms left it watches on with 2 ms left and the tries full; a failed poll
+# on 3 ms and 3 tries left watches on with 2 ms and 2 tries left
+# EXCLUDES: a busy poll with no news that never spends the elapsed ms (a
+#   child hung while busy watched forever), a failed poll that spends no
+#   time or no try
+law child_quiet_poll_example:
+  {[FCh.ffi("0,5,2,1,7,1,2,1,0,1,7,0,"), FCh.ffi("0,5,2,1,7,3,2,1,0,1,7,0,"), FCh.ffi("0,5,2,1,7,3,3,1,1,0,")] == ["1,3,", "0,1,7,2,2,", "0,1,7,2,2,"] : List<&2, String>}
+
 # The report laws hold after any events: task steps (polls), the parent's
 # deliveries and withdrawals of any submission id, its aborts, closes and
 # reopens, and task aborts and deletes, in any order. The parent's inbox

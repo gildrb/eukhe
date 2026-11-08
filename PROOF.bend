@@ -127,6 +127,9 @@ import ./proof/child/child_stalls_in_time.bend as PChildStallsInTime
 import ./proof/child/child_unreachable_in_time.bend as PChildUnreachableInTime
 import ./proof/child/child_clock_bounded.bend as PChildClockBounded
 import ./proof/child/child_progress_is_not_a_stall.bend as PChildProgressIsNotAStall
+import ./proof/child/child_quiet_poll_spends_time.bend as PChildQuietPollSpendsTime
+import ./proof/child/child_failed_poll_spends_try_and_time.bend as PChildFailedPollSpendsTryAndTime
+import ./proof/child/child_quiet_poll_example.bend as PChildQuietPollExample
 import ./proof/child/child_one_live.bend as PChildOneLive
 import ./proof/child/child_report_once.bend as PChildReportOnce
 import ./proof/child/child_resubmits_per_abort.bend as PChildResubmitsPerAbort

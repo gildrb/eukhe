@@ -218,6 +218,9 @@ Model: `bend/child.bend`. Clock `W`: no-progress ms left (`left`), failed polls 
 | `child_unreachable_in_time` | Failed polls in a row = tries left end the watch (H5.3). |
 | `child_clock_bounded` | Clock ≤ full: bounds `subagentStallMs` ms, `CHILD_POLL_FAILURES` polls (H5.2, H5.3). |
 | `child_progress_is_not_a_stall` | New token: full clock (H5.2). |
+| `child_quiet_poll_spends_time` | The task's own decision (`look`): a busy poll with the held token spends the elapsed ms; at or past the ms left it owes Stalled (H5.2). |
+| `child_failed_poll_spends_try_and_time` | The task's own decision (`look`): a failed poll spends one try and the elapsed ms; the last try owes Unreachable (H5.3). |
+| `child_quiet_poll_example` | Anchor on the bytes Rust sends: a hung busy child on 1 ms left reports Stalled (H5.2, H5.3). |
 | `child_repeat_is_no_work` (`laws/progress.bend`) | Repeat keeps the token (H5.2). |
 | `child_loop_is_a_stall` (`laws/progress.bend`) | All-repeat polls ≥ ms left end the watch (H5.2). |
 | `child_new_work_is_progress` (`laws/progress.bend`) | Poll after a new act: full clock (H5.2). |
