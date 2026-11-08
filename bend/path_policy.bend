@@ -355,10 +355,6 @@ def safe(+pol: Pol, r: Res) -> Bool:
 def holds_at(+pol: Pol, +at: List<&2, Nat>) -> Bool:
   Bool.or(any_under(Pol.secret(pol), at), any_ancestor(Pol.secret(pol), at))
 
-# segs is a secret or a directory that holds one
-def holds(+pol: Pol, +ls: List<&2, Link>, +segs: List<&2, Tl.Seg>) -> Bool:
-  holds_at(pol, Res.at(real(ls, segs)))
-
 # The judgment of a path the caller resolved (the one call of the Rust
 # shell and document gate): its class and whether it holds a secret
 type Judged is Data:
@@ -459,10 +455,6 @@ def Ans.yes(a: Ans) -> Bool:
 # the access runs: the auto set allows it, or the user said yes
 def runs(c: Cls, a: Acc, +auto: List<&2, Nat>, ans: Ans) -> Bool:
   Bool.or(allows(auto, effs(c, a)), Ans.yes(ans))
-
-# the gate asked the user
-def asks(c: Cls, a: Acc, +auto: List<&2, Nat>) -> Bool:
-  Bool.not(allows(auto, effs(c, a)))
 
 def Cls.inside(c: Cls) -> Bool:
   match c:

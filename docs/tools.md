@@ -263,8 +263,9 @@ requests) share it, so they cannot judge a path differently.
    its mode. A created file gets the default mode, with no execute bit.
 
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
-links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
-`run` and `guarded`). Laws: `laws/path_policy/` (`policy.bend`: the real
+links of fuel, `class`, `judge` (the class and whether the path holds a
+secret), `effs`, `secret_read`, `runs`, the store `run` and `guarded`).
+Laws: `laws/path_policy/` (`policy.bend`: the real
 path, the judgment, the store, the entry; `gate.bend`: the gate).
 Proofs: `proof/path_policy/`. Every input is free: any
 symlinks (loops too), any policy, any paths, any auto set, any answers.
