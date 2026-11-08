@@ -402,3 +402,193 @@ law dir_ffi_left_over:
 # LAW dir_req_fits_example: witness: a request fits (the premise of the laws above can hold)
 law dir_req_fits_example:
   {dir_req_fits(FDr.Req{4n, Dr.Loop{3n, [Dr.Layer{0n, 5n}], Some{Dr.Hand{}}}, [Dr.Stack{Dr.Layer{1n, 1n}}, Dr.Lead{}]}) == True{} : Bool}
+
+# The entry, spelled by the grammar Rust writes and reads
+# (crates/eukhe-core/src/durable/directors/stack.rs `Loop::tick` and
+# `read_loop`), not by the entry's own encoders
+
+# a layer: its kind, then its budget
+def dir_spell_layer(l: Dr.Layer, rest: String) -> String:
+  match l:
+    case Dr.Layer{k, b}:
+      Wr.put_nat(k, Wr.put_nat(b, rest))
+
+# the layers of xs, each spelled, then rest
+def dir_spell_layers.items(xs: List<&2, Dr.Layer>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      dir_spell_layer(x, dir_spell_layers.items(t, rest))
+
+# a stack (top first): its count, then each layer
+def dir_spell_layers(+xs: List<&2, Dr.Layer>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Dr.Layer, xs), dir_spell_layers.items(xs, rest))
+
+# a verdict: Defer 0, Again 1, Yield 2, Stack 3 then the pushed layer,
+# Leave 4, Abort 5, Lead 6
+def dir_spell_verdict(v: Dr.Verdict, rest: String) -> String:
+  match v:
+    case Dr.Defer{}:
+      Wr.put_nat(0n, rest)
+    case Dr.Again{}:
+      Wr.put_nat(1n, rest)
+    case Dr.Yield{}:
+      Wr.put_nat(2n, rest)
+    case Dr.Stack{l}:
+      Wr.put_nat(3n, dir_spell_layer(l, rest))
+    case Dr.Leave{}:
+      Wr.put_nat(4n, rest)
+    case Dr.Abort{}:
+      Wr.put_nat(5n, rest)
+    case Dr.Lead{}:
+      Wr.put_nat(6n, rest)
+
+# the verdicts of xs, each spelled, then rest
+def dir_spell_verdicts.items(xs: List<&2, Dr.Verdict>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      dir_spell_verdict(x, dir_spell_verdicts.items(t, rest))
+
+# the verdicts (top first): their count, then each verdict
+def dir_spell_verdicts(+xs: List<&2, Dr.Verdict>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Dr.Verdict, xs), dir_spell_verdicts.items(xs, rest))
+
+# an outcome: Cont 0, Hand 1, Failed 2
+def dir_spell_out(o: Dr.Out, rest: String) -> String:
+  match o:
+    case Dr.Cont{}:
+      Wr.put_nat(0n, rest)
+    case Dr.Hand{}:
+      Wr.put_nat(1n, rest)
+    case Dr.Failed{}:
+      Wr.put_nat(2n, rest)
+
+# how a loop ended: 0 running, 1 then the outcome
+def dir_spell_end(m: Maybe<&2, Dr.Out>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{o}:
+      Wr.put_nat(1n, dir_spell_out(o, rest))
+
+# a loop: the steps left, the stack, then how it ended
+def dir_spell_loop(l: Dr.Loop, rest: String) -> String:
+  match l:
+    case Dr.Loop{n, s, e}:
+      Wr.put_nat(n, dir_spell_layers(s, dir_spell_end(e, rest)))
+
+# a request: the cap, the loop, then the verdicts
+def dir_spell_req(q: FDr.Req, rest: String) -> String:
+  match q:
+    case FDr.Req{c, l, vs}:
+      Wr.put_nat(c, dir_spell_loop(l, dir_spell_verdicts(vs, rest)))
+
+# the spelled reply of the model's step on request q: the loop after the
+# tick
+def dir_spell_answer(q: FDr.Req) -> String:
+  match q:
+    case FDr.Req{c, l, vs}:
+      dir_spell_loop(Dr.tick(c, l, vs), "")
+
+# LAW dir_ffi_answers_spelled: a request spelled by the grammar, every number within the wire,
+# is answered with the grammar's spelling of the loop after the model's
+# step (Dr.tick of the cap, the loop and the verdicts)
+# EXCLUDES: a verdict, outcome or end tag, a field order or a list count
+#   that drifts from the grammar Rust reads and writes (swapped on both
+#   sides of the entry alike); a field lost, swapped or defaulted
+law dir_ffi_answers_spelled:
+  for +q: FDr.Req
+  for fits: {dir_req_fits(q) == True{} : Bool}
+  {FDr.ffi(dir_spell_req(q, "")) == dir_spell_answer(q) : String}
+
+# LAW dir_ffi_left_over_spelled: a spelled request that fits, followed by any more input, answers
+# the error form "director: input left over"
+# EXCLUDES: trailing input ignored, read as part of the request, or
+#   answered with the malformed error
+law dir_ffi_left_over_spelled:
+  for +q: FDr.Req
+  for fits: {dir_req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FDr.ffi(dir_spell_req(q, SCon{c, t})) == Wr.err("director: input left over") : String}
+
+# LAW dir_ffi_unknown_verdict: a spelled cap and loop that fit, then a verdict count that fits
+# and spelled verdicts that fit, fewer than the count, then a verdict tag of
+# 7 or more (of any length), answer the error form "director: malformed
+# request", whatever follows
+# EXCLUDES: an unknown verdict tag, at any place of the list, read as a
+#   known verdict, skipped, or answered with another error
+law dir_ffi_unknown_verdict:
+  for +c: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for +m: Nat
+  for fits: {Bool.and(Bool.and(LawsBase.wire_fits(c), dir_loop_fits(l)), Bool.and(LawsBase.wire_fits(Nat.add(List.length(&2, Dr.Verdict, vs), 1n+m)), dir_verdicts_fit(vs))) == True{} : Bool}
+  for +n: Nat
+  for +rest: String
+  {FDr.ffi(Wr.put_nat(c, dir_spell_loop(l, Wr.put_nat(Nat.add(List.length(&2, Dr.Verdict, vs), 1n+m), dir_spell_verdicts.items(vs, Wr.put_nat(7n+n, rest)))))) == Wr.err("director: malformed request") : String}
+
+# LAW dir_ffi_unknown_end: a spelled cap, steps left and stack that fit, then an end tag of 2 or
+# more (of any length), answer the error form "director: malformed
+# request", whatever follows
+# EXCLUDES: an unknown end tag read as a running or an ended loop
+law dir_ffi_unknown_end:
+  for +c: Nat
+  for +left: Nat
+  for +s: List<&2, Dr.Layer>
+  for fits: {Bool.and(LawsBase.wire_fits(c), dir_loop_fits(Dr.Loop{left, s, None{}})) == True{} : Bool}
+  for +n: Nat
+  for +rest: String
+  {FDr.ffi(Wr.put_nat(c, Wr.put_nat(left, dir_spell_layers(s, Wr.put_nat(2n+n, rest))))) == Wr.err("director: malformed request") : String}
+
+# LAW dir_ffi_unknown_out: a spelled cap, steps left and stack that fit, an ended loop, then an
+# outcome tag of 3 or more (of any length), answer the error form
+# "director: malformed request", whatever follows
+# EXCLUDES: an unknown outcome read as a continue, a hand back or a failure
+law dir_ffi_unknown_out:
+  for +c: Nat
+  for +left: Nat
+  for +s: List<&2, Dr.Layer>
+  for fits: {Bool.and(LawsBase.wire_fits(c), dir_loop_fits(Dr.Loop{left, s, None{}})) == True{} : Bool}
+  for +n: Nat
+  for +rest: String
+  {FDr.ffi(Wr.put_nat(c, Wr.put_nat(left, dir_spell_layers(s, Wr.put_nat(1n, Wr.put_nat(3n+n, rest)))))) == Wr.err("director: malformed request") : String}
+
+# LAW dir_ffi_reads_only_requests: an answer that is not the error form answers a request: the
+# input is exactly the spelling of a request whose numbers fit the wire,
+# and the answer is the spelled loop after the model's step
+# EXCLUDES: a decoder that accepts an unknown tag (verdict, end or
+#   outcome), a count larger or smaller than its items, a missing or extra
+#   field, or input left over, and answers it anyway (a default instead of
+#   the error form)
+law dir_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FDr.ffi(s)) == False{} : Bool}
+  exs q: FDr.Req
+  {(s, (dir_req_fits(q), FDr.ffi(s))) == (dir_spell_req(q, ""), (True{}, dir_spell_answer(q))) : String & (Bool & String)}
+
+# LAW dir_ffi_malformed_unless_request: every answer but the error form "director: malformed
+# request" comes from an input that begins with a spelled request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law dir_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FDr.ffi(s), Wr.err("director: malformed request")) == False{} : Bool}
+  exs q: FDr.Req
+  exs rest: String
+  {(s, dir_req_fits(q)) == (dir_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW dir_ffi_tags_example: anchor: the bytes Rust sends and reads: cap 4, 3 steps left, a
+# reminder (kind 1, no budget) over a goal (kind 0, budget 5), running;
+# Lead then Again: the reminder leaves with the continuation (2,1,0,4,0,);
+# Lead then Yield: the reminder stays, handed back (3,2,1,0,0,5,1,1,);
+# cap 1, a Stack with no room fails and costs one unit (3,1,0,4,1,2,); an
+# ended loop stays; verdict tag 7, end tag 2 and outcome tag 3 are
+# malformed; a request with input left over is refused
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, a stack read bottom first, an unknown tag read as a known one
+law dir_ffi_tags_example:
+  {[FDr.ffi("4,3,2,1,0,0,5,0,2,6,1,"), FDr.ffi("4,3,2,1,0,0,5,0,2,6,2,"), FDr.ffi("1,3,1,0,5,0,1,3,1,1,"), FDr.ffi("4,3,0,1,2,1,1,"), FDr.ffi("4,3,0,0,1,7,"), FDr.ffi("4,3,0,2,0,"), FDr.ffi("4,3,0,1,3,0,"), FDr.ffi("4,3,0,0,0,x")] == ["2,1,0,4,0,", "3,2,1,0,0,5,1,1,", "3,1,0,4,1,2,", "3,0,1,2,", Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: malformed request"), Wr.err("director: input left over")] : List<&2, String>}

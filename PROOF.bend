@@ -437,6 +437,14 @@ import ./proof/director/dir_ffi_is_tick.bend as PDirFfiIsTick
 import ./proof/director/dir_ffi_malformed.bend as PDirFfiMalformed
 import ./proof/director/dir_ffi_left_over.bend as PDirFfiLeftOver
 import ./proof/director/dir_req_fits_example.bend as PDirReqFitsExample
+import ./proof/director/dir_ffi_answers_spelled.bend as PDirFfiAnswersSpelled
+import ./proof/director/dir_ffi_left_over_spelled.bend as PDirFfiLeftOverSpelled
+import ./proof/director/dir_ffi_unknown_verdict.bend as PDirFfiUnknownVerdict
+import ./proof/director/dir_ffi_unknown_end.bend as PDirFfiUnknownEnd
+import ./proof/director/dir_ffi_unknown_out.bend as PDirFfiUnknownOut
+import ./proof/director/dir_ffi_reads_only_requests.bend as PDirFfiReadsOnlyRequests
+import ./proof/director/dir_ffi_malformed_unless_request.bend as PDirFfiMalformedUnlessRequest
+import ./proof/director/dir_ffi_tags_example.bend as PDirFfiTagsExample
 import ./proof/infer/base.bend as LAInfer
 import ./proof/infer/quirk_unknown_rejected.bend as PQuirkUnknownRejected
 import ./proof/infer/quirk_clash_rejected.bend as PQuirkClashRejected
