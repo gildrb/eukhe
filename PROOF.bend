@@ -2104,6 +2104,7 @@ import ./proof/wire_ffi/wire_ffi_refuses.bend as PWireFfiRefuses
 import ./proof/wire_ffi/wire_ffi_example.bend as PWireFfiExample
 import ./proof/wire_ffi/wire_ffi_fits_witness.bend as PWireFfiFitsWitness
 import ./proof/echo/base.bend as LAEcho
+import ./proof/echo/echo_ffi_identity.bend as PEchoFfiIdentity
 import ./proof/echo/echo_stepper_counts.bend as PEchoStepperCounts
 import ./proof/echo/echo_stepper_refused.bend as PEchoStepperRefused
 import ./proof/echo/echo_example.bend as PEchoExample

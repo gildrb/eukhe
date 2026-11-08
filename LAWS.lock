@@ -939,6 +939,7 @@
     "laws/doc_tags.bend::tags_entry_reads": "1b07818dbc5665309d25bd717c870846ca8250d65ac57752e67803f1e229e244",
     "laws/doc_tags.bend::tags_entry_refuses": "83bb46eed2b959c0a5213796db61cce1107d631f182faf22910ebc8ffacbce04",
     "laws/echo.bend::echo_example": "623f197f6cb373763ce5f795334fa1556a6ae8214cde37d3f705350e7a705628",
+    "laws/echo.bend::echo_ffi_identity": "3d63cb2fc174f7d7de43a88e415de5f9c63a04d97c977ecece880e3628f09152",
     "laws/echo.bend::echo_stepper_counts": "dc3f8b280294d9b5065beb52f729bfa7729b81a9e9bdb53743d28c9116b46789",
     "laws/echo.bend::echo_stepper_refused": "0986e498959cab03eaa7e8148f7f0dd6910947b360a8f509981065ab6f1cd300",
     "laws/effort.bend::core_effort_answers_spelled": "4138d65e9681956ec3ec15e40cbc63197b97e964c346ad9e15abeb7846c064ef",
