@@ -517,6 +517,12 @@ import ./proof/tools/tools_ffi_request_round_trip.bend as PToolsFfiRequestRoundT
 import ./proof/tools/tools_ffi_answers.bend as PToolsFfiAnswers
 import ./proof/tools/tools_ffi_rejects_malformed.bend as PToolsFfiRejectsMalformed
 import ./proof/tools/tools_ffi_rejects_left_over.bend as PToolsFfiRejectsLeftOver
+import ./proof/tools/tools_ffi_reads_only_requests/nats.bend as LAToolsFfiReadsOnlyRequestsNats
+import ./proof/tools/tools_ffi_answers_spelled.bend as PToolsFfiAnswersSpelled
+import ./proof/tools/tools_ffi_left_over_spelled.bend as PToolsFfiLeftOverSpelled
+import ./proof/tools/tools_ffi_reads_only_requests.bend as PToolsFfiReadsOnlyRequests
+import ./proof/tools/tools_ffi_malformed_unless_request.bend as PToolsFfiMalformedUnlessRequest
+import ./proof/tools/tools_ffi_tags_example.bend as PToolsFfiTagsExample
 import ./proof/tools/gate_prefix.bend as PGatePrefix
 import ./proof/tools/gate_needs_yes.bend as PGateNeedsYes
 import ./proof/tools/gate_deny_stops.bend as PGateDenyStops

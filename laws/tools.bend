@@ -112,6 +112,148 @@ law tools_ffi_rejects_left_over:
   for more: {String.is_empty(r) == False{} : Bool}
   {LawsBase.wire_opens_err(FTl.ffi(s)) == True{} : Bool}
 
+# The path entry, spelled
+# -----------------------
+# The entry laws above read and write through the entry's own encoders
+# (FTl.put_req, FTl.codes, FTl.put_names) and answer with Tl.resolve,
+# whose laws (path_rejects_escape, path_resolves_inside) say whether a
+# path resolves but not which names it reaches: a segment code drift both
+# sides share (Up and Here swapped, a name offset) or a walk that drops a
+# name passes them. The laws below spell the request and the reply with
+# the wire primitives as Rust writes and reads them (crates/eukhe-docs/
+# src/url.rs `resolve`): the segment codes as a wire list of Nats (0 Up
+# `..`, 1 Here `.` or empty, 2 + n the name at segment index n); the reply
+# is 0 when the path goes above its root, else 1 then the names it
+# reaches, deepest first, as a wire list of Nats.
+
+# the code Rust writes for a segment
+def tools_seg_code(g: Tl.Seg) -> Nat:
+  match g:
+    case Tl.Up{}:
+      0n
+    case Tl.Here{}:
+      1n
+    case Tl.Name{n}:
+      2n+n
+
+def tools_seg_codes(gs: List<&2, Tl.Seg>) -> List<&2, Nat>:
+  match gs:
+    case Nil{}:
+      Nil{}
+    case g <> rest:
+      tools_seg_code(g) <> tools_seg_codes(rest)
+
+# a request as Rust spells it: the segment codes, then rest
+def tools_spell_req(gs: List<&2, Tl.Seg>, rest: String) -> String:
+  LawsBase.wire_spell_nats(tools_seg_codes(gs), rest)
+
+# the count and every code of a request fit the wire
+def tools_req_fits(gs: List<&2, Tl.Seg>) -> Bool:
+  +cs = tools_seg_codes(gs)
+  Bool.and(LawsBase.wire_fits(List.length(&2, Nat, cs)), LawsBase.wire_nats_fit(cs))
+
+# `..` from the names at: one up, or above the root at the root
+def tools_up(at: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
+  match at:
+    case Nil{}:
+      None{}
+    case x <> above:
+      Some{above}
+
+# one segment taken from the names reached so far (deepest first, None
+# once the path went above its root): a name goes one below, `.` stays,
+# `..` goes one up, and `..` at the root goes above it
+def tools_seg_step(m: Maybe<&2, List<&2, Nat>>, g: Tl.Seg) -> Maybe<&2, List<&2, Nat>>:
+  match m:
+    case None{}:
+      None{}
+    case Some{at}:
+      match g:
+        case Tl.Name{n}:
+          Some{n <> at}
+        case Tl.Here{}:
+          Some{at}
+        case Tl.Up{}:
+          tools_up(at)
+
+# the names the segments reach from m, one segment after the other
+def tools_reach(gs: List<&2, Tl.Seg>, m: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
+  match gs:
+    case Nil{}:
+      m
+    case g <> rest:
+      tools_reach(rest, tools_seg_step(m, g))
+
+# the reply as Rust reads it: 0 above the root, else 1 then the names
+def tools_spell_names(m: Maybe<&2, List<&2, Nat>>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{xs}:
+      Wr.put_nat(1n, LawsBase.wire_spell_nats(xs, ""))
+
+# the spelled reply to a request: the names the path reaches from the root
+def tools_spell_answer(gs: List<&2, Tl.Seg>) -> String:
+  tools_spell_names(tools_reach(gs, Some{Nil{}}))
+
+# LAW tools_ffi_answers_spelled: a path spelled as Rust writes it, every count and code within
+# the wire, is answered as Rust reads it: 0 when a `..` goes above the
+# root, else 1 then the names it reaches, deepest first (a name goes one
+# below, `.` stays, `..` goes one up)
+# EXCLUDES: a request or reply tag drift both sides of the Bend entry share
+#   (Up and Here swapped, a name offset other than 2, the reply tags
+#   swapped), a walk that drops, reorders or keeps a name `..` leaves, a
+#   path clamped at its root instead of refused
+law tools_ffi_answers_spelled:
+  for +gs: List<&2, Tl.Seg>
+  for fits: {tools_req_fits(gs) == True{} : Bool}
+  {FTl.ffi(tools_spell_req(gs, "")) == tools_spell_answer(gs) : String}
+
+# LAW tools_ffi_left_over_spelled: a spelled path that fits, followed by any more input,
+# answers the error form "tools: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request, or
+#   answered with another error text
+law tools_ffi_left_over_spelled:
+  for +gs: List<&2, Tl.Seg>
+  for fits: {tools_req_fits(gs) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FTl.ffi(tools_spell_req(gs, SCon{c, t})) == Wr.err("tools: input left over") : String}
+
+# LAW tools_ffi_reads_only_requests: an answer that is not the error form answers a path: the
+# input is exactly the spelling of a path whose count and codes fit the
+# wire, and the answer is the spelled names it reaches
+# EXCLUDES: a decoder that accepts a short list or input left over and
+#   answers it anyway (a default instead of the error form)
+law tools_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FTl.ffi(s)) == False{} : Bool}
+  exs gs: List<&2, Tl.Seg>
+  {(s, (tools_req_fits(gs), FTl.ffi(s))) == (tools_spell_req(gs, ""), (True{}, tools_spell_answer(gs))) : String & (Bool & String)}
+
+# LAW tools_ffi_malformed_unless_request: every answer but the error form "tools: malformed
+# request" comes from an input that begins with a spelled path that fits
+# (with tools_ffi_answers_spelled and tools_ffi_left_over_spelled this
+# pins the entry's answer to every input)
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law tools_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FTl.ffi(s), Wr.err("tools: malformed request")) == False{} : Bool}
+  exs gs: List<&2, Tl.Seg>
+  exs rest: String
+  {(s, tools_req_fits(gs)) == (tools_spell_req(gs, rest), True{}) : String & Bool}
+
+# LAW tools_ffi_tags_example: anchor: the bytes Rust sends and reads: `a/../b` (codes 2, 0,
+# 4) reaches b (1 then [2]); `..` goes above the root (0); `.` and the
+# empty path reach the root (1 then []); `a/b` reaches [1, 0], deepest
+# first; `a/../..` goes above the root; a short list and empty input are
+# malformed; input after the path is left over
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust does
+#   not (segment codes, the reply's 0/1), names root first
+law tools_ffi_tags_example:
+  {[FTl.ffi("3,2,0,4,"), FTl.ffi("1,0,"), FTl.ffi("1,1,"), FTl.ffi("0,"), FTl.ffi("2,2,3,"), FTl.ffi("3,2,0,0,"), FTl.ffi("2,2,"), FTl.ffi(""), FTl.ffi("1,1,x")] == ["1,1,2,", "0,", "1,0,", "1,0,", "1,2,1,0,", "0,", Wr.err("tools: malformed request"), Wr.err("tools: malformed request"), Wr.err("tools: input left over")] : List<&2, String>}
+
 # LAW gate_prefix: the steps that ran are the script's first steps, in order
 law gate_prefix:
   for +ss: List<&2, Tl.Step>
