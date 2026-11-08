@@ -713,28 +713,30 @@ fn rate_limited_fetch(
 
 #[tokio::test(start_paused = true)]
 async fn uses_retry_after_headers_for_sse_retries() {
-    type RetryCase = (&'static str, Vec<(String, String)>, f64, f64);
-    let http_date = {
-        // `new Date(Date.now() + 45_000).toUTCString()`.
-        let target = super::super::clock_ms() + 45_000.0;
-        format_http_date(target)
-    };
+    // Each case's headers are made just before its request: the HTTP date
+    // reads the real clock, so a date made before the other cases ran
+    // would lose their real time from its 45 s.
+    type RetryCase = (&'static str, fn() -> Vec<(String, String)>, f64, f64);
     let cases: [RetryCase; 3] = [
         (
             "retry-after-ms",
-            vec![
-                ("content-type".into(), "application/json".into()),
-                ("retry-after-ms".into(), "1500".into()),
-            ],
+            || {
+                vec![
+                    ("content-type".into(), "application/json".into()),
+                    ("retry-after-ms".into(), "1500".into()),
+                ]
+            },
             1500.0,
             1500.0,
         ),
         (
             "retry-after seconds",
-            vec![
-                ("content-type".into(), "application/json".into()),
-                ("retry-after".into(), "60".into()),
-            ],
+            || {
+                vec![
+                    ("content-type".into(), "application/json".into()),
+                    ("retry-after".into(), "60".into()),
+                ]
+            },
             60_000.0,
             60_000.0,
         ),
@@ -742,17 +744,21 @@ async fn uses_retry_after_headers_for_sse_retries() {
             // The HTTP date has whole-second precision and the clock is real:
             // the delay lands within the second before the 45s target.
             "retry-after HTTP date",
-            vec![
-                ("content-type".into(), "application/json".into()),
-                ("retry-after".into(), http_date),
-            ],
+            || {
+                // `new Date(Date.now() + 45_000).toUTCString()`.
+                let target = super::super::clock_ms() + 45_000.0;
+                vec![
+                    ("content-type".into(), "application/json".into()),
+                    ("retry-after".into(), format_http_date(target)),
+                ]
+            },
             43_000.0,
             45_000.0,
         ),
     ];
     for (name, headers, min_delay, max_delay) in cases {
         let _isolation = isolate().await;
-        let (fetch, calls) = rate_limited_fetch(1, headers);
+        let (fetch, calls) = rate_limited_fetch(1, headers());
         let mut options = sse_options(fetch);
         options.request.max_retries = Some(1);
 
