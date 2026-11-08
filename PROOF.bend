@@ -175,6 +175,7 @@ import ./proof/admission/base/list.bend as LAAdmissionList
 import ./proof/admission/base/logic.bend as LAAdmissionLogic
 import ./proof/admission/base/nat.bend as LAAdmissionNat
 import ./proof/admission/base/wire.bend as LAAdmissionWire
+import ./proof/admission/base/spell.bend as LAAdmissionSpell
 import ./proof/admission/admission_preempts.bend as PAdmissionPreempts
 import ./proof/admission/admission_capacity.bend as PAdmissionCapacity
 import ./proof/admission/admission_no_lost_wakeup.bend as PAdmissionNoLostWakeup
@@ -208,6 +209,19 @@ import ./proof/admission/adw_live_example.bend as PAdwLiveExample
 import ./proof/admission/adw_op_example.bend as PAdwOpExample
 import ./proof/admission/adw_open_example.bend as PAdwOpenExample
 import ./proof/admission/adw_malformed_example.bend as PAdwMalformedExample
+import ./proof/admission/adw_open_answers_spelled.bend as PAdwOpenAnswersSpelled
+import ./proof/admission/adw_open_left_over_spelled.bend as PAdwOpenLeftOverSpelled
+import ./proof/admission/adw_open_unknown_lim.bend as PAdwOpenUnknownLim
+import ./proof/admission/adw_open_malformed_unless_request.bend as PAdwOpenMalformedUnlessRequest
+import ./proof/admission/adw_open_refused_shut.bend as PAdwOpenRefusedShut
+import ./proof/admission/adw_open_reads_only_requests.bend as PAdwOpenReadsOnlyRequests
+import ./proof/admission/adw_step_answers_spelled.bend as PAdwStepAnswersSpelled
+import ./proof/admission/adw_step_left_over_spelled.bend as PAdwStepLeftOverSpelled
+import ./proof/admission/adw_step_unknown_op.bend as PAdwStepUnknownOp
+import ./proof/admission/adw_step_malformed_unless_op.bend as PAdwStepMalformedUnlessOp
+import ./proof/admission/adw_step_refused_keeps.bend as PAdwStepRefusedKeeps
+import ./proof/admission/adw_step_reads_only_ops.bend as PAdwStepReadsOnlyOps
+import ./proof/admission/adw_stepper_example.bend as PAdwStepperExample
 import ./proof/tree/base/bool.bend as LATreeBool
 import ./proof/tree/base/director.bend as LATreeDirector
 import ./proof/tree/base/list.bend as LATreeList
