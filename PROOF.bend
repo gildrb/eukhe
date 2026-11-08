@@ -1611,6 +1611,12 @@ import ./proof/doc_seen/reveal_bounds.bend as PRevealBounds
 import ./proof/doc_seen/seen_entry_refines.bend as PSeenEntryRefines
 import ./proof/doc_seen/seen_entry_rejects_example.bend as PSeenEntryRejectsExample
 import ./proof/doc_seen/seen_wire_fits_example.bend as PSeenWireFitsExample
+import ./proof/doc_seen/seen_entry_answers_spelled.bend as PSeenEntryAnswersSpelled
+import ./proof/doc_seen/seen_entry_left_over_spelled.bend as PSeenEntryLeftOverSpelled
+import ./proof/doc_seen/seen_entry_reads_only_requests.bend as PSeenEntryReadsOnlyRequests
+import ./proof/doc_seen/seen_entry_malformed_unless_seen.bend as PSeenEntryMalformedUnlessSeen
+import ./proof/doc_seen/seen_entry_malformed_unless_anchors.bend as PSeenEntryMalformedUnlessAnchors
+import ./proof/doc_seen/seen_entry_tags_example.bend as PSeenEntryTagsExample
 import ./proof/doc_search/base.bend as LADocSearch
 import ./proof/doc_search/grep_accounts_every_file.bend as PGrepAccountsEveryFile
 import ./proof/doc_search/grep_notes_every_gap.bend as PGrepNotesEveryGap

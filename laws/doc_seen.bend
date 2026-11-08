@@ -285,3 +285,147 @@ law seen_entry_rejects_example:
 # EXCLUDES: a vacuous seen_entry_refines
 law seen_wire_fits_example:
   {seen.WireFits([Ds.Iv{1n, 3n}], [Ds.At{2n, Some{80n}}, Ds.At{9n, None{}}]) == True{} : Bool}
+
+# The entry spelled from the wire primitives
+# ------------------------------------------
+# The grammar Rust writes and reads (crates/eukhe-docs hashline/seen.rs
+# `check`, `verdict`), spelled with Wr.put_nat, Wr.put_bool and
+# Wr.put_list only, never the entry's own put_*/get_*: a request is the
+# seen runs (their count, then lo and hi of each), then the anchors (their
+# count, then each line and its width: 0 none, 1 then the width); a reply
+# is the unseen lines (count, then each), the lines shown (count, then each
+# line and its cut: 0 whole, 1 then the columns), then the whole flag T/F.
+# Together the laws below pin every answer of the entry: a spelled request
+# that fits answers the spelled verdict, with input after it the left-over
+# error; seen runs that do not read the seen-runs error; spelled seen runs
+# then anchors that do not read the anchors' error; and no other input
+# gets a non-error answer.
+
+# a seen run: lo, then hi
+def seen.spell_iv(iv: Ds.Iv, rest: String) -> String:
+  match iv:
+    case Ds.Iv{lo, hi}:
+      Wr.put_nat(lo, Wr.put_nat(hi, rest))
+
+# a Maybe<Nat>: 0 for none, 1 then the Nat
+def seen.spell_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+# an anchor: its line, then its width
+def seen.spell_at(a: Ds.At, rest: String) -> String:
+  match a:
+    case Ds.At{n, w}:
+      Wr.put_nat(n, seen.spell_mnat(w, rest))
+
+# the seen runs: their count, then each run
+def seen.spell_seen(ivs: List<&2, Ds.Iv>, rest: String) -> String:
+  Wr.put_list(~Ds.Iv, ~seen.spell_iv, ivs, rest)
+
+# the anchors: their count, then each anchor
+def seen.spell_ats(ats: List<&2, Ds.At>, rest: String) -> String:
+  Wr.put_list(~Ds.At, ~seen.spell_at, ats, rest)
+
+# a request: the seen runs, then the anchors, then rest
+def seen.spell_req(ivs: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, rest: String) -> String:
+  seen.spell_seen(ivs, seen.spell_ats(ats, rest))
+
+# a line shown: its number, then its cut
+def seen.spell_show(x: Ds.Show, rest: String) -> String:
+  match x:
+    case Ds.Show{n, c}:
+      Wr.put_nat(n, seen.spell_mnat(c, rest))
+
+# a verdict: the unseen lines, the lines shown, the whole flag
+def seen.spell_answer(c: Ds.Check) -> String:
+  match c:
+    case Ds.Check{u, s, w}:
+      Wr.put_list(~Nat, ~Wr.put_nat, u, Wr.put_list(~Ds.Show, ~seen.spell_show, s, Wr.put_bool(w, "")))
+
+# the seen runs fit the wire: their count and every run
+def seen.SeenFits(+ivs: List<&2, Ds.Iv>) -> Bool:
+  Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, ivs)), seen.IvsFit(ivs))
+
+# the anchors fit the wire: their count and every anchor
+def seen.AnchorsFit(+ats: List<&2, Ds.At>) -> Bool:
+  Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), seen.AtsFit(ats))
+
+# LAW seen_entry_answers_spelled: a request spelled by the grammar (the seen runs, then the
+# anchors), every number within the wire, is answered with the grammar's
+# spelling of the guard's verdict (Ds.check, pinned by the laws above): the
+# unseen lines, the lines shown with their cut, the whole flag
+# EXCLUDES: a request or reply field that drifts from the grammar Rust
+#   writes and reads on both sides alike (lo and hi swapped, a reversed
+#   width or cut tag, a reversed whole flag, a field lost or defaulted), a
+#   verdict of another rule
+law seen_entry_answers_spelled:
+  for +ivs: List<&2, Ds.Iv>
+  for +ats: List<&2, Ds.At>
+  for fits: {seen.WireFits(ivs, ats) == True{} : Bool}
+  {Fds.ffi(seen.spell_req(ivs, ats, "")) == seen.spell_answer(Ds.check(ivs, ats)) : String}
+
+# LAW seen_entry_left_over_spelled: a spelled request that fits, followed by any more input,
+# answers the error form "doc_seen: input left over"
+# EXCLUDES: trailing input ignored, read as part of the request, or named
+#   as a malformed field
+law seen_entry_left_over_spelled:
+  for +ivs: List<&2, Ds.Iv>
+  for +ats: List<&2, Ds.At>
+  for fits: {seen.WireFits(ivs, ats) == True{} : Bool}
+  for +c: Char
+  for +rest: String
+  {Fds.ffi(seen.spell_req(ivs, ats, SCon{c, rest})) == Wr.err("doc_seen: input left over") : String}
+
+# LAW seen_entry_reads_only_requests: an answer that is not the error form answers a request:
+# the input is exactly the spelling of a request whose numbers fit the wire
+# (seen_entry_answers_spelled then pins the answer)
+# EXCLUDES: a decoder that accepts an unknown width tag, a count larger or
+#   smaller than its items, a number past the wire, or input left over, and
+#   answers it anyway (a default verdict instead of the error form)
+law seen_entry_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(Fds.ffi(s)) == False{} : Bool}
+  exs ivs: List<&2, Ds.Iv>
+  exs ats: List<&2, Ds.At>
+  {s == seen.spell_req(ivs, ats, "") : String} & {seen.WireFits(ivs, ats) == True{} : Bool}
+
+# LAW seen_entry_malformed_unless_seen: every answer but the error form "doc_seen: malformed seen
+# runs" comes from an input that begins with spelled seen runs that fit
+# EXCLUDES: another answer (a verdict, the anchors' or the left-over error)
+#   for input whose seen runs do not read, the seen runs' error spelled
+#   with another text
+law seen_entry_malformed_unless_seen:
+  for +s: String
+  for other: {String.eq(Fds.ffi(s), Wr.err("doc_seen: malformed seen runs")) == False{} : Bool}
+  exs ivs: List<&2, Ds.Iv>
+  exs t: String
+  {s == seen.spell_seen(ivs, t) : String} & {seen.SeenFits(ivs) == True{} : Bool}
+
+# LAW seen_entry_malformed_unless_anchors: after spelled seen runs that fit, every answer but the
+# error form "doc_seen: malformed anchors" comes from input that goes on
+# with spelled anchors that fit
+# EXCLUDES: another answer (a verdict, the seen runs' or the left-over
+#   error) for anchors that do not read (an unknown width tag, a cut
+#   anchor, a short count), the anchors' error spelled with another text
+law seen_entry_malformed_unless_anchors:
+  for +ivs: List<&2, Ds.Iv>
+  for fits: {seen.SeenFits(ivs) == True{} : Bool}
+  for +t: String
+  for other: {String.eq(Fds.ffi(seen.spell_seen(ivs, t)), Wr.err("doc_seen: malformed anchors")) == False{} : Bool}
+  exs ats: List<&2, Ds.At>
+  exs rest: String
+  {t == seen.spell_ats(ats, rest) : String} & {seen.AnchorsFit(ats) == True{} : Bool}
+
+# LAW seen_entry_tags_example (anchor): the bytes Rust sends and reads: line 1 seen, anchors 1
+# (3 chars), 2 (past the end), 3 (513 chars), 4 (512 chars): unseen 2, 3,
+# 4, shown 3 cut at 512 and 4 whole, not whole; lines 1 to 3 seen, anchor 2:
+# it applies (nothing unseen or shown, whole); nothing seen, anchor 2 of 3
+# chars: shown whole; a cut seen run, a width tag 2, no anchors, and input
+# left over answer their errors
+# EXCLUDES: a request or reply spelled another way than Rust's, an unknown
+#   width tag read as a known one, two error texts swapped
+law seen_entry_tags_example:
+  {[Fds.ffi("1,1,1,4,1,1,3,2,0,3,1,513,4,1,512,"), Fds.ffi("1,1,3,1,2,1,5,"), Fds.ffi("0,1,2,1,3,"), Fds.ffi("1,1,"), Fds.ffi("0,1,2,2,0,"), Fds.ffi("0,"), Fds.ffi("0,0,0,")] == ["3,2,3,4,2,3,1,512,4,0,F", "0,0,T", "1,2,1,2,0,T", Wr.err("doc_seen: malformed seen runs"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: malformed anchors"), Wr.err("doc_seen: input left over")] : List<&2, String>}
