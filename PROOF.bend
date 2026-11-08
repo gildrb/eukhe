@@ -3258,6 +3258,10 @@ import ./proof/cron_file/base/file.bend as LACronFileFile
 import ./proof/cron_file/cron_file_take_exact.bend as PCronFileTakeExact
 import ./proof/cron_file/cron_file_recover_exact.bend as PCronFileRecoverExact
 import ./proof/cron_file/cron_file_finish_exact.bend as PCronFileFinishExact
+import ./proof/cron_file/cron_file_take_spares_held.bend as PCronFileTakeSparesHeld
+import ./proof/cron_file/cron_file_recover_spares_held.bend as PCronFileRecoverSparesHeld
+import ./proof/cron_file/cron_file_finish_spares_held.bend as PCronFileFinishSparesHeld
+import ./proof/cron_file/cron_file_take_claims_once.bend as PCronFileTakeClaimsOnce
 import ./proof/cron_file/cron_file_entry_answers.bend as PCronFileEntryAnswers
 import ./proof/cron_file/cron_file_entry_malformed_exact.bend as PCronFileEntryMalformedExact
 import ./proof/cron_file/cron_file_entry_example.bend as PCronFileEntryExample
