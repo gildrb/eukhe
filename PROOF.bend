@@ -1949,6 +1949,14 @@ import ./proof/effort/core_effort_unknown_request.bend as PCoreEffortUnknownRequ
 import ./proof/effort/core_effort_reads_only_requests.bend as PCoreEffortReadsOnlyRequests
 import ./proof/effort/core_effort_malformed_unless_request.bend as PCoreEffortMalformedUnlessRequest
 import ./proof/effort/core_effort_tags_example.bend as PCoreEffortTagsExample
+import ./proof/infer/core_infer_answers_spelled/spell.bend as LAInferSpell
+import ./proof/infer/core_infer_reads_only_requests/exact.bend as LAInferExact
+import ./proof/infer/core_infer_answers_spelled.bend as PCoreInferAnswersSpelled
+import ./proof/infer/core_infer_left_over_spelled.bend as PCoreInferLeftOverSpelled
+import ./proof/infer/core_infer_unknown_cap.bend as PCoreInferUnknownCap
+import ./proof/infer/core_infer_reads_only_requests.bend as PCoreInferReadsOnlyRequests
+import ./proof/infer/core_infer_malformed_unless_request.bend as PCoreInferMalformedUnlessRequest
+import ./proof/infer/core_infer_tags_example.bend as PCoreInferTagsExample
 import ./proof/command/command_ffi_example.bend as PCommandFfiExample
 import ./proof/command/command_spacing_example.bend as PCommandSpacingExample
 import ./proof/command/base/entry.bend as LACommandEntry

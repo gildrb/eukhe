@@ -385,6 +385,129 @@ law core_infer_reply_example:
 law core_infer_malformed_example:
   {FIn.get_req("2,") == Wr.Bad{} : Wr.Dec<FIn.Req>} & {FIn.ffi("2,") == Wr.err("strict plan request: malformed") : String}
 
+# (infer) The entry's bytes, spelled by the grammar
+# -------------------------------------------------
+# The request and the reply as the wire grammar (bend/wire.bend) and
+# `api/constrained_sampling.rs` spell them, written here from the wire
+# primitives only (never the entry's put_* or get_*), so a tag, a field
+# order or a reply form that drifts on both sides of the entry alike is
+# caught.
+
+# a cap or none: 0 none, 1 then the cap
+def core_infer_spell_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# a tool: its id, then its priority
+def core_infer_spell_tool(t: If.Tool, rest: String) -> String:
+  match t:
+    case If.Tool{i, p}:
+      Wr.put_nat(i, Wr.put_nat(p, rest))
+
+# the tools of ts, each spelled, then rest
+def core_infer_spell_tools.items(ts: List<&2, If.Tool>, rest: String) -> String:
+  match ts:
+    case Nil{}:
+      rest
+    case t <> u:
+      core_infer_spell_tool(t, core_infer_spell_tools.items(u, rest))
+
+# a list of tools: its count, then each tool
+def core_infer_spell_tools(+ts: List<&2, If.Tool>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, If.Tool, ts), core_infer_spell_tools.items(ts, rest))
+
+# a request: the cap, the tools, the ids of the tools that need a strict
+# schema
+def core_infer_spell_req(q: FIn.Req, rest: String) -> String:
+  match q:
+    case FIn.Req{cap, ts, need}:
+      core_infer_spell_mnat(cap, core_infer_spell_tools(ts, LawsBase.wire_spell_nats(need, rest)))
+
+# a plan: 0 then the ids of the loose tools (it fits), or 1 then the id of
+# the tool it refuses
+def core_infer_spell_plan(p: If.Plan, rest: String) -> String:
+  match p:
+    case If.Fits{ls}:
+      Wr.put_nat(0n, LawsBase.wire_spell_nats(ls, rest))
+    case If.Over{i}:
+      Wr.put_nat(1n, Wr.put_nat(i, rest))
+
+# the spelled reply of the model's strict plan of q (bend/infer.bend plan)
+def core_infer_spell_answer(q: FIn.Req) -> String:
+  match q:
+    case FIn.Req{cap, +ts, +need}:
+      core_infer_spell_plan(If.plan(cap, ts, need), "")
+
+# LAW core_infer_answers_spelled: a strict plan request spelled by the grammar, every number
+# within the wire, is answered with the grammar's spelling of the model's
+# plan: 0 then the loose ids (a count, then each id), or 1 then the id of
+# the refused tool
+# EXCLUDES: a cap tag or a plan tag that drifts from the grammar Rust
+#   writes and reads (swapped on both sides of the entry alike), a tool's
+#   id and priority swapped, tools or needed ids lost, added or reordered,
+#   another reply form
+law core_infer_answers_spelled:
+  for +q: FIn.Req
+  for fits: {core_infer_fits(q) == True{} : Bool}
+  {FIn.ffi(core_infer_spell_req(q, "")) == core_infer_spell_answer(q) : String}
+
+# LAW core_infer_left_over_spelled: a spelled strict plan request that fits, followed by any more
+# input, answers the error form "strict plan request: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request
+law core_infer_left_over_spelled:
+  for +q: FIn.Req
+  for fits: {core_infer_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FIn.ffi(core_infer_spell_req(q, SCon{c, t})) == Wr.err("strict plan request: input left over") : String}
+
+# LAW core_infer_unknown_cap: a cap tag of 2 or more (of any length) answers the error form
+# "strict plan request: malformed", whatever follows
+# EXCLUDES: an unknown cap tag read as no cap or as some cap
+law core_infer_unknown_cap:
+  for +n: Nat
+  for +rest: String
+  {FIn.ffi(Wr.put_nat(2n+n, rest)) == Wr.err("strict plan request: malformed") : String}
+
+# LAW core_infer_reads_only_requests: an answer that is not the error form answers a strict
+# plan request: the input is exactly the spelling of a request whose
+# numbers fit the wire, and the answer is the spelled reply of the model's
+# plan of it
+# EXCLUDES: a decoder that accepts an unknown cap tag, a missing or extra
+#   tool field or id, a count larger than the items, or input left over,
+#   and answers it anyway (a default instead of the error form)
+law core_infer_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FIn.ffi(s)) == False{} : Bool}
+  exs q: FIn.Req
+  {(s, (core_infer_fits(q), FIn.ffi(s))) == (core_infer_spell_req(q, ""), (True{}, core_infer_spell_answer(q))) : String & (Bool & String)}
+
+# LAW core_infer_malformed_unless_request: every answer but the error form "strict plan request:
+# malformed" comes from an input that begins with a spelled strict plan
+# request that fits
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law core_infer_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FIn.ffi(s), Wr.err("strict plan request: malformed")) == False{} : Bool}
+  exs q: FIn.Req
+  exs rest: String
+  {(s, core_infer_fits(q)) == (core_infer_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW core_infer_tags_example: anchor: the bytes `api/constrained_sampling.rs` sends and reads:
+# cap 1, tools 7 (priority 3) and 9 (priority 0), 9 needed: 9 is loose and
+# refused (1,9,); 7 needed instead: fits, 9 loose (0,1,9,); no cap: fits,
+# none loose (0,0,); cap 0: fits, both loose; cap tag 2, a tool with no
+# priority and a needed count with no id are malformed; a request with
+# input left over is refused
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, an unknown cap tag read as a known one
+law core_infer_tags_example:
+  {[FIn.ffi("1,1,2,7,3,9,0,1,9,"), FIn.ffi("1,1,2,7,3,9,0,1,7,"), FIn.ffi("0,2,7,3,9,0,0,"), FIn.ffi("1,0,2,7,3,9,0,0,")] == ["1,9,", "0,1,9,", "0,0,", "0,2,7,9,"] : List<&2, String>} & {[FIn.ffi("2,0,0,"), FIn.ffi("0,1,7,"), FIn.ffi("0,0,1,"), FIn.ffi("0,0,0,x")] == [Wr.err("strict plan request: malformed"), Wr.err("strict plan request: malformed"), Wr.err("strict plan request: malformed"), Wr.err("strict plan request: input left over")] : List<&2, String>}
+
 # ---- model_facts ----
 
 # LAWS (S6.10): model and provider facts are data. A wire API decides a
