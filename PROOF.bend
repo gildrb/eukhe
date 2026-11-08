@@ -1002,7 +1002,7 @@ import ./proof/log/log_stepper_open_left_over.bend as PLogStepperOpenLeftOver
 import ./proof/log/log_stepper_open_malformed_unless_bool.bend as PLogStepperOpenMalformedUnlessBool
 import ./proof/log/log_stepper_left_over.bend as PLogStepperLeftOver
 import ./proof/log/log_stepper_malformed_unless_commit.bend as PLogStepperMalformedUnlessCommit
-import ./proof/log/log_stepper_shut_refused_text.bend as PLogStepperShutRefusedText
+import ./proof/log/log_stepper_refused_open_history.bend as PLogStepperRefusedOpenHistory
 import ./proof/log/log_fits_example.bend as PLogFitsExample
 import ./proof/log/log_ffi_example.bend as PLogFfiExample
 import ./proof/log/log_stepper_example.bend as PLogStepperExample
