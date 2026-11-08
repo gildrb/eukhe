@@ -93,6 +93,35 @@ law color_light_spec:
 law color_light_orange_example:
   {Co.light(Co.Rgb{255, 165, 0}) == False{} : Bool}
 
+# LAW color_lum_spec: the luminance is the WCAG relative luminance, 0.2126 R + 0.7152 G +
+# 0.0722 B over the linear channels (color_lin_spec), in units of
+# 1/100000000, for every color
+# EXCLUDES: the flare (0.05) or any other offset folded into the luminance
+#   (and taken out of light's threshold and the contrast's flare), another
+#   weighting of the channels, swapped channels
+law color_lum_spec:
+  for c: Co.Rgb
+  {Co.lum(c) == th.lum(c) : U32}
+
+# the WCAG flare, 0.05, in luminance units of 1/100000000 (white is
+# 100000000)
+def th.flare() -> U32:
+  5000000
+
+# LAW color_flare_spec: the flare the contrast adds to both luminances is the WCAG 0.05 (the
+# flare takes no input: this closed law is its whole spec)
+# EXCLUDES: a flare of another size or none, the flare moved into the
+#   luminance
+law color_flare_spec:
+  {Co.flare() == th.flare() : U32}
+
+# LAW color_flare_example: anchors: the luminance of black, white and (128, 64, 200) is 0, 1 and
+# 0.12429282; plus the flare, 0.05, 1.05 and 0.17429282
+# EXCLUDES: a reading of color_lum_spec or color_flare_spec the human did
+#   not mean
+law color_flare_example:
+  {[Co.lum(Co.Rgb{0, 0, 0}), Co.lum(Co.Rgb{255, 255, 255}), Co.lum(Co.Rgb{128, 64, 200}), (Co.lum(Co.Rgb{0, 0, 0}) + Co.flare() : U32), (Co.lum(Co.Rgb{255, 255, 255}) + Co.flare() : U32), (Co.lum(Co.Rgb{128, 64, 200}) + Co.flare() : U32)] == [0, 100000000, 12429282, 5000000, 105000000, 17429282] : List<&2, U32>}
+
 # the distance of two channels
 def th.absd.if(ge: Bool, +a: U32, +b: U32) -> U32:
   match ge:
