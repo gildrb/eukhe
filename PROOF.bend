@@ -1046,10 +1046,17 @@ import ./proof/catalog_union/union_both_other_api.bend as PUnionBothOtherApi
 import ./proof/catalog_union/union_fields_example.bend as PUnionFieldsExample
 import ./proof/catalog_union/union_fast.bend as PUnionFast
 import ./proof/catalog_union/union_order_free.bend as PUnionOrderFree
+import ./proof/catalog_union/union_spec.bend as PUnionSpec
+import ./proof/catalog_union/union_terms_exact.bend as PUnionTermsExact
 import ./proof/catalog_union/catalog_union_ffi_request_round_trip.bend as PCatalogUnionFfiRequestRoundTrip
 import ./proof/catalog_union/catalog_union_ffi_answers.bend as PCatalogUnionFfiAnswers
 import ./proof/catalog_union/catalog_union_ffi_rejects_malformed.bend as PCatalogUnionFfiRejectsMalformed
 import ./proof/catalog_union/catalog_union_ffi_rejects_left_over.bend as PCatalogUnionFfiRejectsLeftOver
+import ./proof/catalog_union/catalog_union_ffi_answers_spelled.bend as PCatalogUnionFfiAnswersSpelled
+import ./proof/catalog_union/catalog_union_ffi_left_over_spelled.bend as PCatalogUnionFfiLeftOverSpelled
+import ./proof/catalog_union/catalog_union_ffi_reads_only_requests.bend as PCatalogUnionFfiReadsOnlyRequests
+import ./proof/catalog_union/catalog_union_ffi_malformed_unless_request.bend as PCatalogUnionFfiMalformedUnlessRequest
+import ./proof/catalog_union/catalog_union_ffi_tags_example.bend as PCatalogUnionFfiTagsExample
 import ./proof/cron/base/bool.bend as LACronBool
 import ./proof/cron/base/cron.bend as LACronCron
 import ./proof/cron/base/list.bend as LACronList
