@@ -472,12 +472,15 @@ law child_entry_tags_example:
 def ch_named_error(+a: String) -> Bool:
   Bool.or(String.eq(a, Wr.err("child: bad request")), Bool.or(String.eq(a, Wr.err("child: unknown request")), Bool.or(String.eq(a, Wr.err("child: bad settings")), Bool.or(String.eq(a, Wr.err("child: bad clock")), Bool.or(String.eq(a, Wr.err("child: bad elapsed ms")), Bool.or(String.eq(a, Wr.err("child: bad poll")), Bool.or(String.eq(a, Wr.err("child: bad mode")), Bool.or(String.eq(a, Wr.err("child: input left over")), Bool.or(String.eq(a, Wr.err("child: bad fate")), Bool.or(String.eq(a, Wr.err("child: bad id")), Bool.or(String.eq(a, Wr.err("child: bad phase")), String.eq(a, Wr.err("child: bad delete flag")))))))))))))
 
-# LAW child_entry_errors_named: every answer of the entry that is the error
-# form is one of its named errors ("child: " then the request, unknown
-# request, settings, clock, elapsed ms, poll, mode, input left over, fate,
-# id, phase or delete flag); which input gets which is pinned below
-# EXCLUDES: an error text Rust's caller does not know (an unprefixed or
-#   reworded text), an error with no text
+# LAW child_entry_errors_named: every error reply of the entry (an answer
+# that opens with 'E') is one of the entry's named texts in the error
+# form: "child: " then bad request, unknown request, bad settings, bad
+# clock, bad elapsed ms, bad poll, bad mode, input left over, bad fate,
+# bad id, bad phase or bad delete flag (ch_named_error, the texts
+# bend/ffi_child.bend writes); which input gets which text is pinned by
+# the laws below
+# EXCLUDES: an error reply with a text not among these twelve (an
+#   unprefixed, reworded or empty text)
 law child_entry_errors_named:
   for +s: String
   for err: {LawsBase.wire_opens_err(FCh.ffi(s)) == True{} : Bool}
@@ -573,375 +576,264 @@ law child_entry_unknown_report:
 law child_entry_errors_example:
   {[FCh.ffi(""), FCh.ffi("0,"), FCh.ffi("0,5,2,"), FCh.ffi("0,5,2,0,5,1,"), FCh.ffi("0,5,2,0,5,1,1,"), FCh.ffi("0,5,2,0,5,1,1,1,"), FCh.ffi("1,"), FCh.ffi("1,0,"), FCh.ffi("2,"), FCh.ffi("2,2,")] == [Wr.err("child: bad request"), Wr.err("child: bad settings"), Wr.err("child: bad clock"), Wr.err("child: bad elapsed ms"), Wr.err("child: bad poll"), Wr.err("child: bad mode"), Wr.err("child: bad fate"), Wr.err("child: bad id"), Wr.err("child: bad phase"), Wr.err("child: bad delete flag")] : List<&2, String>}
 
-# The child entry's reader, spelled from the grammar above with the wire's
-# decoders only (Wr.get_nat, Wr.get_bool, Wr.end; never the entry's own
-# get_*): the fields in order, a constructor's tag read as a Nat and
-# matched against the grammar's tag numbers. A field decodes to Got{value,
-# rest} or to Bad{} (cut short, malformed, or an unknown tag).
+# Each field refused, by name
+# ---------------------------
+# A request field that does not read names itself. For each field F: the
+# fields before F spelled by the grammar above (every number within the
+# wire), then input where F's next primitive does not read (Wr.get_nat or
+# Wr.get_bool answers Bad{}: nothing left, not a number, a leading zero,
+# too many digits, not T or F), whatever follows, answers the error form
+# of F's text. The texts are the ones bend/ffi_child.bend writes, the wire
+# contract Rust reads: "child: bad request", "child: bad settings",
+# "child: bad clock", "child: bad elapsed ms", "child: bad poll", "child:
+# bad mode", "child: bad fate", "child: bad id", "child: bad phase",
+# "child: bad delete flag". These laws pin which field is blamed. With
+# the unknown-tag laws above (a tag that reads but names no constructor),
+# child_entry_answers_spelled and child_entry_left_over (a whole request)
+# and the wire's exactness laws (a primitive that reads is its own
+# spelling, within the wire), every input falls under one of them.
+#
+# A cut is where, inside a field of several primitives, the one that does
+# not read stands; ch_cut_* spells what of the field comes before it.
 
-# a Maybe<Nat>: 0 none, 1 then the Nat
-def ch_spec_mnat.some(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+# the settings: before the stall, or after the stall s (before the fails)
+type ChSetCut is Data:
+  SetAtStall{}
+  SetAtFails{s: Nat}
 
-def ch_spec_mnat.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      ch_spec_mnat.some(Wr.get_nat(s))
-    case 2n+k:
-      Wr.Bad{}
+def ch_cut_set(k: ChSetCut, rest: String) -> String:
+  match k:
+    case SetAtStall{}:
+      rest
+    case SetAtFails{s}:
+      Wr.put_nat(s, rest)
 
-def ch_spec_mnat.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_mnat.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_set_fits(k: ChSetCut) -> Bool:
+  match k:
+    case SetAtStall{}:
+      True{}
+    case SetAtFails{s}:
+      LawsBase.wire_fits(s)
 
-def ch_spec_mnat(s: String) -> Wr.Dec<Maybe<&2, Nat>>:
-  ch_spec_mnat.go(Wr.get_nat(s))
+# a clock: before the token's tag, after tag 1 (before the token), after
+# the token t (before left), after the token t and left l (before tries)
+type ChClockCut is Data:
+  ClkAtTag{}
+  ClkAtToken{}
+  ClkAtLeft{t: Maybe<&2, Nat>}
+  ClkAtTries{t: Maybe<&2, Nat>, l: Nat}
 
-# the watch's clock: the token, left, tries
-def ch_spec_w.n(t: Maybe<&2, Nat>, +l: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.W>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Ch.W{t, l, n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_clock(k: ChClockCut, rest: String) -> String:
+  match k:
+    case ClkAtTag{}:
+      rest
+    case ClkAtToken{}:
+      Wr.put_nat(1n, rest)
+    case ClkAtLeft{t}:
+      ch_spell_mnat(t, rest)
+    case ClkAtTries{t, l}:
+      ch_spell_mnat(t, Wr.put_nat(l, rest))
 
-def ch_spec_w.l(t: Maybe<&2, Nat>, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.W>:
-  match r:
-    case Wr.Got{+l, s}:
-      ch_spec_w.n(t, l, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_clock_fits(k: ChClockCut) -> Bool:
+  match k:
+    case ClkAtTag{}:
+      True{}
+    case ClkAtToken{}:
+      True{}
+    case ClkAtLeft{t}:
+      LawsBase.wire_mfits(t)
+    case ClkAtTries{t, l}:
+      Bool.and(LawsBase.wire_mfits(t), LawsBase.wire_fits(l))
 
-def ch_spec_w.t(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ch.W>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_w.l(t, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
+# a poll: before its tag, after Busy's tag 0 (before the token's tag),
+# after Busy 0 and the token's tag 1 (before the token)
+type ChPollCut is Data:
+  PollAtTag{}
+  PollAtBusyTag{}
+  PollAtBusyToken{}
 
-def ch_spec_w(s: String) -> Wr.Dec<Ch.W>:
-  ch_spec_w.t(ch_spec_mnat(s))
+def ch_cut_poll(k: ChPollCut, rest: String) -> String:
+  match k:
+    case PollAtTag{}:
+      rest
+    case PollAtBusyTag{}:
+      Wr.put_nat(0n, rest)
+    case PollAtBusyToken{}:
+      Wr.put_nat(0n, Wr.put_nat(1n, rest))
 
-# the settings: stall, fails
-def ch_spec_cfg.f(+st: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Cfg>:
-  match r:
-    case Wr.Got{f, s}:
-      Wr.Got{Ch.Cfg{st, f}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+# a fate presence: before its tag, after tag 1 (before the fate's tag)
+type ChFateCut is Data:
+  FateAtPresence{}
+  FateAtTag{}
 
-def ch_spec_cfg.s(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Cfg>:
-  match r:
-    case Wr.Got{+st, s}:
-      ch_spec_cfg.f(st, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_fate(k: ChFateCut, rest: String) -> String:
+  match k:
+    case FateAtPresence{}:
+      rest
+    case FateAtTag{}:
+      Wr.put_nat(1n, rest)
 
-def ch_spec_cfg(s: String) -> Wr.Dec<Ch.Cfg>:
-  ch_spec_cfg.s(Wr.get_nat(s))
+# a phase: before its tag, inside Watching's clock (after tag 0), after
+# Owing's tag 1 (before the report), after Owing 1 and report r (before
+# the id)
+type ChPhaseCut is Data:
+  PhAtTag{}
+  PhAtClock{c: ChClockCut}
+  PhAtReport{}
+  PhAtOwedId{r: Ch.Report}
 
-# a poll: Busy 0 (token), Lost 1, Answered 2 (Bool), Broke 3, Gone 4
-def ch_spec_obs.busy(r: Wr.Dec<Maybe<&2, Nat>>) -> Wr.Dec<Ch.Obs>:
-  match r:
-    case Wr.Got{t, s}:
-      Wr.Got{Ch.Busy{t}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_phase(k: ChPhaseCut, rest: String) -> String:
+  match k:
+    case PhAtTag{}:
+      rest
+    case PhAtClock{c}:
+      Wr.put_nat(0n, ch_cut_clock(c, rest))
+    case PhAtReport{}:
+      Wr.put_nat(1n, rest)
+    case PhAtOwedId{r}:
+      Wr.put_nat(1n, ch_spell_report(r, rest))
 
-def ch_spec_obs.answered(r: Wr.Dec<Bool>) -> Wr.Dec<Ch.Obs>:
-  match r:
-    case Wr.Got{b, s}:
-      Wr.Got{Ch.Answered{b}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
+def ch_cut_phase_fits(k: ChPhaseCut) -> Bool:
+  match k:
+    case PhAtTag{}:
+      True{}
+    case PhAtClock{c}:
+      ch_cut_clock_fits(c)
+    case PhAtReport{}:
+      True{}
+    case PhAtOwedId{r}:
+      True{}
 
-def ch_spec_obs.tag(t: Nat, s: String) -> Wr.Dec<Ch.Obs>:
-  match t:
-    case 0n:
-      ch_spec_obs.busy(ch_spec_mnat(s))
-    case 1n:
-      Wr.Got{Ch.Lost{}, s}
-    case 2n:
-      ch_spec_obs.answered(Wr.get_bool(s))
-    case 3n:
-      Wr.Got{Ch.Broke{}, s}
-    case 4n:
-      Wr.Got{Ch.Gone{}, s}
-    case 5n+k:
-      Wr.Bad{}
+# LAW child_entry_bad_request: input whose request tag does not read as a
+# number answers "child: bad request"
+# EXCLUDES: a missing or malformed request tag read as a request (a
+#   default tag) or named as an unknown request
+law child_entry_bad_request:
+  for +rest: String
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(rest) == Wr.err("child: bad request") : String}
 
-def ch_spec_obs.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Obs>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_obs.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
+# LAW child_entry_bad_settings: in a verdict request, a stall, or a fails
+# after a stall within the wire, that does not read as a number answers
+# "child: bad settings", whatever the rest
+# EXCLUDES: a malformed setting read as a default or named as another
+#   field (the clock), a field read past it
+law child_entry_bad_settings:
+  for +k: ChSetCut
+  for +rest: String
+  for fit: {ch_cut_set_fits(k) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(0n, ch_cut_set(k, rest))) == Wr.err("child: bad settings") : String}
 
-def ch_spec_obs(s: String) -> Wr.Dec<Ch.Obs>:
-  ch_spec_obs.go(Wr.get_nat(s))
+# LAW child_entry_bad_clock: in a verdict request, after spelled settings
+# within the wire, a clock number (the token's tag, the token after tag
+# 1, left, tries; what comes before it in the clock within the wire) that
+# does not read answers "child: bad clock", whatever the rest
+# EXCLUDES: a malformed clock part read as a default or named as another
+#   field (the settings or the elapsed ms), a field read past it
+law child_entry_bad_clock:
+  for +c: Ch.Cfg
+  for +k: ChClockCut
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for fit: {ch_cut_clock_fits(k) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_cut_clock(k, rest)))) == Wr.err("child: bad clock") : String}
 
-# a mode: Inbox 0, Silent 1
-def ch_spec_mode.tag(t: Nat, s: String) -> Wr.Dec<Ch.Mode>:
-  match t:
-    case 0n:
-      Wr.Got{Ch.Inbox{}, s}
-    case 1n:
-      Wr.Got{Ch.Silent{}, s}
-    case 2n+k:
-      Wr.Bad{}
+# LAW child_entry_bad_elapsed: in a verdict request, after spelled
+# settings and clock within the wire, elapsed ms that do not read as a
+# number answer "child: bad elapsed ms", whatever the rest
+# EXCLUDES: malformed elapsed ms read as a default (0) or named as another
+#   field, a field read past them
+law child_entry_bad_elapsed:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, rest)))) == Wr.err("child: bad elapsed ms") : String}
 
-def ch_spec_mode.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Mode>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_mode.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
+# LAW child_entry_bad_poll: in a verdict request, after spelled settings,
+# clock and elapsed ms within the wire, a poll number (its tag, a busy
+# poll's token tag, the token after tag 1) that does not read answers
+# "child: bad poll", whatever the rest
+# EXCLUDES: a malformed poll read as a known one (a busy poll with no
+#   token, a lost poll) or named as another field (the mode)
+law child_entry_bad_poll:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +k: ChPollCut
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, ch_cut_poll(k, rest)))))) == Wr.err("child: bad poll") : String}
 
-def ch_spec_mode(s: String) -> Wr.Dec<Ch.Mode>:
-  ch_spec_mode.go(Wr.get_nat(s))
+# LAW child_entry_bad_answered: in a verdict request, after spelled
+# settings, clock and elapsed ms within the wire, an answered poll (tag 2)
+# whose flag does not read as T or F answers "child: bad poll", whatever
+# the rest
+# EXCLUDES: a malformed answered flag read as a default (no reply) or
+#   named as another field (the mode)
+law child_entry_bad_answered:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for bad: {Wr.get_bool(rest) == Wr.Bad{} : Wr.Dec<Bool>}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, Wr.put_nat(2n, rest)))))) == Wr.err("child: bad poll") : String}
 
-# a report: Completed 0, Failed 1, Cancelled 2, Stalled 3, Unreachable 4
-def ch_spec_report.tag(t: Nat, s: String) -> Wr.Dec<Ch.Report>:
-  match t:
-    case 0n:
-      Wr.Got{Ch.Completed{}, s}
-    case 1n:
-      Wr.Got{Ch.Failed{}, s}
-    case 2n:
-      Wr.Got{Ch.Cancelled{}, s}
-    case 3n:
-      Wr.Got{Ch.Stalled{}, s}
-    case 4n:
-      Wr.Got{Ch.Unreachable{}, s}
-    case 5n+k:
-      Wr.Bad{}
+# LAW child_entry_unknown_busy_token: in a verdict request, after spelled
+# settings, clock and elapsed ms within the wire, a busy poll whose token
+# tag is past 1 (none, some) answers "child: bad poll", whatever follows
+# EXCLUDES: an unknown busy token tag read as none or some, or named as
+#   another field
+law child_entry_unknown_busy_token:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +n: Nat
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for fit: {LawsBase.wire_fits(2n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, Wr.put_nat(0n, Wr.put_nat(2n+n, rest))))))) == Wr.err("child: bad poll") : String}
 
-def ch_spec_report.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Report>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_report.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
+# LAW child_entry_bad_mode: in a verdict request, after spelled settings,
+# clock, elapsed ms and poll within the wire, a mode tag that does not
+# read as a number answers "child: bad mode", whatever the rest
+# EXCLUDES: a malformed mode read as a default (inbox) or named as input
+#   left over
+law child_entry_bad_mode:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +o: Ch.Obs
+  for +rest: String
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {LawsBase.wire_fits(e) == True{} : Bool}
+  for ho: {wire_obs_fits(o) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, ch_spell_obs(o, rest)))))) == Wr.err("child: bad mode") : String}
 
-def ch_spec_report(s: String) -> Wr.Dec<Ch.Report>:
-  ch_spec_report.go(Wr.get_nat(s))
-
-# a fate: Queued 0, Withdrawn 1, Placed 2
-def ch_spec_fate.tag(t: Nat, s: String) -> Wr.Dec<Ch.Fate>:
-  match t:
-    case 0n:
-      Wr.Got{Ch.Queued{}, s}
-    case 1n:
-      Wr.Got{Ch.Withdrawn{}, s}
-    case 2n:
-      Wr.Got{Ch.Placed{}, s}
-    case 3n+k:
-      Wr.Bad{}
-
-def ch_spec_fate.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Fate>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_fate.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_fate(s: String) -> Wr.Dec<Ch.Fate>:
-  ch_spec_fate.go(Wr.get_nat(s))
-
-# a Maybe<Fate>: 0 none, 1 then the fate
-def ch_spec_mfate.some(r: Wr.Dec<Ch.Fate>) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
-  match r:
-    case Wr.Got{x, s}:
-      Wr.Got{Some{x}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_mfate.tag(t: Nat, s: String) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
-  match t:
-    case 0n:
-      Wr.Got{None{}, s}
-    case 1n:
-      ch_spec_mfate.some(ch_spec_fate(s))
-    case 2n+k:
-      Wr.Bad{}
-
-def ch_spec_mfate.go(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_mfate.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_mfate(s: String) -> Wr.Dec<Maybe<&2, Ch.Fate>>:
-  ch_spec_mfate.go(Wr.get_nat(s))
-
-# a phase: Watching 0 (clock), Owing 1 (report, id), Ended 2
-def ch_spec_ph.watching(r: Wr.Dec<Ch.W>) -> Wr.Dec<Ch.Ph>:
-  match r:
-    case Wr.Got{w, s}:
-      Wr.Got{Ch.Watching{w}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_ph.n(k: Ch.Report, r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
-  match r:
-    case Wr.Got{n, s}:
-      Wr.Got{Ch.Owing{k, n}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_ph.owing(r: Wr.Dec<Ch.Report>) -> Wr.Dec<Ch.Ph>:
-  match r:
-    case Wr.Got{k, s}:
-      ch_spec_ph.n(k, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_ph.tag(t: Nat, s: String) -> Wr.Dec<Ch.Ph>:
-  match t:
-    case 0n:
-      ch_spec_ph.watching(ch_spec_w(s))
-    case 1n:
-      ch_spec_ph.owing(ch_spec_report(s))
-    case 2n:
-      Wr.Got{Ch.Ended{}, s}
-    case 3n+k:
-      Wr.Bad{}
-
-def ch_spec_ph.go(r: Wr.Dec<Nat>) -> Wr.Dec<Ch.Ph>:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_ph.tag(t, s)
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def ch_spec_ph(s: String) -> Wr.Dec<Ch.Ph>:
-  ch_spec_ph.go(Wr.get_nat(s))
-
-# a whole request r, then the rest: nothing left (left) answers the
-# spelled model decision, else the left-over error
-def ch_spec_fin(r: FCh.Req, left: Bool) -> String:
-  match left:
-    case True{}:
-      ch_spell_answer(r)
-    case False{}:
-      Wr.err("child: input left over")
-
-# a verdict request: settings, clock, elapsed ms, poll, mode; the first
-# field that does not decode names itself
-def ch_spec_vm(+c: Ch.Cfg, +w: Ch.W, +e: Nat, +o: Ch.Obs, r: Wr.Dec<Ch.Mode>) -> String:
-  match r:
-    case Wr.Got{m, s}:
-      ch_spec_fin(FCh.AskVerdict{c, w, e, o, m}, Wr.end(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad mode")
-
-def ch_spec_vo(+c: Ch.Cfg, +w: Ch.W, +e: Nat, r: Wr.Dec<Ch.Obs>) -> String:
-  match r:
-    case Wr.Got{+o, s}:
-      ch_spec_vm(c, w, e, o, ch_spec_mode(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad poll")
-
-def ch_spec_ve(+c: Ch.Cfg, +w: Ch.W, r: Wr.Dec<Nat>) -> String:
-  match r:
-    case Wr.Got{+e, s}:
-      ch_spec_vo(c, w, e, ch_spec_obs(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad elapsed ms")
-
-def ch_spec_vw(+c: Ch.Cfg, r: Wr.Dec<Ch.W>) -> String:
-  match r:
-    case Wr.Got{+w, s}:
-      ch_spec_ve(c, w, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad clock")
-
-def ch_spec_vc(r: Wr.Dec<Ch.Cfg>) -> String:
-  match r:
-    case Wr.Got{+c, s}:
-      ch_spec_vw(c, ch_spec_w(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad settings")
-
-# a move request: fate, id
-def ch_spec_mn(f: Maybe<&2, Ch.Fate>, r: Wr.Dec<Nat>) -> String:
-  match r:
-    case Wr.Got{+n, s}:
-      ch_spec_fin(FCh.AskMove{f, n}, Wr.end(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad id")
-
-def ch_spec_mf(r: Wr.Dec<Maybe<&2, Ch.Fate>>) -> String:
-  match r:
-    case Wr.Got{f, s}:
-      ch_spec_mn(f, Wr.get_nat(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad fate")
-
-# an abort request: phase, delete flag
-def ch_spec_ad(ph: Ch.Ph, r: Wr.Dec<Bool>) -> String:
-  match r:
-    case Wr.Got{d, s}:
-      ch_spec_fin(FCh.AskAbort{ph, d}, Wr.end(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad delete flag")
-
-def ch_spec_ap(r: Wr.Dec<Ch.Ph>) -> String:
-  match r:
-    case Wr.Got{ph, s}:
-      ch_spec_ad(ph, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.err("child: bad phase")
-
-# the request tag: 0 verdict, 1 move, 2 abort, 3 or more unknown
-def ch_spec_req.tag(t: Nat, s: String) -> String:
-  match t:
-    case 0n:
-      ch_spec_vc(ch_spec_cfg(s))
-    case 1n:
-      ch_spec_mf(ch_spec_mfate(s))
-    case 2n:
-      ch_spec_ap(ch_spec_ph(s))
-    case 3n+k:
-      Wr.err("child: unknown request")
-
-# a request tag that does not read is a bad request
-def ch_spec_req(r: Wr.Dec<Nat>) -> String:
-  match r:
-    case Wr.Got{t, s}:
-      ch_spec_req.tag(t, s)
-    case Wr.Bad{}:
-      Wr.err("child: bad request")
-
-# the child entry's answer to input s, by the grammar
-def ch_spec_ffi(s: String) -> String:
-  ch_spec_req(Wr.get_nat(s))
-
-# LAW child_entry_refines: on every input the child entry answers what the
-# grammar's reader ch_spec_ffi answers: a whole request with nothing after
-# it, the spelled model decision; else the error of the first field that
-# does not read as its value (cut short, malformed or an unknown tag:
-# settings, clock, elapsed ms, poll, mode, fate, id, phase, delete flag),
-# "child: bad request" for a request tag that does not read, "child:
-# unknown request" for a tag past 2, "child: input left over" after a
-# whole request
-# EXCLUDES: a malformed field named as another field or as an unknown
-#   request (FCh.ffi("1,0,7") answering "child: unknown request"), a field
-#   read past a malformed one, an error text swapped or reworded, a reply
-#   that drifts from the grammar
-law child_entry_refines:
-  for +s: String
-  {FCh.ffi(s) == ch_spec_ffi(s) : String}
+# LAW child_entry_bad_fate: in a move request, a fate presence tag, or a
+# fate tag after presence 1, that does not read as a number answers
+# "child: bad fate", whatever the rest
+# EXCLUDES: a malformed fate read as no fate (a first submission) or
+#   named as another field (the id)
+law child_entry_bad_fate:
+  for +k: ChFateCut
+  for +rest: String
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(1n, ch_cut_fate(k, rest))) == Wr.err("child: bad fate") : String}
 
 # LAW child_entry_bad_id: in a move request, after a spelled fate presence
 # (any Maybe<Fate>), an id that does not read as a number answers "child:
@@ -953,6 +845,43 @@ law child_entry_bad_id:
   for +rest: String
   for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
   {FCh.ffi(Wr.put_nat(1n, ch_spell_mfate(f, rest))) == Wr.err("child: bad id") : String}
+
+# LAW child_entry_bad_phase: in an abort request, a phase number (its
+# tag; a watched clock's token tag, token after tag 1, left or tries,
+# what comes before it in the clock within the wire; an owed report's
+# tag; the owed id after a report) that does not read answers "child:
+# bad phase", whatever the rest
+# EXCLUDES: a malformed phase read as a known one (an ended task, a
+#   default clock or report) or named as another field (the delete flag)
+law child_entry_bad_phase:
+  for +k: ChPhaseCut
+  for +rest: String
+  for fit: {ch_cut_phase_fits(k) == True{} : Bool}
+  for bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}
+  {FCh.ffi(Wr.put_nat(2n, ch_cut_phase(k, rest))) == Wr.err("child: bad phase") : String}
+
+# LAW child_entry_unknown_watched_token: in an abort request, a watching
+# phase whose clock token tag is past 1 (none, some) answers "child: bad
+# phase", whatever follows
+# EXCLUDES: an unknown watched token tag read as none or some, or named as
+#   another field (the delete flag)
+law child_entry_unknown_watched_token:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(2n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(2n, Wr.put_nat(0n, Wr.put_nat(2n+n, rest)))) == Wr.err("child: bad phase") : String}
+
+# LAW child_entry_bad_delete_flag: in an abort request, after a spelled
+# phase within the wire, a delete flag that does not read as T or F
+# answers "child: bad delete flag", whatever the rest
+# EXCLUDES: a malformed delete flag read as a default (a cancel) or named
+#   as another field (the phase, input left over)
+law child_entry_bad_delete_flag:
+  for +p: Ch.Ph
+  for +rest: String
+  for hp: {wire_ph_fits(p) == True{} : Bool}
+  for bad: {Wr.get_bool(rest) == Wr.Bad{} : Wr.Dec<Bool>}
+  {FCh.ffi(Wr.put_nat(2n, ch_spell_ph(p, rest))) == Wr.err("child: bad delete flag") : String}
 
 # LAW child_entry_malformed_example: anchor: a field that is there but
 # does not read (not a number, an unknown tag, not T or F) names itself:

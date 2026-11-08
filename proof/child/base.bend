@@ -546,6 +546,26 @@ def rt.ph(p: Ch.Ph, +rest: String, +h: {Child.wire_ph_fits(p) == True{} : Bool})
       %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Ended{}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
       {==}
 
+# a clock cut before a number that does not read decodes to Bad
+def ct.clock(k: Child.ChClockCut, +rest: String, +fit: {Child.ch_cut_clock_fits(k) == True{} : Bool}, bad: {Wr.get_nat(rest) == Wr.Bad{} : Wr.Dec<Nat>}) -> {Wr.Bad{} == FCh.get_w(Child.ch_cut_clock(k, rest)) : Wr.Dec<Ch.W>}:
+  match k:
+    case Child.ClkAtTag{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.go(_)) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtToken{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.go(_)) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.t(FCh.get_maybe_nat.some(_)) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtLeft{+t}:
+      %rt.mnat(t, rest, fit) : {Wr.Bad{} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      {==}
+    case Child.ClkAtTries{+t, +l}:
+      %rt.mnat(t, Wr.put_nat(l, rest), LLogicBool.wr_and_l(LawsBase.wire_mfits(t), LawsBase.wire_fits(l), fit)) : {Wr.Bad{} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %LWire.pw6.nat(l, rest, LLogicBool.wr_and_r(LawsBase.wire_mfits(t), LawsBase.wire_fits(l), fit)) : {Wr.Bad{} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(rest), Wr.Bad{}, bad) : {Wr.Bad{} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
+      {==}
+
 # the last stage of request r: its answer when nothing is left (left)
 def lo.fin(r: FCh.Req, left: Bool) -> String:
   match r:
