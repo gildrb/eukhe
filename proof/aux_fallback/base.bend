@@ -177,3 +177,166 @@ def AuxFallback.afw_req_round_trip(x, rest, h):
 # a req reads back (turned around for rewriting)
 def pfw.req(+x: FAf.Req, +rest: String, h: {AuxFallback.afw_req_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_req(FAf.put_req(x, rest)) : Wr.Dec<FAf.Req>}:
   Equal.sym(Wr.Dec<FAf.Req>, FAf.get_req(FAf.put_req(x, rest)), Wr.Got{x, rest}, AuxFallback.afw_req_round_trip(x, rest, h))
+
+# ---- the entry by the grammar's spelling ----
+
+# the entry's encoders write what the grammar spells
+def pfs.key(k: Af.Key, -rest: String) -> {FAf.put_key(k, rest) == AuxFallback.afw_spell_key(k, rest) : String}:
+  match k:
+    case Af.K{p, s, r}:
+      {==}
+
+def pfs.items(xs: List<&2, Af.Key>, -rest: String) -> {pfw.key_items(xs, rest) == AuxFallback.afw_spell_key_items(xs, rest) : String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{+x, +t}:
+      %pfs.items(t, rest) : {FAf.put_key(x, pfw.key_items(t, rest)) == AuxFallback.afw_spell_key(x, _) : String}
+      pfs.key(x, pfw.key_items(t, rest))
+
+def pfs.keys(+xs: List<&2, Af.Key>, -rest: String) -> {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == AuxFallback.afw_spell_keys(xs, rest) : String}:
+  %pfs.items(xs, rest) : {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == Wr.put_nat(List.length(&2, Af.Key, xs), _) : String}
+  pfw.key_put(xs, rest)
+
+def pfs.route(r: Af.Route, -rest: String) -> {FAf.put_route(r, rest) == AuxFallback.afw_spell_route(r, rest) : String}:
+  match r:
+    case Af.Session{}:
+      {==}
+    case Af.Routed{}:
+      {==}
+    case Af.Fallback{k}:
+      match k:
+        case Af.K{p, s, q}:
+          {==}
+
+def pfs.gate(g: Af.Gate, -rest: String) -> {FAf.put_gate(g, rest) == AuxFallback.afw_spell_gate(g, rest) : String}:
+  match g:
+    case Af.Known{r}:
+      %pfs.route(r, rest) : {FAf.put_gate(Af.Known{r}, rest) == Wr.put_nat(0n, _) : String}
+      {==}
+    case Af.Lookup{p, s}:
+      {==}
+
+def pfs.sel(x: Af.Sel, -rest: String) -> {FAf.put_sel(x, rest) == AuxFallback.afw_spell_sel(x, rest) : String}:
+  match x:
+    case Af.Unset{}:
+      {==}
+    case Af.Same{}:
+      {==}
+    case Af.Other{s}:
+      {==}
+
+def pfs.look(x: Af.Look, -rest: String) -> {FAf.put_look(x, rest) == AuxFallback.afw_spell_look(x, rest) : String}:
+  match x:
+    case Af.Miss{r}:
+      {==}
+    case Af.Hit{w}:
+      {==}
+
+# a request the entry writes is the grammar's spelling of it
+def pfs.req(x: FAf.Req, -rest: String) -> {FAf.put_req(x, rest) == AuxFallback.afw_spell_req(x, rest) : String}:
+  match x:
+    case FAf.GateReq{p, sel, ok}:
+      %pfs.sel(sel, Wr.put_bool(ok, rest)) : {FAf.put_req(FAf.GateReq{p, sel, ok}, rest) == Wr.put_nat(0n, Wr.put_nat(p, _)) : String}
+      {==}
+    case FAf.SettleReq{+g, +look, need}:
+      %pfs.gate(g, AuxFallback.afw_spell_look(look, Wr.put_nat(need, rest))) : {FAf.put_req(FAf.SettleReq{g, look, need}, rest) == Wr.put_nat(1n, _) : String}
+      %pfs.look(look, Wr.put_nat(need, rest)) : {FAf.put_req(FAf.SettleReq{g, look, need}, rest) == Wr.put_nat(1n, FAf.put_gate(g, _)) : String}
+      {==}
+    case FAf.PassReq{+r, +sh}:
+      %pfs.route(r, AuxFallback.afw_spell_keys(sh, rest)) : {FAf.put_req(FAf.PassReq{r, sh}, rest) == Wr.put_nat(2n, _) : String}
+      %pfs.keys(sh, rest) : {FAf.put_req(FAf.PassReq{r, sh}, rest) == Wr.put_nat(2n, FAf.put_route(r, _)) : String}
+      {==}
+
+# a spelled request that fits, then rest, runs to the entry's end check
+def pfs.run(+x: FAf.Req, +rest: String, fits: {AuxFallback.afw_req_fits(x) == True{} : Bool}) -> {FAf.ffi(AuxFallback.afw_spell_req(x, rest)) == FAf.ffi.end(Wr.end(rest), x) : String}:
+  %pfs.req(x, rest) : {FAf.ffi(_) == FAf.ffi.end(Wr.end(rest), x) : String}
+  %pfw.req(x, rest, fits) : {FAf.ffi.go(_) == FAf.ffi.end(Wr.end(rest), x) : String}
+  {==}
+
+# ---- the decision by the spec ----
+
+def pfs.gate_answer(p: Nat, sel: Af.Sel, ok: Bool) -> {FAf.put_gate(Af.gate(p, sel, ok), "") == AuxFallback.afw_spell_gate_answer(p, sel, ok) : String}:
+  match sel:
+    case Af.Unset{}:
+      {==}
+    case Af.Same{}:
+      {==}
+    case Af.Other{s}:
+      match ok:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def pfs.small(b: Bool, p: Nat, s: Nat) -> {FAf.put_route(Af.fits.route(Bool.not(b), p, s), "") == AuxFallback.afw_spell_small(b, p, s) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pfs.settle_answer(g: Af.Gate, look: Af.Look, +need: Nat) -> {FAf.put_route(Af.settle(g, look, need), "") == AuxFallback.afw_spell_settle_answer(g, look, need) : String}:
+  match g:
+    case Af.Known{r}:
+      pfs.route(r, "")
+    case Af.Lookup{p, s}:
+      match look:
+        case Af.Miss{r}:
+          {==}
+        case Af.Hit{w}:
+          match w:
+            case 0n:
+              {==}
+            case 1n+x:
+              pfs.small(Nat.is_lt(1n+x, need), p, s)
+
+def pfs.same(a: Af.Key, b: Af.Key) -> {Af.Key.eq(a, b) == AuxFallback.afw_same_key(a, b) : Bool}:
+  match a:
+    case Af.K{ap, as1, ar}:
+      match b:
+        case Af.K{bp, bs1, br}:
+          {==}
+
+def pfs.listed(ks: List<&2, Af.Key>, +k: Af.Key) -> {Af.listed(ks, k) == AuxFallback.afw_has_key(ks, k) : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case Con{+x, +t}:
+      %pfs.listed(t, k) : {Af.listed(x <> t, k) == Bool.or(AuxFallback.afw_same_key(x, k), _) : Bool}
+      %pfs.same(x, k) : {Af.listed(x <> t, k) == Bool.or(_, Af.listed(t, k)) : Bool}
+      {==}
+
+def pfs.fallback(b: Bool, +k: Af.Key, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.Sub{k} <> Af.noted(b, k, Nil{}), Af.shown(b, k, sh)), "") == AuxFallback.afw_spell_fallback(b, k, sh) : String}:
+  match b:
+    case True{}:
+      %pfs.keys(sh, "") : {FAf.put_pass(([Af.Sub{k}], sh), "") == Wr.put_nat(1n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, _))) : String}
+      %pfs.key(k, Wr.put_list(~Af.Key, ~FAf.put_key, sh, "")) : {FAf.put_pass(([Af.Sub{k}], sh), "") == Wr.put_nat(1n, Wr.put_nat(2n, _)) : String}
+      {==}
+    case False{}:
+      %pfs.keys(k <> sh, "") : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, Wr.put_nat(3n, AuxFallback.afw_spell_key(k, _))))) : String}
+      %pfs.key(k, Wr.put_list(~Af.Key, ~FAf.put_key, k <> sh, "")) : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, AuxFallback.afw_spell_key(k, Wr.put_nat(3n, _)))) : String}
+      %pfs.key(k, Wr.put_nat(3n, FAf.put_key(k, Wr.put_list(~Af.Key, ~FAf.put_key, k <> sh, "")))) : {FAf.put_pass(([Af.Sub{k}, Af.Note{k}], k <> sh), "") == Wr.put_nat(2n, Wr.put_nat(2n, _)) : String}
+      {==}
+
+def pfs.pass_answer(r: Af.Route, +sh: List<&2, Af.Key>) -> {FAf.put_pass((Af.put(r, sh, Nil{}), Af.after(r, sh)), "") == AuxFallback.afw_spell_pass_answer(r, sh) : String}:
+  match r:
+    case Af.Session{}:
+      %pfs.keys(sh, "") : {FAf.put_pass(([Af.Stay{}], sh), "") == Wr.put_nat(1n, Wr.put_nat(0n, _)) : String}
+      {==}
+    case Af.Routed{}:
+      %pfs.keys(sh, "") : {FAf.put_pass(([Af.Went{}], sh), "") == Wr.put_nat(1n, Wr.put_nat(1n, _)) : String}
+      {==}
+    case Af.Fallback{+k}:
+      %pfs.listed(sh, k) : {FAf.put_pass((Af.Sub{k} <> Af.noted(Af.listed(sh, k), k, Nil{}), Af.shown(Af.listed(sh, k), k, sh)), "") == AuxFallback.afw_spell_fallback(_, k, sh) : String}
+      pfs.fallback(Af.listed(sh, k), k, sh)
+
+# the entry's answer on a request is the spelled spec decision
+def pfs.answer(x: FAf.Req) -> {FAf.answer(x) == AuxFallback.afw_spell_answer(x) : String}:
+  match x:
+    case FAf.GateReq{p, sel, ok}:
+      pfs.gate_answer(p, sel, ok)
+    case FAf.SettleReq{g, look, need}:
+      pfs.settle_answer(g, look, need)
+    case FAf.PassReq{r, sh}:
+      pfs.pass_answer(r, sh)

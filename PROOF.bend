@@ -921,6 +921,11 @@ import ./proof/aux_fallback/afw_pass_req_example.bend as PAfwPassReqExample
 import ./proof/aux_fallback/afw_pass_example.bend as PAfwPassExample
 import ./proof/aux_fallback/afw_ffi_example.bend as PAfwFfiExample
 import ./proof/aux_fallback/afw_malformed_example.bend as PAfwMalformedExample
+import ./proof/aux_fallback/afw_answers_spelled.bend as PAfwAnswersSpelled
+import ./proof/aux_fallback/afw_left_over_spelled.bend as PAfwLeftOverSpelled
+import ./proof/aux_fallback/afw_reads_only_requests.bend as PAfwReadsOnlyRequests
+import ./proof/aux_fallback/afw_malformed_unless_request.bend as PAfwMalformedUnlessRequest
+import ./proof/aux_fallback/afw_tags_example.bend as PAfwTagsExample
 import ./proof/skill_load/skill_failure_reported.bend as PSkillFailureReported
 import ./proof/skill_load/skill_loaded_not_failed.bend as PSkillLoadedNotFailed
 import ./proof/skill_load/base.bend as LASkillLoad
