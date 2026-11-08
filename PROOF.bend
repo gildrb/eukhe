@@ -369,12 +369,12 @@ import ./proof/sandbox/cow_plan.bend as PCowPlan
 import ./proof/sandbox/cow_plan_is_merge.bend as PCowPlanIsMerge
 import ./proof/sandbox/cow_entry.bend as PCowEntry
 import ./proof/sandbox/base/cow.bend as LASandboxCow
-import ./proof/sandbox/cow_entry_exact.bend as PCowEntryExact
 import ./proof/sandbox/cow_entry_answers_spelled.bend as PCowEntryAnswersSpelled
 import ./proof/sandbox/cow_entry_left_over.bend as PCowEntryLeftOver
 import ./proof/sandbox/cow_entry_bad_parent.bend as PCowEntryBadParent
 import ./proof/sandbox/cow_entry_bad_base.bend as PCowEntryBadBase
 import ./proof/sandbox/cow_entry_bad_child.bend as PCowEntryBadChild
+import ./proof/sandbox/cow_entry_malformed_unless_request.bend as PCowEntryMalformedUnlessRequest
 import ./proof/sandbox/cow_entry_tags_example.bend as PCowEntryTagsExample
 import ./proof/cvar/base.bend as LACvar
 import ./proof/cvar/cvar_registry_unique.bend as PCvarRegistryUnique

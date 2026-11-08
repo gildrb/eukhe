@@ -227,49 +227,6 @@ def cow_read_doc(r: Wr.Dec<Nat>) -> Wr.Dec<Maybe<&2, Nat>>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def cow_spec.end(whole: Bool, +p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> String:
-  match whole:
-    case True{}:
-      cow_spell_answer(p, b, c)
-    case False{}:
-      Wr.err("sandbox: input left over")
-
-def cow_spec.c(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+c, s}:
-      cow_spec.end(Wr.end(s), p, b, c)
-    case Wr.Bad{}:
-      Wr.err("sandbox: bad child content")
-
-def cow_spec.b(+p: Maybe<&2, Nat>, r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+b, s}:
-      cow_spec.c(p, b, cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.err("sandbox: bad base content")
-
-def cow_spec.p(r: Wr.Dec<Maybe<&2, Nat>>) -> String:
-  match r:
-    case Wr.Got{+p, s}:
-      cow_spec.b(p, cow_read_doc(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.err("sandbox: bad parent content")
-
-# the reply to s: the plan of the three contents s is exactly; else the
-# error naming the first field that is not a content, or the left-over
-# error
-def cow_spec(s: String) -> String:
-  cow_spec.p(cow_read_doc(Wr.get_nat(s)))
-
-# LAW cow_entry_exact: on every input the sandbox entry answers the spelled plan of the three contents the input is exactly, else the error naming the first field that is not a content, or "sandbox: input left over"
-# EXCLUDES: a plan tag or taken flag that drifts from the bytes Rust reads,
-#   a content misread (a tag past 1 read as a content), the error texts
-#   swapped or reworded, a field's error named as another, input left
-#   over ignored
-law cow_entry_exact:
-  for +s: String
-  {FSb.ffi(s) == cow_spec(s) : String}
-
 # LAW cow_entry_answers_spelled: every request Rust writes (every id within the wire) gets the spelled plan of the path
 # EXCLUDES: a request Rust writes refused or misread, a plan spelled
 #   another way than Rust reads it
@@ -321,6 +278,21 @@ law cow_entry_bad_child:
   for +s: String
   for bad: {cow_read_doc(Wr.get_nat(s)) == Wr.Bad{} : Wr.Dec<Maybe<&2, Nat>>}
   {FSb.ffi(cow_spell_doc(p, cow_spell_doc(b, s))) == Wr.err("sandbox: bad child content") : String}
+
+# LAW cow_entry_malformed_unless_request: every answer but the three field errors ("sandbox: bad parent content", "bad base content", "bad child content") answers an input that begins with a request Rust writes: three contents, every id within the wire, then any rest
+# EXCLUDES: a malformed content read and answered (a tag past 1, a leading
+#   zero, an id past the wire, a cut field) with a plan or the left-over
+#   error, instead of the error naming its field
+law cow_entry_malformed_unless_request:
+  for +s: String
+  for np: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad parent content")) == False{} : Bool}
+  for nb: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad base content")) == False{} : Bool}
+  for nc: {String.eq(FSb.ffi(s), Wr.err("sandbox: bad child content")) == False{} : Bool}
+  exs p: Maybe<&2, Nat>
+  exs b: Maybe<&2, Nat>
+  exs c: Maybe<&2, Nat>
+  exs rest: String
+  {(s, Bool.and(LawsBase.wire_mfits(p), Bool.and(LawsBase.wire_mfits(b), LawsBase.wire_mfits(c)))) == (cow_spell_req(p, b, c, rest), True{}) : String & Bool}
 
 # LAW cow_entry_tags_example: anchor: the bytes Rust sends and reads: no file anywhere (keep);
 # both changed the path alike (keep, taken); only the child changed it, to a file (take) or by
