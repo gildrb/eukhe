@@ -847,3 +847,61 @@ law path_real_dots_at_root:
 #   from `/` or from the link itself
 law path_real_dots_example:
   {[Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.real(Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}]), Pp.real(Nil{}, [Tl.Up{}, Tl.Name{1n}, Tl.Here{}, Tl.Name{2n}]), Pp.real([Pp.Link{[3n, 2n, 1n], False{}, [Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Name{3n}, Tl.Name{5n}]), Pp.real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), Pp.real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[7n, 3n], False{}}, Pp.Res{[2n, 1n], False{}}, Pp.Res{[5n, 4n, 1n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>} & {[Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), Pp.class(Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [Tl.Name{3n}, Tl.Name{5n}, Tl.Up{}, Tl.Name{7n}])] == [Pp.Secret{}, Pp.Inside{}] : List<&2, Pp.Cls>} & {[pp_real(Nil{}, [Tl.Name{3n}, Tl.Name{7n}, Tl.Up{}, Tl.Name{5n}]), pp_real([Pp.Link{[2n, 1n], True{}, [Tl.Name{9n}, Tl.Name{8n}]}], [Tl.Name{1n}, Tl.Name{2n}, Tl.Up{}, Tl.Name{6n}]), pp_real([Pp.Link{[1n], False{}, [Tl.Here{}, Tl.Name{3n}, Tl.Up{}, Tl.Name{4n}]}], [Tl.Name{1n}, Tl.Name{7n}])] == [Pp.Res{[5n, 3n], False{}}, Pp.Res{[6n, 9n], False{}}, Pp.Res{[7n, 4n], False{}}] : List<&2, Pp.Res>}
+
+# (G1) The class of a path and its safety, against the spec
+# ---------------------------------------------------------
+# path_judge_class_exact pins the judgment of a resolved path, but the laws
+# of the first section state their claims with the model's own Pp.class
+# (the class of a written path through the links) and Pp.safe: a Pp.class
+# that drops every rule's cover (a Tree rule's path read as Inside), with a
+# Pp.safe that drops it too, passed every law (an adversary found this
+# gap). The laws below pin both to the spec class.
+
+# the spec class of a resolved path r
+def pp_class_res(+ro: List<&2, List<&2, Nat>>, +ru: List<&2, Pp.Rule>, +se: List<&2, List<&2, Nat>>, r: Pp.Res) -> Pp.Cls:
+  match r:
+    case Pp.Res{at, l}:
+      pp_class(ro, ru, se, at, l)
+
+def pp_cls_is_inside(c: Pp.Cls) -> Bool:
+  match c:
+    case Pp.Inside{}:
+      True{}
+    case Pp.Outside{}:
+      False{}
+    case Pp.Protected{}:
+      False{}
+    case Pp.Secret{}:
+      False{}
+
+# LAW path_class_exact: the class of any path through any links, under any policy, is the spec
+# class of its spec real path
+# EXCLUDES: a class that drops a rule's cover, a secret, a root or the loop
+#   demotion, or judges another resolution than the spec's
+law path_class_exact:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  {Pp.class(Pp.Pol{ro, ru, se}, ls, segs) == pp_class_res(ro, ru, se, pp_real(ls, segs)) : Pp.Cls}
+
+# LAW path_safe_exact: a resolved path is safe (path_inside_is_safe's conclusion) exactly when its
+# spec class is Inside
+# EXCLUDES: a safe test that misses a rule's cover, a secret, an entry
+#   below the path, a loop or a missing root (path_inside_is_safe then says
+#   less than its words)
+law path_safe_exact:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  {Pp.safe(Pp.Pol{ro, ru, se}, Pp.Res{at, l}) == pp_cls_is_inside(pp_class(ro, ru, se, at, l)) : Bool}
+
+# LAW path_class_example: anchor: the adversary's input: under the root /3 with a Tree /3/9 rule
+# (a workspace's .git), /3/9 and /3/9/1 are Protected and /3/7 Inside; /3/9
+# is not safe, /3/7 is
+# EXCLUDES: a class or a safe test that drops a rule's cover
+law path_class_example:
+  {[Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{9n}]), Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{9n}, Tl.Name{1n}]), Pp.class(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Nil{}, [Tl.Name{3n}, Tl.Name{7n}])] == [Pp.Protected{}, Pp.Protected{}, Pp.Inside{}] : List<&2, Pp.Cls>} & {[Pp.safe(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Pp.Res{[9n, 3n], False{}}), Pp.safe(Pp.Pol{[[3n]], [Pp.Tree{[9n, 3n]}], Nil{}}, Pp.Res{[7n, 3n], False{}})] == [False{}, True{}] : List<&2, Bool>}
