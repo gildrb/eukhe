@@ -339,6 +339,14 @@ import ./proof/sandbox/cow_conflict_is_real.bend as PCowConflictIsReal
 import ./proof/sandbox/cow_plan.bend as PCowPlan
 import ./proof/sandbox/cow_plan_is_merge.bend as PCowPlanIsMerge
 import ./proof/sandbox/cow_entry.bend as PCowEntry
+import ./proof/sandbox/base/cow.bend as LASandboxCow
+import ./proof/sandbox/cow_entry_exact.bend as PCowEntryExact
+import ./proof/sandbox/cow_entry_answers_spelled.bend as PCowEntryAnswersSpelled
+import ./proof/sandbox/cow_entry_left_over.bend as PCowEntryLeftOver
+import ./proof/sandbox/cow_entry_bad_parent.bend as PCowEntryBadParent
+import ./proof/sandbox/cow_entry_bad_base.bend as PCowEntryBadBase
+import ./proof/sandbox/cow_entry_bad_child.bend as PCowEntryBadChild
+import ./proof/sandbox/cow_entry_tags_example.bend as PCowEntryTagsExample
 import ./proof/cvar/base.bend as LACvar
 import ./proof/cvar/cvar_registry_unique.bend as PCvarRegistryUnique
 import ./proof/cvar/cvar_registry_typed.bend as PCvarRegistryTyped
@@ -989,6 +997,11 @@ import ./proof/supervise/restart_wire_reply_give_up.bend as PRestartWireReplyGiv
 import ./proof/supervise/restart_ffi_decides.bend as PRestartFfiDecides
 import ./proof/supervise/restart_ffi_malformed.bend as PRestartFfiMalformed
 import ./proof/supervise/restart_ffi_left_over.bend as PRestartFfiLeftOver
+import ./proof/supervise/base/entry.bend as LASuperviseEntry
+import ./proof/supervise/restart_ffi_exact.bend as PRestartFfiExact
+import ./proof/supervise/restart_ffi_answers_spelled.bend as PRestartFfiAnswersSpelled
+import ./proof/supervise/restart_ffi_left_over_spelled.bend as PRestartFfiLeftOverSpelled
+import ./proof/supervise/restart_ffi_tags_example.bend as PRestartFfiTagsExample
 import ./proof/supervise/timeouts_ordered.bend as PTimeoutsOrdered
 import ./proof/revive/revive_after_refresh.bend as PReviveAfterRefresh
 import ./proof/timeouts/base.bend as LATimeouts
