@@ -1052,6 +1052,12 @@ import ./proof/replace/replace_rank_past_range_example.bend as PReplaceRankPastR
 import ./proof/replace/replace_relation_exact.bend as PReplaceRelationExact
 import ./proof/replace/replace_verdict_exact.bend as PReplaceVerdictExact
 import ./proof/replace/replace_ping_pong_example.bend as PReplacePingPongExample
+import ./proof/replace/replace_after_exact.bend as PReplaceAfterExact
+import ./proof/replace/replace_daemons_exact.bend as PReplaceDaemonsExact
+import ./proof/replace/replace_replaced_exact.bend as PReplaceReplacedExact
+import ./proof/replace/replace_never_back_exact.bend as PReplaceNeverBackExact
+import ./proof/replace/replace_never_downgrades_spec.bend as PReplaceNeverDowngradesSpec
+import ./proof/replace/replace_history_example.bend as PReplaceHistoryExample
 import ./proof/replace/replace_rank_cut.bend as PReplaceRankCut
 import ./proof/replace/replace_ffi_relation.bend as PReplaceFfiRelation
 import ./proof/replace/replace_ffi_verdict.bend as PReplaceFfiVerdict

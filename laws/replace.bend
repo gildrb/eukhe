@@ -247,6 +247,158 @@ law replace_verdict_exact:
 law replace_ping_pong_example:
   {[Rp.verdict(Rp.Build.of("0.9.9-main.46", "o"), Rp.Build.of("0.10.40", "n"), Rp.Background{}), Rp.verdict(Rp.Build.of("0.9.9-main.46", "o"), Rp.Build.of("0.10.40", "n"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.9.9-main.46", "o"), Rp.Background{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.9.9-main.46", "o"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.10.40", "n"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.0-dev", "a"), Rp.Build.of("0.10.0-dev", "b"), Rp.Interactive{})] == [Rp.Keep{Rp.Newer{}}, Rp.Keep{Rp.Newer{}}, Rp.Keep{Rp.Older{}}, Rp.Replace{}, Rp.Keep{Rp.Same{}}, Rp.Keep{Rp.Other{}}] : List<&2, Rp.Verdict>}
 
+# The history of client starts, by the laws' own terms (independent of the
+# model's after, daemons, replaced, never_back and not_below): the daemon
+# after each start, the count of replacements, and the order of the
+# daemons' ranks
+
+# the daemon after a start whose spec verdict on the running b is v
+def rp_after_pick(v: Rp.Verdict, c: Rp.Build, b: Rp.Build) -> Rp.Build:
+  match v:
+    case Rp.Replace{}:
+      c
+    case Rp.Keep{r}:
+      b
+
+# the daemon after a start of client c by caller k: none running, the
+# client's build; else the client's build when verdict_spec of the
+# relation of the running b to c is Replace, else b
+def rp_after_spec(s: Rp.Start, d: Maybe<&2, Rp.Build>) -> Rp.Build:
+  match s:
+    case Rp.Start{+c, k}:
+      match d:
+        case None{}:
+          c
+        case Some{+b}:
+          rp_after_pick(verdict_spec(rel_spec(c, b), k), c, b)
+
+# the daemon after each start, from the running d on
+def rp_daemons_spec.go(ss: List<&2, Rp.Start>, d: Maybe<&2, Rp.Build>) -> List<&2, Rp.Build>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case +s <> rest:
+      +n = rp_after_spec(s, d)
+      n <> rp_daemons_spec.go(rest, Some{n})
+
+# the daemon after each start, from no daemon on
+def rp_daemons_spec(ss: List<&2, Rp.Start>) -> List<&2, Rp.Build>:
+  rp_daemons_spec.go(ss, None{})
+
+# 1 for a Replace, 0 for a Keep
+def rp_count(v: Rp.Verdict) -> Nat:
+  match v:
+    case Rp.Replace{}:
+      1n
+    case Rp.Keep{r}:
+      0n
+
+# 1 when the spec verdict of the start on a running daemon is Replace
+def rp_replaces_spec(s: Rp.Start, d: Maybe<&2, Rp.Build>) -> Nat:
+  match s:
+    case Rp.Start{+c, k}:
+      match d:
+        case None{}:
+          0n
+        case Some{+b}:
+          rp_count(verdict_spec(rel_spec(c, b), k))
+
+# the starts of ss that replace a running daemon, from the running d on
+def rp_replaced_spec.go(ss: List<&2, Rp.Start>, +d: Maybe<&2, Rp.Build>) -> Nat:
+  match ss:
+    case Nil{}:
+      0n
+    case +s <> rest:
+      Nat.add(rp_replaces_spec(s, d), rp_replaced_spec.go(rest, Some{rp_after_spec(s, d)}))
+
+# the starts of ss that replace a running daemon, from no daemon on
+def rp_replaced_spec(ss: List<&2, Rp.Start>) -> Nat:
+  rp_replaced_spec.go(ss, None{})
+
+# the rank of a build
+def rp_rank_of(b: Rp.Build) -> List<&2, Nat>:
+  match b:
+    case Rp.Build{r, i}:
+      r
+
+# rank r is below no rank of seen
+def rp_not_below(seen: List<&2, List<&2, Nat>>, +r: List<&2, Nat>) -> Bool:
+  match seen:
+    case Nil{}:
+      True{}
+    case e <> t:
+      Bool.and(Bool.not(rank_below(r, e)), rp_not_below(t, r))
+
+# no build of xs ranks below a build before it (seen: the ranks before xs)
+def rp_never_back_spec.go(xs: List<&2, Rp.Build>, +seen: List<&2, List<&2, Nat>>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> t:
+      +r = rp_rank_of(x)
+      Bool.and(rp_not_below(seen, r), rp_never_back_spec.go(t, r <> seen))
+
+# no build of xs ranks (rank_below) below a build before it
+def rp_never_back_spec(xs: List<&2, Rp.Build>) -> Bool:
+  rp_never_back_spec.go(xs, Nil{})
+
+# LAW replace_after_exact: the daemon after a start is exactly rp_after_spec: none running, the
+# client's build; else the client's build when verdict_spec(rel_spec(c, b), k)
+# is Replace, else the running build b
+# EXCLUDES: an after that asks the verdict with client and daemon swapped
+#   (an interactive start that goes back to an older build), replaces on a
+#   Keep, keeps on a Replace, or starts another build when none runs
+law replace_after_exact:
+  for +s: Rp.Start
+  for +d: Maybe<&2, Rp.Build>
+  {Rp.after(s, d) == rp_after_spec(s, d) : Rp.Build}
+
+# LAW replace_daemons_exact: the running daemon after each start is exactly rp_daemons_spec (the
+# fold of rp_after_spec from no daemon)
+# EXCLUDES: a trace that drops, repeats or reorders a daemon, or threads
+#   another daemon to the next start
+law replace_daemons_exact:
+  for +ss: List<&2, Rp.Start>
+  {Rp.daemons(ss) == rp_daemons_spec(ss) : List<&2, Rp.Build>}
+
+# LAW replace_replaced_exact: the count of replacements is exactly the starts whose spec verdict on
+# the running daemon is Replace
+# EXCLUDES: a count that misses or invents a replacement (a replacements
+#   bound met by a count of 0), or counts a start with no daemon
+law replace_replaced_exact:
+  for +ss: List<&2, Rp.Start>
+  {Rp.replaced(ss) == rp_replaced_spec(ss) : Nat}
+
+# LAW replace_never_back_exact: the model's never_back is exactly rp_never_back_spec: no build ranks
+# (rank_below) below a build before it
+# EXCLUDES: a never_back that answers True (or False) for every list, or
+#   compares only neighbours or the wrong way round (replace_never_downgrades
+#   then says nothing)
+law replace_never_back_exact:
+  for +xs: List<&2, Rp.Build>
+  {Rp.never_back(xs) == rp_never_back_spec(xs) : Bool}
+
+# LAW replace_never_downgrades_spec: client starts never take the daemon back to a lower build, by
+# the laws' own order: in the model's daemons after any starts, no daemon
+# ranks below a daemon that ran before it
+# EXCLUDES: a daemon that goes back to an older build, hidden by a model's
+#   own never_back
+law replace_never_downgrades_spec:
+  for +ss: List<&2, Rp.Start>
+  {rp_never_back_spec(Rp.daemons(ss)) == True{} : Bool}
+
+# LAW replace_history_example: anchor: n of version 0.10.40 (rank [0, 10, 1, 40]) and o of
+# 0.9.9-main.46 (rank [0, 9, 0, 9]): interactive starts of n then o keep
+# n ([n, n], no replacement); of o then n replace o ([o, n], one
+# replacement); an interactive start of o then a background start of n
+# keep o ([o, o], no replacement); the model's never_back refuses the
+# history [n, o] and accepts [o, n]
+# EXCLUDES: the adversary's model (the daemon back to o with no
+#   replacement counted, a never_back that accepts every history), a
+#   background start that replaces
+law replace_history_example:
+  {[Rp.daemons([Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}]), Rp.daemons([Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}]), Rp.daemons([Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Background{}}])] == [[Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Build{[0n, 10n, 1n, 40n], "n"}], [Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Build{[0n, 10n, 1n, 40n], "n"}], [Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Build{[0n, 9n, 0n, 9n], "o"}]] : List<&2, List<&2, Rp.Build>>} & {[Rp.replaced([Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}]), Rp.replaced([Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Interactive{}}]), Rp.replaced([Rp.Start{Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Interactive{}}, Rp.Start{Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Background{}}])] == [0n, 1n, 0n] : List<&2, Nat>} & {[Rp.never_back([Rp.Build{[0n, 10n, 1n, 40n], "n"}, Rp.Build{[0n, 9n, 0n, 9n], "o"}]), Rp.never_back([Rp.Build{[0n, 9n, 0n, 9n], "o"}, Rp.Build{[0n, 10n, 1n, 40n], "n"}])] == [False{}, True{}] : List<&2, Bool>}
+
 # ---- replace: the entry ----
 
 # LAWS (D1, the compiled core): the launcher's replacement verdict runs as
