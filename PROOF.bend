@@ -1205,10 +1205,16 @@ import ./proof/gateway_width/table_aligned.bend as PTableAligned
 import ./proof/gateway_width/ascii_unchanged.bend as PAsciiUnchanged
 import ./proof/gateway_width/layout_widths.bend as PLayoutWidths
 import ./proof/gateway_width/layout_pads.bend as PLayoutPads
+import ./proof/gateway_width/layout_measured_spec.bend as PLayoutMeasuredSpec
 import ./proof/gateway_width/gateway_width_ffi_request_round_trip.bend as PGatewayWidthFfiRequestRoundTrip
 import ./proof/gateway_width/gateway_width_ffi_answers.bend as PGatewayWidthFfiAnswers
 import ./proof/gateway_width/gateway_width_ffi_rejects_malformed.bend as PGatewayWidthFfiRejectsMalformed
 import ./proof/gateway_width/gateway_width_ffi_rejects_left_over.bend as PGatewayWidthFfiRejectsLeftOver
+import ./proof/gateway_width/gateway_width_ffi_answers_spelled.bend as PGatewayWidthFfiAnswersSpelled
+import ./proof/gateway_width/gateway_width_ffi_left_over_spelled.bend as PGatewayWidthFfiLeftOverSpelled
+import ./proof/gateway_width/gateway_width_ffi_reads_only_requests.bend as PGatewayWidthFfiReadsOnlyRequests
+import ./proof/gateway_width/gateway_width_ffi_malformed_unless_request.bend as PGatewayWidthFfiMalformedUnlessRequest
+import ./proof/gateway_width/gateway_width_ffi_tags_example.bend as PGatewayWidthFfiTagsExample
 import ./proof/tui_color/base.bend as LATuiColor
 import ./proof/tui_color/tui_effort_ramp_length.bend as PTuiEffortRampLength
 import ./proof/tui_color/tui_effort_ramp_ordered.bend as PTuiEffortRampOrdered
