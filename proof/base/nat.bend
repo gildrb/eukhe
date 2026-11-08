@@ -590,9 +590,10 @@ def tc.ge_miss(+e: Tr.Ent, +b: Nat, +x: Nat, +ge: {Nat.is_lt(Tr.Ent.k(e), b) == 
 # global steps left. A tick takes one step off (`pd.tick_ok`), so after k
 # steps the loop has ended (`pd.ends_go`). An ended loop never changes.
 #
-# The rule: each verdict law unfolds decide.go once (`pd.on_top` matches
-# the model's `under` with the spec's `dir_on_top`); each tick law settles
-# one outcome (`pd.settle_cont0`, `pd.settle_hand`, `pd.settle_failed`).
+# The step, verdict by verdict: layers above that each say Defer or Leave
+# pass the decision down, those that defer staying on top of it
+# (`pd.go_split`, proof/director/base.bend); each dir_step_* law then
+# settles the deciding layer's decision (`pd.step_at`, `pd.kept_at`).
 #
 # Leads: a decision where leads leave equals the decision on the verdicts
 # with each Lead read as a Leave (`pd.leave_as`), one where they stay the

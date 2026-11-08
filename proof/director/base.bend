@@ -137,13 +137,77 @@ def pd.go_bounded(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, 
 def pd.dir_stack_bounded(+s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, fits: {Nat.is_le(List.length(&2, Dr.Layer, s), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide(s, vs, cap))), cap) == True{} : Bool}:
   pd.go_bounded(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), False{}, cap, 0n, fits, {==})
 
-# The rule, verdict by verdict
+# The step, verdict by verdict
 # ----------------------------
 
-def pd.on_top(+l: Dr.Layer, d: Dr.Dec) -> {Dr.under(l, d) == Director.dir_on_top(l, d) : Dr.Dec}:
+# the decision d with the layers xs put on top of its stack
+def pd.over(xs: List<&2, Dr.Layer>, d: Dr.Dec) -> Dr.Dec:
+  match d:
+    case Dr.Dec{o, s}:
+      Dr.Dec{o, List.append(&2, Dr.Layer, xs, s)}
+
+def pd.over_nil(d: Dr.Dec) -> {d == pd.over(Nil{}, d) : Dr.Dec}:
   match d:
     case Dr.Dec{o, s}:
       {==}
+
+# a layer put back on a decision with xs on top
+def pd.under_over(+l: Dr.Layer, +xs: List<&2, Dr.Layer>, d: Dr.Dec) -> {Dr.under(l, pd.over(xs, d)) == pd.over(l <> xs, d) : Dr.Dec}:
+  match d:
+    case Dr.Dec{o, s}:
+      {==}
+
+# the claim of pd.go_split
+def pd.split_goal(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>, rest: List<&2, Dr.Layer>, vr: List<&2, Dr.Verdict>, r: Bool, st: Bool) -> Type:
+  {Dr.decide.go(List.append(&2, Dr.Layer, a, rest), List.append(&2, Dr.Verdict, va, vr), r, st) == pd.over(Director.dir_stayers(a, va), Dr.decide.go(rest, vr, r, st)) : Dr.Dec}
+
+# layers above that each say Defer or Leave (one verdict each) pass the
+# decision to the layers below them: those that defer stay on top of it
+def pd.go_split(a: List<&2, Dr.Layer>, va: List<&2, Dr.Verdict>, +rest: List<&2, Dr.Layer>, +vr: List<&2, Dr.Verdict>, +r: Bool, +st: Bool, one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}, pass: {Director.dir_all_pass(va) == True{} : Bool}) -> {Dr.decide.go(List.append(&2, Dr.Layer, a, rest), List.append(&2, Dr.Verdict, va, vr), r, st) == pd.over(Director.dir_stayers(a, va), Dr.decide.go(rest, vr, r, st)) : Dr.Dec}:
+  match a:
+    case Nil{}:
+      match va:
+        case Nil{}:
+          pd.over_nil(Dr.decide.go(rest, vr, r, st))
+        case v <> vt:
+          LLogicLogic.tree.pt.absurdF(pd.split_goal(Nil{}, v <> vt, rest, vr, r, st), one)
+    case +l <> +t:
+      match va:
+        case Nil{}:
+          LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Nil{}, rest, vr, r, st), one)
+        case v <> +vt:
+          match v:
+            case Dr.Defer{}:
+              +S = Director.dir_stayers(t, vt)
+              +D = Dr.decide.go(rest, vr, r, st)
+              Equal.trans(Dr.Dec, Dr.under(l, Dr.decide.go(List.append(&2, Dr.Layer, t, rest), List.append(&2, Dr.Verdict, vt, vr), r, st)), Dr.under(l, pd.over(S, D)), pd.over(l <> S, D), Equal.cong(Dr.Dec, Dr.Dec, x => Dr.under(l, x), Dr.decide.go(List.append(&2, Dr.Layer, t, rest), List.append(&2, Dr.Verdict, vt, vr), r, st), pd.over(S, D), pd.go_split(t, vt, rest, vr, r, st, one, pass)), pd.under_over(l, S, D))
+            case Dr.Again{}:
+              LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Again{} <> vt, rest, vr, r, st), pass)
+            case Dr.Yield{}:
+              LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Yield{} <> vt, rest, vr, r, st), pass)
+            case Dr.Stack{p}:
+              LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Stack{p} <> vt, rest, vr, r, st), pass)
+            case Dr.Leave{}:
+              pd.go_split(t, vt, rest, vr, r, st, one, pass)
+            case Dr.Abort{}:
+              LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Abort{} <> vt, rest, vr, r, st), pass)
+            case Dr.Lead{}:
+              LLogicLogic.tree.pt.absurdF(pd.split_goal(l <> t, Dr.Lead{} <> vt, rest, vr, r, st), pass)
+
+# a running loop's step on such a stack: the settle of the deciding
+# layer's decision, the layers that stay on top
+def pd.step_at(+n: Nat, +a: List<&2, Dr.Layer>, +d: Dr.Layer, +b: List<&2, Dr.Layer>, +va: List<&2, Dr.Verdict>, +v: Dr.Verdict, +vr: List<&2, Dr.Verdict>, +cap: Nat, one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}, pass: {Director.dir_all_pass(va) == True{} : Bool}) -> {Dr.tick(cap, Dr.Loop{n, List.append(&2, Dr.Layer, a, d <> b), None{}}, List.append(&2, Dr.Verdict, va, v <> vr)) == Dr.settle(pd.over(Director.dir_stayers(a, va), Dr.decide.go(d <> b, v <> vr, Nat.is_lt(List.length(&2, Dr.Layer, List.append(&2, Dr.Layer, a, d <> b)), cap), False{})), n, List.append(&2, Dr.Layer, a, d <> b), List.append(&2, Dr.Verdict, va, v <> vr), cap) : Dr.Loop}:
+  +s = List.append(&2, Dr.Layer, a, d <> b)
+  +vs = List.append(&2, Dr.Verdict, va, v <> vr)
+  +R = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
+  Equal.cong(Dr.Dec, Dr.Loop, x => Dr.settle(x, n, s, vs, cap), Dr.decide.go(s, vs, R, False{}), pd.over(Director.dir_stayers(a, va), Dr.decide.go(d <> b, v <> vr, R, False{})), pd.go_split(a, va, d <> b, v <> vr, R, False{}, one, pass))
+
+# the stack such a step keeps when it ends the loop
+def pd.kept_at(+a: List<&2, Dr.Layer>, +d: Dr.Layer, +b: List<&2, Dr.Layer>, +va: List<&2, Dr.Verdict>, +v: Dr.Verdict, +vr: List<&2, Dr.Verdict>, +cap: Nat, one: {Nat.is_eq(List.length(&2, Dr.Layer, a), List.length(&2, Dr.Verdict, va)) == True{} : Bool}, pass: {Director.dir_all_pass(va) == True{} : Bool}) -> {Dr.kept(List.append(&2, Dr.Layer, a, d <> b), List.append(&2, Dr.Verdict, va, v <> vr), cap) == Dr.Dec.stack(pd.over(Director.dir_stayers(a, va), Dr.decide.go(d <> b, v <> vr, Nat.is_lt(List.length(&2, Dr.Layer, List.append(&2, Dr.Layer, a, d <> b)), cap), True{}))) : List<&2, Dr.Layer>}:
+  +s = List.append(&2, Dr.Layer, a, d <> b)
+  +vs = List.append(&2, Dr.Verdict, va, v <> vr)
+  +R = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
+  Equal.cong(Dr.Dec, List<&2, Dr.Layer>, x => Dr.Dec.stack(x), Dr.decide.go(s, vs, R, True{}), pd.over(Director.dir_stayers(a, va), Dr.decide.go(d <> b, v <> vr, R, True{})), pd.go_split(a, va, d <> b, v <> vr, R, True{}, one, pass))
 
 # Out is decidable: two different outcomes clash
 def pd.out_eq(a: Dr.Out, b: Dr.Out) -> Bool:
