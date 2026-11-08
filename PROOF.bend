@@ -1353,6 +1353,17 @@ import ./proof/facts/core_facts_left_over.bend as PCoreFactsLeftOver
 import ./proof/facts/core_facts_req_example.bend as PCoreFactsReqExample
 import ./proof/facts/core_facts_reply_example.bend as PCoreFactsReplyExample
 import ./proof/facts/core_facts_malformed_example.bend as PCoreFactsMalformedExample
+import ./proof/facts/core_facts_answers_spelled.bend as PCoreFactsAnswersSpelled
+import ./proof/facts/core_facts_left_over_spelled.bend as PCoreFactsLeftOverSpelled
+import ./proof/facts/core_facts_unknown_request.bend as PCoreFactsUnknownRequest
+import ./proof/facts/core_facts_unknown_level.bend as PCoreFactsUnknownLevel
+import ./proof/facts/core_facts_unknown_cap.bend as PCoreFactsUnknownCap
+import ./proof/facts/core_facts_unknown_rule.bend as PCoreFactsUnknownRule
+import ./proof/facts/core_facts_unknown_budget_level.bend as PCoreFactsUnknownBudgetLevel
+import ./proof/facts/core_facts_unknown_custom.bend as PCoreFactsUnknownCustom
+import ./proof/facts/core_facts_reads_only_requests.bend as PCoreFactsReadsOnlyRequests
+import ./proof/facts/core_facts_malformed_unless_request.bend as PCoreFactsMalformedUnlessRequest
+import ./proof/facts/core_facts_tags_example.bend as PCoreFactsTagsExample
 import ./proof/facts/facts_adaptive_compat_first.bend as PFactsAdaptiveCompatFirst
 import ./proof/facts/facts_adaptive_rulebook_second.bend as PFactsAdaptiveRulebookSecond
 import ./proof/facts/facts_google_budget_at_most_high.bend as PFactsGoogleBudgetAtMostHigh

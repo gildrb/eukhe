@@ -356,3 +356,120 @@ def pc.f_req(+q: FFx.Req, +rest: String, h: {Facts.core_facts_req_fits(q) == Tru
       +e3 = pc.seqFFx(~FFx.P2<FFx.P2<Fx.Customs, Fx.Budgets>, Nat>, ~Nat, ~Wr.get_nat, FFx.P2{FFx.P2{c, d}, a}, r3, top, rest, d2, e2, LWire.pc.nat(top, rest, hh2))
       %e3 : {Wr.Got{FFx.Aux{c, d, a, top}, rest} == FFx.get_aux.of(_) : Wr.Dec<FFx.Req>}
       {==}
+
+# The entry's writer is the grammar's spelling
+# --------------------------------------------
+
+def fs.mnat(m: Maybe<&2, Nat>, +rest: String) -> {FFx.put_mnat(m, rest) == Facts.facts_spell_mnat(m, rest) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{n}:
+      {==}
+
+def fs.elv(l: Fx.ELv, +rest: String) -> {FFx.put_elv(l, rest) == Facts.facts_spell_elv(l, rest) : String}:
+  match l:
+    case Fx.EMinimal{}:
+      {==}
+    case Fx.ELow{}:
+      {==}
+    case Fx.EMedium{}:
+      {==}
+    case Fx.EHigh{}:
+      {==}
+    case Fx.EXhigh{}:
+      {==}
+    case Fx.EMax{}:
+      {==}
+
+def fs.lv(l: Fx.Lv, +rest: String) -> {FFx.put_lv(l, rest) == Facts.facts_spell_lv(l, rest) : String}:
+  match l:
+    case Fx.Minimal{}:
+      {==}
+    case Fx.Low{}:
+      {==}
+    case Fx.Medium{}:
+      {==}
+    case Fx.High{}:
+      {==}
+
+def fs.customs(c: Fx.Customs, +rest: String) -> {FFx.put_customs(c, rest) == Facts.facts_spell_customs(c, rest) : String}:
+  match c:
+    case Fx.Customs{+mi, +lo, +me, +hi}:
+      %fs.mnat(hi, rest) : {FFx.put_mnat(mi, FFx.put_mnat(lo, FFx.put_mnat(me, FFx.put_mnat(hi, rest)))) == Facts.facts_spell_mnat(mi, Facts.facts_spell_mnat(lo, Facts.facts_spell_mnat(me, _))) : String}
+      %fs.mnat(me, FFx.put_mnat(hi, rest)) : {FFx.put_mnat(mi, FFx.put_mnat(lo, FFx.put_mnat(me, FFx.put_mnat(hi, rest)))) == Facts.facts_spell_mnat(mi, Facts.facts_spell_mnat(lo, _)) : String}
+      %fs.mnat(lo, FFx.put_mnat(me, FFx.put_mnat(hi, rest))) : {FFx.put_mnat(mi, FFx.put_mnat(lo, FFx.put_mnat(me, FFx.put_mnat(hi, rest)))) == Facts.facts_spell_mnat(mi, _) : String}
+      fs.mnat(mi, FFx.put_mnat(lo, FFx.put_mnat(me, FFx.put_mnat(hi, rest))))
+
+def fs.budgets(b: Fx.Budgets, +rest: String) -> {FFx.put_budgets(b, rest) == Facts.facts_spell_budgets(b, rest) : String}:
+  match b:
+    case Fx.Budgets{mi, lo, me, hi}:
+      {==}
+
+def fs.mbudgets(m: Maybe<&2, Fx.Budgets>, +rest: String) -> {FFx.put_mbudgets(m, rest) == Facts.facts_spell_mbudgets(m, rest) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+b}:
+      %fs.budgets(b, rest) : {Wr.put_nat(1n, FFx.put_budgets(b, rest)) == Wr.put_nat(1n, _) : String}
+      {==}
+
+def fs.req(q: FFx.Req, +rest: String) -> {FFx.put_req(q, rest) == Facts.facts_spell_req(q, rest) : String}:
+  match q:
+    case FFx.Level{+l, +c, +d}:
+      %fs.budgets(d, rest) : {FFx.put_req(FFx.Level{l, c, d}, rest) == Wr.put_nat(0n, Facts.facts_spell_elv(l, Facts.facts_spell_customs(c, _))) : String}
+      %fs.customs(c, FFx.put_budgets(d, rest)) : {FFx.put_req(FFx.Level{l, c, d}, rest) == Wr.put_nat(0n, Facts.facts_spell_elv(l, _)) : String}
+      %fs.elv(l, FFx.put_customs(c, FFx.put_budgets(d, rest))) : {FFx.put_req(FFx.Level{l, c, d}, rest) == Wr.put_nat(0n, _) : String}
+      {==}
+    case FFx.Room{b, m, a}:
+      {==}
+    case FFx.Adjust{+base, +mm, +l, +c, +d, +a}:
+      %fs.budgets(d, Wr.put_nat(a, rest)) : {FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, rest) == Wr.put_nat(2n, Facts.facts_spell_mnat(base, Wr.put_nat(mm, Facts.facts_spell_elv(l, Facts.facts_spell_customs(c, _))))) : String}
+      %fs.customs(c, FFx.put_budgets(d, Wr.put_nat(a, rest))) : {FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, rest) == Wr.put_nat(2n, Facts.facts_spell_mnat(base, Wr.put_nat(mm, Facts.facts_spell_elv(l, _)))) : String}
+      %fs.elv(l, FFx.put_customs(c, FFx.put_budgets(d, Wr.put_nat(a, rest)))) : {FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, rest) == Wr.put_nat(2n, Facts.facts_spell_mnat(base, Wr.put_nat(mm, _))) : String}
+      %fs.mnat(base, Wr.put_nat(mm, FFx.put_elv(l, FFx.put_customs(c, FFx.put_budgets(d, Wr.put_nat(a, rest)))))) : {FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, rest) == Wr.put_nat(2n, _) : String}
+      {==}
+    case FFx.Google{+rule, +c, +l}:
+      %fs.lv(l, rest) : {FFx.put_req(FFx.Google{rule, c, l}, rest) == Wr.put_nat(3n, Facts.facts_spell_mbudgets(rule, Facts.facts_spell_customs(c, _))) : String}
+      %fs.customs(c, FFx.put_lv(l, rest)) : {FFx.put_req(FFx.Google{rule, c, l}, rest) == Wr.put_nat(3n, Facts.facts_spell_mbudgets(rule, _)) : String}
+      %fs.mbudgets(rule, FFx.put_customs(c, FFx.put_lv(l, rest))) : {FFx.put_req(FFx.Google{rule, c, l}, rest) == Wr.put_nat(3n, _) : String}
+      {==}
+    case FFx.Aux{+c, +d, +a, +top}:
+      %fs.budgets(d, Wr.put_nat(a, Wr.put_nat(top, rest))) : {FFx.put_req(FFx.Aux{c, d, a, top}, rest) == Wr.put_nat(4n, Facts.facts_spell_customs(c, _)) : String}
+      %fs.customs(c, FFx.put_budgets(d, Wr.put_nat(a, Wr.put_nat(top, rest)))) : {FFx.put_req(FFx.Aux{c, d, a, top}, rest) == Wr.put_nat(4n, _) : String}
+      {==}
+
+def fs.fit(f: Fx.Fit, +rest: String) -> {FFx.put_fit(f, rest) == Facts.facts_spell_fit(f, rest) : String}:
+  match f:
+    case Fx.Fit{m, b}:
+      {==}
+
+def fs.gb(g: Fx.GB, +rest: String) -> {FFx.put_gb(g, rest) == Facts.facts_spell_gb(g, rest) : String}:
+  match g:
+    case Fx.Dynamic{}:
+      {==}
+    case Fx.Tokens{n}:
+      {==}
+    case Fx.Unordered{}:
+      {==}
+
+# the entry's reply to a request is the spelled reply of the model's
+# decision
+def fs.answer(q: FFx.Req) -> {FFx.answer(q) == Facts.facts_spell_answer(q) : String}:
+  match q:
+    case FFx.Level{l, c, d}:
+      {==}
+    case FFx.Room{b, m, a}:
+      {==}
+    case FFx.Adjust{base, mm, l, c, d, a}:
+      fs.fit(Fx.adjust(base, mm, l, c, d, a), "")
+    case FFx.Google{rule, c, l}:
+      fs.gb(Fx.gbudget(rule, c, l), "")
+    case FFx.Aux{c, d, a, top}:
+      {==}
+
+# a spelled request that fits, then rest, runs to the entry's end check
+def fs.run(+q: FFx.Req, +rest: String, fits: {Facts.core_facts_req_fits(q) == True{} : Bool}) -> {FFx.ffi(Facts.facts_spell_req(q, rest)) == FFx.ffi.done(Wr.end(rest), q) : String}:
+  %fs.req(q, rest) : {FFx.ffi(_) == FFx.ffi.done(Wr.end(rest), q) : String}
+  %pc.f_req(q, rest, fits) : {FFx.ffi.go(_) == FFx.ffi.done(Wr.end(rest), q) : String}
+  {==}
