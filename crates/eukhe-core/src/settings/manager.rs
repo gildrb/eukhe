@@ -739,7 +739,7 @@ impl SettingsManager {
     /// `/model --all <selector>`: `selector` becomes the all-roles model
     /// (`modelRoles.all`) and every role in `cleared` loses its own
     /// setting in the global scope (both global files), so each of them
-    /// runs on it (`laws/model_roles.bend` `all_choice_whole_table`). A
+    /// runs on it (`laws/model_roles.bend` `all_switch_runs_n`). A
     /// project's own setting of a role still wins there.
     ///
     /// # Errors

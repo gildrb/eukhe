@@ -1,5 +1,5 @@
 # eukhe: lemmas of the model_name entry proofs: a spelled request that fits
-# reads back (mne.req_rt), the answer is the spelled spec answer
+# reads back (mne.req_rt), the answer is the spelled answer of the model
 # (mne.answer), and each decoder stage answers Got only for the spelling
 # of what it read so far, every count, length and Nat within the wire
 # (mne.rule_x, mne.set_x, mne.sets_x, mne.groups_x, mne.rp_all: the stage
@@ -25,7 +25,6 @@ import ../../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 import ../../wire/wire_bool_exact.bend as PWireBoolExact
 import ../../wire/base/spell.bend as LAWireSpell
 import ../base.bend as LA
-import ./decide.bend as LD
 
 # Reading back
 # ------------
@@ -170,20 +169,19 @@ def mne.bools(+xs: List<&2, Bool>, -rest: String) -> {Wr.put_list(~Bool, ~Wr.put
   %Equal.sym(Nat & String, Wr.put_list.go(~Bool, ~Wr.put_bool, xs, rest), (List.length(&2, Bool, xs), ModelName.sp_w_bools.items(xs, rest)), mne.bools_go(xs, rest)) : {Wr.put_list.fin(_) == ModelName.sp_w_bools(xs, rest) : String}
   {==}
 
-def mne.dashes(ts: List<&2, String>) -> {M.dashes(ts) == ModelName.sp_dashes(ts) : List<&2, String>}:
+# the code's dashed texts are each text dashed, in order
+def mne.dashes(ts: List<&2, String>) -> {M.dashes(ts) == ModelName.sp_dash_all(ts) : List<&2, String>}:
   match ts:
     case Nil{}:
       {==}
     case +t <> more:
-      %Equal.sym(String, M.dash(t), ModelName.sp_dash(t), LD.mnd.dash_go(t, None{})) : {_ <> M.dashes(more) == ModelName.sp_dash(t) <> ModelName.sp_dashes(more) : List<&2, String>}
-      Equal.cong(List<&2, String>, List<&2, String>, z => ModelName.sp_dash(t) <> z, M.dashes(more), ModelName.sp_dashes(more), mne.dashes(more))
+      Equal.cong(List<&2, String>, List<&2, String>, z => M.dash(t) <> z, M.dashes(more), ModelName.sp_dash_all(more), mne.dashes(more))
 
-# the entry's answer to a request is the spelled spec answer
+# the entry's answer to a request is the spelled answer of the model
 def mne.answer(q: FM.Req) -> {FM.answer(q) == ModelName.sp_w_reply(q) : String}:
   match q:
     case FM.QHolds{+sets, +gs}:
-      %Equal.sym(List<&2, Bool>, M.holds(sets, gs), ModelName.sp_verdicts(sets, gs), LD.mnd.holds(sets, gs)) : {Wr.put_list(~Bool, ~Wr.put_bool, _, "") == ModelName.sp_w_bools(ModelName.sp_verdicts(sets, gs), "") : String}
-      mne.bools(ModelName.sp_verdicts(sets, gs), "")
+      mne.bools(M.holds(sets, gs), "")
     case FM.QDash{+ts}:
-      %Equal.sym(List<&2, String>, M.dashes(ts), ModelName.sp_dashes(ts), mne.dashes(ts)) : {Wr.put_list(~String, ~Wr.put_str, _, "") == LawsBase.wire_spell_strs(ModelName.sp_dashes(ts), "") : String}
-      Wire.wire_strs_spells(ModelName.sp_dashes(ts), "")
+      %Equal.sym(List<&2, String>, M.dashes(ts), ModelName.sp_dash_all(ts), mne.dashes(ts)) : {Wr.put_list(~String, ~Wr.put_str, _, "") == LawsBase.wire_spell_strs(ModelName.sp_dash_all(ts), "") : String}
+      Wire.wire_strs_spells(ModelName.sp_dash_all(ts), "")

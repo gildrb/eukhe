@@ -4,7 +4,7 @@
 # (LMS.mrb.in), which the entry answers with the code's table, encoded
 # (mrw_answers); that reply is the spec's (LMS.mrb.reply: the list writer
 # spells the count then each row, Wire.wire_list_spells_items; each row's
-# tag and source are the spec's, own_is_field for the own setting).
+# tag and source are the spec's, LMS.mrb.own for the own setting).
 
 import Base
 import ../../bend/model_roles.bend as Mr

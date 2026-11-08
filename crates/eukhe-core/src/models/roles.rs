@@ -76,7 +76,8 @@ fn own_selector(cvars: &Cvars, role: ModelRole) -> Option<String> {
 /// The roles the all-roles model reaches: those the compiled core's
 /// table fills from it when no role has its own setting (every role that
 /// takes a chat model; never speech or dictation). `/model --all` clears
-/// their own settings (`laws/model_roles.bend` `all_choice_whole_table`).
+/// their own settings (`laws/model_roles.bend` `all_switch_runs_n`,
+/// `all_switch_keeps_others`).
 #[must_use]
 pub fn all_roles_reach() -> Vec<ModelRole> {
     expect_core(Entry::ModelRoles, role_sources(|_| false, true))

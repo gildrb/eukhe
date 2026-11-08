@@ -5,7 +5,6 @@ import ../bend/model_name.bend as M
 import ../bend/ffi_model_name.bend as FM
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
-import ./text_pat.bend as TextPat
 
 # (MN1) The name rules of the quirks rulebook
 # -------------------------------------------
@@ -37,8 +36,9 @@ import ./text_pat.bend as TextPat
 #     one of its names; the verdicts of sets over groups go group by group,
 #     each group set by set.
 # R8: dash: each maximal run of separators replaced by one `-`; a
-#     separator is a Unicode White_Space char (laws/text_pat.bend R1), `_`,
-#     `.` or `:`.
+#     separator is a Unicode White_Space char (the White_Space property of
+#     the Unicode Character Database, PropList.txt; the `\s` of the Rust
+#     regex `[\s_.:]+` this replaced), `_`, `.` or `:`.
 # R9: the entry answers each request Rust writes (bend/ffi_model_name.bend
 #     header: request 0 the sets, then the groups, reply the verdicts of
 #     R7 as a list of Bool; request 1 the texts, reply each dashed; rule
@@ -83,42 +83,6 @@ def sp_same(p: String, s: String) -> Bool:
         case SCon{x, st}:
           Bool.and(sp_eq(c, x), sp_same(pt, st))
 
-# R1: p is a part of s
-def sp_part(+p: String, s: String) -> Bool:
-  match s:
-    case SNil{}:
-      sp_pre(p, SNil{})
-    case SCon{+x, +t}:
-      Bool.or(sp_pre(p, SCon{x, t}), sp_part(p, t))
-
-# R4: b is a part of s that starts before the first line feed of s
-def sp_line(+b: String, s: String) -> Bool:
-  match s:
-    case SNil{}:
-      sp_pre(b, SNil{})
-    case SCon{+x, +t}:
-      Bool.or(sp_pre(b, SCon{x, t}), Bool.and(Bool.not(U32.is_eq(sp_code(x), 10)), sp_line(b, t)))
-
-# R4: s begins with a, then b follows on the same line
-def sp_then_at(a: String, +b: String, s: String) -> Bool:
-  match a:
-    case SNil{}:
-      sp_line(b, s)
-    case SCon{c, at}:
-      match s:
-        case SNil{}:
-          False{}
-        case SCon{x, st}:
-          Bool.and(sp_eq(c, x), sp_then_at(at, b, st))
-
-# R4: some place of s begins with a, then b follows on the same line
-def sp_then(+a: String, +b: String, s: String) -> Bool:
-  match s:
-    case SNil{}:
-      sp_then_at(a, b, SNil{})
-    case SCon{+x, +t}:
-      Bool.or(sp_then_at(a, b, SCon{x, t}), sp_then(a, b, t))
-
 # R5: an ASCII digit (48-57), `0` (48), the value of a digit
 def sp_digit(x: Char) -> Bool:
   +v = sp_code(x)
@@ -137,42 +101,6 @@ def sp_ends(w: Bool, x: Char) -> Bool:
       U32.is_eq(sp_code(x), 45)
     case False{}:
       True{}
-
-# R5: past two significant digits: more digits, then the end
-def sp_num3(s: String, +w: Bool) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{+x, t}:
-      Bool.or(Bool.and(sp_digit(x), sp_num3(t, w)), Bool.and(Bool.not(sp_digit(x)), sp_ends(w, x)))
-
-# R5: past one significant digit (ok: its value is at least the least)
-def sp_num2(s: String, ok: Bool, +w: Bool) -> Bool:
-  match s:
-    case SNil{}:
-      ok
-    case SCon{+x, t}:
-      Bool.or(Bool.and(sp_digit(x), sp_num3(t, w)), Bool.and(Bool.not(sp_digit(x)), Bool.and(ok, sp_ends(w, x))))
-
-# R5: at the run of digits: leading zeros, then the significant digits
-def sp_num(s: String, +n: Nat, +w: Bool) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{+x, +t}:
-      Bool.or(Bool.and(sp_zero(x), sp_num(t, n, w)), Bool.and(Bool.and(sp_digit(x), Bool.not(sp_zero(x))), sp_num2(t, Nat.is_le(n, sp_value(x)), w)))
-
-# R5: s begins with p, then the number
-def sp_num_at(p: String, s: String, +n: Nat, +w: Bool) -> Bool:
-  match p:
-    case SNil{}:
-      sp_num(s, n, w)
-    case SCon{c, pt}:
-      match s:
-        case SNil{}:
-          False{}
-        case SCon{x, st}:
-          Bool.and(sp_eq(c, x), sp_num_at(pt, st, n, w))
 
 # R6: s holds a `/` (47)
 def sp_has_slash(s: String) -> Bool:
@@ -196,129 +124,6 @@ def sp_seg(s: String) -> String:
       SNil{}
     case SCon{+x, +t}:
       sp_pick(sp_has_slash(t), sp_seg(t), sp_pick(U32.is_eq(sp_code(x), 47), t, SCon{x, t}))
-
-# R1-R6: one of ps, each tested on s
-def sp_any_part(ps: List<&2, String>, +s: String) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> more:
-      Bool.or(sp_part(p, s), sp_any_part(more, s))
-
-def sp_any_same(ps: List<&2, String>, +s: String) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> more:
-      Bool.or(sp_same(p, s), sp_any_same(more, s))
-
-def sp_any_pre(ps: List<&2, String>, +s: String) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> more:
-      Bool.or(sp_pre(p, s), sp_any_pre(more, s))
-
-def sp_any_num(ps: List<&2, String>, +s: String, +n: Nat, +w: Bool) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> more:
-      Bool.or(sp_num_at(p, s, n, w), sp_any_num(more, s, n, w))
-
-# R1-R6: whether the rule r holds for the name s
-def sp_rule(r: M.Rule, +s: String) -> Bool:
-  match r:
-    case M.RContains{ps}:
-      sp_any_part(ps, s)
-    case M.RIs{ps}:
-      sp_any_same(ps, s)
-    case M.RStarts{ps}:
-      sp_any_pre(ps, s)
-    case M.RThen{a, b}:
-      sp_then(a, b, s)
-    case M.RNumber{ps, n, w}:
-      sp_any_num(ps, s, n, w)
-    case M.RSegment{ps}:
-      sp_any_pre(ps, sp_seg(s))
-
-# R7: one rule of rs holds for s; for one name of g
-def sp_any_rule(rs: List<&2, M.Rule>, +s: String) -> Bool:
-  match rs:
-    case Nil{}:
-      False{}
-    case r <> more:
-      Bool.or(sp_rule(r, s), sp_any_rule(more, s))
-
-def sp_set(+rs: List<&2, M.Rule>, g: List<&2, String>) -> Bool:
-  match g:
-    case Nil{}:
-      False{}
-    case s <> more:
-      Bool.or(sp_any_rule(rs, s), sp_set(rs, more))
-
-# R7: the verdicts of the sets for one group, set by set
-def sp_row(sets: List<&2, List<&2, M.Rule>>, +g: List<&2, String>) -> List<&2, Bool>:
-  match sets:
-    case Nil{}:
-      Nil{}
-    case rs <> more:
-      sp_set(rs, g) <> sp_row(more, g)
-
-# R7: the verdicts, group by group
-def sp_verdicts(+sets: List<&2, List<&2, M.Rule>>, groups: List<&2, List<&2, String>>) -> List<&2, Bool>:
-  match groups:
-    case Nil{}:
-      Nil{}
-    case g <> more:
-      List.append(&2, Bool, sp_row(sets, g), sp_verdicts(sets, more))
-
-# R8: a separator: White_Space, `_` (95), `.` (46) or `:` (58)
-def sp_sep(x: Char) -> Bool:
-  +v = sp_code(x)
-  Bool.or(TextPat.sp_ws_code(v), Bool.or(U32.is_eq(v, 95), Bool.or(U32.is_eq(v, 46), U32.is_eq(v, 58))))
-
-def sp_sep_m(m: Maybe<&2, Char>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{y}:
-      sp_sep(y)
-
-def sp_piece.at(sx: Bool, sp: Bool, x: Char) -> String:
-  match sx:
-    case True{}:
-      match sp:
-        case True{}:
-          SNil{}
-        case False{}:
-          "-"
-    case False{}:
-      SCon{x, SNil{}}
-
-# R8: what the char x becomes, the char before it being prev: a separator
-# after a separator nothing, another separator `-`, any other char itself
-def sp_piece(prev: Maybe<&2, Char>, +x: Char) -> String:
-  sp_piece.at(sp_sep(x), sp_sep_m(prev), x)
-
-# the text s dashed, the char before it being prev
-def sp_dash.go(s: String, prev: Maybe<&2, Char>) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+x, t}:
-      String.append(sp_piece(prev, x), sp_dash.go(t, Some{x}))
-
-# R8: s dashed
-def sp_dash(s: String) -> String:
-  sp_dash.go(s, None{})
-
-def sp_dashes(ts: List<&2, String>) -> List<&2, String>:
-  match ts:
-    case Nil{}:
-      Nil{}
-    case t <> more:
-      sp_dash(t) <> sp_dashes(more)
 
 # R4: y holds no line feed
 def sp_no_lf(y: String) -> Bool:
@@ -373,6 +178,96 @@ def sp_seg_start(a: String) -> Bool:
           U32.is_eq(sp_code(x), 47)
         case SCon{y, u}:
           sp_seg_start(SCon{y, u})
+
+# R7: the verdict rows of M.holds are pinned by the model_name_holds_*
+# laws below; R8: M.dash by the model_name_dash_* laws.
+
+# R8: the White_Space code points, one row per line of the White_Space
+# entries of Unicode's PropList.txt (Unicode 15.1, unchanged since 6.3):
+# 0009..000D, 0020, 0085, 00A0, 1680, 2000..200A, 2028, 2029, 202F, 205F,
+# 3000
+type SpWs is Data:
+  SpWsOne{c: U32}
+  SpWsRun{lo: U32, hi: U32}
+
+def sp_ws_rows() -> List<&2, SpWs>:
+  [SpWsRun{9, 13}, SpWsOne{32}, SpWsOne{133}, SpWsOne{160}, SpWsOne{5760}, SpWsRun{8192, 8202}, SpWsOne{8232}, SpWsOne{8233}, SpWsOne{8239}, SpWsOne{8287}, SpWsOne{12288}]
+
+# the code x is in the row w
+def sp_ws_in(+x: U32, w: SpWs) -> Bool:
+  match w:
+    case SpWsOne{c}:
+      U32.is_eq(x, c)
+    case SpWsRun{lo, hi}:
+      Bool.and(U32.is_le(lo, x), U32.is_le(x, hi))
+
+def sp_ws_any.at(t: List<&2, SpWs>, w: SpWs, +x: U32) -> Bool:
+  match t:
+    case Nil{}:
+      sp_ws_in(x, w)
+    case v <> u:
+      Bool.or(sp_ws_in(x, w), sp_ws_any.at(u, v, x))
+
+def sp_ws_any(+x: U32, ws: List<&2, SpWs>) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case w <> t:
+      sp_ws_any.at(t, w, x)
+
+# R8: the code x is a White_Space code point (in one of the rows)
+def sp_ws(+x: U32) -> Bool:
+  sp_ws_any(x, sp_ws_rows())
+
+# R8: a separator: White_Space, `_` (95), `.` (46) or `:` (58)
+def sp_sep(c: Char) -> Bool:
+  match c:
+    case Chr{+x}:
+      Bool.or(sp_ws(x), Bool.or(U32.is_eq(x, 95), Bool.or(U32.is_eq(x, 46), U32.is_eq(x, 58))))
+
+# R8: s holds no separator
+def sp_no_sep(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{x, t}:
+      Bool.and(Bool.not(sp_sep(x)), sp_no_sep(t))
+
+# R8: every char of s is a separator
+def sp_all_sep(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{x, t}:
+      Bool.and(sp_sep(x), sp_all_sep(t))
+
+# R8: a is empty or its last char is no separator
+def sp_ends_free(a: String) -> Bool:
+  match a:
+    case SNil{}:
+      True{}
+    case SCon{x, t}:
+      match t:
+        case SNil{}:
+          Bool.not(sp_sep(x))
+        case SCon{y, u}:
+          sp_ends_free(SCon{y, u})
+
+# R8: b is empty or its first char is no separator
+def sp_starts_free(b: String) -> Bool:
+  match b:
+    case SNil{}:
+      True{}
+    case SCon{x, t}:
+      Bool.not(sp_sep(x))
+
+# R9: each text of ts dashed by M.dash, in order
+def sp_dash_all(ts: List<&2, String>) -> List<&2, String>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> more:
+      M.dash(t) <> sp_dash_all(more)
 
 # R9: the spelling of a request and of its reply
 
@@ -441,9 +336,9 @@ def sp_w_bools(+bs: List<&2, Bool>, rest: String) -> String:
 def sp_w_reply(q: FM.Req) -> String:
   match q:
     case FM.QHolds{sets, gs}:
-      sp_w_bools(sp_verdicts(sets, gs), "")
+      sp_w_bools(M.holds(sets, gs), "")
     case FM.QDash{ts}:
-      LawsBase.wire_spell_strs(sp_dashes(ts), "")
+      LawsBase.wire_spell_strs(sp_dash_all(ts), "")
 
 # every count, length and Nat of a rule, a set, the sets, the groups and a
 # request fits the wire
@@ -665,29 +560,98 @@ law model_name_segment_sound:
   exs b: String
   {ps == List.append(&2, String, pre, p <> post) : List<&2, String>} & ({s == String.append(a, String.append(p, b)) : String} & ({sp_seg_start(a) == True{} : Bool} & {sp_has_slash(String.append(p, b)) == False{} : Bool}))
 
-# LAW model_name_rule_decides (R1-R6): every rule over every name answers
-# the spec's decision
-# EXCLUDES: a rule kind read as another, a field of a rule ignored
-law model_name_rule_decides:
-  for +r: M.Rule
-  for +s: String
-  {M.rule(r, s) == sp_rule(r, s) : Bool}
+# Laws: the verdicts of sets over groups (R7)
+# -------------------------------------------
 
-# LAW model_name_holds_decides (R7): the verdicts of every list of sets
-# over every list of groups are the spec's, group by group, set by set
-# EXCLUDES: set-major order, a set or a group dropped or repeated, a set
-#   that needs all its rules or all names, an empty set or group that holds
-law model_name_holds_decides:
+# LAW model_name_holds_cell_complete (R7): one set over one group holds
+# when one of its rules (rs = pre ++ [r] ++ post) holds for one of its
+# names (g = gp ++ [s] ++ gq): the verdicts are exactly [True]
+# EXCLUDES: a set that needs all its rules or all names, a rule or a name
+#   past the first skipped
+law model_name_holds_cell_complete:
+  for +pre: List<&2, M.Rule>
+  for +r: M.Rule
+  for +post: List<&2, M.Rule>
+  for +gp: List<&2, String>
+  for +s: String
+  for +gq: List<&2, String>
+  for h: {M.rule(r, s) == True{} : Bool}
+  {M.holds([List.append(&2, M.Rule, pre, r <> post)], [List.append(&2, String, gp, s <> gq)]) == [True{}] : List<&2, Bool>}
+
+# LAW model_name_holds_cell_sound (R7): when the verdicts of one set rs over
+# one group g are [True], some rule of rs holds for some name of g
+# EXCLUDES: an empty set or group that holds, a set that holds with no
+#   rule holding for any name
+law model_name_holds_cell_sound:
+  for +rs: List<&2, M.Rule>
+  for +g: List<&2, String>
+  for h: {M.holds([rs], [g]) == [True{}] : List<&2, Bool>}
+  exs pre: List<&2, M.Rule>
+  exs r: M.Rule
+  exs post: List<&2, M.Rule>
+  exs gp: List<&2, String>
+  exs s: String
+  exs gq: List<&2, String>
+  {rs == List.append(&2, M.Rule, pre, r <> post) : List<&2, M.Rule>} & ({g == List.append(&2, String, gp, s <> gq) : List<&2, String>} & {M.rule(r, s) == True{} : Bool})
+
+# LAW model_name_holds_count (R7): there is one verdict per group and set:
+# as many verdicts as groups times sets
+# EXCLUDES: a set or a group dropped or repeated, a verdict skipped when
+#   False
+law model_name_holds_count:
   for +sets: List<&2, List<&2, M.Rule>>
   for +groups: List<&2, List<&2, String>>
-  {M.holds(sets, groups) == sp_verdicts(sets, groups) : List<&2, Bool>}
+  {List.length(&2, Bool, M.holds(sets, groups)) == Nat.mul(List.length(&2, List<&2, String>, groups), List.length(&2, List<&2, M.Rule>, sets)) : Nat}
 
-# LAW model_name_dash_decides (R8): every text is dashed as R8 says
-# EXCLUDES: a run of separators turned into one `-` per char, a separator
-#   kept, a White_Space char past ASCII missed, another char dashed
-law model_name_dash_decides:
+# LAW model_name_holds_groups_append (R7): the verdicts go group by group:
+# those of the groups g1 ++ g2 are those of g1, then those of g2
+# EXCLUDES: set-major order, groups reordered, one group's verdicts
+#   depending on another group
+law model_name_holds_groups_append:
+  for +sets: List<&2, List<&2, M.Rule>>
+  for +g1: List<&2, List<&2, String>>
+  for +g2: List<&2, List<&2, String>>
+  {M.holds(sets, List.append(&2, List<&2, String>, g1, g2)) == List.append(&2, Bool, M.holds(sets, g1), M.holds(sets, g2)) : List<&2, Bool>}
+
+# LAW model_name_holds_sets_append (R7): within a group the verdicts go set
+# by set: those of the sets s1 ++ s2 over one group are those of s1, then
+# those of s2
+# EXCLUDES: sets reordered within a group, one set's verdict depending on
+#   another set
+law model_name_holds_sets_append:
+  for +s1: List<&2, List<&2, M.Rule>>
+  for +s2: List<&2, List<&2, M.Rule>>
+  for +g: List<&2, String>
+  {M.holds(List.append(&2, List<&2, M.Rule>, s1, s2), [g]) == List.append(&2, Bool, M.holds(s1, [g]), M.holds(s2, [g])) : List<&2, Bool>}
+
+# Laws: dash (R8)
+# ---------------
+
+# LAW model_name_dash_plain (R8): a text with no separator (sp_sep: Unicode
+# White_Space from PropList.txt, `_`, `.`, `:`) is kept as it is
+# EXCLUDES: a char that is no separator dashed or dropped, a non-ASCII
+#   char changed
+law model_name_dash_plain:
   for +s: String
-  {M.dash(s) == sp_dash(s) : String}
+  for h: {sp_no_sep(s) == True{} : Bool}
+  {M.dash(s) == s : String}
+
+# LAW model_name_dash_split (R8): for a text a, then a nonempty run of
+# separators c ++ r, then a text b, where a does not end and b does not
+# start with a separator (so the run is maximal), the text dashed is a
+# dashed, then one `-`, then b dashed
+# EXCLUDES: a run of separators turned into one `-` per char, a separator
+#   kept, a White_Space char past ASCII (U+0085, U+3000) missed, a run at
+#   the start or the end dropped, a `-` lost between runs
+law model_name_dash_split:
+  for +a: String
+  for +c: Char
+  for +r: String
+  for +b: String
+  for ha: {sp_ends_free(a) == True{} : Bool}
+  for hr: {sp_all_sep(SCon{c, r}) == True{} : Bool}
+  for hb: {sp_starts_free(b) == True{} : Bool}
+  {M.dash(String.append(a, String.append(SCon{c, r}, b))) == String.append(M.dash(a), SCon{'-', M.dash(b)}) : String}
 
 # LAW model_name_rule_example (R1-R6): anchor: the examples of the
 # rulebook's rules (hits and misses)
@@ -706,7 +670,8 @@ law model_name_dash_example:
 
 # LAW model_name_entry_decides (R9): a request spelled by the grammar,
 # every count, length and Nat within the wire, is answered with the
-# spelling of the spec's answer
+# spelling of the model's answer: the verdicts M.holds (pinned by R7's
+# laws) or each text dashed by M.dash (pinned by R8's laws)
 # EXCLUDES: a rule read as another, a field order other than Rust's, a set
 #   or name lost or added, set-major verdicts, a reply spelled another way
 law model_name_entry_decides:
@@ -726,7 +691,8 @@ law model_name_entry_left_over:
 
 # LAW model_name_entry_reads_only_requests (R9): an answer that is not the
 # error form answers a request: the input is the spelling of a request that
-# fits the wire, and the answer is the spec's answer to it
+# fits the wire, and the answer is the spelling of the model's answer to it
+# (M.holds or M.dash, as in model_name_entry_decides)
 # EXCLUDES: a decoder that accepts an unknown tag, a bad flag, a short
 #   string, a count or a Nat past the wire or a missing field, and answers
 #   it anyway
