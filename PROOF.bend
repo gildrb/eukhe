@@ -139,6 +139,11 @@ import ./proof/child/child_abort_rule.bend as PChildAbortRule
 import ./proof/child/child_entry_verdict.bend as PChildEntryVerdict
 import ./proof/child/child_entry_move.bend as PChildEntryMove
 import ./proof/child/child_entry_abort.bend as PChildEntryAbort
+import ./proof/child/child_entry_answers_spelled.bend as PChildEntryAnswersSpelled
+import ./proof/child/child_entry_left_over.bend as PChildEntryLeftOver
+import ./proof/child/child_entry_unknown_request.bend as PChildEntryUnknownRequest
+import ./proof/child/child_entry_reads_only_requests.bend as PChildEntryReadsOnlyRequests
+import ./proof/child/child_entry_tags_example.bend as PChildEntryTagsExample
 import ./proof/admission/base/admission/St.bend as LAAdmissionAdmissionSt
 import ./proof/admission/base/admission/bit.bend as LAAdmissionAdmissionBit
 import ./proof/admission/base/admission/calm.bend as LAAdmissionAdmissionCalm

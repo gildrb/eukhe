@@ -4,6 +4,7 @@ import Base
 import ../bend/child.bend as Ch
 import ../bend/ffi_child.bend as FCh
 import ./base.bend as LawsBase
+import ../bend/wire.bend as Wr
 
 # (H5) Every subagent reports back exactly once
 # ---------------------------------------------
@@ -262,3 +263,206 @@ law child_entry_abort:
   for +d: Bool
   for hp: {wire_ph_fits(p) == True{} : Bool}
   {FCh.ffi(FCh.put_req(FCh.AskAbort{p, d})) == FCh.put_ph(Ch.cut.ph(p, d), "") : String}
+
+# The child entry's wire, spelled from the wire primitives only (never the
+# entry's own put_*): the grammar of bend/ffi_child.bend's header. A
+# constructor is Wr.put_nat(<its tag>, <its fields>); a record is its
+# fields in order; a Maybe is tag 0 (None) or tag 1 then the value.
+
+# a Maybe<Nat>: 0 none, 1 then the Nat
+def ch_spell_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+# the watch's clock: the token, left, tries
+def ch_spell_w(w: Ch.W, rest: String) -> String:
+  match w:
+    case Ch.W{t, l, n}:
+      ch_spell_mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)))
+
+# the settings: stall, fails
+def ch_spell_cfg(c: Ch.Cfg, rest: String) -> String:
+  match c:
+    case Ch.Cfg{s, f}:
+      Wr.put_nat(s, Wr.put_nat(f, rest))
+
+# a poll: Busy 0 (token), Lost 1, Answered 2 (Bool), Broke 3, Gone 4
+def ch_spell_obs(o: Ch.Obs, rest: String) -> String:
+  match o:
+    case Ch.Busy{t}:
+      Wr.put_nat(0n, ch_spell_mnat(t, rest))
+    case Ch.Lost{}:
+      Wr.put_nat(1n, rest)
+    case Ch.Answered{r}:
+      Wr.put_nat(2n, Wr.put_bool(r, rest))
+    case Ch.Broke{}:
+      Wr.put_nat(3n, rest)
+    case Ch.Gone{}:
+      Wr.put_nat(4n, rest)
+
+# a mode: Inbox 0, Silent 1
+def ch_spell_mode(m: Ch.Mode, rest: String) -> String:
+  match m:
+    case Ch.Inbox{}:
+      Wr.put_nat(0n, rest)
+    case Ch.Silent{}:
+      Wr.put_nat(1n, rest)
+
+# a report: Completed 0, Failed 1, Cancelled 2, Stalled 3, Unreachable 4
+def ch_spell_report(k: Ch.Report, rest: String) -> String:
+  match k:
+    case Ch.Completed{}:
+      Wr.put_nat(0n, rest)
+    case Ch.Failed{}:
+      Wr.put_nat(1n, rest)
+    case Ch.Cancelled{}:
+      Wr.put_nat(2n, rest)
+    case Ch.Stalled{}:
+      Wr.put_nat(3n, rest)
+    case Ch.Unreachable{}:
+      Wr.put_nat(4n, rest)
+
+# a Maybe<Report>: 0 none, 1 then the report
+def ch_spell_mreport(m: Maybe<&2, Ch.Report>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{k}:
+      Wr.put_nat(1n, ch_spell_report(k, rest))
+
+# a call: Watches 0 (clock), Reports 1 (report), Settles 2 (Maybe<Report>)
+def ch_spell_call(c: Ch.Call, rest: String) -> String:
+  match c:
+    case Ch.Watches{w}:
+      Wr.put_nat(0n, ch_spell_w(w, rest))
+    case Ch.Reports{k}:
+      Wr.put_nat(1n, ch_spell_report(k, rest))
+    case Ch.Settles{why}:
+      Wr.put_nat(2n, ch_spell_mreport(why, rest))
+
+# a fate: Queued 0, Withdrawn 1, Placed 2
+def ch_spell_fate(f: Ch.Fate, rest: String) -> String:
+  match f:
+    case Ch.Queued{}:
+      Wr.put_nat(0n, rest)
+    case Ch.Withdrawn{}:
+      Wr.put_nat(1n, rest)
+    case Ch.Placed{}:
+      Wr.put_nat(2n, rest)
+
+# a Maybe<Fate>: 0 none, 1 then the fate
+def ch_spell_mfate(f: Maybe<&2, Ch.Fate>, rest: String) -> String:
+  match f:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, ch_spell_fate(x, rest))
+
+# a move: Submit 0 (id), Await 1, Resubmit 2 (id), Delivered 3
+def ch_spell_move(m: Ch.Move, rest: String) -> String:
+  match m:
+    case Ch.Submit{n}:
+      Wr.put_nat(0n, Wr.put_nat(n, rest))
+    case Ch.Await{}:
+      Wr.put_nat(1n, rest)
+    case Ch.Resubmit{n}:
+      Wr.put_nat(2n, Wr.put_nat(n, rest))
+    case Ch.Delivered{}:
+      Wr.put_nat(3n, rest)
+
+# a phase: Watching 0 (clock), Owing 1 (report, id), Ended 2
+def ch_spell_ph(p: Ch.Ph, rest: String) -> String:
+  match p:
+    case Ch.Watching{w}:
+      Wr.put_nat(0n, ch_spell_w(w, rest))
+    case Ch.Owing{k, n}:
+      Wr.put_nat(1n, ch_spell_report(k, Wr.put_nat(n, rest)))
+    case Ch.Ended{}:
+      Wr.put_nat(2n, rest)
+
+# a request: 0 verdict (settings, clock, elapsed ms, poll, mode), 1 move
+# (fate, id), 2 abort (phase, delete flag), then rest
+def ch_spell_req(r: FCh.Req, rest: String) -> String:
+  match r:
+    case FCh.AskVerdict{c, w, e, o, m}:
+      Wr.put_nat(0n, ch_spell_cfg(c, ch_spell_w(w, Wr.put_nat(e, ch_spell_obs(o, ch_spell_mode(m, rest))))))
+    case FCh.AskMove{f, n}:
+      Wr.put_nat(1n, ch_spell_mfate(f, Wr.put_nat(n, rest)))
+    case FCh.AskAbort{p, d}:
+      Wr.put_nat(2n, ch_spell_ph(p, Wr.put_bool(d, rest)))
+
+# every number of a request fits the wire
+def ch_req_fits(r: FCh.Req) -> Bool:
+  match r:
+    case FCh.AskVerdict{c, w, e, o, m}:
+      Bool.and(wire_cfg_fits(c), Bool.and(wire_w_fits(w), Bool.and(LawsBase.wire_fits(e), wire_obs_fits(o))))
+    case FCh.AskMove{f, n}:
+      LawsBase.wire_fits(n)
+    case FCh.AskAbort{p, d}:
+      wire_ph_fits(p)
+
+# the spelled reply of the model's decision on request r
+def ch_spell_answer(r: FCh.Req) -> String:
+  match r:
+    case FCh.AskVerdict{+c, +w, +e, o, m}:
+      ch_spell_call(Ch.verdict(c, w, e, o, m), "")
+    case FCh.AskMove{f, +n}:
+      ch_spell_move(Ch.owe.next(f, n), "")
+    case FCh.AskAbort{p, d}:
+      ch_spell_ph(Ch.cut.ph(p, d), "")
+
+# LAW child_entry_answers_spelled: a request spelled by the grammar, every
+# number within the wire, is answered with the grammar's spelling of the
+# model's decision (the call, the move, the phase)
+# EXCLUDES: a request or reply tag that drifts from the grammar Rust reads
+#   and writes (a swapped or renumbered tag on either side), a field lost,
+#   swapped or defaulted, a reply spelled another way
+law child_entry_answers_spelled:
+  for +r: FCh.Req
+  for fits: {ch_req_fits(r) == True{} : Bool}
+  {FCh.ffi(ch_spell_req(r, "")) == ch_spell_answer(r) : String}
+
+# LAW child_entry_left_over: a spelled request that fits, followed by any
+# more input, answers the error form "child: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request
+law child_entry_left_over:
+  for +r: FCh.Req
+  for fits: {ch_req_fits(r) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FCh.ffi(ch_spell_req(r, SCon{c, t})) == Wr.err("child: input left over") : String}
+
+# LAW child_entry_unknown_request: a request tag of 3 or more (within the
+# wire) answers the error form "child: unknown request", whatever follows
+# EXCLUDES: an unknown request read as a known one, or as another error
+law child_entry_unknown_request:
+  for +n: Nat
+  for +rest: String
+  for fit: {LawsBase.wire_fits(3n+n) == True{} : Bool}
+  {FCh.ffi(Wr.put_nat(3n+n, rest)) == Wr.err("child: unknown request") : String}
+
+# LAW child_entry_reads_only_requests: an answer that is not the error
+# form answers a request: the input is exactly the spelling of a request
+# whose numbers fit the wire, and the answer is the spelled reply of the
+# model's decision on it
+# EXCLUDES: a decoder that accepts an unknown tag (a poll, mode, fate,
+#   report, phase or request tag), a missing or extra field, or input left
+#   over, and answers it anyway (a default instead of the error form)
+law child_entry_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FCh.ffi(s)) == False{} : Bool}
+  exs r: FCh.Req
+  {(s, (ch_req_fits(r), FCh.ffi(s))) == (ch_spell_req(r, ""), (True{}, ch_spell_answer(r))) : String & (Bool & String)}
+
+# LAW child_entry_tags_example: anchor: the bytes Rust sends and reads for
+# a verdict (a lost poll on a clock with one try left: report
+# unreachable), a move (no fate yet: submit under 1) and an abort (an
+# owed cancelled report goes on); an unknown poll tag (5) and an unknown
+# request tag (3) are refused with their exact error bytes
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, an unknown tag read as a known one
+law child_entry_tags_example:
+  {[FCh.ffi("0,5,2,0,5,1,1,1,0,"), FCh.ffi("1,0,1,"), FCh.ffi("2,1,2,1,F"), FCh.ffi("0,5,2,0,5,1,1,5,0,"), FCh.ffi("3,")] == ["1,4,", "0,1,", "1,2,1,", "E child: bad poll", "E child: unknown request"] : List<&2, String>}

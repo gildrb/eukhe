@@ -369,3 +369,246 @@ def pw6.w(w: Ch.W, +rest: String, +h: {Child.wire_w_fits(w) == True{} : Bool}) -
       %LWire.pw6.nat(l, Wr.put_nat(n, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
       %LWire.pw6.nat(n, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
       {==}
+
+# The entry's spelled wire
+# ------------------------
+# The spec spellers of laws/child.bend (Child.ch_spell_*): the code's reply
+# encoders spell as they do (sp.*), each decoder reads a spelled value back
+# (rt.*), and a spelled request runs to its last stage (lo.run), which
+# answers the spelled model decision (lo.answer) or, with input left, the
+# error form (lo.left, lo.left_ok).
+
+def sp.mnat(m: Maybe<&2, Nat>, rest: String) -> {FCh.put_maybe_nat(m, rest) == Child.ch_spell_mnat(m, rest) : String}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def sp.w(w: Ch.W, rest: String) -> {FCh.put_w(w, rest) == Child.ch_spell_w(w, rest) : String}:
+  match w:
+    case Ch.W{t, l, n}:
+      sp.mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)))
+
+def sp.report(k: Ch.Report, rest: String) -> {FCh.put_report(k, rest) == Child.ch_spell_report(k, rest) : String}:
+  match k:
+    case Ch.Completed{}:
+      {==}
+    case Ch.Failed{}:
+      {==}
+    case Ch.Cancelled{}:
+      {==}
+    case Ch.Stalled{}:
+      {==}
+    case Ch.Unreachable{}:
+      {==}
+
+def sp.call(c: Ch.Call, +rest: String) -> {FCh.put_call(c, rest) == Child.ch_spell_call(c, rest) : String}:
+  match c:
+    case Ch.Watches{+w}:
+      Equal.cong(String, String, z => Wr.put_nat(0n, z), FCh.put_w(w, rest), Child.ch_spell_w(w, rest), sp.w(w, rest))
+    case Ch.Reports{+k}:
+      Equal.cong(String, String, z => Wr.put_nat(1n, z), FCh.put_report(k, rest), Child.ch_spell_report(k, rest), sp.report(k, rest))
+    case Ch.Settles{why}:
+      match why:
+        case None{}:
+          {==}
+        case Some{+k}:
+          Equal.cong(String, String, z => Wr.put_nat(2n, Wr.put_nat(1n, z)), FCh.put_report(k, rest), Child.ch_spell_report(k, rest), sp.report(k, rest))
+
+def sp.move(m: Ch.Move, rest: String) -> {FCh.put_move(m, rest) == Child.ch_spell_move(m, rest) : String}:
+  match m:
+    case Ch.Submit{n}:
+      {==}
+    case Ch.Await{}:
+      {==}
+    case Ch.Resubmit{n}:
+      {==}
+    case Ch.Delivered{}:
+      {==}
+
+def sp.ph(p: Ch.Ph, +rest: String) -> {FCh.put_ph(p, rest) == Child.ch_spell_ph(p, rest) : String}:
+  match p:
+    case Ch.Watching{+w}:
+      Equal.cong(String, String, z => Wr.put_nat(0n, z), FCh.put_w(w, rest), Child.ch_spell_w(w, rest), sp.w(w, rest))
+    case Ch.Owing{+k, +n}:
+      Equal.cong(String, String, z => Wr.put_nat(1n, z), FCh.put_report(k, Wr.put_nat(n, rest)), Child.ch_spell_report(k, Wr.put_nat(n, rest)), sp.report(k, Wr.put_nat(n, rest)))
+    case Ch.Ended{}:
+      {==}
+
+def rt.mnat(m: Maybe<&2, Nat>, +rest: String, +h: {LawsBase.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FCh.get_maybe_nat(Child.ch_spell_mnat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      %LWire.pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FCh.get_maybe_nat.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+    case Some{+x}:
+      %LWire.pw6.nat(1n, Wr.put_nat(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FCh.get_maybe_nat.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      %LWire.pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FCh.get_maybe_nat.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+def rt.w(w: Ch.W, +rest: String, +h: {Child.wire_w_fits(w) == True{} : Bool}) -> {Wr.Got{w, rest} == FCh.get_w(Child.ch_spell_w(w, rest)) : Wr.Dec<Ch.W>}:
+  match w:
+    case Ch.W{+t, +l, +n}:
+      +ln = LLogicBool.wr_and_r(LawsBase.wire_mfits(t), Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(n)), h)
+      %rt.mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)), LLogicBool.wr_and_l(LawsBase.wire_mfits(t), Bool.and(LawsBase.wire_fits(l), LawsBase.wire_fits(n)), h)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %LWire.pw6.nat(l, Wr.put_nat(n, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      %LWire.pw6.nat(n, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(l), LawsBase.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
+      {==}
+
+def rt.cfg(c: Ch.Cfg, +rest: String, +h: {Child.wire_cfg_fits(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FCh.get_cfg(Child.ch_spell_cfg(c, rest)) : Wr.Dec<Ch.Cfg>}:
+  match c:
+    case Ch.Cfg{+s, +f}:
+      %LWire.pw6.nat(s, Wr.put_nat(f, rest), LLogicBool.wr_and_l(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.s(_) : Wr.Dec<Ch.Cfg>}
+      %LWire.pw6.nat(f, rest, LLogicBool.wr_and_r(LawsBase.wire_fits(s), LawsBase.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.f(s, _) : Wr.Dec<Ch.Cfg>}
+      {==}
+
+def rt.obs(o: Ch.Obs, +rest: String, +h: {Child.wire_obs_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FCh.get_obs(Child.ch_spell_obs(o, rest)) : Wr.Dec<Ch.Obs>}:
+  match o:
+    case Ch.Busy{+t}:
+      %LWire.pw6.nat(0n, Child.ch_spell_mnat(t, rest), {==}) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      %rt.mnat(t, rest, h) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.busy(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Lost{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Lost{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Answered{+r}:
+      %LWire.pw6.nat(2n, Wr.put_bool(r, rest), {==}) : {Wr.Got{Ch.Answered{r}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      %pw6.bool(r, rest) : {Wr.Got{Ch.Answered{r}, rest} == FCh.get_obs.answered(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Broke{}:
+      %LWire.pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Broke{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Gone{}:
+      %LWire.pw6.nat(4n, rest, {==}) : {Wr.Got{Ch.Gone{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+
+def rt.mode(m: Ch.Mode, +rest: String) -> {Wr.Got{m, rest} == FCh.get_mode(Child.ch_spell_mode(m, rest)) : Wr.Dec<Ch.Mode>}:
+  match m:
+    case Ch.Inbox{}:
+      %LWire.pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Inbox{}, rest} == FCh.get_mode.go(_) : Wr.Dec<Ch.Mode>}
+      {==}
+    case Ch.Silent{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Silent{}, rest} == FCh.get_mode.go(_) : Wr.Dec<Ch.Mode>}
+      {==}
+
+def rt.report(k: Ch.Report, +rest: String) -> {Wr.Got{k, rest} == FCh.get_report(Child.ch_spell_report(k, rest)) : Wr.Dec<Ch.Report>}:
+  match k:
+    case Ch.Completed{}:
+      %LWire.pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Completed{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Failed{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Failed{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Cancelled{}:
+      %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Cancelled{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Stalled{}:
+      %LWire.pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Stalled{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Unreachable{}:
+      %LWire.pw6.nat(4n, rest, {==}) : {Wr.Got{Ch.Unreachable{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+
+def rt.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(Child.ch_spell_fate(f, rest)) : Wr.Dec<Ch.Fate>}:
+  match f:
+    case Ch.Queued{}:
+      %LWire.pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Queued{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Withdrawn{}:
+      %LWire.pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Withdrawn{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Placed{}:
+      %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Placed{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+
+def rt.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == FCh.get_mfate(Child.ch_spell_mfate(f, rest)) : Wr.Dec<Maybe<&2, Ch.Fate>>}:
+  match f:
+    case None{}:
+      %LWire.pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FCh.get_mfate.go(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      {==}
+    case Some{+x}:
+      %LWire.pw6.nat(1n, Child.ch_spell_fate(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FCh.get_mfate.go(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      %rt.fate(x, rest) : {Wr.Got{Some{x}, rest} == FCh.get_mfate.some(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      {==}
+
+def rt.ph(p: Ch.Ph, +rest: String, +h: {Child.wire_ph_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FCh.get_ph(Child.ch_spell_ph(p, rest)) : Wr.Dec<Ch.Ph>}:
+  match p:
+    case Ch.Watching{+w}:
+      %LWire.pw6.nat(0n, Child.ch_spell_w(w, rest), {==}) : {Wr.Got{Ch.Watching{w}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      %rt.w(w, rest, h) : {Wr.Got{Ch.Watching{w}, rest} == FCh.get_ph.watching(_) : Wr.Dec<Ch.Ph>}
+      {==}
+    case Ch.Owing{+k, +n}:
+      %LWire.pw6.nat(1n, Child.ch_spell_report(k, Wr.put_nat(n, rest)), {==}) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      %rt.report(k, Wr.put_nat(n, rest)) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.owing(_) : Wr.Dec<Ch.Ph>}
+      %LWire.pw6.nat(n, rest, h) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.n(k, _) : Wr.Dec<Ch.Ph>}
+      {==}
+    case Ch.Ended{}:
+      %LWire.pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Ended{}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      {==}
+
+# the last stage of request r: its answer when nothing is left (left)
+def lo.fin(r: FCh.Req, left: Bool) -> String:
+  match r:
+    case FCh.AskVerdict{c, w, e, o, m}:
+      FCh.verdict.fin(left, c, w, e, o, m)
+    case FCh.AskMove{f, n}:
+      FCh.move.fin(left, f, n)
+    case FCh.AskAbort{p, d}:
+      FCh.abort.fin(left, p, d)
+
+# a spelled request that fits, then rest, runs to its last stage
+def lo.run(r: FCh.Req, +rest: String, +fits: {Child.ch_req_fits(r) == True{} : Bool}) -> {FCh.ffi(Child.ch_spell_req(r, rest)) == lo.fin(r, Wr.end(rest)) : String}:
+  match r:
+    case FCh.AskVerdict{+c, +w, +e, +o, +m}:
+      +h1 = LLogicBool.wr_and_r(Child.wire_cfg_fits(c), Bool.and(Child.wire_w_fits(w), Bool.and(LawsBase.wire_fits(e), Child.wire_obs_fits(o))), fits)
+      +h2 = LLogicBool.wr_and_r(Child.wire_w_fits(w), Bool.and(LawsBase.wire_fits(e), Child.wire_obs_fits(o)), h1)
+      +R = FCh.verdict.fin(Wr.end(rest), c, w, e, o, m)
+      %LWire.pw6.nat(0n, Child.ch_spell_cfg(c, Child.ch_spell_w(w, Wr.put_nat(e, Child.ch_spell_obs(o, Child.ch_spell_mode(m, rest))))), {==}) : {FCh.run(_) == R : String}
+      %rt.cfg(c, Child.ch_spell_w(w, Wr.put_nat(e, Child.ch_spell_obs(o, Child.ch_spell_mode(m, rest)))), LLogicBool.wr_and_l(Child.wire_cfg_fits(c), Bool.and(Child.wire_w_fits(w), Bool.and(LawsBase.wire_fits(e), Child.wire_obs_fits(o))), fits)) : {FCh.verdict.c(_) == R : String}
+      %rt.w(w, Wr.put_nat(e, Child.ch_spell_obs(o, Child.ch_spell_mode(m, rest))), LLogicBool.wr_and_l(Child.wire_w_fits(w), Bool.and(LawsBase.wire_fits(e), Child.wire_obs_fits(o)), h1)) : {FCh.verdict.w(c, _) == R : String}
+      %LWire.pw6.nat(e, Child.ch_spell_obs(o, Child.ch_spell_mode(m, rest)), LLogicBool.wr_and_l(LawsBase.wire_fits(e), Child.wire_obs_fits(o), h2)) : {FCh.verdict.e(c, w, _) == R : String}
+      %rt.obs(o, Child.ch_spell_mode(m, rest), LLogicBool.wr_and_r(LawsBase.wire_fits(e), Child.wire_obs_fits(o), h2)) : {FCh.verdict.o(c, w, e, _) == R : String}
+      %rt.mode(m, rest) : {FCh.verdict.m(c, w, e, o, _) == R : String}
+      {==}
+    case FCh.AskMove{+f, +n}:
+      +R = FCh.move.fin(Wr.end(rest), f, n)
+      %LWire.pw6.nat(1n, Child.ch_spell_mfate(f, Wr.put_nat(n, rest)), {==}) : {FCh.run(_) == R : String}
+      %rt.mfate(f, Wr.put_nat(n, rest)) : {FCh.move.f(_) == R : String}
+      %LWire.pw6.nat(n, rest, fits) : {FCh.move.n(f, _) == R : String}
+      {==}
+    case FCh.AskAbort{+p, +d}:
+      +R = FCh.abort.fin(Wr.end(rest), p, d)
+      %LWire.pw6.nat(2n, Child.ch_spell_ph(p, Wr.put_bool(d, rest)), {==}) : {FCh.run(_) == R : String}
+      %rt.ph(p, Wr.put_bool(d, rest), fits) : {FCh.abort.ph(_) == R : String}
+      %pw6.bool(d, rest) : {FCh.abort.d(p, _) == R : String}
+      {==}
+
+# nothing left: the spelled model decision
+def lo.answer(r: FCh.Req) -> {lo.fin(r, True{}) == Child.ch_spell_answer(r) : String}:
+  match r:
+    case FCh.AskVerdict{+c, +w, +e, o, m}:
+      sp.call(Ch.verdict(c, w, e, o, m), "")
+    case FCh.AskMove{f, +n}:
+      sp.move(Ch.owe.next(f, n), "")
+    case FCh.AskAbort{p, d}:
+      sp.ph(Ch.cut.ph(p, d), "")
+
+# input left: the error form
+def lo.left(r: FCh.Req) -> {lo.fin(r, False{}) == Wr.err("child: input left over") : String}:
+  match r:
+    case FCh.AskVerdict{c, w, e, o, m}:
+      {==}
+    case FCh.AskMove{f, n}:
+      {==}
+    case FCh.AskAbort{p, d}:
+      {==}
+
+# input left answers the error form, which opens with 'E'
+def lo.left_ok(r: FCh.Req, ok: {LawsBase.wire_opens_err(lo.fin(r, False{})) == False{} : Bool}) -> {True{} == False{} : Bool}:
+  match r:
+    case FCh.AskVerdict{c, w, e, o, m}:
+      ok
+    case FCh.AskMove{f, n}:
+      ok
+    case FCh.AskAbort{p, d}:
+      ok
