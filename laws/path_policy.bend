@@ -542,6 +542,20 @@ law path_policy_ffi_reads_only_requests:
   exs q: FPp.Req
   {(s, (pp_req_fits(q), FPp.ffi(s))) == (pp_spell_req(q, ""), (True{}, pp_spell_answer(q))) : String & (Bool & String)}
 
+# LAW path_policy_ffi_malformed_unless_request: every answer but the error form "path_policy:
+# malformed request" comes from an input that begins with a spelled request
+# that fits (with path_policy_ffi_answers_spelled and
+# path_policy_ffi_left_over_spelled: every other input answers exactly that
+# error, a spelled request that fits never does)
+# EXCLUDES: the left-over error (or any answer) for input that does not
+#   begin with a request, the malformed error spelled with another text
+law path_policy_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FPp.ffi(s), Wr.err("path_policy: malformed request")) == False{} : Bool}
+  exs q: FPp.Req
+  exs rest: String
+  {(s, pp_req_fits(q)) == (pp_spell_req(q, rest), True{}) : String & Bool}
+
 # LAW path_policy_ffi_tags_example: anchor: the bytes Rust sends and reads: a path under the root
 # /1 is Inside (0), a loop makes it Outside (1), no root Outside; with the
 # secret /3/5, /3/5 is Secret (3) and holds one, /3 is Protected (2) and

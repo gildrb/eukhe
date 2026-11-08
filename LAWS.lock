@@ -1511,6 +1511,7 @@
     "laws/path_policy.bend::path_policy_ffi_answers": "8e26d1274f50d40ff9e87385cd70138720323e38a07d9e1aa73347c42b51ec84",
     "laws/path_policy.bend::path_policy_ffi_answers_spelled": "b2c00b1febfff832794db512426a291a5a038ad5a92ae91965ea4b66c2963e7f",
     "laws/path_policy.bend::path_policy_ffi_left_over_spelled": "ffebb64474b5f755f3adc602a277158750fae23dcf50cc42ed48302d1c365f59",
+    "laws/path_policy.bend::path_policy_ffi_malformed_unless_request": "06a7eea0611eeb9c129aaf676541bd978e840b4c8507d43d2401ed7d9bb9763e",
     "laws/path_policy.bend::path_policy_ffi_reads_only_requests": "4547b8d7008202e3f66de7dc95f19c7610fb96a82de41517e8d67eb1bbe9ffd2",
     "laws/path_policy.bend::path_policy_ffi_rejects_left_over": "7b26f5cc3740f2e18f94b35cfdd2f1684b0d82fb0050346d7fd9e6742564e27d",
     "laws/path_policy.bend::path_policy_ffi_rejects_malformed": "d744c016f6ff9a1d8a9476e7f7f2df7bc258ec841b72fc71424b094fe43288f1",

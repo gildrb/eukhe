@@ -1276,6 +1276,7 @@ import ./proof/path_policy/path_policy_ffi_reads_only_requests.bend as PPathPoli
 import ./proof/path_policy/path_policy_ffi_tags_example.bend as PPathPolicyFfiTagsExample
 import ./proof/path_policy/path_judge_class_exact.bend as PPathJudgeClassExact
 import ./proof/path_policy/path_judge_class_example.bend as PPathJudgeClassExample
+import ./proof/path_policy/path_policy_ffi_malformed_unless_request.bend as PPathPolicyFfiMalformedUnlessRequest
 import ./proof/path_policy/path_real_exact.bend as PPathRealExact
 import ./proof/path_policy/path_real_no_links_exact.bend as PPathRealNoLinksExact
 import ./proof/path_policy/path_real_dots_at_root.bend as PPathRealDotsAtRoot
