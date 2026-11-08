@@ -401,3 +401,294 @@ law screen_ffi_paint:
 # and F with no comma, the step tags); a reply to a fourth check
 law screen_ffi_paint_example:
   {[FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,2,FT"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("3,4,FFFF")] == ["1,0,F", "0,", "1,1,T", "2,2,", "3,0,", Wr.err("screen: more than three checks")] : List<&2, String>}
+
+# The screen entry, spelled by the grammar Rust writes and reads
+# (crates/eukhe-tui: view/ledger.rs `write_run`/`read_run`, pace.rs
+# `frame`, view/stack.rs `stack_rows`, inline_term.rs `paint_decision`),
+# from the wire primitives only, never the entry's own encoders. Each
+# constructor is its tag, then its fields in order; a list is its count,
+# then its items.
+
+# a block state: Active 0, Final 1, Committed 2
+def screen_spell_st(s: Sc.St, rest: String) -> String:
+  match s:
+    case Sc.Active{}:
+      Wr.put_nat(0n, rest)
+    case Sc.Final{}:
+      Wr.put_nat(1n, rest)
+    case Sc.Comm{}:
+      Wr.put_nat(2n, rest)
+
+# a block: its id, its state, its length
+def screen_spell_blk(b: Sc.Blk, rest: String) -> String:
+  match b:
+    case Sc.Blk{i, s, l}:
+      Wr.put_nat(i, screen_spell_st(s, Wr.put_nat(l, rest)))
+
+# the blocks of bs, each spelled, then rest
+def screen_spell_blks.items(bs: List<&2, Sc.Blk>, rest: String) -> String:
+  match bs:
+    case Nil{}:
+      rest
+    case Con{b, t}:
+      screen_spell_blk(b, screen_spell_blks.items(t, rest))
+
+# a list of blocks: its count, then each block
+def screen_spell_blks(+bs: List<&2, Sc.Blk>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Sc.Blk, bs), screen_spell_blks.items(bs, rest))
+
+# a transcript: its blocks, the next id, the width
+def screen_spell_tx(t: Sc.Tx, rest: String) -> String:
+  match t:
+    case Sc.Tx{bs, n, w}:
+      screen_spell_blks(bs, Wr.put_nat(n, Wr.put_nat(w, rest)))
+
+# an event: Open 0; Grow 1, the id, the growth; Fin 2, the id; Flush 3;
+# Resize 4, the width
+def screen_spell_ev(e: Sc.Ev, rest: String) -> String:
+  match e:
+    case Sc.Open{}:
+      Wr.put_nat(0n, rest)
+    case Sc.Grow{x, n}:
+      Wr.put_nat(1n, Wr.put_nat(x, Wr.put_nat(n, rest)))
+    case Sc.Fin{x}:
+      Wr.put_nat(2n, Wr.put_nat(x, rest))
+    case Sc.Flush{}:
+      Wr.put_nat(3n, rest)
+    case Sc.Resize{w}:
+      Wr.put_nat(4n, Wr.put_nat(w, rest))
+
+# the events of es, each spelled, then rest
+def screen_spell_evs.items(es: List<&2, Sc.Ev>, rest: String) -> String:
+  match es:
+    case Nil{}:
+      rest
+    case Con{e, t}:
+      screen_spell_ev(e, screen_spell_evs.items(t, rest))
+
+# a list of events: its count, then each event
+def screen_spell_evs(+es: List<&2, Sc.Ev>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Sc.Ev, es), screen_spell_evs.items(es, rest))
+
+# the check results of ks, each T or F, then rest
+def screen_spell_bools.items(ks: List<&2, Bool>, rest: String) -> String:
+  match ks:
+    case Nil{}:
+      rest
+    case Con{k, t}:
+      Wr.put_bool(k, screen_spell_bools.items(t, rest))
+
+# a list of check results: its count, then each result
+def screen_spell_bools(+ks: List<&2, Bool>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Bool, ks), screen_spell_bools.items(ks, rest))
+
+# a pace: the characters received, then those shown
+def screen_spell_pace(p: Sc.Pace, rest: String) -> String:
+  match p:
+    case Sc.Pace{r, s}:
+      Wr.put_nat(r, Wr.put_nat(s, rest))
+
+# a rect: its first row, its height
+def screen_spell_rect(r: Sc.Rect, rest: String) -> String:
+  match r:
+    case Sc.Rect{y, h}:
+      Wr.put_nat(y, Wr.put_nat(h, rest))
+
+# the rects of rs, each spelled, then rest
+def screen_spell_rects.items(rs: List<&2, Sc.Rect>, rest: String) -> String:
+  match rs:
+    case Nil{}:
+      rest
+    case Con{r, t}:
+      screen_spell_rect(r, screen_spell_rects.items(t, rest))
+
+# a list of rects: its count, then each rect
+def screen_spell_rects(+rs: List<&2, Sc.Rect>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Sc.Rect, rs), screen_spell_rects.items(rs, rest))
+
+# a request: 0 Run (the transcript, the events); 1 Pace (the minimum, the
+# lag, the pace, the characters that arrive); 2 Stack (the heights, the
+# first row, the rows); 3 Paint (the checks run so far)
+def screen_spell_req(q: FSc.Req, rest: String) -> String:
+  match q:
+    case FSc.ReqRun{t, es}:
+      Wr.put_nat(0n, screen_spell_tx(t, screen_spell_evs(es, rest)))
+    case FSc.ReqPace{min, k, p, n}:
+      Wr.put_nat(1n, Wr.put_nat(min, Wr.put_nat(k, screen_spell_pace(p, Wr.put_nat(n, rest)))))
+    case FSc.ReqStack{hs, y, rows}:
+      Wr.put_nat(2n, LawsBase.wire_spell_nats(hs, Wr.put_nat(y, Wr.put_nat(rows, rest))))
+    case FSc.ReqPaint{ks}:
+      Wr.put_nat(3n, screen_spell_bools(ks, rest))
+
+# every Nat of a pace fits the wire
+def screen_pace_fits(p: Sc.Pace) -> Bool:
+  match p:
+    case Sc.Pace{r, s}:
+      Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(s))
+
+# every Nat of a request fits the wire, every list count too
+def screen_req_fits(q: FSc.Req) -> Bool:
+  match q:
+    case FSc.ReqRun{t, +es}:
+      Bool.and(tx_fits(t), Bool.and(LawsBase.wire_fits(List.length(&2, Sc.Ev, es)), evs_fit(es)))
+    case FSc.ReqPace{min, k, p, n}:
+      Bool.and(Bool.and(LawsBase.wire_fits(min), LawsBase.wire_fits(k)), Bool.and(screen_pace_fits(p), LawsBase.wire_fits(n)))
+    case FSc.ReqStack{+hs, y, rows}:
+      Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)), Bool.and(LawsBase.wire_fits(y), LawsBase.wire_fits(rows)))
+    case FSc.ReqPaint{ks}:
+      LawsBase.wire_fits(List.length(&2, Bool, ks))
+
+# a paint step: 0 run the next check; 1 the frame drawn, then T for a full
+# redraw (F: a diff); 2 the frame drawn fresh; 3 the frame kept
+def screen_spell_step(m: Maybe<&2, Sc.Paint>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{p}:
+      match p:
+        case Sc.Put{f, full}:
+          Wr.put_nat(1n, Wr.put_nat(f, Wr.put_bool(full, rest)))
+        case Sc.Fresh{f}:
+          Wr.put_nat(2n, Wr.put_nat(f, rest))
+        case Sc.Kept{f}:
+          Wr.put_nat(3n, Wr.put_nat(f, rest))
+
+# the result of check i of ks (a check not yet run: False; the decision
+# never depends on one)
+def screen_paint_at(ks: List<&2, Bool>, i: Nat) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case Con{k, rest}:
+      match i:
+        case 0n:
+          k
+        case 1n+j:
+          screen_paint_at(rest, j)
+
+# the reply to the checks ks when at most three ran (fits), else the error
+# form "screen: more than three checks": the next check while it is still
+# needed, else the paint of the first passing check (screen_paint_spec)
+def screen_paint_reply.fit(fits: Bool, +ks: List<&2, Bool>) -> String:
+  match fits:
+    case True{}:
+      screen_spell_step(screen_paint_step(screen_paint_open(ks), screen_paint_spec(0n, 1n, 2n, screen_paint_at(ks, 0n), screen_paint_at(ks, 1n), screen_paint_at(ks, 2n))), "")
+    case False{}:
+      Wr.err("screen: more than three checks")
+
+def screen_paint_reply(+ks: List<&2, Bool>) -> String:
+  screen_paint_reply.fit(Nat.is_le(List.length(&2, Bool, ks), 3n), ks)
+
+# the spelled reply of the model's decision on request q: the transcript
+# Sc.run gives; the pace after n characters and a frame; the rects of
+# Sc.vstack; the paint step
+def screen_spell_answer(q: FSc.Req) -> String:
+  match q:
+    case FSc.ReqRun{t, es}:
+      screen_spell_tx(Sc.run(es, t), "")
+    case FSc.ReqPace{min, k, p, n}:
+      screen_spell_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, p), "")
+    case FSc.ReqStack{hs, y, rows}:
+      screen_spell_rects(Sc.vstack(hs, y, rows), "")
+    case FSc.ReqPaint{ks}:
+      screen_paint_reply(ks)
+
+# LAW screen_ffi_answers_spelled: a request spelled by the grammar, every number and count
+# within the wire, is answered with the grammar's spelling of the model's
+# decision: a Run the transcript Sc.run gives (blocks with their state
+# tags, next id, width); a Pace the pace after n characters and a frame
+# (recv, then shown); a Stack the rects of Sc.vstack (count, then y and h
+# each); a Paint of at most three checks the step (0 next check, 1 frame
+# and T/F full, 2 fresh frame, 3 kept frame), of more the error form
+# "screen: more than three checks"
+# EXCLUDES: a request, state, event or step tag that drifts from the
+#   grammar Rust reads and writes (swapped on both sides of the entry
+#   alike), a field lost, swapped or defaulted, recv and shown or y and h
+#   written in the other order, a reversed full flag, a paint decided on
+#   other checks, a fourth check answered
+law screen_ffi_answers_spelled:
+  for +q: FSc.Req
+  for fits: {screen_req_fits(q) == True{} : Bool}
+  {FSc.ffi(screen_spell_req(q, "")) == screen_spell_answer(q) : String}
+
+# LAW screen_ffi_left_over_spelled: a spelled request that fits, followed by any more input,
+# answers the error form "screen: input left over"
+# EXCLUDES: trailing input ignored, or read as part of the request, or
+#   answered with another error
+law screen_ffi_left_over_spelled:
+  for +q: FSc.Req
+  for fits: {screen_req_fits(q) == True{} : Bool}
+  for +c: Char
+  for +t: String
+  {FSc.ffi(screen_spell_req(q, SCon{c, t})) == Wr.err("screen: input left over") : String}
+
+# LAW screen_ffi_unknown_request: a request tag of 4 or more (of any length) answers the error
+# form "screen: malformed request", whatever follows
+# EXCLUDES: an unknown request tag read as a known request, or as another
+#   error
+law screen_ffi_unknown_request:
+  for +n: Nat
+  for +rest: String
+  {FSc.ffi(Wr.put_nat(4n+n, rest)) == Wr.err("screen: malformed request") : String}
+
+# LAW screen_ffi_unknown_state: a Run whose first block (any count, any id) has a state tag
+# of 3 or more answers the error form "screen: malformed request",
+# whatever follows
+# EXCLUDES: an unknown block state read as active, final or committed
+law screen_ffi_unknown_state:
+  for +m: Nat
+  for +i: Nat
+  for +n: Nat
+  for +rest: String
+  {FSc.ffi(Wr.put_nat(0n, Wr.put_nat(1n+m, Wr.put_nat(i, Wr.put_nat(3n+n, rest))))) == Wr.err("screen: malformed request") : String}
+
+# LAW screen_ffi_unknown_event: a Run with a spelled transcript that fits, whose first event
+# (any count) has a tag of 5 or more, answers the error form "screen:
+# malformed request", whatever follows
+# EXCLUDES: an unknown event read as a known event, or skipped
+law screen_ffi_unknown_event:
+  for +t: Sc.Tx
+  for ft: {tx_fits(t) == True{} : Bool}
+  for +m: Nat
+  for +n: Nat
+  for +rest: String
+  {FSc.ffi(Wr.put_nat(0n, screen_spell_tx(t, Wr.put_nat(1n+m, Wr.put_nat(5n+n, rest))))) == Wr.err("screen: malformed request") : String}
+
+# LAW screen_ffi_reads_only_requests: an answer that is not the error form answers a request:
+# the input is exactly the spelling of a request whose numbers fit the
+# wire, and the answer is the spelled reply of the model's decision on it
+# EXCLUDES: a decoder that accepts an unknown tag (request, state, event),
+#   a check that is not T or F, a missing or extra field or item, or input
+#   left over, and answers it anyway (a default instead of the error form)
+law screen_ffi_reads_only_requests:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FSc.ffi(s)) == False{} : Bool}
+  exs q: FSc.Req
+  {(s, (screen_req_fits(q), FSc.ffi(s))) == (screen_spell_req(q, ""), (True{}, screen_spell_answer(q))) : String & (Bool & String)}
+
+# LAW screen_ffi_malformed_unless_request: every answer but the error form "screen: malformed
+# request" comes from an input that begins with a spelled request that fits
+# (so, with screen_ffi_answers_spelled and screen_ffi_left_over_spelled,
+# every input's answer is pinned)
+# EXCLUDES: the left-over or the more-than-three error (or any answer) for
+#   input that does not begin with a request, the malformed error spelled
+#   with another text
+law screen_ffi_malformed_unless_request:
+  for +s: String
+  for other: {String.eq(FSc.ffi(s), Wr.err("screen: malformed request")) == False{} : Bool}
+  exs q: FSc.Req
+  exs rest: String
+  {(s, screen_req_fits(q)) == (screen_spell_req(q, rest), True{}) : String & Bool}
+
+# LAW screen_ffi_tags_example: anchor: the bytes Rust sends and reads: a Run of block 5
+# (final) and 6 (active) with Open, Grow 6 by 2, Fin 6, Flush and Resize 9
+# (blocks 5 and 6 committed, 6 of length 2, 7 active, next 8, width 9); a
+# Pace (min 1, lag 2, recv 5, shown 1, 3 arrive: recv 8, shown 3); a Stack
+# (heights 1 and 3 from row 1 of 3: rects 1+1 and 2+1); Paint steps Put
+# (frame 0, diff), next check, Fresh 2, Kept 0; request tag 4, state tag 3
+# and event tag 5 are malformed; a Paint of four checks is refused; a
+# request with input left over is refused
+# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
+#   does not, a reversed full flag, an unknown tag read as a known one
+law screen_ffi_tags_example:
+  {[FSc.ffi("0,2,5,1,0,6,0,0,7,4,5,0,1,6,2,2,6,3,4,9,"), FSc.ffi("1,1,2,5,1,3,"), FSc.ffi("2,2,1,3,1,3,"), FSc.ffi("3,1,T"), FSc.ffi("3,1,F"), FSc.ffi("3,3,FFT"), FSc.ffi("3,3,FFF"), FSc.ffi("4,"), FSc.ffi("0,1,0,3,0,0,0,0,"), FSc.ffi("0,0,0,0,1,5,"), FSc.ffi("3,4,FFFF"), FSc.ffi("1,1,2,5,1,3,x")] == ["3,5,2,0,6,2,2,7,0,0,8,9,", "8,3,", "2,1,1,2,1,", "1,0,F", "0,", "2,2,", "3,0,", Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: malformed request"), Wr.err("screen: more than three checks"), Wr.err("screen: input left over")] : List<&2, String>}

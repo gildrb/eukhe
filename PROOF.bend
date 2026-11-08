@@ -549,6 +549,16 @@ import ./proof/screen/screen_ffi_example.bend as PScreenFfiExample
 import ./proof/screen/screen_ffi_refuses_example.bend as PScreenFfiRefusesExample
 import ./proof/screen/screen_ffi_paint.bend as PScreenFfiPaint
 import ./proof/screen/screen_ffi_paint_example.bend as PScreenFfiPaintExample
+import ./proof/screen/screen_ffi_answers_spelled/spell.bend as LAScreenFfiAnswersSpelledSpell
+import ./proof/screen/screen_ffi_reads_only_requests/exact.bend as LAScreenFfiReadsOnlyRequestsExact
+import ./proof/screen/screen_ffi_answers_spelled.bend as PScreenFfiAnswersSpelled
+import ./proof/screen/screen_ffi_left_over_spelled.bend as PScreenFfiLeftOverSpelled
+import ./proof/screen/screen_ffi_unknown_request.bend as PScreenFfiUnknownRequest
+import ./proof/screen/screen_ffi_unknown_state.bend as PScreenFfiUnknownState
+import ./proof/screen/screen_ffi_unknown_event.bend as PScreenFfiUnknownEvent
+import ./proof/screen/screen_ffi_reads_only_requests.bend as PScreenFfiReadsOnlyRequests
+import ./proof/screen/screen_ffi_malformed_unless_request.bend as PScreenFfiMalformedUnlessRequest
+import ./proof/screen/screen_ffi_tags_example.bend as PScreenFfiTagsExample
 import ./proof/tiny/base.bend as LATiny
 import ./proof/tiny/tiny_pick_in_chain.bend as PTinyPickInChain
 import ./proof/tiny/tiny_pick_first.bend as PTinyPickFirst
