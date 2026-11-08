@@ -2,6 +2,7 @@
 //! family, and the session close (`kill`, `rename`).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::agent_messaging::AgentFamilyRelationship;
@@ -20,6 +21,10 @@ use super::{
     response_failure, response_success, HostedSession, KillCloseReason, RunAdmission, Worker,
 };
 use crate::protocol::DaemonResponse;
+
+/// How long a kill waits for every attached client to take its
+/// `session_closed` notice before it answers anyway.
+const KILL_NOTICE_BUDGET: Duration = Duration::from_secs(1);
 
 impl Worker {
     pub(crate) async fn dispatch(&self, command_type: &str, payload: &Value) -> DaemonResponse {
@@ -660,8 +665,20 @@ impl Worker {
         // answers (TS writes it to each socket synchronously): the
         // supervisor stops this process on the answer, and a client fan-out
         // still writing the frame then would lose it - the client would see
-        // only its dropped link, never why.
-        self.events.delivered(self.events.current_seq()).await;
+        // only its dropped link, never why. A client that stopped reading
+        // (a suspended TUI with a full socket buffer) never flushes it, so
+        // the wait is bounded: the kill still records its recovery, releases
+        // its pane and answers.
+        let gate = self.events.current_seq();
+        if tokio::time::timeout(KILL_NOTICE_BUDGET, self.events.delivered(gate))
+            .await
+            .is_err()
+        {
+            eprintln!(
+                "eukhe-daemon worker: a client did not take the session_closed notice within {}ms; the kill proceeds",
+                KILL_NOTICE_BUDGET.as_millis()
+            );
+        }
         let _ = self.record_recovery(false, reason.recovery_operation());
         // The pane reporter releases its pane as the last write.
         let reporter = std::mem::take(

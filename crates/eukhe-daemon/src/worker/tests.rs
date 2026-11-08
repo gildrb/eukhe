@@ -854,3 +854,33 @@ async fn a_kill_answers_once_its_closed_notice_reached_every_connection() {
     let answer = kill.await;
     assert!(answer.success, "kill: {answer:?}");
 }
+
+/// A client that stopped reading (a suspended TUI whose socket buffer is
+/// full) never flushes the kill's `session_closed`: the kill still answers
+/// within its notice budget, with its recovery record written, instead of
+/// stalling every kill behind that one client.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_answers_past_a_client_that_stopped_reading() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": [] })).await;
+    // Its fan-out is stuck in a write: the flush mark never advances.
+    let writer: Box<dyn eukhe_types::platform::transport::AsyncWriteHalf> =
+        Box::new(tokio::io::sink());
+    let stalled = Arc::new(ConnectionSink::new(
+        Arc::new(tokio::sync::Mutex::new(writer)),
+        worker.events.current_seq() + 1,
+    ));
+    worker.events.register(&stalled);
+
+    let payload = json!({});
+    let answer = tokio::time::timeout(Duration::from_secs(10), worker.dispatch("kill", &payload))
+        .await
+        .expect("the kill answered despite the client that stopped reading");
+    assert!(answer.success, "kill: {answer:?}");
+    let record = latest_record(dir.path(), "recovery.jsonl");
+    assert_eq!(
+        record.operation, "killed",
+        "the kill's recovery record: {record:?}"
+    );
+    drop(stalled);
+}
